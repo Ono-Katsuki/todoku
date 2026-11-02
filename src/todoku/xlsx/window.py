@@ -783,17 +783,14 @@ class Layout:
         shape = self.shape(target.r)
         span = (target.c1, target.c2)
         while r > 0 and budget > 0 and len(out) < 2:
-            if not out and self.shape(r) == shape and shape:
-                r -= 1  # 表の本体の行（同じ形）は数えずに上へ
-                continue
+            if not out:
+                # 表の本体の行（同じ形）と、同じ列割りの欄が上に続く行（表の列）は、数えずに上へ。続く所の上まで、まとめて飛ぶ
+                r = self._skip_up(r, shape, span)
+                if r <= 0:
+                    break
             budget -= 1
-            cand = [b for b in self.boxes(r) + self.cover.get(r, [])
-                    if b.c1 <= span[1] and b.c2 >= span[0] and b.r2 >= r]
+            cand = self._cand(r, span)
             if not out and any(b.kind == "input" for b in cand):
-                if all((b.c1, b.c2) == (target.c1, target.c2) for b in cand if b.kind in ("input", "formula")):
-                    budget += 1  # 同じ列割りの欄が上に続く（表の列）は数えない
-                    r -= 1
-                    continue
                 break  # すぐ上に別の入力欄がある：この欄の見出しは上にはない
             texts = [b for b in cand if b.kind == "text" and isinstance(b.cell.value, str) and b.cell.value.strip()
                      and not _is_phrase_text(b.cell.value)]
@@ -946,8 +943,43 @@ class Layout:
         return tuple(out)
 
     def shape(self, r: int):
-        """行の形（マスの位置と種類だけ。文字は見ない）。"""
-        return tuple((b.kind, b.c1, b.c2) for b in self.boxes(r) if b.kind != "check")
+        """行の形（マスの位置と種類だけ。文字は見ない）。行のマスの並びが同じあいだは、控えを返す。"""
+        boxes = self.boxes(r)
+        memo = self.__dict__.setdefault("_shapes", {})
+        got = memo.get(r)
+        if got is not None and got[0] is boxes and got[1] == len(boxes):
+            return got[2]
+        s = tuple((b.kind, b.c1, b.c2) for b in boxes if b.kind != "check")
+        memo[r] = (boxes, len(boxes), s)
+        return s
+
+    def _cand(self, r: int, span: tuple[int, int]) -> list:
+        """行 r の、列の範囲 span にかかるマス（上から結合で覆うものも含む）。"""
+        return [b for b in self.boxes(r) + self.cover.get(r, []) if b.c1 <= span[1] and b.c2 >= span[0] and b.r2 >= r]
+
+    def _skip_up(self, r: int, shape, span: tuple[int, int]) -> int:
+        """見出しを探して上へ行くとき、数えずに越える行（target と同じ形の行・同じ列割りの欄だけが続く行）を越えた先の行。
+        越える行の続きは、同じ形と列の範囲ごとに控える（行のマスは、窓を作り終えたあとは変わらない）。"""
+        memo = self.__dict__.setdefault("_skip", {}).setdefault((shape, span), {})
+        path, x = [], r
+        while x > 0:
+            if x in memo:
+                x = memo[x]
+                break
+            if shape and self.shape(x) == shape:
+                path.append(x)
+                x -= 1
+                continue
+            cand = self._cand(x, span)
+            if any(b.kind == "input" for b in cand) and \
+                    all((b.c1, b.c2) == span for b in cand if b.kind in ("input", "formula")):
+                path.append(x)
+                x -= 1
+                continue
+            break
+        for p_ in path:
+            memo[p_] = x
+        return x
 
     def is_blank_row(self, r: int) -> bool:
         return all(not (b.kind == "input" and b.text) and not (b.kind == "check" and b.control.is_checked)

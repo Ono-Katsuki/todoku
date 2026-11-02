@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import re
+from functools import lru_cache
 from decimal import ROUND_HALF_UP, Decimal
 
 from .dates import serial_parts, serial_to_date, to_wareki
@@ -46,6 +47,12 @@ def is_date_format(fmt: str) -> bool:
 
 
 def split_sections(fmt: str) -> list[str]:
+    return list(_split_sections(fmt))
+
+
+@lru_cache(maxsize=4096)
+def _split_sections(fmt: str) -> tuple[str, ...]:
+    """表示形式を ; で分ける（同じ形式は何度も出てくるので、分けた結果を控える）。"""
     out, buf, q = [], [], False
     i = 0
     while i < len(fmt):
@@ -64,7 +71,7 @@ def split_sections(fmt: str) -> list[str]:
         buf.append(ch)
         i += 1
     out.append("".join(buf))
-    return out
+    return tuple(out)
 
 
 def format_value(v, fmt: str) -> str:
@@ -83,13 +90,12 @@ def format_value(v, fmt: str) -> str:
     x = float(v)
     if fmt in ("General", "general", ""):
         return _general(x)
-    secs = split_sections(fmt)
+    secs = _split_sections(fmt)
     sec = None
     neg_has_own = False
     # 条件付きセクション [>=100] などは未対応
-    for s in secs:
-        if re.search(r"\[(<|>|=)", s):
-            raise Unsupported(f"条件付きの表示形式: {fmt}")
+    if _conditional(fmt):
+        raise Unsupported(f"条件付きの表示形式: {fmt}")
     if len(secs) == 1:
         sec = secs[0]
     elif len(secs) >= 2:
@@ -102,15 +108,29 @@ def format_value(v, fmt: str) -> str:
             sec = secs[2]
     if neg_has_own:
         x = abs(x)
+    sec, kind = _clean_section(sec)
+    if kind == "general":
+        return _general(x)
+    if kind == "date":
+        return _format_date(x, sec)
+    return _format_number(x, sec)
+
+
+@lru_cache(maxsize=4096)
+def _conditional(fmt: str) -> bool:
+    return any(re.search(r"\[(<|>|=)", s) for s in _split_sections(fmt))
+
+
+@lru_cache(maxsize=4096)
+def _clean_section(sec: str) -> tuple[str, str]:
+    """セクションから色・ロケール・漢数字の指定を除き、種類（general・date・number）を決める（同じセクションは控える）。"""
     sec = re.sub(r"(?i)\[(red|black|blue|green|white|yellow|magenta|cyan|color\s*\d+)\]", "", sec)
     sec = re.sub(r"\[\$-[^\]]*\]", "", sec)  # [$-411] [$-ja-JP] などのロケール指定
     sec = re.sub(r"\[\$([^\]-]+)(-[^\]]*)?\]", lambda m: '"' + m[1] + '"', sec)  # [$¥-411] は通貨記号
     sec = re.sub(r"\[DBNum\d\]", "", sec, flags=re.I)
     if sec.strip().lower() == "general":
-        return _general(x)
-    if is_date_format(sec):
-        return _format_date(x, sec)
-    return _format_number(x, sec)
+        return sec, "general"
+    return sec, "date" if is_date_format(sec) else "number"
 
 
 def _general(x: float) -> str:

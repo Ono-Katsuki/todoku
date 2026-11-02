@@ -248,10 +248,39 @@ class Sheet:
     max_col: int = 0
 
     def merged_at(self, r: int, c: int) -> tuple[int, int, int, int] | None:
-        for m in self.merges:
+        ms = self.merges
+        if len(ms) <= 16:
+            for m in ms:
+                if m[0] <= r <= m[2] and m[1] <= c <= m[3]:
+                    return m
+            return None
+        # 結合が多いシート：行ごとの索引を一度だけ作って引く（答えは、順に調べたときと同じ：最初に当たった結合）
+        idx = self.__dict__.get("_merge_rows")
+        if idx is None or idx[0] is not ms or idx[1] != len(ms):
+            rows: dict[int, list[int]] = {}
+            tall: list[int] = []
+            for i, (r1, _c1, r2, _c2) in enumerate(ms):
+                if r2 - r1 < 64:
+                    for rr in range(r1, r2 + 1):
+                        rows.setdefault(rr, []).append(i)
+                else:
+                    tall.append(i)
+            idx = self.__dict__["_merge_rows"] = (ms, len(ms), rows, tall)
+        _ms, _n, rows, tall = idx
+        best = None
+        for i in rows.get(r, ()):
+            m = ms[i]
+            if m[1] <= c <= m[3]:
+                best = i
+                break
+        for i in tall:
+            if best is not None and i > best:
+                break
+            m = ms[i]
             if m[0] <= r <= m[2] and m[1] <= c <= m[3]:
-                return m
-        return None
+                best = i
+                break
+        return ms[best] if best is not None else None
 
     def style_of(self, r: int, c: int) -> int:
         """セルの書式の番号。セル要素がないときは、Excelと同じく行の書式、なければ列の書式を使う。"""
