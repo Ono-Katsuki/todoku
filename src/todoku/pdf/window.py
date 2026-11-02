@@ -108,7 +108,8 @@ def _widget_mark(f: FormField, w: Widget) -> str:
     return f"［{f.name}＝{v}］" if v not in (None, "") else f"［{f.name}］"
 
 
-def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormField]) -> dict:
+def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormField], layout: bool = True) -> dict:
+    """layout：配置から入力欄を見つけるか（XFA のフォームでは見つけない：XFA の欄だけが、Adobe で表示される欄）。"""
     pc = page_content(doc, page)
     lay = PageLayout(doc, page, pc, number)
     view = lay.view
@@ -120,7 +121,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     by_name = {f.name: f for f, _, _ in ws}
     # 配置から見つけた欄のうち、フォームの欄と重なるものは、フォームの欄を使う
     spots = []
-    for sp in lay.spots:
+    for sp in (lay.spots if layout else []):
         # 配置から見つけた欄に重なるフォームの欄（書き込んだ後の欄、または元からある欄）
         if sp.kind == "circle":
             # ○で囲む欄：選択肢のどれかに重なる欄（書き込みでは、選択肢ごとに囲みの欄を置く）
@@ -464,9 +465,45 @@ def build(doc: PdfDocument) -> dict:
         "form": {"acroform_fields": len(fields), "xfa": has_xfa(doc), "encrypted": doc.decryptor is not None},
         "pages": [],
     }
+    xw = _xfa_window(doc)
     for i, p in enumerate(doc.pages()):
-        out["pages"].append(page_window(doc, p, i + 1, fields))
+        out["pages"].append(page_window(doc, p, i + 1, fields, layout=xw is None or not xw.get("readable")))
+    if xw is not None:
+        out["xfa"] = xw
+        out["form"]["xfa_kind"] = xw.get("kind")
+        _merge_xfa(out, xw)
     return out
+
+
+# ====================================================================== XFA
+def _xfa_window(doc: PdfDocument) -> dict | None:
+    """XFA の窓（XFA がなければ None。読めなければ、読めない理由だけ）。"""
+    from .xfa import XfaError, build_window, read
+
+    try:
+        x = read(doc)
+    except XfaError as e:
+        return {"readable": False, "error": str(e)}
+    return build_window(x) if x is not None else None
+
+
+def _merge_xfa(out: dict, xw: dict) -> None:
+    """静的な XFA のフォーム：ページの PDF の欄に、同じ名前の XFA の欄の見出し・決まり・値（Adobe が見せる値）を重ねる。"""
+    if not xw.get("readable"):
+        return
+    by_id = {d["id"]: d for d in xw["fields"]}
+    for pg in out["pages"]:
+        for d in pg["fields"]:
+            x = by_id.get(d["id"])
+            if x is None:
+                continue
+            x["page"] = pg["number"]
+            for k, v in x.items():
+                if k in ("label",) and not v:
+                    continue
+                if k == "kind" and d.get("kind") == "radio" and v != "radio":
+                    continue
+                d[k] = v
 
 
 # ====================================================================== Markdown
@@ -520,8 +557,14 @@ def _md_head(doc: dict) -> list[str]:
         out.append(f"- フォームの欄が {fm['acroform_fields']} 個あります（PDFにある欄そのもの）。")
     else:
         out.append("- フォームの欄はありません（印刷用のPDF）。入力欄は、罫線・空き・字の並びから見つけたものです。")
-    if fm["xfa"]:
-        out.append("- **XFA（Adobe の独自のフォーム）を含みます**。")
+    xw = doc.get("xfa")
+    if xw and xw.get("readable"):
+        kind = "動的" if xw["kind"] == "dynamic" else "静的"
+        out.append(f"- **XFA（Adobe の XML のフォーム）の{kind}なフォームです**。中身と入力欄は「XFA のフォーム」の節にあります"
+                   f"（XFA の入力欄 {len(xw['fields'])} か所・書ける欄 {sum(1 for d in xw['fields'] if not d.get('why_not'))}）。")
+    elif fm["xfa"]:
+        out.append("- **XFA（Adobe の独自のフォーム）を含みますが、読めませんでした**"
+                   + (f"（{xw['error']}）" if xw and xw.get("error") else "") + "。")
     out.append("")
     return out
 
@@ -562,10 +605,26 @@ def to_markdown(doc: dict) -> str:
     out = _md_head(doc)
     for pg in doc["pages"]:
         out += _md_page(pg)
+    for _t, lines in _xfa_units(doc):
+        out += lines
     return "\n".join(out)
 
 
 BUDGET = 120_000
+
+
+def _xfa_units(doc: dict) -> list[tuple[str, list[str]]]:
+    xw = doc.get("xfa")
+    if not xw or not xw.get("readable"):
+        return []
+    from .xfa import markdown_units
+
+    placed = {f["id"] for pg in doc["pages"] for f in pg["fields"] if f.get("source") == "xfa"}
+    return markdown_units(xw, placed)
+
+
+def _span(titles: list[str]) -> str:
+    return titles[0] if len(titles) == 1 else f"{titles[0]}〜{titles[-1]}"
 
 
 def markdown_parts(doc: dict, budget: int = BUDGET) -> list[tuple[str, str]]:
@@ -587,6 +646,21 @@ def markdown_parts(doc: dict, budget: int = BUDGET) -> list[tuple[str, str]]:
         cur += lines
     if cur:
         parts.append((f"ページ {first}〜{last}" if first != last else f"ページ {first}", cur))
+    # XFA の節：大きな単位（スクリプトなど）は、行の切れ目で分ける（とても長い行は、途中で分ける）
+    cur, titles = [], []
+    step = budget // 2
+    for t, lines in _xfa_units(doc):
+        for line in lines:
+            for k in range(0, max(len(line), 1), step):
+                piece = line[k:k + step]
+                if cur and sum(len(x) + 1 for x in cur) + len(piece) > budget - 2000:
+                    parts.append((_span(titles), cur))
+                    cur, titles = [], []
+                if not titles or titles[-1] != t:
+                    titles.append(t)
+                cur.append(piece)
+    if cur:
+        parts.append((_span(titles), cur))
     index = _md_head(doc) + ["## この窓の目次", "", f"窓が大きいので、{len(parts)} の部分に分けました。必要な部分を順に読んでください。", ""]
     for i, (title, lines) in enumerate(parts, 1):
         index.append(f"- 部分 {i}: {title}（{sum(len(x) + 1 for x in lines):,} 文字）")

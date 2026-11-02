@@ -276,8 +276,9 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
         write.append(Reason("D", "画像だけのページ", f"{len(img)} ページは字の情報のない紙（スキャン）で、書く所を字で示せません。"
                             "手で書く紙として扱います", img))
     if win["form"]["xfa"]:
-        reasons.append(Reason("C", "XFA のフォーム", "Adobe 独自の動くフォーム（XFA）です。開くソフトによって中身が変わります"))
-        write.append(Reason("B", "XFA のフォーム", "動くフォーム（XFA）の欄は、フォームの作りを解析して書きます"))
+        xr, xw_ = _xfa_reasons(win.get("xfa"))
+        reasons += xr
+        write += xw_
     agent = [f for p in win["pages"] for f in p["fields"] if f.get("agent")]
     fields = [f for p in win["pages"] for f in p["fields"] if not f.get("agent")]
     layout = [f for f in fields if f.get("source") == "layout"]
@@ -343,6 +344,35 @@ def _write_macros(info) -> list[Reason]:
         return []
     return [Reason("C", "画面から動かすマクロ", "ボタンや、値を変えると動く処理（マクロ）が、セルや欄を書き換えます。"
                    "Excel のマクロは、問い（はい・いいえ、入力）を本人に確かめながら、run_macro で動かします", [m["name"] for m in busy][:12])]
+
+
+def _xfa_reasons(xw: dict | None) -> tuple[list[Reason], list[Reason]]:
+    """XFA のフォーム：読めれば、XFA であることだけでは段階を下げない。スクリプトと、データに結びつかない欄で決める。"""
+    if not xw or not xw.get("readable"):
+        why = f"（{xw['error']}）" if xw and xw.get("error") else ""
+        return ([Reason("C", "XFA のフォーム", f"Adobe 独自の動くフォーム（XFA）を読めませんでした{why}。開くソフトによって中身が変わります")],
+                [Reason("B", "XFA のフォーム", "動くフォーム（XFA）の欄は、フォームの作りを解析して書きます")])
+    read, write = [], []
+    kind = "動的" if xw["kind"] == "dynamic" else "静的"
+    fields = xw["fields"]
+    ok = [f for f in fields if not f.get("why_not")]
+    if fields:
+        read.append(Reason("A", "XFA のフォームの欄", f"XFA の{kind}なフォームを読みました。入力欄 {len(fields)} か所は、すべて XFA の欄です"))
+    auto = [s_ for s_ in xw["scripts"] if s_["automatic"]]
+    if auto:
+        read.append(Reason("C", "XFA のスクリプト",
+                           f"自動で動くスクリプト {len(auto)} 種類（開いた時・値を変えた時・計算・確かめなど）は、規則では再現しません。"
+                           "値や欄の出し入れを変えるかは、窓のソースを読んで判断します", [" / ".join(s_["where"][:1]) for s_ in auto[:12]]))
+    write.append(Reason("B", "XFA のフォーム", f"XFA の欄（書ける欄 {len(ok)} か所）は、フォームの作りを解析して、データ（datasets）に書きます",
+                        [f["id"] for f in ok[:12]]))
+    ui = [f for f in fields if f.get("why_not") and not f.get("hidden") and f["kind"] in ("text", "number", "date", "checkbox", "radio",
+                                                                                             "combo", "list")
+          and f.get("no_data")]
+    if ui:
+        write.append(Reason("C", "データに結びつかない XFA の欄",
+                            f"{len(ui)} か所は、データに結びつかない欄（bind が none など）で、書いた値が Adobe で残る書き方が仕様で決まりません。"
+                            "Adobe Acrobat・Reader の画面から入力します", [f["id"] for f in ui[:12]]))
+    return read, write
 
 
 def _agent_reason(agent: list[dict]) -> Reason:

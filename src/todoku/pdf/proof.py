@@ -28,6 +28,8 @@ class PdfProof:
     changed_fields: list[str] = field(default_factory=list)
     original_bytes: int = 0
     new_bytes: int = 0
+    xfa: dict = field(default_factory=dict)  # XFA の確かめの結果（バイト一致の部品の数・データの変わった所の数）
+    xfa_keys: set = field(default_factory=set)  # XFA の確かめで認めた、AcroForm の辞書の変化（datasets を足した /XFA）
 
     @property
     def ok(self) -> bool:
@@ -36,7 +38,11 @@ class PdfProof:
     def headline(self) -> str:
         if not self.prefix_ok:
             return "元のバイト列が保たれていません"
-        return (f"元のファイル {self.original_bytes:,} バイトは先頭からバイト一致のまま、後ろに {self.new_bytes - self.original_bytes:,} バイトを足しました"
+        xfa = ""
+        if self.xfa:
+            xfa = (f"XFA：template・config などの部品 {self.xfa.get('identical_packets', 0)} 個はバイト一致、"
+                   f"datasets で変わったのは {self.xfa.get('data_changes', 0)} か所。")
+        return xfa + (f"元のファイル {self.original_bytes:,} バイトは先頭からバイト一致のまま、後ろに {self.new_bytes - self.original_bytes:,} バイトを足しました"
                 f"（足したオブジェクト {self.objects_added}・書き換えたオブジェクト {self.objects_changed}）。"
                 + ("変わったのは書いた欄とその見た目だけです" if not self.unexpected else f"想定外の変更 {len(self.unexpected)} 件"))
 
@@ -122,9 +128,15 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
             pr.unexpected.append(f"オブジェクト {num} の置き場所が変わっています")
     pr.objects_added = len(added)
     pr.objects_changed = len(changed)
+    from .xfaproof import check as check_xfa
+
+    xfa_done = check_xfa(a, b, changed, added, allowed_fields, pr)
     reach: set[int] = set()
     for num in changed:
         old, cur = a.get(num), b.get(num)
+        if num in xfa_done:
+            _collect(b, cur, reach, set(added))
+            continue
         what = _check_change(a, b, num, old, cur, pr)
         if what:
             pr.changed_fields.append(what)
@@ -134,7 +146,7 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
         o = b.get(num)
         if num not in reach and not _is_xref(o):
             pr.unexpected.append(f"足したオブジェクト {num} が、どこからも使われていません")
-        kind = _kind(o)
+        kind = "xfa" if num in xfa_done else _kind(o)
         if kind is None:
             pr.unexpected.append(f"足したオブジェクト {num} が、欄・見た目・書体のどれでもありません")
         if kind == "field":
@@ -267,7 +279,7 @@ def _check_change(a, b, num, old, cur, pr: PdfProof) -> str | None:
             pr.unexpected.append(f"文書の入口（Catalog）の {sorted(bad)} が変わっています")
         return None
     if "Fields" in old or "Fields" in cur:
-        bad = diff - {"Fields", "DR", "DA"}
+        bad = diff - {"Fields", "DR", "DA"} - pr.xfa_keys
         if bad:
             pr.unexpected.append(f"フォーム（AcroForm）の {sorted(bad)} が変わっています")
         of, cf = old.get("Fields"), cur.get("Fields")

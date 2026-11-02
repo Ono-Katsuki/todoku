@@ -439,7 +439,8 @@ class Filler:
         return None
 
     # ------------------------------------------------------------------ フォームの欄
-    def set_field(self, f: FormField, value, force: bool) -> None:
+    def set_field(self, f: FormField, value, force: bool, display: str | None = None) -> None:
+        """display：見た目に描く字（XFA の静的なフォームで、値は決まった形・見た目は書式で整えた字のとき）。"""
         if f.readonly and not force:
             raise FillError(f"{f.name}: 読み取り専用の欄です")
         k = f.kind
@@ -489,7 +490,7 @@ class Filler:
 
         js = acrojs.actions(self.doc, self.doc.resolve(f.ref)) if f.ref is not None else {}
         fmt_js = {kk: v for kk, v in js.items() if kk in ("F", "K", "V")}
-        if fmt_js:
+        if fmt_js and display is None:
             if all(acrojs.known(v) for v in fmt_js.values()):
                 try:
                     text = acrojs.commit(fmt_js, text)
@@ -507,7 +508,8 @@ class Filler:
         if f.maxlen and len(text) > f.maxlen:
             raise FillError(f"{f.name}: 「{text}」は {len(text)} 字です（この欄は {f.maxlen} 字まで）")
         fd["V"] = text_string(text)
-        keys = fonts_used([text]) if text else set()
+        shown = text if display is None else display
+        keys = fonts_used([shown]) if shown else set()
         for w in f.widgets:
             wd = self.up.get(w.ref) if w.ref is not None and w.ref != f.ref else fd
             x0, y0, x1, y1 = w.rect
@@ -517,7 +519,7 @@ class Filler:
                 cw = (x1 - x0) / f.maxlen
                 comb = [(x0 + i * cw - x0, 0, x0 + (i + 1) * cw - x0, y1 - y0) for i in range(f.maxlen)]
             rot = int(self.doc.resolve((self.doc.resolve(wd.get("MK")) or {}).get("R")) or 0) if isinstance(wd, dict) else 0
-            ap, s = text_appearance(self.up, x1 - x0, y1 - y0, text, size, self.fonts_for(keys | {"Helv"}),
+            ap, s = text_appearance(self.up, x1 - x0, y1 - y0, shown, size, self.fonts_for(keys | {"Helv"}),
                                     comb=comb, rot=rot, multiline=bool(f.flags & (1 << 12)) or (y1 - y0) > 2.4 * size,
                                     center=f.q == 1)
             wd["AP"] = {"N": ap}
@@ -695,8 +697,15 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
     problems = []
     used: dict = {}
     layouts: dict = {}
+    xf = _xfa_form(doc)
+    xfa_values = {k: v for k, v in values.items() if xf is not None and k in xf.by_id}
     for key, value in values.items():
+        if key in xfa_values:
+            continue
         try:
+            if xf is not None and (key.startswith("@") or (key not in f.by_name and key in spots)):
+                raise FillError(f"{key}: この PDF は XFA のフォームです。XFA のフォームの欄でない所に書いても、Adobe Acrobat・"
+                                "Reader では表示されないことがあるので、書きません（窓の XFA の入力欄の id を指定してください）")
             if key.startswith("@"):
                 # 窓に欄として示していない所：エージェントが見出しの字を目印にして指した所（その右か下の空いている所）
                 from .anchor import AnchorError, resolve_write
@@ -728,12 +737,99 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
             f.add_widget(page_no, sd, value, views[page_no])
         except FillError as e:
             problems.append(str(e))
+    if xfa_values and not problems:
+        try:
+            _fill_xfa(f, xf, xfa_values, force)
+        except FillError as e:
+            problems.append(str(e))
     if problems:
         raise FillError("\n".join(problems))
-    if f.patches:
+    if f.patches and not xfa_values:
         _recalculate(f, values)
     blob = f.finish() if f.patches else doc.blob
     return FillResult(blob, f.patches, f.warnings)
+
+
+def _xfa_form(doc):
+    """XFA のフォーム（読めなければ None：そのときは、これまでどおり PDF の欄として扱う）。"""
+    from .xfa import XfaError, read
+
+    try:
+        return read(doc)
+    except XfaError:
+        return None
+
+
+def _fill_xfa(f: Filler, xf, values: dict, force: bool) -> None:
+    """XFA の欄に書く：datasets を書き換え、静的なフォームでは、同じ名前の PDF の欄の値と見た目もそろえる。"""
+    from .xfafill import XfaFillError, new_datasets, packet_bytes, stream_for, write
+
+    try:
+        combined, done, notes, edit = write(xf, values, force)
+    except XfaFillError as e:
+        raise FillError(str(e)) from None
+    doc = f.doc
+    xdp = xf.xdp
+    kind, data = packet_bytes(xf, combined, edit)
+    if kind == "datasets":
+        ref = xdp.packet_of(edit.ds).ref
+        if ref is None:
+            raise FillError("datasets の部品が、別のオブジェクトになっていないので書けません")
+        f.up.put(ref, stream_for(doc, ref, data))
+    elif kind == "xdp":
+        if xdp.stream_ref is None:
+            raise FillError("XFA のストリームが、別のオブジェクトになっていないので書けません")
+        f.up.put(xdp.stream_ref, stream_for(doc, xdp.stream_ref, data))
+    else:
+        ref = f.up.new(stream_for(doc, None, new_datasets(xf, edit)))
+        pair = [PdfString(b"datasets"), ref]
+        if xdp.array_ref is not None:
+            arr = f.up.get(xdp.array_ref)
+            arr[len(arr) - 2:len(arr) - 2] = pair
+        else:
+            af_ref = doc.root.get("AcroForm")
+            af = f.up.get(af_ref) if isinstance(af_ref, Ref) else f.up.get(doc.trailer["Root"])["AcroForm"]
+            arr = list(af["XFA"])
+            arr[len(arr) - 2:len(arr) - 2] = pair
+            af["XFA"] = arr
+    f.warnings += notes
+    for key, (raw, shown) in done.items():
+        x = xf.by_id[key]
+        acro = f.by_name.get(key)
+        if acro is not None and acro.kind not in ("button", "signature"):
+            # 静的なフォーム：PDF の欄の値（決まった形）と見た目（書式で整えた字）も同じにする
+            if x.kind == "checkbox":
+                val, disp = bool(shown), None
+            elif x.kind == "radio":
+                val, disp = (raw or "Off"), None
+            else:
+                val = "\n".join(raw) if isinstance(raw, list) else (shown if shown is not None else "")
+                disp = xf.display(_with_raw(x, val)) if val else None
+            try:
+                if x.kind == "radio" and not raw:
+                    _radio_off(f, acro)
+                else:
+                    f.set_field(acro, val, True, display=disp)
+                    f.patches.pop()
+            except FillError as e:
+                raise FillError(f"{key}: XFA のデータは書けますが、同じ名前の PDF の欄に書けません（{e}）") from None
+        f.patches.append(Patch(key, "xfa", shown))
+
+
+def _with_raw(x, raw):
+    import copy
+
+    y = copy.copy(x)
+    y.raw = raw
+    return y
+
+
+def _radio_off(f: Filler, acro: FormField) -> None:
+    fd = f.up.get(acro.ref)
+    fd["V"] = Name("Off")
+    for w in acro.widgets:
+        wd = f.up.get(w.ref) if w.ref is not None and w.ref != acro.ref else fd
+        wd["AS"] = Name("Off")
 
 
 def _recalculate(f: Filler, values: dict) -> None:

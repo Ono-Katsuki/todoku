@@ -103,6 +103,14 @@ def fields(path: str, password: str | None = None) -> list[dict]:
         for pg in doc["pages"]:
             for f in pg["fields"]:
                 out.append(_field(f, page=pg["number"]))
+        # XFA のフォーム：ページに置かれていない XFA の欄（動的なフォームの欄など）も、同じ形で出す
+        seen = {f["id"] for f in out}
+        for f in (doc.get("xfa") or {}).get("fields", []):
+            if f["id"] not in seen:
+                d = _field(f)
+                if f.get("why_not"):
+                    d["why"] = f["why_not"]  # 書けない理由
+                out.append(d)
     else:
         for f in doc["fields"]:
             out.append(_field(f))
@@ -167,6 +175,10 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
                        "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
                        "written_as": {p.id: p.value for p in res.patches
                                       if not p.anchor and str(p.value) != str(values.get(p.id))}})
+        xfa_written = {p.id: p.value for p in res.patches if p.kind == "xfa"}
+        if xfa_written:
+            # XFA の欄：窓に出る値（日付・数は決まった形、選択肢はデータの値）で読み戻す
+            readback_values.update(xfa_written)
         if anchored:
             # 見出しの字を目印にした書き込み：書いた欄の id（読み直した窓では、その名前のフォームの欄）
             result["anchored"] = {p.key: p.id for p in res.patches if p.anchor}

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 
 from ..xlsx.audit import Audit, Check
@@ -147,6 +148,8 @@ def check_reading(doc: PdfDocument, win: dict) -> list[Check]:
 
 
 def _sample(f: dict):
+    if f.get("source") == "xfa":
+        return f.get("_sample")  # XFA の欄：欄の決まり（書式・桁・選択肢）に合う値
     k = f["kind"]
     if k == "checkbox":
         return not bool(f.get("value"))
@@ -198,40 +201,47 @@ def _sample(f: dict):
     return "1"
 
 
+def _all_fields(win: dict) -> list[dict]:
+    """ページの入力欄と、ページに置かれていない XFA の入力欄（動的なフォームの欄など）。"""
+    out = [f for pg in win["pages"] for f in pg["fields"]]
+    seen = {f["id"] for f in out}
+    out += [f for f in (win.get("xfa") or {}).get("fields", []) if f["id"] not in seen]
+    return out
+
+
 def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> list[Check]:
     targets: dict[str, object] = {}
     skipped, not_writable = [], []
-    for pg in win["pages"]:
-        for f in pg["fields"]:
-            if f["id"] in targets:
-                continue
-            if f.get("readonly"):
-                not_writable.append(f"{f['id']}（読み取り専用）")
-                continue
-            if f["kind"] in ("signature", "button"):
-                not_writable.append(f"{f['id']}（{'電子署名' if f['kind'] == 'signature' else '押すだけのボタン'}）")
-                continue
-            v = _sample(f)
-            if v is None:
-                skipped.append(f"{f['id']}: 試しの値を決められませんでした")
-                continue
-            targets[f["id"]] = v
-    n_fields = sum(len(p["fields"]) for p in win["pages"])
+    for f in _all_fields(win):
+        if f["id"] in targets:
+            continue
+        if f.get("readonly"):
+            not_writable.append(f"{f['id']}（{f.get('why_not') or '読み取り専用'}）")
+            continue
+        if f["kind"] in ("signature", "button"):
+            not_writable.append(f"{f['id']}（{'電子署名' if f['kind'] == 'signature' else '押すだけのボタン'}）")
+            continue
+        if any(o in targets for o in f.get("shared_with") or []):
+            continue  # 同じデータを共有する欄（XFA の global）は、1つだけ書く
+        v = _sample(f)
+        if v is None:
+            skipped.append(f"{f['id']}: 試しの値を決められませんでした")
+            continue
+        targets[f["id"]] = v
+    n_fields = len(_all_fields(win))
     try:
         res = fill(doc, targets)
     except FillError as e:
         return [Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
     pr = prove(doc.blob, res.blob, set(targets), password=password)
-    na = f"（読み取り専用・電子署名・ボタンの {len(not_writable)} 欄は、値を書く欄ではないので除外）" if not_writable else ""
+    na = (f"（読み取り専用・電子署名・ボタン・データに結びつかない欄など {len(not_writable)} 欄は、書けない欄なので除外）"
+          if not_writable else "")
     out = [Check("全入力欄への書き込み", pr.ok and not skipped,
                  f"入力欄 {n_fields:,} か所のうち {len(targets):,} に試しの値を書き込み{na}。{pr.headline()}",
                  [*pr.unexpected, *pr.lint_errors, *skipped])]
     after = PdfDocument(res.blob, doc.filename, password=password)
     win2 = build(after)
-    got = {}
-    for pg in win2["pages"]:
-        for f in pg["fields"]:
-            got[f["id"]] = f.get("value")
+    got = {f["id"]: f.get("value") for f in _all_fields(win2)}
     wrong = []
     written = {p_.id: p_.value for p_ in res.patches}
     formatted = 0
@@ -324,10 +334,24 @@ def run(blob: bytes, filename: str = "", password: str | None = None) -> Audit:
     ap = agent_places_check([f for p_ in win["pages"] for f in p_["fields"]])
     if ap is not None:
         au.checks.append(ap)
-    if not any(p_.get("image_only") for p_ in win["pages"]) or any(p_.get("fields") for p_ in win["pages"]):
+    if (win.get("xfa") or {}).get("readable"):
+        au.checks.append(Check("字を目印にした書き込み", True, "XFA のフォームでは、字を目印にした書き込みはしません"
+                               "（XFA の欄でない所に書いても Adobe では表示されないことがあるので、XFA の欄の id を指定して書きます）"))
+    elif not any(p_.get("image_only") for p_ in win["pages"]) or any(p_.get("fields") for p_ in win["pages"]):
         au.checks.append(anchored_check(blob, filename, password))
     fm = win["form"]
     scripts = _scripts(doc)
+    xw = win.get("xfa")
+    if xw and xw.get("readable"):
+        au.checks += check_xfa(doc, win)
+        auto = [s_ for s_ in xw["scripts"] if s_["automatic"]]
+        au.checks.append(Check("フォームの仕掛け", True,
+                               f"XFA のフォームを読みました（{'動的' if xw['kind'] == 'dynamic' else '静的'}なフォーム）。"
+                               + (f"XFA のスクリプト {len(xw['scripts'])} 種類（自動で動くもの {len(auto)}）は実行しません。"
+                                  "ソースを窓に出したので、値や欄の出し入れを変えるものかを、エージェントが読んで判断します"
+                                  if xw["scripts"] else "スクリプトはありません"),
+                               [" / ".join(s_["where"][:2]) for s_ in auto[:20]], agent=bool(auto)))
+        return au
     au.checks.append(Check("フォームの仕掛け", not fm["xfa"] and not scripts,
                            "XFA（Adobe の独自のフォーム）も、独自のスクリプトもありません（Acrobat の標準の書式・計算は、同じ規則で行います）"
                            if not fm["xfa"] and not scripts else
@@ -335,6 +359,104 @@ def run(blob: bytes, filename: str = "", password: str | None = None) -> Audit:
                            + (f"独自のスクリプトが {len(scripts)} 個あります（実行しません。その欄は、書いた後に確かめてください）"
                               if scripts else ""), scripts))
     return au
+
+
+def _norm_ws(t: str) -> str:
+    return " ".join(t.split())
+
+
+def check_xfa(doc: PdfDocument, win: dict) -> list[Check]:
+    """XFA：template と datasets の字（文字の節・属性の値）を、窓とは別の読み手（xml.etree）で拾い、すべて窓に出ているかを確かめる。
+    静的なフォームでは、PDF の欄の名前が、すべて XFA の欄の名前（id）になっているかも確かめる。"""
+    import xml.etree.ElementTree as ET
+
+    from .xfa import Xdp, repair_xml
+
+    xw = win["xfa"]
+    xdp = Xdp(doc)
+    fields = xw["fields"]
+    shown = list(xw["_plain"])
+    for f in fields:
+        for k in ("label", "tooltip", "value", "display"):
+            if isinstance(f.get(k), str):
+                shown.append(f[k])
+        if isinstance(f.get("default"), str):
+            shown.append(f["default"])
+        for k in ("options", "option_labels", "export_values", "rules", "value", "assist"):
+            if isinstance(f.get(k), list):
+                shown += [str(v) for v in f[k]]
+        for k in ("on_value", "off_value"):
+            if f.get(k):
+                shown.append(f[k])
+    window_text = _norm_ws("\n".join(shown))
+    atoms = {_norm_ws(t) for t in shown}
+    scripts = {_norm_ws(s_) for s_ in xw["_scripts"]}
+    lists_text = _norm_ws("\n".join(xw["lists"]))
+    missing: list[str] = []
+    images = 0
+    total = 0
+
+    def ok_text(t: str, where: str) -> bool:
+        return t in atoms or t in window_text or (where == "lists" and t in lists_text)
+
+    def walk(e, in_script: bool, kind: str):
+        nonlocal images, total
+        tag = e.tag.rsplit("}", 1)[-1] if isinstance(e.tag, str) else ""
+        if tag == "image":
+            images += 1
+            return
+        script = in_script or tag == "script"
+        texts = [e.text or ""] + [c.tail or "" for c in e]
+        if kind == "data" or kind == "lists":
+            texts += [v for k_, v in e.attrib.items() if "xmlns" not in k_ and "xfa-data" not in k_ and "XMLSchema" not in k_]
+        for t in texts:
+            t = _norm_ws(t)
+            if not t:
+                continue
+            total += 1
+            if script and kind == "template":
+                if _norm_ws(e.text or "") not in scripts:
+                    missing.append(f"スクリプト（{tag}）：{t[:60]}")
+                break
+            if not ok_text(t, kind):
+                missing.append(f"{'template' if kind == 'template' else 'datasets'} の {tag}：「{t[:60]}」")
+        for c in e:
+            if isinstance(c.tag, str):
+                walk(c, script, kind)
+
+    def et(el):
+        data = xdp.combined[el.s:el.e]
+        fixed, _ = repair_xml(data)
+        try:
+            return ET.fromstring(fixed)
+        except ET.ParseError:
+            return ET.fromstring(b'<w xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/">' + fixed + b"</w>")[0]
+
+    t_el = xdp.parts.get("template")
+    if t_el is not None:
+        walk(et(t_el), False, "template")
+    ds = xdp.parts.get("datasets")
+    if ds is not None:
+        for c in et(ds):
+            if not isinstance(c.tag, str) or "data-description" in c.tag:
+                continue
+            walk(c, False, "data" if c.tag.endswith("}data") else "lists")
+    out = [Check("読み落とし（XFA の字）", not missing,
+                 f"template と datasets の字 {total:,} 個（文字の節と、データの属性の値）を、窓とは別の読み手で拾い、"
+                 + ("すべて窓に出ていることを確かめました" if not missing else f"{len(missing)} 個が窓に出ていません")
+                 + f"（画像 {images} 個は字ではないので除く）", missing[:30])]
+    if xw["kind"] == "static":
+        from .form import read_fields
+
+        ids = {f["id"] for f in fields}
+        names = [f.name for f in read_fields(doc)]
+        # ページの共通部分（pageArea）は、ページごとに同じものが PDF の欄になる（Page1[1] など）：0 番目に置き換えて照らす
+        base = [re.sub(r"(#pageSet\[\d+\]\.[^.]+)\[\d+\]", r"\1[0]", n) for n in names]
+        bad = [n for n, b in zip(names, base) if n not in ids and b not in ids]
+        out.append(Check("XFA の名前と PDF の欄", not bad,
+                         f"PDF の欄 {len(names)} 個の名前が、すべて XFA の欄の id（名前の式）と同じです" if not bad else
+                         f"PDF の欄 {len(bad)} 個の名前が、XFA の欄の id と合いません", bad[:30]))
+    return out
 
 
 def _scripts(doc: PdfDocument) -> list[str]:
