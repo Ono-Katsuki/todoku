@@ -112,3 +112,10 @@ def test_value_accepts_space_after_sign_like_excel():
     # 「▲ 0.89」を SUBSTITUTE で「- 0.89」にして VALUE に渡す書類（総務省の様式）。Excel は -0.89 と読む
     assert parse_number("- 0.89") == -0.89 and parse_number("1,234") == 1234.0
     assert parse_number("1_000") is None and parse_number("inf") is None and parse_number("nan") is None
+
+
+def test_underscore_inside_a_url_is_not_a_blank():
+    from todoku.xlsx.window import inline_blanks
+
+    assert inline_blanks("https://www.moj.go.jp/MINJI/minji05_00589.html") == []
+    assert inline_blanks("氏名___") == [(2, 5)]  # 下線の空欄は、これまでどおり

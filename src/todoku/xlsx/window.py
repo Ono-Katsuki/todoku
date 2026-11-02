@@ -248,6 +248,10 @@ def _letter(t: str) -> bool:
     return t in _ERAS or (len(t) == 1 and unicodedata.category(t)[0] == "L")
 
 
+def _ident(ch: str) -> bool:
+    return ch.isascii() and (ch.isalnum() or ch in ".-/")
+
+
 def inline_blanks(text: str) -> list[tuple[int, int]]:
     """文字の中の、書き込むための空欄（「令和　　年　　月　　日」の空白、「第　　　号」の空白、「＿＿＿」）の位置。
 
@@ -266,6 +270,9 @@ def inline_blanks(text: str) -> list[tuple[int, int]]:
     out = []
     for k, (a, b, t) in enumerate(toks):
         if t[0] in "_＿":
+            # 英数字にはさまれた半角の「_」（URL・ファイルの名前・メールアドレスの中の「minji05_00589」）は、名前の一部で空欄ではない
+            if t == "_" and 0 < a and b < len(text) and _ident(text[a - 1]) and _ident(text[b]):
+                continue
             out.append((a, b))
             continue
         if not t.isspace():
