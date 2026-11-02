@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 
 from .book import FormatError, kind_of
@@ -85,7 +86,7 @@ def fields(path: str) -> list[dict]:
 def _field(f: dict, **where) -> dict:
     d = {"id": f["id"], "label": f.get("label", ""), "kind": f.get("kind", ""), "value": f.get("value")}
     for key in ("options", "maxlen", "format", "readonly", "protected", "confidence", "context", "boxes", "write_as",
-                "options_depend_on", "unit", "rules"):
+                "options_depend_on", "unit", "rules", "agent", "why", "placeholder", "cover"):
         if f.get(key) not in (None, "", [], False):
             d[key] = f[key]
     d.update({k: v for k, v in where.items() if v is not None})
@@ -101,6 +102,10 @@ def fill(path: str, values: dict, out_path: str, force: bool = False) -> dict:
     blob, name, k = _read(path)
     result: dict = {"kind": k, "out_path": str(dst), "original_sha256": hashlib.sha256(blob).hexdigest()}
     readback_values = dict(values)  # 読み戻しで確かめる、欄の id → 書いた値
+    try:
+        labels = {f["id"]: f.get("label", "") for f in fields(path)}  # 白紙のときの見出し（対話で伝える一覧に使う）
+    except ApiError:
+        labels = {}
     if k in ("xlsx", "xls"):
         from .book import open_book
         from .xlsx.edit import EditError
@@ -170,7 +175,8 @@ def fill(path: str, values: dict, out_path: str, force: bool = False) -> dict:
     dst.write_bytes(new_blob)
     result["new_sha256"] = hashlib.sha256(new_blob).hexdigest()
     # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか
-    after = {f["id"]: f.get("value") for f in fields(str(dst))}
+    after_list = fields(str(dst))
+    after = {f["id"]: f.get("value") for f in after_list}
     mismatch = []
     for key, v in readback_values.items():
         g = after.get(key)
@@ -184,7 +190,54 @@ def fill(path: str, values: dict, out_path: str, force: bool = False) -> dict:
             mismatch.append({"id": key, "written": v, "read_back": g})
     result["read_back_ok"] = not mismatch
     result["read_back_differences"] = mismatch[:30]
+    result.update(_to_tell(after_list, readback_values, result, labels))
     return result
+
+
+def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict | None = None) -> dict:
+    """本人が Word などで開いて確かめなくても、エージェントが対話で伝えられるように：書いた所（見出しと、書いた後の
+    ファイルを読み直した値）・まだ空いている欄・本人に伝えること。"""
+    by_id = {f["id"]: f for f in after_list}
+    told = []
+    for key, v in written.items():
+        f = by_id.get(key, {})
+        d = {"id": key, "label": (labels or {}).get(key) or f.get("label", ""), "value": f.get("value", v) if f else v}
+        for k_ in ("sheet", "page"):
+            if k_ in f:
+                d[k_] = f[k_]
+        told.append(d)
+    empty = [f for f in after_list if f.get("value") in (None, "") and not f.get("readonly") and not f.get("agent")
+             and f.get("kind") not in ("checkbox", "radio", "button", "picture")]
+    notes = list(result.get("warnings") or [])
+    if not result.get("proof_ok", True):
+        notes.insert(0, "書き込みの証明で、想定外の変更が見つかりました：" + "／".join(map(str, result.get("unexpected") or []))[:300])
+    if not result.get("read_back_ok", True):
+        notes.insert(0, "書いた後のファイルを読み直すと、書いた値と違う欄があります")
+
+    def place(d: dict) -> str:
+        where = d.get("sheet") or (f"{d['page']}ページ" if d.get("page") else "")
+        return f"{where}・" if where else ""
+
+    def shown(d: dict) -> str:
+        v = "☑" if d["value"] is True else "☐" if d["value"] is False else str(d["value"])
+        lab = d["label"] or d["id"]
+        m = re.search(r"［[ 　]*］", lab)
+        if m:
+            return f"{lab[:m.start()]}［{v}］{lab[m.end():]}"  # 「令和［8］年 月 日」：空欄に値を入れた形で
+        return f"{lab}：{v}"
+
+    lines = [f"書いた所（{len(told)} か所。書いた後のファイルを読み直した値）："]
+    lines += [f"- {place(d)}{shown(d)}" for d in told[:60]]
+    if len(told) > 60:
+        lines.append(f"- ほか {len(told) - 60} か所")
+    if empty:
+        lines.append(f"まだ空いている欄（{len(empty)} か所）：" + "、".join(f"{place(f)}{f.get('label') or f['id']}" for f in empty[:20])
+                     + ("ほか" if len(empty) > 20 else ""))
+    if notes:
+        lines.append("本人に伝えること：" + "／".join(notes[:10]))
+    return {"written": told, "still_empty": [{"id": f["id"], "label": f.get("label", ""), **({"sheet": f["sheet"]} if "sheet" in f else {}),
+                                              **({"page": f["page"]} if "page" in f else {})} for f in empty[:50]],
+            "still_empty_count": len(empty), "say_to_user": "\n".join(lines)}
 
 
 def run_macro(path: str, macro: str, out_path: str, answers: list | None = None, files: dict | None = None) -> dict:

@@ -25,6 +25,11 @@ INSTRUCTIONS = (
     "まず open_document で書類を開き、read_window で窓を読み、list_fields で入力欄の名前を確かめてから、"
     "fill_document で書き込んでください。書き込みは元のファイルを変えず、別の名前で書き出します。"
     "窓の［T1.R2.C3］［p1.5］［シート!B3］などが入力欄の名前です。推定した見出しは context（その行）と合わせて確かめてください。"
+    "［P12.a1？］のように「？」のついた所は、規則では欄と決められない所です。窓を読んで判断し、書く所なら同じように id で書きます。"
+    "窓に欄として示していない所にも、字を目印にして書けます（fill_document の説明を見てください）。"
+    "本人は書類を Word・Excel・Acrobat で開いて確かめません。対話だけで確かめられるように、書き込みの結果の say_to_user"
+    "（書いた所の見出しと値・まだ空いている欄・本人に伝えること）を、そのまま本人に伝えてください。"
+    "本人に決めてもらうこと（書く値・選ぶもの・マクロの「はい／いいえ」など）は、勝手に決めず、まとめて、選びやすい選択肢の形で聞いてください。"
 )
 
 TOOLS = [
@@ -51,7 +56,9 @@ TOOLS = [
                     "PDF で、窓に欄として示していない所に書くときは、{\"@1\": {\"after\": 見出しの字, \"value\": 書く字, \"page\": ページ}} の形で、"
                     "見出しの右（\"where\": \"below\" なら下）の空いている所に書ける（書いた所は id「pページ.w番号」）。"
                     "PDF の伏せ字（「○○」）の上には {\"@1\": {\"cover\": \"○○\", \"value\": 書く字}}（白い下地の欄で覆って書く。元の字は消さない）。"
-                    "結果として、変わったのが書いた欄（とその計算結果・見た目）だけであることの証明と、書き込み後のファイルを読み直した結果を返す。",
+                    "結果として、変わったのが書いた欄（とその計算結果・見た目）だけであることの証明と、書き込み後のファイルを読み直した結果を返す。"
+                    "本人は書類を開いて確かめないので、結果の say_to_user（書いた所の見出しと値・まだ空いている欄・本人に伝えること）を、"
+                    "対話でそのまま本人に伝えて確かめる。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "out_path": {"type": "string", "description": "書き出すファイルのパス（元と別の名前）"},
          "values": {"type": "object", "description": "{欄の id: 値}。Word で欄のない所は {\"@1\": {\"old\": …, \"new\": …}}、"
@@ -117,7 +124,9 @@ def call_tool(name: str, args: dict) -> dict:
         res = api.fill(args["path"], args.get("values") or {}, args["out_path"], bool(args.get("force", False)))
         ok = res.get("proof_ok") and res.get("read_back_ok")
         head = ("書き込みました。" if ok else "書き込みましたが、確認が必要な点があります。") + f"{res.get('proof', '')}"
-        return {"content": [_text(head), _text(res)], "structuredContent": res, "isError": not ok}
+        # 本人は書類を開いて確かめないので、say_to_user（書いた所の見出しと値・まだ空いている欄・本人に伝えること）を、対話で伝える
+        return {"content": [_text(head), _text(res.get("say_to_user", "")), _text(res)], "structuredContent": res,
+                "isError": not ok}
     if name == "run_macro":
         res = api.run_macro(args["path"], args["macro"], args["out_path"], args.get("answers") or [], args.get("files") or {})
         if not res.get("done"):

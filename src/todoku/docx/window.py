@@ -214,8 +214,11 @@ class Spots:
             if name in self.items:
                 continue
             kind = "checkbox" if p.text[a:b] in ("■", "☑", "☒", "□", "☐") else ("cell" if name.startswith("T") else "inline")
+            label = self._label(p, a, b) if kind == "inline" else ""
+            if kind == "cell" and p.cell is not None and p.cell.table is not None:
+                label = _cell_label(p.cell.table, p.cell)[0]  # 書き込み済みのマスも、表の行・列の見出しで示す
             self.items[name] = {"id": name, "kind": kind, "source": "layout", "para": p, "span": (a, b), "filled": True,
-                                "label": self._label(p, a, b) if kind == "inline" else "", "provenance": LAYOUT}
+                                "label": label, "provenance": LAYOUT}
 
     def _beside_cell_field(self, p: Para, why: str) -> bool:
         """マスの中の「住所：」のすぐ右のマスが空のマスの欄（そこに書く）か、「人」だけのマスの下に空のマスの欄がある
