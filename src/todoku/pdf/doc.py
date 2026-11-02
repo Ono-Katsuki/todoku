@@ -9,13 +9,17 @@ import re
 import struct
 import zlib
 
+# パスワードの例外（NeedsPassword・WrongPassword）は、ここからも使えるようにする
+from .crypto import Decryptor, NeedsPassword, WrongPassword  # noqa: F401
 from .objects import Lexer, Name, PdfError, PdfString, Ref, Stream, parse_object
 
 
 class PdfDocument:
     kind = "pdf"
 
-    def __init__(self, blob: bytes, filename: str = ""):
+    def __init__(self, blob: bytes, filename: str = "", password: str | bytes | None = None):
+        """password：開くためのパスワード（ユーザー）か、権限のパスワード（所有者）。空のパスワードで開けるPDFには要らない。
+        要るのに渡されていなければ NeedsPassword、合わなければ WrongPassword（NeedsPassword の一種）。パスワードは持たない。"""
         if not blob.lstrip()[:5] == b"%PDF-":
             raise PdfError("PDFではありません")
         self.blob = blob
@@ -25,16 +29,33 @@ class PdfDocument:
         self.cache: dict[int, object] = {}
         self.objstm_cache: dict[int, list] = {}
         self.decryptor = None
+        self.encrypt_ref = None
         self.repaired = False
         self._read_xref()
         enc = self.trailer.get("Encrypt")
         if enc is not None:
-            from .crypto import Decryptor
+            failure = self._unlock(enc, password)
+            password = None  # 例外の記録（トレースバックの変数）にも、パスワードを残さない
+            if failure is not None:
+                raise failure
 
-            encd = self.resolve(enc) if isinstance(enc, Ref) else enc
-            ids = self.trailer.get("ID") or [b""]
-            self.encrypt_ref = enc if isinstance(enc, Ref) else None
-            self.decryptor = Decryptor(encd, bytes(ids[0]) if ids else b"")
+    def _unlock(self, enc, password) -> NeedsPassword | None:
+        """暗号の鍵を求める。パスワードが要る・合わないときは、新しく作った例外を返す（元の例外の記録には、パスワードを持つ変数が残るため）。"""
+        encd = self.resolve(enc) if isinstance(enc, Ref) else enc
+        if not isinstance(encd, dict):
+            raise PdfError("暗号の辞書（Encrypt）が読めません")
+        ids = self.resolve(self.trailer.get("ID"))
+        first = self.resolve(ids[0]) if isinstance(ids, list) and ids else b""
+        self.encrypt_ref = enc if isinstance(enc, Ref) else None
+        try:
+            self.decryptor = Decryptor(encd, bytes(first) if isinstance(first, bytes) else b"", password, self.resolve)
+        except NeedsPassword as e:
+            return type(e)()
+        # 鍵の決まる前に読んだオブジェクト（相互参照の修復のときなど）は、暗号を解かずに読んでいるので、読み直す
+        keep = self.encrypt_ref.num if self.encrypt_ref is not None else None
+        self.cache = {k: v for k, v in self.cache.items() if k == keep}
+        self.objstm_cache = {}
+        return None
 
     # ------------------------------------------------------------------ 相互参照
     def _read_xref(self) -> None:
@@ -181,7 +202,7 @@ class PdfDocument:
                 obj = self._parse_at(ent[1])
             except Exception:  # noqa: BLE001
                 obj = None
-            if obj is not None and self.decryptor is not None and num != getattr(getattr(self, "encrypt_ref", None), "num", -1):
+            if obj is not None and self.decryptor is not None and num != getattr(self.encrypt_ref, "num", -1):
                 obj = self._decrypt_strings(obj, num, ent[2])
         else:
             objs = self._objstm(ent[1])
@@ -222,7 +243,7 @@ class PdfDocument:
     def _decrypt_strings(self, obj, num, gen):
         dec = self.decryptor
         if isinstance(obj, PdfString):
-            out = PdfString(dec.decrypt(bytes(obj), num, gen))
+            out = PdfString(dec.decrypt_string(bytes(obj), num, gen))
             out.hexform = obj.hexform
             return out
         if isinstance(obj, list):
@@ -238,7 +259,7 @@ class PdfDocument:
     def decode(self, st: Stream, decrypt: bool = True) -> bytes:
         data = st.raw
         if decrypt and self.decryptor is not None and getattr(st.dict.get("Type"), "name", "") != "XRef":
-            data = self.decryptor.decrypt(data, st.num, st.gen)
+            data = self.decryptor.decrypt_stream(data, st.num, st.gen, *self.crypt_of(st.dict, st.num))
         filters = st.dict.get("Filter")
         parms = st.dict.get("DecodeParms")
         if filters is None:
@@ -252,6 +273,8 @@ class PdfDocument:
             f = self.resolve(f)
             prm = self.resolve(prm) if prm is not None else None
             name = getattr(f, "name", "")
+            if name == "Crypt":
+                continue  # 暗号フィルター（7.4.10）：暗号は上で解いた
             if name in ("FlateDecode", "Fl"):
                 data = _inflate(data)
                 data = _predict(data, prm)
@@ -267,6 +290,32 @@ class PdfDocument:
             else:
                 return data  # 画像の圧縮（DCT など）はそのまま
         return data
+
+    def crypt_of(self, d: dict, num: int) -> tuple[str | None, str]:
+        """ストリームの暗号の決め方：(Filter の Crypt が指す暗号フィルターの名前, 種類（metadata・embedded・空）)。"""
+        filters = self.resolve(d.get("Filter"))
+        parms = self.resolve(d.get("DecodeParms"))
+        if not isinstance(filters, list):
+            filters, parms = [filters], [parms]
+        elif not isinstance(parms, list):
+            parms = [parms] * len(filters)
+        crypt = None
+        for i, f in enumerate(filters):
+            if getattr(self.resolve(f), "name", "") == "Crypt":
+                # 名前を省いたときは Identity（表14）
+                prm = self.resolve(parms[i]) if i < len(parms) else None
+                crypt = getattr(self.resolve(prm.get("Name")), "name", "Identity") if isinstance(prm, dict) else "Identity"
+                break
+        kind = ""
+        t = getattr(self.resolve(d.get("Type")), "name", "")
+        if t == "Metadata":
+            # EncryptMetadata が決めるのは、文書のメタデータ（Catalog の Metadata）だけ（表21）
+            md = self.root.get("Metadata")
+            if isinstance(md, Ref) and md.num == num:
+                kind = "metadata"
+        elif t == "EmbeddedFile":
+            kind = "embedded"
+        return crypt, kind
 
     # ------------------------------------------------------------------ 文書の構造
     @property

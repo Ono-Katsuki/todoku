@@ -66,11 +66,11 @@ def _norm(o):
     return o
 
 
-def lint(blob: bytes) -> list[str]:
+def lint(blob: bytes, password: str | bytes | None = None) -> list[str]:
     """相互参照の各項目が正しいオブジェクトを指しているか（ビューアーが修復なしに開けるか）。"""
     errs = []
     try:
-        doc = PdfDocument(blob)
+        doc = PdfDocument(blob, password=password)
     except Exception as e:  # noqa: BLE001
         return [f"開けません: {e}"]
     if doc.repaired:
@@ -93,16 +93,19 @@ def lint(blob: bytes) -> list[str]:
 
 
 def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
-          anchored: dict[str, dict] | None = None) -> PdfProof:
-    """anchored：見出しの字を目印にして書いた欄 → 目印（書いた順）。元の文書で同じ決め方で位置を決め直し、足した欄の位置と照らす。"""
+          anchored: dict[str, dict] | None = None, password: str | bytes | None = None) -> PdfProof:
+    """anchored：見出しの字を目印にして書いた欄 → 目印（書いた順）。元の文書で同じ決め方で位置を決め直し、足した欄の位置と照らす。
+    password：開くためのパスワードがかかったPDFのとき、そのパスワード（どちらのファイルも、それで開いて比べる）。"""
     pr = PdfProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest(),
                   new[:len(original)] == original, original_bytes=len(original), new_bytes=len(new))
     if not pr.prefix_ok:
         pr.unexpected.append("元のバイト列が、新しいファイルの先頭と一致しません")
         return pr
-    pr.lint_errors = [e for e in lint(new) if e not in lint(original)]
-    a = PdfDocument(original)
-    b = PdfDocument(new)
+    pr.lint_errors = [e for e in lint(new, password) if e not in lint(original, password)]
+    a = PdfDocument(original, password=password)
+    b = PdfDocument(new, password=password)
+    if a.decryptor is not None or b.decryptor is not None:
+        _check_encryption(a, b, pr)
     tail_start = len(original)
     added, changed = [], []
     for num, ent in b.xref.items():
@@ -177,6 +180,19 @@ def _check_anchored(a: PdfDocument, b: PdfDocument, anchored: dict[str, dict], p
         got = [round(float(v), 3) for v in ws[0].rect]
         if any(abs(x - y) > 0.01 for x, y in zip(sorted(want[0::2]) + sorted(want[1::2]), sorted(got[0::2]) + sorted(got[1::2]))):
             pr.unexpected.append(f"書いた所 {fid} の位置 {got} が、目印から決まる位置 {want} と違います")
+
+
+def _check_encryption(a: PdfDocument, b: PdfDocument, pr: PdfProof) -> None:
+    """暗号化された文書：暗号の設定（暗号の辞書・文書の鍵・鍵の元になるファイルの ID の1つめ）が、元のファイルと同じであること。"""
+    if a.decryptor is None or b.decryptor is None:
+        pr.unexpected.append("暗号のあり・なしが、元のファイルと変わっています")
+        return
+    if _norm(a.resolve(a.trailer.get("Encrypt"))) != _norm(b.resolve(b.trailer.get("Encrypt"))) \
+            or a.decryptor.key != b.decryptor.key:
+        pr.unexpected.append("暗号の設定（暗号の辞書・文書の鍵）が、元のファイルと変わっています")
+    ia, ib = a.resolve(a.trailer.get("ID")), b.resolve(b.trailer.get("ID"))
+    if _norm(ia[0] if isinstance(ia, list) and ia else None) != _norm(ib[0] if isinstance(ib, list) and ib else None):
+        pr.unexpected.append("ファイルの ID（暗号の鍵の元）が、元のファイルと変わっています")
 
 
 def _is_xref(o) -> bool:

@@ -67,11 +67,12 @@ class Update:
         return o
 
     def _enc(self, o, num: int, gen: int):
+        """暗号化された文書：文字列を、元の文書と同じ鍵と方式（StrF）で暗号化する（オブジェクトの番号と世代ごとの鍵）。"""
         dec = self.doc.decryptor
         if dec is None:
             return o
         if isinstance(o, PdfString) or (isinstance(o, bytes) and not isinstance(o, Stream)):
-            out = PdfString(dec.encrypt(bytes(o), num, gen))
+            out = PdfString(dec.encrypt_string(bytes(o), num, gen))
             out.hexform = True
             return out
         if isinstance(o, list):
@@ -82,10 +83,11 @@ class Update:
 
     def _body(self, num: int, gen: int, o) -> bytes:
         if isinstance(o, Stream):
+            # ここで書くストリームの中身は、暗号化していないもの（新しく作った見た目など）
             data = o.raw
             d = dict(o.dict)
             if self.doc.decryptor is not None:
-                data = self.doc.decryptor.encrypt(data, num, gen)
+                data = self.doc.decryptor.encrypt_stream(data, num, gen, *self.doc.crypt_of(d, num))
                 d = self._enc(d, num, gen)
             d["Length"] = len(data)
             return dumps(d) + b"\nstream\n" + data + b"\nendstream"
