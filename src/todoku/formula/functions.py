@@ -1430,12 +1430,36 @@ def f_jis(ev, x):
     return s.translate(_ZEN)
 
 
+def _kana_half_table() -> dict[str, str]:
+    """全角カタカナ・記号 → 半角カナ。半角カナ（U+FF61〜U+FF9F）を NFKC で全角にした対応を逆に引く。
+    濁点・半濁点のつく字（ガ・パ・ヴ）は、半角の字と濁点の2字になる。"""
+    import unicodedata
+
+    table: dict[str, str] = {}
+    halves = [chr(c) for c in range(0xFF61, 0xFFA0)]
+    for h in halves:
+        f = unicodedata.normalize("NFKC", h)
+        if len(f) == 1 and f not in table:
+            table[f] = h
+    for h in halves:
+        for mark in ("\uff9e", "\uff9f"):
+            f = unicodedata.normalize("NFKC", h + mark)
+            if len(f) == 1 and f not in table:
+                table[f] = h + mark
+    return table
+
+
+_KANA_HALF = _kana_half_table()
+
+
+def _asc_text(s: str) -> str:
+    """ASC：全角の英数字・記号・カタカナを半角にする（ひらがな・漢字はそのまま）。"""
+    return "".join(_KANA_HALF.get(ch, ch) for ch in s.translate(_HAN))
+
+
 @fn("ASC")
 def f_asc(ev, x):
-    s = to_text(S(ev, x))
-    if any(0x30A0 <= ord(ch) <= 0x30FF for ch in s):
-        raise Unsupported("ASCでのカタカナの半角化")
-    return s.translate(_HAN)
+    return _asc_text(to_text(S(ev, x)))
 
 
 # ================================================================ 日付

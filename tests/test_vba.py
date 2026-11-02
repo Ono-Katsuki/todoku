@@ -70,5 +70,9 @@ def test_fill_warns_about_change_event_macros():
     wb.has_macros = True
     wb._vba = _project()
     wb.sheets[0].code_name = "Sheet1"
+    # マクロ（Range("B1").Value = Target.Value * 2）は動かす。文字「A」の2倍は、Excel でも型が合わずに止まる
     res = fill(wb, {"入力!A2": "A"})
-    assert any("セルの値を変えたときに動くマクロ" in w and "Sheet1.Worksheet_Change" in w for w in res.warnings), res.warnings
+    assert res.macro["reproduced"] and any("Excel でも止まります" in w and "'13'" in w for w in res.warnings), res.warnings
+    assert [p.kind for p in res.patches] == ["input"]  # 止まったので、マクロはほかのセルを書いていない
+    res = fill(wb, {"入力!A2": 21})
+    assert {p.address: p.kind for p in res.patches} == {"A2": "input", "B1": "macro"}

@@ -368,9 +368,9 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
         res = fill(wb, targets)
     except EditError as e:
         return [Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
-    allowed = {(p.sheet, p.address) for p in res.patches if p.kind == "input"}
+    allowed = res.allowed_inputs
     allowed_c = {(p.sheet, p.address) for p in res.patches if p.kind == "control"}
-    pr = prove(wb.zip.original, res.blob, allowed, allowed_c)
+    pr = prove(wb.zip.original, res.blob, allowed, allowed_c, {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
     n_ctl = sum(1 for _, f in fields if f["kind"] in ("checkbox", "radio", "select", "multiselect", "spin"))
     na = (f"（選択肢が空の欄 {len(not_applicable):,} か所は、いまの状態ではExcelでも選べないので除外。"
           "ほかの欄の値で選択肢が決まるものや、選択肢の参照先が壊れているもの）" if not_applicable else "")
@@ -479,12 +479,23 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
     else:
         n_proc = sum(len(m["procedures"]) for m in mi["modules"])
         on_change = [f"{e['module']}.{e['procedure']}" for e in mi["events"] if e["on_change"]]
-        au.checks.append(Check("マクロ", True,
-                               f"マクロのソース（モジュール {len(mi['modules'])} 個・手続き {n_proc} 個）をすべて窓に出しました。"
-                               "マクロの動作は規則では再現しないので、ボタンや自動で動く処理が要るかは、エージェントがソースを読んで判断します"
+        from ..vbarun.parse import VbaSyntaxError, parse_module
+
+        bad = []
+        for m in wb.vba.modules:
+            try:
+                parse_module(m.name, m.source)
+            except VbaSyntaxError as e:
+                bad.append(f"{m.name}: {e}")
+        au.checks.append(Check("マクロ", not bad,
+                               f"マクロのソース（モジュール {len(mi['modules'])} 個・手続き {n_proc} 個）をすべて窓に出し、"
+                               + ("構文をすべて読めました。ボタンの処理は run_macro で動かせます（はい・いいえや読むファイルは、"
+                                  "勝手に決めずに本人に確かめます）" if not bad else f"{len(bad)} 個のモジュールの構文を読めませんでした")
                                + (f"（マクロを動かすボタン {len(buttons)} 個）" if buttons else "")
-                               + (f"。セルの値を変えたときに動くマクロ {len(on_change)} 個は、書き込みのたびに知らせます" if on_change else ""),
-                               on_change + buttons, agent=True))
+                               + (f"。セルの値を変えたときに動くマクロ {len(on_change)} 個は、書き込みのときに同じように動かします"
+                                  if on_change else "")
+                               + "。ボタンの処理が要るかは、エージェントがソースを読んで判断します",
+                               bad + on_change + buttons, agent=True))
     if example is not None:
         from .example import check
 

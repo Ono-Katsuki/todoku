@@ -7,6 +7,7 @@
 - list_fields     入力欄の一覧（名前・見出し・種類・選択肢・いまの値・書けるか）
 - fill_document   入力欄に書き込み、別の名前で書き出す。元のファイルは変えない。証明と読み戻しの結果を返す
 - audit_document  この書類を「全て正確に読み書きできるか」を確かめる（読み落とし・全欄への書き込み・読み戻し）
+- run_macro       Excel のマクロ（ボタン）を動かし、マクロが変えたセルを証明つきで書き出す
 - grade_document  書類の段階（S〜F）。規則で決めた段階に、エージェントが窓を読んで確かめたことを合わせる
 """
 
@@ -54,6 +55,17 @@ TOOLS = [
                     "段階（S 素で問題ない／A 規則だけで読み書きできる／B エージェントが読めば正確に入れられる／C エージェントが工夫して変換できる／"
                     "D エージェントの解釈が必要／E エージェントが得意でない形式／F アクセスできない）と、その理由も返す。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+    {"name": "run_macro",
+     "description": "Excel のマクロ（ボタンの処理など）を動かし、マクロが変えたセルを証明つきで out_path に書き出す（元のファイルは変えない）。"
+                    "マクロの名前は窓の「マクロ」の節にある（例「Module1.印刷」「Sheet2.CommandButton1_Click」）。"
+                    "MsgBox の「はい／いいえ」や InputBox、マクロが読むファイルが要るときは、勝手に決めずにその問いを返すので、"
+                    "本人に確かめてから answers・files に入れて、もう一度呼ぶ。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "macro": {"type": "string", "description": "動かすマクロ（モジュール名.手続き名）"},
+         "out_path": {"type": "string"},
+         "answers": {"type": "array", "description": "MsgBox・InputBox の答え（順に。「はい」「いいえ」、入力する値）"},
+         "files": {"type": "object", "description": "マクロが読むファイル：{マクロの中のパス: 手元のファイルのパス}"}},
+         "required": ["path", "macro", "out_path"]}},
     {"name": "grade_document",
      "description": "書類の段階（S〜F）を返す。規則で決めた段階に、エージェントが窓を読んで確かめたこと（findings）を合わせる。"
                     "規則では決めないこと（押印・自署のようなエージェントにはできない記入＝F、書く値をぼかす書き方＝D）は、"
@@ -98,6 +110,16 @@ def call_tool(name: str, args: dict) -> dict:
         ok = res.get("proof_ok") and res.get("read_back_ok")
         head = ("書き込みました。" if ok else "書き込みましたが、確認が必要な点があります。") + f"{res.get('proof', '')}"
         return {"content": [_text(head), _text(res)], "structuredContent": res, "isError": not ok}
+    if name == "run_macro":
+        res = api.run_macro(args["path"], args["macro"], args["out_path"], args.get("answers") or [], args.get("files") or {})
+        if not res.get("done"):
+            head = res.get("note", "")
+            if res.get("prompt"):
+                head = f"マクロが答えを求めています：「{res['prompt']}」。{head}"
+            return {"content": [_text(head), _text(res)], "structuredContent": res, "isError": False}
+        head = (f"マクロ {res['macro']} を動かしました。" + (f"{res.get('proof', '')}" if res.get("out_path") else res.get("note", ""))
+                + (f"　エラー：{res['error']}" if res.get("error") else ""))
+        return {"content": [_text(head), _text(res)], "structuredContent": res, "isError": bool(res.get("error"))}
     if name == "grade_document":
         g = api.grade(args["path"], args.get("findings") or [], args.get("answered") or [])
         lines = [g["headline"]] + [f"  - [{r['grade']}]{'（エージェントの判断）' if r.get('by') == 'agent' else ''} {r['title']}: {r['detail']}"

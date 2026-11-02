@@ -213,6 +213,7 @@ class Sheet:
     header_footer: list[str] = field(default_factory=list)
     cond_formats: int = 0
     code_name: str | None = None  # マクロの中でのシートの名前（Sheet2 など。シートのモジュールの名前）
+    sheet_id: int = 0  # workbook.xml の sheetId（calcChain.xml の i が指す番号）
     cond_rules: list[CondRule] = field(default_factory=list)
     autofilter: tuple[int, int, int, int] | None = None  # オートフィルターの範囲（ここで隠れた行は SUBTOTAL が常に除く）
     has_vml_controls: bool = False
@@ -394,7 +395,9 @@ class Workbook:
                 # グラフシート・ダイアログシートなどはセルを持たない
                 self.sheets.append(Sheet(name=s.get("name"), path=path, state=f"non-worksheet:{typ}"))
                 continue
-            self.sheets.append(Sheet(name=s.get("name"), path=path, state=s.get("state", "visible")))
+            self.sheets.append(Sheet(name=s.get("name"), path=path, state=s.get("state", "visible"),
+                                     sheet_id=int(s.get("sheetId", "0") or 0)))
+        self.calc_chain = next((t for typ, t in rels.values() if typ == "calcChain"), None)
         er = wb.find(M + "externalReferences")
         for idx, e in enumerate(er if er is not None else [], start=1):
             typ, part = rels.get(e.get(R + "id"), ("", ""))

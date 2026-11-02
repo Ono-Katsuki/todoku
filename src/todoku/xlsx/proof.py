@@ -141,6 +141,12 @@ def _without_checked(data: bytes) -> bytes:
     return data
 
 
+def _rc_(a: str) -> tuple[int, int]:
+    from ..formula.parser import parse_cell
+
+    return parse_cell(a)
+
+
 def _state_text(c) -> str:
     if c.kind == "Radio":
         return "選んだ" if c.checked == "Checked" else "選んでいない"
@@ -175,7 +181,8 @@ def _linked_controls_agree(b) -> list[str]:
 
 
 def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | None = None,
-          allowed_controls: set[tuple[str, str]] | None = None) -> Proof:
+          allowed_controls: set[tuple[str, str]] | None = None, overwrite: set[tuple[str, str]] | None = None) -> Proof:
+    """overwrite：数式が値に置き換わってよいセル（セルの値を変えたときに動くマクロが、数式のセルに値を書いたもの）。"""
     if original[:4] == b"\xd0\xcf\x11\xe0":
         from ..xls.proof import prove as prove_xls
 
@@ -230,13 +237,13 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
             fb = cb.formula if cb else None
             sty_a = ca.style if ca else sa.style_of(*k)
             sty_b = cb.style if cb else sb.style_of(*k)
-            if fa != fb:
+            if fa != fb and not (fb is None and overwrite and (sa.name, addr(*k)) in overwrite):
                 unexpected.append(f"{sa.name}!{addr(*k)}: 数式が変わりました")
             if sty_a != sty_b:
                 unexpected.append(f"{sa.name}!{addr(*k)}: 書式が変わりました")
             same = values_equal(va, vb) and type(va) is type(vb)
-            if not same:
-                kind = "formula" if fa is not None or (ca and ca.array_master) else "input"
+            if not same or (fa != fb and fb is None):
+                kind = "formula" if (fa is not None and fb is not None) or (ca and ca.array_master) else "input"
                 changes.append({"sheet": sa.name, "cell": addr(*k), "kind": kind, "before": va, "after": vb})
                 if kind == "input" and allowed_inputs is not None and (sa.name, addr(*k)) not in allowed_inputs:
                     unexpected.append(f"{sa.name}!{addr(*k)}: 書き込みを指示していないセルが変わりました")
@@ -277,6 +284,22 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
                 lv = lc.value if lc else None
                 if bool(lv is True) != cb.is_checked:
                     unexpected.append(f"{sa.name}: チェックボックス「{ca.name}」の表示と、つながったセル {cb.link} の値（{lv!r}）が食い違っています")
+    # calcChain.xml：変わってよいのは、数式を値に置き換えたセルの記録を取り除くことだけ
+    chain = getattr(a, "calc_chain", None)
+    if chain and a.zip.has(chain) and b.zip.has(chain) and a.zip.read(chain) != b.zip.read(chain):
+        from .edit import calc_chain_entries
+
+        ea, eb = set(calc_chain_entries(a.zip.read(chain))), set(calc_chain_entries(b.zip.read(chain)))
+        ids = {sh.sheet_id: sh.name for sh in a.sheets}
+        removed = ea - eb
+        if eb - ea:
+            unexpected.append("calcChain.xml に、記録が足されました")
+        for sid, cell in sorted(removed):
+            sn = ids.get(sid)
+            ca_ = a.sheet(sn).cells.get(_rc_(cell)) if sn else None
+            cb_ = b.sheet(sn).cells.get(_rc_(cell)) if sn and b.has_sheet(sn) else None
+            if not (ca_ is not None and ca_.formula is not None and (cb_ is None or cb_.formula is None)):
+                unexpected.append(f"calcChain.xml から、数式の残っているセル {sn}!{cell} の記録が取り除かれました")
     before_bad = set(_linked_controls_agree(a))
     unexpected += [x for x in _linked_controls_agree(b) if x not in before_bad]  # 書き込みで新しく生じた食い違いだけ
     if [d.text for d in a.names] != [d.text for d in b.names]:

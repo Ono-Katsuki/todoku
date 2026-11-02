@@ -111,9 +111,9 @@ def fill(path: str, values: dict, out_path: str, force: bool = False) -> dict:
             res = xfill(wb, values, force=force)
         except EditError as e:
             raise ApiError(str(e)) from None
-        allowed = {(p.sheet, p.address) for p in res.patches if p.kind == "input"}
+        allowed = res.allowed_inputs
         allowed_c = {(p.sheet, p.address) for p in res.patches if p.kind == "control"}
-        pr = prove(blob, res.blob, allowed, allowed_c)
+        pr = prove(blob, res.blob, allowed, allowed_c, {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
         new_blob = res.blob
         result.update({"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
                        "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
@@ -169,6 +169,65 @@ def fill(path: str, values: dict, out_path: str, force: bool = False) -> dict:
     result["read_back_ok"] = not mismatch
     result["read_back_differences"] = mismatch[:30]
     return result
+
+
+def run_macro(path: str, macro: str, out_path: str, answers: list | None = None, files: dict | None = None) -> dict:
+    """マクロ（ボタンの処理など）を動かし、マクロが変えたセルを証明つきで out_path に書く。
+    answers：MsgBox・InputBox の答え（順に）。files：マクロが読むファイル（マクロの中のパス → 手元のファイル）。
+    人の答えやファイルが要るときは、勝手に決めずに、その問いを返す。"""
+    from .book import open_book
+    from .formula.parser import addr
+    from .vbarun import NeedsInput, Unsupported
+    from .vbarun import run_macro as run
+    from .vbarun.parse import VbaSyntaxError
+    from .xlsx.edit import EditError
+    from .xlsx.edit import fill as xfill
+    from .xlsx.proof import prove
+
+    src = Path(path).expanduser().resolve()
+    dst = Path(out_path).expanduser().resolve()
+    if src == dst:
+        raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
+    blob, name, k = _read(path)
+    if k not in ("xlsx", "xls"):
+        raise ApiError("マクロを動かせるのは、いまは Excel の書類です")
+    wb = open_book(blob, name)
+    inputs = {key: Path(v).expanduser().read_bytes() for key, v in (files or {}).items()}
+    try:
+        r = run(wb, macro, answers, inputs)
+    except NeedsInput as e:
+        what = {"msgbox": "はい・いいえなどの答え", "inputbox": "入力する値", "file": "ファイル"}.get(e.kind, e.kind)
+        return {"done": False, "needs": e.kind, "prompt": e.prompt, "line": e.line,
+                "note": f"マクロが{what}を求めています。本人に確かめて、answers（または files）に入れてもう一度呼んでください"}
+    except (Unsupported, VbaSyntaxError) as e:
+        return {"done": False, "unsupported": str(e), "note": "この命令は、規則では再現できません。ソースを読んで判断してください"}
+    out: dict = {"done": True, "macro": macro, "messages": r.messages, "printed": r.printed, "error": r.error,
+                 "volatile": r.volatile, "changed": {f"{s_}!{addr(rr, cc)}": v for (s_, rr, cc), v in r.changed.items()}}
+    if r.files:
+        fdir = dst.parent / f"{dst.stem}_マクロのファイル"
+        fdir.mkdir(parents=True, exist_ok=True)
+        saved = []
+        for fname, data in r.files.items():
+            target = fdir / Path(fname.replace("\\", "/")).name
+            target.write_bytes(data)
+            saved.append(str(target))
+        out["files"] = saved
+    if not r.changed:
+        out["note"] = "マクロは、セルの値を変えませんでした（ファイルは書き出していません）"
+        return out
+    values = {f"{s_}!{addr(rr, cc)}": v for (s_, rr, cc), v in r.changed.items()}
+    try:
+        res = xfill(open_book(blob, name), values, allow_formula_overwrite=True, force=True, by_macro=set(r.changed),
+                    run_macros=False)
+    except EditError as e:
+        raise ApiError(str(e)) from None
+    pr = prove(blob, res.blob, res.allowed_inputs, {(p.sheet, p.address) for p in res.patches if p.kind == "control"},
+               {(p.sheet, p.address) for p in res.patches if p.kind in ("macro", "input")})
+    dst.write_bytes(res.blob)
+    out.update({"out_path": str(dst), "proof_ok": pr.ok, "proof": pr.headline(), "unexpected": pr.unexpected[:20],
+                "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"},
+                "warnings": res.warnings})
+    return out
 
 
 def _num_equal(a, b) -> bool:

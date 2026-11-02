@@ -29,7 +29,7 @@ class Patch:
     part: str
     sheet: str
     address: str
-    kind: str  # input / formula / control / workbook
+    kind: str  # input / macro（セルの値を変えたときに動くマクロが書いた）/ formula / control / workbook
     before: object
     after: object
     span: tuple[int, int] = (0, 0)  # 元のXMLで置き換えた範囲（バイト）
@@ -47,10 +47,17 @@ class EditResult:
     sha256: str = ""
     unchanged_parts: int = 0
     changed_parts: list[str] = field(default_factory=list)
+    macro: dict | None = None  # 動かしたマクロ：{"ran": [...], "messages": [...], "files": {...}, "error": ...}
+
+    @property
+    def allowed_inputs(self) -> set[tuple[str, str]]:
+        """書き込みを指示したセルと、それに応じてマクロが書いたセル（証明で、変わってよいセル）。"""
+        return {(p.sheet, p.address) for p in self.patches if p.kind in ("input", "macro")}
 
     def summary(self) -> dict:
         return {
             "inputs": sum(1 for p in self.patches if p.kind == "input"),
+            "macro_cells": sum(1 for p in self.patches if p.kind == "macro"),
             "formulas": sum(1 for p in self.patches if p.kind == "formula"),
             "controls": sum(1 for p in self.patches if p.kind == "control"),
             "changed_parts": self.changed_parts,
@@ -489,11 +496,69 @@ def _formula_cell_xml(prefix: bytes, existing: bytes, value) -> bytes:
     return _open_tag(prefix, b"c", _with_t(attrs, t)) + b">" + body
 
 
+def _rc(a: str) -> tuple[int, int]:
+    from ..formula.parser import parse_cell
+
+    return parse_cell(a)
+
+
+def calc_chain_entries(xml: bytes) -> list[tuple[int, str]]:
+    """calcChain.xml の記録：(シートの番号 i, セル)。i を省いた記録は、前の記録の i を引き継ぐ（ECMA-376 18.6.1）。"""
+    out, cur = [], 0
+    for m in re.finditer(rb"<(?:\w+:)?c\b[^>]*?/?>", xml):
+        rm = re.search(rb'\br="([A-Z]+\d+)"', m[0])
+        im = re.search(rb'\bi="(\d+)"', m[0])
+        if im:
+            cur = int(im[1])
+        if rm:
+            out.append((cur, rm[1].decode()))
+    return out
+
+
+def drop_calc_chain(xml: bytes, gone: set[tuple[int, str]]) -> tuple[bytes, int]:
+    """calcChain.xml から、gone の記録だけを取り除く。取り除く記録が i（または l：新しい段）を持ち、次の記録がそれを
+    省いているときは、次の記録に移す（ほかの記録の意味を変えない）。"""
+    out = bytearray()
+    last = 0
+    cur = 0
+    carry_i = None
+    carry_l = False
+    n = 0
+    for m in re.finditer(rb"<(?:\w+:)?c\b[^>]*?/?>", xml):
+        tag = m[0]
+        rm = re.search(rb'\br="([A-Z]+\d+)"', tag)
+        im = re.search(rb'\bi="(\d+)"', tag)
+        if im:
+            cur = int(im[1])
+        if rm and (cur, rm[1].decode()) in gone:
+            out += xml[last:m.start()]
+            last = m.end()
+            n += 1
+            if im:
+                carry_i = im[1]
+            if re.search(rb'\bl="(?:1|true)"', tag):
+                carry_l = True
+            continue
+        if carry_i is not None or carry_l:
+            new = tag
+            if carry_i is not None and not im:
+                new = re.sub(rb'(\br="[A-Z]+\d+")', rb'\1 i="' + carry_i + b'"', new, count=1)
+            if carry_l and not re.search(rb'\bl="', new):
+                new = re.sub(rb"(\s*/?>)$", rb' l="1"\1', new, count=1)
+            out += xml[last:m.start()] + new
+            last = m.end()
+            carry_i, carry_l = None, False
+    out += xml[last:]
+    return bytes(out), n
+
+
 class SheetPatcher:
     def __init__(self, xml: bytes):
         self.xml = xml
         self.prefix = _prefix(xml)
         self.edits: list[tuple[int, int, bytes]] = []
+        self.inserts: list[tuple[int, int, int, bytes]] = []  # 行の中への新しいセル：(位置, 行, 列, XML)
+        self.row_inserts: dict = {}  # 新しい行：((位置), 行) → {"wrap": (開き, 閉じ), "cells": {列: XML}}
         self._index: dict[str, tuple[int, int]] | None = None
 
     def find_cell(self, r: int, c: int) -> tuple[int, int] | None:
@@ -515,11 +580,12 @@ class SheetPatcher:
         new = _input_cell_xml(self.prefix, None, a, value, style)
         pos = self._insert_pos(r, c)
         if isinstance(pos, tuple):
+            # 新しい行（または中身のない <row/>）：同じ行に入るセルは、まとめて1つの行にする（build で列の順に並べる）
             at, wrap = pos
-            new = wrap[0] + new + wrap[1]
-            self.edits.append((at[0], at[1], new))
+            g = self.row_inserts.setdefault((at, r), {"wrap": wrap, "cells": {}})
+            g["cells"][c] = new
             return at[0], at[1], len(new)
-        self.edits.append((pos, pos, new))
+        self.inserts.append((pos, r, c, new))
         return pos, pos, len(new)
 
     def set_formula_value(self, r: int, c: int, value) -> tuple[int, int, int]:
@@ -558,13 +624,19 @@ class SheetPatcher:
         return (end, end), (new_row_open, new_row_close)
 
     def build(self) -> bytes:
+        # 書き換え（start, end）と、差し込み（同じ位置なら、行の番号・列の番号の順）をまとめて並べる
+        edits = [(s_, e_, 0, 0, new) for s_, e_, new in self.edits]
+        edits += [(pos, pos, r, c, new) for pos, r, c, new in self.inserts]
+        for (at, r), g in self.row_inserts.items():
+            cells = b"".join(x for _c, x in sorted(g["cells"].items()))
+            edits.append((at[0], at[1], r, 0, g["wrap"][0] + cells + g["wrap"][1]))
         out = bytearray()
         last = 0
-        for s, e, new in sorted(self.edits, key=lambda x: x[0]):
-            if s < last:
+        for s_, e_, _r, _c, new in sorted(edits, key=lambda x: (x[0], x[2], x[3])):
+            if s_ < last:
                 raise EditError("同じ位置に重なる書き換えがあります")
-            out += self.xml[last:s] + new
-            last = e
+            out += self.xml[last:s_] + new
+            last = e_
         out += self.xml[last:]
         return bytes(out)
 
@@ -608,6 +680,40 @@ def set_vml_checked(vml: bytes, shape_id: str, state: str | None) -> bytes:
     return vml[:sm.start()] + block + vml[sm.end():]
 
 
+def _run_change_macros(wb, targets: dict, warnings: list, answers, inputs) -> tuple[set, dict | None]:
+    """値を変えると動くマクロを、targets の順に（人が1つずつ入力したのと同じように）動かす。
+    マクロが書いたセルを targets に足し、そのセルの集まりと、動かした記録を返す。動かせなければ、知らせて何も足さない。"""
+    if not getattr(wb, "has_macros", False) or not targets or getattr(wb, "vba", None) is None:
+        return set(), None
+    from ..macros import change_event_sheets, macro_info
+
+    info = macro_info(wb.vba, True, {sh.code_name: sh.name for sh in wb.sheets if getattr(sh, "code_name", None)})
+    ev = change_event_sheets(info)
+    if not ev or not (ev.get(None) or {t[0] for t in targets} & {k for k in ev if k}):
+        return set(), None
+    procs = sorted({p for k, ps in ev.items() if k is None or k in {t[0] for t in targets} for p in ps})
+    from ..vbarun import NeedsInput, Unsupported, change_events
+    from ..vbarun.parse import VbaSyntaxError
+
+    try:
+        run = _run_deep(lambda: change_events(wb, [(s, r, c, v) for (s, r, c), v in targets.items()], answers, inputs))
+    except (Unsupported, NeedsInput, VbaSyntaxError) as e:
+        warnings.extend(_macro_warnings(wb, targets))
+        warnings.append(f"セルの値を変えたときに動くマクロ（{'、'.join(procs)}）を、ここでは再現できませんでした：{e}")
+        return set(), {"ran": procs, "reproduced": False, "why": str(e)}
+    written = set()
+    for (s, r, c), v in run.changed.items():
+        if isinstance(v, str):
+            v = interpret_input(wb, s, r, c, v)[0]  # マクロが Value に入れた文字も、Excel は入力と同じように読む
+        targets[(s, r, c)] = v
+        written.add((s, r, c))
+    if run.error:
+        warnings.append(f"セルの値を変えたときに動くマクロが、Excel でも止まります：{run.error}")
+    warnings += [f"マクロのメッセージ：{m}" for m in run.messages]
+    return written, {"ran": procs, "reproduced": True, "cells": len(written), "messages": run.messages,
+                     "files": {k: len(v) for k, v in run.files.items()}, "error": run.error, "volatile": run.volatile}
+
+
 def _macro_warnings(wb, targets) -> list[str]:
     """セルの値を変えたときに動くマクロ（Worksheet_Change など）のあるシートへの書き込みを知らせる。"""
     if not getattr(wb, "has_macros", False) or not targets:
@@ -629,7 +735,8 @@ def _macro_warnings(wb, targets) -> list[str]:
 
 # ---------------------------------------------------------------- 書き込みの入口
 def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bool = False,
-         strict: bool = False, force: bool = False) -> EditResult:
+         strict: bool = False, force: bool = False, macro_answers: list | None = None,
+         macro_inputs: dict | None = None, by_macro: set | None = None, run_macros: bool = True) -> EditResult:
     """values: {'シート!セル': 値} または {'シート!Check Box 1': True}。
 
     値は、Excelでそのセルに手で入力したときと同じ規則で受け取る。入力規則のエラーが「停止」のものは、
@@ -725,15 +832,20 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
         return [i for (sheet, r, c), val in targets.items() for i in rule_issues(wb, sheet, r, c, val, calc)]
 
     issues = _run_deep(check)
-    warnings += _macro_warnings(wb, targets)
     blocking = [i for i in issues if i.blocking or strict]
     if blocking and not force:
         raise EditError("入力規則に合いません（Excelでも受け付けない値です）:\n" + "\n".join(i.message for i in blocking))
     warnings += [i.message for i in issues]
 
+    # セルの値を変えたときに動くマクロ（Worksheet_Change など）：人が入力したときと同じ順に動かし、マクロが書いたセルも書く
+    macro_written, macro_info = (_run_change_macros(wb, targets, warnings, macro_answers, macro_inputs) if run_macros
+                                 else (set(), None))
+
     changed, problems = recalc(wb, targets)
     if getattr(wb, "kind", "xlsx") == "xls":
-        return _fill_xls(wb, targets, changed, problems, controls, warnings)
+        res = _fill_xls(wb, targets, changed, problems, controls, warnings, set(by_macro or ()) | macro_written)
+        res.macro = macro_info
+        return res
     patches: list[Patch] = []
     by_sheet: dict[str, SheetPatcher] = {}
 
@@ -742,13 +854,16 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
             by_sheet[sheet] = SheetPatcher(wb.zip.read(wb.sheet(sheet).path))
         return by_sheet[sheet]
 
+    by_macro = set(by_macro or ()) | macro_written
     for (sheet, r, c), val in targets.items():
         cell = wb.sheet(sheet).cells.get((r, c))
         before = cell.value if cell else None
-        if (cell is not None and values_equal(before, val) and type(before) is type(val)) or (cell is None and val is None):
+        if (cell is not None and values_equal(before, val) and type(before) is type(val) and not cell.has_formula) or \
+                (cell is None and val is None):
             continue
         s, e, n = patcher(sheet).set_input(r, c, val, wb.sheet(sheet).style_of(r, c))
-        patches.append(Patch(wb.sheet(sheet).path, sheet, addr(r, c), "input", before, val, (s, e), n))
+        kind = "macro" if (sheet, r, c) in by_macro else "input"
+        patches.append(Patch(wb.sheet(sheet).path, sheet, addr(r, c), kind, before, val, (s, e), n))
     for (sheet, r, c), val in sorted(changed.items()):
         cell = wb.sheet(sheet).cells[(r, c)]
         if (sheet, r, c) in problems:
@@ -759,6 +874,16 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
 
     for sheet, p in by_sheet.items():
         wb.zip.replace(wb.sheet(sheet).path, p.build())
+    # 数式のセルに値を書いた（マクロが書いた・数式の上書きを許した）：calcChain.xml から、そのセルの記録を取り除く
+    # （数式のないセルが残っていると、Excel は開くときに修復を求める）
+    gone = {(wb.sheet(p_.sheet).sheet_id, p_.address) for p_ in patches if p_.kind in ("input", "macro")
+            and (cc := wb.sheet(p_.sheet).cells.get(_rc(p_.address))) is not None and cc.formula is not None}
+    chain = getattr(wb, "calc_chain", None)
+    if gone and chain and wb.zip.has(chain):
+        new_chain, n_removed = drop_calc_chain(wb.zip.read(chain), gone)
+        if n_removed:
+            wb.zip.replace(chain, new_chain)
+            patches.append(Patch(chain, "", "calcChain", "workbook", None, f"数式を値に置き換えた {n_removed} セルの記録を取り除いた"))
 
     parts: dict[str, bytes] = {}
     for (sheet, _sid), (_s, ctl, b) in sorted(controls.items(), key=lambda x: (x[0][0], int(x[0][1]) if x[0][1].isdigit() else 0)):
@@ -797,7 +922,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
 
     blob = wb.zip.build()
     res = EditResult(blob=blob, patches=patches, warnings=warnings, unverified=unverified,
-                     full_calc_on_load=full_calc)
+                     full_calc_on_load=full_calc, macro=macro_info)
     res.original_sha256 = hashlib.sha256(wb.zip.original).hexdigest()
     res.sha256 = hashlib.sha256(blob).hexdigest()
     res.changed_parts = wb.zip.modified_names()
@@ -808,7 +933,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
     return res
 
 
-def _fill_xls(wb, targets, changed, problems, controls, warnings) -> EditResult:
+def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set | None = None) -> EditResult:
     """古いExcel（.xls）への書き込み：ブックのストリームのレコードを差し替え、複合ファイルのほかの部分は変えない。"""
     from ..xls.write import XlsEditor
 
@@ -820,7 +945,8 @@ def _fill_xls(wb, targets, changed, problems, controls, warnings) -> EditResult:
         if (cell is not None and values_equal(before, val) and type(before) is type(val)) or (cell is None and val is None):
             continue
         ed.set_cell(sheet, r, c, val, wb.sheet(sheet).style_of(r, c) or None)
-        patches.append(Patch(wb.stream_name, sheet, addr(r, c), "input", before, val))
+        patches.append(Patch(wb.stream_name, sheet, addr(r, c), "macro" if (sheet, r, c) in (by_macro or set()) else "input",
+                             before, val))
     for (sheet, r, c), val in sorted(changed.items()):
         cell = wb.sheet(sheet).cells[(r, c)]
         if cell.array_master is not None:

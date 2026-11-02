@@ -224,6 +224,17 @@ def test_fill_new_row_and_new_cell():
     assert sh.cells[(30, 36)].value == "追記"
 
 
+def test_fill_several_new_cells_in_the_same_new_row():
+    # ない行に2つのセル（列の逆の順で指示）と、同じ位置に入る2つの新しい行：1つの行にまとめ、行・列の順に並べる
+    vals = {"明細書!AK60": "後", "明細書!AJ60": "前", "明細書!AJ62": "下", "明細書!AJ61": "上"}
+    res = fill(load(str(KAMI)), vals, force=True)
+    pr = prove(KAMI.read_bytes(), res.blob, {("明細書", k.split("!")[1]) for k in vals})
+    assert pr.ok and not pr.lint_errors, (pr.unexpected, pr.lint_errors)
+    sh = Workbook(res.blob).sheet("明細書")
+    assert [sh.cells[(60, 36)].value, sh.cells[(60, 37)].value, sh.cells[(61, 36)].value, sh.cells[(62, 36)].value] == \
+        ["前", "後", "上", "下"]
+
+
 # ------------------------------------------------------------------ 互換（構造）
 @pytest.mark.parametrize("edits", [
     EDITS,
@@ -261,3 +272,30 @@ def test_diagnosis_finds_barriers():
 
     g = grade_blob(KAMI.read_bytes(), KAMI.name)
     assert "cannot_do" in [c["id"] for c in g.agent_checks]
+
+
+def test_drop_calc_chain_keeps_the_meaning_of_other_entries():
+    from todoku.xlsx.edit import calc_chain_entries, drop_calc_chain
+
+    xml = b'<calcChain xmlns="x"><c r="B3" i="1" l="1"/><c r="B4"/><c r="C1" i="2"/></calcChain>'
+    new, n = drop_calc_chain(xml, {(1, "B3")})
+    assert n == 1 and calc_chain_entries(new) == [(1, "B4"), (2, "C1")] and b'r="B4" i="1" l="1"' in new
+
+
+def test_overwriting_a_formula_removes_only_its_calc_chain_entry():
+    # 数式のセルに値を書いたら（マクロが書いたときなど）、calcChain.xml からそのセルの記録だけを取り除く
+    from todoku.xlsx.edit import calc_chain_entries
+
+    path = CORPUS / "wide" / "www.city.nagoya.jp" / "r8mousikomisyo.xlsm"
+    if not path.exists():
+        pytest.skip("corpus なし")
+    wb = Workbook(path.read_bytes())
+    sid_of = {sh.sheet_id: sh.name for sh in wb.sheets}
+    sid, cell = calc_chain_entries(wb.zip.read(wb.calc_chain))[0]
+    key = f"{sid_of[sid]}!{cell}"
+    res = fill(wb, {key: 1}, allow_formula_overwrite=True, force=True)
+    pr = prove(path.read_bytes(), res.blob, res.allowed_inputs, set(), {(sid_of[sid], cell)})
+    assert pr.ok, (pr.unexpected[:5], pr.lint_errors[:5])
+    after = Workbook(res.blob)
+    entries = calc_chain_entries(after.zip.read(after.calc_chain))
+    assert (sid, cell) not in entries and len(entries) == len(calc_chain_entries(wb.zip.read(wb.calc_chain))) - 1

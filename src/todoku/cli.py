@@ -228,9 +228,10 @@ def _write_fill(wb: Workbook, values: dict, out_path: Path, strict: bool) -> int
         print(f"書き込めません: {e}", file=sys.stderr)
         return 2
     out_path.write_bytes(res.blob)
-    allowed = {(p.sheet, p.address) for p in res.patches if p.kind == "input"}
+    allowed = res.allowed_inputs
     allowed_controls = {(p.sheet, p.address) for p in res.patches if p.kind == "control"}
-    pr = prove(wb.zip.original, res.blob, allowed, allowed_controls)
+    pr = prove(wb.zip.original, res.blob, allowed, allowed_controls,
+               {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
     for w in res.warnings:
         print(f"注意: {w}")
     for u in res.unverified:
