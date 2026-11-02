@@ -27,8 +27,12 @@ todoku が書き込んだあとで、元と同じパスワード（同じ salt�
   16 で割った余りの番目を使う。
 - .doc：WordDocument（先頭の 68 バイトを除く）・Table（先頭の lKey バイトの EncryptionHeader を除く）・Data。RC4 は
   512 バイトごとに鍵を作り直す。XOR はストリームの中の位置を 16 で割った余りの番目を使い、0 と表の値そのものは変えない。
-- RC4 CryptoAPI で「文書のプロパティも暗号化」したファイルの encryption ストリーム（プロパティ・埋め込み・ActiveX の部品の
-  入れ物）は、解かずにそのまま残す（todoku の読み取りは使わない）。
+- RC4 CryptoAPI で「文書のプロパティも暗号化」したファイルの encryption ストリーム（暗号化した要約のストリーム、
+  MS-OFFCRYPTO 2.3.5.4：プロパティのストリームと、埋め込み・ActiveX の部品の入れ物）も、同じ大きさのまま解く。先頭の 8 バイト
+  （StreamDescriptorArrayOffset・Size）は暗号化しない。そこが指す EncryptedStreamDescriptorCount から後ろ（ストリームの終わりまで）
+  はブロックの番号 0 の鍵で続けて、各ストリーム・入れ物（StreamOffset から StreamSize バイト）は、記述子の Block の番号の鍵で
+  続けて（途中で鍵を作り直さない）暗号化されている。入れ物は、それだけの複合ファイルにしたもの。解いた形は summary_entries で読む。
+  記述子が仕様の形にならないときは、解かずにそのまま残す（BinKey.summary が False）。
 
 解いた形（plain）での、暗号の印の扱い（どちらも、暗号化していないファイルと同じに見える形）
 - .xls：FilePass のレコードを、同じ位置・同じ長さの「種類 0x0000・中身がすべて 0」のレコードに置き換える。ほかのレコードの
@@ -95,6 +99,7 @@ class BinKey:
     fib_bits: int = 0  # .doc：元の FibBase の fEncrypted・fObfuscated
     lkey: int = 0  # .doc：元の FibBase.lKey
     default_password: bool = False  # 決まったパスワード（DEFAULT_XLS_PASSWORD）で開いた
+    summary: bool = False  # encryption ストリーム（暗号化した要約のストリーム）も解いた（暗号化し直すときも、そこを暗号化する）
 
     def __repr__(self) -> str:
         return f"BinKey({self.kind}, {_METHODS[self.method]})"  # 鍵の中身は出さない
@@ -484,7 +489,7 @@ def _decrypt_xls(blob: bytes, cfb: CFB, password: str | None) -> tuple[bytes, Bi
             plain[pos:pos + 2] = b"\x00\x00"  # FilePass → 同じ長さの、種類 0・中身がすべて 0 のレコード（位置は変えない）
             plain[pos + 4:pos + 4 + ln] = bytes(ln)
         _overwrite(out, cfb, path, bytes(plain))
-    return bytes(out), key
+    return _summary(out, cfb, key, decrypt=True), _with_summary(key, cfb)
 
 
 def _doc_parts(cfb: CFB, wd: bytes) -> tuple[str, str, str | None]:
@@ -535,7 +540,98 @@ def _decrypt_doc(blob: bytes, cfb: CFB, password: str | None) -> tuple[bytes, Bi
             struct.pack_into("<H", plain, 0x0A, flags & ~(_F_ENCRYPTED | _F_OBFUSCATED))
             struct.pack_into("<I", plain, 0x0E, 0)
         _overwrite(out, cfb, path, bytes(plain))
-    return bytes(out), key
+    return _summary(out, cfb, key, decrypt=True), _with_summary(key, cfb)
+
+
+# ====================================================================== 暗号化した要約のストリーム（encryption）
+def _summary_regions(data: bytes) -> list[tuple[int, int, int]] | None:
+    """解いた形の encryption ストリームの、暗号化する範囲：[(始まり, 終わり, ブロックの番号)]。形が合わなければ None。"""
+    if len(data) < 12:
+        return None
+    off, _size = struct.unpack_from("<II", data, 0)
+    if not 8 <= off <= len(data) - 4:
+        return None
+    try:
+        count = struct.unpack_from("<I", data, off)[0]
+        if count > 4096:
+            return None
+        regions = [(off, len(data), 0)]
+        p = off + 4
+        for _ in range(count):
+            so, sz, block, nlen = struct.unpack_from("<IIHB", data, p)
+            p += 16 + 2 * nlen + 2
+            if p > len(data) or not (8 <= so and so + sz <= off):
+                return None
+            if sz:
+                regions.append((so, so + sz, block))
+    except struct.error:
+        return None
+    return regions
+
+
+def summary_entries(data: bytes) -> list[tuple[str, bool, bytes]]:
+    """解いた形の encryption ストリームの中身：[(名前, ストリームか, 中身)]。入れ物は、それだけの複合ファイル。"""
+    if _summary_regions(data) is None:
+        return []
+    off = struct.unpack_from("<I", data, 0)[0]
+    count = struct.unpack_from("<I", data, off)[0]
+    out = []
+    p = off + 4
+    for _ in range(count):
+        so, sz, _block, nlen, flags = struct.unpack_from("<IIHBB", data, p)
+        name = data[p + 16:p + 16 + 2 * nlen].decode("utf-16-le", errors="replace")
+        p += 16 + 2 * nlen + 2
+        out.append((name, bool(flags & 1), data[so:so + sz]))
+    return out
+
+
+def _summary_mask(data: bytes, key: "BinKey", regions: list[tuple[int, int, int]]) -> bytes:
+    mask = bytearray(len(data))
+    for a, z, block in regions:
+        mask[a:z] = rc4(key._block_key(block), bytes(z - a))
+    return bytes(mask)
+
+
+def _summary_name(cfb: CFB) -> str | None:
+    return _root(cfb, "encryption")
+
+
+def _with_summary(key: "BinKey", cfb: CFB) -> "BinKey":
+    if key.method != "cryptoapi" or _summary_name(cfb) is None:
+        return key
+    from dataclasses import replace
+
+    data = _read(cfb, _summary_name(cfb))
+    trial = bytearray(data)
+    off = struct.unpack_from("<I", data, 0)[0] if len(data) >= 8 else 0
+    if 8 <= off < len(data):
+        trial[off:] = _xor(bytes(data[off:]), rc4(key._block_key(0), bytes(len(data) - off)))
+    return replace(key, summary=_summary_regions(bytes(trial)) is not None)
+
+
+def _summary(out: bytearray, cfb: CFB, key: "BinKey", decrypt: bool) -> bytes:
+    """encryption ストリームを解く（decrypt）・暗号化する。鍵の流れは、どちらも解いた形の記述子から決める。"""
+    name = _summary_name(cfb)
+    if key.method != "cryptoapi" or name is None:
+        return bytes(out)
+    data = _read(cfb, name)
+    if decrypt:
+        off = struct.unpack_from("<I", data, 0)[0] if len(data) >= 8 else 0
+        if not 8 <= off < len(data):
+            return bytes(out)
+        head = bytearray(data)
+        head[off:] = _xor(bytes(data[off:]), rc4(key._block_key(0), bytes(len(data) - off)))
+        regions = _summary_regions(bytes(head))
+    else:
+        if not key.summary:
+            return bytes(out)
+        regions = _summary_regions(data)
+    if regions is None:
+        if not decrypt:
+            raise CryptoError("encryption ストリームの記述子が、暗号を解いたときと違います")
+        return bytes(out)
+    _overwrite(out, cfb, name, _xor(data, _summary_mask(data, key, regions)))
+    return bytes(out)
 
 
 # ====================================================================== 暗号化し直す
@@ -577,7 +673,7 @@ def _encrypt_xls(key: BinKey, blob: bytes, cfb: CFB) -> bytes:
     for path in _biff_streams(cfb, name):
         src = bytes(data) if path == name else _read(cfb, path)
         _overwrite(out, cfb, path, _xls_stream(src, key, encrypt=True))
-    return bytes(out)
+    return _summary(out, cfb, key, decrypt=False)
 
 
 def _encrypt_doc(key: BinKey, blob: bytes, cfb: CFB) -> bytes:
@@ -600,7 +696,7 @@ def _encrypt_doc(key: BinKey, blob: bytes, cfb: CFB) -> bytes:
             continue
         src = bytes(wd) if path == wd_name else (table if path == t_name else _read(cfb, path))
         _overwrite(out, cfb, path, _doc_stream(src, key, skip))
-    return bytes(out)
+    return _summary(out, cfb, key, decrypt=False)
 
 
 # ====================================================================== 新しい鍵

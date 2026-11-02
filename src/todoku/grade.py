@@ -227,6 +227,17 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> 
     """password：パスワードで保護された PDF を開くとき（Office の書類は、api で解いた中身を渡す）。"""
     from .book import kind_of
 
+    # ---- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument）：形式ごとの段階の決め方で（openkinds）
+    from .openkinds import KINDS as _OPEN_KINDS
+    from .openkinds import grade as _open_grade
+
+    try:
+        k_open = kind_of(blob, filename)
+    except Exception:  # noqa: BLE001
+        k_open = None
+    if k_open in _OPEN_KINDS:
+        return _open_grade(k_open, blob, filename)
+    # ----
     name = filename.lower()
     if name.endswith((".csv", ".tsv", ".json", ".jsonl", ".xml")):
         return Grade("S", [Reason("S", "データそのもの", "表のデータ（CSV・JSON など）で、変換しなくても機械が読めます")],
@@ -253,6 +264,8 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> 
             return _grade_word(blob, filename, k)
         if k in ("xlsx", "xls"):
             return _grade_excel(blob, filename)
+        if k == "jtd":
+            return _grade_jtd(blob, filename)
     except Exception as e:  # noqa: BLE001
         return _locked("開けない", f"ファイルを読めませんでした（{type(e).__name__}: {str(e)[:80]}）", "読めないので、書けません")
     return _locked("対応していない形式", f"この形式（{k}）は、まだ読めません", "読めないので、書けません")
@@ -450,6 +463,8 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
                             (inline + inferred + undecided + overlap)[:12]))
     elif n_fields:
         write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・シート保護・枠などの印で決まり、そのまま書けます"))
+    else:
+        write.append(Reason("B", "印のある欄がない", "入力欄の印（入力規則・シート保護・枠など）がありません。表の作りを読んで、書くセルを番地で指定します"))
     if inline:
         reasons.append(Reason("B", "文字の中の空欄", f"{len(inline)} か所は、「令和　年　月　日」のような文字の中の空白から推定した欄です", inline[:12]))
     if inferred:
@@ -480,4 +495,47 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
             reasons.append(Reason("E", "画像だけのシート", f"シート「{sh_obj.name}」の中身は画像で、セルの文字がありません", [sh_obj.name]))
             write.append(Reason("D", "画像だけのシート", f"シート「{sh_obj.name}」は画像だけで、書くセルがありません。手で書く紙として扱います",
                                 [sh_obj.name]))
+    if getattr(wb, "biff", 8) == 5:
+        # Excel 5.0/95（BIFF5）：読めるが、書き込みとその証明はまだない
+        write.append(Reason("D", "Excel 5.0/95 の形式", "Excel 5.0/95（BIFF5）のブックは読めますが、todoku はまだ書けません"
+                            "（字のバイト列・数式のトークン・索引の形に合わせた書き込みと証明が要るため）"))
+    return _final(reasons, write)
+
+
+# ====================================================================== 一太郎（.jtd）
+def _grade_jtd(blob: bytes, filename: str) -> Grade:
+    """一太郎：読む段階は Word と同じ決め方（欄はすべて配置からの推定）。書く段階は、字数を変えない上書きなので、
+    空白・伏せ字・□ の上に書ける欄は B（解析して書く）、字のない欄（空のマスなど）は D（todoku では書けない）。"""
+    from .jtd.book import JtdFile
+    from .jtd.window import build
+
+    doc = JtdFile(blob, filename)
+    win = build(doc)
+    reasons: list[Reason] = []
+    write: list[Reason] = []
+    agent = [f for f in win["fields"] if f.get("agent")]
+    fields = [f for f in win["fields"] if not f.get("agent")]
+    if agent:
+        reasons.append(_agent_reason(agent))
+    if fields:
+        reasons.append(Reason("B", "配置から推定した入力欄",
+                              f"一太郎の文書には入力欄の印がないので、入力欄 {len(fields)} か所は、空のマスや空白・□ から推定しました",
+                              [f["id"] for f in fields[:12]]))
+    if doc.compressed:
+        write.append(Reason("D", "圧縮して保存した一太郎の文書",
+                            "読むことはできますが、書いたあとに縮め直す処理と、その証明がまだないので、書けません"))
+    else:
+        ok = [f for f in fields if not f.get("readonly")]
+        blocked = [f for f in fields if f.get("readonly")]
+        if ok or agent:
+            write.append(Reason("B", "同じ字数の上書き",
+                                "一太郎の文書は、空白・伏せ字（○○）・□ の上に、その字数までの値を上書きします（字数・位置・書式は変えない）。"
+                                f"規則で見つけた欄 {len(ok)} か所に書けます", [f["id"] for f in ok[:12]]))
+        if blocked:
+            write.append(Reason("D", "字のない欄",
+                                f"{len(blocked)} か所は字のない所（空のマスなど）です。一太郎の形式は公開された仕様がなく、"
+                                "字数を変えると位置の表がずれるおそれがあるため、字を足す書き込みはできません",
+                                [f["id"] for f in blocked[:12]]))
+        if not (ok or agent or blocked):
+            write.append(Reason("B", "印のある欄がない", "欄のない所は、前後の字を目印にして、同じ字数で上書きします"))
     return _final(reasons, write)

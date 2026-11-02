@@ -124,13 +124,30 @@ def prove(original: bytes, new: bytes, written: dict) -> DocProof:
     sa, sb = ca.streams(), cb_.streams()
     a = DocFile(original)
     allowed = {"WordDocument", a.table_name, "Data"}
+    try:
+        b = DocFile(new)
+    except Exception as e:  # noqa: BLE001
+        pr.lint_errors.append(f"書き込み後の文書を読めません: {e}")
+        return pr
+    if getattr(a, "ax_refs", None):
+        # ActiveX の部品（ObjectPool の入れ物）：書いた部品の、書いた性質だけが変わっていること
+        from ..axbin import prove_doc
+        from ..cfbwrite import check as cfb_check
+
+        sp0 = Spots(a)
+        ids = {id(it["control"].ax): k for k, it in sp0.items.items()
+               if it.get("control") is not None and it["control"].source == "activex"}
+        plain = {k: v for k, v in written.items() if not (isinstance(v, dict) and "@" in v) and not is_embed_key(k)}
+        ax_bad, ax_seen = prove_doc(a, b, plain, ids)
+        pr.unexpected += ax_bad
+        allowed |= ax_seen
+        pr.lint_errors += cfb_check(new)
     embed_written = {k: v for k, v in written.items() if is_embed_key(k)}
     written = {k: v for k, v in written.items() if k not in embed_written}
     if embed_written:
         # 埋め込んだ表：ブックは Excel の証明で、表の絵は「変わったセルの字だけ」で、Data と文字の書式は絵の移動だけで確かめる
         try:
-            b0 = DocFile(new)
-            more, probs, pr.embed_note = verify_doc(a, b0, embed_written)
+            more, probs, pr.embed_note = verify_doc(a, b, embed_written)
         except Exception as e:  # noqa: BLE001
             more, probs = set(), [f"埋め込みの表への書き込みを確かめられません：{e}"]
         allowed |= more
@@ -141,11 +158,6 @@ def prove(original: bytes, new: bytes, written: dict) -> DocProof:
             pr.entries_identical += 1
         elif name not in allowed:
             pr.unexpected.append(f"ストリーム {name} が変わっています")
-    try:
-        b = DocFile(new)
-    except Exception as e:  # noqa: BLE001
-        pr.lint_errors.append(f"書き込み後の文書を読めません: {e}")
-        return pr
     pr.lint_errors += lint(b)
     pa = [p for _k, _p, bl in a.all_blocks() for p in iter_paras(bl)]
     pb = [p for _k, _p, bl in b.all_blocks() for p in iter_paras(bl)]
@@ -230,6 +242,11 @@ def run(blob: bytes, filename: str = "") -> Audit:
     au.checks.append(Check("読み落とし（文書の文字）", not missing and not extra,
                            f"本文・表・ヘッダー/フッター・脚注・コメント・テキストボックスの字 {sum(raw.values()):,} 字を、"
                            "窓とは別の読み方（ピースの表から直接）で拾い、すべて窓に出ていることを確かめました", missing + extra))
+    from ..axfile import reading_check
+
+    axc = reading_check(getattr(doc, "ax_refs", []), win)  # ActiveX の部品の見出しと文字
+    if axc is not None:
+        au.checks.append(axc)
     parts = markdown_parts(win)
     biggest = max(len(t) for _, t in parts)
     au.checks.append(Check("窓の大きさ", biggest <= 150_000, f"Markdown {sum(len(t) for _, t in parts):,} 文字（AIが1回で読める目安 15万文字以内）"))
@@ -237,7 +254,7 @@ def run(blob: bytes, filename: str = "") -> Audit:
 
     targets, protected = {}, []
     for f in win["fields"]:
-        if f.get("readonly"):
+        if f.get("readonly") or f.get("options_unknown"):
             protected.append(f["id"])
             continue
         targets[f["id"]] = _sample(f)
@@ -279,6 +296,9 @@ def run(blob: bytes, filename: str = "") -> Audit:
     ec = embeds_check(doc, win, DocFile, fill, prove)
     if ec is not None:
         au.checks.append(ec)
+    from ..embeds.audit import word_checks
+
+    au.checks += word_checks(doc, win)  # 埋め込みの読み落とし
     ap = agent_places_check(win["fields"])
     if ap is not None:
         au.checks.append(ap)

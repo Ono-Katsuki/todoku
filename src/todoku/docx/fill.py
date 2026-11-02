@@ -505,6 +505,18 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
                 continue
             if item is None:
                 raise FillError(f"{key}: そのような欄はありません")
+            if item.get("control") is not None and item["control"].source == "activex":
+                # ActiveX の部品：部品の中身（activeX*.bin・性質の袋）と控えの絵を書き換える（axfile）
+                from ..activex import AxError
+                from ..axfile import word_fill
+
+                f.check_editable(item, item["control"].part, item["control"].node.s)
+                try:
+                    for fid, shown in word_fill(f, item, value, force):
+                        f.patches.append(Patch(fid, "control", shown, item["control"].part))
+                except (AxError, ValueError) as e:
+                    raise FillError(f"{key}: {e}") from None
+                continue
             if item.get("control") is not None:
                 f.fill_control(item, value)
                 continue
@@ -553,6 +565,10 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
             z2.replace(part, ed.build())
     for part, data in embed_parts.items():
         z2.replace(part, data)
-    blob = z2.build() if f.editors or embed_parts else doc.blob
+    for part, data in getattr(f, "ax_parts", {}).items():
+        z2.replace(part, data)  # ActiveX の部品の中身と控えの絵
+    for part, (data, like) in getattr(f, "ax_added", {}).items():
+        z2.add(part, data, like)  # 共有していた控えの絵から分けた、その部品だけの絵
+    blob = z2.build() if f.editors or embed_parts or getattr(f, "ax_parts", None) else doc.blob
     del z
     return FillResult(blob, f.patches, f.warnings)

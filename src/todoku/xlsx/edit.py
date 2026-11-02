@@ -751,16 +751,34 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
 
     others = _ctl.controls_linked_to(wb)
     writes: list[tuple[str, Control, dict]] = []  # チェックボックス以外の部品の状態
+    from .. import axfile
+
+    ax_links = axfile.excel_links(wb)
+    ax_writes: list = []  # ActiveX の部品の性質（MS-OFORMS）
 
     def take(plan) -> None:
         for key, val_ in plan.cells.items():
             targets[key] = val_
         writes.extend(plan.controls)
 
+    def take_ax(sheet_: str, ctl_, v_, where: str) -> None:
+        from ..activex import AxError
+
+        try:
+            p_ = axfile.plan_excel(wb, sheet_, ctl_, v_, force=force)
+        except AxError as e:
+            raise EditError(f"{where}: {e}") from None
+        targets.update(p_.cells)
+        ax_writes.extend(p_.controls)
+        warnings.extend(p_.notes)
+
     for k, v in values.items():
         ctl = find_control(wb, k)
         if ctl is not None:
             sheet = wb.sheet(k.rsplit("!", 1)[0].strip("'")).name
+            if getattr(ctl, "ax", None) is not None:
+                take_ax(sheet, ctl, v, k)  # ActiveX の部品：性質と、つながったセル
+                continue
             if ctl.kind in ("Radio",) + _ctl.CHOICE_KINDS + _ctl.VALUE_KINDS:
                 try:
                     take(_ctl.plan(wb, sheet, ctl, as_bool(v) if ctl.kind == "Radio" and as_bool(v) is not None else v))
@@ -786,6 +804,10 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
             raise EditError(f"{sheet}!{addr(r, c)} は数式のセルです（計算で決まるので、直接は書き込みません）")
         linked = links.get((sheet, r, c))
         other = others.get((sheet, r, c))
+        if (sheet, r, c) in ax_links:
+            # ActiveX の部品につながったセル：部品の値として受け取り、部品とセルを合わせる
+            take_ax(*ax_links[(sheet, r, c)], v, f"{sheet}!{addr(r, c)}")
+            continue
         if other is not None:
             # オプションボタン・ドロップダウン・スピンなどにつながったセル：部品の選択肢の文字か番号で受け取り、部品も合わせる
             try:
@@ -841,7 +863,8 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
 
     changed, problems = recalc(wb, targets)
     if getattr(wb, "kind", "xlsx") == "xls":
-        res = _fill_xls(wb, targets, changed, problems, controls, warnings, set(by_macro or ()) | macro_written, writes)
+        res = _fill_xls(wb, targets, changed, problems, controls, warnings, set(by_macro or ()) | macro_written, writes,
+                        ax_writes=ax_writes)
         res.macro = macro_info
         return res
     patches: list[Patch] = []
@@ -907,6 +930,17 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
             parts[ctl.vml_part] = _ctl.set_vml(parts.get(ctl.vml_part, wb.zip.read(ctl.vml_part)), ctl.shape_id, change)
         patches.append(Patch(ctl.prop_part or ctl.vml_part or "", sheet, ctl.name, "control",
                              {k_: getattr(ctl, k_) for k_ in change}, change))
+    if ax_writes:
+        # ActiveX の部品：保存の形（activeX*.bin・性質の袋）の性質と、控えの絵（EMF）を書き換える
+        from ..activex import AxError
+
+        try:
+            ax_parts, ax_done = axfile.apply_excel(wb, ax_writes)
+        except (AxError, ValueError) as e:
+            raise EditError(str(e)) from None
+        parts.update(ax_parts)
+        for d in ax_done:
+            patches.append(Patch(d["parts"][0], d["sheet"], d["control"], "control", d["before"], {"ax": d["changes"]}))
     for part, data in parts.items():
         wb.zip.replace(part, data)
 
@@ -928,14 +962,23 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
     # 次の書き込みに影響しないよう、元に戻しておく
     for e in wb.zip.entries:
         e._replacement = None
+    if getattr(wb.zip, "added", None):
+        wb.zip.drop_added()  # ActiveX の部品の控えの絵を分けるために足した部品
     return res
 
 
 def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set | None = None,
-              writes: list | None = None) -> EditResult:
+              writes: list | None = None, ax_writes: list | None = None) -> EditResult:
     """古いExcel（.xls）への書き込み：ブックのストリームのレコードを差し替え、複合ファイルのほかの部分は変えない。"""
     from ..xls.write import XlsEditor, XlsWriteError
 
+    if getattr(wb, "biff", 8) == 5:
+        # Excel 5.0/95（BIFF5）：字のバイト列・数式のトークン・索引の形が BIFF8 と違い、書き込みとその証明をまだ用意していない
+        raise EditError("Excel 5.0/95 の形式（BIFF5）のブックには、まだ書けません（読むことはできます）。"
+                        "書くには、セルの字のバイト列（文字コード）・数式のトークン・行の索引の形に合わせた書き込みと証明が要ります")
+    if getattr(wb, "dual_format", False):
+        warnings.append("このブックは Excel 97 以降の形（Workbook）と Excel 95 の形（Book）を両方持っています。書いたのは Excel 97 以降が"
+                        "読む Workbook だけで、Excel 95 で開くと古い値のままです")
     ed = XlsEditor(wb)
     patches: list[Patch] = []
     for (sheet, r, c), val in targets.items():
@@ -971,16 +1014,36 @@ def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set 
         except XlsWriteError as e:
             raise EditError(f"{sheet}!{ctl.name}: {e}") from None
         patches.append(Patch(wb.stream_name, sheet, ctl.name, "control", {k_: getattr(ctl, k_) for k_ in change}, change))
+    ax_streams: dict = {}
+    if ax_writes:
+        # ActiveX の部品：Ctls ストリーム（か MBD の入れ物）の部品の性質と、OBJ の中の部品の位置・大きさ
+        from ..activex import AxError
+        from ..axbin import apply_xls
+
+        try:
+            ax_streams, ax_done = apply_xls(wb, ed, ax_writes)
+        except AxError as e:
+            raise EditError(str(e)) from None
+        for d in ax_done:
+            patches.append(Patch(d["parts"][0], d["sheet"], d["control"], "control", d["before"], {"ax": d["changes"]}))
+        if ax_done:
+            warnings.append("古い Excel（.xls）の ActiveX の部品の控えの絵は描き直していません。代わりに、書いた部品に"
+                            "「開いたときに部品を読み込む（fAutoLoad）」「印刷のときに絵を直す（fPrintCalc）」の印を立てました。"
+                            "ActiveX を止めた Excel や、プレビューでは、古い絵のまま見えることがあります")
     unverified = [f"{s}!{addr(r, c)}: {why}" for (s, r, c), why in sorted(problems.items())]
     if unverified:
         ed.force_recalc()
     # ブックのストリームは最後の EOF の後ろを読まないので、小さすぎるときは0を足してよい
     blob = wb.cfb.replace(wb.stream_name, ed.build(), pad_ok=True) if ed.changed else wb.zip.original
+    if ax_streams:
+        from ..axbin import write_streams
+
+        blob = write_streams(blob, ax_streams)
     res = EditResult(blob=blob, patches=patches, warnings=warnings, unverified=unverified,
                      full_calc_on_load=bool(unverified))
     res.original_sha256 = hashlib.sha256(wb.zip.original).hexdigest()
     res.sha256 = hashlib.sha256(blob).hexdigest()
-    res.changed_parts = [wb.stream_name] if ed.changed else []
+    res.changed_parts = ([wb.stream_name] if ed.changed else []) + sorted(ax_streams)
     res.unchanged_parts = len(wb.cfb.streams()) - len(res.changed_parts)
     return res
 

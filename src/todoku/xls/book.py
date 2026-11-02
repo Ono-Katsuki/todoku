@@ -176,7 +176,9 @@ class XlsWorkbook:
         self.filename = filename
         self.cfb = cfb if cfb is not None else CFB(blob)
         self.zip = _ZipShim(blob)
-        name = next((n for n in self.cfb.streams() if n.lower() in ("workbook", "book")), None)
+        # Excel 97 と 95 の両方の形を持つブック（Workbook と Book）は、Excel 97 以降が読む Workbook（BIFF8）を読む
+        name = next((n for n in self.cfb.streams() if n.lower() == "workbook"), None) or \
+            next((n for n in self.cfb.streams() if n.lower() == "book"), None)
         if name is None:
             raise XlsError("Excelのブックのストリームがありません")
         self.stream_name = name
@@ -205,6 +207,9 @@ class XlsWorkbook:
         self._xti: list[tuple[int, int, int]] = []
         self._name_raw: list[tuple[str, int, bytes, bytes, bool]] = []
         self.decoder = Decoder(self)
+        self.biff = 8
+        self.biff5_encoding = "cp1252"
+        self.dual_format = bool({n.lower() for n in self.cfb.streams()} >= {"workbook", "book"})
         self._load()
 
     # ------------------------------------------------------------------ xlsx と同じ問い合わせ
@@ -295,6 +300,18 @@ class XlsWorkbook:
         if not it or it[0][1] != 0x0809:
             raise XlsError("Excelのブックとして読めません")
         vers = struct.unpack_from("<H", it[0][2], 0)[0]
+        if vers == 0x0500:
+            # Excel 5.0 / 95（BIFF5・BIFF7）：字はバイト列、XF・NAME の形が違う（biff5.py）
+            for _pos, t_, _b in it[:16]:
+                if t_ == 0x002F:
+                    raise XlsError("パスワードで保護された Excel 5.0/95 のブックです。この形の暗号は、まだ解けません")
+            from .biff5 import Biff5Reader
+
+            self.biff = 5
+            r5 = Biff5Reader(self, it)
+            r5.load()
+            self.biff5_encoding = r5.enc
+            return
         if vers != 0x0600:
             raise XlsError(f"BIFF8 ではない形式（版 0x{vers:04X}）です")
         # FilePass（0x002F）がある：ブックの中身は暗号（パスワードで解いてから開く。解かずに読むと意味のない字になる）
@@ -843,7 +860,7 @@ class XlsWorkbook:
 
         info = parse_obj(b)
         ob = {"ot": info.ot, "id": info.id, "checked": info.checked, "link": None, "text": "", "fmla_range": None,
-              "info": info}
+              "info": info, "raw": b}
         for key, rgce in (("link", info.link), ("fmla_range", info.fmla)):
             if rgce:
                 try:
@@ -857,6 +874,13 @@ class XlsWorkbook:
 
         kind = _OBJ_KIND.get(ob["ot"], "")
         info = ob.get("info")
+        if kind == "Pict":
+            from ..axbin import xls_control
+
+            c = xls_control(self, sh, ob, anchor)  # ActiveX の部品（FtPioGrbit.fCtl。中身は Ctls か MBD の入れ物）
+            if c is not None:
+                sh.controls.append(c)
+                return
         if kind in ("Drop", "List") and info is not None and info.ui_object:
             return  # オートフィルターなどのために Excel が自動で置いたボタン（入力欄ではない）
         pos = (anchor["r1"], anchor["c1"]) if anchor else None

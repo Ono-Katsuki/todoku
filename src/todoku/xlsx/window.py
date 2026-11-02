@@ -34,6 +34,11 @@ def norm_label(s: str) -> str:
 
 
 def display(wb: Workbook, cell: Cell) -> str:
+    shown = getattr(wb, "shown_text", None)  # 見える字をファイルに保存している形式（OpenDocument の表計算）は、その字
+    if shown is not None:
+        t = shown(cell)
+        if t is not None:
+            return t
     v = cell.value
     if v is None:
         return ""
@@ -500,6 +505,45 @@ def _unit_of(t: str) -> str | None:
     return t if t in _UNIT_WORDS else None
 
 
+# ActiveX の部品（MS-OFORMS）：入力欄として読むもの（文字）と、印で読むもの（チェック・オプション・スピン）
+_AX_INPUT = ("TextBox", "ComboBox", "ListBox")
+_AX_CHECK = ("CheckBox", "OptionButton", "ToggleButton", "SpinButton", "ScrollBar")
+
+
+def _ax_kind(ctl: Control) -> str | None:
+    ref = getattr(ctl, "ax", None)
+    return ref.kind if ref is not None and ref.control is not None else None
+
+
+def _ax_text(ctl: Control) -> str:
+    """ActiveX のテキストボックス・コンボボックス・リストボックスの、いまの文字（改行は ⏎ で示す）。"""
+    return ctl.ax.control.value.replace("\r\n", "⏎").replace("\n", "⏎").replace("\r", "⏎")
+
+
+def _ax_control_info(ctl: Control) -> dict:
+    """シートの部品の一覧に添える、ActiveX の部品の中身（見出し・値・組・読めないときの理由）。"""
+    ref = getattr(ctl, "ax", None)
+    if ref is None:
+        return {}
+    from ..axfile import value_of
+
+    d: dict = {"activex": ref.label, "persistence": ref.persistence}
+    if ref.control is not None:
+        d["value"] = value_of(ref)
+        if ref.kind == "OptionButton":
+            d["group"] = ref.control.get("GroupName") or ""
+        if ref.kind in ("SpinButton", "ScrollBar"):
+            d["min"], d["max"] = ctl.vmin, ctl.vmax
+    elif ref.frame is not None:
+        d["frame"] = [{"name": s.name, "kind": s.kind, "caption": s.control.caption if s.control else "",
+                       "value": s.control.value if s.control and s.kind in ("TextBox", "ComboBox", "ListBox") else
+                       (s.control.checked if s.control and s.kind in ("CheckBox", "OptionButton", "ToggleButton") else None)}
+                      for s in ref.frame.sites]
+    if ref.error:
+        d["unreadable"] = ref.error
+    return d
+
+
 class Layout:
     """1枚のシートの、目に見える配置。"""
 
@@ -515,8 +559,8 @@ class Layout:
         for s in wb.sheets:
             for ctl in s.controls:
                 # 部品につながったセルは、部品として示す（同じ欄を、セルとしても二重に出さない）
-                if ctl.kind in ("CheckBox", "Radio", "Drop", "List", "Spin", "Scroll") and ctl.link_cell \
-                        and ctl.link_cell[0] == sh.name:
+                if (ctl.kind in ("CheckBox", "Radio", "Drop", "List", "Spin", "Scroll") or _ax_kind(ctl) in _AX_INPUT + _AX_CHECK) \
+                        and ctl.link_cell and ctl.link_cell[0] == sh.name:
                     self.links[(ctl.link_cell[1], ctl.link_cell[2])] = ctl
                 if ctl.kind == "GBox" and ctl.fmla_group and s.name == sh.name:
                     from .workbook import _link_cell
@@ -552,25 +596,47 @@ class Layout:
 
         self.control_items: dict[str, list[str]] = {}
         for ctl in sh.controls:
-            if ctl.kind not in ("CheckBox", "Radio") + CHOICE_KINDS + VALUE_KINDS or ctl.anchor is None:
+            axk = _ax_kind(ctl)
+            if getattr(ctl, "ax", None) is not None and axk is None:
+                axk = "Frame" if ctl.ax.frame is not None else "?"
+            if (ctl.kind not in ("CheckBox", "Radio") + CHOICE_KINDS + VALUE_KINDS and axk not in _AX_INPUT + _AX_CHECK
+                    + ("Label", "CommandButton", "Frame", "?")) or ctl.anchor is None:
                 continue
             r = self.control_row(ctl)
             c = ctl.anchor[1]
             if sh.is_hidden(r, c):
                 continue
-            self.rows.setdefault(r, []).append(Box(r, c, r, c, "check", None, self.control_mark(ctl), ctl))
+            if axk == "Label":
+                # ActiveX のラベル：見出しの文字として読む（部品の下のセルは欄から外さない）
+                if ctl.text.strip():
+                    self.rows.setdefault(r, []).append(Box(r, c, r, c, "text", Cell(sh.name, r, c, value=ctl.text),
+                                                           ctl.text, ctl))
+                continue
+            if axk in ("CommandButton", "Frame", "?"):
+                # ボタン・フレーム・読めない ActiveX の部品：読み順の中に、何があるかだけを示す
+                from ..axfile import outline
+
+                self.rows.setdefault(r, []).append(Box(r, c, r, c, "button", None, outline(ctl.ax), ctl))
+                continue
+            if axk in _AX_INPUT:
+                # ActiveX のテキストボックス・コンボボックス・リストボックス：入力欄として読む（見出しは左や上から）
+                self.rows.setdefault(r, []).append(Box(r, c, r, c, "input", None, _ax_text(ctl), ctl))
+            else:
+                self.rows.setdefault(r, []).append(Box(r, c, r, c, "check", None, self.control_mark(ctl), ctl))
             (r1, c1), (r2, c2) = ctl.anchor, ctl.anchor_to or ctl.anchor
             for rr in range(r1, r2 + 1):
                 for cc in range(c1, c2 + 1):
                     under.add((rr, cc))
         for r, items in self.rows.items():
             # チェックボックスの下に敷かれた空欄（クリックできるようにロックを外してあるもの）は、欄として数えない
-            self.rows[r] = [b for b in items if not (b.kind == "input" and not b.text and (b.r, b.c1) in under)]
+            self.rows[r] = [b for b in items if not (b.kind == "input" and b.control is None and not b.text
+                                                     and (b.r, b.c1) in under)]
         if sh.cond_rules:
             for r in list(self.rows):
                 keep = []
                 for b in self.rows[r]:
-                    if b.kind in ("text", "formula", "input") and any(x.covers(b.r, b.c1) for x in sh.cond_rules):
+                    if b.kind in ("text", "formula", "input") and b.control is None and \
+                            any(x.covers(b.r, b.c1) for x in sh.cond_rules):
                         lk = self.looks.look(sh, b.r, b.c1)
                         b.highlighted = lk.highlighted
                         if lk.hidden and b.kind != "input" and b.text:
@@ -589,6 +655,10 @@ class Layout:
         """読み順に出す部品の状態：☑☐（チェック）・◉○（オプションボタン）・▼（ドロップダウン）・≡（リスト）・⇕（スピン）。"""
         from .controls import items_of
 
+        if getattr(ctl, "ax", None) is not None:
+            from ..axfile import mark
+
+            return mark(ctl.ax)  # ActiveX の部品
         if ctl.kind == "CheckBox":
             return "☑" if ctl.is_checked else "☐"
         if ctl.kind == "Radio":
@@ -942,7 +1012,8 @@ def _field_kind(wb: Workbook, cell: Cell | None, rules) -> str:
 
 KIND_JA = {"text": "文字", "number": "数値", "date": "日付", "time": "時刻", "choice": "選択", "checkbox": "チェックボックス",
            "radio": "オプションボタン（1つ選ぶ）", "select": "ドロップダウン・リスト（1つ選ぶ）",
-           "multiselect": "リスト（いくつでも選ぶ）", "spin": "スピンボタン・スクロールバー（数）"}
+           "multiselect": "リスト（いくつでも選ぶ）", "spin": "スピンボタン・スクロールバー（数）",
+           "option": "オプションボタン（同じ組から1つ選ぶ）", "combo": "コンボボックス（選ぶか打つ）"}
 
 
 def _rule_dict(v) -> dict:
@@ -994,6 +1065,12 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
     done_groups: set[int] = set()
     for r in sorted(lay.rows):
         for b in lay.rows[r]:
+            if b.control is not None and getattr(b.control, "ax", None) is not None:
+                if b.kind in ("input", "check"):
+                    from ..axfile import excel_field
+
+                    out.append(excel_field(wb, sh, lay, b, lay.describe(b)))  # ActiveX の部品の欄
+                continue
             if b.kind == "check" and b.control.kind != "CheckBox":
                 f = _control_field(wb, sh, lay, b, groups, done_groups)
                 if f is not None:
@@ -1200,13 +1277,17 @@ def build(wb: Workbook) -> dict:
             "validations": [{"sqref": v.sqref_text, **_rule_dict(v), "provenance": DET} for v in sh.validations],
             "cells": cells,
             "controls": [{"name": c.name, "kind": c.kind, "checked": c.checked or "Unchecked", "link": c.link,
-                          "at": addr(*c.anchor) if c.anchor else None, "text": c.text, "provenance": DET}
+                          "at": addr(*c.anchor) if c.anchor else None, "text": c.text, "provenance": DET,
+                          **_ax_control_info(c)}
                          for c in sh.controls],
             "shapes": [{"kind": s.kind, "name": s.name, "text": s.text, "alt": s.alt,
                         "anchor": addr(*s.anchor) if s.anchor else None, "provenance": DET} for s in sh.shapes],
             "notes": [{"cell": addr(*k), "text": t, "provenance": DET} for k, t in sorted(sh.comments.items())],
             "tables": _tables(wb, sh),
         })
+    from ..embeds.excel import add_to_window
+
+    add_to_window(wb, doc)  # グラフ（charts）と埋め込み（objects）：読むだけ
     return doc
 
 
@@ -1320,14 +1401,17 @@ def _md_head(doc: dict) -> list[str]:
 
 def _md_sheet(sh: dict) -> list[str]:
     """1枚のシートの窓（Markdownの行）。"""
+    from ..embeds.excel import sheet_markdown
+
     state = sh["state"]
     if state.startswith("non-"):
-        return [f"## シート「{sh['name']}」（セルのないシート）", ""]
+        what = "グラフのシート" if sh.get("charts") else "セルのないシート"
+        return [f"## シート「{sh['name']}」（{what}）", ""] + sheet_markdown(sh)
     if state != "visible":
         n = len(sh["cells"])
         return [f"## シート「{sh['name']}」（非表示）", "",
                 f"画面に出ない計算用のシートです（値のあるセル {n:,} 個）。"
-                "ここから作られる選択肢は、各入力欄の「選択肢」に展開してあります。すべてのセルはJSONの窓にあります。", ""]
+                "ここから作られる選択肢は、各入力欄の「選択肢」に展開してあります。すべてのセルはJSONの窓にあります。", ""] + sheet_markdown(sh)
     out = [f"## シート「{sh['name']}」", ""]
     info = []
     if sh.get("print_area"):
@@ -1381,7 +1465,7 @@ def _md_sheet(sh: dict) -> list[str]:
         for h in sh.get("header_footer", []):
             out.append(f"- ヘッダー・フッター: {_md(h)}")
         out.append("")
-    return out
+    return out + sheet_markdown(sh)
 
 
 def to_markdown(doc: dict) -> str:
@@ -1461,6 +1545,10 @@ def _kind_text(f: dict) -> str:
             k += f"（説明: {r['prompt']}）"
     if f["kind"] == "spin":
         k += f"（{f.get('min')}〜{f.get('max')}）"
+    if f.get("activex"):
+        k += f"（ActiveX の{f['activex']}「{f.get('control')}」" + (f"・組「{f['group']}」" if f.get("group") else "") + "）"
+        if f.get("readonly"):
+            k += f"（書けない：{f['readonly']}）"
     if f.get("undecided"):
         k += f"（規則では決められない：{f['undecided']}）"
     if f.get("unit"):
@@ -1479,8 +1567,12 @@ def _kind_text(f: dict) -> str:
 
 
 def _value_text(f: dict) -> str:
+    if f["kind"] in ("checkbox", "option") and f.get("activex") and f["value"] is None:
+        return "▣ どちらでもない"
     if f["kind"] == "checkbox":
         return "☑ あり" if f["value"] else "☐ なし"
+    if f["kind"] == "option":
+        return "◉ 選んでいる" if f["value"] else "○ 選んでいない"
     if f["kind"] == "multiselect":
         return "、".join(map(str, f.get("value") or []))
     v = f.get("display", f.get("value"))

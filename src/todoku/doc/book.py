@@ -117,16 +117,21 @@ def sprm_spans(grpprl: bytes):
 class DocFile:
     kind = "doc"
 
-    def __init__(self, blob: bytes, filename: str = ""):
+    def __init__(self, blob: bytes, filename: str = "", cfb=None):
+        """cfb：ほかの文書に埋め込んだ文書（cfb.SubStorage）を読むとき。blob は外側のファイル。"""
         self.blob = blob
         self.filename = filename
-        self.cfb = CFB(blob)
+        self.cfb = cfb if cfb is not None else CFB(blob)
         self.embeds: list[dict] = []  # 埋め込んだ OLE の部品（ObjectPool の入れ物）
         if not self.cfb.has("WordDocument"):
             raise DocError("Word の文書（WordDocument）がありません")
         self.wd = self.cfb.read("WordDocument")
         wd = self.wd
         ident, self.nfib = struct.unpack_from("<HH", wd, 0)
+        if ident == 0xA5DC or (ident == 0xA5EC and self.nfib < 105):
+            # Word 6.0 / Word 95（FIB の版 101〜104）：表のストリームがなく、FIB・書式（sprm）・字の符号の形が違う
+            raise DocError(f"Word 6.0/95 の文書です（FIB の版 {self.nfib}）。この形はまだ読めません"
+                           "（Word 97 以降の形と、FIB の並び・書式の命令・字の符号が違うため。読み違えた字を出さないよう、読むのをやめました）")
         if ident != 0xA5EC:
             raise DocError("Word 97〜2003 の文書ではありません")
         self.flags = struct.unpack_from("<H", wd, 0x0A)[0]
@@ -303,9 +308,26 @@ class DocFile:
         for e in self.embeds:
             if e["storage"] == storage:
                 return e
-        label = {"Excel.Sheet": "Excel の表", "Excel.Chart": "Excel のグラフ", "Word.Document": "Word の文書"}.get(
-            ".".join(prog.split(".")[:2]), prog or "埋め込み")
+        from ..embeds.ole import label_of
+
+        label = label_of(prog)
         e = {"n": len(self.embeds) + 1, "storage": storage, "prog": prog, "label": label, "para": p}
+        self.embeds.append(e)
+        return e
+
+    def _add_data_embed(self, pos: int, prog: str, p) -> dict | None:
+        """RC4 CryptoAPI で暗号化した文書では、OLE の部品の入れ物は ObjectPool ではなく Data ストリームの pos にある
+        （FOBJH の後ろ。MS-DOC 2.9.94・sprmCPicLocation）。そこに入れ物があれば、埋め込みの一覧に足す。"""
+        from ..embeds.ole import label_of
+        from ..embeds.word import fobjh_storage
+
+        if fobjh_storage(self.data, pos) is None:
+            return None
+        storage = f"Data@{pos}"
+        for e in self.embeds:
+            if e["storage"] == storage:
+                return e
+        e = {"n": len(self.embeds) + 1, "storage": storage, "prog": prog, "label": label_of(prog), "para": p}
         self.embeds.append(e)
         return e
 
@@ -509,11 +531,19 @@ class DocFile:
                 f["ctl"] = self._form_field(f, p)
                 f["n0"] = len(p.segs)
                 words = f["instr"].split()
+                if words and words[0].upper() == "CONTROL":
+                    # ActiveX の部品：入れ物の名前は、区切りの字の sprmCPicLocation の値の前に「_」（MS-DOC 2.1.4）
+                    pic = self.char_props(cp)["pic"]
+                    if pic is not None:
+                        from ..axbin import doc_ref
+
+                        f["ax"] = doc_ref(self, f"ObjectPool/_{pic}", words[1] if len(words) > 1 else "")
                 if words and words[0].upper() == "EMBED":
                     # 埋め込んだ OLE の部品：入れ物の名前は、区切りの字の sprmCPicLocation の値の前に「_」（MS-DOC 2.1.4）
                     pic = self.char_props(cp)["pic"]
                     if pic is not None:
-                        f["ole"] = self._add_embed(f"ObjectPool/_{pic}", words[1] if len(words) > 1 else "", p)
+                        prog = words[1] if len(words) > 1 else ""
+                        f["ole"] = self._add_embed(f"ObjectPool/_{pic}", prog, p) or self._add_data_embed(pic, prog, p)
                 cp += 1
                 continue
             if o == 0x15 and stack:
@@ -548,6 +578,15 @@ class DocFile:
                 p.segs.append(Seg("‑", "other", CPRef(cp), None, hidden))
             elif o == 0x1F:
                 pass
+            elif o in (0x01, 0x08) and props["spec"] and any(x.get("ax") is not None and not x.get("ax_done")
+                                                              and x["phase"] == "result" for x in stack):
+                # CONTROL のフィールドの結果の絵（控えの絵）の所に、ActiveX の部品を置く
+                from ..axfile import _add_word
+
+                fx = next(x for x in reversed(stack) if x.get("ax") is not None and x["phase"] == "result")
+                fx["ax_done"] = True
+                fx["ax"].pic_cp = cp
+                _add_word(self, fx["ax"], None, "doc", p, None, hidden, len(p.segs), CPRef(cp))
             elif o in (0x01, 0x08) and props["spec"]:
                 ole = next((x["ole"] for x in reversed(stack) if x.get("ole") and x["phase"] == "result"), None)
                 if ole is not None and o == 0x01 and props["pic"] is not None:

@@ -430,6 +430,7 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
     sp = Spots(doc)
     w = DocWriter(doc)
     patches = []
+    ax_writes: list = []  # ActiveX の部品の (部品, 変える性質)
     problems = []
     warnings: list[str] = []
     used: dict = {}
@@ -473,6 +474,19 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                     raise FillError(f"{key}: この文書は保護されていて（{doc.protection}）、ここには書けません")
             c = it.get("control")
             mark = key.replace(".", "_").replace("#", "_")
+            if c is not None and c.source == "activex":
+                # ActiveX の部品：ObjectPool の入れ物の中の部品の性質を書く（axbin）
+                from ..activex import AxError
+                from ..axfile import word_plan
+
+                ids = {id(x.get("control")): k for k, x in sp.items.items() if x.get("control") is not None}
+                try:
+                    for ctl, changes, shown in word_plan(doc, c, value, force):
+                        ax_writes.append((ctl, changes))
+                        patches.append(Patch(ids.get(id(ctl), ctl.name), "control", shown, "doc"))
+                except AxError as e:
+                    raise FillError(f"{key}: {e}") from None
+                continue
             if c is not None:
                 if c.kind == "checkbox":
                     on = _as_bool(value)
@@ -541,7 +555,19 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
             problems.append(str(e))
     if problems:
         raise FillError("\n".join(problems))
-    return DocFillResult(w.build(), patches, warnings)
+    blob = w.build()
+    if ax_writes:
+        from ..activex import AxError
+        from ..axbin import apply_doc
+
+        try:
+            blob = apply_doc(doc, blob, ax_writes)
+        except AxError as e:
+            raise FillError(str(e)) from None
+        warnings.append("古い Word（.doc）の ActiveX の部品の控えの絵（Data の絵）は描き直していません。"
+                        "Word で部品を読み込むと書いた値で表示されますが、ActiveX を止めた Word やプレビュー・"
+                        "印刷では、古い絵のまま見えることがあります")
+    return DocFillResult(blob, patches, warnings)
 
 
 def _set_ffbits(doc: DocFile, w: DocWriter, c, res: int) -> None:

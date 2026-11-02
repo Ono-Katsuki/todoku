@@ -132,6 +132,8 @@ _CHECKED_MARKUP = [
     # 部品の状態（チェック・選んだ番号・値・複数選択）。ctrlProp の属性と、VML の要素
     re.compile(rb'\s+(?:checked|sel|val|multiSel)="[^"]*"'),
     re.compile(rb"[ \t]*<x:(Checked|Sel|Val|MultiSel)>[^<]*</x:\1>[ \t]*\r?\n?"),
+    # ActiveX の部品の控えの絵の参照（共有していた絵を分けたとき。どの絵を指すかは ActiveX の証明で確かめる）
+    re.compile(rb'(?<=<v:imagedata )o:relid="[^"]*"'),
 ]
 
 
@@ -201,7 +203,9 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
     names_a = a.zip.names()
     names_b = b.zip.names()
     unexpected = []
-    if names_a != names_b:
+    added = [n for n in names_b if n not in set(names_a)]  # ActiveX の部品の、共有していた控えの絵から分けた絵（下で確かめる）
+    if [n for n in names_a if n not in set(names_b)] or names_b[:len(names_a)] != names_a or \
+            any("/media/" not in n for n in added):
         unexpected.append(f"ZIPのエントリ構成が変わりました: {sorted(set(names_a) ^ set(names_b))}")
     identical = 0
     changed = []
@@ -216,6 +220,8 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
             continue
         changed.append(n)
         ra, rb = ea.read(), eb.read()
+        if "/activeX/" in n or "/media/" in n:
+            continue  # ActiveX の部品の中身と控えの絵（バイナリ）：下の ActiveX の証明で確かめる
         xml_total += len(ra)
         xml_changed += _changed_bytes(ra, rb)
         if n.endswith(".vml") or "/ctrlProps/" in n:
@@ -267,6 +273,8 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
                 continue
             if (ca.kind, ca.link, ca.name) != (cb.kind, cb.link, cb.name):
                 unexpected.append(f"{sa.name}: コントロール「{ca.name}」の設定が変わりました")
+            if getattr(ca, "ax", None) is not None:
+                continue  # ActiveX の部品は、下の ActiveX の証明で確かめる
             from .controls import state
 
             if state(ca) == state(cb):
@@ -302,6 +310,13 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
             cb_ = b.sheet(sn).cells.get(_rc_(cell)) if sn and b.has_sheet(sn) else None
             if not (ca_ is not None and ca_.formula is not None and (cb_ is None or cb_.formula is None)):
                 unexpected.append(f"calcChain.xml から、数式の残っているセル {sn}!{cell} の記録が取り除かれました")
+    # ActiveX の部品（MS-OFORMS）：指示した部品の、指示した性質のバイトと大きさの記録だけが変わり、控えの絵は書いた状態の絵
+    if any(getattr(c, "ax", None) is not None for s in a.sheets for c in s.controls):
+        from ..axfile import prove_excel
+
+        ax_changes, ax_bad, _ax_parts = prove_excel(a, b, changed, allowed_controls, added)
+        control_changes += ax_changes
+        unexpected += ax_bad
     before_bad = set(_linked_controls_agree(a))
     unexpected += [x for x in _linked_controls_agree(b) if x not in before_bad]  # 書き込みで新しく生じた食い違いだけ
     if [d.text for d in a.names] != [d.text for d in b.names]:

@@ -7,7 +7,9 @@ class FormatError(ValueError):
     pass
 
 
-def kind_of(blob: bytes) -> str:
+def kind_of(blob: bytes, filename: str = "") -> str:
+    """形式の名前。filename（ファイルの名前）は、中身だけでは決まらない形式（CSV・TSV・JSON・JSON Lines）を見分けるのに使う
+    （名前を渡さなければ、いままでと同じ判定）。"""
     if blob[:2] == b"PK":
         if len(blob) < 64:
             return "xlsx"
@@ -21,6 +23,9 @@ def kind_of(blob: bytes) -> str:
             return "docx"
         if any(n.startswith("ppt/") for n in names):
             return "pptx"
+        odf = _odf_kind(blob, names)  # OpenDocument（.odt・.ods）：mimetype の部品で見分ける
+        if odf:
+            return odf
         return "xlsx"
     if blob[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
         from .cfb import CFB
@@ -32,10 +37,65 @@ def kind_of(blob: bytes) -> str:
             return "xls"
         if "worddocument" in names:
             return "doc"
+        # 一太郎（.jtd・.jtt）：JustSystems のストリームの一覧と、本文（または圧縮した文書）
+        from .jtd.book import is_jtd
+
+        if is_jtd(names):
+            return "jtd"
         return "cfb"
     if blob[:4] == b"%PDF":
         return "pdf"
+    text = _text_kind(blob, filename)  # RTF（中身で）・CSV・TSV・JSON・JSON Lines（名前で）
+    if text:
+        return text
     return "unknown"
+
+
+# ====================================================================== CSV・JSON・RTF・OpenDocument（中身と名前で見分ける）
+_ODF_MIME = {"application/vnd.oasis.opendocument.text": "odt", "application/vnd.oasis.opendocument.text-template": "odt",
+             "application/vnd.oasis.opendocument.text-master": "odt",
+             "application/vnd.oasis.opendocument.spreadsheet": "ods",
+             "application/vnd.oasis.opendocument.spreadsheet-template": "ods",
+             "application/vnd.oasis.opendocument.presentation": "odp", "application/vnd.oasis.opendocument.graphics": "odg"}
+_BY_NAME = {".csv": "csv", ".tsv": "tsv", ".tab": "tsv", ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl"}
+
+
+def _odf_kind(blob: bytes, names: set) -> str | None:
+    """OpenDocument のパッケージ（ODF 1.3 第2部 3.3）：先頭の mimetype の部品、なければ manifest.xml の「/」の media-type。"""
+    from .zipraw import RawZip
+
+    try:
+        z = RawZip(blob)
+        if "mimetype" in names:
+            mime = z.read("mimetype").decode("ascii", "replace").strip()
+        elif "META-INF/manifest.xml" in names:
+            import re
+
+            m = re.search(rb'full-path="/"[^>]*?media-type="([^"]+)"|media-type="([^"]+)"[^>]*?full-path="/"',
+                          z.read("META-INF/manifest.xml"))
+            mime = (m[1] or m[2]).decode("ascii", "replace") if m else ""
+        else:
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+    return _ODF_MIME.get(mime)
+
+
+def _text_kind(blob: bytes, filename: str) -> str | None:
+    head = blob[:64].lstrip(b"\xef\xbb\xbf \t\r\n")
+    if head.startswith(b"{\\rtf"):
+        return "rtf"
+    if head.startswith(b"<?xml") or head.startswith(b"<office:document"):
+        import re
+
+        m = re.search(rb'office:mimetype="([^"]+)"', blob[:4096])  # 1つの XML の OpenDocument（.fodt・.fods）
+        if m and _ODF_MIME.get(m[1].decode("ascii", "replace")) in ("odt", "ods"):
+            return "f" + _ODF_MIME[m[1].decode("ascii", "replace")]
+    name = filename.lower()
+    for ext, kind in _BY_NAME.items():
+        if name.endswith(ext):
+            return kind
+    return None
 
 
 def open_book(blob: bytes, filename: str = ""):

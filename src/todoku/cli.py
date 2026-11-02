@@ -168,6 +168,8 @@ def cmd_convert(a) -> int:
         return _pdf_convert(a)
     if k in ("docx", "doc"):
         return _docx_convert(a)
+    if k == "jtd":
+        return _jtd_convert(a)
     wb = _load(a.file)
     out = Path(a.out or ".")
     out.mkdir(parents=True, exist_ok=True)
@@ -267,6 +269,8 @@ def cmd_fill(a) -> int:
         return _pdf_fill(a, values)
     if k in ("docx", "doc"):
         return _docx_fill(a, values)
+    if k == "jtd":
+        return _jtd_fill(a, values)
     wb = _load(a.file)
     return _write_fill(wb, values, Path(a.out), a.strict)
 
@@ -355,6 +359,10 @@ def cmd_audit(a) -> int:
         from .doc.audit import run as doc_run
 
         au = doc_run(blob, Path(a.file).name)
+    elif k == "jtd":
+        from .jtd.audit import run as jtd_run
+
+        au = jtd_run(blob, Path(a.file).name)
     else:
         au = run(blob, Path(a.file).name, Path(a.example).read_bytes() if a.example else None)
     for c in au.checks:
@@ -466,3 +474,33 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ====================================================================== 一太郎（.jtd）
+def _jtd_convert(a) -> int:
+    """一太郎の窓（Markdown と JSON）を書き出す。"""
+    from . import api
+
+    _k, doc, parts = api.window(a.file)
+    out = Path(a.out or ".")
+    out.mkdir(parents=True, exist_ok=True)
+    stem = Path(a.file).stem
+    (out / f"{stem}.window.md").write_text("\n\n".join(t for _, t in parts), encoding="utf-8")
+    _dump({k: v for k, v in doc.items() if k != "stories"} | {"stories": [{x: y for x, y in st.items() if x != "_plain"}
+                                                                          for st in doc["stories"]]},
+          out / f"{stem}.window.json")
+    print(f"窓：{out / (stem + '.window.md')}（入力欄 {len(doc['fields'])} か所）")
+    return 0
+
+
+def _jtd_fill(a, values: dict) -> int:
+    """一太郎に、同じ字数の上書きで書き込み、証明を出す。"""
+    from . import api
+
+    try:
+        r = api.fill(a.file, values, a.out)
+    except api.ApiError as e:
+        sys.exit(str(e))
+    print(r["proof"])
+    print(r["say_to_user"])
+    return 0 if r["proof_ok"] and r["read_back_ok"] else 1

@@ -55,7 +55,8 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
 
     pr = DocxProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest())
     za, zb = RawZip(original), RawZip(new)
-    if za.names() != zb.names():
+    added = zb.names()[len(za.names()):]  # ActiveX の部品の、共有していた控えの絵から分けた絵（下で確かめる）
+    if zb.names()[:len(za.names())] != za.names() or any("/media/" not in n for n in added):
         pr.unexpected.append("ZIP の中の部品の並びが変わっています")
         return pr
     changed_parts = []
@@ -120,10 +121,33 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
             continue
         p = it["para"]
         targets.setdefault(index[id(p)], []).append((fid, it, value))
+    # ActiveX の部品（MS-OFORMS）：書いた部品の、書いた性質のバイトと大きさの記録だけが変わり、控えの絵は書いた状態の絵
+    ax_parts: set[str] = set()
+    if getattr(a, "ax_refs", None):
+        from ..axfile import _ax_ref_parts, verify_word_refs
+
+        ids = {id(it["control"].ax): k for k, it in sp.items.items()
+               if it.get("control") is not None and it["control"].source == "activex"}
+        plain = {k: v for k, v in written.items() if not (isinstance(v, dict) and "@" in v)}
+        pr.unexpected += verify_word_refs(a.ax_refs, getattr(b, "ax_refs", []), za, zb, plain, ids)
+        for r in list(a.ax_refs) + list(getattr(b, "ax_refs", [])):
+            ax_parts |= _ax_ref_parts(r)
+        for n in added:
+            if n not in ax_parts:
+                pr.unexpected.append(f"ActiveX の部品の絵でない部品 {n} が足されました")
+        # 絵を分けたときは、関係（.rels）も変わる：分けた絵への関係を足しただけであること（本文の r:id は書いた段落の中）
+        from ..axfile import _rels_path, rels_added_only
+
+        for owner in {o for r in a.ax_refs for _k, o, _key, _p in r.pic_refs}:
+            rp = _rels_path(owner)
+            if rp in changed_parts:
+                pr.unexpected += rels_added_only(za.read(rp), zb.read(rp), added)
+                ax_parts.add(rp)
     # 部品ごとに、書いた段落を除いたバイト列を比べる
     for part in changed_parts:
         if part not in a.parts:
-            pr.unexpected.append(f"本文でない部品 {part} が変わっています")
+            if part not in ax_parts:
+                pr.unexpected.append(f"本文でない部品 {part} が変わっています")
             continue
         xa, xb = a.xml(part), b.xml(part)
         spans_a = [(p.node.s, p.node.e) for i, p in enumerate(pa) if p.part == part and i in targets]

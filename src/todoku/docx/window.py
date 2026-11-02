@@ -263,6 +263,10 @@ class Spots:
             return t
         c: Control | None = item.get("control")
         if c is not None:
+            if c.source == "activex":
+                from ..axfile import value_of
+
+                return value_of(c.ax)  # ActiveX の部品：部品の中に保存された値
             if c.kind == "checkbox":
                 return c.checked
             if c.placeholder:
@@ -523,6 +527,9 @@ def build(doc: DocxDocument) -> dict:
         if lines or kind == "body":
             out["stories"].append({"kind": kind, "part": part, "reading": lines, "_plain": plain})
     out["embeds"] = _embeds(doc)
+    from ..embeds.word import objects as _objects
+
+    out["objects"] = _objects(doc, shown={e["n"] for e in out["embeds"]})  # グラフ・SmartArt・Excel の表のほかの埋め込み（読むだけ）
     contexts = {}
     for st in out["stories"]:
         for line in st["reading"]:
@@ -534,8 +541,15 @@ def build(doc: DocxDocument) -> dict:
         label = it.get("label") or ""
         if c is not None:
             label = c.help or c.name or _context_label(it, contexts)
+            if c.source == "activex":
+                label = c.help or _context_label(it, contexts) or c.name  # 見出しは部品の Caption か、前に書かれた字
         d = {"id": it["id"], "kind": "text" if kind == "cell" else kind, "label": label, "source": it["source"],
              "provenance": it["provenance"], "value": sp.value(it), "context": contexts.get(it["id"], "")}
+        if c is not None and c.source == "activex":
+            from ..axfile import word_describe
+
+            d.update(word_describe(doc, c))
+            d["control"] = c.name
         if it.get("options"):
             d["options"] = it["options"]
         if c is not None and c.maxlen:
@@ -668,6 +682,11 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
             v = sp.value(it)
             # 欄の結果の文字の範囲
             a, b = _ctl_span(p, c)
+            if c.source == "activex":
+                from ..axfile import word_mark
+
+                edits.append((a, b, word_mark(c, name)))  # ActiveX の部品
+                continue
             if c.kind == "checkbox":
                 edits.append((a, b, ("☑" if v else "☐") + f"［{name}］"))
             else:
@@ -722,7 +741,8 @@ def _macros(doc):
 
 def to_markdown(doc: dict) -> str:
     out = [f"# {doc['source']['file'] or '書類'}", ""]
-    out.append(f"- 元ファイルの SHA-256: `{doc['source']['sha256']}`（{doc['source']['bytes']:,} バイト）、Word")
+    # 同じ窓を使うほかの形式（OpenDocument の文書・RTF）は、kind_ja に形式の名前を入れる
+    out.append(f"- 元ファイルの SHA-256: `{doc['source']['sha256']}`（{doc['source']['bytes']:,} バイト）、{doc.get('kind_ja') or 'Word'}")
     out.append("- この文書は読むための窓です。書き込みは `todoku fill` で、書いた欄の部分だけを変えます。")
     out.append("- 欄として示していない所に書くときは、字を目印にして書けます："
                "`{\"@1\": {\"old\": \"段落の中の元の字\", \"new\": \"書き換えた後の字\"}}`（old がいくつもあるときは、"
@@ -782,6 +802,9 @@ def to_markdown(doc: dict) -> str:
         out += [ln.replace("## シート", "### シート", 1) if ln.startswith("## シート") else
                 (ln.replace("### ", "#### ", 1) if ln.startswith("### ") else ln) for ln in e["markdown"]]
         out.append("")
+    from ..embeds.word import markdown as objects_md
+
+    out += objects_md(doc.get("objects"))
     from ..macros import markdown as macro_md
 
     out += macro_md(doc.get("macros"))
