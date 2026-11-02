@@ -651,7 +651,7 @@ class Layout:
                 keep = []
                 for b in self.rows[r]:
                     if b.kind in ("text", "formula", "input") and b.control is None and \
-                            any(x.covers(b.r, b.c1) for x in sh.cond_rules):
+                            sh.cond_rules_at(b.r, b.c1):
                         lk = self.looks.look(sh, b.r, b.c1)
                         b.highlighted = lk.highlighted
                         if lk.hidden and b.kind != "input" and b.text:

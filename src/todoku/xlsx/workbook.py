@@ -247,6 +247,28 @@ class Sheet:
     max_row: int = 0
     max_col: int = 0
 
+    def cond_rules_at(self, r: int, c: int) -> list:
+        """セル (r, c) にかかる条件付き書式の規則（ファイルに書かれた順）。規則が多いシートでは、行ごとの索引を一度だけ作って引く。"""
+        rules = self.cond_rules
+        if len(rules) <= 8:
+            return [x for x in rules if x.covers(r, c)]
+        idx = self.__dict__.get("_cf_rows")
+        if idx is None or idx[0] is not rules or idx[1] != len(rules):
+            rows: dict[int, list[tuple[int, int, int]]] = {}
+            tall: list[tuple[int, int, int, int, int]] = []
+            for i, x in enumerate(rules):
+                for r1, c1, r2, c2 in x.sqref:
+                    if r2 - r1 < 64:
+                        for rr in range(r1, r2 + 1):
+                            rows.setdefault(rr, []).append((i, c1, c2))
+                    else:
+                        tall.append((i, r1, c1, r2, c2))
+            idx = self.__dict__["_cf_rows"] = (rules, len(rules), rows, tall)
+        _rules, _n, rows, tall = idx
+        hit = {i for i, c1, c2 in rows.get(r, ()) if c1 <= c <= c2}
+        hit |= {i for i, r1, c1, r2, c2 in tall if r1 <= r <= r2 and c1 <= c <= c2}
+        return [rules[i] for i in sorted(hit)]
+
     def merged_at(self, r: int, c: int) -> tuple[int, int, int, int] | None:
         ms = self.merges
         if len(ms) <= 16:

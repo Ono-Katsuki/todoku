@@ -75,7 +75,7 @@ class Looks:
         return None
 
     def look(self, sh: Sheet, r: int, c: int) -> Look:
-        rules = sorted((x for x in sh.cond_rules if x.covers(r, c)), key=lambda x: x.priority)
+        rules = sorted(sh.cond_rules_at(r, c), key=lambda x: x.priority)
         base = self.wb.style(sh.style_of(r, c))
         font, fill, fmt = None, None, None
         out = Look()
