@@ -27,6 +27,7 @@ class ExampleCheck:
     structure_differs: list[str] = field(default_factory=list)  # 数式が違い、比較から外したセル
     template_differs: list[str] = field(default_factory=list)  # 見出しの文字など、様式の版の違い
     not_input_fields: list[str] = field(default_factory=list)  # 記入例で書かれているのに、窓が入力欄と示さなかったセル
+    agent_fields: list[str] = field(default_factory=list)  # 記入例で書かれたセルのうち、窓が「規則では決められない」と示したセル
     updated_formulas: int = 0
     controls: int = 0  # 比べたチェックボックス
     control_mismatches: list[tuple[str, str, object, object]] = field(default_factory=list)
@@ -46,6 +47,8 @@ class ExampleCheck:
         s = (f"記入例の入力 {self.inputs} か所を空の様式に記入 → 計算結果の更新 {self.updated_formulas} 個。"
              f"数式 {self.formulas:,} 個のうち、Excel（記入例）の計算結果と一致 {self.formulas - len(self.mismatches):,}・"
              f"不一致 {len(self.mismatches)}")
+        if self.agent_fields:
+            s += f"。記入例で書かれたうち {len(self.agent_fields)} か所は、窓が「規則では入力欄か決められない（エージェントが判断）」と示したセル"
         if self.depends_on_structure:
             s += f"（参照先の数式が記入例と違うので比べなかった数式 {len(self.depends_on_structure)} 個）"
         if self.controls:
@@ -147,7 +150,10 @@ def check(blank_blob: bytes, example_blob: bytes) -> ExampleCheck:
                        updated_formulas=sum(p.kind == "formula" for p in res.patches),
                        unverified=res.unverified, proof=pr)
     # 記入例で書かれた欄が、窓で入力欄として示されているか（入力欄の見落とし）
+    from .window import undecided_cells
+
     fields = {sh.name: input_cells(blank, sh) for sh in blank.sheets if not sh.state.startswith("non-")}
+    undecided = {sh.name: undecided_cells(blank, sh, fields[sh.name]) for sh in blank.sheets if sh.name in fields}
     linked = {(blank.sheet(c.link_cell[0]).name, c.link_cell[1], c.link_cell[2])
               for sh in blank.sheets for c in sh.controls if c.link_cell and blank.has_sheet(c.link_cell[0])}
     for key in values:
@@ -161,7 +167,10 @@ def check(blank_blob: bytes, example_blob: bytes) -> ExampleCheck:
         except ValueError:
             continue  # チェックボックスの名前
         if (r, c) not in fields.get(sheet, {}) and (sheet, r, c) not in linked:
-            out.not_input_fields.append(key)
+            if (r, c) in undecided.get(sheet, {}):
+                out.agent_fields.append(key)  # 窓は「規則では決められない（エージェントが判断）」と示している
+            else:
+                out.not_input_fields.append(key)
     skip = set(structure)
     for bname, ename in pair_sheets(blank, example).items():
         se = example.sheet(ename)

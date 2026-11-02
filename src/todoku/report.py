@@ -31,9 +31,9 @@ h2{font-size:1.2rem;margin:40px 0 12px;padding-bottom:6px;border-bottom:2px soli
 .headline{background:var(--okbg);border-left:6px solid var(--ok);padding:16px;border-radius:6px;font-size:1.05rem}
 .headline.ng{background:var(--blockbg);border-color:var(--block)}
 .f{background:var(--card);border:1px solid var(--line);border-left:6px solid var(--info);border-radius:8px;padding:14px 16px;margin:12px 0}
-.f.blocker{border-left-color:var(--block)}.f.warning{border-left-color:var(--warn)}
+.f.blocker{border-left-color:var(--block)}.f.warning,.f.agent{border-left-color:var(--warn)}
 .f h3{margin:0 0 4px;font-size:1.05rem}.tag{display:inline-block;font-size:.8rem;font-weight:700;padding:1px 8px;border-radius:99px;margin-right:6px}
-.tag.blocker{background:var(--blockbg);color:var(--block)}.tag.warning{background:var(--warnbg);color:var(--warn)}.tag.info{background:var(--infobg);color:var(--info)}
+.tag.blocker{background:var(--blockbg);color:var(--block)}.tag.warning,.tag.agent{background:var(--warnbg);color:var(--warn)}.tag.info{background:var(--infobg);color:var(--info)}
 .fix{margin:8px 0 0;padding:8px 12px;background:var(--okbg);border-radius:6px}.fix::before{content:"直し方：";font-weight:700}
 .where{color:var(--muted);font-size:.85rem;word-break:break-all}
 table{border-collapse:collapse;width:100%;font-size:.92rem;background:var(--card)}th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
@@ -64,11 +64,17 @@ def render(diag: dict, proof: dict | None = None, title: str | None = None) -> s
     out.append(f"<p class='meta'>{_e(diag['file'])}　·　{datetime.now():%Y-%m-%d %H:%M}　·　todoku</p>")
 
     out.append("<section aria-labelledby='ladder'><h2 id='ladder'>4段階のラダー</h2>")
-    out.append("<p>上の段階ほど難しく、最初に「壁」がある段階で止まります。</p><ol class='ladder'>")
+    out.append("<p>上の段階ほど難しく、最初に「壁」がある段階で止まります。")
+    if score.get("rules_reached", score["reached"]) < score["reached"]:
+        out.append(f"AIエージェントが判断すれば「{_e(score['reached_name'])}」まで届きますが、"
+                   f"AIを使わない規則だけでは「{_e(score['rules_reached_name'])}」で止まります。")
+    out.append("</p><ol class='ladder'>")
     for i, name in enumerate(LEVEL_NAMES):
         b = by[name]["blocker"]
+        a = by[name].get("agent", 0)
         w = by[name]["warning"]
-        cls, st = ("block", f"壁 {b} 件") if b else (("warn", f"注意 {w} 件") if w else ("ok", "問題なし"))
+        cls, st = ("block", f"壁 {b} 件") if b else (("warn", f"規則では越えられない {a} 件") if a else
+                                                    (("warn", f"注意 {w} 件") if w else ("ok", "問題なし")))
         out.append(f"<li class='step {cls}'><b>{i}. {name}</b><small>{_e(LEVEL_Q[i])}</small><div class='st'>{st}</div></li>")
     out.append("</ol></section>")
 

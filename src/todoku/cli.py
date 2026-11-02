@@ -191,7 +191,8 @@ def cmd_convert(a) -> int:
     print(f"往復: {'バイト一致' if rt_ok else '不一致'}（SHA-256 {doc['roundtrip']['sha256_original'][:16]}…）")
     print(f"関数: {s['match']}/{s['total']} 一致（不一致 {s['mismatch']}・再計算不可 {s['unsupported']}・揮発性 {s['volatile']}）")
     sc = diag.score()
-    print(f"診断: 到達 {sc['reached_name']}　壁 {sum(1 for f in diag.findings if f.severity == 'blocker')} 件・注意 {sum(1 for f in diag.findings if f.severity == 'warning')} 件")
+    print(f"診断: 到達 {sc['reached_name']}（規則だけでは {sc['rules_reached_name']}）　壁 {sum(1 for f in diag.findings if f.severity == 'blocker')} 件・"
+          f"規則では越えられない所 {sum(1 for f in diag.findings if f.severity == 'agent')} 件・注意 {sum(1 for f in diag.findings if f.severity == 'warning')} 件")
     print(f"出力: {out}/{stem}.window.md ほか4ファイル")
     return 0 if rt_ok and s["mismatch"] == 0 else 1
 

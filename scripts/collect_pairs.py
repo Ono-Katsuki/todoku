@@ -94,9 +94,13 @@ def main(argv=None) -> int:
     if a.extra_pages:
         pages += json.loads(Path(a.extra_pages).read_text(encoding="utf-8"))
     OUT.mkdir(parents=True, exist_ok=True)
-    index = []
-    seen = set()
+    # 前に集めた組に足す（同じページ・同じ組は取り直さない）
+    index = json.loads((OUT / "index.json").read_text(encoding="utf-8")) if (OUT / "index.json").exists() else []
+    seen = {(x["blank"], x["example"]) for x in index if "blank" in x and "example" in x}
+    done_pages = {x["page"] for x in index if "page" in x}
     for page in pages:
+        if page in done_pages:
+            continue
         if not page.endswith((".html", ".htm", "/")) and DOC.search(page):
             continue
         if not allowed(page):

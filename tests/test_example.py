@@ -151,7 +151,9 @@ def make_xlsx(sheets: dict[str, tuple[dict[str, object], list[tuple[str, str]]]]
             rows: dict[int, list[str]] = {}
             for a, v in sorted(cells.items(), key=lambda kv: (int(_re.sub(r"\D", "", kv[0])), kv[0])):
                 r = int(_re.sub(r"\D", "", a))
-                if isinstance(v, str):
+                if v is None:
+                    rows.setdefault(r, []).append(f'<c r="{a}"/>')  # 値のないセル（表の枠などの書式だけがあるもの）
+                elif isinstance(v, str):
                     rows.setdefault(r, []).append(f'<c r="{a}" t="inlineStr"><is><t>{escape(v)}</t></is></c>')
                 else:
                     rows.setdefault(r, []).append(f'<c r="{a}"><v>{v}</v></c>')
@@ -167,19 +169,26 @@ def make_xlsx(sheets: dict[str, tuple[dict[str, object], list[tuple[str, str]]]]
     return buf.getvalue()
 
 
-HEAD = {"A1": "Type", "B1": "Description", "C1": "Amount", "D1": "Notes"}
+HEAD = {"A1": "Type", "B1": "Description", "C1": "Amount", "D1": "Notes",
+        **{f"{c}{r}": None for c in "ABCD" for r in range(2, 10)}}  # 表の体（値のないセル）
 VALS = [("A2:A9", "list"), ("C2:C9", "decimal")]
 
 
-def test_xlsx_table_row_blanks_are_inputs():
-    from todoku.xlsx.window import input_cells
+def test_xlsx_unmarked_table_columns_are_left_to_the_agent():
+    from todoku.xlsx.diagnose import diagnose
+    from todoku.xlsx.window import input_cells, undecided_cells
     from todoku.xlsx.workbook import Workbook
 
     wb = Workbook(make_xlsx({"Budget": (HEAD, VALS)}))
-    got = input_cells(wb, wb.sheet("Budget"))
-    # 入力規則のない「Description」「Notes」の列も、表の行の空欄として入力欄
-    assert (2, 2) in got and (2, 4) in got and (9, 4) in got
-    assert (1, 2) not in got  # 見出しは入力欄でない
+    sh = wb.sheet("Budget")
+    got = input_cells(wb, sh)
+    # 入力規則のある列だけが、規則で決めた入力欄
+    assert (2, 1) in got and (2, 3) in got and (2, 2) not in got and (2, 4) not in got
+    # 印のない「Description」「Notes」の列は、入力欄と言い切らず「規則では決められない」
+    und = undecided_cells(wb, sh, got)
+    assert und[(2, 2)] == "Description" and und[(9, 4)] == "Notes" and (1, 2) not in und
+    sc = diagnose(wb).score()
+    assert sc["rules_reached_name"] == "操作できるの手前" and sc["rules_reached"] < sc["reached"]
 
 
 def test_xlsx_example_pairs_renamed_sheet():
@@ -189,3 +198,4 @@ def test_xlsx_example_pairs_renamed_sheet():
     filled = make_xlsx({"Sample budget": ({**HEAD, "A2": "A", "B2": "Hall hire", "C2": 120, "D2": "30 people"}, VALS)})
     r = xlsx_check(blank, filled)
     assert r.inputs == 4 and not r.not_input_fields, (r.headline(), r.not_input_fields)
+    assert sorted(r.agent_fields) == ["Budget!B2", "Budget!D2"]  # 印のない列に書かれた所は、エージェントの判断の所

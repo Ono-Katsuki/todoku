@@ -116,9 +116,6 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
         # 保護も入力規則もない様式：枠で囲まれた空欄・色の付いた空欄で、見出しのそばにあるもの
         for (r, c), why in _boxed_blanks(wb, sh).items():
             add(r, c, why)
-    # 表の行：見出しの下の行で、見出しのある列の半分以上がすでに入力欄なら、残りの列の空のセルも入力欄
-    # （入力規則も枠もない「説明」「備考」の列。記入例では、そこにも書いてある）
-    _table_rows(sh, out, add)
     # 数式が参照している定数・空白のセル（計算の入力）
     for cell in sh.cells.values():
         refs = list(iter_refs(cell.ast)) if cell.ast is not None else []
@@ -138,56 +135,31 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
     return out
 
 
-def _head_text(a: Anchor) -> bool:
-    """表の見出しらしい字：2字以上で、数字・単位・記号だけでない（「設」「１」「日／月」「□」は見出しでない）。"""
-    if a.cell is None or a.cell.has_formula or not isinstance(a.cell.value, str):
-        return False
-    t = a.cell.value.strip()
-    if len(t) < 2 or re.fullmatch(r"[\d０-９.．,，\s]+", t):
-        return False
-    if any(ch in t for ch in "□■☐☑") or t[0] in "※◆◇●○■＊*" or inline_blanks(t):
-        return False  # 選択肢・注意書き・「令和　年　月」のような書く所のある字
-    if t[0] in "（(" and t[-1] in "）)":
-        return False  # 「（第6号様式）」「（単位：円）」
-    return not re.fullmatch(r"(?:時間|日|月|年|週|回|人|円|件|分)(?:[／/](?:時間|日|月|年|週))?", t)
-
-
-def _table_rows(sh: Sheet, out: dict, add) -> None:
+def undecided_cells(wb: Workbook, sh: Sheet, inputs: dict) -> dict[tuple[int, int], str]:
+    """入力欄かどうかを、規則では決められないセル：表（列割りが同じ行の連続）の行に入力欄があるのに、
+    同じ行の、見出しのある列の空のセルに、入力欄の印（入力規則・枠・ロックの解除）がないもの。
+    入力欄とは言い切らず、「エージェントが見出しから判断する所」として示す。値 → その列の見出し。"""
+    if sh.state in ("hidden", "veryHidden"):
+        return {}  # 非表示のシート（選択肢の元の表など）は、記入する所ではない
     rows = anchors(sh)
-    done: set[int] = set()
-    for r in sorted(rows):
-        if r in done:
-            continue
-        heads = [a for a in rows[r] if _head_text(a)]
-        if len(heads) < 3 or len(heads) < 0.8 * sum(1 for a in rows[r] if a.cell is not None and a.cell.value not in (None, "")):
-            continue  # 見出しの行でない（見出しらしくない字のある行）
-        if any(b.c1 - a.c2 - 1 > 2 for a, b in zip(heads, heads[1:])):
-            continue  # 見出しが離れて並ぶ（表の見出しは、となりあう列に並ぶ）
-        lo, hi = heads[0].c1, heads[-1].c2
-        # データの行は、見出しの下の端（いちばん多い下の端。縦に長い「子どもにかかる変更」のような行の見出しは除く）の次から
-        ends = [a.r2 for a in heads]
-        rr = max(set(ends), key=lambda e: (ends.count(e), -e)) + 1
-        while rr in rows or any((rr, c) in out for a in heads for c in range(a.c1, a.c2 + 1)):
-            have = [a for a in heads if any((rr, c) in out for c in range(a.c1, a.c2 + 1))]
-            if len(have) < max(2, (len(heads) + 1) // 2):
-                break
-            # データの行には、見出しの範囲に文字がない（「□取得予定」のような選択肢の行は表の行でない）
-            if any(a.cell is not None and isinstance(a.cell.value, str) and a.cell.value.strip() and not a.cell.has_formula
-                   and lo <= a.c1 <= hi for a in rows.get(rr, [])):
-                break
-            for a in heads:
-                if a in have:
+    out: dict[tuple[int, int], str] = {}
+    for hr, spans, body in detect_tables(wb, sh, rows):
+        heads = {a.c1: norm_label(a.cell.value) for a in rows[hr]}
+        for br in body:
+            byc = {a.c1: a for a in rows.get(br, [])}
+            if not any((br, c1) in inputs for c1, _c2 in spans):
+                continue
+            for c1, _c2 in spans:
+                if (br, c1) in inputs or sh.is_hidden(br, c1):
                     continue
-                m = sh.merged_at(rr, a.c1)
-                tr, tc = (m[0], m[1]) if m else (rr, a.c1)
-                cell = sh.cells.get((tr, tc))
+                a = byc.get(c1)
+                cell = a.cell if a is not None else sh.cells.get((br, c1))
                 if cell is not None and (cell.has_formula or cell.value not in (None, "")):
                     continue
-                if sh.is_hidden(tr, tc):
-                    continue
-                add(tr, tc, "表の行の空欄（同じ行のほかの列が入力欄）")
-            done.add(rr)
-            rr += 1
+                if sh.protected and wb.style(sh.style_of(br, c1)).locked:
+                    continue  # 保護されたシートのロックされたセルは、書けない
+                out[(br, c1)] = heads.get(c1, "")
+    return out
 
 
 def _boxed_blanks(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], str]:
@@ -1009,6 +981,10 @@ def build(wb: Workbook) -> dict:
                 item["note"] = sh.comments[(r, c)]
             cells.append(item)
         fields = fields_for(wb, sh, lay, opts)
+        undecided = [{"cell": addr(r, c), "column": col, "decide": "agent", "provenance": LAYOUT,
+                      "reason": "表の行に入力欄があるが、このセルには入力欄の印（入力規則・枠・ロックの解除）がない。"
+                                "書く欄かどうかは、規則では決められない（見出しから判断する）"}
+                     for (r, c), col in sorted(undecided_cells(wb, sh, inputs).items())]
         labels = {f["cell"]: f for f in fields if f.get("cell")}
         for item in cells:
             f = labels.get(item["cell"])
@@ -1024,6 +1000,7 @@ def build(wb: Workbook) -> dict:
             "hidden_cols": _runs(sorted(sh.hidden_cols), cols=True),
             "header_footer": sh.header_footer,
             "fields": fields,
+            "undecided": undecided,
             "reading": reading(lay),
             "hidden_by_format": [addr(*k) for k in lay.hidden_by_format],
             "validations": [{"sqref": v.sqref_text, **_rule_dict(v), "provenance": DET} for v in sh.validations],
@@ -1166,6 +1143,17 @@ def _md_sheet(sh: dict) -> list[str]:
         out += [f"### 入力欄（{len(main)} か所）", "", "| 欄 | 見出し | 種類・選択肢 | いまの値 |", "|---|---|---|---|"]
         for g in _group_fields(main):
             out.append("| " + " | ".join(_md(x) for x in g) + " |")
+        out.append("")
+    und = sh.get("undecided", [])
+    if und:
+        by_col: dict[str, list[str]] = {}
+        for u in und:
+            by_col.setdefault(u["column"] or "（見出しなし）", []).append(u["cell"])
+        out += [f"### 入力欄かどうか、規則では決められないセル（{len(und)} か所）", "",
+                "表の行に入力欄がありますが、次の列の空のセルには入力欄の印（入力規則・枠・ロックの解除）がありません。"
+                "書く欄かどうかは、列の見出しから判断してください（書くときは、ほかの入力欄と同じように書けます）。", ""]
+        for col, cells in by_col.items():
+            out.append(f"- 列「{_md(col)}」: " + _compact(cells))
         out.append("")
     extra = [f for f in fields if f.get("unlabeled")]
     if extra:

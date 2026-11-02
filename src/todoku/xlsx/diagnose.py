@@ -17,7 +17,7 @@ from .window import input_cells
 from .workbook import Workbook
 
 LEVELS = {0: "届く", 1: "読める", 2: "操作できる", 3: "検証できる"}
-SEVERITY = {"blocker": "壁", "warning": "注意", "info": "参考"}
+SEVERITY = {"blocker": "壁", "agent": "規則では越えられない（エージェントなら越えられる）", "warning": "注意", "info": "参考"}
 
 
 @dataclass
@@ -46,13 +46,19 @@ class Diagnosis:
     stats: dict
 
     def score(self) -> dict:
-        """段階ごとに、壁があるかどうか。最初に壁がある段階が、その書類の到達点。"""
-        reached = 4
-        for lv in range(4):
-            if any(f.level == lv and f.severity == "blocker" for f in self.findings):
-                reached = lv
-                break
-        return {"reached": reached, "reached_name": "すべて" if reached == 4 else f"{LEVELS[reached]}の手前",
+        """段階ごとに、壁があるかどうか。最初に壁がある段階が、その書類の到達点。
+        規則だけ（AIを使わない決定的な処理）で越えられない所は、別に数える（rules_reached）。"""
+        def first(sev: set) -> int:
+            for lv in range(4):
+                if any(f.level == lv and f.severity in sev for f in self.findings):
+                    return lv
+            return 4
+
+        reached = first({"blocker"})
+        rules = first({"blocker", "agent"})
+        name = lambda x: "すべて" if x == 4 else f"{LEVELS[x]}の手前"  # noqa: E731
+        return {"reached": reached, "reached_name": name(reached),
+                "rules_reached": rules, "rules_reached_name": name(rules),
                 "by_level": {LEVELS[lv]: {s: sum(1 for f in self.findings if f.level == lv and f.severity == s)
                                          for s in SEVERITY} for lv in range(4)}}
 
@@ -159,6 +165,17 @@ def diagnose(wb: Workbook, rep: VerifyReport | None = None) -> Diagnosis:
                              "手で書くことを求めています。手を動かせない人には越えられない壁です。",
                              "自署の代わりに、本人の意思を確認できる電子的な方法を認める。", _cells(n, handwrite), len(handwrite)))
         inputs = input_cells(wb, sh)
+        from .window import undecided_cells
+
+        und = undecided_cells(wb, sh, inputs)
+        if und:
+            cols = sorted({c for c in und.values() if c})
+            F.append(Finding(2, "agent", "undecided_inputs", "入力欄の印のない表の列",
+                             f"表の行に入力欄がありますが、{len(und)} か所の空のセル（列「{'」「'.join(cols[:5]) or '見出しなし'}」）には"
+                             "入力欄の印（入力規則・枠・ロックの解除）がありません。書く欄かどうかを規則では決められず、"
+                             "AIエージェントが見出しから判断する必要があります。",
+                             "書いてほしいセルには、入力規則（文字数の制限だけでもよい）か枠線を付け、保護するならロックを外す。",
+                             _cells(n, sorted(und)), len(und)))
         if sh.protected and not any(not wb.style(c.style).locked for c in sh.cells.values()):
             expects_input = bool(sh.validations)
             F.append(Finding(2, "blocker" if expects_input else "info", "locked", "保護されていて入力できるセルがない",
@@ -227,7 +244,7 @@ def diagnose(wb: Workbook, rep: VerifyReport | None = None) -> Diagnosis:
                 sheet = f.where[0].split("!")[0]
                 if all(w.split("!")[0] == sheet for w in f.where):
                     f.title = f"{f.title}（{sheet}）"
-    order = {"blocker": 0, "warning": 1, "info": 2}
+    order = {"blocker": 0, "agent": 1, "warning": 2, "info": 3}
     F.sort(key=lambda f: (f.level, order[f.severity]))
     stats = {
         "sheets": len(wb.sheets),
