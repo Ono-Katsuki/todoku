@@ -10,6 +10,11 @@
   ビッグエンディアン）・ブロックの並び・セグメントの目録（番号・0・バイト数・ブロックの数×2・ブロックの番号の並び）。
   セグメントは、目録のブロックを順につないで、バイト数で切ったもの
 - 文字のセグメント：「TextV.01」・単位の数（4 バイト）・16 ビットの単位（ビッグエンディアンの UTF-16）。後ろに文字の書式が続く
+- 大きな字の並びは、分けて持つことがある（集めた文書では 34,412 単位の本文 1 つ）：「QLSTV.01」のセグメント（「QLSTV.01」・
+  片の数（4 バイト）・片ごとに〈単位の数（4 バイト）・セグメントの番号（4 バイト）〉・0（4 バイト））と、片のセグメント
+  （見出しなしの単位の並びと、その片の文字の書式）。片を一覧の順につないだものが、1 つの字の並び（記録・組も片をまたぐ。
+  表の位置の表などの位置は、つないだ並びの位置）。片の単位の数は一覧にしかないので、どの片も一覧の数で切り、後ろが文字の
+  書式として読めること・つないだ並びの記録と組の両端が合うことを確かめる
 - 単位：0x20 以上は字。0x0A 段落の終わり・0x0C 改ページ・0x0E 表の行の終わり・0x09 タブ・0x02 枠の置き場所の印。
   記録：0x1C 種類 長さ … 長さ 0 種類 0x1F（長さは両端を含む単位の数。後ろからもたどれる）。
   組：0x1C 種類 長さ … 0x1D〈中身〉0x1E 長さ 0 種類 0x1F（字の中の部品：均等割り・ルビ・リンク・フィールドなど）
@@ -31,6 +36,7 @@ from ..docx.document import Cell, Para, Seg, Table
 
 SSMG = b"SsmgV.01"
 TEXT = b"TextV.01"
+QLST = b"QLSTV.01"
 # 文字のセグメントを持つストリームと、窓での名前
 STREAMS = {"DocumentText": "body", "LayoutBoxText": "レイアウト枠", "Header": "header",
            "PageLayoutStyleHeader": "ページスタイルの柱", "Footnote": "footnotes"}
@@ -139,6 +145,59 @@ def tokens(units):
         raise JtdError("閉じていない組があります")
 
 
+def parse_runs(rest: bytes) -> list[tuple[str, object]]:
+    """字の並びの後ろ（文字の書式の区切り）→ [("n", 単位の数) | ("a", 書式を変えるバイト列)]。形が合わなければ JtdError。
+    「00＋4 バイトの数」はその数の単位を今の書式で、「FE {種類 長さ 値}… FF 00」は書式を変える。"""
+    out: list[tuple[str, object]] = []
+    pos = 0
+    while pos < len(rest):
+        b = rest[pos]
+        if b == 0x00:
+            if pos + 5 > len(rest):
+                raise JtdError("文字の書式の区切りの数が途中で終わっています")
+            out.append(("n", struct.unpack_from(">I", rest, pos + 1)[0]))
+            pos += 5
+        elif b == 0xFE:
+            start = pos
+            pos += 1
+            while True:
+                if pos + 2 > len(rest):
+                    raise JtdError("文字の書式が途中で終わっています")
+                t, ln = rest[pos], rest[pos + 1]
+                pos += 2
+                if t == 0xFF:
+                    break
+                pos += ln
+            if pos > len(rest):
+                raise JtdError("文字の書式が途中で終わっています")
+            out.append(("a", rest[start:pos]))
+        else:
+            raise JtdError(f"文字の書式の区切りに、知らない印（0x{b:02X}）があります")
+    return out
+
+
+def qlst_entries(data: bytes, stream: str = "") -> list[tuple[int, int]]:
+    """「QLSTV.01」のセグメント → [(単位の数, 片のセグメントの番号)]（一覧の順）。形が合わなければ JtdError。"""
+    if data[:8] != QLST or len(data) < 16:
+        raise JtdError(f"{stream} の分けた字の並びの一覧の形が想定と違います")
+    count = struct.unpack_from(">I", data, 8)[0]
+    if count < 1 or len(data) != 16 + 8 * count or data[-4:] != bytes(4):
+        raise JtdError(f"{stream} の分けた字の並びの一覧の長さ・終わりが想定と違います")
+    return [struct.unpack_from(">II", data, 12 + 8 * k) for k in range(count)]
+
+
+@dataclass
+class Piece:
+    """分けた字の並びの 1 片：片のセグメントと、つないだ並びの中の始まり・単位の数。"""
+
+    seg: Segment
+    start: int
+    n: int
+
+    def runs(self) -> bytes:
+        return self.seg.data[2 * self.n:]
+
+
 @dataclass
 class TextStory:
     """1つの文字のセグメント。k は文書の中の番号（JRef.k）。"""
@@ -146,12 +205,27 @@ class TextStory:
     k: int
     stream: str
     sid: int
-    seg: Segment
+    seg: Segment  # 字の並びのセグメント（分けて持つときは「QLSTV.01」の一覧のセグメント）
     units: tuple[int, ...]
+    pieces: list[Piece] | None = None  # 分けて持つときの片（一覧の順）
 
     def unit_offset(self, i: int) -> int:
         """単位の番号 → ストリームの中のバイトの位置。"""
-        return self.seg.offset(12 + 2 * i)
+        if self.pieces is None:
+            return self.seg.offset(12 + 2 * i)
+        for pc in self.pieces:
+            if pc.start <= i < pc.start + pc.n:
+                return pc.seg.offset(2 * (i - pc.start))
+        raise JtdError(f"単位 {i} が、分けた字の並びのどの片にもありません")
+
+    def piece_list(self) -> list[Piece]:
+        """片の並び（分けていない字の並びも、見出しの後ろを 1 つの片として返す）。"""
+        if self.pieces is not None:
+            return self.pieces
+        return [Piece(self.seg, 0, len(self.units))]
+
+    def runs_of(self, pc: Piece) -> bytes:
+        return self.seg.data[12 + 2 * pc.n:] if self.pieces is None else pc.runs()
 
 
 @dataclass
@@ -189,16 +263,29 @@ class JtdFile:
         # 文字のセグメント（窓に出すものすべて）
         self.texts: list[TextStory] = []
         self.segments: dict[str, list[Segment]] = {}
+        self.piece_sids: dict[str, set[int]] = {}  # 分けた字の並びの片のセグメント（ストリームごと）
         for name in cfb.streams():
             data = cfb.read(name)
             if data[:8] != SSMG:
                 continue
             segs = ssmg(data, name)
             self.segments[name] = segs
+            by_sid = {sg.sid: sg for sg in segs}
+            if len(by_sid) != len(segs):
+                raise JtdError(f"{name} に、同じ番号のセグメントがあります")
+            used = self.piece_sids.setdefault(name, set())
             for sg in segs:
+                if sg.data[:8] == QLST:
+                    used |= {sid for _n, sid in qlst_entries(sg.data, name)}
+            for sg in segs:
+                if sg.sid in used:
+                    continue
                 u = text_units(sg)
                 if u is not None:
                     self.texts.append(TextStory(len(self.texts), name, sg.sid, sg, u))
+                elif sg.data[:8] == QLST:
+                    pieces, units = _pieces(name, sg, by_sid)
+                    self.texts.append(TextStory(len(self.texts), name, sg.sid, sg, units, pieces))
         self._used: set[int] = set()
         self.body: list = []
         self.stories: list[tuple[str, str, list]] = []
@@ -243,6 +330,27 @@ class JtdFile:
             return []  # 同じ枠を2度は読まない
         self._used.add(t.k)
         return _Build(self, t, depth).run()
+
+
+def _pieces(name: str, sg: Segment, by_sid: dict[int, Segment]) -> tuple[list[Piece], tuple[int, ...]]:
+    """「QLSTV.01」の一覧 → 片の並びと、つないだ単位の並び。片が見つからない・2 度出る・字の並びや一覧である・単位の数が
+    片の長さを超える・後ろが文字の書式として読めない、のどれかなら JtdError。"""
+    pieces: list[Piece] = []
+    units: list[int] = []
+    seen: set[int] = set()
+    for n, sid in qlst_entries(sg.data, name):
+        pc = by_sid.get(sid)
+        if pc is None or sid in seen or sid == sg.sid or pc.data[:8] in (TEXT, QLST):
+            raise JtdError(f"{name} の分けた字の並びの一覧が、片のセグメント {sid} を正しく指していません")
+        seen.add(sid)
+        if 2 * n > len(pc.data):
+            raise JtdError(f"{name} の片 {sid} の単位の数（{n}）が、片の長さを超えています")
+        rest = pc.data[2 * n:]
+        if sum(v for k, v in parse_runs(rest) if k == "n") > n:
+            raise JtdError(f"{name} の片 {sid} の文字の書式の区切りの合計が、片の単位の数を超えています")
+        pieces.append(Piece(pc, len(units), n))
+        units += struct.unpack_from(f">{n}H", pc.data, 0)
+    return pieces, tuple(units)
 
 
 class _Build:

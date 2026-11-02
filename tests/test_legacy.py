@@ -144,17 +144,33 @@ BODY = "申請書¶|氏名|¶⏎|住所|　　⏎¶受付　　番号¶"
 BOLD, PLAIN = b"\xfe\x02\x02\x01\x61\xff\x00", b"\xfe\x02\x02\x00\x00\xff\x00"
 
 
-def make_jtd_full(body: str = BODY, runs=None, extra: dict | None = None, caret: int | None = None) -> bytes:
+def make_jtd_full(body: str = BODY, runs=None, extra: dict | None = None, caret: int | None = None,
+                  pieces: list[tuple[int, list]] | None = None, tc: bytes | None = None) -> bytes:
     """字数を変える書き込みのための、一太郎の文書に似せた合成のファイル（行・ページの割り付けの控え・字を打つ位置・
-    表の位置の表・ストリームの一覧を持つ）。"""
-    n = len(_text_units(body))
+    表の位置の表・ストリームの一覧を持つ）。pieces（[(片の単位の数, 片の書式の区切り)]）を渡すと、本文を「QLSTV.01」の
+    一覧と片に分けて持つ（集めた文書 61a7b1ebaf32 と同じ形：一覧は番号 0、片は 1, 2, …）。"""
+    units = _text_units(body)
+    n = len(units)
     runs = runs if runs is not None else [("n", n)]
-    text = _ssmg([(0, _textseg_runs(body, runs))])
+    if pieces is None:
+        text = _ssmg([(0, _textseg_runs(body, runs))])
+    else:
+        assert sum(m for m, _r in pieces) == n
+        segs, at = [], 0
+        lst = b"QLSTV.01" + struct.pack(">I", len(pieces))
+        for j, (m, prs) in enumerate(pieces, 1):
+            part = units[at:at + m]
+            segs.append((j, struct.pack(f">{m}H", *part) + b"".join(b"\x00" + struct.pack(">I", v) if k == "n" else v for k, v in prs)))
+            lst += struct.pack(">II", m, j)
+            at += m
+        text = _ssmg([(0, lst + bytes(4))] + segs)
     ed = b"\x00\x01\x00\x01" + struct.pack(">HI", 0x2000, 28) + struct.pack(">IIIII", 0x14, 0, n - 1 if caret is None else caret, 0, 0) \
         + bytes(8) + struct.pack(">HI", 0x2001, 4) + b"\x00\x01\x02\x03"
-    units = _text_units(body)
     rows = [i for i, x in enumerate(units) if x == 0x0E]
-    tc = b"TCntV.01" + struct.pack(">HIH", 1, 1, 0x24) + struct.pack(">II", 3, rows[-1]) + bytes(21) + b"\xff\xff"
+    # 表の範囲の項目：始まり・終わり・2 バイト・左右の位置・数 1 バイト・その数のバイト・13 バイト（集めた文書と同じ形）
+    if tc is None:
+        tc = b"TCntV.01" + struct.pack(">HIH", 1, 1, 0x24) + struct.pack(">II", 3, rows[-1]) \
+            + b"\x01\x01" + bytes(4) + b"\x01\x03" + bytes(13) + b"\xff\xff"
     streams = {"Font": b"FontV.01" + bytes(8), "LineMark": b"\x09\x02" + bytes(30), "PageMark": bytes(40), "PaperMark": bytes(20),
                "DocumentText": text, "DocumentEditStyles": ed, "DocumentTextPositionTables": _ssmg([(0, tc)])}
     streams.update(extra or {})
@@ -293,6 +309,170 @@ def test_jtd_grow_proof_catches_tampering():
     off = (root[m * 64 // 512] + 1) * 512 + (m * 64) % 512
     out[off:off + 4] = b"\x09\x02\x00\x01"
     assert not prove(blob, bytes(out), w).ok
+
+
+def _fill_prove(blob: bytes, values: dict):
+    from todoku.docx.fill import written_of
+    from todoku.jtd.audit import prove
+    from todoku.jtd.book import JtdFile
+    from todoku.jtd.fill import fill
+
+    res = fill(JtdFile(blob), values)
+    pr = prove(blob, res.blob, written_of(res.patches))
+    assert pr.ok, pr.unexpected + pr.lint_errors + pr.readback
+    return res, pr
+
+
+def _grow_field(blob: bytes) -> str:
+    from todoku.jtd.book import JtdFile
+    from todoku.jtd.window import build
+
+    win = build(JtdFile(blob))
+    return next(f["id"] for f in win["fields"] if f["kind"] == "text" and not f.get("maxlen") and not f.get("readonly"))
+
+
+def test_jtd_reads_and_writes_body_split_into_pieces():
+    """「QLSTV.01」の一覧と片：記録の途中で分けた本文を、つないで読み、上書き・字数を変える書き込みを証明する。"""
+    from todoku.jtd.book import JtdFile, ssmg
+
+    units = _text_units(BODY)
+    rec = next(i for i, x in enumerate(units) if x == 0x1C)
+    cut = rec + 5  # マスの記録の途中で分ける
+    n = len(units)
+    blob = make_jtd_full(pieces=[(cut, [("n", cut)]), (n - cut, [("n", n - cut)])])
+    whole = make_jtd_full()
+    assert _paras(blob) == _paras(whole)
+    doc = JtdFile(blob)
+    st = [t for t in doc.texts if t.stream == "DocumentText"]
+    assert len(st) == 1 and [pc.n for pc in st[0].pieces] == [cut, n - cut]
+    # 字数を変えない上書き（片の中の 2 バイトだけ）と、字数を変える書き込み
+    _fill_prove(blob, {"@1": {"old": "受付　　番号", "new": "受付ＡＢ番号"}})
+    res, pr = _fill_prove(blob, {_grow_field(blob): "山田　太郎"})
+    assert any("山田　太郎" in t for t in _paras(res.blob))
+    segs = {s.sid: s.data for s in ssmg(CFB(res.blob).read("DocumentText"), "d")}
+    entries = [struct.unpack_from(">II", segs[0], 12 + 8 * k) for k in range(2)]
+    assert entries == [(cut, 1), (n - cut + 5, 2)]  # 字を足した片の数だけ増える（分かれ目はそのまま）
+
+
+def _long_body(k: int) -> str:
+    return "申請書¶|氏名|¶⏎|住所|　　⏎¶" + "".join(f"第{i:04d}項の説明の文です。¶" for i in range(k)) + "受付　　番号¶"
+
+
+def _big_body() -> str:
+    """字の並び（書式の区切りは 40 バイトまで）が、1 つのセグメントで確かめた大きさ（42,466 バイト）のすぐ下になる本文。"""
+    from todoku.jtd.edit import MAX_SEG_BYTES
+
+    base = len(_text_units(_long_body(0)))
+    return _long_body((MAX_SEG_BYTES - 12 - 40 - 2 * base) // (2 * len(_text_units(_long_body(1))) - 2 * base))
+
+
+def test_jtd_splits_large_body_into_pieces_and_restates_format():
+    """1 つのセグメントで確かめた大きさを超える本文は、「QLSTV.01」の一覧と、等しい大きさの片に分ける。分ける所より前の
+    書式は、後ろの片の頭で言い直す（4 つの読み方のどれでも、どの字の書式も元のまま）。"""
+    from todoku.jtd.book import JtdFile, ssmg
+    from todoku.jtd.edit import MAX_PIECE_UNITS, MAX_SEG_BYTES
+    from todoku.jtd.proof import MODES, _body_raw, _formats
+
+    body = _big_body()
+    units = _text_units(body)
+    n = len(units)
+    a = n // 3
+    bold = b"\xfe\x02\x02\x01\x61\x14\x04\x80\x00\x00\x00\xff\x00"
+    runs = [("n", a), ("a", bold), ("n", 7), ("a", PLAIN), ("n", n - a - 7)]
+    blob = make_jtd_full(body, runs=runs)
+    seg = ssmg(CFB(blob).read("DocumentText"), "d")[0].data
+    assert len(seg) <= MAX_SEG_BYTES < len(seg) + 200
+    res, pr = _fill_prove(blob, {_grow_field(blob): "山田　太郎" * 20})
+    x = CFB(res.blob).read("DocumentText")
+    kind, pieces, sid = _body_raw(x)
+    assert kind == "list" and len(pieces) == 2 and sid == 0
+    assert all(len(p[1]) <= MAX_PIECE_UNITS for p in pieces) and abs(len(pieces[0][1]) - len(pieces[1][1])) <= 1
+    # 後ろの片の頭で、前の書式（重ねた値と、最後の区切り）を言い直している
+    assert pieces[1][2][0][0] == "a" and pieces[1][2][1] == ("a", PLAIN)
+    assert "分けて持つ形" in pr.headline()
+    # 4 つの読み方のどれでも、書いた所の後ろの字の書式は元と同じ（証明でも確かめている）
+    old = _body_raw(CFB(blob).read("DocumentText"))[1]
+    for mode in MODES:
+        assert _formats(old, mode)[-50:] == _formats(pieces, mode)[-50:]
+    assert any("受付　　番号" in t for t in _paras(res.blob))
+    # 分けた本文に、もう一度書ける（読み直して、片の分かれ目をそのままに書く）
+    blob2 = res.blob
+    _fill_prove(blob2, {"@1": {"old": "受付　　番号", "new": "受付番号"}})
+    assert JtdFile(blob2).texts
+
+
+def test_jtd_split_proof_catches_missing_restatement():
+    from todoku.cfb import CfbEditor
+    from todoku.docx.fill import written_of
+    from todoku.jtd.audit import prove
+    from todoku.jtd.book import JtdFile
+    from todoku.jtd.edit import runs_bytes, ssmg_update
+    from todoku.jtd.fill import fill
+    from todoku.jtd.proof import _body_raw
+
+    body = _big_body()
+    n = len(_text_units(body))
+    a = n // 3
+    blob = make_jtd_full(body, runs=[("n", a), ("a", BOLD), ("n", n - a)])
+    res = fill(JtdFile(blob), {_grow_field(blob): "山田　太郎" * 20})
+    w = written_of(res.patches)
+    assert prove(blob, res.blob, w).ok
+    # 後ろの片の頭の言い直しを外す：「初めに戻る」読み方で、後ろの片の書式が変わる
+    x = CFB(res.blob).read("DocumentText")
+    _kind, pieces, _sid = _body_raw(x)
+    sid, us, els = pieces[1]
+    assert els[0] == ("a", BOLD)
+    data = struct.pack(f">{len(us)}H", *us) + runs_bytes(els[1:])
+    y, _info = ssmg_update(x, {sid: data})
+    ed = CfbEditor(res.blob)
+    ed.replace("DocumentText", y)
+    pr = prove(blob, ed.blob(), w)
+    assert not pr.ok and any("言い直して" in m or "書式" in m for m in pr.unexpected)
+
+
+def test_jtd_grow_updates_marks_corrections_and_keeps_numbering():
+    """しおりの位置（表の位置の表の MarkV）・校正の情報の位置をずらし、段落番号のつながり（番号でつながる）は変えない。"""
+    from todoku.jtd.book import JtdFile, ssmg
+    from todoku.jtd.edit import policy
+
+    numbering = "".join(map(chr, [0x1C, 0, 13, 0, 0x0A, 0, 0x187, 0x2010, 0, 13, 0, 0, 0x1F]))
+    correct = "".join(map(chr, [0x1C, 0, 10, 0, 0x41, 0x81, 10, 0, 0, 0x1F]))
+    body = numbering + "申請書¶|氏名|¶⏎|住所|　　⏎¶受付" + correct + "　　番号¶"
+    units = _text_units(body)
+    corr_at = next(i for i in range(len(units)) if units[i] == 0x1C and units[i + 4] == 0x41)
+    mark_at = units.index(ord("番"))
+    nl = struct.pack(">HHIH", 1, 2, 44, 1) + struct.pack(">HHHHIHHHHHH", 0, 0x18, 0xFFFF, 0xFFFF, 1980, 0x100, 3, 1, 1, 0xFFFF, 0) \
+        + bytes(6) + b"\xff\xff\x00\x00"
+    cad = struct.pack(">HHIHH", 1, 6, 0, 2, 0) + struct.pack(">HHI", 0x81, 0, corr_at) + bytes(24) \
+        + struct.pack(">HHI", 0x83, 0, 0xFFFFFFFF) + bytes(24) + bytes(20)
+    tc = b"TCntV.01" + b"\x00\x00" + b"MarkV.01" + b"\x00\x00" + struct.pack(">II", mark_at, 0xFFFFFFFF)
+    mt = b"MarkV.01" + struct.pack(">HIH", 1, 0, 7) + "_GoBack".encode("utf-16-be")
+    blob = make_jtd_full(body, tc=tc, extra={"NumberingLink": nl, "CorrectAdditionalData": _ssmg([(1, cad)]), "MarkTag": mt})
+    assert policy(JtdFile(blob)).ok, policy(JtdFile(blob)).reasons
+    res, pr = _fill_prove(blob, {_grow_field(blob): "山田"})
+    c = CFB(res.blob)
+    t = ssmg(c.read("DocumentTextPositionTables"), "t")[0].data
+    assert struct.unpack_from(">II", t, 20) == (mark_at + 2, 0xFFFFFFFF)
+    d = ssmg(c.read("CorrectAdditionalData"), "c")[0].data
+    assert struct.unpack_from(">I", d, 16)[0] == corr_at + 2 and struct.unpack_from(">I", d, 48)[0] == 0xFFFFFFFF
+    assert c.read("NumberingLink") == nl and c.read("MarkTag") == mt
+    assert "しおりの位置" in pr.headline() and "校正の情報" in pr.headline()
+    # 段落番号のつながりが、本文の部品を番号で指していなければ（形を確かめられない）断る
+    bad = nl[:32] + b"\x00\x09" + nl[34:]
+    assert not policy(JtdFile(make_jtd_full(body, tc=tc, extra={"NumberingLink": bad, "MarkTag": mt}))).ok
+    # 校正の情報の位置が、同じ番号の部品の記録の始まりでなければ断る
+    cad2 = cad[:16] + struct.pack(">I", corr_at + 1) + cad[20:]
+    pol = policy(JtdFile(make_jtd_full(body, tc=tc, extra={"CorrectAdditionalData": _ssmg([(1, cad2)]), "MarkTag": mt})))
+    assert not pol.ok and "校正の情報" in pol.reasons[0]
+
+
+def test_jtd_grow_allows_run_boundary_with_the_same_format():
+    """書式の区切りの境でも、前と後ろの書式がどの読み方でも同じなら、字を足せる（同じ書式を 2 度言う区切り）。"""
+    units = _text_units(BODY)
+    cut = next(i for i in range(1, len(units)) if units[i] == 0x0A and units[i - 1] == 0x1F)
+    blob = make_jtd_full(runs=[("n", 1), ("a", BOLD), ("n", cut - 1), ("a", BOLD), ("n", len(units) - cut), ("a", PLAIN)])
+    res, _pr = _fill_prove(blob, {_grow_field(blob): "山田"})
+    assert any("山田" in t for t in _paras(res.blob))
 
 
 def _jscomp(native: bytes) -> bytes:

@@ -2,13 +2,18 @@
 
 書き込み処理（edit.py）の内部の値を使わずに、元のファイルと書き込み後のファイルを読み直して比べる：
 1. ストリーム：書き込み後にあるのは「元のストリーム − 取り除いた行・ページの割り付けの控え（LineMark・PageMark・PaperMark）」
-   だけ。直すと決めた構造（本文・ストリームの一覧・字を打つ位置・表の位置の表・字数の同じ上書きをしたストリーム）のほかは、
-   1 バイトも同じ
-2. 本文の Ssmg の入れ物：見出しはブロックの数のほか同じ。書いたセグメントのほかのブロック・目録・後ろのバイトは同じ。
-   書いたセグメントは、元のブロックの番号を同じ順に使い、足したブロックは元のブロックの後ろの番号
-3. 本文の字の並び：元の単位の並びに、書き込み（置き換え・足す・減らす）だけを当てたものと一致
-4. 文字の書式の区切り：書式を変えるバイト列はすべて同じ。数は、書いた所を含む区切りだけが、足した・減らした字の数だけ違う
-5. 表の位置の表・字を打つ位置：ずらした位置のほかは同じで、ずらした位置は「元の位置より前で足した・減らした字の数」だけ違う
+   だけ。直すと決めた構造（本文・ストリームの一覧・字を打つ位置・表の位置の表・校正の情報・字数の同じ上書きをした
+   ストリーム）のほかは、1 バイトも同じ
+2. 本文の Ssmg の入れ物：ブロックの大きさ・目録の後ろは同じ。元のセグメントは同じ順にあり、元のブロックの番号を同じ順に
+   頭に持つ。足したセグメント（分けた片）は目録の後ろにあり、足したブロックは元のブロックの後ろの番号で、重ならない
+3. 本文の字の並び（1 つの字の並び、または「QLSTV.01」の一覧の順につないだ片）：元の単位の並びに、書き込み（置き換え・
+   足す・減らす）だけを当てたものと一致
+4. 文字の書式の区切り：単位ごとの書式が、4 つの読み方（区切りを前の書式に「重ねる」か「置き換える」か × 片の頭で書式を
+   「引き継ぐ」か「初めに戻る」か）のどれでも、元の書式に書き込みを当てたもの（足した字は、前の字か足した所の字の書式）と
+   同じ。分けていない字の並び・片では、区切りの並びと書式を変えるバイト列も元のまま。分けた片では、頭で言い直した区切りの
+   ほかは、書式を変えるバイト列の並びが元の片と同じ。大きさは、集めた文書で確かめた大きさ（1 つのセグメント・片）まで
+5. 表の位置の表・しおり・校正の情報・字を打つ位置：ずらした位置のほかは同じで、ずらした位置は「元の位置より前で足した・
+   減らした字の数」だけ違う。校正の情報は、書き込み後の本文を読み直して、どの項目も同じ番号の校正の部品を指すことも確かめる
 6. ストリームの一覧：見出しは項目の数のほか同じ。項目は、取り除いたストリームの項目がないことと、大きさの変わったストリームの
    大きさが今の大きさであることのほか同じ
 7. 複合ファイルの入れ物：見出し（FAT・ミニ FAT の数と位置のほか）・ディレクトリの項目（名前・種類・日時・CLSID）は同じ。
@@ -241,86 +246,267 @@ def check_container(x: bytes, y: bytes, changed: set[str], removed: set[str]) ->
 
 
 # ====================================================================== 本文の比較
+def _body_raw(data: bytes):
+    """本文の Ssmg → (形, [(片のセグメントの番号, 単位の並び, 書式の区切り)], 字の並び・一覧のセグメントの番号)。
+    証明のための別の読み方：「TextV.01」が 1 つだけなら、その単位と後ろの区切り（形 "text"）。「QLSTV.01」の一覧が 1 つだけなら、
+    一覧の順に、片の頭から一覧の数の単位と、その後ろの区切り（形 "list"）。どちらでもなければ JtdError。"""
+    segs = {s.sid: s.data for s in ssmg(data, "DocumentText")}
+    texts = [sid for sid, d in segs.items() if d[:8] == TEXT]
+    lists = [sid for sid, d in segs.items() if d[:8] == b"QLSTV.01"]
+    if len(segs) == 1 and len(texts) == 1:
+        sid = texts[0]
+        d = segs[sid]
+        n = struct.unpack_from(">I", d, 8)[0]
+        return "text", [(sid, list(struct.unpack_from(f">{n}H", d, 12)), _runs(d[12 + 2 * n:]))], sid
+    if len(lists) == 1 and not texts:
+        sid = lists[0]
+        d = segs[sid]
+        cnt = struct.unpack_from(">I", d, 8)[0]
+        if len(d) != 16 + 8 * cnt or d[-4:] != bytes(4):
+            raise JtdError("分けた字の並びの一覧の長さ・終わりが違います")
+        out = []
+        for k in range(cnt):
+            n, psid = struct.unpack_from(">II", d, 12 + 8 * k)
+            pd = segs.get(psid)
+            if pd is None or psid == sid or 2 * n > len(pd):
+                raise JtdError(f"分けた字の並びの一覧が、片 {psid} を正しく指していません")
+            out.append((psid, list(struct.unpack_from(f">{n}H", pd, 0)), _runs(pd[2 * n:])))
+        if len({p[0] for p in out}) != cnt or {p[0] for p in out} | {sid} != set(segs):
+            raise JtdError("分けた字の並びの一覧と、本文のセグメントが合いません")
+        return "list", out, sid
+    raise JtdError("本文が、字の並び 1 つでも、分けた字の並びの一覧と片でもありません")
+
+
+def _attrs(v: bytes) -> dict:
+    out, pos = {}, 1
+    while v[pos] != 0xFF:
+        out[v[pos]] = bytes(v[pos + 2:pos + 2 + v[pos + 1]])
+        pos += 2 + v[pos + 1]
+    return out
+
+
+MODES = (("重ねる", "引き継ぐ"), ("重ねる", "初めに戻る"), ("置き換える", "引き継ぐ"), ("置き換える", "初めに戻る"))
+
+
+def _formats(pieces, mode) -> list:
+    """片の並び → 単位ごとの書式。mode：書式を変える区切りを（前の書式に）「重ねる」か（そこで書式を）「置き換える」か、
+    片の頭で書式を前の片から「引き継ぐ」か「初めに戻る」か。区切りの数の合計より後ろの単位は、最後の書式のまま。"""
+    out: list = []
+    state: dict = {}
+    last = None
+    for _sid, units, els in pieces:
+        if mode[1] == "初めに戻る":
+            state, last = {}, None
+        cur = tuple(sorted(state.items())) if mode[0] == "重ねる" else last
+        pos, n = 0, len(units)
+        for k, v in els:
+            if k == "n":
+                take = max(0, min(v, n - pos))
+                out += [cur] * take
+                pos += take
+            else:
+                state = {**state, **_attrs(v)}
+                last = bytes(v)
+                cur = tuple(sorted(state.items())) if mode[0] == "重ねる" else last
+        out += [cur] * (n - pos)
+    return out
+
+
+def _expect_formats(f_old: list, ops) -> list:
+    """元の単位ごとの書式に書き込みを当てる：置き換えた字はその字の書式のまま、足した字は「前の字の書式を引き継ぐ」なら前の字、
+    そうでなければ足した所の字（字の並びの終わりなら前の字）の書式、減らした字は除く。"""
+    out: list = []
+    i = 0
+    for op in sorted(ops, key=lambda o: o.a):
+        out += f_old[i:op.a]
+        keep = min(len(op.text), op.b - op.a)
+        out += f_old[op.a:op.a + keep]
+        extra = len(op.text) - keep
+        if extra > 0:
+            q = op.b if op.b > op.a else op.a
+            ref = q - 1 if (op.inherit == "prev" and q > 0) or q >= len(f_old) else q
+            out += [f_old[ref]] * extra
+        i = op.b
+    return out + f_old[i:]
+
+
+def _restate(before: list[bytes]) -> list:
+    """片の頭で言い直す書式（証明のための別の書き方）：前の区切りを重ねた値を種類の順に並べた区切りと、最後の区切り
+    （最後の区切りだけで重ねた値と同じなら、最後の区切りだけ）。"""
+    if not before:
+        return []
+    state: dict = {}
+    for v in before:
+        state.update(_attrs(v))
+    if _attrs(before[-1]) == state:
+        return [bytes(before[-1])]
+    whole = b"\xfe" + b"".join(bytes([t, len(x)]) + x for t, x in sorted(state.items())) + b"\xff\x00"
+    return [whole, bytes(before[-1])]
+
+
 def check_text(pr, a: JtdFile, b: JtdFile, ops, edits) -> list[str]:
-    """本文の Ssmg・字の並び・文字の書式の区切りの比較。"""
+    """本文の Ssmg・字の並び・文字の書式の区切り（と、分けて持つ形の一覧と片）の比較。"""
+    from .edit import MAX_PIECE_BYTES, MAX_PIECE_UNITS, MAX_SEG_BYTES
+
     bad: list[str] = []
     x, y = a.cfb.read("DocumentText"), b.cfb.read("DocumentText")
     cx, bx, nx, dx, tx = _ssmg_raw(x)
     cy, by, ny, dy, ty = _ssmg_raw(y)
-    if (cx, bx) != (cy, by) or x[:16] != y[:16] or tx != ty:
-        bad.append("本文の Ssmg の見出し（セグメントの数・ブロックの大きさ）か、目録の後ろが変わりました")
+    if bx != by or x[:8] != y[:8] or x[12:16] != y[12:16] or tx != ty:
+        bad.append("本文の Ssmg の見出し（ブロックの大きさ）か、目録の後ろが変わりました")
+        return bad
+    # Ssmg の目録：元のセグメントは同じ順にあり、ブロックは元の並びを頭に持つ。足したセグメントは目録の後ろ。足したブロックは
+    # 元のブロックの後ろの番号で、どのブロックも 1 つのセグメントだけが使う
+    if cy < cx or [e[0] for e in dy[:cx]] != [e[0] for e in dx] or any(e[0] in {f[0] for f in dx} for e in dy[cx:]):
+        bad.append("本文のセグメントの目録の順・番号が、元の目録に後ろから足したものになっていません")
+        return bad
+    allb = [blk for e in dy for blk in e[5]]
+    if len(set(allb)) != len(allb) or set(allb) - set(range(ny)):
+        bad.append("本文のセグメントのブロックが重なるか、範囲の外です")
+    if set(range(nx, ny)) - set(allb):
+        bad.append("本文に、どのセグメントも使わない足したブロックがあります")
+    for ea, eb in zip(dx, dy):
+        if eb[5][:len(ea[5])] != ea[5] or any(blk < nx for blk in eb[5][len(ea[5]):]):
+            bad.append(f"本文のセグメント {ea[0]} のブロックの番号が、元の並びのままでないか、足したブロックが元のブロックと重なります")
+    for e in dy[cx:]:
+        if any(blk < nx for blk in e[5]):
+            bad.append(f"足したセグメント {e[0]} が、元のブロックを使っています")
+    try:
+        ka, pa, sa_ = _body_raw(x)
+        kb, pb, sb_ = _body_raw(y)
+    except (JtdError, struct.error, IndexError, KeyError) as e:
+        bad.append(f"本文の字の並びを読めません：{e}")
         return bad
     k0 = ops[0].k
-    sid = a.texts[k0].sid
-    used_other = set()
-    for ea, eb in zip(dx, dy):
-        if ea[0] != eb[0]:
-            bad.append("本文のセグメントの順が変わりました")
-            return bad
-        if ea[0] == sid:
-            if eb[5][:len(ea[5])] != ea[5] or any(b_ < nx for b_ in eb[5][len(ea[5]):]) or len(set(eb[5])) != len(eb[5]):
-                bad.append("書いたセグメントのブロックの番号が、元の並びのままでないか、足したブロックが元のブロックと重なります")
-            if ny != nx + len(eb[5]) - len(ea[5]):
-                bad.append(f"本文のブロックの数（{nx} → {ny}）が、足したブロックの数と合いません")
-        else:
-            if ea != eb:
-                bad.append(f"本文のセグメント {ea[0]} の目録が変わりました")
-            used_other |= set(ea[5])
-    for blk in used_other:
-        if x[20 + blk * bx:20 + (blk + 1) * bx] != y[20 + blk * bx:20 + (blk + 1) * bx]:
-            bad.append(f"本文の、書いていないセグメントのブロック {blk} が変わりました")
-            break
-    sa_ = {s.sid: s.data for s in ssmg(x, "DocumentText")}
-    sb_ = {s.sid: s.data for s in ssmg(y, "DocumentText")}
-    da, db = sa_[sid], sb_[sid]
-    if da[:8] != TEXT or db[:8] != TEXT:
-        bad.append("書いたセグメントが字の並びではありません")
-        return bad
-    n1 = struct.unpack_from(">I", da, 8)[0]
-    n2 = struct.unpack_from(">I", db, 8)[0]
-    ua = struct.unpack_from(f">{n1}H", da, 12)
-    ub = list(struct.unpack_from(f">{n2}H", db, 12))
+    ua = [u for _s, us, _e in pa for u in us]
+    ub = [u for _s, us, _e in pb for u in us]
     mine = [op for op in ops if op.k == k0] + [_Op(k, i, i + 1, ch) for (k, i), ch in edits.items() if k == k0]
     want = _apply_units(ua, mine)
     if ub != want:
         first = next((i for i, (p, q) in enumerate(zip(ub, want)) if p != q), min(len(ub), len(want)))
         bad.append(f"本文の字の並びが、元の並びに書き込みを当てたものと違います（単位 {first} から）")
-    ra, rb = _runs(da[12 + 2 * n1:]), _runs(db[12 + 2 * n2:])
-    if [k for k, _ in ra] != [k for k, _ in rb] or any(p != q for (k, p), (_k, q) in zip(ra, rb) if k == "a"):
-        bad.append("文字の書式（書式を変えるバイト列）か、区切りの並びが変わりました")
         return bad
-    # 区切りの数：足した字は「足した所の前の字（前の書式を引き継ぐとき）か、足した所」を含む区切りに、減らした字は
-    # その字を含んでいた区切りから
-    bounds, pos = [], 0
-    for j, (k, v) in enumerate(ra):
-        if k == "n":
-            bounds.append((j, pos, pos + v))
-            pos += v
+    for sid, us, els in pb:
+        if sum(v for k, v in els if k == "n") > len(us):
+            bad.append(f"本文の片 {sid} の、文字の書式の区切りの合計が単位の数を超えています")
+    # 書式を変える区切りのバイト列：分けていない字の並び・片は、区切りの並び（種類）と書式を変えるバイト列が元のまま。
+    # 分けた片は、頭で言い直した区切りを除くと、元の片の書式を変えるバイト列の並びと同じ
+    # 本文のどのセグメントも、字の並び（と一覧・片）なので（_body_raw で確かめた）、ほかのセグメントはない
+    if ka == "text":
+        groups = [(pa[0], pb)]
+    else:
+        old_sids = {p[0] for p in pa}
+        groups, cur = [], None
+        for p in pb:
+            if p[0] in old_sids:
+                cur = (next(q for q in pa if q[0] == p[0]), [p])
+                groups.append(cur)
+            elif cur is None:
+                bad.append("分けた字の並びの、頭の片が元の片ではありません")
+                return bad
+            else:
+                cur[1].append(p)
+        if [g[0][0] for g in groups] != [p[0] for p in pa]:
+            bad.append("分けた字の並びの、元の片の順が変わったか、元の片がなくなりました")
+            return bad
+    split = 0
+    starts, pos = {}, 0
+    for p in pa:
+        starts[p[0]] = pos
+        pos += len(p[1])
 
-    def at(i: int):
-        return next((j for j, lo, hi in bounds if lo <= i < hi), None)
+    def anchor(op) -> int:
+        """書き込みが当たる元の単位（書き換え・減らすなら範囲の終わりの字、足すなら前の字か足した所の字）。"""
+        if op.b > op.a:
+            return op.b - 1
+        return op.a - 1 if op.inherit == "prev" and op.a else op.a
 
-    exp = {j: v for j, (k, v) in enumerate(ra) if k == "n"}
-    for op in ops:
-        d = len(op.text) - (op.b - op.a)
-        if d > 0:
-            q = op.b if op.b > op.a else op.a
-            j = at(q - 1 if op.inherit == "prev" and q else q)
-            if op.inherit == "both" and at(q - 1 if q else 0) != at(q):
-                bad.append(f"{op.key}: 書式の切り替わる所に字を足しています")
-            if j is not None:
-                exp[j] += d
-        elif d < 0:
-            for i in range(op.a + len(op.text), op.b):
-                j = at(i)
-                if j is not None:
-                    exp[j] -= 1
-    got = {j: v for j, (k, v) in enumerate(rb) if k == "n"}
-    if got != exp:
-        bad.append("文字の書式の区切りの数が、書いた所の区切りを足した・減らした字の数だけ変えたものと違います")
-    old = {j: v for j, (k, v) in enumerate(ra) if k == "n"}
-    pr.structures.append(f"本文の字の並び（{n1:,} → {n2:,} 単位）・書いた所を含む文字の書式の区切りの数"
-                         f"（{sum(1 for j in exp if exp[j] != old[j])} か所）・Ssmg の目録（ブロック {nx} → {ny} 個）")
+    for old, news in groups:
+        if len(news) == 1 and kb == ka:
+            ra, rb = old[2], news[0][2]
+            if [k for k, _ in ra] != [k for k, _ in rb] or any(p != q for (k, p), (_k, q) in zip(ra, rb) if k == "a"):
+                bad.append("文字の書式（書式を変えるバイト列）か、区切りの並びが変わりました")
+                continue
+            # 区切りの数：足した字は「足した所の前の字（前の書式を引き継ぐとき）か、足した所」を含む区切りに、減らした字は
+            # その字を含んでいた区切りから
+            lo, hi = starts[old[0]], starts[old[0]] + len(old[1])
+            last_piece = old is pa[-1]
+            bounds, q0 = [], 0
+            for j, (k, v) in enumerate(ra):
+                if k == "n":
+                    bounds.append((j, q0, q0 + v))
+                    q0 += v
+
+            def at(i: int):
+                return next((j for j, s0, s1 in bounds if s0 <= i < s1), None)
+
+            exp = {j: v for j, (k, v) in enumerate(ra) if k == "n"}
+            for op in ops:
+                c = anchor(op)
+                if not (lo <= c < hi or (last_piece and c == hi)):
+                    continue
+                d = len(op.text) - (op.b - op.a)
+                if d > 0:
+                    q = (op.b if op.b > op.a else op.a) - lo
+                    j = at(q - 1 if op.inherit == "prev" and q else q)
+                    if j is not None:
+                        exp[j] += d
+                elif d < 0:
+                    for i in range(op.a + len(op.text), op.b):
+                        j = at(i - lo)
+                        if j is not None:
+                            exp[j] -= 1
+            if {j: v for j, (k, v) in enumerate(rb) if k == "n"} != exp:
+                bad.append("文字の書式の区切りの数が、書いた所の区切りを足した・減らした字の数だけ変えたものと違います")
+            continue
+        split += 1
+        seen: list[bytes] = []
+        for j, (_sid, _us, els) in enumerate(news):
+            av = [bytes(v) for k, v in els if k == "a"]
+            if j:
+                pre = _restate(seen)
+                lead = []
+                for k, v in els:
+                    if k != "a":
+                        break
+                    lead.append(bytes(v))
+                if lead[:len(pre)] != pre:
+                    bad.append(f"分けた片 {news[j][0]} の頭で、それより前の書式を言い直していません")
+                    return bad
+                av = av[len(pre):]
+            seen += av
+        if seen != [bytes(v) for k, v in old[2] if k == "a"]:
+            bad.append("分けた片の、書式を変えるバイト列の並びが、元の片と違います")
+    # 大きさの決まり：分けない字の並びは、1 つのセグメントで確かめた大きさ（か元の大きさ）まで。片は、確かめた片の大きさ
+    # （か元の片の大きさ）まで
+    if kb == "text":
+        seg = next(s.data for s in ssmg(y, "DocumentText"))
+        if len(seg) > max(MAX_SEG_BYTES, len(next(s.data for s in ssmg(x, "DocumentText")))):
+            bad.append(f"本文の字の並び（{len(seg):,} バイト）が、確かめた 1 つのセグメントの大きさを超えています")
+    else:
+        old_size = {s.sid: len(s.data) for s in ssmg(x, "DocumentText")}
+        old_n = {p[0]: len(p[1]) for p in pa} if ka == "list" else {}
+        for s in ssmg(y, "DocumentText"):
+            if s.sid == sb_:
+                continue
+            n = next(len(p[1]) for p in pb if p[0] == s.sid)
+            if n > max(MAX_PIECE_UNITS, old_n.get(s.sid, 0)) or len(s.data) > max(MAX_PIECE_BYTES, old_size.get(s.sid, 0) if ka == "list" else 0):
+                bad.append(f"本文の片 {s.sid}（{n:,} 単位・{len(s.data):,} バイト）が、確かめた片の大きさを超えています")
+    # 単位ごとの書式：4 つの読み方のどれでも、書き込み後の書式が「元の書式に書き込みを当てたもの」と同じ
+    for mode in MODES:
+        fa = _formats(pa, mode)
+        for op in ops:
+            if len(op.text) > op.b - op.a and op.inherit == "both":
+                q = op.b if op.b > op.a else op.a
+                if 0 < q < len(fa) and fa[q - 1] != fa[q]:
+                    bad.append(f"{op.key}: 書式の切り替わる所に字を足しています（{'・'.join(mode)}の読み方）")
+        if _formats(pb, mode) != _expect_formats(fa, mine):
+            bad.append(f"書き込み後の単位ごとの書式が、元の書式に書き込みを当てたものと違います（区切りを{mode[0]}・片の頭で{mode[1]}読み方）")
+            break
+    form = (f"・分けて持つ形（「QLSTV.01」の一覧と片 {len(pb)} 個：{'・'.join(f'{len(p[1]):,}' for p in pb)} 単位"
+            + (f"。分けた片 {split} か所の頭で書式を言い直した" if split else "") + "）" if kb == "list" else "")
+    pr.structures.append(f"本文の字の並び（{len(ua):,} → {len(ub):,} 単位）・文字の書式の区切り（単位ごとの書式が、4 つの読み方の"
+                         f"どれでも元のまま）{form}・Ssmg の目録（セグメント {cx} → {cy} 個・ブロック {nx} → {ny} 個）")
     return bad
 
 
@@ -330,38 +516,85 @@ class _Op:
 
 
 def _tcnt_vals(data: bytes) -> list[tuple[int, int]]:
+    """表の位置の表 → [(ストリームの中の位置, 値)]（証明のための別の読み方。点のしおりの終わり FFFFFFFF は除く）。"""
     out = []
     for s in ssmg(data, "DocumentTextPositionTables"):
         d = s.data
+        if d[8:10] == b"\x00\x00":
+            for off, end in ((20, False), (24, True)):
+                v = struct.unpack_from(">I", d, off)[0]
+                if not (end and v == 0xFFFFFFFF):
+                    out.append((s.offset(off), v))
+            continue
         cnt = struct.unpack_from(">I", d, 10)[0]
-        for k in range(cnt):
-            for off in (16 + 29 * k, 20 + 29 * k):
+        pos = 16
+        for _k in range(cnt):
+            for off in (pos, pos + 4):
                 out.append((s.offset(off), struct.unpack_from(">I", d, off)[0]))
+            pos += 28 + d[pos + 14]
     return out
 
 
+def _correct_vals(data: bytes) -> list[tuple[int, int, int]]:
+    """校正の情報 → [(ストリームの中の位置, 番号, 位置の値)]（証明のための別の読み方）。"""
+    out = []
+    for s in ssmg(data, "CorrectAdditionalData"):
+        d = s.data
+        for k in range(struct.unpack_from(">H", d, 8)[0]):
+            base = 12 + 32 * k
+            out.append((s.offset(base + 4), struct.unpack_from(">H", d, base)[0], struct.unpack_from(">I", d, base + 4)[0]))
+    return out
+
+
+def _check_moved(pr, name: str, label: str, x: bytes, y: bytes, vals, grow, unit: bool) -> tuple[list[str], int]:
+    """位置の値のほかのバイトが同じで、位置の値が「元の位置より前で足した・減らした字の数」だけずれていること。"""
+    bad: list[str] = []
+    if len(x) != len(y):
+        return [f"{label}（{name}）の大きさが変わりました"], 0
+    allowed = {o + j for o, *_r in vals for j in range(4)}
+    if any(x[i] != y[i] for i in range(len(x)) if i not in allowed):
+        bad.append(f"{label}（{name}）の、位置のほかのバイトが変わりました")
+    moved = 0
+    for o, *_r, v in vals:
+        w = _shift(grow, v, unit=unit)
+        got = struct.unpack_from(">I", y, o)[0]
+        if w is None or got != w:
+            bad.append(f"{label}の位置 {v} が、{got} になっています（思っていたのは {w}）")
+            break
+        moved += got != v
+    return bad, moved
+
+
 def check_positions(pr, a: JtdFile, b: JtdFile, ops) -> list[str]:
-    """表の位置の表・字を打つ位置：ずらした位置のほかは同じ。"""
+    """表の位置の表・しおり・校正の情報・字を打つ位置：ずらした位置のほかは同じ。"""
     bad: list[str] = []
     grow = [op for op in ops if len(op.text) != op.b - op.a]
     if a.cfb.has("DocumentTextPositionTables"):
         x, y = a.cfb.read("DocumentTextPositionTables"), b.cfb.read("DocumentTextPositionTables")
-        if len(x) != len(y):
-            bad.append("表の位置の表の大きさが変わりました")
-        else:
-            vals = _tcnt_vals(x)
-            allowed = {o + j for o, _v in vals for j in range(4)}
-            if any(x[i] != y[i] for i in range(len(x)) if i not in allowed):
-                bad.append("表の位置の表の、位置のほかのバイトが変わりました")
-            moved = 0
-            for o, v in vals:
-                w = _shift(grow, v, unit=True)
-                got = struct.unpack_from(">I", y, o)[0]
-                if w is None or got != w:
-                    bad.append(f"表の位置の表の位置 {v} が、{got} になっています（思っていたのは {w}）")
-                    break
-                moved += got != v
-            pr.structures.append(f"表の位置の表（表の範囲の位置 {len(vals)} 個のうち {moved} 個をずらした）")
+        vals = _tcnt_vals(x)
+        bb, moved = _check_moved(pr, "DocumentTextPositionTables", "表の位置の表", x, y, vals, grow, True)
+        bad += bb
+        mark = any(s.data[8:10] == b"\x00\x00" for s in ssmg(x, "DocumentTextPositionTables"))
+        pr.structures.append(f"表の位置の表（{'しおりの位置' if mark else '表の範囲の位置'} {len(vals)} 個のうち {moved} 個をずらした）")
+    if a.cfb.has("CorrectAdditionalData"):
+        x, y = a.cfb.read("CorrectAdditionalData"), b.cfb.read("CorrectAdditionalData")
+        vals = [(o, v) for o, _i, v in _correct_vals(x) if v != 0xFFFFFFFF]
+        bb, moved = _check_moved(pr, "CorrectAdditionalData", "校正の情報", x, y, vals, grow, True)
+        bad += bb
+        # 書き込み後の本文で、どの項目も、同じ番号の校正の部品の記録の始まりを指していること（読み直して確かめる）
+        st = [t for t in b.texts if t.stream == "DocumentText"]
+        objs = {}
+        if len(st) == 1:
+            from .book import tokens
+
+            for t in tokens(st[0].units):
+                if t[0] == "rec" and t[2][0] == 0 and len(t[2][1]) > 4 and t[2][1][1] == 0x41:
+                    objs[t[2][1][-4]] = t[1]
+        for _o, idx, v in _correct_vals(y):
+            if v != 0xFFFFFFFF and objs.get(idx) != v:
+                bad.append(f"書き込み後の校正の情報の項目 {idx:#x}（位置 {v}）が、本文の同じ番号の校正の部品を指していません")
+                break
+        pr.structures.append(f"校正の情報（部品の位置 {len(vals)} 個のうち {moved} 個をずらし、どれも本文の同じ番号の部品を指す）")
     if a.cfb.has("DocumentEditStyles"):
         x, y = a.cfb.read("DocumentEditStyles"), b.cfb.read("DocumentEditStyles")
         at = None
@@ -487,7 +720,7 @@ def prove_general(pr, original: bytes, new: bytes, edits: dict, ops: list) -> No
     edited_streams = {a.texts[k].stream for (k, _i) in edits} | {a.texts[op.k].stream for op in ops}
     changed = set(edited_streams)
     if grow:
-        changed |= {"\x04JSRV_SegmentInformation", "DocumentEditStyles", "DocumentTextPositionTables"}
+        changed |= {"\x04JSRV_SegmentInformation", "DocumentEditStyles", "DocumentTextPositionTables", "CorrectAdditionalData"}
     # 圧縮した文書：外側の入れ物と、JSCompDocument
     if a.compressed:
         from .lha import jscomp_parts, unpack_jscomp

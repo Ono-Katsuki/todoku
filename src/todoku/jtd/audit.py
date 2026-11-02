@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import hashlib
+import struct
 from collections import Counter
 from dataclasses import dataclass, field
 
@@ -51,16 +52,29 @@ TEXT_STREAMS = {"DocumentText", "LayoutBoxText", "Header", "PageLayoutStyleHeade
 
 def raw_chars(doc: JtdFile) -> Counter:
     """窓とは別の読み方：すべてのストリームの、目録にあるすべての文字のセグメントを、段落・表・枠・組に分けずに頭から読み、
-    記録と組の印（0x1C・0x1E から、その長さの分）を飛ばした字を数える（空白と □ などのチェックの印は数えない）。"""
+    記録と組の印（0x1C・0x1E から、その長さの分）を飛ばした字を数える（空白と □ などのチェックの印は数えない）。
+    分けて持つ字の並び（「QLSTV.01」の一覧）は、一覧の順に片をつないでから読む（記録が片をまたぐため）。"""
     c: Counter = Counter()
     for name in doc.cfb.streams():
         data = doc.cfb.read(name)
         if data[:8] != SSMG:
             continue
-        for sg in ssmg(data, name):
+        segs = ssmg(data, name)
+        by_sid = {sg.sid: sg for sg in segs}
+        seqs = []
+        for sg in segs:
             u = text_units(sg)
-            if u is None:
-                continue
+            if u is not None:
+                seqs.append(u)
+            elif sg.data[:8] == b"QLSTV.01":
+                # 分けた字の並び：一覧の（単位の数・片の番号）の順に、片の頭からその数の単位をつなぐ
+                cnt = struct.unpack_from(">I", sg.data, 8)[0]
+                joined: list[int] = []
+                for k in range(cnt):
+                    n, sid = struct.unpack_from(">II", sg.data, 12 + 8 * k)
+                    joined += struct.unpack_from(f">{n}H", by_sid[sid].data, 0)
+                seqs.append(joined)
+        for u in seqs:
             i = 0
             while i < len(u):
                 x = u[i]
@@ -113,8 +127,9 @@ def check_reading(doc: JtdFile, win: dict) -> list[Check]:
     odd = []
     for name in TEXT_STREAMS:
         if doc.cfb.has(name):
+            pieces = doc.piece_sids.get(name, set())
             for sg in ssmg(doc.cfb.read(name), name):
-                if sg.data[:8] != b"TextV.01":
+                if sg.data[:8] not in (b"TextV.01", b"QLSTV.01") and sg.sid not in pieces:
                     odd.append(f"{name}#{sg.sid}（{sg.data[:8]!r}、{len(sg.data):,} バイト）は、形を確かめていないセグメントなので"
                                "読んでいません（ここに字があれば、窓に出ていません）")
     out = [Check("読み落とし（文書の文字）", not missing and not extra and not odd,
