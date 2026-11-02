@@ -145,7 +145,7 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         except EditError as e:
             raise ApiError(str(e)) from None
         allowed = res.allowed_inputs
-        allowed_c = {(p.sheet, p.address) for p in res.patches if p.kind == "control"}
+        allowed_c = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"}  # 部品 → 書いた状態
         pr = prove(blob, res.blob, allowed, allowed_c, {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
         new_blob = res.blob
         result.update({"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
