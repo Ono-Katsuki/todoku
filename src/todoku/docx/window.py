@@ -527,6 +527,9 @@ def build(doc: DocxDocument) -> dict:
         if lines or kind == "body":
             out["stories"].append({"kind": kind, "part": part, "reading": lines, "_plain": plain})
     out["embeds"] = _embeds(doc)
+    from ..embeds.word import objects as _objects
+
+    out["objects"] = _objects(doc, shown={e["n"] for e in out["embeds"]})  # グラフ・SmartArt・Excel の表のほかの埋め込み（読むだけ）
     contexts = {}
     for st in out["stories"]:
         for line in st["reading"]:
@@ -798,6 +801,9 @@ def to_markdown(doc: dict) -> str:
         out += [ln.replace("## シート", "### シート", 1) if ln.startswith("## シート") else
                 (ln.replace("### ", "#### ", 1) if ln.startswith("### ") else ln) for ln in e["markdown"]]
         out.append("")
+    from ..embeds.word import markdown as objects_md
+
+    out += objects_md(doc.get("objects"))
     from ..macros import markdown as macro_md
 
     out += macro_md(doc.get("macros"))

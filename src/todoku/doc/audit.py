@@ -296,6 +296,9 @@ def run(blob: bytes, filename: str = "") -> Audit:
     ec = embeds_check(doc, win, DocFile, fill, prove)
     if ec is not None:
         au.checks.append(ec)
+    from ..embeds.audit import word_checks
+
+    au.checks += word_checks(doc, win)  # 埋め込みの読み落とし
     ap = agent_places_check(win["fields"])
     if ap is not None:
         au.checks.append(ap)

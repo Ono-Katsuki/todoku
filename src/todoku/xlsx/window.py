@@ -1280,6 +1280,9 @@ def build(wb: Workbook) -> dict:
             "notes": [{"cell": addr(*k), "text": t, "provenance": DET} for k, t in sorted(sh.comments.items())],
             "tables": _tables(wb, sh),
         })
+    from ..embeds.excel import add_to_window
+
+    add_to_window(wb, doc)  # グラフ（charts）と埋め込み（objects）：読むだけ
     return doc
 
 
@@ -1393,14 +1396,17 @@ def _md_head(doc: dict) -> list[str]:
 
 def _md_sheet(sh: dict) -> list[str]:
     """1枚のシートの窓（Markdownの行）。"""
+    from ..embeds.excel import sheet_markdown
+
     state = sh["state"]
     if state.startswith("non-"):
-        return [f"## シート「{sh['name']}」（セルのないシート）", ""]
+        what = "グラフのシート" if sh.get("charts") else "セルのないシート"
+        return [f"## シート「{sh['name']}」（{what}）", ""] + sheet_markdown(sh)
     if state != "visible":
         n = len(sh["cells"])
         return [f"## シート「{sh['name']}」（非表示）", "",
                 f"画面に出ない計算用のシートです（値のあるセル {n:,} 個）。"
-                "ここから作られる選択肢は、各入力欄の「選択肢」に展開してあります。すべてのセルはJSONの窓にあります。", ""]
+                "ここから作られる選択肢は、各入力欄の「選択肢」に展開してあります。すべてのセルはJSONの窓にあります。", ""] + sheet_markdown(sh)
     out = [f"## シート「{sh['name']}」", ""]
     info = []
     if sh.get("print_area"):
@@ -1454,7 +1460,7 @@ def _md_sheet(sh: dict) -> list[str]:
         for h in sh.get("header_footer", []):
             out.append(f"- ヘッダー・フッター: {_md(h)}")
         out.append("")
-    return out
+    return out + sheet_markdown(sh)
 
 
 def to_markdown(doc: dict) -> str:

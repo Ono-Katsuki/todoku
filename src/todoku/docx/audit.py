@@ -279,6 +279,9 @@ def run(blob: bytes, filename: str = "") -> Audit:
     ec = embeds_check(doc, win, DocxDocument, fill, prove)
     if ec is not None:
         au.checks.append(ec)
+    from ..embeds.audit import word_checks
+
+    au.checks += word_checks(doc, win)  # グラフ・SmartArt・埋め込みの読み落とし
     from ..xlsx.audit import agent_places_check
 
     ap = agent_places_check(win["fields"])

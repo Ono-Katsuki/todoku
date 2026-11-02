@@ -288,6 +288,8 @@ class DocxDocument:
         self.filename = filename
         self.zip = RawZip(blob)
         self.embeds: list[dict] = []  # 埋め込んだ OLE の部品（word/embeddings の部品）
+        self.charts: list[dict] = []  # グラフ（word/charts の部品）：本文の〔グラフ1〕の所
+        self.diagrams: list[dict] = []  # SmartArt（word/diagrams のデータの部品）：本文の〔SmartArt1〕の所
         self.main = self._main_part()
         self.parts: dict[str, tuple[bytes, Node]] = {}
         self.rels = self._rels(self.main)
@@ -593,9 +595,13 @@ class DocxDocument:
 
                     word_control(self, ch, axc, part, p, r, hidden)  # ActiveX の部品（w:control）
                     continue
+                for mark in self._graphics(ch, part):
+                    p.segs.append(Seg(mark, "other", None, r, hidden))
                 ole = next(iter(ch.iter("OLEObject")), None)
                 e = self._add_embed(ole, part, p, ch) if ole is not None else None
                 alt = [n.get("descr") or n.get("title") for n in ch.iter("docPr") if n.get("descr") or n.get("title")]
+                if e is not None and "alt" not in e:
+                    e["alt"] = next((n.get("alt") for n in ch.iter("shape") if n.get("alt")), "") or (alt[0] if alt else "")
                 if e is not None:
                     p.segs.append(Seg(f"〔埋め込み{e['n']}：{e['label']}〕", "other", None, r, hidden))
                 elif alt:
@@ -632,12 +638,39 @@ class DocxDocument:
             if img and self.zip.has(img) and img not in images:
                 images.append(img)
         prog = ole.get("ProgID") or ""
-        label = {"Excel.Sheet": "Excel の表", "Excel.Chart": "Excel のグラフ", "Word.Document": "Word の文書"}.get(
-            ".".join(prog.split(".")[:2]), prog or "埋め込み")
+        from ..embeds.ole import label_of
+
+        label = label_of(prog)
         e = {"n": len(self.embeds) + 1, "storage": name, "prog": prog, "label": label, "para": p, "part": part,
              "images": images, "aspect": ole.get("DrawAspect") or "Content"}
         self.embeds.append(e)
         return e
+
+    def _graphics(self, node: Node, part: str) -> list[str]:
+        """図の中のグラフ（c:chart・新しい種類の cx:chart）と SmartArt（dgm:relIds）を一覧に足し、本文に出す印を返す。
+        AlternateContent の代わりの中身（Fallback）は数えない。"""
+        out = []
+        rels = None
+        for g in node.iter("graphicData"):
+            if any(x.local in ("Fallback", "txbxContent") for x in _ancestors(g, node)):
+                continue  # 代わりの中身・テキストボックスの中（中身を段落として読むときに数える）
+            for k in g.kids:
+                if k.local not in ("chart", "relIds"):
+                    continue
+                rels = rels if rels is not None else self._rels(part)
+                rid = k.get("id") if k.local == "chart" else k.get("dm")
+                target = _join(part, rels.get(rid or "", ("", ""))[1]) if rid in rels else ""
+                if not target or not self.zip.has(target):
+                    continue
+                pr = next((n for n in node.iter("docPr")), None)
+                alt = (pr.get("descr") or pr.get("title") or "") if pr is not None else ""
+                if k.local == "chart":
+                    self.charts.append({"n": len(self.charts) + 1, "part": target, "alt": alt})
+                    out.append(f"〔グラフ{len(self.charts)}〕")
+                else:
+                    self.diagrams.append({"n": len(self.diagrams) + 1, "part": target, "alt": alt})
+                    out.append(f"〔SmartArt{len(self.diagrams)}〕")
+        return out
 
     def embedded_books(self) -> list[tuple[dict, object]]:
         """埋め込んだ Excel のブック：(埋め込みの情報, ブック)。.xlsx の部品も、OLE の入れ物（.bin）の中のブックも読む。"""
@@ -762,6 +795,14 @@ class DocxDocument:
         yield "body", self.main, self.body
         for kind, part, blocks in self.stories:
             yield kind, part, blocks
+
+
+def _ancestors(n: Node, stop: Node):
+    """n の親を、stop まで順に。"""
+    x = n.parent
+    while x is not None and x is not stop:
+        yield x
+        x = x.parent
 
 
 def iter_paras(blocks):

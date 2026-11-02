@@ -460,6 +460,9 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
     doc = window.build(wb)
     au = Audit(filename)
     au.checks += check_reading(wb, doc)
+    from ..embeds.audit import excel_checks
+
+    au.checks += excel_checks(wb, doc)  # グラフ・SmartArt・埋め込みの読み落とし
     parts = window.markdown_parts(doc)
     biggest = max(len(t) for _, t in parts)
     total = sum(len(t) for _, t in parts)
