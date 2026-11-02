@@ -302,6 +302,10 @@ def lint(blob: bytes) -> _Lint:
 def raw_texts(blob: bytes) -> dict[str, list[tuple[str, str]]]:
     """レコードを直接読み、すべての文字と数値を拾う（窓を作る処理とは別の読み方）。"""
     wb = XlsWorkbook(blob)
+    if wb.biff == 5:
+        from .biff5 import raw_texts5
+
+        return raw_texts5(wb)
     out: dict[str, list[tuple[str, str]]] = {"セルの文字": [], "セルの数値": [], "図形の文字": [], "メモ": [],
                                              "チェックボックスなどの文字": [], "入力規則の説明": [], "ヘッダー・フッター": []}
     sst = wb.shared_strings

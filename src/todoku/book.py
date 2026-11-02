@@ -32,6 +32,11 @@ def kind_of(blob: bytes) -> str:
             return "xls"
         if "worddocument" in names:
             return "doc"
+        # 一太郎（.jtd・.jtt）：JustSystems のストリームの一覧と、本文（または圧縮した文書）
+        from .jtd.book import is_jtd
+
+        if is_jtd(names):
+            return "jtd"
         return "cfb"
     if blob[:4] == b"%PDF":
         return "pdf"

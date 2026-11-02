@@ -936,6 +936,13 @@ def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set 
     """古いExcel（.xls）への書き込み：ブックのストリームのレコードを差し替え、複合ファイルのほかの部分は変えない。"""
     from ..xls.write import XlsEditor, XlsWriteError
 
+    if getattr(wb, "biff", 8) == 5:
+        # Excel 5.0/95（BIFF5）：字のバイト列・数式のトークン・索引の形が BIFF8 と違い、書き込みとその証明をまだ用意していない
+        raise EditError("Excel 5.0/95 の形式（BIFF5）のブックには、まだ書けません（読むことはできます）。"
+                        "書くには、セルの字のバイト列（文字コード）・数式のトークン・行の索引の形に合わせた書き込みと証明が要ります")
+    if getattr(wb, "dual_format", False):
+        warnings.append("このブックは Excel 97 以降の形（Workbook）と Excel 95 の形（Book）を両方持っています。書いたのは Excel 97 以降が"
+                        "読む Workbook だけで、Excel 95 で開くと古い値のままです")
     ed = XlsEditor(wb)
     patches: list[Patch] = []
     for (sheet, r, c), val in targets.items():

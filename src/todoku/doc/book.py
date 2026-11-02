@@ -127,6 +127,10 @@ class DocFile:
         self.wd = self.cfb.read("WordDocument")
         wd = self.wd
         ident, self.nfib = struct.unpack_from("<HH", wd, 0)
+        if ident == 0xA5DC or (ident == 0xA5EC and self.nfib < 105):
+            # Word 6.0 / Word 95（FIB の版 101〜104）：表のストリームがなく、FIB・書式（sprm）・字の符号の形が違う
+            raise DocError(f"Word 6.0/95 の文書です（FIB の版 {self.nfib}）。この形はまだ読めません"
+                           "（Word 97 以降の形と、FIB の並び・書式の命令・字の符号が違うため。読み違えた字を出さないよう、読むのをやめました）")
         if ident != 0xA5EC:
             raise DocError("Word 97〜2003 の文書ではありません")
         self.flags = struct.unpack_from("<H", wd, 0x0A)[0]

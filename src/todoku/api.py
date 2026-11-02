@@ -13,6 +13,8 @@ from pathlib import Path
 from .book import FormatError, kind_of
 
 KIND_JA = {"xlsx": "Excel", "xls": "古い Excel（.xls）", "pdf": "PDF", "docx": "Word", "doc": "古い Word（.doc）"}
+# 一太郎（.jtd）：読む・字数を変えない上書き
+KIND_JA["jtd"] = "一太郎（.jtd）"
 
 
 class ApiError(ValueError):
@@ -75,6 +77,17 @@ def window(path: str, password: str | None = None) -> tuple[str, dict, list[tupl
 
         doc = build(_pdf(blob, name, lock))
         return k, doc, markdown_parts(doc)
+    if k == "jtd":
+        # 一太郎：Word と同じ形の窓に、上書きできる字数を添える
+        from .jtd.book import JtdError, JtdFile
+        from .jtd.window import build as jbuild
+        from .jtd.window import markdown_parts as jparts
+
+        try:
+            doc = jbuild(JtdFile(blob, name))
+        except JtdError as e:
+            raise ApiError(f"一太郎の文書として読めません：{e}") from None
+        return k, doc, jparts(doc)
     from .docx.window import build, markdown_parts
 
     doc = build(_word(blob, name, k))
@@ -129,6 +142,7 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     blob, name, k, lock = _read(path, password)
     result: dict = {"kind": k, "out_path": str(dst), "original_sha256": hashlib.sha256(src.read_bytes()).hexdigest()}
     readback_values = dict(values)  # 読み戻しで確かめる、欄の id → 書いた値
+    told = None  # 本人に伝える、書いた所（ほかの形式は読み戻しの値と同じ）
     try:
         labels = {f["id"]: f.get("label", "") for f in fields(path, password)}  # 白紙のときの見出し（対話で伝える一覧に使う）
     except ApiError:
@@ -172,6 +186,28 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             result["anchored"] = {p.key: p.id for p in res.patches if p.anchor}
             readback_values = {k_: v for k_, v in values.items() if not k_.startswith("@")}
             readback_values.update({p.id: p.value for p in res.patches if p.anchor})
+    elif k == "jtd":
+        # 一太郎：元の字を同じ字数で上書きし、ファイル全体で変わったのがその字のバイトだけかを証明する。
+        # 書いた所の印（しおり）を足さないので、読み戻しは証明の中の「読み直した段落の文字」で確かめる
+        from .docx.fill import FillError, written_of
+        from .jtd.audit import prove as jprove
+        from .jtd.book import JtdFile
+        from .jtd.fill import fill as jfill
+
+        try:
+            res = jfill(JtdFile(blob, name), values, force=force)
+        except FillError as e:
+            raise ApiError(str(e)) from None
+        pr = jprove(blob, res.blob, written_of(res.patches))
+        new_blob = res.blob
+        result.update({"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
+                       "unexpected": (pr.unexpected + pr.readback)[:20], "structure_errors": pr.lint_errors[:20]})
+        anchored = {p.key: p.id for p in res.patches if p.anchor}
+        if anchored:
+            result["anchored"] = anchored
+        readback_values = {}
+        told = {p.id: p.value for p in res.patches}  # 一太郎：本人に伝える、書いた所と値
+        result["jtd_read_back"] = pr.readback[:30]
     else:
         from .docx.fill import FillError
 
@@ -244,9 +280,15 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             ok = str(g) == str(v) or _num_equal(g, v)
         if not ok:
             mismatch.append({"id": key, "written": v, "read_back": g})
+    if k == "jtd":
+        mismatch += [{"id": "段落", "written": "", "read_back": x} for x in result.pop("jtd_read_back", [])]
     result["read_back_ok"] = not mismatch
     result["read_back_differences"] = mismatch[:30]
-    result.update(_to_tell(after_list, readback_values, result, labels))
+    if told is not None:
+        # 一太郎：書いた所の印がないので、読み直した窓の同じ id（残りの空白）ではなく、証明で確かめた書いた値を伝える
+        result.update(_to_tell([f for f in after_list if f["id"] not in told], told, result, labels))
+    else:
+        result.update(_to_tell(after_list, readback_values, result, labels))
     return result
 
 
@@ -395,6 +437,8 @@ def audit(path: str, password: str | None = None) -> dict:
         from .docx.audit import run
     elif k == "doc":
         from .doc.audit import run
+    elif k == "jtd":
+        from .jtd.audit import run
     else:
         from .xlsx.audit import run
     pw = pdf_password(lock)
