@@ -183,6 +183,18 @@ def _embed_sample(f: dict):
     return None
 
 
+def _embed_cell_value(doc, n: int, f: dict):
+    """文書 doc の埋め込み n のブックの、欄 f のセルの値（なければ None）。"""
+    from ..formula.parser import parse_cell
+
+    e = next((x for x in getattr(doc, "embeds", []) if x["n"] == n), None)
+    wb = doc.embedded_book(e) if e is not None and hasattr(doc, "embedded_book") else None
+    if wb is None or not wb.has_sheet(f.get("sheet", "")):
+        return None
+    cell = wb.sheet(f["sheet"]).cells.get(parse_cell(f["cell"]))
+    return cell.value if cell is not None else None
+
+
 def _embed_write_check(doc, win: dict, opener, fill_fn, prove_fn) -> tuple[bool, str, list[str]]:
     """埋め込みの表の入力欄1か所への書き込み：証明と読み戻し。書けない表は、その理由を示す（できたことにはしない）。"""
     from .fill import written_of
@@ -199,8 +211,14 @@ def _embed_write_check(doc, win: dict, opener, fill_fn, prove_fn) -> tuple[bool,
         except FillError as ex:
             return False, f"埋め込みの表の入力欄 {f['id']} に書き込めませんでした", str(ex).splitlines()[:10]
         pr = prove_fn(doc.blob, res.blob, written_of(res.patches))
-        after = build(opener(res.blob, doc.filename))
-        got = next((g.get("value") for e2 in after.get("embeds") or [] for g in e2.get("fields") or [] if g["id"] == f["id"]), None)
+        doc2 = opener(res.blob, doc.filename)
+        after = build(doc2)
+        missing = object()
+        got = next((g.get("value") for e2 in after.get("embeds") or [] for g in e2.get("fields") or [] if g["id"] == f["id"]),
+                   missing)
+        if got is missing:
+            # 書いた後は入力欄として示さないセル（数式が参照する空欄に字を書いたなど）：書いた後のブックのセルをじかに読む
+            got = _embed_cell_value(doc2, e["n"], f)
         want = next((p.value for p in res.patches if p.id == f["id"]), v)
         same = got == want or str(got) == str(want)
         ok = pr.ok and same

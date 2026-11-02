@@ -330,9 +330,11 @@ class DocWriter:
                 blob = CFB(blob).replace("Data", bytes(data) + self.data_tail)
             except Exception as e:  # noqa: BLE001
                 raise FillError(f"Data のストリームを書き戻せません（{e}）") from None
+        from ..cfbwrite import replace_stream
+
         for path, data in self.streams.items():
             try:
-                blob = CFB(blob).replace(path, data)
+                blob = replace_stream(blob, path, data)  # 小さなストリーム（印刷用の絵など）の大きさが変わってもよい
             except Exception as e:  # noqa: BLE001
                 raise FillError(f"埋め込みのストリーム {path!r} を書き戻せません（{e}）") from None
         return blob

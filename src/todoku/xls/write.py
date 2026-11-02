@@ -72,6 +72,21 @@ class XlsEditor:
         self.biff = getattr(wb, "biff", 8)
         self.enc = getattr(wb, "biff5_encoding", "cp1252")
         self.recs = [Rec(t, b) for _, t, b in records(wb.data)]
+        # 最後の部分（シート）の EOF より後ろのバイトは、どの部分のレコードでもない（MS-XLS 2.1.7.20：ブックのストリームは
+        # 部分の並び）。読み書きせず、そのまま後ろに残す（長さの合わない「レコード」として組み立て直さない）
+        end, depth = None, 0
+        for i, r in enumerate(self.recs):
+            if r.t == T_BOF:
+                depth += 1
+            elif r.t == T_EOF and depth > 0:
+                depth -= 1
+                if depth == 0:
+                    end = i
+        self.tail = b""
+        if end is not None and end + 1 < len(self.recs):
+            used = sum(4 + len(r.b) for r in self.recs[:end + 1])
+            self.tail = wb.data[used:]
+            del self.recs[end + 1:]
         self.sst_new: list[str] = []
         self.sst_index = {s: i for i, s in enumerate(wb.shared_strings) if s not in ()}
         self.n_sst = len(wb.shared_strings)
@@ -424,7 +439,7 @@ class XlsEditor:
             if len(rec.b) > limit:
                 raise XlsWriteError("レコードが長すぎます")
             out += struct.pack("<HH", rec.t, len(rec.b)) + rec.b
-        return bytes(out)
+        return bytes(out) + self.tail
 
     def _fix_boundsheets(self, recs: list[Rec]) -> None:
         """シートの BOF の位置（BOUNDSHEET の lbPlyPos）を、いまの並びに合わせる。"""

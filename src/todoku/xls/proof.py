@@ -34,8 +34,8 @@ def _is_globals(bof: bytes) -> bool:
     return len(bof) >= 4 and struct.unpack_from("<H", bof, 2)[0] == 0x0005
 
 
-def split(data: bytes):
-    """ブックのストリームを (ブック全体のレコード, [シートのレコード]) に分ける。"""
+def split(data: bytes, starts: list[int] | None = None):
+    """ブックのストリームを (ブック全体のレコード, [シートのレコード]) に分ける。starts を渡すと、シートの部分の BOF の位置を足す。"""
     out_glob: list = []
     out_sheets: list[list] = []
     depth = 0
@@ -45,6 +45,8 @@ def split(data: bytes):
             target = out_glob if _is_globals(b) else []
             if target is not out_glob:
                 out_sheets.append(target)
+                if starts is not None:
+                    starts.append(_pos)
         if t == 0x0809:
             depth += 1
         if target is not None:
@@ -54,6 +56,23 @@ def split(data: bytes):
             if depth == 0:
                 target = None
     return out_glob, out_sheets
+
+
+def worksheet_parts(wb) -> tuple[list, list[tuple[str, list]], list[list]]:
+    """(ブック全体のレコード, [(ワークシートの名前, その部分のレコード)], [ほかの部分のレコード])。シートと部分は、
+    BOUNDSHEET の位置（lbPlyPos）で結ぶ（グラフのシートなど、セルのないシートの部分が間にあっても、ずれない）。"""
+    starts: list[int] = []
+    glob, parts = split(wb.data, starts)
+    by_pos = dict(zip(starts, range(len(parts))))
+    out, used = [], set()
+    for sh in wb.sheets:
+        if sh.state.startswith("non-") or not str(sh.path).startswith("#"):
+            continue
+        k = by_pos.get(int(str(sh.path)[1:]))
+        if k is not None:
+            out.append((sh.name, parts[k]))
+            used.add(k)
+    return glob, out, [p for k, p in enumerate(parts) if k not in used]
 
 
 def _cells(recs) -> dict[tuple[int, int], tuple]:
@@ -177,8 +196,8 @@ def _prove_one(original: bytes, new: bytes, allowed_inputs, allowed_controls, st
     for n in changed:
         if n != a.stream_name and n not in ax_seen and stream is None:
             unexpected.append(f"ストリーム {n} が変わりました（ブック以外は変えないはずです）")
-    ga, sha = split(a.data)
-    gb, shb = split(b.data)
+    ga, sha, other_a = worksheet_parts(a)
+    gb, shb, other_b = worksheet_parts(b)
     # ブック全体の部分：位置のレコードと SST（文字列の追加）のほかは同じであること
     def norm_glob(g):
         out = []
@@ -197,8 +216,11 @@ def _prove_one(original: bytes, new: bytes, allowed_inputs, allowed_controls, st
     if b.shared_strings[:len(a.shared_strings)] != a.shared_strings:
         unexpected.append("共有文字列の並びが変わりました")
     cell_changes, control_changes = [], []
-    names = [s.name for s in a.sheets if not s.state.startswith("non-")]
-    for name, ra, rb in zip(names, sha, shb):
+    if [n for n, _r in sha] != [n for n, _r in shb]:
+        unexpected.append("ワークシートの並びが変わりました")
+    if other_a != other_b:
+        unexpected.append("ワークシートでない部分（グラフのシートなど）が変わりました")
+    for (name, ra), (_nb, rb) in zip(sha, shb):
         ca, cb = _cells(ra), _cells(rb)
         sh_a, sh_b = a.sheet(name), b.sheet(name)
         for k in sorted(set(ca) | set(cb)):
@@ -461,9 +483,8 @@ def raw_texts(blob: bytes) -> dict[str, list[tuple[str, str]]]:
             if getattr(c, "ax", None) is not None:
                 out["ActiveX の部品の文字"] += [(f"{s_.name}（ActiveX）", t) for t in ax_texts(c.ax)]
     sst = wb.shared_strings
-    _glob, sheets = split(wb.data)
-    names = [s.name for s in wb.sheets if not s.state.startswith("non-")]
-    for name, recs in zip(names, sheets):
+    _glob, parts, _others = worksheet_parts(wb)
+    for name, recs in parts:
         depth = 0
         last = None
         objs = {}

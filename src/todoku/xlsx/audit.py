@@ -213,8 +213,15 @@ def check_reading(wb: Workbook, doc: dict) -> list[Check]:
         raw = raw_texts(wb.zip.original)
     n_raw = len(raw["セルの文字"]) + len(raw["セルの数値"])
     n_win = sum(1 for sh in doc["sheets"] for c in sh["cells"] if c.get("value") is not None)
+    head: list[Check] = []
     if n_raw == 0 and n_win == 0:
-        return [Check("読み落とし（全体）", False, "セルの値を1つも読めませんでした（対応していない書き方の可能性があります）")]
+        why = "" if getattr(wb, "kind", "xlsx") == "xls" else _no_cells(wb.zip.original)
+        if getattr(wb, "kind", "xlsx") == "xls" or why:
+            return [Check("読み落とし（全体）", False, "セルの値を1つも読めませんでした（対応していない書き方の可能性があります）"
+                          + (f"。{why}" if why else ""))]
+        # どのシートの XML にも、値のあるセルの要素がない（空のブック）：読み落としではない。ほかの読み落としの検査は続ける
+        head.append(Check("読み落とし（全体）", True, "どのシートにも値のあるセルがありません（すべてのシートの XML を直接読み、"
+                          "値・字のあるセルの要素がないことを確かめました）"))
     cells = {}
     for sh in doc["sheets"]:
         for c in sh["cells"]:
@@ -253,7 +260,33 @@ def check_reading(wb: Workbook, doc: dict) -> list[Check]:
                 missing.append(f"{where}: {text[:40]!r}")
         out.append(Check(f"読み落とし（{kind}）", not missing,
                          f"{len(items) - len(missing):,}/{len(items):,} 項目が窓に出ている", missing))
-    return out
+    return head + out
+
+
+def _no_cells(blob: bytes) -> str:
+    """空のブックかを、窓を作る処理を使わずに確かめる。空でない・確かめられないときは、その理由（空なら ""）。
+    ブックのすべてのシートが部品につながり、ワークシートの XML のどこにも、値（v）か字（is）を持つセル（c）がないこと。"""
+    z = RawZip(blob)
+    wb_path = "xl/workbook.xml"
+    for t, target in _rels(z, "").values():
+        if t == "officeDocument":
+            wb_path = target
+    if not z.has(wb_path):
+        return "ブックの部品が見つかりません"
+    wrels = _rels(z, wb_path)
+    sheets = [e for e in ET.fromstring(z.read(wb_path)).iter() if _ln(e.tag) == "sheet"]
+    if not sheets:
+        return "ブックにシートがありません"
+    for s in sheets:
+        t, path = wrels.get(_attr(s, "id") or "", ("", ""))
+        if not z.has(path):
+            return f"シート「{s.get('name')}」の部品が見つかりません"
+        if t != "worksheet":
+            continue  # グラフのシートなど：セルはない
+        for c in ET.fromstring(z.read(path)).iter():
+            if _ln(c.tag) == "c" and any(_ln(x.tag) in ("v", "is", "f") for x in c):
+                return f"シート「{s.get('name')}」に、値か式のあるセルがあります"
+    return ""
 
 
 def _squash(s: str) -> str:

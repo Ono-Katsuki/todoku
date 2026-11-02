@@ -10,13 +10,18 @@
 2. 表の絵：Word は、埋め込みの表を Excel が描いた絵で表示・印刷する。
    - .doc：印刷用の \\003EPRINT（EMF）と、表示用の絵（EMBED のフィールドの結果の絵の字 0x01 の sprmCPicLocation が指す
      Data の PICF → OfficeArtInlineSpContainer → OfficeArtFBSE → OfficeArtBlipEMF。EMF は DEFLATE で縮めてある）。
+     OfficeArtInlineSpContainer の絵の入れ物（rgfb）は、図形の性質の中の BLIP の性質（pib など）の現れる順に並ぶ。
+     pib の値（文書全体の絵の番号）は使わない（MS-ODRAW 2.2.15：その値は無視する）。
    - .docx：w:object の v:imagedata（と a:blip）が指す絵の部品（.emf）。
    どの絵も todoku.sheetpic で、変わったセルの字だけを消して描き足す（元のレコードはバイト列のまま）。
    .doc の表示用の絵は大きさが変わるので、元の PICF はそのまま残し、新しい PICF を Data の後ろに足して、
    絵の字の sprmCPicLocation（4バイト、CHPX の中）だけを新しい位置に書き換える（ほかの絵や欄の位置は動かない）。
    OfficeArt の絵の識別子（rgbUid）は、縮める前の EMF の MD4（RFC 1320）。元の絵でも、そうなっていることを確かめた。
+   ブックで選ばれているシートがグラフのシートなら、絵はそのグラフ：グラフ（と、グラフの中の図形）が使うセルの値が
+   変わらない書き込みだけを受け付け、絵はそのまま残す（使うセルの値が変わるなら、グラフを描き直せないので書かない）。
 3. 確かめられないことは書かない：WMF の絵・写真（ビットマップ）の絵・印刷用の \\003PRINT・再計算できない数式・
-   表の絵の中でセルの位置が決まらないときなどは、何が足りないかを日本語で示して断る。
+   表の絵の中でセルの位置が決まらないとき・セルの値を変えたときに動くマクロのあるブックなどは、何が足りないかを
+   日本語で示して断る（ボタンやブックを開いたときに動くマクロは、値を書くことでは動かないので、知らせて書く）。
 
 証明（verify）は、書き込み処理の内部の情報を使わず、前後の2つのファイルから確かめる：
 - ブック：Excel の証明（todoku.xlsx.proof.prove）。変わったのは書いたセルとその計算結果だけ
@@ -25,6 +30,7 @@
   オブジェクトの表の大きさ）を除いてバイト一致
 - .doc の表示用の絵：元の PICF は Data にそのまま残り、新しい PICF は、絵の識別子・大きさ・縮めた中身のほかは元と同じ。
   文字の書式（CHPX）で変わったのは、その絵を指す sprmCPicLocation の値だけ
+- グラフを表示している埋め込み：グラフが使うセルの値が前後で同じで、絵（印刷用・表示用）は1バイトも変わっていない
 """
 
 from __future__ import annotations
@@ -95,6 +101,29 @@ def open_book(doc, e: dict) -> Book:
     raise EmbedError(f"埋め込み{e['n']}：Excel のブックが入っていません")
 
 
+def macro_block(wb) -> str:
+    """マクロのある埋め込みのブックに書けない理由（書けるなら空）。セルの値を変えたときに動くマクロ（Worksheet_Change など）が
+    あると、Excel で表を編集したときの結果を確かめられないので書かない。それ以外のマクロ（ボタン・開いたとき）は、
+    値を書くことでは動かない。"""
+    if not getattr(wb, "has_macros", False):
+        return ""
+    from .macros import change_event_sheets, macro_info
+
+    try:
+        project = wb.vba
+    except Exception:  # noqa: BLE001
+        project = None
+    if project is None:
+        return "マクロの入れ物を読めないので、値を変えたときに動く処理があるかを確かめられず、書けません"
+    info = macro_info(project, True, {sh.code_name: sh.name for sh in wb.sheets if getattr(sh, "code_name", None)})
+    ev = change_event_sheets(info)
+    if ev:
+        procs = sorted({p for ps in ev.values() for p in ps})
+        return ("セルの値を変えたときに動くマクロ（" + "、".join(procs) + "）があるので、まだ書けません"
+                "（Excel で表を編集したときにマクロが変えるものを、表の絵に描けないため）")
+    return ""
+
+
 def reopen(book: Book, raw: bytes):
     from .xls.book import XlsWorkbook
     from .xlsx.workbook import Workbook
@@ -114,6 +143,126 @@ def is_icon(doc, e: dict) -> bool:
             return len(odt) >= 2 and bool(struct.unpack_from("<H", odt, 0)[0] & 0x0040)
         return False
     return e.get("aspect") == "Icon"
+
+
+# ====================================================================== グラフのシートを映す埋め込み
+_AREA = re.compile(r"^(?:'((?:[^']|'')+)'|([^!'\s(),\[\]]+))!(\$?[A-Za-z]{1,3}\$?\d+(?::\$?[A-Za-z]{1,3}\$?\d+)?)$")
+# 部品の中の、セルを指す式を持つ属性（DrawingML の図形の textlink、フォームの部品の fmlaLink など）
+_FORMULA_ATTRS = {"textlink", "fmlalink", "fmlarange", "fmlatxbx", "fmlamacro", "fmlagroup"}
+
+
+def _areas(wb, text: str, where: str) -> list[tuple[str, int, int, int, int]]:
+    """参照の字（「Sheet1!$A$1:$A$5」「(Sheet1!$A$1,Sheet1!$C$1)」）→ (シート, 行1, 列1, 行2, 列2)。
+    シートとセルの範囲だけでできていない式（名前・関数・ほかのブック）は、どのセルを使うか決められないので断る。"""
+    from .embeds.chart import _split_top
+    from .formula.parser import parse_cell
+
+    t = text.strip()
+    if t.startswith("(") and t.endswith(")"):
+        t = t[1:-1]
+    out = []
+    for part in _split_top(t):
+        m = _AREA.match(part.strip())
+        sheet = (m[1].replace("''", "'") if m[1] is not None else m[2]) if m else None
+        if not m or not wb.has_sheet(sheet):
+            raise EmbedError(f"表の絵のグラフ（{where}）の参照「{text}」が、ブックのシートとセルの範囲だけの形ではないので、"
+                             "グラフがどのセルを使うかを決められません")
+        a, _, b = m[3].replace("$", "").partition(":")
+        r1, c1 = parse_cell(a)
+        r2, c2 = parse_cell(b) if b else (r1, c1)
+        out.append((sheet, min(r1, r2), min(c1, c2), max(r1, r2), max(c1, c2)))
+    return out
+
+
+def chart_areas(wb) -> list[tuple[str, int, int, int, int]] | None:
+    """表の絵に映るシートがグラフのシートなら、そのグラフ（と、グラフの中の図形）が使うセルの範囲。グラフのシートでなければ None。
+    Word は、埋め込みのブックを選ばれているシートの絵で表示するので、グラフのシートが選ばれていれば、絵はそのグラフ。
+    グラフが使うセルの値が変わらなければ、絵は変わらない。使うセルを決められないときは EmbedError。"""
+    from .sheetpic import shown_sheet
+
+    sh = shown_sheet(wb)
+    if sh is None or not sh.state.startswith("non-worksheet:chartsheet"):
+        return None
+    if getattr(wb, "kind", "xlsx") == "xls":
+        return _biff_chart_areas(wb, sh)
+    return _ooxml_chart_areas(wb, sh)
+
+
+def _biff_chart_areas(wb, sh) -> list[tuple[str, int, int, int, int]]:
+    """グラフのシートの部分（MS-XLS 2.1.7.20.1）：セルを指すのは、系列・題名などの BRAI（0x1051）の formula。"""
+    from .embeds.biffchart import BRAI, substream
+
+    try:
+        recs = substream(wb.data, int(str(sh.path).lstrip("#")))
+    except (ValueError, struct.error, IndexError) as ex:
+        raise EmbedError(f"表の絵のグラフ（{sh.name}）のレコードを読めません（{ex}）") from None
+    out = []
+    for _pos, t, b in recs[1:]:
+        if t == 0x0809:
+            raise EmbedError(f"表の絵のグラフ（{sh.name}）の中に、さらに別の部分があるので、グラフが使うセルを決められません")
+        if t in (0x005D, 0x00EC, 0x01B6):  # OBJ・MsoDrawing・TxO：グラフの上の図形（セルにつないだ字などがありうる）
+            raise EmbedError(f"表の絵のグラフ（{sh.name}）の上に図形があるので、グラフの絵が使うセルを決められません")
+        if t == BRAI:
+            if len(b) < 8:
+                raise EmbedError(f"表の絵のグラフ（{sh.name}）の参照（BRAI）が壊れています")
+            cce = struct.unpack_from("<H", b, 6)[0]
+            if not cce:
+                continue
+            try:
+                text = wb.decoder.decode(b[8:8 + cce])
+            except Exception as ex:  # noqa: BLE001
+                raise EmbedError(f"表の絵のグラフ（{sh.name}）の参照の式を読めません（{ex}）") from None
+            out += _areas(wb, text, sh.name)
+    return out
+
+
+def _ooxml_chart_areas(wb, sh) -> list[tuple[str, int, int, int, int]]:
+    """グラフのシート（xl/chartsheets）から関係でたどれる部品（図・グラフ・グラフの中の図形）の、セルを指す式すべて
+    （c:f・cx:f の要素と、textlink などの属性）。"""
+    import xml.etree.ElementTree as ET
+
+    from .embeds.chart import rel_types
+
+    z = wb.zip
+    seen, todo, out = set(), [sh.path], []
+    while todo:
+        part = todo.pop()
+        if part in seen or not z.has(part):
+            continue
+        seen.add(part)
+        if not part.lower().endswith(".xml"):
+            continue  # 絵（.png など）
+        try:
+            root = ET.fromstring(z.read(part))
+        except ET.ParseError:
+            raise EmbedError(f"表の絵のグラフの部品 {part} を読めません") from None
+        for el in root.iter():
+            if el.tag.rsplit("}", 1)[-1] == "f" and (el.text or "").strip():
+                out += _areas(wb, el.text, part)
+            for k, v in el.attrib.items():
+                if k.rsplit("}", 1)[-1].lower() in _FORMULA_ATTRS and v.strip():
+                    out += _areas(wb, v.lstrip("="), part)
+        for _typ, target in rel_types(z, part).values():
+            if "://" not in target:
+                todo.append(target)
+    return out
+
+
+def chart_changes(old_wb, new_wb, areas) -> list[str]:
+    """グラフが使うセルのうち、値が前後で変わったもの（「シート!セル」）。"""
+    from .formula.parser import addr
+
+    out = []
+    for sheet, r1, c1, r2, c2 in areas:
+        a, b = old_wb.sheet(sheet), new_wb.sheet(sheet)
+        cells = {rc for rc in list(a.cells) + list(b.cells) if r1 <= rc[0] <= r2 and c1 <= rc[1] <= c2}
+        for r, c in sorted(cells):
+            x, y = a.cells.get((r, c)), b.cells.get((r, c))
+            vx = x.value if x is not None else None
+            vy = y.value if y is not None else None
+            if vx != vy or type(vx) is not type(vy):
+                out.append(f"{sheet}!{addr(r, c)}")
+    return out
 
 
 def find_embed(doc, n: int) -> dict:
@@ -153,12 +302,13 @@ def write(doc, values: dict[str, object], data_len: int | None = None) -> EmbedW
     base = data_len if data_len is not None else len(getattr(doc, "data", b""))
     for n, cells in sorted(groups.items()):
         e = find_embed(doc, n)
-        if not str(e.get("prog", "")).startswith("Excel.Sheet"):
+        if not str(e.get("prog", "")).startswith(("Excel.Sheet", "Excel.Chart")):
             raise EmbedError(f"埋め込み{n} は Excel の表ではありません（{e.get('prog') or '種類不明'}）")
         book = open_book(doc, e)
         wb = book.wb
-        if getattr(wb, "has_macros", False):
-            raise EmbedError(f"埋め込み{n}：マクロのある Excel の表には、まだ書けません（値を変えたときに動く処理を確かめられないため）")
+        why = macro_block(wb)
+        if why:
+            raise EmbedError(f"埋め込み{n}：{why}")
         targets = {}
         for rest, (key, v) in cells.items():
             if "!" in rest:
@@ -178,6 +328,9 @@ def write(doc, values: dict[str, object], data_len: int | None = None) -> EmbedW
             raise EmbedError(f"埋め込み{n}：書いた値に関わる数式のうち、計算し直せないものがあるので、表の絵を正しく描けません（"
                              + "、".join(res.unverified[:5]) + "）")
         out.warnings += [f"埋め込み{n}：{w}" for w in res.warnings]
+        if getattr(wb, "has_macros", False):
+            out.warnings.append(f"埋め込み{n}：この Excel の表にはマクロがあります（セルの値を変えたときに動くものはありません）。"
+                                "Word で表を開いて編集すると、Excel がブックを開いたときに動くマクロなどが動くことがあります")
         after = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "input"}
         for k, (key, v) in targets.items():
             s, a = k.split("!", 1)
@@ -185,7 +338,13 @@ def write(doc, values: dict[str, object], data_len: int | None = None) -> EmbedW
         if not res.patches:
             continue  # 同じ値を書いた：何も変わらない
         new_wb = reopen(book, res.blob)
-        old_model, new_model = SheetModel(wb), SheetModel(new_wb)
+        areas = None if is_icon(doc, e) else chart_areas(wb)
+        if areas is not None:
+            # 表の絵はグラフ：グラフが使うセルの値が変わらなければ、絵はそのまま（変わるなら、グラフを描き直せないので書かない）
+            moved = chart_changes(wb, new_wb, areas)
+            if moved:
+                raise EmbedError(f"埋め込み{n}：Word に表示しているのはグラフで、書いた値でグラフが使うセル（"
+                                 + "、".join(moved[:5]) + "）の値が変わります。グラフの絵は、まだ描き直せません")
         # ブックを外側に戻す
         name = e["storage"]
         if book.how == "doc-xls":
@@ -199,8 +358,11 @@ def write(doc, values: dict[str, object], data_len: int | None = None) -> EmbedW
         else:
             out.parts[name] = _cfb_replace(doc.zip.read(name), book.stream, res.blob)
         # 表の絵を描き直す
-        if not changed_cells(old_model, new_model) or is_icon(doc, e):
-            continue  # 絵に映る範囲の字は変わらない（アイコンで表示している埋め込みも、絵は変わらない）
+        if areas is not None or is_icon(doc, e):
+            continue  # グラフの絵（使うセルは変わらない）・アイコンの絵は変わらない
+        old_model, new_model = SheetModel(wb), SheetModel(new_wb)
+        if not changed_cells(old_model, new_model):
+            continue  # 絵に映る範囲の字は変わらない
         if getattr(doc, "kind", "") == "doc":
             n_pics = _doc_pictures(doc, e, old_model, new_model, out, base, tail)
         else:
@@ -213,10 +375,11 @@ def write(doc, values: dict[str, object], data_len: int | None = None) -> EmbedW
 
 
 def _cfb_replace(blob: bytes, stream: str, data: bytes) -> bytes:
-    c = CFB(blob)
-    if len(data) < c.cutoff and len(data) != len(c.read(stream)):
-        raise EmbedError("小さなストリーム（4096 バイト未満）の大きさを変えることになるので、書き込めません")
-    return c.replace(stream, data)
+    """入れ物（複合ファイル）の1つのストリームを差し替える。小さなストリーム（ミニストリーム）の大きさが変わってもよい
+    （todoku.cfbwrite。ほかのストリームのバイトは変えない）。"""
+    from .cfbwrite import replace_stream
+
+    return replace_stream(blob, stream, data)
 
 
 def _edit(data: bytes, old: SheetModel, new: SheetModel, what: str) -> bytes:
@@ -308,11 +471,15 @@ class Picture:
         if q != end or not recs or recs[0][2] != 0xF004:
             raise EmbedError("表示用の表の絵（OfficeArt）の入れ物が壊れています")
         self.recs = recs
-        self.pib = _pib(data, recs[0][0], recs[0][0] + 8 + recs[0][3])
+        # 絵の入れ物（rgfb）は、図形の性質の中の BLIP の性質の現れる順に並ぶ。pib などの値（番号）は使わない（MS-ODRAW 2.2.15）
+        order = _blip_props(data, recs[0][0], recs[0][0] + 8 + recs[0][3])
         blips = recs[1:]
-        if not (1 <= self.pib <= len(blips)):
-            raise EmbedError("表示用の表の絵の、絵の番号（pib）が絵の入れ物を指していません")
-        self.slot = self.pib  # recs の中の番号（0 は図形）
+        if 0x0104 not in order:
+            raise EmbedError("表示用の表の絵の、表示する絵（pib）が見つかりません")
+        if len(order) != len(blips):
+            raise EmbedError(f"表示用の表の絵の、絵の性質の数（{len(order)}）と絵の入れ物の数（{len(blips)}）が合わないので、"
+                             "どの絵を表示しているか決まりません")
+        self.slot = 1 + order.index(0x0104)  # recs の中の番号（0 は図形）
 
     def _blip_at(self) -> tuple[int, int, int, int]:
         """(BLIP の位置, ver/inst, 種類, 長さ)。FBSE の中に埋め込まれていれば、その中。"""
@@ -378,19 +545,27 @@ class Picture:
         return bytes(body)
 
 
-def _pib(data: bytes, a: int, b: int) -> int:
-    """図形の入れ物の中の、表示する絵の番号（pib：0x0104、fBid の値）。"""
+# BLIP の性質（MS-ODRAW 2.3.23 pib・pibPrint、2.3.7.7 fillBlip、2.3.8.6 lineFillBlip、2.3.9〜2.3.12 の四辺の lineFillBlip）
+BLIP_PROPS = (0x0104, 0x010F, 0x0186, 0x01C5, 0x0545, 0x0585, 0x05C5, 0x0605)
+
+
+def _blip_props(data: bytes, a: int, b: int) -> list[int]:
+    """図形の入れ物（a〜b）の shapePrimaryOptions（0xF00B）と shapeTertiaryOptions1（0xF122）にある BLIP の性質を、
+    現れる順に。OfficeArtInlineSpContainer の rgfb は、この順に並ぶ（MS-ODRAW 2.2.15）。"""
     q = a + 8
+    out = []
     while q + 8 <= b:
         vi, rt, ln = struct.unpack_from("<HHI", data, q)
-        if rt in (0xF00B, 0xF121, 0xF122):
+        if rt in (0xF00B, 0xF122):
             n = vi >> 4
+            if 6 * n > ln:
+                raise EmbedError("表示用の表の絵の、図形の性質の並びが壊れています")
             for k in range(n):
-                pid, val = struct.unpack_from("<HI", data, q + 8 + 6 * k)
-                if pid & 0x3FFF == 0x0104 and pid & 0x4000:
-                    return val
+                pid = struct.unpack_from("<H", data, q + 8 + 6 * k)[0] & 0x3FFF
+                if pid in BLIP_PROPS:
+                    out.append(pid)
         q += 8 + ln
-    raise EmbedError("表示用の表の絵の、表示する絵（pib）が見つかりません")
+    return out
 
 
 def _prc_grpprls(doc) -> list[bytes]:
@@ -520,8 +695,9 @@ def verify_picture(old_data: bytes, new_data: bytes, old: SheetModel, new: Sheet
         for rc, _x, y in changes:
             if y.text != run.text:
                 continue
-            L, T, R, B = lay.rect(*rc)
-            if L - 1 <= run.x <= R + 1 and T - 1 <= run.y <= B + 1:
+            L, _L1, _R0, R = lay.x_range(*rc)  # 境が決まらないときは、ありうる中でいちばん広いセル
+            _L, T, _R, B = lay.rect(*rc)
+            if L - 1 <= run.x <= R + 1 and (not lay.y_fixed or T - 1 <= run.y <= B + 1):
                 ok = True
                 break
         if not ok:
@@ -534,10 +710,31 @@ def verify_picture(old_data: bytes, new_data: bytes, old: SheetModel, new: Sheet
     return probs
 
 
+def _chart_shown(wa, wb_, doc, e: dict, n: int, probs: list, stats: dict) -> bool:
+    """表の絵がグラフのシートの絵なら、グラフが使うセルの値が前後で同じことを確かめて True（問題は probs に足す）。"""
+    if is_icon(doc, e):
+        return False
+    try:
+        areas = chart_areas(wa)
+    except EmbedError as ex:
+        probs.append(f"埋め込み{n}：{ex}")
+        return True
+    if areas is None:
+        return False
+    moved = chart_changes(wa, wb_, areas)
+    if moved:
+        probs.append(f"埋め込み{n}：表示しているグラフが使うセル（" + "、".join(moved[:5]) + "）の値が変わっていますが、グラフの絵は描き直していません")
+    else:
+        stats["charts"] = stats.get("charts", 0) + 1
+    return True
+
+
 def _note(stats: dict) -> str:
     return (f"埋め込みの表：変わったセルは入力 {stats.get('inputs', 0)}・計算結果 {stats.get('formulas', 0)}、"
             f"表の絵 {stats.get('pictures', 0)} 枚は字の変わったセルの所だけを描き直し（消した字 {stats.get('removed', 0)}・"
-            f"描いた字 {stats.get('added', 0)}）")
+            f"描いた字 {stats.get('added', 0)}）"
+            + (f"。グラフを表示している埋め込み {stats['charts']} 個は、グラフが使うセルの値が前後で同じ（絵はそのまま）"
+               if stats.get("charts") else ""))
 
 
 def _count(stats: dict, pr) -> None:
@@ -578,6 +775,8 @@ def verify_docx(a, b, written: dict) -> tuple[set[str], list[str], str]:
         pr = prove_book(ba.raw, bb.raw, allowed_inputs=cells)
         probs += [f"埋め込み{n}（{name}）：{x}" for x in pr.unexpected + pr.lint_errors]
         _count(stats, pr)
+        if _chart_shown(ba.wb, bb.wb, a, ea, n, probs, stats):
+            continue  # 表の絵（グラフ）は変わらない：絵の部品は、変わってよいものに入れない
         old_m, new_m = SheetModel(ba.wb), SheetModel(bb.wb)
         if ba.how in ("part-pkg", "part-xls"):
             ca, cb = CFB(a.zip.read(name)), CFB(b.zip.read(name))
@@ -625,6 +824,13 @@ def verify_doc(a, b, written: dict) -> tuple[set[str], list[str], str]:
             pr = prove_book(ba.raw, bb.raw, allowed_inputs=cells)
         probs += [f"埋め込み{n}（{name}）：{x}" for x in pr.unexpected + pr.lint_errors]
         _count(stats, pr)
+        if _chart_shown(ba.wb, bb.wb, a, ea, n, probs, stats):
+            # 表の絵（グラフ）は変わらない：印刷用の絵は変わってよいものに入れず、表示用の絵（Data の PICF）も同じ所のまま
+            pa = [loc for _cp, loc in ea.get("pictures", [])]
+            pb = [loc for _cp, loc in eb.get("pictures", [])]
+            if pa != pb or any(b.data[x:x + Picture(a.data, x).lcb] != a.data[x:x + Picture(a.data, x).lcb] for x in pa):
+                probs.append(f"埋め込み{n}：グラフを表示している埋め込みの表示用の絵が変わっています")
+            continue
         old_m, new_m = SheetModel(ba.wb), SheetModel(bb.wb)
         changed = bool(changed_cells(old_m, new_m)) and not is_icon(a, ea)
         ep = f"{name}/\x03EPRINT"
@@ -694,20 +900,56 @@ def window_info(doc, e: dict, xdoc: dict) -> dict:
                 continue
             fields.append({"id": f"E{e['n']}!{f['id']}", "sheet": sh["name"], "cell": f["cell"], "kind": f.get("kind"),
                            "label": f.get("label", ""), "value": f.get("value")})
-    ok, why = writable(doc, e)
+    k = _writable_key(doc, e)
+    if k is not None and k in _WRITABLE:
+        ok, why = _WRITABLE[k]
+    else:
+        ok, why = writable(doc, e)
+        if k is not None:
+            while len(_WRITABLE) >= 64:
+                _WRITABLE.pop(next(iter(_WRITABLE)))
+            _WRITABLE[k] = (ok, why)
     return {"fields": fields, "writable": ok, "why": why}
+
+
+# 書けるかの判断は、埋め込みの入れ物と表の絵のバイト列だけで決まるので、同じ中身なら覚えておいたものを使う
+_WRITABLE: dict[tuple, tuple[bool, str]] = {}
+
+
+def _writable_key(doc, e: dict) -> tuple | None:
+    import hashlib
+
+    h = hashlib.sha256()
+    try:
+        if getattr(doc, "kind", "") == "doc":
+            for path, data in sorted(SubStorage(doc.cfb, e["storage"]).contents().items()):
+                h.update(path.encode("utf-8") + b"\0" + len(data).to_bytes(8, "little") + data)
+            for _cp, loc in e.get("pictures", []):
+                lcb = struct.unpack_from("<i", doc.data, loc)[0] if 0 <= loc <= len(doc.data) - 4 else 0
+                h.update(b"\1" + doc.data[loc:loc + max(lcb, 0)])
+        else:
+            h.update(doc.zip.read(e["storage"]))
+            for img in e.get("images", []):
+                h.update(b"\1" + img.encode("utf-8") + b"\0" + doc.zip.read(img))
+    except Exception:  # noqa: BLE001
+        return None
+    return (getattr(doc, "kind", "docx"), e["storage"], e.get("prog"), e.get("aspect"),
+            tuple(loc for _cp, loc in e.get("pictures", [])), tuple(e.get("images", [])), h.hexdigest())
 
 
 def writable(doc, e: dict) -> tuple[bool, str]:
     """この埋め込みに書いたとき、Word が表示・印刷に使う表の絵を描き直せるか（セルの位置が絵から決まるか）。"""
     try:
-        if not str(e.get("prog", "")).startswith("Excel.Sheet"):
+        if not str(e.get("prog", "")).startswith(("Excel.Sheet", "Excel.Chart")):
             return False, "Excel の表ではありません"
         book = open_book(doc, e)
-        if getattr(book.wb, "has_macros", False):
-            return False, "マクロのある Excel の表です"
+        why = macro_block(book.wb)
+        if why:
+            return False, why
         if is_icon(doc, e):
             return True, ""  # アイコンで表示している：書いても絵は変わらない
+        if chart_areas(book.wb) is not None:
+            return True, "Word に表示しているのはグラフなので、グラフが使うセルの値が変わる書き込みはできません"
         model = SheetModel(book.wb)
         pics: list[tuple[str, bytes]] = []
         if getattr(doc, "kind", "") == "doc":

@@ -696,39 +696,43 @@ class DocxDocument:
 
     def embedded_books(self) -> list[tuple[dict, object]]:
         """埋め込んだ Excel のブック：(埋め込みの情報, ブック)。.xlsx の部品も、OLE の入れ物（.bin）の中のブックも読む。"""
+        out = []
+        for e in self.embeds:
+            wb = self.embedded_book(e)
+            if wb is not None:
+                out.append((e, wb))
+        return out
+
+    def embedded_book(self, e: dict):
+        """埋め込み1つの Excel のブック（Excel のブックでない・開けないときは None）。"""
         from ..cfb import CFB
         from ..xls.book import XlsWorkbook
         from ..xlsx.workbook import Workbook
 
-        out = []
-        for e in self.embeds:
+        try:
             data = self.zip.read(e["storage"])
-            try:
-                if data[:4] == b"PK\x03\x04":
-                    out.append((e, Workbook(data, e["storage"])))
-                elif data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
-                    c = CFB(data)
-                    names = {n.lower(): n for n in c.streams()}
-                    if "workbook" in names or "book" in names:
-                        out.append((e, XlsWorkbook(data, e["storage"])))
-                    elif "package" in names:
-                        out.append((e, Workbook(c.read(names["package"]), e["storage"])))
-            except Exception:  # noqa: BLE001
-                continue
-        return out
+            if data[:4] == b"PK\x03\x04":
+                return Workbook(data, e["storage"])
+            if data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+                c = CFB(data)
+                names = {n.lower(): n for n in c.streams()}
+                if "workbook" in names or "book" in names:
+                    return XlsWorkbook(data, e["storage"])
+                if "package" in names:
+                    return Workbook(c.read(names["package"]), e["storage"])
+        except Exception:  # noqa: BLE001
+            return None
+        return None
 
     def _boxes(self, node: Node, p: Para, part: str) -> None:
-        """図形・テキストボックスの中の文字（段落の後ろに付ける）。AlternateContent は片方だけ読む。"""
-        seen = set()
+        """図形・テキストボックスの中の文字（段落の後ろに付ける）。描画キャンバス・グループの中のテキストボックスも、
+        すべて読む。AlternateContent は、Word が表示する Choice の方だけを読む（Fallback は同じ中身の代わりなので数えない）。
+        テキストボックスの中のテキストボックスは、外の箱の段落の中で読む（ここでは二重に数えない）。"""
         for tx in node.iter("txbxContent"):
-            # Choice と Fallback に同じ中身があるので、最初のものだけ
-            key = "".join(n.text for n in tx.iter("t"))
-            if key in seen:
+            ups = list(_ancestors(tx, node))
+            if any(a.local in ("Fallback", "txbxContent") for a in ups):
                 continue
-            seen.add(key)
             p.boxes += self._blocks(tx, part)
-            if node.local == "AlternateContent":
-                break
 
     # ------------------------------------------------------------------ 入力欄
     def _form_field(self, f: dict, part: str, p: Para) -> Control | None:

@@ -342,3 +342,120 @@ def test_layout_reproduces_excel_drawing_of_the_filled_example():
                 if set(run.text) <= set("0123456789,.%"):
                     assert h == run.font.height, run.text  # 数値を縮小した大きさは Excel と同じ（字の幅がすべて分かる）
         assert shrunk >= 10
+
+
+# ====================================================================== 公開の様式（corpus/wide_embed）
+WIDE = CORPUS / "wide_embed"
+
+
+def _wide(name: str) -> bytes:
+    p = WIDE / name
+    if not p.exists():
+        pytest.skip("corpus なし")
+    return p.read_bytes()
+
+
+def test_doc_inline_picture_blip_is_found_by_property_order():
+    # 表示用の絵の pib の値（4）は、図形の中の絵の入れ物の数（1）を超える：入れ物は BLIP の性質の順に並ぶ（MS-ODRAW 2.2.15）
+    from todoku.doc.audit import prove as prove_doc
+    from todoku.doc.book import DocFile
+    from todoku.doc.fill import fill as fill_doc
+    from todoku.embed import Picture
+
+    blob = _wide("raw.githubusercontent.com/word_with_embeded.doc")
+    doc = DocFile(blob, "w.doc")
+    pic = Picture(doc.data, doc.embeds[0]["pictures"][0][1])
+    assert pic.slot == 1 and pic.metafile()[40:44] == b" EMF"
+    res = fill_doc(DocFile(blob, "w.doc"), {"E1!Sheet1!A2": "x"})
+    pr = prove_doc(blob, res.blob, written_of(res.patches))
+    assert pr.ok, (pr.unexpected, pr.lint_errors)
+    # A1 の字は列の外まではみ出して描かれ、そこの目盛り線は描かれていない：書き直すと線の見え方も変わるので、書かない
+    with pytest.raises(FillError, match="はみ出して"):
+        fill_doc(DocFile(blob, "w.doc"), {"E1!Sheet1!A1": "x"})
+
+
+def test_print_picture_without_gridlines_right_aligned_number():
+    # 印刷用の絵（EPRINT）には目盛り線がなく、字は右寄せの数字だけ：右寄せの字の右端（境 − 余白）は決まるので、数字は描ける。
+    # 左寄せの字の位置は決まらないので、書かない
+    blob = _wide("raw.githubusercontent.com/EmbeddedDocument.docx")
+    res = fill(DocxDocument(blob, "e.docx"), {"E1!Sheet1!B1": 12})
+    pr = prove(blob, res.blob, written_of(res.patches))
+    assert pr.ok, pr.unexpected
+    part = "word/embeddings/Microsoft_Office_Excel_97-2003_Worksheet1.xls"
+    ep = Emf(CFB(zipfile.ZipFile(io.BytesIO(res.blob)).read(part)).read("\x03EPRINT"))
+    run = next(r for r in ep.runs if r.text == "12")
+    assert (run.x, run.y, run.align & 6) == (848, 7, TA_RIGHT)  # 元の「2」の右端（801＋47）、同じ高さ
+    with pytest.raises(FillError, match="横の位置が決まりません"):
+        fill(DocxDocument(blob, "e.docx"), {"E1!Sheet1!B1": "テスト"})
+
+
+def test_embedded_workbook_showing_a_chart_sheet():
+    # 選ばれているシートがグラフのシート：絵はグラフ。グラフが使うセルの値が変わらない書き込みだけを受け付ける
+    from todoku.doc.audit import prove as prove_doc
+    from todoku.doc.book import DocFile
+    from todoku.doc.fill import fill as fill_doc
+
+    blob = _wide("data.bodik.jp/1811.doc")
+    sheet = "行財政マネジメントのための基本方針"
+    with pytest.raises(FillError, match="グラフ"):
+        fill_doc(DocFile(blob, "c.doc"), {f"E1!{sheet}!R4": 3})
+    res = fill_doc(DocFile(blob, "c.doc"), {f"E1!{sheet}!O1": "テスト"})
+    pr = prove_doc(blob, res.blob, written_of(res.patches))
+    assert pr.ok, (pr.unexpected, pr.lint_errors)
+    assert "グラフを表示している埋め込み 1 個" in pr.embed_note
+
+
+def test_xls_proof_with_a_chart_sheet_before_the_worksheets():
+    # グラフのシート（Excel.Chart.8）が先にあるブック：シートの部分とシートを位置で結ぶ（ずれると変更を見落とす）
+    from todoku.doc.book import DocFile
+    from todoku.doc.fill import fill as fill_doc
+    from todoku.embed import open_book
+    from todoku.xls.proof import prove as prove_xls
+
+    blob = _wide("data.bodik.jp/1844.doc")
+    res = fill_doc(DocFile(blob, "g.doc"), {"E1!入力シート!H1": "テスト"})
+    a, b = DocFile(blob, "a"), DocFile(res.blob, "b")
+    ba, bb = open_book(a, a.embeds[0]), open_book(b, b.embeds[0])
+    pr = prove_xls(ba.raw, bb.raw, {("入力シート", "H1")})
+    assert [c["cell"] for c in pr.cell_changes] == ["H1"] and not pr.unexpected
+    # 最後の部分の EOF の後ろのバイト（どの部分のレコードでもない）は、組み立て直さずにそのまま残す
+    tail = ba.wb.data[1106950:]
+    assert len(tail) == 21979 and bb.wb.data.endswith(tail)
+
+
+def test_embedded_workbook_with_macros_that_do_not_run_on_change():
+    # マクロはあるが、セルの値を変えたときに動くもの（Worksheet_Change など）はない：書ける（マクロがあることは知らせる）
+    from todoku.embed import macro_block, open_book
+
+    blob = _wide("data.bodik.jp/ikoutyousa.docx")
+    doc = DocxDocument(blob, "m.docx")
+    wb = open_book(doc, doc.embeds[0]).wb
+    assert wb.has_macros and macro_block(wb) == ""
+
+
+def test_text_boxes_in_a_drawing_canvas_are_all_read():
+    # 描画キャンバス（wpc）の中の、いくつものテキストボックス：どれも窓に出す（Fallback の同じ中身は数えない）
+    from todoku.docx.audit import check_reading
+
+    doc = DocxDocument(_wide("data.bodik.jp/262064rpareport201903.docx"), "r.docx")
+    win = build(doc)
+    assert all(c.ok for c in check_reading(doc, win)), [c.items[:3] for c in check_reading(doc, win)]
+    assert "RPAの適用により、正確性の向上や入力ミス等が減少した。" in to_markdown(win)
+
+
+def test_empty_workbook_is_not_a_reading_failure():
+    # どのシートにも値のあるセルがないブック（埋め込みだけ）：読み落としではない（XML を直接読んで確かめる）
+    from todoku.xlsx.audit import run
+
+    au = run(_wide("raw.githubusercontent.com/bug64512_embed.xlsx"), "bug64512_embed.xlsx")
+    c = next(c for c in au.checks if c.name == "読み落とし（全体）")
+    assert c.ok and au.ok
+
+
+def test_word_document_shorter_cbmac_is_valid():
+    # cbMac は WordDocument の中の意味のあるバイトの数：ストリームの方が長くてよい（MS-DOC 2.5.4）
+    from todoku.doc.audit import lint
+    from todoku.doc.book import DocFile
+
+    doc = DocFile(_wide("raw.githubusercontent.com/word_with_embeded.doc"), "w.doc")
+    assert doc.lw[0] < len(doc.wd) and lint(doc) == []

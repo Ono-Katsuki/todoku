@@ -588,24 +588,73 @@ def _pictures(doc) -> list[dict]:
     return out
 
 
+# 埋め込みのブックの Excel の窓：中身（入れ物のバイト列）が同じなら同じ窓になるので、作り直さない（検査では、書き込みの前後や
+# 目印の書き込みの後に、同じ文書の窓を何度も作る。埋め込みの大きなブックの窓を毎回作ると、遅すぎる）
+_EMBED_WINDOWS: dict[tuple, object] = {}
+_EMBED_WINDOWS_MAX = 32
+
+
+def _embed_key(doc, e: dict) -> tuple | None:
+    import hashlib
+
+    h = hashlib.sha256()
+    try:
+        if getattr(doc, "kind", "") == "doc":
+            from ..cfb import SubStorage
+
+            for path, data in sorted(SubStorage(doc.cfb, e["storage"]).contents().items()):
+                h.update(path.encode("utf-8") + b"\0" + len(data).to_bytes(8, "little"))
+                h.update(data)
+        else:
+            h.update(doc.zip.read(e["storage"]))
+    except Exception:  # noqa: BLE001
+        return None
+    return (getattr(doc, "kind", "docx"), e["storage"], h.hexdigest())
+
+
+def _embed_windows(doc) -> list[tuple[dict, object]]:
+    """(埋め込み, (Excel の窓, 窓の Markdown の行) か 作れなかった理由の字)。Excel のブックでない埋め込みは除く。"""
+    from ..xlsx import window as xw
+
+    if not hasattr(doc, "embedded_book"):
+        return []
+    out = []
+    for e in list(getattr(doc, "embeds", []) or []):
+        k = _embed_key(doc, e)
+        if k is not None and k in _EMBED_WINDOWS:
+            got = _EMBED_WINDOWS[k]
+        else:
+            wb = doc.embedded_book(e)
+            if wb is None:
+                got = None  # Excel のブックではない（開けない）
+            else:
+                try:
+                    xdoc = xw.build(wb)
+                    got = (xdoc, [ln for sh in xdoc["sheets"] for ln in xw._md_sheet(sh)])
+                except Exception as ex:  # noqa: BLE001
+                    got = str(ex)
+            if k is not None:  # 中身の要約を作れなかったものは、使い回さない
+                while len(_EMBED_WINDOWS) >= _EMBED_WINDOWS_MAX:
+                    _EMBED_WINDOWS.pop(next(iter(_EMBED_WINDOWS)))
+                _EMBED_WINDOWS[k] = got
+        if got is not None:
+            out.append((e, got))
+    return out
+
+
 def _embeds(doc) -> list[dict]:
     """文書に埋め込んだ Excel の表：Excel の窓と同じ読み方で、シートごとに平文にする（本文では〔埋め込み1：…〕の所）。"""
-    books = doc.embedded_books() if hasattr(doc, "embedded_books") else []
+    from ..embed import window_info
+
     out = []
-    for e, wb in books:
-        from ..xlsx import window as xw
-
-        try:
-            xdoc = xw.build(wb)
-        except Exception as ex:  # noqa: BLE001
-            out.append({"n": e["n"], "label": e["label"], "prog": e["prog"], "storage": e["storage"], "error": str(ex)})
+    for e, got in _embed_windows(doc):
+        if isinstance(got, str):
+            out.append({"n": e["n"], "label": e["label"], "prog": e["prog"], "storage": e["storage"], "error": got})
             continue
-        from ..embed import window_info
-
+        xdoc, md = got
         info = window_info(doc, e, xdoc)  # 書くときの欄の名前（E1!Sheet1!C4）と、表の絵を描き直せるか
         out.append({"n": e["n"], "label": e["label"], "prog": e["prog"], "storage": e["storage"],
-                    "sheets": [sh["name"] for sh in xdoc["sheets"]],
-                    "markdown": [ln for sh in xdoc["sheets"] for ln in xw._md_sheet(sh)], **info})
+                    "sheets": [sh["name"] for sh in xdoc["sheets"]], "markdown": list(md), **info})
     return out
 
 

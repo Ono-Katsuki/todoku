@@ -108,8 +108,9 @@ def lint(doc: DocFile) -> list[str]:
         vals = struct.unpack_from(f"<{n + 1}I", doc.table, f0)
         if any(b < a for a, b in zip(vals, vals[1:])):
             errs.append(f"{name} の位置の並びが崩れています")
-    if doc.lw[0] != len(doc.wd):
-        errs.append("WordDocument の長さ（cbMac）が合いません")
+    # cbMac：WordDocument のうち意味のあるバイトの数。その後ろは無視される（MS-DOC 2.5.4 FibRgLw97）ので、ストリームより短くてよい
+    if doc.lw[0] > len(doc.wd):
+        errs.append("WordDocument の長さ（cbMac）が、ストリームの長さを超えています")
     return errs
 
 
@@ -164,6 +165,8 @@ def prove(original: bytes, new: bytes, written: dict) -> DocProof:
         elif name not in allowed:
             pr.unexpected.append(f"ストリーム {name} が変わっています")
     pr.lint_errors += lint(b)
+    if len(b.wd) != len(a.wd) and b.lw[0] != len(b.wd):
+        pr.lint_errors.append("WordDocument を書き足したのに、意味のあるバイトの数（cbMac）がストリームの長さと合いません")
     pa = [p for _k, _p, bl in a.all_blocks() for p in iter_paras(bl)]
     pb = [p for _k, _p, bl in b.all_blocks() for p in iter_paras(bl)]
     pr.paragraphs_total = len(pa)

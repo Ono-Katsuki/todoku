@@ -11,7 +11,10 @@ Excel が描いた表の絵には、セルの位置そのものは書かれて�
    縦：y = ay + by·（行の高さの和）、中央寄せの字の上端 + 字の高さ/2 = 行の中心 + dc、上寄せ・下寄せも同様。
    外れた証拠（字の飾りの線など）は、残差の大きいものから外して解き直す。
 4. 新しい字を描くのに要る値（右寄せなら「境 − m − p·h」など）が、証拠から決まるかを、連立式の行の空間に入るかで確かめる。
-   決まらなければ、何が足りないかを日本語で示して書かない（推測で描かない）。
+   決まらなければ、何が足りないかを日本語で示して書かない（推測で描かない）。境の位置そのものは決まらなくてよい：
+   目盛り線のない印刷用の絵で、字が右寄せの数字だけなら「右の境 − 余白」は決まるので、右寄せの数字は描ける。
+   そのときセルに入るかは、使える幅の下限（セルの余白は左右で同じ・目盛り線の幅は 0 以上・Excel が字を描く切り抜きの
+   左端は範囲の最初の列の中の左端、から求めたもの）で確かめ、切り抜きは Excel がセルの字を描いたときのものを使う。
 
 字の大きさは、すでにある字の字体の高さと、そのセルの字の大きさ（ポイント）の比で決める。「縮小して全体を表示する」セルは、
 Excel と同じく h' = ⌊h × 使える幅 ÷（字の幅＋空白の幅）⌋ にする（使える幅 = セルの幅 − 余白×2。函館市の記入例の絵で、
@@ -69,6 +72,7 @@ class CellFormat:
     font: CellFont | None = None
 
 
+_HALIGN_JA = {"left": "左寄せ", "right": "右寄せ", "center": "中央寄せ"}
 _HALIGN = {0: "general", 1: "left", 2: "center", 3: "right", 4: "fill", 5: "justify", 6: "centerAcross", 7: "distributed"}
 _VALIGN = {0: "top", 1: "center", 2: "bottom", 3: "justify", 4: "distributed"}
 
@@ -320,6 +324,16 @@ def cell_text(wb, sh, fmts: list[CellFormat], r: int, c: int) -> CellText:
 
 
 # ====================================================================== 絵に映るシート
+def shown_sheet(wb):
+    """表の絵に映るシート（ブックで選ばれているシート：BIFF の Window1.itabCur、.xlsx の workbookView の activeTab）。
+    範囲の外を指していれば None。"""
+    kind = getattr(wb, "kind", "xlsx")
+    _f, info = _xls_formats(wb) if kind == "xls" else _xlsx_formats(wb)
+    sheets = list(wb.sheets)
+    ai = info.get("active", 0)
+    return sheets[ai] if 0 <= ai < len(sheets) else None
+
+
 class SheetModel:
     """絵に映るシートと範囲、列・行の境（既知の幅の和と、既定の幅の列の数）、セルの字。"""
 
@@ -390,6 +404,10 @@ class SheetModel:
 
 
 # ====================================================================== 最小二乗（小さな連立式）
+def _minus(a: dict[str, float], b: dict[str, float]) -> dict[str, float]:
+    return {k: a.get(k, 0.0) - b.get(k, 0.0) for k in set(a) | set(b)}
+
+
 class _System:
     """一次式の証拠を集めて解く。解けない（決まらない）組み合わせは estimable で分かる。"""
 
@@ -508,6 +526,7 @@ class Placed:
     text: str
     records: list[bytes]
     ref: tuple[int, int]
+    band: tuple[float, float] = (0.0, 0.0)  # 字の上端と下端
 
 
 @dataclass
@@ -620,12 +639,14 @@ class Layout:
             xs.solve(lambda tag: tolx)
             ys.solve(lambda tag: toly)
             self.xs, self.ys = xs, ys
-            if not (xs.estimable({"ax": 1, "bx": 1}) and xs.estimable({"bx": 1})):
-                raise PictureError("表の絵の中で、列の境の位置が決まりません（罫線も、位置の分かる字も足りません）")
-            if not ys.estimable({"by": 1}):
-                raise PictureError("表の絵の中で、行の境の位置が決まりません（罫線も、位置の分かる字も足りません）")
+            # 境の位置そのもの（表の左上の位置・列の幅・行の高さ）は、すべて決まらなくてもよい：右寄せの字の右端（境 − 余白）や、
+            # 下寄せの字の下端（境 − ずれ）のように、描くのに要る組み合わせが証拠から決まるかを、描くときに一つずつ確かめる
+            # （既定の幅の列しかなければ、幅の分かる列の倍率 bx は要らない）
+            self.x_fixed = all(xs.estimable(self._xb(c)) for c in self.cols_b)
+            self.y_fixed = all(ys.estimable(self._yb(r)) for r in self.rows_b)
             guess = {k: (xs.value({k: 1}) if k in ("ax", "bx", "v") and xs.estimable({k: 1}) else
                          ys.value({k: 1}) if k in ("ay", "by") and ys.estimable({k: 1}) else guess[k]) for k in guess}
+            self._guess = guess
             more = self._position_anchors(anchors)
             if not more:
                 break
@@ -672,11 +693,15 @@ class Layout:
                 elif t.valign == "bottom":
                     dbs.append(B - run.y - bh)
         self.m = med(lefts + rights)
+        # 左の余白（左の境から左寄せの字まで）と右の余白（右寄せの字から右の境まで）は、目盛り線の幅の分だけ違うことがある
+        # （境は線の左端：画面の絵では左 3・右 2）。測れた側はその値を、測れない側は両方の真ん中の値を使う
+        self.ml = med(lefts) if lefts else self.m
+        self.mr = med(rights) if rights else self.m
         self.gaps = {k: med(v) for k, v in gaps.items()}
         self.pad_em = {}
         if self.m is not None:
             for (name, h), g in self.gaps.items():
-                self.pad_em.setdefault(name, []).append((g - self.m) / h)
+                self.pad_em.setdefault(name, []).append((g - self.mr) / h)
             self.pad_em = {k: med(v) for k, v in self.pad_em.items()}
         self.dh = med(centers)
         self.dc, self.dt, self.db = med(dcs), med(dts), med(dbs)
@@ -687,8 +712,8 @@ class Layout:
                 if len(pad) == 1:
                     k_ = next((r.font.key for r in self.runs if str(r.font.key) == key), None)
                     if k_ is not None:
-                        self.exact.setdefault((k_, h), {}).setdefault(pad, int(round(g - self.m)))
-                        self.em.setdefault(k_, {}).setdefault(pad, (g - self.m) / h)
+                        self.exact.setdefault((k_, h), {}).setdefault(pad, int(round(g - self.mr)))
+                        self.em.setdefault(k_, {}).setdefault(pad, (g - self.mr) / h)
         # 対の括弧は同じ幅（字体の作りの決まり）：片方しか分からないときは、もう片方にも使う
         for d in list(self.exact.values()) + list(self.em.values()):
             for a, b in ("()", "[]", "{}", "（）", "「」", "［］"):
@@ -743,6 +768,8 @@ class Layout:
         out = {}
         keys = self.cols_b if orient == "v" else self.rows_b
         for k, co in zip(keys, coefs):
+            if not sysm.estimable(co):
+                continue  # 位置の決まらない境は、近くの線に寄せない
             at = self._near(orient, sysm.value(co), tol)
             if at is not None:
                 out[k] = at
@@ -760,8 +787,51 @@ class Layout:
         return self.ys.value(self._yb(r))
 
     def rect(self, r: int, c: int) -> tuple[float, float, float, float]:
+        """セルの矩形（求めた解）。境の位置が決まらない向きでは、本当の位置からずれていることがある（x_range・y_fixed を見る）。"""
         r1, c1, r2, c2 = self.model.area(r, c)
         return self.bx(c1), self.by(r1), self.bx(c2 + 1), self.by(r2 + 1)
+
+    def text_clip(self) -> tuple[int, int, int, int] | None:
+        """Excel がセルの字を描いたときの切り抜き（表の範囲の、セルの中の部分）。字によって違えば None。"""
+        clips = {self._run(i).clip for i in self.anchors}
+        if len(clips) != 1:
+            return None
+        c = next(iter(clips))
+        return c if isinstance(c, tuple) else None
+
+    def x_shift(self) -> tuple[float, float]:
+        """列の境が決まらないとき（位置の分かる字が右寄せだけで、罫線もないとき）、本当の境が求めた解から
+        どれだけずれうるか（t の範囲。列の幅は決まっているので、どの境も同じだけずれる）。決まっていれば (0, 0)。
+        - 上限：Excel が字を描くときの切り抜きの左端は、範囲の最初の列の中（左の境 ＋ 目盛り線の幅、幅は 0 以上）の左端
+        - 下限：右寄せの字の右端は、列の右の境より右に出ない（右の余白は 0 以上）"""
+        if self.x_fixed:
+            return 0.0, 0.0
+        c0 = self.cols_b[0]
+        if not all(self.xs.estimable(_minus(self._xb(c), self._xb(c0))) for c in self.cols_b):
+            raise PictureError("表の絵の中で、列の境の位置が決まりません（罫線も、位置の分かる字も足りません）")
+        clip = self.text_clip()
+        if clip is None:
+            raise PictureError("表の絵の中で、列の境の位置が決まりません（罫線がなく、字を描いた切り抜きも字ごとに違います）")
+        hi = clip[0] - self.bx(self.cols_b[0])
+        lows = []
+        for idx, rc in self.anchors.items():
+            t = self.texts[rc]
+            run = self._run(idx)
+            x1 = self.edges(run)[1]
+            if t.halign == "right" and not t.pad_right and x1 is not None and not self._shrunk(run, t):
+                lows.append(x1 - self.bx(self.model.area(*rc)[3] + 1))
+        if not lows:
+            raise PictureError("表の絵の中で、列の境の位置が決まりません（罫線も、右寄せの字もありません）")
+        lo = max(lows)
+        if lo > hi + 1:
+            raise PictureError("表の絵の中の字の位置と、字を描いた切り抜きが合いません")
+        return lo, max(lo, hi)
+
+    def x_range(self, r: int, c: int) -> tuple[float, float, float, float]:
+        """セルの左右の境のありうる範囲：(左の最小, 左の最大, 右の最小, 右の最大)。境が決まっていれば幅のない範囲。"""
+        L, _T, R, _B = self.rect(r, c)
+        lo, hi = self.x_shift()
+        return L + lo, L + hi, R + lo, R + hi
 
     # ------------------------------------------------------------------ 字とセルを結ぶ
     def _candidates(self) -> dict[str, list[tuple[int, int]]]:
@@ -784,33 +854,63 @@ class Layout:
         return out
 
     def _position_anchors(self, have: dict[int, tuple[int, int]]) -> dict[int, tuple[int, int]]:
-        """字が一致するセルのうち、字の位置がそのセルの中にあるものが1つだけなら結ぶ。"""
+        """字が一致するセルのうち、字の位置がそのセルの中にあるものが1つだけなら結ぶ。
+        境の位置が決まらない向きでは、そのセルの寄せ方で字が描かれるはずの所（右寄せなら「右の境 − 余白」など、
+        証拠から決まる組み合わせ）に字があるかで確かめる。決まらなければ結ばない。"""
         cand = self._candidates()
         taken = set(have.values())
         out = {}
         for r in self.runs:
             if r.index in have:
                 continue
-            x0, x1, xc = self.edges(r)
-            mx = xc if xc is not None else (x0 if x0 is not None else x1)  # 字の中の1点（寄せ方で決まる端もセルの中）
-            hits = []
-            for rc in cand.get(r.text, []):
-                if rc in taken:
-                    continue
-                L, T, R, B = self._rect_fit(*rc)
-                bh = r.box_height or abs(r.font.height)
-                if L - self._tolx() <= mx <= R + self._tolx() and T - self._toly() <= r.y + bh / 2 <= B + self._toly():
-                    hits.append(rc)
+            hits = [rc for rc in cand.get(r.text, []) if rc not in taken and self._inside(r, rc)]
             if len(hits) == 1 and len(self.texts[hits[0]].lines) == 1:
                 out[r.index] = hits[0]
                 taken.add(hits[0])
         return out
 
+    def _inside(self, run: TextRun, rc: tuple[int, int]) -> bool:
+        """字 run が、セル rc の字として描かれた所にあるか。"""
+        L, T, R, B = self._rect_fit(*rc)
+        r1, c1, r2, c2 = self.model.area(*rc)
+        x0, x1, xc = self.edges(run)
+        bh = run.box_height
+        t = self.texts[rc]
+        if self.x_fixed:
+            mx = xc if xc is not None else (x0 if x0 is not None else x1)  # 字の中の1点（寄せ方で決まる端もセルの中）
+            if not L - self._tolx() <= mx <= R + self._tolx():
+                return False
+        else:
+            if t.pad_left or t.pad_right or self._shrunk(run, t):
+                return False
+            if t.halign == "right" and x1 is not None:
+                co, at = {**self._xb(c2 + 1), "m": -1.0}, x1
+            elif t.halign == "left" and x0 is not None:
+                co, at = {**self._xb(c1), "m": 1.0}, x0
+            else:
+                return False
+            if not self.xs.estimable(co) or abs(self.xs.value(co) - at) > self._tolx():
+                return False
+        if self.y_fixed:
+            h = bh or abs(run.font.height)
+            return T - self._toly() <= run.y + h / 2 <= B + self._toly()
+        if not bh or run.align & 0x18:
+            return False
+        Tc, Bc = self._yb(r1), self._yb(r2 + 1)
+        if t.valign == "center":
+            co, at = {**{k: (Tc.get(k, 0.0) + Bc.get(k, 0.0)) / 2 for k in set(Tc) | set(Bc)}, "dc": 1.0}, run.y + bh / 2
+        elif t.valign == "top":
+            co, at = {**Tc, "dt": 1.0}, run.y
+        else:
+            co, at = {**Bc, "db": -1.0}, run.y + bh
+        return self.ys.estimable(co) and abs(self.ys.value(co) - at) <= self._toly()
+
     def _tolx(self) -> float:
-        return max(2.0, 0.2 * self.xs.value({"bx": 1}))
+        # 文字1つ分の幅の 0.2 倍（幅の分かる列がなく、倍率が決まらないときは、見当の値）
+        return max(2.0, 0.2 * self._guess["bx"])
 
     def _toly(self) -> float:
-        return max(2.0, 0.2 * self.ys.value({"by": 1}) * 12)
+        return max(2.0, 0.2 * self._guess["by"] * 12)
 
     def _scale_of(self, anchors: dict) -> float | None:
         """絵の上の字の高さ ÷ ポイント：縮小していないセルの字の、真ん中の値。"""
@@ -957,11 +1057,35 @@ class Layout:
                 if w is None:
                     raise PictureError(f"{where}: 表示形式の空白（_{pad}）の幅が、表の絵から分かりません")
                 pads[side] = w / h_nom
-        avail = (R - L) - 2 * m
+        # 横の位置に要る組み合わせ（左寄せ：左の境＋余白、右寄せ：右の境−余白、中央寄せ：境の中点）が、証拠から決まること
+        xs, ys = self.xs, self.ys
+        Lc, Rc = self._xb(c1), self._xb(c2 + 1)
+        need = {"left": {**Lc, "m": 1.0}, "right": {**Rc, "m": -1.0}}.get(
+            t.halign, {k: (Lc.get(k, 0.0) + Rc.get(k, 0.0)) / 2 for k in set(Lc) | set(Rc)})
+        if not xs.estimable(need):
+            raise PictureError(f"{where}: 表の絵の中で、このセルに{_HALIGN_JA.get(t.halign, '')}の字を描く横の位置が決まりません"
+                               "（罫線がなく、同じ寄せ方の字もないので、列の境の位置が決まりません）")
         lo, hi, _exact = self.text_width(key, h_nom, t.text)
         padw = (pads.get("l", 0) + pads.get("r", 0)) * h_nom
+        exact_avail = xs.estimable(_minus(_minus(Rc, Lc), {"m": 2.0}))
+        if exact_avail:
+            avail = (R - L) - self.ml - self.mr
+        else:
+            # 列の境が決まらない（右寄せの字だけ）：使える幅の下限で、入ることを確かめる。セルの余白は左右で同じ
+            # （MS-OI29500 2.1.598・ECMA-376 第1部 18.3.1.13：列の幅は、字の幅に、両側の余白と目盛り線の分を足したもの）、
+            # 目盛り線の幅は 0 以上、
+            # Excel が字を描く切り抜きの左端は範囲の最初の列の中の左端、とすると
+            # 使える幅 = 2×（右寄せの字の右端）− 2×（切り抜きの左端）−（最初の列の左の境からこのセルの左右の境まで）＋ 線の幅 ≧ 下の値
+            clip = self.text_clip()
+            self.x_shift()  # 字の位置と切り抜きが食い違っていないこと
+            first = self.bx(self.cols_b[0])
+            avail = 2 * (R - self.mr) - 2 * clip[0] - (L - first) - (R - first)
         h = h_nom
         overflow_to = None
+        if hi + padw > avail and not exact_avail:
+            raise PictureError(f"{where}: 「{t.text}」が欄の幅に入るか確かめられません（表の絵に列の境の線がなく、"
+                               "使える幅が分からないため。入りきらなければ、Excel では"
+                               + ("「####」になります" if t.halign == "right" else "隣のセルに掛かるか、切れます") + "）")
         if hi + padw > avail:
             if t.shrink:
                 w = self.known_width(key, h_nom, t.text)
@@ -971,16 +1095,21 @@ class Layout:
                 if h < 1:
                     raise PictureError(f"{where}: 「{t.text}」は欄に入りきりません")
             elif lo + padw > avail and t.halign == "left" and not t.wrap and (r1, c1) == (r2, c2):
-                overflow_to = self._overflow_end(rc, t, lo, hi, L, m, new_texts)
+                overflow_to = self._overflow_end(rc, t, lo, hi, L, new_texts)
             else:
                 raise PictureError(f"{where}: 「{t.text}」が欄の幅に入るか確かめられません（入りきらなければ、Excel では"
                                    + ("「####」になります" if t.halign == "right" else "隣のセルに掛かるか、切れます") + "）")
         ratios = self.heights.get(key)
-        if not ratios:
+        same = None if ratios else self._same_height_run(rc, t, key, h)
+        if not ratios and same is None:
             raise PictureError(f"{where}: 表の絵の中に、この字体（{f.face}）で描いた字の高さの手がかりがありません")
-        hb = sorted(ratios)[len(ratios) // 2] * h
+        hb = sorted(ratios)[len(ratios) // 2] * h if ratios else same[1]
         # 縦の位置：Excel と同じく、行の中心 − 字の高さ/2 + ずれ を切り捨てる
-        if t.valign == "center":
+        if same is not None:
+            # 字の高さが分からない（GDI が書いた字の外接矩形が切り抜きで欠けている）：同じ字体・同じ大きさ・同じ縦の寄せ方で
+            # 描いた字の上端から、行の境の差（証拠から決まるもの）だけずらす。同じ行なら、その字と同じ高さ
+            y = same[0]
+        elif t.valign == "center":
             if self.dc is None:
                 raise PictureError(f"{where}: 表の絵の中に、縦の中央に寄せた字がないので、描く高さが分かりません")
             y = (T + B) / 2 + self.dc - hb / 2
@@ -992,17 +1121,22 @@ class Layout:
             if self.db is None:
                 raise PictureError(f"{where}: 表の絵の中に、下に寄せた字がないので、描く高さが分かりません")
             y = B - self.db - hb
+        Tc, Bc = self._yb(r1), self._yb(r2 + 1)
+        yneed = {"center": {**{k: (Tc.get(k, 0.0) + Bc.get(k, 0.0)) / 2 for k in set(Tc) | set(Bc)}, "dc": 1.0},
+                 "top": {**Tc, "dt": 1.0}}.get(t.valign, {**Bc, "db": -1.0})
+        if same is None and not ys.estimable(yneed):
+            raise PictureError(f"{where}: 表の絵の中で、このセルの字を描く高さが決まりません（罫線がなく、同じ縦の寄せ方の字もありません）")
         # 横の位置（右寄せ・中央寄せは GDI の寄せ方で描くので、字の幅が分からなくても右端・中心は正しい）
         s = h / h_nom  # 縮小して描くときは、余白と空白も同じ割合で縮む（記入例の絵の字の位置と1単位以内で合う）
         gap = self.gaps.get((self._pad(t.pad_right, key), h)) if t.pad_right else None
         if t.halign == "left":
-            x, align = L + m * s + pads.get("l", 0) * h, TA_LEFT
+            x, align = L + self.ml * s + pads.get("l", 0) * h, TA_LEFT
         elif t.halign == "right":
-            x = R - gap if gap is not None else R - m * s - pads.get("r", 0) * h
+            x = R - gap if gap is not None else R - self.mr * s - pads.get("r", 0) * h
             align = TA_RIGHT
         else:
             x, align = (L + R) / 2 + (self.dh or 0.0) + (pads.get("l", 0) - pads.get("r", 0)) * h / 2, TA_CENTER
-        xi, yi = int(math.floor(x)), int(math.floor(y))
+        xi, yi = int(math.floor(x + 1e-6)), int(math.floor(y + 1e-6))  # 解の計算の小さな誤差（847.9999…）で1つ下がらない
         dx = None
         ex = self.exact.get((key, h), {})
         if all(ch in ex for ch in t.text):
@@ -1012,22 +1146,64 @@ class Layout:
         bounds = (int(x0), yi, int(x0 + w_est) - 1, int(yi + hb) - 1)
         ref = self.runs[0]
         clip = (int(math.floor(L)), int(math.floor(T)), int(math.ceil(overflow_to if overflow_to else R)), int(math.ceil(B)))
+        if not (self.x_fixed and self.y_fixed):
+            # 境の位置が決まらない向きは、Excel がセルの字を描いたときと同じ切り抜き（表の範囲）で描く。
+            # 字はセルに入ることを確かめてあるので、セルで切り抜いたときと同じに描かれる
+            tc = self.text_clip()
+            if tc is None:
+                raise PictureError(f"{where}: 表の絵の中で、セルの境が決まらず、Excel が字を描いた切り抜きも字ごとに違います")
+            clip = (clip[0] if self.x_fixed else tc[0], clip[1] if self.y_fixed else tc[1],
+                    clip[2] if self.x_fixed else tc[2], clip[3] if self.y_fixed else tc[3])
         recs = [savedc(), intersect_clip(clip),
                 create_font(ih, base, -h, 700 if f.bold else 400, f.italic, f.underline == 1, f.strike,
                             f.charset if f.charset is not None else base.charset, f.face),
                 select(ih), text_color(colorref(t.color)), bk_transparent(), text_align(align),
                 ext_text_out(xi, yi, t.text, dx, bounds, ref.gmode, ref.scales), restoredc(), delete(ih)]
-        return Placed(rc, t.text, recs, (xi, yi))
+        return Placed(rc, t.text, recs, (xi, yi), (yi, yi + hb))
 
-    def _overflow_end(self, rc, t: CellText, lo: float, hi: float, L: float, m: float, new_texts: dict) -> float:
+    def _same_height_run(self, rc: tuple[int, int], t: CellText, key: tuple, h: int) -> tuple[float, float] | None:
+        """同じ字体・同じ大きさ・同じ縦の寄せ方で描いた字から、セル rc に描く字の上端と、字の高さ（GDI が書いた外接矩形の
+        下端まで）を求める。行の境の差が証拠から決まるものだけを使う。なければ None。"""
+        r1, _c1, r2, _c2 = self.model.area(*rc)
+        Tn, Bn = self._yb(r1), self._yb(r2 + 1)
+        for idx, cell in sorted(self.anchors.items()):
+            run, ct = self._run(idx), self.texts[cell]
+            if run.font is None or run.font.key != key or abs(run.font.height) != h or run.align & 0x18:
+                continue
+            if ct.valign != t.valign or ct.problem or self._shrunk(run, ct):
+                continue
+            q1, _d1, q2, _d2 = self.model.area(*cell)
+            To, Bo = self._yb(q1), self._yb(q2 + 1)
+            if t.valign == "top":
+                diff = _minus(Tn, To)
+            elif t.valign == "center":
+                diff = _minus({k: (Tn.get(k, 0.0) + Bn.get(k, 0.0)) / 2 for k in set(Tn) | set(Bn)},
+                              {k: (To.get(k, 0.0) + Bo.get(k, 0.0)) / 2 for k in set(To) | set(Bo)})
+            else:
+                diff = _minus(Bn, Bo)
+            if not any(abs(v) > 1e-12 for v in diff.values()):
+                shift = 0.0
+            elif self.ys.estimable(diff):
+                shift = self.ys.value(diff)
+            else:
+                continue
+            bottom = run.bounds[3]
+            if bottom < run.y:
+                continue
+            return run.y + shift, float(bottom - run.y + 1)
+        return None
+
+    def _overflow_end(self, rc, t: CellText, lo: float, hi: float, L: float, new_texts: dict) -> float:
         """左寄せの字がセルからはみ出す：右の空のセルに掛けて描く（Excel と同じ）。字の幅が正確に分かるときだけ。"""
         r, c = rc
+        if not self.x_fixed:
+            raise PictureError(f"{addr(*rc)}: 「{t.text}」がセルに入りきらず、隣に掛かる長さが表の絵から確かめられません（列の境が決まりません）")
         if lo != hi:
             raise PictureError(f"{addr(*rc)}: 「{t.text}」がセルに入りきらず、隣に掛かる長さが表の絵から確かめられません")
         end = None
         for cc in range(c + 1, self.model.range[3] + 2):
             right = self.bx(cc)
-            if L + m + hi <= right - m:
+            if L + self.ml + hi <= right - self.mr:
                 end = right
                 break
             nxt = new_texts.get((r, cc))
@@ -1035,6 +1211,14 @@ class Layout:
                 break
         if end is None:
             raise PictureError(f"{addr(*rc)}: 「{t.text}」がセルに入りきらず、右のセルにも字があるので、Excel では途中で切れます")
+        # はみ出した字の下の、セルの境の線：Excel は、字が掛かる所の目盛り線を描かない。絵の線は消さないので、線があれば書かない
+        _T, B_ = self.by(r), self.by(r + 1)
+        R0 = self.bx(c + 1)
+        for ln in self.emf.lines:
+            # 行の境が決まらないときは、どの高さの線も、この行に掛かるものとみなす
+            if ln.orient == "v" and R0 - 1 <= ln.at <= end - 1 and (not self.y_fixed or (ln.lo < B_ - 1 and ln.hi > _T + 1)):
+                raise PictureError(f"{addr(*rc)}: 「{t.text}」がセルに入りきらず右のセルに掛かりますが、その所に描かれている"
+                                   "セルの境の線を、Excel と同じに消せません")
         return end
 
 
@@ -1087,10 +1271,22 @@ def edit_picture(data: bytes, old: SheetModel, new: SheetModel, what: str = "表
                 want = sorted(a.lines)
                 if sorted(r.text for r in runs) != want:
                     raise PictureError(f"{addr(*rc)}: いまの字「{a.text}」が、表の絵の中に見つかりません（絵がブックと合っていません）")
+                _L0, L1, R0, _R1 = lay.x_range(*rc)  # 境が決まらないときは、ありうる中でいちばん狭いセル
+                for r in runs:
+                    x0, x1 = lay.span(r)
+                    if x0 < L1 - 1 or x1 > R0 + 1:
+                        # Excel は、はみ出した字が掛かる所の目盛り線を描いていない。字を変えると、その線の見え方も変わる
+                        raise PictureError(f"{addr(*rc)}: いまの字「{r.text}」がセルからはみ出して描かれているので、"
+                                           "書いた後の見え方（はみ出しが無くなった所の線など）を描き直せません")
                 removed |= {r.index for r in runs}
                 out.removed += [(rc, r.text) for r in runs]
             if b.text:
-                L, T, R, B = lay.rect(*rc)
+                p = lay.draw(rc, b, ih, new_texts)
+                # 境が決まらないときは、ありうる中でいちばん広いセル（縦は、描く字の上端から下端）で確かめる
+                L, _L1, _R0, R = lay.x_range(*rc)
+                _L, T, _R, B = lay.rect(*rc)
+                if not lay.y_fixed:
+                    T, B = p.band
                 for r in lay.runs:
                     if r.index in removed or lay.anchors.get(r.index) == rc:
                         continue
@@ -1099,7 +1295,6 @@ def edit_picture(data: bytes, old: SheetModel, new: SheetModel, what: str = "表
                     if x0 < R - 1 and x1 > L + 1 and r.y < B - 1 and r.y + bh > T + 1:
                         raise PictureError(f"{addr(*rc)}: 隣のセルの字「{r.text}」がこのセルに掛かって描かれているので、"
                                            "書いた後の見え方（隣の字が切れる）を描き直せません")
-                p = lay.draw(rc, b, ih, new_texts)
                 blocks += p.records
                 out.added.append(p)
             elif a.text:
@@ -1118,6 +1313,6 @@ def _check_neighbors(lay: Layout, rc: tuple[int, int]) -> None:
             continue
         run = lay._run(idx)
         x0, x1 = lay.span(run)
-        L, _T, R, _B = lay.rect(*cell)
+        _L0, L, R, _R1 = lay.x_range(*cell)  # 境が決まらないときは、ありうる中でいちばん狭いセル
         if x1 > R + 1 or x0 < L - 1:
             raise PictureError(f"{addr(*rc)}: 隣のセルの字「{run.text}」がはみ出しているので、空にした後の見え方を描き直せません")

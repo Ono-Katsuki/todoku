@@ -121,7 +121,9 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
         # 保護も入力規則もない様式：枠で囲まれた空欄・色の付いた空欄で、見出しのそばにあるもの
         for (r, c), why in _boxed_blanks(wb, sh).items():
             add(r, c, why)
-    # 数式が参照している定数・空白のセル（計算の入力）
+    # 数式が参照している定数・空白のセル（計算の入力）。同じセルを何度も見ない（結果は同じ）
+    looked: set[tuple[int, int]] = set()
+    areas: set[tuple[int, int, int, int]] = set()  # 見た範囲（同じ範囲を指す数式は多い）
     for cell in sh.cells.values():
         refs = list(iter_refs(cell.ast)) if cell.ast is not None else []
         for ref in refs:
@@ -132,8 +134,14 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
                 continue
             if (ref.r2 - ref.r1 + 1) * (ref.c2 - ref.c1 + 1) > 400:
                 continue
+            if (ref.r1, ref.c1, ref.r2, ref.c2) in areas:
+                continue
+            areas.add((ref.r1, ref.c1, ref.r2, ref.c2))
             for r in range(ref.r1, ref.r2 + 1):
                 for c in range(ref.c1, ref.c2 + 1):
+                    if (r, c) in looked:
+                        continue
+                    looked.add((r, c))
                     t = sh.cells.get((r, c))
                     if t is None or (not t.has_formula and (t.value is None or is_number(t.value))):
                         add(r, c, "数式が参照している値")

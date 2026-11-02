@@ -44,7 +44,12 @@ def one(path: str) -> dict:
         from todoku.xlsx.audit import run
     t = time.time()
     try:
-        au = run(Path(path).read_bytes(), Path(path).name)
+        # パスワードで保護された書類は、api.audit と同じく解いた中身を検査する（書き込みパスワードだけで保護した .xls は、
+        # Excel が決まったパスワードで暗号化しているので、本人に聞かずに開ける。開くのにパスワードが要るものは、そう記録する）
+        from todoku.unlock import unlock
+
+        blob, _lock = unlock(Path(path).read_bytes(), None)
+        au = run(blob, Path(path).name)
         d = au.to_dict()
     except Exception as e:  # noqa: BLE001
         d = {"file": Path(path).name, "ok": False, "crash": f"{type(e).__name__}: {e}",
@@ -61,7 +66,8 @@ def main(argv=None) -> int:
     ap.add_argument("--timeout", type=int, default=900)
     a = ap.parse_args(argv)
     base = Path(a.dir)
-    files = sorted(str(p) for p in base.rglob("*") if p.suffix.lower() in (".xlsx", ".xlsm", ".xls", ".pdf", ".docx", ".docm", ".doc", ".jtd", ".jtt") + OPEN_EXT and p.is_file())
+    files = sorted(str(p) for p in base.rglob("*") if p.suffix.lower() in (".xlsx", ".xlsm", ".xls", ".pdf", ".docx", ".docm", ".doc", ".jtd", ".jtt") + OPEN_EXT and p.is_file()
+                   and p.relative_to(base) != Path("audit.json"))  # この検査が書き出す結果のファイルは、様式ではない
     print(f"{len(files)} 件の様式を検査します", flush=True)
     results = []
     ctx = mp.get_context("spawn")

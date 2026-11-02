@@ -342,23 +342,30 @@ class DocFile:
 
     def embedded_books(self) -> list[tuple[dict, object]]:
         """埋め込んだ Excel のブック：(埋め込みの情報, ブック)。開けないものは除く。"""
+        out = []
+        for e in self.embeds:
+            wb = self.embedded_book(e)
+            if wb is not None:
+                out.append((e, wb))
+        return out
+
+    def embedded_book(self, e: dict):
+        """埋め込み1つの Excel のブック（Excel のブックでない・開けないときは None）。"""
         from ..cfb import SubStorage
         from ..xls.book import XlsWorkbook
 
-        out = []
-        for e in self.embeds:
-            sub = SubStorage(self.cfb, e["storage"])
-            names = {n.lower() for n in sub.streams()}
-            try:
-                if names & {"workbook", "book"}:
-                    out.append((e, XlsWorkbook(self.blob, e["storage"], cfb=sub)))
-                elif "package" in names:
-                    from ..xlsx.workbook import Workbook
+        sub = SubStorage(self.cfb, e["storage"])
+        names = {n.lower() for n in sub.streams()}
+        try:
+            if names & {"workbook", "book"}:
+                return XlsWorkbook(self.blob, e["storage"], cfb=sub)
+            if "package" in names:
+                from ..xlsx.workbook import Workbook
 
-                    out.append((e, Workbook(sub.read("Package"), e["storage"])))
-            except Exception:  # noqa: BLE001
-                continue
-        return out
+                return Workbook(sub.read("Package"), e["storage"])
+        except Exception:  # noqa: BLE001
+            return None
+        return None
 
     def char_props(self, cp: int) -> dict:
         fc = self.fc_of(cp)
