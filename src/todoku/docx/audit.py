@@ -124,6 +124,38 @@ def check_writing(doc: DocxDocument, win: dict) -> list[Check]:
     return out
 
 
+def embeds_check(doc, win: dict) -> Check | None:
+    """埋め込んだ Excel の表：ブックのセルの字（見えている値）が、すべて窓の埋め込みの節に出ているか。"""
+    books = doc.embedded_books() if hasattr(doc, "embedded_books") else []
+    if not books:
+        return None
+    from ..xlsx.window import display
+
+    shown = {e["n"]: "\n".join(e.get("markdown") or []) for e in win.get("embeds") or []}
+    missing = []
+    n_cells = 0
+    for e, wb in books:
+        md = shown.get(e["n"], "")
+        flat = re.sub(r"[\s\u3000]", "", md)
+        for sh in wb.sheets:
+            for (r, c), cell in sh.cells.items():
+                if cell.value in (None, ""):
+                    continue
+                n_cells += 1
+                try:
+                    t = display(wb, cell)  # 窓と同じ、書式を通した見えている字
+                except Exception:  # noqa: BLE001
+                    t = str(cell.value)
+                key = re.sub(r"[\s\u3000]", "", str(t))
+                if key and key not in flat:
+                    missing.append(f"埋め込み{e['n']} {sh.name}!{chr(64 + c) if c <= 26 else c}{r}「{str(cell.value)[:20]}」")
+    return Check("埋め込みの表", not missing,
+                 f"文書に埋め込んだ Excel の表 {len(books)} 個（字のあるセル {n_cells:,} か所）を、Excel の窓と同じ読み方で窓に出しました"
+                 + (f"。窓に出ていないセル {len(missing)} か所" if missing else "。どのセルの字も窓に出ています")
+                 + "（埋め込みの表に書くことは、まだできません。Word が表示・印刷に使う表の絵も作り直す必要があるため）",
+                 missing[:20])
+
+
 def anchored_check(blob: bytes, filename: str, opener, fill_fn, prove_fn, main_end: int | None = None) -> Check:
     """字を目印にした書き込み（規則で示していない所に、エージェントが書く）：文書の中に1つしかない4字の後ろに試しの字を書き、
     証明（目印から同じ所に決まり、その段落だけが変わった）と読み戻し（［P段落.w番号＝値］）を確かめる。
@@ -185,6 +217,9 @@ def run(blob: bytes, filename: str = "") -> Audit:
                            f"Markdown {total:,} 文字" + (f"を {len(parts)} 部分に分け、いちばん大きい部分も {biggest:,} 文字"
                                                         if len(parts) > 1 else "") + "（AIが1回で読める目安 15万文字以内）"))
     au.checks += check_writing(DocxDocument(blob, filename), win)
+    ec = embeds_check(doc, win)
+    if ec is not None:
+        au.checks.append(ec)
     from ..xlsx.audit import agent_places_check
 
     ap = agent_places_check(win["fields"])

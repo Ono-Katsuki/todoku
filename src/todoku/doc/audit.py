@@ -255,8 +255,12 @@ def run(blob: bytes, filename: str = "") -> Audit:
             wrong.append(f"{k}: 書いた値 {w!r} → 窓では {g!r}")
     note2 = f"（うち {in_text} 欄はヘッダーなど本文以外の欄で、段落の文字として読み戻しました）" if in_text else ""
     au.checks.append(Check("読み戻し", not wrong, f"書いた {len(targets):,} 欄のうち {len(targets) - len(wrong):,} 欄が、書き込み後の窓にそのまま出ている{note2}", wrong))
+    from ..docx.audit import embeds_check
     from ..xlsx.audit import agent_places_check
 
+    ec = embeds_check(doc, win)
+    if ec is not None:
+        au.checks.append(ec)
     ap = agent_places_check(win["fields"])
     if ap is not None:
         au.checks.append(ap)

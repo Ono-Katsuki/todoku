@@ -286,6 +286,7 @@ class DocxDocument:
         self.blob = blob
         self.filename = filename
         self.zip = RawZip(blob)
+        self.embeds: list[dict] = []  # 埋め込んだ OLE の部品（word/embeddings の部品）
         self.main = self._main_part()
         self.parts: dict[str, tuple[bytes, Node]] = {}
         self.rels = self._rels(self.main)
@@ -585,8 +586,12 @@ class DocxDocument:
                 p.segs.append(Seg(f"※{ch.get('id', '')}", "note", ch, r, hidden))
             elif loc in ("drawing", "pict", "object", "AlternateContent"):
                 self._boxes(ch, p, part)
+                ole = next(iter(ch.iter("OLEObject")), None)
+                e = self._add_embed(ole, part, p) if ole is not None else None
                 alt = [n.get("descr") or n.get("title") for n in ch.iter("docPr") if n.get("descr") or n.get("title")]
-                if alt:
+                if e is not None:
+                    p.segs.append(Seg(f"〔埋め込み{e['n']}：{e['label']}〕", "other", None, r, hidden))
+                elif alt:
                     p.segs.append(Seg(f"〔図: {alt[0]}〕", "other", None, r, hidden))
             elif loc == "ruby":
                 base = ch.find("rubyBase")
@@ -598,6 +603,57 @@ class DocxDocument:
                     p.segs.append(Seg("（", "other", None, r, hidden))
                     p.segs.append(Seg(rtt, "ruby", None, r, hidden))
                     p.segs.append(Seg("）", "other", None, r, hidden))
+
+    def _add_embed(self, ole: Node, part: str, p: Para) -> dict | None:
+        """埋め込んだ OLE の部品（o:OLEObject）を、文書の埋め込みの一覧に足す：部品の置き場所（word/embeddings/…）を関係から引く。"""
+        rid = ole.get("id")
+        typ, target = self._rels(part).get(rid or "", ("", ""))
+        if not target or ole.get("Type", "Embed") != "Embed":
+            return None
+        base = part.rsplit("/", 1)[0] if "/" in part else ""
+        name = target.lstrip("/") if target.startswith("/") else (f"{base}/{target}" if base else target)
+        parts_ = []
+        for seg in name.split("/"):
+            if seg == "..":
+                if parts_:
+                    parts_.pop()
+            elif seg and seg != ".":
+                parts_.append(seg)
+        name = "/".join(parts_)
+        if not self.zip.has(name):
+            return None
+        for e in self.embeds:
+            if e["storage"] == name:
+                return e
+        prog = ole.get("ProgID") or ""
+        label = {"Excel.Sheet": "Excel の表", "Excel.Chart": "Excel のグラフ", "Word.Document": "Word の文書"}.get(
+            ".".join(prog.split(".")[:2]), prog or "埋め込み")
+        e = {"n": len(self.embeds) + 1, "storage": name, "prog": prog, "label": label, "para": p}
+        self.embeds.append(e)
+        return e
+
+    def embedded_books(self) -> list[tuple[dict, object]]:
+        """埋め込んだ Excel のブック：(埋め込みの情報, ブック)。.xlsx の部品も、OLE の入れ物（.bin）の中のブックも読む。"""
+        from ..cfb import CFB
+        from ..xls.book import XlsWorkbook
+        from ..xlsx.workbook import Workbook
+
+        out = []
+        for e in self.embeds:
+            data = self.zip.read(e["storage"])
+            try:
+                if data[:4] == b"PK\x03\x04":
+                    out.append((e, Workbook(data, e["storage"])))
+                elif data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+                    c = CFB(data)
+                    names = {n.lower(): n for n in c.streams()}
+                    if "workbook" in names or "book" in names:
+                        out.append((e, XlsWorkbook(data, e["storage"])))
+                    elif "package" in names:
+                        out.append((e, Workbook(c.read(names["package"]), e["storage"])))
+            except Exception:  # noqa: BLE001
+                continue
+        return out
 
     def _boxes(self, node: Node, p: Para, part: str) -> None:
         """図形・テキストボックスの中の文字（段落の後ろに付ける）。AlternateContent は片方だけ読む。"""

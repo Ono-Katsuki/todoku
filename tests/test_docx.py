@@ -153,3 +153,32 @@ def test_anchored_write_where_rules_found_nothing():
     bad = written_of(res.patches)
     bad["P9.w1"] = {"@": {"old": "茨城県　　　農林", "new": "茨城県　水戸　農林"}, "value": "土浦"}
     assert not prove(blob, res.blob, bad).ok
+
+
+def test_embedded_excel_table_is_shown_as_plain_text():
+    # 文書に埋め込んだ Excel の表（word/embeddings の .xlsx）：本文の〔埋め込み1：Excel の表〕の所と、窓の節に、表を平文で出す
+    from test_example import make_xlsx
+    from todoku.docx.window import build, to_markdown
+
+    ns = ('xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" '
+          'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"')
+    body = (p("工賃の実績") + f'<w:p><w:r><w:object {ns}><v:shape id="_x0000_i1025" style="width:300pt;height:80pt"/>'
+            '<o:OLEObject Type="Embed" ProgID="Excel.Sheet.12" ShapeID="_x0000_i1025" DrawAspect="Content" '
+            'ObjectID="_1774977835" r:id="rId9"/></w:object></w:r></w:p>')
+    base = make_docx(body)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(base)) as src, zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for n in src.namelist():
+            z.writestr(n, src.read(n))
+        z.writestr("word/_rels/document.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                   '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                   '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/package" '
+                   'Target="embeddings/Microsoft_Excel_Worksheet.xlsx"/></Relationships>')
+        z.writestr("word/embeddings/Microsoft_Excel_Worksheet.xlsx", make_xlsx({"Sheet1": ({"A1": "年度", "B1": "工賃総額", "A2": "5年度"}, [])}))
+    doc = DocxDocument(buf.getvalue(), "e.docx")
+    win = build(doc)
+    lines = [ln for st in win["stories"] for ln in st["reading"]]
+    assert "〔埋め込み1：Excel の表〕" in lines, lines
+    md = to_markdown(win)
+    assert "## 埋め込み1：Excel の表（Excel.Sheet.12・word/embeddings/Microsoft_Excel_Worksheet.xlsx）" in md
+    assert "工賃総額" in md and "5年度" in md

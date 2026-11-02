@@ -173,6 +173,9 @@ class Spots:
                 # 規則では決められない所：窓に「？」をつけて示し、エージェントが読んで判断する（id は P段落.a番号）
                 if any(s_.field is not None for s_ in p.segs):
                     continue
+                if not text.strip(" \u3000") == "" and not "".join(
+                        s_.text for s_ in p.segs if not s_.hidden and s_.kind in ("t", "sym", "tab")).strip(" \u3000\t"):
+                    continue  # 図・埋め込みの印だけの段落（窓のために作った字だけ）
                 free_ka = (n for n in itertools.count(1) if n not in mark_ka)
                 found_agent = agent_blanks(text, [(x, y) for x, y, _k in spans] + written, p.cell is not None)
                 # 見出しのあるマスの中の空の段落（「〒」の下の行に住所を書くなど）
@@ -514,6 +517,7 @@ def build(doc: DocxDocument) -> dict:
         _render_blocks(blocks, sp, by_para, lines, plain)
         if lines or kind == "body":
             out["stories"].append({"kind": kind, "part": part, "reading": lines, "_plain": plain})
+    out["embeds"] = _embeds(doc)
     contexts = {}
     for st in out["stories"]:
         for line in st["reading"]:
@@ -550,6 +554,24 @@ def build(doc: DocxDocument) -> dict:
             d["readonly"] = True
             d["protected"] = True  # 文書の保護で、編集できる範囲の外
         out["fields"].append(d)
+    return out
+
+
+def _embeds(doc) -> list[dict]:
+    """文書に埋め込んだ Excel の表：Excel の窓と同じ読み方で、シートごとに平文にする（本文では〔埋め込み1：…〕の所）。"""
+    books = doc.embedded_books() if hasattr(doc, "embedded_books") else []
+    out = []
+    for e, wb in books:
+        from ..xlsx import window as xw
+
+        try:
+            xdoc = xw.build(wb)
+        except Exception as ex:  # noqa: BLE001
+            out.append({"n": e["n"], "label": e["label"], "prog": e["prog"], "storage": e["storage"], "error": str(ex)})
+            continue
+        out.append({"n": e["n"], "label": e["label"], "prog": e["prog"], "storage": e["storage"],
+                    "sheets": [sh["name"] for sh in xdoc["sheets"]],
+                    "markdown": [ln for sh in xdoc["sheets"] for ln in xw._md_sheet(sh)]})
     return out
 
 
@@ -732,6 +754,15 @@ def to_markdown(doc: dict) -> str:
         out += [f"## {STORY_JA.get(st['kind'], st['kind'])}（{st['part']}）", ""]
         for line in st["reading"]:
             out.append(f"- {line}")
+        out.append("")
+    for e in doc.get("embeds") or []:
+        out += [f"## 埋め込み{e['n']}：{e['label']}（{e['prog']}・{e['storage']}）", ""]
+        if e.get("error"):
+            out += [f"- この埋め込みは開けませんでした：{e['error']}", ""]
+            continue
+        out += ["- 本文の〔埋め込み" + str(e["n"]) + "：…〕の所にある表です。Excel の窓と同じ書き方（［C4］はセル）で出しています。", ""]
+        out += [ln.replace("## シート", "### シート", 1) if ln.startswith("## シート") else
+                (ln.replace("### ", "#### ", 1) if ln.startswith("### ") else ln) for ln in e["markdown"]]
         out.append("")
     from ..macros import markdown as macro_md
 

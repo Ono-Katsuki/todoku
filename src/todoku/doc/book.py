@@ -115,6 +115,7 @@ class DocFile:
         self.blob = blob
         self.filename = filename
         self.cfb = CFB(blob)
+        self.embeds: list[dict] = []  # 埋め込んだ OLE の部品（ObjectPool の入れ物）
         if not self.cfb.has("WordDocument"):
             raise DocError("Word の文書（WordDocument）がありません")
         self.wd = self.cfb.read("WordDocument")
@@ -288,6 +289,39 @@ class DocFile:
         if d["in_table"] and d["itap"] == 0:
             d["itap"] = 1
         return d
+
+    def _add_embed(self, storage: str, prog: str, p) -> dict | None:
+        """埋め込んだ OLE の部品を、文書の埋め込みの一覧に足す（入れ物がなければ足さない）。"""
+        if not any(n.startswith(storage + "/") for n in self.cfb.streams()):
+            return None
+        for e in self.embeds:
+            if e["storage"] == storage:
+                return e
+        label = {"Excel.Sheet": "Excel の表", "Excel.Chart": "Excel のグラフ", "Word.Document": "Word の文書"}.get(
+            ".".join(prog.split(".")[:2]), prog or "埋め込み")
+        e = {"n": len(self.embeds) + 1, "storage": storage, "prog": prog, "label": label, "para": p}
+        self.embeds.append(e)
+        return e
+
+    def embedded_books(self) -> list[tuple[dict, object]]:
+        """埋め込んだ Excel のブック：(埋め込みの情報, ブック)。開けないものは除く。"""
+        from ..cfb import SubStorage
+        from ..xls.book import XlsWorkbook
+
+        out = []
+        for e in self.embeds:
+            sub = SubStorage(self.cfb, e["storage"])
+            names = {n.lower() for n in sub.streams()}
+            try:
+                if names & {"workbook", "book"}:
+                    out.append((e, XlsWorkbook(self.blob, e["storage"], cfb=sub)))
+                elif "package" in names:
+                    from ..xlsx.workbook import Workbook
+
+                    out.append((e, Workbook(sub.read("Package"), e["storage"])))
+            except Exception:  # noqa: BLE001
+                continue
+        return out
 
     def char_props(self, cp: int) -> dict:
         fc = self.fc_of(cp)
@@ -468,6 +502,12 @@ class DocFile:
                 f["sep"] = cp
                 f["ctl"] = self._form_field(f, p)
                 f["n0"] = len(p.segs)
+                words = f["instr"].split()
+                if words and words[0].upper() == "EMBED":
+                    # 埋め込んだ OLE の部品：入れ物の名前は、区切りの字の sprmCPicLocation の値の前に「_」（MS-DOC 2.1.4）
+                    pic = self.char_props(cp)["pic"]
+                    if pic is not None:
+                        f["ole"] = self._add_embed(f"ObjectPool/_{pic}", words[1] if len(words) > 1 else "", p)
                 cp += 1
                 continue
             if o == 0x15 and stack:
@@ -503,7 +543,8 @@ class DocFile:
             elif o == 0x1F:
                 pass
             elif o in (0x01, 0x08) and props["spec"]:
-                p.segs.append(Seg("〔図〕", "other", CPRef(cp), None, hidden))
+                ole = next((x["ole"] for x in reversed(stack) if x.get("ole") and x["phase"] == "result"), None)
+                p.segs.append(Seg(f"〔埋め込み{ole['n']}：{ole['label']}〕" if ole else "〔図〕", "other", CPRef(cp), None, hidden))
             elif o in (0x02, 0x05) and props["spec"]:
                 p.segs.append(Seg("※", "note", CPRef(cp), None, hidden))
             elif o == 0x28 and props["symbol"] and props["spec"]:

@@ -171,9 +171,10 @@ class _Supbook:
 class XlsWorkbook:
     kind = "xls"
 
-    def __init__(self, blob: bytes, filename: str = ""):
+    def __init__(self, blob: bytes, filename: str = "", cfb=None):
+        """cfb：ほかの文書に埋め込んだブック（cfb.SubStorage）を読むとき。blob は外側のファイル。"""
         self.filename = filename
-        self.cfb = CFB(blob)
+        self.cfb = cfb if cfb is not None else CFB(blob)
         self.zip = _ZipShim(blob)
         name = next((n for n in self.cfb.streams() if n.lower() in ("workbook", "book")), None)
         if name is None:

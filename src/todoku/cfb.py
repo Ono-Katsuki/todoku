@@ -270,3 +270,23 @@ class CFB:
             chunk = bytes(ms[k * self.ssize:(k + 1) * self.ssize])
             out[self._off(sec):self._off(sec) + len(chunk)] = chunk
         return bytes(out)
+
+
+class SubStorage:
+    """複合ファイルの中の入れ物（「ObjectPool/_1774977835」など）を、それだけの複合ファイルのように見せる（読むだけ）。
+    文書に埋め込んだ Excel のブックを、.xls を読む処理でそのまま読むのに使う。"""
+
+    def __init__(self, parent: CFB, prefix: str):
+        self.parent = parent
+        self.prefix = prefix.rstrip("/")
+        self.blob = parent.blob
+
+    def streams(self) -> dict[str, DirEntry]:
+        pre = self.prefix + "/"
+        return {n[len(pre):]: e for n, e in self.parent.streams().items() if n.startswith(pre)}
+
+    def has(self, path: str) -> bool:
+        return self.parent.has(self.prefix + "/" + path)
+
+    def read(self, path: str) -> bytes:
+        return self.parent.read(self.prefix + "/" + path)
