@@ -69,6 +69,11 @@ def call(ev, node: Func):
             ev.array = saved
     else:
         args = [ev.ev(a) for a in node.args]
+    if ev.array and name in _arrays.SCALAR_FUNCS:
+        # 1つの値を受け取る関数に、配列数式の中で範囲・配列が渡されたら、要素ごとに計算する
+        out = _arrays.broadcast(ev, f, args)
+        if out is not None:
+            return out
     try:
         return f(ev, *args)
     except ExcelError as e:
@@ -1147,29 +1152,6 @@ def f_lookup(ev, key, vec, result=None):
     return 0.0 if v is None else v
 
 
-@fn("XLOOKUP")
-def f_xlookup(ev, key, look, ret, if_not_found=None, match_mode=None, search_mode=None):
-    k = S(ev, key)
-    if match_mode not in (None,) and num(ev, match_mode) != 0:
-        raise Unsupported("XLOOKUPの一致モード")
-    if search_mode not in (None,) and num(ev, search_mode) != 1:
-        raise Unsupported("XLOOKUPの検索モード")
-    keys = _flat(ev.grid(look))
-    i = _lookup_vector(keys, k, 0)
-    if i < 0:
-        if if_not_found is not None:
-            return S(ev, if_not_found)
-        raise err(NA)
-    g = ev.grid(ret)
-    if g.cols == 1:
-        v = g.data[i][0]
-    elif g.rows == 1:
-        v = g.data[0][i]
-    else:
-        raise Unsupported("XLOOKUPで複数列を返す")
-    return 0.0 if v is None else v
-
-
 @fn("INDEX")
 def f_index(ev, ref, r=None, c=None, area=None):
     if area is not None:
@@ -1191,13 +1173,16 @@ def f_index(ev, ref, r=None, c=None, area=None):
             return Rng(ref.sheet, ref.r1 + rr - 1, ref.c1, ref.r1 + rr - 1, ref.c2)
         return Rng(ref.sheet, ref.r1 + rr - 1, ref.c1 + cc - 1, ref.r1 + rr - 1, ref.c1 + cc - 1)
     g = ev.grid(ref)
-    if g.rows == 1 and c is None:
+    if g.rows == 1 and c is None and r is not None:
         rr, cc = 1, rr
-    if rr < 1 or rr > g.rows:
+    if rr < 0 or cc < 0 or rr > g.rows or cc > g.cols:
         raise err(REF)
-    cc = cc or 1
-    if cc > g.cols:
-        raise err(REF)
+    if rr == 0 and cc == 0:
+        return g  # 配列ぜんぶ
+    if rr == 0:
+        return Arr([[row[cc - 1]] for row in g.data]) if g.cols > 1 or c is not None else Arr([list(row) for row in g.data])
+    if cc == 0:
+        return Arr([list(g.data[rr - 1])]) if g.cols > 1 else g.data[rr - 1][0]
     return g.data[rr - 1][cc - 1]
 
 
@@ -1681,6 +1666,8 @@ def f_phonetic(ev, ref):
 
 
 # 環境や外部によって決まるもの・まだ再現していないもの（明示的に「未対応」にする）
-for _name in ("GETPIVOTDATA", "INFO", "WEBSERVICE", "FILTERXML", "LAMBDA",
-              "FILTER", "SORT", "UNIQUE", "SEQUENCE", "RAND", "RANDBETWEEN"):
+for _name in ("GETPIVOTDATA", "INFO", "WEBSERVICE", "FILTERXML", "LAMBDA", "RAND", "RANDBETWEEN"):
     EAGER.pop(_name, None)
+
+# 動的配列の関数・XLOOKUP・XMATCH・通貨の書式（arrays.py で登録する）
+from . import arrays as _arrays  # noqa: E402,F401

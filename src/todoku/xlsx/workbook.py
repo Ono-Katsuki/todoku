@@ -66,6 +66,7 @@ class Cell:
     dc: int = 0
     parse_error: str | None = None
     array_master: tuple[int, int] | None = None  # 配列数式の一部なら親セル
+    dynamic: bool = False  # 動的配列の数式（結果の大きさで、こぼれる範囲が変わる）
 
     _shared_from: tuple | None = None  # 共有数式の子：(親の構文木, 行のずれ, 列のずれ)
 
@@ -511,6 +512,7 @@ class Workbook:
                     elif kind == "array":
                         cell.formula = text
                         cell.array_ref = f.get("ref")
+                        cell.dynamic = c.get("cm") is not None  # Excel 365 の動的配列（metadata.xml の XLDAPR）
                         if cell.array_ref:
                             a = cell.array_ref.split(":")
                             r1, c1 = parse_cell(a[0])

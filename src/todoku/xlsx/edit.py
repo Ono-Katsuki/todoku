@@ -476,7 +476,10 @@ def _formula_cell_xml(prefix: bytes, existing: bytes, value) -> bytes:
         t, vxml = _value_xml(prefix, value)
     body = existing[m.end():]
     if m[2] == b"/>":
-        raise EditError("数式セルの形式が想定外です")
+        # 値のないセル（配列数式の結果のうち、空だったところ）：中身を作る
+        if b"<" + prefix + b"f" in existing:
+            raise EditError("数式セルの形式が想定外です")
+        body = b"</" + prefix + b"c>"
     body = re.sub(rb"<" + re.escape(prefix) + rb"v>.*?</" + re.escape(prefix) + rb"v>|<" + re.escape(prefix) + rb"v\s*/>", b"", body, count=1, flags=re.S)
     fm = re.search(rb"<" + re.escape(prefix) + rb"f\b[^>]*?(?:/>|>.*?</" + re.escape(prefix) + rb"f>)", body, re.S)
     if fm:
@@ -698,9 +701,9 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
         patches.append(Patch(wb.sheet(sheet).path, sheet, addr(r, c), "input", before, val, (s, e), n))
     for (sheet, r, c), val in sorted(changed.items()):
         cell = wb.sheet(sheet).cells[(r, c)]
-        if cell.array_master is not None:
-            problems[(sheet, r, c)] = "配列数式の一部"
-            continue
+        if (sheet, r, c) in problems:
+            continue  # こぼれる範囲が変わる動的配列：Excelで開いたときに計算し直させる
+        # 配列数式の一部のセル（結果の配列の、左上以外）も、計算し直した値をそのセルに書く
         s, e, n = patcher(sheet).set_formula_value(r, c, val)
         patches.append(Patch(wb.sheet(sheet).path, sheet, addr(r, c), "formula", cell.value, val, (s, e), n))
 

@@ -327,9 +327,33 @@ def recalc(wb: Workbook, overrides: dict[tuple[str, int, int], object]):
                 continue
             if not values_equal(cell.value, after):
                 changed[key] = after
+            if cell.dynamic and cell.array_ref and _spill_changes(new, cell):
+                # 動的配列の結果の大きさが変わる：こぼれる範囲（とその外のセル）が変わるので、ここでは書かずに
+                # Excelで開いたときに計算し直させる
+                problems[key] = "動的配列の結果の大きさが変わる（こぼれる範囲が変わる）"
+        # こぼれる範囲が変わる動的配列の、ほかのセルも書かない
+        for (sh_name, r, c), why in list(problems.items()):
+            m = wb.sheet(sh_name).cells.get((r, c))
+            if m is not None and m.dynamic and m.array_ref:
+                for k2 in list(changed):
+                    cc = wb.sheet(k2[0]).cells.get(k2[1:])
+                    if k2[0] == sh_name and cc is not None and cc.array_master == (r, c):
+                        problems[k2] = why
         return changed, problems
 
     return _run_deep(run)
+
+
+def _spill_changes(calc: "Calc", master: Cell) -> bool:
+    """動的配列の数式の結果が、ファイルに保存された範囲（ref）と違う大きさになるか。"""
+    from ..formula.parser import parse_cell
+
+    arr = calc.memo.get(("__arr__", master.sheet, master.row, master.col))
+    a = (master.array_ref or "").split(":")
+    r1, c1 = parse_cell(a[0])
+    r2, c2 = parse_cell(a[-1])
+    rows, cols = (arr.rows, arr.cols) if isinstance(arr, Arr) else (1, 1)
+    return (rows, cols) != (r2 - r1 + 1, c2 - c1 + 1)
 
 
 def _depends_on(wb: Workbook, cell: Cell, overrides) -> bool:
