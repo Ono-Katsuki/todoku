@@ -77,7 +77,7 @@ class Spots:
         self.items: dict[str, dict] = {}
         self.para_index: dict[int, int] = {}
         self.ranges: dict = {}
-        self.marks = _bookmarks(doc)
+        self.marks = doc.marks() if hasattr(doc, "marks") else _bookmarks(doc)
         self._collect()
 
     def _collect(self) -> None:
@@ -286,7 +286,7 @@ def editable(doc: DocxDocument, sp: "Spots", item: dict) -> bool:
         return True
     if doc.protection == "forms":
         return item.get("control") is not None
-    if doc.protection != "readOnly":
+    if doc.protection != "readOnly" or not hasattr(doc, "xml"):
         return False
     ranges = sp.ranges.setdefault("_", {})
     p = item.get("para")
@@ -323,7 +323,7 @@ def build(doc: DocxDocument) -> dict:
             by_para.setdefault(id(p), []).append(it)
     out = {
         "todoku": "0.2",
-        "kind": "docx",
+        "kind": getattr(doc, "kind", "docx"),
         "source": {"file": doc.filename, "sha256": hashlib.sha256(doc.blob).hexdigest(), "bytes": len(doc.blob),
                    "note": "元のファイルが正本。書き込みは、書いた欄の部分だけを変える差分として適用する。"},
         "notation": {"［T1.R3.C2］": "表の空のマス（1つ目の表の3行目・2列目）", "［P12.1］": "段落の中の空欄（12番目の段落の1つ目）",

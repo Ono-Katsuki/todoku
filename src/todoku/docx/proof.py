@@ -72,6 +72,7 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
         return pr
     sp = Spots(a)
     targets: dict[int, list] = {}
+    index = {id(p): i for i, p in enumerate(pa)}
     sdt_spans: dict[str, list[tuple[int, int]]] = {}
     for fid, value in written.items():
         it = sp.items.get(fid)
@@ -84,10 +85,10 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
                 sdt_spans.setdefault(c.part, []).append((c.node.s, c.node.e))
             p = c.para
             if p is not None:
-                targets.setdefault(pa.index(p) if p in pa else -1, []).append((fid, it, value))
+                targets.setdefault(index.get(id(p), -1), []).append((fid, it, value))
             continue
         p = it["para"]
-        targets.setdefault(pa.index(p), []).append((fid, it, value))
+        targets.setdefault(index[id(p)], []).append((fid, it, value))
     # 部品ごとに、書いた段落を除いたバイト列を比べる
     for part in changed_parts:
         if part not in a.parts:

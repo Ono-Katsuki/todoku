@@ -52,12 +52,23 @@ def _is_pdf(path: str) -> bool:
     return _kind(path) == "pdf"
 
 
-def _docx_convert(a) -> int:
+def _word_doc(blob: bytes, name: str):
+    from .book import kind_of
+
+    if kind_of(blob) == "doc":
+        from .doc.book import DocFile
+
+        return DocFile(blob, name)
     from .docx.document import DocxDocument
+
+    return DocxDocument(blob, name)
+
+
+def _docx_convert(a) -> int:
     from .docx.window import build, markdown_parts
 
     blob = Path(a.file).read_bytes()
-    doc = build(DocxDocument(blob, Path(a.file).name))
+    doc = build(_word_doc(blob, Path(a.file).name))
     out = Path(a.out or ".")
     out.mkdir(parents=True, exist_ok=True)
     stem = Path(a.file).stem
@@ -73,13 +84,19 @@ def _docx_convert(a) -> int:
 
 
 def _docx_fill(a, values: dict) -> int:
-    from .docx.document import DocxDocument
-    from .docx.fill import FillError, fill as docx_fill
-    from .docx.proof import prove as docx_prove
+    from .book import kind_of
+    from .docx.fill import FillError
 
     blob = Path(a.file).read_bytes()
+    is_doc = kind_of(blob) == "doc"
+    if is_doc:
+        from .doc.audit import prove as docx_prove
+        from .doc.fill import fill as docx_fill
+    else:
+        from .docx.fill import fill as docx_fill
+        from .docx.proof import prove as docx_prove
     try:
-        res = docx_fill(DocxDocument(blob, Path(a.file).name), values, force=getattr(a, "force", False))
+        res = docx_fill(_word_doc(blob, Path(a.file).name), values, force=getattr(a, "force", False))
     except FillError as e:
         print(f"書き込めません: {e}", file=sys.stderr)
         return 2
@@ -147,7 +164,7 @@ def cmd_convert(a) -> int:
     k = _kind(a.file)
     if k == "pdf":
         return _pdf_convert(a)
-    if k == "docx":
+    if k in ("docx", "doc"):
         return _docx_convert(a)
     wb = _load(a.file)
     out = Path(a.out or ".")
@@ -244,7 +261,7 @@ def cmd_fill(a) -> int:
     k = _kind(a.file)
     if k == "pdf":
         return _pdf_fill(a, values)
-    if k == "docx":
+    if k in ("docx", "doc"):
         return _docx_fill(a, values)
     wb = _load(a.file)
     return _write_fill(wb, values, Path(a.out), a.strict)
@@ -311,6 +328,10 @@ def cmd_audit(a) -> int:
         from .docx.audit import run as docx_run
 
         au = docx_run(blob, Path(a.file).name)
+    elif k == "doc":
+        from .doc.audit import run as doc_run
+
+        au = doc_run(blob, Path(a.file).name)
     else:
         au = run(blob, Path(a.file).name, Path(a.example).read_bytes() if a.example else None)
     for c in au.checks:
