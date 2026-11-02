@@ -142,11 +142,13 @@ class CFB:
         return self._chain_bytes(e.start)[: e.size]
 
     # ------------------------------------------------------------------ 書く
-    def replace(self, path: str, data: bytes, pad_ok: bool = False) -> bytes:
+    def replace(self, path: str, data: bytes, pad_ok: bool = False, wipe: bool = False) -> bytes:
         """1つのストリームの中身を差し替えたファイルを返す。ほかのバイトは変えない。
 
         pad_ok=True（後ろに0を足してよいストリーム。Excelのブックは最後の EOF の後ろを読まない）のとき、
-        小さすぎるストリームは区切りの大きさまで0を足して、ふつうのセクタに置く。"""
+        小さすぎるストリームは区切りの大きさまで0を足して、ふつうのセクタに置く。
+        wipe=True のとき、ストリームが縮んだり移ったりして使わなくなった元のデータ（空いたセクタ・ミニセクタと、
+        最後のセクタの新しい終わりから元の終わりまで）を0で消す。暗号化したファイルに古い暗号文を残さないため。"""
         e = self._find(path)
         if e is None:
             raise KeyError(path)
@@ -183,6 +185,8 @@ class CFB:
 
         old_regular = e.size >= self.cutoff
         sectors = self.chain(e.start) if old_regular else []
+        old_sectors = list(sectors)
+        freed_mini: list[int] = []
         if not old_regular:
             # もとはミニストリームにあった：ミニのセクタを空きにして、ふつうのセクタに移す
             s_ = e.start
@@ -190,6 +194,7 @@ class CFB:
             while s_ not in (ENDOFCHAIN, FREESECT) and s_ < len(self.minifat) and seen < 1 << 20:
                 nxt = self.minifat[s_]
                 self.minifat[s_] = FREESECT
+                freed_mini.append(s_)
                 s_ = nxt
                 seen += 1
         need = -(-len(data) // self.ssize)
@@ -205,6 +210,21 @@ class CFB:
             chunk = data[i * self.ssize:(i + 1) * self.ssize]
             off = self._off(s_)
             out[off:off + len(chunk)] = chunk
+        if wipe:
+            for k, s_ in enumerate(old_sectors):
+                off = self._off(s_)
+                lo = 0 if k >= need else max(len(data) - k * self.ssize, 0)
+                hi = self.ssize if k >= need else min(e.size - k * self.ssize, self.ssize)
+                if lo < hi:
+                    out[off + lo:off + hi] = bytes(hi - lo)
+            if freed_mini:
+                ms = bytearray(self.ministream)
+                for m in freed_mini:
+                    sl = slice(m * self.msize, (m + 1) * self.msize)
+                    ms[sl] = bytes(len(ms[sl]))
+                for k, sec in enumerate(self.chain(self.entries[0].start)):
+                    chunk = bytes(ms[k * self.ssize:(k + 1) * self.ssize])
+                    out[self._off(sec):self._off(sec) + len(chunk)] = chunk
         # DIFAT（FAT のセクタの一覧）：先頭の 109 個はヘッダー、残りは DIFAT のセクタに書く
         head = fat_sectors[:109]
         rest = fat_sectors[109:]
@@ -260,8 +280,8 @@ class CFB:
         ms = bytearray(self.ministream)
         s, i = e.start, 0
         while s not in (ENDOFCHAIN, FREESECT) and i * self.msize < len(data):
-            ms[s * self.msize:s * self.msize + self.msize] = data[i * self.msize:(i + 1) * self.msize].ljust(
-                self.msize, bytes(ms[s * self.msize + len(data[i * self.msize:(i + 1) * self.msize]):(s + 1) * self.msize]) or b"\x00")[: self.msize]
+            chunk = data[i * self.msize:(i + 1) * self.msize]
+            ms[s * self.msize:s * self.msize + len(chunk)] = chunk  # 最後のミニセクタの、データより後ろは元のまま
             s = self.minifat[s]
             i += 1
         root = self.entries[0]
