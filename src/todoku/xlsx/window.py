@@ -227,6 +227,7 @@ _ERAS = {"令和", "平成", "昭和", "大正", "明治", "西暦"}
 _COUNT_PREFIX = set("第金約計全各満延毎総月年週時")
 
 
+
 def _letter(t: str) -> bool:
     """字（漢字・かな・ラテン文字など）1字か、年号。"""
     import unicodedata
@@ -248,25 +249,7 @@ def inline_blanks(text: str) -> list[tuple[int, int]]:
     if two and _letter(two[1]) and _letter(two[2]) and two[1] not in _COUNT_PREFIX:
         return []
     toks = [(m.start(), m.end(), m[0]) for m in _TOK.finditer(text)]
-    # 同じ幅の空白でつながった並び（字間を空けた見出しか、年月日の並び）。
-    # 1つの空白ならどんな字でも、2つ以上の空白なら字（漢字・かな・年号）だけの並び（「職　　業　　名」「令和　　年　　月　　日」）
-    chain_space: dict[int, bool] = {}
-    i = 0
-    while i < len(toks):
-        j = i
-        while j + 2 < len(toks) and toks[j + 1][2].isspace() and not toks[j][2].isspace() and not toks[j + 2][2].isspace() \
-                and toks[j + 1][2] == toks[i + 1][2] and \
-                (toks[j + 1][2] in (" ", "\u3000") or (_letter(toks[j][2]) and _letter(toks[j + 2][2]))):
-            j += 2
-        if j - i >= 4:  # 3つ以上の文字が1つの空白でつながっている
-            words = [toks[k][2] for k in range(i, j + 1, 2)]
-            body = words[1:] if words[0] in _ERAS else words
-            date = all(w in ("年", "月", "日") for w in body) and len(body) >= 2
-            for k in range(i + 1, j, 2):
-                chain_space[k] = date
-            i = j + 1
-        else:
-            i += 1
+    chain_space = _chains(toks)
     out = []
     for k, (a, b, t) in enumerate(toks):
         if t[0] in "_＿":
@@ -293,6 +276,138 @@ def inline_blanks(text: str) -> list[tuple[int, int]]:
         if unit_after or (opener_before and b < len(text)) or paren_after or tail:
             out.append((a, b))
     return out
+
+
+def _chains(toks: list[tuple[int, int, str]]) -> dict[int, bool]:
+    """同じ幅の空白でつながった並び（字間を空けた見出しか、年月日の並び）の、区切りの空白 → 年月日の並びか。
+    1つの空白ならどんな字でも、2つ以上の空白なら字（漢字・かな・年号）だけの並び（「職　　業　　名」「令和　　年　　月　　日」）"""
+    chain_space: dict[int, bool] = {}
+    i = 0
+    while i < len(toks):
+        j = i
+        while j + 2 < len(toks) and toks[j + 1][2].isspace() and not toks[j][2].isspace() and not toks[j + 2][2].isspace() \
+                and toks[j + 1][2] == toks[i + 1][2] and \
+                (toks[j + 1][2] in (" ", "\u3000") or (_letter(toks[j][2]) and _letter(toks[j + 2][2]))):
+            j += 2
+        if j - i >= 4:  # 3つ以上の文字が1つの空白でつながっている
+            words = [toks[k][2] for k in range(i, j + 1, 2)]
+            body = words[1:] if words[0] in _ERAS else words
+            date = all(w in ("年", "月", "日") for w in body) and len(body) >= 2
+            for k in range(i + 1, j, 2):
+                chain_space[k] = date
+            i = j + 1
+        else:
+            i += 1
+    return chain_space
+
+
+# ---------------------------------------------------------------- 規則では決められない所（エージェントが判断する）
+# 規則の型には合わないが、書き込む所かもしれない所。規則では欄と決めず、窓に「？」をつけて示し、エージェントが読んで判断する。
+# 書くと決めたら、ほかの欄と同じように id を指定して書く（証明も同じ）。書かなければ、何も変わらない。
+AGENT_WHY = {
+    "date_gap": "日付らしい並びの空き（区切りの空白の幅が不揃い・空白が1つだけ）",
+    "date_dots": "「・」で区切った日付らしい並びの空き",
+    "placeholder": "伏せ字（○○・＊＊＊ など。書き換える所）",
+    "after_colon": "「：」で終わる見出しの後ろ",
+    "list_item": "箇条の印だけの行の中身",
+    "before_unit": "単位だけのマスの、単位の前",
+    "date_cell": "「年　月」のように単位で始まるマスの、初めの単位の前",
+    "after_label": "見出しだけの短い段落（「住所」「１　農産物名」）の後ろ",
+    "after_mark": "「〒」「＠」や通貨の記号で終わる段落の、記号の後ろ",
+    "gap": "語と語の間の、2つ以上の空白（「議長　　　　氏」「代表者の氏名　　　殿」）",
+    "empty_cell": "見出しの見つからない空のマス",
+    "next_line": "見出しのあるマスの中の、空の段落",
+}
+# 単位だけのマスの単位（規則の UNIT_ONLY に、階・坪・棟・戸・室・畳と、㎡ などの単位の記号（CJK 互換用文字の U+3371〜U+33DF）を足す）
+_AGENT_UNIT = re.compile(r"[階坪棟戸室畳\u3371-\u33df]|m²|ｍ²|m2|ｍ２")
+_PH_RUN = re.compile(r"([○〇●◯＊*×✕△▲◇◆])(?:[ \u3000]?\1)+")
+_ELLIPSIS = re.compile(r"[…‥]+")
+_LIST_ONLY = re.compile(r"[ \u3000]*(?:[・•●◦]|[①-⑳]|[（(]?[0-9０-９]{1,3}[)）.．]|[（(][ア-ンａ-ｚa-z][)）]|[ア-ン][.．])[ \u3000]*")
+_COLON_LABEL = re.compile(r"[ \u3000]*([^。．！？!?：:]{1,24}?)[ \u3000]*[：:]([ \u3000]*)")
+_DOTS_ONLY = re.compile(r"[ \u3000]*・[ \u3000]*・[ \u3000]*")
+_NEXT_UNIT = {"年": "月", "月": "日", "時": "分"}
+_OPTION_NEXT = re.compile(r"[□☐■☑☒○◯〇]|[0-9０-９]{1,2}[.．)）]|[（(][0-9０-９]{1,2}[)）]|[①-⑳]")
+
+
+def agent_blanks(text: str, found=(), in_cell: bool = False) -> list[tuple[int, int, str]]:
+    """規則では決められない、書き込む所かもしれない所：(始め, 終わり, 何か（AGENT_WHY の鍵）)。
+    found は規則で見つけた空欄（重なる所・すぐ隣の所は出さない）。in_cell は表のマスの中の文字か。"""
+    from ..pdf.layout import UNIT_ONLY
+
+    taken = [tuple(x[:2]) for x in found]
+    out: list[tuple[int, int, str]] = []
+
+    def add(a: int, b: int, why: str) -> None:
+        for x, y in taken + [(o[0], o[1]) for o in out]:
+            if (a < y and x < b) or (a == b and x <= a <= y) or (x == y and a <= x <= b):
+                return
+        out.append((a, b, why))
+
+    stripped = text.strip(" \u3000")
+    lead = len(text) - len(text.lstrip(" \u3000"))
+    # 伏せ字：同じ記号が2つ以上続く所。続く「……」や、短い区切り（「県」「市」「－」など空白のない3字まで）でつながるものは1つの所
+    runs = [(m.start(), m.end()) for m in _PH_RUN.finditer(text)]
+    if runs:
+        ells = [(m.start(), m.end()) for m in _ELLIPSIS.finditer(text)]
+        spans = sorted(runs + [e for e in ells if any(0 <= e[0] - r[1] <= 3 or 0 <= r[0] - e[1] <= 3 for r in runs)])
+        merged: list[list[int]] = []
+        for a, b in spans:
+            gap = text[merged[-1][1]:a] if merged else None
+            if merged and gap is not None and len(gap) <= 3 and not any(ch in " \u3000\t" for ch in gap):
+                merged[-1][1] = max(merged[-1][1], b)
+            else:
+                merged.append([a, b])
+        for a, b in merged:
+            core = text[a:b].replace(" ", "").replace("\u3000", "")
+            if b - a >= 8 and len(set(core)) == 1 and text[a:b] == stripped:
+                continue  # 同じ記号だけの長い行（区切りの飾り）
+            add(a, b, "placeholder")
+    # 日付らしい並びの、規則の型に合わない空き（「令和 年　月」の年と月の間・「６年　月」）。字間を空けた見出しの空白は除く
+    toks = [(m.start(), m.end(), m[0]) for m in _TOK.finditer(text)]
+    chains = _chains(toks)
+    for k in range(1, len(toks) - 1):
+        a, b, t = toks[k]
+        if not t.isspace() or b - a != 1 or chains.get(k) is False:
+            continue
+        prev, nxt = toks[k - 1][2], toks[k + 1][2]
+        if (prev in _ERAS and nxt == "年") or _NEXT_UNIT.get(prev) == nxt:
+            add(a, b, "date_gap")
+    if _DOTS_ONLY.fullmatch(text):
+        d1 = text.index("・")
+        d2 = text.index("・", d1 + 1)
+        add(0, d1, "date_dots")
+        add(d1 + 1, d2, "date_dots")
+        add(d2 + 1, len(text), "date_dots")
+    # 「：」で終わる短い見出しの後ろ（「住所：」「Facility Name:」）
+    m = _COLON_LABEL.fullmatch(text)
+    if m and any(unicodedata.category(ch)[0] == "L" for ch in m[1]):
+        add(m.start(2), len(text), "after_colon")
+    # 箇条の印だけの行（「・」「(1)」）の中身
+    if stripped and _LIST_ONLY.fullmatch(text):
+        add(len(text.rstrip(" \u3000")), len(text), "list_item")
+    # 「〒」「＠」・通貨の記号で終わる段落：記号の後ろに書く（「所在地　〒」「電子メール　　　＠」）
+    core_end = len(text.rstrip(" \u3000"))
+    if stripped and (stripped[-1] in "〒＠@" or unicodedata.category(stripped[-1]) == "Sc"):
+        add(core_end, len(text), "after_mark")
+    # 語と語の間の、規則の型に合わない2つ以上の空白（字間を空けた見出し・2字の見出し「氏　　名」は除く）
+    if not re.fullmatch(r"[ \u3000]*(\S)[ \u3000]+(\S)[ \u3000]*", text):
+        for k in range(1, len(toks) - 1):
+            a, b, t = toks[k]
+            # 選択肢の区切り（「□新規　　□変更」「１．有　　２．無」）の空白は除く
+            if t.isspace() and b - a >= 2 and k not in chains and not _OPTION_NEXT.match(text, b):
+                add(a, b, "gap")
+    # 見出しだけの短い段落（「住所」「１　農産物名」）：値を見出しの後ろに書き足す書類が多い（表題・節の見出しのこともある）
+    body = re.sub(r"^(?:[0-9０-９]{1,2}|[（(][0-9０-９]{1,2}[)）]|[①-⑳]|[ア-ン])[ \u3000.．、]+", "", stripped)
+    if (not found and not out and 2 <= len(body) <= 16 and not re.search(r"[。．!?！？、，,：:]", body)
+            and not body.endswith(("殿", "様", "御中")) and any(unicodedata.category(ch)[0] == "L" for ch in body)
+            and not re.search(r"[ \u3000]{2,}", body)):
+        add(core_end, len(text), "after_label")
+    if in_cell and stripped:
+        if UNIT_ONLY.fullmatch(stripped) or _AGENT_UNIT.fullmatch(stripped):
+            add(0, lead, "before_unit")  # 「人」「名」「円」「階」「㎡」だけのマス
+        elif toks and stripped[0] in _NEXT_UNIT and re.match(r"[年月時][ \u3000]+[月日分]", stripped):
+            add(0, lead, "date_cell")  # 「年　月」で始まるマス（数は単位の前に書く）
+    return sorted(out)
 
 
 def fill_blanks(text: str, values: list) -> str:

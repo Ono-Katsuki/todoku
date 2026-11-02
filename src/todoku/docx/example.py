@@ -26,20 +26,29 @@ class WordMissed:
 @dataclass
 class WordExampleCheck:
     added: int = 0
-    covered: int = 0
+    covered: int = 0  # 規則で見つけた入力欄、または規則では決められない所（エージェントの判断）にかかっている
+    covered_agent: int = 0  # そのうち、規則では決められない所（［P12.a1？］）にかかっている
     template: int = 0
     notes: int = 0
+    drawn: int = 0  # 記入例で描き足された図形（○で囲む印・吹き出し）
     missed: list[WordMissed] = field(default_factory=list)
     unpaired: int = 0
+    kept: float = 1.0  # 白紙の字のうち、記入例にそのまま残っている割合（低いと、様式の版が違う）
 
     @property
     def ok(self) -> bool:
         return not self.missed
 
+    @property
+    def same_version(self) -> bool:
+        return self.kept >= 0.65
+
     def headline(self) -> str:
-        s = f"記入例で書き込まれた所 {self.added} か所のうち {self.covered} か所が、見つけた入力欄にかかっています"
-        if self.template or self.notes:
-            s += f"（様式の版の違い {self.template} か所・記入例の説明 {self.notes} か所は除外）"
+        s = (f"記入例で書き込まれた所 {self.added} か所のうち {self.covered - self.covered_agent} か所が、規則で見つけた入力欄に、"
+             f"{self.covered_agent} か所が、規則では決められない所（エージェントの判断）にかかっています")
+        if self.template or self.notes or self.drawn:
+            s += (f"（様式の版の違い {self.template} か所・記入例の説明 {self.notes} か所・"
+                  f"描き足された図形 {self.drawn} か所は除外）")
         if self.missed:
             s += f"。入力欄の外：{len(self.missed)} か所（見落としの候補）"
         if self.unpaired:
@@ -98,11 +107,21 @@ def check(blank: bytes, example: bytes) -> WordExampleCheck:
         p = it.get("para")
         if p is None and it.get("control") is not None:
             p = it["control"].para
-        if p is not None:
+        if it.get("cell") is not None:
+            for q in it["cell"].paras():  # 空のマスの欄は、マスのどの段落に書いても、その欄
+                by_para.setdefault(id(q), []).append(it)
+        elif p is not None:
             by_para.setdefault(id(p), []).append(it)
     out = WordExampleCheck()
     pairs = _pair(pa, pb)
     out.unpaired = len(pa) - len(pairs)
+    # 白紙の字（空白を除く）のうち、対応づけた記入例の段落にそのまま残っている字の割合
+    total = sum(len(re.sub(r"\s", "", q.text)) for q in pa)
+    kept = 0
+    for i, j in pairs:
+        sm = difflib.SequenceMatcher(None, pa[i].text, pb[j].text, autojunk=False)
+        kept += sum(len(re.sub(r"\s", "", pa[i].text[m.a:m.a + m.size])) for m in sm.get_matching_blocks())
+    out.kept = round(kept / total, 2) if total else 1.0
     for i, j in pairs:
         x, y = pa[i], pb[j]
         if x.text == y.text:
@@ -135,9 +154,15 @@ def check(blank: bytes, example: bytes) -> WordExampleCheck:
             if _is_note(new):
                 out.notes += 1
                 continue
+            if new.replace("〔図〕", "").strip(blank_chars) == "" and "〔図〕" in new:
+                out.drawn += 1  # 図形だけ（○で囲む印・吹き出し）：字の書き込みではない
+                continue
             out.added += 1
-            if _covered(x, a1, a2, items):
+            by = _covered(x, a1, a2, items)
+            if by:
                 out.covered += 1
+                if by == "agent":
+                    out.covered_agent += 1
             elif old.strip(" 　 ") and difflib.SequenceMatcher(None, old, new).ratio() >= 0.5 and len(old) >= 4:
                 out.added -= 1
                 out.template += 1  # 似た文への書き換え：様式の版の違い
@@ -146,15 +171,20 @@ def check(blank: bytes, example: bytes) -> WordExampleCheck:
     return out
 
 
-def _covered(p: Para, a1: int, a2: int, items: list[dict]) -> bool:
+def _covered(p: Para, a1: int, a2: int, items: list[dict]) -> str | None:
+    """記入例の書き込み [a1, a2)（白紙の段落の位置）がかかる欄：規則で見つけた欄なら "rules"、規則では決められない所だけなら "agent"。"""
+    agent = False
     for it in items:
         if it.get("cell") is not None and it["kind"] == "cell":
-            return True  # 空のマス：段落ぜんぶが入力欄
+            return "rules"  # 空のマス：段落ぜんぶが入力欄
         if "span" in it:
             a, b = it["span"]
             if a - 1 <= a1 <= b + 1 or a - 1 <= a2 <= b + 1 or (a1 <= a and b <= a2):
-                return True
+                if it.get("provenance") == "agent":
+                    agent = True
+                    continue
+                return "rules"
         c = it.get("control")
         if c is not None:
-            return True
-    return False
+            return "rules"
+    return "agent" if agent else None

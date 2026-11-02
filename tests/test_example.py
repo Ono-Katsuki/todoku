@@ -64,10 +64,14 @@ def test_word_example_all_values_in_fields():
 
 
 def test_word_example_reports_text_outside_fields():
-    blank = make_docx(SAMPLE_BODY)
-    filled = SAMPLE_BODY.replace(p("申請書"), p("申請書とどく花子"))
+    # 文の途中（規則の欄にも、規則では決められない所にも当たらない所）への書き込みは、見落としの候補として返す
+    blank = make_docx(SAMPLE_BODY + p("上記のとおり申請します。"))
+    filled = SAMPLE_BODY + p("上記のとおりとどく花子が申請します。")
     r = word_check(blank, make_docx(filled))
-    assert [m.text for m in r.missed] == ["とどく花子"], r.missed
+    assert [m.text for m in r.missed] == ["とどく花子が"], r.missed
+    # 表題の後ろ（規則では決められない所）への書き込みは、エージェントの判断の所として数える
+    r = word_check(make_docx(SAMPLE_BODY), make_docx(SAMPLE_BODY.replace(p("申請書"), p("申請書とどく花子"))))
+    assert not r.missed and r.covered_agent == 1, r
 
 
 # ====================================================================== 記入例で見つけた見落としの規則

@@ -126,3 +126,30 @@ def test_corpus_audit(name):
         pytest.skip(name)
     au = audit(Path(path).read_bytes(), name)
     assert au.ok, [(c.name, c.detail, c.items[:3]) for c in au.checks if not c.ok]
+
+
+def test_anchored_write_where_rules_found_nothing():
+    # 規則でも「？」でも示していない所：エージェントが字を目印にして書く（{"old": 元の字, "new": 書き換えた後の字}）。
+    # 変わるのは old と new の違う所だけで、証明は同じ決め方で位置を決め直して確かめる
+    from todoku.docx.fill import FillError, fill, written_of
+    from todoku.docx.proof import prove
+    from todoku.docx.window import build
+
+    blob = make_docx(SAMPLE_BODY + p("茨城県　　　農林事務所長　殿") + p("第２条　訓練は年１回以上行う。") + p("第３条　訓練は年１回以上行う。"))
+    doc = DocxDocument(blob, "a.docx")
+    res = fill(doc, {"@1": {"old": "茨城県　　　農林", "new": "茨城県　土浦　農林"},
+                     "@2": {"old": "年１回", "new": "年２回", "occurrence": 2}})
+    assert [(x.id, x.value) for x in res.patches] == [("P9.w1", "土浦"), ("P11.w1", "２")], res.patches
+    pr = prove(blob, res.blob, written_of(res.patches))
+    assert pr.ok, pr.unexpected
+    lines = [ln for st in build(DocxDocument(res.blob, "a.docx"))["stories"] for ln in st["reading"]]
+    assert "茨城県　［P9.w1＝土浦］　農林事務所長　殿" in lines and "第３条　訓練は年［P11.w1＝２］回以上行う。" in lines, lines
+    # 決まらないときは、候補を添えて断る
+    with pytest.raises(FillError, match="2 か所にあります"):
+        fill(DocxDocument(blob, "a.docx"), {"@1": {"old": "年１回", "new": "年２回"}})
+    with pytest.raises(FillError, match="見つかりません"):
+        fill(DocxDocument(blob, "a.docx"), {"@1": {"old": "年３回", "new": "年２回"}})
+    # 証明は、目印から決まる所と違う書き込みを見つける
+    bad = written_of(res.patches)
+    bad["P9.w1"] = {"@": {"old": "茨城県　　　農林", "new": "茨城県　水戸　農林"}, "value": "土浦"}
+    assert not prove(blob, res.blob, bad).ok

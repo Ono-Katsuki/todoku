@@ -102,7 +102,9 @@ def _docx_fill(a, values: dict) -> int:
         return 2
     out_path = Path(a.out)
     out_path.write_bytes(res.blob)
-    pr = docx_prove(blob, res.blob, {p.id: p.value for p in res.patches})
+    from .docx.fill import written_of
+
+    pr = docx_prove(blob, res.blob, written_of(res.patches))
     print(pr.headline())
     for u in pr.unexpected[:20]:
         print(f"  想定外の変更: {u}")

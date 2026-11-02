@@ -29,6 +29,13 @@ class Patch:
     kind: str
     value: object
     part: str = ""
+    anchor: dict | None = None  # 字を目印にした書き込み（{"old": …, "new": …}）。証明で、同じ決め方で位置を確かめる
+    key: str = ""  # 指定したときの名前（「@1」など）
+
+
+def written_of(patches) -> dict:
+    """証明に渡す、書いた欄 → 値（字を目印にした書き込みは、目印も渡す）。"""
+    return {p.id: ({"@": p.anchor, "value": p.value} if p.anchor else p.value) for p in patches}
 
 
 @dataclass
@@ -156,16 +163,25 @@ class Filler:
         part = p.part
         pos = p.positions()
         if a == b:
-            # 挿入（「市」の後ろに書き足すなど）：直前の字の後ろに入れる
-            if not pos or a == 0:
-                raise FillError(f"{item['id']}: 書き足す位置が見つかりません")
-            i, off = pos[a - 1]
+            # 挿入（「市」の後ろに書き足すなど）：直前の字の後ろに入れる。段落の頭（「年　月」の年の前）は、初めの字の前に入れる
+            if not pos:
+                self.fill_cell(item, value)  # 字の要素のない段落：段落の印の書式で、字の要素を作って書く
+                return
+            i, off = pos[a - 1] if a > 0 else pos[0]
+            at = off + 1 if a > 0 else off
             sg = p.segs[i]
+            if sg.kind in ("tab", "sym") and a > 0 and sg.run is not None:
+                nxt = p.segs[pos[a][0]] if a < len(pos) else None
+                if nxt is not None and nxt.kind == "t" and nxt.node is not None and nxt.run is not None:
+                    i, at, sg = pos[a][0], pos[a][1], nxt  # 直前がタブ・記号：次の字の前に入れる
+                elif nxt is None:
+                    self.append_run(item, p, sg.run, value)  # 段落の終わりのタブ・記号の後ろ：同じ書式の字の要素を足す
+                    return
             if sg.kind != "t" or sg.node is None or sg.run is None:
                 raise FillError(f"{item['id']}: 書き足す位置が、書き換えられない部分にあります")
             self.check_editable(item, part, sg.node.s)
             bm = self.bookmark(item["id"])
-            self.run_ops.setdefault((part, sg.run.s), (sg.run, []))[1].append((sg.node, off + 1, off + 1, value, bm, ""))
+            self.run_ops.setdefault((part, sg.run.s), (sg.run, []))[1].append((sg.node, at, at, value, bm, ""))
             return
         if a >= len(pos) or b > len(pos):
             raise FillError(f"{item['id']}: 空欄の位置が見つかりません")
@@ -266,6 +282,21 @@ class Filler:
         else:
             at = ppr.e if ppr is not None else node.se
             ed.put(at, at, run)
+
+    def append_run(self, item: dict, p: Para, after_run, value: str) -> None:
+        """字の要素 after_run のすぐ後ろに、同じ書式（rPr）の字の要素を足して書く（タブで終わる段落の後ろなど）。"""
+        part = p.part
+        ed = self.ed(part)
+        pre = ed.pre
+        xml = ed.xml
+        self.check_editable(item, part, after_run.s)
+        if (part, after_run.s) in self.run_ops:
+            raise FillError(f"{item['id']}: 同じ字の要素の中に、ほかの書き込みがあります")
+        rpr = after_run.find("rPr")
+        rpr_b = xml[rpr.s:rpr.e] if rpr is not None else b""
+        start_bm, end_bm = self.bookmark(item["id"])
+        ed.put(after_run.e, after_run.e,
+               start_bm + f"<{pre}:r>".encode() + rpr_b + _t(pre, value) + f"</{pre}:r>".encode() + end_bm)
 
     # ------------------------------------------------------------------ フォームの欄・コンテンツコントロール
     def fill_control(self, item: dict, value) -> None:
@@ -431,11 +462,27 @@ def format_word_date(d: dt.date, fmt: str) -> str:
 
 # ====================================================================== 入口
 def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
+    from .window import WriteError, resolve_write
+
     f = Filler(doc, force)
     problems = []
+    used: dict = {}
     for key, value in values.items():
         item = f.sp.items.get(key)
         try:
+            if key.startswith("@"):
+                # 規則で示していない所：エージェントが字を目印にして指した所（{"old": 元の字, "new": 書き換えた後の字}）
+                if not isinstance(value, dict):
+                    raise FillError(f'{key}: 字を目印にした書き込みは {{"old": …, "new": …}} の形で指定してください')
+                try:
+                    item = resolve_write(f.sp, value, used)
+                except WriteError as e:
+                    raise FillError(f"{key}: {e}") from None
+                p = item["para"]
+                a, b = item["span"]
+                f.replace_span(item, p, a, b, item["value"])
+                f.patches.append(Patch(item["id"], "input", item["value"], p.part, anchor=dict(value), key=key))
+                continue
             if item is None:
                 raise FillError(f"{key}: そのような欄はありません")
             if item.get("control") is not None:
@@ -464,7 +511,10 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
                 text = _is_text_value(value)
                 p = item["para"]
                 a, b = item["span"]
-                underlined = all(s.underline for s in p.segs if s.text and not s.hidden and s.text.strip(" 　") == "")
+                # 下線を引いた空欄（空欄の字がすべて下線つき）だけ、幅を保つ（下線の長さを変えない）
+                pos = p.positions()
+                blank_segs = [p.segs[pos[i][0]] for i in range(a, b) if i < len(pos)]
+                underlined = bool(blank_segs) and all(sg.underline for sg in blank_segs)
                 f.replace_span(item, p, a, b, text, keep_width=underlined and bool(text))
                 f.patches.append(Patch(key, "input", text, p.part))
             else:

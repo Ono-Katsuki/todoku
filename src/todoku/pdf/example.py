@@ -44,13 +44,15 @@ class Missed:
 class ExampleCheck:
     pages: int = 0
     added: int = 0
-    covered: int = 0
+    covered: int = 0  # 規則で見つけた入力欄、または規則では決められない所（エージェントの判断）の中
+    covered_agent: int = 0  # そのうち、規則では決められない所（［p1.a1？］）の中だけにあるもの
     notes: int = 0  # 記入例の印・説明の文
     missed: list[Missed] = field(default_factory=list)
     changed_template: int = 0  # 白紙にあって記入例で消えた字（版の違い・印の置き換え）
     template: int = 0  # 記入例にだけある字のうち、様式の字の並び（版の違いで動いたもの）
     excluded: list = field(default_factory=list)  # 数えなかったまとまり（理由・ページ・字・位置）
-    blank_chars: int = 0
+    blank_chars: int = 0  # 照らしたページの、白紙の字の数
+    blank_text_chars: int = 0  # 白紙のすべてのページの字の数（0 なら、白紙は画像だけ）
     other_pages: list = field(default_factory=list)  # 白紙のどのページとも様式が合わない記入例のページ（説明のページなど）
     page_kept: list = field(default_factory=list)  # 照らしたページごとの、白紙の字が記入例の同じ位置に残った割合
 
@@ -64,7 +66,8 @@ class ExampleCheck:
         return not self.missed
 
     def headline(self) -> str:
-        s = (f"記入例で書き込まれた所 {self.added} か所のうち {self.covered} か所が、見つけた入力欄の中にあります"
+        s = (f"記入例で書き込まれた所 {self.added} か所のうち {self.covered - self.covered_agent} か所が、規則で見つけた入力欄の中に、"
+             f"{self.covered_agent} か所が、規則では決められない所（エージェントの判断）の中にあります"
              + (f"（記入例の印・説明の文 {self.notes} か所、様式の版の違いで動いた字 {self.template} か所は除外）"
                 if self.notes or self.template else ""))
         if self.missed:
@@ -366,6 +369,7 @@ def check(blank: bytes, example: bytes) -> ExampleCheck:
     out = ExampleCheck()
     pb = b.pages()
     blays = [PageLayout(b, p, page_content(b, p), i + 1) for i, p in enumerate(pb)]
+    out.blank_text_chars = sum(1 for lay in blays for c in lay.chars if not c.text.isspace())
     ex_pages = _example_pages(e, blays[0].view.width if blays else 595)
     out.pages = len(ex_pages)
     for elay, pce in ex_pages:
@@ -473,8 +477,11 @@ def check(blank: bytes, example: bytes) -> ExampleCheck:
                 out.excluded.append((why, r.page, r.text[:30], [round(v) for v in r.rect]))
                 continue
             out.added += 1
-            if _covered(r, lay.spots):
+            if _covered(r, [k for k in lay.spots if k.confidence != "agent"]):
                 out.covered += 1
+            elif _covered(r, [k for k in lay.spots if k.confidence == "agent"]):
+                out.covered += 1
+                out.covered_agent += 1
             else:
                 out.missed.append(Missed(i + 1, r.text[:40], [round(v, 1) for v in r.rect], _near(lay, r.rect), r.kind))
     return out

@@ -44,10 +44,18 @@ TOOLS = [
                      "required": ["path"]}},
     {"name": "fill_document",
      "description": "入力欄に書き込み、out_path に書き出す（元のファイルは変えない）。values は {欄の id: 値}。チェックは true/false。"
+                    "窓で［P12.a1？］と「？」のついた所は、規則では欄と決められない所：窓を読んで書く所と判断したときだけ、同じように id で書く。"
+                    "Word で、窓に欄として示していない所に書くときは、{\"@1\": {\"old\": 段落の中の元の字, \"new\": 書き換えた後の字}} の形で、"
+                    "字を目印にして書ける（old が文書に1つしかないときはそのまま。いくつもあるときは near に近くの欄の id か、"
+                    "occurrence に何番目か を足す）。old と new の違う所だけが変わり、書いた所は id「P段落.w番号」になる。"
+                    "PDF で、窓に欄として示していない所に書くときは、{\"@1\": {\"after\": 見出しの字, \"value\": 書く字, \"page\": ページ}} の形で、"
+                    "見出しの右（\"where\": \"below\" なら下）の空いている所に書ける（書いた所は id「pページ.w番号」）。"
+                    "PDF の伏せ字（「○○」）の上には {\"@1\": {\"cover\": \"○○\", \"value\": 書く字}}（白い下地の欄で覆って書く。元の字は消さない）。"
                     "結果として、変わったのが書いた欄（とその計算結果・見た目）だけであることの証明と、書き込み後のファイルを読み直した結果を返す。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "out_path": {"type": "string", "description": "書き出すファイルのパス（元と別の名前）"},
-         "values": {"type": "object", "description": "{欄の id: 値}"},
+         "values": {"type": "object", "description": "{欄の id: 値}。Word で欄のない所は {\"@1\": {\"old\": …, \"new\": …}}、"
+                                                      "PDF で欄のない所は {\"@1\": {\"after\": …, \"value\": …}}"},
          "force": {"type": "boolean", "default": False, "description": "保護された欄にも書く（本人が了承したときだけ）"}},
          "required": ["path", "out_path", "values"]}},
     {"name": "audit_document",

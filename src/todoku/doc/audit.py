@@ -108,6 +108,9 @@ def lint(doc: DocFile) -> list[str]:
     return errs
 
 
+from ..docx.fill import written_of  # noqa: E402
+
+
 def prove(original: bytes, new: bytes, written: dict) -> DocProof:
     pr = DocProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest())
     ca, cb_ = CFB(original), CFB(new)
@@ -135,9 +138,25 @@ def prove(original: bytes, new: bytes, written: dict) -> DocProof:
     sp = Spots(a)
     targets: dict[int, list] = {}
     index = {id(p): i for i, p in enumerate(pa)}
+    used: dict = {}
     for fid, value in written.items():
-        it = sp.items.get(fid)
+        if isinstance(value, dict) and "@" in value:
+            # 字を目印にした書き込み：元の文書で、書き込みと同じ決め方で位置を決め直す
+            from ..docx.window import WriteError, resolve_write
+
+            try:
+                it = resolve_write(sp, value["@"], used)
+            except WriteError as e:
+                pr.unexpected.append(f"書いた所 {fid} の目印が、元の文書で決まりません：{e}")
+                continue
+            if it["id"] != fid or it["value"] != value["value"]:
+                pr.unexpected.append(f"書いた所 {fid} が、目印から決まる所（{it['id']}「{it['value']}」）と違います")
+                continue
+            value = value["value"]
+        else:
+            it = sp.items.get(fid)
         if it is None:
+            pr.unexpected.append(f"書いた欄 {fid} が、元の文書にありません")
             continue
         p = it.get("para") or (it.get("control").para if it.get("control") is not None else None)
         if p is not None and id(p) in index:
@@ -210,19 +229,25 @@ def run(blob: bytes, filename: str = "") -> Audit:
         au.checks.append(Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30]))
         au.checks.append(macro_check(doc, win))
         return au
-    pr = prove(blob, res.blob, {p.id: p.value for p in res.patches})
+    pr = prove(blob, res.blob, written_of(res.patches))
     note = f"（文書の保護で書けない欄 {len(protected)} か所は除外）" if protected else ""
     au.checks.append(Check("全入力欄への書き込み", pr.ok, f"入力欄 {len(win['fields']):,} か所のうち {len(targets):,} に試しの値を書き込み{note}。{pr.headline()}",
                            [*pr.unexpected, *pr.lint_errors]))
     after = build(DocFile(res.blob, filename))
     got = {f["id"]: f.get("value") for f in after["fields"]}
     written = {p.id: p.value for p in res.patches}
+    # 本文の外（ヘッダー・テキストボックスなど）の欄：.doc はしおりを本文にしか置けないので、書いた後の窓の id は欄に結びつかない
+    from ..docx.window import Spots
+
+    main_end = doc.ccp["text"]
+    outside = {fid for fid, it in Spots(doc).items.items()
+               if it.get("para") is not None and getattr(it["para"], "cp0", 0) >= main_end}
     wrong = []
     in_text = 0
     for k, v in targets.items():
         g = got.get(k)
         w = written.get(k, v)
-        if k not in got and pr.ok:
+        if (k not in got or k in outside) and pr.ok:
             in_text += 1  # ヘッダーなど本文以外の流れ：書いた値は段落の文字の一部（証明で、段落の文字が期待どおりと確かめた）
             continue
         ok = (bool(g) == v) if isinstance(v, bool) else str(g) == str(w)
@@ -230,5 +255,14 @@ def run(blob: bytes, filename: str = "") -> Audit:
             wrong.append(f"{k}: 書いた値 {w!r} → 窓では {g!r}")
     note2 = f"（うち {in_text} 欄はヘッダーなど本文以外の欄で、段落の文字として読み戻しました）" if in_text else ""
     au.checks.append(Check("読み戻し", not wrong, f"書いた {len(targets):,} 欄のうち {len(targets) - len(wrong):,} 欄が、書き込み後の窓にそのまま出ている{note2}", wrong))
+    from ..xlsx.audit import agent_places_check
+
+    ap = agent_places_check(win["fields"])
+    if ap is not None:
+        au.checks.append(ap)
+    if not (doc.protection_enforced and doc.protection):
+        from ..docx.audit import anchored_check
+
+        au.checks.append(anchored_check(blob, filename, DocFile, fill, prove, main_end=doc.ccp["text"]))
     au.checks.append(macro_check(doc, win))
     return au

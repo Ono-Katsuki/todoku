@@ -22,29 +22,60 @@ def test_excel_with_marked_inputs_only_is_a():
     assert g.grade == "A", g.headline()
 
 
-def test_unmarked_table_columns_are_b():
+def test_unmarked_table_columns_are_c():
+    # 入力欄の印のない表の空のセル：規則では決められない（エージェントが判断して、番地で書く）ので C
     g = grade_blob(make_xlsx({"Budget": (HEAD, VALS)}), "b.xlsx")
-    assert g.grade == "B" and any(r.title == "入力欄か決められないセル" for r in g.reasons), g.headline()
+    assert g.grade == "C" and any(r.title == "入力欄か決められないセル" and r.grade == "C" for r in g.reasons), g.headline()
 
 
-def test_layout_fields_in_pdf_and_word_are_b():
-    assert grade_blob(sample_form(), "s.pdf").grade == "B"
-    assert grade_blob(make_docx(SAMPLE_BODY), "s.docx").grade == "B"
+def test_layout_fields_in_pdf_and_word_are_b_and_margins_are_c():
+    # 配置から見つけた欄は B。表題「申請書」の右の余白・見出しの後ろのような、書く所かもしれない所は、規則では決めず C
+    for blob, name in ((sample_form(), "s.pdf"), (make_docx(SAMPLE_BODY), "s.docx")):
+        g = grade_blob(blob, name)
+        titles = {r.title: r.grade for r in g.reasons}
+        assert titles.get("配置から推定した入力欄") == "B" and titles.get("規則では決められない所") == "C", g.headline()
+        assert g.grade == "C"
+
+
+def test_places_rules_cannot_decide_are_c_and_writable():
+    # 規則の型に合わない日付の空き・伏せ字・「住所：」の後ろ：規則では欄と決めず、エージェントが判断する所（C）。id で書ける
+    from todoku.docx.document import DocxDocument
+    from todoku.docx.fill import fill
+    from todoku.docx.proof import prove
+    from todoku.docx.window import build
+
+    blob = make_docx(SAMPLE_BODY + p("令和 年　月") + p("〒　○○○－…　○○県○○市○○区……") + p("住所："))
+    g = grade_blob(blob, "c.docx")
+    assert g.grade == "C" and any(r.title == "規則では決められない所" for r in g.reasons), g.headline()
+    win = build(DocxDocument(blob, "c.docx"))
+    agent = {f["id"]: f for f in win["fields"] if f.get("agent")}
+    assert set(agent) == {"P1.a1", "P9.a1", "P10.a1", "P10.a2", "P11.a1"}, agent  # P1.a1：表題「申請書」の後ろ
+    assert agent["P10.a2"]["placeholder"] == "○○県○○市○○区……"
+    res = fill(DocxDocument(blob, "c.docx"), {"P9.1": "8", "P9.a1": "4", "P10.a2": "東京都千代田区霞が関1-1", "P11.a1": "東京都"})
+    pr = prove(blob, res.blob, {x.id: x.value for x in res.patches})
+    assert pr.ok, pr.unexpected
+    after = build(DocxDocument(res.blob, "c.docx"))
+    lines = [ln for st in after["stories"] for ln in st["reading"]]
+    assert "令和［P9.1＝8］年［P9.a1＝4］月" in lines and "住所：［P11.a1＝東京都］" in lines, lines
+    assert any("［P10.a2＝東京都千代田区霞が関1-1］" in ln and "［P10.a1？＝○○○－…］" in ln for ln in lines), lines
 
 
 def test_meaning_is_left_to_the_agent_not_to_word_matching():
     # 押印・書く値のぼかしは、言葉の一致では決めない（規則の段階は B のまま）。エージェントが確かめる問いとして返す
+    # 「代表者氏名　　　　　　　印」の氏名の空きは、語と語の間の空白（規則では決められない所：C）。言葉では F・D にしない
     g = grade_blob(make_docx(SAMPLE_BODY + p("代表者氏名　　　　　　　印") + p("利用者数　約　　　　人")), "f.docx")
-    assert g.grade == "B", g.headline()
+    assert g.grade == "C" and {r.grade for r in g.reasons} <= {"B", "C"}, g.headline()
+    assert any(r.title == "規則では決められない所" for r in g.reasons)
     assert [c["id"] for c in g.agent_checks] == ["cannot_do", "vague_value"]
 
 
 def test_agent_findings_are_combined_with_provenance():
     rule = grade_blob(make_docx(SAMPLE_BODY), "s.docx")
     g = combine(rule, [{"grade": "F", "title": "押印", "detail": "代表者の印", "where": "P9"}], answered=["vague_value"])
-    assert g.grade == "F" and g.without_barriers == "B" and not g.agent_checks
+    # 規則の段階は C（表題「申請書」の後ろは、規則では決められない所）。押印（F）がなければ C
+    assert g.grade == "F" and g.without_barriers == "C" and not g.agent_checks
     assert [r.by for r in g.reasons if r.grade == "F"] == ["agent"]
-    assert "押印：エージェントの判断" in g.headline() and "それがなければ段階 B" in g.headline()
+    assert "押印：エージェントの判断" in g.headline() and "それがなければ段階 C" in g.headline()
     d = combine(rule, [{"grade": "D", "title": "書く値をぼかす書き方", "where": ["P12.1"]}])
     assert d.grade == "D" and [c["id"] for c in d.agent_checks] == ["cannot_do"]  # まだ確かめていない問いは残る
     with pytest.raises(ValueError):

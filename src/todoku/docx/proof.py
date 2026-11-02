@@ -74,8 +74,23 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
     targets: dict[int, list] = {}
     index = {id(p): i for i, p in enumerate(pa)}
     sdt_spans: dict[str, list[tuple[int, int]]] = {}
+    used: dict = {}
     for fid, value in written.items():
-        it = sp.items.get(fid)
+        if isinstance(value, dict) and "@" in value:
+            # 字を目印にした書き込み：元の文書で、書き込みと同じ決め方で位置を決め直す
+            from .window import WriteError, resolve_write
+
+            try:
+                it = resolve_write(sp, value["@"], used)
+            except WriteError as e:
+                pr.unexpected.append(f"書いた所 {fid} の目印が、元の文書で決まりません：{e}")
+                continue
+            if it["id"] != fid or it["value"] != value["value"]:
+                pr.unexpected.append(f"書いた所 {fid} が、目印から決まる所（{it['id']}「{it['value']}」）と違います")
+                continue
+            value = value["value"]
+        else:
+            it = sp.items.get(fid)
         if it is None:
             pr.unexpected.append(f"書いた欄 {fid} が、元の文書にありません")
             continue
@@ -191,7 +206,10 @@ def _expected_text(p: Para, items) -> str | None:
         else:
             a, b = it["span"]
             v = str(value)
-            underlined = all(s.underline for s in p.segs if s.text and not s.hidden and s.text.strip(" \u3000") == "")
+            # 書き込みと同じ規則：空欄の字がすべて下線つきのときだけ、幅を保つ（字を目印にした書き込みは、指定のとおり）
+            pos = p.positions()
+            blank_segs = [p.segs[pos[i][0]] for i in range(a, b) if i < len(pos)]
+            underlined = bool(blank_segs) and all(sg.underline for sg in blank_segs) and not it.get("anchored")
             if underlined and v:
                 from .fill import _width
 

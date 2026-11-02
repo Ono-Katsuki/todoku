@@ -195,8 +195,11 @@ def _grade_pdf(blob: bytes, filename: str) -> Grade:
         reasons.append(Reason("E", "画像だけのページ", f"{len(img)} ページは文字の情報がなく、画像（スキャン）です。読むには文字の認識が要ります", img))
     if win["form"]["xfa"]:
         reasons.append(Reason("C", "XFA のフォーム", "Adobe 独自の動くフォーム（XFA）です。開くソフトによって中身が変わります"))
-    fields = [f for p in win["pages"] for f in p["fields"]]
+    agent = [f for p in win["pages"] for f in p["fields"] if f.get("agent")]
+    fields = [f for p in win["pages"] for f in p["fields"] if not f.get("agent")]
     layout = [f for f in fields if f.get("source") == "layout"]
+    if agent:
+        reasons.append(_agent_reason(agent))
     if layout:
         reasons.append(Reason("B", "配置から推定した入力欄",
                               f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、フォームの欄ではなく、罫線や空きから推定しました"
@@ -204,6 +207,18 @@ def _grade_pdf(blob: bytes, filename: str) -> Grade:
     elif fields:
         reasons.append(Reason("A", "フォームの欄", f"入力欄 {len(fields)} か所は、すべて PDF のフォームの欄です"))
     return _final(reasons)
+
+
+def _agent_reason(agent: list[dict]) -> Reason:
+    """規則では決められない所（窓の［…？］）：エージェントが窓を読んで判断し、書く所なら id を指定して書く（C）。"""
+    kinds: dict[str, int] = {}
+    for f in agent:
+        kinds[f.get("why", "")] = kinds.get(f.get("why", ""), 0) + 1
+    return Reason("C", "規則では決められない所",
+                  f"書き込む所かもしれない所 {len(agent)} か所は、規則では欄と決められません（"
+                  + "・".join(f"{k} {n}" for k, n in kinds.items())
+                  + "）。エージェントが窓を読んで判断し、書く所なら id を指定して書きます",
+                  [f["id"] for f in agent[:12]])
 
 
 def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
@@ -219,8 +234,11 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
         doc = DocxDocument(blob, filename)
     win = build(doc)
     reasons: list[Reason] = []
-    fields = win["fields"]
+    agent = [f for f in win["fields"] if f.get("agent")]
+    fields = [f for f in win["fields"] if not f.get("agent")]
     layout = [f for f in fields if f.get("source") == "layout"]
+    if agent:
+        reasons.append(_agent_reason(agent))
     if layout:
         reasons.append(Reason("B", "配置から推定した入力欄",
                               f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、フォームの欄ではなく、空のマスや空白・下線から推定しました",
@@ -259,11 +277,13 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
         reasons.append(Reason("B", "印のない入力欄", f"{len(inferred)} か所は、入力規則も枠もなく、数式の入力になっていることから推定した欄です",
                               inferred[:12]))
     if undecided:
-        reasons.append(Reason("B", "入力欄か決められないセル", f"表の {len(undecided)} か所の空のセルは、入力欄の印がなく、規則では決められません",
-                              undecided[:12]))
+        reasons.append(Reason("C", "入力欄か決められないセル",
+                              f"表の {len(undecided)} か所の空のセルは、入力欄の印がなく、規則では決められません。"
+                              "エージェントが窓を読んで判断し、書くならセルの番地を指定して書きます", undecided[:12]))
     if overlap:
-        reasons.append(Reason("B", "重なった入力規則", f"{len(overlap)} か所に入力規則が重なっていて、Excelがどれを使うかはファイルから決まりません",
-                              overlap[:12]))
+        reasons.append(Reason("C", "重なった入力規則",
+                              f"{len(overlap)} か所に入力規則が重なっていて、Excelがどれを使うかはファイルから決まりません。"
+                              "窓に出したそれぞれの規則を、エージェントが読んで判断します", overlap[:12]))
     if n_fields and not (inline or inferred or undecided or overlap):
         reasons.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・シート保護・枠などの印で決まります"))
     rep = verify(wb).summary()

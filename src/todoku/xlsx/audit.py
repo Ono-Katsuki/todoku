@@ -505,3 +505,18 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
                                + [f"{m[0]}!{m[1]}: Excel={m[3]!r} こちら={m[4]!r}" for m in r.mismatches]
                                + [f"チェック {m[0]}!{m[1]}: Excel={m[2]} こちら={m[3]}" for m in r.control_mismatches]))
     return au
+
+
+def agent_places_check(fields: list[dict]) -> "Check | None":
+    """規則では決められない所（窓の［…？］）：あれば、エージェントの判断に任せた所として数える。"""
+    agent = [f for f in fields if f.get("agent")]
+    if not agent:
+        return None
+    kinds: dict[str, int] = {}
+    for f in agent:
+        kinds[f.get("why", "")] = kinds.get(f.get("why", ""), 0) + 1
+    return Check("規則では決められない所", True,
+                 f"書き込む所かもしれない所 {len(agent)} か所を、窓に「？」をつけて示しました（"
+                 + "・".join(f"{k} {n}" for k, n in kinds.items())
+                 + "）。エージェントが判断し、書く所なら id を指定して書きます。全入力欄への書き込みの試しにも含めました",
+                 [f["id"] for f in agent[:20]], agent=True)

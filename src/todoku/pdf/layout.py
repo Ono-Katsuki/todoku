@@ -576,6 +576,15 @@ def pdf_blanks(text: str, lead: int = 0, trail: int = 0) -> list[tuple[int, int]
 _OPTION_GROUP = re.compile(r"[^・／/（）()\s\u3000]{1,10}(?:[\s\u3000]*[・／/][\s\u3000]*[^・／/（）()\s\u3000]{1,10}){1,5}")
 
 
+MIN_WRITE = 6.0  # 規則では決められない所を出すのは、この高さ（pt）以上の所だけ：提出する書類に読める大きさで書ける所
+
+
+def _vov_rect(r: tuple[float, float, float, float], c) -> float:
+    """矩形 r とマス c の、縦の重なりの割合（r の高さに対して）。"""
+    h = r[3] - r[1]
+    return max(0.0, min(r[3], c.y1) - max(r[1], c.y0)) / h if h > 0 else 0.0
+
+
 def _cut_option(t: str) -> str:
     """チェックの印の右の文字から、選択肢の名前だけを取る（大きな空き・※・● で切る）。"""
     t = t.strip(" \u3000")
@@ -607,6 +616,7 @@ class Spot:
     host: object = None  # 欄を書き入れる行（Line）またはマス（Cell）
     at: tuple[int, int] | None = None  # 行の中で置き換える範囲（文字の位置）
     confidence: str = "high"
+    cover: str = ""  # 覆って書く元の字（伏せ字の「○○」）：書くときは白い下地の欄で覆う（元の字は消さない）
 
 
 class PageLayout:
@@ -678,6 +688,7 @@ class PageLayout:
         for c in empties:
             rows.setdefault(round(c.y0), []).append(c)
         comb_cells: set[int] = set()
+        undecided: list[tuple[Cell, str]] = []  # 規則では欄と決められない空のマス
         for y, row in rows.items():
             row.sort(key=lambda c: c.x0)
             run: list[Cell] = []
@@ -721,9 +732,12 @@ class PageLayout:
             fill = self.cell_fill(c)
             gray = fill is not None and max(fill) - min(fill) < 0.04 and max(fill) < 0.97
             if gray:
-                continue  # 灰色に塗ったマスは「書かない欄」の印であることが多い
+                # 灰色に塗ったマスは「書かない欄」の印のことも、書く欄のこともある：規則では決めない
+                undecided.append((c, "灰色に塗った空のマス（書かない欄の印のことも、書く欄のこともある）"))
+                continue
             label, rl, cl = self._label_for(c, c)
             if not label:
+                undecided.append((c, "見出しの見つからない空のマス"))
                 continue
             sp = Spot("text", (c.x0, c.y0, c.x1, c.y1), label, "空のマス", row_label=rl, column_label=cl,
                       cell=c, size=_fit_size(c.h, typ), host=c)
@@ -751,6 +765,81 @@ class PageLayout:
                 continue  # 同じ □ を2重に見つけたもの
             kept.append(s)
         self.spots = kept
+        # 5) 規則では決められない所（窓に「？」をつけて示し、エージェントが読んで判断する）
+        self._agent_spots(cells, undecided)
+
+    def _agent_spots(self, cells: list[Cell], undecided: list[tuple[Cell, str]]) -> None:  # noqa: C901
+        """規則の型に合わないが、書き込む所かもしれない所：行の中の空き・見出しの後ろ・単位だけのマスなど
+        （xlsx.window.agent_blanks と同じ見つけ方）と、見出しの見つからない空のマス・灰色の空のマス。"""
+        from ..xlsx.window import AGENT_WHY, agent_blanks
+
+        typ = self.typical
+        ruled = [k for k in self.spots if k.confidence == "high"]
+        new: list[Spot] = []
+        for cell, lines in [(c, c.lines) for c in cells] + [(None, self.free_lines)]:
+            for ln in lines:
+                if ln.vertical or not ln.text.strip(" \u3000") or ln.y1 - ln.y0 < MIN_WRITE:
+                    continue  # 読める大きさ（6pt）で書けない小さな字の行の所は、書く所にならない
+                text = ln.text
+                sz = ln.size
+                found = [k.at for k in self.spots if k.host is ln and k.at is not None]
+                # 左右の端：マスの縁（マスの外は、ページの字の端）・同じ高さのほかの字・縦の罫線
+                lb = cell.x0 if cell is not None else self.left
+                rb = cell.x1 if cell is not None else self.right
+                for o in (cell.lines if cell is not None else self.free_lines):
+                    if o is ln or o.vertical or not (o.y0 < ln.y1 - 0.2 * sz and o.y1 > ln.y0 + 0.2 * sz):
+                        continue
+                    if o.x1 <= ln.x0 + 0.5:
+                        lb = max(lb, o.x1)
+                    if o.x0 >= ln.x1 - 0.5:
+                        rb = min(rb, o.x0)
+                if cell is None:
+                    for r in self.vs:
+                        if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1:
+                            if ln.x1 <= r.pos < rb:
+                                rb = r.pos
+                            if lb < r.pos <= ln.x0:
+                                lb = r.pos
+                core_end = len(text.rstrip(" \u3000"))
+                beside = cell is not None and any(
+                    k.rect[0] >= cell.x1 - 1.5 and k.rect[0] - cell.x1 < 6 and _vov_rect(k.rect, cell) >= 0.5 for k in ruled)
+                for a, b, why in agent_blanks(text, found, cell is not None):
+                    if why == "placeholder":
+                        # PDF の字は消せない：伏せ字の上を白い下地の欄で覆って書く（元の字は残る）
+                        x0, y0, x1, y1 = ln.span_rect(a, b)
+                        rect = (x0 - 0.3, y0 - 0.1 * sz, x1 + 0.3, y1 + 0.1 * sz)
+                        if not any(_overlap(rect, k.rect) > 0.3 for k in ruled + new):
+                            new.append(Spot("inline", rect, norm_label(text[:a] + "［　］" + text[b:]), AGENT_WHY[why],
+                                            line_text=text, blank=(a, b), cell=cell, size=sz, host=ln, at=(a, b),
+                                            confidence="agent", cover=text[a:b]))
+                        continue
+                    if why == "after_label" and cell is None:
+                        continue  # マスの外の見出しの右は、「見出しの右の余白」で示す
+                    if why in ("after_label", "after_colon", "after_mark") and beside:
+                        continue  # すぐ右のマスに規則の欄がある：値はそちらに書く
+                    if a == b == 0 or (b <= len(text) - len(text.lstrip(" \u3000")) and a == 0):
+                        x0, x1 = lb + 1.5, ln.x0 - 0.2 * sz  # 行の頭の前（マスの縁まで）
+                    elif a >= core_end:
+                        x0, x1 = ln.x1 + 0.2 * sz, rb - 1.5  # 行の終わりの後ろ（マスの縁・次の字まで）
+                    elif a == b:
+                        continue
+                    else:
+                        x0, _, x1, _ = ln.span_rect(a, b)
+                    if x1 - x0 < 0.8 * sz:
+                        continue
+                    rect = (x0, ln.y0, x1, ln.y1)
+                    if any(_overlap(rect, k.rect) > 0.3 for k in ruled + new):
+                        continue
+                    new.append(Spot("inline", rect, norm_label(text[:a] + "［　］" + text[b:]), AGENT_WHY[why],
+                                    line_text=text, blank=(a, b), cell=cell, size=sz, host=ln, at=(a, b), confidence="agent"))
+        for c, why in undecided:
+            rect = (c.x0, c.y0, c.x1, c.y1)
+            if any(_overlap(rect, k.rect) > 0.3 for k in ruled + new):
+                continue
+            label, rl, cl = self._label_for(c, c)
+            new.append(Spot("text", rect, label, why, row_label=rl, column_label=cl, cell=c, size=_fit_size(c.h, typ),
+                            host=c, confidence="agent"))
+        self.spots += new
 
     def _rest_of_cell(self, c: Cell, typ: float) -> None:
         """字がマスの一部にだけあり、残りに書ける空きがあるマス。
@@ -882,8 +971,8 @@ class PageLayout:
                                        (0 <= o.y0 - ln.y1 < 0.6 * sz or 0 <= ln.y0 - o.y1 < 0.6 * sz) for o in self.free_lines)
             if room >= max(80, 8 * sz) and not centered and (right_bound >= self.right - 1 or spaced) and not tight:
                 self.spots.append(Spot("space", (ln.x1 + sz, ln.y0 - 0.2 * sz, right_bound, ln.y1 + 0.2 * sz),
-                                       norm_label(t), "見出しの右の余白（入力欄とは限りません）", size=sz, host=ln,
-                                       at=(len(ln.text), len(ln.text)), confidence="low"))
+                                       norm_label(t), "見出しの右の余白（入力欄とは限らない）", size=sz, host=ln,
+                                       at=(len(ln.text), len(ln.text)), confidence="agent"))
 
     def _line_spots(self, ln: Line, cell: Cell | None) -> None:
         text = ln.text

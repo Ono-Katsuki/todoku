@@ -100,7 +100,9 @@ def check_writing(doc: DocxDocument, win: dict) -> list[Check]:
         res = fill(doc, targets)
     except FillError as e:
         return [Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
-    pr = prove(doc.blob, res.blob, {p.id: p.value for p in res.patches})
+    from .fill import written_of
+
+    pr = prove(doc.blob, res.blob, written_of(res.patches))
     note = f"（文書の保護で書けない・変えられない欄 {len(protected)} か所は除外）" if protected else ""
     out = [Check("全入力欄への書き込み", pr.ok and not skipped,
                  f"入力欄 {len(win['fields']):,} か所のうち {len(targets):,} に試しの値を書き込み{note}。{pr.headline()}",
@@ -122,6 +124,55 @@ def check_writing(doc: DocxDocument, win: dict) -> list[Check]:
     return out
 
 
+def anchored_check(blob: bytes, filename: str, opener, fill_fn, prove_fn, main_end: int | None = None) -> Check:
+    """字を目印にした書き込み（規則で示していない所に、エージェントが書く）：文書の中に1つしかない4字の後ろに試しの字を書き、
+    証明（目印から同じ所に決まり、その段落だけが変わった）と読み戻し（［P段落.w番号＝値］）を確かめる。
+    main_end：.doc の本文の終わりの位置（しおりを置けるのは本文だけなので、本文の段落を目印にする）。"""
+    from .document import iter_paras
+    from .fill import written_of
+    from .window import Spots, _in_field
+
+    doc = opener(blob, filename)
+    sp = Spots(doc)
+    paras = [(sp.para_index[id(q)], q) for _k, _p, bl in doc.all_blocks() for q in iter_paras(bl)]
+    full = "\n".join(q.text for _n, q in paras)
+    tried = 0
+    last_err = ""
+    for n, q in paras:
+        if main_end is not None and getattr(q, "cp0", 0) >= main_end:
+            continue
+        t = q.text
+        pos = q.positions()
+        for i in range(0, len(t) - 3):
+            frag = t[i:i + 4]
+            if frag != frag.strip(" \u3000\t") or full.count(frag) != 1 or any(_in_field(q, j) for j in range(i, i + 5)):
+                continue
+            if any(q.segs[pos[k][0]].kind != "t" for k in range(i, min(i + 5, len(pos)))):
+                continue  # 本文の字（字の要素）の中だけを目印にする（図の説明などは目印にならない）
+            tried += 1
+            spec = {"old": frag, "new": frag + "（試し）"}
+            try:
+                res = fill_fn(opener(blob, filename), {"@1": spec})
+            except FillError as e:
+                last_err = str(e)
+                if tried >= 5:
+                    break
+                continue
+            pr = prove_fn(blob, res.blob, written_of(res.patches))
+            fid = res.patches[0].id
+            got = {f["id"]: f.get("value") for f in build(opener(res.blob, filename))["fields"]}
+            ok = pr.ok and got.get(fid) == "（試し）"
+            return Check("字を目印にした書き込み", ok,
+                         f"規則で示していない所への書き込み（段落 {n} の「{frag}」の後ろに「（試し）」）を {fid} として書き、"
+                         f"{pr.headline()}。読み戻し：{'窓に［' + fid + '＝（試し）］と出ている' if got.get(fid) == '（試し）' else '窓に出ていない'}",
+                         [*pr.unexpected, *pr.lint_errors])
+        if tried >= 5:
+            break
+    if not tried:
+        return Check("字を目印にした書き込み", True, "文書の中に1つしかない字がないので、試していません（同じ字の所は near・occurrence で指す）")
+    return Check("字を目印にした書き込み", False, f"字を目印にした書き込みを {tried} か所で試し、書けませんでした", [last_err])
+
+
 def run(blob: bytes, filename: str = "") -> Audit:
     doc = DocxDocument(blob, filename)
     win = build(doc)
@@ -134,6 +185,13 @@ def run(blob: bytes, filename: str = "") -> Audit:
                            f"Markdown {total:,} 文字" + (f"を {len(parts)} 部分に分け、いちばん大きい部分も {biggest:,} 文字"
                                                         if len(parts) > 1 else "") + "（AIが1回で読める目安 15万文字以内）"))
     au.checks += check_writing(DocxDocument(blob, filename), win)
+    from ..xlsx.audit import agent_places_check
+
+    ap = agent_places_check(win["fields"])
+    if ap is not None:
+        au.checks.append(ap)
+    if not (doc.protection_enforced and doc.protection):
+        au.checks.append(anchored_check(blob, filename, DocxDocument, fill, prove))
     au.checks.append(macro_check(doc, win))
     return au
 

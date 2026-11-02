@@ -92,7 +92,9 @@ def lint(blob: bytes) -> list[str]:
     return errs
 
 
-def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None) -> PdfProof:
+def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
+          anchored: dict[str, dict] | None = None) -> PdfProof:
+    """anchored：見出しの字を目印にして書いた欄 → 目印（書いた順）。元の文書で同じ決め方で位置を決め直し、足した欄の位置と照らす。"""
     pr = PdfProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest(),
                   new[:len(original)] == original, original_bytes=len(original), new_bytes=len(new))
     if not pr.prefix_ok:
@@ -142,7 +144,39 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None) -
         for name in pr.changed_fields:
             if name and name not in allowed_fields and not any(name.startswith(x + ".") for x in allowed_fields):
                 pr.unexpected.append(f"書くと言っていない欄 {name} が変わっています")
+    if anchored:
+        _check_anchored(a, b, anchored, pr)
     return pr
+
+
+def _check_anchored(a: PdfDocument, b: PdfDocument, anchored: dict[str, dict], pr: PdfProof) -> None:
+    from .anchor import AnchorError, resolve_write
+    from .form import read_fields
+    from .layout import View
+
+    names = {f.name for f in read_fields(a)}
+    new_fields = {f.name: f for f in read_fields(b)}
+    used: dict = {}
+    layouts: dict = {}
+    for fid, spec in anchored.items():
+        try:
+            sd = resolve_write(a, spec, used, layouts, names)
+        except AnchorError as e:
+            pr.unexpected.append(f"書いた所 {fid} の目印が、元の文書で決まりません：{e}")
+            continue
+        if sd["id"] != fid:
+            pr.unexpected.append(f"書いた所 {fid} が、目印から決まる所（{sd['id']}）と違います")
+            continue
+        fld = new_fields.get(fid)
+        ws = [w for w in (fld.widgets if fld else []) if w.page == sd["page"] - 1]
+        if not ws:
+            pr.unexpected.append(f"書いた所 {fid} の欄が、{sd['page']} ページにありません")
+            continue
+        view = View(a, a.pages()[sd["page"] - 1])
+        want = [round(v, 3) for v in view.back_rect(*sd["rect"])]
+        got = [round(float(v), 3) for v in ws[0].rect]
+        if any(abs(x - y) > 0.01 for x, y in zip(sorted(want[0::2]) + sorted(want[1::2]), sorted(got[0::2]) + sorted(got[1::2]))):
+            pr.unexpected.append(f"書いた所 {fid} の位置 {got} が、目印から決まる位置 {want} と違います")
 
 
 def _is_xref(o) -> bool:

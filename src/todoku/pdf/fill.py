@@ -29,6 +29,8 @@ class Patch:
     kind: str  # input / control
     value: object
     page: int = 0
+    anchor: dict | None = None  # 見出しの字を目印にした書き込み（{"after": …, "value": …}）。証明で、同じ決め方で位置を確かめる
+    key: str = ""  # 指定したときの名前（「@1」など）
 
 
 @dataclass
@@ -316,8 +318,11 @@ def _rot_matrix(rot: int, w: float, h: float):
 
 
 def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, size: float, dr_fonts: dict, *,
-                    center: bool = False, comb: list | None = None, rot: int = 0, multiline: bool = True) -> tuple[Ref, float]:
+                    center: bool = False, comb: list | None = None, rot: int = 0, multiline: bool = True,
+                    cover: bool = False) -> tuple[Ref, float]:
+    """cover：欄の下地を白く塗ってから書く（伏せ字の「○○」の上に書くときに、下の字を覆う。元の字は消さない）。"""
     vw, vh = (rect_h, rect_w) if rot in (90, 270) else (rect_w, rect_h)
+    bg = f"q\n1 g\n0 0 {vw:.2f} {vh:.2f} re\nf\nQ\n".encode() if cover else b""
     if comb:
         chars = list(str(value))
         if len(chars) > len(comb):
@@ -339,7 +344,7 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
     block = leading * (len(lines) - 1) + s
     y = (vh + block) / 2 - s * 0.8
     pad = min(1.5, 0.1 * vw)
-    ops = b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, (vw - 2 * pad) if center else None) + b"Q\nEMC\n"
+    ops = bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, (vw - 2 * pad) if center else None) + b"Q\nEMC\n"
     return _ap(update, rect_w, rect_h, ops, fonts_used(lines), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
 
 
@@ -583,8 +588,14 @@ class Filler:
             for b in boxes:
                 bx0, by0, bx1, by1 = b
                 comb.append((bx0 - vx0, by0 - vy0, bx1 - vx0, by1 - vy0))
+        cover = bool(spot.get("cover"))
         ap, s = text_appearance(self.up, w, h, text, size, self.fonts_for(fonts_used([text]) | {"Helv"}),
-                                center=k in ("inline",), comb=comb, rot=rot, multiline=(vy1 - vy0) > 2.4 * min(size, 10.5))
+                                center=k in ("inline",), comb=comb, rot=rot, multiline=(vy1 - vy0) > 2.4 * min(size, 10.5),
+                                cover=cover)
+        if cover:
+            self.warnings.append(f"{spot['id']}: 元の字「{spot.get('covered', '')}」は、白い下地の欄で覆いました（元の字は消していません）")
+        if text and s < 0.6 * size:
+            self.warnings.append(f"{spot['id']}: 欄に収めるため、字を {s:.1f} pt に小さくしました（元の大きさ {size:.1f} pt）")
         keys = fonts_used([text]) or {"Helv"}
         da_font = sorted(keys - {"Helv"})[0] if keys - {"Helv"} else "Helv"
         d = {**base, "FT": Name("Tx"), "Rect": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)],
@@ -596,6 +607,8 @@ class Filler:
             d["Q"] = 1
         if rot:
             d["MK"] = {"R": rot}
+        if cover:
+            d.setdefault("MK", {})["BG"] = [1]  # 見た目を作り直すソフトでも、下地は白
         ref = self.up.new(d)
         self._attach(page_no, ref)
         self.patches.append(Patch(spot["id"], "input", text, page_no))
@@ -678,8 +691,27 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
         for fd in pg["fields"]:
             spots[fd["id"]] = (pg["number"], fd)
     problems = []
+    used: dict = {}
+    layouts: dict = {}
     for key, value in values.items():
         try:
+            if key.startswith("@"):
+                # 窓に欄として示していない所：エージェントが見出しの字を目印にして指した所（その右か下の空いている所）
+                from .anchor import AnchorError, resolve_write
+
+                if not isinstance(value, dict):
+                    raise FillError(f'{key}: 欄のない所に書くときは {{"after": 見出しの字, "value": 書く字}} の形で指定してください')
+                try:
+                    sd = resolve_write(doc, value, used, layouts, set(f.by_name))
+                except AnchorError as e:
+                    raise FillError(f"{key}: {e}") from None
+                page_no = sd["page"]
+                if page_no not in views:
+                    views[page_no] = View(doc, f.pages[page_no - 1])
+                f.add_widget(page_no, sd, value["value"], views[page_no])
+                f.patches[-1].anchor = dict(value)
+                f.patches[-1].key = key
+                continue
             if key in f.by_name:
                 f.set_field(f.by_name[key], value, force)
                 continue

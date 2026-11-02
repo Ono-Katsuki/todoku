@@ -10,13 +10,15 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import re
 
-from ..xlsx.window import inline_blanks, norm_label
+from ..xlsx.window import AGENT_WHY, agent_blanks, inline_blanks, norm_label
 from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 
 DET = "deterministic"
 LAYOUT = "layout"
+AGENT = "agent"  # 規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する）
 BOX = set("□☐")
 MARK_PREFIX = "_todoku_"
 
@@ -54,7 +56,8 @@ def _trailing_blank(text: str) -> list[tuple[int, int]]:
     head = text[:m.start()].strip(" \u3000")
     if not head or len(head) > 20 or head.endswith(("。", "様", "殿", "御中")):
         return []
-    return [(m.start(), m.end())]
+    start = len(text[:m.start()].rstrip(" \u3000"))  # 「氏　名　  　　　」：見出しの後ろの空白はすべて空欄
+    return [(start, m.end())]
 
 
 def para_blanks(p: Para) -> list[tuple[int, int]]:
@@ -117,14 +120,18 @@ class Spots:
                         if not c.paras():
                             continue
                         label, rl, cl = _cell_label(t, c)
-                        if not label:
-                            continue
                         fid = f"T{tno}.R{c.row + 1}.C{c.col + 1}"
+                        if not label:
+                            # 見出しの見つからない空のマス：桁のマスのこともあれば、飾りのマスのこともある（エージェントが判断）
+                            self.items[fid] = {"id": fid, "kind": "cell", "source": "layout", "cell": c, "para": c.paras()[0],
+                                               "label": "", "provenance": AGENT, "why": AGENT_WHY["empty_cell"],
+                                               "why_key": "empty_cell", "shade": c.shade}
+                            continue
                         self.items[fid] = {"id": fid, "kind": "cell", "source": "layout", "cell": c, "para": c.paras()[0],
                                            "label": label, "row_label": rl, "column_label": cl, "provenance": LAYOUT,
                                            "shade": c.shade}
         # 3) 段落の中の空欄と □（空のマスとして欄にした段落は除く）
-        cell_paras = {id(it["para"]) for it in self.items.values() if it.get("kind") == "cell"}
+        cell_paras = {id(q) for it in self.items.values() if it.get("kind") == "cell" for q in it["cell"].paras()}
         for _kind, part, blocks in doc.all_blocks():
             for p in iter_paras(blocks):
                 if id(p) in cell_paras:
@@ -141,8 +148,19 @@ class Spots:
                 for a, b in para_blanks(p):
                     if not any(_in_field(p, i) for i in range(a, b)):
                         spans.append((a, b, "inline"))
+                # 書き込み済みの欄（しおり）は、その番号を持ったまま（4 で作る）。残りの空欄に、しおりの番号を除いた番号を
+                # 位置の順に割り当てる（元の白紙のときと同じ id になる：P16.1 に書いた後も、P16.2・P16.3 はそのまま）
+                mark_k: dict[int, tuple[int, int]] = {}
+                mark_ka: dict[int, tuple[int, int]] = {}
+                for name, (q, x, y) in self.marks.items():
+                    mm = re.fullmatch(rf"P{pi}\.(a?)(\d+)", name) if q is p else None
+                    if mm:
+                        (mark_ka if mm[1] else mark_k)[int(mm[2])] = (x, y)
+                written = [(x, y) for q, x, y in self.marks.values() if q is p]
+                spans = [t for t in spans if not _overlaps(t[0], t[1], written)]
+                free_k = (n for n in itertools.count(1) if n not in mark_k)
                 for a, b, kind in sorted(spans):
-                    k += 1
+                    k = next(free_k)
                     fid = f"P{pi}.{k}"
                     if kind == "checkbox":
                         m = re.search(r"[\u3000 ]{2,}|□|☐|※", text[b:])
@@ -152,6 +170,42 @@ class Spots:
                         label = self._label(p, a, b)
                     self.items[fid] = {"id": fid, "kind": kind, "source": "layout", "para": p, "span": (a, b),
                                        "label": label, "provenance": LAYOUT}
+                # 規則では決められない所：窓に「？」をつけて示し、エージェントが読んで判断する（id は P段落.a番号）
+                if any(s_.field is not None for s_ in p.segs):
+                    continue
+                free_ka = (n for n in itertools.count(1) if n not in mark_ka)
+                found_agent = agent_blanks(text, [(x, y) for x, y, _k in spans] + written, p.cell is not None)
+                # 見出しのあるマスの中の空の段落（「〒」の下の行に住所を書くなど）
+                c = p.cell
+                if c is not None and not text.strip(" \u3000") and not spans and not written:
+                    others = [q.text.strip(" \u3000") for q in c.paras() if q is not p and q.text.strip(" \u3000")]
+                    before = [q for q in c.paras()[:c.paras().index(p)] if q.text.strip(" \u3000")] if p in c.paras() else []
+                    if others and before and all(len(o) <= 16 for o in others):
+                        found_agent = [(0, len(text), "next_line")]
+                for a, b, why in found_agent:
+                    if any(_in_field(p, i) for i in range(a, max(a + 1, b))) or self._beside_cell_field(p, why):
+                        continue
+                    fid = f"P{pi}.a{next(free_ka)}"
+                    it = {"id": fid, "kind": "inline", "source": "layout", "para": p, "span": (a, b),
+                          "label": self._label(p, a, b), "provenance": AGENT, "why": AGENT_WHY[why], "why_key": why}
+                    if why == "placeholder":
+                        it["placeholder"] = text[a:b]
+                    self.items[fid] = it
+        # 3') マスの中の見出し（「住所」「住所：」「所在地　〒」）の後ろ：すぐ右のマスに規則の欄があれば、値はそちらに書く
+        ruled_cells = set()
+        for it in self.items.values():
+            if it.get("provenance") == AGENT:
+                continue
+            c_ = it.get("cell") or (it["para"].cell if it.get("para") is not None else None)
+            if c_ is not None:
+                ruled_cells.add(id(c_))
+        for fid in [f for f, it in self.items.items() if it.get("why_key") in ("after_label", "after_colon", "after_mark")]:
+            c_ = self.items[fid]["para"].cell
+            if c_ is None or c_.table is None:
+                continue
+            right = [x for x in c_.table.rows[c_.row] if x.col == c_.col + c_.span]
+            if right and id(right[0]) in ruled_cells:
+                del self.items[fid]
         # 4) 書き込み済みの欄（しおり）：同じ名前の欄が見つからなければ、しおりから作る
         for name, (p, a, b) in self.marks.items():
             if name in self.items:
@@ -159,6 +213,23 @@ class Spots:
             kind = "checkbox" if p.text[a:b] in ("■", "☑", "☒", "□", "☐") else ("cell" if name.startswith("T") else "inline")
             self.items[name] = {"id": name, "kind": kind, "source": "layout", "para": p, "span": (a, b), "filled": True,
                                 "label": self._label(p, a, b) if kind == "inline" else "", "provenance": LAYOUT}
+
+    def _beside_cell_field(self, p: Para, why: str) -> bool:
+        """マスの中の「住所：」のすぐ右のマスが空のマスの欄（そこに書く）か、「人」だけのマスの下に空のマスの欄がある
+        （列の見出し）。どちらも、規則で見つけた欄がもうあるので、出さない。"""
+        c = p.cell
+        if c is None or why not in ("after_colon", "before_unit", "after_label", "after_mark"):
+            return False
+        for it in self.items.values():
+            x = it.get("cell")
+            if x is None or it.get("kind") != "cell" or x.table is not c.table:
+                continue
+            if why in ("after_colon", "after_label", "after_mark") and x.row == c.row and x.col == c.col + c.span \
+                    and self.items.get(it["id"], {}).get("provenance") != AGENT:
+                return True
+            if why == "before_unit" and x.row > c.row and x.col <= c.col < x.col + x.span:
+                return True
+        return False
 
     def _label(self, p: Para, a: int, b: int) -> str:
         """段落の中の空欄の見出し：その空欄を［　］にした段落の文字。書き込み済みのほかの欄の値は除く（白紙のときと同じ見出し）。"""
@@ -250,6 +321,86 @@ def _bookmarks(doc: DocxDocument) -> dict[str, tuple[Para, int, int]]:
                     out[name.replace("_", ".")] = (p, a, char_at(byte))
             del cur, seg_at
     return out
+
+
+class WriteError(ValueError):
+    pass
+
+
+def resolve_write(sp: "Spots", spec: dict, used: dict | None = None) -> dict:
+    """エージェントが字で指した書き込み → 欄の情報（段落・位置・id「P段落.w番号」・書く字）。書き込みと証明で同じものを使う。
+
+    spec：{"old": 段落の中の元の字, "new": 書き換えた後の字, "near": 近くの欄の id（同じ表の行か、前後 3 段落にしぼる）,
+    "occurrence": 何番目か（しぼった中の、文書の順。1 から）}。old と new の前後の同じ字は、元の字と書式のまま残し、
+    違う所だけを書き換える。元の字が見つからない・いくつもあって決まらないときは、候補を添えて断る。
+    used：同じ書き込みの中で、もう使った番号と範囲（段落の番号 → [(番号, 始め, 終わり)]）。"""
+    old, new = spec.get("old"), spec.get("new")
+    if not isinstance(old, str) or not old or not isinstance(new, str):
+        raise WriteError('字を目印にした書き込みは {"old": 段落の中の元の字, "new": 書き換えた後の字} の形で指定してください')
+    if any(ch in old + new for ch in "\r\n\x07\x0b\x0c"):
+        raise WriteError("old・new は、1つの段落の中の字にしてください（段落・行の区切りは書けません）")
+    if old == new:
+        raise WriteError("old と new が同じです")
+    paras = [(sp.para_index[id(q)], q) for _k, _part, blocks in sp.doc.all_blocks() for q in iter_paras(blocks)]
+    hits = [(n, q, m.start()) for n, q in paras for m in re.finditer(re.escape(old), q.text)]
+    near = spec.get("near")
+    if near:
+        it = sp.items.get(str(near))
+        if it is None:
+            raise WriteError(f"near に指定した欄 {near} がありません")
+        q0 = it.get("para") or (it["control"].para if it.get("control") is not None else None)
+        n0 = sp.para_index.get(id(q0)) if q0 is not None else None
+        c0 = q0.cell if q0 is not None else None
+
+        def close(n: int, q: Para) -> bool:
+            if c0 is not None:
+                return q.cell is not None and q.cell.table is c0.table and q.cell.row == c0.row
+            return n0 is not None and abs(n - n0) <= 3
+
+        hits = [h for h in hits if close(h[0], h[1])]
+    if not hits:
+        raise WriteError(f"「{old}」が、{f'欄 {near} の近く' if near else '文書'}に見つかりません（窓の字のとおりに指定してください）")
+    occ = spec.get("occurrence")
+    if occ is not None:
+        if not isinstance(occ, int) or not 1 <= occ <= len(hits):
+            raise WriteError(f"occurrence は 1〜{len(hits)} で指定してください")
+        hits = [hits[occ - 1]]
+    if len(hits) > 1:
+        listing = "／".join(f"{k}番目：段落 {n}「{q.text.strip()[:30]}」" for k, (n, q, _i) in enumerate(hits[:10], 1))
+        raise WriteError(f"「{old}」が {len(hits)} か所にあります。near（近くの欄の id）か occurrence（何番目か）で、"
+                         f"1つに決めてください：{listing}")
+    n, q, i = hits[0]
+    # 目印は本文の字（字・タブ・記号の要素）だけ：図の説明（〔図: …〕）・脚注の印・改行などの、窓のために作った字は目印にしない
+    pos = q.positions()
+    kinds = {q.segs[pos[k][0]].kind for k in range(i, min(i + len(old), len(pos)))}
+    if not kinds <= {"t", "tab", "sym"}:
+        raise WriteError(f"「{old}」は、本文の字でない所（図の説明・脚注の印など）にかかっています。本文の字で指定してください")
+    k0 = 0
+    while k0 < min(len(old), len(new)) and old[k0] == new[k0]:
+        k0 += 1
+    k1 = 0
+    while k1 < min(len(old), len(new)) - k0 and old[len(old) - 1 - k1] == new[len(new) - 1 - k1]:
+        k1 += 1
+    a, b = i + k0, i + len(old) - k1
+    value = new[k0:len(new) - k1]
+    if any(_in_field(q, j) for j in range(max(0, a - (a == b)), max(a + 1, b))):
+        raise WriteError("フォームの欄の中・すぐ隣は、その欄の id で書いてください")
+    used = used if used is not None else {}
+    for _k, x, y in used.get(n, []):
+        if _overlaps(a, b, [(x, y)]):
+            raise WriteError(f"同じ段落 {n} の、ほかの書き込みと重なります")
+    taken = {int(m[1]) for name, (q_, _x, _y) in sp.marks.items() if q_ is q
+             for m in [re.fullmatch(rf"P{n}\.w(\d+)", name)] if m}
+    taken |= {k for k, _x, _y in used.get(n, [])}
+    k = next(x for x in itertools.count(1) if x not in taken)
+    used.setdefault(n, []).append((k, a, b))
+    return {"id": f"P{n}.w{k}", "kind": "inline", "source": "agent_write", "para": q, "span": (a, b), "value": value,
+            "label": sp._label(q, a, b), "provenance": AGENT, "anchored": dict(spec)}
+
+
+def _overlaps(a: int, b: int, spans) -> bool:
+    """[a, b) が spans のどれかと重なるか（長さ 0 の位置は、その位置を含む・端に接する所も重なりとみる）。"""
+    return any((a < y and x < b) or (a == b and x <= a <= y) or (x == y and a <= x <= b) for x, y in spans)
 
 
 def _in_field(p: Para, i: int) -> bool:
@@ -349,6 +500,8 @@ def build(doc: DocxDocument) -> dict:
         "source": {"file": doc.filename, "sha256": hashlib.sha256(doc.blob).hexdigest(), "bytes": len(doc.blob),
                    "note": "元のファイルが正本。書き込みは、書いた欄の部分だけを変える差分として適用する。"},
         "notation": {"［T1.R3.C2］": "表の空のマス（1つ目の表の3行目・2列目）", "［P12.1］": "段落の中の空欄（12番目の段落の1つ目）",
+                     "［P12.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
+                                    "書かなければ何も変わらない。［P12.a1？＝○○］は、伏せ字の○○を書き換える所）",
                      "［名前＝値］": "入力欄といまの値", "☐［…］ / ☑": "チェック", " ｜ ": "表のマスの区切り"},
         "protection": {"edit": doc.protection, "enforced": doc.protection_enforced},
         "macros": _macros(doc),
@@ -364,7 +517,7 @@ def build(doc: DocxDocument) -> dict:
     contexts = {}
     for st in out["stories"]:
         for line in st["reading"]:
-            for m in re.finditer(r"［([^］＝]+)(?:＝[^］]*)?］", line):
+            for m in re.finditer(r"［([^］＝？]+)？?(?:＝[^］]*)?］", line):
                 contexts.setdefault(m[1], line)
     for it in sp.items.values():
         c = it.get("control")
@@ -380,6 +533,11 @@ def build(doc: DocxDocument) -> dict:
             d["maxlen"] = c.maxlen
         if c is not None and c.kind == "date" and c.date_format:
             d["format"] = c.date_format
+        if it.get("provenance") == AGENT:
+            d["agent"] = True
+            d["why"] = it["why"]
+            if it.get("placeholder"):
+                d["placeholder"] = it["placeholder"]
         if it.get("row_label"):
             d["row_label"] = it["row_label"]
         if it.get("column_label"):
@@ -437,7 +595,7 @@ def _render_blocks(blocks, sp: Spots, by_para, lines: list[str], plain: list[str
                             sub.append("［表］" + " ／ ".join(inner))
                     cell_text = " ".join(sub)
                     if cid is not None and not cell_text:
-                        cell_text = f"［{cid}］"
+                        cell_text = f"［{cid}？］" if sp.items[cid].get("provenance") == AGENT else f"［{cid}］"
                     parts.append(cell_text)
                 if any(x.strip() for x in parts):
                     lines.append(" ｜ ".join(x for x in parts))
@@ -470,6 +628,8 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
             a, b = it["span"]
             if it["kind"] == "checkbox":
                 edits.append((a, b, f"☐［{name}］"))
+            elif it.get("provenance") == AGENT:
+                edits.append((a, b, f"［{name}？＝{text[a:b]}］" if it.get("placeholder") else f"［{name}？］"))
             else:
                 edits.append((a, b, f"［{name}］"))
             continue
@@ -534,6 +694,9 @@ def to_markdown(doc: dict) -> str:
     out = [f"# {doc['source']['file'] or '書類'}", ""]
     out.append(f"- 元ファイルの SHA-256: `{doc['source']['sha256']}`（{doc['source']['bytes']:,} バイト）、Word")
     out.append("- この文書は読むための窓です。書き込みは `todoku fill` で、書いた欄の部分だけを変えます。")
+    out.append("- 欄として示していない所に書くときは、字を目印にして書けます："
+               "`{\"@1\": {\"old\": \"段落の中の元の字\", \"new\": \"書き換えた後の字\"}}`（old がいくつもあるときは、"
+               "`near`（近くの欄の id）か `occurrence`（何番目か）で1つに決める）。変わるのは old と new の違う所だけです。")
     out.append("- 記号: " + "、".join(f"{k} は{v}" for k, v in doc["notation"].items()))
     pr = doc["protection"]
     if pr["enforced"] and pr["edit"]:
@@ -555,6 +718,8 @@ def to_markdown(doc: dict) -> str:
                 k += f"（{f['maxlen']} 字まで）"
             if f.get("format"):
                 k += f"（書式 {f['format']}）"
+            if f.get("agent"):
+                k = f"規則では決められない：{f['why']}"
             if f.get("protected"):
                 k += "（文書の保護で書けない欄）"
             elif f.get("readonly"):

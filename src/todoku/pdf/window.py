@@ -54,14 +54,16 @@ def _render_line(ln: Line, spots: list[Spot], name) -> str:
         if mark is not None:
             edits.append((a, b, mark))
             continue
+        q = "？" if sp.confidence == "agent" else ""  # 規則では決められない所
+        if sp.cover:
+            edits.append((a, b, f"［{name(sp)}{q}＝{sp.cover}］"))  # 伏せ字：元の字を見せる
+            continue
         if sp.kind == "checkbox":
             edits.append((a, b, ("☑" if sp.checked else "☐") + f"［{name(sp)}］"))
         elif sp.kind == "space":
-            edits.append((a, b, f" ［{name(sp)}］"))
-        elif a == b == len(text):
-            edits.append((a, b, f"［{name(sp)}］"))
+            edits.append((a, b, f" ［{name(sp)}{q}］"))
         else:
-            edits.append((a, b, f"［{name(sp)}］"))
+            edits.append((a, b, f"［{name(sp)}{q}］"))
     edits.sort(key=lambda e: (e[0], e[1]))
     out, at = [], 0
     for a, b, rep in edits:
@@ -183,13 +185,19 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                 continue
         rows.append([it])
     counter = [0]
+    counter_a = [0]
     names: dict[int, str] = {}
 
     def name(sp: Spot) -> str:
+        # 規則では決められない所は、別の番号（p1.a1）：規則の欄の番号（p1.1）は、そのまま変わらない
         k = id(getattr(sp, "alias_of", sp))
         if k not in names:
-            counter[0] += 1
-            names[k] = f"p{number}.{counter[0]}"
+            if getattr(sp, "confidence", "high") == "agent":
+                counter_a[0] += 1
+                names[k] = f"p{number}.a{counter_a[0]}"
+            else:
+                counter[0] += 1
+                names[k] = f"p{number}.{counter[0]}"
         return names[k]
 
     reading = []
@@ -218,7 +226,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                     elif sp.kind == "checkbox":
                         pieces.append(("☑" if sp.checked else "☐") + f"［{name(sp)}］")
                     else:
-                        pieces.append(f"［{name(sp)}］")
+                        pieces.append(f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
                 rendered = [_render_line(ln, line_spots.get(id(ln), []), name) for ln in c.lines]
                 pieces.append(_join(rendered))
                 for sp in circles:
@@ -239,7 +247,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     out_fields = []
     context_of = {}
     for line in reading:
-        for m in re.finditer(r"［(p\d+\.\d+)[］＝：]", line):
+        for m in re.finditer(r"［(p\d+\.a?\d+)？?[］＝：]", line):
             context_of.setdefault(m[1], line)
     emitted: set[str] = set()
     for sp in spots:
@@ -265,8 +273,13 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             d["row_label"] = sp.row_label
         if sp.column_label:
             d["column_label"] = sp.column_label
-        if sp.confidence != "high":
-            d["confidence"] = sp.confidence
+        if sp.confidence == "agent":
+            d["agent"] = True  # 規則では決められない所（エージェントが読んで判断する）
+            d["why"] = sp.reason
+        if sp.cover:
+            d["cover"] = True  # 書くときは、元の字（伏せ字）を白い下地の欄で覆う
+            d["covered"] = sp.cover
+            d["placeholder"] = sp.cover
         if sp.kind != "checkbox":
             d["value"] = None
         if filled is not None:
@@ -409,7 +422,10 @@ def build(doc: PdfDocument) -> dict:
                    "note": "元のファイルが正本。書き込みは、元のバイト列の後ろに足す（増分更新）ので、元の部分は1バイトも変わらない。"},
         "provenance_legend": {DET: "AIを使わない決定的な処理で、ファイルから取り出した",
                               LAYOUT: "配置（罫線・空き・字の並び）から決定的に推定した入力欄。推定なので context と合わせて読む"},
-        "notation": {"［p1.3］": "入力欄（1ページ目の3番目）", "［名前＝値］": "フォームの欄といまの値", "☐［p1.5］ / ☑": "チェックの印",
+        "notation": {"［p1.3］": "入力欄（1ページ目の3番目）",
+                     "［p1.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
+                                    "書かなければ何も変わらない）",
+                     "［名前＝値］": "フォームの欄といまの値", "☐［p1.5］ / ☑": "チェックの印",
                      "○［欄＝選択肢］ / ◉": "ひとつ選ぶ欄の選択肢", " ｜ ": "表のマスの区切り"},
         "form": {"acroform_fields": len(fields), "xfa": has_xfa(doc), "encrypted": doc.decryptor is not None},
         "pages": [],
@@ -437,8 +453,8 @@ def _kind_text(f: dict) -> str:
         k += "（読み取り専用）"
     if f.get("required"):
         k += "（必須）"
-    if f.get("confidence") == "low":
-        k += "（余白：入力欄とは限りません）"
+    if f.get("agent"):
+        k = f"規則では決められない：{f.get('why', '')}"
     if f.get("format"):
         k += f"（書式: {f['format']}）"
     if f.get("calculated"):
@@ -459,6 +475,11 @@ def _md_head(doc: dict) -> list[str]:
     out = [f"# {doc['source']['file'] or '書類'}", ""]
     out.append(f"- 元ファイルの SHA-256: `{doc['source']['sha256']}`（{doc['source']['bytes']:,} バイト）、PDF、{len(doc['pages'])} ページ")
     out.append("- この文書は読むための窓です。書き込みは `todoku fill` で元のファイルの後ろに足します（元の部分は変えません）。")
+    out.append("- 欄として示していない所に書くときは、見出しの字を目印にして、その右（または下）の空いている所に書けます："
+               "`{\"@1\": {\"after\": \"見出しの字\", \"value\": \"書く字\", \"page\": 1}}`（下に書くときは "
+               "`\"where\": \"below\"`。同じ字がいくつもあるときは `occurrence` で何番目かを指定する）。"
+               "伏せ字（「○○」）の上に書くときは `{\"@1\": {\"cover\": \"○○\", \"value\": \"書く字\"}}`"
+               "（白い下地の欄で覆って書く。元の字は消さない）。")
     out.append("- 記号: " + "、".join(f"{k} は{v}" for k, v in doc["notation"].items()))
     fm = doc["form"]
     if fm["acroform_fields"]:

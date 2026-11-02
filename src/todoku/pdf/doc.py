@@ -109,7 +109,8 @@ class PdfDocument:
                 if t == 1:
                     self.xref[num] = ("o", fields[1], fields[2] or 0)
                 elif t == 2:
-                    self.xref[num] = ("s", fields[1], fields[2])
+                    # 幅 0 の欄は、既定の値 0 を使う（PDF 32000 7.5.8.2）
+                    self.xref[num] = ("s", fields[1] or 0, fields[2] or 0)
                 else:
                     self.xref[num] = ("f", 0, 0)
         for k, v in d.items():

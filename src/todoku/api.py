@@ -100,6 +100,7 @@ def fill(path: str, values: dict, out_path: str, force: bool = False) -> dict:
         raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
     blob, name, k = _read(path)
     result: dict = {"kind": k, "out_path": str(dst), "original_sha256": hashlib.sha256(blob).hexdigest()}
+    readback_values = dict(values)  # 読み戻しで確かめる、欄の id → 書いた値
     if k in ("xlsx", "xls"):
         from .book import open_book
         from .xlsx.edit import EditError
@@ -128,11 +129,18 @@ def fill(path: str, values: dict, out_path: str, force: bool = False) -> dict:
             res = pfill(PdfDocument(blob, name), values, force=force)
         except FillError as e:
             raise ApiError(str(e)) from None
-        pr = prove(blob, res.blob, {p.id for p in res.patches})
+        anchored = {p.id: p.anchor for p in res.patches if getattr(p, "anchor", None)}
+        pr = prove(blob, res.blob, {p.id for p in res.patches}, anchored)
         new_blob = res.blob
         result.update({"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
                        "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
-                       "written_as": {p.id: p.value for p in res.patches if str(p.value) != str(values.get(p.id))}})
+                       "written_as": {p.id: p.value for p in res.patches
+                                      if not p.anchor and str(p.value) != str(values.get(p.id))}})
+        if anchored:
+            # 見出しの字を目印にした書き込み：書いた欄の id（読み直した窓では、その名前のフォームの欄）
+            result["anchored"] = {p.key: p.id for p in res.patches if p.anchor}
+            readback_values = {k_: v for k_, v in values.items() if not k_.startswith("@")}
+            readback_values.update({p.id: p.value for p in res.patches if p.anchor})
     else:
         from .docx.fill import FillError
 
@@ -146,17 +154,25 @@ def fill(path: str, values: dict, out_path: str, force: bool = False) -> dict:
             res = wfill(_word(blob, name, k), values, force=force)
         except FillError as e:
             raise ApiError(str(e)) from None
-        pr = prove(blob, res.blob, {p.id: p.value for p in res.patches})
+        from .docx.fill import written_of
+
+        pr = prove(blob, res.blob, written_of(res.patches))
         new_blob = res.blob
         result.update({"proof_ok": pr.ok, "proof": pr.headline(), "unexpected": pr.unexpected[:20],
                        "structure_errors": pr.lint_errors[:20]})
+        anchored = {p.key: p.id for p in res.patches if getattr(p, "anchor", None)}
+        if anchored:
+            # 字を目印にした書き込み：書いた所の id（読み直した窓では［P段落.w番号＝値］）
+            result["anchored"] = anchored
+            readback_values = {k: v for k, v in values.items() if not k.startswith("@")}
+            readback_values.update({p.id: p.value for p in res.patches if getattr(p, "anchor", None)})
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_bytes(new_blob)
     result["new_sha256"] = hashlib.sha256(new_blob).hexdigest()
     # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか
     after = {f["id"]: f.get("value") for f in fields(str(dst))}
     mismatch = []
-    for key, v in values.items():
+    for key, v in readback_values.items():
         g = after.get(key)
         if key not in after:
             continue

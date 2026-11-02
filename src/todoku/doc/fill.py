@@ -396,13 +396,27 @@ def para_cps(p) -> list[int]:
 def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
     from ..docx.fill import Patch
 
+    from ..docx.window import WriteError, resolve_write
+
     sp = Spots(doc)
     w = DocWriter(doc)
     patches = []
     problems = []
+    used: dict = {}
     for key, value in values.items():
         it = sp.items.get(key)
+        anchor = None
         try:
+            if key.startswith("@"):
+                # 規則で示していない所：エージェントが字を目印にして指した所
+                if not isinstance(value, dict):
+                    raise FillError(f'{key}: 字を目印にした書き込みは {{"old": …, "new": …}} の形で指定してください')
+                try:
+                    it = resolve_write(sp, value, used)
+                except WriteError as e:
+                    raise FillError(f"{key}: {e}") from None
+                anchor = dict(value)
+                key, value = it["id"], it["value"]
             if it is None:
                 raise FillError(f"{key}: そのような欄はありません")
             if doc.protection_enforced and not force:
@@ -459,14 +473,19 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                 text = _is_text_value(value)
                 a0, b0 = it["span"]
                 if a0 == b0:
-                    # 挿入：直前の字の後ろ（段落の終わりなら、段落の印の前）
-                    a = b = (cps[a0 - 1] + 1) if a0 > 0 and cps[a0 - 1] >= 0 else p.cp1
+                    # 挿入：直前の字の後ろ（段落の終わりなら、段落の印の前）。段落の頭は、初めの字の前（書式も初めの字から）
+                    if a0 == 0 and cps and cps[0] >= 0:
+                        a = b = cps[0]
+                    elif a0 == 0 and cps:
+                        raise FillError(f"{key}: 書き足す位置が、書き換えられない部分にあります")
+                    else:
+                        a = b = (cps[a0 - 1] + 1) if a0 > 0 and cps[a0 - 1] >= 0 else p.cp1
                 else:
                     a, b = cps[a0], cps[b0 - 1] + 1
                     if b - a != b0 - a0 or -1 in cps[a0:b0]:
                         raise FillError(f"{key}: 空欄が、書き換えられない部分にかかっています")
                 w.add(Edit(a, b, text, a, mark))
-                patches.append(Patch(key, "input", text, "doc"))
+                patches.append(Patch(key, "input", text, "doc", anchor=anchor))
             else:
                 raise FillError(f"{key}: この種類の欄（{kind}）には書けません")
         except FillError as e:

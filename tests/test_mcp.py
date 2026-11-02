@@ -71,7 +71,8 @@ def test_mcp_grade_document_combines_agent_findings(tmp_path):
     ])
     by = {r["id"]: r for r in replies}
     rule = by[2]["result"]["structuredContent"]
-    assert rule["grade"] == "B" and {c["id"] for c in rule["agent_checks"]} == {"cannot_do", "vague_value"}
+    # 規則の段階は C（表題「申請書」の後ろは、規則では決められない所）
+    assert rule["grade"] == "C" and {c["id"] for c in rule["agent_checks"]} == {"cannot_do", "vague_value"}
     final = by[3]["result"]["structuredContent"]
-    assert final["grade"] == "F" and final["without_barriers"] == "B" and not final["agent_checks"]
+    assert final["grade"] == "F" and final["without_barriers"] == "C" and not final["agent_checks"]
     assert any(r["by"] == "agent" for r in final["reasons"])

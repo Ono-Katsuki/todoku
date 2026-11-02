@@ -215,3 +215,46 @@ def test_corpus_audit(name):
         pytest.skip(name)
     au = audit(Path(path).read_bytes(), name)
     assert au.ok, [(c.name, c.detail, c.items[:3]) for c in au.checks if not c.ok]
+
+
+def test_anchored_write_beside_a_label():
+    # 窓に欄として示していない所：見出しの字を目印に、その右（または下）の空いている所に書く。証明は、同じ決め方で位置を照らす
+    from todoku.pdf.fill import FillError
+
+    blob = sample_form()
+    doc = PdfDocument(blob, "s.pdf")
+    spec = {"after": "申請書", "value": "（写し）"}
+    res = fill(doc, {"@1": spec})
+    assert [(p.id, p.value) for p in res.patches] == [("p1.w1", "（写し）")]
+    pr = prove(blob, res.blob, {"p1.w1"}, {"p1.w1": spec})
+    assert pr.ok, pr.unexpected
+    # 位置が目印から決まる所と違えば、証明が見つける
+    bad = prove(blob, res.blob, {"p1.w1"}, {"p1.w1": {"after": "氏名", "value": "（写し）"}})
+    assert not bad.ok
+    with pytest.raises(FillError, match="見つかりません"):
+        fill(PdfDocument(blob, "s.pdf"), {"@1": {"after": "存在しない見出し", "value": "x"}})
+    # 1行だけのマスの見出しの下には空きがない：書かずに理由を返す
+    with pytest.raises(FillError, match="書く空きがありません"):
+        fill(PdfDocument(blob, "s.pdf"), {"@1": {"after": "郵便番号", "value": "100-0001", "where": "below"}})
+
+
+def test_cover_write_over_a_placeholder():
+    # 伏せ字（「○○市長　殿」の○○）：規則では決められない所として窓に出し、書くときは白い下地の欄で覆う（元の字は消さない）
+    from todoku.pdf.fill import FillError
+    from todoku.pdf.window import build
+
+    font, extra, codes = jp_font_objs("○市長殿", 5)
+    c = b"BT /F1 12 Tf 60 700 Td " + jp_text(codes, "○○市長") + b" Tj 80 0 Td " + jp_text(codes, "殿") + b" Tj ET\n"
+    blob = make_pdf(c, {"F1": font}, extra)
+    win = build(PdfDocument(blob, "c.pdf"))
+    ph = [f for pg in win["pages"] for f in pg["fields"] if f.get("cover")]
+    assert len(ph) == 1 and ph[0]["covered"] == "○○" and ph[0]["agent"], ph
+    assert any(f"［{ph[0]['id']}？＝○○］" in ln for pg in win["pages"] for ln in pg["reading"])
+    for values in ({ph[0]["id"]: "横浜"}, {"@1": {"cover": "○○", "value": "横浜"}}):
+        res = fill(PdfDocument(blob, "c.pdf"), values)
+        assert any("白い下地の欄で覆いました" in w for w in res.warnings), res.warnings
+        anchored = {x.id: x.anchor for x in res.patches if x.anchor}
+        pr = prove(blob, res.blob, {x.id for x in res.patches}, anchored)
+        assert pr.ok, pr.unexpected
+    with pytest.raises(FillError, match="見つかりません"):
+        fill(PdfDocument(blob, "c.pdf"), {"@1": {"cover": "△△", "value": "x"}})
