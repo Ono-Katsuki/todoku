@@ -66,20 +66,36 @@ def test_meaning_is_left_to_the_agent_not_to_word_matching():
     g = grade_blob(make_docx(SAMPLE_BODY + p("代表者氏名　　　　　　　印") + p("利用者数　約　　　　人")), "f.docx")
     assert g.grade == "C" and {r.grade for r in g.reasons} <= {"B", "C"}, g.headline()
     assert any(r.title == "規則では決められない所" for r in g.reasons)
-    assert [c["id"] for c in g.agent_checks] == ["cannot_do", "vague_value"]
+    assert [c["id"] for c in g.agent_checks] == ["cannot_do", "ui_only", "vague_value"]
+    assert g.write == "B"  # 書く所を、配置から推定するかエージェントが決める
 
 
 def test_agent_findings_are_combined_with_provenance():
     rule = grade_blob(make_docx(SAMPLE_BODY), "s.docx")
-    g = combine(rule, [{"grade": "F", "title": "押印", "detail": "代表者の印", "where": "P9"}], answered=["vague_value"])
-    # 規則の段階は C（表題「申請書」の後ろは、規則では決められない所）。押印（F）がなければ C
-    assert g.grade == "F" and g.without_barriers == "C" and not g.agent_checks
-    assert [r.by for r in g.reasons if r.grade == "F"] == ["agent"]
-    assert "押印：エージェントの判断" in g.headline() and "それがなければ段階 C" in g.headline()
+    # 押印は、書く段階の D（エージェントにはできない記入）。読む段階は変えない
+    g = combine(rule, [{"check": "cannot_do", "title": "押印", "detail": "代表者の印", "where": "P9"}],
+                answered=["ui_only", "vague_value"])
+    assert g.grade == rule.grade == "C" and g.write == "D" and g.without_barriers == "B" and not g.agent_checks
+    assert [r.by for r in g.write_reasons if r.grade == "D"] == ["agent"] and g.barriers
+    assert "押印：エージェントの判断" in g.headline() and "それがなければ書く段階 B" in g.headline()
     d = combine(rule, [{"grade": "D", "title": "書く値をぼかす書き方", "where": ["P12.1"]}])
-    assert d.grade == "D" and [c["id"] for c in d.agent_checks] == ["cannot_do"]  # まだ確かめていない問いは残る
+    assert d.grade == "D" and d.write == "B" and [c["id"] for c in d.agent_checks] == ["cannot_do", "ui_only"]  # まだ確かめていない問いは残る
+    u = combine(rule, [{"score": "write", "grade": "C", "title": "電子申請の画面から入力"}])
+    assert u.write == "C" and "ui_only" not in [c["id"] for c in u.agent_checks]
     with pytest.raises(ValueError):
         combine(rule, [{"grade": "Z"}])
+    with pytest.raises(ValueError):
+        combine(rule, [{"score": "write", "grade": "F"}])  # 書く段階は A〜D
+    with pytest.raises(ValueError):
+        combine(rule, [{"check": "nothing"}])
+
+
+def test_write_grade_by_rules():
+    # 開けない書類：読む F・書く D
+    g = grade_blob(b"not a document", "x.docx")
+    assert g.grade == "F" and g.write == "D" and "書く段階 D" in g.headline()
+    d = grade_blob(b"a,b\n1,2\n", "x.csv")
+    assert d.grade == "S" and d.write == "A" and d.to_dict()["write"]["grade"] == "A"
 
 
 def test_display_only_macros_do_not_lower_the_grade():

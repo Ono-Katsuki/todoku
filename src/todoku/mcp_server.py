@@ -8,7 +8,7 @@
 - fill_document   入力欄に書き込み、別の名前で書き出す。元のファイルは変えない。証明と読み戻しの結果を返す
 - audit_document  この書類を「全て正確に読み書きできるか」を確かめる（読み落とし・全欄への書き込み・読み戻し）
 - run_macro       Excel のマクロ（ボタン）を動かし、マクロが変えたセルを証明つきで書き出す
-- grade_document  書類の段階（S〜F）。規則で決めた段階に、エージェントが窓を読んで確かめたことを合わせる
+- grade_document  書類の段階（読む S〜F・書く A〜D）。規則で決めた段階に、エージェントが窓を読んで確かめたことを合わせる
 """
 
 from __future__ import annotations
@@ -72,8 +72,10 @@ TOOLS = [
          "required": ["path", "out_path", "values"]}},
     {"name": "audit_document",
      "description": "この書類を、エージェントが全て正確に読み書きできるかを確かめる（窓とは別の読み方で読み落としがないか、全入力欄に書けるか、書いた値が読み戻せるか）。"
-                    "段階（S 素で問題ない／A 規則だけで読み書きできる／B エージェントが読めば正確に入れられる／C エージェントが工夫して変換できる／"
-                    "D エージェントの解釈が必要／E エージェントが得意でない形式／F アクセスできない）と、その理由も返す。",
+                    "読む段階（S 素で問題ない／A 規則だけで正確に読める／B エージェントが読めば正確／C エージェントが工夫して変換できる／"
+                    "D エージェントの解釈が必要／E エージェントが得意でない形式／F アクセスできない）と、"
+                    "書く段階（A エージェントがそのまま書ける／B 解析しないと書けない／C 画面（UI）から入力する／D 書けない（アクセスできない・手書き））、"
+                    "その理由も返す。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"}}, "required": ["path"]}},
     {"name": "run_macro",
      "description": "Excel のマクロ（ボタンの処理など）を動かし、マクロが変えたセルを証明つきで out_path に書き出す（元のファイルは変えない）。"
@@ -87,23 +89,31 @@ TOOLS = [
          "files": {"type": "object", "description": "マクロが読むファイル：{マクロの中のパス: 手元のファイルのパス}"}},
          "required": ["path", "macro", "out_path"]}},
     {"name": "grade_document",
-     "description": "書類の段階（S〜F）を返す。規則で決めた段階に、エージェントが窓を読んで確かめたこと（findings）を合わせる。"
-                    "規則では決めないこと（押印・自署のようなエージェントにはできない記入＝F、書く値をぼかす書き方＝D）は、"
-                    "agent_checks の問いとして返すので、窓を読んで答えてください。",
+     "description": "書類の段階を返す：読む段階（S〜F）と書く段階（A〜D：そのまま書ける／解析しないと書けない／画面から入力する／書けない）。"
+                    "規則で決めた段階に、エージェントが窓を読んで確かめたこと（findings）を合わせる。"
+                    "規則では決めないこと（押印・自署のようなエージェントにはできない記入＝書く D、電子申請などの画面からの入力＝書く C、"
+                    "書く値をぼかす書き方＝読む D）は、agent_checks の問いとして返すので、窓を読んで答えてください。"
+                    "見つけたら findings に {check: 問いの id, title, detail, where} で渡す（段階は問いで決まる）。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
-         "findings": {"type": "array", "description": "見つけたこと：[{grade: 'F'|'D'|…, title, detail, where}]",
-                      "items": {"type": "object", "properties": {"grade": {"type": "string"}, "title": {"type": "string"},
+         "findings": {"type": "array", "description": "見つけたこと：[{check: 'cannot_do'|'ui_only'|'vague_value', title, detail, where}]。"
+                                                      "問いにないことは {score: 'read'|'write', grade, title, detail, where}",
+                      "items": {"type": "object", "properties": {"check": {"type": "string"}, "score": {"type": "string"},
+                                                                 "grade": {"type": "string"}, "title": {"type": "string"},
                                                                  "detail": {"type": "string"},
                                                                  "where": {"type": ["string", "array"]}}}},
          "answered": {"type": "array", "items": {"type": "string"},
-                      "description": "確かめ終えた問いの id（見つからなかったものも含む。例 ['cannot_do', 'vague_value']）"}},
+                      "description": "確かめ終えた問いの id（見つからなかったものも含む。例 ['cannot_do', 'ui_only', 'vague_value']）"}},
          "required": ["path"]}},
 ]
 
 
 def _text(obj) -> dict:
     return {"type": "text", "text": obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False, indent=1, default=str)}
+
+
+def _score(check: dict) -> str:
+    return "書く段階" if check.get("score") == "write" else "読む段階"
 
 
 def call_tool(name: str, args: dict) -> dict:
@@ -147,9 +157,10 @@ def call_tool(name: str, args: dict) -> dict:
         return {"content": [_text(head), _text(res)], "structuredContent": res, "isError": bool(res.get("error"))}
     if name == "grade_document":
         g = api.grade(args["path"], args.get("findings") or [], args.get("answered") or [], password=args.get("password"))
-        lines = [g["headline"]] + [f"  - [{r['grade']}]{'（エージェントの判断）' if r.get('by') == 'agent' else ''} {r['title']}: {r['detail']}"
-                                   for r in g["reasons"]]
-        lines += [f"  - ？（あれば {c['grade']}）{c['question']}" for c in g.get("agent_checks", [])]
+        mark = lambda r: "（エージェントの判断）" if r.get("by") == "agent" else ""  # noqa: E731
+        lines = [g["headline"]] + [f"  - 読む[{r['grade']}]{mark(r)} {r['title']}: {r['detail']}" for r in g["reasons"]]
+        lines += [f"  - 書く[{r['grade']}]{mark(r)} {r['title']}: {r['detail']}" for r in g["write"]["reasons"]]
+        lines += [f"  - ？（あれば{_score(c)} {c['grade']}）{c['question']}" for c in g.get("agent_checks", [])]
         return {"content": [_text("\n".join(lines)), _text(g)], "structuredContent": g}
     if name == "audit_document":
         au = api.audit(args["path"], args.get("password"))
@@ -158,8 +169,9 @@ def call_tool(name: str, args: dict) -> dict:
         g = au.get("grade")
         if g:
             lines.append(g["headline"])
-            lines += [f"  - [{r['grade']}] {r['title']}: {r['detail']}" for r in g["reasons"] if r["grade"] not in ("S", "A")]
-            lines += [f"  - ？（あれば {c['grade']}）{c['question']}" for c in g.get("agent_checks", [])]
+            lines += [f"  - 読む[{r['grade']}] {r['title']}: {r['detail']}" for r in g["reasons"] if r["grade"] not in ("S", "A")]
+            lines += [f"  - 書く[{r['grade']}] {r['title']}: {r['detail']}" for r in g["write"]["reasons"] if r["grade"] != "A"]
+            lines += [f"  - ？（あれば{_score(c)} {c['grade']}）{c['question']}" for c in g.get("agent_checks", [])]
             if g.get("agent_checks"):
                 lines.append("  窓を読んで確かめたら、grade_document に findings（見つけたこと）と answered（確かめた問いの id）を渡してください。")
         return {"content": [_text("\n".join(lines)), _text(au)], "structuredContent": au}

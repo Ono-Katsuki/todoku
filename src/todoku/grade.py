@@ -1,12 +1,20 @@
-"""書類の段階（S〜F）：誰が扱えば、正確に読んで入れられるか。いちばん悪い条件で決める。
+"""書類の段階：読む段階（S〜F）と書く段階（A〜D）。どちらも、いちばん悪い条件で決める。
+
+読む段階（S〜F）：誰が扱えば、中身を正確に読めるか。
 
 S 素で問題ない（表のデータそのもの：CSV・JSON など）
-A 規則だけで正確に読み書きできる（入力欄がすべて作り手の印で決まり、数式もすべて確かめられる）
-B エージェントが読めば正確に入れられる（一部の欄が配置からの推定か、規則では決められない）
+A 規則だけで正確に読める（入力欄がすべて作り手の印で決まり、数式もすべて確かめられる）
+B エージェントが読めば正確（一部の欄が配置からの推定か、規則では決められない）
 C エージェントが工夫して変換できる（マクロなど、規則では再現しない処理がある）
 D エージェントの解釈が必要（書く値がおおよそでよい・人によって解釈が分かれる書き方がある）
 E エージェントが得意でない形式（文字の情報がないページ：画像だけの PDF・スキャン）
-F アクセスできない（開けない・パスワードが分からない・読めない部分がある、または押印・自署のように、エージェントにはできない記入がある）
+F アクセスできない（開けない・パスワードが分からない・読めない部分がある）
+
+書く段階（A〜D）：エージェントが、どうすれば書けるか。
+A エージェントがそのまま書ける（入力欄がすべて作り手の印で決まる：フォームの欄・コンテンツコントロール・入力規則など）
+B 解析しないと書けない（書く所を、罫線・空き・空のセルなどの配置から推定するか、エージェントが窓を読んで決める）
+C 画面（UI）から入力する（ボタンで動くマクロ、または書類が電子申請などの画面からの入力を求めている）
+D 書けない（アクセスできない・字の情報のない紙（スキャン）・押印や自署のような手書き）
   ※郵送・持参・来庁などの提出のしかたは、書類の外のことなので、段階の対象にしない
 
 段階とは別に、アクセシビリティの注意（alerts）を示す：エージェントが読めるかとは別に、画面の読み上げなどを使う人に
@@ -26,23 +34,34 @@ import re
 from dataclasses import asdict, dataclass, field
 
 ORDER = "SABCDEF"
+WRITE_ORDER = "ABCD"
+WRITE_NAMES = {
+    "A": "エージェントがそのまま書ける",
+    "B": "解析しないと書けない",
+    "C": "画面（UI）から入力する",
+    "D": "書けない（アクセスできない・手書き）",
+}
 NAMES = {
     "S": "素で問題ない（データそのもの）",
-    "A": "規則だけで正確に読み書きできる",
-    "B": "エージェントが読めば正確に入れられる",
+    "A": "規則だけで正確に読める",
+    "B": "エージェントが読めば正確",
     "C": "エージェントが工夫して変換できる",
     "D": "エージェントの解釈が必要",
     "E": "エージェントが得意でない形式",
     "F": "アクセスできない",
 }
 
-# エージェントが窓を読んで確かめること（規則では決めない）。見つかれば、その段階
+# エージェントが窓を読んで確かめること（規則では決めない）。見つかれば、その段階（score：read 読む・write 書く）
 AGENT_CHECKS = [
-    {"id": "cannot_do", "grade": "F", "title": "エージェントにはできない記入",
+    {"id": "cannot_do", "score": "write", "grade": "D", "title": "エージェントにはできない記入",
      "question": "押印・自署（手書き）のように、書類の中で、エージェントには代わりにできない記入を求めていますか。"
                  "求めていれば、その場所と書き方を答えてください（「押印不要」のように求めていないものは除く。"
                  "郵送・持参・来庁などの提出のしかたは、書類の外のことなので、ここでは数えません）。"},
-    {"id": "vague_value", "grade": "D", "title": "書く値をぼかす書き方",
+    {"id": "ui_only", "score": "write", "grade": "C", "title": "画面からの入力",
+     "question": "この書類のファイルに書くのではなく、電子申請の画面など、別の画面（UI）から入力するよう求めていますか。"
+                 "求めていれば、その画面の名前と、書類のどこにそう書いてあるかを答えてください"
+                 "（郵送・持参・来庁などの提出のしかたは、ここでは数えません）。"},
+    {"id": "vague_value", "score": "read", "grade": "D", "title": "書く値をぼかす書き方",
      "question": "書く値そのものがおおよそでよい、または人によって解釈が分かれる書き方の入力欄（「約［　］人」「月［　］日程度」"
                  "「必要に応じて記入」など）がありますか。あれば、その欄の名前と書き方を答えてください。"},
 ]
@@ -67,30 +86,41 @@ class Reason:
 
 @dataclass
 class Grade:
-    grade: str
+    grade: str  # 読む段階（S〜F）
     reasons: list[Reason] = field(default_factory=list)
     agent_checks: list[dict] = field(default_factory=list)  # エージェントが確かめること（まだ答えていない問い）
-    without_barriers: str | None = None  # エージェントにはできない手続き（F）がなければ、どの段階か
+    without_barriers: str | None = None  # エージェントにはできない記入（書く D）がなければ、書く段階はどれか
     alerts: list[Reason] = field(default_factory=list)  # 段階とは別の、アクセシビリティの注意
+    write: str = "A"  # 書く段階（A〜D）
+    write_reasons: list[Reason] = field(default_factory=list)
 
     @property
     def name(self) -> str:
         return NAMES[self.grade]
 
     @property
+    def write_name(self) -> str:
+        return WRITE_NAMES[self.write]
+
+    @property
     def barriers(self) -> list[Reason]:
-        """エージェントの判断で見つかった、エージェントにはできない手続き。"""
-        return [r for r in self.reasons if r.by == "agent" and r.grade == "F"]
+        """エージェントの判断で見つかった、エージェントにはできない記入。"""
+        return [r for r in self.write_reasons if r.by == "agent" and r.grade == "D"]
 
     def headline(self) -> str:
-        s = f"段階 {self.grade}：{self.name}"
-        worst = [r for r in self.reasons if r.grade == self.grade]
-        if worst and self.grade not in ("S", "A"):
-            s += "（" + "・".join(dict.fromkeys(r.title + ("：エージェントの判断" if r.by == "agent" else "") for r in worst)) + "）"
+        def why(reasons, g, plain):
+            worst = [r for r in reasons if r.grade == g]
+            if not worst or g in plain:
+                return ""
+            return "（" + "・".join(dict.fromkeys(r.title + ("：エージェントの判断" if r.by == "agent" else "") for r in worst)) + "）"
+
+        s = f"読む段階 {self.grade}：{self.name}{why(self.reasons, self.grade, 'SA')}"
+        s += f"。書く段階 {self.write}：{self.write_name}{why(self.write_reasons, self.write, 'A')}"
         if self.without_barriers:
-            s += f"。それがなければ段階 {self.without_barriers}：{NAMES[self.without_barriers]}"
+            s += f"。それがなければ書く段階 {self.without_barriers}：{WRITE_NAMES[self.without_barriers]}"
         if self.agent_checks:
-            s += "。エージェントが確かめること：" + "・".join(f"{c['title']}（あれば {c['grade']}）" for c in self.agent_checks)
+            s += "。エージェントが確かめること：" + "・".join(
+                f"{c['title']}（あれば{'書く' if c['score'] == 'write' else '読む'}段階 {c['grade']}）" for c in self.agent_checks)
         if self.alerts:
             s += "。段階とは別の、アクセシビリティの注意：" + "・".join(a.title for a in self.alerts)
         return s
@@ -98,37 +128,67 @@ class Grade:
     def to_dict(self) -> dict:
         return {"grade": self.grade, "name": self.name, "headline": self.headline(),
                 "reasons": [asdict(r) for r in self.reasons], "agent_checks": self.agent_checks,
-                "without_barriers": self.without_barriers, "alerts": [asdict(a) for a in self.alerts], "scale": NAMES}
+                "write": {"grade": self.write, "name": self.write_name, "reasons": [asdict(r) for r in self.write_reasons]},
+                "without_barriers": self.without_barriers, "alerts": [asdict(a) for a in self.alerts],
+                "scale": NAMES, "write_scale": WRITE_NAMES}
 
 
-def _final(reasons: list[Reason], base: str = "A") -> Grade:
-    g = max([base] + [r.grade for r in reasons], key=ORDER.index)
-    reasons = sorted(reasons, key=lambda r: -ORDER.index(r.grade))
+def _worst(order: str, base: str, reasons: list[Reason]) -> str:
+    return max([base] + [r.grade for r in reasons], key=order.index)
+
+
+def _final(reasons: list[Reason], write: list[Reason] | None = None, base: str = "A") -> Grade:
+    write = write or []
+    g = _worst(ORDER, base, reasons)
+    w = _worst(WRITE_ORDER, "A", write)
     checks = [dict(c) for c in AGENT_CHECKS] if g not in ("S", "F") else []
-    return Grade(g, reasons, checks)
+    return Grade(g, sorted(reasons, key=lambda r: -ORDER.index(r.grade)), checks, write=w,
+                 write_reasons=sorted(write, key=lambda r: -WRITE_ORDER.index(r.grade)))
+
+
+def _locked(title: str, detail: str, write_detail: str) -> Grade:
+    """開けない書類：読む F・書く D。"""
+    return Grade("F", [Reason("F", title, detail)], write="D", write_reasons=[Reason("D", title, write_detail)])
 
 
 def combine(rule: "Grade | dict", findings: list[dict], answered: list[str] | None = None) -> Grade:
-    """規則で決めた段階に、エージェントの判断（findings：{grade, title, detail, where}）を合わせる。
+    """規則で決めた段階に、エージェントの判断（findings）を合わせる。
+    findings：{check: 問いの id, title, detail, where}（段階は問いで決まる）か、{score: "read"|"write", grade, title, detail, where}。
     answered：エージェントが確かめ終えた問いの id（見つからなかったものも含む）。答えていない問いは残す。"""
     if isinstance(rule, dict):
+        w = rule.get("write") or {}
         rule = Grade(rule["grade"], [Reason(**r) for r in rule["reasons"]], list(rule.get("agent_checks", [])),
-                     alerts=[Reason(**a) for a in rule.get("alerts", [])])
+                     alerts=[Reason(**a) for a in rule.get("alerts", [])], write=w.get("grade", "A"),
+                     write_reasons=[Reason(**r) for r in w.get("reasons", [])])
+    checks = {c["id"]: c for c in AGENT_CHECKS}
     reasons = [r for r in rule.reasons if r.by == "rules"]
+    write = [r for r in rule.write_reasons if r.by == "rules"]
+    found: set[str] = set()
     for f in findings:
-        g = str(f.get("grade", "")).upper()
-        if len(g) != 1 or g not in ORDER:
-            raise ValueError(f"段階は {', '.join(ORDER)} のどれかです：{g!r}")
+        c = checks.get(str(f.get("check") or ""))
+        if f.get("check") and c is None:
+            raise ValueError(f"問いの id は {', '.join(checks)} のどれかです：{f.get('check')!r}")
+        score = c["score"] if c else str(f.get("score") or "read")
+        if score not in ("read", "write"):
+            raise ValueError(f"score は read（読む）か write（書く）です：{score!r}")
+        order = ORDER if score == "read" else WRITE_ORDER
+        g = c["grade"] if c else str(f.get("grade", "")).upper()
+        if len(g) != 1 or g not in order:
+            raise ValueError(f"{'読む' if score == 'read' else '書く'}段階は {', '.join(order)} のどれかです：{g!r}")
+        if c:
+            found.add(c["id"])
+        else:
+            found |= {k for k, x in checks.items() if x["score"] == score and x["grade"] == g}
         where = f.get("where") or []
-        reasons.append(Reason(g, str(f.get("title") or "エージェントの判断"), str(f.get("detail") or ""),
-                              [where] if isinstance(where, str) else [str(w) for w in where], by="agent"))
-    rest = max([rule.grade] + [r.grade for r in reasons if not (r.by == "agent" and r.grade == "F")], key=ORDER.index)
-    g = max([rest] + [r.grade for r in reasons], key=ORDER.index)
-    found = {c["id"] for c in AGENT_CHECKS if any(r.by == "agent" and r.grade == c["grade"] for r in reasons)}
+        r = Reason(g, str(f.get("title") or (c["title"] if c else "エージェントの判断")), str(f.get("detail") or ""),
+                   [where] if isinstance(where, str) else [str(x) for x in where], by="agent")
+        (reasons if score == "read" else write).append(r)
+    rest = _worst(WRITE_ORDER, rule.write, [r for r in write if not (r.by == "agent" and r.grade == "D")])
     done = set(answered or []) | found
-    out = Grade(g, sorted(reasons, key=lambda r: -ORDER.index(r.grade)), [c for c in rule.agent_checks if c["id"] not in done],
-                alerts=list(rule.alerts))
-    if any(r.by == "agent" and r.grade == "F" for r in reasons) and rest != "F":
+    out = Grade(_worst(ORDER, rule.grade, reasons), sorted(reasons, key=lambda r: -ORDER.index(r.grade)),
+                [c for c in rule.agent_checks if c["id"] not in done], alerts=list(rule.alerts),
+                write=_worst(WRITE_ORDER, rule.write, write), write_reasons=sorted(write, key=lambda r: -WRITE_ORDER.index(r.grade)))
+    if any(r.by == "agent" and r.grade == "D" for r in write) and rest != "D":
         out.without_barriers = rest
     return out
 
@@ -169,11 +229,12 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> 
 
     name = filename.lower()
     if name.endswith((".csv", ".tsv", ".json", ".jsonl", ".xml")):
-        return Grade("S", [Reason("S", "データそのもの", "表のデータ（CSV・JSON など）で、変換しなくても機械が読めます")])
+        return Grade("S", [Reason("S", "データそのもの", "表のデータ（CSV・JSON など）で、変換しなくても機械が読めます")],
+                     write="A", write_reasons=[Reason("A", "データそのもの", "行と列（か、名前と値）のデータに、そのまま書けます")])
     try:
         k = kind_of(blob)
     except Exception as e:  # noqa: BLE001
-        return Grade("F", [Reason("F", "開けない", f"ファイルの形式を判別できませんでした（{type(e).__name__}）")])
+        return _locked("開けない", f"ファイルの形式を判別できませんでした（{type(e).__name__}）", "開けないので、書けません")
     locked = k == "encrypted"
     if not locked and k in ("xls", "doc", "pdf") and not password:
         try:
@@ -183,8 +244,8 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> 
         except Exception:  # noqa: BLE001
             locked = False
     if locked:
-        return Grade("F", [Reason("F", "パスワード", "パスワードで保護されています。パスワードがなければ開けません"
-                                  "（本人にパスワードを聞けば、解いた中身で段階を決めます）")])
+        return _locked("パスワード", "パスワードで保護されています。パスワードがなければ開けません"
+                       "（本人にパスワードを聞けば、解いた中身で段階を決めます）", "パスワードがなければ、書けません")
     try:
         if k == "pdf":
             return _grade_pdf(blob, filename, password)
@@ -193,8 +254,8 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> 
         if k in ("xlsx", "xls"):
             return _grade_excel(blob, filename)
     except Exception as e:  # noqa: BLE001
-        return Grade("F", [Reason("F", "開けない", f"ファイルを読めませんでした（{type(e).__name__}: {str(e)[:80]}）")])
-    return Grade("F", [Reason("F", "対応していない形式", f"この形式（{k}）は、まだ読めません")])
+        return _locked("開けない", f"ファイルを読めませんでした（{type(e).__name__}: {str(e)[:80]}）", "読めないので、書けません")
+    return _locked("対応していない形式", f"この形式（{k}）は、まだ読めません", "読めないので、書けません")
 
 
 def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade:
@@ -204,6 +265,7 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
     doc = PdfDocument(blob, filename, password=password) if password else PdfDocument(blob, filename)
     win = build(doc)
     reasons: list[Reason] = []
+    write: list[Reason] = []
     unmapped = [f"{p['number']}ページ（{p['unmapped']} 字）" for p in win["pages"] if p.get("unmapped")]
     if unmapped:
         reasons.append(Reason("F", "文字に直せない字", "フォントに文字の対応がなく、文字に直せない字があります（窓では �）。"
@@ -211,8 +273,11 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
     img = [f"{p['number']}ページ" for p in win["pages"] if p.get("image_only")]
     if img:
         reasons.append(Reason("E", "画像だけのページ", f"{len(img)} ページは文字の情報がなく、画像（スキャン）です。読むには文字の認識が要ります", img))
+        write.append(Reason("D", "画像だけのページ", f"{len(img)} ページは字の情報のない紙（スキャン）で、書く所を字で示せません。"
+                            "手で書く紙として扱います", img))
     if win["form"]["xfa"]:
         reasons.append(Reason("C", "XFA のフォーム", "Adobe 独自の動くフォーム（XFA）です。開くソフトによって中身が変わります"))
+        write.append(Reason("B", "XFA のフォーム", "動くフォーム（XFA）の欄は、フォームの作りを解析して書きます"))
     agent = [f for p in win["pages"] for f in p["fields"] if f.get("agent")]
     fields = [f for p in win["pages"] for f in p["fields"] if not f.get("agent")]
     layout = [f for f in fields if f.get("source") == "layout"]
@@ -224,7 +289,9 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
                               "（窓には見出しと前後の文字を添えています）", [f["id"] for f in layout[:12]]))
     elif fields:
         reasons.append(Reason("A", "フォームの欄", f"入力欄 {len(fields)} か所は、すべて PDF のフォームの欄です"))
-    g = _final(reasons)
+    write += _write_fields(fields, layout, agent, "フォームの欄",
+                           "見出しの右や下の空いている所を、見出しの字を手がかりに指定して書きます")
+    g = _final(reasons, write)
     g.alerts = picture_alerts([p for pg in win["pages"] for p in pg.get("pictures", [])])
     return g
 
@@ -238,6 +305,44 @@ def picture_alerts(pictures: list[dict]) -> list[Reason]:
                    f"画像 {len(bare)} 個に、説明（代わりの字）がありません。画面の読み上げを使う人には中身が届かず、"
                    "エージェントも画像の中身は字として読めません（WCAG 1.1.1）。段階は変えません",
                    [f"{p['id']}（{p.get('where', '')}）" for p in bare[:12]])]
+
+
+def _write_fields(fields: list[dict], layout: list[dict], agent: list[dict], marked: str, free: str) -> list[Reason]:
+    """入力欄の書く段階：作り手の印の欄だけなら A、配置からの推定やエージェントの判断が要れば B。"""
+    if layout or agent:
+        ids = [f["id"] for f in layout + agent]
+        return [Reason("B", "解析して決める入力欄",
+                       f"{len(ids)} か所は、作り手の印のない所で、配置から推定するか、エージェントが窓を読んで書く所を決めます", ids[:12])]
+    if fields:
+        return [Reason("A", marked, f"入力欄 {len(fields)} か所は、すべて{marked}で、id を指定してそのまま書けます")]
+    return [Reason("B", "印のある欄がない", f"作り手の印のある欄がありません。{free}")]
+
+
+def _write_embeds(embeds: list[dict]) -> list[Reason]:
+    """文書に埋め込んだ Excel の表：表のセルと、表示・印刷の絵を描き直して書く（B）。描き直せない形なら書けない（D）。"""
+    out = []
+    ok = [e for e in embeds if e.get("fields") and e.get("writable")]
+    ng = [e for e in embeds if e.get("fields") and not e.get("writable")]
+    if ok:
+        out.append(Reason("B", "埋め込んだ表", f"埋め込んだ Excel の表 {len(ok)} 個は、表のセルと、Word が表示・印刷に使う絵を解析して書き直します",
+                          [f"E{e['n']}" for e in ok]))
+    if ng:
+        out.append(Reason("D", "書けない埋め込みの表", "埋め込んだ Excel の表に書けません："
+                          + "・".join(f"E{e['n']}（{e.get('why') or '描き直せない形'}）" for e in ng), [f"E{e['n']}" for e in ng]))
+    return out
+
+
+def _write_macros(info) -> list[Reason]:
+    """セルの値を変えるマクロ：ボタンなど、画面（UI）から動かす処理（C）。run_macro で、本人に確かめながら動かします。"""
+    if not isinstance(info, dict):
+        return []
+    if not info.get("readable"):
+        return [Reason("D", "読めないマクロ", "マクロを読めないので、マクロが書く所を確かめられません")]
+    busy = [m for m in info["modules"] if m["procedures"] and not macro_is_display_only(m["source"])]
+    if not busy:
+        return []
+    return [Reason("C", "画面から動かすマクロ", "ボタンや、値を変えると動く処理（マクロ）が、セルや欄を書き換えます。"
+                   "Excel のマクロは、問い（はい・いいえ、入力）を本人に確かめながら、run_macro で動かします", [m["name"] for m in busy][:12])]
 
 
 def _agent_reason(agent: list[dict]) -> Reason:
@@ -265,6 +370,7 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
         doc = DocxDocument(blob, filename)
     win = build(doc)
     reasons: list[Reason] = []
+    write: list[Reason] = []
     agent = [f for f in win["fields"] if f.get("agent")]
     fields = [f for f in win["fields"] if not f.get("agent")]
     layout = [f for f in fields if f.get("source") == "layout"]
@@ -277,7 +383,11 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
     elif fields:
         reasons.append(Reason("A", "フォームの欄", f"入力欄 {len(fields)} か所は、すべて Word のフォームの欄・コンテンツコントロールです"))
     reasons += _macro_reasons(win.get("macros"))
-    return _final(reasons)
+    write += _write_fields(fields, layout, agent, "フォームの欄・コンテンツコントロール",
+                           "欄のない所は、前後の字を指定して書き換えます")
+    write += _write_embeds(win.get("embeds") or [])
+    write += _write_macros(win.get("macros"))
+    return _final(reasons, write)
 
 
 def _grade_excel(blob: bytes, filename: str) -> Grade:
@@ -288,6 +398,7 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
     wb = open_book(blob, filename)
     doc = build(wb)
     reasons: list[Reason] = []
+    write: list[Reason] = []
     explicit = {"入力規則があるセル", "シート保護の中で編集できるセル", "枠のある空欄", "色の付いた空欄"}
     inferred, inline, overlap, undecided, n_fields = [], [], [], [], 0
     for sh in doc["sheets"]:
@@ -302,6 +413,13 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
             if f.get("rules_overlap"):
                 overlap.append(f["id"])
         undecided += [f"{sh['name']}!{u['cell']}" for u in sh.get("undecided", [])]
+    if inline or inferred or undecided or overlap:
+        write.append(Reason("B", "解析して決める入力欄",
+                            f"{len(inline) + len(inferred) + len(undecided) + len(overlap)} か所は、入力欄の印がなく（か、入力規則が重なっていて）、"
+                            "文字の中の空き・数式の入力・表の作りから解析して書く所を決めます",
+                            (inline + inferred + undecided + overlap)[:12]))
+    elif n_fields:
+        write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・シート保護・枠などの印で決まり、そのまま書けます"))
     if inline:
         reasons.append(Reason("B", "文字の中の空欄", f"{len(inline)} か所は、「令和　年　月　日」のような文字の中の空白から推定した欄です", inline[:12]))
     if inferred:
@@ -322,9 +440,14 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
         reasons.append(Reason("C", "確かめられない数式", f"{rep['unsupported']} 個の数式は、規則どおりに計算し直して確かめられません"))
     if rep["mismatch"]:
         reasons.append(Reason("C", "保存された値と合わない数式", f"{rep['mismatch']} 個のセルで、保存された計算結果が数式と一致しません"))
+    if rep["unsupported"]:
+        write.append(Reason("B", "確かめられない数式", f"{rep['unsupported']} 個の数式は計算し直せないので、書いた値から計算される所を確かめられません"))
     reasons += _macro_reasons(doc.get("macros"))
+    write += _write_macros(doc.get("macros"))
     for sh_obj in wb.sheets:
         pics = [s for s in getattr(sh_obj, "shapes", []) if s.kind in ("picture", "chart")]
         if pics and len(sh_obj.cells) < 5:
             reasons.append(Reason("E", "画像だけのシート", f"シート「{sh_obj.name}」の中身は画像で、セルの文字がありません", [sh_obj.name]))
-    return _final(reasons)
+            write.append(Reason("D", "画像だけのシート", f"シート「{sh_obj.name}」は画像だけで、書くセルがありません。手で書く紙として扱います",
+                                [sh_obj.name]))
+    return _final(reasons, write)

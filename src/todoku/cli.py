@@ -389,11 +389,13 @@ def _print_grade(path: str) -> None:
 
     g = grade_blob(Path(path).read_bytes(), Path(path).name)
     print(g.headline())
-    for r in g.reasons:
-        mark = "　" if r.grade in ("S", "A") else "▶"
-        print(f"  {mark}[{r.grade}] {r.title}：{r.detail}" + (f"（{', '.join(r.where[:5])}）" if r.where else ""))
+    for label, reasons, plain in (("読む", g.reasons, "SA"), ("書く", g.write_reasons, "A")):
+        for r in reasons:
+            mark = "　" if r.grade in plain else "▶"
+            print(f"  {mark}{label}[{r.grade}] {r.title}：{r.detail}" + (f"（{', '.join(r.where[:5])}）" if r.where else ""))
     for c in g.agent_checks:
-        print(f"  ？エージェントが確かめること（あれば {c['grade']}）：{c['question']}")
+        label = "書く" if c["score"] == "write" else "読む"
+        print(f"  ？エージェントが確かめること（あれば{label}段階 {c['grade']}）：{c['question']}")
 
 
 def cmd_diagnose(a) -> int:
