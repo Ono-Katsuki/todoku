@@ -292,7 +292,26 @@ def cmd_apply(a) -> int:
 
 
 def cmd_example(a) -> int:
-    """記入例をExcelの答えとして、記入と再計算を確かめる。"""
+    """記入例と照らす。Excel：記入例をExcelの答えとして、記入と再計算を確かめる。
+    PDF・Word：記入例で書き込まれた所が、白紙で見つけた入力欄にあるか（入力欄の見落とし）を確かめる。"""
+    k = _kind(a.blank)
+    if k in ("pdf", "docx", "doc"):
+        if k == "pdf":
+            from .pdf.example import check as pdf_check
+
+            r = pdf_check(Path(a.blank).read_bytes(), Path(a.example).read_bytes())
+            print(r.headline())
+            for m in r.missed[:40]:
+                where = f"（{m.near}の近く）" if m.near else ""
+                print(f"  見落としの候補: {m.page}ページ {m.text!r} 位置 {m.rect}{where}")
+        else:
+            from .docx.example import check as word_check
+
+            r = word_check(Path(a.blank).read_bytes(), Path(a.example).read_bytes())
+            print(r.headline())
+            for m in r.missed[:40]:
+                print(f"  見落としの候補: 段落 {m.para} {m.text!r}（{m.context}）")
+        return 0 if r.ok else 1
     from .xlsx.example import check
 
     r = check(Path(a.blank).read_bytes(), Path(a.example).read_bytes())
@@ -397,7 +416,7 @@ def main(argv=None) -> int:
     p.add_argument("-o", "--out", required=True)
     p.add_argument("--strict", action="store_true")
     p.set_defaults(func=cmd_apply)
-    p = sub.add_parser("example", help="記入例（Excelで保存された答え）と照らして、記入と再計算を確かめる")
+    p = sub.add_parser("example", help="記入例と照らす（Excel：記入と再計算、PDF・Word：入力欄の見落とし）")
     p.add_argument("blank")
     p.add_argument("example")
     p.set_defaults(func=cmd_example)

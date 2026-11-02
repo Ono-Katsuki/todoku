@@ -116,6 +116,9 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
         # 保護も入力規則もない様式：枠で囲まれた空欄・色の付いた空欄で、見出しのそばにあるもの
         for (r, c), why in _boxed_blanks(wb, sh).items():
             add(r, c, why)
+    # 表の行：見出しの下の行で、見出しのある列の半分以上がすでに入力欄なら、残りの列の空のセルも入力欄
+    # （入力規則も枠もない「説明」「備考」の列。記入例では、そこにも書いてある）
+    _table_rows(sh, out, add)
     # 数式が参照している定数・空白のセル（計算の入力）
     for cell in sh.cells.values():
         refs = list(iter_refs(cell.ast)) if cell.ast is not None else []
@@ -133,6 +136,58 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
                     if t is None or (not t.has_formula and (t.value is None or is_number(t.value))):
                         add(r, c, "数式が参照している値")
     return out
+
+
+def _head_text(a: Anchor) -> bool:
+    """表の見出しらしい字：2字以上で、数字・単位・記号だけでない（「設」「１」「日／月」「□」は見出しでない）。"""
+    if a.cell is None or a.cell.has_formula or not isinstance(a.cell.value, str):
+        return False
+    t = a.cell.value.strip()
+    if len(t) < 2 or re.fullmatch(r"[\d０-９.．,，\s]+", t):
+        return False
+    if any(ch in t for ch in "□■☐☑") or t[0] in "※◆◇●○■＊*" or inline_blanks(t):
+        return False  # 選択肢・注意書き・「令和　年　月」のような書く所のある字
+    if t[0] in "（(" and t[-1] in "）)":
+        return False  # 「（第6号様式）」「（単位：円）」
+    return not re.fullmatch(r"(?:時間|日|月|年|週|回|人|円|件|分)(?:[／/](?:時間|日|月|年|週))?", t)
+
+
+def _table_rows(sh: Sheet, out: dict, add) -> None:
+    rows = anchors(sh)
+    done: set[int] = set()
+    for r in sorted(rows):
+        if r in done:
+            continue
+        heads = [a for a in rows[r] if _head_text(a)]
+        if len(heads) < 3 or len(heads) < 0.8 * sum(1 for a in rows[r] if a.cell is not None and a.cell.value not in (None, "")):
+            continue  # 見出しの行でない（見出しらしくない字のある行）
+        if any(b.c1 - a.c2 - 1 > 2 for a, b in zip(heads, heads[1:])):
+            continue  # 見出しが離れて並ぶ（表の見出しは、となりあう列に並ぶ）
+        lo, hi = heads[0].c1, heads[-1].c2
+        # データの行は、見出しの下の端（いちばん多い下の端。縦に長い「子どもにかかる変更」のような行の見出しは除く）の次から
+        ends = [a.r2 for a in heads]
+        rr = max(set(ends), key=lambda e: (ends.count(e), -e)) + 1
+        while rr in rows or any((rr, c) in out for a in heads for c in range(a.c1, a.c2 + 1)):
+            have = [a for a in heads if any((rr, c) in out for c in range(a.c1, a.c2 + 1))]
+            if len(have) < max(2, (len(heads) + 1) // 2):
+                break
+            # データの行には、見出しの範囲に文字がない（「□取得予定」のような選択肢の行は表の行でない）
+            if any(a.cell is not None and isinstance(a.cell.value, str) and a.cell.value.strip() and not a.cell.has_formula
+                   and lo <= a.c1 <= hi for a in rows.get(rr, [])):
+                break
+            for a in heads:
+                if a in have:
+                    continue
+                m = sh.merged_at(rr, a.c1)
+                tr, tc = (m[0], m[1]) if m else (rr, a.c1)
+                cell = sh.cells.get((tr, tc))
+                if cell is not None and (cell.has_formula or cell.value not in (None, "")):
+                    continue
+                if sh.is_hidden(tr, tc):
+                    continue
+                add(tr, tc, "表の行の空欄（同じ行のほかの列が入力欄）")
+            done.add(rr)
+            rr += 1
 
 
 def _boxed_blanks(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], str]:
@@ -197,6 +252,16 @@ _TOK = re.compile(r"令和|平成|昭和|大正|明治|西暦|[ \u3000]+|[_＿]{
 _ERAS = {"令和", "平成", "昭和", "大正", "明治", "西暦"}
 
 
+_COUNT_PREFIX = set("第金約計全各満延毎総月年週時")
+
+
+def _letter(t: str) -> bool:
+    """字（漢字・かな・ラテン文字など）1字か、年号。"""
+    import unicodedata
+
+    return t in _ERAS or (len(t) == 1 and unicodedata.category(t)[0] == "L")
+
+
 def inline_blanks(text: str) -> list[tuple[int, int]]:
     """文字の中の、書き込むための空欄（「令和　　年　　月　　日」の空白、「第　　　号」の空白、「＿＿＿」）の位置。
 
@@ -205,14 +270,21 @@ def inline_blanks(text: str) -> list[tuple[int, int]]:
     - 「平成　年　月　日」のように、年号と年・月・日が1つの空白でつながったもの
     - 下線（＿＿＿、___）
     字間を空けた見出し（「廃　業　年　月　日」）の空白や、飾りの空白（「北海道知事　　　様」）は空欄にしない。"""
+    # 2字を空けた見出し（「氏　　名」「番　　号」）：後ろの字が単位でも、空欄にしない。
+    # 「第　　号」「金　　円」「月　　回」のように、前の字が数を受ける字のときだけ空欄
+    two = re.fullmatch(r"[ \u3000]*(\S)[ \u3000]+(\S)[ \u3000]*", text)
+    if two and _letter(two[1]) and _letter(two[2]) and two[1] not in _COUNT_PREFIX:
+        return []
     toks = [(m.start(), m.end(), m[0]) for m in _TOK.finditer(text)]
-    single = {i for i, (a, b, t) in enumerate(toks) if t in (" ", "\u3000")}
-    # 1つの空白でつながった並び（字間を空けた見出しか、年月日の並び）
+    # 同じ幅の空白でつながった並び（字間を空けた見出しか、年月日の並び）。
+    # 1つの空白ならどんな字でも、2つ以上の空白なら字（漢字・かな・年号）だけの並び（「職　　業　　名」「令和　　年　　月　　日」）
     chain_space: dict[int, bool] = {}
     i = 0
     while i < len(toks):
         j = i
-        while j + 2 < len(toks) and (j + 1) in single and not toks[j][2].isspace() and not toks[j + 2][2].isspace():
+        while j + 2 < len(toks) and toks[j + 1][2].isspace() and not toks[j][2].isspace() and not toks[j + 2][2].isspace() \
+                and toks[j + 1][2] == toks[i + 1][2] and \
+                (toks[j + 1][2] in (" ", "\u3000") or (_letter(toks[j][2]) and _letter(toks[j + 2][2]))):
             j += 2
         if j - i >= 4:  # 3つ以上の文字が1つの空白でつながっている
             words = [toks[k][2] for k in range(i, j + 1, 2)]

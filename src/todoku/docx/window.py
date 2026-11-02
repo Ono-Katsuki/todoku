@@ -58,8 +58,14 @@ def _trailing_blank(text: str) -> list[tuple[int, int]]:
 
 
 def para_blanks(p: Para) -> list[tuple[int, int]]:
+    from ..pdf.layout import ADDRESS_UNITS, pdf_blanks
+
     text = p.text
-    spans = set(inline_blanks(text)) | set(_underlined_blanks(p)) | set(_trailing_blank(text))
+    spans = set(pdf_blanks(text)) | set(_underlined_blanks(p)) | set(_trailing_blank(text))
+    # 住所のマス：「　　郡　市」のように住所の単位で終わる段落は、その後ろに町名・番地を書き足す
+    core = text.rstrip(" \u3000")
+    if p.cell is not None and core and core[-1] in ADDRESS_UNITS and len(core) <= 30 and core == text:
+        spans.add((len(text), len(text)))
     kept: list[tuple[int, int]] = []
     for a, b in sorted(spans):
         if kept and a < kept[-1][1]:
@@ -117,9 +123,12 @@ class Spots:
                         self.items[fid] = {"id": fid, "kind": "cell", "source": "layout", "cell": c, "para": c.paras()[0],
                                            "label": label, "row_label": rl, "column_label": cl, "provenance": LAYOUT,
                                            "shade": c.shade}
-        # 3) 段落の中の空欄と □
+        # 3) 段落の中の空欄と □（空のマスとして欄にした段落は除く）
+        cell_paras = {id(it["para"]) for it in self.items.values() if it.get("kind") == "cell"}
         for _kind, part, blocks in doc.all_blocks():
             for p in iter_paras(blocks):
+                if id(p) in cell_paras:
+                    continue
                 if any(s.field is not None for s in p.segs) and all(s.field is not None or not s.text.strip() for s in p.segs):
                     continue
                 pi = self.para_index[id(p)]
@@ -140,7 +149,7 @@ class Spots:
                         opt = text[b:b + m.start()] if m else text[b:]
                         label = norm_label(opt.strip(" \u3000")) or norm_label(text[:a].strip(" \u3000"))[-30:]
                     else:
-                        label = norm_label(text[:a] + "［　］" + text[b:])
+                        label = self._label(p, a, b)
                     self.items[fid] = {"id": fid, "kind": kind, "source": "layout", "para": p, "span": (a, b),
                                        "label": label, "provenance": LAYOUT}
         # 4) 書き込み済みの欄（しおり）：同じ名前の欄が見つからなければ、しおりから作る
@@ -149,7 +158,20 @@ class Spots:
                 continue
             kind = "checkbox" if p.text[a:b] in ("■", "☑", "☒", "□", "☐") else ("cell" if name.startswith("T") else "inline")
             self.items[name] = {"id": name, "kind": kind, "source": "layout", "para": p, "span": (a, b), "filled": True,
-                                "label": "", "provenance": LAYOUT}
+                                "label": self._label(p, a, b) if kind == "inline" else "", "provenance": LAYOUT}
+
+    def _label(self, p: Para, a: int, b: int) -> str:
+        """段落の中の空欄の見出し：その空欄を［　］にした段落の文字。書き込み済みのほかの欄の値は除く（白紙のときと同じ見出し）。"""
+        cuts = [(x, y) for q, x, y in self.marks.values() if q is p and not (x == a and y == b) and y > x]
+        out, at = [], 0
+        for x, y in sorted(cuts + [(a, b)]):
+            if x < at:
+                continue
+            out.append(p.text[at:x])
+            out.append("［　］" if (x, y) == (a, b) else "　")
+            at = y
+        out.append(p.text[at:])
+        return norm_label("".join(out))
 
     def value(self, item: dict):
         """いまの値（書き込み済みなら、その値）。"""

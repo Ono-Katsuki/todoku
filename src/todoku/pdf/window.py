@@ -43,6 +43,12 @@ def _render_line(ln: Line, spots: list[Spot], name) -> str:
     text = ln.text
     edits = []
     for sp in sorted(spots, key=lambda x: x.at or (0, 0)):
+        if sp.kind == "circle":
+            # 選択肢の並びの後ろに「［p1.5：○で囲む］」の印
+            last = max(ln.text.index(o) + len(o) if o in ln.text else 0 for o, _r in sp.options)
+            chosen = next((f.value_text() for f, _w in (getattr(sp, "widget", None) or []) if f.name == name(sp)), None)
+            edits.append((last, last, f"［{name(sp)}{'＝' + chosen if chosen else ''}：○で囲む］"))
+            continue
         a, b = sp.at
         mark = _filled_mark(sp, name)
         if mark is not None:
@@ -114,7 +120,11 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     spots = []
     for sp in lay.spots:
         # 配置から見つけた欄に重なるフォームの欄（書き込んだ後の欄、または元からある欄）
-        hits = [(f, w) for f, w, r in ws if _overlap(sp.rect, r) > 0.5]
+        if sp.kind == "circle":
+            # ○で囲む欄：選択肢のどれかに重なる欄（書き込みでは、選択肢ごとに囲みの欄を置く）
+            hits = [(f, w) for f, w, r in ws if any(_overlap(o, r) > 0.5 for _t, o in sp.options)]
+        else:
+            hits = [(f, w) for f, w, r in ws if _overlap(sp.rect, r) > 0.5]
         sp.widget = hits or None
         spots.append(sp)
     used_widgets: set[int] = set()
@@ -122,6 +132,10 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     cell_items: dict[int, _Item] = {}
     line_spots: dict[int, list[Spot]] = {}
     for sp in spots:
+        if sp.kind == "circle" and (sp.cell is None or sp.host in sp.cell.lines):
+            # 行の中の選択肢（○で囲む）：選択肢の後ろに印を出す
+            line_spots.setdefault(id(sp.host), []).append(sp)
+            continue
         if sp.kind == "circle":
             continue
         if isinstance(sp.host, Line):
@@ -196,7 +210,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                 c = it.cell
                 pieces = []
                 own = [sp for sp in spots if sp.host is c]
-                circles = [sp for sp in spots if sp.kind == "circle" and sp.cell is c]
+                circles = [sp for sp in spots if sp.kind == "circle" and sp.cell is c and sp.host not in c.lines]
                 for sp in own:
                     mark = _filled_mark(sp, name)
                     if mark is not None:
@@ -225,7 +239,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     out_fields = []
     context_of = {}
     for line in reading:
-        for m in re.finditer(r"［(p\d+\.\d+)］", line):
+        for m in re.finditer(r"［(p\d+\.\d+)[］＝：]", line):
             context_of.setdefault(m[1], line)
     emitted: set[str] = set()
     for sp in spots:

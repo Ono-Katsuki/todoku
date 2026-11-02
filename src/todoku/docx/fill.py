@@ -155,6 +155,18 @@ class Filler:
         """段落の文字 [a, b) を value にする予定を立てる（同じ文字の要素の中の複数の空欄は、finish でまとめて書く）。"""
         part = p.part
         pos = p.positions()
+        if a == b:
+            # 挿入（「市」の後ろに書き足すなど）：直前の字の後ろに入れる
+            if not pos or a == 0:
+                raise FillError(f"{item['id']}: 書き足す位置が見つかりません")
+            i, off = pos[a - 1]
+            sg = p.segs[i]
+            if sg.kind != "t" or sg.node is None or sg.run is None:
+                raise FillError(f"{item['id']}: 書き足す位置が、書き換えられない部分にあります")
+            self.check_editable(item, part, sg.node.s)
+            bm = self.bookmark(item["id"])
+            self.run_ops.setdefault((part, sg.run.s), (sg.run, []))[1].append((sg.node, off + 1, off + 1, value, bm, ""))
+            return
         if a >= len(pos) or b > len(pos):
             raise FillError(f"{item['id']}: 空欄の位置が見つかりません")
         segs_idx = []

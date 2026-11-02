@@ -34,6 +34,8 @@ class ExampleCheck:
     parts_identical: int = 0
     unverified: list[str] = field(default_factory=list)
     proof: Proof | None = None
+    # 数式の参照先に、数式が記入例と違うセル（structure_differs）がある：計算の条件が同じでないので比べない
+    depends_on_structure: list[tuple[str, str, str, object, object]] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -44,12 +46,42 @@ class ExampleCheck:
         s = (f"記入例の入力 {self.inputs} か所を空の様式に記入 → 計算結果の更新 {self.updated_formulas} 個。"
              f"数式 {self.formulas:,} 個のうち、Excel（記入例）の計算結果と一致 {self.formulas - len(self.mismatches):,}・"
              f"不一致 {len(self.mismatches)}")
+        if self.depends_on_structure:
+            s += f"（参照先の数式が記入例と違うので比べなかった数式 {len(self.depends_on_structure)} 個）"
         if self.controls:
             s += (f"。チェックボックス {self.controls} 個の状態が一致 {self.controls - len(self.control_mismatches)}・"
                   f"不一致 {len(self.control_mismatches)}")
         if self.parts_compared:
             s += f"（書き換えた部品 {self.parts_identical}/{self.parts_compared} が記入例とバイト一致）"
         return s
+
+
+def pair_sheets(blank: Workbook, example: Workbook) -> dict[str, str]:
+    """白紙のシート → 記入例のシート。同じ名前のシート、なければ見出しの文字が同じ位置に6割以上あるシート
+    （記入例ではシートの名前を「記入例」「6-month budget」などに変えることがある）。"""
+    out: dict[str, str] = {}
+    names = {se.name for se in example.sheets}
+    for sb in blank.sheets:
+        if sb.name in names:
+            out[sb.name] = sb.name
+    used = set(out.values())
+    for sb in blank.sheets:
+        if sb.name in out:
+            continue
+        tb = {k: c.value for k, c in sb.cells.items() if isinstance(c.value, str) and c.value.strip()}
+        if not tb:
+            continue
+        best, score = None, 0.0
+        for se in example.sheets:
+            if se.name in used:
+                continue
+            same = sum(1 for k, v in tb.items() if (ce := se.cells.get(k)) is not None and ce.value == v)
+            if same / len(tb) > score:
+                best, score = se.name, same / len(tb)
+        if best is not None and score >= 0.6:
+            out[sb.name] = best
+            used.add(best)
+    return out
 
 
 def example_inputs(blank: Workbook, example: Workbook) -> tuple[dict[str, object], list[str], list[str]]:
@@ -63,12 +95,12 @@ def example_inputs(blank: Workbook, example: Workbook) -> tuple[dict[str, object
     values: dict[str, object] = {}
     structure: list[str] = []
     template: list[str] = []
+    pairs = pair_sheets(blank, example)
     for sb in blank.sheets:
-        try:
-            se = example.sheet(sb.name)
-        except KeyError:
+        if sb.name not in pairs:
             structure.append(sb.name)
             continue
+        se = example.sheet(pairs[sb.name])
         fields = input_cells(blank, sb) if not sb.state.startswith("non-") else {}
         for k in sorted(set(sb.cells) | set(se.cells)):
             cb, ce = sb.cells.get(k), se.cells.get(k)
@@ -131,18 +163,23 @@ def check(blank_blob: bytes, example_blob: bytes) -> ExampleCheck:
         if (r, c) not in fields.get(sheet, {}) and (sheet, r, c) not in linked:
             out.not_input_fields.append(key)
     skip = set(structure)
-    for se in example.sheets:
-        if not ours.has_sheet(se.name):
+    for bname, ename in pair_sheets(blank, example).items():
+        se = example.sheet(ename)
+        if not ours.has_sheet(bname):
             continue
-        so = ours.sheet(se.name)
+        so = ours.sheet(bname)
         for k, ce in se.cells.items():
-            if not ce.has_formula or f"{se.name}!{addr(*k)}" in skip:
+            if not ce.has_formula or f"{bname}!{addr(*k)}" in skip:
                 continue
-            out.formulas += 1
             co = so.cells.get(k)
             got = co.value if co else None
             if not values_equal(ce.value, got):
-                out.mismatches.append((se.name, ce.address, ce.formula or "", ce.value, got))
+                m = (bname, ce.address, ce.formula or "", ce.value, got)
+                if co is not None and _depends_on(ours, bname, co, skip):
+                    out.depends_on_structure.append(m)
+                    continue
+                out.mismatches.append(m)
+            out.formulas += 1
         mine = {c.shape_id: c for c in so.controls}
         for ce in se.controls:
             co = mine.get(ce.shape_id)
@@ -156,3 +193,37 @@ def check(blank_blob: bytes, example_blob: bytes) -> ExampleCheck:
             out.parts_compared += 1
             out.parts_identical += ours.zip.read(part) == example.zip.read(part)
     return out
+
+
+def _depends_on(wb: Workbook, sheet: str, cell, targets: set[str], limit: int = 50_000) -> bool:
+    """数式 cell が（数式をたどって）targets（「シート!A1」）のどれかを参照するか。"""
+    from ..formula.parser import RefNode, iter_refs
+
+    seen: set[tuple[str, int, int]] = set()
+    stack = [(sheet, cell)]
+    while stack:
+        sh_name, c = stack.pop()
+        if c.ast is None:
+            continue
+        for ref in iter_refs(c.ast):
+            if not isinstance(ref, RefNode):
+                continue
+            name = ref.sheet or sh_name
+            if not wb.has_sheet(name):
+                continue
+            sh = wb.sheet(name)
+            r2, c2 = min(ref.r2, sh.max_row if hasattr(sh, "max_row") else ref.r2), ref.c2
+            for (r, col), cc in sh.cells.items():
+                if not (ref.r1 <= r <= r2 and ref.c1 <= col <= c2):
+                    continue
+                key = (sh.name, r, col)
+                if key in seen:
+                    continue
+                seen.add(key)
+                if f"{sh.name}!{addr(r, col)}" in targets:
+                    return True
+                if cc.has_formula:
+                    stack.append((sh.name, cc))
+                if len(seen) > limit:
+                    return True  # たどりきれない：比べない側にしておく
+    return False

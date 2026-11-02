@@ -486,6 +486,26 @@ def _line(row: list[Ch], vertical: bool, stacked: bool = False) -> Line:
 
 # ====================================================================== 入力欄
 ADDRESS_UNITS = set("市区町村郡都道府県")
+# 数の後ろに付く単位（その前の空きに数を書く）。「日／月」「時間／週」のような割合も
+UNIT_ONLY = re.compile(r"(?:時間|日間|週間|か月|ヶ月|カ月|千円|万円|年度|[日時分秒年月週回人名件号円台本枚個歳才種級％%])"
+                       r"(?:[／/](?:時間|[日時週月年回]))?")
+
+
+def _unit_at(text: str, i: int) -> bool:
+    """text の i 文字目から単位（「分」「日／月」「種」）があり、その後ろが字でない（「分類」「種類」は単位でない）。"""
+    m = UNIT_ONLY.match(text, i)
+    if not m:
+        return False
+    nxt = text[m.end():m.end() + 1]
+    return not nxt or not ("\u3040" <= nxt <= "\u30ff" or "\u3400" <= nxt <= "\u9fff" or nxt.isalpha())
+
+
+# 時刻の欄だけの行（「　　：　　～　　：　　」）、または時刻の範囲を含む行
+_TIME_SKELETON = re.compile(r"[：:～~（）() \u3000]*[：:][：:～~（）() \u3000]*")
+_TIME_RANGE = re.compile(r"[：:][ \u3000]{2,}[～~][ \u3000]{2,}[：:]")
+# 字間を空けた見出し（「事　業　所」「氏　　名」）
+_SPACED = re.compile(r"(?:\S[ \u3000]+)+\S")
+DASHES = "－-‐−―–—"
 LEAD_UNITS = ("年", "知事", "市長", "町長", "村長", "区長", "長　殿", "長殿")
 
 
@@ -497,35 +517,53 @@ def pdf_blanks(text: str, lead: int = 0, trail: int = 0) -> list[tuple[int, int]
     - 「　　　－　　　」のようにハイフンでつながる空き"""
     core = text[lead:len(text) - trail] if trail else text[lead:]
     out = set(inline_blanks(text))
+    time_like = bool(_TIME_SKELETON.fullmatch(core) or _TIME_RANGE.search(core))
+    spaced = bool(_SPACED.fullmatch(core.strip(" \u3000")))
     for m in re.finditer(r"[ \u3000]{2,}", text):
         a, b = m.start(), m.end()
         after = text[b:b + 2]
         before = text[a - 1:a] if a else ""
-        if after[:1] in ADDRESS_UNITS and (len(after) < 2 or after[1] in ADDRESS_UNITS or after[1] in " \u3000"):
+        a1, b1 = after[:1], before  # どちらも空の文字列のことがある（"" はどの文字列にも含まれるので、確かめてから比べる）
+        if a1 and a1 in ADDRESS_UNITS and (len(after) < 2 or after[1] in ADDRESS_UNITS or after[1] in " \u3000・"):
             out.add((a, b))
+        elif any(text[b:].startswith(u) for u in ("区長", "市長", "町長", "村長", "知事")):
+            out.add((a, b))  # 「名古屋市　　　区長」の区の名前、「　　県知事」の県の名前
         elif a == 0 and any(text[b:].startswith(u) for u in LEAD_UNITS):
             out.add((a, b))
-        elif a == 0 and after[:1] in ("（", "("):
+        elif a == 0 and a1 in ("（", "("):
             out.add((a, b))
-        elif b == len(text) and before and before in ADDRESS_UNITS:
+        elif b == len(text) and b1 and (b1 in ADDRESS_UNITS or b1 == "〒"):
             out.add((a, b))
-        elif after[:1] in "－-‐" and text[b + 1:b + 2] in (" ", "\u3000"):
+        elif a1 and a1 in DASHES and text[b + 1:b + 2] in (" ", "\u3000", ""):
             out.add((a, b))
+        elif b1 and b1 in DASHES and (b < len(text) or a > 0):
+            out.add((a, b))  # 「〒　　　−　　　　」の「−」の後ろ
+        elif a1 and a1 in "：:" and time_like:
+            out.add((a, b))  # 時刻「　　：　　～　　：　　」の時（「：」の前）
+        elif b1 and b1 in "：:" and time_like:
+            out.add((a, b))  # 時刻の分（「：」の後ろ）
+        elif a1 and a1 in "～~" and a > 0:
+            out.add((a, b))  # 「　　～　　」の「～」の前
+        elif b1 and b1 in "～~" and b < len(text):
+            out.add((a, b))  # 「～」の後ろ
+        elif a > 0 and b1 and not b1.isspace() and _unit_at(text, b) and not spaced:
+            out.add((a, b))  # 「片道　　分」「手帳　　種　　級」「　　日／月」の単位の前（「氏　　名」のような見出しは除く）
     kept: list[tuple[int, int]] = []
     for a, b in sorted(out):
         if trail and a >= len(text) - trail:
             # 縁までの空き（後ろ）：住所の単位の後、または「（内線）」のように かっこだけの文字の後
             before = text[a - 1:a]
             short_paren = core.strip(" \u3000").startswith(("（", "(")) and len(core.strip(" \u3000")) <= 10
-            if not (before in ADDRESS_UNITS or (before in "）)" and short_paren)):
+            if not before or not (before in ADDRESS_UNITS or before == "〒" or before in DASHES or (before in "）)" and short_paren)
+                                  or (before in "：:" and time_like)):
                 continue
         if lead and b <= lead:
             after = text[b:b + 2]
-            date_like = bool(re.search(r"[年月][ \u3000]+[月日]", core))
-            unit_only = bool(re.fullmatch(r"(円|人|名|件|号)[ \u3000]*", core.strip(" \u3000")))
-            if not (after[:1] in ADDRESS_UNITS or after[:1] in "（(" or
+            date_like = bool(re.search(r"[年月][ \u3000]+[月日]", core)) or bool(re.search(r"時[ \u3000]+分", core))
+            unit_only = bool(UNIT_ONLY.fullmatch(core.strip(" \u3000")))
+            if not after[:1] or not (after[:1] in ADDRESS_UNITS or after[:1] in "（(" or
                     any(text[b:].startswith(u) for u in LEAD_UNITS if u != "年") or
-                    (after[:1] in "年月日" and date_like) or unit_only):
+                    (after[:1] in "年月日時" and date_like) or unit_only or (after[:1] in "：:" and time_like)):
                 continue
         if kept and a < kept[-1][1]:
             if b > kept[-1][1]:
@@ -533,6 +571,9 @@ def pdf_blanks(text: str, lead: int = 0, trail: int = 0) -> list[tuple[int, int]
             continue
         kept.append((a, b))
     return kept
+
+
+_OPTION_GROUP = re.compile(r"[^・／/（）()\s\u3000]{1,10}(?:[\s\u3000]*[・／/][\s\u3000]*[^・／/（）()\s\u3000]{1,10}){1,5}")
 
 
 def _cut_option(t: str) -> str:
@@ -690,25 +731,15 @@ class PageLayout:
                 sp.reason += "（色の付いたマス）"
             self.spots.append(sp)
             used_cells.add(id(c))
-        # 3) 1行のマスで、見出しの右に大きな空きがあるもの
+        # 3) マスの中の見出しの右に、大きな空きがあるもの（1行のマスでも、見出しが何行かあるマスでも、行ごとに）
         for c in cells:
-            if not c.visible() or len(c.lines) != 1:
+            if not c.visible():
                 continue
-            ln = c.lines[0]
-            if ln.vertical:
-                continue
-            sz = ln.size
-            if c.h > 3.2 * sz or c.h < 1.1 * sz:
-                continue
-            room = c.x1 - ln.x1
-            if any(abs(o.x0 - c.x1) <= 1.5 and _vov(o, c) >= 0.5 and not o.visible()
-                   for o in self.index.near(c.x1, c.y0, c.x1 + 5, c.y1)):
-                continue
-            if ln.x0 - c.x0 <= 3 * sz and room >= max(48, 5 * sz) and room >= 0.45 * c.w and len(ln.text.strip()) <= 16 \
-                    and not inline_blanks(ln.text) and not any(b in ln.text for b in BOX_GLYPHS):
-                self.spots.append(Spot("text", (ln.x1 + 1.5, c.y0, c.x1, c.y1), norm_label(ln.text.strip()),
-                                       "見出しと同じマスの右の空き", cell=c, size=_fit_size(c.h, typ), host=ln,
-                                       at=(len(ln.text), len(ln.text))))
+            hor = [x for x in c.lines if not x.vertical]
+            for ln in hor:
+                self._right_room(c, ln, hor, typ)
+            self._rest_of_cell(c, typ)
+            self._stacked_options(c)
         # 4) 下線
         self._underline_spots()
         # ほかの欄と大きく重なる候補は、先に見つけたものを残す
@@ -720,6 +751,69 @@ class PageLayout:
                 continue  # 同じ □ を2重に見つけたもの
             kept.append(s)
         self.spots = kept
+
+    def _rest_of_cell(self, c: Cell, typ: float) -> None:
+        """字がマスの一部にだけあり、残りに書ける空きがあるマス。
+        - 字が上の方にだけある：下の空き（「〒」の下に住所を書くなど）
+        - 字が下の方にだけある：上の空き（「区」の上に区の名前を書くなど）
+        - 字が右の方にだけある：左の空き（「□男 □女」の左に名前を書くなど）"""
+        hor = [x for x in c.lines if not x.vertical]
+        if not hor or c.w < 24:
+            return
+        if any(sp.cell is c and sp.kind in ("text", "comb") for sp in self.spots):
+            return
+        bottom = max(x.y1 for x in hor)
+        top = min(x.y0 for x in hor)
+        left = min(x.x0 for x in hor)
+        sz = max(x.size for x in hor)
+        below = c.y1 - bottom
+        above = top - c.y0
+        leftroom = left - c.x0
+        label, rl, _cl = self._label_for(c, c)
+        own = norm_label(join_lines(hor))
+        name = f"{rl}（{own}）" if rl and own else (rl or own)
+        if below >= max(1.3 * sz, 12) and below >= 0.4 * c.h and c.w >= 60:
+            self.spots.append(Spot("text", (c.x0 + 1.5, bottom + 0.5, c.x1 - 1.5, c.y1 - 0.5), name,
+                                   "マスの中の字の下の空き", cell=c, size=_fit_size(min(below, 2.5 * sz), typ), host=c))
+        elif above >= max(1.3 * sz, 10) and above >= 0.4 * c.h:
+            self.spots.append(Spot("text", (c.x0 + 1.5, c.y0 + 0.5, c.x1 - 1.5, top - 0.5), name,
+                                   "マスの中の字の上の空き", cell=c, size=_fit_size(min(above, 2.5 * sz), typ), host=c))
+        elif leftroom >= max(48, 5 * sz) and leftroom >= 0.4 * c.w and not any(
+                pdf_blanks("\u3000" * 3 + ln.text) for ln in hor):
+            self.spots.append(Spot("text", (c.x0 + 1.5, c.y0 + 0.5, left - 1.5, c.y1 - 0.5), rl or name,
+                                   "マスの中の字の左の空き", cell=c, size=_fit_size(c.h, typ), host=c))
+
+    def _right_room(self, c: Cell, ln: Line, hor: list, typ: float) -> None:
+        sz = ln.size
+        others = [o for o in hor if o is not ln]
+        if any(o.y0 < ln.y1 - 0.2 * sz and o.y1 > ln.y0 + 0.2 * sz and o.x0 >= ln.x1 for o in others):
+            return  # 同じ高さの右に、ほかの字がある
+        if len(hor) == 1:
+            band = (c.y0, c.y1)
+            ref = max(sz, 0.75 * typ)  # 「フリガナ」のような小さな見出しでも、書く字はふつうの大きさ
+            if c.h > 3.2 * ref or c.h < 1.1 * sz:
+                return
+        else:
+            above = [o.y1 for o in others if o.y1 <= ln.y0 + 0.2 * sz]
+            below = [o.y0 for o in others if o.y0 >= ln.y1 - 0.2 * sz]
+            band = (max(above + [c.y0]), min(below + [c.y1]))
+        room = c.x1 - ln.x1
+        if True:
+            if any(abs(o.x0 - c.x1) <= 1.5 and _vov(o, c) >= 0.5 and not o.visible()
+                   for o in self.index.near(c.x1, c.y0, c.x1 + 5, c.y1)):
+                return
+            t = ln.text.strip(" \u3000")
+            # 大きな空きで分けた最後のまとまり（「上記のとおり証明します。　　　　委託者　事　業　所　の　住　所」の「委託者…」）
+            seg = re.split(r"[ \u3000]{3,}", t)[-1]
+            labelish = bool(_SPACED.fullmatch(seg) or re.search(r"(?:\S[ \u3000]){2,}\S$", seg)) or seg.endswith(("：", ":"))
+            left_ok = ln.x0 - c.x0 <= 3 * sz and room >= 0.45 * c.w
+            if (left_ok or (labelish and len(hor) >= 2 and room >= max(80, 8 * sz))) and room >= max(48, 5 * sz) \
+                    and len(seg if labelish else t) <= 16 + (8 if labelish else 0) \
+                    and not pdf_blanks(ln.text) and not any(b in ln.text for b in BOX_GLYPHS) \
+                    and not _OPTION_GROUP.search(ln.text):
+                self.spots.append(Spot("text", (ln.x1 + 1.5, band[0], c.x1, band[1]), norm_label((seg if labelish else t)),
+                                       "見出しと同じマスの右の空き", cell=c, size=_fit_size(band[1] - band[0], typ), host=ln,
+                                       at=(len(ln.text), len(ln.text))))
 
     def _merge_stacked(self, start: int) -> None:
         """同じマスの上下の行で、同じ横の位置にある空欄（「都 道／府 県」の前の空き）は1つの欄にする。"""
@@ -745,7 +839,9 @@ class PageLayout:
             return
         t = ln.text.strip(" \u3000")
         sz = ln.size
-        same_row = [c for c in self.chars if abs(c.cy - (ln.y0 + ln.y1) / 2) < 0.6 * sz and c not in ln.chars]
+        # 同じ高さのほかの字（空白の字は、見えないので数えない）
+        same_row = [c for c in self.chars if abs(c.cy - (ln.y0 + ln.y1) / 2) < 0.6 * sz and not c.text.isspace()
+                    and c not in ln.chars]
         # 行の頭の空き：左に何もなければ、4字ぶんまで
         if any(t.startswith(u) for u in LEAD_UNITS):
             left_bound = max([c.x1 for c in same_row if c.x1 <= ln.x0 + 0.5] + [self.left])
@@ -758,6 +854,18 @@ class PageLayout:
                 self.spots.append(Spot("inline", (ln.x0 - w, ln.y0, ln.x0 - 0.3 * sz, ln.y1),
                                        norm_label("［　］" + t), "行の頭の空き", line_text=ln.text, size=sz,
                                        host=ln, at=(0, 0)))
+        # 行の終わりの空き：「住所　〒」「仙台市」「電話番号　　―　　―」の後ろ（同じ高さの次の字か、右の縁まで）
+        last = t[-1:] if t else ""
+        if last and (last == "〒" or last in DASHES or (last in ADDRESS_UNITS and len(t) <= 12)):
+            right_bound = min([c.x0 for c in same_row if c.x0 >= ln.x1 - 0.5] + [self.right])
+            for r in self.vs:
+                if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1 and ln.x1 <= r.pos < right_bound:
+                    right_bound = r.pos
+            if right_bound - ln.x1 >= 3 * sz:
+                self.spots.append(Spot("inline", (ln.x1 + 0.3 * sz, ln.y0, right_bound - 1, ln.y1),
+                                       norm_label(t + "［　］"), "行の終わりの空き", line_text=ln.text, size=sz,
+                                       host=ln, at=(len(ln.text), len(ln.text))))
+                return
         # 見出しの右の余白（短い見出しで、右に何もない）
         if 1 <= len(t) <= 15 and not t.endswith(("。", "殿", "様", "御中")) and not pdf_blanks(ln.text):
             right_bound = min([c.x0 for c in same_row if c.x0 >= ln.x1 - 0.5] + [self.right])
@@ -769,9 +877,10 @@ class PageLayout:
             aligned = any(o is not ln and not o.vertical and abs(o.x0 - ln.x0) <= 1.0 and abs(o.y0 - ln.y0) < 12 * sz
                           for o in self.free_lines)
             centered = abs(center - (self.left + self.right) / 2) < 0.02 * (self.right - self.left) and not aligned
-            tight = any(o is not ln and not o.vertical and abs(o.x0 - ln.x0) <= 1.0 and
-                        (0 <= o.y0 - ln.y1 < 0.6 * sz or 0 <= ln.y0 - o.y1 < 0.6 * sz) for o in self.free_lines)
-            if room >= max(80, 8 * sz) and not centered and right_bound >= self.right - 1 and not tight:
+            spaced = bool(re.fullmatch(r"(?:\S[\u3000 ]+){2,}\S", t))  # 「事　業　所　の　住　所」字間を空けた見出し
+            tight = not spaced and any(o is not ln and not o.vertical and abs(o.x0 - ln.x0) <= 1.0 and
+                                       (0 <= o.y0 - ln.y1 < 0.6 * sz or 0 <= ln.y0 - o.y1 < 0.6 * sz) for o in self.free_lines)
+            if room >= max(80, 8 * sz) and not centered and (right_bound >= self.right - 1 or spaced) and not tight:
                 self.spots.append(Spot("space", (ln.x1 + sz, ln.y0 - 0.2 * sz, right_bound, ln.y1 + 0.2 * sz),
                                        norm_label(t), "見出しの右の余白（入力欄とは限りません）", size=sz, host=ln,
                                        at=(len(ln.text), len(ln.text)), confidence="low"))
@@ -829,6 +938,73 @@ class PageLayout:
             self.spots.append(Spot("inline", (x0, ln.y0, x1, ln.y1), norm_label(shown), "文字の中の空欄", line_text=text,
                                    blank=at, cell=cell, size=ln.size, host=ln, at=at))
         self._era_choice(ln, cell)
+        self._option_choice(ln, cell)
+
+    def _option_choice(self, ln: Line, cell: Cell | None) -> None:
+        """○で囲んで選ぶ選択肢：「（父携帯・母携帯・自宅）」のようにかっこの中を「・」で区切ったもの、
+        または「有　・　無」のように選択肢だけの行（ページに「○で囲む」などの指示があるか、区切りの前後を空けて並べたもの）。"""
+        if ln.vertical:
+            return
+        text = ln.text
+        groups = []
+        for m in re.finditer(r"[（(]([^（）()]{2,60})[）)]", text):
+            groups.append((m.start(1), m.group(1), True))
+        whole = text.strip(" \u3000")
+        # 後ろの「その他（　　）」の書く所は選択肢に含めない
+        body = re.sub(r"[（(][ \u3000]*[）)]$", "", whole).rstrip(" \u3000")
+        spaced_sep = bool(re.search(r"[ \u3000]+[・／/][ \u3000]+", body))
+        if body and _OPTION_GROUP.fullmatch(body) and (self._circle_instruction() or spaced_sep):
+            groups.append((text.index(body), body, False))
+        for start, inner, paren in groups:
+            parts = re.split(r"([・／/])", inner)
+            opts = []
+            pos = start
+            for k, part in enumerate(parts):
+                if k % 2 == 0:
+                    word = part.strip(" \u3000")
+                    if word:
+                        a = pos + part.index(word)
+                        opts.append((word, a, a + len(word)))
+                pos += len(part)
+            if not (2 <= len(opts) <= 6) or any(len(w) > 10 or re.search(r"[、。：:]", w) for w, _a, _b in opts):
+                continue
+            if any(re.fullmatch(r"[\d０-９]+", w) for w, _a, _b in opts):
+                continue
+            rects = [(w, ln.span_rect(a, b)) for w, a, b in opts]
+            head = text[:start].rstrip("（( \u3000")
+            label = norm_label((head.strip() or (cell.text() if cell is not None else ""))[-30:]) or "選択肢"
+            r = (min(x[1][0] for x in rects), min(x[1][1] for x in rects), max(x[1][2] for x in rects), max(x[1][3] for x in rects))
+            sp = Spot("circle", r, f"{label}（○で囲む）", "選択肢が「・」で並ぶ（どれかを○で囲む）", cell=cell, host=ln,
+                      at=None, size=ln.size)
+            sp.options = rects
+            self.spots.append(sp)
+
+    def _stacked_options(self, c: Cell) -> None:
+        """マスの中に、短い語が縦に並んだもの（「父」「母」「その他」）を、○で囲んで選ぶ欄にする（ページに指示があるとき）。"""
+        hor = [x for x in c.lines if not x.vertical]
+        if len(hor) < 2 or not self._circle_instruction():
+            return
+        words = []
+        for ln in hor:
+            for m in re.finditer(r"[^\s\u3000・／/（）()]{1,6}", ln.text):
+                words.append((m.group(0), ln.span_rect(m.start(), m.end())))
+        if not (2 <= len(words) <= 8) or any(re.fullmatch(r"[\d０-９]+", w) for w, _r in words):
+            return
+        if any(sp.cell is c for sp in self.spots):
+            return
+        label, rl, cl = self._label_for(c, c)
+        r = (min(x[1][0] for x in words), min(x[1][1] for x in words), max(x[1][2] for x in words), max(x[1][3] for x in words))
+        # 行でもマスでもない（マスの頭に「（○で囲む［欄］: 父・母・その他）」と出す）
+        sp = Spot("circle", r, f"{label or '選択肢'}（○で囲む）", "マスの中に選択肢が並ぶ（どれかを○で囲む）", cell=c,
+                  host=None, size=max(x.size for x in hor))
+        sp.options = words
+        self.spots.append(sp)
+
+    def _circle_instruction(self) -> bool:
+        if not hasattr(self, "_circ"):
+            t = "".join(c.text for c in self.chars)
+            self._circ = bool(re.search(r"[○〇]\s*で\s*囲|[○〇]\s*を\s*(付|つけ)|[○〇]\s*印|該当する(もの|番号|項目)|いずれかに", t))
+        return self._circ
 
     def _era_choice(self, ln: Line, cell: Cell | None) -> None:
         """元号を○で囲んで選ぶ欄（「昭和／平成」を上下や左右に並べたもの）。マスの中の元号の字を集めて、1つの選ぶ欄にする。"""
@@ -875,7 +1051,7 @@ class PageLayout:
                 continue
             sz = label.size
             top = h.pos - 1.3 * sz
-            if any(c.cx > h.a and c.cx < h.b and top < c.cy < h.pos for c in self.chars):
+            if any(c.cx > h.a and c.cx < h.b and top < c.cy < h.pos and not c.text.isspace() for c in self.chars):
                 continue
             self.spots.append(Spot("text", (h.a, top, h.b, h.pos - 0.5), norm_label(label.text.strip()), "見出しの右の下線",
                                    size=sz, host=label, at=(len(label.text), len(label.text))))

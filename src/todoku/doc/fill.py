@@ -458,9 +458,13 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
             elif kind == "inline":
                 text = _is_text_value(value)
                 a0, b0 = it["span"]
-                a, b = cps[a0], cps[b0 - 1] + 1
-                if b - a != b0 - a0 or -1 in cps[a0:b0]:
-                    raise FillError(f"{key}: 空欄が、書き換えられない部分にかかっています")
+                if a0 == b0:
+                    # 挿入：直前の字の後ろ（段落の終わりなら、段落の印の前）
+                    a = b = (cps[a0 - 1] + 1) if a0 > 0 and cps[a0 - 1] >= 0 else p.cp1
+                else:
+                    a, b = cps[a0], cps[b0 - 1] + 1
+                    if b - a != b0 - a0 or -1 in cps[a0:b0]:
+                        raise FillError(f"{key}: 空欄が、書き換えられない部分にかかっています")
                 w.add(Edit(a, b, text, a, mark))
                 patches.append(Patch(key, "input", text, "doc"))
             else:
