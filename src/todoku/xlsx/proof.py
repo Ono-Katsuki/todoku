@@ -28,6 +28,8 @@ class Proof:
     lint_errors: list[str] = field(default_factory=list)  # Excelが開くための構造の条件に反するもの
     lint_parts: int = 0
     control_changes: list[dict] = field(default_factory=list)  # フォームの部品（チェックボックスなど）の状態が変わったもの
+    sheets_outside_identical: int = 0  # 書き換えたシートの XML のうち、書いたセル・計算し直したセルのほかがバイト一致したもの
+    sheets_changed: int = 0
     container: str = "zip"  # zip（xlsx）/ cfb（xls）
     records_total: int = 0  # xls：ブックのストリームのレコード数
     records_identical: int = 0
@@ -47,7 +49,9 @@ class Proof:
                     f"ブックのレコードも {self.records_identical:,}/{self.records_total:,} がバイト一致）")
         return (f"変更 {len(self.cell_changes) + n_c} か所（{parts}）。"
                 f"それ以外は元とバイト一致（ZIPのエントリ {self.entries_identical}/{self.entries_total} が完全一致、"
-                f"変わったXMLも {self.xml_bytes_total - self.xml_bytes_changed:,}/{self.xml_bytes_total:,} バイトが一致）")
+                f"変わったXMLも {self.xml_bytes_total - self.xml_bytes_changed:,}/{self.xml_bytes_total:,} バイトが一致"
+                + (f"、書き換えたシート {self.sheets_outside_identical}/{self.sheets_changed} は、書いたセルと計算し直したセルを"
+                   "取り除くとバイト一致" if self.sheets_changed else "") + "）")
 
 
 def _common_affix(a: bytes, b: bytes) -> tuple[int, int]:
@@ -135,6 +139,54 @@ _CHECKED_MARKUP = [
     # ActiveX の部品の控えの絵の参照（共有していた絵を分けたとき。どの絵を指すかは ActiveX の証明で確かめる）
     re.compile(rb'(?<=<v:imagedata )o:relid="[^"]*"'),
 ]
+
+
+_ROW_EMPTY = re.compile(rb"<((?:\w+:)?row\b[^>]*)></(?:\w+:)?row>")
+_ROW_BARE = re.compile(rb'<(?:\w+:)?row r="(\d+)"/>')
+_ROW_NUM = re.compile(rb'<(?:\w+:)?row\b[^>]*?\br="(\d+)"')
+_CONTROL_PR = re.compile(rb"<(?:\w+:)?controlPr\b[^>]*>")
+_RID = re.compile(rb'\br:id="[^"]*"')
+_AX_REL = re.compile(rb'<Relationship Id="rIdAx\d+" Type="[^"]*/image" Target="[^"]*"/>')
+_DATA_EMPTY = re.compile(rb"<((?:\w+:)?sheetData)></(?:\w+:)?sheetData>")
+
+
+def _outside_cells(a: bytes, b: bytes, keys: set[str]) -> str | None:
+    """シートの XML から、書いてよいセル（書いたセル・計算し直したセル）の要素を両方で取り除き、残りがバイト一致かを見る。
+    セルの要素がなかった所に書いたときにできる行の入れ物（新しい行・中身のなかった行）だけは、同じに扱う。
+    一致すれば None、違えば最初に違う所を返す。"""
+    def strip(xml: bytes) -> bytes:
+        out, last = bytearray(), 0
+        for m in _CELL_SEG.finditer(xml):
+            if m[1].decode() in keys:
+                out += xml[last:m.start()]
+                last = m.end()
+        out += xml[last:]
+        x = _ROW_EMPTY.sub(rb"<\1/>", bytes(out))
+        return _DATA_EMPTY.sub(rb"<\1/>", x)
+
+    # ActiveX の部品の控えの絵を分けたとき：controlPr の r:id が、足した関係（rIdAx…）に変わる（どの絵かは ActiveX の証明で確かめる）
+    ta, tb = _CONTROL_PR.findall(a), _CONTROL_PR.findall(b)
+    if len(ta) == len(tb) and ta != tb:
+        fix = {}
+        for x, y in zip(ta, tb):
+            if x != y and re.sub(rb'(\br:id=")rIdAx\d+"', lambda m: _RID.search(x)[0] if _RID.search(x) else m[0], y) == x:
+                fix[y] = x
+        if fix:
+            b = _CONTROL_PR.sub(lambda m: fix.get(m[0], m[0]), b)
+    sa, sb = strip(a), strip(b)
+    rows_a = set(_ROW_NUM.findall(sa))
+    sb = _ROW_BARE.sub(lambda m: b"" if m[1] not in rows_a else m[0], sb)
+    sb = _DATA_EMPTY.sub(rb"<\1/>", sb)
+    if sa == sb:
+        return None
+    i, _j = _common_affix(sa, sb)
+    return sa[max(0, i - 60):i + 60].decode("utf-8", "replace")
+
+
+def _without_full_calc(xml: bytes) -> bytes:
+    """workbook.xml から、開いたときに計算し直す印（calcPr の fullCalcOnLoad、とその印だけの calcPr）を除く。"""
+    xml = re.sub(rb'<(?:\w+:)?calcPr fullCalcOnLoad="1"/>', b"", xml)
+    return re.sub(rb'\s+fullCalcOnLoad="[^"]*"', b"", xml)
 
 
 def _without_checked(data: bytes) -> bytes:
@@ -294,6 +346,32 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
                 lv = lc.value if lc else None
                 if bool(lv is True) != cb.is_checked:
                     unexpected.append(f"{sa.name}: チェックボックス「{ca.name}」の表示と、つながったセル {cb.link} の値（{lv!r}）が食い違っています")
+    # 書き換えた部品のバイトの比べ：シートの XML は、書いてよいセルの要素のほかはバイト一致。workbook.xml は開いたときに計算し直す印
+    # だけ。ほかに変わってよい部品は、calcChain・フォームの部品（ctrlProps・VML・ActiveX・控えの絵）だけ（それぞれ下と上で確かめる）
+    by_path = {sa.path: sa.name for sa in a.sheets}
+    wb_path = getattr(a, "wb_path", None)
+    n_sheets = n_same = 0
+    for n in changed:
+        if n in by_path:
+            keys = {c["cell"] for c in changes if c["sheet"] == by_path[n]}
+            keys |= {cell for sh, cell in (allowed_inputs or ()) if sh == by_path[n]}
+            keys |= {cell for sh, cell in (overwrite or ()) if sh == by_path[n]}
+            n_sheets += 1
+            where = _outside_cells(a.zip.read(n), b.zip.read(n), keys)
+            if where is None:
+                n_same += 1
+            else:
+                unexpected.append(f"{n}: 書いたセル・計算し直したセルのほかのバイトが変わっています（{where!r} のあたり）")
+        elif n == wb_path:
+            if _without_full_calc(a.zip.read(n)) != _without_full_calc(b.zip.read(n)):
+                unexpected.append(f"{n}: 開いたときに計算し直す印のほかにも変更があります")
+        elif n.endswith(".rels"):
+            # ActiveX の部品の控えの絵を分けたときに、分けた絵への関係を足すことだけ（どの絵かは ActiveX の証明で確かめる）
+            if _AX_REL.sub(b"", b.zip.read(n)) != a.zip.read(n):
+                unexpected.append(f"{n}: 分けた控えの絵への関係を足すほかにも変更があります")
+        elif not (n == getattr(a, "calc_chain", None) or n.endswith(".vml") or "/ctrlProps/" in n or "/activeX/" in n
+                  or "/media/" in n):
+            unexpected.append(f"{n}: 書き込みで変わってよい部品ではありません")
     # calcChain.xml：変わってよいのは、数式を値に置き換えたセルの記録を取り除くことだけ
     chain = getattr(a, "calc_chain", None)
     if chain and a.zip.has(chain) and b.zip.has(chain) and a.zip.read(chain) != b.zip.read(chain):
@@ -338,4 +416,6 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
         unexpected=unexpected,
         xml_bytes_changed=xml_changed,
         xml_bytes_total=xml_total,
+        sheets_outside_identical=n_same,
+        sheets_changed=n_sheets,
     )

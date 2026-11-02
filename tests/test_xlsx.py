@@ -172,6 +172,7 @@ def test_fill_changes_only_inputs_and_dependents():
     assert pr.ok, pr.unexpected
     assert pr.entries_changed == ["xl/worksheets/sheet1.xml"]
     assert pr.entries_identical == pr.entries_total - 1
+    assert pr.sheets_outside_identical == pr.sheets_changed == 1  # 書いたセル・計算し直したセルのほかはバイト一致
     changed_formulas = {c["cell"] for c in pr.cell_changes if c["kind"] == "formula"}
     assert {"S9", "S11", "S14", "S17", "S19", "AA4"} <= changed_formulas
     # 書き込んだ後のファイルも、全数照合で一致する
@@ -222,6 +223,7 @@ def test_fill_new_row_and_new_cell():
     res = fill(load(str(KAMI)), {"明細書!AJ30": "追記", "明細書!AH8": "備考"}, force=True)
     pr = prove(KAMI.read_bytes(), res.blob, {("明細書", "AJ30"), ("明細書", "AH8")})
     assert pr.ok, pr.unexpected
+    assert pr.sheets_outside_identical == pr.sheets_changed == 1  # 新しく作った行の入れ物のほかは、バイト一致
     sh = Workbook(res.blob).sheet("明細書")
     assert sh.cells[(30, 36)].value == "追記"
 
@@ -235,6 +237,22 @@ def test_fill_several_new_cells_in_the_same_new_row():
     sh = Workbook(res.blob).sheet("明細書")
     assert [sh.cells[(60, 36)].value, sh.cells[(60, 37)].value, sh.cells[(61, 36)].value, sh.cells[(62, 36)].value] == \
         ["前", "後", "上", "下"]
+
+
+def test_proof_finds_a_byte_changed_outside_the_written_cells():
+    # セルの中身・書式・結合では分からない変更（印刷の余白・ほかの部品）も、書いたセルの外のバイトの違いとして見つける
+    from todoku.zipraw import RawZip
+
+    res = fill(load(str(KAMI)), EDITS)
+    allowed = {(p.sheet, p.address) for p in res.patches if p.kind == "input"}
+    z = RawZip(res.blob)
+    z.replace("xl/worksheets/sheet1.xml", z.read("xl/worksheets/sheet1.xml").replace(b'left="0.75"', b'left="0.76"'))
+    pr = prove(KAMI.read_bytes(), z.build(), allowed)
+    assert not pr.ok and any("ほかのバイトが変わって" in u for u in pr.unexpected)
+    z = RawZip(res.blob)
+    z.replace("docProps/app.xml", z.read("docProps/app.xml") + b" ")
+    pr = prove(KAMI.read_bytes(), z.build(), allowed)
+    assert not pr.ok and any("docProps/app.xml" in u for u in pr.unexpected)
 
 
 # ------------------------------------------------------------------ 互換（構造）

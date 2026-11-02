@@ -400,4 +400,12 @@ def prove(original: bytes, new: bytes, written: dict[tuple[int, int], str], file
         cut = a.dec.byte_of(a.records[first - 2].b + len(a.records[first - 2].terminator)) if first - 2 < n else len(original)
         if original[:cut] != new[:cut]:
             pr.unexpected.append("書いた行より前の部分のバイトが変わっています")
+    # 書いた行より後ろも、書く前とバイト一致（行を足したときは、元の最後の行の改行が変わりうるので、足した行の証明に任せる）
+    last = max((r for r, _c in written if r <= n), default=0)
+    if last and last < n and not pr.rows_added:
+        ra_, rb_ = a.records[last - 1], b.records[last - 1]
+        ca_ = a.dec.byte_of(ra_.b + len(ra_.terminator))
+        cb_ = b.dec.byte_of(rb_.b + len(rb_.terminator))
+        if original[ca_:] != new[cb_:]:
+            pr.unexpected.append("書いた行より後ろの部分のバイトが変わっています")
     return pr

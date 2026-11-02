@@ -78,13 +78,16 @@ class DocProof:
     unexpected: list[str] = field(default_factory=list)
     lint_errors: list[str] = field(default_factory=list)
     embed_note: str = ""  # 埋め込んだ表に書いたときの、確かめたことの要約
+    word_document_kept: bool = False  # WordDocument の元のバイトが、FIB の位置の記録のほかは同じ位置にそのまま残った
 
     @property
     def ok(self) -> bool:
         return not self.unexpected and not self.lint_errors
 
     def headline(self) -> str:
-        return (f"複合ファイルのストリーム {self.entries_identical}/{self.entries_total} がバイト一致。段落 {self.paragraphs_total:,} のうち、"
+        return (f"複合ファイルのストリーム {self.entries_identical}/{self.entries_total} がバイト一致"
+                + ("（本文のストリームも、元のバイトは位置と長さの記録のほかそのまま残り、書いた字は後ろに足しただけ）"
+                   if self.word_document_kept else "") + f"。段落 {self.paragraphs_total:,} のうち、"
                 f"変わったのは書いた欄のある {self.paragraphs_changed} 段落だけ"
                 + ("" if not self.unexpected else f"（想定外の変更 {len(self.unexpected)} 件）")
                 + (f"。{self.embed_note}" if self.embed_note else ""))
@@ -115,6 +118,30 @@ def lint(doc: DocFile) -> list[str]:
 
 
 from ..docx.fill import written_of  # noqa: E402
+
+
+def _word_document_outside(a: DocFile, b: DocFile) -> str | None:
+    """WordDocument のバイトの比べ：元のバイト列は、書き込み後もそのまま同じ位置に残る（新しい字・書式は後ろに足す）。
+    変わってよいのは、FIB の位置と長さの記録（FibRgLw97・FibRgFcLcb）と、埋め込んだ表の表示用の絵の位置を指す
+    sprmCPicLocation の値（4 バイト。どこを指すかは埋め込みの証明で確かめる）だけ。合えば None、違えば最初に違う所。"""
+    x, y = a.wd, b.wd
+    if len(y) < len(x):
+        return f"ストリームが短くなりました（{len(x):,} → {len(y):,} バイト）"
+    fib = (a.lw_pos, a.fclcb_pos + a.cb_fclcb * 8)
+    if (b.lw_pos, b.fclcb_pos, b.cb_fclcb) != (a.lw_pos, a.fclcb_pos, a.cb_fclcb):
+        return "FIB の作り（記録の数）が変わりました"
+    i = 0
+    n = len(x)
+    while i < n:
+        if x[i] == y[i] or fib[0] <= i < fib[1]:
+            i += 1
+            continue
+        # sprmCPicLocation（0x6A03）の値の 4 バイトの中なら、その 4 バイトを飛ばす
+        s0 = next((s_ for s_ in range(max(2, i - 3), i + 1) if x[s_ - 2:s_] == b"\x03\x6a" and y[s_ - 2:s_] == b"\x03\x6a"), None)
+        if s0 is None:
+            return f"元のバイトが {i:,} バイト目で変わっています（FIB の位置の記録・絵の位置のほか）"
+        i = s0 + 4
+    return None
 
 
 def prove(original: bytes, new: bytes, written: dict) -> DocProof:
@@ -164,6 +191,11 @@ def prove(original: bytes, new: bytes, written: dict) -> DocProof:
             pr.entries_identical += 1
         elif name not in allowed:
             pr.unexpected.append(f"ストリーム {name} が変わっています")
+    where = _word_document_outside(a, b)
+    if where is None:
+        pr.word_document_kept = True
+    else:
+        pr.unexpected.append(f"WordDocument：{where}")
     pr.lint_errors += lint(b)
     if len(b.wd) != len(a.wd) and b.lw[0] != len(b.wd):
         pr.lint_errors.append("WordDocument を書き足したのに、意味のあるバイトの数（cbMac）がストリームの長さと合いません")

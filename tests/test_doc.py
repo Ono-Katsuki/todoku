@@ -47,6 +47,29 @@ def test_doc_header_field_and_bookmarks():
     assert any(p.text.startswith("様式第１６号") and "8年" in p.text for _k, _p, bl in after.stories for p in bl if hasattr(p, "text"))
 
 
+def test_doc_proof_keeps_word_document_bytes_and_finds_a_changed_byte():
+    # 本文のストリームの元のバイトは、FIB の位置と長さの記録のほかそのまま残る。それ以外の 1 バイトの違いも見つける
+    from todoku.cfb import CFB
+    from todoku.doc.audit import prove
+    from todoku.docx.fill import written_of
+
+    path = next((p for p in CORPUS if Path(p).name == "mynumber.doc"), None)
+    if path is None:
+        pytest.skip("mynumber.doc")
+    blob = Path(path).read_bytes()
+    doc = DocFile(blob, "m.doc")
+    body = next(f["id"] for f in build(doc)["fields"] if f["id"].startswith("T"))
+    res = fill(doc, {body: "とどく"})
+    pr = prove(blob, res.blob, written_of(res.patches))
+    assert pr.ok and pr.word_document_kept, pr.unexpected
+    wd = bytearray(CFB(res.blob).read("WordDocument"))
+    at = doc.fclcb_pos + doc.cb_fclcb * 8 + 16  # FIB の後ろ（元の本文の側）
+    wd[at] ^= 0xFF
+    bad = CFB(res.blob).replace("WordDocument", bytes(wd))
+    pr = prove(blob, bad, written_of(res.patches))
+    assert not pr.ok and any("WordDocument" in u for u in pr.unexpected)
+
+
 def test_embedded_excel_table_in_doc_is_shown_as_plain_text():
     # .doc に埋め込んだ Excel の表（ObjectPool の入れ物。名前は EMBED のフィールドの区切りの字の sprmCPicLocation）
     from todoku.docx.window import build, to_markdown
