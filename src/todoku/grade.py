@@ -420,6 +420,8 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
                             (inline + inferred + undecided + overlap)[:12]))
     elif n_fields:
         write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・シート保護・枠などの印で決まり、そのまま書けます"))
+    else:
+        write.append(Reason("B", "印のある欄がない", "入力欄の印（入力規則・シート保護・枠など）がありません。表の作りを読んで、書くセルを番地で指定します"))
     if inline:
         reasons.append(Reason("B", "文字の中の空欄", f"{len(inline)} か所は、「令和　年　月　日」のような文字の中の空白から推定した欄です", inline[:12]))
     if inferred:
