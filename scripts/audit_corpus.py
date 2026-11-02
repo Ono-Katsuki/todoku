@@ -21,24 +21,27 @@ OPEN_EXT = (".csv", ".tsv", ".json", ".jsonl", ".ndjson", ".rtf", ".odt", ".ott"
 
 
 def one(path: str) -> dict:
-    from todoku.xlsx.audit import run
+    # 形式は、入口（todoku.api）と同じく中身で見分ける（名前が .doc でも中身が RTF のものがある）
+    from todoku.book import kind_of
+    from todoku.openkinds import KINDS, audit_runner
 
-    if path.lower().endswith(".pdf"):
+    blob = Path(path).read_bytes()
+    try:
+        k = kind_of(blob, Path(path).name)
+    except Exception:  # noqa: BLE001
+        k = ""
+    if k in KINDS:
+        run = audit_runner(k)
+    elif k == "pdf":
         from todoku.pdf.audit import run
-    elif path.lower().endswith((".docx", ".docm")):
+    elif k == "docx":
         from todoku.docx.audit import run
-    elif path.lower().endswith((".jtd", ".jtt")):
+    elif k == "jtd":
         from todoku.jtd.audit import run
-    elif path.lower().endswith(".doc"):
+    elif k == "doc":
         from todoku.doc.audit import run
-    # 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument）：形式は中身と名前で見分ける
-    if path.lower().endswith(OPEN_EXT):
-        from todoku.book import kind_of
-        from todoku.openkinds import KINDS, audit_runner
-
-        k = kind_of(Path(path).read_bytes(), Path(path).name)
-        if k in KINDS:
-            run = audit_runner(k)
+    else:
+        from todoku.xlsx.audit import run
     t = time.time()
     try:
         au = run(Path(path).read_bytes(), Path(path).name)
