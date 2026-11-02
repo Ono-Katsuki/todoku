@@ -407,6 +407,8 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
         from .doc.book import DocFile
 
         doc = DocFile(blob, filename)
+        if getattr(doc, "word6", False):
+            return _grade_word6(doc)
     else:
         from .docx.document import DocxDocument
 
@@ -505,13 +507,48 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
             at = f"の {addr(*s.anchor)} 付近" if s.anchor else ""
             pictures.append({"id": f"{sh_obj.name}!{s.name or f'図{n}'}", "alt": (s.alt or "").strip() or None,
                              "decorative": getattr(s, "decorative", False), "where": f"シート「{sh_obj.name}」{at}"})
-    if getattr(wb, "biff", 8) == 5:
-        # Excel 5.0/95（BIFF5）：読めるが、書き込みとその証明はまだない
-        write.append(Reason("D", "Excel 5.0/95 の形式", "Excel 5.0/95（BIFF5）のブックは読めますが、todoku はまだ書けません"
-                            "（字のバイト列・数式のトークン・索引の形に合わせた書き込みと証明が要るため）"))
+    # Excel 5.0/95（BIFF5）のブックも、BIFF8 と同じく書けて証明できる（xls/write.py・xls/proof.py）。段階は、ほかの理由だけで決まる
     g = _final(reasons, write)
     g.alerts = picture_alerts(pictures)
     return g
+
+
+def _grade_word6(doc) -> Grade:
+    """Word 6.0/95：読む段階は Word と同じ決め方。書く段階は、字のバイト数を変えない上書きなので、空白・伏せ字・□ の上に
+    書ける欄は B（解析して書く）、字のない欄（空のマスなど）は D（todoku では書けない）。"""
+    from .doc.word6 import build
+
+    win = build(doc)
+    reasons: list[Reason] = []
+    write: list[Reason] = []
+    agent = [f for f in win["fields"] if f.get("agent")]
+    fields = [f for f in win["fields"] if not f.get("agent")]
+    if agent:
+        reasons.append(_agent_reason(agent))
+    layout = [f for f in fields if f.get("source") == "layout"]
+    if layout:
+        reasons.append(Reason("B", "配置から推定した入力欄",
+                              f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、フォームの欄ではなく、空のマスや空白・下線から推定しました",
+                              [f["id"] for f in layout[:12]]))
+    unread = sum(t.count("状態は読めません") for st in win["stories"] for t in st["reading"])
+    if unread:
+        reasons.append(Reason("C", "状態の読めないフォームの欄",
+                              f"チェックボックス・ドロップダウンのフォームの欄 {unread} か所は、Word 6.0/95 の欄のデータの形が仕様書にないので、"
+                              "状態（チェックの有無・選んだ項目）を読んでいません"))
+    reasons += _macro_reasons(win.get("macros"))
+    ok = [f for f in fields if not f.get("readonly")]
+    blocked = [f for f in fields if f.get("readonly")]
+    if ok or agent:
+        write.append(Reason("B", "同じバイト数の上書き",
+                            "Word 6.0/95 の文書は、空白・伏せ字（○○）・□ の上に、そのバイト数（全角の字は 2 バイト）までの値を、文書の文字コードで"
+                            f"上書きします（位置・書式の表は変えない）。規則で見つけた欄 {len(ok)} か所に書けます", [f["id"] for f in ok[:12]]))
+    if blocked:
+        write.append(Reason("D", "字のない欄",
+                            f"{len(blocked)} か所は字のない所（空のマスなど）です。字を足すと位置の表・書式の表・ピースの表をずらす必要があり、"
+                            "その書き込みと証明をまだ用意していないので、書けません", [f["id"] for f in blocked[:12]]))
+    if unread:
+        write.append(Reason("D", "状態の読めないフォームの欄", "状態の読めないチェックボックス・ドロップダウンには書けません"))
+    return _final(reasons, write)
 
 
 # ====================================================================== 一太郎（.jtd）

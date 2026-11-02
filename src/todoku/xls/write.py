@@ -4,6 +4,14 @@
 保存値と、フォームの部品の状態（OBJ の中のチェック・選んだ項目・値のバイト）だけを差し替える。ほかのレコードはバイト列のまま残す。レコードの長さが変わると位置がずれるので、
 位置を持つレコード（BOUNDSHEET・INDEX・DBCELL・EXTSST）は、組み立て直したあとで正しい位置に直す。
 複合ファイルの中のほかのストリームは、1バイトも変えない。
+
+Excel 5.0/95（BIFF5）のブックにも同じ考え方で書く（形は OpenOffice.org の「Microsoft Excel File Format」で確かめた）：
+- セルの字は LABEL（16 ビットの長さのバイト列。文字コードは CODEPAGE のもの）。共有文字列（SST・EXTSST）はない
+- 数値・真偽・空のセル、数式（FORMULA）の計算結果は BIFF8 と同じ形。結果の字の STRING も 16 ビットの長さのバイト列で、
+  空の字も STRING を置く（BIFF8 のような「空」の印はない）
+- INDEX は、未使用 4 バイト・最初の行・最後の行＋1（2 バイトずつ）・DEFCOLWIDTH の位置・DBCELL の位置の並び。DBCELL は BIFF8 と同じ
+- レコードの長さは 2080 バイトまで
+行のレコード（ROW）を足す書き込み・使っている範囲（DIMENSIONS）の外への書き込みは、行のまとまりの区切り方を確かめていないので断る。
 """
 
 from __future__ import annotations
@@ -47,9 +55,22 @@ def _xlstr(s: str) -> bytes:
         return struct.pack("<HB", len(s), 1) + s.encode("utf-16-le")
 
 
+def _bstr16(s: str, enc: str) -> bytes:
+    """BIFF5 の字：16 ビットの長さ（バイトの数）と、文字コード enc のバイト列。書けない字・長すぎる字は断る。"""
+    try:
+        raw = s.encode(enc)
+    except UnicodeEncodeError as e:
+        raise XlsWriteError(f"「{s[e.start:e.end]}」は、このブックの文字コード（{enc}）で書けない字です") from None
+    if len(raw) > 255:
+        raise XlsWriteError(f"Excel 5.0/95 のセルの字は 255 バイトまでです（「{s[:20]}…」は {len(raw)} バイト）")
+    return struct.pack("<H", len(raw)) + raw
+
+
 class XlsEditor:
     def __init__(self, wb: XlsWorkbook):
         self.wb = wb
+        self.biff = getattr(wb, "biff", 8)
+        self.enc = getattr(wb, "biff5_encoding", "cp1252")
         self.recs = [Rec(t, b) for _, t, b in records(wb.data)]
         self.sst_new: list[str] = []
         self.sst_index = {s: i for i, s in enumerate(wb.shared_strings) if s not in ()}
@@ -127,6 +148,8 @@ class XlsEditor:
             return Rec(T_BOOLERR, struct.pack("<HHHBB", r0, c0, xf, ERRCODE.get(value.code, 0x2A), 1), False)
         if is_number(value):
             return Rec(T_NUMBER, struct.pack("<HHHd", r0, c0, xf, float(value)), False)
+        if self.biff == 5:
+            return Rec(T_LABEL, struct.pack("<HHH", r0, c0, xf) + _bstr16(str(value), self.enc), False)
         return Rec(T_LABELSST, struct.pack("<HHHI", r0, c0, xf, self._sst_of(str(value))), False)
 
     def set_cell(self, sheet: str, r: int, c: int, value, xf: int | None = None) -> None:
@@ -191,14 +214,20 @@ class XlsEditor:
             b[6:14] = bytes([2, 0, ERRCODE.get(value.code, 0x2A), 0, 0, 0, 0xFF, 0xFF])
         elif is_number(value):
             b[6:14] = struct.pack("<d", float(value))
-        elif value == "" or value is None:
+        elif (value == "" or value is None) and self.biff != 5:
             b[6:14] = bytes([3, 0, 0, 0, 0, 0, 0xFF, 0xFF])
         else:
             b[6:14] = bytes([0, 0, 0, 0, 0, 0, 0xFF, 0xFF])
         self.recs[j] = Rec(T_FORMULA, bytes(b), False)
-        is_text = isinstance(value, str) and value != ""
+        if self.biff == 5:
+            # BIFF5：字の結果は、空の字も STRING に書く
+            is_text = isinstance(value, str) or value is None
+            sbody = _bstr16(value or "", self.enc) if is_text else b""
+        else:
+            is_text = isinstance(value, str) and value != ""
+            sbody = _xlstr(value) if is_text else b""
         if is_text:
-            srec = Rec(T_STRING, _xlstr(value), False)
+            srec = Rec(T_STRING, sbody, False)
             if has_str:
                 if self.recs[k].b != srec.b:
                     self.recs[k] = srec
@@ -257,6 +286,8 @@ class XlsEditor:
 
     def force_recalc(self) -> None:
         """開いたときにExcelがすべて計算し直すようにする（RECALCID を古い番号にする）。"""
+        if self.biff == 5:
+            raise XlsWriteError("Excel 5.0/95 のブックには、開いたときに計算し直させる確かな印がありません")
         for j, rec in enumerate(self.recs):
             if rec.t == T_RECALCID:
                 b = bytearray(rec.b)
@@ -268,6 +299,14 @@ class XlsEditor:
     def _insert(self, sheet: str, r0: int, c0: int, new: Rec) -> None:
         """セルのレコードがないセル：同じ行の、列の順の位置に差し込む。行のレコードもなければ作る。"""
         a, z = self.sheet_at[sheet]
+        if self.biff == 5:
+            dim = next((self.recs[j].b for j in range(a, z + 1) if self.recs[j].t == T_DIMENSIONS), None)
+            if dim is None or len(dim) < 8:
+                raise XlsWriteError(f"{sheet}：使っている範囲（DIMENSIONS）が見つかりません")
+            r1, r2, c1, c2 = struct.unpack_from("<HHHH", dim, 0)
+            if not (r1 <= r0 < r2 and c1 <= c0 < c2):
+                raise XlsWriteError(f"{sheet}!R{r0 + 1}C{c0 + 1} は、シートの使っている範囲（DIMENSIONS）の外です。Excel 5.0/95 のブックでは、"
+                                    "範囲を広げる書き込みはしません")
         last_cell_of_row = None
         first_after = None
         row_rec = None
@@ -302,6 +341,9 @@ class XlsEditor:
                 at += 1
         else:
             if row_rec is None:
+                if self.biff == 5:
+                    raise XlsWriteError(f"{sheet}!R{r0 + 1}C{c0 + 1}：この行には行のレコード（ROW）がありません。Excel 5.0/95 のブックに"
+                                        "行を足す書き込みは、行のまとまり（DBCELL）の区切り方を確かめていないので、しません")
                 self._insert_row(sheet, r0)
                 a, z = self.sheet_at[sheet]
                 return self._insert(sheet, r0, c0, new)
@@ -377,8 +419,9 @@ class XlsEditor:
                 self._fix_boundsheets(recs)
                 break
         out = bytearray()
+        limit = 2080 if self.biff == 5 else MAXREC
         for rec in recs:
-            if len(rec.b) > MAXREC:
+            if len(rec.b) > limit:
                 raise XlsWriteError("レコードが長すぎます")
             out += struct.pack("<HH", rec.t, len(rec.b)) + rec.b
         return bytes(out)
@@ -564,11 +607,13 @@ class XlsEditor:
             recs[i] = Rec(T_DBCELL, new, False)
 
     def _write_index(self, recs, i, offs, dbcells, defcol_at) -> None:
+        # BIFF8：未使用 4・行 4・行 4・DEFCOLWIDTH の位置 4・DBCELL の位置。BIFF5：未使用 4・行 2・行 2・DEFCOLWIDTH の位置 4・DBCELL の位置
+        head, at_def = (12, 8) if self.biff == 5 else (16, 12)
         b = bytearray(recs[i].b)
-        n_old = (len(b) - 16) // 4
+        n_old = (len(b) - head) // 4
         if defcol_at is not None:
-            struct.pack_into("<I", b, 12, offs[defcol_at])
+            struct.pack_into("<I", b, at_def, offs[defcol_at])
         body = b"".join(struct.pack("<I", offs[d]) for d in dbcells)
-        new = bytes(b[:16]) + body
+        new = bytes(b[:head]) + body
         if n_old != len(dbcells) or new != recs[i].b:
             recs[i] = Rec(T_INDEX, new, False)

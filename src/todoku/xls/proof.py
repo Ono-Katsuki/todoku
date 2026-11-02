@@ -7,6 +7,10 @@
 - 部品の OBJ（と続く CONTINUE）は、状態のバイト（チェック・選んだ項目・値・複数選択の印。どこにあるかは
   MS-XLS 2.4.181 Obj のとおりに読み直して決める）のほかはバイト一致。状態が変わった部品は、書き込みを指示した
   部品であり、指示した状態になっていて、つながったセルの値と合っていること
+- 計算結果が変わった数式は、元のブックに書いた値を入れて計算し直した結果と同じであること。計算し直すと変わるはずの数式が
+  変わっていなければ、それも知らせる（書いたセルに依存する数式の結果だけが、正しい値に変わったことを確かめる）
+- Excel 5.0/95（BIFF5）のブックも同じように確かめる。Excel 97 と 95 の両方の形（Workbook と Book）を持つブックは、
+  両方のストリームをそれぞれ確かめ、書いたセルと変わった数式の値が、二つの形で同じであることも確かめる
 """
 
 from __future__ import annotations
@@ -92,13 +96,75 @@ def _cells(recs) -> dict[tuple[int, int], tuple]:
 
 def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | None = None,
           allowed_controls: set[tuple[str, str]] | None = None) -> Proof:
+    pr = _prove_one(original, new, allowed_inputs, allowed_controls, None)
+    a = XlsWorkbook(original)
+    if not a.dual_format:
+        return pr
+    # Excel 97 と 95 の両方の形：Book（BIFF5）も同じように確かめ、二つの形の値が合うことを確かめる
+    book = next(n for n in CFB(original).streams() if n.lower() == "book")
+    if book in pr.entries_changed:
+        pr.unexpected = [u for u in pr.unexpected if not u.startswith(f"ストリーム {book} が変わりました")]
+        p5 = _prove_one(original, new, allowed_inputs, allowed_controls, "Book")
+        pr.unexpected += [f"Book（Excel 95 の形）: {u}" for u in p5.unexpected]
+        pr.lint_errors += [f"Book（Excel 95 の形）: {u}" for u in p5.lint_errors]
+        pr.records_total += p5.records_total
+        pr.records_identical += p5.records_identical
+    b8, b5 = XlsWorkbook(new), XlsWorkbook(new, stream="Book")
+    keys = {(c["sheet"], c["cell"]) for c in pr.cell_changes}
+    for sheet, a1 in sorted(keys):
+        from ..formula.parser import parse_cell
+
+        r, c = parse_cell(a1)
+        x = b8.sheet(sheet).cells.get((r, c)) if b8.has_sheet(sheet) else None
+        y = b5.sheet(sheet).cells.get((r, c)) if b5.has_sheet(sheet) else None
+        vx, vy = (x.value if x else None), (y.value if y else None)
+        if not (values_equal(vx, vy) or (vx in (None, "") and vy in (None, ""))):
+            pr.unexpected.append(f"{sheet}!{a1}: 書いたあとの値が Workbook（{vx!r}）と Book（{vy!r}）で食い違います")
+    return pr
+
+
+def _recalc_check(a: XlsWorkbook, cell_changes: list[dict]) -> list[str]:
+    """変わった数式の結果が、元のブックに書いた値を入れて計算し直した結果と同じか（書き込み処理とは別に計算する）。"""
+    from ..formula.parser import parse_cell
+    from ..xlsx.calc import recalc
+
+    inputs = {}
+    for ch in cell_changes:
+        if ch["kind"] == "input":
+            r, c = parse_cell(ch["cell"])
+            inputs[(ch["sheet"], r, c)] = ch["after"]
+    if not inputs:
+        return [f"{ch['sheet']}!{ch['cell']}: 書いたセルがないのに、数式の計算結果が変わりました"
+                for ch in cell_changes if ch["kind"] == "formula"]
+    want, problems = recalc(a, inputs)
+    out = []
+    got = {}
+    for ch in cell_changes:
+        if ch["kind"] != "formula":
+            continue
+        r, c = parse_cell(ch["cell"])
+        got[(ch["sheet"], r, c)] = ch["after"]
+    for k, v in got.items():
+        if k in problems:
+            continue
+        if k not in want:
+            out.append(f"{k[0]}!{addr(k[1], k[2])}: 書いた値に依存しない数式の計算結果が変わりました")
+        elif not values_equal(want[k], v):
+            out.append(f"{k[0]}!{addr(k[1], k[2])}: 数式の計算結果が {v!r} ですが、計算し直すと {want[k]!r} です")
+    for k, v in want.items():
+        if k not in got and k not in problems:
+            out.append(f"{k[0]}!{addr(k[1], k[2])}: 書いた値で計算結果が {v!r} に変わるはずの数式が、変わっていません")
+    return out
+
+
+def _prove_one(original: bytes, new: bytes, allowed_inputs, allowed_controls, stream: str | None) -> Proof:
     a_cfb, b_cfb = CFB(original), CFB(new)
     unexpected: list[str] = []
     sa, sb = a_cfb.streams(), b_cfb.streams()
     if set(sa) != set(sb):
         unexpected.append(f"複合ファイルのストリームの構成が変わりました: {sorted(set(sa) ^ set(sb))}")
-    a = XlsWorkbook(original)
-    b = XlsWorkbook(new)
+    a = XlsWorkbook(original, stream=stream)
+    b = XlsWorkbook(new, stream=stream)
     identical = sum(1 for n in sa if n in sb and a_cfb.read(n) == b_cfb.read(n))
     changed = [n for n in sa if n in sb and a_cfb.read(n) != b_cfb.read(n)]
     ax_seen: set = set()
@@ -109,7 +175,7 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
         ax_changes, ax_bad, ax_seen = prove_xls(a, b, allowed_controls)
         unexpected += ax_bad
     for n in changed:
-        if n != a.stream_name and n not in ax_seen:
+        if n != a.stream_name and n not in ax_seen and stream is None:
             unexpected.append(f"ストリーム {n} が変わりました（ブック以外は変えないはずです）")
     ga, sha = split(a.data)
     gb, shb = split(b.data)
@@ -214,8 +280,9 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
     # 部品の表示と、つながったセルの値が合っていること（書き込みで新しく生じた食い違いだけ）
     before_bad = set(_linked_controls_agree(a))
     unexpected += [x for x in _linked_controls_agree(b) if x not in before_bad]
-    lint_errors = lint(new).errors
-    before = set(lint(original).errors) if lint_errors else set()
+    unexpected += _recalc_check(a, cell_changes)
+    lint_errors = lint(new, stream).errors
+    before = set(lint(original, stream).errors) if lint_errors else set()
     ra_all = [(t, body) for _p, t, body in records(a.data)]
     rb_all = [(t, body) for _p, t, body in records(b.data)]
     from collections import Counter
@@ -275,11 +342,11 @@ class _Lint:
         return not self.errors
 
 
-def lint(blob: bytes) -> _Lint:
+def lint(blob: bytes, stream: str | None = None) -> _Lint:
     """Excelが修復なしに開くための条件：レコードの長さ・BOF と EOF の対応・シートの位置・索引・共有文字列の数。"""
     rep = _Lint()
     try:
-        wb = XlsWorkbook(blob)
+        wb = XlsWorkbook(blob, stream=stream)
     except Exception as e:  # noqa: BLE001
         rep.errors.append(f"ブックとして読めません（{e}）")
         return rep
@@ -288,7 +355,7 @@ def lint(blob: bytes) -> _Lint:
     depth = 0
     for pos, t, b in records(data):
         offs[pos] = t
-        if len(b) > 8224:
+        if len(b) > (2080 if wb.biff == 5 else 8224):
             rep.errors.append(f"レコード 0x{t:04X} が長すぎます（{len(b)} バイト）")
         if t == 0x0809:
             depth += 1
@@ -303,9 +370,10 @@ def lint(blob: bytes) -> _Lint:
             rep.errors.append(f"シート「{sh.name}」の位置（BOUNDSHEET）が、シートの始まりを指していません")
     for pos, t, b in records(data):
         if t == 0x020B:
-            n = (len(b) - 16) // 4
+            head = 12 if wb.biff == 5 else 16  # INDEX の、DBCELL の位置の並びの前の大きさ（BIFF5 は行が 2 バイトずつ）
+            n = (len(b) - head) // 4
             for k in range(n):
-                p = struct.unpack_from("<I", b, 16 + 4 * k)[0]
+                p = struct.unpack_from("<I", b, head + 4 * k)[0]
                 if offs.get(p) != 0x00D7:
                     rep.errors.append("索引（INDEX）が DBCELL を指していません")
                     break
@@ -317,6 +385,7 @@ def lint(blob: bytes) -> _Lint:
                 if offs.get(ib - within) not in (0x00FC, 0x003C):
                     rep.errors.append("共有文字列の索引（EXTSST）がずれています")
                     break
+    rep.errors += _dbcell_errors(data)
     # 共有文字列の数
     for pos, t, b in records(data):
         if t == 0x00FC:
@@ -325,6 +394,53 @@ def lint(blob: bytes) -> _Lint:
                 rep.errors.append("共有文字列の数が合いません")
             break
     return rep
+
+
+def _dbcell_errors(data: bytes) -> list[str]:
+    """DBCELL（行のまとまりの索引）の位置をたどって確かめる。最初の値は、DBCELL から最初の ROW までの距離。
+    続く値は、最初のものは 2 番目の ROW の頭（最初の ROW の終わり）から、ほかは一つ前の値の位置からの距離で、行の最初のセルに着く。
+    値の並びは、OpenOffice.org の資料（4.7.4）では ROW ごと（セルのない行は次の行のセルを指す）、MS-XLS（2.4.78）と Excel が
+    保存したファイルでは、セルのある行ごと。どちらかの読み方でちょうど合えばよい（位置の控えなので、どちらでも Excel は読める）。"""
+    recs = {pos: (t, b) for pos, t, b in records(data)}
+    out = []
+    for pos, (t, b) in recs.items():
+        if t != 0x00D7 or len(b) < 4:
+            continue
+        n = (len(b) - 4) // 2
+        if n == 0:
+            continue  # 空のまとまり
+        first = pos - struct.unpack_from("<I", b, 0)[0]
+        if recs.get(first, (None,))[0] != 0x0208:
+            out.append("行の索引（DBCELL）が、行のまとまりの最初の ROW を指していません")
+            continue
+        rows, at = [], first
+        while recs.get(at, (None,))[0] == 0x0208:
+            rows.append(struct.unpack_from("<H", recs[at][1], 0)[0])
+            at += 4 + len(recs[at][1])
+        firsts: dict[int, int] = {}
+        p = at
+        while p in recs and p != pos:
+            tt, bb = recs[p]
+            if tt in CELL_T and len(bb) >= 2:
+                firsts.setdefault(struct.unpack_from("<H", bb, 0)[0], p)
+            p += 4 + len(bb)
+        offs = [struct.unpack_from("<H", b, 4 + 2 * k)[0] for k in range(n)]
+        start = first + 4 + len(recs[first][1])
+
+        def walk(want: list[int | None]) -> bool:
+            q = start
+            for k, off in enumerate(offs):
+                q += off
+                if k < len(want) and want[k] is not None and q != want[k]:
+                    return False
+            return True
+
+        cell_rows = [r for r in rows if r in firsts]
+        by_cells = walk([firsts[r] for r in cell_rows]) and n >= len(cell_rows)
+        by_rows = n == len(rows) and walk([firsts.get(r) for r in rows])
+        if not (by_cells or by_rows):
+            out.append("行の索引（DBCELL）の、行の最初のセルの位置がずれています")
+    return out
 
 
 # ====================================================================== 窓とは別の読み方

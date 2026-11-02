@@ -423,6 +423,11 @@ def para_cps(p) -> list[int]:
 
 
 def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
+    if getattr(doc, "word6", False):
+        # Word 6.0/95：字のバイト数を変えない上書き（word6.py）
+        from .word6 import fill as fill6
+
+        return fill6(doc, values, force=force)
     from ..docx.fill import Patch
     from ..docx.window import WriteError, resolve_write
     from ..embed import EmbedError, is_embed_key

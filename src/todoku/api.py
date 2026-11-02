@@ -127,8 +127,21 @@ def _window(blob: bytes, name: str, k: str, lock) -> tuple[str, dict, list[tuple
         return k, doc, jparts(doc)
     from .docx.window import build, markdown_parts
 
-    doc = build(_word(blob, name, k))
+    d = _word(blob, name, k)
+    if getattr(d, "word6", False):
+        # Word 6.0/95：上書きできるバイト数（窓では全角の字数）と、字のない欄（変更できない欄）を添える
+        from .doc.word6 import build as build6
+
+        doc = build6(d)
+    else:
+        doc = build(d)
     return k, doc, markdown_parts(doc)
+
+
+def _is_word6(blob: bytes) -> bool:
+    from .doc.word6 import is_word6
+
+    return is_word6(blob)
 
 
 def _word(blob: bytes, name: str, k: str):
@@ -237,13 +250,19 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             result["anchored"] = {p.key: p.id for p in res.patches if p.anchor}
             readback_values = {k_: v for k_, v in values.items() if not k_.startswith("@")}
             readback_values.update({p.id: p.value for p in res.patches if p.anchor})
-    elif k == "jtd":
-        # 一太郎：元の字を同じ字数で上書きし、ファイル全体で変わったのがその字のバイトだけかを証明する。
+    elif k == "jtd" or (k == "doc" and _is_word6(blob)):
+        # 一太郎・Word 6.0/95：元の字を同じ字数（バイト数）で上書きし、変わったのがその字のバイトだけかを証明する。
         # 書いた所の印（しおり）を足さないので、読み戻しは証明の中の「読み直した段落の文字」で確かめる
         from .docx.fill import FillError, written_of
-        from .jtd.audit import prove as jprove
-        from .jtd.book import JtdFile
-        from .jtd.fill import fill as jfill
+
+        if k == "jtd":
+            from .jtd.audit import prove as jprove
+            from .jtd.book import JtdFile
+            from .jtd.fill import fill as jfill
+        else:
+            from .doc.word6 import Word6File as JtdFile
+            from .doc.word6 import fill as jfill
+            from .doc.word6 import prove as jprove
 
         try:
             res = jfill(JtdFile(blob, name), values, force=force)
@@ -342,7 +361,7 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             ok = str(g) == str(v) or _num_equal(g, v)
         if not ok:
             mismatch.append({"id": key, "written": v, "read_back": g})
-    if k == "jtd":
+    if "jtd_read_back" in result:
         mismatch += [{"id": "段落", "written": "", "read_back": x} for x in result.pop("jtd_read_back", [])]
     result["read_back_ok"] = not mismatch
     result["read_back_differences"] = mismatch[:30]

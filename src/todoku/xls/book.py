@@ -171,14 +171,17 @@ class _Supbook:
 class XlsWorkbook:
     kind = "xls"
 
-    def __init__(self, blob: bytes, filename: str = "", cfb=None):
-        """cfb：ほかの文書に埋め込んだブック（cfb.SubStorage）を読むとき。blob は外側のファイル。"""
+    def __init__(self, blob: bytes, filename: str = "", cfb=None, stream: str | None = None):
+        """cfb：ほかの文書に埋め込んだブック（cfb.SubStorage）を読むとき。blob は外側のファイル。
+        stream：両方の形を持つブックで、Excel 95 の形（"Book"）を読むとき。ふつうは決めない（Workbook を読む）。"""
         self.filename = filename
         self.cfb = cfb if cfb is not None else CFB(blob)
         self.zip = _ZipShim(blob)
         # Excel 97 と 95 の両方の形を持つブック（Workbook と Book）は、Excel 97 以降が読む Workbook（BIFF8）を読む
         name = next((n for n in self.cfb.streams() if n.lower() == "workbook"), None) or \
             next((n for n in self.cfb.streams() if n.lower() == "book"), None)
+        if stream is not None:
+            name = next((n for n in self.cfb.streams() if n.lower() == stream.lower()), None)
         if name is None:
             raise XlsError("Excelのブックのストリームがありません")
         self.stream_name = name
@@ -727,7 +730,7 @@ class XlsWorkbook:
                     return
                 if (mr, mc) in shared:
                     (r1, c1, r2, c2), srce, sextra = shared[(mr, mc)]
-                    key = ("__shared__", mr, mc)
+                    key = ("__shared__", sh.name, mr, mc)  # シートごと（同じ番地の共有数式が別のシートにもある）
                     master = self._shared_cache.get(key) if hasattr(self, "_shared_cache") else None
                     if master is None:
                         text = self.decoder.decode(srce, sextra, base=(mr, mc), rel=True)

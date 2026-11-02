@@ -117,6 +117,15 @@ def sprm_spans(grpprl: bytes):
 class DocFile:
     kind = "doc"
 
+    def __new__(cls, blob: bytes = b"", filename: str = "", cfb=None):
+        # Word 6.0/95（FIB の版 101〜104）の文書は、その形の読み方（word6.py）で読む
+        if cls is DocFile and cfb is None:
+            from .word6 import Word6File, is_word6
+
+            if is_word6(blob):
+                return super().__new__(Word6File)
+        return super().__new__(cls)
+
     def __init__(self, blob: bytes, filename: str = "", cfb=None):
         """cfb：ほかの文書に埋め込んだ文書（cfb.SubStorage）を読むとき。blob は外側のファイル。"""
         self.blob = blob
@@ -129,9 +138,9 @@ class DocFile:
         wd = self.wd
         ident, self.nfib = struct.unpack_from("<HH", wd, 0)
         if ident == 0xA5DC or (ident == 0xA5EC and self.nfib < 105):
-            # Word 6.0 / Word 95（FIB の版 101〜104）：表のストリームがなく、FIB・書式（sprm）・字の符号の形が違う
-            raise DocError(f"Word 6.0/95 の文書です（FIB の版 {self.nfib}）。この形はまだ読めません"
-                           "（Word 97 以降の形と、FIB の並び・書式の命令・字の符号が違うため。読み違えた字を出さないよう、読むのをやめました）")
+            # Word 6.0/95 の版 101〜104 は word6.py で読む。それより古い版（Word 2.0 など）は、形を確かめていない
+            raise DocError(f"Word 6.0 より古い Word の文書です（FIB の版 {self.nfib}）。この形は確かめていないので、読み違えた字を"
+                           "出さないよう、読むのをやめました")
         if ident != 0xA5EC:
             raise DocError("Word 97〜2003 の文書ではありません")
         self.flags = struct.unpack_from("<H", wd, 0x0A)[0]

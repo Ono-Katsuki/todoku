@@ -995,33 +995,44 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
 
 def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set | None = None,
               writes: list | None = None, ax_writes: list | None = None) -> EditResult:
-    """古いExcel（.xls）への書き込み：ブックのストリームのレコードを差し替え、複合ファイルのほかの部分は変えない。"""
+    """古いExcel（.xls）への書き込み：ブックのストリームのレコードを差し替え、複合ファイルのほかの部分は変えない。
+
+    Excel 5.0/95（BIFF5）のブックにも書く。Excel 97 と 95 の両方の形（Workbook と Book）を持つブックは、両方に同じ値を書き、
+    Book の数式の計算結果も Book の数式で計算し直して、Workbook と食い違わないことを確かめる。"""
     from ..xls.write import XlsEditor, XlsWriteError
 
-    if getattr(wb, "biff", 8) == 5:
-        # Excel 5.0/95（BIFF5）：字のバイト列・数式のトークン・索引の形が BIFF8 と違い、書き込みとその証明をまだ用意していない
-        raise EditError("Excel 5.0/95 の形式（BIFF5）のブックには、まだ書けません（読むことはできます）。"
-                        "書くには、セルの字のバイト列（文字コード）・数式のトークン・行の索引の形に合わせた書き込みと証明が要ります")
-    if getattr(wb, "dual_format", False):
-        warnings.append("このブックは Excel 97 以降の形（Workbook）と Excel 95 の形（Book）を両方持っています。書いたのは Excel 97 以降が"
-                        "読む Workbook だけで、Excel 95 で開くと古い値のままです")
+    biff5 = getattr(wb, "biff", 8) == 5
+    dual = getattr(wb, "dual_format", False)
+    if (biff5 or dual) and problems:
+        # BIFF5 には、開いたときに計算し直させる確かな印（BIFF8 の RECALCID）がない。古い計算結果を残さないよう、書かない
+        cells = "、".join(f"{s}!{addr(r, c)}" for (s, r, c) in sorted(problems)[:10])
+        raise EditError("書いた値から計算される数式のうち、todoku が計算し直せないものがあります（" + cells + "）。"
+                        "Excel 5.0/95 の形のブックには、開いたときに計算し直させる確かな印がないので、古い計算結果を残さないよう、書きません")
+    if biff5 and (controls or writes or ax_writes):
+        raise EditError("Excel 5.0/95 の形のブックの、フォームの部品には書けません（部品のレコードの形を確かめていないため）")
     ed = XlsEditor(wb)
     patches: list[Patch] = []
-    for (sheet, r, c), val in targets.items():
-        cell = wb.sheet(sheet).cells.get((r, c))
-        before = cell.value if cell else None
-        if (cell is not None and values_equal(before, val) and type(before) is type(val)) or (cell is None and val is None):
-            continue
-        ed.set_cell(sheet, r, c, val, wb.sheet(sheet).style_of(r, c) or None)
-        patches.append(Patch(wb.stream_name, sheet, addr(r, c), "macro" if (sheet, r, c) in (by_macro or set()) else "input",
-                             before, val))
-    for (sheet, r, c), val in sorted(changed.items()):
-        cell = wb.sheet(sheet).cells[(r, c)]
-        if cell.array_master is not None:
-            problems[(sheet, r, c)] = "配列数式の一部"
-            continue
-        ed.set_formula_value(sheet, r, c, val)
-        patches.append(Patch(wb.stream_name, sheet, addr(r, c), "formula", cell.value, val))
+    try:
+        for (sheet, r, c), val in targets.items():
+            cell = wb.sheet(sheet).cells.get((r, c))
+            before = cell.value if cell else None
+            if (cell is not None and values_equal(before, val) and type(before) is type(val)) or (cell is None and val is None):
+                continue
+            ed.set_cell(sheet, r, c, val, wb.sheet(sheet).style_of(r, c) or None)
+            patches.append(Patch(wb.stream_name, sheet, addr(r, c), "macro" if (sheet, r, c) in (by_macro or set()) else "input",
+                                 before, val))
+        for (sheet, r, c), val in sorted(changed.items()):
+            cell = wb.sheet(sheet).cells[(r, c)]
+            if cell.array_master is not None:
+                if biff5 or dual:
+                    raise EditError(f"{sheet}!{addr(r, c)}：配列数式の一部の計算結果が変わります。Excel 5.0/95 の形のブックでは、"
+                                    "開いたときに計算し直させる確かな印がないので、書きません")
+                problems[(sheet, r, c)] = "配列数式の一部"
+                continue
+            ed.set_formula_value(sheet, r, c, val)
+            patches.append(Patch(wb.stream_name, sheet, addr(r, c), "formula", cell.value, val))
+    except XlsWriteError as e:
+        raise EditError(str(e)) from None
     for (sheet, _sid), (_s, ctl, b) in sorted(controls.items()):
         if bool(ctl.is_checked) == bool(b):
             continue
@@ -1061,6 +1072,12 @@ def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set 
         ed.force_recalc()
     # ブックのストリームは最後の EOF の後ろを読まないので、小さすぎるときは0を足してよい
     blob = wb.cfb.replace(wb.stream_name, ed.build(), pad_ok=True) if ed.changed else wb.zip.original
+    changed_parts = [wb.stream_name] if ed.changed else []
+    if dual and ed.changed:
+        blob = _fill_book(wb, blob, targets, changed, controls, writes)
+        changed_parts.append(next(n for n in wb.cfb.streams() if n.lower() == "book"))
+        warnings.append("このブックは Excel 97 以降の形（Workbook）と Excel 95 の形（Book）を両方持っています。両方に同じ値を書き、"
+                        "Book の数式の計算結果も Book の数式で計算し直して、Workbook と同じになることを確かめました")
     if ax_streams:
         from ..axbin import write_streams
 
@@ -1069,9 +1086,67 @@ def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set 
                      full_calc_on_load=bool(unverified))
     res.original_sha256 = hashlib.sha256(wb.zip.original).hexdigest()
     res.sha256 = hashlib.sha256(blob).hexdigest()
-    res.changed_parts = ([wb.stream_name] if ed.changed else []) + sorted(ax_streams)
+    res.changed_parts = changed_parts + sorted(ax_streams)
     res.unchanged_parts = len(wb.cfb.streams()) - len(res.changed_parts)
     return res
+
+
+def _fill_book(wb, blob: bytes, targets, changed, controls, writes) -> bytes:
+    """両方の形を持つブックの Excel 95 の形（Book・BIFF5）に、Workbook と同じ値を書く。
+
+    書く前に、書くセルの値が Workbook と同じであること、Book の数式で計算し直した結果が Workbook の結果と同じであることを
+    確かめる（違えば、どちらかを読み違えているか、二つの形が初めから食い違っているので、書かない）。"""
+    from ..cfb import CFB
+    from ..xls.book import XlsWorkbook
+    from ..xls.write import XlsEditor, XlsWriteError
+    from .calc import recalc
+
+    if controls or writes:
+        raise EditError("Excel 97 と 95 の両方の形を持つブックの、フォームの部品には書けません（Book の部品の形を確かめていないため）")
+    try:
+        w5 = XlsWorkbook(wb.zip.original, wb.filename, stream="Book")
+    except Exception as e:  # noqa: BLE001
+        raise EditError(f"Excel 95 の形（Book）を読めないので、両方の形を合わせて書けません（{e}）") from None
+    if w5.biff != 5 or [s.name for s in w5.sheets] != [s.name for s in wb.sheets]:
+        raise EditError("Excel 95 の形（Book）のシートの並びが Workbook と違うので、両方の形を合わせて書けません")
+    for (sheet, r, c) in targets:
+        a8 = wb.sheet(sheet).cells.get((r, c))
+        a5 = w5.sheet(sheet).cells.get((r, c))
+        v8 = a8.value if a8 else None
+        v5 = a5.value if a5 else None
+        if not (values_equal(v8, v5) or (v8 in (None, "") and v5 in (None, ""))) or \
+                bool(a8 is not None and a8.has_formula) != bool(a5 is not None and a5.has_formula):
+            raise EditError(f"{sheet}!{addr(r, c)}：Workbook（{v8!r}）と Book（{v5!r}）の値が初めから違うので、両方の形を合わせて書けません")
+    changed5, problems5 = recalc(w5, targets)
+    if problems5:
+        cells = "、".join(f"{s}!{addr(r, c)}" for (s, r, c) in sorted(problems5)[:10])
+        raise EditError("Excel 95 の形（Book）の数式のうち、書いた値から計算されるものを todoku が計算し直せません（" + cells + "）。"
+                        "古い計算結果を残さないよう、書きません")
+    for k in set(changed) | set(changed5):
+        sheet, r, c = k
+        c8, c5 = wb.sheet(sheet).cells.get((r, c)), w5.sheet(sheet).cells.get((r, c))
+        after8 = changed[k] if k in changed else (c8.value if c8 else None)
+        after5 = changed5[k] if k in changed5 else (c5.value if c5 else None)
+        if not values_equal(after8, after5):
+            raise EditError(f"{sheet}!{addr(r, c)}：書いたあとの計算結果が、Workbook（{after8!r}）と Book（{after5!r}）で食い違います。"
+                            "両方の形を合わせて書けないので、書きません")
+    ed = XlsEditor(w5)
+    try:
+        for (sheet, r, c), val in targets.items():
+            cell = w5.sheet(sheet).cells.get((r, c))
+            before = cell.value if cell else None
+            if (cell is not None and values_equal(before, val) and type(before) is type(val)) or (cell is None and val is None):
+                continue
+            ed.set_cell(sheet, r, c, val, w5.sheet(sheet).style_of(r, c) or None)
+        for (sheet, r, c), val in sorted(changed5.items()):
+            if w5.sheet(sheet).cells[(r, c)].array_master is not None:
+                raise EditError(f"{sheet}!{addr(r, c)}：Book の配列数式の一部の計算結果が変わるので、書きません")
+            ed.set_formula_value(sheet, r, c, val)
+    except XlsWriteError as e:
+        raise EditError(f"Excel 95 の形（Book）: {e}") from None
+    if not ed.changed:
+        return blob
+    return CFB(blob).replace(w5.stream_name, ed.build(), pad_ok=True)
 
 
 def _set_full_calc(wb: Workbook) -> bool:

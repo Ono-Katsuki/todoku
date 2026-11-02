@@ -118,7 +118,12 @@ from ..docx.fill import written_of  # noqa: E402
 
 def prove(original: bytes, new: bytes, written: dict) -> DocProof:
     from ..embed import is_embed_key, verify_doc
+    from .word6 import is_word6
 
+    if is_word6(original):
+        from .word6 import prove as prove6
+
+        return prove6(original, new, written)
     pr = DocProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest())
     ca, cb_ = CFB(original), CFB(new)
     sa, sb = ca.streams(), cb_.streams()
@@ -230,6 +235,12 @@ def _expected(p, items) -> str | None:
 
 
 def run(blob: bytes, filename: str = "") -> Audit:
+    from .word6 import is_word6
+
+    if is_word6(blob):
+        from .word6 import run as run6
+
+        return run6(blob, filename)
     doc = DocFile(blob, filename)
     win = build(doc)
     au = Audit(filename)

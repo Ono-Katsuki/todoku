@@ -2,12 +2,13 @@
 
 レコードの形は OpenOffice.org の「Microsoft Excel File Format」（BIFF2〜BIFF8 の違いを並べた資料）で確かめた：
 - 字はバイト列で、CODEPAGE（0x0042）の文字コード（日本語は 932）。LABEL・RSTRING・STRING は 16 ビットの長さ、
-  SHEET（BOUNDSHEET）・FONT・FORMAT・HEADER・FOOTER は 8 ビットの長さ。共有文字列（SST）はない
+  SHEET（BOUNDSHEET）・FONT・FORMAT・HEADER・FOOTER・EXTERNSHEET は 8 ビットの長さ。長さはバイトの数
+  （EXTERNSHEET の「長さは 1 少なく書く」決まりで、日本語のシート名の長さがバイトの数と分かる）。共有文字列（SST）はない
 - XF は 16 バイト（4〜5 バイト目に保護、8〜15 バイト目に塗りと罫線）。NOTE は字をレコードの中に持つ
-- 数値・空・真偽・行・列幅・保護のレコードは BIFF8 と同じ形
-数式のトークンは BIFF8 と長さが違う（tRef 4・tArea 7・tRef3d 18・tName 15 バイトなど）。読み違えた数式で計算すると
-保存値と合わない値を作るので、数式は Excel が保存した計算結果だけを読み、数式そのものは「未対応」として示す
-（計算で確かめられないので、段階は C）。書き込みは、まだしない（xlsx/edit.py で断る）。
+- 数値・空・真偽・行・列幅・保護・数式（FORMULA・SHAREDFMLA・ARRAY）のレコードの形は BIFF8 と同じ
+- 別のシートへの参照は、ブック全体（名前）とシートごと（セルの数式）の EXTERNSHEET の並び（Link Table）を引く
+数式のトークンは ptg5.py で BIFF8 と同じ数式の文字列にし、xlsx と同じ計算で、Excel が保存した計算結果と照らす。
+確かめられない形の数式は「未対応」として示し、保存値だけを読む。
 """
 
 from __future__ import annotations
@@ -19,6 +20,16 @@ from ..formula.values import ExcelError
 from ..xlsx.workbook import Cell, DefinedName, Shape, Sheet, Style, _header_text
 
 FORMULA_NOTE = "未対応: Excel 5.0/95（BIFF5）の数式。Excel が保存した計算結果だけを読みました"
+
+
+def externsheet(b: bytes) -> bytes | None:
+    """EXTERNSHEET（BIFF5）の中身：8 ビットの長さのバイト列。最初の字が 0x03（同じブックのシート）のときは、長さが 1 少なく
+    書かれる。レコードの長さと合わなければ None（読み違えた名前で参照を作らない）。"""
+    if not b:
+        return None
+    n, body = b[0], b[1:]
+    want = n + 1 if body[:1] == b"\x03" else n
+    return body if len(body) == want else None
 
 
 def _codec(cp: int) -> str:
@@ -37,6 +48,7 @@ class Biff5Reader:
         self.wb = wb
         self.it = it
         self.enc = "cp1252"
+        self.global_links: list[bytes | None] = []
 
     def s8(self, b: bytes, pos: int) -> tuple[str, int]:
         n = b[pos]
@@ -69,6 +81,8 @@ class Biff5Reader:
             elif t == 0x0085:  # SHEET：位置・状態・種類・8 ビットの長さの名前
                 lb = struct.unpack_from("<I", b, 0)[0]
                 bound.append((lb, b[4] & 0x03, b[5], self.s8(b, 6)[0]))
+            elif t == 0x0017:  # EXTERNSHEET（ブック全体の Link Table：名前の中の別のシートへの参照が引く）
+                self.global_links.append(externsheet(b))
             elif t == 0x0018:
                 self._name(b)
             elif t == 0x0012:
@@ -77,6 +91,7 @@ class Biff5Reader:
             st = {0: "visible", 1: "hidden", 2: "veryHidden"}.get(state, "visible")
             kind = {2: "chartsheet", 6: "vbmodule"}.get(dt, f"type{dt}")
             wb.sheets.append(Sheet(name=name, path=f"#{lb}", state=st if dt == 0 else f"non-worksheet:{kind}"))
+        self._names()
         for (lb, _s, dt, _n), sh in zip(bound, wb.sheets):
             if dt == 0:
                 self._sheet(sh, lb)
@@ -94,14 +109,40 @@ class Biff5Reader:
         wb.styles.append(Style(wb._formats.get(ifmt, "General"), bool(prot & 1), bool(prot & 2), fc, fill, bits))
 
     def _name(self, b: bytes) -> None:
-        grbit, _key, cch, _cce, _ixals, itab = struct.unpack_from("<HBBHHH", b, 0)
+        """NAME（BIFF5）：印・キー・名前の長さ・式の長さ・EXTERNSHEET の番号・シートの番号（1 始まり）・… 14 バイト目から名前、式。"""
+        grbit, _key, cch, cce, _ixals, itab = struct.unpack_from("<HBBHHH", b, 0)
         raw = b[14:14 + cch].decode(self.enc, errors="replace")
         from .book import _BUILTIN_NAMES
 
         nm = "_xlnm." + _BUILTIN_NAMES.get(ord(raw[0]), f"builtin{ord(raw[0])}") if grbit & 0x20 and raw else raw
-        names = [s.name for s in self.wb.sheets]
-        scope = names[itab - 1] if 0 < itab <= len(names) else None
-        self.wb.names.append(DefinedName(nm, "", scope, bool(grbit & 1), None, FORMULA_NOTE))
+        rgce = b[14 + cch:14 + cch + cce] if not grbit & 0x1000 else b""
+        self.wb._name_raw.append((nm, itab, rgce, b"", bool(grbit & 1)))
+
+    def _names(self) -> None:
+        """名前の式を読む（シートの並びが分かってから）。名前の式に追加データはない（tArray・tMemArea は使えない）。"""
+        from ..formula.parser import parse
+        from ..formula.values import Unsupported
+        from ..xlsx.workbook import _area_ranges
+        from .ptg5 import Decoder5
+
+        wb = self.wb
+        names = [s.name for s in wb.sheets]
+        dec = Decoder5(wb, self.enc, self.global_links, None, is_name=True)
+        for nm, itab, rgce, _extra, hidden in wb._name_raw:
+            scope = names[itab - 1] if 0 < itab <= len(names) else None
+            try:
+                text = dec.decode(rgce) if rgce else ""
+                ast = parse(text) if text else None
+                err = None
+            except Unsupported as e:
+                text, ast, err = "", None, f"未対応: {e}"
+            except Exception as e:  # noqa: BLE001
+                text, ast, err = "", None, f"構文エラー: {e}"
+            wb.names.append(DefinedName(nm, text, scope, hidden, ast, err))
+            if nm == "_xlnm.Print_Area" and scope and text:
+                sh = wb.sheet(scope)
+                sh.print_area = text
+                sh.print_ranges = _area_ranges(text)
 
     def _sheet(self, sh: Sheet, lb: int) -> None:
         from .book import ERRORS, _rk, records
@@ -122,6 +163,10 @@ class Biff5Reader:
                 continue
             if depth == 1:
                 rows.append((t, b))
+        formulas: list = []
+        shared: dict = {}
+        arrays: dict = {}
+        links: list[bytes | None] = []
         for i, (t, b) in enumerate(rows):
             if t == 0x0203:
                 r, c, x = struct.unpack_from("<HHH", b, 0)
@@ -147,7 +192,7 @@ class Biff5Reader:
             elif t == 0x0205:
                 r, c, x, v, is_err = struct.unpack_from("<HHHBB", b, 0)
                 wb._put(sh, r, c, x, ExcelError(ERRORS.get(v, "#N/A")) if is_err else bool(v))
-            elif t == 0x0006:  # FORMULA：形は BIFF8 と同じ。保存された結果だけを読む
+            elif t == 0x0006:  # FORMULA：形は BIFF8 と同じ（結果 8 バイト・印・未使用 4 バイト・式の長さ・式）
                 r, c, x = struct.unpack_from("<HHH", b, 0)
                 res = b[6:14]
                 cell = wb._put(sh, r, c, x, None)
@@ -157,10 +202,19 @@ class Biff5Reader:
                         cell.t = "str"
                 else:
                     cell.value = struct.unpack_from("<d", res, 0)[0]
-                cell.formula = "?"
-                cell.formula_kind = "normal"
-                cell.parse_error = FORMULA_NOTE
+                cce = struct.unpack_from("<H", b, 20)[0]
+                formulas.append((cell, b[22:22 + cce], b[22 + cce:]))
                 last = cell
+            elif t == 0x04BC:  # SHAREDFMLA：範囲（列は 1 バイト）・未使用・数・式の長さ・式
+                r1, r2, c1, c2 = struct.unpack_from("<HHBB", b, 0)
+                cce = struct.unpack_from("<H", b, 8)[0]
+                shared[(r1, c1)] = ((r1, c1, r2, c2), b[10:10 + cce], b[10 + cce:])
+            elif t == 0x0221:  # ARRAY：範囲・印・未使用 4 バイト・式の長さ・式
+                r1, r2, c1, c2 = struct.unpack_from("<HHBB", b, 0)
+                cce = struct.unpack_from("<H", b, 12)[0]
+                arrays[(r1, c1)] = ((r1, c1, r2, c2), b[14:14 + cce], b[14 + cce:])
+            elif t == 0x0017:  # EXTERNSHEET（このシートの Link Table）
+                links.append(externsheet(b))
             elif t == 0x0207 and last is not None:
                 last.value = self.s16(b, 0)[0]
             elif t == 0x0208:
@@ -196,6 +250,16 @@ class Biff5Reader:
                     if txt.strip():
                         sh.shapes.append(Shape("text", "", txt, "", None))
 
+        # 数式：このシートの Link Table と、シートの番号で読む（共有数式・配列数式の扱いは BIFF8 と同じ）
+        from .ptg5 import Decoder5
+
+        saved = wb.decoder
+        wb.decoder = Decoder5(wb, self.enc, links, wb.sheets.index(sh))
+        try:
+            for cell, rgce, extra in formulas:
+                wb._formula(sh, cell, rgce, extra, shared, arrays)
+        finally:
+            wb.decoder = saved
 
 def raw_texts5(wb) -> dict[str, list[tuple[str, str]]]:
     """窓とは別の読み方（BIFF5）：レコードを直接読み、セルの字と数値・メモ・図形の字・ヘッダーを拾う。"""
