@@ -1,0 +1,61 @@
+corpus/crypto/pdf — 開くためのパスワードがかかったPDF（標準のセキュリティハンドラ）のテスト用ファイル
+=====================================================================================
+
+用途：tests/test_pdf_password.py の既知の答え（パスワードが分かっていて、復号した中身も分かっているもの）。
+リポジトリには入れない（corpus/ は .gitignore）。取得：2026-11-02、raw.githubusercontent.com から1件ずつ（間に約1秒）。
+raw.githubusercontent.com と api.github.com には robots.txt がない（404）。github.com の robots.txt が禁じる /raw/・/tree/ は使っていない。
+URL はコミットを固定してある。sha256 は取得したファイルのもの。
+
+------------------------------------------------------------------------------------------------
+1. pypdf（py-pdf/pypdf）  コミット fcd04e6478dde9bfea83b3405ea32291d4f0dbe0
+   ライセンス：BSD 3 条項（Copyright (c) 2006-2008, Mathieu Fenniak ほか。リポジトリの LICENSE）
+   パスワードの出どころ：pypdf の tests/test_encryption.py（同じコミット）。各ファイルを作った qpdf のコマンドも、そこに書いてある。
+   既知の答え：unencrypted.pdf（暗号化する前の元のファイル）と同じ中身。pypdf のテストが確かめる情報の辞書は
+     Author=cheng, CreationDate=D:20220414132421+05'24', Creator=WPS Writer, ModDate=D:20220414132421+05'24',
+     SourceModified=D:20220414132421+05'24', Trapped=/False（空の値を除く）
+   URL：https://raw.githubusercontent.com/py-pdf/pypdf/fcd04e6478dde9bfea83b3405ea32291d4f0dbe0/resources/encryption/<名前>
+       （crazyones*.pdf は .../resources/<名前>）
+
+   ファイル                       版             開くためのパスワード / 権限のパスワード        sha256
+   pypdf/unencrypted.pdf           暗号なし        -                                              72f3e7124c9d82980d7ab24d069005da147cc17bf8b28299da9ef7831dcb6e90
+   pypdf/r2-empty-password.pdf     R2 RC4-40       "" / ""                                        6cae9391e37b942fbf61685ad603806514940c4af64f4611ec79651b20052202
+   pypdf/r2-user-password.pdf      R2 RC4-40       "asdfzxcv" / ""                                da696a2d69841e9a6ccd07823ebd9f4f6276ae03802ea26800531ae3041815a2
+   pypdf/r2-owner-password.pdf     R2 RC4-40       "" / "asdfzxcv"                                60987129fa1599aa14205e600fb6d583db58a101bf6715591e10f099a8fbe303
+   pypdf/r3-empty-password.pdf     R3 RC4-128      "" / ""                                        c519fef79688ba8b853d33087f883a5320902deea7a1e2ba776245ec98d15296
+   pypdf/r3-user-password.pdf      R3 RC4-128      "asdfzxcv" / ""                                5b1bdc0e8d9994e503ec6887775d743c222933e2a9253d94571b74a6edb438d8
+   pypdf/r4-user-password.pdf      R4 RC4-128      "asdfzxcv" / ""                                55991f72562d2026854d0513da8cf9688db31010053b92715037248683b99a6d
+   pypdf/r4-owner-password.pdf     R4 RC4-128      "" / "asdfzxcv"                                26bc009957639957d7fd9b49f17e123deb60bfca8617c5b0a3f6de25eef30e34
+   pypdf/r4-aes-user-password.pdf  R4 AES-128      "asdfzxcv" / ""                                26eafc7f9ddbc5d87a2e522ef37a430121f32f4fca5015ee32f8da167527e91d
+   pypdf/r4-aes-v2-no-key-length.pdf  R4 AES-128（暗号の辞書に Length なし）  "" / 不明（情報の辞書は Producer=pypdf）  d25c2b36582bb56e6a2eb7ab7eb50f0d7e37f026f34a4f4ca1c37f668b6a98db
+   pypdf/r5-empty-password.pdf     R5 AES-256      "" / ""                                        c3912034dff56b49de02e3e83861e04cdf86f73273ac2a956183bb7b7b4a92b1
+   pypdf/r5-user-password.pdf      R5 AES-256      "asdfzxcv" / ""                                e36ad94829bbdb8634a3d5a41f8e4e555ffde6bac9ab966b8cefef4ae51368e0
+   pypdf/r5-owner-password.pdf     R5 AES-256      "" / "asdfzxcv"                                d84c096a019eef57468dc25daeb7a7c617b7d2fdac9c2638c4b07bd88e68a42d
+   pypdf/r6-empty-password.pdf     R6 AES-256      "" / ""                                        ec9f1792e85a2dcad4d76c46505b87f62fe9e2bbbf167e1d5386b1d0576df468
+   pypdf/r6-user-password.pdf      R6 AES-256      "asdfzxcv" / ""                                440f63996cdda90f55f94532d5986066baf2939d301010dd4a4b5f2d6509de42
+   pypdf/r6-owner-password.pdf     R6 AES-256      "" / "asdfzxcv"                                89e45c197f42ce7159f1485e0841d8716a51e1375f4eab53068961c6f10c0724
+   pypdf/r6-both-passwords.pdf     R6 AES-256      "foo" / "bar"                                  c792732c38f8b4d449133b8336519b17c14b5d4142a2c2204f4e20c565716e50
+   pypdf/r6-cleartext-metadata.pdf R6 AES-256、EncryptMetadata false  "foo" / "bar"（元は commented-xmp.pdf。XMP は平文）  cb4d3df758d80e2d10a83be172c5a6ef027cc37ca83d6585f79c6ab005603e0d
+   pypdf/crazyones.pdf             暗号なし（crazyones-encrypted-256.pdf の元の中身）                   9c59fa59b3e5ac73f8fa894a11bd17f8c92030dcf6d91924f133f8887456b3bc
+   pypdf/crazyones-encrypted-256.pdf  R6 AES-256   "password"（pypdf の test_read_page_from_encrypted_file_aes_256）  b844a4425264d77bdad0f1584e0e967d47ab7ca4878cb2d573f5661d07e1e6e9
+
+   権限のパスワードの「""」は、qpdf で空にしたもの。R2〜4 では Algorithm 3 の a により開くためのパスワードで O を作るので、
+   "asdfzxcv" が権限のパスワードとしても合う。R5・6 では空のまま。どちらも tests/test_pdf_password.py で確かめている。
+   なお Poppler は空のパスワードを権限のパスワードとしても試すので、r5・r6-user-password.pdf はパスワードなしで開く
+   （とどくは仕様 7.6.3.1 のとおり、空のパスワードは開くためのパスワードとしてだけ試す）。
+
+------------------------------------------------------------------------------------------------
+2. pdf.js（mozilla/pdf.js）  コミット f70fabbe791d151b720451c239564237855814a5
+   ライセンス：Apache-2.0（リポジトリ）。test/pdfs の各ファイルは、不具合の報告に添えられたもの。ここでテストにだけ使い、配らない。
+   パスワードの出どころ：test/test_manifest.json の "password"（同じコミット）。
+   既知の答え：pdf.js の参照は描画の画像なので、とどくで開いて読んだ字が意味の通るものであることを確かめ、テストに書いた
+   （issue21579 には「If you can read this, decryption succeeded.」と書いてある）。
+   URL：https://raw.githubusercontent.com/mozilla/pdf.js/f70fabbe791d151b720451c239564237855814a5/test/pdfs/<名前>
+
+   ファイル                       版                                  パスワード      読めた字 / 確かめたこと                       sha256
+   pdfjs/issue15893_reduced.pdf    R3 RC4-128（xref が壊れている）       "test"          Issue 15893 - password                         3c2815853e6fe5c34feb76bb14402cbc46bbd484ecd57b672fc03577d0458ee8
+   pdfjs/issue3371.pdf             R4 AES-128（Acrobat、スキャン）        "ELXRTQWS"      字なし。復号した JPX の署名・XMP・Creator      0c3fb45d9b61ea762b4b3298c8c47e5375e83d151d356d87d740bcb85d953473
+   pdfjs/bug1782186.pdf            R4 AES-128、StrF Identity、EncryptMetadata false  "Hello"  字なし。復号した描画の命令（図形）     4c021f37d739c8231cecab5ddd1a93db692f7ba81026315ae1ca39b9b710e86e
+   pdfjs/issue6010_1.pdf           R6 AES-256                          "abc"           Issue 6010                                     d7fd95e016b7d43bc9eed1041b0cdd6ee00e3dd902e50d0307b0a428782c543c
+   pdfjs/issue6010_2.pdf           R6 AES-256                          "æøå"           Issue 6010                                     53008dd89a45e313112ad6c6f17ade3e5c8f33f3106028a4e5b61f570b270ce9
+   pdfjs/issue21579.pdf            R5 AES-256                          "pässwört"      repro1a: AES-256 R5, password ’passwoert’ with umlauts / If you can read this, decryption succeeded.  3b3d1db2aa4797e63d6dc7e48dc4f327c468144b93f80301771940230651da2e
+   pdfjs/saslprep-r6.pdf           R6 AES-256（PDF 2.0）                "SªSL­prep" Hello pdf.js world（SASLprep で "SaSLprep" にしたものだけが合う）  e570bea23d5e1b8a796ffc3701920f04fc114543b4b25e8f03bd913ca47f1da9

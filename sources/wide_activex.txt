@@ -1,0 +1,51 @@
+# ActiveX (MS Forms 2.0) public-form corpus. Files are NOT for redistribution (corpus/ is gitignored).
+# Each block: one kept file, verified locally to contain embedded ActiveX controls.
+# Inspection: byte-level only (zip/CFB parse + MS-OFORMS property parse); never opened in Office.
+
+file: www.mlit.go.jp/soil_volume_research_v3.1.xlsm
+url: https://www.mlit.go.jp/sogoseisaku/region/recycle/d03project/d0306/sysfile_soilrsch/soil_volume_research_v3.1.xlsm
+linked_from: https://www.mlit.go.jp/sogoseisaku/region/recycle/d03project/d0306/page_03060201soilrsch1top.htm
+publisher: 国土交通省 総合政策局 公共事業企画調整課
+retrieved: 2026-11-03
+sha256: d2435954d1382eee455e44579d442017ead4dbf15b95c260fcce040b66bc6038
+bytes: 2360771
+format: xlsm (zip container), vba_project=True
+activex_controls: CheckBox x1, ComboBox x256, TextBox x232, OptionButton x12, CommandButton x3 (total 504)
+persistence: persistStreamInit
+values: CheckBox: parse_ok 1/1, Value non-empty 1, Caption non-empty 1; ComboBox: parse_ok 256/256, Value non-empty 1, Caption non-empty 0; TextBox: parse_ok 232/232, Value non-empty 16, Caption non-empty 0; OptionButton: parse_ok 12/12, Value non-empty 12, Caption non-empty 12; CommandButton: parse_ok 3/3, Value non-empty 0, Caption non-empty 3
+
+file: www.mlit.go.jp/001991874.xlsm
+url: https://www.mlit.go.jp/tochi_fudousan_kensetsugyo/content/001991874.xlsm
+linked_from: https://www.mlit.go.jp/tochi_fudousan_kensetsugyo/tochi_fudousan_kensetsugyo_fr4_000001_00323.html
+publisher: 国土交通省 土地鑑定委員会（不動産・建設経済局 地価調査課）
+retrieved: 2026-11-03
+sha256: 3fa6ce80701929731439d127591ed64655401a9b52cde518313fe878983bebe8
+bytes: 224668
+format: xlsm (zip container), vba_project=True
+activex_controls: CheckBox x5, OptionButton x11, CommandButton x4 (total 20)
+persistence: persistStreamInit
+values: CheckBox: parse_ok 5/5, Value non-empty 5, Caption non-empty 5; OptionButton: parse_ok 11/11, Value non-empty 11, Caption non-empty 11; CommandButton: parse_ok 4/4, Value non-empty 0, Caption non-empty 4
+
+file: www.qsr.mlit.go.jp/r8youshiki_hoyukikai.xlsm
+url: https://www.qsr.mlit.go.jp/nagasaki/site_files/file/bousai/r8kyouryokubosyu/r8youshiki_hoyukikai.xlsm
+linked_from: https://www.qsr.mlit.go.jp/nagasaki/office/press/pass-R07/index-.html
+publisher: 国土交通省 九州地方整備局 長崎河川国道事務所
+retrieved: 2026-11-03
+sha256: b0475802c07243f2da20f60848a4745c1ac760927638fad55f66a36450b6d22f
+bytes: 709308
+format: xlsm (zip container), vba_project=True
+activex_controls: CommandButton x3 (total 3)
+persistence: persistStreamInit
+values: CommandButton: parse_ok 3/3, Value non-empty 0, Caption non-empty 3
+
+file: www.tceq.texas.gov/TCEQ_20428.docm
+url: https://www.tceq.texas.gov/downloads/remediation/forms/tceq_20428.docm/@@download/file
+linked_from: https://www.tceq.texas.gov/downloads/remediation/forms
+publisher: Texas Commission on Environmental Quality (TCEQ), Remediation Division
+retrieved: 2026-11-03
+sha256: 226a5bdf5a65c1d161252212bd754ecd5e549ba0ddf2fe9f690970fa2247d838
+bytes: 410603
+format: docm (zip container), vba_project=True
+activex_controls: CheckBox x4, ComboBox x12, TextBox x1 (total 17)
+persistence: persistStorage
+values: CheckBox: parse_ok 4/4, Value non-empty 4, Caption non-empty 4; ComboBox: parse_ok 12/12, Value non-empty 0, Caption non-empty 0; TextBox: parse_ok 1/1, Value non-empty 0, Caption non-empty 0

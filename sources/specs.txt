@@ -1,0 +1,2 @@
+www.openoffice.org/af25dee84bd1_excelfileformat.pdf	https://www.openoffice.org/sc/excelfileformat.pdf	https://www.openoffice.org/sc/excelfileformat.pdf	2026-11-03	sha256=af25dee84bd186225a241cafc07ab9f2ea60149f4e2836d3f44a10107949ab4e	1196627
+www.opennet.ru/b5d2f40bc056_wword60.txt	http://www.opennet.ru/docs/formats/wword60.txt	http://www.opennet.ru/docs/formats/	2026-11-03	sha256=b5d2f40bc0560d1438e37ec8509fcd8a1cc2f95a1e918b2c941efad3df10a342	435246

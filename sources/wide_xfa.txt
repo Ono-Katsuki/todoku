@@ -1,0 +1,52 @@
+corpus/wide_xfa — XFA（Adobe XML Forms Architecture）の公開の様式
+============================================================
+
+用途：tests/test_xfa.py の集めた様式の検査、scripts/audit_corpus.py corpus/wide_xfa。リポジトリには入れない（corpus/ は .gitignore）。
+取得：2026-11-02〜03。1件ずつ、間に 2 秒以上（robots.txt の Crawl-delay があればそれ以上）。各ホストの robots.txt を取得して従った
+（bugzilla.mozilla.org は attachment.cgi を禁じているので、pdf.js の .link のうち bugzilla の添付は取得していない）。
+CAPTCHA・アクセスの制限は回避していない（pdfa.org は直接の取得を 403 で断るので、仕様書は Internet Archive の写しから取得）。
+pdfjs/ は Mozilla pdf.js のテスト用の PDF（test/pdfs、コミット f70fabbe791d151b720451c239564237855814a5）：
+リポジトリにあるものは raw.githubusercontent.com から、.link のものはその URL（GitHub の issue の添付・Internet Archive の写し（id_ で元のバイト列））から。名前は pdf.js のテストの名前。
+仕様書：corpus/specs/XFA-3_3.pdf（XFA Specification 3.3、2012-01-09。PDF Association の norm-refs の写しを https://web.archive.org/web/20220817145529id_/https://www.pdfa.org/norm-refs/XFA-3_3.pdf から。sha256 a3344e7ef0b0da445bcce4323e689e646b31b64ecf1c318a8fc98f6b5edca01e）。XFA-3_3.txt はとどくで文字に直したもの。
+
+ファイル  種類  URL  sha256
+------------------------------------------------------------
+pdfjs/xfa_annual_expense_report.pdf  動的（XFA 3.6・欄 236）  https://web.archive.org/web/20210509141350id_/https://www.sos.state.oh.us/globalassets/elections/directives/2020/dir2020-25_annualexpensereport.pdf  4780f4556c14a395d977f16ccee58f59863abdb962f993f8d35f0a7d548e9fb3
+pdfjs/xfa_annual_voting_survey.pdf  動的（XFA 3.6・欄 129）  https://web.archive.org/web/20210509141345id_/https://www.sos.state.oh.us/globalassets/elections/directives/2020/dir2020-25_eavsform.pdf  04a32da0b3b26daf877962283765c9f3e4e3e2410916632374a876ac9a98f161
+pdfjs/xfa_candidate_petitions.pdf  動的（XFA 3.5・欄 35）  https://web.archive.org/web/20210509141453id_/https://www.sos.state.oh.us/globalassets/elections/directives/2020/dir2020-15_independentcandidatepetitions2020signedextended.pdf  5a1c445a2d3e398041bd8d41a04447910b51c00dc8142d38c729e1ccdb36c612
+pdfjs/xfa_dhl_shipment.pdf  動的（XFA 3.6・欄 537）  https://web.archive.org/web/20210621073147id_/https://www.dhl.com/content/dam/downloads/g0/express/emailship_page/globalpage/dhl_emailship_pdfclient_my_en.pdf  65ca40347228a77f542ccbc75efe0cc4ce439d899af7b1a9913d4fd73a063229
+pdfjs/xfa_filled_imm1344e.pdf  動的（XFA 2.8・欄 252）  https://raw.githubusercontent.com/mozilla/pdf.js/f70fabbe791d151b720451c239564237855814a5/test/pdfs/xfa_filled_imm1344e.pdf  8313c52ea97b49908137fd744e85fc37584b502210fcc0a73d6c272cca9d7889
+pdfjs/xfa_fish_licence.pdf  動的（XFA 2.8・欄 48）  https://web.archive.org/web/20210609130056id_/https://inspection.canada.ca/DAM/DAM-food-aliments/STAGING/text-texte/c5704_re_1357758804123_eng.pdf  d89216e804a56129e149b4b71f7047a897228455474a2ccc6949eda4c9baae7b
+pdfjs/xfa_hsbc_closure.pdf  動的（XFA 3.3・欄 246）  https://web.archive.org/web/20210610145227id_/https://www.hsbc.fr/content/dam/hsbc/fr/docs/pib/Cloture-Compte.pdf  0b2609c7a5910934756cdb88429d2a35e80da525c853c02deacca354b6765260
+pdfjs/xfa_imm5257e.pdf  動的（XFA 2.8・欄 266）  https://web.archive.org/web/20210521163640id_/https://www.canada.ca/content/dam/ircc/migration/ircc/english/pdf/kits/forms/imm5257e.pdf  d512ef649902eadc400c667cf6ad41bba0d905e2a54245a339be6c25a2d80f11
+pdfjs/xfa_issue13213.pdf  動的（XFA 2.8・欄 440）  https://github.com/mozilla/pdf.js/files/6290046/cerfa_12156-05.pdf  42cfb79a76a606645ba44fd23c2609d0859f397f5347ce95dec60bcfd26a6270
+pdfjs/xfa_issue13500.pdf  動的（XFA 3.3・欄 28）  https://github.com/mozilla/pdf.js/files/6602628/Acrobat.pdf  f3afee915311790ddbfecb5d5d1c30d4ff055ac7e06f5cf0c5572850bdc03859
+pdfjs/xfa_issue13556.pdf  動的（XFA 2.1・欄 159）  https://web.archive.org/web/20210422084343id_/https://mail.gnome.org/archives/evince-list/2013-November/pdfNC0hkVW67a.pdf  6ec04bf930307a32f995f7d2ba840d334efe623306065afc275b7ec233e0bd9e
+pdfjs/xfa_issue13584.pdf  動的（XFA 2.8・欄 103）  https://web.archive.org/web/20210518165046id_/http://education.ohio.gov/getattachment/Topics/Special-Education/Preschool-Special-Education/ETR-Preschool-Planning-Form.pdf.aspx  8ffe7dfe47733a314179c0d6d3dfda5826739f6db02290c174a96e25971098fc
+pdfjs/xfa_issue13597.pdf  動的（XFA 2.8・欄 112）  https://web.archive.org/web/20210710141547id_/https://help.adobe.com/en_US/livecycle/11.0/SampleForms/941/Form.pdf  dc5a5cf9d3679c5493603fbfc48875ca4c2572650ab55b452ce96d3072802dce
+pdfjs/xfa_issue13611.pdf  動的（XFA 3.3・欄 174）  https://github.com/mozilla/pdf.js/files/6695365/2229E.pdf  16ce00360b01b94270bf04022c365c53ec622f5d83c56390c29338ab219f091f
+pdfjs/xfa_issue13631.pdf  動的（XFA 2.5・欄 64）  https://web.archive.org/web/20210627155758id_/https://www.co.lucas.oh.us/DocumentCenter/View/44843/WIBApplicationForm  59e0169e08d82a877d880e16e71113cfd1836174b926eabe04e0712eb02f33f7
+pdfjs/xfa_issue13633.pdf  動的（XFA 3.3・欄 50）  https://web.archive.org/web/20210703155102id_/https://www.jobcenter-remscheid.de/files/jobcenter-remscheid/download/anzeige-kug101_ba013134.pdf  8622b4a925f02ab5c6a25e7a714e3b4fd81b85d89e0e8d3399c1456bb91b2137
+pdfjs/xfa_issue13634.pdf  動的（XFA 3.3・欄 40）  https://web.archive.org/web/20210510183636id_/https://guichet.public.lu/dam-assets/catalogue-formulaires/tva/tva-option-aic-pers-morales/tva-option-aic-pers-morale-DE.pdf  3902904a85746256ed8db091588798ec0137c689f6cf5f38a84d82f672da054e
+pdfjs/xfa_issue13668.pdf  動的（XFA 3.3・欄 8）  https://web.archive.org/web/20210711170923id_/https://www.placementsmondiauxsunlife.com/content/dam/sunlife/regional/canada/documents/slgi/4839-I-F.pdf  cab02632d3f508131eecfe028493a2745623d670e601e043cdec897c3315bf04
+pdfjs/xfa_issue13679.pdf  動的（XFA 2.8・欄 727）  https://github.com/mozilla/pdf.js/files/6768253/Form_MGT-7.pdf  37f1749d83f114a29b551a7fb41555f590c6d5befe982d21f134c12c3585fea6
+pdfjs/xfa_issue13855.pdf  動的（XFA 2.8・欄 266）  https://github.com/mozilla/pdf.js/files/6924738/imm5710f.1.pdf  e1a5a1b49c076d535de6a8d75a30070d0cc5595e75f09a38a0c1829f1477b9a1
+pdfjs/xfa_issue13994.pdf  動的（XFA 2.8・欄 175）  https://github.com/mozilla/pdf.js/files/7138335/Form_MGT-14-try-1.pdf  f0ed91159b12c2f118d3e372a61390d28635f44b5d4fb382778e51fc4cb9e29a
+pdfjs/xfa_issue14071.pdf  動的（XFA 2.8・欄 332）  https://github.com/mozilla/pdf.js/files/7225677/eimm5669e.2.pdf  f1bbb76bbeb34cb1c1177ec0d6340121f20e916b40de22dec4dc068a52fd823a
+pdfjs/xfa_issue14144.pdf  動的（XFA 3.3・欄 181）  https://github.com/mozilla/pdf.js/files/7352426/FormDB2_fr.pdf  edd089ae2928df985abc020d1066b63e775500f7939742b16fe316892593679b
+pdfjs/xfa_issue14150.pdf  動的（XFA 2.8・欄 176）  https://github.com/mozilla/pdf.js/files/7528643/dol4n.pdf  e15b55d741145618299a511ff7f4e51ab99d4014ff52822ae474486026488942
+pdfjs/xfa_issue14315.pdf  動的（XFA 3.3・欄 0）  https://raw.githubusercontent.com/mozilla/pdf.js/f70fabbe791d151b720451c239564237855814a5/test/pdfs/xfa_issue14315.pdf  d039a40ea28384bae8d1a24929a4288aae1aeb433c441fd39c04fad618fa6f19
+www.canada.ca/imm1295e.pdf  動的（XFA 2.8・欄 263）  https://www.canada.ca/content/dam/ircc/documents/pdf/english/kits/forms/imm1295/01-09-2023/imm1295e.pdf  57fc256eef7d9d856e4ae85ebf8bfe80da41833ebde7a8c7ed78f2483470d7bb
+www.canada.ca/imm5257e.pdf  動的（XFA 2.8・欄 263）  https://www.canada.ca/content/dam/ircc/documents/pdf/english/kits/forms/imm5257/01-09-2023/imm5257e.pdf  0dc03b24e7914a178ad29e2cfae811045835a1d36d7a3c35f040251d0aca562e
+www.canada.ca/imm5409e.pdf  静的（XFA 3.3・欄 50）  https://www.canada.ca/content/dam/ircc/documents/pdf/english/kits/forms/imm5409/01-01-2023/imm5409e.pdf  b9ad80be2043636e4cc55188b4e115c53261deeecca403b354230224605ae0b3
+www.canada.ca/imm5645e.pdf  静的（XFA 3.3・欄 151）  https://www.canada.ca/content/dam/ircc/documents/pdf/english/kits/forms/imm5645/01-01-2021/imm5645e.pdf  d6ba4cab0363c22135d4a28e6f8d7bc08814827f3bfb3fdb25a4d944ffac7096
+www.irs.gov/f1040--2014.pdf  静的（XFA 2.8・欄 256）  https://www.irs.gov/pub/irs-prior/f1040--2014.pdf  710d03622891c6aae195fbf5fd21ee4caa818f002c0ecb64992b49938c359d35
+www.irs.gov/f4506--2015.pdf  静的（XFA 2.8・欄 24）  https://www.irs.gov/pub/irs-prior/f4506--2015.pdf  8b9013ad39f9342a39624a72752e3644e517019f4cd236d2208ae7f9619ede17
+www.irs.gov/fw4--2016.pdf  静的（XFA 2.8・欄 42）  https://www.irs.gov/pub/irs-prior/fw4--2016.pdf  225411b1b24709b4de40678e05ad591b343467c0b84ee0c0cd27c331126bb7db
+www.irs.gov/fw9--2014.pdf  静的（XFA 2.8・欄 22）  https://www.irs.gov/pub/irs-prior/fw9--2014.pdf  83c33a821ebe3079fead275d4af8d7d507f646297b009f9e8f8de19b8f9b2dfe
+www.uscis.gov/g-1145.pdf  静的（XFA 3.6・欄 8）  https://www.uscis.gov/sites/default/files/document/forms/g-1145.pdf  f06c73937567793cbad9e5c0a5a025ba3823406ebc16b69bb1aee9964cf5b8f8
+www.uscis.gov/i-130.pdf  静的（XFA 3.6・欄 441）  https://www.uscis.gov/sites/default/files/document/forms/i-130.pdf  7fc733d4639995d6ad4798f1031464d044bd0da4233caa4ada886e79e762a88f
+www.uscis.gov/i-765.pdf  静的（XFA 3.6・欄 157）  https://www.uscis.gov/sites/default/files/document/forms/i-765.pdf  9ac0eae287749d4c2dfa0a591f464cc2124c18647c10e999b59484f090e0dc7d
+www.uscis.gov/i-90.pdf  静的（XFA 3.6・欄 191）  https://www.uscis.gov/sites/default/files/document/forms/i-90.pdf  fd436062284fd572224509e0e17a795f915734f7e7c0fca8a161d0a9976f83a0
+
+計 37 件（動的 27・静的 10）
