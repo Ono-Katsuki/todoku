@@ -42,10 +42,57 @@ def _load(path: str):
         sys.exit(f"{p.name}: {e}")
 
 
-def _is_pdf(path: str) -> bool:
+def _kind(path: str) -> str:
     from .book import kind_of
 
-    return kind_of(Path(path).read_bytes()[:16]) == "pdf"
+    return kind_of(Path(path).read_bytes())
+
+
+def _is_pdf(path: str) -> bool:
+    return _kind(path) == "pdf"
+
+
+def _docx_convert(a) -> int:
+    from .docx.document import DocxDocument
+    from .docx.window import build, markdown_parts
+
+    blob = Path(a.file).read_bytes()
+    doc = build(DocxDocument(blob, Path(a.file).name))
+    out = Path(a.out or ".")
+    out.mkdir(parents=True, exist_ok=True)
+    stem = Path(a.file).stem
+    clean = {**doc, "stories": [{k: v for k, v in st.items() if not k.startswith("_")} for st in doc["stories"]]}
+    _dump(clean, out / f"{stem}.window.json")
+    parts = markdown_parts(doc)
+    (out / f"{stem}.window.md").write_text(parts[0][1], encoding="utf-8")
+    for i, (_, text) in enumerate(parts[1:], 1):
+        (out / f"{stem}.window.part{i:02d}.md").write_text(text, encoding="utf-8")
+    print(f"Word: 入力欄 {len(doc['fields'])} か所" + (f"・保護 {doc['protection']['edit']}" if doc["protection"]["enforced"] else ""))
+    print(f"出力: {out}/{stem}.window.md と window.json")
+    return 0
+
+
+def _docx_fill(a, values: dict) -> int:
+    from .docx.document import DocxDocument
+    from .docx.fill import FillError, fill as docx_fill
+    from .docx.proof import prove as docx_prove
+
+    blob = Path(a.file).read_bytes()
+    try:
+        res = docx_fill(DocxDocument(blob, Path(a.file).name), values, force=getattr(a, "force", False))
+    except FillError as e:
+        print(f"書き込めません: {e}", file=sys.stderr)
+        return 2
+    out_path = Path(a.out)
+    out_path.write_bytes(res.blob)
+    pr = docx_prove(blob, res.blob, {p.id: p.value for p in res.patches})
+    print(pr.headline())
+    for u in pr.unexpected[:20]:
+        print(f"  想定外の変更: {u}")
+    print(f"元 SHA-256: {pr.original_sha256}")
+    print(f"後 SHA-256: {pr.new_sha256}")
+    _dump({**pr.__dict__, "ok": pr.ok, "headline": pr.headline()}, out_path.with_suffix(".proof.json"))
+    return 0 if pr.ok else 1
 
 
 def _pdf_convert(a) -> int:
@@ -97,8 +144,11 @@ def _pdf_fill(a, values: dict) -> int:
 
 
 def cmd_convert(a) -> int:
-    if _is_pdf(a.file):
+    k = _kind(a.file)
+    if k == "pdf":
         return _pdf_convert(a)
+    if k == "docx":
+        return _docx_convert(a)
     wb = _load(a.file)
     out = Path(a.out or ".")
     out.mkdir(parents=True, exist_ok=True)
@@ -191,8 +241,11 @@ def cmd_fill(a) -> int:
         values.update(json.loads(Path(a.json).read_text(encoding="utf-8")))
     if not values:
         sys.exit("書き込む値がありません（--set か --json）")
-    if _is_pdf(a.file):
+    k = _kind(a.file)
+    if k == "pdf":
         return _pdf_fill(a, values)
+    if k == "docx":
+        return _docx_fill(a, values)
     wb = _load(a.file)
     return _write_fill(wb, values, Path(a.out), a.strict)
 
@@ -249,10 +302,15 @@ def cmd_audit(a) -> int:
     from .xlsx.audit import run
 
     blob = Path(a.file).read_bytes()
-    if _is_pdf(a.file):
+    k = _kind(a.file)
+    if k == "pdf":
         from .pdf.audit import run as pdf_run
 
         au = pdf_run(blob, Path(a.file).name)
+    elif k == "docx":
+        from .docx.audit import run as docx_run
+
+        au = docx_run(blob, Path(a.file).name)
     else:
         au = run(blob, Path(a.file).name, Path(a.example).read_bytes() if a.example else None)
     for c in au.checks:

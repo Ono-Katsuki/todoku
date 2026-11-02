@@ -24,6 +24,8 @@ def one(path: str) -> dict:
 
     if path.lower().endswith(".pdf"):
         from todoku.pdf.audit import run
+    elif path.lower().endswith((".docx", ".docm")):
+        from todoku.docx.audit import run
     t = time.time()
     try:
         au = run(Path(path).read_bytes(), Path(path).name)
@@ -43,7 +45,7 @@ def main(argv=None) -> int:
     ap.add_argument("--timeout", type=int, default=900)
     a = ap.parse_args(argv)
     base = Path(a.dir)
-    files = sorted(str(p) for p in base.rglob("*") if p.suffix.lower() in (".xlsx", ".xlsm", ".xls", ".pdf") and p.is_file())
+    files = sorted(str(p) for p in base.rglob("*") if p.suffix.lower() in (".xlsx", ".xlsm", ".xls", ".pdf", ".docx", ".docm") and p.is_file())
     print(f"{len(files)} 件の様式を検査します", flush=True)
     results = []
     ctx = mp.get_context("spawn")

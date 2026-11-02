@@ -9,6 +9,18 @@ class FormatError(ValueError):
 
 def kind_of(blob: bytes) -> str:
     if blob[:2] == b"PK":
+        if len(blob) < 64:
+            return "xlsx"
+        try:
+            from .zipraw import RawZip
+
+            names = set(RawZip(blob).names())
+        except Exception:  # noqa: BLE001
+            return "xlsx"
+        if "word/document.xml" in names or any(n.startswith("word/") and n.endswith("document.xml") for n in names):
+            return "docx"
+        if any(n.startswith("ppt/") for n in names):
+            return "pptx"
         return "xlsx"
     if blob[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
         from .cfb import CFB
