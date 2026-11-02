@@ -24,8 +24,6 @@ from .edit import EditError, fill, list_options, rule_issues
 from .proof import prove
 from .workbook import Workbook
 
-M = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
-A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
 REL = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 
 
@@ -52,14 +50,46 @@ class Audit:
 
 
 # ====================================================================== 読む
+def _ln(tag) -> str:
+    return tag.split("}")[-1] if isinstance(tag, str) else ""
+
+
+def _attr(el: ET.Element, local: str) -> str | None:
+    """名前空間を問わずに属性を読む（Strict Open XML など、名前空間の違う書き方でも拾うため）。"""
+    for k, v in el.attrib.items():
+        if _ln(k) == local:
+            return v
+    return None
+
+
+def _texts(el: ET.Element) -> str:
+    """要素の中の文字（t 要素）をつなぐ。ふりがな（rPh）の中は除く。"""
+    out = []
+
+    def walk(e, in_ph):
+        name = _ln(e.tag)
+        if name == "rPh":
+            in_ph = True
+        if name == "t" and not in_ph:
+            out.append(e.text or "")
+        for ch in e:
+            walk(ch, in_ph)
+
+    walk(el, False)
+    return "".join(out)
+
+
 def raw_texts(blob: bytes) -> dict[str, list[tuple[str, str]]]:
-    """窓を作る処理を使わず、XMLから直接すべての文字と数値を拾う。種類 → [(場所, 文字)]。"""
+    """窓を作る処理を使わず、XMLから直接すべての文字と数値を拾う。種類 → [(場所, 文字)]。
+
+    要素は名前空間を見ずに名前だけで探す。窓を作る処理が読み落とす書き方（名前空間の違いなど）が
+    あれば、ここでは拾えるので、読み落としとして表に出る。
+    """
     z = RawZip(blob)
     out: dict[str, list[tuple[str, str]]] = {"セルの文字": [], "セルの数値": [], "図形の文字": [], "メモ": [],
                                              "チェックボックスなどの文字": [], "入力規則の説明": [], "ヘッダー・フッター": []}
     wb_path = "xl/workbook.xml"
-    rels = _rels(z, "")
-    for t, target in rels.values():
+    for t, target in _rels(z, "").values():
         if t == "officeDocument":
             wb_path = target
     wb = ET.fromstring(z.read(wb_path))
@@ -67,24 +97,24 @@ def raw_texts(blob: bytes) -> dict[str, list[tuple[str, str]]]:
     sst: list[str] = []
     for t, target in wrels.values():
         if t == "sharedStrings" and z.has(target):
-            for si in ET.fromstring(z.read(target)).findall(M + "si"):
-                sst.append("".join(x.text or "" for x in si.iter(M + "t") if not _in_phonetic(si, x)))
-    sheets = wb.find(M + "sheets")
-    for s in sheets if sheets is not None else []:
+            sst = [_texts(si) for si in ET.fromstring(z.read(target)) if _ln(si.tag) == "si"]
+    sheets = [e for e in wb.iter() if _ln(e.tag) == "sheet"]
+    for s in sheets:
         name = s.get("name")
-        rid = s.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
-        t, path = wrels.get(rid, ("", ""))
+        t, path = wrels.get(_attr(s, "id") or "", ("", ""))
         if t != "worksheet" or not z.has(path):
             continue
         root = ET.fromstring(z.read(path))
-        for c in root.iter(M + "c"):
+        for c in root.iter():
+            if _ln(c.tag) != "c":
+                continue
             ref = c.get("r")
             typ = c.get("t", "n")
-            v = c.find(M + "v")
+            v = next((x for x in c if _ln(x.tag) == "v"), None)
             where = f"{name}!{ref}"
             if typ == "inlineStr":
-                is_ = c.find(M + "is")
-                text = "".join(x.text or "" for x in is_.iter(M + "t") if not _in_phonetic(is_, x)) if is_ is not None else ""
+                is_ = next((x for x in c if _ln(x.tag) == "is"), None)
+                text = _texts(is_) if is_ is not None else ""
                 if text:
                     out["セルの文字"].append((where, text))
             elif v is None or v.text is None:
@@ -101,32 +131,31 @@ def raw_texts(blob: bytes) -> dict[str, list[tuple[str, str]]]:
             else:
                 out["セルの数値"].append((where, v.text))
         for d in root.iter():
-            if d.tag.endswith("}dataValidation"):
+            if _ln(d.tag) == "dataValidation":
                 for key in ("prompt", "promptTitle", "error", "errorTitle"):
                     if d.get(key):
                         out["入力規則の説明"].append((f"{name}（入力規則）", d.get(key)))
-        hf = root.find(M + "headerFooter")
-        for el in hf if hf is not None else []:
-            if el.text and re.sub(r"&.", "", el.text).strip():
-                out["ヘッダー・フッター"].append((f"{name}（{el.tag.split('}')[-1]}）", el.text))
-        srels = _rels(z, path)
-        for t, target in srels.values():
+            elif _ln(d.tag) in ("oddHeader", "oddFooter", "evenHeader", "evenFooter", "firstHeader", "firstFooter"):
+                if d.text and re.sub(r"&.", "", d.text).strip():
+                    out["ヘッダー・フッター"].append((f"{name}（{_ln(d.tag)}）", d.text))
+        for t, target in _rels(z, path).values():
             if not z.has(target):
                 continue
             if t == "comments":
-                for cm in ET.fromstring(z.read(target)).iter(M + "comment"):
-                    text = "".join(x.text or "" for x in cm.iter(M + "t"))
-                    if text.strip():
-                        out["メモ"].append((f"{name}!{cm.get('ref')}", text))
+                for cm in ET.fromstring(z.read(target)).iter():
+                    if _ln(cm.tag) == "comment":
+                        text = _texts(cm)
+                        if text.strip():
+                            out["メモ"].append((f"{name}!{cm.get('ref')}", text))
             elif t == "drawing":
                 droot = ET.fromstring(z.read(target))
                 for sp in droot.iter():
-                    if not sp.tag.endswith("}sp"):
+                    if _ln(sp.tag) != "sp":
                         continue
-                    if any(e.tag.endswith("}compatExt") for e in sp.iter()):
+                    if any(_ln(e.tag) == "compatExt" for e in sp.iter()):
                         continue  # フォームコントロールの絵
-                    lines = ["".join(x.text or "" for x in p.iter(A + "t")) for p in sp.iter(A + "p")]
-                    text = "\n".join(lines).strip()
+                    paras = [p for p in sp.iter() if _ln(p.tag) == "p"]
+                    text = "\n".join("".join(x.text or "" for x in p.iter() if _ln(x.tag) == "t") for p in paras).strip()
                     if text:
                         out["図形の文字"].append((f"{name}（図形）", text))
             elif t == "vmlDrawing":
@@ -142,13 +171,6 @@ def raw_texts(blob: bytes) -> dict[str, list[tuple[str, str]]]:
                         if text:
                             out["チェックボックスなどの文字"].append((f"{name}（コントロール）", text))
     return out
-
-
-def _in_phonetic(root: ET.Element, t: ET.Element) -> bool:
-    for rph in root.iter(M + "rPh"):
-        if any(x is t for x in rph.iter()):
-            return True
-    return False
 
 
 def _rels(z: RawZip, part: str) -> dict[str, tuple[str, str]]:
@@ -168,6 +190,10 @@ def _rels(z: RawZip, part: str) -> dict[str, tuple[str, str]]:
 
 def check_reading(wb: Workbook, doc: dict) -> list[Check]:
     raw = raw_texts(wb.zip.original)
+    n_raw = len(raw["セルの文字"]) + len(raw["セルの数値"])
+    n_win = sum(1 for sh in doc["sheets"] for c in sh["cells"] if c.get("value") is not None)
+    if n_raw == 0 and n_win == 0:
+        return [Check("読み落とし（全体）", False, "セルの値を1つも読めませんでした（対応していない書き方の可能性があります）")]
     cells = {}
     for sh in doc["sheets"]:
         for c in sh["cells"]:
@@ -220,16 +246,22 @@ def _sample(f: dict, wb: Workbook, sheet: str, calc: Calc | None):
     r, c = parse_cell(f["cell"])
     sh = wb.sheet(sheet)
     vs = [v for v in sh.validations if v.covers(r, c)]
-    for v in vs:
-        if v.type == "list":
+    lists = [v for v in vs if v.type == "list"]
+    if lists:
+        sets = []
+        for v in lists:
             opts = list_options(wb, sheet, v.formula1 or "", r, c, v, calc) if calc is not None else f.get("options")
             if not opts:
                 return None
-            cur = f.get("value")
-            for o in opts:
-                if not values_equal(o, cur):
-                    return o
-            return opts[0]
+            sets.append(opts)
+        both = [o for o in sets[0] if all(any(values_equal(o, x) for x in other) for other in sets[1:])]
+        opts = both or sets[0]
+        cur = f.get("value")
+        for o in opts:
+            if not values_equal(o, cur):
+                return o
+        return opts[0]
+    for v in vs:
         if v.type in ("whole", "decimal", "date", "time", "textLength"):
             lo = _rule_number(calc or Calc(wb), sheet, v, r, c, v.formula1)
             hi = _rule_number(calc or Calc(wb), sheet, v, r, c, v.formula2)
@@ -246,6 +278,18 @@ def _sample(f: dict, wb: Workbook, sheet: str, calc: Calc | None):
                 x = int(x)
             return x
     if rules and any(r_["type"] == "custom" for r_ in rules):
+        # 独自の入力規則（数式）：いくつかの候補を、その規則で実際に確かめて選ぶ
+        from .edit import interpret_input, rule_issues
+
+        for cand in (1, "テスト", "2026/4/1", "1", 10, "A", 0):
+            try:
+                val = interpret_input(wb, sheet, r, c, cand)[0]
+            except EditError:
+                continue
+            base = dict(calc.overrides) if calc is not None else {}
+            base[(sheet, r, c)] = val
+            if not rule_issues(wb, sheet, r, c, val, Calc(wb, base)):
+                return cand
         return None
     k = f["kind"]
     if k == "date":
@@ -262,11 +306,11 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     fields = [(sh["name"], f) for sh in doc["sheets"] for f in sh.get("fields", [])]
     targets: dict[str, object] = {}
     skipped: list[str] = []
-    not_applicable: list[str] = []  # 選択肢がほかの欄で決まり、いまの状態では選べるものがない欄
+    not_applicable: list[str] = []  # いまの状態では選べるものがない欄（選択肢がほかの欄で決まる・選択肢が空）
     later = []
     for sheet, f in fields:
-        if f.get("options_depend_on"):
-            later.append((sheet, f))
+        if f["kind"] == "choice":
+            later.append((sheet, f))  # 選択肢はほかの欄の内容で決まることがあるので、ほかを入れてから選ぶ
             continue
         v = _sample(f, wb, sheet, None)
         if v is None:
@@ -274,7 +318,6 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
             continue
         targets[f["id"]] = v
     if later:
-        # 選択肢がほかの欄で決まるもの（都道府県→市区町村など）は、先に書く値を入れた状態で選ぶ
         from .edit import interpret_input, resolve_target
 
         over = {}
@@ -303,8 +346,8 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     allowed_c = {(p.sheet, p.address) for p in res.patches if p.kind == "control"}
     pr = prove(wb.zip.original, res.blob, allowed, allowed_c)
     n_ctl = sum(1 for _, f in fields if f["kind"] == "checkbox")
-    na = (f"（ほかの欄の値しだいで選択肢がなくなる欄 {len(not_applicable):,} か所は、いまの状態ではExcelでも選べないので除外）"
-          if not_applicable else "")
+    na = (f"（選択肢が空の欄 {len(not_applicable):,} か所は、いまの状態ではExcelでも選べないので除外。"
+          "ほかの欄の値で選択肢が決まるものや、選択肢の参照先が壊れているもの）" if not_applicable else "")
     out.append(Check("全入力欄への書き込み", pr.ok and not res.unverified and not skipped,
                      f"入力欄 {len(fields) - n_ctl:,} か所とチェックボックス {n_ctl} 個のうち {len(targets):,} に試しの値を書き込み{na}。"
                      f"{pr.headline()}",
@@ -346,10 +389,32 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
     doc = window.build(wb)
     au = Audit(filename)
     au.checks += check_reading(wb, doc)
-    md = window.to_markdown(doc)
-    au.checks.append(Check("窓の大きさ", len(md) <= 150_000,
-                           f"Markdown {len(md):,} 文字（AIが一度に読める目安 15万文字以内）"))
+    parts = window.markdown_parts(doc)
+    biggest = max(len(t) for _, t in parts)
+    total = sum(len(t) for _, t in parts)
+    au.checks.append(Check("窓の大きさ", biggest <= 150_000,
+                           f"Markdown {total:,} 文字" + (f"を {len(parts)} 部分に分け、いちばん大きい部分も {biggest:,} 文字"
+                                                        if len(parts) > 1 else "") + "（AIが1回で読める目安 15万文字以内）"))
     au.checks += check_writing(Workbook(blob, filename), doc)
+    overlap = [f["id"] for sh in doc["sheets"] for f in sh.get("fields", []) if f.get("rules_overlap")]
+    au.checks.append(Check("入力規則の重なり", not overlap,
+                           "入力規則の重なったセルはありません" if not overlap else
+                           f"入力規則が重なったセルが {len(overlap)} か所あります。Excelがどの規則を使うかはファイルからは決まらないので、"
+                           "書き込むときは警告にとどめています（様式の作り手に直してもらう点です）", overlap))
+    # チェックボックス以外の入力用コントロールは、まだ書き込めない。黙って飛ばさず、ここで知らせる
+    passive = ("CheckBox", "Button", "Label", "GBox", "Dialog", "Pict", "Shape", "Movie", "Rect", "",
+               "ActiveX CommandButton", "ActiveX Label", "ActiveX Image")
+    other = sorted({f"{sh.name}!{c.name}（{c.kind}）" for sh in wb.sheets for c in sh.controls if c.kind not in passive})
+    au.checks.append(Check("入力用コントロールへの対応", not other,
+                           "チェックボックス以外の入力用コントロールはありません" if not other
+                           else f"書き込みに対応していないコントロールが {len(other)} 個あります", other))
+    # マクロ：動作はまだ再現していない（ボタンを押したときの処理など）。あることを必ず知らせる
+    buttons = sorted({f"{sh.name}!{c.name}" for sh in wb.sheets for c in sh.controls
+                      if c.kind in ("Button", "ActiveX CommandButton")})
+    au.checks.append(Check("マクロ", not wb.has_macros,
+                           "マクロはありません" if not wb.has_macros else
+                           "マクロを含みます。マクロの動作（ボタンを押したときの処理など）は、まだ再現していません"
+                           + (f"（マクロを動かすボタン {len(buttons)} 個）" if buttons else ""), buttons))
     if example is not None:
         from .example import check
 

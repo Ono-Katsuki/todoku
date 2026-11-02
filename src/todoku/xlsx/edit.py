@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-import unicodedata
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
@@ -117,6 +116,16 @@ def checkbox_links(wb: Workbook) -> dict[tuple[str, int, int], list[tuple[str, C
     return out
 
 
+# Excelが手入力で数値として受け取る全角の文字（数字・符号・小数点・桁区切り・％・円記号）だけを半角にする。
+# NFKC は ① を 1 に、㈱ を (株) に変えるなど、文字そのものを変えてしまうので使わない。
+_WIDE = str.maketrans("０１２３４５６７８９＋－．，％￥　／：", "0123456789+-.,%¥ /:")
+_WIDE_MINUS = str.maketrans({"−": "-", "ー": None})
+
+
+def half_width(s: str) -> str:
+    return s.translate(_WIDE)
+
+
 _TRUE = {"TRUE", "1", "ON", "CHECKED", "YES", "☑", "✓", "✔", "はい", "あり", "有"}
 _FALSE = {"FALSE", "0", "OFF", "UNCHECKED", "NO", "☐", "□", "いいえ", "なし", "無"}
 
@@ -128,7 +137,7 @@ def as_bool(value) -> bool | None:
         return False
     if isinstance(value, (int, float)):
         return bool(value) if value in (0, 1) else None
-    t = unicodedata.normalize("NFKC", str(value)).strip().upper()
+    t = half_width(str(value)).strip().upper()
     if t in _TRUE:
         return True
     if t in _FALSE or t == "":
@@ -147,7 +156,7 @@ def parse_date_text(s: str):
 
     from ..formula.dates import ERAS
 
-    t = unicodedata.normalize("NFKC", s).strip()
+    t = half_width(s).strip()
     m = _WESTERN.fullmatch(t)
     try:
         if m:
@@ -200,7 +209,7 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value) -> tuple[ob
         return s[1:], notes
     if s.strip() == "":
         return None, notes
-    t = unicodedata.normalize("NFKC", s).strip()
+    t = half_width(s).strip()
     if t.upper() in ("TRUE", "FALSE"):
         return t.upper() == "TRUE", notes
     d = parse_date_text(s)
@@ -309,10 +318,21 @@ def rule_issues(wb: Workbook, sheet: str, r: int, c: int, value, calc: Calc | No
     sh = wb.sheet(sheet)
     where = f"{sheet}!{addr(r, c)}"
     calc = calc or Calc(wb)
+    rules = [v for v in sh.validations if v.covers(r, c) and v.type not in ("any", None)]
+    if len(rules) > 1:
+        per = [_issues_for(wb, sheet, r, c, value, calc, [v]) for v in rules]
+        if any(not x for x in per):
+            # どれか1つの規則には合う：重なった規則のどれをExcelが使うかは決まらないので、止めずに知らせる
+            return [Issue(where, f"（入力規則が {len(rules)} つ重なっています。Excelがどれを使うかはファイルからは決まりません）"
+                                 f"{i.message}", False) for x in per for i in x]
+        return [i for x in per for i in x]
+    return _issues_for(wb, sheet, r, c, value, calc, rules)
+
+
+def _issues_for(wb: Workbook, sheet: str, r: int, c: int, value, calc: Calc, rules) -> list[Issue]:
+    where = f"{sheet}!{addr(r, c)}"
     out: list[Issue] = []
-    for v in sh.validations:
-        if not v.covers(r, c) or v.type in ("any", None):
-            continue
+    for v in rules:
         if value is None or value == "":
             continue  # Excelでも、セルを消す操作は入力規則にかからない
         extra = f"（様式の説明: {v.error}）" if v.error else ""

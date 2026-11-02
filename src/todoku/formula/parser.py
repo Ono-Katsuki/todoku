@@ -142,6 +142,104 @@ class Missing(Node):
     """省略された引数（=IF(A1,,1) など）。"""
 
 
+@dataclass
+class StructRef(Node):
+    """構造化参照（テーブルの列を名前で指す参照）。Table1[金額]、Table1[[#This Row],[金額]] など。"""
+
+    table: str | None  # None はその数式があるテーブル
+    specials: tuple[str, ...] = ()  # "#All" "#Data" "#Headers" "#Totals" "#This Row"
+    col1: str | None = None
+    col2: str | None = None
+
+
+_SPECIALS = {"#all": "#All", "#data": "#Data", "#headers": "#Headers", "#totals": "#Totals",
+             "#this row": "#This Row", "#thisrow": "#This Row"}
+
+
+def _unesc(x: str) -> str:
+    # 列名の中の [ ] # ' は、前に ' を付けて書かれる
+    return re.sub(r"'(.)", r"\1", x)
+
+
+def _split_top(c: str) -> list[str]:
+    """[a],[b] を、かっこの外の , で分ける（' のエスケープは飛ばす）。"""
+    out, buf, depth, i = [], [], 0, 0
+    while i < len(c):
+        ch = c[i]
+        if ch == "'" and i + 1 < len(c):
+            buf.append(c[i:i + 2])
+            i += 2
+            continue
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    out.append("".join(buf))
+    return out
+
+
+def _parse_struct(table: str | None, content: str) -> StructRef:
+    c = content
+    if c.strip() == "":
+        return StructRef(table)
+    if c.startswith("@"):
+        rest = c[1:].strip()
+        col = _unesc(rest[1:-1]) if rest.startswith("[") and rest.endswith("]") else _unesc(rest)
+        return StructRef(table, ("#This Row",), col or None)
+    if not c.lstrip().startswith("["):
+        # 列名は空白も含めてそのまま（「Amount Claimed (£) 」のように末尾に空白のある列名もある）
+        if c.strip().startswith("#") and c.strip().lower() in _SPECIALS:
+            return StructRef(table, (_SPECIALS[c.strip().lower()],))
+        return StructRef(table, (), _unesc(c))
+    specials: list[str] = []
+    cols: list[str] = []
+    for item in _split_top(c.strip()):
+        item = item.strip()
+        parts = [x.strip() for x in re.split(r"\]\s*:\s*\[", item)] if "]:" in item.replace(" ", "") else [item]
+        names = []
+        for x in parts:
+            x = x.strip()  # かっこの外の空白だけを除く
+            if x.startswith("["):
+                x = x[1:]
+            if x.endswith("]") and not x.endswith("']"):
+                x = x[:-1]
+            names.append(x)
+        for x in names:
+            if x.startswith("#") and x.lower() in _SPECIALS:
+                specials.append(_SPECIALS[x.lower()])
+            elif x.startswith("@"):
+                specials.append("#This Row")
+                if x[1:]:
+                    cols.append(_unesc(x[1:]))
+            else:
+                cols.append(_unesc(x))
+    return StructRef(table, tuple(specials), cols[0] if cols else None, cols[1] if len(cols) > 1 else None)
+
+
+def _read_bracket(s: str, i: int) -> tuple[str, int]:
+    """s[i] の [ から、対応する ] までの中身と、その次の位置。"""
+    depth, j = 0, i
+    while j < len(s):
+        ch = s[j]
+        if ch == "'" and j + 1 < len(s):
+            j += 2
+            continue
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return s[i + 1:j], j + 1
+        j += 1
+    raise SyntaxError("構造化参照の [ が閉じていません")
+
+
 # ---------------------------------------------------------------- 字句解析
 @dataclass
 class Tok:
@@ -185,6 +283,14 @@ def _ref_from_parts(sheet, a: str, b: str | None) -> RefNode | None:
     return None
 
 
+def _first_token_text(s: str) -> str:
+    """参照1つぶんの文字（A1、$A$1:$B$2、A:B、1:2）。"""
+    m = re.match(r"\$?[A-Za-z]{1,3}\$?\d+(?::\$?[A-Za-z]{1,3}\$?\d+)?|\$?[A-Za-z]{1,3}:\$?[A-Za-z]{1,3}|\$?\d+:\$?\d+", s)
+    if not m:
+        raise Unsupported("外部ブックへの参照")
+    return m[0]
+
+
 def tokenize(src: str) -> list[Tok]:
     s = src
     i = 0
@@ -223,8 +329,26 @@ def tokenize(src: str) -> list[Tok]:
             # #REF!A1 のような形は参照エラーとして扱う
             continue
         if ch == "[":
-            # 外部参照 [1]Sheet!A1 や 構造化参照 Table[列]
-            raise Unsupported("外部ブックへの参照または構造化参照（テーブル）")
+            mx = re.match(r"\[(\d+)\]([^!\[\]'\s(),]*)!", s[i:])
+            if mx and mx[2]:
+                # 外部ブックへの参照：シート名を "[1]Sheet1" として扱い、保存されている値を使う
+                sheet = f"[{mx[1]}]{mx[2]}"
+                i += mx.end()
+                text = _first_token_text(s[i:])
+                a, _, b = text.partition(":")
+                ref = _ref_from_parts(sheet, a, b or None)
+                if ref is None:
+                    raise Unsupported("外部ブックへの参照")
+                toks.append(Tok("ref", ref, i))
+                i += len(text)
+                continue
+            if re.match(r"\[\d+\]", s[i:]):
+                raise Unsupported("外部ブックへの参照（名前など）")
+            # その数式があるテーブルの列 [列名]・[@列名]
+            content, j = _read_bracket(s, i)
+            toks.append(Tok("ref", _parse_struct(None, content), i))
+            i = j
+            continue
         # シート名付き参照
         sheet = None
         m = _SHEET_Q_RE.match(s, i)
@@ -267,6 +391,12 @@ def tokenize(src: str) -> list[Tok]:
                 raise SyntaxError(f"読めない文字: {s[i:i+10]}")
             word = m[0]
             j = m.end()
+            if sheet is None and j < n and s[j] == "[":
+                # 構造化参照 Table1[列名]
+                content, j2 = _read_bracket(s, j)
+                toks.append(Tok("ref", _parse_struct(word, content), i))
+                i = j2
+                continue
             # A1:B2 / A:B
             if j < n and s[j] == ":":
                 m2 = _WORD_RE.match(s, j + 1)
@@ -281,7 +411,9 @@ def tokenize(src: str) -> list[Tok]:
             # 関数
             k = j
             if k < n and s[k] == "(" and sheet is None:
-                toks.append(Tok("func", word, i))
+                # Excel 2010 以降の関数は、ファイルの中では _xlfn. や _xlws. を付けて書かれる
+                fname = re.sub(r"^(?i:_xlfn\.|_xlws\.)+", "", word)
+                toks.append(Tok("func", fname.upper() if fname != word else word, i))
                 i = k + 1
                 continue
             ref = _ref_from_parts(sheet, word, None)
@@ -527,6 +659,14 @@ def unparse(node: Node, dr: int = 0, dc: int = 0) -> str:
             return ""
         if isinstance(n, ArrayLit):
             return "{" + ";".join(",".join(u(x) for x in row) for row in n.rows) + "}"
+        if isinstance(n, StructRef):
+            def esc(x):
+                return re.sub(r"([\[\]#'])", r"'\1", x)
+            items = [f"[{sp}]" for sp in n.specials]
+            if n.col1 is not None:
+                items.append(f"[{esc(n.col1)}]" + (f":[{esc(n.col2)}]" if n.col2 is not None else ""))
+            inner = ",".join(items)
+            return (n.table or "") + (f"[{inner}]" if len(items) > 1 else (f"[{inner[1:-1]}]" if items else "[]"))
         raise TypeError(n)
 
     return u(node)
@@ -537,7 +677,7 @@ def iter_refs(node: Node):
     stack = [node]
     while stack:
         n = stack.pop()
-        if isinstance(n, (RefNode, NameNode)):
+        if isinstance(n, (RefNode, NameNode, StructRef)):
             yield n
         elif isinstance(n, Func):
             stack.extend(n.args)

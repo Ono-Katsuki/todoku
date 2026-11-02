@@ -207,17 +207,23 @@ def _format_number(x: float, sec: str) -> str:
     s = format(d, "f")
     ip, _, fp = s.partition(".")
     ip = ip.lstrip("0")
-    if len(ip) < min_int:
-        ip = ip.rjust(min_int, "0")
+    int_pat = re.findall(r"[0#?]", int_part.replace(",", ""))
+    pad = ""
+    if len(ip) < len(int_pat):
+        # 足りない桁：0 は「0」、? は空白、# は何も出さない
+        pad = "".join({"0": "0", "?": " ", "#": ""}[ch] for ch in int_pat[:len(int_pat) - len(ip)])
     if thousands and ip:
         ip = f"{int(ip):,}"
-    # 小数部の # は末尾の0を消す
+    ip = pad + ip
+    # 小数部の末尾の0：# は消し、? は空白にする（桁をそろえるため）
     if frac_digits:
-        req = len(re.findall(r"0", frac_part))
-        fp2 = fp
-        while len(fp2) > req and fp2.endswith("0"):
-            fp2 = fp2[:-1]
-        fp = fp2
+        frac_pat = re.findall(r"[0#?]", frac_part)
+        digits = list(fp)
+        k = len(digits) - 1
+        while k >= 0 and digits[k] == "0" and frac_pat[k] in "#?":
+            digits[k] = " " if frac_pat[k] == "?" else ""
+            k -= 1
+        fp = "".join(digits)
     number = ip + ("." + fp if frac_digits and (fp or "." in codes) else ("." if "." in codes and not fp else ""))
     # 記号の位置に数字を差し込み、前後の文字はそのまま残す
     out = []

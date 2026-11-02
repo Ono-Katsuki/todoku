@@ -12,7 +12,7 @@ from decimal import ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_UP, Decimal
 from typing import Callable
 
 from .dates import date_to_serial, serial_parts, serial_to_date
-from .parser import Func, Missing, Node
+from .parser import Func, Missing, Node, iter_funcs
 from .values import (
     DIV0,
     NA,
@@ -211,6 +211,69 @@ EAGER["LARGE"] = _large
 EAGER["SMALL"] = _small
 
 
+def _var(xs: list[float], sample: bool) -> float:
+    n = len(xs)
+    if n < (2 if sample else 1):
+        raise err(DIV0)
+    m = _sum(xs) / n
+    return _sum([(x - m) ** 2 for x in xs]) / (n - 1 if sample else n)
+
+
+@fn("VAR VAR.S")
+def f_var(ev, *args):
+    return _var(_numbers(ev, args), True)
+
+
+@fn("VARP VAR.P")
+def f_varp(ev, *args):
+    return _var(_numbers(ev, args), False)
+
+
+@fn("STDEV STDEV.S")
+def f_stdev(ev, *args):
+    return math.sqrt(_var(_numbers(ev, args), True))
+
+
+@fn("STDEVP STDEV.P")
+def f_stdevp(ev, *args):
+    return math.sqrt(_var(_numbers(ev, args), False))
+
+
+_SUBTOTAL = {1: "AVERAGE", 2: "COUNT", 3: "COUNTA", 4: "MAX", 5: "MIN", 6: "PRODUCT", 7: "STDEV", 8: "STDEVP",
+             9: "SUM", 10: "VAR", 11: "VARP"}
+
+
+@fn("SUBTOTAL")
+def f_subtotal(ev, kind, *refs):
+    """SUBTOTAL：範囲の中の SUBTOTAL の結果は数えない。101〜111 は手で隠した行も除く。
+    オートフィルターで隠れた行は、どちらでも除く。"""
+    k = int(num(ev, kind))
+    hide_manual = k > 100
+    base = k - 100 if hide_manual else k
+    name = _SUBTOTAL.get(base)
+    if name is None or not refs:
+        raise err(VALUE)
+    wb = getattr(ev.ctx, "wb", None)
+    rows: list[list] = []
+    for ref in refs:
+        if not isinstance(ref, Rng):
+            raise err(VALUE)
+        rng = ev.clip(ref)
+        sh = wb.sheet(rng.sheet) if wb is not None and wb.has_sheet(rng.sheet) else None
+        for r in range(rng.r1, rng.r2 + 1):
+            if sh is not None and r in sh.hidden_rows:
+                filtered = sh.autofilter is not None and sh.autofilter[0] < r <= sh.autofilter[2]
+                if hide_manual or filtered:
+                    continue
+            for c in range(rng.c1, rng.c2 + 1):
+                cell = sh.cells.get((r, c)) if sh is not None else None
+                if cell is not None and cell.ast is not None and any(
+                        f in ("SUBTOTAL", "AGGREGATE") for f in iter_funcs(cell.ast)):
+                    continue  # 入れ子の小計は数えない（二重に数えないため）
+                rows.append([ev.ctx.cell_value(rng.sheet, r, c)])
+    return EAGER[name](ev, Arr(rows or [[None]]))
+
+
 @fn("SUMPRODUCT")
 def f_sumproduct(ev, *args):
     grids = [ev.grid(a) for a in args]
@@ -271,7 +334,8 @@ def _num_eq(n: float):
 def criteria(crit) -> Callable[[object], bool]:
     """COUNTIF/SUMIF の条件を判定関数にする。"""
     if isinstance(crit, ExcelError):
-        raise crit
+        # 条件がエラー値でも、エラーにはならない：同じエラー値のセルだけが当てはまる（Excelの挙動）
+        return lambda x: isinstance(x, ExcelError) and x.code == crit.code
     if crit is None:
         # 空のセルを条件にすると 0 と一致する（Excelの挙動）
         return lambda x: is_number(x) and x == 0
@@ -339,7 +403,42 @@ def _flat(g: Arr):
     return [x for row in g.data for x in row]
 
 
+def _lift(*crit_pos):
+    """配列として計算している中で、条件に範囲や配列が渡されたら、その要素ごとに計算して配列で返す
+    （SUMPRODUCT の中の COUNTIFS(A1:A9,A1:A9) など。Excelの動的配列と同じ）。"""
+
+    def deco(f):
+        def g(ev, *args):
+            multi = [i for i in crit_pos if i < len(args) and isinstance(args[i], (Rng, Arr))
+                     and (ev.grid(args[i]).rows * ev.grid(args[i]).cols > 1)]
+            if not ev.array or not multi:
+                return f(ev, *args)
+            grids = {i: ev.grid(args[i]) for i in multi}
+            rows = max(g_.rows for g_ in grids.values())
+            cols = max(g_.cols for g_ in grids.values())
+            out = []
+            for r in range(rows):
+                line = []
+                for c in range(cols):
+                    a = list(args)
+                    for i, g_ in grids.items():
+                        rr = 0 if g_.rows == 1 else r
+                        cc = 0 if g_.cols == 1 else c
+                        a[i] = g_.data[rr][cc] if rr < g_.rows and cc < g_.cols else err(NA)
+                    try:
+                        line.append(f(ev, *a))
+                    except ExcelError as e:
+                        line.append(e)
+                out.append(line)
+            return Arr(out)
+
+        return g
+
+    return deco
+
+
 @fn("COUNTIF")
+@_lift(1)
 def f_countif(ev, rng, crit):
     if not isinstance(rng, (Rng, Arr)):
         raise err(VALUE)
@@ -348,6 +447,7 @@ def f_countif(ev, rng, crit):
 
 
 @fn("COUNTIFS")
+@_lift(*range(1, 254, 2))
 def f_countifs(ev, *args):
     if len(args) % 2:
         raise err(VALUE)
@@ -366,6 +466,7 @@ def f_countifs(ev, *args):
 
 
 @fn("SUMIF")
+@_lift(1)
 def f_sumif(ev, rng, crit, sum_rng=None):
     if not isinstance(rng, (Rng, Arr)):
         raise err(VALUE)
@@ -409,6 +510,7 @@ def _ifs_mask(ev, pairs):
 
 
 @fn("SUMIFS")
+@_lift(*range(2, 255, 2))
 def f_sumifs(ev, sum_rng, *args):
     if len(args) % 2:
         raise err(VALUE)
@@ -575,6 +677,32 @@ def f_mround(ev, x, m):
 
 
 # ================================================================ 論理
+@fn("LET", lazy=True)
+def f_let(ev, args: list[Node]):
+    """LET(名前1, 値1, …, 計算)。名前は、ファイルの中では _xlpm.名前 と書かれる。"""
+    from .parser import NameNode
+
+    if len(args) < 3 or len(args) % 2 == 0:
+        return err(VALUE)
+    scope = dict(getattr(ev, "scope", None) or {})
+    saved = getattr(ev, "scope", None)
+    try:
+        for i in range(0, len(args) - 1, 2):
+            n = args[i]
+            if not isinstance(n, NameNode):
+                return err(VALUE)
+            ev.scope = scope
+            scope[_param(n.name)] = ev.ev(args[i + 1])
+        ev.scope = scope
+        return ev.ev(args[-1])
+    finally:
+        ev.scope = saved
+
+
+def _param(name: str) -> str:
+    return re.sub(r"^(?i:_xlpm\.)", "", name).upper()
+
+
 @fn("IF", lazy=True)
 def f_if(ev, args: list[Node]):
     if not args or len(args) > 3:
@@ -815,6 +943,66 @@ def f_column(ev, ref=None):
     if isinstance(ref, Rng):
         return float(ref.c1)
     raise err(VALUE)
+
+
+@fn("ADDRESS")
+def f_address(ev, row, col, abs_num=None, a1=None, sheet=None):
+    from .parser import num_to_col
+
+    r, c = int(num(ev, row)), int(num(ev, col))
+    k = int(num(ev, abs_num)) if abs_num is not None else 1
+    style_a1 = True if a1 is None else bool(to_bool(S(ev, a1)))
+    if r < 1 or c < 1 or r > 1048576 or c > 16384 or k not in (1, 2, 3, 4):
+        raise err(VALUE)
+    if style_a1:
+        ra = "$" if k in (1, 2) else ""
+        ca = "$" if k in (1, 3) else ""
+        text = f"{ca}{num_to_col(c)}{ra}{r}"
+    else:
+        rr = f"R{r}" if k in (1, 2) else f"R[{r}]"
+        cc = f"C{c}" if k in (1, 3) else f"C[{c}]"
+        text = rr + cc
+    if sheet is not None:
+        name = to_text(S(ev, sheet))
+        if name:
+            q = re.search(r"[^\w.]", name) or re.match(r"\d", name)
+            text = (f"'{name.replace(chr(39), chr(39) * 2)}'" if q else name) + "!" + text
+    return text
+
+
+@fn("CELL")
+def f_cell(ev, info, ref=None):
+    """CELL：場所・内容・種類などを返す。ファイルの保存場所（filename）は環境で変わるので、計算のたびに変わる値として扱う。"""
+    from .parser import num_to_col
+
+    kind = to_text(S(ev, info)).lower()
+    if ref is None:
+        sheet, r, c = ev.sheet, ev.row, ev.col
+    elif isinstance(ref, Rng):
+        sheet, r, c = ref.sheet, ref.r1, ref.c1
+    else:
+        raise err(VALUE)
+    if kind == "address":
+        return f"${num_to_col(c)}${r}" if sheet == ev.sheet else f"{sheet}!${num_to_col(c)}${r}"
+    if kind == "row":
+        return float(r)
+    if kind == "col":
+        return float(c)
+    if kind == "contents":
+        v = ev.ctx.cell_value(sheet, r, c)
+        return 0.0 if v is None else v
+    if kind == "type":
+        v = ev.ctx.cell_value(sheet, r, c)
+        return "b" if v is None else ("l" if isinstance(v, str) else "v")
+    if kind == "filename":
+        ev.volatile = True  # 保存した場所によって変わる（Excelも開いた場所で計算し直す）
+        wb = getattr(ev.ctx, "wb", None)
+        name = (wb.filename or "Book1.xlsx").rsplit("/", 1)[-1] if wb is not None else "Book1.xlsx"
+        return f"[{name}]{sheet}"
+    if kind == "prefix":
+        v = ev.ctx.cell_value(sheet, r, c)
+        return "" if not isinstance(v, str) else "'"
+    raise Unsupported(f"CELL の種類 {kind}")
 
 
 @fn("ROWS")
@@ -1203,6 +1391,8 @@ def f_search(ev, needle, hay, start=None):
 @fn("VALUE")
 def f_value(ev, x):
     v = S(ev, x)
+    if v is None:
+        return 0.0  # 空のセルは 0（Excelと同じ）
     if is_number(v):
         return float(v)
     if isinstance(v, ExcelError):
@@ -1353,13 +1543,17 @@ def f_weekday(ev, x, kind=None):
     # シリアル1 = 1900/1/1 は（Excel上）日曜
     # 1900/2/29（シリアル60）が存在する扱いなので、曜日は通しで7日周期になる
     sun0 = (serial_to_date(v).weekday() + 1) % 7 if v >= 61 else (v - 1) % 7
-    if k == 1:
+    if k in (1, 17):
         return float(sun0 + 1)
-    if k == 2:
+    if k in (2, 11):
         return float((sun0 + 6) % 7 + 1)
     if k == 3:
         return float((sun0 + 6) % 7)
-    raise Unsupported("WEEKDAYの種類")
+    if 12 <= k <= 16:
+        # 12: 火曜=1 … 16: 土曜=1（週の始まりの曜日をずらす）
+        start = k - 10  # 火=2 水=3 木=4 金=5 土=6（日=0 として）
+        return float((sun0 - start) % 7 + 1)
+    raise err(NUM)
 
 
 @fn("EDATE")
@@ -1463,6 +1657,30 @@ def f_workday(ev, a, days, holidays=None):
 
 
 # ================================================================ 未対応（明示）
-for _name in ("GETPIVOTDATA", "CELL", "INFO", "HYPERLINK", "WEBSERVICE", "FILTERXML", "LET", "LAMBDA",
-              "FILTER", "SORT", "UNIQUE", "SEQUENCE", "RAND", "RANDBETWEEN", "PHONETIC"):
+@fn("HYPERLINK")
+def f_hyperlink(ev, link, friendly=None):
+    v = S(ev, friendly) if friendly is not None else S(ev, link)
+    return 0.0 if v is None else v
+
+
+@fn("PHONETIC")
+def f_phonetic(ev, ref):
+    """PHONETIC：セルの文字に付いているふりがな。ふりがながなければ、文字そのもの。"""
+    if not isinstance(ref, Rng):
+        raise err(VALUE)
+    wb = getattr(ev.ctx, "wb", None)
+    out = []
+    for r in range(ref.r1, ref.r2 + 1):
+        for c in range(ref.c1, ref.c2 + 1):
+            v = ev.ctx.cell_value(ref.sheet, r, c)
+            if not isinstance(v, str):
+                continue
+            i = wb.cell_sst.get((ref.sheet, r, c)) if wb is not None else None
+            out.append(wb.phonetic.get(i, v) if i is not None else v)
+    return "".join(out)
+
+
+# 環境や外部によって決まるもの・まだ再現していないもの（明示的に「未対応」にする）
+for _name in ("GETPIVOTDATA", "INFO", "WEBSERVICE", "FILTERXML", "LAMBDA",
+              "FILTER", "SORT", "UNIQUE", "SEQUENCE", "RAND", "RANDBETWEEN"):
     EAGER.pop(_name, None)

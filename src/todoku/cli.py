@@ -34,7 +34,9 @@ def _load(path: str) -> Workbook:
     p = Path(path)
     blob = p.read_bytes()
     if blob[:4] == b"\xd0\xcf\x11\xe0":
-        sys.exit(f"{p.name}: 古い形式（.xls）か、パスワードで暗号化されたファイルです。xlsx で保存し直してください。")
+        if "EncryptedPackage".encode("utf-16-le") in blob:
+            sys.exit(f"{p.name}: パスワードで保護されたファイルです。パスワードの入力には、まだ対応していません。")
+        sys.exit(f"{p.name}: 古い形式（.xls）のExcelには、まだ対応していません（対応を予定しています）。")
     return Workbook(blob, filename=p.name)
 
 
@@ -52,7 +54,11 @@ def cmd_convert(a) -> int:
     doc["verify"] = rep.summary()
     diag = diagnose(wb, rep)
     _dump(doc, out / f"{stem}.window.json")
-    (out / f"{stem}.window.md").write_text(window.to_markdown(doc), encoding="utf-8")
+    parts = window.markdown_parts(doc)
+    (out / f"{stem}.window.md").write_text(parts[0][1], encoding="utf-8")
+    for i, (_, text) in enumerate(parts[1:], 1):
+        # 大きな窓は、AIが1回で読み切れる大きさに分ける（最初のファイルが目次）
+        (out / f"{stem}.window.part{i:02d}.md").write_text(text, encoding="utf-8")
     _dump(diag.to_dict(), out / f"{stem}.diagnosis.json")
     (out / f"{stem}.diagnosis.html").write_text(report.render(diag.to_dict(), title=f"診断：{Path(a.file).name}"), encoding="utf-8")
     _dump([r.__dict__ for r in rep.results], out / f"{stem}.verify.json")
@@ -72,7 +78,7 @@ def cmd_verify(a) -> int:
     rep = verify(wb)
     s = rep.summary()
     print(f"往復: {'バイト一致' if rt_ok else '不一致'}")
-    print(f"関数: {s['match']}/{s['total']} 一致")
+    print(f"関数: {s['match']}/{s['total']} 一致（不一致 {s['mismatch']}・再計算不可 {s['unsupported']}・計算のたびに変わる {s['volatile']}）")
     for r in rep.results:
         if r.status not in ("match",) and (a.verbose or r.status == "mismatch"):
             print(f"  [{r.status}] {r.sheet}!{r.address} ={r.formula}  保存値={r.expected!r} 再計算={r.actual!r} {r.reason}")

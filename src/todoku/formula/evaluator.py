@@ -19,6 +19,7 @@ from .parser import (
     Postfix,
     RefNode,
     Str,
+    StructRef,
     Unary,
 )
 from .values import (
@@ -143,7 +144,18 @@ class Evaluator:
             if n.r1 < 1 or n.c1 < 1 or n.r2 > MAX_ROW or n.c2 > MAX_COL:
                 return err(REF)
             return Rng(sheet, n.r1, n.c1, n.r2, n.c2)
+        if isinstance(node, StructRef):
+            if not hasattr(self.ctx, "table_ref"):
+                raise Unsupported("構造化参照（テーブル）")
+            return self.ctx.table_ref(node, self.sheet, self.row, self.col)
         if isinstance(node, NameNode):
+            scope = getattr(self, "scope", None)
+            if scope and node.sheet is None:
+                import re as _re
+
+                key = _re.sub(r"^(?i:_xlpm\.)", "", node.name).upper()
+                if key in scope:
+                    return scope[key]  # LET で決めた名前
             res = self.ctx.resolve_name(node.name, node.sheet, self.sheet)
             if res is None:
                 return err(NAME)

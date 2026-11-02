@@ -77,9 +77,7 @@ def lint(blob: bytes, parts: list[str] | None = None) -> LintReport:
         ext = n.rsplit(".", 1)[-1].lower() if "." in n else ""
         if n not in overrides and ext not in defaults:
             rep.errors.append(f"{n}: [Content_Types].xml に種類が登録されていません")
-    for o in overrides:
-        if o not in names:
-            rep.errors.append(f"[Content_Types].xml: 存在しない部分 {o} が登録されています")
+    # 登録だけあって部品がないもの（docProps/app.xml など）は、Excelは読むときに無視するので問題にしない
     for n in names:
         if not n.endswith(".rels"):
             continue
@@ -104,7 +102,9 @@ def lint(blob: bytes, parts: list[str] | None = None) -> LintReport:
         rep.checked_parts += 1
         raw = z.read(n)
         try:
-            root = ET.fromstring(raw)
+            from .workbook import parse_xml
+
+            root = parse_xml(raw)
         except ET.ParseError as e:
             rep.errors.append(f"{n}: XMLとして読めません（{e}）")
             continue
@@ -180,5 +180,5 @@ def _lint_sheet(name: str, root: ET.Element, sst_count: int | None, errors: list
     if root.find(M + "mergeCells") is not None:
         for m in root.find(M + "mergeCells"):
             ref = m.get("ref", "")
-            if not re.fullmatch(r"[A-Z]+\d+:[A-Z]+\d+", ref):
+            if not re.fullmatch(r"[A-Z]+\d+(:[A-Z]+\d+)?", ref):  # 1つのセルだけの結合も、Excelは受け付ける
                 errors.append(f"{name}: 結合の範囲 {ref} が不正です")

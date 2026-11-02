@@ -470,9 +470,14 @@ class Layout:
             item = norm_label(lefts[-1].cell.value)
             method.append("左の見出し")
         if lefts:
-            # 同じ行で、見出しのさらに左にある短い見出し（「法人名｜フリガナ」の「法人名」）は区分として読む
-            more = [b for b in row if b.kind == "text" and b.c2 < lefts[0].c1 and b.r2 == b.r
-                    and isinstance(b.cell.value, str) and b.cell.value.strip() and not _is_phrase_text(b.cell.value)]
+            # 同じ行で、見出しのすぐ左に続く見出し（「法人名｜フリガナ」の「法人名」）は区分として読む。
+            # あいだに欄がはさまるもの（横に並んだ別の表の見出し）は区分にしない
+            more = []
+            for b in reversed([b for b in row if b.c2 < lefts[0].c1]):
+                if b.kind != "text" or b.r2 != b.r or not isinstance(b.cell.value, str) or not b.cell.value.strip():
+                    break
+                if not _is_phrase_text(b.cell.value):
+                    more.insert(0, b)
             for b in more:
                 t = norm_label(b.cell.value)
                 if _MARKER.match(t) and item:
@@ -480,13 +485,17 @@ class Layout:
                 elif t not in secs:
                     secs.append(t)
         heads = self.header(target, phrase)
-        table_like = bool(heads) and (item is None or self._repeated(r))
         parts = list(secs)
-        if heads and (table_like or item is None):
-            key = self.row_key(r, first.c1)
-            if key and key not in parts and key != item:
-                parts.append(key)
-            if item and item not in parts and not self._repeated(r):
+        sh_ = self.shape(r)
+        repeated = bool(sh_) and (self.shape(r - 1) == sh_ or self.shape(r + 1) == sh_)
+        if heads and (item is None or repeated):
+            # 表の欄（同じ形の行が続く）：行の見出し（左）と列の見出し（上）の両方で呼ぶ。
+            # 「見出し｜値」が縦に並ぶだけの行では、上の行の値を見出しと取り違えないよう、上は見ない
+            if item is None:
+                key = self.row_key(r, first.c1)
+                if key and key not in parts:
+                    parts.append(key)
+            elif item not in parts:
                 parts.append(item)
             parts += [h for h in heads if h not in parts]
             method.append("上の見出し")
@@ -517,10 +526,8 @@ class Layout:
                 "context": self.line(r, mark_box=target)}
 
     def row_key(self, r: int, before_col: int) -> str | None:
-        """表の行の名前（行のいちばん左にある文字の見出し）。"""
-        for b in self.boxes(r):
-            if b.c1 >= before_col:
-                break
+        """表の行の名前：左へたどって、欄をとばして最初にある文字の見出し（横に並んだ表でも、その表の行の名前）。"""
+        for b in reversed([b for b in self.boxes(r) if b.c2 < before_col and b.kind != "check"]):
             if (b.kind == "text" and isinstance(b.cell.value, str) and len(b.cell.value.strip()) >= 2
                     and not _is_phrase_text(b.cell.value)):
                 return norm_label(b.cell.value)
@@ -666,7 +673,10 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
             depends = None
             for v in rules:
                 if v.type == "list":
-                    options, depends = opts.get(sh.name, v, b.r, b.c1)
+                    o, d = opts.get(sh.name, v, b.r, b.c1)
+                    if o is not None:
+                        options = (options or []) + [x for x in o if x not in (options or [])]
+                    depends = depends or d
             d = lay.describe(b, options)
             f = {"id": f"{sh.name}!{b.cell_ref}", "cell": b.cell_ref, "kind": _field_kind(wb, cell, rules),
                  "value": None if cell is None else (cell.value.code if isinstance(cell.value, ExcelError) else cell.value),
@@ -683,6 +693,8 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
                 f["options_depend_on"] = depends
             if rules:
                 f["rules"] = [_rule_dict(v) for v in rules]
+            if len([v for v in rules if v.type not in ("any", None)]) > 1:
+                f["rules_overlap"] = True  # 入力規則が重なっている（Excelがどれを使うかはファイルから決まらない）
             if b.outside:
                 f["outside_print_area"] = True
             if b.highlighted:
@@ -827,33 +839,53 @@ def _tables(wb: Workbook, sh: Sheet) -> list[dict]:
 
 
 def reading(lay: Layout) -> list[dict]:
-    """見える行を上から。同じ形の空欄の行が続くところは1行にまとめる。"""
+    """見える行を上から。同じ形の空欄の行（または2〜4行で1組の行）が続くところは1行にまとめる。"""
     out: list[dict] = []
     rows = sorted(lay.rows)
+    texts = {r: lay.line(r) for r in rows}
     i = 0
     while i < len(rows):
         r = rows[i]
-        text = lay.line(r)
-        if not text:
+        if not texts[r]:
             i += 1
             continue
-        out.append({"row": r, "text": text})
-        sig = lay.signature(r)
-        j = i + 1
-        while (j < len(rows) and rows[j] == rows[j - 1] + 1 and lay.signature(rows[j]) == sig
-               and lay.is_blank_row(rows[j]) and not lay.cover.get(rows[j])):
-            j += 1
-        if j - i > 2:
-            out.append({"rows": f"{rows[i + 1]}-{rows[j - 1]}",
-                        "text": f"{r}行目と同じ形の行が {j - i - 1} 行続きます（入力欄はすべて空欄）"})
-            i = j
-        else:
+        best = None  # (組の行数, 続く組の数)
+        for per in (1, 2, 3, 4):
+            group = rows[i:i + per]
+            if len(group) < per or group[-1] - group[0] != per - 1:
+                break
+            sigs = [lay.signature(x) for x in group]
+            n = 0
+            j = i + per
+            while j + per <= len(rows):
+                nxt = rows[j:j + per]
+                # 上の組から続く結合セル（縦に長い見出しなど）がかかる行は、まとめない
+                if (nxt[0] != rows[j - 1] + 1 or nxt[-1] - nxt[0] != per - 1
+                        or [lay.signature(x) for x in nxt] != sigs
+                        or not all(lay.is_blank_row(x) and all(b.r >= nxt[0] for b in lay.cover.get(x, []))
+                                   for x in nxt)):
+                    break
+                n += 1
+                j += per
+            if n >= (2 if per == 1 else 1) and (best is None or n * per > best[1] * best[0]):
+                best = (per, n)
+        if best is None:
+            out.append({"row": r, "text": texts[r]})
             i += 1
+            continue
+        per, n = best
+        for x in rows[i:i + per]:
+            if texts[x]:
+                out.append({"row": x, "text": texts[x]})
+        a, b = rows[i + per], rows[i + per * (n + 1) - 1]
+        what = f"{r}行目と同じ形の行" if per == 1 else f"{r}〜{rows[i + per - 1]}行目と同じ形の{per}行1組"
+        out.append({"rows": f"{a}-{b}", "text": f"{what}が {n} {'行' if per == 1 else '組'}続きます（入力欄はすべて空欄）"})
+        i += per * (n + 1)
     return out
 
 
 # ====================================================================== Markdown
-def to_markdown(doc: dict) -> str:
+def _md_head(doc: dict) -> list[str]:
     out = [f"# {doc['source']['file'] or '書類'}", ""]
     out.append(f"- 元ファイルの SHA-256: `{doc['source']['sha256']}`（{doc['source']['bytes']:,} バイト）")
     out.append("- この文書は読むための窓です。書き込みは `todoku fill` で元のファイルに差分として適用します。")
@@ -862,61 +894,107 @@ def to_markdown(doc: dict) -> str:
     if doc["macros"]:
         out.append("- **マクロを含みます**（マクロの動作はこの窓には含まれません）")
     out.append("")
+    return out
+
+
+def _md_sheet(sh: dict) -> list[str]:
+    """1枚のシートの窓（Markdownの行）。"""
+    state = sh["state"]
+    if state.startswith("non-"):
+        return [f"## シート「{sh['name']}」（セルのないシート）", ""]
+    if state != "visible":
+        n = len(sh["cells"])
+        return [f"## シート「{sh['name']}」（非表示）", "",
+                f"画面に出ない計算用のシートです（値のあるセル {n:,} 個）。"
+                "ここから作られる選択肢は、各入力欄の「選択肢」に展開してあります。すべてのセルはJSONの窓にあります。", ""]
+    out = [f"## シート「{sh['name']}」", ""]
+    info = []
+    if sh.get("print_area"):
+        info.append(f"印刷範囲 {sh['print_area'].rsplit('!', 1)[-1].replace('$', '')}")
+    if sh.get("hidden_cols"):
+        info.append("非表示の列 " + "、".join(sh["hidden_cols"]))
+    if sh.get("hidden_rows"):
+        info.append("非表示の行 " + "、".join(sh["hidden_rows"]))
+    if sh.get("protected"):
+        info.append("シート保護あり（入力欄だけ編集できます）")
+    if sh.get("hidden_by_format"):
+        info.append(f"条件付き書式でいまは見えない文字 {len(sh['hidden_by_format'])} か所（読み順には出していません）")
+    if info:
+        out += ["- " + "／".join(info), ""]
+    fields = sh.get("fields", [])
+    main = [f for f in fields if not f.get("unlabeled")]
+    if main:
+        out += [f"### 入力欄（{len(main)} か所）", "", "| 欄 | 見出し | 種類・選択肢 | いまの値 |", "|---|---|---|---|"]
+        for g in _group_fields(main):
+            out.append("| " + " | ".join(_md(x) for x in g) + " |")
+        out.append("")
+    extra = [f for f in fields if f.get("unlabeled")]
+    if extra:
+        cells = [f["cell"] for f in extra if f.get("cell")]
+        out += [f"- 見出しの見つからない編集できるセル {len(extra)} か所（空欄のままでよい補助のセルのことが多い）: " + _compact(cells), ""]
+    out += ["### 読み順（上から）", ""]
+    for line in sh.get("reading", []):
+        head = f"{line['row']}" if "row" in line else line["rows"].replace("-", "〜")
+        out.append(f"- {head}: {line['text']}")
+    out.append("")
+    notes = sh.get("notes", [])
+    shapes = [s for s in sh.get("shapes", []) if s["text"] or s["alt"] or s["kind"] == "picture"]
+    if notes or shapes or sh.get("header_footer"):
+        out += ["### 図形・メモ・ヘッダー", ""]
+        for s in shapes:
+            desc = s["text"] or s["alt"] or "（文字も代替テキストもありません）"
+            out.append(f"- {s['kind']}（{s['anchor'] or '位置不明'}付近）: {_md(desc)}")
+        for n in notes:
+            out.append(f"- メモ（{n['cell']}）: {_md(n['text'])}")
+        for h in sh.get("header_footer", []):
+            out.append(f"- ヘッダー・フッター: {_md(h)}")
+        out.append("")
+    return out
+
+
+def to_markdown(doc: dict) -> str:
+    out = _md_head(doc)
     for sh in doc["sheets"]:
-        state = sh["state"]
-        if state.startswith("non-"):
-            out += [f"## シート「{sh['name']}」（セルのないシート）", ""]
-            continue
-        if state != "visible":
-            n = len(sh["cells"])
-            out += [f"## シート「{sh['name']}」（非表示）", "",
-                    f"画面に出ない計算用のシートです（値のあるセル {n:,} 個）。"
-                    "ここから作られる選択肢は、各入力欄の「選択肢」に展開してあります。すべてのセルはJSONの窓にあります。", ""]
-            continue
-        out.append(f"## シート「{sh['name']}」")
-        out.append("")
-        info = []
-        if sh.get("print_area"):
-            info.append(f"印刷範囲 {sh['print_area'].rsplit('!', 1)[-1].replace('$', '')}")
-        if sh.get("hidden_cols"):
-            info.append("非表示の列 " + "、".join(sh["hidden_cols"]))
-        if sh.get("hidden_rows"):
-            info.append("非表示の行 " + "、".join(sh["hidden_rows"]))
-        if sh.get("protected"):
-            info.append("シート保護あり（入力欄だけ編集できます）")
-        if sh.get("hidden_by_format"):
-            info.append(f"条件付き書式でいまは見えない文字 {len(sh['hidden_by_format'])} か所（読み順には出していません）")
-        if info:
-            out += ["- " + "／".join(info), ""]
-        fields = sh.get("fields", [])
-        main = [f for f in fields if not f.get("unlabeled")]
-        if main:
-            out += [f"### 入力欄（{len(main)} か所）", "", "| 欄 | 見出し | 種類・選択肢 | いまの値 |", "|---|---|---|---|"]
-            for g in _group_fields(main):
-                out.append("| " + " | ".join(_md(x) for x in g) + " |")
-            out.append("")
-        extra = [f for f in fields if f.get("unlabeled")]
-        if extra:
-            cells = [f["cell"] for f in extra if f.get("cell")]
-            out += [f"- 見出しの見つからない編集できるセル {len(extra)} か所（空欄のままでよい補助のセルのことが多い）: " + _compact(cells), ""]
-        out += ["### 読み順（上から）", ""]
-        for line in sh.get("reading", []):
-            head = f"{line['row']}" if "row" in line else line["rows"].replace("-", "〜")
-            out.append(f"- {head}: {line['text']}")
-        out.append("")
-        notes = sh.get("notes", [])
-        shapes = [s for s in sh.get("shapes", []) if s["text"] or s["alt"] or s["kind"] == "picture"]
-        if notes or shapes or sh.get("header_footer"):
-            out += ["### 図形・メモ・ヘッダー", ""]
-            for s in shapes:
-                desc = s["text"] or s["alt"] or "（文字も代替テキストもありません）"
-                out.append(f"- {s['kind']}（{s['anchor'] or '位置不明'}付近）: {_md(desc)}")
-            for n in notes:
-                out.append(f"- メモ（{n['cell']}）: {_md(n['text'])}")
-            for h in sh.get("header_footer", []):
-                out.append(f"- ヘッダー・フッター: {_md(h)}")
-            out.append("")
+        out += _md_sheet(sh)
     return "\n".join(out)
+
+
+BUDGET = 120_000  # 1つの窓の大きさの目安（文字）。AIが1回で読み切れる量
+
+
+def markdown_parts(doc: dict, budget: int = BUDGET) -> list[tuple[str, str]]:
+    """窓を、AIが1回で読み切れる大きさの部分に分ける。小さければ1つのまま。
+
+    分けるときは、最初の部分を目次にし、シートごと（大きなシートは行の範囲ごと）に分ける。
+    どの部分にも、見出しの行（どのシートのどこか）を付ける。
+    """
+    whole = to_markdown(doc)
+    if len(whole) <= budget:
+        return [("全体", whole)]
+    parts: list[tuple[str, list[str]]] = []
+    for sh in doc["sheets"]:
+        lines = _md_sheet(sh)
+        title = f"シート「{sh['name']}」"
+        if sum(len(x) + 1 for x in lines) <= budget:
+            parts.append((title, lines))
+            continue
+        head, chunk, size, k = lines[:2], [], 0, 1
+        for line in lines[2:]:
+            if size + len(line) + 1 > budget - 2000 and chunk:
+                parts.append((f"{title} その{k}", head + [f"（{title}の続き その{k}）", ""] + chunk))
+                chunk, size, k = [], 0, k + 1
+            chunk.append(line)
+            size += len(line) + 1
+        if chunk:
+            parts.append((f"{title} その{k}" if k > 1 else title, head + ([f"（{title}の続き その{k}）", ""] if k > 1 else []) + chunk))
+    index = _md_head(doc) + ["## この窓の目次", "",
+                             f"窓が大きいので、{len(parts)} の部分に分けました。必要な部分を順に読んでください。", ""]
+    for i, (title, lines) in enumerate(parts, 1):
+        sh_name = title.split("」")[0].replace("シート「", "")
+        sh = next((x for x in doc["sheets"] if x["name"] == sh_name), None)
+        n_fields = len([f for f in (sh or {}).get("fields", []) if not f.get("unlabeled")])
+        index.append(f"- 部分 {i}: {title}（{sum(len(x) + 1 for x in lines):,} 文字、入力欄 {n_fields} か所）")
+    return [("目次", "\n".join(index))] + [(t, "\n".join(_md_head(doc)[:1] + [""] + lines)) for t, lines in parts]
 
 
 def _kind_text(f: dict) -> str:
@@ -938,6 +1016,8 @@ def _kind_text(f: dict) -> str:
         k += f"（単位 {f['unit']}）"
     if f.get("highlighted"):
         k += "（色付きの欄）"
+    if f.get("rules_overlap"):
+        k += "（入力規則が重なっています。どれが使われるかはファイルからは決まりません）"
     return k
 
 
@@ -949,48 +1029,47 @@ def _value_text(f: dict) -> str:
 
 
 def _group_fields(fields: list[dict]) -> list[tuple[str, str, str, str]]:
-    """表の列のように、同じ見出し・同じ種類の欄が縦に続くところは1行にまとめる。"""
+    """表の列のように、同じ見出し・同じ種類の欄が縦に続くところ（1〜4行おき）は1行にまとめる。"""
     from ..formula.parser import parse_cell
 
     out = []
-    i = 0
-    while i < len(fields):
-        f = fields[i]
-        j = i + 1
+    rest = list(fields)
+    while rest:
+        f = rest.pop(0)
         if f.get("cell") and f["kind"] != "checkbox":
             r0, c0 = parse_cell(f["cell"])
-            same = [f]
-            for g in fields[i + 1:]:
-                pass
-            # 同じ列で、行が1つずつ続き、見出しと種類が同じもの
-            k = i + 1
-            col_run = [f]
-            seen_rows = {r0}
-            for g in fields[i + 1:]:
-                if not g.get("cell") or g["kind"] != f["kind"] or g.get("label") != f.get("label"):
-                    continue
-                rg, cg = parse_cell(g["cell"])
-                if cg == c0 and rg == max(seen_rows) + 1:
-                    col_run.append(g)
-                    seen_rows.add(rg)
-            if len(col_run) >= 3:
-                filled = sum(1 for g in col_run if g.get("value") not in (None, ""))
-                vals = "空欄" if not filled else f"記入済み {filled}・空欄 {len(col_run) - filled}"
-                outside = sum(1 for g in col_run if g.get("outside_print_area"))
+            same = [g for g in rest if g.get("cell") and g["kind"] == f["kind"] and g.get("label") == f.get("label")
+                    and parse_cell(g["cell"])[1] == c0 and parse_cell(g["cell"])[0] > r0]
+            run = [f]
+            if same:
+                step = parse_cell(same[0]["cell"])[0] - r0
+                if 1 <= step <= 4:
+                    want = r0 + step
+                    for g in same:
+                        rg = parse_cell(g["cell"])[0]
+                        if rg == want:
+                            run.append(g)
+                            want += step
+                        elif rg > want:
+                            break
+            if len(run) >= 3:
+                ids = {id(g) for g in run}
+                rest = [g for g in rest if id(g) not in ids]
+                filled = sum(1 for g in run if g.get("value") not in (None, ""))
+                vals = "空欄" if not filled else f"記入済み {filled}・空欄 {len(run) - filled}"
+                outside = sum(1 for g in run if g.get("outside_print_area"))
                 note = f"、うち印刷範囲外 {outside} 行" if outside else ""
-                out.append((f"{col_run[0]['cell']}〜{col_run[-1]['cell']}（{len(col_run)} 行{note}）", f.get("label") or "",
-                            _kind_text(f), vals))
-                ids = {id(g) for g in col_run}
-                fields = fields[:i] + [g for g in fields[i:] if id(g) not in ids]
+                step_note = "" if len(run) < 2 or parse_cell(run[1]["cell"])[0] - r0 == 1 else \
+                    f"、{parse_cell(run[1]['cell'])[0] - r0} 行おき"
+                out.append((f"{run[0]['cell']}〜{run[-1]['cell']}（{len(run)} か所{step_note}{note}）",
+                            f.get("label") or "（見出しなし）", _kind_text(f), vals))
                 continue
-            del same, k
         cell = f.get("cell") or f.get("control")
         if f["kind"] == "checkbox":
             cell = f"{'☑' if f['value'] else '☐'} {f.get('cell') or f.get('control')}"
         if f.get("outside_print_area"):
             cell = f"{cell}（印刷範囲外）"
         out.append((cell, f.get("label") or "（見出しなし）", _kind_text(f), _value_text(f)))
-        i = j
     return out
 
 

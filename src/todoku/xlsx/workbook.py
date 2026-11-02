@@ -28,6 +28,23 @@ M = "{%s}" % NS["m"]
 R = "{%s}" % NS["r"]
 
 
+# Strict Open XML（ISO/IEC 29500 Strict）の名前空間 → 通常（Transitional）の名前空間
+_STRICT = [
+    (b"http://purl.oclc.org/ooxml/spreadsheetml/main", b"http://schemas.openxmlformats.org/spreadsheetml/2006/main"),
+    (b"http://purl.oclc.org/ooxml/officeDocument/relationships", b"http://schemas.openxmlformats.org/officeDocument/2006/relationships"),
+    (b"http://purl.oclc.org/ooxml/drawingml/spreadsheetDrawing", b"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"),
+    (b"http://purl.oclc.org/ooxml/drawingml/main", b"http://schemas.openxmlformats.org/drawingml/2006/main"),
+]
+
+
+def parse_xml(data: bytes) -> ET.Element:
+    """XMLを読む。Strict Open XML で書かれていても、同じ名前で読めるように名前空間をそろえる。"""
+    if b"purl.oclc.org/ooxml" in data:
+        for a, b in _STRICT:
+            data = data.replace(a, b)
+    return ET.fromstring(data)
+
+
 def _q(tag: str) -> str:
     p, t = tag.split(":")
     return "{%s}%s" % (NS[p], t)
@@ -81,10 +98,10 @@ class Validation:
 
     @property
     def origin(self) -> tuple[int, int]:
-        """入力規則の数式の相対参照は、範囲の左上のセルを基準に書かれている。"""
+        """入力規則の数式の相対参照の基準：範囲全体の左上（範囲が「N20 N8:O8」の順に書かれていても N8）。"""
         if not self.sqref:
             return (1, 1)
-        return self.sqref[0][0], self.sqref[0][1]
+        return min(r[0] for r in self.sqref), min(r[1] for r in self.sqref)
 
     @property
     def blocks(self) -> bool:
@@ -126,6 +143,21 @@ class Control:
 
 
 @dataclass
+class Table:
+    """テーブル（リストオブジェクト）。構造化参照で列を名前で指すのに使う。"""
+
+    name: str
+    sheet: str
+    r1: int
+    c1: int
+    r2: int
+    c2: int
+    header_rows: int
+    totals_rows: int
+    columns: list[str]
+
+
+@dataclass
 class Sheet:
     name: str
     path: str
@@ -151,6 +183,7 @@ class Sheet:
     header_footer: list[str] = field(default_factory=list)
     cond_formats: int = 0
     cond_rules: list[CondRule] = field(default_factory=list)
+    autofilter: tuple[int, int, int, int] | None = None  # オートフィルターの範囲（ここで隠れた行は SUBTOTAL が常に除く）
     has_vml_controls: bool = False
     max_row: int = 0
     max_col: int = 0
@@ -219,7 +252,8 @@ class CondRule:
 
     @property
     def origin(self) -> tuple[int, int]:
-        return (self.sqref[0][0], self.sqref[0][1]) if self.sqref else (1, 1)
+        # 入力規則と同じく、範囲全体の左上を相対参照の基準にする
+        return (min(r[0] for r in self.sqref), min(r[1] for r in self.sqref)) if self.sqref else (1, 1)
 
     def covers(self, r: int, c: int) -> bool:
         return any(r1 <= r <= r2 and c1 <= c <= c2 for r1, c1, r2, c2 in self.sqref)
@@ -232,8 +266,13 @@ class Workbook:
         self.sheets: list[Sheet] = []
         self.names: list[DefinedName] = []
         self.shared_strings: list[str] = []
+        self.phonetic: dict[int, str] = {}  # 共有文字列の番号 → ふりがなを当てた読み（PHONETIC 関数の値）
+        self._last_sst: int | None = None
+        self.cell_sst: dict[tuple[str, int, int], int] = {}  # 共有文字列を使うセル → 番号
         self.styles: list[Style] = []
         self.dxfs: list[Dxf] = []
+        self.tables: dict[str, Table] = {}
+        self.external: dict[int, dict[str, dict[tuple[int, int], object]]] = {}  # [n] → シート名 → 保存値
         self.date1904 = False
         self.has_macros = self.zip.has("xl/vbaProject.bin")
         self.external_links = [n for n in self.zip.names() if n.startswith("xl/externalLinks/") and n.endswith(".xml")]
@@ -243,7 +282,7 @@ class Workbook:
 
     # -------------------------------------------------------------- 補助
     def xml(self, name: str) -> ET.Element:
-        return ET.fromstring(self.zip.read(name))
+        return parse_xml(self.zip.read(name))
 
     def rels(self, part: str) -> dict[str, tuple[str, str]]:
         d, base = posixpath.split(part)
@@ -310,6 +349,11 @@ class Workbook:
                 self.sheets.append(Sheet(name=s.get("name"), path=path, state=f"non-worksheet:{typ}"))
                 continue
             self.sheets.append(Sheet(name=s.get("name"), path=path, state=s.get("state", "visible")))
+        er = wb.find(M + "externalReferences")
+        for idx, e in enumerate(er if er is not None else [], start=1):
+            typ, part = rels.get(e.get(R + "id"), ("", ""))
+            if typ == "externalLink" and self.zip.has(part):
+                self.external[idx] = _external_cache(self.xml(part))
         dn = wb.find(M + "definedNames")
         sheet_names = [s.name for s in self.sheets]
         for d in dn if dn is not None else []:
@@ -338,8 +382,11 @@ class Workbook:
 
     def _load_shared_strings(self, path: str) -> None:
         root = self.xml(path)
-        for si in root.findall(M + "si"):
+        for i, si in enumerate(root.findall(M + "si")):
             self.shared_strings.append(_rich_text(si))
+            ph = _phonetic_text(si)
+            if ph is not None:
+                self.phonetic[i] = ph
 
     def _load_styles(self, path: str) -> None:
         from ..formula.numfmt import BUILTIN
@@ -417,7 +464,10 @@ class Workbook:
                 cell = Cell(sh.name, r, col, t=c.get("t"), style=int(c.get("s", "0")))
                 v = c.find(M + "v")
                 f = c.find(M + "f")
+                self._last_sst = None
                 cell.value = self._cell_value(cell.t, v, c)
+                if self._last_sst is not None:
+                    self.cell_sst[(sh.name, r, col)] = self._last_sst
                 if f is not None:
                     kind = f.get("t", "normal")
                     cell.formula_kind = kind
@@ -497,6 +547,10 @@ class Workbook:
             v.formula2 = f2.find(_q("xm:f")).text if f2 is not None and f2.find(_q("xm:f")) is not None else v.formula2
             sh.validations.append(v)
         sh.protected = root.find(M + "sheetProtection") is not None and root.find(M + "sheetProtection").get("sheet") in ("1", "true")
+        af = root.find(M + "autoFilter")
+        if af is not None and af.get("ref"):
+            rr = _sqref(af.get("ref"))
+            sh.autofilter = rr[0] if rr else None
         sh.cond_formats = len(root.findall(M + "conditionalFormatting"))
         for cf in root.findall(M + "conditionalFormatting"):
             ranges = _sqref(cf.get("sqref", ""))
@@ -528,6 +582,15 @@ class Workbook:
                     sh.has_vml_controls = True
             elif typ == "ctrlProp":
                 sh.has_vml_controls = True
+            elif typ == "table" and self.zip.has(target):
+                t = self.xml(target)
+                ref = t.get("ref", "A1").split(":")
+                r1, c1 = parse_cell(ref[0])
+                r2, c2 = parse_cell(ref[-1])
+                cols = [_unxml(c.get("name", "")) for c in t.iter(M + "tableColumn")]
+                name = t.get("displayName") or t.get("name") or ""
+                self.tables[name.lower()] = Table(name, sh.name, r1, c1, r2, c2, int(t.get("headerRowCount", "1")),
+                                                  int(t.get("totalsRowCount", "0")), cols)
 
     def _load_controls(self, sh: Sheet, root: ET.Element, rels: dict) -> None:
         """チェックボックスなどのフォームコントロールを、状態とリンク先のセルとともに読む。"""
@@ -553,6 +616,10 @@ class Workbook:
                 c.fmla_range = p.get("fmlaRange")
             elif typ:
                 c.kind = "ActiveX"
+                if part and self.zip.has(part):
+                    m = re.search(rb'classid="\{([0-9A-Fa-f-]+)\}"', self.zip.read(part))
+                    if m:
+                        c.kind = "ActiveX " + _ACTIVEX.get(m[1].decode().upper(), "Control")
             pr = ctl.find(M + "controlPr")
             anc = pr.find(M + "anchor") if pr is not None else None
             if anc is not None:
@@ -592,6 +659,8 @@ class Workbook:
         text = v.text
         if t == "s":
             i = int(text)
+            if i in self.phonetic:
+                self._last_sst = i
             return self.shared_strings[i] if i < len(self.shared_strings) else ""
         if t == "b":
             return text in ("1", "true")
@@ -686,6 +755,23 @@ def _group_items(grp: ET.Element):
             yield "chart", sub
 
 
+def _phonetic_text(el: ET.Element) -> str | None:
+    """ふりがな（rPh）を当てた読み。ふりがなが付いていない部分は、もとの文字のまま。"""
+    rphs = el.findall(M + "rPh")
+    if not rphs:
+        return None
+    base = _rich_text(el)
+    out, pos = [], 0
+    for rp in sorted(rphs, key=lambda x: int(x.get("sb", "0"))):
+        sb, eb = int(rp.get("sb", "0")), int(rp.get("eb", "0"))
+        t = rp.find(M + "t")
+        out.append(base[pos:sb])
+        out.append(t.text or "" if t is not None else base[sb:eb])
+        pos = max(pos, eb)
+    out.append(base[pos:])
+    return "".join(out)
+
+
 def _rich_text(el: ET.Element) -> str:
     # ふりがな（rPh）は除く
     out = []
@@ -699,6 +785,21 @@ def _rich_text(el: ET.Element) -> str:
                 out.append(t.text or "")
     return "".join(out)
 
+
+# ActiveX コントロールの種類（classid）
+_ACTIVEX = {
+    "D7053240-CE69-11CD-A777-00DD01143C57": "CommandButton",
+    "8BD21D40-EC42-11CE-9E0D-00AA006002F3": "CheckBox",
+    "8BD21D50-EC42-11CE-9E0D-00AA006002F3": "OptionButton",
+    "8BD21D10-EC42-11CE-9E0D-00AA006002F3": "TextBox",
+    "8BD21D30-EC42-11CE-9E0D-00AA006002F3": "ComboBox",
+    "8BD21D20-EC42-11CE-9E0D-00AA006002F3": "ListBox",
+    "8BD21D60-EC42-11CE-9E0D-00AA006002F3": "ToggleButton",
+    "978C9E23-D4B0-11CE-BF2D-00AA003F40D0": "Label",
+    "79176FB0-B7F2-11CE-97EF-00AA006D2776": "SpinButton",
+    "DFD181E0-5E2F-11CE-A449-00AA004A803D": "ScrollBar",
+    "4C599241-6926-101B-9992-00000B65C6F9": "Image",
+}
 
 # 既定の色（Officeの標準テーマと、旧来の56色パレットのうち白黒）
 _THEME = {0: "FFFFFF", 1: "000000", 2: "E7E6E6", 3: "44546A"}
@@ -782,6 +883,50 @@ def _xdr_pos(el: ET.Element | None) -> tuple[int, int] | None:
     if col is None or row is None:
         return None
     return int(row.text) + 1, int(col.text) + 1
+
+
+def _external_cache(root: ET.Element) -> dict[str, dict[tuple[int, int], object]]:
+    """外部ブックへのリンク（externalLink）に保存されている、参照先の値。"""
+    out: dict[str, dict[tuple[int, int], object]] = {}
+    book = root.find(M + "externalBook")
+    if book is None:
+        return out
+    sn = book.find(M + "sheetNames")
+    names = [x.get("val", "") for x in sn] if sn is not None else []
+    ds = book.find(M + "sheetDataSet")
+    for sd in ds if ds is not None else []:
+        sid = int(sd.get("sheetId", "0"))
+        if sid >= len(names):
+            continue
+        cells: dict[tuple[int, int], object] = {}
+        for row in sd.findall(M + "row"):
+            for cell in row.findall(M + "cell"):
+                v = cell.find(M + "v")
+                if v is None or v.text is None or not cell.get("r"):
+                    continue
+                t = cell.get("t", "n")
+                val: object
+                if t == "b":
+                    val = v.text in ("1", "true")
+                elif t == "e":
+                    val = ExcelError(v.text)
+                elif t in ("s", "str", "inlineStr"):
+                    val = v.text
+                else:
+                    try:
+                        val = float(v.text)
+                    except ValueError:
+                        val = v.text
+                cells[parse_cell(cell.get("r"))] = val
+        out[names[sid].lower()] = cells
+    for name in names:
+        out.setdefault(name.lower(), {})
+    return out
+
+
+def _unxml(s: str) -> str:
+    """_x000a_ のような書き方を、もとの文字に戻す。"""
+    return re.sub(r"_x([0-9A-Fa-f]{4})_", lambda m: chr(int(m[1], 16)), s)
 
 
 def _xdr_row_off(el: ET.Element | None) -> float:

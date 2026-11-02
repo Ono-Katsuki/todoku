@@ -191,8 +191,9 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
     from .lint import lint
 
     lr = lint(new, parts=changed)
+    before = set(lint(original, parts=changed).errors) if lr.errors else set()
     return Proof(
-        lint_errors=lr.errors,
+        lint_errors=[e for e in lr.errors if e not in before],  # 書き込みで新しく生じたものだけ
         lint_parts=lr.checked_parts,
         original_sha256=hashlib.sha256(original).hexdigest(),
         new_sha256=hashlib.sha256(new).hexdigest(),

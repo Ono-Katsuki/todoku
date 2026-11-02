@@ -62,17 +62,32 @@ class Calc:
         self.status: dict[tuple[str, int, int], tuple[str, str]] = {}
         self.visiting: set[tuple[str, int, int]] = set()
         self.name_cache: dict[tuple[str, str | None], tuple[Node, str] | None] = {}
+        self._frames: list[bool] = []  # 計算中のセルごとに「計算のたびに変わる値に依存したか」
         self._sheets = {s.name: s for s in wb.sheets}
         self._sheets_lower = {s.name.lower(): s for s in wb.sheets}
 
     # ------------------------------------------------------------ Context
+    def _ext(self, sheet: str):
+        """外部ブックのシート "[1]Sheet1" なら、その保存値の表。"""
+        if not sheet.startswith("["):
+            return None
+        import re
+
+        m = re.match(r"\[(\d+)\](.*)", sheet)
+        if not m:
+            return None
+        return self.wb.external.get(int(m[1]), {}).get(m[2].lower())
+
     def has_sheet(self, sheet: str) -> bool:
-        return sheet in self._sheets or sheet.lower() in self._sheets_lower
+        return sheet in self._sheets or sheet.lower() in self._sheets_lower or self._ext(sheet) is not None
 
     def _sheet(self, sheet: str):
         return self._sheets.get(sheet) or self._sheets_lower[sheet.lower()]
 
     def bounds(self, sheet: str) -> tuple[int, int]:
+        ext = self._ext(sheet)
+        if ext is not None:
+            return max((r for r, _ in ext), default=1), max((c for _, c in ext), default=1)
         s = self._sheet(sheet)
         return s.max_row, s.max_col
 
@@ -89,7 +104,56 @@ class Calc:
         self.name_cache[key] = res
         return res
 
+    def table_ref(self, node, sheet: str, row: int, col: int):
+        """構造化参照を、シート上の範囲にする。"""
+        from ..formula.values import REF, VALUE, Rng, err
+
+        if node.table is None:
+            t = next((x for x in self.wb.tables.values() if x.sheet == sheet and x.r1 <= row <= x.r2
+                      and x.c1 <= col <= x.c2), None)
+        else:
+            t = self.wb.tables.get(node.table.lower())
+        if t is None:
+            return err(REF)
+        data1, data2 = t.r1 + t.header_rows, t.r2 - t.totals_rows
+        sp = set(node.specials) or {"#Data"}
+        if "#This Row" in sp:
+            if not data1 <= row <= data2:
+                return err(VALUE)
+            r1 = r2 = row
+        elif "#All" in sp:
+            r1, r2 = t.r1, t.r2
+        else:
+            spans = []
+            if "#Headers" in sp:
+                if not t.header_rows:
+                    return err(REF)
+                spans.append((t.r1, t.r1 + t.header_rows - 1))
+            if "#Data" in sp:
+                spans.append((data1, data2))
+            if "#Totals" in sp:
+                if not t.totals_rows:
+                    return err(REF)
+                spans.append((t.r2 - t.totals_rows + 1, t.r2))
+            r1, r2 = min(a for a, _ in spans), max(b for _, b in spans)
+        names = [c.lower() for c in t.columns]
+        if node.col1 is None:
+            c1, c2 = t.c1, t.c2
+        else:
+            try:
+                i1 = names.index(node.col1.lower())
+                i2 = names.index(node.col2.lower()) if node.col2 is not None else i1
+            except ValueError:
+                return err(REF)
+            c1, c2 = t.c1 + min(i1, i2), t.c1 + max(i1, i2)
+        if r2 < r1:
+            return err(REF)
+        return Rng(t.sheet, r1, c1, r2, c2)
+
     def cell_value(self, sheet: str, r: int, c: int):
+        ext = self._ext(sheet)
+        if ext is not None:
+            return ext.get((r, c))
         sh = self._sheet(sheet)
         key = (sh.name, r, c)
         if key in self.overrides:
@@ -99,9 +163,10 @@ class Calc:
             return None
         if not cell.has_formula:
             return cell.value
-        if key in self.memo:
-            return self.memo[key]
-        return self._compute(cell, key)
+        v = self.memo[key] if key in self.memo else self._compute(cell, key)
+        if self._frames and self.status.get(key, ("ok", ""))[0] == "volatile":
+            self._frames[-1] = True  # TODAY() などに依存する値を使った数式も、計算のたびに変わる
+        return v
 
     # ------------------------------------------------------------ 計算
     def _compute(self, cell: Cell, key):
@@ -121,10 +186,13 @@ class Calc:
         if key in self.visiting:
             raise Cycle(f"{cell.sheet}!{cell.address}")
         self.visiting.add(key)
+        self._frames.append(False)
+        tainted = False
         try:
             is_array = cell.formula_kind == "array"
             ev = Evaluator(self, cell.sheet, cell.row, cell.col, cell.dr, cell.dc, array=is_array)
             v = ev.run(cell.ast)
+            tainted = self._frames[-1]
             if isinstance(v, Arr):
                 self.memo[("__arr__", cell.sheet, cell.row, cell.col)] = v
                 v = v.data[0][0] if v.data and v.data[0] else ExcelError("#VALUE!")
@@ -132,7 +200,12 @@ class Calc:
                 v = ev.intersect(v)
             if v is None:
                 v = 0.0  # 空白セルを参照した数式は 0 を返す
-            self.status[key] = ("volatile", "計算のたびに値が変わる関数") if ev.volatile else ("ok", "")
+            if ev.volatile:
+                self.status[key] = ("volatile", "計算のたびに値が変わる関数")
+            elif tainted:
+                self.status[key] = ("volatile", "計算のたびに値が変わる関数（TODAY など）の結果を使っている")
+            else:
+                self.status[key] = ("ok", "")
         except Unsupported as e:
             v = cell.value
             self.status[key] = ("unsupported", str(e))
@@ -144,6 +217,7 @@ class Calc:
             self.status[key] = ("unsupported", "参照が深すぎます")
         finally:
             self.visiting.discard(key)
+            self._frames.pop()
         self.memo[key] = v
         return v
 

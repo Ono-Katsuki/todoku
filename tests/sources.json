@@ -1,0 +1,293 @@
+{
+ "note": "汎用性の検査に使う、申請様式の掲載ページ。様式そのものは再配布しない。scripts/collect_forms.py が robots.txt に従い、間隔をあけて取得する。",
+ "sources": [
+  {
+   "publisher": "厚生労働省",
+   "country": "JP",
+   "domain": "介護 指定申請（標準様式）",
+   "page": "https://www.mhlw.go.jp/stf/kaigo-shinsei.html"
+  },
+  {
+   "publisher": "滋賀県",
+   "country": "JP",
+   "domain": "介護 指定申請",
+   "page": "https://www.pref.shiga.lg.jp/ed00/4506.html"
+  },
+  {
+   "publisher": "神戸市",
+   "country": "JP",
+   "domain": "介護 指定申請",
+   "page": "https://www.city.kobe.lg.jp/a20315/business/annaitsuchi/kaigoservice/kiteiyoushiki/shinseitodoke/kyotaku_todokede/kyotakuyousiki.html"
+  },
+  {
+   "publisher": "新潟県",
+   "country": "JP",
+   "domain": "介護 指定申請",
+   "page": "https://www.pref.niigata.lg.jp/sec/kourei/kaigoyousiki.html"
+  },
+  {
+   "publisher": "熊本県",
+   "country": "JP",
+   "domain": "介護 指定申請",
+   "page": "https://www.pref.kumamoto.jp/kiji_9116.html"
+  },
+  {
+   "publisher": "宮城県",
+   "country": "JP",
+   "domain": "障害福祉 指定申請",
+   "page": "https://www.pref.miyagi.jp/site/syoufuku-top/si004.html"
+  },
+  {
+   "publisher": "和歌山県",
+   "country": "JP",
+   "domain": "障害福祉 指定申請",
+   "page": "https://www.pref.wakayama.lg.jp/prefg/040400/shitei_jigyosyo/yoshiki.html"
+  },
+  {
+   "publisher": "山梨県",
+   "country": "JP",
+   "domain": "障害福祉 指定申請",
+   "page": "https://www.pref.yamanashi.jp/shogai-fks/siteiyousiki.html"
+  },
+  {
+   "publisher": "長野市",
+   "country": "JP",
+   "domain": "障害福祉 指定申請",
+   "page": "https://www.city.nagano.nagano.jp/n102000/contents/p002367.html"
+  },
+  {
+   "publisher": "兵庫県",
+   "country": "JP",
+   "domain": "障害福祉 指定申請",
+   "page": "https://web.pref.hyogo.lg.jp/kf10/syogaisisetsu/syougaiji.html"
+  },
+  {
+   "publisher": "山梨県",
+   "country": "JP",
+   "domain": "建設業許可",
+   "page": "https://www.pref.yamanashi.jp/kentai/shinsei_yoshiki.html"
+  },
+  {
+   "publisher": "京都府",
+   "country": "JP",
+   "domain": "建設業許可",
+   "page": "https://www.pref.kyoto.jp/kensetugyo/yoshikiichiranr21001.html"
+  },
+  {
+   "publisher": "広島県",
+   "country": "JP",
+   "domain": "建設業許可",
+   "page": "https://www.pref.hiroshima.lg.jp/soshiki/93/shinyoushiki.html"
+  },
+  {
+   "publisher": "北海道",
+   "country": "JP",
+   "domain": "建設業許可",
+   "page": "https://www.pref.hokkaido.lg.jp/kn/ksk/kenjohp/sinsa/shinseisyo.html"
+  },
+  {
+   "publisher": "栃木県",
+   "country": "JP",
+   "domain": "建設業許可",
+   "page": "https://www.pref.tochigi.lg.jp/h01/work/kensetsugyou/kyoka/1281922464534.html"
+  },
+  {
+   "publisher": "愛知県",
+   "country": "JP",
+   "domain": "建設業許可",
+   "page": "https://www.pref.aichi.jp/site/kensetsugyo-fudosangyo/dl-page-kyoka.html"
+  },
+  {
+   "publisher": "北海道労働局",
+   "country": "JP",
+   "domain": "雇用関係助成金",
+   "page": "https://jsite.mhlw.go.jp/hokkaido-roudoukyoku/hourei_seido_tetsuzuki/hourei_youshikishu/22download/kotyoukin_yousiki.html"
+  },
+  {
+   "publisher": "厚生労働省",
+   "country": "JP",
+   "domain": "雇用関係助成金",
+   "page": "https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/koyouchouseijoseikin_20200410_forms.html"
+  },
+  {
+   "publisher": "厚生労働省",
+   "country": "JP",
+   "domain": "雇用関係助成金",
+   "page": "https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/0000081262.html"
+  },
+  {
+   "publisher": "防衛省 南関東防衛局",
+   "country": "JP",
+   "domain": "補助金",
+   "page": "https://www.mod.go.jp/rdb/s-kanto/procedure/application/"
+  },
+  {
+   "publisher": "防衛省 東海防衛支局",
+   "country": "JP",
+   "domain": "補助金",
+   "page": "https://www.mod.go.jp/rdb/tokai/base/prevention/subsidy/"
+  },
+  {
+   "publisher": "NEDO",
+   "country": "JP",
+   "domain": "補助金",
+   "page": "https://www.nedo.go.jp/itaku-gyomu/hojo_josei_koufukitei_yoshiki_SBIR.html"
+  },
+  {
+   "publisher": "農林水産省",
+   "country": "JP",
+   "domain": "交付金",
+   "page": "https://www.maff.go.jp/j/kobetu_ninaite/keiei/h27_download.html"
+  },
+  {
+   "publisher": "農林水産省",
+   "country": "JP",
+   "domain": "交付金",
+   "page": "https://www.maff.go.jp/j/nousin/kanri/tamen_emaff.html"
+  },
+  {
+   "publisher": "鳥取県",
+   "country": "JP",
+   "domain": "農林 補助金",
+   "page": "https://www.pref.tottori.lg.jp/277464.htm"
+  },
+  {
+   "publisher": "仙台市",
+   "country": "JP",
+   "domain": "保育",
+   "page": "https://www.city.sendai.jp/nintechosa/kurashi/kenkotofukushi/kosodate/hoikujo/download/download.html"
+  },
+  {
+   "publisher": "名古屋市",
+   "country": "JP",
+   "domain": "保育",
+   "page": "https://www.city.nagoya.jp/kodomo/kosodate/1009115/1009125/1011192.html"
+  },
+  {
+   "publisher": "千葉市",
+   "country": "JP",
+   "domain": "保育",
+   "page": "https://www.city.chiba.jp/kodomomirai/yojikyoiku/unei/kakusyutodokedesyonodaunnro-do.html"
+  },
+  {
+   "publisher": "船橋市",
+   "country": "JP",
+   "domain": "保育",
+   "page": "https://www.city.funabashi.lg.jp/kodomo/hoiku/002/p015613.html"
+  },
+  {
+   "publisher": "札幌市",
+   "country": "JP",
+   "domain": "保育",
+   "page": "https://www.city.sapporo.jp/kodomo/sengen/youshiki.html"
+  },
+  {
+   "publisher": "U.S. Department of Housing and Urban Development",
+   "country": "US",
+   "domain": "grant budget",
+   "page": "https://www.hud.gov/sites/dfiles/OCHCO/documents/424CBW.xlsx"
+  },
+  {
+   "publisher": "North Carolina DHHS",
+   "country": "US",
+   "domain": "grant budget",
+   "page": "https://www.ncdhhs.gov/2021-2023-nprfa-competitive-grant-process-budget-formxlsx"
+  },
+  {
+   "publisher": "Vermont Agency of Agriculture",
+   "country": "US",
+   "domain": "grant budget",
+   "page": "https://agriculture.vermont.gov/node/9451"
+  },
+  {
+   "publisher": "U.S. Department of Transportation",
+   "country": "US",
+   "domain": "grant budget",
+   "page": "https://www.transportation.gov/grants/ss4a/planning-and-demo-grant-budget-template"
+  },
+  {
+   "publisher": "U.S. Department of Energy",
+   "country": "US",
+   "domain": "grant budget",
+   "page": "https://www.energy.gov/node/267781"
+  },
+  {
+   "publisher": "New York State Education Department",
+   "country": "US",
+   "domain": "grant forms",
+   "page": "https://www.oms.nysed.gov/cafe/forms/home.html"
+  },
+  {
+   "publisher": "City of Sydney",
+   "country": "AU",
+   "domain": "grant budget",
+   "page": "https://www.cityofsydney.nsw.gov.au/council-governance-administration/grants-budget-template"
+  },
+  {
+   "publisher": "Welsh Government (Ynni Cymru)",
+   "country": "GB",
+   "domain": "grant application",
+   "page": "https://www.gov.wales/ynni-cymru-capital-grant-funding-scheme-2026-2027-application-templates"
+  },
+  {
+   "publisher": "Welsh Government (Ynni Cymru)",
+   "country": "GB",
+   "domain": "grant application",
+   "page": "https://www.gov.wales/ynni-cymru-capital-grant-funding-programme-2025-2026-application-templates"
+  },
+  {
+   "publisher": "Oxford City Council",
+   "country": "GB",
+   "domain": "grant application",
+   "page": "https://www.oxford.gov.uk/downloads/download/527/downloads-for-grants-application-and-monitoring-forms"
+  },
+  {
+   "publisher": "The Highland Council",
+   "country": "GB",
+   "domain": "grant application",
+   "page": "https://www.highland.gov.uk/downloads/20014/economic_development"
+  },
+  {
+   "publisher": "Forestry Commission",
+   "country": "GB",
+   "domain": "grant application",
+   "page": "https://www.gov.uk/government/publications/tree-production-innovation-fund-application-form-2023"
+  },
+  {
+   "publisher": "Department of Foreign Affairs and Trade",
+   "country": "AU",
+   "domain": "grant budget",
+   "page": "https://www.dfat.gov.au/about-us/publications/Pages/australia-awards-fellowships-budget-template"
+  },
+  {
+   "publisher": "Vermont Agency of Agriculture",
+   "country": "US",
+   "domain": "grant budget",
+   "page": "https://agriculture.vermont.gov/node/5745"
+  },
+  {
+   "publisher": "South Carolina Department of Education",
+   "country": "US",
+   "domain": "grant budget",
+   "page": "https://www.ed.sc.gov/finance/grants/scde-grants-program/program-planning-tools-templates-and-samples/budget-development-tools-and-templates"
+  },
+  {
+   "publisher": "Te Kāwanatanga o Aotearoa (whakatau.govt.nz)",
+   "country": "NZ",
+   "domain": "forms and templates",
+   "page": "https://whakatau.govt.nz/templates-and-forms"
+  },
+  {
+   "publisher": "University of Illinois (federal grant budgets)",
+   "country": "US",
+   "domain": "grant budget",
+   "page": "https://sponsoredprograms.illinois.edu/forms/spa-budget-template-fy-27"
+  },
+  {
+   "publisher": "Cornell University (federal grant budgets)",
+   "country": "US",
+   "domain": "grant budget",
+   "page": "https://researchservices.cornell.edu/resources/budget-templates-and-budget-justification-templates"
+  }
+ ]
+}
