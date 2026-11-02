@@ -166,6 +166,9 @@ class Control:
     first_button: bool = False
     fmla_group: str | None = None
     items: list[str] | None = None  # itemLst（ファイルの中に書かれた選択肢）
+    # 古い Excel（.xls）のオプションボタンだけ：同じ組の次のボタンの番号（FtRboData.idRadNext。"0" は次がない）。
+    # .xls では、組とその順が、組の先頭（first_button）からこのつながりをたどったものとしてファイルに書かれている
+    next_button: str | None = None
 
     @property
     def is_checked(self) -> bool:

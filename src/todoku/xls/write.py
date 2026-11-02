@@ -1,7 +1,7 @@
 """古いExcel（.xls、BIFF8）に、元のファイルを正本にしたまま書き込む。
 
 ブックのストリームをレコードの並びとして持ち、書き込むセルのレコードと、計算結果が変わる数式の
-保存値だけを差し替える。ほかのレコードはバイト列のまま残す。レコードの長さが変わると位置がずれるので、
+保存値と、フォームの部品の状態（OBJ の中のチェック・選んだ項目・値のバイト）だけを差し替える。ほかのレコードはバイト列のまま残す。レコードの長さが変わると位置がずれるので、
 位置を持つレコード（BOUNDSHEET・INDEX・DBCELL・EXTSST）は、組み立て直したあとで正しい位置に直す。
 複合ファイルの中のほかのストリームは、1バイトも変えない。
 """
@@ -12,6 +12,7 @@ import struct
 
 from ..formula.values import ExcelError, is_number
 from .book import ERRORS, XlsWorkbook, records
+from .obj import ObjError, with_state
 
 T_BOF, T_EOF, T_BOUNDSHEET, T_SST, T_EXTSST, T_CONTINUE = 0x0809, 0x000A, 0x0085, 0x00FC, 0x00FF, 0x003C
 T_INDEX, T_DBCELL, T_ROW, T_FORMULA, T_STRING = 0x020B, 0x00D7, 0x0208, 0x0006, 0x0207
@@ -210,27 +211,49 @@ class XlsEditor:
         self.changed = True
 
     def set_checkbox(self, sheet: str, shape_id: str, checked: bool) -> None:
+        self.set_control(sheet, shape_id, {"checked": "Checked" if checked else None})
+
+    def set_control(self, sheet: str, shape_id: str, change: dict) -> None:
+        """フォームの部品の状態（チェック・選んだ項目・値・複数選択）のバイトだけを、OBJ（と続く CONTINUE）の中で書き換える。
+
+        change は xlsx の部品の書き込みと同じ形（{"checked": ...}・{"sel": ...}・{"val": ...}・{"multi_sel": [...]}）。
+        どのバイトが状態かは obj.py（MS-XLS 2.4.181 Obj）のとおりに読み、長さは変えない。"""
+        idx = self._obj_at(sheet, shape_id)
+        parts = [self.recs[k].b for k in idx]
+        try:
+            data = with_state(b"".join(parts), change)
+        except ObjError as e:
+            raise XlsWriteError(f"{sheet} の部品 {shape_id}: {e}") from None
+        at = 0
+        for k, part in zip(idx, parts):
+            new = data[at:at + len(part)]
+            at += len(part)
+            if new != part:
+                self.recs[k] = Rec(self.recs[k].t, new, False)
+                self.changed = True
+
+    def _obj_at(self, sheet: str, shape_id: str) -> list[int]:
+        """シートの OBJ のうち FtCmo の id が shape_id のものと、すぐ後ろに続く CONTINUE の、レコードの番号。
+        シートの中に埋め込んだグラフ（BOF〜EOF）の中の OBJ は、番号の数え方が別なので見ない。"""
         a, z = self.sheet_at[sheet]
+        depth = 0
         for j in range(a, z + 1):
             rec = self.recs[j]
-            if rec.t != T_OBJ:
+            if rec.t == T_BOF:
+                depth += 1
                 continue
-            b = bytearray(rec.b)
-            pos = 0
-            this = False
-            while pos + 4 <= len(b):
-                ft, cb = struct.unpack_from("<HH", b, pos)
-                if ft == 0x15:
-                    this = str(struct.unpack_from("<H", b, pos + 6)[0]) == shape_id
-                if ft == 0x12 and this:
-                    struct.pack_into("<H", b, pos + 4, 1 if checked else 0)
-                    self.recs[j] = Rec(T_OBJ, bytes(b), False)
-                    self.changed = True
-                    return
-                if ft in (0x00, 0x13):
-                    break
-                pos += 4 + cb
-        raise XlsWriteError(f"{sheet} のチェックボックス {shape_id} が見つかりません")
+            if rec.t == T_EOF:
+                depth -= 1
+                continue
+            if depth != 1 or rec.t != T_OBJ or len(rec.b) < 8:
+                continue
+            ft, _cb, _ot, oid = struct.unpack_from("<HHHH", rec.b, 0)
+            if ft == 0x15 and str(oid) == shape_id:
+                k = j + 1
+                while k <= z and self.recs[k].t == T_CONTINUE:
+                    k += 1
+                return list(range(j, k))
+        raise XlsWriteError(f"{sheet} の部品 {shape_id} が見つかりません")
 
     def force_recalc(self) -> None:
         """開いたときにExcelがすべて計算し直すようにする（RECALCID を古い番号にする）。"""

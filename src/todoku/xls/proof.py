@@ -2,8 +2,11 @@
 
 証明は、書き込み処理の内部情報を使わず、前後の2つのファイルを読み直して比べる。
 - 複合ファイルの中のほかのストリームは、バイト一致
-- ブックのストリームのレコードは、書き込んだセル・計算結果・チェックボックスの状態・位置を持つレコード
+- ブックのストリームのレコードは、書き込んだセル・計算結果・フォームの部品の状態・位置を持つレコード
   （BOUNDSHEET・INDEX・DBCELL・EXTSST・SST の追加・ROW の列の範囲）のほかは、バイト一致
+- 部品の OBJ（と続く CONTINUE）は、状態のバイト（チェック・選んだ項目・値・複数選択の印。どこにあるかは
+  MS-XLS 2.4.181 Obj のとおりに読み直して決める）のほかはバイト一致。状態が変わった部品は、書き込みを指示した
+  部品であり、指示した状態になっていて、つながったセルの値と合っていること
 """
 
 from __future__ import annotations
@@ -14,8 +17,10 @@ import struct
 from ..cfb import CFB
 from ..formula.parser import addr
 from ..xlsx.calc import values_equal
-from ..xlsx.proof import Proof
+from ..xlsx.controls import state
+from ..xlsx.proof import Proof, _linked_controls_agree, _state_text
 from .book import ERRORS, Seg, XlsWorkbook, records, xlstring
+from .obj import without_state
 
 CELL_T = {0x0203, 0x027E, 0x00FD, 0x0204, 0x00D6, 0x0201, 0x0205, 0x0006, 0x00BD, 0x00BE}
 POINTER_T = {0x0085, 0x020B, 0x00D7, 0x00FF, 0x01C1}  # 位置を持つレコード（と、再計算の印）
@@ -148,16 +153,24 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
                                  "before": va.value if va else None, "after": vb.value if vb else None})
             if allowed_inputs is not None and (name, addr(r, c)) not in allowed_inputs:
                 unexpected.append(f"{name}!{addr(r, c)}: 書き込みを指示していないセルが変わりました")
-        # セル以外のレコード（チェックボックスの状態・位置のレコード・ROW の列の範囲のほか）は同じであること
+        # セル以外のレコード（部品の状態・位置のレコード・ROW の列の範囲のほか）は同じであること
         def others(rs):
             out = []
-            for t, body in rs:
+            k = 0
+            while k < len(rs):
+                t, body = rs[k]
+                k += 1
                 if t in CELL_T or t in (0x0207, 0x00D7, 0x020B):
                     continue
                 if t == 0x0208:
                     out.append((t, body[:2] + body[6:]))  # 列の範囲（colMic・colMac）は変わってよい
                 elif t == 0x005D:
-                    out.append((t, _obj_without_checked(body)))
+                    # 部品：続く CONTINUE もつなぎ、状態（チェック・選んだ項目・値・複数選択）のバイトのほかを比べる
+                    parts = [body]
+                    while k < len(rs) and rs[k][0] == 0x003C:
+                        parts.append(rs[k][1])
+                        k += 1
+                    out.append((t, tuple(len(p) for p in parts), without_state(b"".join(parts))))
                 else:
                     out.append((t, body))
             return out
@@ -168,11 +181,12 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
         ctl_a = {c.shape_id: c for c in sh_a.controls}
         for cb_ in sh_b.controls:
             ca_ = ctl_a.get(cb_.shape_id)
-            if ca_ is not None and ca_.checked != cb_.checked:
-                control_changes.append({"sheet": name, "control": ca_.name, "kind": "control", "link": ca_.link,
-                                        "before": ca_.checked or "Unchecked", "after": cb_.checked or "Unchecked"})
-                if allowed_controls is not None and (name, ca_.name) not in allowed_controls:
-                    unexpected.append(f"{name}: 指示していないチェックボックス「{ca_.name}」が変わりました")
+            if ca_ is not None and state(ca_) != state(cb_):
+                control_changes.append(_control_change(name, ca_, cb_))
+                unexpected += _control_problems(b, name, ca_, cb_, allowed_controls)
+    # 部品の表示と、つながったセルの値が合っていること（書き込みで新しく生じた食い違いだけ）
+    before_bad = set(_linked_controls_agree(a))
+    unexpected += [x for x in _linked_controls_agree(b) if x not in before_bad]
     lint_errors = lint(new).errors
     before = set(lint(original).errors) if lint_errors else set()
     ra_all = [(t, body) for _p, t, body in records(a.data)]
@@ -189,17 +203,36 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
         lint_errors=[e for e in lint_errors if e not in before], lint_parts=1)
 
 
-def _obj_without_checked(b: bytes) -> bytes:
-    out = bytearray(b)
-    pos = 0
-    while pos + 4 <= len(out):
-        ft, cb = struct.unpack_from("<HH", out, pos)
-        if ft == 0x12 and cb >= 2:
-            struct.pack_into("<H", out, pos + 4, 0)
-        if ft in (0x00, 0x13):
-            break
-        pos += 4 + cb
-    return bytes(out)
+def _control_change(sheet: str, ca, cb) -> dict:
+    if ca.kind == "CheckBox":
+        before, after = ca.checked or "Unchecked", cb.checked or "Unchecked"
+    else:
+        before, after = _state_text(ca), _state_text(cb)
+    return {"sheet": sheet, "control": ca.name, "kind": "control", "link": ca.link, "before": before, "after": after}
+
+
+def _control_problems(b: XlsWorkbook, sheet: str, ca, cb, allowed_controls) -> list[str]:
+    """状態が変わった部品の確かめ：書き込みを指示した部品か。指示した状態（allowed_controls が
+    {(シート, 部品): 変える状態} のとき）になっているか。チェックボックスなら、つながったセルの値と合っているか。"""
+    out = []
+    what = "チェックボックス" if ca.kind == "CheckBox" else "部品"
+    if allowed_controls is not None and (sheet, ca.name) not in allowed_controls:
+        out.append(f"{sheet}: 指示していない{what}「{ca.name}」が変わりました")
+        return out
+    want = allowed_controls.get((sheet, ca.name)) if isinstance(allowed_controls, dict) else None
+    if want is not None and not isinstance(want, dict):
+        want = {"checked": want}  # チェックボックス：書いた状態（"Checked" / None）
+    for key, v in (want or {}).items():
+        got = getattr(cb, key, None)
+        same = tuple(got or ()) == tuple(v or ()) if key == "multi_sel" else got == v
+        if not same:
+            out.append(f"{sheet}: {what}「{ca.name}」の状態（{key}）が、書き込みを指示した {v!r} ではなく {got!r} になっています")
+    if ca.kind == "CheckBox" and cb.link_cell and b.has_sheet(cb.link_cell[0]):
+        lc = b.sheet(cb.link_cell[0]).cells.get(cb.link_cell[1:])
+        lv = lc.value if lc else None
+        if bool(lv is True) != cb.is_checked:
+            out.append(f"{sheet}: チェックボックス「{ca.name}」の表示と、つながったセル {cb.link} の値（{lv!r}）が食い違っています")
+    return out
 
 
 # ====================================================================== 構造の検査
@@ -358,7 +391,8 @@ def raw_texts(blob: bytes) -> dict[str, list[tuple[str, str]]]:
                     except Exception:  # noqa: BLE001
                         text = ""
                     kind = {0x19: "メモ", 0x0B: "チェックボックスなどの文字", 0x0C: "チェックボックスなどの文字",
-                            0x07: "チェックボックスなどの文字", 0x0E: "チェックボックスなどの文字"}.get(cur_ot, "図形の文字")
+                            0x07: "チェックボックスなどの文字", 0x0E: "チェックボックスなどの文字",
+                            0x13: "チェックボックスなどの文字"}.get(cur_ot, "図形の文字")  # 0x13 はグループボックスの見出し
                     if text.strip():
                         notes.append((kind, text))
             elif t == 0x01BE:

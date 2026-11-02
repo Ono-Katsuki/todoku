@@ -231,7 +231,7 @@ def _write_fill(wb: Workbook, values: dict, out_path: Path, strict: bool) -> int
         return 2
     out_path.write_bytes(res.blob)
     allowed = res.allowed_inputs
-    allowed_controls = {(p.sheet, p.address) for p in res.patches if p.kind == "control"}
+    allowed_controls = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"}  # 部品 → 書いた状態
     pr = prove(wb.zip.original, res.blob, allowed, allowed_controls,
                {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
     for w in res.warnings:

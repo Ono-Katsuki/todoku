@@ -749,7 +749,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
     links = checkbox_links(wb)
     from . import controls as _ctl
 
-    others = _ctl.controls_linked_to(wb) if getattr(wb, "kind", "xlsx") != "xls" else {}
+    others = _ctl.controls_linked_to(wb)
     writes: list[tuple[str, Control, dict]] = []  # チェックボックス以外の部品の状態
 
     def take(plan) -> None:
@@ -762,8 +762,6 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
         if ctl is not None:
             sheet = wb.sheet(k.rsplit("!", 1)[0].strip("'")).name
             if ctl.kind in ("Radio",) + _ctl.CHOICE_KINDS + _ctl.VALUE_KINDS:
-                if getattr(wb, "kind", "xlsx") == "xls":
-                    raise EditError(f"{k}: 古いExcel（.xls）の {ctl.kind} の部品への書き込みは、まだできません")
                 try:
                     take(_ctl.plan(wb, sheet, ctl, as_bool(v) if ctl.kind == "Radio" and as_bool(v) is not None else v))
                 except ValueError as e:
@@ -843,7 +841,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
 
     changed, problems = recalc(wb, targets)
     if getattr(wb, "kind", "xlsx") == "xls":
-        res = _fill_xls(wb, targets, changed, problems, controls, warnings, set(by_macro or ()) | macro_written)
+        res = _fill_xls(wb, targets, changed, problems, controls, warnings, set(by_macro or ()) | macro_written, writes)
         res.macro = macro_info
         return res
     patches: list[Patch] = []
@@ -933,9 +931,10 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
     return res
 
 
-def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set | None = None) -> EditResult:
+def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set | None = None,
+              writes: list | None = None) -> EditResult:
     """古いExcel（.xls）への書き込み：ブックのストリームのレコードを差し替え、複合ファイルのほかの部分は変えない。"""
-    from ..xls.write import XlsEditor
+    from ..xls.write import XlsEditor, XlsWriteError
 
     ed = XlsEditor(wb)
     patches: list[Patch] = []
@@ -959,6 +958,19 @@ def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set 
             continue
         ed.set_checkbox(sheet, ctl.shape_id, bool(b))
         patches.append(Patch(wb.stream_name, sheet, ctl.name, "control", ctl.checked, "Checked" if b else None))
+    # チェックボックス以外の部品（オプションボタン・ドロップダウン・リストボックス・スピンボタン・スクロールバー）
+    for sheet, ctl, change in writes or ():
+        if all(tuple(getattr(ctl, k_) or ()) == tuple(v_ or ()) if k_ == "multi_sel" else getattr(ctl, k_) == v_
+               for k_, v_ in change.items()):
+            continue  # 状態が変わらない
+        if "multi_sel" in change:
+            # 複数選択のリストボックスの iSel は「選んだ最初の項目」（MS-XLS 2.5.147。選んでいなければ 0）
+            change = {**change, "sel": min(change["multi_sel"]) if change["multi_sel"] else 0}
+        try:
+            ed.set_control(sheet, ctl.shape_id, change)
+        except XlsWriteError as e:
+            raise EditError(f"{sheet}!{ctl.name}: {e}") from None
+        patches.append(Patch(wb.stream_name, sheet, ctl.name, "control", {k_: getattr(ctl, k_) for k_ in change}, change))
     unverified = [f"{s}!{addr(r, c)}: {why}" for (s, r, c), why in sorted(problems.items())]
     if unverified:
         ed.force_recalc()

@@ -9,6 +9,9 @@
   どのグループボックスにも入らないボタン。組の中の順は、ファイルの中の部品の順（作った順）とする。
   仕様書は組の順をはっきり決めていないので、保存された「つながったセルの値」と「選ばれたボタン」が、この順と食い違う組は
   「規則では決められない」として示し、書き込まない
+- 古い Excel（.xls）では、組と組の中の順がファイルに書かれている（MS-XLS 2.5.153 FtRboData：組の先頭の印 fFirstBtn と、
+  次のボタン idRadNext のつながり）。そのときは、グループボックスの囲みではなく、このつながりを組とする。
+  先頭の印がない・輪になっているなど、つながりから組の順が決まらないものは「規則では決められない」とする
 """
 
 from __future__ import annotations
@@ -63,6 +66,46 @@ def _inside(inner, outer) -> bool:
     return outer[0] <= inner[0] and inner[2] <= outer[2] and outer[1] <= inner[1] and inner[3] <= outer[3]
 
 
+def _area(c: Control) -> int:
+    r = _rect(c)
+    return (r[2] - r[0] + 1) * (r[3] - r[1] + 1)
+
+
+def _chains(radios: list[Control]) -> list[tuple[list[Control], str]]:
+    """古い Excel（.xls）の組：組の先頭（fFirstBtn）から次のボタン（idRadNext）をたどった順。(ボタン, 決められない理由)。"""
+    by_id = {r.shape_id: r for r in radios}
+    seen: set[str] = set()
+    out: list[tuple[list[Control], str]] = []
+
+    def follow(start: Control, why: str) -> None:
+        chain = []
+        cur: Control | None = start
+        while cur is not None:
+            seen.add(cur.shape_id)
+            chain.append(cur)
+            nxt = by_id.get(cur.next_button or "")
+            if nxt is None or nxt is cur or nxt.first_button or nxt is start:
+                break  # 次がない（0・自分・ほかの組の先頭・先頭に戻る）
+            if nxt.shape_id in seen:
+                why = why or "ボタンのつながり（idRadNext）が、ほかの組のボタンにつながっています"
+                break
+            cur = nxt
+        out.append((chain, why))
+
+    for r in radios:
+        if r.first_button and r.shape_id not in seen:
+            follow(r, "")
+    rest = [r for r in radios if r.shape_id not in seen]
+    pointed = {r.next_button for r in rest if r.next_button != r.shape_id}  # 自分を指すのは「次がない」
+    for r in rest:
+        if r.shape_id not in seen and r.shape_id not in pointed:
+            follow(r, "組の先頭のボタン（fFirstBtn）の印がありません")
+    for r in rest:
+        if r.shape_id not in seen:
+            follow(r, "ボタンのつながり（idRadNext）が輪になっていて、組の先頭が分かりません")
+    return out
+
+
 def radio_groups(wb: Workbook, sh: Sheet) -> list[RadioGroup]:
     from .workbook import _link_cell
 
@@ -71,13 +114,23 @@ def radio_groups(wb: Workbook, sh: Sheet) -> list[RadioGroup]:
         return []
     boxes = [c for c in sh.controls if c.kind == "GBox" and _rect(c) is not None]
     groups: dict[str, RadioGroup] = {}
-    for r in radios:
-        rr = _rect(r)
-        inside = [b for b in boxes if rr is not None and _inside(rr, _rect(b))]
-        box = min(inside, key=lambda b: (_rect(b)[2] - _rect(b)[0] + 1) * (_rect(b)[3] - _rect(b)[1] + 1)) if inside else None
-        key = box.shape_id if box is not None else "(sheet)"
-        g = groups.setdefault(key, RadioGroup(sh.name, [], box))
-        g.radios.append(r)
+    if any(r.next_button is not None for r in radios):
+        # 古い Excel（.xls）：ファイルに書かれた組。グループボックスは見出しにだけ使う（すべてのボタンを囲む、いちばん小さいもの）
+        for k, (chain, why) in enumerate(_chains(radios)):
+            rects = [_rect(r) for r in chain]
+            inside = [b for b in boxes if all(rr is not None and _inside(rr, _rect(b)) for rr in rects)]
+            g = RadioGroup(sh.name, chain, min(inside, key=_area) if inside else None)
+            if why:
+                g.consistent, g.why = False, why
+            groups[str(k)] = g
+    else:
+        for r in radios:
+            rr = _rect(r)
+            inside = [b for b in boxes if rr is not None and _inside(rr, _rect(b))]
+            box = min(inside, key=_area) if inside else None
+            key = box.shape_id if box is not None else "(sheet)"
+            g = groups.setdefault(key, RadioGroup(sh.name, [], box))
+            g.radios.append(r)
     out = []
     for g in groups.values():
         link = None
@@ -88,7 +141,9 @@ def radio_groups(wb: Workbook, sh: Sheet) -> list[RadioGroup]:
         if link is not None and wb.has_sheet(link[0]):
             g.link = (wb.sheet(link[0]).name, link[1], link[2])
         links = {r.link for r in g.radios if r.link}
-        if len(links) > 1 and not (g.box is not None and g.box.fmla_group):
+        if not g.consistent:
+            pass  # つながり（idRadNext）から組の順が決まらない
+        elif len(links) > 1 and not (g.box is not None and g.box.fmla_group):
             g.consistent, g.why = False, f"同じ組のボタンが、違うセル（{'、'.join(sorted(links))}）につながっています"
         elif sum(1 for r in g.radios if r.checked == "Checked") > 1:
             g.consistent, g.why = False, "同じ組の中で、2つ以上のボタンが選ばれています"

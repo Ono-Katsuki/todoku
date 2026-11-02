@@ -627,7 +627,7 @@ class XlsWorkbook:
                     draw_parts.append(rows[j][2])
                     j += 1
             elif t == 0x005D:  # OBJ
-                last_obj = self._obj(b, sh)
+                last_obj = self._obj(_obj_data(rows, i), sh)
                 objs.append(last_obj)
             elif t == 0x01B6:  # TXO：直前の図形（OBJ）の文字
                 cch = struct.unpack_from("<H", b, 10)[0]
@@ -832,35 +832,27 @@ class XlsWorkbook:
                                       len(sh.cond_rules) + 1, len(self.dxfs) - 1, fs, _CF_OP.get(cp)))
 
     def _obj(self, b: bytes, sh: Sheet) -> dict:
-        ob = {"ot": None, "id": None, "checked": None, "link": None, "text": "", "fmla_range": None}
-        pos = 0
-        while pos + 4 <= len(b):
-            ft, cb = struct.unpack_from("<HH", b, pos)
-            d = b[pos + 4:pos + 4 + cb]
-            if ft == 0x15:  # ftCmo
-                ob["ot"], ob["id"] = struct.unpack_from("<HH", d, 0)
-            elif ft == 0x12 and len(d) >= 2:  # ftCblsData
-                ob["checked"] = struct.unpack_from("<H", d, 0)[0]
-            elif ft in (0x14, 0x0E) and len(d) >= 8:  # ftCblsFmla / ftSbsFmla：つながったセル
-                cbf = struct.unpack_from("<H", d, 0)[0]
-                if cbf >= 6:
-                    cce = struct.unpack_from("<H", d, 2)[0] & 0x7FFF
-                    rgce = d[8:8 + cce]
-                    try:
-                        ob["link"] = self.decoder.decode(rgce)
-                    except Exception:  # noqa: BLE001
-                        ob["link"] = "#REF!"
-            elif ft == 0x00:
-                break
-            if ft == 0x13:  # ftLbsData は長さの決まり方が違うので、ここで終える
-                break
-            pos += 4 + cb
+        """OBJ（b は続く CONTINUE もつないだ中身）を読む。部品の構造は obj.py（MS-XLS 2.4.181 Obj）のとおり。"""
+        from .obj import parse as parse_obj
+
+        info = parse_obj(b)
+        ob = {"ot": info.ot, "id": info.id, "checked": info.checked, "link": None, "text": "", "fmla_range": None,
+              "info": info}
+        for key, rgce in (("link", info.link), ("fmla_range", info.fmla)):
+            if rgce:
+                try:
+                    ob[key] = self.decoder.decode(rgce)  # つながったセル・選択肢の範囲
+                except Exception:  # noqa: BLE001
+                    ob[key] = "#REF!"
         return ob
 
     def _place(self, sh: Sheet, ob: dict, anchor) -> None:
         from ..xlsx.workbook import Shape, _link_cell
 
         kind = _OBJ_KIND.get(ob["ot"], "")
+        info = ob.get("info")
+        if kind in ("Drop", "List") and info is not None and info.ui_object:
+            return  # オートフィルターなどのために Excel が自動で置いたボタン（入力欄ではない）
         pos = (anchor["r1"], anchor["c1"]) if anchor else None
         pos_to = (anchor["r2"], anchor["c2"]) if anchor else None
         if kind in ("CheckBox", "Radio", "Drop", "List", "Spin", "Scroll", "Button", "Label", "GBox"):
@@ -869,6 +861,8 @@ class XlsWorkbook:
                         from_off=(anchor or {}).get("off1", 0.0), to_off=(anchor or {}).get("off2", 0.0))
             if kind in ("CheckBox", "Radio"):
                 c.checked = {1: "Checked", 2: "Mixed"}.get(ob["checked"] or 0)
+            if info is not None:
+                _control_state(c, info, ob["fmla_range"])
             if c.link:
                 c.link_cell = _link_cell(c.link.replace("$", ""), sh.name)
             sh.controls.append(c)
@@ -886,6 +880,38 @@ def _a1(r: int, c: int) -> str:
     from ..formula.parser import addr
 
     return addr(r + 1, c + 1)
+
+
+def _obj_data(rows: list, i: int) -> bytes:
+    """OBJ の中身に、すぐ後ろに続く CONTINUE の中身をつないだもの（長いリストボックスの項目などは CONTINUE にまたがる）。"""
+    parts = [rows[i][2]]
+    k = i + 1
+    while k < len(rows) and rows[k][1] == 0x003C:
+        parts.append(rows[k][2])
+        k += 1
+    return b"".join(parts)
+
+
+def _control_state(c: Control, info, fmla_range: str | None) -> None:
+    """OBJ から読んだ部品の状態を、xlsx（CT_FormControlPr）と同じ欄に入れる。"""
+    from .obj import SEL_TYPES
+
+    if c.kind == "Radio":
+        c.first_button = info.first_btn
+        c.next_button = str(info.rad_next or 0)  # 同じ組の次のボタン（0 は次がない）
+    if c.kind in ("Spin", "Scroll", "Drop", "List") and info.sbs is not None:
+        c.val = info.sbs[0]  # リストボックス・ドロップダウンでは、上に隠れている行の数（xlsx の val と同じ）
+        if c.kind in ("Spin", "Scroll"):
+            c.vmin, c.vmax, c.inc, c.page = info.sbs[1:5]
+    if c.kind in ("Drop", "List"):
+        c.sel = info.sel
+        c.fmla_range = fmla_range
+        if not fmla_range and info.items is not None:
+            c.items = list(info.items)  # 選択肢の文字がファイルの中にある（rgLines）
+        if c.kind == "List":
+            c.sel_type = SEL_TYPES.get(info.sel_type, "single")
+        if info.bsels is not None:
+            c.multi_sel = [k + 1 for k, x in enumerate(info.bsels) if x]
 
 
 def _phonetic(base: str, ext: bytes) -> str | None:

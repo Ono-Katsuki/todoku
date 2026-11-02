@@ -182,7 +182,9 @@ def _linked_controls_agree(b) -> list[str]:
 
 def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | None = None,
           allowed_controls: set[tuple[str, str]] | None = None, overwrite: set[tuple[str, str]] | None = None) -> Proof:
-    """overwrite：数式が値に置き換わってよいセル（セルの値を変えたときに動くマクロが、数式のセルに値を書いたもの）。"""
+    """overwrite：数式が値に置き換わってよいセル（セルの値を変えたときに動くマクロが、数式のセルに値を書いたもの）。
+    allowed_controls：書き込みを指示した部品 {(シート, 部品の名前)}。{(シート, 部品の名前): 書いた状態} でもよく、
+    古いExcel（.xls）では、部品がその状態になっているかも確かめる。"""
     if original[:4] == b"\xd0\xcf\x11\xe0":
         from ..xls.proof import prove as prove_xls
 

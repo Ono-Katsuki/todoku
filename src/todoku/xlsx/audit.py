@@ -369,7 +369,7 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     except EditError as e:
         return [Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
     allowed = res.allowed_inputs
-    allowed_c = {(p.sheet, p.address) for p in res.patches if p.kind == "control"}
+    allowed_c = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"}  # 部品 → 書いた状態
     pr = prove(wb.zip.original, res.blob, allowed, allowed_c, {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
     n_ctl = sum(1 for _, f in fields if f["kind"] in ("checkbox", "radio", "select", "multiselect", "spin"))
     na = (f"（選択肢が空の欄 {len(not_applicable):,} か所は、いまの状態ではExcelでも選べないので除外。"
@@ -459,7 +459,7 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
     # 書き込めない入力用の部品は、黙って飛ばさず、ここで知らせる
     passive = ("CheckBox", "Button", "Label", "GBox", "Dialog", "Pict", "Shape", "Movie", "Rect", "",
                "ActiveX CommandButton", "ActiveX Label", "ActiveX Image")
-    writable = ("Radio", "Drop", "List", "Spin", "Scroll") if getattr(wb, "kind", "xlsx") != "xls" else ()
+    writable = ("Radio", "Drop", "List", "Spin", "Scroll")
     other = sorted({f"{sh.name}!{c.name}（{c.kind}）" for sh in wb.sheets for c in sh.controls
                     if c.kind not in passive + writable})
     undecided = [f"{f['id']}: {f['undecided']}" for sh in doc["sheets"] for f in sh.get("fields", []) if f.get("undecided")]
