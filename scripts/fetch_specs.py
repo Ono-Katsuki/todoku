@@ -20,6 +20,9 @@ SPECS = {
     "MS-XLS": "https://officeprotocoldoc.z19.web.core.windows.net/files/MS-XLS/%5bMS-XLS%5d.pdf",
     "MS-OFFCRYPTO": "https://officeprotocoldoc.z19.web.core.windows.net/files/MS-OFFCRYPTO/%5bMS-OFFCRYPTO%5d.pdf",
     "MS-OVBA": "https://officeprotocoldoc.z19.web.core.windows.net/files/MS-OVBA/%5bMS-OVBA%5d.pdf",
+    # Excel のフォームの部品（ctrlProps の formControlPr）と、VML の x:ClientData（Office の拡張）
+    "MS-XLSX": "https://officeprotocoldoc.z19.web.core.windows.net/files/MS-XLSX/%5bMS-XLSX%5d.pdf",
+    "MS-OI29500": "https://officeprotocoldoc.z19.web.core.windows.net/files/MS-OI29500/%5bMS-OI29500%5d.pdf",
     "PDF32000_2008": "https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf",
 }
 

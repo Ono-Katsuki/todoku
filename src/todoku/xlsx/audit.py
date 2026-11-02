@@ -256,6 +256,16 @@ def _sample(f: dict, wb: Workbook, sheet: str, calc: Calc | None):
 
     if f["kind"] == "checkbox":
         return not bool(f["value"])
+    if f["kind"] in ("radio", "select"):
+        if f.get("undecided") or not f.get("options"):
+            return None
+        return next((o for o in f["options"] if o != f.get("value")), f["options"][0])
+    if f["kind"] == "multiselect":
+        return [o for o in f.get("options", [])[:2] if o not in (f.get("value") or [])] or f.get("options", [])[:1] or None
+    if f["kind"] == "spin":
+        lo, hi = f.get("min", 0), f.get("max", 100)
+        cur = f.get("value")
+        return lo if cur != lo else min(hi, lo + 1)
     if f["kind"] == "inline":
         return ["1"] * f["blanks"]
     rules = f.get("rules", [])
@@ -361,11 +371,11 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     allowed = {(p.sheet, p.address) for p in res.patches if p.kind == "input"}
     allowed_c = {(p.sheet, p.address) for p in res.patches if p.kind == "control"}
     pr = prove(wb.zip.original, res.blob, allowed, allowed_c)
-    n_ctl = sum(1 for _, f in fields if f["kind"] == "checkbox")
+    n_ctl = sum(1 for _, f in fields if f["kind"] in ("checkbox", "radio", "select", "multiselect", "spin"))
     na = (f"（選択肢が空の欄 {len(not_applicable):,} か所は、いまの状態ではExcelでも選べないので除外。"
           "ほかの欄の値で選択肢が決まるものや、選択肢の参照先が壊れているもの）" if not_applicable else "")
     out.append(Check("全入力欄への書き込み", pr.ok and not res.unverified and not skipped,
-                     f"入力欄 {len(fields) - n_ctl:,} か所とチェックボックス {n_ctl} 個のうち {len(targets):,} に試しの値を書き込み{na}。"
+                     f"入力欄 {len(fields) - n_ctl:,} か所とフォームの部品 {n_ctl} 個のうち {len(targets):,} に試しの値を書き込み{na}。"
                      f"{pr.headline()}",
                      [*pr.unexpected, *pr.lint_errors, *res.unverified, *skipped]))
     # 読み戻し：書き込み後のファイルを読み直して、書いた値とチェックの状態がそのとおりかを確かめる
@@ -383,7 +393,26 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     wrong = []
     from .edit import interpret_input, resolve_target
 
+    # フォームの部品の欄（オプションボタン・ドロップダウン・リスト・スピン）は、書き込み後の窓の欄の値で確かめる
+    ctl_kinds = ("radio", "select", "multiselect", "spin")
+    ctl_fields = {f["id"]: f for _, f in fields if f["kind"] in ctl_kinds}
+    after_doc = None
+    if any(k in ctl_fields for k in targets):
+        after_doc = window.build(after)
+        after_vals = {f["id"]: f.get("value") for sh in after_doc["sheets"] for f in sh.get("fields", [])}
     for k, v in targets.items():
+        if k in ctl_fields:
+            g = after_vals.get(k)
+            want = v
+            if ctl_fields[k]["kind"] == "spin":
+                ok = isinstance(g, (int, float)) and float(g) == float(v)
+            elif ctl_fields[k]["kind"] == "multiselect":
+                ok = list(g or []) == list(v)
+            else:
+                ok = g == v
+            if not ok:
+                wrong.append(f"{k}: 書いた値 {want!r} → 窓では {g!r}")
+            continue
         try:
             s, r, c = resolve_target(wb, k)
             if isinstance(v, list):
@@ -427,12 +456,17 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
                            "規則では決められません。窓には重なった規則をそれぞれの範囲とともに出し、どれかの規則に合う値は警告つきで書けます"
                            "（どの値にするかはエージェントが見出しから判断。様式の作り手に直してもらう点です）",
                            overlap, agent=bool(overlap)))
-    # チェックボックス以外の入力用コントロールは、まだ書き込めない。黙って飛ばさず、ここで知らせる
+    # 書き込めない入力用の部品は、黙って飛ばさず、ここで知らせる
     passive = ("CheckBox", "Button", "Label", "GBox", "Dialog", "Pict", "Shape", "Movie", "Rect", "",
                "ActiveX CommandButton", "ActiveX Label", "ActiveX Image")
-    other = sorted({f"{sh.name}!{c.name}（{c.kind}）" for sh in wb.sheets for c in sh.controls if c.kind not in passive})
+    writable = ("Radio", "Drop", "List", "Spin", "Scroll") if getattr(wb, "kind", "xlsx") != "xls" else ()
+    other = sorted({f"{sh.name}!{c.name}（{c.kind}）" for sh in wb.sheets for c in sh.controls
+                    if c.kind not in passive + writable})
+    undecided = [f"{f['id']}: {f['undecided']}" for sh in doc["sheets"] for f in sh.get("fields", []) if f.get("undecided")]
+    other += undecided
     au.checks.append(Check("入力用コントロールへの対応", not other,
-                           "チェックボックス以外の入力用コントロールはありません" if not other
+                           "書き込めない入力用の部品はありません（チェックボックス・オプションボタン・ドロップダウン・リスト・"
+                           "スピンボタン・スクロールバーに書き込めます）" if not other
                            else f"書き込みに対応していないコントロールが {len(other)} 個あります", other))
     # マクロ：動作はまだ再現していない（ボタンを押したときの処理など）。あることを必ず知らせる
     buttons = sorted({f"{sh.name}!{c.name}" for sh in wb.sheets for c in sh.controls

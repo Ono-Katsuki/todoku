@@ -640,12 +640,30 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
     controls: dict[tuple[str, str], tuple[str, Control, bool]] = {}
     warnings: list[str] = []
     links = checkbox_links(wb)
+    from . import controls as _ctl
+
+    others = _ctl.controls_linked_to(wb) if getattr(wb, "kind", "xlsx") != "xls" else {}
+    writes: list[tuple[str, Control, dict]] = []  # チェックボックス以外の部品の状態
+
+    def take(plan) -> None:
+        for key, val_ in plan.cells.items():
+            targets[key] = val_
+        writes.extend(plan.controls)
+
     for k, v in values.items():
         ctl = find_control(wb, k)
         if ctl is not None:
             sheet = wb.sheet(k.rsplit("!", 1)[0].strip("'")).name
+            if ctl.kind in ("Radio",) + _ctl.CHOICE_KINDS + _ctl.VALUE_KINDS:
+                if getattr(wb, "kind", "xlsx") == "xls":
+                    raise EditError(f"{k}: 古いExcel（.xls）の {ctl.kind} の部品への書き込みは、まだできません")
+                try:
+                    take(_ctl.plan(wb, sheet, ctl, as_bool(v) if ctl.kind == "Radio" and as_bool(v) is not None else v))
+                except ValueError as e:
+                    raise EditError(f"{k}: {e}")
+                continue
             if ctl.kind != "CheckBox":
-                raise EditError(f"{k}: {ctl.kind} のコントロールへの書き込みには、まだ対応していません")
+                raise EditError(f"{k}: {ctl.kind} は、値を書く部品ではありません（ボタン・ラベル・グループボックスなど）")
             b = as_bool(v)
             if b is None:
                 raise EditError(f"{k} はチェックボックスです。TRUE（チェックあり）か FALSE（なし）を指定してください")
@@ -662,6 +680,18 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
         if cell is not None and cell.has_formula and not allow_formula_overwrite:
             raise EditError(f"{sheet}!{addr(r, c)} は数式のセルです（計算で決まるので、直接は書き込みません）")
         linked = links.get((sheet, r, c))
+        other = others.get((sheet, r, c))
+        if other is not None:
+            # オプションボタン・ドロップダウン・スピンなどにつながったセル：部品の選択肢の文字か番号で受け取り、部品も合わせる
+            try:
+                if other[0] == "radio":
+                    take(_ctl.plan_group(wb, other[1], v))
+                else:
+                    s_, c_ = other[1]
+                    take(_ctl.plan(wb, s_, c_, v))
+            except ValueError as e:
+                raise EditError(f"{sheet}!{addr(r, c)}: {e}")
+            continue
         if sh.protected and wb.style(sh.style_of(r, c)).locked and not linked and not force:
             raise EditError(f"{sheet}!{addr(r, c)} はシート保護でロックされたセルです（Excelでも書き込めません）")
         if isinstance(v, (list, tuple)):
@@ -742,6 +772,18 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
             if part:
                 parts[part] = fn(parts.get(part, wb.zip.read(part)))
         patches.append(Patch(ctl.prop_part or ctl.vml_part or "", sheet, ctl.name, "control", ctl.checked, state))
+    for sheet, ctl, change in writes:
+        if all(getattr(ctl, k_) == (tuple(v_) if k_ == "multi_sel" and v_ is not None else v_) or
+               (k_ == "multi_sel" and tuple(ctl.multi_sel or ()) == tuple(v_ or ())) for k_, v_ in change.items()):
+            continue  # 状態が変わらない
+        if ctl.prop_part is None and ctl.vml_part is None:
+            raise EditError(f"{sheet}!{ctl.name}: 部品の状態を書く場所がありません")
+        if ctl.prop_part:
+            parts[ctl.prop_part] = _ctl.set_ctrlprop(parts.get(ctl.prop_part, wb.zip.read(ctl.prop_part)), change)
+        if ctl.vml_part:
+            parts[ctl.vml_part] = _ctl.set_vml(parts.get(ctl.vml_part, wb.zip.read(ctl.vml_part)), ctl.shape_id, change)
+        patches.append(Patch(ctl.prop_part or ctl.vml_part or "", sheet, ctl.name, "control",
+                             {k_: getattr(ctl, k_) for k_ in change}, change))
     for part, data in parts.items():
         wb.zip.replace(part, data)
 

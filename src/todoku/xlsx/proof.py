@@ -27,7 +27,7 @@ class Proof:
     xml_bytes_total: int = 0
     lint_errors: list[str] = field(default_factory=list)  # Excelが開くための構造の条件に反するもの
     lint_parts: int = 0
-    control_changes: list[dict] = field(default_factory=list)  # チェックボックスの状態が変わったもの
+    control_changes: list[dict] = field(default_factory=list)  # フォームの部品（チェックボックスなど）の状態が変わったもの
     container: str = "zip"  # zip（xlsx）/ cfb（xls）
     records_total: int = 0  # xls：ブックのストリームのレコード数
     records_identical: int = 0
@@ -40,7 +40,7 @@ class Proof:
         n_in = sum(1 for c in self.cell_changes if c["kind"] == "input")
         n_f = sum(1 for c in self.cell_changes if c["kind"] == "formula")
         n_c = len(self.control_changes)
-        parts = f"入力 {n_in}・計算結果 {n_f}" + (f"・チェックボックス {n_c}" if n_c else "")
+        parts = f"入力 {n_in}・計算結果 {n_f}" + (f"・フォームの部品 {n_c}" if n_c else "")
         if self.container == "cfb":
             return (f"変更 {len(self.cell_changes) + n_c} か所（{parts}）。"
                     f"それ以外は元とバイト一致（複合ファイルのストリーム {self.entries_identical}/{self.entries_total} が完全一致、"
@@ -129,8 +129,9 @@ def _changed_bytes(a: bytes, b: bytes) -> int:
 
 
 _CHECKED_MARKUP = [
-    re.compile(rb'\s+checked="[^"]*"'),  # ctrlProp
-    re.compile(rb"[ \t]*<x:Checked>[^<]*</x:Checked>[ \t]*\r?\n?"),  # VML
+    # 部品の状態（チェック・選んだ番号・値・複数選択）。ctrlProp の属性と、VML の要素
+    re.compile(rb'\s+(?:checked|sel|val|multiSel)="[^"]*"'),
+    re.compile(rb"[ \t]*<x:(Checked|Sel|Val|MultiSel)>[^<]*</x:\1>[ \t]*\r?\n?"),
 ]
 
 
@@ -138,6 +139,39 @@ def _without_checked(data: bytes) -> bytes:
     for pat in _CHECKED_MARKUP:
         data = pat.sub(b"", data)
     return data
+
+
+def _state_text(c) -> str:
+    if c.kind == "Radio":
+        return "選んだ" if c.checked == "Checked" else "選んでいない"
+    if c.kind in ("Drop", "List"):
+        return f"項目 {','.join(map(str, c.multi_sel))}" if c.multi_sel else f"項目 {c.sel or 0}"
+    return f"値 {c.val}"
+
+
+def _linked_controls_agree(b) -> list[str]:
+    """書き込み後のファイルで、部品の表示と、つながったセルの値が合っているか（オプションボタン・ドロップダウン・スピンなど）。"""
+    from .controls import CHOICE_KINDS, VALUE_KINDS, radio_groups
+
+    out = []
+    for sh in b.sheets:
+        for g in radio_groups(b, sh):
+            if g.link and g.consistent is False and "合いません" in g.why:
+                out.append(f"{sh.name}: オプションボタンの表示と、つながったセルの値が食い違っています（{g.why}）")
+        for c in sh.controls:
+            if c.kind not in CHOICE_KINDS + VALUE_KINDS or not c.link_cell or not b.has_sheet(c.link_cell[0]):
+                continue
+            if c.kind == "List" and (c.sel_type or "single") != "single":
+                continue
+            lc = b.sheet(c.link_cell[0]).cells.get(c.link_cell[1:])
+            lv = lc.value if lc else None
+            want = (c.sel or 0) if c.kind in CHOICE_KINDS else c.val
+            if want is None:
+                continue
+            ok = (lv in (None, "") and want == 0) or (isinstance(lv, (int, float)) and not isinstance(lv, bool) and lv == want)
+            if not ok:
+                out.append(f"{sh.name}: 部品「{c.name}」の表示（{want}）と、つながったセル {c.link} の値（{lv!r}）が食い違っています")
+    return out
 
 
 def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | None = None,
@@ -178,7 +212,7 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
         if n.endswith(".vml") or "/ctrlProps/" in n:
             # コントロールの部品は、チェックの状態のほかは1バイトも変わっていてはいけない
             if _without_checked(ra) != _without_checked(rb):
-                unexpected.append(f"{n}: チェックの状態のほかにも変更があります")
+                unexpected.append(f"{n}: 部品の状態（チェック・選んだ項目・値）のほかにも変更があります")
 
     changes = []
     for sa in a.sheets:
@@ -224,7 +258,15 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
                 continue
             if (ca.kind, ca.link, ca.name) != (cb.kind, cb.link, cb.name):
                 unexpected.append(f"{sa.name}: コントロール「{ca.name}」の設定が変わりました")
-            if ca.checked == cb.checked:
+            from .controls import state
+
+            if state(ca) == state(cb):
+                continue
+            if ca.kind != "CheckBox":
+                control_changes.append({"sheet": sa.name, "control": ca.name, "kind": "control", "link": ca.link,
+                                        "before": _state_text(ca), "after": _state_text(cb)})
+                if allowed_controls is not None and (sa.name, ca.name) not in allowed_controls:
+                    unexpected.append(f"{sa.name}: 指示していない部品「{ca.name}」が変わりました")
                 continue
             control_changes.append({"sheet": sa.name, "control": ca.name, "kind": "control", "link": ca.link,
                                     "before": ca.checked or "Unchecked", "after": cb.checked or "Unchecked"})
@@ -235,6 +277,8 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
                 lv = lc.value if lc else None
                 if bool(lv is True) != cb.is_checked:
                     unexpected.append(f"{sa.name}: チェックボックス「{ca.name}」の表示と、つながったセル {cb.link} の値（{lv!r}）が食い違っています")
+    before_bad = set(_linked_controls_agree(a))
+    unexpected += [x for x in _linked_controls_agree(b) if x not in before_bad]  # 書き込みで新しく生じた食い違いだけ
     if [d.text for d in a.names] != [d.text for d in b.names]:
         unexpected.append("名前付き範囲が変わりました")
     from .lint import lint

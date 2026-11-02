@@ -399,8 +399,16 @@ class Layout:
         self.links = {}
         for s in wb.sheets:
             for ctl in s.controls:
-                if ctl.kind == "CheckBox" and ctl.link_cell and ctl.link_cell[0] == sh.name:
+                # 部品につながったセルは、部品として示す（同じ欄を、セルとしても二重に出さない）
+                if ctl.kind in ("CheckBox", "Radio", "Drop", "List", "Spin", "Scroll") and ctl.link_cell \
+                        and ctl.link_cell[0] == sh.name:
                     self.links[(ctl.link_cell[1], ctl.link_cell[2])] = ctl
+                if ctl.kind == "GBox" and ctl.fmla_group and s.name == sh.name:
+                    from .workbook import _link_cell
+
+                    lc = _link_cell(ctl.fmla_group, s.name)
+                    if lc and lc[0] == sh.name:
+                        self.links[(lc[1], lc[2])] = ctl
         self.rows: dict[int, list[Box]] = {}
         self.cover: dict[int, list[Box]] = {}  # 上の行から続く結合セル（その行で始まらないもの）
         for r, items in anchors(sh).items():
@@ -425,14 +433,17 @@ class Layout:
                 for rr in range(a.r + 1, a.r2 + 1):
                     self.cover.setdefault(rr, []).append(b)
         under = set()
+        from .controls import CHOICE_KINDS, VALUE_KINDS
+
+        self.control_items: dict[str, list[str]] = {}
         for ctl in sh.controls:
-            if ctl.kind != "CheckBox" or ctl.anchor is None:
+            if ctl.kind not in ("CheckBox", "Radio") + CHOICE_KINDS + VALUE_KINDS or ctl.anchor is None:
                 continue
             r = self.control_row(ctl)
             c = ctl.anchor[1]
             if sh.is_hidden(r, c):
                 continue
-            self.rows.setdefault(r, []).append(Box(r, c, r, c, "check", None, "☑" if ctl.is_checked else "☐", ctl))
+            self.rows.setdefault(r, []).append(Box(r, c, r, c, "check", None, self.control_mark(ctl), ctl))
             (r1, c1), (r2, c2) = ctl.anchor, ctl.anchor_to or ctl.anchor
             for rr in range(r1, r2 + 1):
                 for cc in range(c1, c2 + 1):
@@ -458,6 +469,23 @@ class Layout:
                 self.cover[r] = [b for b in self.cover[r] if (b.r, b.c1) not in hidden]
         for r in self.rows:
             self.rows[r].sort(key=lambda b: (b.c1, b.kind != "check"))
+
+    def control_mark(self, ctl: Control) -> str:
+        """読み順に出す部品の状態：☑☐（チェック）・◉○（オプションボタン）・▼（ドロップダウン）・≡（リスト）・⇕（スピン）。"""
+        from .controls import items_of
+
+        if ctl.kind == "CheckBox":
+            return "☑" if ctl.is_checked else "☐"
+        if ctl.kind == "Radio":
+            return ("◉" if ctl.checked == "Checked" else "○") + (ctl.text.strip() or "")
+        if ctl.kind in ("Drop", "List"):
+            items = self.control_items.setdefault(ctl.shape_id, items_of(self.wb, self.sh, ctl))
+            if ctl.kind == "List" and (ctl.sel_type or "single") != "single":
+                chosen = [items[i - 1] for i in (ctl.multi_sel or []) if 0 < i <= len(items)]
+                return "≡" + "、".join(chosen)
+            cur = items[ctl.sel - 1] if ctl.sel and 0 < ctl.sel <= len(items) else ""
+            return ("▼" if ctl.kind == "Drop" else "≡") + cur
+        return f"⇕{ctl.val if ctl.val is not None else ''}"
 
     # ------------------------------------------------------------------ 位置
     def height(self, r: int) -> float:
@@ -797,7 +825,9 @@ def _field_kind(wb: Workbook, cell: Cell | None, rules) -> str:
     return "text"
 
 
-KIND_JA = {"text": "文字", "number": "数値", "date": "日付", "time": "時刻", "choice": "選択", "checkbox": "チェックボックス"}
+KIND_JA = {"text": "文字", "number": "数値", "date": "日付", "time": "時刻", "choice": "選択", "checkbox": "チェックボックス",
+           "radio": "オプションボタン（1つ選ぶ）", "select": "ドロップダウン・リスト（1つ選ぶ）",
+           "multiselect": "リスト（いくつでも選ぶ）", "spin": "スピンボタン・スクロールバー（数）"}
 
 
 def _rule_dict(v) -> dict:
@@ -843,8 +873,17 @@ class _Options:
 
 def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dict]:
     out = []
+    from .controls import CHOICE_KINDS, VALUE_KINDS, radio_groups
+
+    groups = {id(c): g for g in radio_groups(wb, sh) for c in g.radios}
+    done_groups: set[int] = set()
     for r in sorted(lay.rows):
         for b in lay.rows[r]:
+            if b.kind == "check" and b.control.kind != "CheckBox":
+                f = _control_field(wb, sh, lay, b, groups, done_groups)
+                if f is not None:
+                    out.append(f)
+                continue
             if b.kind == "check":
                 ctl = b.control
                 d = lay.describe(b)
@@ -905,6 +944,44 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
                 f["unlabeled"] = True
             out.append(f)
     return out
+
+
+def _control_field(wb: Workbook, sh: Sheet, lay: Layout, b: Box, groups: dict, done: set) -> dict | None:
+    """チェックボックス以外の、値を書く部品の欄。"""
+    from .controls import CHOICE_KINDS, items_of
+
+    ctl = b.control
+    d = lay.describe(b)
+    if ctl.kind == "Radio":
+        g = groups.get(id(ctl))
+        if g is None or id(g) in done:
+            return None
+        done.add(id(g))
+        sel = g.selected
+        label = (g.box.text.strip() if g.box is not None and g.box.text.strip() else "") or d.get("label") or "選択肢"
+        f = {"id": g.id, "cell": addr(*g.link[1:]) if g.link else None, "kind": "radio", "options": g.options,
+             "value": g.options[sel - 1] if sel else None, "controls": [x.name for x in g.radios], **d, "label": label,
+             "write_as": "選択肢の文字か、何番目か（1から）", "provenance": LAYOUT}
+        if not g.consistent:
+            f["undecided"] = g.why  # 組の順を規則では決められない：書き込まない
+        return f
+    if ctl.kind in CHOICE_KINDS:
+        items = lay.control_items.get(ctl.shape_id) or items_of(wb, sh, ctl)
+        multi = ctl.kind == "List" and (ctl.sel_type or "single") != "single"
+        link = ctl.link_cell
+        fid = f"{link[0]}!{addr(*link[1:])}" if link and not multi else f"{sh.name}!{ctl.name}"
+        value = ([items[i - 1] for i in (ctl.multi_sel or []) if 0 < i <= len(items)] if multi else
+                 (items[ctl.sel - 1] if ctl.sel and 0 < ctl.sel <= len(items) else None))
+        return {"id": fid, "cell": addr(*link[1:]) if link and not multi else None, "kind": "multiselect" if multi else "select",
+                "control": ctl.name, "options": items, "value": value, **d,
+                "write_as": "選択肢の文字のリストか、番号（1から）のリスト" if multi else "選択肢の文字か、番号（1から）",
+                "provenance": LAYOUT}
+    link = ctl.link_cell
+    fid = f"{link[0]}!{addr(*link[1:])}" if link else f"{sh.name}!{ctl.name}"
+    lo = ctl.vmin if ctl.vmin is not None else 0
+    hi = ctl.vmax if ctl.vmax is not None else 100
+    return {"id": fid, "cell": addr(*link[1:]) if link else None, "kind": "spin", "control": ctl.name, "min": lo, "max": hi,
+            "value": ctl.val, **d, "write_as": f"{lo}〜{hi} の整数", "provenance": LAYOUT}
 
 
 # ====================================================================== 窓
@@ -1267,6 +1344,10 @@ def _kind_text(f: dict) -> str:
             k += f"（{name} {r.get('formula1')}〜{r.get('formula2')}）" if op == "between" else f"（{name} {op} {r.get('formula1')}）"
         if r.get("prompt"):
             k += f"（説明: {r['prompt']}）"
+    if f["kind"] == "spin":
+        k += f"（{f.get('min')}〜{f.get('max')}）"
+    if f.get("undecided"):
+        k += f"（規則では決められない：{f['undecided']}）"
     if f.get("unit"):
         k += f"（単位 {f['unit']}）"
     if f.get("highlighted"):
@@ -1285,6 +1366,8 @@ def _kind_text(f: dict) -> str:
 def _value_text(f: dict) -> str:
     if f["kind"] == "checkbox":
         return "☑ あり" if f["value"] else "☐ なし"
+    if f["kind"] == "multiselect":
+        return "、".join(map(str, f.get("value") or []))
     v = f.get("display", f.get("value"))
     return "" if v is None else to_text(v)
 

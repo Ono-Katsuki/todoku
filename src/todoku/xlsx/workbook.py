@@ -153,6 +153,19 @@ class Control:
     vml_part: str | None = None
     fmla_range: str | None = None
     macro: str | None = None  # 押したときに動くマクロ（「[0]!Module3.印刷」など、書かれたまま）
+    # 選ぶ部品（MS-XLSX 2.6.65 CT_FormControlPr）：ドロップダウン・リストボックスの選んだ番号（1から。0 は選んでいない）、
+    # 複数選択のリストボックスの選んだ番号、スピンボタン・スクロールバーの値と範囲、オプションボタンの組の先頭、グループボックスのつながるセル
+    sel: int | None = None
+    multi_sel: list[int] | None = None
+    sel_type: str | None = None  # single / multi / extend
+    val: int | None = None
+    vmin: int | None = None
+    vmax: int | None = None
+    inc: int | None = None
+    page: int | None = None
+    first_button: bool = False
+    fmla_group: str | None = None
+    items: list[str] | None = None  # itemLst（ファイルの中に書かれた選択肢）
 
     @property
     def is_checked(self) -> bool:
@@ -665,6 +678,7 @@ class Workbook:
                 c.checked = p.get("checked") if p.get("checked") in ("Checked", "Mixed") else None
                 c.link = p.get("fmlaLink")
                 c.fmla_range = p.get("fmlaRange")
+                _control_props(c, p)
             elif typ:
                 c.kind = "ActiveX"
                 if part and self.zip.has(part):
@@ -689,6 +703,9 @@ class Workbook:
                     c.checked = {"1": "Checked", "2": "Mixed"}.get(v["checked"] or "")
                 c.link = c.link or v["link"]
                 c.macro = c.macro or v.get("macro")
+                c.fmla_range = c.fmla_range or v.get("range")
+                if c.prop_part is None:
+                    _control_props_vml(c, v)
                 if c.anchor is None:
                     c.anchor, c.anchor_to, c.from_off, c.to_off = v["anchor"], v["anchor_to"], v["from_off"], v["to_off"]
             seen.add(sid)
@@ -696,10 +713,12 @@ class Workbook:
         for sid, v in vml.items():
             if sid in seen or v["kind"] in ("Note", "") or v.get("dup"):
                 continue
-            sh.controls.append(Control(kind=v["kind"], name=v.get("name") or f"shape {sid}", shape_id=sid, anchor=v["anchor"],
-                                       anchor_to=v["anchor_to"], link=v["link"], text=v["text"], vml_part=vml_path,
-                                       from_off=v["from_off"], to_off=v["to_off"], macro=v.get("macro"),
-                                       checked={"1": "Checked", "2": "Mixed"}.get(v["checked"] or "")))
+            c = Control(kind=v["kind"], name=v.get("name") or f"shape {sid}", shape_id=sid, anchor=v["anchor"],
+                        anchor_to=v["anchor_to"], link=v["link"], text=v["text"], vml_part=vml_path,
+                        from_off=v["from_off"], to_off=v["to_off"], macro=v.get("macro"), fmla_range=v.get("range"),
+                        checked={"1": "Checked", "2": "Mixed"}.get(v["checked"] or ""))
+            _control_props_vml(c, v)
+            sh.controls.append(c)
         for c in sh.controls:
             if c.link:
                 c.link_cell = _link_cell(c.link, sh.name)
@@ -997,6 +1016,46 @@ def _vml_text(s: str) -> str:
     return html.unescape(t).strip()
 
 
+def _int_or_none(v) -> int | None:
+    try:
+        return int(str(v).strip()) if v not in (None, "") else None
+    except ValueError:
+        return None
+
+
+def _control_props(c: Control, p) -> None:
+    """ctrlProp（formControlPr）の、選ぶ部品の設定。"""
+    c.sel = _int_or_none(p.get("sel"))
+    c.sel_type = p.get("seltype") or p.get("selType")
+    ms = p.get("multiSel")
+    c.multi_sel = [int(x) for x in ms.split(",") if x.strip().isdigit()] if ms else None
+    c.val = _int_or_none(p.get("val"))
+    c.vmin = _int_or_none(p.get("min"))
+    c.vmax = _int_or_none(p.get("max"))
+    c.inc = _int_or_none(p.get("inc"))
+    c.page = _int_or_none(p.get("page"))
+    c.first_button = p.get("firstButton") in ("1", "true")
+    c.fmla_group = p.get("fmlaGroup")
+    lst = [x for x in p.iter() if x.tag.split("}")[-1] == "item"]
+    if lst:
+        c.items = [x.get("val", "") for x in lst]
+
+
+def _control_props_vml(c: Control, v: dict) -> None:
+    """VML（x:ClientData）の、選ぶ部品の設定（ctrlProp がないときに使う）。"""
+    c.sel = _int_or_none(v.get("sel"))
+    c.sel_type = (v.get("sel_type") or "").lower() or None
+    ms = v.get("multi_sel")
+    c.multi_sel = [int(x) for x in re.split(r"[,\s]+", ms) if x.isdigit()] if ms else None
+    c.val = _int_or_none(v.get("val"))
+    c.vmin = _int_or_none(v.get("min"))
+    c.vmax = _int_or_none(v.get("max"))
+    c.inc = _int_or_none(v.get("inc"))
+    c.page = _int_or_none(v.get("page"))
+    c.first_button = bool(v.get("first_button"))
+    c.fmla_group = v.get("group")
+
+
 def _vml_shapes(text: str) -> dict[str, dict]:
     """VML の図形（フォームコントロールとメモ）を、図形の番号ごとに取り出す。VMLは厳密なXMLとは限らないので正規表現で読む。"""
     out: dict[str, dict] = {}
@@ -1022,7 +1081,11 @@ def _vml_shapes(text: str) -> dict[str, dict]:
                 off, off_to = nums[3] * 0.75, nums[7] * 0.75
         tb = re.search(r"<v:textbox\b[^>]*>(.*?)</v:textbox>", body, re.S)
         d = {"kind": {"Checkbox": "CheckBox", "Edit": "EditBox"}.get(cd[1], cd[1]), "checked": tag("Checked"),
-             "link": tag("FmlaLink"), "macro": tag("FmlaMacro"), "anchor": pos, "anchor_to": pos_to, "from_off": off, "to_off": off_to,
+             "link": tag("FmlaLink"), "macro": tag("FmlaMacro"), "range": tag("FmlaRange"), "group": tag("FmlaGroup"),
+             "sel": tag("Sel"), "multi_sel": tag("MultiSel"), "sel_type": tag("SelType"), "val": tag("Val"), "min": tag("Min"),
+             "max": tag("Max"), "inc": tag("Inc"), "page": tag("Page"),
+             "first_button": re.search(r"<x:FirstButton\b", cd[2]) is not None,
+             "anchor": pos, "anchor_to": pos_to, "from_off": off, "to_off": off_to,
              "text": _vml_text(tb[1]) if tb else ""}
         for i, sid in enumerate(dict.fromkeys(ids)):
             out[sid] = dict(d, dup=i > 0)
