@@ -1,0 +1,26 @@
+[project]
+name = "todoku"
+version = "0.1.0"
+description = "書類を、内容を一字も変えずにAIと支援技術に届ける変換・診断ツール"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]
+
+[project.scripts]
+todoku = "todoku.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "openpyxl>=3.1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/todoku"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

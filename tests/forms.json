@@ -1,0 +1,113 @@
+{
+ "note": "検証に使う公開様式。書類は再配布せず、ここに取得元とSHA-256だけを記録する。scripts/fetch_forms.py で取得する。",
+ "forms": [
+  {
+   "id": "wakayama_r8keikaku",
+   "publisher": "和歌山県",
+   "title": "別紙様式2（加算 計画書）",
+   "url": "https://www.pref.wakayama.lg.jp/prefg/040400/shitei_jigyosyo/syogukaizen_d/fil/r8keikaku.xlsx",
+   "page": "https://www.pref.wakayama.lg.jp/prefg/040400/shitei_jigyosyo/syogukaizen.html",
+   "role": "blank",
+   "pair": "wakayama_keikaku",
+   "sha256": "691313cea5d47470b304beb4ae9025d126a7a893e6f298efee38eea4721594bd",
+   "bytes": 392059,
+   "retrieved": "2026-11-02"
+  },
+  {
+   "id": "wakayama_r8keikaku_rei",
+   "publisher": "和歌山県",
+   "title": "別紙様式2（加算 計画書）記入例",
+   "url": "https://www.pref.wakayama.lg.jp/prefg/040400/shitei_jigyosyo/syogukaizen_d/fil/r8keikaku_rei.xlsx",
+   "page": "https://www.pref.wakayama.lg.jp/prefg/040400/shitei_jigyosyo/syogukaizen.html",
+   "role": "example",
+   "pair": "wakayama_keikaku",
+   "sha256": "9e3e77d6a8b44244818a4c0c8cdfa863f6c8da111495ce2a432724dc69999b98",
+   "bytes": 396440,
+   "retrieved": "2026-11-02"
+  },
+  {
+   "id": "wakayama_r8henkou",
+   "publisher": "和歌山県",
+   "title": "別紙様式4（変更届出書）",
+   "url": "https://www.pref.wakayama.lg.jp/prefg/040400/shitei_jigyosyo/syogukaizen_d/fil/r8henkou.xlsx",
+   "page": "https://www.pref.wakayama.lg.jp/prefg/040400/shitei_jigyosyo/syogukaizen.html",
+   "role": "blank",
+   "pair": null,
+   "sha256": "a83f8bf20e1b049516d2e75cb846815157d4f07d89f93ab6ac7140a4d4e1e2ee",
+   "bytes": 29946,
+   "retrieved": "2026-11-02"
+  },
+  {
+   "id": "wakayama_r8tokurei",
+   "publisher": "和歌山県",
+   "title": "別紙様式5（特別な事情に係る届出書）",
+   "url": "https://www.pref.wakayama.lg.jp/prefg/040400/shitei_jigyosyo/syogukaizen_d/fil/r8tokurei.xlsx",
+   "page": "https://www.pref.wakayama.lg.jp/prefg/040400/shitei_jigyosyo/syogukaizen.html",
+   "role": "blank",
+   "pair": null,
+   "sha256": "aeaff893a4776ba63856f7971477cbe5a1d6c0ec04be599f85971508f4c86bc1",
+   "bytes": 30994,
+   "retrieved": "2026-11-02"
+  },
+  {
+   "id": "niigata_506417",
+   "publisher": "新潟県",
+   "title": "別紙様式2（加算 計画書）",
+   "url": "https://www.pref.niigata.lg.jp/uploaded/attachment/506417.xlsx",
+   "page": "https://www.pref.niigata.lg.jp/sec/shougaifukushi/r8syougaisyogukaizen.html",
+   "role": "blank",
+   "pair": "niigata_keikaku",
+   "sha256": "f1f0a9549d503fe8daf77d4bd1034b24a2cac49b33ed5bb2be70e8e7442a22c9",
+   "bytes": 391972,
+   "retrieved": "2026-11-02"
+  },
+  {
+   "id": "niigata_506419",
+   "publisher": "新潟県",
+   "title": "（記入例）別紙様式2（加算 計画書）",
+   "url": "https://www.pref.niigata.lg.jp/uploaded/attachment/506419.xlsx",
+   "page": "https://www.pref.niigata.lg.jp/sec/shougaifukushi/r8syougaisyogukaizen.html",
+   "role": "example",
+   "pair": "niigata_keikaku",
+   "sha256": "f2a6802fa18d343f8f3ba6dde914b5853cc90d80a7ff123c428238aef26b237c",
+   "bytes": 396074,
+   "retrieved": "2026-11-02"
+  },
+  {
+   "id": "niigata_506418",
+   "publisher": "新潟県",
+   "title": "別紙様式2（加算 計画書）（大規模事業者用）",
+   "url": "https://www.pref.niigata.lg.jp/uploaded/attachment/506418.xlsx",
+   "page": "https://www.pref.niigata.lg.jp/sec/shougaifukushi/r8syougaisyogukaizen.html",
+   "role": "blank",
+   "pair": null,
+   "sha256": "c9c4a43c2ffe2ba8c28986622ffb0cee6723ae78b3b4df8b3ed41f2140e4c193",
+   "bytes": 2096442,
+   "retrieved": "2026-11-02"
+  },
+  {
+   "id": "niigata_490353",
+   "publisher": "新潟県",
+   "title": "別紙様式3（実績報告書）",
+   "url": "https://www.pref.niigata.lg.jp/uploaded/attachment/490353.xlsx",
+   "page": "https://www.pref.niigata.lg.jp/sec/shougaifukushi/r8syougaisyogukaizen.html",
+   "role": "blank",
+   "pair": "niigata_jisseki",
+   "sha256": "27a5bf84aa8a8b78450235f8c9b3c88f7a943be9676d11d329d617a1d0ed557b",
+   "bytes": 269292,
+   "retrieved": "2026-11-02"
+  },
+  {
+   "id": "niigata_490358",
+   "publisher": "新潟県",
+   "title": "（記入例）別紙様式3（実績報告書）",
+   "url": "https://www.pref.niigata.lg.jp/uploaded/attachment/490358.xlsx",
+   "page": "https://www.pref.niigata.lg.jp/sec/shougaifukushi/r8syougaisyogukaizen.html",
+   "role": "example",
+   "pair": "niigata_jisseki",
+   "sha256": "b49e63da9dc0635412ff12df01caddb9faf743282b49745f9dbd8028301fa094",
+   "bytes": 270756,
+   "retrieved": "2026-11-02"
+  }
+ ]
+}
