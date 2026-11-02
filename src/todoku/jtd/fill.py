@@ -5,7 +5,9 @@
 2. 字数を変える書き込み（edit.py）：空のマス・空の段落に字を足す、空白・伏せ字より長い値に替える、字を目印にした
    書き込みで old と new の字数が違う。本文（DocumentText）だけで、文書の構造の意味を確かめられたときだけ書く
    （確かめられないときは、その理由を添えて断る）。字数を変えると、行・ページの割り付けの控えを取り除く。本文が、
-   1 つのセグメントで確かめた大きさを超えるときは、「QLSTV.01」の一覧と片に分けて書く（edit.py の 9.）
+   1 つのセグメントで確かめた大きさを超えるときは、「QLSTV.01」の一覧と片に分けて書く（edit.py の 9.）。
+   空のマス・段落の、前の記録と段落の終わりの印の書式が違う所（書式の切り替わる所）に足す字は、終わりの印の書式を
+   すべて言い直した区切りにして書く（edit.py の 2.）
 圧縮して保存した文書は、中の文書に書いてから -lh5- で縮め直す。
 """
 
@@ -88,7 +90,7 @@ def span_op(doc: JtdFile, p, a: int, b: int, value: str, key: str) -> E.Op:
         u = us[0]
         if u is None:
             raise FillError(f"{key}: 字を足す所の後ろが、本文の字ではありません")
-        return E.Op(u[0], u[1], u[1], value, key, "both")
+        return E.Op(u[0], u[1], u[1], value, key, "next")
     return empty_op(doc, p, value, key)
 
 
@@ -110,7 +112,7 @@ def empty_op(doc: JtdFile, p, value: str, key: str) -> E.Op:
     term = toks.get(end.s)
     if term is None or not (term[0] == "ctl" and term[2] in (0x0A, 0x0E) or term[0] == "rec" and term[2][0] == 0x30):
         raise FillError(f"{key}: 段落の終わりの印（段落の終わり・行の終わり・次のマス）が見つかりません")
-    return E.Op(end.k, end.s, end.s, value, key, "both")
+    return E.Op(end.k, end.s, end.s, value, key, "next")
 
 
 def growable(doc: JtdFile, it: dict) -> str | None:

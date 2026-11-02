@@ -10,8 +10,11 @@
    足す・減らす）だけを当てたものと一致
 4. 文字の書式の区切り：単位ごとの書式が、4 つの読み方（区切りを前の書式に「重ねる」か「置き換える」か × 片の頭で書式を
    「引き継ぐ」か「初めに戻る」か）のどれでも、元の書式に書き込みを当てたもの（足した字は、前の字か足した所の字の書式）と
-   同じ。分けていない字の並び・片では、区切りの並びと書式を変えるバイト列も元のまま。分けた片では、頭で言い直した区切りの
-   ほかは、書式を変えるバイト列の並びが元の片と同じ。大きさは、集めた文書で確かめた大きさ（1 つのセグメント・片）まで
+   同じ。足した字のひとつひとつが、どの読み方でもちょうど決めた書式であることも、書き込みごとに確かめる。分けていない
+   字の並び・片では、区切りの並び・書式を変えるバイト列・数が、元の区切りに書き込みを当てたものと同じ（書式の切り替わる所に
+   足した字は、足した所の単位の書式を言い直した区切りと、その数を、足した所の区切りの前に入れたもの）。分けた片では、
+   頭で言い直した区切りのほかは、書式を変えるバイト列の並びが、元の片（に、書式の切り替わる所で言い直した区切りを入れた
+   もの）と同じ。大きさは、集めた文書で確かめた大きさ（1 つのセグメント・片）まで
 5. 表の位置の表・しおり・校正の情報・字を打つ位置：ずらした位置のほかは同じで、ずらした位置は「元の位置より前で足した・
    減らした字の数」だけ違う。校正の情報は、書き込み後の本文を読み直して、どの項目も同じ番号の校正の部品を指すことも確かめる
 6. ストリームの一覧：見出しは項目の数のほか同じ。項目は、取り除いたストリームの項目がないことと、大きさの変わったストリームの
@@ -344,6 +347,59 @@ def _restate(before: list[bytes]) -> list:
     return [whole, bytes(before[-1])]
 
 
+def _expected_runs(ra, n: int, lo: int, ops) -> tuple[list, int]:
+    """元の片の区切り ra（単位 n 個、本文の中の始まり lo）に、その片に当たる書き込みを当てた区切り（証明のための別の書き方）
+    → (区切りの並び, 書式を言い直して足した所の数)。足した字は、前の字を引き継ぐなら前の字、そうでなければ足した所の字を含む
+    区切りの数を増やす。ただし、字を書き換えずに足す所で、前の単位と足す所の単位の書式が（片の中で、重ねる読み方でも
+    置き換える読み方でも）違えば、足す所の位置にある区切りの前に、「足す所の単位までの区切りを重ねた値を 1 つにまとめた
+    区切りと、最後の区切り（_restate）」と「足した字の数」を入れる。減らした字は、その字を含んでいた区切りから引く。"""
+    els = [(k, bytes(v) if k == "a" else v) for k, v in ra]
+    over = _formats([(None, [0] * n, ra)], ("重ねる", "初めに戻る"))
+    repl = _formats([(None, [0] * n, ra)], ("置き換える", "初めに戻る"))
+    bounds, q0 = [], 0
+    for j, (k, v) in enumerate(els):
+        if k == "n":
+            bounds.append((j, q0, q0 + v))
+            q0 += v
+
+    def at(i: int):
+        return next((j for j, s0, s1 in bounds if s0 <= i < s1), None)
+
+    counts = {j: v for j, (k, v) in enumerate(els) if k == "n"}
+    blocks: list[tuple[int, list]] = []
+    for op in ops:
+        d = len(op.text) - (op.b - op.a)
+        if d > 0:
+            q = (op.b if op.b > op.a else op.a) - lo
+            if op.inherit != "prev" and op.a == op.b and 0 < q < n and (over[q - 1] != over[q] or repl[q - 1] != repl[q]):
+                # 足す所 q の位置にある、はじめの書式を変える区切りと、q を含む数の要素（なければ並びの終わり）
+                pos, first, upto = 0, None, len(els)
+                for j, (k, v) in enumerate(els):
+                    if k == "n":
+                        if pos + v > q:
+                            upto = j
+                            break
+                        pos += v
+                    elif pos == q and first is None:
+                        first = j
+                if first is None:
+                    raise JtdError("書式の切り替わる所に、書式を変える区切りが見つかりません")
+                blocks.append((first, [("a", v) for v in _restate([v for k, v in els[:upto] if k == "a"])] + [("n", d)]))
+                continue
+            j = at(q - 1 if op.inherit == "prev" and q else q)
+            if j is not None:
+                counts[j] += d
+        elif d < 0:
+            for i in range(op.a + len(op.text), op.b):
+                j = at(i - lo)
+                if j is not None:
+                    counts[j] -= 1
+    out = [(k, counts[j] if k == "n" else v) for j, (k, v) in enumerate(els)]
+    for first, block in sorted(blocks, key=lambda b: -b[0]):
+        out[first:first] = block
+    return out, len(blocks)
+
+
 def check_text(pr, a: JtdFile, b: JtdFile, ops, edits) -> list[str]:
     """本文の Ssmg・字の並び・文字の書式の区切り（と、分けて持つ形の一覧と片）の比較。"""
     from .edit import MAX_PIECE_BYTES, MAX_PIECE_UNITS, MAX_SEG_BYTES
@@ -421,43 +477,29 @@ def check_text(pr, a: JtdFile, b: JtdFile, ops, edits) -> list[str]:
             return op.b - 1
         return op.a - 1 if op.inherit == "prev" and op.a else op.a
 
+    restated = 0
+    expected_runs: dict[int, list] = {}  # 元の片の番号 → その片の区切りに、書き込みを当てたもの
+    for old in pa:
+        lo, hi = starts[old[0]], starts[old[0]] + len(old[1])
+        last_piece = old is pa[-1]
+        here = []
+        for op in ops:
+            c = anchor(op)
+            if lo <= c < hi or (last_piece and c == hi):
+                here.append(op)
+        try:
+            er, nr = _expected_runs(old[2], len(old[1]), lo, here)
+        except JtdError as e:
+            bad.append(f"本文の片 {old[0]} の、文字の書式の区切りに書き込みを当てられません：{e}")
+            return bad
+        expected_runs[old[0]] = er
+        restated += nr
     for old, news in groups:
         if len(news) == 1 and kb == ka:
-            ra, rb = old[2], news[0][2]
-            if [k for k, _ in ra] != [k for k, _ in rb] or any(p != q for (k, p), (_k, q) in zip(ra, rb) if k == "a"):
-                bad.append("文字の書式（書式を変えるバイト列）か、区切りの並びが変わりました")
-                continue
-            # 区切りの数：足した字は「足した所の前の字（前の書式を引き継ぐとき）か、足した所」を含む区切りに、減らした字は
-            # その字を含んでいた区切りから
-            lo, hi = starts[old[0]], starts[old[0]] + len(old[1])
-            last_piece = old is pa[-1]
-            bounds, q0 = [], 0
-            for j, (k, v) in enumerate(ra):
-                if k == "n":
-                    bounds.append((j, q0, q0 + v))
-                    q0 += v
-
-            def at(i: int):
-                return next((j for j, s0, s1 in bounds if s0 <= i < s1), None)
-
-            exp = {j: v for j, (k, v) in enumerate(ra) if k == "n"}
-            for op in ops:
-                c = anchor(op)
-                if not (lo <= c < hi or (last_piece and c == hi)):
-                    continue
-                d = len(op.text) - (op.b - op.a)
-                if d > 0:
-                    q = (op.b if op.b > op.a else op.a) - lo
-                    j = at(q - 1 if op.inherit == "prev" and q else q)
-                    if j is not None:
-                        exp[j] += d
-                elif d < 0:
-                    for i in range(op.a + len(op.text), op.b):
-                        j = at(i - lo)
-                        if j is not None:
-                            exp[j] -= 1
-            if {j: v for j, (k, v) in enumerate(rb) if k == "n"} != exp:
-                bad.append("文字の書式の区切りの数が、書いた所の区切りを足した・減らした字の数だけ変えたものと違います")
+            # 区切りの並びとバイト列：元の区切りに、書き込みを当てたもの（足した字は、前の字か足した所の字の区切りの数を増やす。
+            # 書式の切り替わる所に足した字は、足した所の書式を言い直した区切りと、その数を、足した所の区切りの前に入れる）
+            if [(k, bytes(v) if k == "a" else v) for k, v in news[0][2]] != expected_runs[old[0]]:
+                bad.append("文字の書式の区切り（並び・書式を変えるバイト列・数）が、元の区切りに書き込みを当てたものと違います")
             continue
         split += 1
         seen: list[bytes] = []
@@ -475,8 +517,8 @@ def check_text(pr, a: JtdFile, b: JtdFile, ops, edits) -> list[str]:
                     return bad
                 av = av[len(pre):]
             seen += av
-        if seen != [bytes(v) for k, v in old[2] if k == "a"]:
-            bad.append("分けた片の、書式を変えるバイト列の並びが、元の片と違います")
+        if seen != [v for k, v in expected_runs[old[0]] if k == "a"]:
+            bad.append("分けた片の、書式を変えるバイト列の並びが、元の片（に書式を言い直した区切りを当てたもの）と違います")
     # 大きさの決まり：分けない字の並びは、1 つのセグメントで確かめた大きさ（か元の大きさ）まで。片は、確かめた片の大きさ
     # （か元の片の大きさ）まで
     if kb == "text":
@@ -493,26 +535,37 @@ def check_text(pr, a: JtdFile, b: JtdFile, ops, edits) -> list[str]:
             if n > max(MAX_PIECE_UNITS, old_n.get(s.sid, 0)) or len(s.data) > max(MAX_PIECE_BYTES, old_size.get(s.sid, 0) if ka == "list" else 0):
                 bad.append(f"本文の片 {s.sid}（{n:,} 単位・{len(s.data):,} バイト）が、確かめた片の大きさを超えています")
     # 単位ごとの書式：4 つの読み方のどれでも、書き込み後の書式が「元の書式に書き込みを当てたもの」と同じ
+    # 足した字は、どの読み方でも、ちょうど決めた書式（足す所の単位＝段落の終わりの印など、前の字を引き継ぐなら前の字）で、
+    # ほかの字はみな元の書式のまま
     for mode in MODES:
         fa = _formats(pa, mode)
-        for op in ops:
-            if len(op.text) > op.b - op.a and op.inherit == "both":
-                q = op.b if op.b > op.a else op.a
-                if 0 < q < len(fa) and fa[q - 1] != fa[q]:
-                    bad.append(f"{op.key}: 書式の切り替わる所に字を足しています（{'・'.join(mode)}の読み方）")
-        if _formats(pb, mode) != _expect_formats(fa, mine):
+        fb = _formats(pb, mode)
+        for op in mine:
+            extra = len(op.text) - (op.b - op.a)
+            if extra <= 0:
+                continue
+            q = op.b if op.b > op.a else op.a
+            ref = q - 1 if (op.inherit == "prev" and q > 0) or q >= len(fa) else q
+            at = _shift(mine, q, unit=False)
+            got = set(fb[at:at + extra]) if at is not None else set()
+            if got != {fa[ref]}:
+                bad.append(f"{op.key}: 足した字の書式が、決めた書式（{'前の字' if ref < q else '足す所の単位'}の書式）と違います"
+                           f"（区切りを{mode[0]}・片の頭で{mode[1]}読み方）")
+        if fb != _expect_formats(fa, mine):
             bad.append(f"書き込み後の単位ごとの書式が、元の書式に書き込みを当てたものと違います（区切りを{mode[0]}・片の頭で{mode[1]}読み方）")
             break
     form = (f"・分けて持つ形（「QLSTV.01」の一覧と片 {len(pb)} 個：{'・'.join(f'{len(p[1]):,}' for p in pb)} 単位"
             + (f"。分けた片 {split} か所の頭で書式を言い直した" if split else "") + "）" if kb == "list" else "")
+    told = (f"。書式の切り替わる所に足した {restated} か所は、足す所の単位の書式を言い直した区切りにして、足した字がその書式に"
+            "なることを確かめた" if restated else "")
     pr.structures.append(f"本文の字の並び（{len(ua):,} → {len(ub):,} 単位）・文字の書式の区切り（単位ごとの書式が、4 つの読み方の"
-                         f"どれでも元のまま）{form}・Ssmg の目録（セグメント {cx} → {cy} 個・ブロック {nx} → {ny} 個）")
+                         f"どれでも元のまま{told}）{form}・Ssmg の目録（セグメント {cx} → {cy} 個・ブロック {nx} → {ny} 個）")
     return bad
 
 
 class _Op:
     def __init__(self, k, a, b, text):
-        self.k, self.a, self.b, self.text, self.key, self.inherit = k, a, b, text, "", "both"
+        self.k, self.a, self.b, self.text, self.key, self.inherit = k, a, b, text, "", "next"
 
 
 def _tcnt_vals(data: bytes) -> list[tuple[int, int]]:
@@ -670,7 +723,7 @@ def expected_text(a: JtdFile, p, ops, edits) -> str | None:
             continue
         k, i = u
         for op in ops:
-            if op.k == k and op.a == op.b == i and op.inherit == "both":
+            if op.k == k and op.a == op.b == i and op.inherit == "next":
                 out.append(op.text)  # 段落の頭に足す
                 touched = True
         repl = None

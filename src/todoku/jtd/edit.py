@@ -7,11 +7,22 @@
 1. 本文の字の並び（DocumentText の「TextV.01」のセグメント、または「QLSTV.01」の一覧と片）：単位の数と、単位の並び
 2. 文字の書式の区切り（字の並び・片のすぐ後ろ）：「00＋4 バイトの数」（その数の単位を、今の書式で）と
    「FE {種類 長さ 値}… FF 00」（書式を変える）の並び。数の合計は単位の数以下で、残りは最後の書式のまま。
-   字を足した所を含む区切りの数を、足した字の数だけ増やす。書式の切り替わる所にちょうど足すときは、前と後ろの書式が
-   どの読み方（下の 9.）でも同じときだけ書き、違えば断る。集めた文書で、段落の始まりの記録の後ろに 1 つの書式の字が
-   あり、その記録と段落の終わりの印の書式が違う段落（1 つの字の並びの本文の 139 段落）を数えると、字が終わりの印と
-   同じ書式のもの 71（表のマス 33）、前の記録と同じもの 65（表のマス 27）、どちらとも違うもの 3 で、空の段落に打った
-   字がどちらの書式になるかは、集めた文書からは決められない
+   字を足した所を含む区切りの数を、足した字の数だけ増やす。
+   書式の切り替わる所（足す所の前の単位＝段落・マスの始まりの記録と、足す所の単位＝段落の終わりの印などの書式が、
+   どれかの読み方（下の 9.）で違う所）にちょうど足すときは、足す字を、それだけの区切りにして、書式をすべて言い直して
+   書く：足す所の前に「足す所の単位の書式を言い直す区切り（9. の片の頭と同じ、重ねた値を 1 つにまとめた区切りと、
+   最後の区切りそのもの）」と「足した字の数」を入れ、その後ろは元の区切り（足す所の単位の書式を変える区切り）のまま。
+   こうすると、足した字の書式は、書式を「重ねる」と読んでも「置き換える」と読んでも、前の記録の書式から引き継ぐかに
+   よらず、足す所の単位の書式になり、ほかの単位の書式も元のまま（証明で 4 つの読み方とも確かめる）。
+   足す字を、足す所の単位（空の段落・マスでは段落の終わりの印）の書式にするわけ：Word でも一太郎でも、空の段落に
+   打った字は、段落の終わりの印の前に入り、終わりの印の書式で出る。集めた文書の書式例と、同じ様式の白紙を比べると、
+   白紙で空のマスに、書式例で字を入れたマスのうち、前の記録と終わりの印の書式が違うマスは 2 つ（056d416c7448 の
+   T2.R9.C2「所有権移転」・T4.R12.C2「東京都千代田区霞が関○丁目○番の土地」。白紙は 049e0b3a054a・0795105088db）で、
+   どちらも字が終わりの印と同じ書式（前の記録とは、種類 3 と 20 が違う）。前の記録と同じものはなかった（ほかの埋めた
+   マスは、記録・字・終わりの印がみな同じ書式）。なお、様式の見出しの字なども含めて、段落の始まりの記録の後ろに 1 つの
+   書式の字があり、その記録と段落の終わりの印の書式が違う段落（1 つの字の並びの本文の 139 段落）を数えると、字が
+   終わりの印と同じ書式のもの 71（表のマス 33）、前の記録と同じもの 65（表のマス 27）、どちらとも違うもの 3 で、
+   見出しの字は作った人が書式を変えたものもあるので、これだけでは決められない
 3. Ssmg の入れ物：セグメントの目録のバイト数・ブロックの数・ブロックの番号（足りなければ末尾にブロックを足す）・
    足した片のセグメントの目録と、先頭のセグメントの数・ブロックの数
 4. ストリームの一覧（\\x04JSRV_SegmentInformation）：48 バイトの見出しと、96 バイトの項目（名前・大きさ・種類）。
@@ -187,6 +198,34 @@ def restate(before: list[bytes]) -> list[tuple[str, bytes]]:
     return [("a", whole), ("a", last)]
 
 
+def boundary_at(els, q: int) -> tuple[int, int] | None:
+    """単位 q の前で書式が切り替わるなら (j, k)：j は q の位置にある書式を変える区切りの、はじめの要素の番号、k は q を含む
+    数の要素（なければ並びの終わり）の番号。q の前と q の書式が、どの読み方でも同じなら None。"""
+    if q <= 0 or same_format(els, q - 1, q):
+        return None
+    pos = 0
+    j = None
+    for idx, (kind, v) in enumerate(els):
+        if kind == "n":
+            if pos + v > q:
+                return (j, idx) if j is not None else None
+            pos += v
+        elif pos == q and j is None:
+            j = idx
+    return (j, len(els)) if j is not None else None
+
+
+def restated_block(els, q: int, count: int) -> tuple[int, list[tuple[str, object]]]:
+    """書式の切り替わる所 q に count 個の単位を足すとき、元の要素の番号 j の前に入れる区切り：q の単位の書式を言い直す
+    区切り（restate：q までの区切りを重ねた値を 1 つにまとめた区切りと、最後の区切りそのもの）と「count」。その後ろの、
+    q の書式を変える区切りと数は元のまま。"""
+    jk = boundary_at(els, q)
+    if jk is None:
+        raise FillError("書式の切り替わる所ではありません")
+    j, k = jk
+    return j, restate([v for kind, v in els[:k] if kind == "a"]) + [("n", count)]
+
+
 def split_runs(els, s: int) -> tuple[list, list]:
     """書式の区切りを、単位 s の前と後ろに分ける（後ろの頭で、前の書式を言い直す）。"""
     left: list = []
@@ -217,7 +256,8 @@ class Op:
     b: int
     text: str
     key: str = ""
-    inherit: str = "both"  # 足す字の書式："prev"（前の字の書式を引き継ぐ）／"both"（前後の書式が同じときだけ）
+    # 足す字の書式："prev"（前の字の書式を引き継ぐ）／"next"（足す所の単位の書式。前と違えば、書式を言い直して足す）
+    inherit: str = "next"
 
     @property
     def delta(self) -> int:
@@ -275,7 +315,7 @@ def piece_of(st: TextStory, op: Op) -> int:
     q = op.a
     if op.inherit == "prev" and q:
         return at(q - 1)
-    if q and op.inherit == "both" and at(q - 1) != at(q):
+    if q and op.inherit == "next" and at(q - 1) != at(q):
         raise FillError(f"{op.key}: 本文の分けて持つ字の並びの片の分かれ目に、ちょうど足す所です（どちらの片の書式か決められません）")
     return at(q)
 
@@ -416,7 +456,8 @@ def _numbering_ok(doc: JtdFile, data: bytes) -> bool:
 # ====================================================================== 書き込む所ごとに確かめること
 def check_op(doc: JtdFile, op: Op) -> str | None:
     """字数を変える書き込みが、この所でできるか。できなければ理由（日本語）。
-    inherit："prev"（前の字の書式を引き継ぐ：伏せ字・空白を長い値に替える）／"both"（前後の書式が同じときだけ：空の段落に足す）。"""
+    inherit："prev"（前の字の書式を引き継ぐ：伏せ字・空白を長い値に替える）／"next"（足す所の単位の書式：空の段落・マスに
+    足すなら段落の終わりの印、段落の頭に足すなら頭の字。前の記録と書式が違えば、書式を言い直して足す）。"""
     pol = policy(doc)
     if not pol.ok:
         return pol.reasons[0]
@@ -459,10 +500,13 @@ def check_op(doc: JtdFile, op: Op) -> str | None:
     els = parse_runs(st.runs_of(pc))
     lq = q - pc.start
     if op.delta > 0:
-        if op.inherit == "both" and lq > 0 and not same_format(els, lq - 1, lq):
-            return ("ここは文字の書式が切り替わる所です（前と後ろで書式が違う）。集めた文書では、前と後ろの書式が違う段落の字が"
-                    "後ろ（段落の終わりの印）と同じもの 71・前と同じもの 65 で、足す字をどちらの書式にするかを決められないので断ります")
-        # "prev"：前の字の区切り（q-1）を増やす
+        if op.inherit == "next" and lq > 0 and not same_format(els, lq - 1, lq):
+            # 書式の切り替わる所：足す字を、足す所の単位の書式を言い直した区切りにして書く（plan_body）。足す所の単位が
+            # この片にない（片・字の並びの終わり）か、字を書き換えて足すときは、言い直す書式が決まらないので断る
+            if lq >= pc.n or op.b > op.a:
+                return ("ここは文字の書式が切り替わる所で、足す所の後ろに、書式を合わせる字（段落の終わりの印など）が"
+                        "ないので、足す字の書式を決められません")
+        # "prev"：前の字の区切り（q-1）を増やす。"next"：足す所の単位の区切りを増やす（書式の切り替わる所なら、言い直す）
     elif op.delta < 0:
         counts: dict[int | None, int] = {}
         for i in range(op.a + len(op.text), op.b):
@@ -802,6 +846,7 @@ class BodyPlan:
     pieces: list[tuple[int, list[int], list, int | None]]
     qlst_sid: int
     units: int
+    restated: int = 0  # 書式の切り替わる所に、書式を言い直して足した所の数
 
 
 def plan_body(st: TextStory, ops: list[Op], used_sids: set[int]) -> BodyPlan:
@@ -810,14 +855,19 @@ def plan_body(st: TextStory, ops: list[Op], used_sids: set[int]) -> BodyPlan:
     for op in ops:
         by_piece.setdefault(piece_of(st, op), []).append(op)
     news: list[tuple[list[int], list, Piece]] = []
+    n_restated = 0
     for j, pc in enumerate(pcs):
         local = [Op(op.k, op.a - pc.start, op.b - pc.start, op.text, op.key, op.inherit) for op in by_piece.get(j, [])]
         units = list(st.units[pc.start:pc.start + pc.n])
         els = parse_runs(st.runs_of(pc))
         new_els = [list(x) for x in els]
+        restated: list[tuple[int, list]] = []  # 書式の切り替わる所に足す：(元の要素の番号, その前に入れる区切り)
         for op in local:
             if op.delta > 0:
                 q = op.point()
+                if op.inherit == "next" and op.a == op.b and boundary_at(els, q) is not None:
+                    restated.append(restated_block(els, q, op.delta))
+                    continue
                 jj = run_at(els, q - 1 if (op.inherit == "prev" and q) else q)
                 if jj is not None:
                     new_els[jj][1] += op.delta
@@ -826,20 +876,24 @@ def plan_body(st: TextStory, ops: list[Op], used_sids: set[int]) -> BodyPlan:
                     jj = run_at(els, i)
                     if jj is not None:
                         new_els[jj][1] -= 1
-        news.append((splice(tuple(units), local), [tuple(x) for x in new_els], pc))
+        merged = [tuple(x) for x in new_els]
+        n_restated += len(restated)
+        for j, block in sorted(restated, key=lambda r: -r[0]):
+            merged[j:j] = block
+        news.append((splice(tuple(units), local), merged, pc))
     total = sum(len(u) for u, _e, _p in news)
     if st.pieces is None:
         u, e, _pc = news[0]
         seg_data = TEXT + struct.pack(">I", len(u)) + struct.pack(f">{len(u)}H", *u) + runs_bytes(e)
         if len(seg_data) <= max(MAX_SEG_BYTES, len(st.seg.data)):
-            return BodyPlan(seg_data, [], st.sid, total)
+            return BodyPlan(seg_data, [], st.sid, total, n_restated)
         parts = _divide(u, e, MAX_PIECE_UNITS, MAX_PIECE_BYTES, 2)
         out = []
         nxt = max(used_sids) + 1
         for pu, pe in parts:
             out.append((nxt, pu, pe, None))
             nxt += 1
-        return BodyPlan(None, out, st.sid, total)
+        return BodyPlan(None, out, st.sid, total, n_restated)
     out = []
     nxt = max(used_sids) + 1
     for u, e, pc in news:
@@ -855,7 +909,7 @@ def plan_body(st: TextStory, ops: list[Op], used_sids: set[int]) -> BodyPlan:
             else:
                 out.append((nxt, pu, pe, None))
                 nxt += 1
-    return BodyPlan(None, out, st.sid, total)
+    return BodyPlan(None, out, st.sid, total, n_restated)
 
 
 def qlst_bytes(pieces) -> bytes:
@@ -931,6 +985,9 @@ def rewrite(doc: JtdFile, ops: list[Op], edits: dict | None = None) -> Rewrite:
     changed["DocumentText"] = text_stream
     total = sum(op.delta for op in ops)
     notes.append(f"本文の字の並び：{n:,} 単位 → {bp.units:,} 単位（{total:+d}）")
+    if bp.restated:
+        notes.append(f"文字の書式の切り替わる所に字を足した {bp.restated} か所：足した字を、足す所の単位（段落の終わりの印など）の"
+                     "書式をすべて言い直した区切りにして書きました")
     if info["added_blocks"]:
         notes.append(f"本文の Ssmg の入れ物：ブロックを {len(info['added_blocks'])} 個足しました")
     removed: list[str] = []
@@ -1015,5 +1072,6 @@ def recompress(outer_blob: bytes, native: bytes) -> bytes:
 
 
 __all__ = ["Op", "Policy", "Rewrite", "policy", "check_op", "rewrite", "overwrite", "recompress", "parse_runs",
-           "run_at", "run_starts", "map_pos", "splice", "slots_of", "same_format", "split_runs", "restate", "attrs_of",
+           "run_at", "run_starts", "boundary_at", "restated_block", "map_pos", "splice", "slots_of", "same_format",
+           "split_runs", "restate", "attrs_of",
            "LAYOUT", "UPDATED", "POSITION_FREE", "SSMG", "MAX_SEG_BYTES", "MAX_PIECE_UNITS", "MAX_PIECE_BYTES"]

@@ -263,13 +263,6 @@ def test_jtd_grow_refuses_what_is_not_established():
     assert empty and "NumberingLink" in empty[0]["why_fixed"]
     with pytest.raises(FillError, match="NumberingLink"):
         fill(JtdFile(blob), {empty[0]["id"]: "山田"})
-    # 書式の切り替わる所にちょうど足す（空のマスの前後で書式が違う）：どちらの書式か決められないので断る
-    units = _text_units(BODY)
-    cut = next(i for i in range(1, len(units)) if units[i] == 0x0A and units[i - 1] == 0x1F)  # マスの記録のすぐ後ろの段落の終わり
-    blob = make_jtd_full(runs=[("n", cut), ("a", BOLD), ("n", len(units) - cut), ("a", PLAIN)])
-    win = build(JtdFile(blob))
-    empty = [f for f in win["fields"] if f["kind"] == "text" and f.get("readonly")]
-    assert empty and "書式" in empty[0]["why_fixed"]
 
 
 def test_jtd_grow_proof_catches_tampering():
@@ -475,6 +468,126 @@ def test_jtd_grow_allows_run_boundary_with_the_same_format():
     assert any("山田" in t for t in _paras(res.blob))
 
 
+# 種類 0x14 だけを変える区切り（BOLD の後ろに置くと、重ねた値と最後の区切りが違う）
+MARK = b"\xfe\x14\x04\x80\x00\x00\x00\xff\x00"
+
+
+def _cell_end() -> int:
+    """BODY の、マスの記録のすぐ後ろの段落の終わり（空のマス）の単位の位置。"""
+    units = _text_units(BODY)
+    return next(i for i in range(1, len(units)) if units[i] == 0x0A and units[i - 1] == 0x1F)
+
+
+def _inserted_formats(old_blob: bytes, new_blob: bytes, q: int, count: int) -> None:
+    """4 つの読み方のどれでも、足した字（新しい本文の q から count 個）が、元の q の単位（段落の終わりの印）と同じ書式で、
+    ほかの字は元の書式のまま。"""
+    from todoku.jtd.proof import MODES, _body_raw, _formats
+
+    old = _body_raw(CFB(old_blob).read("DocumentText"))[1]
+    new = _body_raw(CFB(new_blob).read("DocumentText"))[1]
+    for mode in MODES:
+        fa, fb = _formats(old, mode), _formats(new, mode)
+        assert fb[q:q + count] == [fa[q]] * count, mode
+        assert fb[:q] == fa[:q] and fb[q + count:] == fa[q:], mode
+
+
+@pytest.mark.parametrize("runs_of, restated", [
+    # 段落の終わりの印から太字（前の記録は初めの書式）：言い直すのは最後の区切りだけ
+    (lambda cut, n: [("n", cut), ("a", BOLD), ("n", n - cut), ("a", PLAIN)], [("a", BOLD)]),
+    # 区切りを重ねた値と最後の区切りが違う：重ねた値を 1 つにまとめた区切りと、最後の区切り
+    (lambda cut, n: [("n", 1), ("a", BOLD), ("n", cut - 1), ("a", MARK), ("n", n - cut)],
+     [("a", b"\xfe\x02\x02\x01\x61\x14\x04\x80\x00\x00\x00\xff\x00"), ("a", MARK)]),
+    # 段落の終わりの印が、区切りの数の合計より後ろ（最後の書式のまま）
+    (lambda cut, n: [("n", cut), ("a", BOLD)], [("a", BOLD)]),
+])
+def test_jtd_grow_at_format_boundary_restates_end_mark_format(runs_of, restated):
+    """書式の切り替わる所（前の記録と段落の終わりの印の書式が違う、空のマス）に足す字は、それだけの区切りにして、
+    段落の終わりの印の書式をすべて言い直して書く。どの読み方でも、足した字は終わりの印の書式で、ほかの字は元のまま。"""
+    from todoku.jtd.book import JtdFile, ssmg
+    from todoku.jtd.edit import parse_runs
+    from todoku.jtd.window import build
+
+    cut = _cell_end()
+    n = len(_text_units(BODY))
+    runs = runs_of(cut, n)
+    blob = make_jtd_full(runs=runs)
+    from todoku.grade import grade_blob
+
+    win = build(JtdFile(blob))
+    fid = _grow_field(blob)
+    assert all("書式" not in f.get("why_fixed", "") for f in win["fields"])
+    # 段階でも、書式の切り替わる所を書けない理由にしない
+    g = grade_blob(blob, "boundary.jtd")
+    assert g.write == "B" and not any("書式" in r.detail for r in g.reasons if r.grade == "D")
+    res, pr = _fill_prove(blob, {fid: "山田"})
+    assert any("山田" in t for t in _paras(res.blob))
+    seg = ssmg(CFB(res.blob).read("DocumentText"), "d")[0].data
+    n1 = struct.unpack_from(">I", seg, 8)[0]
+    got = parse_runs(seg[12 + 2 * n1:])
+    # 足す所の区切りの前に、言い直した書式と足した字の数。その後ろは元の区切りのまま
+    j = next(i for i, (k, _v) in enumerate(runs) if k == "a" and sum(v for kk, v in runs[:i] if kk == "n") == cut)
+    assert got == runs[:j] + restated + [("n", 2)] + runs[j:]
+    _inserted_formats(blob, res.blob, cut, 2)
+    assert any("書式の切り替わる所" in t for t in res.notes)
+    assert "書式の切り替わる所に足した 1 か所" in pr.headline()
+
+
+def test_jtd_grow_boundary_proof_catches_unrestated_and_wrong_format():
+    """証明は、書式の切り替わる所に足した字が、言い直した区切りになっていること（書式が結果として同じでも）と、どの読み方
+    でも決めた書式であることを確かめる。"""
+    from todoku.cfb import CfbEditor
+    from todoku.docx.fill import written_of
+    from todoku.jtd.audit import prove
+    from todoku.jtd.book import JtdFile, ssmg
+    from todoku.jtd.edit import parse_runs, runs_bytes, ssmg_update
+    from todoku.jtd.fill import fill
+
+    cut = _cell_end()
+    n = len(_text_units(BODY))
+    runs = [("n", cut), ("a", BOLD), ("n", n - cut), ("a", PLAIN)]
+    blob = make_jtd_full(runs=runs)
+    res = fill(JtdFile(blob), {_grow_field(blob): "山田"})
+    w = written_of(res.patches)
+    assert prove(blob, res.blob, w).ok
+    x = CFB(res.blob).read("DocumentText")
+    seg = ssmg(x, "d")[0]
+    n1 = struct.unpack_from(">I", seg.data, 8)[0]
+    head = seg.data[:12 + 2 * n1]
+
+    def swap(els) -> bytes:
+        y, _info = ssmg_update(x, {seg.sid: head + runs_bytes(els)})
+        ed = CfbEditor(res.blob)
+        ed.replace("DocumentText", y)
+        return ed.blob()
+
+    assert parse_runs(seg.data[12 + 2 * n1:]) == [("n", cut), ("a", BOLD), ("n", 2), ("a", BOLD), ("n", n - cut), ("a", PLAIN)]
+    # 1) 言い直さずに、終わりの印の区切りを増やしただけ（どの読み方でも書式は同じになるが、決めた形ではない）
+    pr = prove(blob, swap([("n", cut), ("a", BOLD), ("n", n - cut + 2), ("a", PLAIN)]), w)
+    assert not pr.ok and any("区切り" in m for m in pr.unexpected)
+    # 2) 足した字を、前の記録の書式にした
+    pr = prove(blob, swap([("n", cut + 2), ("a", BOLD), ("n", n - cut), ("a", PLAIN)]), w)
+    assert not pr.ok and any("足した字の書式" in m for m in pr.unexpected)
+    # 3) 言い直した区切りのバイト列が違う
+    pr = prove(blob, swap([("n", cut), ("a", MARK), ("n", 2), ("a", BOLD), ("n", n - cut), ("a", PLAIN)]), w)
+    assert not pr.ok and any("足した字の書式" in m for m in pr.unexpected)
+
+
+def test_jtd_grow_boundary_in_split_body_pieces():
+    """分けて持つ本文（片）の中の、書式の切り替わる所に足す：言い直した区切りは、その片の区切りに入る。"""
+    from todoku.jtd.proof import _body_raw
+
+    units = _text_units(BODY)
+    n = len(units)
+    cut = _cell_end()
+    first = cut - 3  # マスの記録の途中で分ける。空のマスは後ろの片
+    blob = make_jtd_full(pieces=[(first, [("n", first)]), (n - first, [("n", 3), ("a", BOLD), ("n", n - cut), ("a", PLAIN)])])
+    res, pr = _fill_prove(blob, {_grow_field(blob): "山田"})
+    pieces = _body_raw(CFB(res.blob).read("DocumentText"))[1]
+    assert pieces[1][2] == [("n", 3), ("a", BOLD), ("n", 2), ("a", BOLD), ("n", n - cut), ("a", PLAIN)]
+    _inserted_formats(blob, res.blob, cut, 2)
+    assert "書式の切り替わる所に足した 1 か所" in pr.headline()
+
+
 def _jscomp(native: bytes) -> bytes:
     from todoku.jtd.lha import crc16, lh5
 
@@ -589,6 +702,44 @@ def test_jtd_corpus_fills_empty_cells(path):
     texts = _paras(res.blob)
     assert all(any(v in t for t in texts) for v in values.values())
     assert not CFB(JtdFile(res.blob).cfb.blob).has("LineMark")
+
+
+# 集めた様式の、書式の切り替わる所にある欄（前の記録と段落の終わりの印、または段落の頭の字の書式が違う）。
+# 以前は足す字の書式を決められないとして断っていた所
+BOUNDARY = [("057e70ea353d", "T2.R5.C4"), ("8cd333a10d8a", "T2.R3.C2"), ("056d416c7448", "T2.R3.C2"),
+            ("4cede3b62917", "T1.R3.C3"), ("61a7b1ebaf32", "T1.R50.C1"), ("de1a26940ff8", "T4.R18.C20"),
+            ("5c387711bc76", "P72.a1")]
+
+
+@pytest.mark.parametrize("prefix, fid", BOUNDARY, ids=lambda x: x)
+def test_jtd_corpus_fills_at_format_boundary(prefix, fid):
+    """書式の切り替わる所の欄に字を足す：証明が通り、4 つの読み方のどれでも、足した字は足す所の単位（段落の終わりの印、
+    段落の頭なら頭の字）の書式で、ほかの字は元の書式のまま。"""
+    from todoku.jtd.book import JtdFile
+    from todoku.jtd.proof import MODES, _body_raw, _formats
+    from todoku.jtd.window import build
+
+    path = next((p for p in JTD if p.name.startswith(prefix)), None)
+    if path is None:
+        pytest.skip("集めた様式（corpus/wide_jtd）がありません")
+    blob = path.read_bytes()
+    f = next(f for f in build(JtdFile(blob))["fields"] if f["id"] == fid)
+    assert not f.get("readonly") and not f.get("maxlen"), f.get("why_fixed")
+    res, pr = _fill_prove(blob, {fid: "記入した字"})
+    assert len(res.ops) == 1
+    op = res.ops[0]
+    q, count = op.a, len(op.text)
+    old = _body_raw(CFB(JtdFile(blob).cfb.blob).read("DocumentText"))[1]
+    new = _body_raw(CFB(JtdFile(res.blob).cfb.blob).read("DocumentText"))[1]
+    border = False
+    for mode in MODES:
+        fa, fb = _formats(old, mode), _formats(new, mode)
+        border |= fa[q - 1] != fa[q]
+        assert fb[q:q + count] == [fa[q]] * count, mode
+        assert fb[:q] == fa[:q] and fb[q + count:] == fa[q:], mode
+    assert border, "書式の切り替わる所の欄"
+    assert "書式の切り替わる所に足した 1 か所" in pr.headline()
+    assert any("記入した字" in t for t in _paras(res.blob))
 
 
 # ====================================================================== Excel 5.0/95（BIFF5）
