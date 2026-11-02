@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "todoku": {
+      "command": "uv",
+      "args": ["run", "--quiet", "todoku-mcp"]
+    }
+  }
+}

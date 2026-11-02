@@ -6,11 +6,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 
-[project.optional-dependencies]
-mcp = ["mcp>=1.0"]
-
 [project.scripts]
 todoku = "todoku.cli:main"
+todoku-mcp = "todoku.mcp_server:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "openpyxl>=3.1"]
