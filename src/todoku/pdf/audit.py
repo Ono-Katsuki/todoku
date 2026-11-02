@@ -198,7 +198,7 @@ def _sample(f: dict):
     return "1"
 
 
-def check_writing(doc: PdfDocument, win: dict) -> list[Check]:
+def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> list[Check]:
     targets: dict[str, object] = {}
     skipped, not_writable = [], []
     for pg in win["pages"]:
@@ -221,12 +221,12 @@ def check_writing(doc: PdfDocument, win: dict) -> list[Check]:
         res = fill(doc, targets)
     except FillError as e:
         return [Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
-    pr = prove(doc.blob, res.blob, set(targets))
+    pr = prove(doc.blob, res.blob, set(targets), password=password)
     na = f"（読み取り専用・電子署名・ボタンの {len(not_writable)} 欄は、値を書く欄ではないので除外）" if not_writable else ""
     out = [Check("全入力欄への書き込み", pr.ok and not skipped,
                  f"入力欄 {n_fields:,} か所のうち {len(targets):,} に試しの値を書き込み{na}。{pr.headline()}",
                  [*pr.unexpected, *pr.lint_errors, *skipped])]
-    after = PdfDocument(res.blob, doc.filename)
+    after = PdfDocument(res.blob, doc.filename, password=password)
     win2 = build(after)
     got = {}
     for pg in win2["pages"]:
@@ -252,7 +252,7 @@ def check_writing(doc: PdfDocument, win: dict) -> list[Check]:
     return out
 
 
-def anchored_check(blob: bytes, filename: str) -> Check:
+def anchored_check(blob: bytes, filename: str, password: str | None = None) -> Check:
     """見出しの字を目印にした書き込み（窓に欄として示していない所に、エージェントが書く）：ページの中に1つしかない字の右の
     空いている所に試しの字を書き、証明（目印から決め直した位置と、足した欄の位置が同じ）と読み戻しを確かめる。"""
     import re
@@ -262,7 +262,7 @@ def anchored_check(blob: bytes, filename: str) -> Check:
     from .form import read_fields
     from .proof import prove
 
-    doc = PdfDocument(blob, filename)
+    doc = PdfDocument(blob, filename, password=password)
     names = {f.name for f in read_fields(doc)}
     layouts: dict = {}
     tried = 0
@@ -290,11 +290,12 @@ def anchored_check(blob: bytes, filename: str) -> Check:
                 continue  # 試しの字「（試し）」（4字）が、ふつうの大きさで入る空きを選ぶ
             tried += 1
             try:
-                res = fill(PdfDocument(blob, filename), {"@1": spec})
+                res = fill(PdfDocument(blob, filename, password=password), {"@1": spec})
             except FillError as e:
                 return Check("字を目印にした書き込み", False, f"{n} ページの「{m[0]}」の右に書けませんでした", [str(e)])
-            pr = prove(blob, res.blob, {sd["id"]}, {sd["id"]: spec})
-            got = {f["id"]: f.get("value") for pg in build(PdfDocument(res.blob, filename))["pages"] for f in pg["fields"]}
+            pr = prove(blob, res.blob, {sd["id"]}, {sd["id"]: spec}, password=password)
+            got = {f["id"]: f.get("value") for pg in build(PdfDocument(res.blob, filename, password=password))["pages"]
+                   for f in pg["fields"]}
             ok = pr.ok and got.get(sd["id"]) == "（試し）"
             return Check("字を目印にした書き込み", ok,
                          f"窓に欄として示していない所への書き込み（{n} ページの「{m[0]}」の右に「（試し）」）を {sd['id']} として書き、"
@@ -305,8 +306,9 @@ def anchored_check(blob: bytes, filename: str) -> Check:
     return Check("字を目印にした書き込み", True, "右に空きのある、ページの中に1つしかない字がないので、試していません")
 
 
-def run(blob: bytes, filename: str = "") -> Audit:
-    doc = PdfDocument(blob, filename)
+def run(blob: bytes, filename: str = "", password: str | None = None) -> Audit:
+    """password：開くのにパスワードが要る PDF のとき（本人に聞いたもの。結果には出さない）。"""
+    doc = PdfDocument(blob, filename, password=password)
     win = build(doc)
     au = Audit(filename)
     au.checks += check_reading(doc, win)
@@ -316,14 +318,14 @@ def run(blob: bytes, filename: str = "") -> Audit:
     au.checks.append(Check("窓の大きさ", biggest <= 150_000,
                            f"Markdown {total:,} 文字" + (f"を {len(parts)} 部分に分け、いちばん大きい部分も {biggest:,} 文字"
                                                         if len(parts) > 1 else "") + "（AIが1回で読める目安 15万文字以内）"))
-    au.checks += check_writing(PdfDocument(blob, filename), win)
+    au.checks += check_writing(PdfDocument(blob, filename, password=password), win, password)
     from ..xlsx.audit import agent_places_check
 
     ap = agent_places_check([f for p_ in win["pages"] for f in p_["fields"]])
     if ap is not None:
         au.checks.append(ap)
     if not any(p_.get("image_only") for p_ in win["pages"]) or any(p_.get("fields") for p_ in win["pages"]):
-        au.checks.append(anchored_check(blob, filename))
+        au.checks.append(anchored_check(blob, filename, password))
     fm = win["form"]
     scripts = _scripts(doc)
     au.checks.append(Check("フォームの仕掛け", not fm["xfa"] and not scripts,

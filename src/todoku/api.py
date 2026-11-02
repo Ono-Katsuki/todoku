@@ -197,6 +197,7 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             result["anchored"] = anchored
             readback_values = {k: v for k, v in values.items() if not k.startswith("@")}
             readback_values.update({p.id: p.value for p in res.patches if getattr(p, "anchor", None)})
+    written_plain = new_blob  # 書いた中身（保護し直す前）
     if lock is not None:
         # 元と同じパスワードで保護し直し、それを同じパスワードで解いて、書いた中身とバイト一致かを確かめてから書き出す
         from .unlock import relock, unlock
@@ -214,6 +215,24 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか
     after_list = fields(str(dst), password)
     after = {f["id"]: f.get("value") for f in after_list}
+    if k in ("xlsx", "xls"):
+        # 欄の一覧に出ないセル（番地で書いたセル）も、書いた後のブックのセルの値を直接読んで照らす
+        from .book import open_book
+        from .xlsx.edit import resolve_target
+
+        try:
+            wb_after = open_book(written_plain, name)
+            for key in readback_values:
+                if key in after or key.startswith("@"):
+                    continue
+                try:
+                    sh_, r_, c_ = resolve_target(wb_after, key)
+                except Exception:  # noqa: BLE001
+                    continue  # 部品の名前など、セルでない指定
+                cell = wb_after.sheet(sh_).cells.get((r_, c_))
+                after[key] = cell.value if cell is not None else None
+        except Exception:  # noqa: BLE001
+            pass
     mismatch = []
     for key, v in readback_values.items():
         g = after.get(key)

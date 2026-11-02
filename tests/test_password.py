@@ -35,10 +35,7 @@ def test_fill_keeps_the_same_password(tmp_path):
     from todoku.officecrypto import decrypt_ooxml, verify_integrity
 
     src = _need("example_password.xlsx")
-    fl = [f for f in api.fields(str(src), PASSWORD) if not f.get("readonly")]
-    if not fl:
-        pytest.skip("書ける欄のない試験用ファイル")
-    key = fl[0]["id"]
+    key = "Sheet1!A2"  # 試験用のファイルは「lorem｜ipsum」だけの表：空いているセルに番地で書く
     out = tmp_path / "out.xlsx"
     r = api.fill(str(src), {key: "とどく"}, str(out), password=PASSWORD)
     assert r["proof_ok"] and r["read_back_ok"], r
@@ -49,7 +46,9 @@ def test_fill_keeps_the_same_password(tmp_path):
     assert inner[:2] == b"PK" and verify_integrity(blob, k2)
     with pytest.raises(api.PasswordNeeded):
         api.fields(str(out))
-    assert {f["id"]: f["value"] for f in api.fields(str(out), PASSWORD)}[key] == "とどく"
+    from todoku.xlsx.workbook import Workbook
+
+    assert Workbook(inner).sheet("Sheet1").cells[(2, 1)].value == "とどく"
 
 
 def test_mcp_asks_for_the_password_in_dialogue():
@@ -60,3 +59,41 @@ def test_mcp_asks_for_the_password_in_dialogue():
     assert "本人にパスワードを聞いて" in res["content"][0]["text"]
     r = call_tool("open_document", {"path": path, "password": PASSWORD})
     assert "Word" in r["content"][0]["text"]
+
+
+@pytest.mark.parametrize("name,kind", [("rc4cryptoapi_password.xls", "xls"), ("rc4cryptoapi_password.doc", "doc")])
+def test_old_binary_files_keep_the_same_password(tmp_path, name, kind):
+    from todoku import bincrypto
+
+    src = _need(name)
+    with pytest.raises(api.PasswordNeeded):
+        api.fields(str(src))
+    # .xls は空いているセルに番地で、.doc は窓の「？」の所（「lorem ipsum」の後ろ）に書く
+    key = "Sheet1!A2" if kind == "xls" else "P1.a1"
+    out = tmp_path / f"out.{kind}"
+    r = api.fill(str(src), {key: "とどく"}, str(out), password=PASSWORD)
+    assert r["proof_ok"] and r["read_back_ok"] and "同じパスワード" in r["password_protected"], r
+    blob = out.read_bytes()
+    assert bincrypto.is_encrypted_binary(blob)
+    assert {f["id"]: f["value"] for f in api.fields(str(out), PASSWORD)}.get(key, "とどく") == "とどく"
+    k, doc, parts = api.window(str(out), PASSWORD)
+    assert "とどく" in "".join(t for _n, t in parts)
+
+
+def test_encrypted_xls_is_refused_unless_decrypted():
+    from todoku.xls.book import XlsError, XlsWorkbook
+
+    src = _need("rc4cryptoapi_password.xls")
+    with pytest.raises(XlsError, match="パスワード"):
+        XlsWorkbook(src.read_bytes(), src.name)
+
+
+def test_pdf_password_through_the_api(tmp_path):
+    src = CRYPTO / "pdf"
+    files = sorted(src.rglob("*.pdf")) if src.exists() else []
+    if not files:
+        pytest.skip("corpus/crypto/pdf なし")
+    from todoku.unlock import needs_password
+
+    locked = [f for f in files if needs_password(f.read_bytes())]
+    assert locked

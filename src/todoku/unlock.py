@@ -46,12 +46,13 @@ def needs_password(blob: bytes) -> bool:
             return False
         return bincrypto.is_encrypted_xls(blob) if k == "xls" else bincrypto.is_encrypted_doc(blob)
     if k == "pdf" and b"/Encrypt" in blob:
+        from .pdf.crypto import NeedsPassword as PdfNeedsPassword
         from .pdf.doc import PdfDocument
 
         try:
             PdfDocument(blob, "")
-        except Exception as e:  # noqa: BLE001
-            return _is_pdf_password_error(e)
+        except PdfNeedsPassword:
+            return True
     return False
 
 
@@ -74,32 +75,31 @@ def unlock(blob: bytes, password: str | None) -> tuple[bytes, Lock | None]:
         bincrypto = _bincrypto()
         if bincrypto is None or not (bincrypto.is_encrypted_xls(blob) if k == "xls" else bincrypto.is_encrypted_doc(blob)):
             return blob, None
-        if not password:
-            raise NeedsPassword("この書類はパスワードで保護されています（開くのにパスワードが要ります）")
         try:
-            plain, key = bincrypto.decrypt_binary(blob, password)
+            # パスワードがなければ、Excel が書き込み用のパスワードだけのブックに使う既定のパスワードを試す（本人に聞かずに開ける）
+            plain, key = bincrypto.decrypt_binary(blob, password or None)
         except bincrypto.WrongPassword:
+            if not password:
+                raise NeedsPassword("この書類はパスワードで保護されています（開くのにパスワードが要ります）") from None
             raise WrongPassword("パスワードが違います") from None
         except bincrypto.CryptoError as e:
             raise ValueError(str(e)) from None
         return plain, Lock("binary", key, k)
     if k == "pdf" and b"/Encrypt" in blob:  # 暗号の辞書がない PDF は、開き直して確かめるまでもない
+        from .pdf.crypto import NeedsPassword as PdfNeedsPassword
         from .pdf.doc import PdfDocument
 
         try:
             PdfDocument(blob, "")
-            return blob, None
-        except Exception as e:  # noqa: BLE001
-            if not _is_pdf_password_error(e):
-                raise
+            return blob, None  # 空のパスワードで開ける（持ち主のパスワードだけの PDF）
+        except PdfNeedsPassword:
+            pass
         if not password:
             raise NeedsPassword("この PDF はパスワードで保護されています（開くのにパスワードが要ります）")
         try:
             PdfDocument(blob, "", password=password)
-        except Exception as e:  # noqa: BLE001
-            if _is_pdf_password_error(e):
-                raise WrongPassword("パスワードが違います") from None
-            raise
+        except PdfNeedsPassword:  # 違うパスワード（WrongPassword は NeedsPassword の一種）
+            raise WrongPassword("パスワードが違います") from None
         return blob, Lock("pdf", None, k, password)
     return blob, None
 
@@ -130,7 +130,3 @@ def _bincrypto():
         return None
     return bincrypto
 
-
-def _is_pdf_password_error(e: Exception) -> bool:
-    name = type(e).__name__
-    return name in ("NeedsPassword", "WrongPassword", "PasswordRequired", "PdfPasswordError") or "パスワード" in str(e)

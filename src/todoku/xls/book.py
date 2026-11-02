@@ -297,6 +297,12 @@ class XlsWorkbook:
         vers = struct.unpack_from("<H", it[0][2], 0)[0]
         if vers != 0x0600:
             raise XlsError(f"BIFF8 ではない形式（版 0x{vers:04X}）です")
+        # FilePass（0x002F）がある：ブックの中身は暗号（パスワードで解いてから開く。解かずに読むと意味のない字になる）
+        for _pos, t_, _b in it[:16]:
+            if t_ == 0x002F:
+                raise XlsError("パスワードで保護されたブックです。パスワードで解いてから開いてください")
+            if t_ == 0x0085:
+                break
         bound: list[tuple[int, int, int, str]] = []
         i = 0
         sst_parts: list[bytes] | None = None
