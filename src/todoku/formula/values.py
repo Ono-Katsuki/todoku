@@ -122,17 +122,22 @@ def number_to_text(x: float) -> str:
     return s
 
 
+_NUMBER = __import__("re").compile(r"([+-]?)\s*((?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)")
+
+
 def parse_number(s: str) -> float | None:
     t = s.strip().replace(",", "")
     if not t:
         return None
     pct = t.endswith("%")
     if pct:
-        t = t[:-1]
-    try:
-        v = float(t)
-    except ValueError:
+        t = t[:-1].rstrip()
+    # 数の形だけを数にする（Excel は符号の後ろの空白を許す：「- 0.89」）。Python の float だけが読む形
+    # （「1_000」「inf」「nan」）は数にしない
+    m = _NUMBER.fullmatch(t)
+    if not m:
         return None
+    v = float(m[1] + m[2])
     if not math.isfinite(v):
         return None
     return v / 100 if pct else v
