@@ -196,7 +196,7 @@ def run(blob: bytes, filename: str = "") -> Audit:
     parts = markdown_parts(win)
     biggest = max(len(t) for _, t in parts)
     au.checks.append(Check("窓の大きさ", biggest <= 150_000, f"Markdown {sum(len(t) for _, t in parts):,} 文字（AIが1回で読める目安 15万文字以内）"))
-    from ..docx.audit import _sample
+    from ..docx.audit import macro_check, _sample
 
     targets, protected = {}, []
     for f in win["fields"]:
@@ -208,7 +208,7 @@ def run(blob: bytes, filename: str = "") -> Audit:
         res = fill(DocFile(blob, filename), targets)
     except FillError as e:
         au.checks.append(Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30]))
-        au.checks.append(Check("マクロ", not doc.has_macros, "マクロはありません" if not doc.has_macros else "マクロを含みます"))
+        au.checks.append(macro_check(doc, win))
         return au
     pr = prove(blob, res.blob, {p.id: p.value for p in res.patches})
     note = f"（文書の保護で書けない欄 {len(protected)} か所は除外）" if protected else ""
@@ -230,5 +230,5 @@ def run(blob: bytes, filename: str = "") -> Audit:
             wrong.append(f"{k}: 書いた値 {w!r} → 窓では {g!r}")
     note2 = f"（うち {in_text} 欄はヘッダーなど本文以外の欄で、段落の文字として読み戻しました）" if in_text else ""
     au.checks.append(Check("読み戻し", not wrong, f"書いた {len(targets):,} 欄のうち {len(targets) - len(wrong):,} 欄が、書き込み後の窓にそのまま出ている{note2}", wrong))
-    au.checks.append(Check("マクロ", not doc.has_macros, "マクロはありません" if not doc.has_macros else "マクロを含みます"))
+    au.checks.append(macro_check(doc, win))
     return au

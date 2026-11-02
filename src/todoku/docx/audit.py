@@ -134,6 +134,19 @@ def run(blob: bytes, filename: str = "") -> Audit:
                            f"Markdown {total:,} 文字" + (f"を {len(parts)} 部分に分け、いちばん大きい部分も {biggest:,} 文字"
                                                         if len(parts) > 1 else "") + "（AIが1回で読める目安 15万文字以内）"))
     au.checks += check_writing(DocxDocument(blob, filename), win)
-    au.checks.append(Check("マクロ", not doc.has_macros, "マクロはありません" if not doc.has_macros else
-                           "マクロを含みます（マクロの動作はこの窓には含まれません）"))
+    au.checks.append(macro_check(doc, win))
     return au
+
+
+def macro_check(doc, win) -> Check:
+    """マクロ：ソースをすべて窓に出したか。動作は規則では再現しないので、判断はエージェント。"""
+    mi = win.get("macros")
+    if not doc.has_macros:
+        return Check("マクロ", True, "マクロはありません")
+    if not isinstance(mi, dict) or not mi.get("readable"):
+        return Check("マクロ", False, "マクロを含みますが、マクロの入れ物を読めませんでした（何をするマクロか分かりません）")
+    n_proc = sum(len(m["procedures"]) for m in mi["modules"])
+    auto = [f"{e['module']}.{e['procedure']}（{e['when']}）" for e in mi["events"]]
+    return Check("マクロ", True, f"マクロのソース（モジュール {len(mi['modules'])} 個・手続き {n_proc} 個）をすべて窓に出しました。"
+                 "マクロの動作は規則では再現しないので、自動で動く処理が要るかは、エージェントがソースを読んで判断します",
+                 auto, agent=True)

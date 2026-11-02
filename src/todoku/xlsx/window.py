@@ -895,6 +895,8 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
                 f["rules"] = [_rule_dict(v) for v in rules]
             if len([v for v in rules if v.type not in ("any", None)]) > 1:
                 f["rules_overlap"] = True  # 入力規則が重なっている（Excelがどれを使うかはファイルから決まらない）
+                for d_, v in zip(f["rules"], rules):
+                    d_["range"] = v.sqref_text  # その規則のかかる範囲（この欄だけの規則か、広い範囲の規則か）
             if b.outside:
                 f["outside_print_area"] = True
             if b.highlighted:
@@ -924,7 +926,7 @@ def build(wb: Workbook) -> dict:
                      "☐［BA116］ / ☑［BA116］": "チェックボックス（［］はつながっているセル）",
                      "（法人名）": "上の行から続く、縦に結合された見出し", "［▶…］": "いま説明している欄",
                      "〔印刷範囲外〕": "画面には出るが印刷されない"},
-        "macros": wb.has_macros,
+        "macros": _macros(wb),
         "names": [
             {"name": d.name, "refers_to": d.text, "scope": d.sheet_scope, "provenance": DET}
             for d in wb.names if not d.name.startswith("_xlnm._FilterDatabase")
@@ -1101,14 +1103,25 @@ def reading(lay: Layout) -> list[dict]:
 
 
 # ====================================================================== Markdown
+def _macros(wb: Workbook):
+    from ..macros import macro_info
+
+    buttons = [{"sheet": sh.name, "control": c.name, "text": c.text, "macro": c.macro}
+               for sh in wb.sheets for c in sh.controls if c.macro]
+    return macro_info(wb.vba, wb.has_macros, {sh.code_name: sh.name for sh in wb.sheets if sh.code_name}, buttons)
+
+
 def _md_head(doc: dict) -> list[str]:
     out = [f"# {doc['source']['file'] or '書類'}", ""]
     out.append(f"- 元ファイルの SHA-256: `{doc['source']['sha256']}`（{doc['source']['bytes']:,} バイト）")
     out.append("- この文書は読むための窓です。書き込みは `todoku fill` で元のファイルに差分として適用します。")
     out.append("- 記号: " + "、".join(f"{k} は{v}" for k, v in doc["notation"].items()))
     out.append("- 見出しは配置から推定したものです。迷ったら「読み順」のその行を見てください。")
-    if doc["macros"]:
-        out.append("- **マクロを含みます**（マクロの動作はこの窓には含まれません）")
+    from ..macros import summary_line
+
+    line = summary_line(doc["macros"])
+    if line:
+        out.append("- " + line)
     out.append("")
     return out
 
@@ -1180,9 +1193,12 @@ def _md_sheet(sh: dict) -> list[str]:
 
 
 def to_markdown(doc: dict) -> str:
+    from ..macros import markdown as macro_md
+
     out = _md_head(doc)
     for sh in doc["sheets"]:
         out += _md_sheet(sh)
+    out += macro_md(doc.get("macros"))
     return "\n".join(out)
 
 
@@ -1214,6 +1230,18 @@ def markdown_parts(doc: dict, budget: int = BUDGET) -> list[tuple[str, str]]:
             size += len(line) + 1
         if chunk:
             parts.append((f"{title} その{k}" if k > 1 else title, head + ([f"（{title}の続き その{k}）", ""] if k > 1 else []) + chunk))
+    from ..macros import markdown as macro_md
+
+    mlines = macro_md(doc.get("macros"))
+    chunk, size, k = [], 0, 1
+    for line in mlines:
+        if size + len(line) + 1 > budget - 2000 and chunk:
+            parts.append((f"マクロ その{k}", chunk))
+            chunk, size, k = [], 0, k + 1
+        chunk.append(line)
+        size += len(line) + 1
+    if chunk:
+        parts.append((f"マクロ その{k}" if k > 1 else "マクロ", chunk))
     index = _md_head(doc) + ["## この窓の目次", "",
                              f"窓が大きいので、{len(parts)} の部分に分けました。必要な部分を順に読んでください。", ""]
     for i, (title, lines) in enumerate(parts, 1):
@@ -1244,7 +1272,13 @@ def _kind_text(f: dict) -> str:
     if f.get("highlighted"):
         k += "（色付きの欄）"
     if f.get("rules_overlap"):
-        k += "（入力規則が重なっています。どれが使われるかはファイルからは決まりません）"
+        parts = []
+        for i, r in enumerate(f.get("rules", []), 1):
+            what = f"選択肢 {r.get('formula1')}" if r["type"] == "list" else f"{r['type']} {r.get('operator', '')} {r.get('formula1', '')}"
+            rng = r.get("range", "")
+            parts.append(f"規則{i}：{what.strip()}（範囲 {rng[:40]}{'…' if len(rng) > 40 else ''}）")
+        k += ("（入力規則が重なっています。Excelがどれを使うかはファイルからは決まらないので、規則では決められません。"
+              + "／".join(parts) + "）")
     return k
 
 

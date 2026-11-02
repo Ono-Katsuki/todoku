@@ -152,6 +152,7 @@ class Control:
     prop_part: str | None = None  # xl/ctrlProps/ctrlPropN.xml
     vml_part: str | None = None
     fmla_range: str | None = None
+    macro: str | None = None  # 押したときに動くマクロ（「[0]!Module3.印刷」など、書かれたまま）
 
     @property
     def is_checked(self) -> bool:
@@ -198,6 +199,7 @@ class Sheet:
     controls: list[Control] = field(default_factory=list)
     header_footer: list[str] = field(default_factory=list)
     cond_formats: int = 0
+    code_name: str | None = None  # マクロの中でのシートの名前（Sheet2 など。シートのモジュールの名前）
     cond_rules: list[CondRule] = field(default_factory=list)
     autofilter: tuple[int, int, int, int] | None = None  # オートフィルターの範囲（ここで隠れた行は SUBTOTAL が常に除く）
     has_vml_controls: bool = False
@@ -293,10 +295,23 @@ class Workbook:
         self.external: dict[int, dict[str, dict[tuple[int, int], object]]] = {}  # [n] → シート名 → 保存値
         self.date1904 = False
         self.has_macros = self.zip.has("xl/vbaProject.bin")
+        self._vba = None
         self.external_links = [n for n in self.zip.names() if n.startswith("xl/externalLinks/") and n.endswith(".xml")]
         self.calc_full_on_load = False
         self.workbook_protected = False
         self._load()
+
+    @property
+    def vba(self):
+        """マクロ（VBA）のプロジェクト：モジュールとソース（todoku.vba.Project）。マクロがなければ None。"""
+        if self._vba is None and self.has_macros:
+            from ..vba import VbaError, read_project
+
+            try:
+                self._vba = read_project(self.zip.read("xl/vbaProject.bin"))
+            except (VbaError, Exception) as e:  # noqa: BLE001
+                self._vba = e
+        return self._vba if not isinstance(self._vba, Exception) else None
 
     # -------------------------------------------------------------- 補助
     def xml(self, name: str) -> ET.Element:
@@ -578,6 +593,9 @@ class Workbook:
             v.formula2 = f2.find(_q("xm:f")).text if f2 is not None and f2.find(_q("xm:f")) is not None else v.formula2
             sh.validations.append(v)
         sh.protected = root.find(M + "sheetProtection") is not None and root.find(M + "sheetProtection").get("sheet") in ("1", "true")
+        spr = root.find(M + "sheetPr")
+        if spr is not None and spr.get("codeName"):
+            sh.code_name = spr.get("codeName")
         af = root.find(M + "autoFilter")
         if af is not None and af.get("ref"):
             rr = _sqref(af.get("ref"))
@@ -635,6 +653,8 @@ class Workbook:
         seen = set()
         for ctl in root.iter(M + "control"):
             sid = ctl.get("shapeId", "")
+            if sid and sid in seen:
+                continue  # 互換のための書き方（mc:AlternateContent の Choice と Fallback）で、同じ部品が2回書かれている
             rid = ctl.get(R + "id")
             typ, part = rels.get(rid, ("", None)) if rid else ("", None)
             c = Control(kind="", name=ctl.get("name", ""), shape_id=sid)
@@ -652,6 +672,8 @@ class Workbook:
                     if m:
                         c.kind = "ActiveX " + _ACTIVEX.get(m[1].decode().upper(), "Control")
             pr = ctl.find(M + "controlPr")
+            if pr is not None and pr.get("macro"):
+                c.macro = pr.get("macro")
             anc = pr.find(M + "anchor") if pr is not None else None
             if anc is not None:
                 c.anchor = _xdr_pos(anc.find(M + "from"))
@@ -666,6 +688,7 @@ class Workbook:
                 if c.prop_part is None:
                     c.checked = {"1": "Checked", "2": "Mixed"}.get(v["checked"] or "")
                 c.link = c.link or v["link"]
+                c.macro = c.macro or v.get("macro")
                 if c.anchor is None:
                     c.anchor, c.anchor_to, c.from_off, c.to_off = v["anchor"], v["anchor_to"], v["from_off"], v["to_off"]
             seen.add(sid)
@@ -675,7 +698,7 @@ class Workbook:
                 continue
             sh.controls.append(Control(kind=v["kind"], name=v.get("name") or f"shape {sid}", shape_id=sid, anchor=v["anchor"],
                                        anchor_to=v["anchor_to"], link=v["link"], text=v["text"], vml_part=vml_path,
-                                       from_off=v["from_off"], to_off=v["to_off"],
+                                       from_off=v["from_off"], to_off=v["to_off"], macro=v.get("macro"),
                                        checked={"1": "Checked", "2": "Mixed"}.get(v["checked"] or "")))
         for c in sh.controls:
             if c.link:
@@ -999,7 +1022,7 @@ def _vml_shapes(text: str) -> dict[str, dict]:
                 off, off_to = nums[3] * 0.75, nums[7] * 0.75
         tb = re.search(r"<v:textbox\b[^>]*>(.*?)</v:textbox>", body, re.S)
         d = {"kind": {"Checkbox": "CheckBox", "Edit": "EditBox"}.get(cd[1], cd[1]), "checked": tag("Checked"),
-             "link": tag("FmlaLink"), "anchor": pos, "anchor_to": pos_to, "from_off": off, "to_off": off_to,
+             "link": tag("FmlaLink"), "macro": tag("FmlaMacro"), "anchor": pos, "anchor_to": pos_to, "from_off": off, "to_off": off_to,
              "text": _vml_text(tb[1]) if tb else ""}
         for i, sid in enumerate(dict.fromkeys(ids)):
             out[sid] = dict(d, dup=i > 0)

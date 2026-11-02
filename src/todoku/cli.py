@@ -355,12 +355,14 @@ def cmd_audit(a) -> int:
     else:
         au = run(blob, Path(a.file).name, Path(a.example).read_bytes() if a.example else None)
     for c in au.checks:
-        print(f"[{'OK' if c.ok else '要確認'}] {c.name}: {c.detail}")
+        mark = ("OK・判断はエージェント" if c.agent else "OK") if c.ok else "要確認"
+        print(f"[{mark}] {c.name}: {c.detail}")
         for x in c.items[:8]:
             print(f"      - {x}")
         if len(c.items) > 8:
             print(f"      … ほか {len(c.items) - 8} 件")
     print("結論:", "全て正確に読み書きできます" if au.ok else "読み書きに確認が必要な点があります")
+    _print_grade(a.file)
     if a.json:
         Path(a.json).write_text(json.dumps(au.to_dict(), ensure_ascii=False, indent=1), encoding="utf-8")
     return 0 if au.ok else 1
@@ -379,7 +381,22 @@ def cmd_bake(a) -> int:
     return 0 if pr.ok else 1
 
 
+def _print_grade(path: str) -> None:
+    from .grade import grade_blob
+
+    g = grade_blob(Path(path).read_bytes(), Path(path).name)
+    print(g.headline())
+    for r in g.reasons:
+        mark = "　" if r.grade in ("S", "A") else "▶"
+        print(f"  {mark}[{r.grade}] {r.title}：{r.detail}" + (f"（{', '.join(r.where[:5])}）" if r.where else ""))
+    for c in g.agent_checks:
+        print(f"  ？エージェントが確かめること（あれば {c['grade']}）：{c['question']}")
+
+
 def cmd_diagnose(a) -> int:
+    _print_grade(a.file)
+    if _kind(a.file) not in ("xlsx", "xls"):
+        return 0
     wb = _load(a.file)
     diag = diagnose(wb)
     if a.json:
@@ -389,7 +406,10 @@ def cmd_diagnose(a) -> int:
             print(f"[{f.level}.{['届く', '読める', '操作できる', '検証できる'][f.level]}][{f.severity}] {f.title}：{f.detail}")
             print(f"    直し方：{f.fix}")
     if a.html:
-        Path(a.html).write_text(report.render(diag.to_dict(), title=f"診断：{Path(a.file).name}"), encoding="utf-8")
+        from .grade import grade_blob
+
+        g = grade_blob(Path(a.file).read_bytes(), Path(a.file).name).to_dict()
+        Path(a.html).write_text(report.render(diag.to_dict(), title=f"診断：{Path(a.file).name}", grade=g), encoding="utf-8")
     return 0
 
 

@@ -7,6 +7,7 @@
 - list_fields     入力欄の一覧（名前・見出し・種類・選択肢・いまの値・書けるか）
 - fill_document   入力欄に書き込み、別の名前で書き出す。元のファイルは変えない。証明と読み戻しの結果を返す
 - audit_document  この書類を「全て正確に読み書きできるか」を確かめる（読み落とし・全欄への書き込み・読み戻し）
+- grade_document  書類の段階（S〜F）。規則で決めた段階に、エージェントが窓を読んで確かめたことを合わせる
 """
 
 from __future__ import annotations
@@ -49,8 +50,23 @@ TOOLS = [
          "force": {"type": "boolean", "default": False, "description": "保護された欄にも書く（本人が了承したときだけ）"}},
          "required": ["path", "out_path", "values"]}},
     {"name": "audit_document",
-     "description": "この書類を、エージェントが全て正確に読み書きできるかを確かめる（窓とは別の読み方で読み落としがないか、全入力欄に書けるか、書いた値が読み戻せるか）。",
+     "description": "この書類を、エージェントが全て正確に読み書きできるかを確かめる（窓とは別の読み方で読み落としがないか、全入力欄に書けるか、書いた値が読み戻せるか）。"
+                    "段階（S 素で問題ない／A 規則だけで読み書きできる／B エージェントが読めば正確に入れられる／C エージェントが工夫して変換できる／"
+                    "D エージェントの解釈が必要／E エージェントが得意でない形式／F アクセスできない）と、その理由も返す。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+    {"name": "grade_document",
+     "description": "書類の段階（S〜F）を返す。規則で決めた段階に、エージェントが窓を読んで確かめたこと（findings）を合わせる。"
+                    "規則では決めないこと（押印・自署のようなエージェントにはできない記入＝F、書く値をぼかす書き方＝D）は、"
+                    "agent_checks の問いとして返すので、窓を読んで答えてください。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"},
+         "findings": {"type": "array", "description": "見つけたこと：[{grade: 'F'|'D'|…, title, detail, where}]",
+                      "items": {"type": "object", "properties": {"grade": {"type": "string"}, "title": {"type": "string"},
+                                                                 "detail": {"type": "string"},
+                                                                 "where": {"type": ["string", "array"]}}}},
+         "answered": {"type": "array", "items": {"type": "string"},
+                      "description": "確かめ終えた問いの id（見つからなかったものも含む。例 ['cannot_do', 'vague_value']）"}},
+         "required": ["path"]}},
 ]
 
 
@@ -82,10 +98,23 @@ def call_tool(name: str, args: dict) -> dict:
         ok = res.get("proof_ok") and res.get("read_back_ok")
         head = ("書き込みました。" if ok else "書き込みましたが、確認が必要な点があります。") + f"{res.get('proof', '')}"
         return {"content": [_text(head), _text(res)], "structuredContent": res, "isError": not ok}
+    if name == "grade_document":
+        g = api.grade(args["path"], args.get("findings") or [], args.get("answered") or [])
+        lines = [g["headline"]] + [f"  - [{r['grade']}]{'（エージェントの判断）' if r.get('by') == 'agent' else ''} {r['title']}: {r['detail']}"
+                                   for r in g["reasons"]]
+        lines += [f"  - ？（あれば {c['grade']}）{c['question']}" for c in g.get("agent_checks", [])]
+        return {"content": [_text("\n".join(lines)), _text(g)], "structuredContent": g}
     if name == "audit_document":
         au = api.audit(args["path"])
         lines = [("[OK] " if c["ok"] else "[要確認] ") + f"{c['name']}: {c['detail']}" for c in au["checks"]]
         lines.append("結論: " + ("全て正確に読み書きできます" if au["ok"] else "読み書きに確認が必要な点があります"))
+        g = au.get("grade")
+        if g:
+            lines.append(g["headline"])
+            lines += [f"  - [{r['grade']}] {r['title']}: {r['detail']}" for r in g["reasons"] if r["grade"] not in ("S", "A")]
+            lines += [f"  - ？（あれば {c['grade']}）{c['question']}" for c in g.get("agent_checks", [])]
+            if g.get("agent_checks"):
+                lines.append("  窓を読んで確かめたら、grade_document に findings（見つけたこと）と answered（確かめた問いの id）を渡してください。")
         return {"content": [_text("\n".join(lines)), _text(au)], "structuredContent": au}
     raise api.ApiError(f"そのような道具はありません: {name}")
 

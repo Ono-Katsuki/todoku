@@ -253,5 +253,11 @@ def test_window_lists_inputs_with_labels():
 def test_diagnosis_finds_barriers():
     d = diagnose(load(str(KAMI)))
     codes = {f.code for f in d.findings}
-    assert {"grid_paper", "spaced_label", "stamp", "rounding_in_formulas"} <= codes
+    assert {"grid_paper", "spaced_label", "rounding_in_formulas"} <= codes
+    # 押印は言葉の一致では決めない（打ち消しも拾うため）。段階の判定で、エージェントが確かめる問いとして出る
+    assert "stamp" not in codes
     assert d.score()["reached"] == 1
+    from todoku.grade import grade_blob
+
+    g = grade_blob(KAMI.read_bytes(), KAMI.name)
+    assert "cannot_do" in [c["id"] for c in g.agent_checks]

@@ -35,6 +35,8 @@ class Check:
     ok: bool
     detail: str
     items: list[str] = field(default_factory=list)  # 問題のあった項目（先頭だけ）
+    # 規則では決められないので、窓にそのことを書いて、エージェントの判断に任せた（ok は、そう知らせたうえでの結果）
+    agent: bool = False
 
 
 @dataclass
@@ -46,9 +48,14 @@ class Audit:
     def ok(self) -> bool:
         return all(c.ok for c in self.checks)
 
+    @property
+    def needs_agent(self) -> bool:
+        return any(c.agent for c in self.checks)
+
     def to_dict(self) -> dict:
-        return {"file": self.file, "ok": self.ok,
-                "checks": [{"name": c.name, "ok": c.ok, "detail": c.detail, "items": c.items[:30]} for c in self.checks]}
+        return {"file": self.file, "ok": self.ok, "needs_agent": self.needs_agent,
+                "checks": [{"name": c.name, "ok": c.ok, "agent": c.agent, "detail": c.detail, "items": c.items[:30]}
+                           for c in self.checks]}
 
 
 # ====================================================================== 読む
@@ -414,10 +421,12 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
                                                         if len(parts) > 1 else "") + "（AIが1回で読める目安 15万文字以内）"))
     au.checks += check_writing(open_book(blob, filename), doc)
     overlap = [f["id"] for sh in doc["sheets"] for f in sh.get("fields", []) if f.get("rules_overlap")]
-    au.checks.append(Check("入力規則の重なり", not overlap,
+    au.checks.append(Check("入力規則の重なり", True,
                            "入力規則の重なったセルはありません" if not overlap else
-                           f"入力規則が重なったセルが {len(overlap)} か所あります。Excelがどの規則を使うかはファイルからは決まらないので、"
-                           "書き込むときは警告にとどめています（様式の作り手に直してもらう点です）", overlap))
+                           f"入力規則が重なったセルが {len(overlap)} か所あります。Excelがどの規則を使うかはファイルからは決まらず、"
+                           "規則では決められません。窓には重なった規則をそれぞれの範囲とともに出し、どれかの規則に合う値は警告つきで書けます"
+                           "（どの値にするかはエージェントが見出しから判断。様式の作り手に直してもらう点です）",
+                           overlap, agent=bool(overlap)))
     # チェックボックス以外の入力用コントロールは、まだ書き込めない。黙って飛ばさず、ここで知らせる
     passive = ("CheckBox", "Button", "Label", "GBox", "Dialog", "Pict", "Shape", "Movie", "Rect", "",
                "ActiveX CommandButton", "ActiveX Label", "ActiveX Image")
@@ -428,10 +437,20 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
     # マクロ：動作はまだ再現していない（ボタンを押したときの処理など）。あることを必ず知らせる
     buttons = sorted({f"{sh.name}!{c.name}" for sh in wb.sheets for c in sh.controls
                       if c.kind in ("Button", "ActiveX CommandButton")})
-    au.checks.append(Check("マクロ", not wb.has_macros,
-                           "マクロはありません" if not wb.has_macros else
-                           "マクロを含みます。マクロの動作（ボタンを押したときの処理など）は、まだ再現していません"
-                           + (f"（マクロを動かすボタン {len(buttons)} 個）" if buttons else ""), buttons))
+    mi = doc.get("macros")
+    if not wb.has_macros:
+        au.checks.append(Check("マクロ", True, "マクロはありません"))
+    elif not isinstance(mi, dict) or not mi.get("readable"):
+        au.checks.append(Check("マクロ", False, "マクロを含みますが、マクロの入れ物を読めませんでした（何をするマクロか分かりません）", buttons))
+    else:
+        n_proc = sum(len(m["procedures"]) for m in mi["modules"])
+        on_change = [f"{e['module']}.{e['procedure']}" for e in mi["events"] if e["on_change"]]
+        au.checks.append(Check("マクロ", True,
+                               f"マクロのソース（モジュール {len(mi['modules'])} 個・手続き {n_proc} 個）をすべて窓に出しました。"
+                               "マクロの動作は規則では再現しないので、ボタンや自動で動く処理が要るかは、エージェントがソースを読んで判断します"
+                               + (f"（マクロを動かすボタン {len(buttons)} 個）" if buttons else "")
+                               + (f"。セルの値を変えたときに動くマクロ {len(on_change)} 個は、書き込みのたびに知らせます" if on_change else ""),
+                               on_change + buttons, agent=True))
     if example is not None:
         from .example import check
 

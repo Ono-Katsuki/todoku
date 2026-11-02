@@ -57,3 +57,21 @@ def test_api_all_formats(tmp_path):
         val = 3 if f["kind"] == "number" else "とどく"
         res = api.fill(path, {f["id"]: val}, str(tmp_path / ("out" + Path(path).suffix)))
         assert res["proof_ok"] and res["read_back_ok"], res
+
+
+def test_mcp_grade_document_combines_agent_findings(tmp_path):
+    src = tmp_path / "s.docx"
+    src.write_bytes(make_docx(SAMPLE_BODY))
+    replies = _session([
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}}},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "grade_document", "arguments": {"path": str(src)}}},
+        {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "grade_document", "arguments": {
+            "path": str(src), "findings": [{"grade": "F", "title": "押印", "detail": "代表者の印", "where": "P9"}],
+            "answered": ["cannot_do", "vague_value"]}}},
+    ])
+    by = {r["id"]: r for r in replies}
+    rule = by[2]["result"]["structuredContent"]
+    assert rule["grade"] == "B" and {c["id"] for c in rule["agent_checks"]} == {"cannot_do", "vague_value"}
+    final = by[3]["result"]["structuredContent"]
+    assert final["grade"] == "F" and final["without_barriers"] == "B" and not final["agent_checks"]
+    assert any(r["by"] == "agent" for r in final["reasons"])

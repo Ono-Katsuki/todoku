@@ -351,7 +351,7 @@ def build(doc: DocxDocument) -> dict:
         "notation": {"［T1.R3.C2］": "表の空のマス（1つ目の表の3行目・2列目）", "［P12.1］": "段落の中の空欄（12番目の段落の1つ目）",
                      "［名前＝値］": "入力欄といまの値", "☐［…］ / ☑": "チェック", " ｜ ": "表のマスの区切り"},
         "protection": {"edit": doc.protection, "enforced": doc.protection_enforced},
-        "macros": doc.has_macros,
+        "macros": _macros(doc),
         "stories": [],
         "fields": [],
     }
@@ -524,6 +524,12 @@ def _md(s) -> str:
 STORY_JA = {"body": "本文", "header": "ヘッダー", "footer": "フッター", "footnotes": "脚注", "endnotes": "文末脚注", "comments": "コメント"}
 
 
+def _macros(doc):
+    from ..macros import macro_info
+
+    return macro_info(getattr(doc, "vba", None), doc.has_macros)
+
+
 def to_markdown(doc: dict) -> str:
     out = [f"# {doc['source']['file'] or '書類'}", ""]
     out.append(f"- 元ファイルの SHA-256: `{doc['source']['sha256']}`（{doc['source']['bytes']:,} バイト）、Word")
@@ -533,8 +539,11 @@ def to_markdown(doc: dict) -> str:
     if pr["enforced"] and pr["edit"]:
         out.append({"forms": "- **編集の制限：フォームの欄だけ書き込めます**",
                     "readOnly": "- **編集の制限：読み取り専用（編集できる範囲だけ書き込めます）**"}.get(pr["edit"], f"- 編集の制限: {pr['edit']}"))
-    if doc["macros"]:
-        out.append("- **マクロを含みます**")
+    from ..macros import summary_line
+
+    line = summary_line(doc["macros"])
+    if line:
+        out.append("- " + line.replace("ブック", "文書"))
     out.append("")
     if doc["fields"]:
         out += [f"## 入力欄（{len(doc['fields'])} か所）", "", "| 欄 | 見出し | 種類 | いまの値 |", "|---|---|---|---|"]
@@ -559,6 +568,9 @@ def to_markdown(doc: dict) -> str:
         for line in st["reading"]:
             out.append(f"- {line}")
         out.append("")
+    from ..macros import markdown as macro_md
+
+    out += macro_md(doc.get("macros"))
     return "\n".join(out)
 
 

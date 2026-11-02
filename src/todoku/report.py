@@ -54,7 +54,23 @@ def _v(x) -> str:
     return str(x)
 
 
-def render(diag: dict, proof: dict | None = None, title: str | None = None) -> str:
+def _grade_section(g: dict) -> list[str]:
+    out = ["<section aria-labelledby='grade'><h2 id='grade'>段階</h2>",
+           f"<p class='headline{' ng' if g['grade'] in 'DEF' else ''}'><b style='font-size:1.6em'>{_e(g['grade'])}</b>　{_e(g['headline'])}</p>",
+           "<ul>"]
+    for r in g["reasons"]:
+        if r["grade"] in ("S", "A") and g["grade"] not in ("S", "A"):
+            continue
+        where = f"（{_e('、'.join(r['where'][:6]))}）" if r["where"] else ""
+        by = "（エージェントの判断）" if r.get("by") == "agent" else "（規則）"
+        out.append(f"<li><b>[{_e(r['grade'])}] {_e(r['title'])}</b>{by}：{_e(r['detail'])}{where}</li>")
+    for c in g.get("agent_checks", []):
+        out.append(f"<li><b>？ エージェントが確かめること（あれば {_e(c['grade'])}）</b>：{_e(c['question'])}</li>")
+    out.append("</ul><p class='meta'>" + "　".join(f"{_e(k)}：{_e(v)}" for k, v in g["scale"].items()) + "</p></section>")
+    return out
+
+
+def render(diag: dict, proof: dict | None = None, title: str | None = None, grade: dict | None = None) -> str:
     score = diag["score"]
     by = score["by_level"]
     out = ["<!doctype html><html lang='ja'><head><meta charset='utf-8'>",
@@ -62,6 +78,8 @@ def render(diag: dict, proof: dict | None = None, title: str | None = None) -> s
            f"<title>{_e(title or '書類の診断')}</title><style>{CSS}</style></head><body><main>"]
     out.append(f"<h1>{_e(title or '書類の診断')}</h1>")
     out.append(f"<p class='meta'>{_e(diag['file'])}　·　{datetime.now():%Y-%m-%d %H:%M}　·　todoku</p>")
+    if grade:
+        out += _grade_section(grade)
 
     out.append("<section aria-labelledby='ladder'><h2 id='ladder'>4段階のラダー</h2>")
     out.append("<p>上の段階ほど難しく、最初に「壁」がある段階で止まります。")

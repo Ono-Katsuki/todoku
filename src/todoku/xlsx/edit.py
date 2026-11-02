@@ -608,6 +608,25 @@ def set_vml_checked(vml: bytes, shape_id: str, state: str | None) -> bytes:
     return vml[:sm.start()] + block + vml[sm.end():]
 
 
+def _macro_warnings(wb, targets) -> list[str]:
+    """セルの値を変えたときに動くマクロ（Worksheet_Change など）のあるシートへの書き込みを知らせる。"""
+    if not getattr(wb, "has_macros", False) or not targets:
+        return []
+    from ..macros import change_event_sheets, macro_info
+
+    project = getattr(wb, "vba", None)
+    info = macro_info(project, True, {sh.code_name: sh.name for sh in wb.sheets if getattr(sh, "code_name", None)})
+    ev = change_event_sheets(info)
+    out = []
+    for s in sorted({t[0] for t in targets} & {k for k in ev if k}):
+        out.append(f"シート「{s}」には、セルの値を変えたときに動くマクロ（{'、'.join(ev[s])}）があります。"
+                   "todoku はマクロを動かさないので、Excelで手で入力したときは、マクロがほかのセルも変えることがあります")
+    if ev.get(None):
+        out.append(f"どのシートでも、セルの値を変えたときに動くマクロ（{'、'.join(ev[None])}）があります。"
+                   "todoku はマクロを動かさないので、Excelで手で入力したときと結果が違うことがあります")
+    return out
+
+
 # ---------------------------------------------------------------- 書き込みの入口
 def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bool = False,
          strict: bool = False, force: bool = False) -> EditResult:
@@ -676,6 +695,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
         return [i for (sheet, r, c), val in targets.items() for i in rule_issues(wb, sheet, r, c, val, calc)]
 
     issues = _run_deep(check)
+    warnings += _macro_warnings(wb, targets)
     blocking = [i for i in issues if i.blocking or strict]
     if blocking and not force:
         raise EditError("入力規則に合いません（Excelでも受け付けない値です）:\n" + "\n".join(i.message for i in blocking))

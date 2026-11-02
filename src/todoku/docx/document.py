@@ -328,6 +328,24 @@ class DocxDocument:
                     self.stories.append((kind, name, self._story(name)))
 
     # ------------------------------------------------------------------ 部品
+
+    @property
+    def vba(self):
+        """マクロ（VBA）のプロジェクト：モジュールとソース（todoku.vba.Project）。マクロがなければ None。"""
+        if getattr(self, "_vba", None) is None and self.has_macros:
+            from ..vba import read_project
+
+            try:
+                self._vba = read_project(self._vba_blob())
+            except Exception as e:  # noqa: BLE001
+                self._vba = e
+        v = getattr(self, "_vba", None)
+        return v if v is not None and not isinstance(v, Exception) else None
+
+    def _vba_blob(self) -> bytes:
+        name = next(n for n in self.zip.names() if n.lower().endswith("vbaproject.bin"))
+        return self.zip.read(name)
+
     def _main_part(self) -> str:
         rels = self.zip.read("_rels/.rels") if self.zip.has("_rels/.rels") else b""
         m = re.search(rb'Target="/?([^"]*document[^"]*\.xml)"', rels)

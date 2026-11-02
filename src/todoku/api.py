@@ -189,7 +189,21 @@ def audit(path: str) -> dict:
     else:
         from .xlsx.audit import run
     au = run(blob, name)
-    return au.to_dict()
+    d = au.to_dict()
+    d["grade"] = grade(path)
+    return d
+
+
+def grade(path: str, findings: list[dict] | None = None, answered: list[str] | None = None) -> dict:
+    """段階（S〜F）：誰が扱えば正確に読んで入れられるか。規則で決めた段階と、エージェントが確かめること。
+    findings（エージェントが窓を読んで見つけたこと：{grade, title, detail, where}）を渡すと、段階に合わせる。"""
+    from .grade import combine, grade_blob
+
+    blob, name, _k = _read(path)
+    g = grade_blob(blob, name)
+    if findings or answered:
+        g = combine(g, findings or [], answered)
+    return g.to_dict()
 
 
 def summary(path: str) -> dict:
@@ -203,7 +217,11 @@ def summary(path: str) -> dict:
         d["form_fields"] = doc["form"]["acroform_fields"]
     elif k in ("xlsx", "xls"):
         d["sheets"] = [s["name"] for s in doc["sheets"]]
-        d["macros"] = doc.get("macros", False)
+        m = doc.get("macros")
+        d["macros"] = bool(m)
+        if isinstance(m, dict) and m.get("readable"):
+            d["macro_procedures"] = sum(len(x["procedures"]) for x in m["modules"])
+            d["macro_runs_on_change"] = any(e["on_change"] for e in m["events"])
     else:
         d["protection"] = doc.get("protection")
     return d

@@ -195,6 +195,7 @@ class XlsWorkbook:
         self.workbook_protected = False
         streams = {n.split("/")[0].lower() for n in self.cfb.streams()}
         self.has_macros = "_vba_project_cur" in streams or any("vba" in n.lower() for n in self.cfb.streams())
+        self._vba = None
         self.wb_path = name
         self._fonts: list[int] = []  # 色番号
         self._formats: dict[int, str] = dict(BUILTIN)
@@ -206,6 +207,18 @@ class XlsWorkbook:
         self._load()
 
     # ------------------------------------------------------------------ xlsx と同じ問い合わせ
+    @property
+    def vba(self):
+        """マクロ（VBA）のプロジェクト。古い Excel では、複合ファイルの _VBA_PROJECT_CUR の中にある。"""
+        if self._vba is None and self.has_macros:
+            from ..vba import read_project
+
+            try:
+                self._vba = read_project(self.blob if hasattr(self, "blob") else self.zip.original)
+            except Exception as e:  # noqa: BLE001
+                self._vba = e
+        return self._vba if not isinstance(self._vba, Exception) else None
+
     def sheet(self, name: str) -> Sheet:
         for s in self.sheets:
             if s.name == name:

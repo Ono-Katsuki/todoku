@@ -156,6 +156,23 @@ class DocFile:
         self._build()
 
     # ------------------------------------------------------------------ FIB・ピース
+
+    @property
+    def vba(self):
+        """マクロ（VBA）のプロジェクト：モジュールとソース（todoku.vba.Project）。マクロがなければ None。"""
+        if getattr(self, "_vba", None) is None and self.has_macros:
+            from ..vba import read_project
+
+            try:
+                self._vba = read_project(self._vba_blob())
+            except Exception as e:  # noqa: BLE001
+                self._vba = e
+        v = getattr(self, "_vba", None)
+        return v if v is not None and not isinstance(v, Exception) else None
+
+    def _vba_blob(self) -> bytes:
+        return self.blob  # Macros/VBA/dir と Macros/PROJECT を、そのまま読む
+
     def _pieces(self) -> list[Piece]:
         fc, lcb = self.fc["Clx"]
         t = self.table

@@ -64,7 +64,7 @@ def main(argv=None) -> int:
                 print(f"[待ち] {a.timeout} 秒のあいだ、どのファイルも終わりませんでした。打ち切ります", flush=True)
                 break
             results.append(r)
-            mark = "OK" if r["ok"] else ("落ちた" if r.get("crash") else "要確認")
+            mark = ("OK・判断はエージェント" if r.get("needs_agent") else "OK") if r["ok"] else ("落ちた" if r.get("crash") else "要確認")
             bad = [c["name"] for c in r.get("checks", []) if not c["ok"]]
             print(f"[{mark}] {Path(r['path']).relative_to(base)} {r.get('seconds', '')}s {r.get('crash', '')} {bad}", flush=True)
     done = {r["path"] for r in results}
@@ -81,7 +81,9 @@ def main(argv=None) -> int:
             s = by_check.setdefault(c["name"], [0, 0])
             s[0] += c["ok"]
             s[1] += 1
-    print(f"\n全体: {ok}/{n} 件で「全て正確に読み書きできる」。処理が落ちた・終わらなかった {crash} 件")
+    agent = sum(1 for r in results if r["ok"] and r.get("needs_agent"))
+    print(f"\n全体: {ok}/{n} 件で「全て正確に読み書きできる」（うち {agent} 件は、規則では決められない所を窓に示し、"
+          f"エージェントの判断に任せた）。処理が落ちた・終わらなかった {crash} 件")
     for name, (good, total) in by_check.items():
         print(f"  {name}: {good}/{total}")
     return 0

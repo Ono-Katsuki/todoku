@@ -149,21 +149,7 @@ def diagnose(wb: Workbook, rep: VerifyReport | None = None) -> Diagnosis:
             F.append(Finding(2, "blocker", "form_controls", "ボタンやチェックボックスなどのフォームコントロール",
                              "マウスで押す前提の部品があります。キーボード・スイッチ・AIからは操作できないことが多く、押した結果も確かめられません。",
                              "チェックはセルの入力規則（リスト：はい／いいえ）に置き換える。ボタンで動く処理は関数にする。", [n]))
-        stamp = [k for k, c in sh.cells.items() if isinstance(c.value, str) and (c.value.strip() in ("印", "㊞", "(印)", "（印）") or "押印" in c.value)]
-        if stamp:
-            F.append(Finding(2, "blocker", "stamp", "押印欄",
-                             "押印を求める欄があります。手を動かせない人は自分で押せず、電子での提出もできません。",
-                             "押印を廃止するか、署名・電子申請・本人確認の代替手段を明記する。", _cells(n, stamp), len(stamp)))
-        visit = [k for k, c in sh.cells.items() if isinstance(c.value, str) and re.search(r"来庁|窓口(まで|へ|に)(お越し|持参|提出)|持参(して|の上)|郵送(のみ|に限)|FAX", c.value)]
-        if visit:
-            F.append(Finding(2, "warning", "in_person", "来庁・持参・郵送・FAXを求める記述",
-                             "本人が出向く、紙で送る前提の記述があります。AIが代わりに提出できません。",
-                             "電子での提出方法を用意し、書類の中に案内する。", _cells(n, visit), len(visit)))
-        handwrite = [k for k, c in sh.cells.items() if isinstance(c.value, str) and re.search(r"自署|手書き|直筆", c.value)]
-        if handwrite:
-            F.append(Finding(2, "blocker", "handwrite", "自署・手書きを求める記述",
-                             "手で書くことを求めています。手を動かせない人には越えられない壁です。",
-                             "自署の代わりに、本人の意思を確認できる電子的な方法を認める。", _cells(n, handwrite), len(handwrite)))
+        # 押印・自署・来庁などは言葉の一致では決めない（打ち消しも拾うため）。段階の判定で、エージェントが確かめる
         inputs = input_cells(wb, sh)
         from .window import undecided_cells
 
