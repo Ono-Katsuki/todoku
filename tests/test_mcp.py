@@ -92,3 +92,18 @@ def test_fill_result_can_be_told_in_dialogue(tmp_path):
     assert "- 氏名：とどく花子" in r["say_to_user"] and "- 令和［8］年 月 日" in r["say_to_user"], r["say_to_user"]
     assert "まだ空いている欄" in r["say_to_user"]
     assert r["still_empty_count"] >= 1 and all(not e["id"].startswith(("T1.R1.C2", "P2.1")) for e in r["still_empty"])
+
+
+def test_say_to_user_lists_everything_written_by_place_and_joins_split_fields():
+    # 一つずつ聞かずにまとめて書いた後、記入した内容を全部、シートごとに一覧で伝える。分かれた欄（〒の前と後ろ）は1行に
+    from todoku.api import _to_tell
+
+    after = [{"id": f"申請!B{i}", "label": "番号", "value": str(i), "sheet": "申請"} for i in range(10, 80)]
+    after += [{"id": "申請!B3", "label": "〒［▶］-［　］", "value": "123", "sheet": "申請"},
+              {"id": "申請!D3", "label": "〒［　］-［▶］", "value": "4567", "sheet": "申請"},
+              {"id": "別紙!C2", "label": "氏名", "value": "山田花子", "sheet": "別紙"}]
+    written = {f["id"]: f["value"] for f in after}
+    say = _to_tell(after, written, {})["say_to_user"]
+    assert "記入した内容（73 か所" in say and "ほか" not in say  # 全部を伝える
+    assert "- 〒［123］-［4567］" in say and say.index("【申請】") < say.index("【別紙】")
+    assert "- 番号：79" in say

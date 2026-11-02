@@ -436,10 +436,37 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
             return f"{head}［{v}］{rest}"  # 「令和［8］年［ ］月」：空欄に値を入れた形で
         return f"{name(d)}：{v}"
 
-    lines = [f"書いた所（{len(told)} か所。書いた後のファイルを読み直した値）："]
-    lines += [f"- {place(d)}{shown(d)}" for d in told[:60]]
-    if len(told) > 60:
-        lines.append(f"- ほか {len(told) - 60} か所")
+    # 記入した内容の一覧：書いた所を、書類の中の順（シート・ページごと）に、全部。値は書いた後のファイルを読み直したもの
+    order = {f["id"]: i for i, f in enumerate(after_list)}
+    told.sort(key=lambda d: order.get(d["id"], len(order)))
+    def joined(run: list[dict]) -> str:
+        """1つの項目が分かれた欄（〒［▶］-［　］と〒［　］-［▶］）は、1行に：〒［123］-［4567］。"""
+        lab = run[0]["label"]
+        vals: dict[int, str] = {}
+        for d in run:
+            k = next((n for n, m in enumerate(re.finditer(r"［[^］]*］", d["label"])) if "▶" in m.group()), None)
+            vals[k] = "☑" if d["value"] is True else "☐" if d["value"] is False else str(d["value"])
+        it = iter(range(10 ** 6))
+        return re.sub(r"［[^］]*］", lambda m: f"［{vals.get(next(it), ' ')}］", lab)
+
+    def stem(d: dict) -> str | None:
+        lab = d.get("label") or ""
+        return place(d) + re.sub(r"［[^］]*］", "［］", lab) if "［▶" in lab and lab.count("［") > 1 else None
+
+    lines = [f"記入した内容（{len(told)} か所。書いた後のファイルを読み直した値）："]
+    group = None
+    i = 0
+    while i < len(told):
+        d = told[i]
+        g = place(d).rstrip("・")
+        if g and g != group:
+            lines.append(f"【{g}】")
+            group = g
+        j = i + 1
+        while stem(d) and j < len(told) and stem(told[j]) == stem(d):
+            j += 1
+        lines.append(f"- {joined(told[i:j]) if j - i > 1 else shown(d)}")
+        i = j
     if empty:
         # 次に書くとよい欄：書いた所の続き（同じシート・ページで、書いた所より後ろの空欄）から順に
         order = {f["id"]: i for i, f in enumerate(after_list)}
