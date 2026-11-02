@@ -1,0 +1,470 @@
+<title>とどく 世界調査</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=BIZ+UDPMincho:wght@400;700&display=swap">
+<style>
+/* 冒頭は本人の言葉と論文の札。その下に、地図 → 国の一覧 → 壁の理由 → 書類を探す → 方法。様式の紙と青インクの色 */
+:root {
+  --paper: #f4f6f8; --ink: #17202b; --muted: #5b6878; --line: #c9d2dc; --slip: #ffffff; --pen: #1f4fb8;
+  --none: #e3e8ee;          /* 調べていない国 */
+  --hatch: #b7c0cb;         /* 目録に届かない国 */
+  /* 段階の色（意味の色。強調の青とは別） */
+  --gS: #0b4f6c; --gA: #1d7aa8; --gB: #5fa8d3; --gC: #c9b26b; --gD: #d9854a; --gE: #c45a3c; --gF: #7d2e2e;
+  --wA: #1d7aa8; --wB: #5fa8d3; --wC: #c9b26b; --wD: #c45a3c;
+  --display: "BIZ UDPMincho", "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --body: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1620; --ink: #e6ecf3; --muted: #9aa8b8; --line: #2c3a4b; --slip: #162130; --pen: #8fb0ff;
+    --none: #1c2836; --hatch: #3a4757;
+    --gS: #7fc4e6; --gA: #4fa3d6; --gB: #2f78a8; --gC: #b59c55; --gD: #c9773f; --gE: #d0664a; --gF: #e08b8b;
+    --wA: #4fa3d6; --wB: #2f78a8; --wC: #b59c55; --wD: #d0664a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1620; --ink: #e6ecf3; --muted: #9aa8b8; --line: #2c3a4b; --slip: #162130; --pen: #8fb0ff;
+  --none: #1c2836; --hatch: #3a4757;
+  --gS: #7fc4e6; --gA: #4fa3d6; --gB: #2f78a8; --gC: #b59c55; --gD: #c9773f; --gE: #d0664a; --gF: #e08b8b;
+  --wA: #4fa3d6; --wB: #2f78a8; --wC: #b59c55; --wD: #d0664a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font-family: var(--body); line-height: 1.7; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 72px; display: grid; gap: 64px; }
+h2 { font-family: var(--display); font-size: 1.45rem; margin: 0 0 6px; text-wrap: balance; }
+.sub { color: var(--muted); font-size: .88rem; margin: 0 0 18px; max-width: 48em; }
+.kicker { font-size: .78rem; letter-spacing: .14em; color: var(--muted); margin: 0 0 20px; }
+a { color: var(--pen); text-underline-offset: 3px; }
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---- 冒頭 ---- */
+.orbit { display: grid; gap: 18px; grid-template-columns: 1fr 1.5fr 1fr;
+  grid-template-areas: "a b c" "d q e" "f g h"; align-items: center; }
+.voice { grid-area: q; text-align: center; padding: 28px 8px; }
+.voice blockquote { margin: 0; font-family: var(--display); font-weight: 700;
+  font-size: clamp(1.5rem, 1rem + 2.2vw, 2.35rem); line-height: 1.55; text-wrap: balance; }
+.voice blockquote em { font-style: normal; color: var(--pen); }
+.voice .who { margin-top: 18px; font-size: .86rem; color: var(--muted); }
+.slip { background: var(--slip); border: 1px solid var(--line); border-radius: 3px; padding: 12px 14px;
+  font-size: .8rem; line-height: 1.6; min-width: 0; transform: rotate(var(--tilt, 0deg));
+  animation: drift 9s ease-in-out infinite alternate; animation-delay: var(--delay, 0s); }
+.slip .src { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 4px; }
+.slip .venue { font-weight: 700; color: var(--pen); letter-spacing: .04em; }
+.slip .au { color: var(--muted); }
+.slip p { margin: 0; }
+.slip a { font-size: .72rem; color: var(--muted); word-break: break-all; text-decoration-color: var(--line); }
+@keyframes drift { to { transform: rotate(var(--tilt, 0deg)) translateY(-7px); } }
+@media (prefers-reduced-motion: reduce) { .slip { animation: none; } }
+.s1 { grid-area: a; --tilt: -1.6deg; } .s2 { grid-area: b; --tilt: .8deg; --delay: -2s; align-self: end; }
+.s3 { grid-area: c; --tilt: 1.4deg; --delay: -4s; } .s4 { grid-area: d; --tilt: 1deg; --delay: -1s; }
+.s5 { grid-area: e; --tilt: -1.2deg; --delay: -3s; } .s6 { grid-area: f; --tilt: 1.2deg; --delay: -5s; }
+.s7 { grid-area: g; --tilt: -.6deg; --delay: -6s; align-self: start; } .s8 { grid-area: h; --tilt: -1.5deg; --delay: -2.5s; }
+.lead { max-width: 40em; margin: 36px auto 0; text-align: center; text-wrap: balance; }
+
+/* ---- 数字の帯 ---- */
+.band { display: flex; flex-wrap: wrap; gap: 14px 40px; border-block: 1px solid var(--line); padding-block: 18px; }
+.band div { display: grid; }
+.band b { font-size: 1.6rem; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.band span { font-size: .8rem; color: var(--muted); }
+.band .live { color: var(--pen); }
+
+/* ---- 地図 ---- */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.tabs button { border: 1px solid var(--line); background: var(--slip); padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: .88rem; }
+.tabs button[aria-pressed="true"] { background: var(--pen); border-color: var(--pen); color: var(--paper); }
+.mapgrid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.mapbox { min-width: 0; }
+#map { width: 100%; height: auto; display: block; }
+#map path.c { stroke: var(--paper); stroke-width: .5; cursor: default; }
+#map path.c.has { cursor: pointer; }
+#map path.c.sel { stroke: var(--ink); stroke-width: 1.4; }
+.legend { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: .78rem; color: var(--muted); margin-top: 8px; }
+.ramp { width: 180px; height: 10px; border-radius: 2px; }
+.sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -2px; margin-right: 4px; }
+.metric-note { font-size: .82rem; color: var(--muted); margin: 6px 0 0; }
+.panel { background: var(--slip); border: 1px solid var(--line); border-radius: 3px; padding: 16px; font-size: .86rem; min-width: 0; }
+.panel h3 { margin: 0 0 2px; font-family: var(--display); font-size: 1.15rem; }
+.panel .src { color: var(--muted); font-size: .74rem; word-break: break-all; }
+.panel dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 12px 0; }
+.panel dt { color: var(--muted); } .panel dd { margin: 0; font-variant-numeric: tabular-nums; }
+.stack { display: flex; height: 14px; border-radius: 2px; overflow: hidden; background: var(--none); }
+.stack i { display: block; height: 100%; }
+.stacklbl { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: .72rem; color: var(--muted); margin: 4px 0 10px; }
+
+/* ---- 表 ---- */
+.tablebox { overflow-x: auto; border: 1px solid var(--line); border-radius: 3px; background: var(--slip); }
+table { border-collapse: collapse; width: 100%; font-size: .84rem; min-width: 760px; }
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-weight: 700; font-size: .76rem; color: var(--muted); letter-spacing: .04em; white-space: nowrap; }
+th button { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font-weight: inherit; letter-spacing: inherit; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td .ci { color: var(--muted); font-size: .72rem; }
+td .stack { min-width: 120px; }
+tr.unr td { color: var(--muted); }
+
+/* ---- 理由 ---- */
+.reasons { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; }
+.bars { display: grid; gap: 6px; font-size: .84rem; }
+.bar { display: grid; grid-template-columns: minmax(0, 13em) 1fr auto; gap: 10px; align-items: center; }
+.bar .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar .track { height: 10px; background: var(--none); border-radius: 2px; overflow: hidden; }
+.bar .track i { display: block; height: 100%; background: var(--pen); }
+.bar .n { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .78rem; }
+
+/* ---- 書類を探す ---- */
+.filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; align-items: end; }
+.filters label { display: grid; gap: 2px; font-size: .74rem; color: var(--muted); }
+.filters select, .filters input { background: var(--slip); border: 1px solid var(--line); border-radius: 3px; padding: 6px 8px; font-size: .86rem; min-width: 0; }
+.filters input { width: 16em; max-width: 100%; }
+.count { font-size: .84rem; color: var(--muted); margin: 0 0 8px; }
+.docs { display: grid; gap: 0; border-top: 1px solid var(--line); }
+.doc { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.chips { display: flex; gap: 4px; align-items: start; }
+.chip { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 3px; font-weight: 700; color: #fff; font-size: .95rem; line-height: 1; }
+.chip small { font-size: .52rem; font-weight: 400; opacity: .9; }
+.chip.o { background: var(--none); color: var(--muted); width: 72px; font-size: .68rem; font-weight: 400; }
+.doc .t { font-weight: 700; overflow-wrap: anywhere; }
+.doc .m { font-size: .76rem; color: var(--muted); overflow-wrap: anywhere; }
+.doc .rs { font-size: .76rem; margin-top: 2px; }
+.doc a { font-size: .74rem; overflow-wrap: anywhere; }
+.more { margin-top: 14px; border: 1px solid var(--line); background: var(--slip); padding: 8px 18px; border-radius: 3px; cursor: pointer; }
+
+/* ---- 方法 ---- */
+.method { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; font-size: .88rem; }
+.method h3 { font-size: .95rem; margin: 0 0 4px; }
+.method p { margin: 0; }
+.refs { font-size: .78rem; color: var(--muted); margin-top: 18px; display: grid; gap: 2px; }
+.refs a { word-break: break-all; }
+
+@media (max-width: 860px) {
+  .orbit { grid-template-columns: 1fr 1fr; grid-template-areas: "q q" "a b" "c d" "e f" "g h"; }
+  .voice { padding: 8px 0 12px; }
+  .mapgrid { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .orbit { grid-template-columns: 1fr; grid-template-areas: "q" "a" "b" "c" "d" "e" "f" "g" "h"; }
+  .slip { --tilt: 0deg !important; }
+  .bar { grid-template-columns: minmax(0, 9em) 1fr auto; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="kicker">とどく ／ 世界調査</p>
+    <section class="orbit" aria-label="本人の言葉と、まわりの研究">
+      <div class="voice">
+        <blockquote>エージェントが全て正確に<br>読み書きできないと、<br><em>申請で困るのは私</em>だからね。</blockquote>
+        <p class="who">小野克樹。申請する本人。話すことも手を動かすこともできず、頭のスイッチ1つで Claude を使う<br>（Ono, ASSETS '26）</p>
+      </div>
+      <aside class="slip s1"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
+        <p>手続きの負担を、学ぶ・従う・心理の3つのコストに分けた。</p><a href="https://doi.org/10.1093/jopart/muu009">doi:10.1093/jopart/muu009</a></aside>
+      <aside class="slip s2"><div class="src"><span class="venue">2018</span><span class="au">Herd &amp; Moynihan</span></div>
+        <p>行政の負担は、法律を変えずに政策を動かす「別の手段」になる。</p><a href="https://doi.org/10.7758/9781610448789">doi:10.7758/9781610448789</a></aside>
+      <aside class="slip s3"><div class="src"><span class="venue">JITP 2011</span><span class="au">Goodwin ほか</span></div>
+        <p>国連加盟 192 か国の政府ポータルと省庁サイトのアクセシビリティを測った。</p><a href="https://doi.org/10.1080/19331681.2010.508011">doi:10.1080/19331681.2010.508011</a></aside>
+      <aside class="slip s4"><div class="src"><span class="venue">IMC 2020</span><span class="au">Singanamalla ほか</span></div>
+        <p>政府のホスト名 135,408 件を集めた。上位サイトの一覧に載るのは 1 割に満たない。</p><a href="https://doi.org/10.1145/3419394.3423645">doi:10.1145/3419394.3423645</a></aside>
+      <aside class="slip s5"><div class="src"><span class="venue">ASSETS 2024</span><span class="au">Kumar &amp; Wang</span></div>
+        <p>約 2 万件の学術 PDF を層別に選び、アクセシビリティを調べた。</p><a href="https://doi.org/10.1145/3663548.3675634">doi:10.1145/3663548.3675634</a></aside>
+      <aside class="slip s6"><div class="src"><span class="venue">Internet Research 2009</span><span class="au">Hackett &amp; Parmanto</span></div>
+        <p>トップページだけでは、サイト全体のアクセシビリティは分からない。</p><a href="https://doi.org/10.1108/10662240910927830">doi:10.1108/10662240910927830</a></aside>
+      <aside class="slip s7"><div class="src"><span class="venue">W4A 2013</span><span class="au">Vigo, Brown &amp; Conway</span></div>
+        <p>自動の検査ツールだけに頼ると、見つかる問題はおよそ 10 のうち 4。</p><a href="https://doi.org/10.1145/2461121.2461124">doi:10.1145/2461121.2461124</a></aside>
+      <aside class="slip s8"><div class="src"><span class="venue">CHI 2022</span><span class="au">Fok ほか</span></div>
+        <p>312 のアプリを 16 か月追い、画像のラベルの欠けを調べた。</p><a href="https://doi.org/10.1145/3491102.3502143">doi:10.1145/3491102.3502143</a></aside>
+    </section>
+    <p class="lead">行政の負担や、公的なページのアクセシビリティを外から測った研究はたくさんある。この調査は、申請する本人の言葉から始めて、政府の公開書類を AI エージェントが正確に読めるか、書けるかを、国ごとに測る。</p>
+  </header>
+
+  <section aria-label="調査の規模">
+    <div class="band" id="band">
+      <div><b class="num" id="b-countries">—</b><span>国と地域（目録に届いた所）</span></div>
+      <div><b class="num" id="b-sampled">—</b><span>選んだ書類</span></div>
+      <div><b class="num" id="b-graded">—</b><span>取得して段階を付けた書類</span></div>
+      <div><b class="num live" id="b-progress">—</b><span id="b-progress-l">予定に対する進み</span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-map">
+    <h2 id="h-map">世界地図</h2>
+    <p class="sub">読む段階と書く段階は、別々に測っています。国の値は、形式の群（PDF・表計算・文書・CSV）ごとの割合を、目録の中の書類の数で重みを付けて合わせたものです。国を選ぶと、内訳が出ます。</p>
+    <div class="tabs" role="group" aria-label="地図に示す値">
+      <button type="button" id="t-read" data-m="read_ok" aria-pressed="true">読む：正確に読める</button>
+      <button type="button" id="t-write" data-m="write_a" aria-pressed="false">書く：そのまま書ける</button>
+      <button type="button" id="t-forms" data-m="forms_writable" aria-pressed="false">様式：エージェントが書ける</button>
+      <button type="button" id="t-reach" data-m="reach" aria-pressed="false">届く：取得できる</button>
+    </div>
+    <div class="mapgrid">
+      <div class="mapbox">
+        <svg id="map" viewBox="0 0 960 500" role="img" aria-label="国ごとの割合の地図"></svg>
+        <div class="legend" id="legend"></div>
+        <p class="metric-note" id="metric-note"></p>
+      </div>
+      <aside class="panel" id="panel" aria-live="polite"><p class="sub" style="margin:0">地図か一覧から国を選んでください。</p></aside>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-table">
+    <h2 id="h-table">国の一覧</h2>
+    <p class="sub">割合のあとの括弧は 95% 区間です。標本の少ない国は区間が広くなります。</p>
+    <div class="tablebox"><table id="table">
+      <thead><tr>
+        <th><button type="button" data-k="name">国</button></th>
+        <th class="num"><button type="button" data-k="n">選んだ</button></th>
+        <th class="num"><button type="button" data-k="reach">届く</button></th>
+        <th class="num"><button type="button" data-k="read_ok">読む S〜B</button></th>
+        <th>読む段階の内訳</th>
+        <th class="num"><button type="button" data-k="write_a">書く A</button></th>
+        <th>書く段階の内訳</th>
+        <th class="num"><button type="button" data-k="forms_writable">様式に書ける</button></th>
+      </tr></thead><tbody></tbody>
+    </table></div>
+  </section>
+
+  <section aria-labelledby="h-why">
+    <h2 id="h-why">段階を下げた理由</h2>
+    <p class="sub">段階は、ファイルの構造の規則だけで決めています。キーワードでは決めません。規則で決められない所は、エージェントが確かめる所として数えます。</p>
+    <div class="reasons">
+      <div><h3 style="font-size:.95rem;margin:0 0 8px">読む</h3><div class="bars" id="r-read"></div></div>
+      <div><h3 style="font-size:.95rem;margin:0 0 8px">書く</h3><div class="bars" id="r-write"></div></div>
+      <div><h3 style="font-size:.95rem;margin:0 0 8px">届かなかった理由</h3><div class="bars" id="r-reach"></div></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-docs">
+    <h2 id="h-docs">書類を探す</h2>
+    <p class="sub">選んだ書類のひとつひとつの結果です。書類そのものは置いていません。元の公開場所へのリンクだけです。</p>
+    <div class="filters">
+      <label for="f-c">国<select id="f-c"><option value="">すべて</option></select></label>
+      <label for="f-g">形式の群<select id="f-g"><option value="">すべて</option><option value="pdf">PDF</option><option value="sheet">表計算</option><option value="text">文書</option><option value="csv">CSV</option></select></label>
+      <label for="f-r">読む段階<select id="f-r"><option value="">すべて</option></select></label>
+      <label for="f-w">書く段階<select id="f-w"><option value="">すべて</option></select></label>
+      <label for="f-fc">入力欄<select id="f-fc"><option value="">すべて</option><option value="marked">作り手の印がある様式</option><option value="inferred">推定の欄だけ</option><option value="none">欄なし</option></select></label>
+      <label for="f-o">届いたか<select id="f-o"><option value="">すべて</option><option value="ok">取得できた</option><option value="no">取得できない</option></select></label>
+      <label for="f-q">題名・発行者・分類<input id="f-q" type="search" placeholder="例：障害、福祉、Statistik"></label>
+    </div>
+    <p class="count" id="count"></p>
+    <div class="docs" id="docs"></div>
+    <button type="button" class="more" id="more" hidden>さらに 50 件</button>
+  </section>
+
+  <section aria-labelledby="h-method">
+    <h2 id="h-method">方法と限界</h2>
+    <div class="method">
+      <div><h3>母集団と標本</h3><p>各国の政府の公式のオープンデータ目録に登録された、PDF・表計算・文書・CSV の書類。国 × 形式の群を層にして、層ごとに 250 件を無作為に選びました（二段の抽出。選ばれる重みを記録）。目録の API が robots.txt で禁止されている国は、届かない国として示しています。</p></div>
+      <div><h3>分析の単位</h3><p>主の単位は書類（ファイル）です。段階がファイルごとに付くためです。書く段階の理由は入力欄ごとにも数えます。書類の数だけでなく、字数や欄の数でも偏りを確かめます。</p></div>
+      <div><h3>測ること</h3><p>届くか（robots.txt・HTTP・ログイン・ボット対策）、読む段階 S〜F、書く段階 A〜D、その理由。すべて決定的な処理です。10% の部分標本では、全欄に書いて、書いた所のほかはバイト一致することを証明しました。</p></div>
+      <div><h3>限界</h3><p>オープンデータの目録には統計の表や報告書が多く、申請の様式は少なめです。省庁の様式のページは枠に入っていません。段階の妥当性は、人の評価者 2 人による一致度（κ）で確かめる予定です。</p></div>
+      <div><h3>礼儀</h3><p>robots.txt を守り、同じ相手には 2 秒以上の間をあけました。ボット対策やログインは破らず、そう記録しました。書類は段階を付けたあとに消し、URL・SHA-256・結果だけを残しています。</p></div>
+    </div>
+    <div class="refs">
+      <span>Moynihan, Herd &amp; Harvey (2015) JPART · Herd &amp; Moynihan (2018) · Goodwin et al. (2011) JITP · Singanamalla et al. (2020) IMC · Kumar &amp; Wang (2024) ASSETS · Foppiano (2026) WAC · Fok et al. (2022) CHI · Hackett &amp; Parmanto (2009) · Vigo, Brown &amp; Conway (2013) W4A · Brown, Cai &amp; DasGupta (2001) · Cohen (1960) · Thelwall &amp; Stuart (2006) · Partridge &amp; Allman (2016) · Ono (2026) ASSETS</span>
+      <span>地図の国境：Natural Earth（world-atlas, ISC）</span>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script>
+(function () {
+  const READ = ["S", "A", "B", "C", "D", "E", "F"];
+  const WRITE = ["A", "B", "C", "D"];
+  const READ_JA = { S: "素で問題ない", A: "規則だけで正確", B: "エージェントが読めば正確", C: "工夫して変換", D: "解釈が必要", E: "得意でない形式", F: "アクセスできない" };
+  const WRITE_JA = { A: "そのまま書ける", B: "解析して書く", C: "画面から入力", D: "書けない" };
+  const FAM_JA = { pdf: "PDF", sheet: "表計算", text: "文書", csv: "CSV" };
+  const OUT_JA = { ok: "取得できた", robots: "robots.txt で禁止", captcha: "ボット対策", login: "ログインが必要", html: "ウェブページが返った",
+    too_large: "25MB を超える", error: "接続できない", empty: "空のファイル", frame_empty: "目録に書類がない" };
+  const outJa = o => OUT_JA[o] || (String(o).startsWith("http_") ? "HTTP " + String(o).slice(5) : String(o));
+  const METRIC = {
+    read_ok: { label: "正確に読める（読む段階 S・A・B）の割合", note: "取得できた書類のうち、素のデータか、規則だけで、またはエージェントが読めば正確に読めるもの。" },
+    write_a: { label: "そのまま書ける（書く段階 A）の割合", note: "取得できた書類のうち、エージェントが解析なしにそのまま書けるもの。欄のない書類も含みます。" },
+    forms_writable: { label: "様式にエージェントが書ける（書く段階 A・B）の割合", note: "作り手が入力欄の印を付けた様式のうち、エージェントが書けるもの（画面からの入力や押印が要らない）。" },
+    reach: { label: "取得できた割合", note: "選んだ書類のうち、robots.txt・ログイン・ボット対策・リンク切れに止められずに取得できたもの。" },
+  };
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const pct = p => p == null ? "—" : (p * 100).toFixed(0) + "%";
+  const ci = c => (c && c[0] != null) ? `（${(c[0] * 100).toFixed(0)}〜${(c[1] * 100).toFixed(0)}）` : "";
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+
+  let DATA = null, metric = "read_ok", selected = null, topo = null;
+
+  function stackHtml(dist, order, prefix, names) {
+    const n = order.reduce((s, k) => s + (dist[k] || 0), 0);
+    if (!n) return '<div class="stack"></div>';
+    return '<div class="stack" role="img" aria-label="' + order.filter(k => dist[k]).map(k => `${k} ${dist[k]}件`).join("、") + '">' +
+      order.map(k => dist[k] ? `<i style="width:${dist[k] / n * 100}%;background:var(--${prefix}${k})" title="${k} ${esc(names[k])} ${dist[k]}件"></i>` : "").join("") + "</div>";
+  }
+  function stackLabels(dist, order, prefix, names) {
+    return '<div class="stacklbl">' + order.filter(k => dist[k]).map(k => `<span><span class="sw" style="background:var(--${prefix}${k})"></span>${k} ${esc(names[k])} ${dist[k]}</span>`).join("") + "</div>";
+  }
+
+  // ---------------------------------------------------------------- 地図
+  const color = p => {
+    const lo = d3.color(css("--none")), hi = d3.color(css("--pen"));
+    return d3.interpolateRgb(lo, hi)(Math.max(0.08, p));
+  };
+  function drawMap() {
+    const svg = d3.select("#map");
+    svg.selectAll("*").remove();
+    if (!topo) return;
+    const fc = topojson.feature(topo, topo.objects.countries);
+    fc.features = fc.features.filter(f => f.properties.name !== "Antarctica");
+    const proj = d3.geoNaturalEarth1().fitExtent([[6, 6], [954, 494]], fc);
+    const path = d3.geoPath(proj);
+    const byIso = {};
+    Object.entries(DATA.countries).forEach(([cc, c]) => { if (c.iso) byIso[c.iso] = cc; });
+    const unr = {};
+    Object.entries(DATA.unreached).forEach(([cc, c]) => { if (c.iso) unr[c.iso] = cc; });
+    const defs = svg.append("defs");
+    defs.append("pattern").attr("id", "hatch").attr("width", 5).attr("height", 5).attr("patternUnits", "userSpaceOnUse")
+      .attr("patternTransform", "rotate(45)").append("rect").attr("width", 2).attr("height", 5).attr("fill", css("--hatch"));
+    svg.append("g").selectAll("path").data(fc.features).join("path")
+      .attr("class", f => "c" + (byIso[f.id] ? " has" : "") + (byIso[f.id] && byIso[f.id] === selected ? " sel" : ""))
+      .attr("d", path)
+      .attr("fill", f => {
+        const cc = byIso[f.id];
+        if (cc) { const v = DATA.countries[cc][metric]; return v && v.p != null ? color(v.p) : css("--none"); }
+        if (unr[f.id]) return "url(#hatch)";
+        return css("--none");
+      })
+      .attr("tabindex", f => byIso[f.id] ? 0 : null)
+      .attr("role", f => byIso[f.id] ? "button" : null)
+      .attr("aria-label", f => {
+        const cc = byIso[f.id];
+        if (cc) { const c = DATA.countries[cc]; return `${c.name} ${pct(c[metric].p)}`; }
+        if (unr[f.id]) return `${DATA.unreached[unr[f.id]].name}：${DATA.unreached[unr[f.id]].why}`;
+        return null;
+      })
+      .on("click", (e, f) => { if (byIso[f.id]) select(byIso[f.id]); })
+      .on("keydown", (e, f) => { if ((e.key === "Enter" || e.key === " ") && byIso[f.id]) { e.preventDefault(); select(byIso[f.id]); } })
+      .append("title").text(f => {
+        const cc = byIso[f.id];
+        if (cc) { const c = DATA.countries[cc], v = c[metric]; return `${c.name}：${pct(v.p)}${ci(v.ci)} n=${v.n}`; }
+        if (unr[f.id]) return `${DATA.unreached[unr[f.id]].name}：${DATA.unreached[unr[f.id]].why}`;
+        return f.properties.name;
+      });
+    const lg = document.getElementById("legend");
+    const stops = [0, .25, .5, .75, 1].map(p => color(p)).join(",");
+    lg.innerHTML = `<span>0%</span><span class="ramp" style="background:linear-gradient(90deg,${stops})"></span><span>100%</span>` +
+      `<span><span class="sw" style="background:repeating-linear-gradient(45deg,${css("--hatch")} 0 2px,transparent 2px 5px);border:1px solid ${css("--line")}"></span>目録に届かない</span>` +
+      `<span><span class="sw" style="background:${css("--none")}"></span>調べていない</span>`;
+    document.getElementById("metric-note").textContent = METRIC[metric].label + "。" + METRIC[metric].note + "（マルタは地図の縮尺で見えないので、一覧で見てください。）";
+  }
+
+  function select(cc) {
+    selected = cc;
+    const c = DATA.countries[cc];
+    const fams = Object.entries(c.families).map(([g, f]) =>
+      `<tr><td>${FAM_JA[g]}</td><td class="num">${f.frame.toLocaleString()}</td><td class="num">${f.sampled}</td><td class="num">${f.graded}</td><td class="num">${pct(f.graded ? READ.slice(0, 3).reduce((s, k) => s + (f.read[k] || 0), 0) / f.graded : null)}</td></tr>`).join("");
+    document.getElementById("panel").innerHTML =
+      `<h3>${esc(c.name)}</h3><div class="src">${esc(c.source)}</div>
+       <dl>
+         <dt>届く</dt><dd>${pct(c.reach.p)} <span class="ci">${ci(c.reach.ci)}</span></dd>
+         <dt>読む S〜B</dt><dd>${pct(c.read_ok.p)} <span class="ci">${ci(c.read_ok.ci)}</span></dd>
+         <dt>書く A</dt><dd>${pct(c.write_a.p)} <span class="ci">${ci(c.write_a.ci)}</span></dd>
+         <dt>様式に書ける</dt><dd>${pct(c.forms_writable.p)} <span class="ci">${ci(c.forms_writable.ci)}</span>（様式 ${c.forms_writable.n} 件）</dd>
+       </dl>
+       <div style="font-size:.78rem;color:var(--muted)">読む段階</div>${stackHtml(c.read, READ, "g", READ_JA)}${stackLabels(c.read, READ, "g", READ_JA)}
+       <div style="font-size:.78rem;color:var(--muted)">書く段階</div>${stackHtml(c.write, WRITE, "w", WRITE_JA)}${stackLabels(c.write, WRITE, "w", WRITE_JA)}
+       <div class="tablebox" style="margin-top:6px"><table style="min-width:0;font-size:.76rem"><thead><tr><th>群</th><th class="num">目録</th><th class="num">選んだ</th><th class="num">段階</th><th class="num">S〜B</th></tr></thead><tbody>${fams}</tbody></table></div>
+       <p style="margin:10px 0 0"><a href="#h-docs" id="see-docs">この国の書類を見る</a></p>`;
+    document.getElementById("see-docs").addEventListener("click", () => { document.getElementById("f-c").value = cc; page = 1; renderDocs(); });
+    drawMap();
+  }
+
+  // ---------------------------------------------------------------- 表
+  let sortKey = "n", sortDir = -1;
+  function renderTable() {
+    const rows = Object.entries(DATA.countries).map(([cc, c]) => ({ cc, c, name: c.name, n: c.reach.n,
+      reach: c.reach.p ?? -1, read_ok: c.read_ok.p ?? -1, write_a: c.write_a.p ?? -1, forms_writable: c.forms_writable.p ?? -1 }));
+    rows.sort((a, b) => (typeof a[sortKey] === "string" ? a[sortKey].localeCompare(b[sortKey], "ja") : a[sortKey] - b[sortKey]) * sortDir);
+    const tb = document.querySelector("#table tbody");
+    tb.innerHTML = rows.map(({ cc, c }) =>
+      `<tr><td><a href="#h-map" data-cc="${cc}">${esc(c.name)}</a></td><td class="num">${c.reach.n}</td>
+       <td class="num">${pct(c.reach.p)}<br><span class="ci">${ci(c.reach.ci)}</span></td>
+       <td class="num">${pct(c.read_ok.p)}<br><span class="ci">${ci(c.read_ok.ci)}</span></td>
+       <td>${stackHtml(c.read, READ, "g", READ_JA)}</td>
+       <td class="num">${pct(c.write_a.p)}<br><span class="ci">${ci(c.write_a.ci)}</span></td>
+       <td>${stackHtml(c.write, WRITE, "w", WRITE_JA)}</td>
+       <td class="num">${pct(c.forms_writable.p)}<br><span class="ci">${c.forms_writable.n ? "様式 " + c.forms_writable.n : ""}</span></td></tr>`).join("") +
+      Object.values(DATA.unreached).map(u => `<tr class="unr"><td>${esc(u.name)}</td><td colspan="7">${esc(u.why)}</td></tr>`).join("");
+    tb.querySelectorAll("a[data-cc]").forEach(a => a.addEventListener("click", () => select(a.dataset.cc)));
+  }
+  document.querySelectorAll("#table th button").forEach(b => b.addEventListener("click", () => {
+    const k = b.dataset.k; sortDir = sortKey === k ? -sortDir : (k === "name" ? 1 : -1); sortKey = k; renderTable();
+  }));
+
+  // ---------------------------------------------------------------- 理由
+  function bars(el, items) {
+    const max = Math.max(1, ...items.map(x => x[1]));
+    document.getElementById(el).innerHTML = items.map(([t, n]) =>
+      `<div class="bar"><span class="t" title="${esc(t)}">${esc(t)}</span><span class="track"><i style="width:${n / max * 100}%"></i></span><span class="n">${n.toLocaleString()}</span></div>`).join("");
+  }
+
+  // ---------------------------------------------------------------- 書類
+  let page = 1;
+  function filtered() {
+    const v = id => document.getElementById(id).value;
+    const c = v("f-c"), g = v("f-g"), r = v("f-r"), w = v("f-w"), fc = v("f-fc"), o = v("f-o"), q = v("f-q").trim().toLowerCase();
+    return DATA.docs.filter(d => (!c || d.c === c) && (!g || d.g === g) && (!r || d.r === r) && (!w || d.w === w) && (!fc || d.fc === fc)
+      && (!o || (o === "ok" ? d.o === "ok" : d.o !== "ok"))
+      && (!q || (d.t + " " + d.p + " " + d.th.join(" ")).toLowerCase().includes(q)));
+  }
+  function renderDocs() {
+    const list = filtered();
+    document.getElementById("count").textContent = `${list.length.toLocaleString()} 件`;
+    const shown = list.slice(0, page * 50);
+    document.getElementById("docs").innerHTML = shown.map(d => {
+      const chips = d.r ? `<span class="chip" style="background:var(--g${d.r})" title="読む ${d.r} ${esc(READ_JA[d.r])}"><span>${d.r}<br><small>読む</small></span></span>` +
+        `<span class="chip" style="background:var(--w${d.w})" title="書く ${d.w} ${esc(WRITE_JA[d.w])}"><span>${d.w}<br><small>書く</small></span></span>`
+        : `<span class="chip o">${esc(outJa(d.o))}${d.e ? "<br>" + esc(d.e) : ""}</span>`;
+      const kind = d.k ? (d.d && d.k.toUpperCase() !== d.d ? `目録では ${esc(d.d)}・中身は ${esc(d.k)}` : esc(d.k)) : esc(d.d);
+      const rs = d.rr.length || d.wr.length ? `<div class="rs">${d.rr.map(esc).join("・")}${d.wr.length ? " ／ 書く：" + d.wr.map(esc).join("・") : ""}</div>` : "";
+      return `<div class="doc"><div class="chips">${chips}</div><div style="min-width:0">
+        <div class="t">${esc(d.t || "（題名なし）")}</div>
+        <div class="m">${esc(DATA.countries[d.c]?.name || d.c)} · ${esc(FAM_JA[d.g])} · ${kind}${d.p ? " · " + esc(d.p) : ""}${d.th.length ? " · 分類：" + d.th.map(esc).join("、") : ""}${d.f ? " · 欄 " + d.f : ""}</div>
+        ${rs}<a href="${esc(d.u)}" rel="noopener noreferrer">${esc(d.u.length > 110 ? d.u.slice(0, 110) + "…" : d.u)}</a></div></div>`;
+    }).join("");
+    document.getElementById("more").hidden = shown.length >= list.length;
+  }
+  document.getElementById("more").addEventListener("click", () => { page++; renderDocs(); });
+  ["f-c", "f-g", "f-r", "f-w", "f-fc", "f-o"].forEach(id => document.getElementById(id).addEventListener("change", () => { page = 1; renderDocs(); }));
+  document.getElementById("f-q").addEventListener("input", () => { page = 1; renderDocs(); });
+
+  // ---------------------------------------------------------------- 地図の切り替え
+  document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => {
+    metric = b.dataset.m;
+    document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    drawMap();
+  }));
+  matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => drawMap());
+
+  // ---------------------------------------------------------------- 読み込み
+  Promise.all([fetch("data.json").then(r => r.json()), fetch("countries-110m.json").then(r => r.json())]).then(([d, t]) => {
+    DATA = d; topo = t;
+    const T = d.total;
+    document.getElementById("b-countries").textContent = T.countries;
+    document.getElementById("b-sampled").textContent = T.sampled.toLocaleString();
+    document.getElementById("b-graded").textContent = T.graded.toLocaleString();
+    const prog = T.sampled / T.planned;
+    document.getElementById("b-progress").textContent = prog >= 0.999 ? "完了" : pct(prog);
+    document.getElementById("b-progress-l").textContent = prog >= 0.999 ? `予定 ${T.planned.toLocaleString()} 件` : `予定 ${T.planned.toLocaleString()} 件に対する進み（集計中）`;
+    const fsel = document.getElementById("f-c");
+    Object.entries(d.countries).sort((a, b) => a[1].name.localeCompare(b[1].name, "ja"))
+      .forEach(([cc, c]) => fsel.insertAdjacentHTML("beforeend", `<option value="${cc}">${esc(c.name)}</option>`));
+    READ.forEach(k => document.getElementById("f-r").insertAdjacentHTML("beforeend", `<option value="${k}">${k} ${READ_JA[k]}</option>`));
+    WRITE.forEach(k => document.getElementById("f-w").insertAdjacentHTML("beforeend", `<option value="${k}">${k} ${WRITE_JA[k]}</option>`));
+    bars("r-read", T.top_read_reasons);
+    bars("r-write", T.top_write_reasons);
+    bars("r-reach", Object.entries(T.outcomes).filter(([o]) => o !== "ok" && o !== "frame_empty").sort((a, b) => b[1] - a[1]).map(([o, n]) => [outJa(o), n]));
+    renderTable(); renderDocs(); drawMap();
+    select(Object.keys(d.countries)[0]);
+  }).catch(e => {
+    document.getElementById("panel").innerHTML = `<p>結果のデータを読み込めませんでした（${esc(e.message)}）。ページを開き直してください。</p>`;
+  });
+})();
+</script>
