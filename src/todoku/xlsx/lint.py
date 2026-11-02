@@ -106,6 +106,8 @@ def lint(blob: bytes, parts: list[str] | None = None) -> LintReport:
             continue
         rep.checked_parts += 1
         raw = z.read(n)
+        if raw.lstrip()[:1] not in (b"<", b"\xef"):
+            continue  # XML でない部品（ActiveX の部品の中身・絵など）は、ここでは調べない
         try:
             from .workbook import parse_xml
 

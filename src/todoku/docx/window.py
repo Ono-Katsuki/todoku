@@ -263,6 +263,10 @@ class Spots:
             return t
         c: Control | None = item.get("control")
         if c is not None:
+            if c.source == "activex":
+                from ..axfile import value_of
+
+                return value_of(c.ax)  # ActiveX の部品：部品の中に保存された値
             if c.kind == "checkbox":
                 return c.checked
             if c.placeholder:
@@ -534,8 +538,15 @@ def build(doc: DocxDocument) -> dict:
         label = it.get("label") or ""
         if c is not None:
             label = c.help or c.name or _context_label(it, contexts)
+            if c.source == "activex":
+                label = c.help or _context_label(it, contexts) or c.name  # 見出しは部品の Caption か、前に書かれた字
         d = {"id": it["id"], "kind": "text" if kind == "cell" else kind, "label": label, "source": it["source"],
              "provenance": it["provenance"], "value": sp.value(it), "context": contexts.get(it["id"], "")}
+        if c is not None and c.source == "activex":
+            from ..axfile import word_describe
+
+            d.update(word_describe(doc, c))
+            d["control"] = c.name
         if it.get("options"):
             d["options"] = it["options"]
         if c is not None and c.maxlen:
@@ -668,6 +679,11 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
             v = sp.value(it)
             # 欄の結果の文字の範囲
             a, b = _ctl_span(p, c)
+            if c.source == "activex":
+                from ..axfile import word_mark
+
+                edits.append((a, b, word_mark(c, name)))  # ActiveX の部品
+                continue
             if c.kind == "checkbox":
                 edits.append((a, b, ("☑" if v else "☐") + f"［{name}］"))
             else:

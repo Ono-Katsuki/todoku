@@ -101,8 +101,15 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
     b = XlsWorkbook(new)
     identical = sum(1 for n in sa if n in sb and a_cfb.read(n) == b_cfb.read(n))
     changed = [n for n in sa if n in sb and a_cfb.read(n) != b_cfb.read(n)]
+    ax_seen: set = set()
+    if any(getattr(c, "ax", None) is not None for s_ in a.sheets for c in s_.controls):
+        # ActiveX の部品（Ctls・MBD の入れ物）：書いた部品の、書いた性質だけが変わっていること
+        from ..axbin import prove_xls
+
+        ax_changes, ax_bad, ax_seen = prove_xls(a, b, allowed_controls)
+        unexpected += ax_bad
     for n in changed:
-        if n != a.stream_name:
+        if n != a.stream_name and n not in ax_seen:
             unexpected.append(f"ストリーム {n} が変わりました（ブック以外は変えないはずです）")
     ga, sha = split(a.data)
     gb, shb = split(b.data)
@@ -170,7 +177,25 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
                     while k < len(rs) and rs[k][0] == 0x003C:
                         parts.append(rs[k][1])
                         k += 1
-                    out.append((t, tuple(len(p) for p in parts), without_state(b"".join(parts))))
+                    joined = without_state(b"".join(parts))
+                    from ..axbin import xls_pict
+
+                    pict = xls_pict(joined)
+                    if pict is not None and "flags_at" in pict:
+                        # 書いた部品だけに立てる、絵を作り直させる印（fPrintCalc・fAutoLoad）：ActiveX の証明で確かめる
+                        from ..axbin import FLAGS_REFRESH
+
+                        j = bytearray(joined)
+                        struct.pack_into("<H", j, pict["flags_at"], pict["flags"] & ~FLAGS_REFRESH)
+                        joined = bytes(j)
+                    if pict is not None and "pos_at" in pict:
+                        # ActiveX の部品の位置と大きさ（Ctls の中）：上の ActiveX の証明で、指す中身を読み直して確かめる
+                        j = bytearray(joined)
+                        j[pict["pos_at"]:pict["pos_at"] + 4] = bytes(4)
+                        if "size_at" in pict:
+                            j[pict["size_at"]:pict["size_at"] + 4] = bytes(4)
+                        joined = bytes(j)
+                    out.append((t, tuple(len(p) for p in parts), joined))
                 else:
                     out.append((t, body))
             return out
@@ -181,6 +206,8 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
         ctl_a = {c.shape_id: c for c in sh_a.controls}
         for cb_ in sh_b.controls:
             ca_ = ctl_a.get(cb_.shape_id)
+            if getattr(cb_, "ax", None) is not None:
+                continue  # ActiveX の部品は、上の ActiveX の証明で確かめた
             if ca_ is not None and state(ca_) != state(cb_):
                 control_changes.append(_control_change(name, ca_, cb_))
                 unexpected += _control_problems(b, name, ca_, cb_, allowed_controls)
@@ -194,6 +221,8 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
     from collections import Counter
 
     common = Counter(ra_all) & Counter(rb_all)
+    if ax_seen:
+        control_changes += ax_changes
     return Proof(
         container="cfb", records_total=len(ra_all), records_identical=sum(common.values()),
         original_sha256=hashlib.sha256(original).hexdigest(), new_sha256=hashlib.sha256(new).hexdigest(),
@@ -307,7 +336,14 @@ def raw_texts(blob: bytes) -> dict[str, list[tuple[str, str]]]:
 
         return raw_texts5(wb)
     out: dict[str, list[tuple[str, str]]] = {"セルの文字": [], "セルの数値": [], "図形の文字": [], "メモ": [],
-                                             "チェックボックスなどの文字": [], "入力規則の説明": [], "ヘッダー・フッター": []}
+                                             "チェックボックスなどの文字": [], "入力規則の説明": [], "ヘッダー・フッター": [],
+                                             "ActiveX の部品の文字": []}
+    from ..axfile import texts as ax_texts
+
+    for s_ in wb.sheets:
+        for c in s_.controls:
+            if getattr(c, "ax", None) is not None:
+                out["ActiveX の部品の文字"] += [(f"{s_.name}（ActiveX）", t) for t in ax_texts(c.ax)]
     sst = wb.shared_strings
     _glob, sheets = split(wb.data)
     names = [s.name for s in wb.sheets if not s.state.startswith("non-")]

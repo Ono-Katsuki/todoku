@@ -30,6 +30,8 @@ SPECS = {
     "MS-EMF": "https://winprotocoldoc.z19.web.core.windows.net/MS-EMF/%5bMS-EMF%5d.pdf",
     "MS-WMF": "https://winprotocoldoc.z19.web.core.windows.net/MS-WMF/%5bMS-WMF%5d.pdf",
     "MS-CFB": "https://winprotocoldoc.z19.web.core.windows.net/MS-CFB/%5bMS-CFB%5d.pdf",
+    # ActiveX の部品（Microsoft Forms 2.0：テキストボックス・チェックボックス・コンボボックスなど）の保存の形
+    "MS-OFORMS": "https://officeprotocoldoc.z19.web.core.windows.net/files/MS-OFORMS/%5bMS-OFORMS%5d.pdf",
     "PDF32000_2008": "https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf",
 }
 

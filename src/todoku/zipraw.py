@@ -186,6 +186,35 @@ class RawZip:
     def modified_names(self) -> list[str]:
         return [e.name for e in self.entries if e.modified]
 
+    def add(self, name: str, content: bytes, like: str) -> None:
+        """新しいエントリを最後に足す。ヘッダーは既存のエントリ like のもの（時刻・圧縮方式など）を写し、名前と大きさだけを替える。
+        ほかのエントリのバイトは変えない（位置は後ろにずれない：最後に足すので）。"""
+        if self.has(name):
+            raise ZipFormatError(f"{name}: 同じ名前のエントリがあります")
+        src = self.get(like)
+        raw_name = name.encode("utf-8")
+        flags = (struct.unpack_from("<H", src.local, 6)[0] & ~0x8) | 0x800  # データ記述子を使わない・名前は UTF-8
+        nlen, xlen = struct.unpack_from("<HH", src.local, 26)
+        local = bytearray(src.local[:30]) + raw_name + src.local[30 + nlen:30 + nlen + xlen]
+        struct.pack_into("<HH", local, 6, flags, src.method)
+        struct.pack_into("<HH", local, 26, len(raw_name), xlen)
+        cn, cx, _cc = struct.unpack_from("<HHH", src.central, 28)
+        central = bytearray(src.central[:46]) + raw_name + src.central[46 + cn:46 + cn + cx]
+        struct.pack_into("<H", central, 8, flags)
+        struct.pack_into("<HHH", central, 28, len(raw_name), cx, 0)
+        e = Entry(name=name, central=bytes(central), local=bytes(local), data=b"", descriptor=b"")
+        e._replacement = content
+        self.entries.append(e)
+        self._entries_cd_order.append(e)
+        self.added = getattr(self, "added", []) + [name]
+
+    def drop_added(self) -> None:
+        """add で足したエントリを取り除く（元のエントリだけに戻す）。"""
+        gone = set(getattr(self, "added", []))
+        self.entries = [e for e in self.entries if e.name not in gone]
+        self._entries_cd_order = [e for e in self._entries_cd_order if e.name not in gone]
+        self.added = []
+
     # ------------------------------------------------------------------ 書き出し
     def build(self) -> bytes:
         out = bytearray(self.prefix)
@@ -207,6 +236,8 @@ class RawZip:
         cd_size = len(out) - cd_start
         out += self._cd_gap
         tail = bytearray(self.cd_tail)
+        if getattr(self, "added", None):
+            struct.pack_into("<HH", tail, 8, len(self._entries_cd_order), len(self._entries_cd_order))
         struct.pack_into("<I", tail, 12, cd_size)
         struct.pack_into("<I", tail, 16, cd_start)
         out += tail

@@ -69,6 +69,10 @@ def check_reading(doc: DocxDocument, win: dict) -> list[Check]:
 
 def _sample(f: dict):
     k = f["kind"]
+    if f.get("activex"):
+        from ..axfile import sample_value
+
+        return sample_value(f)  # ActiveX の部品：部品の決まり（文字数・選択肢・範囲・組）に合う値
     if k == "checkbox":
         return not bool(f.get("value"))
     if f.get("options"):
@@ -91,7 +95,7 @@ def check_writing(doc: DocxDocument, win: dict) -> list[Check]:
     targets = {}
     protected, skipped = [], []
     for f in win["fields"]:
-        if f.get("readonly"):
+        if f.get("readonly") or f.get("options_unknown"):
             protected.append(f["id"])
             continue
         if f["kind"] == "picture":
@@ -260,6 +264,11 @@ def run(blob: bytes, filename: str = "") -> Audit:
     win = build(doc)
     au = Audit(filename)
     au.checks += check_reading(doc, win)
+    from ..axfile import reading_check
+
+    axc = reading_check(getattr(doc, "ax_refs", []), win)  # ActiveX の部品の見出しと文字
+    if axc is not None:
+        au.checks.append(axc)
     parts = markdown_parts(win)
     biggest = max(len(t) for _, t in parts)
     total = sum(len(t) for _, t in parts)

@@ -169,6 +169,7 @@ class Control:
     # 古い Excel（.xls）のオプションボタンだけ：同じ組の次のボタンの番号（FtRboData.idRadNext。"0" は次がない）。
     # .xls では、組とその順が、組の先頭（first_button）からこのつながりをたどったものとしてファイルに書かれている
     next_button: str | None = None
+    ax: object = None  # ActiveX の部品（axfile.AxRef）：置き場所と、読んだ中身（MS-OFORMS）
 
     @property
     def is_checked(self) -> bool:
@@ -714,6 +715,10 @@ class Workbook:
                     _control_props_vml(c, v)
                 if c.anchor is None:
                     c.anchor, c.anchor_to, c.from_off, c.to_off = v["anchor"], v["anchor_to"], v["from_off"], v["to_off"]
+            if typ and typ != "ctrlProp" and part:
+                from ..axfile import load_excel
+
+                load_excel(self, sh, c, part, pr, rels)  # ActiveX の部品の中身・つながったセル・控えの絵
             seen.add(sid)
             sh.controls.append(c)
         for sid, v in vml.items():
@@ -728,6 +733,10 @@ class Workbook:
         for c in sh.controls:
             if c.link:
                 c.link_cell = _link_cell(c.link, sh.name)
+        if any(c.ax is not None for c in sh.controls):
+            from ..axfile import excel_vml_images
+
+            excel_vml_images(self, sh, vml_path)
 
     def _cell_value(self, t, v, c):
         if t == "inlineStr":

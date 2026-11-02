@@ -96,7 +96,8 @@ def raw_texts(blob: bytes) -> dict[str, list[tuple[str, str]]]:
     """
     z = RawZip(blob)
     out: dict[str, list[tuple[str, str]]] = {"セルの文字": [], "セルの数値": [], "図形の文字": [], "メモ": [],
-                                             "チェックボックスなどの文字": [], "入力規則の説明": [], "ヘッダー・フッター": []}
+                                             "チェックボックスなどの文字": [], "入力規則の説明": [], "ヘッダー・フッター": [],
+                                             "ActiveX の部品の文字": []}
     wb_path = "xl/workbook.xml"
     for t, target in _rels(z, "").values():
         if t == "officeDocument":
@@ -150,7 +151,13 @@ def raw_texts(blob: bytes) -> dict[str, list[tuple[str, str]]]:
         for t, target in _rels(z, path).values():
             if not z.has(target):
                 continue
-            if t == "comments":
+            if t == "control":
+                # ActiveX の部品（MS-OFORMS）：部品の中身を直接読み、見出しと文字を拾う
+                from ..axfile import load_ooxml, texts
+
+                for s in texts(load_ooxml(z, target, "xlsx")):
+                    out["ActiveX の部品の文字"].append((f"{name}（ActiveX）", s))
+            elif t == "comments":
                 for cm in ET.fromstring(z.read(target)).iter():
                     if _ln(cm.tag) == "comment":
                         text = _texts(cm)
@@ -216,6 +223,10 @@ def check_reading(wb: Workbook, doc: dict) -> list[Check]:
         "図形の文字": "\n".join(s["text"] + "\n" + s["alt"] for sh in doc["sheets"] for s in sh.get("shapes", [])),
         "メモ": "\n".join(n["text"] for sh in doc["sheets"] for n in sh.get("notes", [])),
         "チェックボックスなどの文字": "\n".join(c["text"] for sh in doc["sheets"] for c in sh.get("controls", [])),
+        "ActiveX の部品の文字": "\n".join(
+            "\n".join([c.get("text") or "", str(c.get("value") or "")] +
+                      [f"{x.get('caption') or ''}\n{x.get('value') or ''}" for x in c.get("frame", [])])
+            for sh in doc["sheets"] for c in sh.get("controls", []) if c.get("activex")),
         "入力規則の説明": json.dumps([sh.get("validations") for sh in doc["sheets"]], ensure_ascii=False),
         "ヘッダー・フッター": "\n".join(h for sh in doc["sheets"] for h in sh.get("header_footer", [])),
     }
@@ -254,6 +265,10 @@ def _sample(f: dict, wb: Workbook, sheet: str, calc: Calc | None):
     """入力欄に書く試しの値（入力規則に合うもの）。"""
     from .edit import _rule_number
 
+    if f.get("activex"):
+        from ..axfile import sample_value
+
+        return sample_value(f)  # ActiveX の部品：部品の決まり（文字数・選択肢・範囲・組）に合う値
     if f["kind"] == "checkbox":
         return not bool(f["value"])
     if f["kind"] in ("radio", "select"):
@@ -338,6 +353,9 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
         if f["kind"] == "choice":
             later.append((sheet, f))  # 選択肢はほかの欄の内容で決まることがあるので、ほかを入れてから選ぶ
             continue
+        if f.get("activex") and (f.get("readonly") or f.get("options_unknown")):
+            not_applicable.append(f["id"])  # 書けない ActiveX の部品（使えない・固定・選択肢が分からない・複数選択）
+            continue
         v = _sample(f, wb, sheet, None)
         if v is None:
             skipped.append(f"{f['id']}: 試しの値を決められませんでした")
@@ -395,7 +413,7 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
 
     # フォームの部品の欄（オプションボタン・ドロップダウン・リスト・スピン）は、書き込み後の窓の欄の値で確かめる
     ctl_kinds = ("radio", "select", "multiselect", "spin")
-    ctl_fields = {f["id"]: f for _, f in fields if f["kind"] in ctl_kinds}
+    ctl_fields = {f["id"]: f for _, f in fields if f["kind"] in ctl_kinds or f.get("activex")}
     after_doc = None
     if any(k in ctl_fields for k in targets):
         after_doc = window.build(after)
@@ -459,9 +477,17 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
     # 書き込めない入力用の部品は、黙って飛ばさず、ここで知らせる
     passive = ("CheckBox", "Button", "Label", "GBox", "Dialog", "Pict", "Shape", "Movie", "Rect", "",
                "ActiveX CommandButton", "ActiveX Label", "ActiveX Image")
-    writable = ("Radio", "Drop", "List", "Spin", "Scroll")
+    writable = ("Radio", "Drop", "List", "Spin", "Scroll", "ActiveX TextBox", "ActiveX CheckBox", "ActiveX OptionButton",
+                "ActiveX ToggleButton", "ActiveX ComboBox", "ActiveX ListBox", "ActiveX SpinButton", "ActiveX ScrollBar")
     other = sorted({f"{sh.name}!{c.name}（{c.kind}）" for sh in wb.sheets for c in sh.controls
                     if c.kind not in passive + writable})
+    # ActiveX の部品：中身を読めないもの・フレームの中の部品（読むだけ）も知らせる
+    other += sorted({f"{sh.name}!{c.name}（{c.kind}：{c.ax.error}）" for sh in wb.sheets for c in sh.controls
+                     if getattr(c, "ax", None) is not None and c.ax.error})
+    other += sorted({f"{sh.name}!{c.name}（フレームの中の部品は読むだけです）" for sh in wb.sheets for c in sh.controls
+                     if getattr(c, "ax", None) is not None and c.ax.frame is not None
+                     and any(s.kind in ("TextBox", "CheckBox", "OptionButton", "ToggleButton", "ComboBox", "ListBox",
+                                        "SpinButton", "ScrollBar") for s in c.ax.frame.sites)})
     undecided = [f"{f['id']}: {f['undecided']}" for sh in doc["sheets"] for f in sh.get("fields", []) if f.get("undecided")]
     other += undecided
     au.checks.append(Check("入力用コントロールへの対応", not other,

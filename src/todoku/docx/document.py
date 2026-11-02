@@ -125,6 +125,7 @@ class Control:
     end: Node | None = None
     lock: str = ""
     help: str = ""
+    ax: object = None  # ActiveX の部品（source が activex のとき、axfile.AxRef）
 
 
 Block = Para | Table
@@ -586,6 +587,12 @@ class DocxDocument:
                 p.segs.append(Seg(f"※{ch.get('id', '')}", "note", ch, r, hidden))
             elif loc in ("drawing", "pict", "object", "AlternateContent"):
                 self._boxes(ch, p, part)
+                axc = next(iter(ch.iter("control")), None) if loc in ("object", "pict") else None
+                if axc is not None:
+                    from ..axfile import word_control
+
+                    word_control(self, ch, axc, part, p, r, hidden)  # ActiveX の部品（w:control）
+                    continue
                 ole = next(iter(ch.iter("OLEObject")), None)
                 e = self._add_embed(ole, part, p, ch) if ole is not None else None
                 alt = [n.get("descr") or n.get("title") for n in ch.iter("docPr") if n.get("descr") or n.get("title")]

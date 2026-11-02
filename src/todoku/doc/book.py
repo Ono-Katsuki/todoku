@@ -513,6 +513,13 @@ class DocFile:
                 f["ctl"] = self._form_field(f, p)
                 f["n0"] = len(p.segs)
                 words = f["instr"].split()
+                if words and words[0].upper() == "CONTROL":
+                    # ActiveX の部品：入れ物の名前は、区切りの字の sprmCPicLocation の値の前に「_」（MS-DOC 2.1.4）
+                    pic = self.char_props(cp)["pic"]
+                    if pic is not None:
+                        from ..axbin import doc_ref
+
+                        f["ax"] = doc_ref(self, f"ObjectPool/_{pic}", words[1] if len(words) > 1 else "")
                 if words and words[0].upper() == "EMBED":
                     # 埋め込んだ OLE の部品：入れ物の名前は、区切りの字の sprmCPicLocation の値の前に「_」（MS-DOC 2.1.4）
                     pic = self.char_props(cp)["pic"]
@@ -552,6 +559,15 @@ class DocFile:
                 p.segs.append(Seg("‑", "other", CPRef(cp), None, hidden))
             elif o == 0x1F:
                 pass
+            elif o in (0x01, 0x08) and props["spec"] and any(x.get("ax") is not None and not x.get("ax_done")
+                                                              and x["phase"] == "result" for x in stack):
+                # CONTROL のフィールドの結果の絵（控えの絵）の所に、ActiveX の部品を置く
+                from ..axfile import _add_word
+
+                fx = next(x for x in reversed(stack) if x.get("ax") is not None and x["phase"] == "result")
+                fx["ax_done"] = True
+                fx["ax"].pic_cp = cp
+                _add_word(self, fx["ax"], None, "doc", p, None, hidden, len(p.segs), CPRef(cp))
             elif o in (0x01, 0x08) and props["spec"]:
                 ole = next((x["ole"] for x in reversed(stack) if x.get("ole") and x["phase"] == "result"), None)
                 if ole is not None and o == 0x01 and props["pic"] is not None:

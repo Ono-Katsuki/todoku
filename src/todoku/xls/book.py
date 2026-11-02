@@ -860,7 +860,7 @@ class XlsWorkbook:
 
         info = parse_obj(b)
         ob = {"ot": info.ot, "id": info.id, "checked": info.checked, "link": None, "text": "", "fmla_range": None,
-              "info": info}
+              "info": info, "raw": b}
         for key, rgce in (("link", info.link), ("fmla_range", info.fmla)):
             if rgce:
                 try:
@@ -874,6 +874,13 @@ class XlsWorkbook:
 
         kind = _OBJ_KIND.get(ob["ot"], "")
         info = ob.get("info")
+        if kind == "Pict":
+            from ..axbin import xls_control
+
+            c = xls_control(self, sh, ob, anchor)  # ActiveX の部品（FtPioGrbit.fCtl。中身は Ctls か MBD の入れ物）
+            if c is not None:
+                sh.controls.append(c)
+                return
         if kind in ("Drop", "List") and info is not None and info.ui_object:
             return  # オートフィルターなどのために Excel が自動で置いたボタン（入力欄ではない）
         pos = (anchor["r1"], anchor["c1"]) if anchor else None
