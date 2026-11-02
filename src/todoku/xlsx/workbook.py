@@ -154,6 +154,7 @@ class Shape:
     text: str
     alt: str
     anchor: tuple[int, int] | None  # (row, col) 左上
+    decorative: bool = False  # 飾りと印を付けた図（説明は要らない）
 
 
 @dataclass
@@ -820,7 +821,7 @@ class Workbook:
                     line = "".join(t.text or "" for t in p.iter(_q("a:t")))
                     texts.append(line)
                 text = "\n".join(texts).strip()
-                sh.shapes.append(Shape(kind, name, text, alt, pos))
+                sh.shapes.append(Shape(kind, name, text, alt, pos, decorative=_decorative(nv)))
 
     # -------------------------------------------------------------- 名前
     def defined_name(self, name: str, sheet: str | None) -> DefinedName | None:
@@ -833,6 +834,13 @@ class Workbook:
             if d.name.lower() == low and d.sheet_scope is None:
                 return d
         return None
+
+
+def _decorative(nv) -> bool:
+    """図の名前の要素（cNvPr・docPr）の拡張に、飾りの印（Office の adec:decorative val="1"）があるか。"""
+    if nv is None:
+        return False
+    return any(el.tag.split("}")[-1] == "decorative" and el.get("val") in ("1", "true") for el in nv.iter())
 
 
 def _drawing_items(anchor: ET.Element):

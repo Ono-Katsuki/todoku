@@ -70,3 +70,17 @@ def test_tagged_figure_without_alt():
 
 def test_empty_alt_is_no_description():
     assert pics(make(b"/Zu <</MCID 0>> BDC " + IMG + b" EMC", b"( )", tagged=True))[0]["alt"] is None
+
+
+def test_word_picture_without_description_is_an_alert():
+    from test_docx import SAMPLE_BODY, make_docx
+
+    pic = ('<w:p><w:r><w:t>地図</w:t></w:r><w:r><w:drawing xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+           'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" '
+           'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><wp:inline><wp:docPr id="1" name="図 1"{alt}/>'
+           '<a:graphic><a:graphicData><pic:pic><pic:blipFill><a:blip r:embed="rId99"/></pic:blipFill></pic:pic>'
+           '</a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>')
+    g = grade_blob(make_docx(SAMPLE_BODY + pic.format(alt="")), "p.docx")
+    assert [a.title for a in g.alerts] == ["説明のない画像"] and "「地図」の段落" in g.alerts[0].where[0]
+    ok = grade_blob(make_docx(SAMPLE_BODY + pic.format(alt=' descr="事業所の地図"')), "p.docx")
+    assert ok.alerts == [] and ok.grade == g.grade  # 段階は変えない

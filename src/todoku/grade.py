@@ -430,7 +430,9 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
                            "欄のない所は、前後の字を指定して書き換えます")
     write += _write_embeds(win.get("embeds") or [])
     write += _write_macros(win.get("macros"))
-    return _final(reasons, write)
+    g = _final(reasons, write)
+    g.alerts = picture_alerts(win.get("pictures") or [])
+    return g
 
 
 def _grade_excel(blob: bytes, filename: str) -> Grade:
@@ -495,11 +497,21 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
             reasons.append(Reason("E", "画像だけのシート", f"シート「{sh_obj.name}」の中身は画像で、セルの文字がありません", [sh_obj.name]))
             write.append(Reason("D", "画像だけのシート", f"シート「{sh_obj.name}」は画像だけで、書くセルがありません。手で書く紙として扱います",
                                 [sh_obj.name]))
+    pictures = []
+    for sh_obj in wb.sheets:
+        from .formula.parser import addr
+
+        for n, s in enumerate((s for s in getattr(sh_obj, "shapes", []) if s.kind == "picture"), 1):
+            at = f"の {addr(*s.anchor)} 付近" if s.anchor else ""
+            pictures.append({"id": f"{sh_obj.name}!{s.name or f'図{n}'}", "alt": (s.alt or "").strip() or None,
+                             "decorative": getattr(s, "decorative", False), "where": f"シート「{sh_obj.name}」{at}"})
     if getattr(wb, "biff", 8) == 5:
         # Excel 5.0/95（BIFF5）：読めるが、書き込みとその証明はまだない
         write.append(Reason("D", "Excel 5.0/95 の形式", "Excel 5.0/95（BIFF5）のブックは読めますが、todoku はまだ書けません"
                             "（字のバイト列・数式のトークン・索引の形に合わせた書き込みと証明が要るため）"))
-    return _final(reasons, write)
+    g = _final(reasons, write)
+    g.alerts = picture_alerts(pictures)
+    return g
 
 
 # ====================================================================== 一太郎（.jtd）

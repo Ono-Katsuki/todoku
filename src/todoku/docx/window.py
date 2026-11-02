@@ -527,6 +527,7 @@ def build(doc: DocxDocument) -> dict:
         if lines or kind == "body":
             out["stories"].append({"kind": kind, "part": part, "reading": lines, "_plain": plain})
     out["embeds"] = _embeds(doc)
+    out["pictures"] = _pictures(doc)
     from ..embeds.word import objects as _objects
 
     out["objects"] = _objects(doc, shown={e["n"] for e in out["embeds"]})  # グラフ・SmartArt・Excel の表のほかの埋め込み（読むだけ）
@@ -573,6 +574,17 @@ def build(doc: DocxDocument) -> dict:
             d["readonly"] = True
             d["protected"] = True  # 文書の保護で、編集できる範囲の外
         out["fields"].append(d)
+    return out
+
+
+def _pictures(doc) -> list[dict]:
+    """文書の絵：説明（代わりの字）があるか、飾りの印があるか。説明のない絵は、本文に〔図N（説明なし）〕と出す。
+    where は、その絵のある段落の字（本人に場所を伝えるため）。"""
+    out = []
+    for pic in getattr(doc, "pictures", []) or []:
+        near = re.sub(r"〔[^〕]*〕", "", pic["para"].text).strip()
+        out.append({"id": f"図{pic['n']}", "alt": pic["alt"] or None, "decorative": pic["decorative"],
+                    "where": f"「{near[:30]}」の段落" if near else "字のない段落"})
     return out
 
 

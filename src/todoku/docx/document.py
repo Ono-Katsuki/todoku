@@ -290,6 +290,7 @@ class DocxDocument:
         self.embeds: list[dict] = []  # 埋め込んだ OLE の部品（word/embeddings の部品）
         self.charts: list[dict] = []  # グラフ（word/charts の部品）：本文の〔グラフ1〕の所
         self.diagrams: list[dict] = []  # SmartArt（word/diagrams のデータの部品）：本文の〔SmartArt1〕の所
+        self.pictures: list[dict] = []  # 絵（a:blip・v:imagedata）：説明（代わりの字）と飾りの印。段階とは別の注意に使う
         self.main = self._main_part()
         self.parts: dict[str, tuple[bytes, Node]] = {}
         self.rels = self._rels(self.main)
@@ -604,6 +605,11 @@ class DocxDocument:
                     e["alt"] = next((n.get("alt") for n in ch.iter("shape") if n.get("alt")), "") or (alt[0] if alt else "")
                 if e is not None:
                     p.segs.append(Seg(f"〔埋め込み{e['n']}：{e['label']}〕", "other", None, r, hidden))
+                elif self._picture(ch, p, alt[0] if alt else ""):
+                    pic = self.pictures[-1]
+                    mark = f"〔図: {pic['alt']}〕" if pic["alt"] else f"〔図{pic['n']}（説明なし）〕" if not pic["decorative"] else ""
+                    if mark:
+                        p.segs.append(Seg(mark, "other", None, r, hidden))
                 elif alt:
                     p.segs.append(Seg(f"〔図: {alt[0]}〕", "other", None, r, hidden))
             elif loc == "ruby":
@@ -645,6 +651,22 @@ class DocxDocument:
              "images": images, "aspect": ole.get("DrawAspect") or "Content"}
         self.embeds.append(e)
         return e
+
+    def _picture(self, node: Node, p: Para, alt: str) -> bool:
+        """図の中に絵（a:blip・v:imagedata）があれば、絵の一覧に足す。代わりの中身（Fallback）とテキストボックスの中は数えない。"""
+        found = False
+        for n in list(node.iter("blip")) + list(node.iter("imagedata")):
+            if not any(x.local in ("Fallback", "txbxContent") for x in _ancestors(n, node)):
+                found = True
+                break
+        if not found:
+            return False
+        pr = next(iter(node.iter("docPr")), None)
+        deco = pr is not None and any(x.local == "decorative" and x.get("val") in ("1", "true") for x in pr.iter("decorative"))
+        if not alt:
+            alt = next((s.get("alt") for s in node.iter("shape") if s.get("alt")), "") or ""  # VML の絵の説明
+        self.pictures.append({"n": len(self.pictures) + 1, "alt": alt.strip(), "decorative": deco, "para": p})
+        return True
 
     def _graphics(self, node: Node, part: str) -> list[str]:
         """図の中のグラフ（c:chart・新しい種類の cx:chart）と SmartArt（dgm:relIds）を一覧に足し、本文に出す印を返す。

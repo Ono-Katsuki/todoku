@@ -1281,7 +1281,8 @@ def build(wb: Workbook) -> dict:
                           **_ax_control_info(c)}
                          for c in sh.controls],
             "shapes": [{"kind": s.kind, "name": s.name, "text": s.text, "alt": s.alt,
-                        "anchor": addr(*s.anchor) if s.anchor else None, "provenance": DET} for s in sh.shapes],
+                        "anchor": addr(*s.anchor) if s.anchor else None, "provenance": DET,
+                        **({"decorative": True} if getattr(s, "decorative", False) else {})} for s in sh.shapes],
             "notes": [{"cell": addr(*k), "text": t, "provenance": DET} for k, t in sorted(sh.comments.items())],
             "tables": _tables(wb, sh),
         })
@@ -1458,7 +1459,8 @@ def _md_sheet(sh: dict) -> list[str]:
     if notes or shapes or sh.get("header_footer"):
         out += ["### 図形・メモ・ヘッダー", ""]
         for s in shapes:
-            desc = s["text"] or s["alt"] or "（文字も代替テキストもありません）"
+            desc = s["text"] or s["alt"] or ("（飾り）" if s.get("decorative") else
+                                              "**説明（代わりの字）がありません**" if s["kind"] == "picture" else "（文字も代替テキストもありません）")
             out.append(f"- {s['kind']}（{s['anchor'] or '位置不明'}付近）: {_md(desc)}")
         for n in notes:
             out.append(f"- メモ（{n['cell']}）: {_md(n['text'])}")
