@@ -274,10 +274,13 @@ class DocFile:
 
     def char_props(self, cp: int) -> dict:
         fc = self.fc_of(cp)
-        d = {"hidden": False, "underline": False, "pic": None, "symbol": None, "spec": False, "data": False}
+        d = {"hidden": False, "underline": False, "pic": None, "symbol": None, "spec": False, "data": False, "deleted": False}
         for sp, op in sprms(self._lookup(self.chpx, fc)):
-            if sp == 0x0839:
+            # 命令の番号は MS-DOC の原本（2.6.1）で確かめた：0x083C 非表示（0x0839 は影付きで別のもの）、0x0800 変更履歴の削除
+            if sp == 0x083C:
                 d["hidden"] = bool(op[0] & 1) if op else False
+            elif sp == 0x0800:
+                d["deleted"] = bool(op[0] & 1) if op else False
             elif sp == 0x2A3E:
                 d["underline"] = bool(op[0]) if op else False
             elif sp == 0x6A03 and len(op) >= 4:
@@ -473,7 +476,7 @@ class DocFile:
                 cp += 1
                 continue
             props = self.char_props(cp)
-            hidden = props["hidden"]
+            hidden = props["hidden"] or props["deleted"]  # 変更履歴で削除された字は、Word と同じく本文に出さない
             if o == 0x09:
                 p.segs.append(Seg("\t", "tab", CPRef(cp), None, hidden, props["underline"]))
             elif o in (0x0B, 0x0C, 0x0E):

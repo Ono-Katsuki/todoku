@@ -97,8 +97,8 @@ def lint(doc: DocFile) -> list[str]:
         errs.append(f"ピースの表が文書の終わり（{total}）まで届いていません（{doc.pieces[-1].cp1}）")
     for name, cb in SHIFT.items():
         f0, lcb = doc.fc.get(name, (0, 0))
-        if not lcb:
-            continue
+        if not lcb or name in ("Plcfuim", "Plcfcookie", "PlcfCookieOld"):
+            continue  # 並んでいなくてよい表・最後の位置が定義されない表
         n = (lcb - 4) // (4 + cb)
         vals = struct.unpack_from(f"<{n + 1}I", doc.table, f0)
         if any(b < a for a, b in zip(vals, vals[1:])):

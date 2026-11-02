@@ -18,12 +18,15 @@ from ..docx.fill import FillError, _as_bool, _is_text_value
 from ..docx.window import MARK_PREFIX, Spots
 from .book import FC_NAMES, DocFile
 
-# 本文の位置（CP）を持つ表と、1つの要素のデータの大きさ（バイト）
+# 本文の位置（CP）を持つ表と、1つの要素のデータの大きさ（バイト）。どれも MS-DOC の原本（2.8 節の各 PLC と 2.9 節の構造）で確かめた。
+#   Plcfbkf=FBKF 4・Plcfbkl=0・Plcfbkfd=FBKFD 6・Plcfbkld=FBKLD 4・Plcbkf=BKF 6・Plcbkl=BKL 4・Plcbkfd=BKFD 10・Plcbkld=BKLD 8
+#   文書のすべての部分にまたがる位置を持つもの（スペル・文法・言語の判定・表の控え・クッキー・IME・自動要約・スマートタグ）も、同じ規則でずらす
 SHIFT = {"PlcffndRef": 2, "PlcfendRef": 2, "PlcfandRef": 30, "PlcfSed": 12, "PlcfFldMom": 2, "PlcSpaMom": 26,
-         "PlcfAtnBkf": 10, "PlcfAtnBkl": 4, "PlcfbkfBPRepairs": 4, "PlcfbklBPRepairs": 0, "PlcfBkfFcc": 10,
-         "PlcfBklFcc": 4, "PlcfBkfSdt": 10, "PlcfBklSdt": 4, "PlcfBkfProt": 10, "PlcfBklProt": 4,
-         "PlcfBkfMoveFrom": 10, "PlcfBklMoveFrom": 4, "PlcfBkfMoveTo": 10, "PlcfBklMoveTo": 4, "PlcfBkfArto": 10,
-         "PlcfBklArto": 4, "PlcfWkb": 12}
+         "PlcfAtnBkf": 4, "PlcfAtnBkl": 0, "PlcfbkfBPRepairs": 4, "PlcfbklBPRepairs": 0, "PlcfBkfFcc": 6,
+         "PlcfBklFcc": 4, "PlcfBkfFactoid": 6, "PlcfBklFactoid": 4, "PlcfBkfSdt": 10, "PlcfBklSdt": 8,
+         "PlcfBkfProt": 6, "PlcfBklProt": 4, "PlcfWkb": 12,
+         "PlcfSpl": 2, "PlcfGram": 2, "PlcfLad": 2, "PlcfTch": 4, "Plcfcookie": 10, "PlcfCookieOld": 16,
+         "Plcfuim": 20, "PlcfAsumy": 4, "Plcffactoid": 2}
 # 本文以外の流れ（脚注・ヘッダー・コメント・文末脚注・テキストボックス）の、流れの中の位置を持つ表
 SUB = {"ftn": (4, [("PlcffndTxt", 0), ("PlcfFldFtn", 2)]),
        "hdd": (5, [("PlcfHdd", 0), ("PlcfFldHdr", 2), ("PlcSpaHdr", 26)]),
@@ -32,16 +35,14 @@ SUB = {"ftn": (4, [("PlcffndTxt", 0), ("PlcfFldFtn", 2)]),
        "txbx": (9, [("PlcftxbxTxt", 22), ("PlcfTxbxBkd", 6), ("PlcfFldTxbx", 2)]),
        "hdrtxbx": (10, [("PlcfHdrtxbxTxt", 22), ("PlcfTxbxHdrBkd", 6), ("PlcffldHdrTxbx", 2)])}
 ORDER = ["text", "ftn", "hdd", "atn", "edn", "txbx", "hdrtxbx"]
-# 描き直せば作り直される控え（空にしてよい）
-CACHES = {"PlcfSpl", "PlcfGram", "PlcfPhe", "PlcfTch", "PlcfLad", "Plcfuim", "Plcfcookie", "PlcfCookieOld", "PlcfpmiOld",
-          "PlcfpmiOldInline", "PlcfpmiNew", "PlcfpmiNewInline", "PlcfpmiOldXP", "PlcfpmiNewXP", "PlcfpmiMixedXP",
-          "PlcflvcOld", "PlcflvcOldInline", "PlcflvcNew", "PlcflvcNewInline", "PlcflvcOldXP", "PlcflvcNewXP",
-          "PlcflvcMixedXP", "PlcfLvcPre10", "PlcfBteLvc", "PgdMother", "BkdMother", "AfdMother", "PgdFtn", "BkdFtn",
-          "AfdFtn", "PgdEdn", "BkdEdn", "AfdEdn", "Afd", "PgdMotherOld", "BkdMotherOld", "PgdFtnOld", "BkdFtnOld",
-          "PgdEdnOld", "BkdEdnOld", "PgdMotherOldOld", "BkdMotherOldOld", "PgdFtnOldOld", "BkdFtnOldOld",
-          "PgdEdnOldOld", "BkdEdnOldOld", "PlcfPgdFtn", "PlcfAsumy", "Plcffactoid", "PlcfBkfFactoid", "PlcfBklFactoid",
-          "SttbfBkmkFactoid", "FactoidData", "PlcfPgp"}
-# 本文の位置を持たない（またはヘッダー・脚注など別の流れの位置を持つ）もの：そのままでよい
+# 原本で「使わない控え（SHOULD NOT be emitted・SHOULD be ignored）」とされているもの：空にする
+CACHES = {"PlcfPhe", "PlcfBteLvc", "PlcfLvcPre10", "PlcflvcOld", "PlcflvcOldInline", "PlcflvcNew", "PlcflvcNewInline",
+          "PlcflvcOldXP", "PlcflvcNewXP", "PlcflvcMixedXP", "PlcfpmiOld", "PlcfpmiOldInline", "PlcfpmiNew",
+          "PlcfpmiNewInline", "PlcfpmiOldXP", "PlcfpmiNewXP", "PlcfpmiMixedXP", "PgdMother", "BkdMother", "AfdMother",
+          "PgdFtn", "BkdFtn", "AfdFtn", "PgdEdn", "BkdEdn", "AfdEdn", "Afd", "PgdMotherOld", "BkdMotherOld", "PgdFtnOld",
+          "BkdFtnOld", "PgdEdnOld", "BkdEdnOld", "PgdMotherOldOld", "BkdMotherOldOld", "PgdFtnOldOld", "BkdFtnOldOld",
+          "PgdEdnOldOld", "BkdEdnOldOld", "PlcfPgdFtn"}
+# 本文の位置を持たない（または別の流れの位置を持ち、SUB でずらす）もの：そのままでよい
 SAFE = {"StshfOrig", "Stshf", "PlcffndTxt", "PlcfandTxt", "PlcPad", "SttbfGlsy", "PlcfGlsy", "PlcfHdd", "PlcfBteChpx",
         "PlcfBtePapx", "PlcfSea", "SttbfFfn", "PlcfFldHdr", "PlcfFldFtn", "PlcfFldAtn", "PlcfFldMcr", "SttbfBkmk",
         "PlcfBkf", "PlcfBkl", "Cmds", "Unused1", "SttbfMcr", "PrDrvr", "PrEnvPort", "PrEnvLand", "Wss", "Dop",
@@ -54,8 +55,11 @@ SAFE = {"StshfOrig", "Stshf", "PlcffndTxt", "PlcfandTxt", "PlcPad", "SttbfGlsy",
         "SttbRgtplc", "MsoEnvelope", "RgDofr", "Plcosl", "Unused1_2002", "PlfguidUim", "AtrdExtra", "Plrsid",
         "DocUndo", "SttbfBkmkFcc", "SttbfbkmkBPRepairs", "PmsNew", "ODSO", "Unused2_2002", "Hplxsdr", "SttbfBkmkSdt",
         "CustomXForm", "SttbfBkmkProt", "SttbProtUser", "Unused_2003", "Plcfmthd", "SttbfBkmkMoveFrom",
-        "SttbfBkmkMoveTo", "Unused1_2007", "Unused2_2007", "Unused3_2007", "SttbfBkmkArto", "ArtoData", "Unused4_2007",
-        "Unused5_2007", "Unused6_2007", "OssTheme", "ColorSchemeMapping"}
+        "PlcfBkfMoveFrom", "PlcfBklMoveFrom", "SttbfBkmkMoveTo", "PlcfBkfMoveTo", "PlcfBklMoveTo", "Unused1_2007",
+        "Unused2_2007", "Unused3_2007", "SttbfBkmkArto", "PlcfBkfArto", "PlcfBklArto", "ArtoData", "Unused4_2007",
+        "Unused5_2007", "Unused6_2007", "OssTheme", "ColorSchemeMapping",
+        # 段落のまとまり（PGPArray）は位置を持たない（段落の書式の ipgpSelf から引く）。スマートタグの名前とデータも位置を持たない
+        "PlcfPgp", "SttbfBkmkFactoid", "FactoidData"}
 
 
 @dataclass
@@ -216,7 +220,8 @@ class DocWriter:
                 raise FillError(f"{name} の大きさが想定と違います")
             for k in range(n + 1):
                 v = struct.unpack_from("<I", tb, f0 + 4 * k)[0]
-                struct.pack_into("<I", tb, f0 + 4 * k, self.shift(v) if v <= total_old else v)
+                # 文書の終わりより後ろの位置（「長さ＋1」の終わりの印など）も、増えた分だけずらす
+                struct.pack_into("<I", tb, f0 + 4 * k, self.shift(v))
         # 本文以外の流れの表：流れの中の位置 → 文書の中の位置にしてずらし、流れの中の位置に戻す
         st_old = self.starts()
         for story, (_idx, plcs) in SUB.items():
