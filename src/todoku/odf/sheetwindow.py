@@ -206,4 +206,15 @@ def grade_sheets(blob: bytes, name: str):
         if ctl:
             write.append(Reason("D", "フォームの部品", f"シート「{sh_obj.name}」のフォームの部品 {len(ctl)} 個には、いまは書けません"
                                   "（つながったセルがあれば、そのセルに書きます）", [s.name for s in ctl][:12]))
-    return _final(reasons, write)
+    from ..formula.parser import addr
+    from ..grade import picture_alerts
+
+    pictures = []
+    for sh_obj in wb.sheets:
+        for n, s in enumerate((s for s in sh_obj.shapes if s.kind == "picture"), 1):
+            at = f"の {addr(*s.anchor)} 付近" if s.anchor else ""
+            pictures.append({"id": f"{sh_obj.name}!{s.name or f'図{n}'}", "alt": (s.alt or "").strip() or None,
+                             "decorative": getattr(s, "decorative", False), "where": f"シート「{sh_obj.name}」{at}"})
+    g = _final(reasons, write)
+    g.alerts = picture_alerts(pictures)
+    return g

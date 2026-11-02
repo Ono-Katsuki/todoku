@@ -82,6 +82,7 @@ class OdtDocument:
             raise OdfError("文書の本文（office:text）がありません")
         self.styles = Styles(self.pkg)
         self.controls: list[Control] = []
+        self.pictures: list[dict] = []  # 絵（draw:image）：説明（svg:title・svg:desc）と飾りの印。段階とは別の注意に使う
         self.form_by_id: dict[str, Control] = {}
         self.radio_groups: dict[str, Control] = {}
         self.notes: list[tuple[str, list]] = []  # (footnotes / endnotes, ブロック)
@@ -434,8 +435,13 @@ class OdtDocument:
         desc = el.find("svg:desc")
         alt = " ".join(x for x in (text_of(title, data).strip() if title is not None else "",
                                    text_of(desc, data).strip() if desc is not None else "") if x)
-        if alt and el.find("draw:image") is not None:
-            segs.insert(0, Seg(f"〔図: {alt}〕", "other", Src("el", part, el.s, el.e, el=el), ctx.run, ctx.hidden))
+        if el.find("draw:image") is not None:
+            # 飾りの印：LibreOffice の拡張（loext:decorative="true"）
+            deco = (el.get("loext:decorative") or "").lower() == "true"
+            self.pictures.append({"n": len(self.pictures) + 1, "alt": alt, "decorative": deco, "para": p})
+            mark = f"〔図: {alt}〕" if alt else "" if deco else f"〔図{len(self.pictures)}（説明なし）〕"
+            if mark:
+                segs.insert(0, Seg(mark, "other", Src("el", part, el.s, el.e, el=el), ctx.run, ctx.hidden))
         if atoms is not None:
             atoms.append(("seg", segs) if segs else ("sep",))
         else:

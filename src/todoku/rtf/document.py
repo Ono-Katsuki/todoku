@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import codecs
+import bisect
 import re
 from dataclasses import dataclass, field
 
@@ -145,6 +146,65 @@ class RtfDocument:
         elif re.search(rb"\\readprot(?![a-z])", head):
             self.protection, self.protection_enforced = "readOnly", True
         self._parse()
+        self.pictures = self._pictures()
+
+    # ------------------------------------------------------------------ 絵の説明（代わりの字）
+    def _pictures(self) -> list[dict]:
+        """絵（\\pict）ごとの説明：絵の性質（\\picprop）か、絵を包む図形（\\shp の \\shpinst）の wzDescription・wzName ではなく
+        wzDescription だけを説明とする（Word の「代替テキスト」）。同じ絵の控え（\\nonshppict・\\shprslt の中）は数えない。
+        段落は、絵より前にある字のうち、いちばん近いものの段落。"""
+        b = self.blob
+        out: list[dict] = []
+        groups: list[tuple[int, str]] = []  # (開いた位置, 宛先の制御語)
+        shp_alt: list[str | None] = []
+        i, n = 0, len(b)
+        word = re.compile(rb"\\(\*?)\\?([a-zA-Z]+)(-?\d+)? ?")
+        paras = [(min((s.node.s for s in p.segs if getattr(s.node, "s", None) is not None), default=None), p)
+                 for _k, _part, blocks in self.all_blocks() for p in iter_paras(blocks)]
+        paras = sorted((s, k, p) for k, (s, p) in enumerate(paras) if s is not None)
+        starts = [s for s, _k, _p in paras]
+        while i < n:
+            ch = b[i]
+            if ch == 0x7B:  # {
+                m = word.match(b, i + 1)
+                w = m[2].decode() if m else ""
+                groups.append((i, w))
+                if w == "shp":
+                    shp_alt.append(None)
+                if w == "sp":
+                    j = _group_end(b, i)
+                    body = b[i:j]
+                    mm = re.search(rb"\\sn\s+wzDescription\s*}\s*{\\sv\s?(.*?)}", body, re.S)
+                    if mm and shp_alt:
+                        shp_alt[-1] = _rtf_text(mm[1], self.ansicpg)
+                    if b"\\pict" not in body:
+                        i = j
+                        groups.pop()
+                        continue
+                if w == "pict":
+                    j = _group_end(b, i)
+                    inside = {g for _s, g in groups}
+                    if not inside & {"nonshppict", "shprslt"}:
+                        mm = re.search(rb"\\sn\s+wzDescription\s*}\s*{\\sv\s?(.*?)}", b[i:j], re.S)
+                        alt = _rtf_text(mm[1], self.ansicpg) if mm else (shp_alt[-1] if shp_alt else None)
+                        k = bisect.bisect_right(starts, i) - 1
+                        para = paras[k][2] if k >= 0 else (paras[0][2] if paras else Para(None, "", []))
+                        out.append({"n": len(out) + 1, "alt": (alt or "").strip(), "decorative": False, "para": para})
+                    groups.pop()
+                    i = j
+                    continue
+                i += 1
+            elif ch == 0x7D:  # }
+                if groups:
+                    _s, w = groups.pop()
+                    if w == "shp" and shp_alt:
+                        shp_alt.pop()
+                i += 1
+            elif ch == 0x5C and i + 1 < n and b[i + 1] in b"{}\\":
+                i += 2
+            else:
+                i += 1
+        return out
 
     # ------------------------------------------------------------------ フォントの表
     def _fonts_pass(self) -> None:
@@ -855,3 +915,60 @@ class RtfDocument:
 
 def paragraphs(doc: RtfDocument) -> list[Para]:
     return [p for _k, _p, bl in doc.all_blocks() for p in iter_paras(bl)]
+
+
+def _group_end(b: bytes, i: int) -> int:
+    """b[i] の「{」に対応する「}」の次の位置。"""
+    depth, n = 0, len(b)
+    while i < n:
+        ch = b[i]
+        if ch == 0x5C:
+            i += 2
+            continue
+        if ch == 0x7B:
+            depth += 1
+        elif ch == 0x7D:
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return n
+
+
+def _rtf_text(raw: bytes, cp: str) -> str:
+    """図形の性質の値（\\sv）の字：\\uN と \\'hh（文書の文字コード）を字にする。"""
+    out, buf, i, n, skip = [], bytearray(), 0, len(raw), 0
+    while i < n:
+        m = re.match(rb"\\u(-?\d+) ?", raw[i:])
+        if m:
+            if buf:
+                out.append(buf.decode(cp, errors="replace"))
+                buf = bytearray()
+            out.append(chr(int(m[1]) % 65536))
+            i += m.end()
+            skip = 1
+            continue
+        if raw[i:i + 2] == b"\\'" and i + 4 <= n:
+            if skip:
+                skip -= 1
+            else:
+                buf.append(int(raw[i + 2:i + 4], 16))
+            i += 4
+            continue
+        if raw[i] == 0x5C and i + 1 < n and raw[i + 1] in b"{}\\":
+            buf.append(raw[i + 1])
+            i += 2
+            continue
+        if raw[i] == 0x5C:
+            m = re.match(rb"\\[a-zA-Z]+-?\d* ?", raw[i:])
+            i += m.end() if m else 1
+            continue
+        if raw[i] not in b"\r\n":
+            if skip:
+                skip -= 1
+            else:
+                buf.append(raw[i])
+        i += 1
+    if buf:
+        out.append(buf.decode(cp, errors="replace"))
+    return "".join(out)

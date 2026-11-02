@@ -298,4 +298,8 @@ def _grade_textdoc(win: dict, kind_ja: str, explicit: str):
         reasons.append(Reason("F", "読めない部分", e))
     write = _write_fields(fields, layout, agent, f"{kind_ja}の{explicit}", "欄のない所は、前後の字を指定して書き換えます")
     write += _write_macros(win.get("macros"))
-    return _final(reasons, write)
+    from .grade import picture_alerts
+
+    g = _final(reasons, write)
+    g.alerts = picture_alerts(win.get("pictures") or [])
+    return g

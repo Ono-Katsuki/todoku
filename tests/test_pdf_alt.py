@@ -96,3 +96,18 @@ def test_old_word_picture_without_description_is_an_alert():
         pytest.skip("コーパスがありません")
     g = grade_blob(open(files[0], "rb").read(), "aggregation.doc")
     assert [a.title for a in g.alerts] == ["説明のない画像"] and g.alerts[0].where[0].startswith("図1")
+
+
+def test_rtf_picture_description():
+    from todoku.rtf.document import RtfDocument
+
+    def rtf(prop: bytes) -> bytes:
+        return (b"{\\rtf1\\ansi\\ansicpg932{\\fonttbl{\\f0 MS Mincho;}}\\pard \\f0 map\\par "
+                b"{\\*\\shppict{\\pict{\\*\\picprop" + prop + b"}\\pngblip 89504e47}}"
+                b"{\\nonshppict{\\pict\\wmetafile8 0100}}\\par}")
+
+    bare = RtfDocument(rtf(b""), "a.rtf")
+    assert [(p["n"], p["alt"]) for p in bare.pictures] == [(1, "")]  # 控え（\nonshppict）は数えない
+    assert [a.title for a in grade_blob(rtf(b""), "a.rtf").alerts] == ["説明のない画像"]
+    named = RtfDocument(rtf(b"{\\sp{\\sn wzDescription}{\\sv \\'92\\'6e\\'90\\'7d}}"), "a.rtf")
+    assert named.pictures[0]["alt"] == "地図"
