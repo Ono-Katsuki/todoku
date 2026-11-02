@@ -42,7 +42,63 @@ def _load(path: str):
         sys.exit(f"{p.name}: {e}")
 
 
+def _is_pdf(path: str) -> bool:
+    from .book import kind_of
+
+    return kind_of(Path(path).read_bytes()[:16]) == "pdf"
+
+
+def _pdf_convert(a) -> int:
+    from .pdf.doc import PdfDocument
+    from .pdf.window import build, markdown_parts
+
+    blob = Path(a.file).read_bytes()
+    doc = build(PdfDocument(blob, Path(a.file).name))
+    out = Path(a.out or ".")
+    out.mkdir(parents=True, exist_ok=True)
+    stem = Path(a.file).stem
+    clean = {**doc, "pages": [{k: v for k, v in pg.items() if not k.startswith("_")} for pg in doc["pages"]]}
+    _dump(clean, out / f"{stem}.window.json")
+    parts = markdown_parts(doc)
+    (out / f"{stem}.window.md").write_text(parts[0][1], encoding="utf-8")
+    for i, (_, text) in enumerate(parts[1:], 1):
+        (out / f"{stem}.window.part{i:02d}.md").write_text(text, encoding="utf-8")
+    n = sum(len(p["fields"]) for p in doc["pages"])
+    unmapped = sum(p["unmapped"] for p in doc["pages"])
+    print(f"PDF: {len(doc['pages'])} ページ・入力欄 {n} か所・文字に直せない字 {unmapped} 字"
+          + ("・フォームの欄あり" if doc["form"]["acroform_fields"] else "・印刷用（入力欄は配置から推定）"))
+    print(f"出力: {out}/{stem}.window.md と window.json")
+    return 0 if unmapped == 0 else 1
+
+
+def _pdf_fill(a, values: dict) -> int:
+    from .pdf.doc import PdfDocument
+    from .pdf.fill import FillError, fill as pdf_fill
+    from .pdf.proof import prove as pdf_prove
+
+    blob = Path(a.file).read_bytes()
+    try:
+        res = pdf_fill(PdfDocument(blob, Path(a.file).name), values)
+    except FillError as e:
+        print(f"書き込めません: {e}", file=sys.stderr)
+        return 2
+    out_path = Path(a.out)
+    out_path.write_bytes(res.blob)
+    pr = pdf_prove(blob, res.blob, set(values))
+    print(pr.headline())
+    if pr.lint_errors:
+        print("構造の問題:", *pr.lint_errors[:20], sep="\n  ")
+    if pr.unexpected:
+        print("想定外の変更:", *pr.unexpected[:20], sep="\n  ")
+    print(f"元 SHA-256: {pr.original_sha256}")
+    print(f"後 SHA-256: {pr.new_sha256}")
+    _dump({**pr.__dict__, "ok": pr.ok, "headline": pr.headline()}, out_path.with_suffix(".proof.json"))
+    return 0 if pr.ok else 1
+
+
 def cmd_convert(a) -> int:
+    if _is_pdf(a.file):
+        return _pdf_convert(a)
     wb = _load(a.file)
     out = Path(a.out or ".")
     out.mkdir(parents=True, exist_ok=True)
@@ -130,12 +186,14 @@ def _write_fill(wb: Workbook, values: dict, out_path: Path, strict: bool) -> int
 
 
 def cmd_fill(a) -> int:
-    wb = _load(a.file)
     values = _parse_sets(a.set)
     if a.json:
         values.update(json.loads(Path(a.json).read_text(encoding="utf-8")))
     if not values:
         sys.exit("書き込む値がありません（--set か --json）")
+    if _is_pdf(a.file):
+        return _pdf_fill(a, values)
+    wb = _load(a.file)
     return _write_fill(wb, values, Path(a.out), a.strict)
 
 
@@ -191,7 +249,12 @@ def cmd_audit(a) -> int:
     from .xlsx.audit import run
 
     blob = Path(a.file).read_bytes()
-    au = run(blob, Path(a.file).name, Path(a.example).read_bytes() if a.example else None)
+    if _is_pdf(a.file):
+        from .pdf.audit import run as pdf_run
+
+        au = pdf_run(blob, Path(a.file).name)
+    else:
+        au = run(blob, Path(a.file).name, Path(a.example).read_bytes() if a.example else None)
     for c in au.checks:
         print(f"[{'OK' if c.ok else '要確認'}] {c.name}: {c.detail}")
         for x in c.items[:8]:
@@ -242,9 +305,9 @@ def main(argv=None) -> int:
     p.add_argument("file")
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(func=cmd_verify)
-    p = sub.add_parser("fill", help="セルに書き込む（変えるのは書き込んだ値と、その計算結果だけ）")
+    p = sub.add_parser("fill", help="入力欄に書き込む（変えるのは書き込んだ値と、その計算結果・見た目だけ）")
     p.add_argument("file")
-    p.add_argument("--set", action="append", help="'シート!セル=値'（何度でも）")
+    p.add_argument("--set", action="append", help="'シート!セル=値'、PDF は '欄の名前=値'（何度でも）")
     p.add_argument("--json", help='{"シート!セル": 値} のJSONファイル')
     p.add_argument("-o", "--out", required=True)
     p.add_argument("--strict", action="store_true", help="入力規則に合わない値があれば書き込まない")

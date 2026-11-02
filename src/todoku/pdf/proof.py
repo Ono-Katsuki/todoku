@@ -1,0 +1,274 @@
+"""PDFの書き込みの証明：元のバイト列がそのまま先頭に残り、変わったのは書いた欄とその見た目だけであることを確かめる。
+
+- 元のファイルのバイト列が、新しいファイルの先頭とバイト一致する（増分更新）
+- 新しい相互参照の各項目が、正しい位置の「n g obj」を指す（修復なしに開ける）
+- 書き換えたオブジェクトは、許した変更（ページの注釈の一覧に足す・フォームの欄の値と見た目・欄の一覧に足す・書体を足す）だけ
+- 足したオブジェクトは、欄・見た目・書体だけで、どれも書き換えたオブジェクトからたどれる
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from dataclasses import dataclass, field
+
+from .doc import PdfDocument
+from .objects import Lexer, Name, PdfString, Ref, Stream
+
+
+@dataclass
+class PdfProof:
+    original_sha256: str
+    new_sha256: str
+    prefix_ok: bool
+    objects_added: int = 0
+    objects_changed: int = 0
+    unexpected: list[str] = field(default_factory=list)
+    lint_errors: list[str] = field(default_factory=list)
+    changed_fields: list[str] = field(default_factory=list)
+    original_bytes: int = 0
+    new_bytes: int = 0
+
+    @property
+    def ok(self) -> bool:
+        return self.prefix_ok and not self.unexpected and not self.lint_errors
+
+    def headline(self) -> str:
+        if not self.prefix_ok:
+            return "元のバイト列が保たれていません"
+        return (f"元のファイル {self.original_bytes:,} バイトは先頭からバイト一致のまま、後ろに {self.new_bytes - self.original_bytes:,} バイトを足しました"
+                f"（足したオブジェクト {self.objects_added}・書き換えたオブジェクト {self.objects_changed}）。"
+                + ("変わったのは書いた欄とその見た目だけです" if not self.unexpected else f"想定外の変更 {len(self.unexpected)} 件"))
+
+    # 書き込みの証明を、ほかの形式と同じ形で使えるように
+    @property
+    def entries_total(self) -> int:
+        return 1
+
+    @property
+    def entries_identical(self) -> int:
+        return 1 if self.prefix_ok else 0
+
+
+ALLOWED_FIELD_KEYS = {"V", "AS", "AP", "DA"}
+
+
+def _norm(o):
+    """比べるための形（参照・名前・文字列を、そのまま比べられる値に）。"""
+    if isinstance(o, Stream):
+        return ("stream", _norm(o.dict), o.raw)
+    if isinstance(o, dict):
+        return {k: _norm(v) for k, v in o.items() if k != "Length"}
+    if isinstance(o, list):
+        return [_norm(x) for x in o]
+    if isinstance(o, PdfString):
+        return ("s", bytes(o))
+    return o
+
+
+def lint(blob: bytes) -> list[str]:
+    """相互参照の各項目が正しいオブジェクトを指しているか（ビューアーが修復なしに開けるか）。"""
+    errs = []
+    try:
+        doc = PdfDocument(blob)
+    except Exception as e:  # noqa: BLE001
+        return [f"開けません: {e}"]
+    if doc.repaired:
+        errs.append("相互参照が壊れていて、修復が必要です")
+        return errs
+    for num, ent in doc.xref.items():
+        if ent[0] != "o":
+            continue
+        off, gen = ent[1], ent[2]
+        m = re.match(rb"\s*(\d+)\s+(\d+)\s+obj", blob[off:off + 40])
+        if not m or int(m[1]) != num or int(m[2]) != gen:
+            errs.append(f"オブジェクト {num} の位置（{off}）が、そのオブジェクトを指していません")
+    if "Root" not in doc.trailer:
+        errs.append("文書の入口（Root）がありません")
+    try:
+        doc.pages()
+    except Exception as e:  # noqa: BLE001
+        errs.append(f"ページをたどれません: {e}")
+    return errs
+
+
+def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None) -> PdfProof:
+    pr = PdfProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest(),
+                  new[:len(original)] == original, original_bytes=len(original), new_bytes=len(new))
+    if not pr.prefix_ok:
+        pr.unexpected.append("元のバイト列が、新しいファイルの先頭と一致しません")
+        return pr
+    pr.lint_errors = [e for e in lint(new) if e not in lint(original)]
+    a = PdfDocument(original)
+    b = PdfDocument(new)
+    tail_start = len(original)
+    added, changed = [], []
+    for num, ent in b.xref.items():
+        if ent[0] == "o" and ent[1] >= tail_start:
+            if num in a.xref and a.xref[num][0] != "f":
+                changed.append(num)
+            else:
+                added.append(num)
+        elif ent[0] == "s":
+            # 圧縮されたオブジェクト：元の文書と同じ置き場所であること
+            if a.xref.get(num) != ent:
+                changed.append(num)
+        elif num in a.xref and a.xref[num] != ent:
+            pr.unexpected.append(f"オブジェクト {num} の置き場所が変わっています")
+    pr.objects_added = len(added)
+    pr.objects_changed = len(changed)
+    reach: set[int] = set()
+    for num in changed:
+        old, cur = a.get(num), b.get(num)
+        what = _check_change(a, b, num, old, cur, pr)
+        if what:
+            pr.changed_fields.append(what)
+        _collect(b, cur, reach, set(added))
+    # 足したオブジェクト：書き換えたものからたどれて、欄・見た目・書体だけ
+    for num in added:
+        o = b.get(num)
+        if num not in reach and not _is_xref(o):
+            pr.unexpected.append(f"足したオブジェクト {num} が、どこからも使われていません")
+        kind = _kind(o)
+        if kind is None:
+            pr.unexpected.append(f"足したオブジェクト {num} が、欄・見た目・書体のどれでもありません")
+        if kind == "field":
+            t = o.get("T")
+            if isinstance(t, (bytes, PdfString)):
+                from .objects import decode_text
+
+                pr.changed_fields.append(decode_text(t))
+    if allowed_fields is not None:
+        for name in pr.changed_fields:
+            if name and name not in allowed_fields and not any(name.startswith(x + ".") for x in allowed_fields):
+                pr.unexpected.append(f"書くと言っていない欄 {name} が変わっています")
+    return pr
+
+
+def _is_xref(o) -> bool:
+    return isinstance(o, Stream) and getattr(o.dict.get("Type"), "name", "") == "XRef"
+
+
+def _kind(o) -> str | None:
+    if _is_xref(o):
+        return "xref"
+    if isinstance(o, Stream):
+        st = getattr(o.dict.get("Subtype"), "name", "")
+        return "appearance" if st == "Form" else None
+    if isinstance(o, dict):
+        t = getattr(o.get("Type"), "name", "")
+        st = getattr(o.get("Subtype"), "name", "")
+        if st == "Widget" or "FT" in o or ("T" in o and "Kids" in o):
+            return "field"
+        if t in ("Font", "FontDescriptor"):
+            return "font"
+        if "Fields" in o:
+            return "acroform"
+        return None
+    if isinstance(o, list):
+        return "array" if all(isinstance(x, Ref) for x in o) else None
+    return None
+
+
+def _collect(doc, o, reach: set[int], allowed: set[int], depth: int = 0) -> None:
+    if depth > 30:
+        return
+    if isinstance(o, Ref):
+        if o.num in allowed and o.num not in reach:
+            reach.add(o.num)
+            _collect(doc, doc.get(o.num), reach, allowed, depth + 1)
+        return
+    if isinstance(o, Stream):
+        _collect(doc, o.dict, reach, allowed, depth + 1)
+    elif isinstance(o, dict):
+        for k, v in o.items():
+            if k in ("P", "Parent"):
+                continue
+            _collect(doc, v, reach, allowed, depth + 1)
+    elif isinstance(o, list):
+        for v in o:
+            _collect(doc, v, reach, allowed, depth + 1)
+
+
+def _check_change(a, b, num, old, cur, pr: PdfProof) -> str | None:
+    """書き換えたオブジェクトの差が、許した変更だけかを確かめる。書き換えた欄の名前（あれば）を返す。"""
+    if isinstance(old, list) and isinstance(cur, list):
+        if _norm(cur[:len(old)]) != _norm(old):
+            pr.unexpected.append(f"オブジェクト {num}（一覧）：元の項目が変わっています（足すだけのはず）")
+        return None
+    if not isinstance(old, dict) or not isinstance(cur, dict):
+        pr.unexpected.append(f"オブジェクト {num} が、辞書でない形で書き換えられています")
+        return None
+    keys = set(old) | set(cur)
+    diff = {k for k in keys if _norm(old.get(k)) != _norm(cur.get(k))}
+    t = getattr(old.get("Type"), "name", "")
+    if t == "Page" or ("Contents" in old and "MediaBox" in old) or (t == "" and "Annots" in diff and "Contents" in old):
+        bad = diff - {"Annots"}
+        if bad:
+            pr.unexpected.append(f"ページ（オブジェクト {num}）の {sorted(bad)} が変わっています")
+        if "Annots" in diff:
+            oa, ca = old.get("Annots"), cur.get("Annots")
+            if isinstance(oa, list) and (not isinstance(ca, list) or _norm(ca[:len(oa)]) != _norm(oa)):
+                pr.unexpected.append(f"ページ（オブジェクト {num}）の注釈の一覧で、元の注釈が変わっています")
+        return None
+    if t == "Catalog":
+        bad = diff - {"AcroForm"}
+        if bad:
+            pr.unexpected.append(f"文書の入口（Catalog）の {sorted(bad)} が変わっています")
+        return None
+    if "Fields" in old or "Fields" in cur:
+        bad = diff - {"Fields", "DR", "DA"}
+        if bad:
+            pr.unexpected.append(f"フォーム（AcroForm）の {sorted(bad)} が変わっています")
+        of, cf = old.get("Fields"), cur.get("Fields")
+        if isinstance(of, list) and (not isinstance(cf, list) or _norm(cf[:len(of)]) != _norm(of)):
+            pr.unexpected.append("フォームの欄の一覧で、元の欄が変わっています")
+        return None
+    if "FT" in old or getattr(old.get("Subtype"), "name", "") == "Widget" or "Kids" in old and "T" in old:
+        bad = diff - ALLOWED_FIELD_KEYS
+        if bad:
+            pr.unexpected.append(f"欄（オブジェクト {num}）の {sorted(bad)} が変わっています")
+        from .objects import decode_text
+
+        name = decode_text(old.get("T")) if isinstance(old.get("T"), (bytes, PdfString)) else None
+        if name is None and isinstance(old.get("Parent"), Ref):
+            par = a.get(old["Parent"].num)
+            if isinstance(par, dict) and isinstance(par.get("T"), (bytes, PdfString)):
+                name = decode_text(par["T"])
+        return _full_name(a, num, old) or name
+    if "Font" in old or t in ("Font",):
+        bad = {k for k in diff if k != "Font"}
+        if bad:
+            pr.unexpected.append(f"資源の辞書（オブジェクト {num}）の {sorted(bad)} が変わっています")
+        of, cf = old.get("Font"), cur.get("Font")
+        if isinstance(of, dict) and isinstance(cf, dict):
+            for k, v in of.items():
+                if _norm(cf.get(k)) != _norm(v):
+                    pr.unexpected.append(f"書体 {k} が変わっています（足すだけのはず）")
+        return None
+    # 書体の一覧そのもの（DR の Font が別オブジェクト）
+    if all(isinstance(v, Ref) for v in old.values()) and all(isinstance(v, Ref) for v in cur.values()):
+        for k, v in old.items():
+            if _norm(cur.get(k)) != _norm(v):
+                pr.unexpected.append(f"オブジェクト {num} の項目 {k} が変わっています（足すだけのはず）")
+        return None
+    pr.unexpected.append(f"オブジェクト {num} の {sorted(diff)} が変わっています")
+    return None
+
+
+def _full_name(doc, num, o) -> str | None:
+    from .objects import decode_text
+
+    parts = []
+    cur = o
+    seen = set()
+    while isinstance(cur, dict) and len(parts) < 32:
+        t = cur.get("T")
+        if isinstance(t, (bytes, PdfString)):
+            parts.append(decode_text(t))
+        p = cur.get("Parent")
+        if not isinstance(p, Ref) or p.num in seen:
+            break
+        seen.add(p.num)
+        cur = doc.get(p.num)
+    return ".".join(reversed(parts)) if parts else None
