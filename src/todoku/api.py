@@ -410,21 +410,51 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         where = d.get("sheet") or (f"{d['page']}ページ" if d.get("page") else "")
         return f"{where}・" if where else ""
 
+    def bare_id(d: dict) -> str:
+        i = d["id"]
+        return i.split("!", 1)[1] if d.get("sheet") and i.startswith(d["sheet"] + "!") else i
+
+    def name(d: dict) -> str:
+        """読み上げても分かる欄の名前：窓の印（［▶］・［　］）は「何番目の欄」に、見出しのない欄はセルの番地にする。"""
+        lab = d.get("label") or ""
+        if not lab or lab == d["id"]:
+            return f"{bare_id(d)}（見出しなし）"
+        slots = list(re.finditer(r"［[^］]*］", lab))
+        if not slots:
+            return lab
+        k = next((n for n, m in enumerate(slots, 1) if "▶" in m.group()), 0)
+        base = re.sub(r"［[^］]*］", "", lab).rstrip("-－ー：:　 ")
+        return f"{base}（{k}つ目の欄）" if k and len(slots) > 1 else base
+
     def shown(d: dict) -> str:
         v = "☑" if d["value"] is True else "☐" if d["value"] is False else str(d["value"])
-        lab = d["label"] or d["id"]
-        m = re.search(r"［[ 　]*］", lab)
-        if m:
-            return f"{lab[:m.start()]}［{v}］{lab[m.end():]}"  # 「令和［8］年 月 日」：空欄に値を入れた形で
-        return f"{lab}：{v}"
+        lab = d["label"] or ""
+        m = re.search(r"［▶[^］]*］", lab) or re.search(r"［[ 　]*］", lab)
+        if lab and m:
+            rest = re.sub(r"［[^］]*］", "［ ］", lab[m.end():])
+            head = re.sub(r"［[^］]*］", "［ ］", lab[:m.start()])
+            return f"{head}［{v}］{rest}"  # 「令和［8］年［ ］月」：空欄に値を入れた形で
+        return f"{name(d)}：{v}"
 
     lines = [f"書いた所（{len(told)} か所。書いた後のファイルを読み直した値）："]
     lines += [f"- {place(d)}{shown(d)}" for d in told[:60]]
     if len(told) > 60:
         lines.append(f"- ほか {len(told) - 60} か所")
     if empty:
-        lines.append(f"まだ空いている欄（{len(empty)} か所）：" + "、".join(f"{place(f)}{f.get('label') or f['id']}" for f in empty[:20])
-                     + ("ほか" if len(empty) > 20 else ""))
+        # 次に書くとよい欄：書いた所の続き（同じシート・ページで、書いた所より後ろの空欄）から順に
+        order = {f["id"]: i for i, f in enumerate(after_list)}
+        last = max((order[d["id"]] for d in told if d["id"] in order), default=-1)
+        where_last = next((after_list[last].get("sheet") or after_list[last].get("page") for _ in [0] if last >= 0), None)
+        nxt = [f for f in empty if order.get(f["id"], -1) > last and (f.get("sheet") or f.get("page")) == where_last] or empty
+        counts: dict = {}
+        for f in empty:
+            w = f.get("sheet") or (f"{f['page']}ページ" if f.get("page") else "")
+            counts[w] = counts.get(w, 0) + 1
+        by = "、".join(f"{w} {n} か所" for w, n in list(counts.items())[:6] if w) + ("ほか" if len(counts) > 6 else "")
+        lines.append(f"まだ空いている欄：{len(empty)} か所" + (f"（{by}）" if by and len(counts) > 1 else ""))
+        same = len({place(f) for f in nxt[:10]}) == 1
+        head = f"続きの空欄（{place(nxt[0]).rstrip('・')}）：" if same and place(nxt[0]) else "続きの空欄："
+        lines.append(head + "、".join(name(f) if same else f"{place(f)}{name(f)}" for f in nxt[:10]) + ("ほか" if len(nxt) > 10 else ""))
     if notes:
         lines.append("本人に伝えること：" + "／".join(notes[:10]))
     return {"written": told, "still_empty": [{"id": f["id"], "label": f.get("label", ""), **({"sheet": f["sheet"]} if "sheet" in f else {}),
