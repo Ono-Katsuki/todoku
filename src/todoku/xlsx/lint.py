@@ -64,6 +64,11 @@ def _check_order(children: list[str], order: list[str], where: str, errors: list
 
 def lint(blob: bytes, parts: list[str] | None = None) -> LintReport:
     """parts を指定すると、その部分だけを詳しく調べる（書き換えた部分の検査）。"""
+    if blob[:4] == b"\xd0\xcf\x11\xe0":
+        from ..xls.proof import lint as lint_xls
+
+        r = lint_xls(blob)
+        return LintReport(errors=r.errors, checked_parts=r.checked_parts)
     z = RawZip(blob)
     rep = LintReport()
     names = set(z.names())

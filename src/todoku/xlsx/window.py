@@ -112,6 +112,10 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
             for r in range(r1, r2 + 1):
                 for c in range(c1, c2 + 1):
                     add(r, c, "入力規則があるセル")
+    if not sh.protected:
+        # 保護も入力規則もない様式：枠で囲まれた空欄・色の付いた空欄で、見出しのそばにあるもの
+        for (r, c), why in _boxed_blanks(wb, sh).items():
+            add(r, c, why)
     # 数式が参照している定数・空白のセル（計算の入力）
     for cell in sh.cells.values():
         refs = list(iter_refs(cell.ast)) if cell.ast is not None else []
@@ -129,6 +133,136 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
                     if t is None or (not t.has_formula and (t.value is None or is_number(t.value))):
                         add(r, c, "数式が参照している値")
     return out
+
+
+def _boxed_blanks(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], str]:
+    """枠線で囲まれた空欄（または色の付いた空欄）で、左か上に見出しの文字があるもの。
+
+    保護も入力規則もない様式では、記入する場所は「枠のある空欄」として描かれている。見出しのない枠は数えない。
+    """
+    out: dict[tuple[int, int], str] = {}
+    rows = anchors(sh)
+
+    def bits(r: int, c: int) -> int:
+        return wb.style(sh.style_of(r, c)).borders if r >= 1 and c >= 1 else 0
+
+    def text_of(a: Anchor) -> bool:
+        return a.cell is not None and isinstance(a.cell.value, str) and bool(a.cell.value.strip()) and not a.cell.has_formula
+
+    covered: dict[tuple[int, int], Anchor] = {}
+    for items in rows.values():
+        for a in items:
+            for rr in range(a.r, min(a.r2, a.r + 50) + 1):
+                covered[(rr, a.c1)] = a
+    for r, items in rows.items():
+        for k, a in enumerate(items):
+            cell = a.cell
+            if cell is not None and (cell.has_formula or cell.value not in (None, "")):
+                continue
+            if sh.is_hidden(a.r, a.c1):
+                continue
+            left = bits(a.r, a.c1) & 1 or bits(a.r, a.c1 - 1) & 2
+            right = bits(a.r, a.c2) & 2 or bits(a.r, a.c2 + 1) & 1
+            top = bits(a.r, a.c1) & 4 or bits(a.r - 1, a.c1) & 8
+            bottom = bits(a.r2, a.c1) & 8 or bits(a.r2 + 1, a.c1) & 4
+            edges = sum(bool(x) for x in (left, right, top, bottom))
+            colored = wb.style(sh.style_of(a.r, a.c1)).fill_color not in (None, "FFFFFF")
+            if edges < 3 and not (bottom and edges >= 1) and not colored:
+                continue
+            # 見出し：同じ行の左（あいだに文字のマスをはさまない、空き4列まで）か、上（3行まで）
+            labeled = False
+            for b in reversed(items[:k]):
+                if text_of(b):
+                    labeled = a.c1 - b.c2 - 1 <= 4
+                    break
+                if b.cell is not None and b.cell.value not in (None, ""):
+                    break
+            if not labeled:
+                for rr in range(a.r - 1, max(0, a.r - 4), -1):
+                    above = [b for b in rows.get(rr, []) if b.c1 <= a.c2 and b.c2 >= a.c1]
+                    above += [x for x in (covered.get((rr, a.c1)),) if x is not None and x not in above]
+                    if any(text_of(b) for b in above):
+                        labeled = True
+                        break
+                    if any(b.cell is not None and b.cell.value not in (None, "") for b in above):
+                        break
+            if labeled:
+                out[(a.r, a.c1)] = "色の付いた空欄" if colored and edges < 3 else "枠のある空欄"
+    return out
+
+
+_BLANK_UNITS = ("年間", "か月", "ヶ月", "カ月", "時間", "年度", "年", "月", "日", "号", "円", "人", "名", "件", "回", "時",
+                "分", "歳", "才", "枚", "部", "台", "）", ")", "】", "］")
+_TOK = re.compile(r"令和|平成|昭和|大正|明治|西暦|[ \u3000]+|[_＿]{3,}|.", re.S)
+_ERAS = {"令和", "平成", "昭和", "大正", "明治", "西暦"}
+
+
+def inline_blanks(text: str) -> list[tuple[int, int]]:
+    """文字の中の、書き込むための空欄（「令和　　年　　月　　日」の空白、「第　　　号」の空白、「＿＿＿」）の位置。
+
+    - 単位（年・月・日・号・円など）や閉じかっこの直前の、2つ以上の空白
+    - 「第」「（」「：」の直後の空白、全角の「（」の直前の空白、文の終わりの「）」の後の空白（電話番号の欄など）
+    - 「平成　年　月　日」のように、年号と年・月・日が1つの空白でつながったもの
+    - 下線（＿＿＿、___）
+    字間を空けた見出し（「廃　業　年　月　日」）の空白や、飾りの空白（「北海道知事　　　様」）は空欄にしない。"""
+    toks = [(m.start(), m.end(), m[0]) for m in _TOK.finditer(text)]
+    single = {i for i, (a, b, t) in enumerate(toks) if t in (" ", "\u3000")}
+    # 1つの空白でつながった並び（字間を空けた見出しか、年月日の並び）
+    chain_space: dict[int, bool] = {}
+    i = 0
+    while i < len(toks):
+        j = i
+        while j + 2 < len(toks) and (j + 1) in single and not toks[j][2].isspace() and not toks[j + 2][2].isspace():
+            j += 2
+        if j - i >= 4:  # 3つ以上の文字が1つの空白でつながっている
+            words = [toks[k][2] for k in range(i, j + 1, 2)]
+            body = words[1:] if words[0] in _ERAS else words
+            date = all(w in ("年", "月", "日") for w in body) and len(body) >= 2
+            for k in range(i + 1, j, 2):
+                chain_space[k] = date
+            i = j + 1
+        else:
+            i += 1
+    out = []
+    for k, (a, b, t) in enumerate(toks):
+        if t[0] in "_＿":
+            out.append((a, b))
+            continue
+        if not t.isspace():
+            continue
+        if k in chain_space:
+            if chain_space[k]:
+                out.append((a, b))
+            continue
+        after = text[b:b + 2]
+        before = text[max(0, a - 1):a]
+        jp_before = a > 0 and ord(text[a - 1]) > 0x2E80
+        unit_after = any(after.startswith(u) for u in _BLANK_UNITS)
+        if b - a == 1:
+            # 1つの空白：日本語の文字のあとの半角の空白＋単位（「から 年間」）だけ
+            if t == " " and jp_before and unit_after:
+                out.append((a, b))
+            continue
+        opener_before = before in ("第", "（", "：", "－", "〒", "№", "(", ":") or (a == 0 and unit_after)
+        paren_after = after[:1] == "（" and jp_before
+        tail = b == len(text) and before == "）"
+        if unit_after or (opener_before and b < len(text)) or paren_after or tail:
+            out.append((a, b))
+    return out
+
+
+def fill_blanks(text: str, values: list) -> str:
+    """空欄に、順に値を入れた文字列。"""
+    spans = inline_blanks(text)
+    if len(values) != len(spans):
+        raise ValueError(f"空欄は {len(spans)} か所あります（値は {len(values)} 個）")
+    out, at = [], 0
+    for (a, b), v in zip(spans, values):
+        out.append(text[at:a])
+        out.append(to_text(v) if v is not None else text[a:b])
+        at = b
+    out.append(text[at:])
+    return "".join(out)
 
 
 def detect_tables(wb: Workbook, sh: Sheet, rows: dict[int, list[Anchor]]):
@@ -170,6 +304,7 @@ class Box:
     control: Control | None = None
     outside: bool = False  # 印刷範囲の外（画面だけに出る）
     highlighted: bool = False  # 条件付き書式で色が付いている
+    blanks: list = field(default_factory=list)  # 文字の中の空欄（書き込む場所）
 
     @property
     def ref(self) -> str:
@@ -240,6 +375,8 @@ class Layout:
                     continue
                 else:
                     b = Box(a.r, a.c1, a.r2, a.c2, "text", cell, display(wb, cell), outside=outside)
+                    if isinstance(cell.value, str) and not (sh.protected and wb.style(cell.style).locked):
+                        b.blanks = inline_blanks(cell.value)
                 self.rows.setdefault(a.r, []).append(b)
                 for rr in range(a.r + 1, a.r2 + 1):
                     self.cover.setdefault(rr, []).append(b)
@@ -567,6 +704,16 @@ class Layout:
             return f"〈{b.cell_ref}＝{b.text}〉"
         if b.kind == "check":
             return f"{b.text}［{'▶' if mark else ''}{b.ref}］"
+        if b.blanks:
+            # 文字の中の空欄は［　］で示し、どのセルの文字かを添える
+            t = b.cell.value
+            parts, at = [], 0
+            for a, z in b.blanks:
+                parts.append(t[at:a])
+                parts.append("［▶］" if mark else "［　］")
+                at = z
+            parts.append(t[at:])
+            return f"〔{b.cell_ref}〕" + "".join(parts).replace("\n", " ").strip()
         return b.text.replace("\n", " ").strip()
 
     def line(self, r: int, mark_box: Box | None = None, include_outside: bool = True) -> str:
@@ -664,6 +811,15 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
                 if ctl.link_cell and ctl.link_cell[0] != sh.name:
                     f["id"] = f"{ctl.link_cell[0]}!{addr(*ctl.link_cell[1:])}"
                 out.append(f)
+                continue
+            if b.kind == "text" and b.blanks:
+                t = b.cell.value
+                shown = "".join(t[x:y] if k % 2 == 0 else "［　］" for k, (x, y) in enumerate(_split_spans(t, b.blanks)))
+                out.append({"id": f"{sh.name}!{b.cell_ref}", "cell": b.cell_ref, "kind": "inline",
+                            "value": t, "blanks": len(b.blanks), "label": norm_label(shown),
+                            "label_method": "文字の中の空欄", "context": lay.line(r, mark_box=b),
+                            "write_as": f"空欄ごとの値のリスト（{len(b.blanks)} 個、例 {['…'] * len(b.blanks)}）か、書き換えたあとの文字全体",
+                            "reason": ["文字の中の空欄"], "provenance": LAYOUT})
                 continue
             if b.kind != "input":
                 continue
@@ -809,6 +965,17 @@ def build(wb: Workbook) -> dict:
             "tables": _tables(wb, sh),
         })
     return doc
+
+
+def _split_spans(text: str, blanks: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """文字を、空欄でないところ・空欄・…の順の位置に分ける。"""
+    out, at = [], 0
+    for a, z in blanks:
+        out.append((at, a))
+        out.append((a, z))
+        at = z
+    out.append((at, len(text)))
+    return out
 
 
 def _runs(xs: list[int], cols: bool = False) -> list[str]:

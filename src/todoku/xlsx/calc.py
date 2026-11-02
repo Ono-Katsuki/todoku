@@ -312,7 +312,6 @@ def recalc(wb: Workbook, overrides: dict[tuple[str, int, int], object]):
     """値を差し替えたときに、値が変わる数式セルを返す。"""
 
     def run():
-        base = Calc(wb)
         new = Calc(wb, overrides)
         changed: dict[tuple[str, int, int], object] = {}
         problems: dict[tuple[str, int, int], str] = {}
@@ -320,14 +319,13 @@ def recalc(wb: Workbook, overrides: dict[tuple[str, int, int], object]):
             key = (cell.sheet, cell.row, cell.col)
             if key in overrides:
                 continue
-            before = base.cell_value(cell.sheet, cell.row, cell.col)
             after = new.cell_value(cell.sheet, cell.row, cell.col)
             st = new.status.get(key, ("ok", ""))
             if st[0] in ("unsupported", "cycle"):
                 if _depends_on(wb, cell, overrides):
                     problems[key] = st[1]
                 continue
-            if not values_equal(before, after) or not values_equal(cell.value, after):
+            if not values_equal(cell.value, after):
                 changed[key] = after
         return changed, problems
 

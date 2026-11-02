@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from ..book import open_book
+
 import datetime as dt
 import json
 import re
@@ -189,7 +191,12 @@ def _rels(z: RawZip, part: str) -> dict[str, tuple[str, str]]:
 
 
 def check_reading(wb: Workbook, doc: dict) -> list[Check]:
-    raw = raw_texts(wb.zip.original)
+    if getattr(wb, "kind", "xlsx") == "xls":
+        from ..xls.proof import raw_texts as raw_xls
+
+        raw = raw_xls(wb.zip.original)
+    else:
+        raw = raw_texts(wb.zip.original)
     n_raw = len(raw["セルの文字"]) + len(raw["セルの数値"])
     n_win = sum(1 for sh in doc["sheets"] for c in sh["cells"] if c.get("value") is not None)
     if n_raw == 0 and n_win == 0:
@@ -242,6 +249,8 @@ def _sample(f: dict, wb: Workbook, sheet: str, calc: Calc | None):
 
     if f["kind"] == "checkbox":
         return not bool(f["value"])
+    if f["kind"] == "inline":
+        return ["1"] * f["blanks"]
     rules = f.get("rules", [])
     r, c = parse_cell(f["cell"])
     sh = wb.sheet(sheet)
@@ -352,22 +361,30 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
                      f"入力欄 {len(fields) - n_ctl:,} か所とチェックボックス {n_ctl} 個のうち {len(targets):,} に試しの値を書き込み{na}。"
                      f"{pr.headline()}",
                      [*pr.unexpected, *pr.lint_errors, *res.unverified, *skipped]))
-    # 読み戻し：書いた値が、書き込み後のファイルの窓にそのとおり出るか
-    after = window.build(Workbook(res.blob, wb.filename))
+    # 読み戻し：書き込み後のファイルを読み直して、書いた値とチェックの状態がそのとおりかを確かめる
+    after = open_book(res.blob, wb.filename)
     got = {}
-    for sh in after["sheets"]:
-        for c in sh["cells"]:
-            got[f"{sh['name']}!{c['cell']}"] = c.get("value")
-        for f in sh.get("fields", []):
-            if f["kind"] == "checkbox":
-                got[f["id"]] = f["value"]
+    for sh in after.sheets:
+        for (r, c), cell in sh.cells.items():
+            v = cell.value
+            got[f"{sh.name}!{addr(r, c)}"] = v.code if isinstance(v, ExcelError) else v
+        for ctl in sh.controls:
+            if ctl.kind == "CheckBox":
+                key = f"{sh.name}!{addr(*ctl.link_cell[1:])}" if ctl.link_cell else f"{sh.name}!{ctl.name}"
+                if not ctl.link_cell:
+                    got[key] = ctl.is_checked
     wrong = []
     from .edit import interpret_input, resolve_target
 
     for k, v in targets.items():
         try:
             s, r, c = resolve_target(wb, k)
-            want = interpret_input(wb, s, r, c, v)[0]
+            if isinstance(v, list):
+                from .window import fill_blanks
+
+                want = fill_blanks(wb.sheet(s).cells[(r, c)].value, v)
+            else:
+                want = interpret_input(wb, s, r, c, v)[0]
             key = f"{s}!{addr(r, c)}"
         except EditError:
             want, key = v, k
@@ -385,7 +402,7 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
 
 
 def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
-    wb = Workbook(blob, filename)
+    wb = open_book(blob, filename)
     doc = window.build(wb)
     au = Audit(filename)
     au.checks += check_reading(wb, doc)
@@ -395,7 +412,7 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
     au.checks.append(Check("窓の大きさ", biggest <= 150_000,
                            f"Markdown {total:,} 文字" + (f"を {len(parts)} 部分に分け、いちばん大きい部分も {biggest:,} 文字"
                                                         if len(parts) > 1 else "") + "（AIが1回で読める目安 15万文字以内）"))
-    au.checks += check_writing(Workbook(blob, filename), doc)
+    au.checks += check_writing(open_book(blob, filename), doc)
     overlap = [f["id"] for sh in doc["sheets"] for f in sh.get("fields", []) if f.get("rules_overlap")]
     au.checks.append(Check("入力規則の重なり", not overlap,
                            "入力規則の重なったセルはありません" if not overlap else

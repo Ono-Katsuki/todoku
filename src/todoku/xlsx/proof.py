@@ -28,6 +28,9 @@ class Proof:
     lint_errors: list[str] = field(default_factory=list)  # Excelが開くための構造の条件に反するもの
     lint_parts: int = 0
     control_changes: list[dict] = field(default_factory=list)  # チェックボックスの状態が変わったもの
+    container: str = "zip"  # zip（xlsx）/ cfb（xls）
+    records_total: int = 0  # xls：ブックのストリームのレコード数
+    records_identical: int = 0
 
     @property
     def ok(self) -> bool:
@@ -38,6 +41,10 @@ class Proof:
         n_f = sum(1 for c in self.cell_changes if c["kind"] == "formula")
         n_c = len(self.control_changes)
         parts = f"入力 {n_in}・計算結果 {n_f}" + (f"・チェックボックス {n_c}" if n_c else "")
+        if self.container == "cfb":
+            return (f"変更 {len(self.cell_changes) + n_c} か所（{parts}）。"
+                    f"それ以外は元とバイト一致（複合ファイルのストリーム {self.entries_identical}/{self.entries_total} が完全一致、"
+                    f"ブックのレコードも {self.records_identical:,}/{self.records_total:,} がバイト一致）")
         return (f"変更 {len(self.cell_changes) + n_c} か所（{parts}）。"
                 f"それ以外は元とバイト一致（ZIPのエントリ {self.entries_identical}/{self.entries_total} が完全一致、"
                 f"変わったXMLも {self.xml_bytes_total - self.xml_bytes_changed:,}/{self.xml_bytes_total:,} バイトが一致）")
@@ -71,23 +78,54 @@ def _segments(xml: bytes) -> list[tuple[bytes, bytes]]:
     return out
 
 
+_VML_SHAPE = re.compile(rb"<v:shape\b[^>]*?\bid=\"([^\"]+)\"[^>]*>.*?</v:shape>", re.S)
+
+
+def _vml_segments(xml: bytes) -> list[tuple[bytes, bytes]]:
+    out = []
+    last = 0
+    prev = b"^"
+    for m in _VML_SHAPE.finditer(xml):
+        out.append((b"gap:" + prev, xml[last:m.start()]))
+        out.append((b"shape:" + m[1], m[0]))
+        prev = m[1]
+        last = m.end()
+    out.append((b"gap:" + prev, xml[last:]))
+    return out
+
+
 def _changed_bytes(a: bytes, b: bytes) -> int:
     """元のバイトのうち、書き換え後に残っていないバイト数。"""
     import difflib
 
+    if b"<v:shape" in a[:200_000] and b"urn:schemas-microsoft-com:vml" in a[:2000]:
+        # VML：図形ごとに比べる（図形の中だけを、前後の一致を除いて数える）
+        mb = dict(_vml_segments(b))
+        changed = 0
+        for key, seg in _vml_segments(a):
+            other = mb.get(key)
+            if other == seg:
+                continue
+            if other is None:
+                changed += len(seg)
+                continue
+            i, j = _common_affix(seg, other)
+            changed += len(seg) - i - j
+        return changed
     sa, sb = _segments(a), _segments(b)
     if len(sa) > 2:
-        # セル単位で並べて比べる（鍵が一意なので速い）
-        sm = difflib.SequenceMatcher(None, sa, sb, autojunk=False)
-        kept = 0
-        for blk in sm.get_matching_blocks():
-            kept += sum(len(seg[1]) for seg in sa[blk.a:blk.a + blk.size])
+        # セル単位で比べる（鍵が一意なので、同じ鍵のバイト列が同じかを見るだけでよい）
+        mb = dict(sb)
+        kept = sum(len(seg) for key, seg in sa if mb.get(key) == seg)
         return len(a) - kept
     i, j = _common_affix(a, b)
-    if len(a) - i - j > 200_000:
-        return len(a) - i - j
-    mid = difflib.SequenceMatcher(None, a[i:len(a) - j], b[i:len(b) - j], autojunk=False)
-    return len(a) - i - j - sum(blk.size for blk in mid.get_matching_blocks())
+    ma, mb = a[i:len(a) - j], b[i:len(b) - j]
+    # タグの区切り（>）ごとに分けて比べる（1バイトずつ比べると、大きな部品で時間がかかりすぎる）
+    ta = re.split(rb"(?<=>)", ma)
+    tb = re.split(rb"(?<=>)", mb)
+    sm = difflib.SequenceMatcher(None, ta, tb, autojunk=False)
+    kept = sum(sum(len(x) for x in ta[blk.a:blk.a + blk.size]) for blk in sm.get_matching_blocks())
+    return len(ma) - kept
 
 
 _CHECKED_MARKUP = [
@@ -104,8 +142,19 @@ def _without_checked(data: bytes) -> bytes:
 
 def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | None = None,
           allowed_controls: set[tuple[str, str]] | None = None) -> Proof:
-    a = Workbook(original)
-    b = Workbook(new)
+    if original[:4] == b"\xd0\xcf\x11\xe0":
+        from ..xls.proof import prove as prove_xls
+
+        return prove_xls(original, new, allowed_inputs, allowed_controls)
+    from ..zipraw import RawZip
+
+    za, zb = RawZip(original), RawZip(new)
+    diff = {n for n in za.names() if n in set(zb.names()) and
+            (za.get(n).local, za.get(n).data, za.get(n).descriptor) != (zb.get(n).local, zb.get(n).data, zb.get(n).descriptor)}
+    # 変わったのがシートのXMLだけなら、そのシートだけを読み直して比べる（ほかはバイト一致なので中身も同じ）
+    only = diff if diff and all(n.startswith("xl/worksheets/sheet") and n.endswith(".xml") for n in diff) else None
+    a = Workbook(original, only_parts=only)
+    b = Workbook(new, only_parts=only)
     names_a = a.zip.names()
     names_b = b.zip.names()
     unexpected = []

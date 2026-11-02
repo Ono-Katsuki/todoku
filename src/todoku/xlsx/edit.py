@@ -340,7 +340,8 @@ def _issues_for(wb: Workbook, sheet: str, r: int, c: int, value, calc: Calc, rul
             opts = list_options(wb, sheet, v.formula1, r, c, v, calc)
             if opts is None:
                 out.append(Issue(where, f"{where}: 選択肢を確かめられませんでした（{v.formula1}）。連動する欄を先に入れると確かめられます", False))
-            elif not any(_eq(value, o) for o in opts):
+            elif not any(_eq(value, o) or to_text(value) == to_text(o) for o in opts):
+                # 文字列の書式のセルに「0」を入れたときも、一覧の 0 と同じものとして受け付ける（見た目の文字で照らす）
                 shown = "、".join(f"「{to_text(o)}」" for o in opts[:12]) + ("…" if len(opts) > 12 else "")
                 out.append(Issue(where, f"{where}: 「{to_text(value)}」は選択肢にありません。選べるのは {shown}{extra}", v.blocks))
         elif v.type in ("whole", "decimal", "date", "time"):
@@ -641,6 +642,18 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
         linked = links.get((sheet, r, c))
         if sh.protected and wb.style(sh.style_of(r, c)).locked and not linked and not force:
             raise EditError(f"{sheet}!{addr(r, c)} はシート保護でロックされたセルです（Excelでも書き込めません）")
+        if isinstance(v, (list, tuple)):
+            # 文字の中の空欄（「令和　　年　　月　　日」）に、順に値を入れる
+            from .window import fill_blanks
+
+            if cell is None or not isinstance(cell.value, str):
+                raise EditError(f"{sheet}!{addr(r, c)} は文字の中に空欄のあるセルではありません")
+            try:
+                v = fill_blanks(cell.value, list(v))
+            except ValueError as e:
+                raise EditError(f"{sheet}!{addr(r, c)}: {e}")
+            targets[(sheet, r, c)] = v
+            continue
         val, notes = interpret_input(wb, sheet, r, c, v)
         if linked:
             b = as_bool(val)
@@ -666,6 +679,8 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
     warnings += [i.message for i in issues]
 
     changed, problems = recalc(wb, targets)
+    if getattr(wb, "kind", "xlsx") == "xls":
+        return _fill_xls(wb, targets, changed, problems, controls, warnings)
     patches: list[Patch] = []
     by_sheet: dict[str, SheetPatcher] = {}
 
@@ -725,6 +740,45 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
     # 次の書き込みに影響しないよう、元に戻しておく
     for e in wb.zip.entries:
         e._replacement = None
+    return res
+
+
+def _fill_xls(wb, targets, changed, problems, controls, warnings) -> EditResult:
+    """古いExcel（.xls）への書き込み：ブックのストリームのレコードを差し替え、複合ファイルのほかの部分は変えない。"""
+    from ..xls.write import XlsEditor
+
+    ed = XlsEditor(wb)
+    patches: list[Patch] = []
+    for (sheet, r, c), val in targets.items():
+        cell = wb.sheet(sheet).cells.get((r, c))
+        before = cell.value if cell else None
+        if (cell is not None and values_equal(before, val) and type(before) is type(val)) or (cell is None and val is None):
+            continue
+        ed.set_cell(sheet, r, c, val, wb.sheet(sheet).style_of(r, c) or None)
+        patches.append(Patch(wb.stream_name, sheet, addr(r, c), "input", before, val))
+    for (sheet, r, c), val in sorted(changed.items()):
+        cell = wb.sheet(sheet).cells[(r, c)]
+        if cell.array_master is not None:
+            problems[(sheet, r, c)] = "配列数式の一部"
+            continue
+        ed.set_formula_value(sheet, r, c, val)
+        patches.append(Patch(wb.stream_name, sheet, addr(r, c), "formula", cell.value, val))
+    for (sheet, _sid), (_s, ctl, b) in sorted(controls.items()):
+        if bool(ctl.is_checked) == bool(b):
+            continue
+        ed.set_checkbox(sheet, ctl.shape_id, bool(b))
+        patches.append(Patch(wb.stream_name, sheet, ctl.name, "control", ctl.checked, "Checked" if b else None))
+    unverified = [f"{s}!{addr(r, c)}: {why}" for (s, r, c), why in sorted(problems.items())]
+    if unverified:
+        ed.force_recalc()
+    # ブックのストリームは最後の EOF の後ろを読まないので、小さすぎるときは0を足してよい
+    blob = wb.cfb.replace(wb.stream_name, ed.build(), pad_ok=True) if ed.changed else wb.zip.original
+    res = EditResult(blob=blob, patches=patches, warnings=warnings, unverified=unverified,
+                     full_calc_on_load=bool(unverified))
+    res.original_sha256 = hashlib.sha256(wb.zip.original).hexdigest()
+    res.sha256 = hashlib.sha256(blob).hexdigest()
+    res.changed_parts = [wb.stream_name] if ed.changed else []
+    res.unchanged_parts = len(wb.cfb.streams()) - len(res.changed_parts)
     return res
 
 

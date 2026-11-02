@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from ..book import open_book
+
 from dataclasses import dataclass, field
 
 from ..formula.parser import addr
@@ -100,14 +102,14 @@ def example_inputs(blank: Workbook, example: Workbook) -> tuple[dict[str, object
 def check(blank_blob: bytes, example_blob: bytes) -> ExampleCheck:
     from .window import input_cells
 
-    blank = Workbook(blank_blob)
-    example = Workbook(example_blob)
+    blank = open_book(blank_blob)
+    example = open_book(example_blob)
     values, structure, template = example_inputs(blank, example)
     res = fill(blank, values, force=True)
     allowed = {(p.sheet, p.address) for p in res.patches if p.kind == "input"}
     allowed_controls = {(p.sheet, p.address) for p in res.patches if p.kind == "control"}
     pr = prove(blank_blob, res.blob, allowed, allowed_controls)
-    ours = Workbook(res.blob)
+    ours = open_book(res.blob)
     templ = set(template)
     out = ExampleCheck(inputs=len(values) - len(templ), formulas=0, structure_differs=structure, template_differs=template,
                        updated_formulas=sum(p.kind == "formula" for p in res.patches),

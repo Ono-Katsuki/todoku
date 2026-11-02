@@ -90,7 +90,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--per-page", type=int, default=8)
     ap.add_argument("--out", default=str(ROOT / "corpus" / "wide"))
+    ap.add_argument("--ext", default="xlsx,xlsm", help="集める形式（例: xls）")
     a = ap.parse_args(argv)
+    want = {x.strip().lower() for x in a.ext.split(",")}
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     sources = json.loads((ROOT / "tests" / "sources.json").read_text(encoding="utf-8"))["sources"]
@@ -109,7 +111,7 @@ def main(argv=None) -> int:
                 rec["status"] = "止められた（robots.txt）"
                 index["pages"].append(rec)
                 continue
-            if ext_of(page) in EXCEL:
+            if ext_of(page) in want:
                 links = [(page, "")]
             else:
                 html, ctype = get(page)
@@ -132,7 +134,7 @@ def main(argv=None) -> int:
                     continue
                 seen.add(url)
                 rec["formats"][e] = rec["formats"].get(e, 0) + 1
-                if e in EXCEL:
+                if e in want:
                     files.append((url, label))
             rec["status"] = "ok"
             for url, label in files[: a.per_page]:
@@ -148,8 +150,9 @@ def main(argv=None) -> int:
                     time.sleep(DELAY)
                     continue
                 time.sleep(DELAY)
-                if data[:2] != b"PK":
-                    index["files"].append({"url": url, "page": page, "status": "Excelではなかった"})
+                magic = {"xls": b"\xd0\xcf\x11\xe0", "doc": b"\xd0\xcf\x11\xe0", "pdf": b"%PDF"}
+                if not data.startswith(magic.get(ext_of(url) or "", b"PK")):
+                    index["files"].append({"url": url, "page": page, "status": "形式が違った"})
                     continue
                 host = urllib.parse.urlsplit(url).netloc
                 name = Path(urllib.parse.unquote(urllib.parse.urlsplit(url).path)).name

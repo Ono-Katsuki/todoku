@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .book import open_book
+
 import argparse
 import hashlib
 import json
@@ -30,14 +32,14 @@ def _dump(obj, path: Path) -> None:
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=1, default=_json_default), encoding="utf-8")
 
 
-def _load(path: str) -> Workbook:
+def _load(path: str):
+    from .book import FormatError, open_book
+
     p = Path(path)
-    blob = p.read_bytes()
-    if blob[:4] == b"\xd0\xcf\x11\xe0":
-        if "EncryptedPackage".encode("utf-16-le") in blob:
-            sys.exit(f"{p.name}: パスワードで保護されたファイルです。パスワードの入力には、まだ対応していません。")
-        sys.exit(f"{p.name}: 古い形式（.xls）のExcelには、まだ対応していません（対応を予定しています）。")
-    return Workbook(blob, filename=p.name)
+    try:
+        return open_book(p.read_bytes(), p.name)
+    except FormatError as e:
+        sys.exit(f"{p.name}: {e}")
 
 
 def cmd_convert(a) -> int:
@@ -120,8 +122,8 @@ def _write_fill(wb: Workbook, values: dict, out_path: Path, strict: bool) -> int
         print("想定外の変更:", *pr.unexpected, sep="\n  ")
     proof = {**pr.__dict__, "ok": pr.ok, "headline": pr.headline()}
     _dump(proof, out_path.with_suffix(".proof.json"))
-    rep = verify(Workbook(res.blob, out_path.name))
-    diag = diagnose(Workbook(res.blob, out_path.name), rep)
+    rep = verify(open_book(res.blob, out_path.name))
+    diag = diagnose(open_book(res.blob, out_path.name), rep)
     out_path.with_suffix(".proof.html").write_text(
         report.render(diag.to_dict(), proof=proof, title=f"記入の証明：{out_path.name}"), encoding="utf-8")
     return 0 if pr.ok else 1

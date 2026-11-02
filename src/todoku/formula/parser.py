@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import functools
 import re
 from dataclasses import dataclass, field
 
@@ -607,6 +608,12 @@ class Parser:
 def parse(src: str) -> Node:
     if src.startswith("="):
         src = src[1:]
+    return _parse_cached(src)
+
+
+@functools.lru_cache(maxsize=200_000)
+def _parse_cached(src: str) -> Node:
+    # 同じ数式（共有数式・入力規則・条件付き書式は同じ式がくり返し出る）は1回だけ解析する
     return Parser(src).parse()
 
 

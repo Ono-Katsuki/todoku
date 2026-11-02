@@ -58,7 +58,7 @@ class Cell:
     t: str | None = None  # XMLの t 属性
     style: int = 0
     value: object = None  # 保存されている値（数式なら最後に計算された値）
-    formula: str | None = None  # 数式（共有数式は展開後の文字列）
+    _formula: str | None = None  # 数式の文字列（共有数式の子は、必要になったときに親から作る）
     formula_kind: str | None = None  # normal / shared / array / dataTable
     array_ref: str | None = None
     ast: Node | None = None
@@ -67,13 +67,28 @@ class Cell:
     parse_error: str | None = None
     array_master: tuple[int, int] | None = None  # 配列数式の一部なら親セル
 
+    _shared_from: tuple | None = None  # 共有数式の子：(親の構文木, 行のずれ, 列のずれ)
+
     @property
     def address(self) -> str:
         return addr(self.row, self.col)
 
     @property
+    def formula(self) -> str | None:
+        if self._formula is None and self._shared_from is not None:
+            ast, dr, dc = self._shared_from
+            self._formula = unparse(ast, dr, dc)
+        return self._formula
+
+    @formula.setter
+    def formula(self, text: str | None) -> None:
+        self._formula = text
+        if text is None:
+            self._shared_from = None
+
+    @property
     def has_formula(self) -> bool:
-        return self.formula is not None or self.array_master is not None
+        return self._formula is not None or self._shared_from is not None or self.array_master is not None
 
 
 @dataclass
@@ -229,6 +244,7 @@ class Style:
     hidden: bool
     font_color: str | None = None  # "RRGGBB"（不明なら None＝自動の黒）
     fill_color: str | None = None  # 塗りつぶしの色（なければ None＝白）
+    borders: int = 0  # 罫線：1 左・2 右・4 上・8 下
 
 
 @dataclass
@@ -260,8 +276,9 @@ class CondRule:
 
 
 class Workbook:
-    def __init__(self, blob: bytes, filename: str = ""):
+    def __init__(self, blob: bytes, filename: str = "", only_parts: set[str] | None = None):
         self.filename = filename
+        self.only_parts = only_parts  # 指定すると、そのシートの中身だけを読む（比べるときの速さのため）
         self.zip = RawZip(blob)
         self.sheets: list[Sheet] = []
         self.names: list[DefinedName] = []
@@ -367,6 +384,8 @@ class Workbook:
         for s in self.sheets:
             if s.state.startswith("non-worksheet"):
                 continue
+            if self.only_parts is not None and s.path not in self.only_parts:
+                continue
             self._load_sheet(s)
         for d in self.names:
             if d.name == "_xlnm.Print_Area" and d.sheet_scope:
@@ -398,6 +417,14 @@ class Workbook:
             fmts[int(f.get("numFmtId"))] = f.get("formatCode")
         fonts = [_color(f.find(M + "color")) for f in (root.find(M + "fonts") or [])]
         fills = [_fill_color(f) for f in (root.find(M + "fills") or [])]
+        borders = []
+        for bd in root.find(M + "borders") or []:
+            bits = 0
+            for k, name in ((1, "left"), (2, "right"), (4, "top"), (8, "bottom")):
+                el = bd.find(M + name)
+                if el is not None and el.get("style") not in (None, "none"):
+                    bits |= k
+            borders.append(bits)
         xfs = root.find(M + "cellXfs")
         for xf in xfs if xfs is not None else []:
             fid = int(xf.get("numFmtId", "0"))
@@ -409,8 +436,10 @@ class Workbook:
                 hidden = prot.get("hidden", "0") in ("1", "true")
             fo = int(xf.get("fontId", "0"))
             fi = int(xf.get("fillId", "0"))
+            bo = int(xf.get("borderId", "0"))
             self.styles.append(Style(fmts.get(fid, "General"), locked, hidden,
-                                     fonts[fo] if fo < len(fonts) else None, fills[fi] if fi < len(fills) else None))
+                                     fonts[fo] if fo < len(fonts) else None, fills[fi] if fi < len(fills) else None,
+                                     borders[bo] if bo < len(borders) else 0))
         for d in root.find(M + "dxfs") or []:
             font = d.find(M + "font")
             nf = d.find(M + "numFmt")
@@ -515,7 +544,7 @@ class Workbook:
             cell.dc = cell.col - m.col
             cell.parse_error = m.parse_error
             if m.ast is not None:
-                cell.formula = unparse(m.ast, cell.dr, cell.dc)
+                cell._shared_from = (m.ast, cell.dr, cell.dc)  # 文字列は必要になったときに作る
             else:
                 cell.formula = m.formula
         for master, (r1, c1, r2, c2) in array_refs:
