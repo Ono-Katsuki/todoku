@@ -16,6 +16,12 @@ KIND_JA = {"xlsx": "Excel", "xls": "古い Excel（.xls）", "pdf": "PDF", "docx
 # 一太郎（.jtd）：読む・字数を変えない上書き
 KIND_JA["jtd"] = "一太郎（.jtd）"
 
+# ---------------------------------------------------------------------- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument）
+# 形式ごとの処理は openkinds が受け持つ。この入口には、それを呼ぶ短い区切りだけを足す
+from . import openkinds as _open  # noqa: E402
+
+KIND_JA.update(_open.KIND_JA)
+
 
 class ApiError(ValueError):
     pass
@@ -45,7 +51,7 @@ def _read(path: str, password: str | None = None):
                              "（パスワードは、結果にも記録にも残しません）") from None
     except WrongPassword as e:
         raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
-    k = kind_of(plain)
+    k = kind_of(plain, p.name)  # 名前は、中身だけでは決まらない形式（CSV・JSON など）を見分けるのに使う
     if k not in KIND_JA:
         raise ApiError(f"この形式（{k}）は扱えません。Excel・PDF・Word のファイルを指定してください")
     return plain, p.name, k, lock
@@ -62,6 +68,12 @@ def _pdf(blob: bytes, name: str, lock):
 def window(path: str, password: str | None = None) -> tuple[str, dict, list[tuple[str, str]]]:
     """(形式, 窓の JSON, Markdown の部分)。"""
     blob, name, k, lock = _read(path, password)
+    if k in _open.KINDS:  # 追加の形式
+        try:
+            doc, parts = _open.window(k, blob, name)
+        except _open.OpenFormatError as e:
+            raise ApiError(str(e)) from None
+        return k, doc, parts
     if k in ("xlsx", "xls"):
         from .book import open_book
         from .xlsx import window as xw
@@ -107,6 +119,8 @@ def _word(blob: bytes, name: str, k: str):
 def fields(path: str, password: str | None = None) -> list[dict]:
     """入力欄の一覧（名前・見出し・種類・選択肢・いまの値・書けるか・その行の文脈）。"""
     k, doc, _ = window(path, password)
+    if k in _open.KINDS:  # 追加の形式
+        return [_field(f, **w) for f, w in _open.field_rows(k, doc)]
     out = []
     if k in ("xlsx", "xls"):
         for sh in doc["sheets"]:
@@ -208,6 +222,15 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         readback_values = {}
         told = {p.id: p.value for p in res.patches}  # 一太郎：本人に伝える、書いた所と値
         result["jtd_read_back"] = pr.readback[:30]
+    elif k in _open.KINDS:  # 追加の形式：書き込みと証明は、形式ごとの部品で
+        try:
+            res_ = _open.fill(k, blob, name, values, force)
+        except _open.OpenFormatError as e:
+            raise ApiError(str(e)) from None
+        new_blob = res_["blob"]
+        result.update(res_["result"])
+        readback_values = res_["readback"]
+        labels.update(res_.get("labels") or {})
     else:
         from .docx.fill import FillError
 
@@ -251,6 +274,8 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか
     after_list = fields(str(dst), password)
     after = {f["id"]: f.get("value") for f in after_list}
+    if k in _open.KINDS:  # 追加の形式：欄の一覧に出ないマス・値も、書いた後のファイルを読み直して照らす
+        after.update(_open.read_back(k, written_plain, name, readback_values))
     if k in ("xlsx", "xls"):
         # 欄の一覧に出ないセル（番地で書いたセル）も、書いた後のブックのセルの値を直接読んで照らす
         from .book import open_book
@@ -439,6 +464,8 @@ def audit(path: str, password: str | None = None) -> dict:
         from .doc.audit import run
     elif k == "jtd":
         from .jtd.audit import run
+    elif k in _open.KINDS:  # 追加の形式
+        run = _open.audit_runner(k)
     else:
         from .xlsx.audit import run
     pw = pdf_password(lock)
@@ -483,4 +510,7 @@ def summary(path: str, password: str | None = None) -> dict:
             d["macro_runs_on_change"] = any(e["on_change"] for e in m["events"])
     else:
         d["protection"] = doc.get("protection")
+    if k in _open.KINDS:  # 追加の形式
+        d.pop("protection", None)
+        d.update(_open.summary(k, doc))
     return d

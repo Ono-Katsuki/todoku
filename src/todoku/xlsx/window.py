@@ -34,6 +34,11 @@ def norm_label(s: str) -> str:
 
 
 def display(wb: Workbook, cell: Cell) -> str:
+    shown = getattr(wb, "shown_text", None)  # 見える字をファイルに保存している形式（OpenDocument の表計算）は、その字
+    if shown is not None:
+        t = shown(cell)
+        if t is not None:
+            return t
     v = cell.value
     if v is None:
         return ""

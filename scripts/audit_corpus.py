@@ -17,6 +17,7 @@ import traceback
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+OPEN_EXT = (".csv", ".tsv", ".json", ".jsonl", ".ndjson", ".rtf", ".odt", ".ott", ".ods", ".ots", ".fodt", ".fods")
 
 
 def one(path: str) -> dict:
@@ -30,6 +31,14 @@ def one(path: str) -> dict:
         from todoku.jtd.audit import run
     elif path.lower().endswith(".doc"):
         from todoku.doc.audit import run
+    # 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument）：形式は中身と名前で見分ける
+    if path.lower().endswith(OPEN_EXT):
+        from todoku.book import kind_of
+        from todoku.openkinds import KINDS, audit_runner
+
+        k = kind_of(Path(path).read_bytes(), Path(path).name)
+        if k in KINDS:
+            run = audit_runner(k)
     t = time.time()
     try:
         au = run(Path(path).read_bytes(), Path(path).name)
@@ -49,7 +58,7 @@ def main(argv=None) -> int:
     ap.add_argument("--timeout", type=int, default=900)
     a = ap.parse_args(argv)
     base = Path(a.dir)
-    files = sorted(str(p) for p in base.rglob("*") if p.suffix.lower() in (".xlsx", ".xlsm", ".xls", ".pdf", ".docx", ".docm", ".doc", ".jtd", ".jtt") and p.is_file())
+    files = sorted(str(p) for p in base.rglob("*") if p.suffix.lower() in (".xlsx", ".xlsm", ".xls", ".pdf", ".docx", ".docm", ".doc", ".jtd", ".jtt") + OPEN_EXT and p.is_file())
     print(f"{len(files)} 件の様式を検査します", flush=True)
     results = []
     ctx = mp.get_context("spawn")

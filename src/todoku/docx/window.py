@@ -741,7 +741,8 @@ def _macros(doc):
 
 def to_markdown(doc: dict) -> str:
     out = [f"# {doc['source']['file'] or '書類'}", ""]
-    out.append(f"- 元ファイルの SHA-256: `{doc['source']['sha256']}`（{doc['source']['bytes']:,} バイト）、Word")
+    # 同じ窓を使うほかの形式（OpenDocument の文書・RTF）は、kind_ja に形式の名前を入れる
+    out.append(f"- 元ファイルの SHA-256: `{doc['source']['sha256']}`（{doc['source']['bytes']:,} バイト）、{doc.get('kind_ja') or 'Word'}")
     out.append("- この文書は読むための窓です。書き込みは `todoku fill` で、書いた欄の部分だけを変えます。")
     out.append("- 欄として示していない所に書くときは、字を目印にして書けます："
                "`{\"@1\": {\"old\": \"段落の中の元の字\", \"new\": \"書き換えた後の字\"}}`（old がいくつもあるときは、"

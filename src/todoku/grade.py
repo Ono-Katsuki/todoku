@@ -227,6 +227,17 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> 
     """password：パスワードで保護された PDF を開くとき（Office の書類は、api で解いた中身を渡す）。"""
     from .book import kind_of
 
+    # ---- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument）：形式ごとの段階の決め方で（openkinds）
+    from .openkinds import KINDS as _OPEN_KINDS
+    from .openkinds import grade as _open_grade
+
+    try:
+        k_open = kind_of(blob, filename)
+    except Exception:  # noqa: BLE001
+        k_open = None
+    if k_open in _OPEN_KINDS:
+        return _open_grade(k_open, blob, filename)
+    # ----
     name = filename.lower()
     if name.endswith((".csv", ".tsv", ".json", ".jsonl", ".xml")):
         return Grade("S", [Reason("S", "データそのもの", "表のデータ（CSV・JSON など）で、変換しなくても機械が読めます")],
