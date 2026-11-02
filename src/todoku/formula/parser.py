@@ -23,6 +23,7 @@ def col_to_num(s: str) -> int:
     return n
 
 
+@functools.lru_cache(maxsize=1 << 15)
 def num_to_col(n: int) -> str:
     s = ""
     while n > 0:
@@ -40,7 +41,9 @@ _COL_RE = re.compile(r"^(\$?)([A-Za-z]{1,3})$")
 _ROW_RE = re.compile(r"^(\$?)(\d+)$")
 
 
+@functools.lru_cache(maxsize=1 << 18)
 def parse_cell(s: str) -> tuple[int, int]:
+    """「B12」→ (12, 2)。同じ番地は何度も出てくるので、答えを控える（答えは変わらない値の組）。"""
     m = _CELL_RE.match(s)
     if not m:
         raise ValueError(s)

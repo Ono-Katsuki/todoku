@@ -92,6 +92,9 @@ class Cell:
         return self._formula is not None or self._shared_from is not None or self.array_master is not None
 
 
+TAG_C, TAG_V, TAG_F = M + "c", M + "v", M + "f"
+
+
 def _covers(rule, r: int, c: int) -> bool:
     """セル (r, c) が、範囲（sqref）のどれかに入るか。範囲が多いとき（数千の飛び飛びの範囲を持つ入力規則がある）は、
     行ごとの索引を一度だけ作って引く（答えは、範囲を順に調べたときと同じ）。"""
@@ -584,6 +587,7 @@ class Workbook:
                 if c.get("hidden") in ("1", "true"):
                     sh.hidden_cols.add(i)
         sd = root.find(M + "sheetData")
+        sh_name = sh.name
         for row in sd if sd is not None else []:
             rnum = int(row.get("r")) if row.get("r") else None
             if row.get("hidden") in ("1", "true") and rnum:
@@ -593,16 +597,23 @@ class Workbook:
             if rnum and row.get("customFormat") in ("1", "true") and row.get("s"):
                 sh.row_styles[rnum] = int(row.get("s"))
             next_col = 1
-            for c in row.findall(M + "c"):
+            for c in row.findall(TAG_C):
                 ref = c.get("r")
                 if ref:
                     r, col = parse_cell(ref)
                 else:
                     r, col = rnum, next_col
                 next_col = col + 1
-                cell = Cell(sh.name, r, col, t=c.get("t"), style=int(c.get("s", "0")))
-                v = c.find(M + "v")
-                f = c.find(M + "f")
+                st = c.get("s")
+                cell = Cell(sh_name, r, col, t=c.get("t"), style=int(st) if st is not None else 0)
+                v = f = None
+                for ch in c:  # 値（v）と数式（f）：それぞれ最初のもの（find と同じ）を、子を一度たどって拾う
+                    tg = ch.tag
+                    if tg == TAG_V:
+                        if v is None:
+                            v = ch
+                    elif tg == TAG_F and f is None:
+                        f = ch
                 self._last_sst = None
                 cell.value = self._cell_value(cell.t, v, c)
                 if self._last_sst is not None:
@@ -633,8 +644,10 @@ class Workbook:
                     else:
                         cell.formula = text
                 sh.cells[(r, col)] = cell
-                sh.max_row = max(sh.max_row, r)
-                sh.max_col = max(sh.max_col, col)
+                if r > sh.max_row:
+                    sh.max_row = r
+                if col > sh.max_col:
+                    sh.max_col = col
         # 数式を構文木にする
         for cell in sh.cells.values():
             if cell.formula is not None and cell.formula_kind != "shared" or (cell.formula_kind == "shared" and cell.formula):
