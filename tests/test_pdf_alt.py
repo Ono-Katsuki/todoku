@@ -84,3 +84,15 @@ def test_word_picture_without_description_is_an_alert():
     assert [a.title for a in g.alerts] == ["説明のない画像"] and "「地図」の段落" in g.alerts[0].where[0]
     ok = grade_blob(make_docx(SAMPLE_BODY + pic.format(alt=' descr="事業所の地図"')), "p.docx")
     assert ok.alerts == [] and ok.grade == g.grade  # 段階は変えない
+
+
+def test_old_word_picture_without_description_is_an_alert():
+    import glob
+
+    import pytest
+
+    files = glob.glob("corpus/wide_embed/www.env.go.jp/aggregation.doc")
+    if not files:
+        pytest.skip("コーパスがありません")
+    g = grade_blob(open(files[0], "rb").read(), "aggregation.doc")
+    assert [a.title for a in g.alerts] == ["説明のない画像"] and g.alerts[0].where[0].startswith("図1")

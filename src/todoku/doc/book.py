@@ -132,6 +132,7 @@ class DocFile:
         self.filename = filename
         self.cfb = cfb if cfb is not None else CFB(blob)
         self.embeds: list[dict] = []  # 埋め込んだ OLE の部品（ObjectPool の入れ物）
+        self.pictures: list[dict] = []  # 絵：説明（代わりの字）と飾りの印。段階とは別の注意に使う（docx と同じ形）
         if not self.cfb.has("WordDocument"):
             raise DocError("Word の文書（WordDocument）がありません")
         self.wd = self.cfb.read("WordDocument")
@@ -241,6 +242,49 @@ class DocFile:
             if p.cp0 <= cp < p.cp1:
                 return p
         return None
+
+    # ------------------------------------------------------------------ 絵の説明（代わりの字）
+    def _picture_at(self, cp: int, o: int, pic: int | None) -> dict | None:
+        """本文の絵の印（0x01：行の中の絵、0x08：浮いた図形）の、説明（MS-ODRAW の wzDescription 0x0381）。
+        絵でない図形（テキストボックスなど、BLIP を持たないもの）は None。"""
+        if o == 0x01:
+            if pic is None or pic + 6 > len(self.data):
+                return None
+            lcb, cb_header = struct.unpack_from("<IH", self.data, pic)
+            mm = struct.unpack_from("<H", self.data, pic + 6)[0] if pic + 8 <= len(self.data) else 0
+            start = pic + cb_header
+            if mm == 0x66 and start < len(self.data):  # MM_SHAPEFILE：絵の名前が先に来る（MS-DOC 2.9.192）
+                start += 1 + self.data[start]
+            props = _art_props(self.data, start, min(pic + lcb, len(self.data)))
+        else:
+            props = self._floating_props().get(self._spid_at(cp))
+            if props is None:
+                return None
+        if 0x0104 not in props and 0x0186 not in props and not props.get("blip"):  # pib・fillBlip：絵を持つ図形だけ
+            return None
+        alt = props.get(0x0381) or ""
+        return {"alt": alt.strip() if isinstance(alt, str) else "", "decorative": False}
+
+    def _spid_at(self, cp: int) -> int | None:
+        """浮いた図形の印の CP → 図形の番号（PlcSpaMom の FSPA の spid）。"""
+        fc, lcb = self.fc.get("PlcSpaMom", (0, 0))
+        if not lcb:
+            return None
+        n = (lcb - 4) // 30
+        cps = struct.unpack_from(f"<{n + 1}i", self.table, fc)
+        for k in range(n):
+            if cps[k] == cp:
+                return struct.unpack_from("<I", self.table, fc + (n + 1) * 4 + 26 * k)[0]
+        return None
+
+    def _floating_props(self) -> dict:
+        """浮いた図形の性質（図形の番号 → 性質）。DggInfo の OfficeArt の入れ物を一度だけ読む。"""
+        got = self.__dict__.get("_spprops")
+        if got is None:
+            fc, lcb = self.fc.get("DggInfo", (0, 0))
+            got = _art_shapes(self.table, fc, fc + lcb) if lcb else {}
+            self.__dict__["_spprops"] = got
+        return got
 
     # ------------------------------------------------------------------ 書式（FKP）
     def _fkps(self, name: str, papx: bool) -> list[Run]:
@@ -607,7 +651,14 @@ class DocFile:
                 ole = next((x["ole"] for x in reversed(stack) if x.get("ole") and x["phase"] == "result"), None)
                 if ole is not None and o == 0x01 and props["pic"] is not None:
                     ole.setdefault("pictures", []).append((cp, props["pic"]))  # Word が表示に使う表の絵（Data の PICF）
-                p.segs.append(Seg(f"〔埋め込み{ole['n']}：{ole['label']}〕" if ole else "〔図〕", "other", CPRef(cp), None, hidden))
+                pic = None if ole is not None else self._picture_at(cp, o, props["pic"])
+                if pic is not None:
+                    pic.update(n=len(self.pictures) + 1, para=p)
+                    self.pictures.append(pic)
+                    mark = f"〔図: {pic['alt']}〕" if pic["alt"] else f"〔図{pic['n']}（説明なし）〕"
+                else:
+                    mark = f"〔埋め込み{ole['n']}：{ole['label']}〕" if ole else "〔図〕"
+                p.segs.append(Seg(mark, "other", CPRef(cp), None, hidden))
             elif o in (0x02, 0x05) and props["spec"]:
                 p.segs.append(Seg("※", "note", CPRef(cp), None, hidden))
             elif o == 0x28 and props["symbol"] and props["spec"]:
@@ -732,3 +783,65 @@ def parse_ffdata(data: bytes, pos: int) -> dict:
         return d
     except (struct.error, IndexError):
         return {}
+
+
+def _art_props(data: bytes, a: int, b: int, out: dict | None = None) -> dict:
+    """OfficeArt のレコード（a〜b）をたどり、図形の性質（OPT 0xF00B・第3の OPT 0xF122）を集める：性質の番号 → 値。
+    複雑な値のうち、名前（0x0380）と説明（0x0381）は字（UTF-16）にする。BLIP の入れ物（0xF007・0xF018〜0xF117）があれば blip。"""
+    out = {} if out is None else out
+    pos = a
+    while pos + 8 <= b:
+        verinst, typ, ln = struct.unpack_from("<HHI", data, pos)
+        body = pos + 8
+        end = min(body + ln, b)
+        if (verinst & 0x0F) == 0x0F:
+            _art_props(data, body, end, out)
+        elif typ in (0xF00B, 0xF122):
+            n = verinst >> 4
+            props, p = [], body
+            for _ in range(n):
+                if p + 6 > end:
+                    break
+                opid, op = struct.unpack_from("<HI", data, p)
+                props.append((opid & 0x3FFF, bool(opid & 0x8000), op))
+                p += 6
+            for pid, complex_, op in props:
+                if complex_:
+                    raw = data[p:p + op]
+                    p += op
+                    if pid in (0x0380, 0x0381):
+                        out[pid] = raw.decode("utf-16-le", errors="replace").split("\x00", 1)[0]
+                else:
+                    out[pid] = op
+        elif typ == 0xF007 or 0xF018 <= typ <= 0xF117:
+            out["blip"] = True
+        pos = body + ln
+    return out
+
+
+def _art_shapes(data: bytes, a: int, b: int) -> dict:
+    """DggInfo の中の図形の入れ物（0xF004）ごとに、図形の番号（FSP 0xF00A の spid）→ 性質。"""
+    shapes: dict = {}
+
+    def walk(x: int, y: int) -> None:
+        pos = x
+        while pos + 8 <= y:
+            verinst, typ, ln = struct.unpack_from("<HHI", data, pos)
+            body = pos + 8
+            end = min(body + ln, y)
+            if typ == 0xF004:
+                sp = None
+                q = body
+                while q + 8 <= end:
+                    _vi, t2, l2 = struct.unpack_from("<HHI", data, q)
+                    if t2 == 0xF00A and q + 12 <= end:
+                        sp = struct.unpack_from("<I", data, q + 8)[0]
+                    q += 8 + l2
+                if sp is not None:
+                    shapes[sp] = _art_props(data, body, end)
+            elif (verinst & 0x0F) == 0x0F:
+                walk(body, end)
+            pos = body + ln
+
+    walk(a, b)
+    return shapes
