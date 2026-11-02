@@ -35,10 +35,20 @@ with Severe Physical Disability*, ASSETS '26）
 ## 使い方：MCP サーバーとして
 
 どの AI エージェントからも使えるように、MCP（Model Context Protocol）のサーバーになっています。
-Claude Code なら、このリポジトリで `uv sync` すれば、`.mcp.json` から自動で使えます。
+
+**Claude Code では、プラグインとして入れると、どのフォルダからでも使えます**（[uv](https://docs.astral.sh/uv/) が要ります）。
+MCP サーバーと、申請書を探して記入するときの進め方（スキル `shinsei`）が一緒に入ります。
+
+```
+/plugin marketplace add Ono-Katsuki/todoku
+/plugin install todoku@todoku
+```
+
+あとは「寝たきりの私が使える助成を探して、申請書を書いて」「この様式に事業所の情報を入れて」のように話しかけるだけです。
+このリポジトリの中で開いたときは、`.mcp.json` からも使えます。ほかの MCP 対応のエージェントでは、次のように設定します。
 
 ```json
-{ "mcpServers": { "todoku": { "command": "uv", "args": ["run", "--quiet", "todoku-mcp"] } } }
+{ "mcpServers": { "todoku": { "command": "uv", "args": ["run", "--quiet", "--directory", "<このリポジトリの場所>", "todoku-mcp"] } } }
 ```
 
 | 道具 | すること |
@@ -54,9 +64,9 @@ Claude Code なら、このリポジトリで `uv sync` すれば、`.mcp.json` 
 対話の例：
 
 > 本人：「この処遇改善の計画書に、去年と同じ事業所の情報を入れて」
-> エージェント：（`open_document` → `list_fields` → `fill_document`）
-> 「事業所名に『○○福祉会』、所在地に『…』を書きました。書いた後のファイルを読み直して、値が合っていることを確かめました。
-> まだ空いている欄が3つあります：①加算の区分（Ⅰ〜Ⅴから選ぶ）②… どれにしますか？」
+> エージェント：（`open_document` → `list_fields` → 分かる欄をまとめて `fill_document`）
+> 「分かる所をまとめて記入しました。記入した内容は、【別紙様式2-1】事業所名：○○福祉会／〒［123］-［4567］／所在地：… の 18 か所です。
+> 書いた後のファイルを読み直して、値が合っていることを確かめました。決めてほしいのは、加算の区分（Ⅰ〜Ⅴ）だけです。どれにしますか？」
 
 コマンドでも同じことができます（`uv run todoku --help`）。
 
