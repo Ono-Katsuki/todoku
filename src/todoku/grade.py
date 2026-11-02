@@ -9,6 +9,9 @@ E エージェントが得意でない形式（文字の情報がないページ
 F アクセスできない（開けない・パスワードが分からない・読めない部分がある、または押印・自署のように、エージェントにはできない記入がある）
   ※郵送・持参・来庁などの提出のしかたは、書類の外のことなので、段階の対象にしない
 
+段階とは別に、アクセシビリティの注意（alerts）を示す：エージェントが読めるかとは別に、画面の読み上げなどを使う人に
+届かない作りのこと（説明（代わりの字）のない画像：WCAG 1.1.1・PDF/UA）。段階は変えない。
+
 判定は「規則」か「エージェント」のどちらかで行う。言葉の一致（「押印」「約」など）は、打ち消しや書類の名前の中の語も
 拾ってしまい判定の根拠として弱いので、使わない。
 - 規則：ファイルの構造から確実に分かること（フォームの欄・入力規則などの印、配置からの推定か、画像だけのページ、
@@ -68,6 +71,7 @@ class Grade:
     reasons: list[Reason] = field(default_factory=list)
     agent_checks: list[dict] = field(default_factory=list)  # エージェントが確かめること（まだ答えていない問い）
     without_barriers: str | None = None  # エージェントにはできない手続き（F）がなければ、どの段階か
+    alerts: list[Reason] = field(default_factory=list)  # 段階とは別の、アクセシビリティの注意
 
     @property
     def name(self) -> str:
@@ -87,12 +91,14 @@ class Grade:
             s += f"。それがなければ段階 {self.without_barriers}：{NAMES[self.without_barriers]}"
         if self.agent_checks:
             s += "。エージェントが確かめること：" + "・".join(f"{c['title']}（あれば {c['grade']}）" for c in self.agent_checks)
+        if self.alerts:
+            s += "。段階とは別の、アクセシビリティの注意：" + "・".join(a.title for a in self.alerts)
         return s
 
     def to_dict(self) -> dict:
         return {"grade": self.grade, "name": self.name, "headline": self.headline(),
                 "reasons": [asdict(r) for r in self.reasons], "agent_checks": self.agent_checks,
-                "without_barriers": self.without_barriers, "scale": NAMES}
+                "without_barriers": self.without_barriers, "alerts": [asdict(a) for a in self.alerts], "scale": NAMES}
 
 
 def _final(reasons: list[Reason], base: str = "A") -> Grade:
@@ -106,7 +112,8 @@ def combine(rule: "Grade | dict", findings: list[dict], answered: list[str] | No
     """規則で決めた段階に、エージェントの判断（findings：{grade, title, detail, where}）を合わせる。
     answered：エージェントが確かめ終えた問いの id（見つからなかったものも含む）。答えていない問いは残す。"""
     if isinstance(rule, dict):
-        rule = Grade(rule["grade"], [Reason(**r) for r in rule["reasons"]], list(rule.get("agent_checks", [])))
+        rule = Grade(rule["grade"], [Reason(**r) for r in rule["reasons"]], list(rule.get("agent_checks", [])),
+                     alerts=[Reason(**a) for a in rule.get("alerts", [])])
     reasons = [r for r in rule.reasons if r.by == "rules"]
     for f in findings:
         g = str(f.get("grade", "")).upper()
@@ -119,7 +126,8 @@ def combine(rule: "Grade | dict", findings: list[dict], answered: list[str] | No
     g = max([rest] + [r.grade for r in reasons], key=ORDER.index)
     found = {c["id"] for c in AGENT_CHECKS if any(r.by == "agent" and r.grade == c["grade"] for r in reasons)}
     done = set(answered or []) | found
-    out = Grade(g, sorted(reasons, key=lambda r: -ORDER.index(r.grade)), [c for c in rule.agent_checks if c["id"] not in done])
+    out = Grade(g, sorted(reasons, key=lambda r: -ORDER.index(r.grade)), [c for c in rule.agent_checks if c["id"] not in done],
+                alerts=list(rule.alerts))
     if any(r.by == "agent" and r.grade == "F" for r in reasons) and rest != "F":
         out.without_barriers = rest
     return out
@@ -216,7 +224,20 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
                               "（窓には見出しと前後の文字を添えています）", [f["id"] for f in layout[:12]]))
     elif fields:
         reasons.append(Reason("A", "フォームの欄", f"入力欄 {len(fields)} か所は、すべて PDF のフォームの欄です"))
-    return _final(reasons)
+    g = _final(reasons)
+    g.alerts = picture_alerts([p for pg in win["pages"] for p in pg.get("pictures", [])])
+    return g
+
+
+def picture_alerts(pictures: list[dict]) -> list[Reason]:
+    """説明（代わりの字）のない画像：段階とは別の、アクセシビリティの注意（飾りと印の付いたものは除く）。"""
+    bare = [p for p in pictures if not p.get("alt") and not p.get("decorative")]
+    if not bare:
+        return []
+    return [Reason("F", "説明のない画像",
+                   f"画像 {len(bare)} 個に、説明（代わりの字）がありません。画面の読み上げを使う人には中身が届かず、"
+                   "エージェントも画像の中身は字として読めません（WCAG 1.1.1）。段階は変えません",
+                   [f"{p['id']}（{p.get('where', '')}）" for p in bare[:12]])]
 
 
 def _agent_reason(agent: list[dict]) -> Reason:

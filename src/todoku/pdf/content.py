@@ -81,6 +81,19 @@ class Picture:
     x1: float
     y1: float
     name: str
+    alt: str | None = None  # 印の付いた範囲（BDC）にある説明（Alt・ActualText）
+    artifact: bool = False  # 飾り（Artifact）と印が付いている
+    mc: tuple | None = None  # 内側の MCID：(持ち主, MCID)。持ち主は "page" か StructParents の番号
+    objparent: int | None = None  # 画像（か、包むフォームの部品）の StructParent
+
+
+@dataclass
+class _Mark:
+    tag: str
+    mcid: int | None
+    owner: object
+    alt: str | None
+    artifact: bool
 
 
 @dataclass
@@ -214,7 +227,7 @@ class Interpreter:
     def run_page(self, page: dict) -> PageContent:
         res = self.doc.resolve(page.get("Resources")) or {}
         data = self.doc.page_content(page)
-        self._run(data, res, _GS(), depth=0)
+        self._run(data, res, _GS(), depth=0, owner="page")
         self.out.unmapped = sum(f.unmapped for f in self._fonts_used.values()) if hasattr(self, "_fonts_used") else 0
         return self.out
 
@@ -235,7 +248,8 @@ class Interpreter:
             self.__dict__.setdefault("_fonts_used", {})[id(f)] = f
         return f
 
-    def _run(self, data: bytes, res: dict, gs: _GS, depth: int) -> None:
+    def _run(self, data: bytes, res: dict, gs: _GS, depth: int, outer: tuple = (), owner=None,
+             objparent: int | None = None) -> None:
         if depth > 12:
             return
         doc = self.doc
@@ -355,6 +369,13 @@ class Interpreter:
                     xs = [p[0] for p in pts]
                     ys = [p[1] for p in pts]
                     out.boxes.append(Box(min(xs), min(ys), max(xs), max(ys), gs.fill, False)) if False else None
+
+        def picture(pts, name, own_parent=None):
+            chain = outer + tuple(m[3] for m in mc_stack)
+            inner = next(((m.owner, m.mcid) for m in reversed(chain) if m.mcid is not None and m.owner is not None), None)
+            return Picture(min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts), name,
+                           next((m.alt for m in reversed(chain) if m.alt), None), any(m.artifact for m in chain), inner,
+                           own_parent if own_parent is not None else objparent)
 
         def new_sub(x, y):
             sub = {"pts": [(x, y)], "lines": [], "closed": False}
@@ -554,20 +575,22 @@ class Interpreter:
                             sub_res = doc.resolve(xo.dict.get("Resources")) or res
                             g2 = gs.copy()
                             g2.ctm = mul(m, gs.ctm)
+                            sps = doc.resolve(xo.dict.get("StructParents"))
+                            sp = doc.resolve(xo.dict.get("StructParent"))
                             try:
-                                self._run(doc.decode(xo), sub_res, g2, depth + 1)
+                                self._run(doc.decode(xo), sub_res, g2, depth + 1, outer + tuple(x[3] for x in mc_stack),
+                                          sps if isinstance(sps, int) else None, sp if isinstance(sp, int) else objparent)
                             except Exception as e:  # noqa: BLE001
                                 out.problems.append(f"フォームの部品 {name} を読めません: {e}")
                         elif st == "Image":
                             pts = [apply(gs.ctm, 0, 0), apply(gs.ctm, 1, 0), apply(gs.ctm, 0, 1), apply(gs.ctm, 1, 1)]
-                            pic = Picture(min(p[0] for p in pts), min(p[1] for p in pts),
-                                          max(p[0] for p in pts), max(p[1] for p in pts), name)
+                            sp = doc.resolve(xo.dict.get("StructParent"))
+                            pic = picture(pts, name, sp if isinstance(sp, int) else None)
                             if not self._thin_image(pic, xo.dict, None, gs, xo):
                                 out.pictures.append(pic)
                 elif op == "EI":
                     pts = [apply(gs.ctm, 0, 0), apply(gs.ctm, 1, 0), apply(gs.ctm, 0, 1), apply(gs.ctm, 1, 1)]
-                    pic = Picture(min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts),
-                                  max(p[1] for p in pts), "inline")
+                    pic = picture(pts, "inline")
                     if not self._thin_image(pic, inline_img[0] if inline_img else {}, inline_img[1] if inline_img else b"", gs):
                         out.pictures.append(pic)
                     inline_img = None
@@ -585,22 +608,29 @@ class Interpreter:
                     props = stack[-1] if op == "BDC" and stack else None
                     if isinstance(props, Name):
                         props = doc.resolve((doc.resolve(res.get("Properties")) or {}).get(props.name))
+                    tag = stack[-2 if op == "BDC" else -1] if len(stack) >= (2 if op == "BDC" else 1) else None
+                    tag = tag.name if isinstance(tag, Name) else ""
                     mcid = None
                     actual = None
+                    alt = None
                     if isinstance(props, dict):
+                        from .objects import decode_text
+
                         mc = props.get("MCID")
                         mcid = int(mc) if isinstance(mc, (int, float)) else None
                         at = props.get("ActualText")
                         if isinstance(at, (bytes, PdfString)):
-                            from .objects import decode_text
-
                             actual = decode_text(at)
+                        al = props.get("Alt")
+                        alt = decode_text(al) if isinstance(al, (bytes, PdfString)) else None
+                        alt = (alt or "").strip() or (actual or "").strip() or None
+                    mark = _Mark(tag, mcid, owner, alt, tag == "Artifact")
                     if mcid is None and mc_stack:
                         mcid = mc_stack[-1][0]
-                    mc_stack.append((mcid, actual, len(out.glyphs)))
+                    mc_stack.append((mcid, actual, len(out.glyphs), mark))
                 elif op == "EMC":
                     if mc_stack:
-                        mcid, actual, first = mc_stack.pop()
+                        mcid, actual, first, _mark = mc_stack.pop()
                         if actual is not None:
                             gl = out.glyphs[first:]
                             if gl:

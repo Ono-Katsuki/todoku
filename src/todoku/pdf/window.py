@@ -335,6 +335,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         out_fields.append(d)
     out_fields.sort(key=lambda d: (0, int(d["id"].split(".")[1])) if re.fullmatch(r"p\d+\.\d+", d["id"]) else (1, 0))
     images = len(pc.pictures)
+    pictures = _pictures(doc, page, number, pc, lay)
     chars = sum(1 for c in lay.chars if not c.text.isspace())
     annots = []
     for a in doc.resolve(page.get("Annots")) or []:
@@ -351,8 +352,41 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             annots.append({"kind": st, "text": txt})
     return {"number": number, "width": round(view.width, 1), "height": round(view.height, 1), "rotate": view.rot,
             "fields": out_fields, "reading": reading, "chars": chars, "unmapped": pc.unmapped, "images": images,
-            "image_only": chars == 0 and images > 0, "problems": pc.problems, "annotations": annots,
+            "image_only": chars == 0 and images > 0, "pictures": pictures, "problems": pc.problems, "annotations": annots,
             "_plain": plain, "_dropped": lay.dropped}
+
+
+def _pictures(doc: PdfDocument, page: dict, number: int, pc, lay) -> list[dict]:
+    """ページの画像：位置・大きさ・説明（代わりの字）。説明はファイルの構造（タグ・印）にあるものだけ。"""
+    from .tags import StructTree, describe_pictures
+
+    if not pc.pictures:
+        return []
+    tree = doc.__dict__.get("_struct_tree")
+    if tree is None:
+        tree = doc.__dict__["_struct_tree"] = StructTree(doc)
+    view = lay.view
+    lines = [ln for c in lay.cells for ln in c.lines] + list(lay.free_lines)
+    out = []
+    for k, (p, d) in enumerate(zip(pc.pictures, describe_pictures(doc, page, pc.pictures, tree)), 1):
+        x0, y0, x1, y1 = view.rect(p.x0, p.y0, p.x1, p.y1)
+        if x1 <= 0 or y1 <= 0 or x0 >= view.width or y0 >= view.height:
+            continue  # ページの外（見えない）
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        where = ("上" if cy < view.height / 3 else "中ほど" if cy < view.height * 2 / 3 else "下") + "の" + \
+                ("左" if cx < view.width / 3 else "中央" if cx < view.width * 2 / 3 else "右")
+        near = ""
+        if lines:
+            def dist(ln):
+                dx = max(ln.x0 - x1, x0 - ln.x1, 0)
+                dy = max(ln.y0 - y1, y0 - ln.y1, 0)
+                return dx * dx + dy * dy
+            ln = min(lines, key=dist)
+            near = ln.text.strip()[:30]
+        out.append({"id": f"p{number}.i{k}", "rect": [round(v, 1) for v in (x0, y0, x1, y1)], "where": where,
+                    "size_mm": [round((x1 - x0) * 25.4 / 72), round((y1 - y0) * 25.4 / 72)], "near": near,
+                    "alt": d["alt"], "decorative": d["decorative"], "tagged": d["tagged"]})
+    return out
 
 
 def _join(texts: list[str]) -> str:
@@ -508,6 +542,14 @@ def _md_page(pg: dict) -> list[str]:
     for line in pg["reading"]:
         out.append(f"- {line}")
     out.append("")
+    pics = [p for p in pg.get("pictures", []) if not p["decorative"]]
+    if pics:
+        out += [f"### 画像（{len(pics)} 個）", ""]
+        for p in pics:
+            pos = f"{p['where']}、約 {p['size_mm'][0]}×{p['size_mm'][1]} mm" + (f"、近くの字「{_md(p['near'])}」" if p["near"] else "")
+            out.append(f"- {p['id']}（{pos}）：" + (f"説明「{_md(p['alt'])}」" if p["alt"] else
+                                                    "**説明（代わりの字）がありません**。中身は字として読めません"))
+        out.append("")
     if pg.get("annotations"):
         out += ["### 注釈（ページに貼られたメモなど）", ""]
         for a in pg["annotations"]:
