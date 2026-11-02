@@ -34,9 +34,11 @@ MANIFEST = json.loads((Path(__file__).parent / "forms.json").read_text(encoding=
 
 
 def corpus_files():
+    """コーパスの Excel のブック（.xlsx・.xlsm）。PK で始まっても Word の文書（記入例の組・暗号の試験の中身）は除く。"""
     if not CORPUS.exists():
         return []
-    return [p for p in sorted(CORPUS.rglob("*")) if p.is_file() and p.read_bytes()[:2] == b"PK"]
+    return [p for p in sorted(CORPUS.rglob("*")) if p.is_file() and p.suffix.lower() in (".xlsx", ".xlsm")
+            and p.read_bytes()[:2] == b"PK"]
 
 
 # ------------------------------------------------------------------ 往復

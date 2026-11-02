@@ -155,7 +155,8 @@ def _macro_reasons(info) -> list[Reason]:
 
 
 # ====================================================================== 形式ごと
-def grade_blob(blob: bytes, filename: str = "") -> Grade:
+def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> Grade:
+    """password：パスワードで保護された PDF を開くとき（Office の書類は、api で解いた中身を渡す）。"""
     from .book import kind_of
 
     name = filename.lower()
@@ -165,11 +166,20 @@ def grade_blob(blob: bytes, filename: str = "") -> Grade:
         k = kind_of(blob)
     except Exception as e:  # noqa: BLE001
         return Grade("F", [Reason("F", "開けない", f"ファイルの形式を判別できませんでした（{type(e).__name__}）")])
-    if k == "encrypted":
-        return Grade("F", [Reason("F", "パスワード", "パスワードで暗号化されています。パスワードがなければ開けません")])
+    locked = k == "encrypted"
+    if not locked and k in ("xls", "doc", "pdf") and not password:
+        try:
+            from .unlock import needs_password
+
+            locked = needs_password(blob)
+        except Exception:  # noqa: BLE001
+            locked = False
+    if locked:
+        return Grade("F", [Reason("F", "パスワード", "パスワードで保護されています。パスワードがなければ開けません"
+                                  "（本人にパスワードを聞けば、解いた中身で段階を決めます）")])
     try:
         if k == "pdf":
-            return _grade_pdf(blob, filename)
+            return _grade_pdf(blob, filename, password)
         if k in ("docx", "doc"):
             return _grade_word(blob, filename, k)
         if k in ("xlsx", "xls"):
@@ -179,11 +189,11 @@ def grade_blob(blob: bytes, filename: str = "") -> Grade:
     return Grade("F", [Reason("F", "対応していない形式", f"この形式（{k}）は、まだ読めません")])
 
 
-def _grade_pdf(blob: bytes, filename: str) -> Grade:
+def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade:
     from .pdf.doc import PdfDocument
     from .pdf.window import build
 
-    doc = PdfDocument(blob, filename)
+    doc = PdfDocument(blob, filename, password=password) if password else PdfDocument(blob, filename)
     win = build(doc)
     reasons: list[Reason] = []
     unmapped = [f"{p['number']}ページ（{p['unmapped']} 字）" for p in win["pages"] if p.get("unmapped")]

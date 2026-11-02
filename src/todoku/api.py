@@ -19,20 +19,47 @@ class ApiError(ValueError):
     pass
 
 
-def _read(path: str) -> tuple[bytes, str, str]:
+class PasswordNeeded(ApiError):
+    """開くのにパスワードが要る：本人に聞いて、password に入れてもう一度呼ぶ。"""
+
+
+class PasswordWrong(ApiError):
+    """パスワードが違う：本人にもう一度確かめる。"""
+
+
+def _read(path: str, password: str | None = None):
+    """(読む中身, ファイルの名前, 形式, 暗号の情報)。パスワードで保護された書類は、解いた中身を返す（暗号の情報は、
+    書いた後に同じパスワードで保護し直すのに使う。パスワードそのものは結果に出さない）。"""
+    from .unlock import NeedsPassword, WrongPassword, unlock
+
     p = Path(path).expanduser()
     if not p.is_file():
         raise ApiError(f"ファイルが見つかりません: {path}")
     blob = p.read_bytes()
-    k = kind_of(blob)
+    try:
+        plain, lock = unlock(blob, password)
+    except NeedsPassword as e:
+        raise PasswordNeeded(f"{e}。本人にパスワードを聞いて、password に入れてもう一度呼んでください"
+                             "（パスワードは、結果にも記録にも残しません）") from None
+    except WrongPassword as e:
+        raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
+    k = kind_of(plain)
     if k not in KIND_JA:
         raise ApiError(f"この形式（{k}）は扱えません。Excel・PDF・Word のファイルを指定してください")
-    return blob, p.name, k
+    return plain, p.name, k, lock
 
 
-def window(path: str) -> tuple[str, dict, list[tuple[str, str]]]:
+def _pdf(blob: bytes, name: str, lock):
+    from .pdf.doc import PdfDocument
+    from .unlock import pdf_password
+
+    pw = pdf_password(lock)
+    return PdfDocument(blob, name, password=pw) if pw else PdfDocument(blob, name)
+
+
+def window(path: str, password: str | None = None) -> tuple[str, dict, list[tuple[str, str]]]:
     """(形式, 窓の JSON, Markdown の部分)。"""
-    blob, name, k = _read(path)
+    blob, name, k, lock = _read(path, password)
     if k in ("xlsx", "xls"):
         from .book import open_book
         from .xlsx import window as xw
@@ -44,10 +71,9 @@ def window(path: str) -> tuple[str, dict, list[tuple[str, str]]]:
         doc = xw.build(wb)
         return k, doc, xw.markdown_parts(doc)
     if k == "pdf":
-        from .pdf.doc import PdfDocument
         from .pdf.window import build, markdown_parts
 
-        doc = build(PdfDocument(blob, name))
+        doc = build(_pdf(blob, name, lock))
         return k, doc, markdown_parts(doc)
     from .docx.window import build, markdown_parts
 
@@ -65,9 +91,9 @@ def _word(blob: bytes, name: str, k: str):
     return DocxDocument(blob, name)
 
 
-def fields(path: str) -> list[dict]:
+def fields(path: str, password: str | None = None) -> list[dict]:
     """入力欄の一覧（名前・見出し・種類・選択肢・いまの値・書けるか・その行の文脈）。"""
-    k, doc, _ = window(path)
+    k, doc, _ = window(path, password)
     out = []
     if k in ("xlsx", "xls"):
         for sh in doc["sheets"]:
@@ -93,17 +119,18 @@ def _field(f: dict, **where) -> dict:
     return d
 
 
-def fill(path: str, values: dict, out_path: str, force: bool = False) -> dict:
-    """書き込み、証明し、書き込み後のファイルを読み直して、書いた値がそのまま出ているかを確かめる。"""
+def fill(path: str, values: dict, out_path: str, force: bool = False, password: str | None = None) -> dict:
+    """書き込み、証明し、書き込み後のファイルを読み直して、書いた値がそのまま出ているかを確かめる。
+    パスワードで保護された書類は、解いた中身に書いて証明し、元と同じパスワードで保護し直して書き出す。"""
     src = Path(path).expanduser().resolve()
     dst = Path(out_path).expanduser().resolve()
     if src == dst:
         raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
-    blob, name, k = _read(path)
-    result: dict = {"kind": k, "out_path": str(dst), "original_sha256": hashlib.sha256(blob).hexdigest()}
+    blob, name, k, lock = _read(path, password)
+    result: dict = {"kind": k, "out_path": str(dst), "original_sha256": hashlib.sha256(src.read_bytes()).hexdigest()}
     readback_values = dict(values)  # 読み戻しで確かめる、欄の id → 書いた値
     try:
-        labels = {f["id"]: f.get("label", "") for f in fields(path)}  # 白紙のときの見出し（対話で伝える一覧に使う）
+        labels = {f["id"]: f.get("label", "") for f in fields(path, password)}  # 白紙のときの見出し（対話で伝える一覧に使う）
     except ApiError:
         labels = {}
     if k in ("xlsx", "xls"):
@@ -125,17 +152,16 @@ def fill(path: str, values: dict, out_path: str, force: bool = False) -> dict:
                        "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
                        "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"}})
     elif k == "pdf":
-        from .pdf.doc import PdfDocument
         from .pdf.fill import FillError
         from .pdf.fill import fill as pfill
         from .pdf.proof import prove
 
         try:
-            res = pfill(PdfDocument(blob, name), values, force=force)
+            res = pfill(_pdf(blob, name, lock), values, force=force)
         except FillError as e:
             raise ApiError(str(e)) from None
         anchored = {p.id: p.anchor for p in res.patches if getattr(p, "anchor", None)}
-        pr = prove(blob, res.blob, {p.id for p in res.patches}, anchored)
+        pr = _prove_pdf(prove, blob, res.blob, {p.id for p in res.patches}, anchored, lock)
         new_blob = res.blob
         result.update({"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
                        "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
@@ -171,11 +197,22 @@ def fill(path: str, values: dict, out_path: str, force: bool = False) -> dict:
             result["anchored"] = anchored
             readback_values = {k: v for k, v in values.items() if not k.startswith("@")}
             readback_values.update({p.id: p.value for p in res.patches if getattr(p, "anchor", None)})
+    if lock is not None:
+        # 元と同じパスワードで保護し直し、それを同じパスワードで解いて、書いた中身とバイト一致かを確かめてから書き出す
+        from .unlock import relock, unlock
+
+        sealed = relock(lock, new_blob)
+        if lock.method != "pdf":
+            again, _l = unlock(sealed, password)
+            if again != new_blob:
+                raise ApiError("保護し直したファイルを同じパスワードで解くと、書いた中身と一致しません（書き出していません）")
+        new_blob = sealed
+        result["password_protected"] = f"元と同じパスワードで保護したまま書き出しました（{lock.label}）"
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_bytes(new_blob)
     result["new_sha256"] = hashlib.sha256(new_blob).hexdigest()
     # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか
-    after_list = fields(str(dst))
+    after_list = fields(str(dst), password)
     after = {f["id"]: f.get("value") for f in after_list}
     mismatch = []
     for key, v in readback_values.items():
@@ -192,6 +229,18 @@ def fill(path: str, values: dict, out_path: str, force: bool = False) -> dict:
     result["read_back_differences"] = mismatch[:30]
     result.update(_to_tell(after_list, readback_values, result, labels))
     return result
+
+
+def _prove_pdf(prove, original: bytes, new: bytes, allowed: set, anchored: dict, lock):
+    """PDF の証明。パスワードで保護された PDF は、同じパスワードで開いて確かめる。"""
+    import inspect
+
+    from .unlock import pdf_password
+
+    pw = pdf_password(lock)
+    if pw and "password" in inspect.signature(prove).parameters:
+        return prove(original, new, allowed, anchored, password=pw)
+    return prove(original, new, allowed, anchored)
 
 
 def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict | None = None) -> dict:
@@ -240,7 +289,8 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
             "still_empty_count": len(empty), "say_to_user": "\n".join(lines)}
 
 
-def run_macro(path: str, macro: str, out_path: str, answers: list | None = None, files: dict | None = None) -> dict:
+def run_macro(path: str, macro: str, out_path: str, answers: list | None = None, files: dict | None = None,
+              password: str | None = None) -> dict:
     """マクロ（ボタンの処理など）を動かし、マクロが変えたセルを証明つきで out_path に書く。
     answers：MsgBox・InputBox の答え（順に）。files：マクロが読むファイル（マクロの中のパス → 手元のファイル）。
     人の答えやファイルが要るときは、勝手に決めずに、その問いを返す。"""
@@ -257,7 +307,7 @@ def run_macro(path: str, macro: str, out_path: str, answers: list | None = None,
     dst = Path(out_path).expanduser().resolve()
     if src == dst:
         raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
-    blob, name, k = _read(path)
+    blob, name, k, lock = _read(path, password)
     if k not in ("xlsx", "xls"):
         raise ApiError("マクロを動かせるのは、いまは Excel の書類です")
     wb = open_book(blob, name)
@@ -292,7 +342,15 @@ def run_macro(path: str, macro: str, out_path: str, answers: list | None = None,
         raise ApiError(str(e)) from None
     pr = prove(blob, res.blob, res.allowed_inputs, {(p.sheet, p.address) for p in res.patches if p.kind == "control"},
                {(p.sheet, p.address) for p in res.patches if p.kind in ("macro", "input")})
-    dst.write_bytes(res.blob)
+    out_blob = res.blob
+    if lock is not None:
+        from .unlock import relock, unlock
+
+        out_blob = relock(lock, res.blob)
+        if unlock(out_blob, password)[0] != res.blob:
+            raise ApiError("保護し直したファイルを同じパスワードで解くと、書いた中身と一致しません（書き出していません）")
+        out["password_protected"] = f"元と同じパスワードで保護したまま書き出しました（{lock.label}）"
+    dst.write_bytes(out_blob)
     out.update({"out_path": str(dst), "proof_ok": pr.ok, "proof": pr.headline(), "unexpected": pr.unexpected[:20],
                 "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"},
                 "warnings": res.warnings})
@@ -306,8 +364,12 @@ def _num_equal(a, b) -> bool:
         return False
 
 
-def audit(path: str) -> dict:
-    blob, name, k = _read(path)
+def audit(path: str, password: str | None = None) -> dict:
+    import inspect
+
+    from .unlock import pdf_password
+
+    blob, name, k, lock = _read(path, password)
     if k == "pdf":
         from .pdf.audit import run
     elif k == "docx":
@@ -316,27 +378,33 @@ def audit(path: str) -> dict:
         from .doc.audit import run
     else:
         from .xlsx.audit import run
-    au = run(blob, name)
+    pw = pdf_password(lock)
+    au = run(blob, name, password=pw) if pw and "password" in inspect.signature(run).parameters else run(blob, name)
     d = au.to_dict()
-    d["grade"] = grade(path)
+    d["grade"] = grade(path, password=password)
+    if lock is not None:
+        d["password_protected"] = f"パスワードで保護された書類です（{lock.label}）。解いた中身を確かめました"
     return d
 
 
-def grade(path: str, findings: list[dict] | None = None, answered: list[str] | None = None) -> dict:
+def grade(path: str, findings: list[dict] | None = None, answered: list[str] | None = None,
+          password: str | None = None) -> dict:
     """段階（S〜F）：誰が扱えば正確に読んで入れられるか。規則で決めた段階と、エージェントが確かめること。
-    findings（エージェントが窓を読んで見つけたこと：{grade, title, detail, where}）を渡すと、段階に合わせる。"""
+    findings（エージェントが窓を読んで見つけたこと：{grade, title, detail, where}）を渡すと、段階に合わせる。
+    パスワードで保護された書類は、本人に聞いたパスワードで解いた中身で決める（パスワードがなければ PasswordNeeded）。"""
     from .grade import combine, grade_blob
+    from .unlock import pdf_password
 
-    blob, name, _k = _read(path)
-    g = grade_blob(blob, name)
+    blob, name, _k, lock = _read(path, password)
+    g = grade_blob(blob, name, password=pdf_password(lock))
     if findings or answered:
         g = combine(g, findings or [], answered)
     return g.to_dict()
 
 
-def summary(path: str) -> dict:
-    k, doc, parts = window(path)
-    fl = fields(path)
+def summary(path: str, password: str | None = None) -> dict:
+    k, doc, parts = window(path, password)
+    fl = fields(path, password)
     d = {"file": Path(path).name, "kind": k, "kind_ja": KIND_JA[k], "fields": len(fl),
          "writable_fields": sum(1 for f in fl if not f.get("readonly")), "window_parts": len(parts),
          "window_chars": sum(len(t) for _, t in parts)}
