@@ -494,7 +494,7 @@ def _jtd_convert(a) -> int:
 
 
 def _jtd_fill(a, values: dict) -> int:
-    """一太郎に、同じ字数の上書きで書き込み、証明を出す。"""
+    """一太郎に書き込み（同じ字数の上書きか、本文の字数を変える書き込み）、証明を出す。"""
     from . import api
 
     try:

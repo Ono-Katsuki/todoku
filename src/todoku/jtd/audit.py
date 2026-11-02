@@ -6,9 +6,11 @@
 あれば、字があるかを確かめていないので、そう知らせる。
 
 証明：書き込み後のファイルを、書き込み処理の内部の情報を使わずに読み直して比べる。
+同じ字数の上書き：
 - 複合ファイルの全体で、変わったバイトは、上書きした字の 2 バイトずつだけ（ほかのストリーム・目録・セクタの表は1バイトも同じ）
 - 上書きした所には、書くはずの字が入っている
 - 書き込み後の文書を読み直すと、記録・組の形がすべて同じで、どの段落の文字も「元の文字の、上書きした字だけを替えたもの」
+字数を変える書き込み・圧縮した文書：proof.py（直すと決めた構造のほかはバイトが同じで、直した構造がそれぞれ思ったとおりか）
 """
 
 from __future__ import annotations
@@ -107,10 +109,19 @@ def check_reading(doc: JtdFile, win: dict) -> list[Check]:
     missing = [f"「{ch}」が {n} 字、窓に出ていません" for ch, n in (raw - shown).items()]
     extra = [f"「{ch}」が {n} 字、元にないのに窓に出ています" for ch, n in (shown - raw).items()]
     n_seg = len(doc.texts)
-    out = [Check("読み落とし（文書の文字）", not missing and not extra,
+    # 字のストリームの中の、字の並び（TextV.01）でないセグメント：形を確かめていないので読めていない（字があるかもしれない）
+    odd = []
+    for name in TEXT_STREAMS:
+        if doc.cfb.has(name):
+            for sg in ssmg(doc.cfb.read(name), name):
+                if sg.data[:8] != b"TextV.01":
+                    odd.append(f"{name}#{sg.sid}（{sg.data[:8]!r}、{len(sg.data):,} バイト）は、形を確かめていないセグメントなので"
+                               "読んでいません（ここに字があれば、窓に出ていません）")
+    out = [Check("読み落とし（文書の文字）", not missing and not extra and not odd,
                  f"本文・表・レイアウト枠・柱・脚注の字 {sum(raw.values()):,} 字（文字のセグメント {n_seg} 個）を、窓とは別の読み方"
-                 "（すべての文字のセグメントを、段落・表・枠に分けずに頭から読む）で拾い、すべて窓に出ていることを確かめました",
-                 missing + extra)]
+                 "（すべての文字のセグメントを、段落・表・枠に分けずに頭から読む）で拾い、すべて窓に出ていることを確かめました"
+                 + (f"。ただし、字のストリームに、形を確かめていないセグメントが {len(odd)} 個あり、読めていません" if odd else ""),
+                 missing + extra + odd)]
     known, unknown = inventory(doc)
     out.append(Check("ストリームの一覧", not unknown,
                      f"複合ファイルのストリーム {len(known) + len(unknown)} 個のうち {len(known)} 個は、意味を確かめたもの"
@@ -134,12 +145,20 @@ class JtdProof:
     unexpected: list[str] = field(default_factory=list)
     lint_errors: list[str] = field(default_factory=list)
     readback: list[str] = field(default_factory=list)  # 読み直した段落が、思っていた文字と違う所
+    structures: list[str] = field(default_factory=list)  # 字数を変える書き込み・縮め直しで直した構造（証明で確かめたもの）
+    chars_delta: int = 0
+    general: bool = False  # 字数を変える書き込み・圧縮した文書の証明（proof.py）
 
     @property
     def ok(self) -> bool:
         return not self.unexpected and not self.lint_errors and not self.readback
 
     def headline(self) -> str:
+        if self.general:
+            return (f"複合ファイルのストリーム {self.streams_identical}/{self.streams_total} がバイト一致。直したのは、"
+                    + "／".join(self.structures) + f" だけ（字数 {self.chars_delta:+d}）。段落 {self.paragraphs_total:,} のうち、"
+                    f"変わったのは書いた所のある {self.paragraphs_changed} 段落だけで、ほかの段落・字・書式・バイトは元のまま"
+                    + ("" if self.ok else f"（想定外 {len(self.unexpected) + len(self.lint_errors) + len(self.readback)} 件）"))
         return (f"複合ファイルのストリーム {self.streams_identical}/{self.streams_total} がバイト一致。ファイル全体で変わったのは、"
                 f"上書きした {self.chars_written} 字の {self.bytes_changed} バイトだけ。段落 {self.paragraphs_total:,} のうち、"
                 f"変わったのは書いた所のある {self.paragraphs_changed} 段落だけ"
@@ -182,13 +201,19 @@ def prove(original: bytes, new: bytes, written: dict) -> JtdProof:
     pr = JtdProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest())
     a = JtdFile(original)
     try:
-        edits, patches, _w = plan(a, _values_of(written))
+        edits, ops, patches, _w = plan(a, _values_of(written))
     except FillError as e:
         pr.unexpected.append(f"元の文書で、書いた所を決め直せません：{e}")
         return pr
     got_ids = {p.id for p in patches}
     if got_ids != set(written):
         pr.unexpected.append(f"書いた所が、元の文書で決め直した所と違います（{sorted(set(written) ^ got_ids)}）")
+    if ops or a.compressed:
+        from .proof import prove_general
+
+        pr.general = True
+        prove_general(pr, original, new, edits, ops)
+        return pr
     pr.chars_written = len(edits)
     # 1) ストリーム：変わってよいのは、上書きした字のあるストリームの、その字の 2 バイトずつだけ
     ca, cb = CFB(original), CFB(new)
@@ -264,15 +289,20 @@ def prove(original: bytes, new: bytes, written: dict) -> JtdProof:
 
 # ====================================================================== 検査
 def _sample(f: dict):
+    """試しの値：上書きだけの欄はその字数まで、字数を変えて書ける欄（maxlen なし）は、空白より長くなりうる値。"""
     if f["kind"] == "checkbox":
         return True
-    room = f.get("maxlen") or 0
+    room = f.get("maxlen")
+    if room is None:
+        return "１２３" if f["kind"] == "inline" else "テスト記入"
     return ("１２" if f["kind"] == "inline" else "テスト")[:room] or "1"
 
 
-def anchored_check(blob: bytes, filename: str) -> Check:
+def anchored_check(blob: bytes, filename: str, grow: bool = False) -> Check:
     """字を目印にした書き込み：文書の中に1つしかない「字＋全角の空白 2 字」を探し、空白 2 字を「試し」で上書きして、
-    証明と読み直しを確かめる。"""
+    証明と読み直しを確かめる。grow=True のときは、空白 2 字を 4 字の「試しの値」に替える（字数を変える書き込み）。"""
+    name = "字数を変える、字を目印にした書き込み" if grow else "字を目印にした書き込み"
+    word = "試しの値" if grow else "試し"
     doc = JtdFile(blob, filename)
     paras = [q for _k, _p, bl in doc.all_blocks() for q in iter_paras(bl)]
     full = "\n".join(q.text for q in paras)
@@ -285,19 +315,21 @@ def anchored_check(blob: bytes, filename: str) -> Check:
                 continue
             if any(u is None for u in us[i - 1:i + 2]):
                 continue
-            spec = {"old": frag, "new": frag[0] + "試し"}
+            if grow and doc.texts[us[i][0]].stream != "DocumentText":
+                continue
+            spec = {"old": frag, "new": frag[0] + word}
             try:
                 res = fill(JtdFile(blob, filename), {"@1": spec})
             except FillError as e:
-                return Check("字を目印にした書き込み", False, f"「{frag}」の空白を「試し」で上書きできませんでした", [str(e)])
+                return Check(name, False, f"「{frag}」の空白を「{word}」に替えられませんでした", [str(e)])
             pr = prove(blob, res.blob, written_of(res.patches))
             after = "\n".join(p.text for _k, _p, bl in JtdFile(res.blob, filename).all_blocks() for p in iter_paras(bl))
-            ok = pr.ok and (frag[0] + "試し") in after
-            return Check("字を目印にした書き込み", ok,
-                         f"規則で示していない所への上書き（「{frag}」の空白 2 字を「試し」に）を {res.patches[0].id} として書き、"
-                         f"{pr.headline()}。読み直すと「{frag[0]}試し」が{'出ています' if ok else '出ていません'}",
+            ok = pr.ok and (frag[0] + word) in after
+            return Check(name, ok,
+                         f"規則で示していない所への書き込み（「{frag}」の空白 2 字を「{word}」に）を {res.patches[0].id} として書き、"
+                         f"{pr.headline()}。読み直すと「{frag[0]}{word}」が{'出ています' if ok else '出ていません'}",
                          [*pr.unexpected, *pr.lint_errors, *pr.readback])
-    return Check("字を目印にした書き込み", True, "文書の中に1つしかない「字＋全角の空白 2 字」がないので、試していません")
+    return Check(name, True, "文書の中に1つしかない「字＋全角の空白 2 字」がないので、試していません")
 
 
 def run(blob: bytes, filename: str = "") -> Audit:
@@ -319,28 +351,29 @@ def run(blob: bytes, filename: str = "") -> Audit:
             continue
         targets[f["id"]] = _sample(f)
     rules_blocked = [f["id"] for f in win["fields"] if f.get("readonly") and not f.get("agent")]
-    if doc.compressed:
-        au.checks.append(Check("全入力欄への書き込み", False, "圧縮して保存された一太郎の文書には、まだ書けません"
-                               "（書いたあとに LHA で縮め直す処理と、その証明が要るため）。読むことはできます"))
-        return au
     try:
         res = fill(JtdFile(blob, filename), targets)
     except FillError as e:
         au.checks.append(Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30]))
         return au
     pr = prove(blob, res.blob, written_of(res.patches))
+    grown = len(res.ops)
     au.checks.append(Check("全入力欄への書き込み", pr.ok,
-                           f"上書きできる入力欄 {len(targets):,} か所すべてに試しの値を書き込みました。{pr.headline()}",
+                           f"書ける入力欄 {len(targets):,} か所すべてに試しの値を書き込みました"
+                           + (f"（うち {grown} か所は、空のマスに足す・空白より長い値に替える、字数を変える書き込み）" if grown else "")
+                           + ("。圧縮して保存した文書なので、中の文書に書いて -lh5- で縮め直しました" if doc.compressed else "")
+                           + f"。{pr.headline()}",
                            [*pr.unexpected, *pr.lint_errors]))
     au.checks.append(Check("読み戻し", not pr.readback,
-                           f"書き込み後の文書を読み直し、段落 {pr.paragraphs_total:,} のすべてで、文字が「元の文字の、上書きした字だけを"
-                           "替えたもの」になっていることを確かめました" if not pr.readback else "書き込み後の文書を読み直すと、思っていた文字と違う段落があります",
+                           f"書き込み後の文書を読み直し、段落 {pr.paragraphs_total:,} のすべてで、文字が「元の文字に、書いた所だけを"
+                           "当てたもの」になっていることを確かめました" if not pr.readback else "書き込み後の文書を読み直すと、思っていた文字と違う段落があります",
                            pr.readback))
+    whys = sorted({f.get("why_fixed", "") for f in win["fields"] if f.get("readonly") and not f.get("agent")} - {""})
     au.checks.append(Check("書けない所", not rules_blocked,
-                           ("規則で見つけた入力欄は、すべて空白・伏せ字・□ の上に上書きできます" if not rules_blocked else
-                            f"規則で見つけた入力欄のうち {len(rules_blocked)} か所は、字のない所（空のマス・段落の終わり）です。"
-                            "一太郎の文書は字数を変えずに上書きするので、そこには書けません（窓では「変更できない欄」）")
-                           + (f"。規則では決められない所のうち {len(blocked) - len(rules_blocked)} か所も、字がないので書けません"
+                           ("規則で見つけた入力欄は、すべて書けます（空白・伏せ字・□ の上書きか、字数を変える書き込み）" if not rules_blocked else
+                            f"規則で見つけた入力欄のうち {len(rules_blocked)} か所は、書けません（窓では「変更できない欄」）。理由："
+                            + "／".join(whys[:5]))
+                           + (f"。規則では決められない所のうち {len(blocked) - len(rules_blocked)} か所も、書けません"
                               if len(blocked) > len(rules_blocked) else ""),
                            rules_blocked[:30]))
     from ..xlsx.audit import agent_places_check
@@ -349,4 +382,8 @@ def run(blob: bytes, filename: str = "") -> Audit:
     if ap is not None:
         au.checks.append(ap)
     au.checks.append(anchored_check(blob, filename))
+    from .edit import policy
+
+    if policy(doc).ok:
+        au.checks.append(anchored_check(blob, filename, grow=True))
     return au

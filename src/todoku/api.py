@@ -13,7 +13,7 @@ from pathlib import Path
 from .book import FormatError, kind_of
 
 KIND_JA = {"xlsx": "Excel", "xls": "古い Excel（.xls）", "pdf": "PDF", "docx": "Word", "doc": "古い Word（.doc）"}
-# 一太郎（.jtd）：読む・字数を変えない上書き
+# 一太郎（.jtd）：読む・書く（同じ字数の上書きと、本文の字数を変える書き込み。圧縮した文書は縮め直す）
 KIND_JA["jtd"] = "一太郎（.jtd）"
 
 # ---------------------------------------------------------------------- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument）
@@ -251,7 +251,8 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             readback_values = {k_: v for k_, v in values.items() if not k_.startswith("@")}
             readback_values.update({p.id: p.value for p in res.patches if p.anchor})
     elif k == "jtd" or (k == "doc" and _is_word6(blob)):
-        # 一太郎・Word 6.0/95：元の字を同じ字数（バイト数）で上書きし、変わったのがその字のバイトだけかを証明する。
+        # 一太郎・Word 6.0/95：同じ字数（バイト数）の上書きは、ファイル全体で変わったのがその字のバイトだけかを証明する。
+        # 一太郎の字数を変える書き込み・圧縮した文書は、直すと決めた構造のほかが同じで、直した構造がそれぞれ思ったとおりかを証明する（jtd/proof.py）。
         # 書いた所の印（しおり）を足さないので、読み戻しは証明の中の「読み直した段落の文字」で確かめる
         from .docx.fill import FillError, written_of
 

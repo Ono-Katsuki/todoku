@@ -116,6 +116,256 @@ def test_lh5_roundtrip_crc():
     assert crc16(b"123456789") == 0xBB3D  # CRC-16/ARC の確かめの値
 
 
+# ====================================================================== 一太郎：字数を変える書き込み（合成）
+def _seginfo(names: dict[str, int]) -> bytes:
+    """ストリームの一覧：48 バイトの見出し（16 バイト目から 項目の大きさ 96・名前のある項目の数）、名前のない項目 1 つ、
+    名前のある項目（名前・68 バイト目から大きさ・種類）。"""
+    head = bytearray(b"VDA_DOC\x00" + bytes(40))
+    struct.pack_into("<HH", head, 16, 96, len(names))
+    head[20:36] = bytes.fromhex("00000100000801000010010002080100")
+    out = bytes(head) + bytes(96)
+    for name, size in names.items():
+        item = bytearray(96)
+        raw = name.encode("utf-16-le")
+        item[:len(raw)] = raw
+        struct.pack_into("<II", item, 68, size, 1)
+        out += bytes(item)
+    return out
+
+
+def _textseg_runs(text: str, runs: list) -> bytes:
+    """字の並び ＋ 文字の書式の区切り（("n", 数) は「00＋4 バイトの数」、("a", バイト列) は書式を変える FE … FF 00）。"""
+    u = _text_units(text)
+    tail = b"".join(b"\x00" + struct.pack(">I", v) if k == "n" else v for k, v in runs)
+    return b"TextV.01" + struct.pack(">I", len(u)) + struct.pack(f">{len(u)}H", *u) + tail
+
+
+BODY = "申請書¶|氏名|¶⏎|住所|　　⏎¶受付　　番号¶"
+BOLD, PLAIN = b"\xfe\x02\x02\x01\x61\xff\x00", b"\xfe\x02\x02\x00\x00\xff\x00"
+
+
+def make_jtd_full(body: str = BODY, runs=None, extra: dict | None = None, caret: int | None = None) -> bytes:
+    """字数を変える書き込みのための、一太郎の文書に似せた合成のファイル（行・ページの割り付けの控え・字を打つ位置・
+    表の位置の表・ストリームの一覧を持つ）。"""
+    n = len(_text_units(body))
+    runs = runs if runs is not None else [("n", n)]
+    text = _ssmg([(0, _textseg_runs(body, runs))])
+    ed = b"\x00\x01\x00\x01" + struct.pack(">HI", 0x2000, 28) + struct.pack(">IIIII", 0x14, 0, n - 1 if caret is None else caret, 0, 0) \
+        + bytes(8) + struct.pack(">HI", 0x2001, 4) + b"\x00\x01\x02\x03"
+    units = _text_units(body)
+    rows = [i for i, x in enumerate(units) if x == 0x0E]
+    tc = b"TCntV.01" + struct.pack(">HIH", 1, 1, 0x24) + struct.pack(">II", 3, rows[-1]) + bytes(21) + b"\xff\xff"
+    streams = {"Font": b"FontV.01" + bytes(8), "LineMark": b"\x09\x02" + bytes(30), "PageMark": bytes(40), "PaperMark": bytes(20),
+               "DocumentText": text, "DocumentEditStyles": ed, "DocumentTextPositionTables": _ssmg([(0, tc)])}
+    streams.update(extra or {})
+    streams["\x04JSRV_SegmentInformation"] = _seginfo({k: len(v) for k, v in streams.items()})
+    return build_cfb(streams)
+
+
+def _paras(blob: bytes) -> list[str]:
+    from todoku.docx.document import iter_paras
+    from todoku.jtd.book import JtdFile
+
+    return [p.text for _k, _p, bl in JtdFile(blob).all_blocks() for p in iter_paras(bl)]
+
+
+def test_jtd_grows_empty_cell_and_proves_every_structure():
+    from todoku.docx.fill import written_of
+    from todoku.jtd.audit import prove
+    from todoku.jtd.book import JtdFile, ssmg
+    from todoku.jtd.edit import parse_runs, slots_of
+    from todoku.jtd.fill import fill
+    from todoku.jtd.window import build
+
+    blob = make_jtd_full()
+    doc = JtdFile(blob)
+    win = build(doc)
+    fields = {f["id"]: f for f in win["fields"]}
+    empty = [f for f in fields.values() if f["kind"] == "text" and not f.get("maxlen") and not f.get("readonly")]
+    assert empty, "字のない空のマスは、字を足して書ける欄にする"
+    res = fill(JtdFile(blob), {empty[0]["id"]: "山田　太郎"})
+    pr = prove(blob, res.blob, written_of(res.patches))
+    assert pr.ok, pr.unexpected + pr.lint_errors + pr.readback
+    assert any("山田　太郎" in t for t in _paras(res.blob))
+    c, c0 = CFB(res.blob), CFB(blob)
+    # 行・ページの割り付けの控えは取り除き、ストリームの一覧からも項目を除く
+    assert not any(c.has(n) for n in ("LineMark", "PageMark", "PaperMark"))
+    names = [n for _b, n in slots_of(c.read("\x04JSRV_SegmentInformation"))[1]]
+    assert "LineMark" not in names and "DocumentText" in names
+    # 字を打つ位置・表の範囲の終わりは、足した 5 字だけ後ろへ。範囲の始まり（書いた所より前）はそのまま
+    n0 = len(_text_units(BODY))
+    assert struct.unpack_from(">I", c.read("DocumentEditStyles"), 18)[0] == n0 - 1 + 5
+    tc = ssmg(c.read("DocumentTextPositionTables"), "t")[0].data
+    rows = [i for i, x in enumerate(_text_units(BODY)) if x == 0x0E]
+    assert struct.unpack_from(">II", tc, 16) == (3, rows[-1] + 5)
+    # 文字の書式の区切り：1 つの区切りが 5 単位だけ長くなる
+    seg = ssmg(c.read("DocumentText"), "d")[0].data
+    n1 = struct.unpack_from(">I", seg, 8)[0]
+    assert n1 == n0 + 5 and parse_runs(seg[12 + 2 * n1:]) == [("n", n0 + 5)]
+    # ほかのストリームは 1 バイトも変えない
+    assert c.read("Font") == c0.read("Font")
+    assert "LineMark" in pr.headline() and "表の位置の表" in pr.headline()
+
+
+def test_jtd_grow_placeholder_and_anchored_shorter():
+    from todoku.docx.fill import written_of
+    from todoku.jtd.audit import prove
+    from todoku.jtd.book import JtdFile
+    from todoku.jtd.fill import fill
+    from todoku.jtd.window import build
+
+    blob = make_jtd_full()
+    win = build(JtdFile(blob))
+    blank = [f for f in win["fields"] if f["kind"] == "text" and "住所" in str(f.get("label", ""))]
+    assert blank
+    # 空白 2 字のマスに、長い値（前の字の書式を引き継ぐ）
+    res = fill(JtdFile(blob), {blank[0]["id"]: "東京都千代田区"})
+    pr = prove(blob, res.blob, written_of(res.patches))
+    assert pr.ok, pr.unexpected + pr.lint_errors + pr.readback
+    assert "東京都千代田区" in _paras(res.blob)
+    # 字を目印にして、字数を減らす・足す
+    res = fill(JtdFile(blob), {"@1": {"old": "受付　　番号", "new": "受付番号"}, "@2": {"old": "申請書", "new": "交付申請書"}})
+    pr = prove(blob, res.blob, written_of(res.patches))
+    assert pr.ok, pr.unexpected + pr.lint_errors + pr.readback
+    texts = _paras(res.blob)
+    assert "受付番号" in texts and "交付申請書" in texts
+
+
+def test_jtd_grow_refuses_what_is_not_established():
+    from todoku.docx.fill import FillError
+    from todoku.jtd.book import JtdFile
+    from todoku.jtd.edit import policy
+    from todoku.jtd.fill import fill
+    from todoku.jtd.window import build
+
+    # 意味を確かめていないストリームがある文書：字数を変える書き込みを断り、窓でも「N 字まで」・変更できない欄にする
+    blob = make_jtd_full(extra={"NumberingLink": b"\x00\x01\x00\x02" + bytes(40)})
+    pol = policy(JtdFile(blob))
+    assert not pol.ok and "NumberingLink" in pol.reasons[0]
+    win = build(JtdFile(blob))
+    empty = [f for f in win["fields"] if f["kind"] == "text" and f.get("readonly")]
+    assert empty and "NumberingLink" in empty[0]["why_fixed"]
+    with pytest.raises(FillError, match="NumberingLink"):
+        fill(JtdFile(blob), {empty[0]["id"]: "山田"})
+    # 書式の切り替わる所にちょうど足す（空のマスの前後で書式が違う）：どちらの書式か決められないので断る
+    units = _text_units(BODY)
+    cut = next(i for i in range(1, len(units)) if units[i] == 0x0A and units[i - 1] == 0x1F)  # マスの記録のすぐ後ろの段落の終わり
+    blob = make_jtd_full(runs=[("n", cut), ("a", BOLD), ("n", len(units) - cut), ("a", PLAIN)])
+    win = build(JtdFile(blob))
+    empty = [f for f in win["fields"] if f["kind"] == "text" and f.get("readonly")]
+    assert empty and "書式" in empty[0]["why_fixed"]
+
+
+def test_jtd_grow_proof_catches_tampering():
+    from todoku.cfb import CfbEditor
+    from todoku.docx.fill import written_of
+    from todoku.jtd.audit import prove
+    from todoku.jtd.book import JtdFile, ssmg
+    from todoku.jtd.fill import fill
+    from todoku.jtd.window import build
+
+    blob = make_jtd_full()
+    win = build(JtdFile(blob))
+    fid = next(f["id"] for f in win["fields"] if f["kind"] == "text" and not f.get("maxlen") and not f.get("readonly"))
+    res = fill(JtdFile(blob), {fid: "山田"})
+    w = written_of(res.patches)
+    assert prove(blob, res.blob, w).ok
+    c = CFB(res.blob)
+    # 1) 変えてはいけないストリーム
+    ed = CfbEditor(res.blob)
+    ed.replace("Font", b"FontV.01" + b"\x01" * 8)
+    assert not prove(blob, ed.blob(), w).ok
+    # 2) 文字の書式の区切りの数
+    d = bytearray(c.read("DocumentText"))
+    seg = ssmg(bytes(d), "d")[0]
+    n = struct.unpack_from(">I", seg.data, 8)[0]
+    d[seg.offset(12 + 2 * n + 4)] ^= 1
+    ed = CfbEditor(res.blob)
+    ed.replace("DocumentText", bytes(d))
+    pr = prove(blob, ed.blob(), w)
+    assert not pr.ok and any("書式" in x for x in pr.unexpected)
+    # 3) 取り除いたストリームの元のデータが、空きのミニセクタに残っている
+    c0 = CFB(blob)
+    e = c0._find("LineMark")
+    out = bytearray(res.blob)
+    root = c.chain(c.entries[0].start)
+    m = e.start
+    off = (root[m * 64 // 512] + 1) * 512 + (m * 64) % 512
+    out[off:off + 4] = b"\x09\x02\x00\x01"
+    assert not prove(blob, bytes(out), w).ok
+
+
+def _jscomp(native: bytes) -> bytes:
+    from todoku.jtd.lha import crc16, lh5
+
+    packed = lh5(native)
+    name = b"C:\\Temp\\TempNativeFile"
+    h = bytearray(b"\x00\x00-lh5-" + struct.pack("<II", len(packed), len(native)) + bytes(4) + b"\x20\x01"
+                  + bytes([len(name)]) + name + struct.pack("<H", crc16(native)) + b"\x20\x00\x00")
+    h[0] = len(h) - 2
+    h[1] = sum(h[2:]) & 0xFF
+    prefix = struct.pack("<H", 38) + b"JustCompressedDocument" + bytes(4) + struct.pack("<IIH", 15716028, 70970, 1)
+    return prefix + bytes(h) + packed + b"\x00"
+
+
+def test_jtd_compressed_document_is_recompressed_and_proved():
+    from todoku.docx.fill import written_of
+    from todoku.jtd.audit import prove
+    from todoku.jtd.book import JtdFile
+    from todoku.jtd.fill import fill
+    from todoku.jtd.lha import jscomp_parts, unpack_jscomp
+    from todoku.jtd.window import build
+
+    native = make_jtd_full()
+    stream = _jscomp(native)
+    outer = build_cfb({"JSCompDocument": stream, "\x04JSRV_SegmentInformation": _seginfo({"JSCompDocument": len(stream)})})
+    doc = JtdFile(outer)
+    assert doc.compressed and doc.cfb.blob == native
+    win = build(doc)
+    grow = next(f["id"] for f in win["fields"] if f["kind"] == "text" and not f.get("maxlen") and not f.get("readonly"))
+    for values in ({grow: "山田太郎"}, {"@1": {"old": "受付　　番号", "new": "受付ＡＢ番号"}}):  # 字数を変える・変えない
+        res = fill(JtdFile(outer), values)
+        pr = prove(outer, res.blob, written_of(res.patches))
+        assert pr.ok, pr.unexpected + pr.lint_errors + pr.readback
+        new_stream = CFB(res.blob).read("JSCompDocument")
+        inner = unpack_jscomp(new_stream)  # CRC-16 と長さで確かめて解く
+        assert JtdFile(inner).cfb.blob == inner
+        assert jscomp_parts(new_stream)["prefix"] == stream[:38]
+        assert "-lh5-" in pr.headline()
+
+
+def test_lh5_encoder_roundtrip():
+    import random
+
+    from todoku.jtd.lha import lh5, unlh5
+
+    rnd = random.Random(7)
+    samples = [b"x", b"ab" * 5000, bytes(rnd.randrange(256) for _ in range(6000)),
+               bytes(rnd.choice(b"\x00\x01ab") for _ in range(70000)), make_jtd_full()]
+    for data in samples:
+        assert unlh5(lh5(data), len(data)) == data
+
+
+def test_cfb_editor_removes_streams_and_grows_mini_stream():
+    from todoku.cfb import CfbEditor
+    from todoku.jtd.proof import check_container
+
+    streams = {f"S{k:02d}": bytes([k]) * (100 + k) for k in range(12)}
+    streams["Big"] = b"B" * 5000
+    blob = build_cfb(streams)
+    ed = CfbEditor(blob)
+    ed.replace("S03", b"3" * 5000)  # ミニストリームから、ふつうのセクタへ
+    ed.replace("S04", b"4" * 900)  # ミニストリームの中で大きくなる
+    ed.remove("S07")
+    ed.remove("S08")
+    out = ed.blob()
+    c = CFB(out)
+    assert c.read("S03") == b"3" * 5000 and c.read("S04") == b"4" * 900 and not c.has("S07") and not c.has("S08")
+    assert all(c.read(k) == v for k, v in streams.items() if k not in ("S03", "S04", "S07", "S08"))
+    assert check_container(blob, out, {"S03", "S04"}, {"S07", "S08"}) == []
+    assert bytes([7]) * 107 not in out  # 取り除いたストリームのデータは残らない
+
+
 JTD = sorted(CORPUS.glob("wide_jtd/**/*.jtd")) if CORPUS.exists() else []
 
 
@@ -128,7 +378,37 @@ def test_jtd_corpus_reading_and_overwrite(path):
     assert checks["読み落とし（文書の文字）"].ok, checks["読み落とし（文書の文字）"].items
     assert checks["ストリームの一覧"].ok, checks["ストリームの一覧"].items
     w = checks["全入力欄への書き込み"]
-    assert w.ok or "圧縮" in w.detail, w.items
+    assert w.ok, w.items  # 圧縮して保存した文書も、縮め直して書く
+    assert checks["読み戻し"].ok, checks["読み戻し"].items
+    g = checks.get("字数を変える、字を目印にした書き込み")
+    assert g is None or g.ok, g.items
+
+
+GROW = [p for p in JTD if p.name.split("_", 1)[1] in ("001188742.jtd", "1242588_001.jtd", "001189440.jtd")]
+
+
+@pytest.mark.parametrize("path", GROW, ids=lambda p: p.name)
+def test_jtd_corpus_fills_empty_cells(path):
+    """集めた様式の、字のない空のマス（これまで書けなかった欄）に字を足し、証明・読み直しを確かめる。"""
+    from todoku.docx.fill import written_of
+    from todoku.jtd.audit import prove
+    from todoku.jtd.book import JtdFile
+    from todoku.jtd.fill import fill
+    from todoku.jtd.window import build
+
+    blob = path.read_bytes()
+    win = build(JtdFile(blob))
+    empty = [f["id"] for f in win["fields"] if f["kind"] == "text" and not f.get("readonly") and not f.get("maxlen")
+             and not f.get("value")][:6]
+    assert empty
+    values = {fid: f"記入{k}" for k, fid in enumerate(empty)}
+    res = fill(JtdFile(blob), values)
+    assert res.ops, "字数を変える書き込みになる"
+    pr = prove(blob, res.blob, written_of(res.patches))
+    assert pr.ok, pr.unexpected + pr.lint_errors + pr.readback
+    texts = _paras(res.blob)
+    assert all(any(v in t for t in texts) for v in values.values())
+    assert not CFB(JtdFile(res.blob).cfb.blob).has("LineMark")
 
 
 # ====================================================================== Excel 5.0/95（BIFF5）

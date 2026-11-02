@@ -210,7 +210,7 @@ class JtdFile:
         yield from self.stories
 
     def marks(self) -> dict:
-        return {}  # 一太郎の文書には、書いた所の印（しおり）を足さない（字数・位置を変えない上書きだけをする）
+        return {}  # 一太郎の文書には、書いた所の印（しおり）を足さない（書いた所は、証明の読み直しで確かめる）
 
     # ------------------------------------------------------------------ 組み立て
     def _story(self, stream: str, sid: int) -> TextStory | None:
@@ -257,21 +257,22 @@ class _Build:
         self.cell: Cell | None = None
         self.obj: tuple[int | None, tuple] | None = None  # 直前の、字の中の部品（種類, 中身）
         self.groups: list[tuple[int, int, tuple | None]] = []  # 開いている組：(種類, A, 部品)
+        self.mark = 0  # 今の段落が始まりうる位置（直前の段落の終わり・行の終わり・マスの始まりの記録の後ろ）
 
     def run(self) -> list:
-        for kind, i, val, _n in tokens(self.st.units):
+        for kind, i, val, n in tokens(self.st.units):
             if kind == "ch":
                 self._char(i, val)
             elif kind == "ctl":
                 self._ctl(i, val)
             elif kind == "rec":
-                self._rec(val)
+                self._rec(i, val, n)
             elif kind == "open":
                 self._open(val)
             else:
                 self._close()
         if self.para is not None and (self.para.segs or self.para.boxes):
-            self._end_para()
+            self._end_para(len(self.st.units))
         self._end_row()
         _columns(self.out)
         return self.out
@@ -283,10 +284,14 @@ class _Build:
         if self.para is None:
             self.para = Para(None, self.st.stream, [])
             self.para.cell = self.cell
+            self.para.jstart = JRef(self.st.k, self.mark)
         return self.para
 
-    def _end_para(self) -> None:
+    def _end_para(self, at: int) -> None:
+        """段落を閉じる。at は段落の終わりの印（段落の終わり・行の終わり・次のマスの記録・文字の終わり）の位置で、
+        段落の後ろに字を足すときは、ここに入れる（p.jend）。"""
         p = self._p()
+        p.jend = JRef(self.st.k, at)
         (self.cell.blocks if self.cell is not None else self.out).append(p)
         self.para = None
 
@@ -313,11 +318,13 @@ class _Build:
 
     def _ctl(self, i: int, x: int) -> None:
         if x == 0x0A:
-            self._end_para()
+            self._end_para(i)
+            self.mark = i + 1
         elif x == 0x0E:
             if self.para is not None:
-                self._end_para()
+                self._end_para(i)
             self._end_row()
+            self.mark = i + 1
         elif x == 0x0C:
             self._p().segs.append(Seg("\n", "br", JRef(self.st.k, i)))
         elif x == 0x09:
@@ -333,12 +340,13 @@ class _Build:
             else:
                 p.boxes += blocks
 
-    def _rec(self, val: tuple) -> None:
+    def _rec(self, i: int, val: tuple, n: int) -> None:
         cls, body = val
         if cls == 0x30:
             # 表のマスの始まり：前のマスの段落を閉じ、表・行がなければ作る
             if self.para is not None:
-                self._end_para()
+                self._end_para(i)
+            self.mark = i + n
             if self.table is None:
                 self.table = Table(None, self.st.stream)
                 self.out.append(self.table)

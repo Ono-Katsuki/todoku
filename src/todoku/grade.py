@@ -553,9 +553,12 @@ def _grade_word6(doc) -> Grade:
 
 # ====================================================================== 一太郎（.jtd）
 def _grade_jtd(blob: bytes, filename: str) -> Grade:
-    """一太郎：読む段階は Word と同じ決め方（欄はすべて配置からの推定）。書く段階は、字数を変えない上書きなので、
-    空白・伏せ字・□ の上に書ける欄は B（解析して書く）、字のない欄（空のマスなど）は D（todoku では書けない）。"""
+    """一太郎：読む段階は Word と同じ決め方（欄はすべて配置からの推定）。書く段階は、書ける欄（空白・伏せ字・□ の上書きか、
+    本文の空のマス・段落に字を足す・長い値に替える、字数を変える書き込み）は B（解析して書く）、書けない欄（枠・柱の中で
+    字が足りない、文書の構造の意味を確かめられない、書式の切り替わる所など）は D（todoku では書けない）。
+    圧縮して保存した文書も、中の文書に書いて縮め直すので同じ。"""
     from .jtd.book import JtdFile
+    from .jtd.edit import policy
     from .jtd.window import build
 
     doc = JtdFile(blob, filename)
@@ -570,21 +573,28 @@ def _grade_jtd(blob: bytes, filename: str) -> Grade:
         reasons.append(Reason("B", "配置から推定した入力欄",
                               f"一太郎の文書には入力欄の印がないので、入力欄 {len(fields)} か所は、空のマスや空白・□ から推定しました",
                               [f["id"] for f in fields[:12]]))
-    if doc.compressed:
-        write.append(Reason("D", "圧縮して保存した一太郎の文書",
-                            "読むことはできますが、書いたあとに縮め直す処理と、その証明がまだないので、書けません"))
-    else:
-        ok = [f for f in fields if not f.get("readonly")]
-        blocked = [f for f in fields if f.get("readonly")]
-        if ok or agent:
-            write.append(Reason("B", "同じ字数の上書き",
-                                "一太郎の文書は、空白・伏せ字（○○）・□ の上に、その字数までの値を上書きします（字数・位置・書式は変えない）。"
-                                f"規則で見つけた欄 {len(ok)} か所に書けます", [f["id"] for f in ok[:12]]))
-        if blocked:
-            write.append(Reason("D", "字のない欄",
-                                f"{len(blocked)} か所は字のない所（空のマスなど）です。一太郎の形式は公開された仕様がなく、"
-                                "字数を変えると位置の表がずれるおそれがあるため、字を足す書き込みはできません",
-                                [f["id"] for f in blocked[:12]]))
-        if not (ok or agent or blocked):
-            write.append(Reason("B", "印のある欄がない", "欄のない所は、前後の字を目印にして、同じ字数で上書きします"))
+    ok = [f for f in fields if not f.get("readonly")]
+    blocked = [f for f in fields if f.get("readonly")]
+    grow = [f for f in ok if f["kind"] != "checkbox" and not f.get("maxlen")]
+    fixed = [f for f in ok if f.get("maxlen")]
+    pol = policy(doc)
+    packed = "。圧縮して保存した文書なので、中の文書に書いてから -lh5- で縮め直し、解き直して確かめます" if doc.compressed else ""
+    if ok or agent:
+        detail = f"規則で見つけた欄 {len(ok)} か所に書けます"
+        if grow:
+            detail += (f"（うち {len(grow)} か所は、空のマスに字を足す・空白や伏せ字より長い値に替える、字数を変える書き込みが"
+                       "できます。文字の書式の区切り・表の位置の表・ストリームの一覧などを合わせて直し、行・ページの割り付けの控えを"
+                       "取り除きます）")
+        if fixed:
+            detail += f"。{len(fixed)} か所は、空白・伏せ字（○○）の字数までの上書きだけです"
+        write.append(Reason("B", "解析して書く（字数を変える書き込みを含む）" if grow else "同じ字数の上書き",
+                            detail + packed, [f["id"] for f in ok[:12]]))
+    if blocked:
+        whys = sorted({f.get("why_fixed", "") for f in blocked} - {""})
+        write.append(Reason("D", "書けない欄",
+                            f"{len(blocked)} か所は書けません（上書きできる字がなく、字数を変える書き込みもできない所）。理由："
+                            + "／".join(whys[:4]), [f["id"] for f in blocked[:12]]))
+    if not (ok or agent or blocked):
+        write.append(Reason("B", "印のある欄がない", "欄のない所は、前後の字を目印にして書きます"
+                            + ("（本文は字数が違ってもよい）" if pol.ok else "（同じ字数で上書き）")))
     return _final(reasons, write)
