@@ -92,6 +92,28 @@ class Cell:
         return self._formula is not None or self._shared_from is not None or self.array_master is not None
 
 
+def _covers(rule, r: int, c: int) -> bool:
+    """セル (r, c) が、範囲（sqref）のどれかに入るか。範囲が多いとき（数千の飛び飛びの範囲を持つ入力規則がある）は、
+    行ごとの索引を一度だけ作って引く（答えは、範囲を順に調べたときと同じ）。"""
+    sq = rule.sqref
+    if len(sq) <= 16:
+        return any(r1 <= r <= r2 and c1 <= c <= c2 for r1, c1, r2, c2 in sq)
+    idx = rule.__dict__.get("_rows")
+    if idx is None or idx[0] is not sq or idx[1] != len(sq):
+        rows: dict[int, list[tuple[int, int]]] = {}
+        tall: list[tuple[int, int, int, int]] = []
+        for r1, c1, r2, c2 in sq:
+            if r2 - r1 < 64:
+                for rr in range(r1, r2 + 1):
+                    rows.setdefault(rr, []).append((c1, c2))
+            else:
+                tall.append((r1, c1, r2, c2))
+        idx = rule.__dict__["_rows"] = (sq, len(sq), rows, tall)
+    _sq, _n, rows, tall = idx
+    return any(c1 <= c <= c2 for c1, c2 in rows.get(r, ())) or \
+        any(r1 <= r <= r2 and c1 <= c <= c2 for r1, c1, r2, c2 in tall)
+
+
 @dataclass
 class Validation:
     sqref: list[tuple[int, int, int, int]]
@@ -110,7 +132,7 @@ class Validation:
     show_input: bool = False
 
     def covers(self, r: int, c: int) -> bool:
-        return any(r1 <= r <= r2 and c1 <= c <= c2 for r1, c1, r2, c2 in self.sqref)
+        return _covers(self, r, c)
 
     @property
     def origin(self) -> tuple[int, int]:
@@ -293,7 +315,7 @@ class CondRule:
         return (min(r[0] for r in self.sqref), min(r[1] for r in self.sqref)) if self.sqref else (1, 1)
 
     def covers(self, r: int, c: int) -> bool:
-        return any(r1 <= r <= r2 and c1 <= c <= c2 for r1, c1, r2, c2 in self.sqref)
+        return _covers(self, r, c)
 
 
 class Workbook:

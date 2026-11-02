@@ -65,9 +65,34 @@ def _pdf(blob: bytes, name: str, lock):
     return PdfDocument(blob, name, password=pw) if pw else PdfDocument(blob, name)
 
 
+# 窓の控え：対話では、同じファイルを開いてから書く（open_document → fill_document）ので、中身が同じなら作り直さない。
+# 鍵はファイルの中身のハッシュと名前だけ（パスワードで保護された書類は控えない。パスワードは控えにも残さない）
+_WINDOWS: "dict[tuple[str, str], tuple[str, bytes]]" = {}
+_WINDOWS_MAX = 8
+
+
 def window(path: str, password: str | None = None) -> tuple[str, dict, list[tuple[str, str]]]:
     """(形式, 窓の JSON, Markdown の部分)。"""
+    import hashlib
+    import pickle
+
     blob, name, k, lock = _read(path, password)
+    key = (hashlib.sha256(blob).hexdigest(), name) if lock is None else None
+    if key is not None and key in _WINDOWS:
+        _WINDOWS[key] = _WINDOWS.pop(key)  # いちばん新しく使ったものにする
+        return pickle.loads(_WINDOWS[key][1])  # 呼んだ側が変えても控えは変わらないよう、写しを返す
+    out = _window(blob, name, k, lock)
+    if key is not None:
+        try:
+            _WINDOWS[key] = (k, pickle.dumps(out, protocol=pickle.HIGHEST_PROTOCOL))
+        except Exception:  # noqa: BLE001  写せないものが入っていれば、控えない
+            return out
+        while len(_WINDOWS) > _WINDOWS_MAX:
+            _WINDOWS.pop(next(iter(_WINDOWS)))
+    return out
+
+
+def _window(blob: bytes, name: str, k: str, lock) -> tuple[str, dict, list[tuple[str, str]]]:
     if k in _open.KINDS:  # 追加の形式
         try:
             doc, parts = _open.window(k, blob, name)
