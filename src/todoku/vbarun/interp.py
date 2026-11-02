@@ -1040,6 +1040,15 @@ class Runtime:
             for n in nums:
                 self.open_files.pop(n, None)
             return
+        if st.kind == "debugprint":
+            # イミディエイト ウィンドウは、書類にも人にも出ない。式は、Excel と同じく計算する（呼んだ関数が動き、エラーも出る）
+            for it in st.args[1]:
+                if isinstance(it, tuple):
+                    if it[1] is not None:
+                        self.value(it[1], fr)
+                elif it not in (";", ","):
+                    self.value(it, fr)
+            return
         if st.kind in ("print", "write"):
             num, items = st.args
             f = self.open_files.get(to_long(self.value(num, fr)))
@@ -1047,6 +1056,17 @@ class Runtime:
                 raise VbaError(52, "ファイル名または番号が不正です")
             parts, newline = [], True
             for k, it in enumerate(items):
+                if isinstance(it, tuple):
+                    # Spc(n)：n 個の空白。Tab(n)：n 桁目へ（過ぎていれば次の行）。Tab だけなら次の区切り（14 桁ごと）
+                    col = len("".join(parts).rsplit("\n", 1)[-1])
+                    if it[0] == "spc":
+                        parts.append(" " * max(0, to_long(self.value(it[1], fr))))
+                    elif it[1] is None:
+                        parts.append(" " * (14 - col % 14))
+                    else:
+                        n = max(1, to_long(self.value(it[1], fr)))
+                        parts.append(" " * (n - 1 - col) if col < n else "\r\n" + " " * (n - 1))
+                    continue
                 if it in (";", ","):
                     if k == len(items) - 1:
                         newline = False

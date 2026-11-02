@@ -462,6 +462,9 @@ class Parser:
                 self.next()
                 self.expect_kw("enum")
                 continue
+            if self.tok.is_kw("implements") or (self.tok.is_kw("event") and self.peek().kind == "id"):
+                self.skip_line()  # インターフェースの実装・イベントの宣言（動きには関わらない）
+                continue
             if self.tok.is_kw("dim", "const") or mods:
                 const = False
                 if self.tok.is_kw("dim"):
@@ -495,6 +498,9 @@ class Parser:
         if self.tok.is_kw("as"):
             self.next()
             self.type_name()
+            if self.tok.is_op("(") and self.peek().is_op(")"):
+                self.next()  # 「As String()」：配列を返す（5.3.1.1 の function-type）
+                self.next()
         end_kw = {"sub": "sub", "function": "function"}.get(kind, "property")
         body = self.block({"end"})
         self.expect_kw("end")
@@ -540,6 +546,8 @@ class Parser:
     def dim_list(self, const: bool = False, static: bool = False, line: int = 0) -> Dim:
         d = Dim(line=line, const=const, static=static)
         while True:
+            if not const and self.tok.is_kw("withevents") and self.peek().kind == "id":
+                self.next()  # 「Public WithEvents TextBox As MSForms.TextBox」：イベントを受け取る変数（5.2.3.1）
             tk = self.ident()
             v = DimVar(tk.value.lower().rstrip("$%&!#@"))
             if self.tok.is_op("("):
@@ -732,6 +740,12 @@ class Parser:
                     continue
                 args.append(self.expr())
             return [FileStmt(line=line, kind="close", args=args)]
+        if low == "debug" and self.peek().is_op(".") and self.peek(2).is_kw("print"):
+            # Debug.Print：イミディエイト ウィンドウに出す。式は Print # と同じ並び（「;」「,」・Spc・Tab）
+            self.next()
+            self.next()
+            self.next()
+            return [FileStmt(line=line, kind="debugprint", args=[None, self.output_list()])]
         if low in ("print", "write") and self.peek().is_op("#"):
             return [self.print_(low)]
         if low == "input" and self.peek().is_op("#"):
@@ -949,17 +963,30 @@ class Parser:
         items: list = []
         if self.tok.is_op(","):
             self.next()
-            while not self.at_end_of_stmt():
-                if self.tok.is_op(";"):
-                    items.append(";")
-                    self.next()
-                    continue
-                if self.tok.is_op(","):
-                    items.append(",")
-                    self.next()
-                    continue
-                items.append(self.expr())
+            items = self.output_list()
         return FileStmt(line=line, kind=kind, args=[num, items])
+
+    def output_list(self) -> list:
+        """Print #・Write #・Debug.Print の出力の並び（MS-VBAL 5.4.5.8 output-list）。
+        要素は式か、区切りの「;」「,」か、("spc", 式)・("tab", 式または None)。"""
+        items: list = []
+        while not self.at_end_of_stmt():
+            if self.tok.is_op(";", ","):
+                items.append(self.next().value)
+                continue
+            if self.tok.is_kw("spc", "tab") and (self.peek().is_op("(") or self.tok.is_kw("tab")):
+                w = self.next().value.lower()
+                arg = None
+                if self.tok.is_op("("):
+                    self.next()
+                    arg = self.expr()
+                    self.expect_op(")")
+                elif w == "spc":
+                    raise VbaSyntaxError("「Spc」の後ろに「(数)」がありません", self.tok.line)
+                items.append((w, arg))
+                continue
+            items.append(self.expr())
+        return items
 
     # ---------------------------------------------------------------- 式
     def expr(self) -> Node:
@@ -1106,5 +1133,186 @@ def _const_value(e: Node, enums: dict) -> int:
     return 0
 
 
-def parse_module(name: str, source: str) -> Module:
-    return Parser(tokenize(source), name).module_()
+# ====================================================================== 条件付きコンパイル（MS-VBAL 3.4）
+# 実装が決める定数（3.4.1）。Windows の 64 ビット版 Office（いまの Microsoft 365 の標準の入れ方）と同じにする。
+# Win32 は 64 ビット版でも真（32 ビット以上の Windows で真）
+PREDEFINED = {"vba6": True, "vba7": True, "win16": False, "win32": True, "win64": True, "mac": False}
+
+_DIRECTIVE = re.compile(r"[ \t]*#[ \t]*(const|if|elseif|else|end[ \t]*if)(?![\w])(.*)", re.I | re.S)
+
+
+def _continues(line: str) -> bool:
+    """行末の「 _」で、次の行に続く（コメントの行も続く）。"""
+    t = line.rstrip(" \t")
+    return t.endswith("_") and len(t) >= 2 and t[-2] in " \t"
+
+
+def project_constants(text: str) -> dict:
+    """プロジェクトの条件付きコンパイルの引数（MS-OVBA 2.3.4.2.1.12 PROJECTCONSTANTS、「名前 = 数 : 名前 = 数」）。"""
+    out = {}
+    for part in (text or "").split(":"):
+        k, eq, v = part.partition("=")
+        k, v = k.strip(), v.strip()
+        if not eq or not re.fullmatch(r"[^\W\d]\w*", k):
+            continue
+        try:
+            out[k.lower()] = int(v)
+        except ValueError:
+            continue
+    return out
+
+
+def _cc_value(e: Node, env: dict):
+    """条件付きコンパイルの式（cc-expression）の値。決めていない名前は Empty（0 と同じ）。"""
+    if isinstance(e, Lit):
+        v = e.value
+        return 0 if isinstance(v, _Sentinel) else v
+    if isinstance(e, Name):
+        return env.get(e.name, 0)
+    if isinstance(e, Unary):
+        v = _cc_value(e.operand, env)
+        if e.op == "not":
+            return (not v) if isinstance(v, bool) else ~_cc_int(v)
+        return -_cc_num(v) if e.op == "-" else _cc_num(v)
+    if isinstance(e, Binary):
+        a, b = _cc_value(e.left, env), _cc_value(e.right, env)
+        op = e.op
+        if op in ("and", "or", "xor", "eqv", "imp", "andalso", "orelse"):
+            if isinstance(a, bool) and isinstance(b, bool):
+                return {"and": a and b, "andalso": a and b, "or": a or b, "orelse": a or b, "xor": a != b,
+                        "eqv": a == b, "imp": (not a) or b}[op]
+            x, y = _cc_int(a), _cc_int(b)
+            return {"and": x & y, "andalso": x & y, "or": x | y, "orelse": x | y, "xor": x ^ y,
+                    "eqv": ~(x ^ y), "imp": (~x) | y}[op]
+        if op == "&":
+            return _cc_text(a) + _cc_text(b)
+        if op in ("=", "<>", "<", ">", "<=", ">="):
+            if isinstance(a, str) and isinstance(b, str):
+                x, y = a, b
+            else:
+                x, y = _cc_num(a), _cc_num(b)
+            return {"=": x == y, "<>": x != y, "<": x < y, ">": x > y, "<=": x <= y, ">=": x >= y}[op]
+        x, y = _cc_num(a), _cc_num(b)
+        if op == "+":
+            return x + y
+        if op == "-":
+            return x - y
+        if op == "*":
+            return x * y
+        if op == "^":
+            return x ** y
+        if op in ("/", "\\", "mod"):
+            if y == 0:
+                raise VbaSyntaxError("条件付きコンパイルの式で、0 で割っています", e.line)
+            if op == "/":
+                return x / y
+            q = abs(_cc_int(x)) // abs(_cc_int(y))
+            if op == "\\":
+                return q if (_cc_int(x) >= 0) == (_cc_int(y) >= 0) else -q
+            r = abs(_cc_int(x)) % abs(_cc_int(y))
+            return r if _cc_int(x) >= 0 else -r
+    raise VbaSyntaxError("条件付きコンパイルの式に、定数でないものがあります", e.line)
+
+
+def _cc_num(v):
+    if isinstance(v, bool):
+        return -1 if v else 0
+    if isinstance(v, (int, float)):
+        return v
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        raise VbaSyntaxError(f"条件付きコンパイルの式で、数にできない値「{v}」") from None
+
+
+def _cc_int(v) -> int:
+    x = _cc_num(v)
+    return int(round(x)) if isinstance(x, float) else x
+
+
+def _cc_text(v) -> str:
+    if isinstance(v, bool):
+        return "True" if v else "False"
+    return str(v)
+
+
+def _cc_truth(v) -> bool:
+    return v if isinstance(v, bool) else _cc_num(v) != 0
+
+
+def preprocess(source: str, constants: dict | None = None) -> str:
+    """条件付きコンパイル（#Const・#If・#ElseIf・#Else・#End If）を解き、使わない行を空の行にしたソース。
+
+    行の番号を変えないため、指示の行と、使わない側の行は、空の行にする。定数は、実装が決めるもの（PREDEFINED）、
+    プロジェクトの引数（constants）、モジュールの #Const の順に上書きする。"""
+    src = source.replace("\r\n", "\n").replace("\r", "\n")
+    if "#" not in src:
+        return src
+    lines = src.split("\n")
+    env = dict(PREDEFINED)
+    env.update({k.lower(): v for k, v in (constants or {}).items()})
+    out: list[str] = []
+    stack: list[list] = []  # [外側が使われているか, どれかの枝を使ったか, #If の行]
+    active = True
+    i = 0
+    while i < len(lines):
+        j = i
+        while _continues(lines[j]) and j + 1 < len(lines):
+            j += 1
+        phys = lines[i:j + 1]
+        line_no = i + 1
+        logical = " ".join(x.rstrip(" \t")[:-1] if k < len(phys) - 1 else x for k, x in enumerate(phys))
+        m = _DIRECTIVE.match(logical)
+        i = j + 1
+        if not m:
+            out.extend(phys if active else [""] * len(phys))
+            continue
+        out.extend([""] * len(phys))
+        word = re.sub(r"[ \t]+", "", m.group(1)).lower()
+        toks = tokenize(m.group(2))
+        for t in toks:
+            t.line = line_no
+        ps = Parser(toks, "")
+
+        def cond() -> bool:
+            e = ps.expr()
+            ps.expect_kw("then")
+            if ps.tok.kind not in ("nl", "eof"):
+                raise VbaSyntaxError(f"「#{m.group(1)} … Then」の後ろに「{ps.tok.value}」", line_no)
+            return _cc_truth(_cc_value(e, env))
+
+        if word == "const":
+            name = ps.ident().value.lower().rstrip("$%&!#@")
+            ps.expect_op("=")
+            v = _cc_value(ps.expr(), env)
+            if active:
+                env[name] = v
+        elif word == "if":
+            took = active and cond()
+            stack.append([active, took, line_no])
+            active = took
+        elif word == "elseif":
+            if not stack:
+                raise VbaSyntaxError("「#If」のない「#ElseIf」があります", line_no)
+            outer, taken, _ = stack[-1]
+            ok = outer and not taken and cond()
+            stack[-1][1] = taken or ok
+            active = ok
+        elif word == "else":
+            if not stack:
+                raise VbaSyntaxError("「#If」のない「#Else」があります", line_no)
+            outer, taken, _ = stack[-1]
+            active = outer and not taken
+            stack[-1][1] = True
+        else:  # end if
+            if not stack:
+                raise VbaSyntaxError("「#If」のない「#End If」があります", line_no)
+            active = stack.pop()[0]
+    if stack:
+        raise VbaSyntaxError("「#If」が「#End If」で閉じていません", stack[-1][2])
+    return "\n".join(out)
+
+
+def parse_module(name: str, source: str, constants: dict | None = None) -> Module:
+    """モジュールのソースを構文木にする。constants はプロジェクトの条件付きコンパイルの引数。"""
+    return Parser(tokenize(preprocess(source, constants)), name).module_()

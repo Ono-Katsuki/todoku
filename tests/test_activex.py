@@ -617,6 +617,33 @@ def test_xlsx_shared_picture_is_split():
     assert axdraw.emf_texts(z1.read(by["OptionButton1"].ax.images[0])) == ["はい"]
 
 
+def test_xlsx_shared_picture_is_split_once_per_control():
+    """選んだボタンが外すボタンを、名指しでも外すと、同じ部品に「Value を 0 に」が2度届く。部品は1度だけ書き、
+    共有の絵から分けた絵がどこからも指されないまま残らないこと。同じ組のボタンを2つ選ぶのは断る。"""
+    import re
+
+    from todoku.xlsx.edit import EditError, fill
+    from todoku.xlsx.proof import prove
+    from todoku.xlsx.workbook import Workbook
+
+    ctls = [{"name": f"OptionButton{i}", "clsid": GUID["OptionButton"], "bin": morph(5, "1" if i == 1 else "0", t, "回答"),
+             "row": i, "col": 2} for i, t in ((1, "はい"), (2, "いいえ"), (3, "わからない"))]
+    blob = ax_xlsx(ctls, share_picture=True)
+    res = fill(Workbook(blob, "s.xlsx"), {"申請!OptionButton2": True, "申請!OptionButton1": False})
+    pr = prove(blob, res.blob, res.allowed_inputs, {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"})
+    assert pr.ok, pr.unexpected + pr.lint_errors
+    assert sorted(p.address for p in res.patches if p.kind == "control") == ["OptionButton1", "OptionButton2"]
+    z1 = zipfile.ZipFile(io.BytesIO(res.blob))
+    targets = {t.rsplit("/", 1)[-1] for n in z1.namelist() if n.endswith(".rels")
+               for t in re.findall(r'Target="([^"]*)"', z1.read(n).decode())}
+    assert {n.rsplit("/", 1)[-1] for n in z1.namelist() if "/media/" in n} <= targets  # どの絵も、どこかから指されている
+    by = {c.name: c for c in Workbook(res.blob).sheet("申請").controls}
+    assert [by[f"OptionButton{i}"].ax.control.get("Value") for i in (1, 2, 3)] == ["0", "1", "0"]
+    # 2 を選んでから 3 を選ぶ：3 が 2 を外すので、2 には「選ぶ」と「外す」の両方が届く。どちらが望みか決まらないので断る
+    with pytest.raises(EditError, match="2度"):
+        fill(Workbook(blob, "s.xlsx"), {"申請!OptionButton2": True, "申請!OptionButton3": True})
+
+
 # ====================================================================== Word（.docx）
 def wmf_stub(tw: int = 1800, th: int = 360) -> bytes:
     """元の控えの絵：置き場所の頭（MS-WMF 2.3.2.3、22バイト）と META_HEADER・META_EOF だけの WMF。"""
@@ -722,6 +749,26 @@ def test_docx_read_fill_prove(share):
     assert ["山田　花子"] in pics
     if share:  # 共有していた絵は元のまま残り、書いた部品ごとに新しい絵ができる
         assert z.read("word/media/image1.wmf") == wmf_stub() and len(pics) > 1
+
+
+@pytest.mark.parametrize("share", [False, True])
+def test_docx_same_control_is_written_once(share):
+    """選んだボタンが外すボタンを、名指しでも外す（同じ値）なら1度だけ書く。同じ組のボタンを2つ選ぶのは断る。"""
+    from todoku.docx.document import DocxDocument
+    from todoku.docx.fill import FillError, fill, written_of
+    from todoku.docx.proof import prove
+
+    blob = ax_docx(word_controls(), share_picture=share)
+    res = fill(DocxDocument(blob, "a.docx"), {"OptionButton2": True, "OptionButton1": False})
+    pr = prove(blob, res.blob, written_of(res.patches))
+    assert pr.ok, pr.unexpected + pr.lint_errors
+    z = zipfile.ZipFile(io.BytesIO(res.blob))
+    rels = z.read("word/_rels/document.xml.rels").decode()
+    assert all(n.rsplit("/", 1)[-1] in rels for n in z.namelist() if "/media/" in n)  # 指されない絵を残さない
+    blob3 = ax_docx(word_controls() + [{"name": "OptionButton3", "kind": "OptionButton",
+                                        "bin": morph(5, "0", "わからない", "回答")}], share_picture=share)
+    with pytest.raises(FillError, match="2度"):
+        fill(DocxDocument(blob3, "a.docx"), {"OptionButton2": True, "OptionButton3": True})
 
 
 def test_docx_proof_detects_wrong_value():

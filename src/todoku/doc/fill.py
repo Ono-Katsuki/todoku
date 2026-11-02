@@ -431,6 +431,7 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
     w = DocWriter(doc)
     patches = []
     ax_writes: list = []  # ActiveX の部品の (部品, 変える性質)
+    ax_written: dict = {}  # id(部品の中身) → 変えた性質（同じ部品を2度書かない）
     problems = []
     warnings: list[str] = []
     used: dict = {}
@@ -477,11 +478,13 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
             if c is not None and c.source == "activex":
                 # ActiveX の部品：ObjectPool の入れ物の中の部品の性質を書く（axbin）
                 from ..activex import AxError
-                from ..axfile import word_plan
+                from ..axfile import word_plan, written_before
 
                 ids = {id(x.get("control")): k for k, x in sp.items.items() if x.get("control") is not None}
                 try:
-                    for ctl, changes, shown in word_plan(doc, c, value, force):
+                    for ctl, changes, shown in word_plan(doc, c, value, force, ax_written):
+                        if written_before(ax_written, ctl, changes):
+                            continue
                         ax_writes.append((ctl, changes))
                         patches.append(Patch(ids.get(id(ctl), ctl.name), "control", shown, "doc"))
                 except AxError as e:

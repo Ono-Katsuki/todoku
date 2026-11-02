@@ -726,9 +726,9 @@ def _raw_items(wb, sh, ctl) -> list | None:
     return [row[bc] if len(row) > bc else None for row in g.data]
 
 
-def plan_excel(wb, sheet: str, ctl, value, force: bool = False) -> ExcelWrite:
+def plan_excel(wb, sheet: str, ctl, value, force: bool = False, prior: list | None = None) -> ExcelWrite:
     """ActiveX の部品 ctl に value を書くときの、部品の性質の変化（オプションボタンは同じ組のほかのボタンも外す）と、
-    つながったセルの値。"""
+    つながったセルの値。prior は、同じ書き込みで先に書く部品（Excel で人が順にクリックしたのと同じく、その後の状態で外す）。"""
     sh = wb.sheet(sheet)
     ref = ctl.ax
     out = ExcelWrite()
@@ -739,8 +739,13 @@ def plan_excel(wb, sheet: str, ctl, value, force: bool = False) -> ExcelWrite:
     out.notes += notes
     targets = [(ctl, changes)]
     if ref.kind == "OptionButton" and changes.get("Value") == "1":
+        now = {}  # 先に書く部品のあとの、ボタンの Value
+        for _s, c_, ch_, _i in prior or ():
+            if "Value" in ch_:
+                now[id(c_.ax)] = ch_["Value"]
         for other in excel_groups(sh).get(ref.control.get("GroupName") or "", []):
-            if other is not ctl and other.ax.control.checked:
+            on = now[id(other.ax)] == "1" if id(other.ax) in now else bool(other.ax.control.checked)
+            if other is not ctl and on:
                 targets.append((other, {"Value": "0"}))
     raw = _raw_items(wb, sh, ctl) if items is not None else None
     for c, ch in targets:
@@ -762,6 +767,27 @@ def excel_links(wb) -> dict:
     return out
 
 
+def merge_writes(writes: list) -> list:
+    """同じ部品への書き込みを1つにまとめる（順は、その部品を初めに書いた所）。
+
+    オプションボタンの組では、ほかのボタンを選ぶと、このボタンにも「Value を 0 に」が届き、名指しで外す書き込みと重なる。
+    同じ部品を2度書くと、共有している控えの絵を2度分けて、1つ目の絵がどこからも指されないまま残るので、1度だけ書く。
+    同じ性質に違う値を書くことになる（同じ組のボタンを2つ選んだ）なら、どちらが望みか決まらないので断る。"""
+    out: dict[int, list] = {}
+    for sheet, ctl, changes, items in writes:
+        k = id(ctl.ax)
+        if k in out:
+            prev = out[k][2]
+            if any(key in prev and prev[key] != v for key, v in changes.items()):
+                raise ax.AxError(f"「{ctl.name}」に、ひとつの書き込みの中で違う値を2度書くことになります"
+                                 "（同じ組のオプションボタンを2つ選んでいませんか）。選ぶボタンを1つにしてください")
+            out[k][2] = {**prev, **changes}
+            out[k][3] = items if items is not None else out[k][3]
+        else:
+            out[k] = [sheet, ctl, dict(changes), items]
+    return [tuple(w) for w in out.values()]
+
+
 def apply_excel(wb, writes: list) -> tuple[dict[str, bytes], list[dict]]:
     """部品の性質を変えた部品（.bin・.xml）と、描き直した控えの絵。(部品の名前 → 中身, 書いたことの記録)。"""
     parts: dict[str, bytes] = {}
@@ -774,7 +800,7 @@ def apply_excel(wb, writes: list) -> tuple[dict[str, bytes], list[dict]]:
                     users.setdefault(img, set()).add(id(c.ax))
     shared = {img for img, u in users.items() if len(u) > 1}
     added: dict[str, tuple[bytes, str]] = {}
-    for sheet, ctl, changes, items in writes:
+    for sheet, ctl, changes, items in merge_writes(writes):
         ref = ctl.ax
         if all(ref.control.get(k) == v or (v in (None, "") and ref.control.get(k) == ax.default_of(ref.control.struct, k))
                for k, v in changes.items()):
@@ -1071,8 +1097,9 @@ def word_describe(doc, c) -> dict:
     return d
 
 
-def word_plan(doc, c, value, force: bool = False) -> list[tuple[object, dict, object]]:
-    """Word の部品 c に value を書くときの (部品, 変える性質, 窓の値) の並び。オプションボタンは同じ組のほかのボタンも外す。"""
+def word_plan(doc, c, value, force: bool = False, written: dict | None = None) -> list[tuple[object, dict, object]]:
+    """Word の部品 c に value を書くときの (部品, 変える性質, 窓の値) の並び。オプションボタンは同じ組のほかのボタンも外す。
+    written：同じ書き込みで先に書いた部品（id(部品の中身) → 変えた性質）。ボタンが選ばれているかは、その後の状態で見る。"""
     ref = c.ax
     if ref is None or ref.control is None:
         raise ax.AxError(f"「{c.name}」の中身を読めないので書けません：{getattr(ref, 'error', '') or '中身がありません'}")
@@ -1080,9 +1107,26 @@ def word_plan(doc, c, value, force: bool = False) -> list[tuple[object, dict, ob
     out = [(c, changes, value_after(ref, changes))]
     if ref.kind == "OptionButton" and changes.get("Value") == "1":
         for other in word_groups(doc).get(ref.control.get("GroupName") or "", []):
-            if other is not c and other.ax.control.checked:
+            prev = (written or {}).get(id(other.ax), {})
+            on = prev["Value"] == "1" if "Value" in prev else bool(other.ax.control.checked)
+            if other is not c and on:
                 out.append((other, {"Value": "0"}, False))
     return out
+
+
+def written_before(written: dict, ctl, changes: dict) -> bool:
+    """同じ書き込みの中で、この部品をもう書いたか（同じ値なら True で、書き直さない）。違う値を2度書くことになるなら断る。
+
+    部品を2度書くと、1度目に分けた控えの絵がどこからも指されずに残り、部品の中の位置も元の位置とずれるので、
+    Excel で順にクリックしたのと同じ結果になるかを確かめられない。"""
+    prev = written.get(id(ctl.ax))
+    if prev is None:
+        written[id(ctl.ax)] = dict(changes)
+        return False
+    if all(prev.get(k) == v for k, v in changes.items()):
+        return True
+    raise ax.AxError(f"「{ctl.name}」に、ひとつの書き込みの中で違う値を2度書くことになります"
+                     "（同じ組のオプションボタンを2つ選んでいませんか）。選ぶボタンを1つにしてください")
 
 
 def value_after(ref: AxRef, changes: dict):
@@ -1109,7 +1153,13 @@ def word_fill(f, item: dict, value, force: bool = False) -> list:
     shared = {img for img, u in users.items() if len(u) > 1}
     out = []
     ids = {id(it.get("control")): k for k, it in f.sp.items.items() if it.get("control") is not None}
-    for ctl, changes, shown in word_plan(doc, c, value, force):
+    if not hasattr(f, "ax_written"):
+        f.ax_written = {}
+    for ctl, changes, shown in word_plan(doc, c, value, force, f.ax_written):
+        if written_before(f.ax_written, ctl, changes):
+            if ctl is c:
+                out.append((ids.get(id(ctl), ctl.name), shown))
+            continue
         if all(ctl.ax.control.get(k) == v or (v in (None, "") and ctl.ax.control.get(k) == ax.default_of(ctl.ax.control.struct, k))
                for k, v in changes.items()):
             if ctl is c:

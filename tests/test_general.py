@@ -191,6 +191,67 @@ def test_overlapping_rules_warn_instead_of_guessing():
         fill(wb, {"S!C3": "丙"})  # どの規則にも合わない
 
 
+def _dependent_lists(wb):
+    """都道府県（K2）で、市区（O2）の選択肢が決まる様式（INDIRECT で名前を引く）。"""
+    from openpyxl.workbook.defined_name import DefinedName
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    ls = wb.create_sheet("一覧")
+    for r, (a, b) in enumerate([("区部第1", "札幌"), ("区部第2", "函館")], start=1):
+        ls.cell(r, 1, a)
+        ls.cell(r, 2, b)
+    ls.cell(1, 3, "東京都")
+    ls.cell(2, 3, "北海道")
+    wb.defined_names["東京都"] = DefinedName("東京都", attr_text="一覧!$A$1:$A$2")
+    wb.defined_names["北海道"] = DefinedName("北海道", attr_text="一覧!$B$1:$B$2")
+    ws = wb.active
+    ws.title = "S"
+    ws["J2"] = "希望地"
+    ws["K2"] = "東京都"
+    ws["O2"] = "区部第1"
+    pref = DataValidation(type="list", formula1="一覧!$C$1:$C$2", showErrorMessage=True)
+    pref.add("K2")
+    city = DataValidation(type="list", formula1="INDIRECT($K$2)", showErrorMessage=True)
+    city.add("O2")
+    ws.add_data_validation(pref)
+    ws.add_data_validation(city)
+
+
+def test_dependent_list_is_checked_in_the_state_after_writing():
+    wb = book(_dependent_lists)
+    fill(wb, {"S!K2": "北海道", "S!O2": "札幌"})  # 県を変えると、その県の市区が選べる
+    fill(wb, {"S!O2": "札幌", "S!K2": "北海道"})  # 書く順は問わない（すべてを書いた状態で確かめる）
+    fill(wb, {"S!O2": "区部第2"})  # 県はいまのまま（東京都）
+    with pytest.raises(EditError, match="選択肢にありません"):
+        fill(wb, {"S!K2": "北海道", "S!O2": "区部第1"})  # 北海道の一覧にはない
+    with pytest.raises(EditError, match="選択肢にありません"):
+        fill(wb, {"S!O2": "札幌"})  # 県が東京都のままなら、札幌は選べない
+
+
+def test_audit_picks_dependent_choices_after_the_controlling_cell():
+    from todoku.xlsx.audit import check_writing
+
+    wb = book(_dependent_lists)
+    checks = check_writing(wb, window.build(wb))
+    w = next(c for c in checks if c.name == "全入力欄への書き込み")
+    assert w.ok, w.items
+
+
+def test_planned_cells_fill_inline_blanks_like_fill():
+    from todoku.xlsx.audit import _planned_cells
+
+    def build(wb):
+        ws = wb.active
+        ws.title = "S"
+        ws["A1"] = "第＿号"
+        ws["A2"] = "第＿号＿"
+
+    wb = book(build)
+    assert _planned_cells(wb, {"S!A1": ["3"]}) == {("S", 1, 1): "第3号"}
+    # 書けない指示（空欄の数が合わない）は fill が知らせる。ここでは一覧の表示（['3']）をセルの値にしない
+    assert _planned_cells(wb, {"S!A1": ["3"], "S!A2": ["3"]}) == {("S", 1, 1): "第3号"}  # 一覧の表示ではなく、セルに入る文字
+
+
 # ------------------------------------------------------------------ 表示と窓
 @pytest.mark.parametrize("fmt, value, text", [
     ("#,##0.##", 0, "0."), ("0.?", 0, "0. "), ("0.#?", 1.5, "1.5 "), ("???0", 12, "  12"), ("#", 0, ""),
@@ -236,6 +297,47 @@ def test_large_window_is_split_into_readable_parts():
     assert max(len(t) for _, t in parts) <= 70_000
     whole = window.to_markdown(doc)
     assert all(f"項目2-{r}の" in whole for r in (1, 1499))
+
+
+def test_split_lines_keeps_tables_and_code_readable():
+    from todoku.xlsx.window import split_lines
+
+    lines = ["### 入力欄（300 か所）", "", "| 欄 | 見出し |", "|---|---|"] + [f"| A{r} | 項目{r} |" for r in range(300)] + \
+        ["", "### モジュールとソース", "", "#### Module1：標準モジュール", "",
+         "```vba", "\n".join(f"x{r} = {r}" for r in range(400)), "```", ""]
+    chunks = split_lines(lines, 2000, "シート「S」", ["## シート「S」", ""])
+    assert chunks == split_lines(lines, 2000, "シート「S」", ["## シート「S」", ""]) and len(chunks) > 4  # 決まった分け方
+    assert all(sum(len(x) + 1 for x in c) <= 2200 for c in chunks)
+    for c in chunks:
+        assert c[0] == "## シート「S」"
+        assert len([x for x in c if x.startswith("```")]) % 2 == 0  # コードは、その部分の中で開いて閉じる
+        rows = [x for x in c if x.startswith("| A")]
+        if rows:  # 表の続きにも、表の見出しの行がある
+            i = c.index(rows[0])
+            assert c[i - 2:i] == ["| 欄 | 見出し |", "|---|---|"]
+        if any(x.startswith("x") for x in c):  # コードの続きには、モジュールの見出しがある
+            assert "#### Module1：標準モジュール" in c
+    # 元の行は、1つも落とさず、順のとおりに並ぶ
+    want = [ln for x in lines for ln in x.split("\n") if ln]
+    k = 0
+    for ln in (x for c in chunks for x in c):
+        if k < len(want) and ln == want[k]:
+            k += 1
+    assert k == len(want)
+    # 「何行目から」の断りが正しい
+    for c in chunks:
+        note = next((x for x in c if x.startswith("（ソースの続き")), None)
+        if note:
+            n = int(note.split("：")[1].split(" ")[0])
+            assert c[c.index("```vba") + 1] == f"x{n - 1} = {n - 1}"
+
+
+def test_split_lines_cuts_a_line_longer_than_the_limit():
+    from todoku.xlsx.window import split_lines
+
+    chunks = split_lines(["あ" * 5000], 2000, "マクロ")
+    assert "".join(x for c in chunks for x in c if not x.startswith("（")) == "あ" * 5000
+    assert all(sum(len(x) + 1 for x in c) <= 2100 for c in chunks)
 
 
 def test_side_by_side_tables_keep_their_own_row_labels():

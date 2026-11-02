@@ -121,6 +121,14 @@ class Project:
     name: str
     modules: list[Module]
     locked: bool = False  # 見るのにパスワードが要る（ソースそのものは読める）
+    constants: str = ""  # 条件付きコンパイルの引数（PROJECTCONSTANTS。「名前 = 数 : 名前 = 数」）
+
+    @property
+    def cc_constants(self) -> dict:
+        """条件付きコンパイルの引数を、名前（小文字）→ 数 にしたもの。"""
+        from .vbarun.parse import project_constants
+
+        return project_constants(self.constants)
 
     @property
     def procedures(self) -> list[str]:
@@ -154,6 +162,7 @@ def read_project(blob: bytes) -> Project:
     d = decompress(c.read(dir_path))
     code_page = 1252
     proj_name = ""
+    constants = ""
     modules: list[Module] = []
     cur: dict | None = None
     for rid, data in _records(d):
@@ -161,6 +170,8 @@ def read_project(blob: bytes) -> Project:
             code_page = struct.unpack_from("<H", data)[0]
         elif rid == 0x0004:
             proj_name = data.decode(_codec(code_page), errors="replace")
+        elif rid == 0x000C:  # PROJECTCONSTANTS：条件付きコンパイルの引数
+            constants = data.decode(_codec(code_page), errors="replace")
         elif rid == 0x0019:  # MODULENAME
             cur = {"name": data.decode(_codec(code_page), errors="replace"), "kind": "procedural"}
         elif rid == 0x0047 and cur is not None:  # MODULENAMEUNICODE
@@ -211,7 +222,7 @@ def read_project(blob: bytes) -> Project:
         m.source = src.decode(_codec(code_page), errors="replace").replace("\r\n", "\n")
         m.procedures = [f"{x.group(2)}" for x in _PROC.finditer(m.source)
                         if not x.group(0).lstrip().lower().startswith(("declare", "end"))]
-    return Project(code_page, proj_name, modules, locked)
+    return Project(code_page, proj_name, modules, locked, constants)
 
 
 def _codec(cp: int) -> str:

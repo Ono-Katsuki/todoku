@@ -1499,27 +1499,14 @@ def markdown_parts(doc: dict, budget: int = BUDGET) -> list[tuple[str, str]]:
         if sum(len(x) + 1 for x in lines) <= budget:
             parts.append((title, lines))
             continue
-        head, chunk, size, k = lines[:2], [], 0, 1
-        for line in lines[2:]:
-            if size + len(line) + 1 > budget - 2000 and chunk:
-                parts.append((f"{title} その{k}", head + [f"（{title}の続き その{k}）", ""] + chunk))
-                chunk, size, k = [], 0, k + 1
-            chunk.append(line)
-            size += len(line) + 1
-        if chunk:
-            parts.append((f"{title} その{k}" if k > 1 else title, head + ([f"（{title}の続き その{k}）", ""] if k > 1 else []) + chunk))
+        chunks = split_lines(lines[2:], budget - 2000, title, lines[:2])
+        parts += [(f"{title} その{k}" if len(chunks) > 1 else title, c) for k, c in enumerate(chunks, 1)]
     from ..macros import markdown as macro_md
 
     mlines = macro_md(doc.get("macros"))
-    chunk, size, k = [], 0, 1
-    for line in mlines:
-        if size + len(line) + 1 > budget - 2000 and chunk:
-            parts.append((f"マクロ その{k}", chunk))
-            chunk, size, k = [], 0, k + 1
-        chunk.append(line)
-        size += len(line) + 1
-    if chunk:
-        parts.append((f"マクロ その{k}" if k > 1 else "マクロ", chunk))
+    if mlines:
+        chunks = split_lines(mlines, budget - 2000, "マクロ")
+        parts += [(f"マクロ その{k}" if len(chunks) > 1 else "マクロ", c) for k, c in enumerate(chunks, 1)]
     index = _md_head(doc) + ["## この窓の目次", "",
                              f"窓が大きいので、{len(parts)} の部分に分けました。必要な部分を順に読んでください。", ""]
     for i, (title, lines) in enumerate(parts, 1):
@@ -1528,6 +1515,79 @@ def markdown_parts(doc: dict, budget: int = BUDGET) -> list[tuple[str, str]]:
         n_fields = len([f for f in (sh or {}).get("fields", []) if not f.get("unlabeled")])
         index.append(f"- 部分 {i}: {title}（{sum(len(x) + 1 for x in lines):,} 文字、入力欄 {n_fields} か所）")
     return [("目次", "\n".join(index))] + [(t, "\n".join(_md_head(doc)[:1] + [""] + lines)) for t, lines in parts]
+
+
+_TABLE_RULE = re.compile(r"\|(?:\s*:?-+:?\s*\|)+")
+
+
+def split_lines(lines: list[str], limit: int, title: str, head: list[str] | None = None) -> list[list[str]]:
+    """Markdown の行を、limit 文字以内の部分に分ける（決まった手順なので、同じ窓からはいつも同じ分け方になる）。
+
+    要素の中の改行（モジュールのソースなど）も1行ずつに分ける。続きの部分の頭には、どこの続きかの断りと、
+    いまの節の見出し（### ・####）を付け、表の途中なら表の見出しの行を、コードの途中なら「```」を付け直して、
+    その部分だけで読めるようにする（コードは前の部分の終わりで閉じる）。1行で limit を超える行は、字数で切る。"""
+    head = list(head or [])
+    flat: list[str] = []
+    for x in lines:
+        for ln in str(x).split("\n"):
+            while len(ln) > limit:
+                flat.append(ln[:limit])
+                ln = ln[limit:]
+            flat.append(ln)
+    out: list[list[str]] = []
+    cur: list[str] = list(head)
+    size = sum(len(x) + 1 for x in cur)
+    body = 0  # cur のうち、頭と断りでない行の数
+    sec = sub = None  # いまの「### 」「#### 」の見出し
+    table: list[str] | None = None  # いまの表の見出しの2行
+    fence: str | None = None  # いま開いているコードの「```…」
+    code_line = 0  # コードの中の何行目か
+    for i, ln in enumerate(flat):
+        is_head = ln.startswith("#") and fence is None
+        if body and size + len(ln) + 1 > limit:
+            if fence is not None:
+                cur.append("```")
+            out.append(cur)
+            k = len(out) + 1
+            cur = head + [f"（{title}の続き その{k}）", ""]
+            if not is_head:
+                cur += [x for x in (sec, sub) if x] + ([""] if sec or sub else [])
+                if table is not None and ln.startswith("|"):
+                    cur += table
+                if fence is not None:
+                    cur += [f"（ソースの続き：{code_line + 1} 行目から）", fence]
+            size = sum(len(x) + 1 for x in cur)
+            body = 0
+        cur.append(ln)
+        size += len(ln) + 1
+        body += 1
+        # いまの位置（節・表・コード）を覚える
+        if fence is not None:
+            if ln.startswith("```"):
+                fence = None
+            else:
+                code_line += 1
+            continue
+        if ln.startswith("```"):
+            fence, code_line = ln, 0
+            continue
+        if is_head:
+            if ln.startswith("#### "):
+                sub = ln
+            elif ln.startswith("### "):
+                sec, sub = ln, None
+            else:
+                sec = sub = None
+            table = None
+            continue
+        if ln.startswith("|"):
+            if table is None and i + 1 < len(flat) and _TABLE_RULE.fullmatch(flat[i + 1].strip()):
+                table = [ln, flat[i + 1]]
+        else:
+            table = None
+    if body or not out:
+        out.append(cur)
+    return out
 
 
 def _kind_text(f: dict) -> str:

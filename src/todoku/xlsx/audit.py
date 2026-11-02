@@ -343,6 +343,76 @@ def _sample(f: dict, wb: Workbook, sheet: str, calc: Calc | None):
     return "テスト"
 
 
+def _planned_cells(wb: Workbook, targets: dict) -> dict:
+    """targets を書いたあとのセルの値（fill と同じ読み方。文字の中の空欄・部品につながったセルも含む）。"""
+    from .edit import plan_inputs
+
+    try:
+        return dict(plan_inputs(wb, targets).targets)
+    except EditError:
+        # どれかが書けない（その知らせは fill が出す）：書けるものだけを1つずつ読む
+        over = {}
+        for k, v in targets.items():
+            try:
+                over.update(plan_inputs(wb, {k: v}).targets)
+            except EditError:
+                pass
+        return over
+
+
+def _pick_choices(wb: Workbook, later: list, targets: dict, not_applicable: list, rounds: int = 8) -> None:
+    """選択肢（入力規則のリスト）の欄に、書き込み後の状態で選べる値を選んで targets に足す。
+
+    選択肢がほかの欄の値で決まる（INDIRECT で県を選ぶと市の一覧が変わる、など）ことがあるので、
+    Excel で人が入れるのと同じく、ほかの欄を入れた状態で選択肢を計算する。選んだ値でほかの欄の選択肢が
+    変わることもあるので、すべての選んだ値が、すべてを書いた状態の選択肢に入るまで選び直す（決まった回数まで）。
+    """
+    from .edit import resolve_target
+
+    where: dict[str, tuple[str, int, int]] = {}
+    for sheet, f in later:
+        try:
+            where[f["id"]] = resolve_target(wb, f["id"])
+        except EditError:
+            pass
+    chosen: dict[str, object] = {}
+    todo = list(later)
+    for _ in range(rounds):
+        state = _planned_cells(wb, {**targets, **chosen})
+
+        def pick(todo=todo, state=state):
+            calc = Calc(wb, state)
+            return [(sheet, f, _sample(f, wb, sheet, calc)) for sheet, f in todo]
+
+        for sheet, f, v in _run_deep(pick):
+            if v is None:
+                chosen.pop(f["id"], None)
+            else:
+                chosen[f["id"]] = v
+        # すべてを書いた状態で、選んだ値がまだ選択肢に入っているかを確かめる
+        state = _planned_cells(wb, {**targets, **chosen})
+
+        def stale(state=state):
+            calc = Calc(wb, state)
+            out = []
+            for sheet, f in later:
+                k = where.get(f["id"])
+                if f["id"] not in chosen or k is None:
+                    continue
+                if any(i.blocking for i in rule_issues(wb, k[0], k[1], k[2], state.get(k), calc)):
+                    out.append((sheet, f))
+            return out
+
+        todo = _run_deep(stale)
+        if not todo:
+            break
+    for sheet, f in later:
+        if f["id"] in chosen:
+            targets[f["id"]] = chosen[f["id"]]
+        else:
+            not_applicable.append(f["id"])
+
+
 def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     fields = [(sh["name"], f) for sh in doc["sheets"] for f in sh.get("fields", [])]
     targets: dict[str, object] = {}
@@ -362,25 +432,7 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
             continue
         targets[f["id"]] = v
     if later:
-        from .edit import interpret_input, resolve_target
-
-        over = {}
-        for k, v in targets.items():
-            try:
-                s, r, c = resolve_target(wb, k)
-                over[(s, r, c)] = interpret_input(wb, s, r, c, v)[0]
-            except EditError:
-                pass
-
-        def pick():
-            calc = Calc(wb, over)
-            return [(f, _sample(f, wb, sheet, calc)) for sheet, f in later]
-
-        for f, v in _run_deep(pick):
-            if v is None:
-                not_applicable.append(f["id"])
-            else:
-                targets[f["id"]] = v
+        _pick_choices(wb, later, targets, not_applicable)
     out = []
     try:
         res = fill(wb, targets)
@@ -513,7 +565,7 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
         bad = []
         for m in wb.vba.modules:
             try:
-                parse_module(m.name, m.source)
+                parse_module(m.name, m.source, getattr(wb.vba, "cc_constants", None))
             except VbaSyntaxError as e:
                 bad.append(f"{m.name}: {e}")
         au.checks.append(Check("マクロ", not bad,

@@ -183,6 +183,124 @@ End Sub
         run_macro(book(src), "Fmt")  # 書式の変更は再現しない（はっきり断る）
 
 
+def test_conditional_compilation():
+    """#Const・#If・#ElseIf・#Else・#End If（MS-VBAL 3.4）。手続きの外の宣言も、手続きの中の文も選ぶ。"""
+    src = '''
+#Const 版 = 2
+#If Mac Then
+Private Declare PtrSafe Function popen Lib "libc.dylib" (ByVal c As String) As LongPtr
+#ElseIf VBA7 Then
+Private Declare PtrSafe Function GetTickCount Lib "kernel32" () As Long
+#Else
+Private Declare Function GetTickCount Lib "kernel32" () As Long
+#End If
+
+#If Mac Then
+Private Type 結果
+    x As LongPtr
+End Type
+#Else
+Private Type 結果
+    x As Long
+End Type
+#End If
+
+Sub Test()
+#If 版 >= 2 And Not Mac Then
+    Range("A1").Value = "新しい版"
+#ElseIf 版 = 1 Then
+    Range("A1").Value = "古い版"
+#Else
+    この行は読まない ((
+#End If
+#If 決めていない Then
+    Range("A2").Value = "決めていない名前は Empty"
+#Else
+    Range("A2").Value = "偽"
+#End If
+#If Win64 Then
+    Range("A3").Value = 64
+#Else
+    Range("A3").Value = 32
+#End If
+    Range("A4").Value = 1 + _
+        2
+End Sub
+'''
+    got, _r = out(book(src))
+    assert got == {"入力!A1": "新しい版", "入力!A2": "偽", "入力!A3": 64, "入力!A4": 3}
+
+
+def test_conditional_compilation_rules():
+    from todoku.vbarun.parse import VbaSyntaxError, parse_module, preprocess, project_constants
+
+    # 行の番号は変えない（使わない行と指示の行は空の行）
+    src = "#If Mac Then\nA = 1\n#Else\nB = 2\n#End If\nC = 3"
+    assert preprocess(src).split("\n") == ["", "", "", "B = 2", "", "C = 3"]
+    # 続きの行（ _）も、ひとまとまりの行として扱う
+    assert preprocess("#If Mac Then\nx = 1 + _\n  2\n#End If\ny = 1").split("\n") == ["", "", "", "", "y = 1"]
+    # 入れ子：外側が使われないときは、内側の #Else も使わない
+    nested = preprocess("#If Mac Then\n#If VBA7 Then\na\n#Else\nb\n#End If\n#End If\nc").split("\n")
+    assert nested == ["", "", "", "", "", "", "", "c"]
+    # 使われない側の #Const は効かない
+    assert "z" in preprocess("#If Mac Then\n#Const K = 1\n#End If\n#If K Then\ny\n#Else\nz\n#End If")
+    # プロジェクトの引数（PROJECTCONSTANTS）
+    assert project_constants("DEBUG_MODE = 1 : 版 = -2") == {"debug_mode": 1, "版": -2}
+    assert "on" in preprocess("#If DEBUG_MODE Then\non\n#End If", {"debug_mode": 1})
+    with pytest.raises(VbaSyntaxError, match="閉じていません"):
+        parse_module("M", "#If Mac Then\nSub A()\nEnd Sub")
+    with pytest.raises(VbaSyntaxError, match="#If」のない"):
+        parse_module("M", "#End If")
+
+
+def test_declarations_and_debug_print():
+    """WithEvents の変数・配列を返す手続き・Debug.Print の並び（「;」「,」・Spc・Tab）。"""
+    from todoku.vbarun.parse import FileStmt, parse_module
+
+    m = parse_module("C", '''Option Explicit
+Public WithEvents TextBox As MSForms.TextBox
+Attribute TextBox.VB_VarHelpID = -1
+Private WithEvents btn As MSForms.CommandButton, n As Long
+Implements IHandler
+Public Event Changed(ByVal v As Long)
+
+Function check() As String()
+    Dim a() As String
+    check = a
+End Function
+
+Public Property Get Years() As Long()
+End Property
+''')
+    assert [v.name for d in m.decls for v in d.vars] == ["textbox", "btn", "n"]
+    assert {"check", "get:years"} <= set(m.procs)
+    p = parse_module("M", '''Sub A()
+    Debug.Print "緯度: " & x; "度" & y, z; Spc(2); Tab(10); Tab; "終"
+    Debug.Print
+End Sub''')
+    st = p.procs["a"].body[0]
+    assert isinstance(st, FileStmt) and st.kind == "debugprint"
+    kinds = [it if isinstance(it, str) else (it[0] if isinstance(it, tuple) else "式") for it in st.args[1]]
+    assert kinds == ["式", ";", "式", ",", "式", ";", "spc", ";", "tab", ";", "tab", ";", "式"]
+
+    src = '''
+Function Bump() As Long
+    Range("A1").Value = Range("A1").Value + 1
+    Bump = 1
+End Function
+Sub Test()
+    Debug.Print "回数"; Bump(); Spc(Bump())
+    Open "out.txt" For Output As #1
+    Print #1, "a"; Spc(2); "b"; Tab(8); "c"
+    Print #1, "abcdefghij"; Tab(3); "d"
+    Close #1
+End Sub
+'''
+    got, r = out(book(src, {"A1": 0}))
+    assert got["入力!A1"] == 2  # Debug.Print の式も計算する（呼んだ関数が動く）
+    assert r.files["out.txt"].decode("cp932") == "a  b   c\r\nabcdefghij\r\n  d\r\n"
+
+
 def test_fill_runs_change_macros_and_proves_their_cells():
     from todoku.xlsx.edit import fill
     from todoku.xlsx.proof import prove

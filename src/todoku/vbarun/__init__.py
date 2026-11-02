@@ -35,7 +35,8 @@ def load(wb, overrides: dict | None = None, answers=None, inputs=None, now=None)
     project = getattr(wb, "vba", None)
     if project is None:
         raise Unsupported("マクロの入れ物を読めません")
-    modules = [parse_module(m.name, m.source) for m in project.modules if m.source]
+    consts = getattr(project, "cc_constants", None)
+    modules = [parse_module(m.name, m.source, consts) for m in project.modules if m.source]
     host = Host(wb, overrides, now)
     rt = Runtime(modules, host, answers, inputs)
     return rt, host

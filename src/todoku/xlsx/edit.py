@@ -734,14 +734,22 @@ def _macro_warnings(wb, targets) -> list[str]:
 
 
 # ---------------------------------------------------------------- 書き込みの入口
-def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bool = False,
-         strict: bool = False, force: bool = False, macro_answers: list | None = None,
-         macro_inputs: dict | None = None, by_macro: set | None = None, run_macros: bool = True) -> EditResult:
-    """values: {'シート!セル': 値} または {'シート!Check Box 1': True}。
+@dataclass
+class InputPlan:
+    """書き込む指示を、セルと部品ごとの値にしたもの（ファイルはまだ変えない）。"""
+    targets: dict  # (シート, 行, 列) → Excel に入力したのと同じ規則で読んだ値
+    controls: dict  # チェックボックス：(シート, 図形の番号) → (シート, 部品, 状態)
+    writes: list  # チェックボックス以外のフォームの部品の状態
+    ax_writes: list  # ActiveX の部品の性質（MS-OFORMS）
+    warnings: list
 
-    値は、Excelでそのセルに手で入力したときと同じ規則で受け取る。入力規則のエラーが「停止」のものは、
-    Excelと同じく受け付けない（force=True で警告にとどめる）。strict=True なら、どの入力規則の問題も受け付けない。
-    書き込んだ値に依存する数式の計算結果と、チェックボックスの表示も更新したファイルを返す。
+
+def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bool = False,
+                force: bool = False) -> InputPlan:
+    """values を、fill と同じ読み方でセルの値と部品の状態にする。入力規則とマクロはまだ見ない。
+
+    セルに書かれることになる値（文字の中の空欄に入れた結果、部品につながったセルの値など）が分かるので、
+    ほかのセルの値で決まる選択肢を、書き込み後の状態で計算するのにも使う。
     """
     targets: dict[tuple[str, int, int], object] = {}
     controls: dict[tuple[str, str], tuple[str, Control, bool]] = {}
@@ -765,7 +773,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
         from ..activex import AxError
 
         try:
-            p_ = axfile.plan_excel(wb, sheet_, ctl_, v_, force=force)
+            p_ = axfile.plan_excel(wb, sheet_, ctl_, v_, force=force, prior=ax_writes)
         except AxError as e:
             raise EditError(f"{where}: {e}") from None
         targets.update(p_.cells)
@@ -846,6 +854,24 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
         else:
             warnings += notes
         targets[(sheet, r, c)] = val
+
+    return InputPlan(targets, controls, writes, ax_writes, warnings)
+
+
+def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bool = False,
+         strict: bool = False, force: bool = False, macro_answers: list | None = None,
+         macro_inputs: dict | None = None, by_macro: set | None = None, run_macros: bool = True) -> EditResult:
+    """values: {'シート!セル': 値} または {'シート!Check Box 1': True}。
+
+    値は、Excelでそのセルに手で入力したときと同じ規則で受け取る。入力規則のエラーが「停止」のものは、
+    Excelと同じく受け付けない（force=True で警告にとどめる）。strict=True なら、どの入力規則の問題も受け付けない。
+    書き込んだ値に依存する数式の計算結果と、チェックボックスの表示も更新したファイルを返す。
+    """
+    plan_ = plan_inputs(wb, values, allow_formula_overwrite=allow_formula_overwrite, force=force)
+    targets, controls, writes, ax_writes, warnings = (plan_.targets, plan_.controls, plan_.writes, plan_.ax_writes,
+                                                      plan_.warnings)
+    from .. import axfile
+    from . import controls as _ctl
 
     def check():
         calc = Calc(wb, targets)

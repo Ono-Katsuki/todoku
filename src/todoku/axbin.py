@@ -167,7 +167,9 @@ def apply_xls(wb, ed, writes: list) -> tuple[dict[str, bytes], list[dict]]:
     streams: dict[str, bytes] = {}
     done = []
     edits: list[tuple[int, int, bytes]] = []  # Ctls の (元の始まり, 元の終わり, 新しいバイト列)
-    for sheet, ctl, changes, _items in writes:
+    from .axfile import merge_writes
+
+    for sheet, ctl, changes, _items in merge_writes(writes):
         ref = ctl.ax
         if ref.control is None:
             raise ax.AxError(f"「{ctl.name}」の中身を読めないので書けません：{ref.error}")
