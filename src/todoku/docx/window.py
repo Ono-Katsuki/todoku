@@ -5,6 +5,8 @@
 - 表の空のマス（左か上のマスの文字を見出しにする）：T{表}.R{行}.C{列}
 - 段落の中の空欄（「令和　　年　　月　　日」、下線を引いた空白、「＿＿＿」）と □：P{段落}.{番号}
 書き込んだ欄は、見えないしおり（_todoku_…）で囲み、書いた後も同じ名前で読めるようにする。
+埋め込んだ Excel の表は、Excel の窓と同じ読み方で節に出し、書くときの欄の名前（E1!Sheet1!C4）と、
+Word が表示・印刷に使う表の絵を描き直せるか（描き直せなければ、その理由）を添える。
 """
 
 from __future__ import annotations
@@ -572,9 +574,12 @@ def _embeds(doc) -> list[dict]:
         except Exception as ex:  # noqa: BLE001
             out.append({"n": e["n"], "label": e["label"], "prog": e["prog"], "storage": e["storage"], "error": str(ex)})
             continue
+        from ..embed import window_info
+
+        info = window_info(doc, e, xdoc)  # 書くときの欄の名前（E1!Sheet1!C4）と、表の絵を描き直せるか
         out.append({"n": e["n"], "label": e["label"], "prog": e["prog"], "storage": e["storage"],
                     "sheets": [sh["name"] for sh in xdoc["sheets"]],
-                    "markdown": [ln for sh in xdoc["sheets"] for ln in xw._md_sheet(sh)]})
+                    "markdown": [ln for sh in xdoc["sheets"] for ln in xw._md_sheet(sh)], **info})
     return out
 
 
@@ -763,7 +768,17 @@ def to_markdown(doc: dict) -> str:
         if e.get("error"):
             out += [f"- この埋め込みは開けませんでした：{e['error']}", ""]
             continue
-        out += ["- 本文の〔埋め込み" + str(e["n"]) + "：…〕の所にある表です。Excel の窓と同じ書き方（［C4］はセル）で出しています。", ""]
+        out += ["- 本文の〔埋め込み" + str(e["n"]) + "：…〕の所にある表です。Excel の窓と同じ書き方（［C4］はセル）で出しています。"]
+        ids = [f["id"] for f in e.get("fields") or []]
+        if e.get("writable"):
+            sheet = (e.get("fields") or [{}])[0].get("sheet") or (e.get("sheets") or ["Sheet1"])[0]
+            out.append(f"- **書くときの欄の名前**は、`E{e['n']}!シート!セル` です（例：下の［C4］は `E{e['n']}!{sheet}!C4`）。"
+                       "書くと、Word が表示・印刷に使う表の絵も、字が変わったセル（計算結果を含む）の所だけ描き直します。")
+            if ids:
+                out.append(f"- 入力欄（{len(ids)} か所）: " + "、".join(ids[:200]) + (f" ほか {len(ids) - 200} か所" if len(ids) > 200 else ""))
+        else:
+            out.append(f"- この表には、まだ書き込めません：{e.get('why') or '理由不明'}")
+        out.append("")
         out += [ln.replace("## シート", "### シート", 1) if ln.startswith("## シート") else
                 (ln.replace("### ", "#### ", 1) if ln.startswith("### ") else ln) for ln in e["markdown"]]
         out.append("")

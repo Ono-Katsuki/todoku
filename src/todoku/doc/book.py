@@ -76,6 +76,12 @@ class Run:
 
 def sprms(grpprl: bytes):
     """sprm（書式の命令）を順に：(sprm, 値のバイト列)。"""
+    for sprm, at, size in sprm_spans(grpprl):
+        yield sprm, grpprl[at:at + size]
+
+
+def sprm_spans(grpprl: bytes):
+    """sprm を順に：(sprm, 値の始まりの位置, 値の大きさ)。値をその場で書き換えるときに使う。"""
     i = 0
     n = len(grpprl)
     while i + 2 <= n:
@@ -104,7 +110,7 @@ def sprms(grpprl: bytes):
             else:
                 size = grpprl[i]
                 i += 1
-        yield sprm, grpprl[i:i + size]
+        yield sprm, i, size
         i += size
 
 
@@ -544,6 +550,8 @@ class DocFile:
                 pass
             elif o in (0x01, 0x08) and props["spec"]:
                 ole = next((x["ole"] for x in reversed(stack) if x.get("ole") and x["phase"] == "result"), None)
+                if ole is not None and o == 0x01 and props["pic"] is not None:
+                    ole.setdefault("pictures", []).append((cp, props["pic"]))  # Word が表示に使う表の絵（Data の PICF）
                 p.segs.append(Seg(f"〔埋め込み{ole['n']}：{ole['label']}〕" if ole else "〔図〕", "other", CPRef(cp), None, hidden))
             elif o in (0x02, 0x05) and props["spec"]:
                 p.segs.append(Seg("※", "note", CPRef(cp), None, hidden))

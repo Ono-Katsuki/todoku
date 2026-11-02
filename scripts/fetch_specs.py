@@ -23,6 +23,13 @@ SPECS = {
     # Excel のフォームの部品（ctrlProps の formControlPr）と、VML の x:ClientData（Office の拡張）
     "MS-XLSX": "https://officeprotocoldoc.z19.web.core.windows.net/files/MS-XLSX/%5bMS-XLSX%5d.pdf",
     "MS-OI29500": "https://officeprotocoldoc.z19.web.core.windows.net/files/MS-OI29500/%5bMS-OI29500%5d.pdf",
+    # 文書に埋め込んだ表（OLE の部品）と、Word が表示・印刷に使う表の絵（.doc の Data の中の OfficeArt、EMF・WMF）。
+    # Windows の仕様は置き場所が別
+    "MS-ODRAW": "https://officeprotocoldoc.z19.web.core.windows.net/files/MS-ODRAW/%5bMS-ODRAW%5d.pdf",
+    "MS-OLEDS": "https://winprotocoldoc.z19.web.core.windows.net/MS-OLEDS/%5bMS-OLEDS%5d.pdf",
+    "MS-EMF": "https://winprotocoldoc.z19.web.core.windows.net/MS-EMF/%5bMS-EMF%5d.pdf",
+    "MS-WMF": "https://winprotocoldoc.z19.web.core.windows.net/MS-WMF/%5bMS-WMF%5d.pdf",
+    "MS-CFB": "https://winprotocoldoc.z19.web.core.windows.net/MS-CFB/%5bMS-CFB%5d.pdf",
     "PDF32000_2008": "https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf",
 }
 
@@ -46,7 +53,7 @@ def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     for name, url in SPECS.items():
         pdf = OUT / f"{name}.pdf"
-        if not pdf.exists():
+        if not pdf.exists() or pdf.read_bytes()[:5] != b"%PDF-":  # 前に取得に失敗したもの（404 のページ）は取り直す
             req = urllib.request.Request(url, headers={"User-Agent": UA})
             with urllib.request.urlopen(req, timeout=120) as r:
                 pdf.write_bytes(r.read())

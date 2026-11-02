@@ -6,6 +6,8 @@
 意味の分からない位置の表が本文にあるときは、書き込まずに断る（壊れた文書を作らない）。
 
 新しい文字の書式（CHPX）は、置き換える前の字の書式をそのまま引き継ぐ。書いた所は見えないしおり（_todoku_…）で囲む。
+埋め込んだ Excel の表のセル（E1!Sheet1!C4）は todoku.embed で書き、ObjectPool の中のストリーム・Data の後ろに足す
+表示用の絵・絵の位置（WordDocument の中の4バイト）を、ここで一緒に書き戻す。
 """
 
 from __future__ import annotations
@@ -83,6 +85,11 @@ class DocWriter:
         self.doc = doc
         self.edits: list[Edit] = []
         self.data_patches: list[tuple[int, bytes]] = []  # Data のストリームの、同じ大きさの書き換え
+        # 埋め込んだ表への書き込み（todoku.embed）：入れ物の中のストリームの差し替え、Data の後ろに足す表示用の絵、
+        # WordDocument の同じ大きさの書き換え（絵の位置 sprmCPicLocation）
+        self.streams: dict[str, bytes] = {}
+        self.data_tail = b""
+        self.wd_patches: list[tuple[int, bytes]] = []
 
     def starts(self) -> dict[str, int]:
         out, at = {}, 0
@@ -127,8 +134,10 @@ class DocWriter:
 
     def build(self) -> bytes:
         doc = self.doc
-        if not self.edits and not self.data_patches:
+        if not self.edits and not self.data_patches and not self.streams and not self.data_tail and not self.wd_patches:
             return doc.blob
+        if not self.edits:
+            return self._finish(doc.blob, bytearray(doc.wd), None)
         self.edits.sort(key=lambda e: (e.a, e.b))
         wd = bytearray(doc.wd)
         tb = bytearray(doc.table)
@@ -299,13 +308,33 @@ class DocWriter:
                 vals[2 * k], vals[2 * k + 1] = fc[name]
         struct.pack_into(f"<{len(vals)}I", wd, doc.fclcb_pos, *vals)
         # 7) 複合ファイルに書き戻す（ほかのストリームはそのまま）
-        blob = CFB(doc.blob).replace("WordDocument", bytes(wd))
-        blob = CFB(blob).replace(doc.table_name, bytes(tb))
-        if self.data_patches:
+        return self._finish(doc.blob, wd, tb)
+
+    def _finish(self, blob: bytes, wd: bytearray, tb: bytearray | None) -> bytes:
+        """WordDocument・表・Data と、埋め込みの入れ物のストリームを書き戻す（変えないストリームはそのまま）。"""
+        doc = self.doc
+        for pos, b in self.wd_patches:
+            if wd[pos:pos + len(b)] != b:
+                wd[pos:pos + len(b)] = b
+        if bytes(wd) != doc.wd:
+            blob = CFB(blob).replace("WordDocument", bytes(wd))
+        if tb is not None:
+            blob = CFB(blob).replace(doc.table_name, bytes(tb))
+        if self.data_patches or self.data_tail:
+            if not doc.cfb.has("Data"):
+                raise FillError("この文書には Data のストリームがありません")
             data = bytearray(doc.data)
             for pos, b in self.data_patches:
                 data[pos:pos + len(b)] = b
-            blob = CFB(blob).replace("Data", bytes(data))
+            try:
+                blob = CFB(blob).replace("Data", bytes(data) + self.data_tail)
+            except Exception as e:  # noqa: BLE001
+                raise FillError(f"Data のストリームを書き戻せません（{e}）") from None
+        for path, data in self.streams.items():
+            try:
+                blob = CFB(blob).replace(path, data)
+            except Exception as e:  # noqa: BLE001
+                raise FillError(f"埋め込みのストリーム {path!r} を書き戻せません（{e}）") from None
         return blob
 
 
@@ -395,15 +424,35 @@ def para_cps(p) -> list[int]:
 
 def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
     from ..docx.fill import Patch
-
     from ..docx.window import WriteError, resolve_write
+    from ..embed import EmbedError, is_embed_key
 
     sp = Spots(doc)
     w = DocWriter(doc)
     patches = []
     problems = []
+    warnings: list[str] = []
     used: dict = {}
+    embed_values = {k: v for k, v in values.items() if is_embed_key(k)}
+    if embed_values:
+        # 埋め込んだ Excel の表（E1!Sheet1!C4）：ブックと、Word が表示・印刷に使う表の絵を書き直す
+        if doc.protection_enforced and not force:
+            problems.append(f"{next(iter(embed_values))}: この文書は保護されていて（{doc.protection}）、埋め込みの表には書けません")
+        else:
+            from ..embed import write as write_embeds
+
+            try:
+                ew = write_embeds(doc, embed_values)
+                w.streams.update(ew.streams)
+                w.data_tail = ew.data_tail
+                w.wd_patches += ew.wd_patches
+                patches += [Patch(k, "input", v, "embed") for k, v in ew.written]
+                warnings += ew.warnings
+            except EmbedError as e:
+                problems.append(str(e))
     for key, value in values.items():
+        if key in embed_values:
+            continue
         it = sp.items.get(key)
         anchor = None
         try:
@@ -492,7 +541,7 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
             problems.append(str(e))
     if problems:
         raise FillError("\n".join(problems))
-    return DocFillResult(w.build(), patches)
+    return DocFillResult(w.build(), patches, warnings)
 
 
 def _set_ffbits(doc: DocFile, w: DocWriter, c, res: int) -> None:

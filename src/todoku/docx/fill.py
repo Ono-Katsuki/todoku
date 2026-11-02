@@ -5,6 +5,7 @@
 - □：■（☐ は ☑）にする
 - 旧来のフォームの欄・コンテンツコントロール：Word と同じ形で値と状態を書く
 書いた所は見えないしおり（_todoku_…）で囲み、書いた後も同じ欄の名前で読み戻せるようにする。
+埋め込んだ Excel の表のセル（E1!Sheet1!C4）は todoku.embed で書く（ブックの部品と、表示・印刷に使う表の絵の部品）。
 文書の保護（フォームだけ・読み取り専用）は守る（編集できる範囲の外には書かない）。
 """
 
@@ -462,12 +463,31 @@ def format_word_date(d: dt.date, fmt: str) -> str:
 
 # ====================================================================== 入口
 def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
+    from ..embed import EmbedError, is_embed_key
     from .window import WriteError, resolve_write
 
     f = Filler(doc, force)
     problems = []
     used: dict = {}
+    embed_parts: dict[str, bytes] = {}
+    embed_values = {k: v for k, v in values.items() if is_embed_key(k)}
+    if embed_values:
+        # 埋め込んだ Excel の表（E1!Sheet1!C4）：ブックの部品と、Word が表示・印刷に使う表の絵の部品を書き直す
+        if doc.protection_enforced and doc.protection and not force:
+            problems.append(f"{next(iter(embed_values))}: この文書は保護されていて（{doc.protection}）、埋め込みの表には書けません")
+        else:
+            from ..embed import write as write_embeds
+
+            try:
+                ew = write_embeds(doc, embed_values)
+                embed_parts = ew.parts
+                f.patches += [Patch(k, "input", v, "embed") for k, v in ew.written]
+                f.warnings += ew.warnings
+            except EmbedError as e:
+                problems.append(str(e))
     for key, value in values.items():
+        if key in embed_values:
+            continue
         item = f.sp.items.get(key)
         try:
             if key.startswith("@"):
@@ -531,6 +551,8 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
     for part, ed in f.editors.items():
         if ed.edits:
             z2.replace(part, ed.build())
-    blob = z2.build() if f.editors else doc.blob
+    for part, data in embed_parts.items():
+        z2.replace(part, data)
+    blob = z2.build() if f.editors or embed_parts else doc.blob
     del z
     return FillResult(blob, f.patches, f.warnings)

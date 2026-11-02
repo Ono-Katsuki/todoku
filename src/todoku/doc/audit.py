@@ -5,6 +5,9 @@
 - 段落の数が同じで、書いた欄のない段落の文字はすべて同じ。書いた欄のある段落の文字は「空欄を値に置き換えたもの」
 - 段落の書式（PAPX）は、すべての段落で同じ
 - ピースの表が文書の全体をすき間なく覆い、位置の表（段落の区切り・フィールド・しおり など）が並び順を保つ
+- 埋め込んだ Excel の表に書いたとき（E1!Sheet1!C4）：ObjectPool の中で変わってよいのはブックと印刷用の絵だけ。
+  ブックは Excel の証明、絵は「変わったセルの字だけ」、表示用の絵は Data の後ろに足したものと、その位置を指す
+  sprmCPicLocation の値だけが変わったことで確かめる（todoku.embed.verify_doc）
 """
 
 from __future__ import annotations
@@ -74,6 +77,7 @@ class DocProof:
     paragraphs_changed: int = 0
     unexpected: list[str] = field(default_factory=list)
     lint_errors: list[str] = field(default_factory=list)
+    embed_note: str = ""  # 埋め込んだ表に書いたときの、確かめたことの要約
 
     @property
     def ok(self) -> bool:
@@ -82,7 +86,8 @@ class DocProof:
     def headline(self) -> str:
         return (f"複合ファイルのストリーム {self.entries_identical}/{self.entries_total} がバイト一致。段落 {self.paragraphs_total:,} のうち、"
                 f"変わったのは書いた欄のある {self.paragraphs_changed} 段落だけ"
-                + ("" if not self.unexpected else f"（想定外の変更 {len(self.unexpected)} 件）"))
+                + ("" if not self.unexpected else f"（想定外の変更 {len(self.unexpected)} 件）")
+                + (f"。{self.embed_note}" if self.embed_note else ""))
 
 
 def lint(doc: DocFile) -> list[str]:
@@ -112,11 +117,24 @@ from ..docx.fill import written_of  # noqa: E402
 
 
 def prove(original: bytes, new: bytes, written: dict) -> DocProof:
+    from ..embed import is_embed_key, verify_doc
+
     pr = DocProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest())
     ca, cb_ = CFB(original), CFB(new)
     sa, sb = ca.streams(), cb_.streams()
     a = DocFile(original)
     allowed = {"WordDocument", a.table_name, "Data"}
+    embed_written = {k: v for k, v in written.items() if is_embed_key(k)}
+    written = {k: v for k, v in written.items() if k not in embed_written}
+    if embed_written:
+        # 埋め込んだ表：ブックは Excel の証明で、表の絵は「変わったセルの字だけ」で、Data と文字の書式は絵の移動だけで確かめる
+        try:
+            b0 = DocFile(new)
+            more, probs, pr.embed_note = verify_doc(a, b0, embed_written)
+        except Exception as e:  # noqa: BLE001
+            more, probs = set(), [f"埋め込みの表への書き込みを確かめられません：{e}"]
+        allowed |= more
+        pr.unexpected += probs
     for name in sa:
         pr.entries_total += 1
         if name in sb and ca.read(name) == cb_.read(name):
@@ -258,7 +276,7 @@ def run(blob: bytes, filename: str = "") -> Audit:
     from ..docx.audit import embeds_check
     from ..xlsx.audit import agent_places_check
 
-    ec = embeds_check(doc, win)
+    ec = embeds_check(doc, win, DocFile, fill, prove)
     if ec is not None:
         au.checks.append(ec)
     ap = agent_places_check(win["fields"])

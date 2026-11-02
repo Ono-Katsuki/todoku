@@ -310,3 +310,120 @@ class SubStorage:
 
     def read(self, path: str) -> bytes:
         return self.parent.read(self.prefix + "/" + path)
+
+    def contents(self) -> dict[str, bytes]:
+        """入れ物の中のすべてのストリーム（入れ物からの道筋 → 中身）。build_cfb で、それだけの複合ファイルにできる。"""
+        return {p: self.read(p) for p in self.streams()}
+
+
+def build_cfb(streams: dict[str, bytes]) -> bytes:
+    """ストリーム（「VBA/dir」のように / で入れ物を表す）から、新しい複合ファイル（版3、512 バイトのセクタ）を作る。
+
+    文書に埋め込んだ Excel のブックの入れ物を、それだけの .xls として読み書き・証明するのに使う（利用者のファイルには
+    書かない。書き戻すのは、中のストリームだけ）。4096 バイト未満のストリームはミニストリームに置く。
+    ディレクトリの木は、名前の順（長さ、大文字にした字）の釣り合った二分木。"""
+    SS, MS, CUT = 512, 64, 4096
+    children: dict[str, list[str]] = {"": []}  # 入れ物 → 子の名前
+    for p in streams:
+        parts = p.split("/")
+        for k in range(1, len(parts)):
+            me = "/".join(parts[:k])
+            if me not in children:
+                children[me] = []
+                children.setdefault("/".join(parts[:k - 1]), []).append(parts[k - 1])
+        children.setdefault("/".join(parts[:-1]), []).append(parts[-1])
+    order = [""] + sorted((n for n in children if n), key=lambda n: (n.count("/"), n)) + sorted(streams)
+    index = {p: i for i, p in enumerate(order)}
+    links: dict[int, tuple[int, int]] = {}
+
+    def tree(parent: str) -> int:
+        kids = sorted(set(children.get(parent, [])), key=lambda n: (len(n), n.upper()))
+        paths = [(parent + "/" + c) if parent else c for c in kids]
+
+        def build(lo: int, hi: int) -> int:
+            if lo >= hi:
+                return NOSTREAM
+            mid = (lo + hi) // 2
+            links[index[paths[mid]]] = (build(lo, mid), build(mid + 1, hi))
+            return index[paths[mid]]
+
+        return build(0, len(paths))
+
+    child = {p: tree(p) for p in children}
+    mini = bytearray()
+    minifat: list[int] = []
+    start: dict[str, int] = {}
+    for p in sorted(streams):
+        d = streams[p]
+        if 0 < len(d) < CUT:
+            first, n = len(mini) // MS, -(-len(d) // MS)
+            mini += d + b"\x00" * (n * MS - len(d))
+            minifat += list(range(first + 1, first + n)) + [ENDOFCHAIN]
+            start[p] = first
+    big = [p for p in sorted(streams) if len(streams[p]) >= CUT]
+    n_dir = -(-len(order) * 128 // SS)
+    n_minifat = -(-len(minifat) * 4 // SS)
+    n_mini = -(-len(mini) // SS)
+    n_data = n_mini + sum(-(-len(streams[p]) // SS) for p in big)
+    n_fat = 1
+    while n_fat * (SS // 4) < n_fat + n_dir + n_minifat + n_data:
+        n_fat += 1
+    if n_fat > 109:
+        raise CfbError("作る複合ファイルが大きすぎます")
+    fat = [FREESECT] * (n_fat * (SS // 4))
+    at = n_fat
+    for k in range(n_fat):
+        fat[k] = FATSECT
+
+    def chain(n: int) -> int:
+        nonlocal at
+        if n == 0:
+            return ENDOFCHAIN
+        first = at
+        for k in range(n):
+            fat[at + k] = at + k + 1 if k + 1 < n else ENDOFCHAIN
+        at += n
+        return first
+
+    dir_start = chain(n_dir)
+    minifat_start = chain(n_minifat)
+    mini_start = chain(n_mini)
+    for p in big:
+        start[p] = chain(-(-len(streams[p]) // SS))
+    out = bytearray(SS * (1 + at))
+    out[0:8] = MAGIC
+    struct.pack_into("<HHHHH", out, 0x18, 0x3E, 3, 0xFFFE, 9, 6)
+    struct.pack_into("<IIIIIIIII", out, 0x28, 0, n_fat, dir_start, 0, CUT, minifat_start, n_minifat, ENDOFCHAIN, 0)
+    struct.pack_into("<109I", out, 0x4C, *(list(range(n_fat)) + [FREESECT] * (109 - n_fat)))
+    struct.pack_into(f"<{len(fat)}I", out, SS, *fat)
+
+    def put(sector: int, data: bytes) -> None:
+        out[SS * (1 + sector):SS * (1 + sector) + len(data)] = data
+
+    if n_minifat:
+        mf = minifat + [FREESECT] * (n_minifat * (SS // 4) - len(minifat))
+        put(minifat_start, struct.pack(f"<{len(mf)}I", *mf))
+    if n_mini:
+        put(mini_start, bytes(mini))
+    for p in big:
+        put(start[p], streams[p])
+    dir_bytes = bytearray(n_dir * SS)
+    for i in range(n_dir * SS // 128):
+        struct.pack_into("<III", dir_bytes, i * 128 + 68, NOSTREAM, NOSTREAM, NOSTREAM)
+    for i, p in enumerate(order):
+        raw = (p.rsplit("/", 1)[-1] if p else "Root Entry").encode("utf-16-le")[:62] + b"\x00\x00"
+        kind = 5 if p == "" else (2 if p in streams else 1)
+        left, right = links.get(i, (NOSTREAM, NOSTREAM))
+        if kind == 5:
+            st_, size = mini_start, len(mini)
+        elif kind == 2:
+            st_, size = start.get(p, ENDOFCHAIN), len(streams[p])
+        else:
+            st_, size = 0, 0
+        base = i * 128
+        dir_bytes[base:base + len(raw)] = raw
+        struct.pack_into("<HBB", dir_bytes, base + 64, len(raw), kind, 1)
+        struct.pack_into("<III", dir_bytes, base + 68, left, right, child.get(p, NOSTREAM) if kind != 2 else NOSTREAM)
+        struct.pack_into("<IQ", dir_bytes, base + 116, st_, size)
+    put(dir_start, bytes(dir_bytes))
+    return bytes(out)

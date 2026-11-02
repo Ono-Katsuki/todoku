@@ -587,7 +587,7 @@ class DocxDocument:
             elif loc in ("drawing", "pict", "object", "AlternateContent"):
                 self._boxes(ch, p, part)
                 ole = next(iter(ch.iter("OLEObject")), None)
-                e = self._add_embed(ole, part, p) if ole is not None else None
+                e = self._add_embed(ole, part, p, ch) if ole is not None else None
                 alt = [n.get("descr") or n.get("title") for n in ch.iter("docPr") if n.get("descr") or n.get("title")]
                 if e is not None:
                     p.segs.append(Seg(f"〔埋め込み{e['n']}：{e['label']}〕", "other", None, r, hidden))
@@ -604,31 +604,31 @@ class DocxDocument:
                     p.segs.append(Seg(rtt, "ruby", None, r, hidden))
                     p.segs.append(Seg("）", "other", None, r, hidden))
 
-    def _add_embed(self, ole: Node, part: str, p: Para) -> dict | None:
-        """埋め込んだ OLE の部品（o:OLEObject）を、文書の埋め込みの一覧に足す：部品の置き場所（word/embeddings/…）を関係から引く。"""
+    def _add_embed(self, ole: Node, part: str, p: Para, holder: Node | None = None) -> dict | None:
+        """埋め込んだ OLE の部品（o:OLEObject）を、文書の埋め込みの一覧に足す：部品の置き場所（word/embeddings/…）を関係から引く。
+        holder（w:object など）の中の絵（v:imagedata・a:blip）は、Word が表示・印刷に使う表の絵として覚える（images）。"""
         rid = ole.get("id")
-        typ, target = self._rels(part).get(rid or "", ("", ""))
+        rels = self._rels(part)
+        typ, target = rels.get(rid or "", ("", ""))
         if not target or ole.get("Type", "Embed") != "Embed":
             return None
-        base = part.rsplit("/", 1)[0] if "/" in part else ""
-        name = target.lstrip("/") if target.startswith("/") else (f"{base}/{target}" if base else target)
-        parts_ = []
-        for seg in name.split("/"):
-            if seg == "..":
-                if parts_:
-                    parts_.pop()
-            elif seg and seg != ".":
-                parts_.append(seg)
-        name = "/".join(parts_)
+        name = _join(part, target)
         if not self.zip.has(name):
             return None
         for e in self.embeds:
             if e["storage"] == name:
                 return e
+        images = []
+        for n in list(holder.iter("imagedata")) + list(holder.iter("blip")) if holder is not None else []:
+            t = rels.get(n.get("id") or n.get("embed") or "", ("", ""))[1]
+            img = _join(part, t) if t else ""
+            if img and self.zip.has(img) and img not in images:
+                images.append(img)
         prog = ole.get("ProgID") or ""
         label = {"Excel.Sheet": "Excel の表", "Excel.Chart": "Excel のグラフ", "Word.Document": "Word の文書"}.get(
             ".".join(prog.split(".")[:2]), prog or "埋め込み")
-        e = {"n": len(self.embeds) + 1, "storage": name, "prog": prog, "label": label, "para": p}
+        e = {"n": len(self.embeds) + 1, "storage": name, "prog": prog, "label": label, "para": p, "part": part,
+             "images": images, "aspect": ole.get("DrawAspect") or "Content"}
         self.embeds.append(e)
         return e
 

@@ -5,6 +5,8 @@
 - 書き換えた部品：書いた段落（と、書いたコンテンツコントロールの定義）を除いたバイト列が一致
 - 書いた段落：文字が「元の文字の空欄を、書いた値に置き換えたもの」と一致し、文字の書式は元の段落にあったものだけ
 - 書き換えた部品は、XML として正しく読める。しおりの番号が重ならない
+- 埋め込んだ Excel の表に書いたとき（E1!Sheet1!C4）：ブックの部品は Excel の証明で、表の絵の部品は
+  「変わったセルの元の字を消し、新しい字を足しただけ」であることで確かめる（todoku.embed.verify_docx）
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ class DocxProof:
     paragraphs_changed: int = 0
     unexpected: list[str] = field(default_factory=list)
     lint_errors: list[str] = field(default_factory=list)
+    embed_note: str = ""  # 埋め込んだ表に書いたときの、確かめたことの要約
 
     @property
     def ok(self) -> bool:
@@ -36,7 +39,8 @@ class DocxProof:
     def headline(self) -> str:
         return (f"ZIP の部品 {self.entries_identical}/{self.entries_total} がバイト一致。段落 {self.paragraphs_total:,} のうち、"
                 f"変わったのは書いた欄のある {self.paragraphs_changed} 段落だけ"
-                + ("" if not self.unexpected else f"（想定外の変更 {len(self.unexpected)} 件）"))
+                + ("" if not self.unexpected else f"（想定外の変更 {len(self.unexpected)} 件）")
+                + (f"。{self.embed_note}" if self.embed_note else ""))
 
 
 def _paras(doc: DocxDocument) -> list[Para]:
@@ -47,6 +51,8 @@ def _paras(doc: DocxDocument) -> list[Para]:
 
 
 def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
+    from ..embed import is_embed_key, verify_docx
+
     pr = DocxProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest())
     za, zb = RawZip(original), RawZip(new)
     if za.names() != zb.names():
@@ -65,6 +71,16 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
     except Exception as e:  # noqa: BLE001
         pr.lint_errors.append(f"書き込み後の文書を読めません: {e}")
         return pr
+    embed_written = {k: v for k, v in written.items() if is_embed_key(k)}
+    written = {k: v for k, v in written.items() if k not in embed_written}
+    if embed_written:
+        # 埋め込んだ表：ブックの部品は Excel の証明で、表の絵の部品は「変わったセルの字だけ」で確かめる
+        try:
+            allowed, probs, pr.embed_note = verify_docx(a, b, embed_written)
+        except Exception as e:  # noqa: BLE001
+            allowed, probs = set(), [f"埋め込みの表への書き込みを確かめられません：{e}"]
+        pr.unexpected += probs
+        changed_parts = [p for p in changed_parts if p not in allowed]
     pa, pb = _paras(a), _paras(b)
     pr.paragraphs_total = len(pa)
     if len(pa) != len(pb):

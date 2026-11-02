@@ -4,6 +4,8 @@
       全部拾い、窓に1字残らず出ているかを確かめる。
 書く: 窓が示したすべての入力欄（文書の保護で書けない欄を除く）に試しの値を一度に書き込み、
       変わったのが書いた欄の段落だけであること、XML として正しいこと、書いた値が窓に読み戻せることを確かめる。
+埋め込んだ Excel の表: セルの字がすべて窓に出ていることと、入力欄1か所に試しの値を書き、証明（ブックと表の絵）と
+      読み戻しが通ることを確かめる（.doc の監査もここを使う）。
 """
 
 from __future__ import annotations
@@ -124,8 +126,10 @@ def check_writing(doc: DocxDocument, win: dict) -> list[Check]:
     return out
 
 
-def embeds_check(doc, win: dict) -> Check | None:
-    """埋め込んだ Excel の表：ブックのセルの字（見えている値）が、すべて窓の埋め込みの節に出ているか。"""
+def embeds_check(doc, win: dict, opener=None, fill_fn=None, prove_fn=None) -> Check | None:
+    """埋め込んだ Excel の表：ブックのセルの字（見えている値）が、すべて窓の埋め込みの節に出ているか。
+    opener・fill_fn・prove_fn を渡すと、埋め込みの表の入力欄1か所に試しの値を書き、証明（ブックは Excel の証明、
+    表の絵は変わったセルの字だけ）と、読み戻し（書いた後の文書の埋め込みの表に、その値がある）を確かめる。"""
     books = doc.embedded_books() if hasattr(doc, "embedded_books") else []
     if not books:
         return None
@@ -149,11 +153,57 @@ def embeds_check(doc, win: dict) -> Check | None:
                 key = re.sub(r"[\s\u3000]", "", str(t))
                 if key and key not in flat:
                     missing.append(f"埋め込み{e['n']} {sh.name}!{chr(64 + c) if c <= 26 else c}{r}「{str(cell.value)[:20]}」")
-    return Check("埋め込みの表", not missing,
-                 f"文書に埋め込んだ Excel の表 {len(books)} 個（字のあるセル {n_cells:,} か所）を、Excel の窓と同じ読み方で窓に出しました"
-                 + (f"。窓に出ていないセル {len(missing)} か所" if missing else "。どのセルの字も窓に出ています")
-                 + "（埋め込みの表に書くことは、まだできません。Word が表示・印刷に使う表の絵も作り直す必要があるため）",
-                 missing[:20])
+    detail = (f"文書に埋め込んだ Excel の表 {len(books)} 個（字のあるセル {n_cells:,} か所）を、Excel の窓と同じ読み方で窓に出しました"
+              + (f"。窓に出ていないセル {len(missing)} か所" if missing else "。どのセルの字も窓に出ています"))
+    items = missing[:20]
+    ok = not missing
+    if fill_fn is not None:
+        wok, wdetail, witems = _embed_write_check(doc, win, opener, fill_fn, prove_fn)
+        ok = ok and wok
+        detail += "。" + wdetail
+        items += witems
+    return Check("埋め込みの表", ok, detail, items)
+
+
+def _embed_sample(f: dict):
+    k = f.get("kind")
+    if f.get("options"):
+        cur = f.get("value")
+        return next((o for o in f["options"] if o != cur), f["options"][0])
+    if k == "number":
+        return 12
+    if k == "date":
+        return "2026-04-01"
+    if k in ("text",):
+        return "テスト"
+    return None
+
+
+def _embed_write_check(doc, win: dict, opener, fill_fn, prove_fn) -> tuple[bool, str, list[str]]:
+    """埋め込みの表の入力欄1か所への書き込み：証明と読み戻し。書けない表は、その理由を示す（できたことにはしない）。"""
+    from .fill import written_of
+
+    for e in win.get("embeds") or []:
+        if not e.get("writable"):
+            return False, f"埋め込み{e['n']} の表には書き込めません（{e.get('why') or '理由不明'}）", []
+        pick = next(((f, v) for f in e.get("fields") or [] for v in [_embed_sample(f)] if v is not None), None)
+        if pick is None:
+            continue
+        f, v = pick
+        try:
+            res = fill_fn(opener(doc.blob, doc.filename), {f["id"]: v})
+        except FillError as ex:
+            return False, f"埋め込みの表の入力欄 {f['id']} に書き込めませんでした", str(ex).splitlines()[:10]
+        pr = prove_fn(doc.blob, res.blob, written_of(res.patches))
+        after = build(opener(res.blob, doc.filename))
+        got = next((g.get("value") for e2 in after.get("embeds") or [] for g in e2.get("fields") or [] if g["id"] == f["id"]), None)
+        want = next((p.value for p in res.patches if p.id == f["id"]), v)
+        same = got == want or str(got) == str(want)
+        ok = pr.ok and same
+        return ok, (f"埋め込みの表の入力欄 {f['id']} に試しの値 {v!r} を書き、{pr.headline()}。読み戻し："
+                    + ("書いた後の文書の埋め込みの表に、その値がある" if same else f"埋め込みの表では {got!r}")), \
+            [*pr.unexpected, *pr.lint_errors]
+    return True, "埋め込みの表に、書き込む欄はありません", []
 
 
 def anchored_check(blob: bytes, filename: str, opener, fill_fn, prove_fn, main_end: int | None = None) -> Check:
@@ -217,7 +267,7 @@ def run(blob: bytes, filename: str = "") -> Audit:
                            f"Markdown {total:,} 文字" + (f"を {len(parts)} 部分に分け、いちばん大きい部分も {biggest:,} 文字"
                                                         if len(parts) > 1 else "") + "（AIが1回で読める目安 15万文字以内）"))
     au.checks += check_writing(DocxDocument(blob, filename), win)
-    ec = embeds_check(doc, win)
+    ec = embeds_check(doc, win, DocxDocument, fill, prove)
     if ec is not None:
         au.checks.append(ec)
     from ..xlsx.audit import agent_places_check
