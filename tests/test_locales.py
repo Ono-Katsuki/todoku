@@ -43,7 +43,8 @@ def test_fixed_builtin_formats_and_the_japanese_table():
     assert format_value(NOV3, JA_JP_BUILTIN[58]) == "令和8年11月3日"
 
 
-def test_workbook_with_builtin_14_grades_read_b(tmp_path):
+def test_workbook_with_builtin_14_is_told_but_keeps_read_grade(tmp_path):
+    """値（日付）は正確に分かるので読む段階は下げない。見え方が PC の地域で変わることだけ伝える。"""
     openpyxl = pytest.importorskip("openpyxl")
     from todoku import api
 
@@ -56,7 +57,8 @@ def test_workbook_with_builtin_14_grades_read_b(tmp_path):
     wb.save(path)
     g = api.grade(str(path))
     r = next(r for r in g["reasons"] if r["title"].startswith("組み込みの表示形式（番号 14）"))
-    assert r["grade"] == "B" and r["where"] == ["Sheet!B1"]
+    assert r["grade"] == "A" and r["where"] == ["Sheet!B1"]
+    assert g["grade"] in ("S", "A")
     assert "再現できない表示形式" not in [x["title"] for x in g["reasons"]]
 
 

@@ -891,7 +891,8 @@ def unshown_reasons(doc: dict) -> list[Reason]:
     pc = [(w, i) for w, i in items if i is not None]
     if pc:
         ids = "・".join(str(i) for i in sorted({i for _w, i in pc}))
-        out.append(Reason("B", f"組み込みの表示形式（番号 {ids}）は、開く PC の地域の設定で見え方が変わる",
+        # 値（日付）はそのまま正確に分かる。変わるのは受け取る人の PC での見え方だけなので、読む段階は下げない（A のまま、伝える）
+        out.append(Reason("A", f"組み込みの表示形式（番号 {ids}）は、開く PC の地域の設定で見え方が変わる",
                           f"{len(pc)} か所のセルは、組み込みの表示形式（ECMA-376 第1部 18.8.30 の番号 {ids}）で、形式の字がファイルに"
                           "なく、開く PC の地域の設定（短い日付など）で見え方が変わります。todoku は受け取る人の PC を知らないので、"
                           "特定の地域の字にせず、窓には元の値と、地域によらない書き方（ISO 8601）を示します",
