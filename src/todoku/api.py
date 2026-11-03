@@ -352,6 +352,13 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
                        "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
                        "written_as": {p.id: p.value for p in res.patches
                                       if not p.anchor and str(p.value) != str(values.get(p.id))}})
+        # 値（/V）と見た目の字が違う欄（選択肢の書き出しの値と見せる字・書式で整えた数）：読み戻しは値で、本人に伝えるのは見た目の字で
+        pdf_v = {p.id: p.value for p in res.patches if p.kind in ("input", "control") and not p.anchor}
+        pdf_shown = {p.id: (p.value, p.shown) for p in res.patches
+                     if p.kind in ("input", "calc") and getattr(p, "shown", None) not in (None, p.value)}
+        from .pdf.fill import appearance_readback
+
+        pdf_ap_diff = appearance_readback(_pdf(res.blob, name, lock), res.patches)
         xfa_written = {p.id: p.value for p in res.patches if p.kind == "xfa"}
         if xfa_written:
             # XFA の欄：窓に出る値（日付・数は決まった形、選択肢はデータの値）で読み戻す
@@ -495,6 +502,8 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
                 after[key] = cell.value if cell is not None else None
         except Exception:  # noqa: BLE001
             pass
+    if k == "pdf":
+        readback_values.update({i: v for i, v in pdf_v.items() if i in readback_values})
     mismatch = []
     for key, v in readback_values.items():
         g = after.get(key)
@@ -506,6 +515,11 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             ok = str(g) == str(v) or _num_equal(g, v)
         if not ok:
             mismatch.append({"id": key, "written": v, "read_back": g})
+    if k == "pdf":
+        mismatch += pdf_ap_diff  # 見た目（/AP）の字：描ける字形で、見せるはずの字か
+        for f_ in after_list:
+            if f_["id"] in pdf_shown and str(f_.get("value")) == str(pdf_shown[f_["id"]][0]):
+                f_["value"] = pdf_shown[f_["id"]][1]  # 本人に伝えるのは、書類に見える字（選択肢の名前・書式で整えた数）
     if result.get("placed"):
         mismatch += _read_back_placed(k, written_plain, name, lock, values, result["placed"])
     if result.get("circled"):

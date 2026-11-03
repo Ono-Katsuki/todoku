@@ -151,11 +151,17 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
         _collect(b, cur, reach, set(added))
     # 足したオブジェクト：書き換えたものからたどれて、欄・見た目・書体だけ（置いた画像は、下で1つずつ確かめる）
     seal_objs = set()
+    # 足した書体の、字の対応（ToUnicode の CMap）のストリーム
+    tounicode = {o["ToUnicode"].num for o in (b.get(n) for n in added)
+                 if isinstance(o, dict) and _kind(o) == "font" and isinstance(o.get("ToUnicode"), Ref)}
     for num in added:
         o = b.get(num)
         if num not in reach and not _is_xref(o):
             pr.unexpected.append(f"足したオブジェクト {num} が、どこからも使われていません")
-        kind = "xfa" if num in xfa_done else _kind(o)
+        kind = "xfa" if num in xfa_done else ("font" if num in tounicode and isinstance(o, Stream)
+                                              and b"begincmap" in b.decode(o) else _kind(o))
+        if kind == "appearance":
+            _check_glyphs(b, num, o, pr)
         if kind is None:
             pr.unexpected.append(f"足したオブジェクト {num} が、欄・見た目・書体のどれでもありません")
         if kind in ("stamp", "image", "content"):
@@ -179,6 +185,15 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
         what = "ページの描画" if _kind(b.get(num)) == "content" else "スタンプの注釈か画像"
         pr.unexpected.append(f"足したオブジェクト {num}（{what}）は、置くと言った画像・○として確かめられません")
     return pr
+
+
+def _check_glyphs(b: PdfDocument, num: int, o: Stream, pr: PdfProof) -> None:
+    """足した見た目のストリームが描く字が、どれも、その書体で描ける字形か（/V だけでなく、見た目そのものを確かめる）。"""
+    from .glyphs import appearance_text
+
+    _text, probs = appearance_text(b, o)
+    for p in probs:
+        pr.unexpected.append(f"見た目（オブジェクト {num}）：{p}")
 
 
 def _check_anchored(a: PdfDocument, b: PdfDocument, anchored: dict[str, dict], pr: PdfProof) -> set[int]:

@@ -379,6 +379,9 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
         xr, xw_ = _xfa_reasons(win.get("xfa"))
         reasons += xr
         write += xw_
+    from .pdf.signatures import write_reasons as _sig_reasons
+
+    write += _sig_reasons(doc)  # 変更を許さない電子署名（DocMDP P=1）は書けない
     agent = [f for p in win["pages"] for f in p["fields"] if f.get("agent")]
     fields = [f for p in win["pages"] for f in p["fields"] if not f.get("agent")]
     layout = [f for f in fields if f.get("source") == "layout"]

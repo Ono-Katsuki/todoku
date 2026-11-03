@@ -48,13 +48,41 @@ def actions(doc, node) -> dict[str, str]:
 _CALL = re.compile(r"^\s*(AF\w+)\s*\((.*)\)\s*;?\s*$", re.S)
 
 
+_JS_ESC = {"n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f", "v": "\v", "0": "\0"}
+
+
+def js_unescape(s: str) -> str:
+    """JavaScript の文字列の中のエスケープ（\\u00a5・\\x41・\\n・\\"・行の続き など。ECMA-262 の文字列リテラル）を字にする。"""
+    def rep(m):
+        e = m[1]
+        if e[0] == "u":
+            return chr(int(e[2:-1] if e[1] == "{" else e[1:], 16))
+        if e[0] == "x":
+            return chr(int(e[1:], 16))
+        if e in ("\n", "\r\n", "\r", "\u2028", "\u2029"):
+            return ""  # 行の続き
+        return _JS_ESC.get(e, e)
+
+    return re.sub(r"\\(u\{[0-9A-Fa-f]+\}|u[0-9A-Fa-f]{4}|x[0-9A-Fa-f]{2}|\r\n|[\s\S])", rep, s)
+
+
+def calc_sources(js: str) -> list[str]:
+    """計算のスクリプト（AFSimple_Calculate）の、元になる欄の名前。読めなければ空。"""
+    p = parse_call(js)
+    if p is None or p[0] != "AFSimple_Calculate" or len(p[1]) < 2:
+        return []
+    names = p[1][1]
+    return list(names) if isinstance(names, list) else [x.strip() for x in str(names).split(",") if x.strip()]
+
+
 def _args(s: str) -> list:
     out = []
     for m in re.finditer(r'"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'|new\s+Array\s*\(([^)]*)\)|(-?\d+(?:\.\d+)?)|(true|false)', s):
         if m[1] is not None or m[2] is not None:
-            out.append((m[1] if m[1] is not None else m[2]).replace('\\"', '"'))
+            out.append(js_unescape(m[1] if m[1] is not None else m[2]))
         elif m[3] is not None:
-            out.append([a or b for a, b in re.findall(r'"([^"]*)"|\'([^\']*)\'', m[3])])
+            out.append([js_unescape(a if a is not None else b)
+                        for a, b in re.findall(r'"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'', m[3])])
         elif m[4] is not None:
             out.append(float(m[4]) if "." in m[4] else int(m[4]))
         else:
@@ -81,6 +109,15 @@ KNOWN = {"AFDate_FormatEx", "AFDate_KeystrokeEx", "AFDate_Format", "AFDate_Keyst
 
 # ====================================================================== 日付
 def _parse_date(value: str, fmt: str | None) -> dt.datetime:
+    try:
+        return _parse_date_(value, fmt)
+    except (ValueError, OverflowError) as e:
+        if isinstance(e, JsError):
+            raise
+        raise JsError(f"「{str(value).strip()}」は、ありえない日付です（月は 1〜12、日はその月の日数まで）") from None
+
+
+def _parse_date_(value: str, fmt: str | None) -> dt.datetime:
     v = str(value).strip()
     if not v:
         raise JsError("日付が空です")
@@ -206,41 +243,66 @@ def format_number(x: float, ndec: int, sep: int, neg: int, curr: str = "", prepe
 
 # ====================================================================== 書く値を決める
 def commit(js: dict[str, str], value) -> str:
-    """書式・入力の制限・値の確認のスクリプトに従って、書く文字を決める。合わなければ JsError。"""
+    """書式・入力の制限・値の確認のスクリプトに従って、見た目に出る字を決める。合わなければ JsError。"""
+    return commit_pair(js, value)[1]
+
+
+def _plain(x: float) -> str:
+    if float(x).is_integer():
+        return str(int(x))
+    s = repr(float(x))
+    if "e" in s or "E" in s:
+        from decimal import Decimal
+
+        s = format(Decimal(s), "f")
+    return s
+
+
+def commit_pair(js: dict[str, str], value) -> tuple[str, str]:
+    """(欄の値 /V, 見た目に出る字)。Acrobat と同じく、書式（F）は見た目だけを整え、値はそのまま持つ：
+    数・百分率・郵便番号などは、値は数字だけの形（1234.5・0.25・1234567）、見た目は書式どおり（¥1,234.50・25.00%）。
+    日付・時刻は、書式（F）がその値を読み直して見た目を作るので、値も書式の形（yyyy/mm/dd など）にする。"""
     text = "" if value is None else str(value)
     if text == "":
-        return text
+        return text, text
     f = parse_call(js["F"]) if "F" in js else None
     k = parse_call(js["K"]) if "K" in js else None
     fn = (f or k or (None, []))[0]
     args = (f or k or (None, []))[1]
     out = text
+    raw = text
+    x = None
     if fn in ("AFDate_FormatEx", "AFDate_KeystrokeEx", "AFDate_Format", "AFDate_Keystroke"):
         fmt = args[0] if args and isinstance(args[0], str) else (OLD_DATE_FORMATS[int(args[0])] if args else "mm/dd/yyyy")
         d = _parse_date(text, fmt)
-        out = format_date(d, fmt)
+        out = raw = format_date(d, fmt)
     elif fn in ("AFTime_Format", "AFTime_Keystroke"):
         fmt = ["HH:MM", "h:MM tt", "HH:MM:ss", "h:MM:ss tt"][int(args[0]) if args else 0]
         m = re.fullmatch(r"(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap]m)?", text.strip(), re.I)
         if not m:
             raise JsError(f"「{text}」を時刻として読めません")
         h = int(m[1]) + (12 if (m[4] or "").lower() == "pm" and int(m[1]) < 12 else 0)
-        out = format_date(dt.datetime(2000, 1, 1, h, int(m[2]), int(m[3] or 0)), fmt)
+        try:
+            out = raw = format_date(dt.datetime(2000, 1, 1, h, int(m[2]), int(m[3] or 0)), fmt)
+        except ValueError:
+            raise JsError(f"「{text}」は、ありえない時刻です") from None
     elif fn in ("AFNumber_Format", "AFNumber_Keystroke"):
         x = _number(text)
         nd, sep, neg = (list(args) + [2, 0, 0])[:3]
         curr = args[4] if len(args) > 4 and isinstance(args[4], str) else ""
         pre = args[5] if len(args) > 5 else True
         out = format_number(x, int(nd), int(sep), int(neg), curr, bool(pre))
+        raw = _plain(x)
     elif fn in ("AFPercent_Format", "AFPercent_Keystroke"):
-        x = _number(text.rstrip("%"))
-        if "%" in text:
+        x = _number(text.rstrip("%％"))
+        if "%" in text or "％" in text:
             x /= 100.0
         nd, sep = (list(args) + [2, 0])[:2]
         out = format_number(x * 100, int(nd), int(sep), 0) + "%"
+        raw = _plain(x)
     elif fn in ("AFSpecial_Format", "AFSpecial_Keystroke"):
         kind = int(args[0]) if args else 0
-        digits = re.sub(r"\D", "", text)
+        digits = re.sub(r"\D", "", text.translate(str.maketrans("０１２３４５６７８９", "0123456789")))
         need = {0: 5, 1: 9, 2: 10, 3: 9}.get(kind)
         if kind == 2 and len(digits) == 7:
             need = 7
@@ -248,16 +310,17 @@ def commit(js: dict[str, str], value) -> str:
             raise JsError(f"「{text}」は、この欄の形（{['郵便番号（5桁）', '郵便番号（9桁）', '電話番号', '社会保障番号'][kind] if kind < 4 else ''}）に合いません")
         out = {0: digits, 1: f"{digits[:5]}-{digits[5:]}", 3: f"{digits[:3]}-{digits[3:5]}-{digits[5:]}",
                2: (f"({digits[:3]}) {digits[3:6]}-{digits[6:]}" if len(digits) == 10 else f"{digits[:3]}-{digits[3:]}")}[kind]
+        raw = digits
     if "V" in js:
         v = parse_call(js["V"])
         if v and v[0] == "AFRange_Validate":
             a = list(v[1]) + [False, 0, False, 0]
-            x = _number(out)
-            if a[0] and x < a[1]:
-                raise JsError(f"{x:g} は、{a[1]} 以上である必要があります")
-            if a[2] and x > a[3]:
-                raise JsError(f"{x:g} は、{a[3]} 以下である必要があります")
-    return out
+            xv = x if x is not None else _number(out)
+            if a[0] and xv < a[1]:
+                raise JsError(f"{xv:g} は、{a[1]} 以上である必要があります")
+            if a[2] and xv > a[3]:
+                raise JsError(f"{xv:g} は、{a[3]} 以下である必要があります")
+    return raw, out
 
 
 def simple_calculate(js: str, get) -> float | None:
