@@ -241,6 +241,15 @@ def _macro_reasons(info) -> list[Reason]:
     return [Reason("C", "マクロの処理", detail, [m["name"] for m in busy][:12])]
 
 
+def unsupported_grade(kind: str) -> Grade:
+    """見分けたが、まだ読めない形式（HWP・HWPX）：読む F・書く D。"""
+    from .book import UNSUPPORTED
+
+    return _locked("未対応の形式：HWP/HWPX（韓国のワープロ）",
+                   f"とどくはまだ読めません（{UNSUPPORTED.get(kind, kind)} の文書。中身を推測して読むことはしません）",
+                   "読めないので、書けません")
+
+
 # ====================================================================== 形式ごと
 def grade_blob(blob: bytes, filename: str = "", password: str | None = None, encoding: str | None = None) -> Grade:
     """password：パスワードで保護された PDF を開くとき（Office の書類は、api で解いた中身を渡す）。
@@ -262,6 +271,8 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None, enc
         k = kind_of(blob)
     except Exception as e:  # noqa: BLE001
         return _locked("開けない", f"ファイルの形式を判別できませんでした（{type(e).__name__}）", "開けないので、書けません")
+    if k in ("hwp", "hwpx"):
+        return unsupported_grade(k)
     if k == "zip":
         return _grade_zip(blob, password)
     locked = k == "encrypted"
@@ -479,6 +490,21 @@ def _write_fields(fields: list[dict], layout: list[dict], agent: list[dict], mar
     return [Reason("B", "印のある欄がない", f"作り手の印のある欄がありません。{free}")]
 
 
+def word_reasons(win: dict) -> tuple[list[Reason], list[Reason]]:
+    """Word と同じ窓の文書（Word・RTF・OpenDocument の文書）の、読む・書くの理由：変更履歴で削除された字が残っている（読む B）、
+    書けない入力欄がある（書く D）。"""
+    read, write = [], []
+    gone = win.get("tracked_deletions") or []
+    if gone:
+        read.append(Reason("B", "変更履歴", f"変更履歴で削除された字が {len(gone)} 段落に残っています。窓では本文に入れず"
+                           "〔変更履歴で削除された字〕と示しています。印刷される字は、ソフトの変更履歴の表示の設定で変わります", gone[:12]))
+    bad = [f for f in win.get("fields") or [] if f.get("unwritable")]
+    if bad:
+        write.append(Reason("D", "書けない入力欄", f"入力欄 {len(bad)} か所は、ファイルの作りのために書けません：{bad[0].get('why', '')}",
+                            [f["id"] for f in bad[:12]]))
+    return read, write
+
+
 def _write_embeds(embeds: list[dict]) -> list[Reason]:
     """文書に埋め込んだ Excel の表：表のセルと、表示・印刷の絵を描き直して書く（B）。描き直せない形なら書けない（D）。"""
     out = []
@@ -582,6 +608,9 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
                            "欄のない所は、前後の字を指定して書き換えます")
     write += _write_embeds(win.get("embeds") or [])
     write += _write_macros(win.get("macros"))
+    wr, ww = word_reasons(win)
+    reasons += wr
+    write += ww
     g = _final(reasons, write)
     g.alerts = picture_alerts(win.get("pictures") or [])
     return g
