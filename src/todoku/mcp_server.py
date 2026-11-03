@@ -43,7 +43,9 @@ INSTRUCTIONS = (
 
 TOOLS = [
     {"name": "open_document",
-     "description": "書類（Excel .xlsx/.xlsm/.xls・PDF・Word .docx/.doc）を開き、形式・入力欄の数・窓の分け方と、窓（Markdown）の最初の部分を返す。",
+     "description": "書類（Excel .xlsx/.xlsm/.xls・PDF・Word .docx/.doc）を開き、形式・入力欄の数・窓の分け方と、窓（Markdown）の最初の部分を返す。"
+                    "ZIP は中のファイルの一覧を返す。中のファイルは、どの道具でも path に「a.zip!/中の名前」と指定して開く・書く"
+                    "（書き出す out_path は ZIP。書いたファイルの部品だけを入れ替える）。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "書類のファイルのパス"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"}},
                      "required": ["path"]}},
     {"name": "read_window",
@@ -65,13 +67,24 @@ TOOLS = [
                     "PDF で、窓に欄として示していない所に書くときは、{\"@1\": {\"after\": 見出しの字, \"value\": 書く字, \"page\": ページ}} の形で、"
                     "見出しの右（\"where\": \"below\" なら下）の空いている所に書ける（書いた所は id「pページ.w番号」）。"
                     "PDF の伏せ字（「○○」）の上には {\"@1\": {\"cover\": \"○○\", \"value\": 書く字}}（白い下地の欄で覆って書く。元の字は消さない）。"
+                    "PDF の欄で kind_candidates（種類の候補）のあるもの：true/false はチェックの印、字はチェックの候補なら文字として、"
+                    "1字ずつ書く欄なら1字ずつ書く。種類を決めて書くときは {欄の id: {\"as\": 種類, \"value\": 値}}。"
+                    "alternative_to のある欄は、その欄と同じ所の別の読み方：どちらか1つにだけ書く（両方に書くと断る）。"
+                    "本人の印影・署名の画像（本人は手で押印・自署できない）：本人に、どの書類のどこにどの画像を置くかを伝えて同意を得たときだけ、"
+                    "{\"@1\": {\"seal\": 画像（PNG か JPEG）のパス, \"consent\": true, \"page\": ページ, \"box\": [左, 上, 右, 下]（mm）}} か、"
+                    "字を目印に {\"@1\": {\"seal\": …, \"consent\": true, \"cover\": \"印\"}}（その字の上。\"after\" なら右、\"where\": \"below\" なら下。"
+                    "\"size\" で画像の長い辺の mm）で置く（PDF のみ。署名の画像は \"seal\" の代わりに \"signature\"）。"
+                    "consent: true がなければ置かない。画像は縦横の比を保って枠の中に置き、透けない画像がページの字を隠すときは置かない。"
+                    "置いた所は id「pページ.s番号」になり、証明は、足したのがその注釈と本人の画像だけであることを確かめる。"
+                    "実印・自署（手書き）が求められる所では、画像は受け付けられないことがある：様式の注意書きを読んで確かめ、本人に伝える。"
                     "結果として、変わったのが書いた欄（とその計算結果・見た目）だけであることの証明と、書き込み後のファイルを読み直した結果を返す。"
                     "本人は書類を開いて確かめないので、結果の say_to_user（書いた所の見出しと値・まだ空いている欄・本人に伝えること）を、"
                     "対話でそのまま本人に伝えて確かめる。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"}, "out_path": {"type": "string", "description": "書き出すファイルのパス（元と別の名前）"},
          "values": {"type": "object", "description": "{欄の id: 値}。Word で欄のない所は {\"@1\": {\"old\": …, \"new\": …}}、"
-                                                      "PDF で欄のない所は {\"@1\": {\"after\": …, \"value\": …}}"},
+                                                      "PDF で欄のない所は {\"@1\": {\"after\": …, \"value\": …}}、"
+                                                      "本人が同意した印影・署名の画像は {\"@1\": {\"seal\": 画像のパス, \"consent\": true, …}}"},
          "force": {"type": "boolean", "default": False, "description": "保護された欄にも書く（本人が了承したときだけ）"}},
          "required": ["path", "out_path", "values"]}},
     {"name": "audit_document",
@@ -92,6 +105,48 @@ TOOLS = [
          "answers": {"type": "array", "description": "MsgBox・InputBox の答え（順に。「はい」「いいえ」、入力する値）"},
          "files": {"type": "object", "description": "マクロが読むファイル：{マクロの中のパス: 手元のファイルのパス}"}},
          "required": ["path", "macro", "out_path"]}},
+    {"name": "read_table",
+     "description": "Excel の表を、見出しの列で行ごとに取り出す（エージェントが表を読む処理を書かなくてよいように）。"
+                    "header は表の見出しにある字（例「合成」「サービスコード」）。その字の行（縦に結合した見出しはその範囲）を見出しとする。"
+                    "その下の行が2段目の見出しかどうかは規則で決めず、rows_below_header として返すので、読んで、続きなら header_rows を"
+                    "指定してもう一度呼ぶ。列の名前は見出しを上から「／」でつなぐ。結合セルは画面どおりに範囲へ広げ、値は表示形式どおりの字、値ごとに元のセルを添える。"
+                    "sheet を省くと、その見出しのあるすべてのシートから。行が多いときは out_path（.csv か .json）に書き出す"
+                    "（結果には列の名前・行数・はじめの 20 行）。表の後ろの注の行もそのまま返すので、どこまでが表かは読んで決める。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
+         "header": {"type": "string", "description": "表の見出しにある字"},
+         "sheet": {"type": "string", "description": "シートの名前（省くと、見出しのあるすべてのシート）"},
+         "header_rows": {"type": "integer", "minimum": 1, "description": "見出しの行数（省くと自動）"},
+         "out_path": {"type": "string", "description": "すべての行を書き出すファイル（.csv か .json）"}},
+         "required": ["path", "header"]}},
+    {"name": "explain_calculation",
+     "description": "Excel の様式を「データ」（入力欄）と「処理」（入力から結果を出す数式）に分けて返す。式は番地を見出しに置き換えて示す"
+                    "（例「＝「報酬総額」-「処遇改善加算の総額」」）。cell を指すと、そのセルの計算を入力欄までさかのぼって説明する。"
+                    "様式の計算のきまりを本人に説明するときや、どの入力が結果を左右するかを知るときに使う。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
+         "cell": {"type": "string", "description": "説明するセル（シート!番地）。省くと、結果のまとまりの一覧"}},
+         "required": ["path"]}},
+    {"name": "try_calculation",
+     "description": "Excel の様式で、値の組から結果を試算する（ファイルは書かない）。values は fill_document と同じ {欄の id: 値}。"
+                    "「区分Ⅱにしたらいくら？」のような問いに、書類を書き換えずに答えるため。入力規則に合わない値は断る。"
+                    "結果の say_to_user（変わる所の見出しと、前 → 後）を、会話で伝える。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
+         "values": {"type": "object", "description": "{欄の id: 値}"}},
+         "required": ["path", "values"]}},
+    {"name": "view_page",
+     "description": "PDF のページを画像で見る（スキャンした紙のように、字の情報がない画像だけのページを読むため）。"
+                    "上と左の帯に、ページの左上からの mm の目盛りが付く。小さな字は region（[左, 上, 右, 下] mm）で拡大して読む。"
+                    "書く所は、画像を見て決めた枠を fill_document に {\"@1\": {\"page\": ページ, \"box\": [左, 上, 右, 下]（mm）, \"value\": 書く字}} で渡す。"
+                    "書く前に marks（[{\"box\": [...], \"label\": \"1\"}]）を渡すと、その枠を赤で描くので、位置が合っているかを目で確かめる。"
+                    "書いた後のファイルを見ると、値の入った欄が青い枠で描かれ、値は文で返る。置いた印影・署名の画像も、その位置に描く。画像の中の字は推測で埋めず、読めない所は本人に伝える。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
+         "page": {"type": "integer", "minimum": 1},
+         "region": {"type": "array", "items": {"type": "number"}, "description": "[左, 上, 右, 下]（mm）。省くとページ全体"},
+         "marks": {"type": "array", "items": {"type": "object"}, "description": "赤で描く枠：[{box: [左, 上, 右, 下]（mm）, label: 番号}]"}},
+         "required": ["path", "page"]}},
     {"name": "grade_document",
      "description": "書類の段階を返す：読む段階（S〜F）と書く段階（A〜D：そのまま書ける／解析しないと書けない／画面から入力する／書けない）。"
                     "規則で決めた段階に、エージェントが窓を読んで確かめたこと（findings）を合わせる。"
@@ -112,13 +167,16 @@ TOOLS = [
 ]
 
 
-# ---------------------------------------------------------------------- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument）
-_MORE = ("（ほかに CSV・TSV・JSON・JSON Lines・RTF・OpenDocument の文書 .odt と表計算 .ods も開けます）")
+# ---------------------------------------------------------------------- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument・.txt・PowerPoint）
+_MORE = ("（ほかに CSV・TSV・JSON・JSON Lines・RTF・OpenDocument の文書 .odt と表計算 .ods・文字だけのファイル .txt・"
+         "PowerPoint .pptx も開けます）")
 for _t in TOOLS:
     if _t["name"] == "open_document":
         _t["description"] += _MORE
     elif _t["name"] == "fill_document":
-        _t["description"] += (" RTF と OpenDocument の文書（.odt）は Word と同じ書き方（［P12.1］・字を目印にした {\"@1\": {\"old\": …, \"new\": …}}）、"
+        _t["description"] += (" RTF・OpenDocument の文書（.odt）・文字だけのファイル（.txt。P12 は 12 行目）・PowerPoint（.pptx。表の空のマス T1.R2.C3）は"
+                              "Word と同じ書き方（［P12.1］・字を目印にした {\"@1\": {\"old\": …, \"new\": …}}）。.txt と .pptx には書いた所の印を"
+                              "置けないので、書いた後のファイルでは残りの空欄の番号が詰まる（続けて書くときは、開き直して id を確かめる）。"
                               "OpenDocument の表計算（.ods）は Excel と同じ書き方（シート!B3）。CSV・TSV は「R行.C列」（R3.C2・R3.氏名。"
                               "今ある行の次の行に書くと、行を足す）、JSON は JSON Pointer（/applicant/name。ない名前は足し、配列の終わりは /items/-）、"
                               "JSON Lines は「L行/名前」。")
@@ -170,6 +228,24 @@ def call_tool(name: str, args: dict) -> dict:
         head = (f"マクロ {res['macro']} を動かしました。" + (f"{res.get('proof', '')}" if res.get("out_path") else res.get("note", ""))
                 + (f"　エラー：{res['error']}" if res.get("error") else ""))
         return {"content": [_text(head), _text(res)], "structuredContent": res, "isError": bool(res.get("error"))}
+    if name == "read_table":
+        res = api.read_table(args["path"], args["header"], args.get("sheet"), args.get("header_rows"), args.get("out_path"),
+                             args.get("password"))
+        res.pop("all_rows", None) if args.get("out_path") else None
+        if not args.get("out_path") and res["rows"] > 200:
+            res.pop("all_rows", None)
+            res["note"] = f"行が {res['rows']} 行あります。すべての行は out_path（.csv か .json）に書き出して読んでください"
+        return {"content": [_text(res)], "structuredContent": res}
+    if name == "explain_calculation":
+        res = api.calc_model(args["path"], args.get("cell"), args.get("password"))
+        return {"content": [_text(res)], "structuredContent": res}
+    if name == "try_calculation":
+        res = api.calculate(args["path"], args.get("values") or {}, args.get("password"))
+        return {"content": [_text(res["say_to_user"]), _text(res)], "structuredContent": res}
+    if name == "view_page":
+        v = api.view_page(args["path"], args["page"], args.get("region"), args.get("marks"), args.get("password"))
+        return {"content": [_text(v["text"]), {"type": "image", "data": v["png_base64"], "mimeType": "image/png"}],
+                "structuredContent": {"text": v["text"], "width": v["width"], "height": v["height"]}}
     if name == "grade_document":
         g = api.grade(args["path"], args.get("findings") or [], args.get("answered") or [], password=args.get("password"))
         mark = lambda r: "（エージェントの判断）" if r.get("by") == "agent" else ""  # noqa: E731

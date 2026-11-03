@@ -82,13 +82,14 @@ def _tag_end(xml: bytes, pos: int) -> int:
     return n
 
 
-def parse(xml: bytes) -> Node:
+def parse(xml: bytes, more_text: frozenset[str] = frozenset()) -> Node:
+    """more_text：字を集める要素を足す（名前空間つきの名前。PowerPoint の a:t など）。"""
     p = expat.ParserCreate(namespace_separator="}")
     p.buffer_text = True
     root = Node("#root", {}, 0, None)
     stack = [root]
     text_tags = {"{" + W + "}" + t for t in ("t", "instrText", "delText", "delInstrText")} | {
-        "{http://schemas.openxmlformats.org/officeDocument/2006/math}t"}
+        "{http://schemas.openxmlformats.org/officeDocument/2006/math}t"} | set(more_text)
 
     def norm(tag: str) -> str:
         if "}" in tag:

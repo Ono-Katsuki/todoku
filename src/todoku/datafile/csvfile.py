@@ -142,6 +142,8 @@ class CsvFile:
         self.quote_all = bool(filled) and all(f.quoted for f in filled)  # 字のあるマスが、すべて引用符で囲まれている
         self.quote_empty = self.quote_all and bool(empty) and all(f.quoted for f in empty)
         self.width = max((len(r.fields) for r in self.records), default=0)
+        # 字のない行（改行だけの行。ファイルの終わりの空の行も）：RFC 4180 の文法では「空のマスが1つの行」として読む
+        self.empty_lines = [i for i, r in enumerate(self.records, 1) if r.a == r.b]
 
     # ------------------------------------------------------------------ 問い合わせ
     @property
@@ -160,7 +162,7 @@ class CsvFile:
         return {"encoding": self.dec.encoding, "encoding_ja": self.dec.label, "bom": bool(self.dec.bom),
                 "ascii_only": self.dec.ascii_only, "newline": NEWLINE_JA[self.newline], "mixed_newlines": self.mixed_newlines,
                 "ends_with_newline": self.ends_with_newline, "delimiter": self.delim,
-                "delimiter_ja": DELIM_JA.get(self.delim, repr(self.delim)), "quoting": q}
+                "delimiter_ja": DELIM_JA.get(self.delim, repr(self.delim)), "quoting": q, "empty_lines": self.empty_lines}
 
     # ------------------------------------------------------------------ id
     def resolve(self, key: str) -> tuple[int, int]:

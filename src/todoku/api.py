@@ -21,6 +21,8 @@ KIND_JA["jtd"] = "一太郎（.jtd）"
 from . import openkinds as _open  # noqa: E402
 
 KIND_JA.update(_open.KIND_JA)
+# ZIP：中のファイルを「a.zip!/中の名前」で指して、その形式のまま読む・書く（ziparc）
+KIND_JA["zip"] = "ZIP（ファイルをまとめたもの）"
 
 
 class ApiError(ValueError):
@@ -41,6 +43,8 @@ def _read(path: str, password: str | None = None):
     from .unlock import NeedsPassword, WrongPassword, unlock
 
     p = Path(path).expanduser()
+    if not p.is_file() and _member(path) is not None:
+        return _read_member(path, password)
     if not p.is_file():
         raise ApiError(f"ファイルが見つかりません: {path}")
     blob = p.read_bytes()
@@ -55,6 +59,49 @@ def _read(path: str, password: str | None = None):
     if k not in KIND_JA:
         raise ApiError(f"この形式（{k}）は扱えません。Excel・PDF・Word のファイルを指定してください")
     return plain, p.name, k, lock
+
+
+def _member(path: str) -> tuple[str, list[str]] | None:
+    """「a.zip!/b.csv」の形の指定（a.zip がファイルとしてあるもの）。"""
+    from . import ziparc
+
+    sp = ziparc.split(path)
+    if sp is None or not Path(sp[0]).expanduser().is_file():
+        return None
+    return sp
+
+
+def _member_blob(path: str) -> tuple[bytes, str]:
+    """ZIP の中のファイルの中身と名前（ZIP の中の ZIP も、続けて「!/」で指す）。"""
+    from . import ziparc
+
+    outer, chain = _member(path)
+    blob = Path(outer).expanduser().read_bytes()
+    for m in chain:
+        if kind_of(blob) != "zip":
+            raise ApiError(f"「{m}」の外側のファイルは ZIP ではありません")
+        try:
+            blob = ziparc.extract(blob, m)
+        except ziparc.ArchiveError as e:
+            raise ApiError(str(e)) from None
+    return blob, ziparc.base_name(chain[-1])
+
+
+def _read_member(path: str, password: str | None):
+    from .unlock import NeedsPassword, WrongPassword, unlock
+
+    blob, name = _member_blob(path)
+    try:
+        plain, lock = unlock(blob, password)
+    except NeedsPassword as e:
+        raise PasswordNeeded(f"{e}。本人にパスワードを聞いて、password に入れてもう一度呼んでください"
+                             "（パスワードは、結果にも記録にも残しません）") from None
+    except WrongPassword as e:
+        raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
+    k = kind_of(plain, name)
+    if k not in KIND_JA:
+        raise ApiError(f"ZIP の中の「{name}」の形式（{k}）は扱えません")
+    return plain, name, k, lock
 
 
 def _pdf(blob: bytes, name: str, lock):
@@ -93,6 +140,15 @@ def window(path: str, password: str | None = None) -> tuple[str, dict, list[tupl
 
 
 def _window(blob: bytes, name: str, k: str, lock) -> tuple[str, dict, list[tuple[str, str]]]:
+    if k == "zip":
+        from .ziparc import ArchiveError
+        from .ziparc import window as zwindow
+
+        try:
+            doc, parts = zwindow(blob, name, KIND_JA)
+        except ArchiveError as e:
+            raise ApiError(str(e)) from None
+        return k, doc, parts
     if k in _open.KINDS:  # 追加の形式
         try:
             doc, parts = _open.window(k, blob, name)
@@ -157,6 +213,8 @@ def _word(blob: bytes, name: str, k: str):
 def fields(path: str, password: str | None = None) -> list[dict]:
     """入力欄の一覧（名前・見出し・種類・選択肢・いまの値・書けるか・その行の文脈）。"""
     k, doc, _ = window(path, password)
+    if k == "zip":
+        return []  # ZIP そのものに欄はない（中のファイルを「a.zip!/名前」で開く）
     if k in _open.KINDS:  # 追加の形式
         return [_field(f, **w) for f, w in _open.field_rows(k, doc)]
     out = []
@@ -185,7 +243,8 @@ def fields(path: str, password: str | None = None) -> list[dict]:
 def _field(f: dict, **where) -> dict:
     d = {"id": f["id"], "label": f.get("label", ""), "kind": f.get("kind", ""), "value": f.get("value")}
     for key in ("options", "maxlen", "format", "readonly", "protected", "confidence", "context", "boxes", "write_as",
-                "options_depend_on", "unit", "rules", "agent", "why", "placeholder", "cover"):
+                "options_depend_on", "unit", "rules", "agent", "why", "placeholder", "cover", "kind_candidates",
+                "alternative_to", "group", "why_not"):
         if f.get(key) not in (None, "", [], False):
             d[key] = f[key]
     d.update({k: v for k, v in where.items() if v is not None})
@@ -195,14 +254,20 @@ def _field(f: dict, **where) -> dict:
 def fill(path: str, values: dict, out_path: str, force: bool = False, password: str | None = None) -> dict:
     """書き込み、証明し、書き込み後のファイルを読み直して、書いた値がそのまま出ているかを確かめる。
     パスワードで保護された書類は、解いた中身に書いて証明し、元と同じパスワードで保護し直して書き出す。"""
+    if _member(path) is not None:
+        return _fill_member(path, values, out_path, force, password)
     src = Path(path).expanduser().resolve()
     dst = Path(out_path).expanduser().resolve()
     if src == dst:
         raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
     blob, name, k, lock = _read(path, password)
+    if k == "zip":
+        raise ApiError("ZIP そのものには書けません。中のファイルを path に「" + path + "!/中の名前」で指定してください")
+    _seal_supported(k, values)
     result: dict = {"kind": k, "out_path": str(dst), "original_sha256": hashlib.sha256(src.read_bytes()).hexdigest()}
     readback_values = dict(values)  # 読み戻しで確かめる、欄の id → 書いた値
     told = None  # 本人に伝える、書いた所（ほかの形式は読み戻しの値と同じ）
+    rest_fields = None  # まだ空いている欄を数える、欄の一覧（なければ、書いた後のファイルの欄）
     try:
         labels = {f["id"]: f.get("label", "") for f in fields(path, password)}  # 白紙のときの見出し（対話で伝える一覧に使う）
     except ApiError:
@@ -249,7 +314,13 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             # 見出しの字を目印にした書き込み：書いた欄の id（読み直した窓では、その名前のフォームの欄）
             result["anchored"] = {p.key: p.id for p in res.patches if p.anchor}
             readback_values = {k_: v for k_, v in values.items() if not k_.startswith("@")}
-            readback_values.update({p.id: p.value for p in res.patches if p.anchor})
+            readback_values.update({p.id: p.value for p in res.patches if p.anchor and p.kind != "seal"})
+        placed = [p for p in res.patches if p.kind == "seal"]
+        if placed:
+            # 本人の印影・署名の画像（本人が同意したときだけ）：何を、どこに置いたか。読み戻しは、書いた後のファイルで下で確かめる
+            result["placed"] = [{"key": p.key, "id": p.id, "page": p.page, "what": p.seal["what"], "say": p.seal["told"],
+                                 "box_mm": [round(v / 72 * 25.4, 1) for v in p.seal["rect"]], "rect_pt": p.seal["rect"], "image_sha256": p.seal["sha256"]}
+                                for p in placed]
     elif k == "jtd" or (k == "doc" and _is_word6(blob)):
         # 一太郎・Word 6.0/95：同じ字数（バイト数）の上書きは、ファイル全体で変わったのがその字のバイトだけかを証明する。
         # 一太郎の字数を変える書き込み・圧縮した文書は、直すと決めた構造のほかが同じで、直した構造がそれぞれ思ったとおりかを証明する（jtd/proof.py）。
@@ -288,6 +359,10 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         result.update(res_["result"])
         readback_values = res_["readback"]
         labels.update(res_.get("labels") or {})
+        if res_.get("told") is not None:
+            # 書いた所の印を置けない形式（.txt・PowerPoint）：本人に伝えるのは、証明で読み直した書いた値と、元のファイルの残りの欄
+            told = res_["told"]
+            rest_fields = res_.get("rest")
     else:
         from .docx.fill import FillError
 
@@ -362,16 +437,117 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             ok = str(g) == str(v) or _num_equal(g, v)
         if not ok:
             mismatch.append({"id": key, "written": v, "read_back": g})
+    if result.get("placed"):
+        mismatch += _read_back_placed(k, written_plain, name, lock, values, result["placed"])
     if "jtd_read_back" in result:
         mismatch += [{"id": "段落", "written": "", "read_back": x} for x in result.pop("jtd_read_back", [])]
+    if "text_read_back" in result:  # .txt：証明の中で、書いた後のファイルを読み直した行
+        mismatch += [{"id": "行", "written": "", "read_back": x} for x in result.pop("text_read_back", [])]
+    if "para_read_back" in result:  # PowerPoint：証明の中で、書いた後のファイルを読み直した段落
+        mismatch += [{"id": "段落", "written": "", "read_back": x} for x in result.pop("para_read_back", [])]
     result["read_back_ok"] = not mismatch
     result["read_back_differences"] = mismatch[:30]
     if told is not None:
         # 一太郎：書いた所の印がないので、読み直した窓の同じ id（残りの空白）ではなく、証明で確かめた書いた値を伝える
-        result.update(_to_tell([f for f in after_list if f["id"] not in told], told, result, labels))
+        rest = rest_fields if rest_fields is not None else [f for f in after_list if f["id"] not in told]
+        result.update(_to_tell(rest, told, result, labels))
     else:
         result.update(_to_tell(after_list, readback_values, result, labels))
     return result
+
+
+def _fill_member(path: str, values: dict, out_path: str, force: bool, password: str | None) -> dict:
+    """ZIP の中のファイルに書く：取り出したファイルに書いて証明し、ZIP はそのファイルの部品だけを入れ替えて書き出す。
+    書き出した ZIP から取り出し直したファイルが、証明した書き込み後のファイルとバイト一致し、ほかの部品が元とバイト一致するかを確かめる。"""
+    import tempfile
+
+    from . import ziparc
+
+    outer, chain = _member(path)
+    src = Path(outer).expanduser().resolve()
+    dst = Path(out_path).expanduser().resolve()
+    if src == dst:
+        raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
+    original = src.read_bytes()
+    layers = [original]  # 外側から順の ZIP
+    try:
+        for m in chain[:-1]:
+            layers.append(ziparc.extract(layers[-1], m))
+    except ziparc.ArchiveError as e:
+        raise ApiError(str(e)) from None
+    member_blob, name = _member_blob(path)
+    with tempfile.TemporaryDirectory() as d:
+        a, b = Path(d) / "a" / name, Path(d) / "b" / name
+        a.parent.mkdir()
+        b.parent.mkdir()
+        a.write_bytes(member_blob)
+        result = fill(str(a), values, str(b), force, password)
+        written = b.read_bytes()
+    # 内側から順に、書いた部品だけを入れ替える
+    new = written
+    for zblob, m in reversed(list(zip(layers, chain))):
+        replaced = ziparc.replace(zblob, m, new)
+        problems = ziparc.unchanged_except(zblob, replaced, m)
+        if problems:
+            raise ApiError("ZIP に入れ直すと、書いたファイルのほかの部品も変わります（書き出していません）：" + "、".join(problems[:5]))
+        new = replaced
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(new)
+    inner = ziparc.SEP.join(chain)
+    back, _n = _member_blob(str(dst) + ziparc.SEP + inner)
+    if back != written:
+        dst.unlink(missing_ok=True)
+        raise ApiError("書き出した ZIP から取り出したファイルが、書き込んで証明したファイルと一致しません（書き出していません）")
+    result.update({"out_path": str(dst), "original_sha256": hashlib.sha256(original).hexdigest(),
+                   "new_sha256": hashlib.sha256(new).hexdigest(), "member": inner,
+                   "archive": "ZIP の中のファイルに書き、ZIP はそのファイルの部品だけを入れ替えました（ほかの部品は元とバイト一致）。"
+                              f"書いたファイルは「{dst}{ziparc.SEP}{inner}」で開けます"})
+    return result
+
+
+def _seal_supported(k: str, values: dict) -> None:
+    """本人の印影・署名の画像（seal・signature）を置けるのは、いまは PDF だけ。ほかの形式は、証明つきで置く方法を
+    作るまで、書かずに断る（証明のない書き込みはしない）。"""
+    from .sealimage import KINDS, SealError, seal_key
+
+    if k == "pdf":
+        return
+    for key, v in values.items():
+        try:
+            sk = seal_key(v)
+        except SealError as e:
+            raise ApiError(f"{key}: {e}") from None
+        if sk is not None:
+            raise ApiError(f"{key}: 本人の{KINDS[sk]}の画像を置けるのは、いまは PDF の書類だけです（{KIND_JA.get(k, k)}には、"
+                           "変わったのが置いた画像だけであることを証明して置く方法を、まだ作っていません）。"
+                           "書いていません。PDF の様式があればそれを使うか、このことを本人に伝えてください")
+
+
+def _read_back_placed(k: str, blob: bytes, name: str, lock, values: dict, placed: list[dict]) -> list[dict]:
+    """置いた画像の読み戻し：書いた後のファイルを開き直し、その名前の画像が、伝えた位置に、本人の画像のとおりにあるか。"""
+    from .sealimage import SealError, decode
+
+    out = []
+    if k != "pdf":
+        return out
+    from .pdf import seal
+
+    doc = _pdf(blob, name, lock)
+    for pl in placed:
+        spec = values.get(pl["key"]) or {}
+        key = "seal" if "seal" in spec else "signature"
+        try:
+            img = decode(Path(str(spec.get(key))).expanduser().read_bytes())
+        except (SealError, OSError) as e:
+            out.append({"id": pl["id"], "written": pl["what"], "read_back": f"画像を読み直せません：{e}"})
+            continue
+        # 位置は、置いたときに決めた矩形（見た目の座標、pt）。ファイルの注釈の位置と照らす
+        probs, _nums = seal.verify(doc, pl["page"], {"id": pl["id"], "rect": pl["rect_pt"]}, key, img)
+        if img.sha256 != pl["image_sha256"]:
+            probs.append("画像のファイルが、置いたときと変わっています")
+        if probs:
+            out.append({"id": pl["id"], "written": pl["what"], "read_back": "／".join(probs)[:300]})
+    return out
 
 
 def _prove_pdf(prove, original: bytes, new: bytes, allowed: set, anchored: dict, lock):
@@ -453,7 +629,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         lab = d.get("label") or ""
         return place(d) + re.sub(r"［[^］]*］", "［］", lab) if "［▶" in lab and lab.count("［") > 1 else None
 
-    lines = [f"記入した内容（{len(told)} か所。書いた後のファイルを読み直した値）："]
+    lines = [f"記入した内容（{len(told)} か所。書いた後のファイルを読み直した値）："] if told or not result.get("placed") else []
     group = None
     i = 0
     while i < len(told):
@@ -467,6 +643,8 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
             j += 1
         lines.append(f"- {joined(told[i:j]) if j - i > 1 else shown(d)}")
         i = j
+    for pl in result.get("placed") or []:
+        lines.append(pl["say"])  # 置いた画像（本人の印影・署名）：何を、どこに
     if empty:
         # 次に書くとよい欄：書いた所の続き（同じシート・ページで、書いた所より後ろの空欄）から順に
         order = {f["id"]: i for i, f in enumerate(after_list)}
@@ -570,6 +748,8 @@ def audit(path: str, password: str | None = None) -> dict:
     from .unlock import pdf_password
 
     blob, name, k, lock = _read(path, password)
+    if k == "zip":
+        return _audit_zip(path, blob, password)
     if k == "pdf":
         from .pdf.audit import run
     elif k == "docx":
@@ -589,6 +769,143 @@ def audit(path: str, password: str | None = None) -> dict:
     if lock is not None:
         d["password_protected"] = f"パスワードで保護された書類です（{lock.label}）。解いた中身を確かめました"
     return d
+
+
+def read_table(path: str, header: str, sheet: str | None = None, header_rows: int | None = None,
+               out_path: str | None = None, password: str | None = None) -> dict:
+    """Excel の表を、見出しの列で行ごとに取り出す（結合セルは画面どおりに範囲へ広げ、値ごとに元のセルを添える）。
+    sheet を省くと、header のあるすべてのシートから。out_path（.csv か .json）を指すと、すべての行を書き出す。"""
+    import csv
+    import io
+    import json
+
+    from .book import open_book
+    from .xlsx.tables import TableError
+    from .xlsx.tables import read as tread
+
+    blob, name, k, lock = _read(path, password)
+    if k not in ("xlsx", "xls"):
+        raise ApiError("表の取り出しは Excel（.xlsx・.xlsm・.xls）です（ほかの形式は窓で読めます）")
+    try:
+        t = tread(open_book(blob, name), header, sheet, header_rows)
+    except TableError as e:
+        raise ApiError(str(e)) from None
+    out = {"columns": t["columns"], "rows": len(t["rows"]), "sheets": t["sheets"][:50], "sheet_count": len(t["sheets"]),
+           "first_rows": t["rows"][:20], "check": t["check"]}
+    if out_path:
+        dst = Path(out_path).expanduser().resolve()
+        src = Path(_member(path)[0] if _member(path) else path).expanduser().resolve()
+        if dst == src:
+            raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.suffix.lower() == ".json":
+            dst.write_text(json.dumps(t, ensure_ascii=False, indent=1), encoding="utf-8")
+        else:
+            buf = io.StringIO()
+            w = csv.writer(buf, lineterminator="\n")
+            head = ["シート", "行"] + t["columns"]
+            w.writerow(head)
+            for r in t["rows"]:
+                w.writerow([r["_sheet"], r["_row"]] + [r.get(c, "") for c in t["columns"]])
+            dst.write_text(buf.getvalue(), encoding="utf-8")
+        out["out_path"] = str(dst)
+    else:
+        out["all_rows"] = t["rows"]
+    return out
+
+
+def calc_model(path: str, cell: str | None = None, password: str | None = None) -> dict:
+    """Excel の様式の「データ」（入力欄）と「処理」（入力につながる数式）。cell を指すと、その計算を入力欄までさかのぼる。
+    式は、番地を見出しに置き換えて示す（in_words）。"""
+    from .book import open_book
+    from .xlsx import model as xm
+
+    blob, name, k, lock = _read(path, password)
+    if k not in ("xlsx", "xls"):
+        raise ApiError("計算の取り出しは Excel の様式（.xlsx・.xlsm・.xls）です")
+    _k, doc, _ = window(path, password)
+    m = xm.model(open_book(blob, name), doc)
+    if cell:
+        try:
+            return {"explain": xm.explain(m, cell)}
+        except ValueError as e:
+            raise ApiError(str(e)) from None
+    return {"inputs": len(m["inputs"]), "steps": len(m["steps"]), "results": len(m["results"]),
+            "dynamic": m["dynamic"], "result_groups": xm.summary(m)}
+
+
+def calculate(path: str, values: dict, password: str | None = None) -> dict:
+    """値の組から、ファイルを書かずに結果を計算する（試算）。書き込みと同じ受け取り方・入力規則・計算エンジン。"""
+    from .book import open_book
+    from .xlsx import model as xm
+    from .xlsx.edit import EditError
+
+    blob, name, k, lock = _read(path, password)
+    if k not in ("xlsx", "xls"):
+        raise ApiError("試算は Excel の様式（.xlsx・.xlsm・.xls）です")
+    _k, doc, _ = window(path, password)
+    try:
+        r = xm.calculate(open_book(blob, name), doc, values)
+    except EditError as e:
+        raise ApiError(str(e)) from None
+    lines = [f"試算（ファイルは書いていません）：入れた値 {len(r['inputs'])} か所で、計算が変わる所 {len(r['changed'])} か所。"]
+    for c in r["changed"][:40]:
+        lines.append(f"- {c['label'] or c['cell']}：{c['before'] or '（空）'} → {c['after'] or '（空）'}")
+    if r["not_computed"]:
+        lines.append(f"計算し直せなかった所 {len(r['not_computed'])} か所（Excel で開いたときに計算されます）："
+                     + "、".join(x["cell"] for x in r["not_computed"][:10]))
+    r["say_to_user"] = "\n".join(lines)
+    return r
+
+
+def view_page(path: str, page: int, region: list | None = None, marks: list | None = None,
+              password: str | None = None) -> dict:
+    """PDF のページの画像（スキャンした紙のページを、エージェントが見て読み、書く所を mm の枠で決めるため）。
+    todoku が書き込んだ欄（p ページ.w 番号など）は、青い枠で描き、id と値を添える。"""
+    from .pdf.pageimage import view_page as pview
+
+    blob, name, k, lock = _read(path, password)
+    if k != "pdf":
+        raise ApiError("view_page は PDF のページの画像です（ほかの形式は窓で読めます）")
+    doc = _pdf(blob, name, lock)
+    try:
+        return pview(doc, int(page), region, marks, written=_written_boxes(path, password, int(page)))
+    except ValueError as e:
+        raise ApiError(str(e)) from None
+
+
+def _written_boxes(path: str, password: str | None, page: int) -> list[dict]:
+    """ページの、値の入った入力欄（フォームの欄・todoku が書いた欄）の枠（mm）と値。"""
+    from .pdf.pageimage import MM
+
+    out = []
+    k, doc, _ = window(path, password)
+    for pg in doc.get("pages", []):
+        if pg["number"] != page:
+            continue
+        for f in pg["fields"]:
+            v = f.get("value")
+            r = f.get("rect")
+            if v in (None, "", False) or not r:
+                continue
+            out.append({"box": [r[0] / MM, r[1] / MM, r[2] / MM, r[3] / MM], "id": f["id"], "value": v})
+    return out
+
+
+def _audit_zip(path: str, blob: bytes, password: str | None) -> dict:
+    """ZIP：中の、扱える形式のファイルを1つずつ検査する（検査の名前の頭に、中の名前を付ける）。"""
+    from . import ziparc
+
+    checks = []
+    for m in ziparc.files(blob):
+        try:
+            d = audit(path + ziparc.SEP + m.name, password)
+        except ApiError as e:
+            checks.append({"name": f"{m.name}：開けない", "ok": False, "agent": False, "detail": str(e), "items": []})
+            continue
+        checks += [{**c, "name": f"{m.name}：{c['name']}"} for c in d["checks"]]
+    return {"file": Path(path).name, "ok": all(c["ok"] for c in checks), "needs_agent": any(c["agent"] for c in checks),
+            "checks": checks, "grade": grade(path, password=password)}
 
 
 def grade(path: str, findings: list[dict] | None = None, answered: list[str] | None = None,
@@ -622,6 +939,8 @@ def summary(path: str, password: str | None = None) -> dict:
         if isinstance(m, dict) and m.get("readable"):
             d["macro_procedures"] = sum(len(x["procedures"]) for x in m["modules"])
             d["macro_runs_on_change"] = any(e["on_change"] for e in m["events"])
+    elif k == "zip":
+        d["members"] = [{"name": m["name"], "kind": m["kind"], "size": m["size"]} for m in doc["members"]]
     else:
         d["protection"] = doc.get("protection")
     if k in _open.KINDS:  # 追加の形式

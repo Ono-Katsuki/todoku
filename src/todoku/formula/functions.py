@@ -1420,7 +1420,7 @@ _ZEN = str.maketrans({chr(i): chr(i + 0xFEE0) for i in range(0x21, 0x7F)} | {" "
 _HAN = str.maketrans({chr(i + 0xFEE0): chr(i) for i in range(0x21, 0x7F)} | {"　": " "})
 
 
-@fn("JIS")
+@fn("JIS DBCS")  # 同じ関数（日本語版の名前が JIS、英語版の名前が DBCS）
 def f_jis(ev, x):
     import unicodedata
 

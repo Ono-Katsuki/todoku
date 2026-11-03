@@ -100,8 +100,12 @@ def test_word_address_cell_insertion_point():
     body = '<w:tbl><w:tr><w:tc>' + p("住所") + '</w:tc><w:tc>' + p("　　　都道　　　　郡　市") + '</w:tc></w:tr></w:tbl>'
     blob = make_docx(body)
     win = docx_build(DocxDocument(blob, "a.docx"))
-    inl = [f for f in win["fields"] if f["kind"] == "inline"]
-    assert len(inl) == 3, [f["label"] for f in inl]
+    # 住所の単位の前後の空きは、字の並びからの推定なので「？」（エージェントが判断する）。見出し「住所」の後ろの所も消さずに示し、
+    # すぐ右のマスの欄の代わりの所（alternative_to）とする
+    inl = [f for f in win["fields"] if f["kind"] == "inline" and f["id"].startswith("P2.")]
+    assert len(inl) == 3 and all(f.get("agent") for f in inl), [f["label"] for f in inl]
+    beside = {f["id"]: f for f in win["fields"]}["P1.a1"]
+    assert beside["alternative_to"] == "P2.1", beside
     vals = dict(zip([f["id"] for f in inl], ["山梨", "甲府", "丸の内１－６－１"]))
     res = docx_fill(DocxDocument(blob, "a.docx"), vals)
     after = docx_build(DocxDocument(res.blob, "a.docx"))

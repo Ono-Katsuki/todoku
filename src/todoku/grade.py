@@ -15,6 +15,8 @@ A エージェントがそのまま書ける（入力欄がすべて作り手の
 B 解析しないと書けない（書く所を、罫線・空き・空のセルなどの配置から推定するか、エージェントが窓を読んで決める）
 C 画面（UI）から入力する（ボタンで動くマクロ、または書類が電子申請などの画面からの入力を求めている）
 D 書けない（アクセスできない・字の情報のない紙（スキャン）・押印や自署のような手書き）
+  ※様式が認める所には、本人が同意したときだけ、本人の印影・署名の画像を置ける（fill の seal・signature）。
+    それで書けるかは書類の決まり（意味）によるので、段階は変えず、問い（cannot_do）でエージェントが確かめる
   ※郵送・持参・来庁などの提出のしかたは、書類の外のことなので、段階の対象にしない
 
 段階とは別に、アクセシビリティの注意（alerts）を示す：エージェントが読めるかとは別に、画面の読み上げなどを使う人に
@@ -56,7 +58,11 @@ AGENT_CHECKS = [
     {"id": "cannot_do", "score": "write", "grade": "D", "title": "エージェントにはできない記入",
      "question": "押印・自署（手書き）のように、書類の中で、エージェントには代わりにできない記入を求めていますか。"
                  "求めていれば、その場所と書き方を答えてください（「押印不要」のように求めていないものは除く。"
-                 "郵送・持参・来庁などの提出のしかたは、書類の外のことなので、ここでは数えません）。"},
+                 "郵送・持参・来庁などの提出のしかたは、書類の外のことなので、ここでは数えません）。"
+                 "なお、様式が印影・署名の画像を認めている所（注意書きに、画像や電子の印影でよいとある所など）には、"
+                 "本人が同意したときだけ、fill_document で本人の印影・署名の画像を置けます"
+                 "（{\"seal\": 画像のパス, \"consent\": true, …}）。実印の押印・自署（手書き）が求められる所や、"
+                 "画像でよいかが書類から分からない所は、ここに答えて、本人に伝えてください。"},
     {"id": "ui_only", "score": "write", "grade": "C", "title": "画面からの入力",
      "question": "この書類のファイルに書くのではなく、電子申請の画面など、別の画面（UI）から入力するよう求めていますか。"
                  "求めていれば、その画面の名前と、書類のどこにそう書いてあるかを答えてください"
@@ -238,14 +244,12 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> 
     if k_open in _OPEN_KINDS:
         return _open_grade(k_open, blob, filename)
     # ----
-    name = filename.lower()
-    if name.endswith((".csv", ".tsv", ".json", ".jsonl", ".xml")):
-        return Grade("S", [Reason("S", "データそのもの", "表のデータ（CSV・JSON など）で、変換しなくても機械が読めます")],
-                     write="A", write_reasons=[Reason("A", "データそのもの", "行と列（か、名前と値）のデータに、そのまま書けます")])
     try:
         k = kind_of(blob)
     except Exception as e:  # noqa: BLE001
         return _locked("開けない", f"ファイルの形式を判別できませんでした（{type(e).__name__}）", "開けないので、書けません")
+    if k == "zip":
+        return _grade_zip(blob, password)
     locked = k == "encrypted"
     if not locked and k in ("xls", "doc", "pdf") and not password:
         try:
@@ -271,6 +275,50 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> 
     return _locked("対応していない形式", f"この形式（{k}）は、まだ読めません", "読めないので、書けません")
 
 
+def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0) -> Grade:
+    """ZIP：中のファイルごとに段階を決め、いちばん低いものを ZIP の段階にする（理由の頭に、中の名前を付ける）。
+    中の、扱えない形式のファイル・取り出せないファイルは、そのファイルが F（開けない）。"""
+    from .ziparc import ArchiveError, extract, files
+
+    try:
+        ms = files(blob)
+    except ArchiveError as e:
+        return _locked("開けない", str(e), "開けないので、書けません")
+    if not ms:
+        return _locked("空の ZIP", "ZIP の中にファイルがありません", "書くファイルがありません")
+    if depth >= 4:
+        return _locked("深い入れ子の ZIP", "ZIP の中の ZIP が深すぎて、中を読みません", "読めないので、書けません")
+    reasons: list[Reason] = []
+    write: list[Reason] = []
+    alerts: list[Reason] = []
+    reads, writes = [], []
+    for m in ms:
+        try:
+            sub = extract(blob, m.name)
+            g = _grade_zip(sub, password, depth + 1) if sub[:2] == b"PK" and _is_plain_zip(sub) else grade_blob(sub, m.name, password)
+        except ArchiveError as e:
+            g = _locked("取り出せない", str(e), "取り出せないので、書けません")
+        reads.append(g.grade)
+        writes.append(g.write)
+        reasons += [Reason(r.grade, f"{m.name}：{r.title}", r.detail, r.where, r.by) for r in g.reasons]
+        write += [Reason(r.grade, f"{m.name}：{r.title}", r.detail, r.where, r.by) for r in g.write_reasons]
+        alerts += [Reason(a.grade, a.title, f"{m.name}：{a.detail}", a.where, a.by) for a in g.alerts]
+    gr = max(reads, key=ORDER.index)
+    wr = max(writes, key=WRITE_ORDER.index)
+    checks = [dict(c) for c in AGENT_CHECKS] if gr not in ("S", "F") else []
+    return Grade(gr, sorted(reasons, key=lambda r: -ORDER.index(r.grade)), checks, alerts=alerts, write=wr,
+                 write_reasons=sorted(write, key=lambda r: -WRITE_ORDER.index(r.grade)))
+
+
+def _is_plain_zip(blob: bytes) -> bool:
+    from .book import kind_of
+
+    try:
+        return kind_of(blob) == "zip"
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade:
     from .pdf.doc import PdfDocument
     from .pdf.window import build
@@ -285,9 +333,22 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
                               "読めないものには、エージェントもアクセスできません", unmapped))
     img = [f"{p['number']}ページ" for p in win["pages"] if p.get("image_only")]
     if img:
-        reasons.append(Reason("E", "画像だけのページ", f"{len(img)} ページは文字の情報がなく、画像（スキャン）です。読むには文字の認識が要ります", img))
-        write.append(Reason("D", "画像だけのページ", f"{len(img)} ページは字の情報のない紙（スキャン）で、書く所を字で示せません。"
-                            "手で書く紙として扱います", img))
+        from .pdf.pageimage import unreadable_images
+
+        pages = doc.pages()
+        bad = {f"{p['number']}ページ": unreadable_images(doc, pages[p["number"] - 1]) for p in win["pages"] if p.get("image_only")}
+        bad = {k: v for k, v in bad.items() if v}
+        ok = [x for x in img if x not in bad]
+        if ok:
+            reasons.append(Reason("E", "画像だけのページ", f"{len(ok)} ページは文字の情報がなく、画像（スキャン）です。"
+                                  "エージェントがページの画像（view_page）を見て読みます", ok))
+            write.append(Reason("B", "画像だけのページ", f"{len(ok)} ページは字の情報のない紙（スキャン）です。エージェントがページの画像"
+                                "（view_page）を見て、書く所を枠（mm）で決めて書きます", ok))
+        if bad:
+            reasons.append(Reason("F", "開けない画像だけのページ", f"{len(bad)} ページは画像だけで、その画像の圧縮（"
+                                  + "・".join(sorted({x.split('：')[-1] for v in bad.values() for x in v})) + "）を todoku が開けません",
+                                  list(bad)))
+            write.append(Reason("D", "開けない画像だけのページ", f"{len(bad)} ページは画像を開けないので、書く所を決められません", list(bad)))
     if win["form"]["xfa"]:
         xr, xw_ = _xfa_reasons(win.get("xfa"))
         reasons += xr
@@ -437,6 +498,143 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
     return g
 
 
+def _saved_by(wb) -> str | None:
+    """xlsx を保存したアプリ（docProps/app.xml の Application。記録がなければ「記録なし」）。xls は None（分からない）。"""
+    import re as _re
+
+    z = getattr(wb, "zip", None)
+    if z is None:
+        return None
+    try:
+        xml = z.read("docProps/app.xml").decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001
+        return "保存したアプリの記録なし"
+    m = _re.search(r"<(?:\w+:)?Application>([^<]*)</", xml)
+    return m[1].strip() if m and m[1].strip() else "保存したアプリの記録なし"
+
+
+def _cell_text(v) -> str:
+    from .formula.values import ExcelError
+
+    if isinstance(v, ExcelError):
+        return v.code
+    if v is None or v == "":
+        return "（空）"
+    return repr(v) if isinstance(v, str) else str(v)
+
+
+def _unverifiable_rules(wb) -> list[str]:
+    """数式を使う入力規則のうち、読めない数式か、計算できない関数を使うもの（シート!範囲：数式）。"""
+    from dataclasses import fields as dc_fields
+
+    from .formula.functions import EAGER, LAZY
+    from .formula.parser import Func, Node, parse
+
+    def unknown(n) -> list[str]:
+        """計算できない関数の名前（なければ空）。"""
+        out = []
+        if isinstance(n, Func) and n.name not in EAGER and n.name not in LAZY:
+            out.append(n.name)
+        if isinstance(n, Node):
+            for fd in dc_fields(n):
+                x = getattr(n, fd.name)
+                for y in (x if isinstance(x, list) else [x]):
+                    out += unknown(y)
+        return out
+
+    out = []
+    for sh in wb.sheets:
+        for v in sh.validations:
+            for f in (v.formula1, v.formula2):
+                if not f or (v.type == "list" and f.strip().startswith('"')):
+                    continue
+                try:
+                    bad = unknown(parse(f.lstrip("=")))
+                    why = f"（計算できない関数：{'・'.join(dict.fromkeys(bad))}）" if bad else ""
+                except Exception:  # noqa: BLE001
+                    bad, why = True, "（数式を読めない）"
+                if bad:
+                    out.append(f"{sh.name}!{v.sqref_text or ''}：={f}{why}")
+                    break
+    return out
+
+
+_SHEET_MARKS = {"入力規則があるセル", "シート保護の中で編集できるセル"}  # ファイルの作りとして入力欄の印になっているもの
+_SHEET_BOXED = {"枠のある空欄", "色の付いた空欄"}  # 罫線・塗りと、近くの見出しから推定したもの（印ではない）
+_CONTROL_KINDS = ("checkbox", "radio", "select", "multiselect", "spin", "option", "combo")
+
+
+def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "シート保護") -> None:
+    """表計算（Excel・OpenDocument）の入力欄の段階：
+    - A：すべての欄が、ファイルの作りとしての印（入力規則・保護の中のロックの解除・フォームの部品）で決まる
+    - B：罫線・塗りと近くの見出し・文字の中の空欄の字の形・数式の入力から推定した欄（印ではない）
+    - C：規則では決められない所（窓の［B5？］・文字の中の［？］。エージェントが判断する）・重なった入力規則"""
+    marked, boxed, inferred, inline, overlap, agent = [], [], [], [], [], []
+    for sh in doc["sheets"]:
+        for f in sh.get("fields", []):
+            if f.get("agent"):
+                agent.append(f)
+                continue
+            if f.get("unlabeled"):
+                continue
+            why = set(f.get("reason", []))
+            if f["kind"] == "inline":
+                inline.append(f["id"])
+            elif why & _SHEET_MARKS or ((f["kind"] in _CONTROL_KINDS or f.get("activex")) and not f.get("undecided")):
+                marked.append(f["id"])
+            elif why & _SHEET_BOXED:
+                boxed.append(f["id"])
+            else:
+                inferred.append(f["id"])
+            if f.get("rules_overlap"):
+                overlap.append(f["id"])
+    n_fields = len(marked) + len(boxed) + len(inferred) + len(inline)
+    guessed = inline + boxed + inferred
+    if guessed or agent or overlap:
+        ids = guessed + [f["id"] for f in agent] + overlap
+        write.append(Reason("B", "解析して決める入力欄",
+                            f"{len(ids)} か所は、入力欄の印がなく（か、入力規則が重なっていて）、"
+                            "枠・塗りと近くの見出し・文字の中の空き・数式の入力・表の作りから解析して書く所を決めます", ids[:12]))
+    elif n_fields:
+        write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・{protect}・フォームの部品の印で決まり、そのまま書けます"))
+    else:
+        write.append(Reason("B", "印のある欄がない", f"入力欄の印（入力規則・{protect}など）がありません。表の作りを読んで、書くセルを番地で指定します"))
+    if boxed:
+        reasons.append(Reason("B", "枠・塗りから推定した入力欄",
+                              f"{len(boxed)} か所は、入力規則も{protect}の印もなく、枠や塗りのある空のマスで、そばに見出しがあることから推定した欄です",
+                              boxed[:12]))
+    if inline:
+        reasons.append(Reason("B", "文字の中の空欄", f"{len(inline)} か所は、「（　　）」「＿＿＿」のような、文字の中の空欄の形から推定した欄です", inline[:12]))
+    if inferred:
+        reasons.append(Reason("B", "印のない入力欄", f"{len(inferred)} か所は、入力規則も枠もなく、数式の入力になっていることから推定した欄です",
+                              inferred[:12]))
+    if agent:
+        reasons.append(_agent_reason(agent))
+    if overlap:
+        reasons.append(Reason("C", "重なった入力規則",
+                              f"{len(overlap)} か所に入力規則が重なっていて、どの規則が使われるかはファイルから決まりません。"
+                              "窓に出したそれぞれの規則を、エージェントが読んで判断します", overlap[:12]))
+    if n_fields and not (guessed or agent or overlap):
+        reasons.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・{protect}・フォームの部品の印で決まります"))
+
+
+def image_only_sheets(wb) -> list[str]:
+    """画像だけのシート：絵・グラフがあり、使っている範囲（印刷範囲があればその中）に、値・数式のあるセルも、字のある図形・部品もない
+    （ファイルの作りで決まる）。"""
+    out = []
+    for sh in wb.sheets:
+        shapes = getattr(sh, "shapes", [])
+        if not any(s.kind in ("picture", "chart") for s in shapes):
+            continue
+        if any((c.has_formula or c.value not in (None, "")) and sh.in_print_area(r, col) for (r, col), c in sh.cells.items()):
+            continue
+        if any((getattr(s, "text", "") or "").strip() for s in shapes) or \
+                any((getattr(c, "text", "") or "").strip() for c in getattr(sh, "controls", [])):
+            continue
+        out.append(sh.name)
+    return out
+
+
 def _grade_excel(blob: bytes, filename: str) -> Grade:
     from .book import open_book
     from .xlsx.calc import verify
@@ -446,59 +644,36 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
     doc = build(wb)
     reasons: list[Reason] = []
     write: list[Reason] = []
-    explicit = {"入力規則があるセル", "シート保護の中で編集できるセル", "枠のある空欄", "色の付いた空欄"}
-    inferred, inline, overlap, undecided, n_fields = [], [], [], [], 0
-    for sh in doc["sheets"]:
-        for f in sh.get("fields", []):
-            if f.get("unlabeled"):
-                continue
-            n_fields += 1
-            if f["kind"] == "inline":
-                inline.append(f["id"])
-            elif f["kind"] != "checkbox" and not (set(f.get("reason", [])) & explicit):
-                inferred.append(f["id"])
-            if f.get("rules_overlap"):
-                overlap.append(f["id"])
-        undecided += [f"{sh['name']}!{u['cell']}" for u in sh.get("undecided", [])]
-    if inline or inferred or undecided or overlap:
-        write.append(Reason("B", "解析して決める入力欄",
-                            f"{len(inline) + len(inferred) + len(undecided) + len(overlap)} か所は、入力欄の印がなく（か、入力規則が重なっていて）、"
-                            "文字の中の空き・数式の入力・表の作りから解析して書く所を決めます",
-                            (inline + inferred + undecided + overlap)[:12]))
-    elif n_fields:
-        write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・シート保護・枠などの印で決まり、そのまま書けます"))
-    else:
-        write.append(Reason("B", "印のある欄がない", "入力欄の印（入力規則・シート保護・枠など）がありません。表の作りを読んで、書くセルを番地で指定します"))
-    if inline:
-        reasons.append(Reason("B", "文字の中の空欄", f"{len(inline)} か所は、「令和　年　月　日」のような文字の中の空白から推定した欄です", inline[:12]))
-    if inferred:
-        reasons.append(Reason("B", "印のない入力欄", f"{len(inferred)} か所は、入力規則も枠もなく、数式の入力になっていることから推定した欄です",
-                              inferred[:12]))
-    if undecided:
-        reasons.append(Reason("C", "入力欄か決められないセル",
-                              f"表の {len(undecided)} か所の空のセルは、入力欄の印がなく、規則では決められません。"
-                              "エージェントが窓を読んで判断し、書くならセルの番地を指定して書きます", undecided[:12]))
-    if overlap:
-        reasons.append(Reason("C", "重なった入力規則",
-                              f"{len(overlap)} か所に入力規則が重なっていて、Excelがどれを使うかはファイルから決まりません。"
-                              "窓に出したそれぞれの規則を、エージェントが読んで判断します", overlap[:12]))
-    if n_fields and not (inline or inferred or undecided or overlap):
-        reasons.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・シート保護・枠などの印で決まります"))
-    rep = verify(wb).summary()
+    sheet_input_reasons(doc, reasons, write)
+    vr = verify(wb)
+    rep = vr.summary()
     if rep["unsupported"]:
         reasons.append(Reason("C", "確かめられない数式", f"{rep['unsupported']} 個の数式は、規則どおりに計算し直して確かめられません"))
     if rep["mismatch"]:
-        reasons.append(Reason("C", "保存された値と合わない数式", f"{rep['mismatch']} 個のセルで、保存された計算結果が数式と一致しません"))
+        app = _saved_by(wb)
+        where = [f"{r.sheet}!{r.address}：保存 {_cell_text(r.expected)} → Excel の規則で {_cell_text(r.actual)}"
+                 for r in vr.results if r.status == "mismatch"][:12]
+        if app is None or app.startswith("Microsoft Excel"):
+            reasons.append(Reason("C", "保存された値と合わない数式", f"{rep['mismatch']} 個のセルで、保存された計算結果が数式と一致しません", where))
+        else:
+            # Excel 以外のアプリが保存した計算結果（Google スプレッドシートの書き出しなど）：Excel で開くと計算し直される
+            reasons.append(Reason("B", "Excel 以外で保存された計算結果",
+                                  f"このファイルは Excel 以外（{app}）で保存されていて、{rep['mismatch']} 個のセルの保存された計算結果が、"
+                                  "Excel の規則で計算した値と違います。Excel で開くと、計算し直した値になります（窓に出ているのは保存された値）。"
+                                  "読むときは、計算し直した値を使ってください", where))
+    unchecked = _unverifiable_rules(wb)
+    if unchecked:
+        write.append(Reason("B", "確かめられない入力規則",
+                            f"{len(unchecked)} 個の入力規則は、todoku が計算できない関数を使っているので、書いた値が規則に合うかを"
+                            "確かめられません。窓に出した規則を、エージェントが読んで合う値を書きます", unchecked[:12]))
     if rep["unsupported"]:
         write.append(Reason("B", "確かめられない数式", f"{rep['unsupported']} 個の数式は計算し直せないので、書いた値から計算される所を確かめられません"))
     reasons += _macro_reasons(doc.get("macros"))
     write += _write_macros(doc.get("macros"))
-    for sh_obj in wb.sheets:
-        pics = [s for s in getattr(sh_obj, "shapes", []) if s.kind in ("picture", "chart")]
-        if pics and len(sh_obj.cells) < 5:
-            reasons.append(Reason("E", "画像だけのシート", f"シート「{sh_obj.name}」の中身は画像で、セルの文字がありません", [sh_obj.name]))
-            write.append(Reason("D", "画像だけのシート", f"シート「{sh_obj.name}」は画像だけで、書くセルがありません。手で書く紙として扱います",
-                                [sh_obj.name]))
+    for name in image_only_sheets(wb):
+        reasons.append(Reason("E", "画像だけのシート", f"シート「{name}」の中身は画像で、セルの文字がありません", [name]))
+        write.append(Reason("D", "画像だけのシート", f"シート「{name}」は画像だけで、書くセルがありません。手で書く紙として扱います",
+                            [name]))
     pictures = []
     for sh_obj in wb.sheets:
         from .formula.parser import addr

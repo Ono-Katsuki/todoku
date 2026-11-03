@@ -168,7 +168,8 @@ def test_odt_window_fill_proof_and_stable_ids():
     blob = make_odt(ODT_BODY, ODT_AUTO, ODT_FORMS)
     win = build(OdtDocument(blob, "a.odt"))
     lines = [ln for st in win["stories"] for ln in st["reading"]]
-    assert "令和［P2.1］年［P2.2］月［P2.3］日" in lines and "氏名 ｜ ［T1.R1.C2］" in lines, lines
+    # 「令和　年　月　日」の空きは字の並びからの推定（？）。マスの見出し「氏名」の後ろも、右のマスの代わりの所として示す（消さない）
+    assert "令和［P2.1？］年［P2.2？］月［P2.3？］日" in lines and "氏名［P3.a1？］ ｜ ［T1.R1.C2］" in lines, lines
     by = {f["id"]: f for f in win["fields"]}
     assert by["同意"]["label"] == "する" and by["同意"]["kind"] == "checkbox"
     assert by["P9.a1"]["readonly"] and by["P9.a1"]["protected"]  # 保護された節の中
@@ -255,7 +256,12 @@ def test_ods_window_fill_recalc_and_proof():
     assert fields["Sheet1!B4"]["kind"] == "date" and "D3" in fields["Sheet1!B3"]["write_as"]
     cell_d3 = next(c for c in doc["sheets"][0]["cells"] if c["cell"] == "D3")
     assert cell_d3["formula"] == "of:=[.B3]+[.C3]" and cell_d3["formula_excel"] == "=B3+C3"
-    assert grade_sheets(blob, "a.ods").grade == "A"
+    # 枠のある空欄は、罫線と近くの見出しから推定した欄なので B（印ではない）。見出しのない枠の空のマス（5〜7行目の B〜D）は、
+    # 規則では欄と決められない所［B5？］として窓に出すので C（エージェントが判断する）
+    g = grade_sheets(blob, "a.ods")
+    titles = {r.title: r.grade for r in g.reasons}
+    assert g.grade == "C" and titles.get("枠・塗りから推定した入力欄") == "B" and titles.get("規則では決められない所") == "C", g.headline()
+    assert fields["Sheet1!B5"]["agent"] and fields["Sheet1!B5"]["evidence"]["borders"] == ["左", "右", "上", "下"]
     res = fill(OdsWorkbook(blob, "a.ods"), {"Sheet1!B1": "山田 太郎", "Sheet1!B2": "女", "Sheet1!B3": "1,000", "Sheet1!C3": 234,
                                              "Sheet1!B4": "2026/4/1", "Sheet1!C6": "x"})
     recalc = {(p.sheet, *parse_cell(p.address)): p.after for p in res.patches if p.kind == "formula"}
@@ -332,7 +338,8 @@ def test_rtf_window_fill_and_proof():
 
     win = build(RtfDocument(RTF, "a.rtf"))
     lines = [ln for st in win["stories"] for ln in st["reading"]]
-    assert "令和［P2.1］年［P2.2］月［P2.3］日" in lines and "氏名 ｜ ［T1.R1.C2］" in lines, lines
+    # 「令和　年　月　日」の空きは字の並びからの推定（？）。マスの見出し「氏名」の後ろも、右のマスの代わりの所として示す（消さない）
+    assert "令和［P2.1？］年［P2.2？］月［P2.3？］日" in lines and "氏名［P3.a1？］ ｜ ［T1.R1.C2］" in lines, lines
     by = {f["id"]: f for f in win["fields"]}
     assert by["Tel"]["value"] == "" and by["Agree"]["kind"] == "checkbox" and by["Agree"]["value"] is False
     vals = {"P2.1": "8", "T1.R1.C2": "山田 太郎", "Tel": "03-1234", "Agree": True, "P8.1": True}

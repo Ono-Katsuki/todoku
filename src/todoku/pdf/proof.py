@@ -4,6 +4,9 @@
 - 新しい相互参照の各項目が、正しい位置の「n g obj」を指す（修復なしに開ける）
 - 書き換えたオブジェクトは、許した変更（ページの注釈の一覧に足す・フォームの欄の値と見た目・欄の一覧に足す・書体を足す）だけ
 - 足したオブジェクトは、欄・見た目・書体だけで、どれも書き換えたオブジェクトからたどれる
+- 本人の印影・署名の画像を置いたとき（本人が同意したときだけ）：足してよいのは、スタンプの注釈・その見た目・画像（と透け）だけ。
+  どれも、元の文書と本人の画像から決め直した置き方（seal.verify）と同じで、画像は本人の画像と一致する
+  （JPEG はファイルのバイト列、PNG は開いた画素とアルファ）。確かめていないスタンプ・画像が足されていれば、想定外とする
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ class PdfProof:
     new_bytes: int = 0
     xfa: dict = field(default_factory=dict)  # XFA の確かめの結果（バイト一致の部品の数・データの変わった所の数）
     xfa_keys: set = field(default_factory=set)  # XFA の確かめで認めた、AcroForm の辞書の変化（datasets を足した /XFA）
+    stamps: list = field(default_factory=list)  # 確かめた、置いた画像（印影・署名）の名前
 
     @property
     def ok(self) -> bool:
@@ -44,7 +48,8 @@ class PdfProof:
                    f"datasets で変わったのは {self.xfa.get('data_changes', 0)} か所。")
         return xfa + (f"元のファイル {self.original_bytes:,} バイトは先頭からバイト一致のまま、後ろに {self.new_bytes - self.original_bytes:,} バイトを足しました"
                 f"（足したオブジェクト {self.objects_added}・書き換えたオブジェクト {self.objects_changed}）。"
-                + ("変わったのは書いた欄とその見た目だけです" if not self.unexpected else f"想定外の変更 {len(self.unexpected)} 件"))
+                + (("変わったのは書いた欄とその見た目" + ("、置いた画像（本人の画像と一致）" if self.stamps else "") + "だけです")
+                   if not self.unexpected else f"想定外の変更 {len(self.unexpected)} 件"))
 
     # 書き込みの証明を、ほかの形式と同じ形で使えるように
     @property
@@ -141,7 +146,8 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
         if what:
             pr.changed_fields.append(what)
         _collect(b, cur, reach, set(added))
-    # 足したオブジェクト：書き換えたものからたどれて、欄・見た目・書体だけ
+    # 足したオブジェクト：書き換えたものからたどれて、欄・見た目・書体だけ（置いた画像は、下で1つずつ確かめる）
+    seal_objs = set()
     for num in added:
         o = b.get(num)
         if num not in reach and not _is_xref(o):
@@ -149,6 +155,8 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
         kind = "xfa" if num in xfa_done else _kind(o)
         if kind is None:
             pr.unexpected.append(f"足したオブジェクト {num} が、欄・見た目・書体のどれでもありません")
+        if kind in ("stamp", "image"):
+            seal_objs.add(num)
         if kind == "field":
             t = o.get("T")
             if isinstance(t, (bytes, PdfString)):
@@ -159,12 +167,18 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
         for name in pr.changed_fields:
             if name and name not in allowed_fields and not any(name.startswith(x + ".") for x in allowed_fields):
                 pr.unexpected.append(f"書くと言っていない欄 {name} が変わっています")
+    verified: set[int] = set()
     if anchored:
-        _check_anchored(a, b, anchored, pr)
+        verified = _check_anchored(a, b, anchored, pr)
+    for num in sorted(seal_objs - verified):
+        pr.unexpected.append(f"足したオブジェクト {num}（スタンプの注釈か画像）は、置くと言った画像として確かめられません")
     return pr
 
 
-def _check_anchored(a: PdfDocument, b: PdfDocument, anchored: dict[str, dict], pr: PdfProof) -> None:
+def _check_anchored(a: PdfDocument, b: PdfDocument, anchored: dict[str, dict], pr: PdfProof) -> set[int]:
+    """返す：確かめた、置いた画像のオブジェクトの番号（注釈・見た目・画像・透け）。"""
+    from ..sealimage import SealError, decode, seal_key
+    from . import seal
     from .anchor import AnchorError, resolve_write
     from .form import read_fields
     from .layout import View
@@ -173,7 +187,37 @@ def _check_anchored(a: PdfDocument, b: PdfDocument, anchored: dict[str, dict], p
     new_fields = {f.name: f for f in read_fields(b)}
     used: dict = {}
     layouts: dict = {}
+    verified: set[int] = set()
+    stamp_names = None
     for fid, spec in anchored.items():
+        try:
+            skey = seal_key(spec)
+        except SealError as e:
+            pr.unexpected.append(f"置いた所 {fid}：{e}")
+            continue
+        if skey is not None:
+            # 置いた画像：同意の印・画像のファイルを読み直し、元の文書で置き方を決め直して、足した注釈と画像を照らす
+            if stamp_names is None:
+                stamp_names = seal.stamp_names(a)
+            try:
+                if spec.get("consent") is not True:
+                    raise SealError("本人の同意（consent: true）の印がありません")
+                from pathlib import Path
+
+                img = decode(Path(str(spec.get(skey))).expanduser().read_bytes())
+                sd = seal.resolve(a, spec, skey, img, used, layouts, names | stamp_names)
+            except (SealError, AnchorError, OSError) as e:
+                pr.unexpected.append(f"置いた画像 {fid} の置き方が、元の文書で決まりません：{e}")
+                continue
+            if sd["id"] != fid:
+                pr.unexpected.append(f"置いた画像 {fid} が、決め直した所（{sd['id']}）と違います")
+                continue
+            probs, nums = seal.verify(b, sd["page"], sd, skey, img)
+            pr.unexpected += probs
+            if not probs:
+                verified |= nums
+                pr.stamps.append(fid)
+            continue
         try:
             sd = resolve_write(a, spec, used, layouts, names)
         except AnchorError as e:
@@ -192,6 +236,7 @@ def _check_anchored(a: PdfDocument, b: PdfDocument, anchored: dict[str, dict], p
         got = [round(float(v), 3) for v in ws[0].rect]
         if any(abs(x - y) > 0.01 for x, y in zip(sorted(want[0::2]) + sorted(want[1::2]), sorted(got[0::2]) + sorted(got[1::2]))):
             pr.unexpected.append(f"書いた所 {fid} の位置 {got} が、目印から決まる位置 {want} と違います")
+    return verified
 
 
 def _check_encryption(a: PdfDocument, b: PdfDocument, pr: PdfProof) -> None:
@@ -216,10 +261,12 @@ def _kind(o) -> str | None:
         return "xref"
     if isinstance(o, Stream):
         st = getattr(o.dict.get("Subtype"), "name", "")
-        return "appearance" if st == "Form" else None
+        return "appearance" if st == "Form" else "image" if st == "Image" else None
     if isinstance(o, dict):
         t = getattr(o.get("Type"), "name", "")
         st = getattr(o.get("Subtype"), "name", "")
+        if st == "Stamp" and t == "Annot":
+            return "stamp"
         if st == "Widget" or "FT" in o or ("T" in o and "Kids" in o):
             return "field"
         if t in ("Font", "FontDescriptor"):

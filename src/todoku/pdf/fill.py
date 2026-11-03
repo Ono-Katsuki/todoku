@@ -31,6 +31,7 @@ class Patch:
     page: int = 0
     anchor: dict | None = None  # 見出しの字を目印にした書き込み（{"after": …, "value": …}）。証明で、同じ決め方で位置を確かめる
     key: str = ""  # 指定したときの名前（「@1」など）
+    seal: dict | None = None  # 本人の印影・署名の画像を置いたとき：本人に伝える文・位置・画像の SHA-256
 
 
 @dataclass
@@ -280,6 +281,20 @@ def wrap(text: str, size: float, width: float) -> list[str]:
                 cur += ch
         lines.append(cur)
     return lines
+
+
+def spot_fits(text: str, rect, size: float | None, kind: str) -> bool:
+    """配置から見つけた欄（窓の rect・size）に、add_widget と同じ決め方で text が入るか。"""
+    x0, y0, x1, y1 = rect
+    w, h = x1 - x0, y1 - y0
+    size = float(size or 10.5)
+    if w <= 0 or h <= 0:
+        return False
+    try:
+        layout_text(text, w, h, size, center=kind == "inline", multiline=h > 2.4 * min(size, 10.5))
+    except FillError:
+        return False
+    return True
 
 
 def layout_text(text: str, w: float, h: float, size: float, center: bool = False, multiline: bool = True):
@@ -712,6 +727,16 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
 
                 if not isinstance(value, dict):
                     raise FillError(f'{key}: 欄のない所に書くときは {{"after": 見出しの字, "value": 書く字}} の形で指定してください')
+                from ..sealimage import SealError, seal_key
+
+                try:
+                    skey = seal_key(value)
+                except SealError as e:
+                    raise FillError(f"{key}: {e}") from None
+                if skey is not None:
+                    # 本人の印影・署名の画像を置く（本人が同意したときだけ）：スタンプの注釈
+                    _place_seal(f, key, value, skey, used, layouts, views)
+                    continue
                 try:
                     sd = resolve_write(doc, value, used, layouts, set(f.by_name))
                 except AnchorError as e:
@@ -734,9 +759,11 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
                 continue
             if page_no not in views:
                 views[page_no] = View(doc, f.pages[page_no - 1])
+            sd, value = as_kind(sd, value)
             f.add_widget(page_no, sd, value, views[page_no])
         except FillError as e:
             problems.append(str(e))
+    problems += alternative_conflicts([spots[k][1] for k in values if k in spots and spots[k][1].get("source") == "layout"])
     if xfa_values and not problems:
         try:
             _fill_xfa(f, xf, xfa_values, force)
@@ -748,6 +775,86 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
         _recalculate(f, values)
     blob = f.finish() if f.patches else doc.blob
     return FillResult(blob, f.patches, f.warnings)
+
+
+def as_kind(sd: dict, value):
+    """種類が形だけでは決まらない欄（kind_candidates のある欄）に、値からどの種類で書くかを決める。
+    - {"as": 種類, "value": 値}：その種類で書く（種類は kind_candidates のどれか）
+    - はい／いいえ（true / false）：チェックの印（候補に checkbox があるとき）
+    - 字：候補に text があり、既定の種類がチェックの印なら、文字の欄として書く（「1」「レ」などをマスに書く）。
+      既定が1字ずつ書く欄（comb）なら、1字ずつマスに書く（1つの欄として書くときは {"as": "text", …}）
+    返す値：(書く欄の情報, 書く値)。"""
+    cands = sd.get("kind_candidates") or []
+    if isinstance(value, dict) and "as" in value:
+        want = value.get("as")
+        if not cands or want not in cands:
+            raise FillError(f"{sd['id']}: 「{want}」としては書けません（書ける種類：{'・'.join(cands) or sd['kind']}）")
+        if "value" not in value:
+            raise FillError(f'{sd["id"]}: {{"as": 種類, "value": 書く値}} の形で指定してください')
+        return {**sd, "kind": want}, value["value"]
+    if not cands:
+        return sd, value
+    if isinstance(value, bool):
+        if "checkbox" in cands:
+            return {**sd, "kind": "checkbox"}, value
+        return sd, value
+    if sd["kind"] == "checkbox" and "text" in cands:
+        return {**sd, "kind": "text"}, value
+    return sd, value
+
+
+def alternative_conflicts(written: list[dict]) -> list[str]:
+    """同じ所の別の読み方（alternative_to でつながる候補）の両方に書こうとしたもの：どちらか1つにする（重なって書かれるので）。"""
+    out = []
+    ids = {d["id"] for d in written}
+    groups: dict[str, list[dict]] = {}
+    for d in written:
+        alt = d.get("alternative_to")
+        if not alt:
+            continue
+        if alt in ids:
+            out.append(f"{d['id']} と {alt} は、同じ所の別の読み方（重なる候補）です。どちらか1つにだけ書いてください")
+        groups.setdefault(alt, []).append(d)
+    for g in groups.values():
+        for i, a in enumerate(g):
+            for b in g[i + 1:]:
+                if conflicting(a, b):
+                    out.append(f"{a['id']} と {b['id']} は、同じ所の別の読み方（重なる候補）です。どちらか1つにだけ書いてください")
+    return out
+
+
+def conflicting(a: dict, b: dict) -> bool:
+    """2つの欄が、同じ所の別の読み方か：一方が他方の alternative_to か、同じ候補の別の読み方どうしで重なるもの。"""
+    if a.get("alternative_to") == b["id"] or b.get("alternative_to") == a["id"]:
+        return True
+    if a.get("alternative_to") and a.get("alternative_to") == b.get("alternative_to"):
+        r, s = a["rect"], b["rect"]
+        return r[0] < s[2] and s[0] < r[2] and r[1] < s[3] and s[1] < r[3]
+    return False
+
+
+def _place_seal(f: Filler, key: str, spec: dict, skey: str, used: dict, layouts: dict, views: dict) -> None:
+    from ..sealimage import SealError, load
+    from . import seal
+    from .anchor import AnchorError
+
+    try:
+        img = load(spec, skey)  # 同意がなければ、ここで断る
+        if not hasattr(f, "_stamp_names"):
+            f._stamp_names = seal.stamp_names(f.doc)
+        sd = seal.resolve(f.doc, spec, skey, img, used, layouts, set(f.by_name) | f._stamp_names)
+        page_no = sd["page"]
+        if page_no not in views:
+            views[page_no] = View(f.doc, f.pages[page_no - 1])
+        seal.write(f, page_no, sd, skey, img, views[page_no])
+    except (SealError, AnchorError) as e:
+        raise FillError(f"{key}: {e}") from None
+    p = Patch(sd["id"], "seal", f"本人の{sd['what']}の画像", page_no, anchor=dict(spec), key=key)
+    p.seal = {"told": seal.told(sd, skey), "rect": sd["rect"], "sha256": img.sha256, "what": sd["what"], "key": skey}
+    f.patches.append(p)
+    caution = seal.caution(sd["what"])
+    if caution not in f.warnings:
+        f.warnings.append(caution)
 
 
 def _xfa_form(doc):

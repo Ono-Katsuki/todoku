@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from ..cfb import CFB
 from ..docx.fill import FillError, _as_bool, _is_text_value
-from ..docx.window import MARK_PREFIX, Spots
+from ..docx.window import MARK_PREFIX, Spots, box_mark
 from .book import FC_NAMES, DocFile
 
 # 本文の位置（CP）を持つ表と、1つの要素のデータの大きさ（バイト）。どれも MS-DOC の原本（2.8 節の各 PLC と 2.9 節の構造）で確かめた。
@@ -539,8 +539,8 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                 on = _as_bool(value)
                 a0, b0 = it["span"]
                 orig = p.text[a0:b0]
-                if on:
-                    w.add(Edit(cps[a0], cps[a0] + 1, "☑" if orig == "☐" else "■", cps[a0], mark))
+                if box_mark(orig, on) != orig:
+                    w.add(Edit(cps[a0], cps[a0] + 1, box_mark(orig, on), cps[a0], mark))
                 patches.append(Patch(key, "control", on, "doc"))
             elif kind == "inline":
                 text = _is_text_value(value)
