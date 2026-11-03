@@ -470,7 +470,7 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             readback_values = {k: v for k, v in values.items() if not k.startswith("@")}
             readback_values.update({p.id: p.value for p in res.patches if getattr(p, "anchor", None)})
         # 欄の書式で書いた値（日付の欄の w:dateFormat「yyyy年M月d日」など）：読み戻しは、書式を通した字で比べる
-        shaped = {p.id: p.value for p in res.patches if not getattr(p, "anchor", None) and p.kind == "input"
+        shaped = {p.id: p.value for p in (res.patches if values or not circ else []) if not getattr(p, "anchor", None) and p.kind == "input"
                   and p.id in values and not isinstance(values[p.id], bool) and str(p.value) != str(values[p.id])
                   and not _num_equal(p.value, values[p.id])}
         if shaped:
