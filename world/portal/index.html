@@ -5,7 +5,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=BIZ+UDPMincho:wght@400;700&display=swap">
 <style>
-/* 冒頭は本人の言葉と論文の札。その下に、地図 → 国の一覧 → 壁の理由 → 書類を探す → 方法。様式の紙と青インクの色 */
+/* 冒頭は作者の言葉と論文の札。その下に、地図 → 国の一覧 → 壁の理由 → 書類を探す → 方法。様式の紙と青インクの色 */
 :root {
   --paper: #f4f6f8; --ink: #17202b; --muted: #5b6878; --line: #c9d2dc; --slip: #ffffff; --pen: #1f4fb8;
   --none: #e3e8ee;          /* 調べていない国 */
@@ -177,7 +177,7 @@ tr.unr td { color: var(--muted); }
 .refs { font-size: .78rem; color: var(--muted); margin-top: 18px; display: grid; gap: 2px; }
 .refs a { word-break: break-all; }
 
-/* ---- 冒頭：墨の地に、本人の言葉が一点からにじみ出て輪郭を結ぶ。論文は箱なしの小さな白い字で、言葉のまわりに ----
+/* ---- 冒頭：墨の地に、作者の言葉が一点からにじみ出て輪郭を結ぶ。論文は箱なしの小さな白い字で、言葉のまわりに ----
    単一の見た目（墨の黒と紙の白）。色の飾りはなく、強調は明暗だけ */
 @property --ink { syntax: "<percentage>"; inherits: false; initial-value: 140%; }
 .opening {
@@ -262,7 +262,7 @@ tr.unr td { color: var(--muted); }
 }
 </style>
 
-<section class="opening" id="opening" aria-label="冒頭：本人の言葉と、まわりの研究">
+<section class="opening" id="opening" aria-label="冒頭：私の言葉と、まわりの研究">
   <p class="kicker">とどく ／ 世界調査</p>
   <div class="orbit">
       <div class="voice">
@@ -296,7 +296,7 @@ tr.unr td { color: var(--muted); }
 
 <div class="wrap">
   <header>
-    <p class="lead">行政の負担や、公的なページのアクセシビリティを外から測った研究はたくさんある。この調査は、申請する本人の言葉から始めて、政府の公開書類を AI エージェントが正確に読めるか、書けるかを、国ごとに測る。</p>
+    <p class="lead">行政の負担や、公的なページのアクセシビリティを外から測った研究はたくさんある。この調査は、申請する私の言葉から始めて、政府の公開書類を AI エージェントが正確に読めるか、書けるかを、国ごとに測る。</p>
   </header>
 
   <section aria-label="調査の規模">
@@ -321,11 +321,11 @@ tr.unr td { color: var(--muted); }
       </div>
       <div class="brow">
         <span class="blab">とどく ＋<br>エージェント</span>
-        <span class="btrack"><span class="bfill todoku" style="--w: 3.2%" title="本人が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）"></span></span>
+        <span class="btrack"><span class="bfill todoku" style="--w: 3.2%" title="私が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）"></span></span>
         <span class="bval"><b>2〜3 分</b>で頼む</span>
       </div>
-      <p class="bwall"><b>そもそも、本人が使う iPad では書けない。</b>Office の書類は iPad では表示が崩れて扱えず（本人）、iPad の Excel はマクロ（VBA）も動かせない。上の時間は、書類が正しく開けたとしたときの下限です。</p>
-      <p class="bnote">とどくが 233 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで <b>2.5 秒</b>。本人は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、本人の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
+      <p class="bwall"><b>そもそも、私が使う iPad では書けない。</b>Office の書類は iPad では表示が崩れて扱えず、iPad の Excel はマクロ（VBA）も動かせない。上の時間は、書類が正しく開けたとしたときの下限です。</p>
+      <p class="bnote">とどくが 233 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで <b>2.5 秒</b>。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
     </figure>
     <ol class="how">
       <li><h3>開いて、一字も変えずに読む</h3>
@@ -333,11 +333,11 @@ tr.unr td { color: var(--muted); }
       <li><h3>書く所を見つける。迷う所は「？」でエージェントに</h3>
         <p>入力欄は、フォームの欄・入力規則・罫線・下線など、ファイルの構造から規則で見つけます。言葉の一致では決めません。規則で決められない所は、根拠を添えて「？」の印で示し、エージェントが判断します（<b class="num" id="how-agent">—</b> 件の書類）。</p></li>
       <li><h3>紙のままの壁を越える</h3>
-        <p>文字の情報がないスキャンのページ（<b class="num" id="how-scan">—</b> 件の書類）は、ページを画像にしてエージェントが見て読み、目盛りの枠で書きます。ZIP は中のファイルを開き、押印・自署は本人が同意したときだけ本人の印影の画像を置きます。</p></li>
+        <p>文字の情報がないスキャンのページ（<b class="num" id="how-scan">—</b> 件の書類）は、ページを画像にしてエージェントが見て読み、目盛りの枠で書きます。ZIP は中のファイルを開き、押印・自署は、申請する人が同意したときだけ、その人の印影の画像を置きます。</p></li>
       <li><h3>書いて、証明する</h3>
         <p>書いたら、前と後のファイルを読み直して、変わったのが書いた所だけであることを機械で証明し、書いた値を読み戻します。部分標本 <b class="num" id="how-audited">—</b> 件で全ての欄に書き、<b class="num" id="how-auditok">—</b> 件で全てを正確に読み書きできました。残りは、とどくの直す所として数えています。</p></li>
       <li><h3>対話で伝える</h3>
-        <p>申請する本人は、書類を Word や Acrobat で開きません。とどくは書類を開かずに読み書きするので、本人は iPad から会話するだけです。書いた所の見出しと値・まだ空いている欄・本人が決めることを、エージェントが会話でそのまま伝え、本人が確かめます。</p></li>
+        <p>私は、書類を Word や Acrobat で開きません。とどくは書類を開かずに読み書きするので、私は iPad から会話するだけです。書いた所の見出しと値・まだ空いている欄・私が決めることを、エージェントが会話でそのまま伝え、私が確かめます。</p></li>
     </ol>
   </section>
 
