@@ -66,7 +66,7 @@ _ODF_MIME = {"application/vnd.oasis.opendocument.text": "odt", "application/vnd.
              "application/vnd.oasis.opendocument.spreadsheet-template": "ods",
              "application/vnd.oasis.opendocument.presentation": "odp", "application/vnd.oasis.opendocument.graphics": "odg"}
 _BY_NAME = {".csv": "csv", ".tsv": "tsv", ".tab": "tsv", ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl",
-            ".txt": "txt"}
+            ".txt": "txt", ".html": "markup", ".htm": "markup", ".xhtml": "markup", ".xml": "markup"}
 
 
 # 見分けるが、まだ読めない形式（開くと「未対応の形式」と伝え、段階は F）。

@@ -1,7 +1,11 @@
 """Excel（.xlsx）：セルの字（選択肢の「有」「2.更新」など）を、○の図形で囲む。
 
 指定（fill の値）：{"@c1": {"circle": 囲む字, "cell": "シート!B3"（省くと、ブックの字から探す）, "near": 近くの見出しの字,
-"sheet": シート, "occurrence": 何番目か, "pad": 字と○のすき間（pt）}}。
+"sheet": シート, "occurrence": 何番目か, "pad": 字と○のすき間（pt）, "style": "ellipse"（既定）か "border"}}。
+
+style "border"（○でなくてよいと本人が確かめたとき。楕円がほかの字に触れる詰まった所のため）：Excel には、セルの中の字の一部だけを
+囲む罫線（Word の字の囲み線にあたるもの）がない。セルの罫線は、セル全体（同じセルのほかの選択肢も）を囲んでしまい、セルの書式も
+変えるので使わない。代わりに、見積もった字の箱をすき間だけ広げた四角の図形（prstGeom rect・塗りなし）を、楕円と同じ書き方で足す。
 
 書き方：シートの図形（DrawingML）に、楕円（prstGeom ellipse・塗りなし・黒い線）を1つずつ足す（xdr:oneCellAnchor）。
 シートに図形の部品がなければ、部品（xl/drawings/drawingN.xml）と、シートからの関係・[Content_Types].xml の登録・シートの
@@ -23,6 +27,9 @@ from dataclasses import dataclass
 from ..formula.parser import addr, parse_cell
 from ..textwidth import cells, east_asian_context, fixed_width
 from ..pdf.circle import _pattern, shape, touches, face, inside
+from ..pdf.circle import border as _border
+from ..pdf.circle import encloses as _encloses
+from ..pdf.circle import hits as _hits
 
 EMU = 12700  # 1 pt の EMU
 TAG = "TdkCircle"
@@ -165,41 +172,36 @@ def find(wb, spec: dict):
     hits = [(sh, r, c, t, m.start(), m.end()) for sh, r, c, t in _cells(wb, sheet) for m in pat.finditer(t) if m.end() > m.start()]
     if not hits:
         raise CircleError(f"「{target}」がブックのセルに見つかりません（窓の字のとおりに、または cell でセルを指定してください）")
-    occ = spec.get("occurrence")
-    if occ is not None:
-        if not isinstance(occ, int) or isinstance(occ, bool) or not 1 <= occ <= len(hits):
-            raise CircleError(f"occurrence は 1〜{len(hits)} で指定してください")
-        return hits[occ - 1]
-    near = spec.get("near")
-    if len(hits) > 1 and isinstance(near, str) and near.strip():
+    from ..docx.circle import CircleError as _WordCircleError
+    from ..docx.circle import choose
+
+    def anchors_of(near: str):
         np_ = _pattern(near)
-        anchors = [(sh, r, c) for sh, r, c, t in _cells(wb, sheet) if np_.search(t)]
-        if not anchors:
-            raise CircleError(f"near の「{near}」が見つかりません")
+        return [((sh.name, r, c), m.start(), m.end(), (sh, r, c)) for sh, r, c, t in _cells(wb, sheet)
+                for m in np_.finditer(t) if m.end() > m.start()]
 
-        def rank(h):
-            best = (9, 10 ** 9)
-            for sh, r, c in anchors:
-                if sh is not h[0]:
-                    continue
-                if r == h[1]:
-                    k = (0, abs(c - h[2]))
-                elif c == h[2]:
-                    k = (1, abs(r - h[1]))
-                else:
-                    k = (2, abs(r - h[1]) + abs(c - h[2]))
-                best = min(best, k)
-            return best
+    def rank_of(h, anchors):
+        best = (9, 10 ** 9)
+        for _key, _a0, _a1, (sh, r, c) in anchors:
+            if sh is not h[3][0]:
+                continue
+            hr, hc = h[3][1], h[3][2]
+            if r == hr:
+                k = (0, abs(c - hc))  # 同じ行（同じセルは 0）
+            elif c == hc:
+                k = (1, abs(r - hr))  # 同じ列
+            else:
+                k = (2, abs(r - hr) + abs(c - hc))
+            best = min(best, k)
+        return best
 
-        scored = sorted(hits, key=rank)
-        if len(scored) > 1 and rank(scored[0]) == rank(scored[1]):
-            listing = "／".join(f"{k}番目：{h[0].name}!{addr(h[1], h[2])}「{h[3][:20]}」" for k, h in enumerate(hits[:10], 1))
-            raise CircleError(f"「{near}」に同じくらい近い「{target}」が 2 か所以上あります。cell か occurrence で決めてください：{listing}")
-        return scored[0]
-    if len(hits) > 1:
-        listing = "／".join(f"{k}番目：{h[0].name}!{addr(h[1], h[2])}「{h[3][:20]}」" for k, h in enumerate(hits[:10], 1))
-        raise CircleError(f"「{target}」が {len(hits)} か所にあります。cell・near・occurrence で1つに決めてください：{listing}")
-    return hits[0]
+    wrapped = [((h[0].name, h[1], h[2]), h[4], h[5], h) for h in hits]
+    try:
+        got = choose(wrapped, spec.get("near"), spec.get("occurrence"), anchors_of, rank_of,
+                     lambda w: (w[3][3], w[1], w[2]), target)
+    except _WordCircleError as e:
+        raise CircleError(str(e)) from None
+    return got[3]
 
 
 def glyphs(wb, sh, r: int, c: int, text: str) -> tuple[list[G], list[str]]:
@@ -283,20 +285,36 @@ def resolve(wb, spec: dict, used: dict) -> dict:
     pad = spec.get("pad")
     if pad is not None and not (isinstance(pad, (int, float)) and not isinstance(pad, bool) and 0 <= pad <= 3 * size):
         raise CircleError(f"pad は、字と○のすき間（pt、0〜{3 * size:.0f}）で指定してください")
-    e, hit = shape(rect, size, others, None, pad)
-    if e is None:
-        raise CircleError(f"「{spec['circle']}」を○で囲むと、同じセルのほかの字" + (f"「{hit.text}」" if hit else "") +
-                          "に触れます。pad（字と○のすき間、pt）を小さくしてください")
+    style = spec.get("style", "ellipse")
+    if style not in ("ellipse", "border"):
+        raise CircleError('style は "ellipse"（楕円の○。既定）か "border"（字を囲む四角の図形。○でなくてよいと本人が確かめたとき）です')
+    if style == "border":
+        g, hit = _border(rect, size, others, None, pad)
+        if g is None:
+            raise CircleError(f"「{spec['circle']}」を四角で囲むと、同じセルのほかの字" + (f"「{hit.text}」" if hit else "") +
+                              "に触れます（字の間が詰まっています）")
+        # 楕円と同じ形（中心・半径）で持つ：図形の位置と大きさは、四角の外枠と同じ
+        e = ((g[0] + g[2]) / 2, (g[1] + g[3]) / 2, (g[2] - g[0]) / 2, (g[3] - g[1]) / 2)
+    else:
+        e, hit = shape(rect, size, others, None, pad)
+        if e is None:
+            raise CircleError(f"「{spec['circle']}」を○で囲むと、同じセルのほかの字" + (f"「{hit.text}」" if hit else "") +
+                              "に触れます。pad（字と○のすき間、pt）を小さくするか、○でなくてよいと本人が確かめたら"
+                              " \"style\": \"border\"（字を囲む四角の図形）にしてください")
     from ..pdf.circle import ellipses_meet
 
+    def outer(x):  # 重なりを比べる楕円：四角は、外接する楕円
+        return (x[0], x[1], x[2] * 2 ** 0.5, x[3] * 2 ** 0.5) if style == "border" else x
+
     for _k, e2, sn in used.get("all", []):
-        if sn == sh.name and ellipses_meet(e, e2):
-            raise CircleError(f"「{spec['circle']}」の○が、ほかの○と重なります")
+        if sn == sh.name and ellipses_meet(outer(e), e2):
+            raise CircleError(f"「{spec['circle']}」の囲みが、ほかの囲みと重なります")
     k = 1 + sum(1 for x in used.get("all", []) if x[2] == sh.name) + _existing(wb, sh)
-    used.setdefault("all", []).append((k, e, sh.name))
+    used.setdefault("all", []).append((k, outer(e), sh.name))
     label = spec.get("near") or _row_label(wb, sh, r, c) or text[:30]
     return {"id": f"{sh.name}!○{k}", "sheet": sh.name, "row": r, "col": c, "cell": addr(r, c), "text": "".join(g.text for g in mine),
-            "ellipse": [round(v, 3) for v in e], "label": label, "context": text[:60], "notes": notes, "size": size}
+            "ellipse": [round(v, 3) for v in e], "label": label, "context": text[:60], "notes": notes, "size": size,
+            "style": style}
 
 
 def _row_label(wb, sh, r: int, c: int) -> str:
@@ -344,14 +362,15 @@ def anchor_xml(wb, sh, sd: dict, shape_id: int, prefix: str = "xdr:", a: str = "
     col, cof, row, rof = _anchor_cell(wb, sh, x, y)
     w, h = 2 * ra, 2 * rb
     xns = "" if prefix == "xdr:" and a == "a:" else ""
-    desc = f"○で囲んだ字「{sd['text']}」（{sd['cell']}）"
+    desc = (f"四角で囲んだ字「{sd['text']}」（{sd['cell']}）" if sd.get("style") == "border"
+            else f"○で囲んだ字「{sd['text']}」（{sd['cell']}）")
     x_ = prefix
     return (f"<{x_}oneCellAnchor><{x_}from><{x_}col>{col - 1}</{x_}col><{x_}colOff>{round(cof * EMU)}</{x_}colOff>"
             f"<{x_}row>{row - 1}</{x_}row><{x_}rowOff>{round(rof * EMU)}</{x_}rowOff></{x_}from>"
             f'<{x_}ext cx="{round(w * EMU)}" cy="{round(h * EMU)}"/>'
             f'<{x_}sp macro="" textlink=""><{x_}nvSpPr><{x_}cNvPr id="{shape_id}" name="{TAG} {_esc(sd["id"])}" descr="{_esc(desc)}"/>'
             f"<{x_}cNvSpPr/></{x_}nvSpPr><{x_}spPr><{a}xfrm><{a}off x=\"0\" y=\"0\"/><{a}ext cx=\"{round(w * EMU)}\" cy=\"{round(h * EMU)}\"/>"
-            f'</{a}xfrm><{a}prstGeom prst="ellipse"><{a}avLst/></{a}prstGeom><{a}noFill/><{a}ln w="{round(lw * EMU)}">'
+            f'</{a}xfrm><{a}prstGeom prst="{"rect" if sd.get("style") == "border" else "ellipse"}"><{a}avLst/></{a}prstGeom><{a}noFill/><{a}ln w="{round(lw * EMU)}">'
             f'<{a}solidFill><{a}srgbClr val="000000"/></{a}solidFill></{a}ln></{x_}spPr></{x_}sp><{x_}clientData/></{x_}oneCellAnchor>'
             + xns).encode("utf-8")
 
@@ -559,8 +578,18 @@ def read_back(blob: bytes, name: str, circled: list[dict]) -> list[dict]:
         except CircleError as ex:
             out.append({"id": c["id"], "written": f"○「{c['text']}」", "read_back": str(ex)})
             continue
-        inner = "".join(x_.text for x_ in gl if not x_.text.isspace() and inside(e, (x_.x0, x_.y0, x_.x1, x_.y1)))
-        touch = [x_ for x_ in gl if not x_.text.isspace() and not inside(e, (x_.x0, x_.y0, x_.x1, x_.y1)) and touches(e, face(x_))]
+        rect_shape = re.search(rb'prstGeom prst="rect"', g) is not None
+        if rect_shape != (c.get("style") == "border"):
+            out.append({"id": c["id"], "written": f"○「{c['text']}」",
+                        "read_back": f"書いた後の図形の形が{'四角' if rect_shape else '楕円'}で、書いた形と違います"})
+            continue
+        if rect_shape:
+            box = (x, y, x + w, y + h)
+            inner = "".join(x_.text for x_ in gl if not x_.text.isspace() and _encloses("border", box, x_))
+            touch = [x_ for x_ in gl if not x_.text.isspace() and not _encloses("border", box, x_) and _hits("border", box, x_)]
+        else:
+            inner = "".join(x_.text for x_ in gl if not x_.text.isspace() and inside(e, (x_.x0, x_.y0, x_.x1, x_.y1)))
+            touch = [x_ for x_ in gl if not x_.text.isspace() and not inside(e, (x_.x0, x_.y0, x_.x1, x_.y1)) and touches(e, face(x_))]
         if inner != re.sub(r"\s", "", c["text"]) or touch:
             out.append({"id": c["id"], "written": f"○「{c['text']}」",
                         "read_back": f"囲んでいる字「{inner}」" + (f"・触れている字「{''.join(t.text for t in touch)}」" if touch else "")})

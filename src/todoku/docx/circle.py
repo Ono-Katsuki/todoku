@@ -118,6 +118,67 @@ def _cell_pos(p: Para):
     return (id(c.table), c.row, c.col)
 
 
+def bounded(text: str, a: int, b: int) -> bool:
+    """text[a:b] が、語の中に埋まっていない（前と後ろが、文の端か、字・数字（一般カテゴリ L・M・N）でない字）か。
+    「有・無」「（月・週）」の「月」は区切られていて、「生年月日」「有無」の中の「月」「無」は埋まっている。"""
+    import unicodedata
+
+    def letter(ch: str) -> bool:
+        return unicodedata.category(ch)[0] in "LMN"
+
+    return (a == 0 or not letter(text[a - 1])) and (b >= len(text) or not letter(text[b]))
+
+
+def choose(hits: list, near: str | None, occ, anchors_of, rank_of, where_of, target: str) -> tuple:
+    """同じ字がいくつもあるときの決め方（Word・Excel で同じ）：
+    - near があれば、near の字そのものの中の字（見出し「…の有無」の「無」）は候補から外し、near にいちばん近い関係（同じ段落・
+      同じ行・同じ列…）の候補だけに絞る。occurrence は、その絞った候補の中の何番目か（読む順）
+    - occurrence がなければ、いちばん近い候補。同じくらい近い候補が残れば、区切られた字（bounded）を語の中に埋まった字より先にし、
+      それでも決まらなければ、決めずに断る（候補の前後の字を示す）
+    hits：[(場所, 始め, 終わり, …)]。anchors_of(near) → [(場所, 始め, 終わり)]。rank_of(hit, anchors) → 近さ（小さいほど近い。
+    最初の数が関係の種類）。where_of(hit) → (字, 始め, 終わり)：前後の字を示すため。"""
+    def ctx(h) -> str:
+        t, a, b = where_of(h)
+        return f"「{t[max(0, a - 6):a].strip()}［{t[a:b]}］{t[b:b + 6].strip()}」"
+
+    def listing(hs) -> str:
+        return "／".join(f"{k}番目：{ctx(h)}" for k, h in enumerate(hs[:10], 1)) + ("ほか" if len(hs) > 10 else "")
+
+    if isinstance(near, str) and near.strip():
+        anchors = anchors_of(near)
+        if not anchors:
+            raise CircleError(f"near の「{near}」が見つかりません")
+        # near の字そのものの中にある候補は外す（見出しの中の字を囲まない）
+        hits = [h for h in hits if not any((an[0] is h[0] or (isinstance(an[0], tuple) and an[0] == h[0])) and an[1] < h[2] and h[1] < an[2] for an in anchors)]
+        if not hits:
+            raise CircleError(f"「{target}」は、near の「{near}」の字の中にしかありません（見出しの中の字は囲みません。"
+                              "囲む選択肢の字か、近くの別の見出しを指定してください）")
+        ranks = [rank_of(h, anchors) for h in hits]
+        best = min(ranks)
+        scope = [h for h, r in zip(hits, ranks) if r[0] == best[0]]  # near といちばん近い関係（同じ段落・行・列など）の候補
+        if occ is not None:
+            if not isinstance(occ, int) or isinstance(occ, bool) or not 1 <= occ <= len(scope):
+                raise CircleError(f"near の「{near}」に近い「{target}」は {len(scope)} か所です（{listing(scope)}）。"
+                                  f"occurrence は、その中の何番目か（1〜{len(scope)}）で指定してください")
+            return scope[occ - 1]
+        top = [h for h, r in zip(hits, ranks) if r == best]
+        if len(top) > 1:
+            free = [h for h in top if bounded(*where_of(h))]
+            if len(free) == 1:
+                return free[0]
+            raise CircleError(f"「{near}」に同じくらい近い「{target}」が {len(top)} か所あります。occurrence（near に近い候補の中の"
+                              f"何番目か）で決めてください：{listing(scope)}")
+        return top[0]
+    if occ is not None:
+        if not isinstance(occ, int) or isinstance(occ, bool) or not 1 <= occ <= len(hits):
+            raise CircleError(f"occurrence は 1〜{len(hits)} で指定してください")
+        return hits[occ - 1]
+    if len(hits) > 1:
+        raise CircleError(f"「{target}」が {len(hits)} か所にあります。near（近くの見出しの字）か occurrence（何番目か）で"
+                          f"1つに決めてください：{listing(hits)}")
+    return hits[0]
+
+
 def find(doc: DocxDocument, spec: dict):
     """(段落, 始め, 終わり, 段落の番号)。"""
     target = spec.get("circle")
@@ -128,43 +189,28 @@ def find(doc: DocxDocument, spec: dict):
     hits = [(p, m.start(), m.end(), i) for i, p in enumerate(paras) for m in pat.finditer(p.text) if m.end() > m.start()]
     if not hits:
         raise CircleError(f"「{target}」が文書に見つかりません（窓の字のとおりに指定してください）")
-    occ = spec.get("occurrence")
-    if occ is not None:
-        if not isinstance(occ, int) or isinstance(occ, bool) or not 1 <= occ <= len(hits):
-            raise CircleError(f"occurrence は 1〜{len(hits)} で指定してください")
-        return hits[occ - 1]
-    near = spec.get("near")
-    if len(hits) > 1 and isinstance(near, str) and near.strip():
+
+    def anchors_of(near: str):
         np_ = _pattern(near)
-        anchors = [(p, m.start(), i) for i, p in enumerate(paras) for m in np_.finditer(p.text) if m.end() > m.start()]
-        if not anchors:
-            raise CircleError(f"near の「{near}」が見つかりません")
+        return [(p, m.start(), m.end(), i) for i, p in enumerate(paras) for m in np_.finditer(p.text) if m.end() > m.start()]
 
-        def rank(h):
-            best = (9, 10 ** 9)
-            for ap, a0, ai in anchors:
-                cp, ch = _cell_pos(ap), _cell_pos(h[0])
-                if ap is h[0]:
-                    k = (0, abs(h[1] - a0))
-                elif cp and ch and cp[0] == ch[0] and cp[1] == ch[1]:
-                    k = (1, abs(cp[2] - ch[2]))  # 表の同じ行
-                elif cp and ch and cp[0] == ch[0] and cp[2] == ch[2]:
-                    k = (2, abs(cp[1] - ch[1]))  # 表の同じ列
-                else:
-                    k = (3, abs(ai - h[3]))  # 段落の並びで近いもの
-                best = min(best, k)
-            return best
+    def rank_of(h, anchors):
+        best = (9, 10 ** 9)
+        for ap, a0, _a1, ai in anchors:
+            cp, ch = _cell_pos(ap), _cell_pos(h[0])
+            if ap is h[0]:
+                k = (0, abs(h[1] - a0))
+            elif cp and ch and cp[0] == ch[0] and cp[1] == ch[1]:
+                k = (1, abs(cp[2] - ch[2]))  # 表の同じ行
+            elif cp and ch and cp[0] == ch[0] and cp[2] == ch[2]:
+                k = (2, abs(cp[1] - ch[1]))  # 表の同じ列
+            else:
+                k = (3, abs(ai - h[3]))  # 段落の並びで近いもの
+            best = min(best, k)
+        return best
 
-        scored = sorted(hits, key=rank)
-        if rank(scored[0]) == rank(scored[1]):
-            listing = "／".join(f"{k}番目：「{h[0].text.strip()[:24]}」" for k, h in enumerate(hits[:10], 1))
-            raise CircleError(f"「{near}」に同じくらい近い「{target}」が 2 か所以上あります。occurrence で決めてください：{listing}")
-        return scored[0]
-    if len(hits) > 1:
-        listing = "／".join(f"{k}番目：「{h[0].text.strip()[:24]}」" for k, h in enumerate(hits[:10], 1))
-        raise CircleError(f"「{target}」が {len(hits)} か所にあります。near（近くの見出しの字）か occurrence（何番目か）で"
-                          f"1つに決めてください：{listing}")
-    return hits[0]
+    return choose(hits, spec.get("near"), spec.get("occurrence"), anchors_of, rank_of,
+                  lambda h: (h[0].text, h[1], h[2]), target)
 
 
 def _glyphs(doc: DocxDocument, p: Para) -> list[_G]:
@@ -221,9 +267,46 @@ def resolve(doc: DocxDocument, spec: dict, used: dict) -> dict:
     near = p.text[max(0, a - 6):b + 6]
     notes = (["幅の変わる字（ラテン文字・キリル文字・アラビア文字など、書体で字ごとに幅が違う字）を含む（字の幅は見積もり）"]
              if any(not fixed_width(ch, wide) for ch in near if not ch.isspace()) else [])
+    if style == "ellipse" and _indented(doc, p):
+        notes.append("ぶら下げ・1行目の字下げ（w:ind の hanging・firstLine）のある段落で、○の位置がずれることがあります"
+                     "（Word と LibreOffice で、字に結び付けた図形の位置の基準が違う）。ずれていたら、○でなくてよいかを本人に確かめて "
+                     "\"style\": \"border\"（位置のずれない囲み線）で書き直してください")
     return {"id": f"○{k}", "part": p.part, "para": p, "start": a, "end": b, "text": p.text[a:b], "style": style,
             "ellipse": [round(v, 3) for v in e] if e else None, "size": size, "label": label,
             "context": re.sub(r"\s+", " ", p.text).strip()[:60], "notes": notes}
+
+
+def _indented(doc: DocxDocument, p: Para) -> bool:
+    """段落（その書式か、段落のスタイル・その元のスタイル）に、ぶら下げ・1行目の字下げ（0 でないもの）があるか。"""
+    def has(ppr) -> bool | None:
+        ind = ppr.find("ind") if ppr is not None else None
+        if ind is None:
+            return None
+        vals = [ind.get(k) for k in ("hanging", "firstLine", "hangingChars", "firstLineChars")]
+        if any(v not in (None, "") for v in vals):
+            return any(str(v).lstrip("-").isdigit() and int(v) != 0 for v in vals if v not in (None, ""))
+        return None
+
+    got = has(p.node.find("pPr"))
+    if got is not None:
+        return got
+    root = doc._load("word/styles.xml")
+    top = root.kids[0] if root is not None and root.kids else None
+    if top is None:
+        return False
+    styles = {st.get("styleId"): st for st in top.findall("style")}
+    sid, seen = p.style or _styles(doc)["para_default"], 0
+    while sid and seen < 20:
+        st = styles.get(sid)
+        if st is None:
+            break
+        got = has(st.find("pPr"))
+        if got is not None:
+            return got
+        b = st.find("basedOn")
+        sid = b.get("val") if b is not None else ""
+        seen += 1
+    return False
 
 
 def _existing(doc: DocxDocument) -> int:

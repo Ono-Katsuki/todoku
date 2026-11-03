@@ -5,7 +5,9 @@
 意味を確かめたものだけずらす。描き直せば作り直される表（スペルチェックや段落の高さの控え）は空にする。
 意味の分からない位置の表が本文にあるときは、書き込まずに断る（壊れた文書を作らない）。
 
-新しい文字の書式（CHPX）は、置き換える前の字の書式をそのまま引き継ぐ。書いた所は見えないしおり（_todoku_…）で囲む。
+新しい文字の書式（CHPX）は、置き換える前の字の書式を引き継ぐ。ただし、空のマスの終わりの印などに残った「消したように見える」
+書式（取り消し線・二重取り消し線・非表示・変更履歴の印）と、字の色・蛍光ペン・網かけは引き継がない（字の大きさ・書体などは
+引き継ぐ。色などは段落・スタイルの既定に戻る）。引き継がなかった書式は、警告で伝える。書いた所は見えないしおり（_todoku_…）で囲む。
 埋め込んだ Excel の表のセル（E1!Sheet1!C4）は todoku.embed で書き、ObjectPool の中のストリーム・Data の後ろに足す
 表示用の絵・絵の位置（WordDocument の中の4バイト）を、ここで一緒に書き戻す。
 """
@@ -71,6 +73,63 @@ class Edit:
     text: str
     style_cp: int  # 書式を引き継ぐ字の位置
     mark: str | None = None
+    key: str | None = None  # 書いた欄の名前（引き継がなかった書式を伝えるのに使う）
+
+
+# 書いた字に引き継がない文字の書式（sprm の番号は MS-DOC の原本 2.6.1 で確かめた）。値が「なし」のものは数えない
+DROP_SPRMS = {
+    0x0837: "取り消し線",  # sprmCFStrike
+    0x2A53: "二重取り消し線",  # sprmCFDStrike
+    0x083C: "非表示",  # sprmCFVanish
+    0x0818: "非表示（段落の印）",  # sprmCFSpecVanish
+    0x0800: "変更履歴の削除の印",  # sprmCFRMarkDel
+    0x0801: "変更履歴の挿入の印",  # sprmCFRMarkIns
+    0x4804: "変更履歴の作者",  # sprmCIbstRMark
+    0x6805: "変更履歴の日時",  # sprmCDttmRMark
+    0x4863: "変更履歴の作者（削除）",  # sprmCIbstRMarkDel
+    0x6864: "変更履歴の日時（削除）",  # sprmCDttmRMarkDel
+    0x2A42: "字の色",  # sprmCIco（0 は自動）
+    0x6870: "字の色",  # sprmCCv（0xFF000000 は自動）
+    0x2A0C: "蛍光ペン",  # sprmCHighlight（0 はなし）
+    0x4866: "網かけ",  # sprmCShd80
+    0xCA71: "網かけ",  # sprmCShd
+}
+# 名前を伝えない（ほかの命令と組みで意味を持つ、変更履歴の付け足しの情報）
+_QUIET = {0x4804, 0x6805, 0x4863, 0x6864}
+
+
+def _is_off(sprm: int, op: bytes) -> bool:
+    """命令が「なし・自動」を表すか（引き継いでも見た目が変わらないもの）。"""
+    if sprm in (0x0837, 0x2A53, 0x083C, 0x0818, 0x0800, 0x0801):
+        return not op or op[0] == 0  # 0 は切る（0x80・0x81 は スタイルどおり・その逆で、見た目は決まらないので外す）
+    if sprm in (0x2A42, 0x2A0C):
+        return not op or op[0] == 0
+    if sprm == 0x6870:
+        return len(op) >= 4 and struct.unpack_from("<I", op)[0] == 0xFF000000
+    if sprm == 0x4866:
+        return len(op) >= 2 and struct.unpack_from("<H", op)[0] == 0
+    if sprm == 0xCA71:
+        return len(op) >= 10 and op[8:10] == b"\x00\x00" and op[:8] in (b"\x00" * 8, b"\x00\x00\x00\xff\x00\x00\x00\xff")
+    return True
+
+
+def clean_chpx(grpprl: bytes) -> tuple[bytes, list[str]]:
+    """書いた字に付ける書式：DROP_SPRMS の命令を除いた grpprl と、除いた書式の名前（見た目の変わるもの）。"""
+    from .book import sprm_spans
+
+    out = bytearray()
+    names: list[str] = []
+    start = 0
+    for sprm, at, size in sprm_spans(grpprl):
+        end = at + size
+        if sprm in DROP_SPRMS:
+            if sprm not in _QUIET and not _is_off(sprm, grpprl[at:end]):
+                names.append(DROP_SPRMS[sprm])
+        else:
+            out += grpprl[start:end]
+        start = end
+    out += grpprl[start:]
+    return bytes(out), list(dict.fromkeys(names))
 
 
 @dataclass
@@ -90,6 +149,8 @@ class DocWriter:
         self.streams: dict[str, bytes] = {}
         self.data_tail = b""
         self.wd_patches: list[tuple[int, bytes]] = []
+        self.current_key: str | None = None  # いま書いている欄の名前（Edit.key に入れる）
+        self.dropped: list[tuple[str | None, list[str]]] = []  # (欄の名前, 引き継がなかった書式)
 
     def starts(self) -> dict[str, int]:
         out, at = {}, 0
@@ -116,6 +177,8 @@ class DocWriter:
         for o in self.edits:
             if e.a < o.b and o.a < e.b or (e.a == e.b == o.a == o.b):
                 raise FillError("同じ所に2つの書き込みが重なりました")
+        if e.key is None:
+            e.key = self.current_key
         self.edits.append(e)
 
     # ------------------------------------------------------------------ 位置をずらす
@@ -268,6 +331,9 @@ class DocWriter:
             if not e.text:
                 continue
             grpprl = doc._lookup(doc.chpx, doc.fc_of(e.style_cp)) if doc.fc_of(e.style_cp) >= 0 else b""
+            grpprl, dropped = clean_chpx(grpprl)
+            if dropped:
+                self.dropped.append((e.key, dropped))
             runs.append((texts_fc[k], texts_fc[k] + 2 * len(e.text), grpprl))
         if runs:
             while len(wd) % 512:
@@ -462,8 +528,10 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
     for key, value in values.items():
         if key in embed_values:
             continue
+        w.current_key = key
         it = sp.items.get(key)
         anchor = None
+        given = key  # 指定したときの名前（「@1」など。字を目印にした書き込みの結果 anchored の鍵）
         try:
             if key.startswith("@"):
                 # 規則で示していない所：エージェントが字を目印にして指した所
@@ -475,6 +543,7 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                     raise FillError(f"{key}: {e}") from None
                 anchor = dict(value)
                 key, value = it["id"], it["value"]
+                w.current_key = key
             if it is None:
                 raise FillError(f"{key}: そのような欄はありません")
             if doc.protection_enforced and not force:
@@ -558,7 +627,7 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                     if b - a != b0 - a0 or -1 in cps[a0:b0]:
                         raise FillError(f"{key}: 空欄が、書き換えられない部分にかかっています")
                 w.add(Edit(a, b, text, a, mark))
-                patches.append(Patch(key, "input", text, "doc", anchor=anchor))
+                patches.append(Patch(key, "input", text, "doc", anchor=anchor, key=given if anchor else ""))
             else:
                 raise FillError(f"{key}: この種類の欄（{kind}）には書けません")
         except FillError as e:
@@ -566,6 +635,9 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
     if problems:
         raise FillError("\n".join(problems))
     blob = w.build()
+    for k_, names in w.dropped:
+        warnings.append(f"{k_ or '書いた所'}: 書く所に残っていた書式（{'・'.join(names)}）は、書いた字に引き継がず、"
+                        "段落・スタイルの既定の書式（字の大きさ・書体はそのまま）で書きました")
     if ax_writes:
         from ..activex import AxError
         from ..axbin import apply_doc
@@ -578,6 +650,33 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                         "Word で部品を読み込むと書いた値で表示されますが、ActiveX を止めた Word やプレビュー・"
                         "印刷では、古い絵のまま見えることがあります")
     return DocFillResult(blob, patches, warnings)
+
+
+def written_formatting(blob: bytes, name: str = "") -> list[dict]:
+    """書いた後の文書を読み直し、書いた所（しおり _todoku_…）の字の書式に、消したように・目立って見えるもの（DROP_SPRMS の
+    「なし」でない値）があれば [{id, formatting}]（読み戻しで伝える）。"""
+    doc = DocFile(blob, name)
+    out = []
+    for n, a, b in doc.bookmarks:
+        if not n.startswith(MARK_PREFIX):
+            continue
+        found: list[str] = []
+        for cp in range(a, max(a, b)):
+            fc = doc.fc_of(cp)
+            if fc < 0:
+                continue
+            for sp, op in _sprms(doc._lookup(doc.chpx, fc)):
+                if sp in DROP_SPRMS and sp not in _QUIET and not _is_off(sp, op):
+                    found.append(DROP_SPRMS[sp])
+        if found:
+            out.append({"id": n[len(MARK_PREFIX):], "formatting": list(dict.fromkeys(found))})
+    return out
+
+
+def _sprms(grpprl: bytes):
+    from .book import sprms
+
+    return sprms(grpprl)
 
 
 def _set_ffbits(doc: DocFile, w: DocWriter, c, res: int) -> None:

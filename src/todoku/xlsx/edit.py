@@ -48,6 +48,9 @@ class EditResult:
     unchanged_parts: int = 0
     changed_parts: list[str] = field(default_factory=list)
     macro: dict | None = None  # 動かしたマクロ：{"ran": [...], "messages": [...], "files": {...}, "error": ...}
+    text_written: dict = field(default_factory=dict)  # 指示の鍵 → (セルの id, 書いた後のセルの字)：字のセルの一部を書き換えた所
+    replaced_text: list = field(default_factory=list)  # 印刷された字を、明示なしに置き換えたセル（証明で想定外の変更として示す）
+    anchored: dict = field(default_factory=dict)  # 字を目印にした指示の鍵（@…）→ 書いたセルの id
 
     @property
     def allowed_inputs(self) -> set[tuple[str, str]]:
@@ -82,6 +85,17 @@ def resolve_target(wb: Workbook, target: str) -> tuple[str, int, int]:
         sh = wb.sheet(sheet)
     except KeyError:
         raise EditError(f"シート「{sheet}」がありません")
+    a_ = a.replace("$", "").strip()
+    if ":" in a_:
+        # 結合したセルの範囲（窓に「E23:J23」と出る）：その結合の範囲とちょうど同じときだけ、左上のセルとして受け取る
+        try:
+            (r, c), (r2, c2) = (parse_cell(x.strip()) for x in a_.split(":", 1))
+        except ValueError:
+            raise EditError(f"「{target}」はセルの番地ではありません") from None
+        m = sh.merged_at(r, c)
+        if m is None or (min(r, r2), min(c, c2), max(r, r2), max(c, c2)) != tuple(m):
+            raise EditError(f"「{target}」は結合したセルの範囲ではありません（範囲には書けません。1つのセルの番地を指定してください）")
+        a = a_.split(":", 1)[0].strip()
     try:
         r, c = parse_cell(a.replace("$", "").strip())
     except ValueError:
@@ -763,6 +777,120 @@ def _macro_warnings(wb, targets) -> list[str]:
     return out
 
 
+# ---------------------------------------------------------------- 文字のセルの一部を書き換える（箱の字・字を目印）
+def _is_box(ch: str) -> bool:
+    from .. import chars
+
+    return ch in chars.BOXES or ch in chars.MAYBE_CHECKED
+
+
+def _cell_blanks(text: str):
+    from .window import cell_blanks
+
+    return cell_blanks(text)
+
+
+def box_glyph(orig: str, on: bool) -> str:
+    """箱の字 orig に印をつける（on）・外すときの字。Word と同じ（☐ は ☑、ほかの白い箱 □ などは ■。外すときは印のない同じ形の箱）。"""
+    from ..docx.window import box_mark
+
+    return box_mark(orig, on)
+
+
+def check_box_in_text(text: str, on: bool, where: str) -> tuple[str, str]:
+    """字のあるセルに true/false を書く：字の中のチェックの箱の字が1つだけなら、その字だけを印の字にする（ほかの字は変えない）。
+    箱の字がない・いくつもあるときは、どれのことか決められないので書かない（EditError。箱ごとの前後の字を示す）。"""
+    at = [i for i, ch in enumerate(text) if _is_box(ch)]
+    shown = text.strip()[:60]
+    if not at:
+        raise EditError(f"{where} は字「{shown}」のセルで、チェックの箱の字（□・☐ など）がありません。true/false を書くと、"
+                        "印刷された字が消えるので書いていません。チェックの印にするなら字を目印にした書き込み（{\"@1\": {\"old\": …, "
+                        "\"new\": …, \"cell\": …}}）、まるごと書き換えると決めたなら {\"value\": …, \"overwrite_text\": true} で指定してください")
+    if len(at) > 1:
+        ctx = "／".join(f"{n}「{text[max(0, i - 4):i]}［{text[i]}］{text[i + 1:i + 9]}」" for n, i in enumerate(at, 1))
+        raise EditError(f"{where} の字には、チェックの箱の字が {len(at)} つあります（{ctx}）。true/false では、どれに印をつけるか"
+                        "決められないので書いていません。空欄ごとの値のリスト（箱の所に true か ☑ などの字、ほかは null）で指定してください")
+    i = at[0]
+    new = box_glyph(text[i], on)
+    if new == text[i]:
+        return text, f"{where}: 箱の字「{text[i]}」は、もともと{'印のついた' if on else '印のない'}字です（変えていません）"
+    from .. import chars
+
+    bullet = "（この形の箱は箇条書きの印のこともあります。チェックの箱か、窓の前後の字で確かめてください）" \
+        if text[i] in chars.BULLET_LIKE_BOXES else ""
+    return (text[:i] + new + text[i + 1:],
+            f"{where}: 字「{shown}」の中の箱の字「{text[i]}」を「{new}」にしました（ほかの字は元のまま）{bullet}")
+
+
+def keeps_printed(old: str, new) -> bool:
+    """書いたあとの字 new に、元の字 old の（空白でない）字がすべて、同じ順に残っているか（空欄に書き足しただけか）。
+    箱の字は、印のついた字・印のない字のどちらに変わってもよい。"""
+    if not isinstance(new, str):
+        return False
+    it = iter(new)
+    for ch in old:
+        if ch.isspace() or ch == "　" or ch in "_＿":
+            continue
+        box = _is_box(ch)
+        for got in it:
+            if got == ch or (box and _is_box(got)):
+                break
+        else:
+            return False
+    return True
+
+
+def anchor_text(wb: Workbook, key: str, spec, *, force: bool = False, allow_formula_overwrite: bool = False):
+    """字を目印にした書き込み {"old": 元の字, "new": 書き換えた後の字, "cell"・"sheet"・"occurrence"（任意）}：
+    文字のセルの old の字（ちょうど同じ字の並び）を、1か所だけ new にする。(シート, 行, 列, 書き換えた後のセルの字)。
+    old が見つからない・いくつもあって決められないときは書かない（EditError。見つかった所を示す）。"""
+    if not isinstance(spec, dict) or not isinstance(spec.get("old"), str) or not isinstance(spec.get("new"), str):
+        raise EditError(f"{key}: Excel で字を目印にして書くときは {{\"old\": 元の字, \"new\": 書き換えた後の字}} の形で指定してください"
+                        "（同じ字がいくつもあれば \"cell\": \"シート!B3\" か \"occurrence\": 何番目か）")
+    extra = set(spec) - {"old", "new", "cell", "sheet", "occurrence"}
+    if extra:
+        raise EditError(f"{key}: 分からない指定があります（{'・'.join(sorted(extra))}）。使えるのは old・new・cell・sheet・occurrence です")
+    old, new = spec["old"], spec["new"]
+    if old == "":
+        raise EditError(f"{key}: old が空です（目印にする元の字を指定してください）")
+    if spec.get("cell"):
+        sheet, r, c = resolve_target(wb, str(spec["cell"]))
+        cells = [(sheet, r, c)]
+    else:
+        sheets = [wb.sheet(str(spec["sheet"]))] if spec.get("sheet") else list(wb.sheets)
+        cells = [(sh.name, r, c) for sh in sheets for (r, c) in sorted(sh.cells)]
+    hits = []
+    for sheet, r, c in cells:
+        cell = wb.sheet(sheet).cells.get((r, c))
+        if cell is None or not isinstance(cell.value, str) or cell.has_formula:
+            continue
+        i = cell.value.find(old)
+        while i >= 0:
+            hits.append((sheet, r, c, i))
+            i = cell.value.find(old, i + 1)
+    if not hits:
+        where = f"{spec['cell']} の字" if spec.get("cell") else "文字のセル（数式でないもの）"
+        raise EditError(f"{key}: 「{old}」が{where}に見つかりません（字はセルの字のとおり、空白も含めて指定してください）")
+    occ = spec.get("occurrence")
+    if occ is not None:
+        if not isinstance(occ, int) or isinstance(occ, bool) or not 1 <= occ <= len(hits):
+            raise EditError(f"{key}: occurrence は 1〜{len(hits)} の数で指定してください（「{old}」は {len(hits)} か所）")
+        hit = hits[occ - 1]
+    elif len(hits) > 1:
+        ctx = "／".join(f"{s}!{addr(r, c)}「{wb.sheet(s).cells[(r, c)].value[max(0, i - 6):i + len(old) + 6].strip()}」"
+                       for s, r, c, i in hits[:10])
+        raise EditError(f"{key}: 「{old}」が {len(hits)} か所にあり、どれか決められないので書いていません（{ctx}"
+                        f"{'ほか' if len(hits) > 10 else ''}）。\"cell\" でセルを、同じセルの中なら \"occurrence\" で何番目かを指定してください")
+    else:
+        hit = hits[0]
+    sheet, r, c, i = hit
+    sh = wb.sheet(sheet)
+    if sh.protected and wb.style(sh.style_of(r, c)).locked and not force:
+        raise EditError(f"{key}: {sheet}!{addr(r, c)} はシート保護でロックされたセルです（Excelでも書き込めません）")
+    text = sh.cells[(r, c)].value
+    return sheet, r, c, text[:i] + new + text[i + len(old):]
+
+
 # ---------------------------------------------------------------- 書き込みの入口
 @dataclass
 class InputPlan:
@@ -772,6 +900,9 @@ class InputPlan:
     writes: list  # チェックボックス以外のフォームの部品の状態
     ax_writes: list  # ActiveX の部品の性質（MS-OFORMS）
     warnings: list
+    text_written: dict = field(default_factory=dict)  # 指示の鍵 → (シート, 行, 列)：文字のセルの一部を書き換えたもの（箱の字・字を目印・空欄）
+    replaced_text: list = field(default_factory=list)  # 印刷された字を、明示（overwrite_text・old/new）なしに置き換えたセル
+    anchored: dict = field(default_factory=dict)  # 字を目印にした指示の鍵（@…）→ 書いたセルの id
 
 
 def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bool = False,
@@ -810,7 +941,28 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
         ax_writes.extend(p_.controls)
         warnings.extend(p_.notes)
 
+    text_written: dict = {}
+    replaced_text: list = []
+    anchored: dict = {}
+    explicit: set = set()  # 字の置き換えを明示したセル（overwrite_text: true・old/new）
+
     for k, v in values.items():
+        if k.startswith("@"):
+            # 字を目印にした書き込み（Word と同じ {"old": 元の字, "new": 書き換えた後の字}）：文字のセルの、old の字を1か所だけ new にする
+            sheet, r, c, new_text = anchor_text(wb, k, v, force=force, allow_formula_overwrite=allow_formula_overwrite)
+            targets[(sheet, r, c)] = new_text
+            text_written[k] = (sheet, r, c)
+            anchored[k] = f"{sheet}!{addr(r, c)}"
+            explicit.add((sheet, r, c))
+            continue
+        overwrite_text = False
+        if isinstance(v, dict) and "value" in v and "circle" not in v:
+            # {"value": 値, "overwrite_text": true}：印刷された字のあるセルを、まるごと書き換えると明示した
+            extra = set(v) - {"value", "overwrite_text"}
+            if extra:
+                raise EditError(f"{k}: 分からない指定があります（{'・'.join(sorted(extra))}）。使えるのは value と overwrite_text です")
+            overwrite_text = v.get("overwrite_text") is True
+            v = v["value"]
         ctl = find_control(wb, k)
         if ctl is not None:
             sheet = wb.sheet(k.rsplit("!", 1)[0].strip("'")).name
@@ -865,13 +1017,43 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
 
             if cell is None or not isinstance(cell.value, str):
                 raise EditError(f"{sheet}!{addr(r, c)} は文字の中に空欄のあるセルではありません")
+            spans = blank_spans(wb, sheet, r, c)
+            vals = list(v)
+            sp_ = spans if spans is not None else [(a_, b_) for a_, b_, _k in _cell_blanks(cell.value)]
+            if len(sp_) == len(vals):
+                # 箱の字の所に true/false：その箱の字を、チェックの印の字にする（「TRUE」の字は書かない）
+                vals = [box_glyph(cell.value[a_], x) if isinstance(x, bool) and b_ - a_ == 1 and _is_box(cell.value[a_])
+                        else x for (a_, b_), x in zip(sp_, vals)]
             try:
-                v = fill_blanks(cell.value, list(v), blank_spans(wb, sheet, r, c))
+                v = fill_blanks(cell.value, vals, spans)
             except ValueError as e:
                 raise EditError(f"{sheet}!{addr(r, c)}: {e}")
             targets[(sheet, r, c)] = v
+            text_written[k] = (sheet, r, c)
+            continue
+        printed_text = (cell is not None and isinstance(cell.value, str) and cell.value.strip() != "" and not cell.has_formula
+                        and not linked)
+        if isinstance(v, bool) and printed_text and not overwrite_text:
+            # 字のあるセルに true/false：セルの字の中のチェックの箱の字（□ など）に印をつける（外す）。字は消さない
+            new_text, note = check_box_in_text(cell.value, v, f"{sheet}!{addr(r, c)}")
+            targets[(sheet, r, c)] = new_text
+            text_written[k] = (sheet, r, c)
+            warnings.append(note)
             continue
         val, notes = interpret_input(wb, sheet, r, c, v)
+        if printed_text and not overwrite_text and not keeps_printed(cell.value, val):
+            from .window import input_cells
+
+            if (r, c) in input_cells(wb, sh):
+                # 入力欄（ロックの解除・入力規則のあるセル）の、いまの値の書き換え：印刷された字ではないが、伝える
+                warnings.append(f"{sheet}!{addr(r, c)}: いまの値「{cell.value.strip()[:40]}」を「{to_text(val)[:40]}」に書き換えました")
+            else:
+                replaced_text.append(f"{sheet}!{addr(r, c)}: 印刷された字「{cell.value.strip()[:60]}」を、"
+                                     f"「{to_text(val)[:60]}」に置き換えました（元の字が残っていません）。"
+                                     "字の中の空欄に書くなら空欄ごとの値のリスト、一部を書き換えるなら {\"@1\": {\"old\": …, \"new\": …, "
+                                     "\"cell\": …}}、まるごと書き換えると決めたなら {\"value\": …, \"overwrite_text\": true} で指定してください")
+        if overwrite_text:
+            explicit.add((sheet, r, c))
         if linked:
             b = as_bool(val)
             if b is None:
@@ -885,7 +1067,7 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             warnings += notes
         targets[(sheet, r, c)] = val
 
-    return InputPlan(targets, controls, writes, ax_writes, warnings)
+    return InputPlan(targets, controls, writes, ax_writes, warnings, text_written, replaced_text, anchored)
 
 
 def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bool = False,
@@ -900,6 +1082,9 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
     plan_ = plan_inputs(wb, values, allow_formula_overwrite=allow_formula_overwrite, force=force)
     targets, controls, writes, ax_writes, warnings = (plan_.targets, plan_.controls, plan_.writes, plan_.ax_writes,
                                                       plan_.warnings)
+    text_extra = {"text_written": {k_: (f"{s_}!{addr(r_, c_)}", plan_.targets.get((s_, r_, c_)))
+                                    for k_, (s_, r_, c_) in plan_.text_written.items()},
+                  "replaced_text": list(plan_.replaced_text), "anchored": dict(plan_.anchored)}
     from .. import axfile
     from . import controls as _ctl
 
@@ -922,6 +1107,8 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
         res = _fill_xls(wb, targets, changed, problems, controls, warnings, set(by_macro or ()) | macro_written, writes,
                         ax_writes=ax_writes)
         res.macro = macro_info
+        for k_, v_ in text_extra.items():
+            setattr(res, k_, v_)
         return res
     patches: list[Patch] = []
     by_sheet: dict[str, SheetPatcher] = {}
@@ -1010,7 +1197,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
 
     blob = wb.zip.build()
     res = EditResult(blob=blob, patches=patches, warnings=warnings, unverified=unverified,
-                     full_calc_on_load=full_calc, macro=macro_info)
+                     full_calc_on_load=full_calc, macro=macro_info, **text_extra)
     res.original_sha256 = hashlib.sha256(wb.zip.original).hexdigest()
     res.sha256 = hashlib.sha256(blob).hexdigest()
     res.changed_parts = wb.zip.modified_names()

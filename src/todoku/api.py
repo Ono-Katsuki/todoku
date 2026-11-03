@@ -88,12 +88,40 @@ def _budgeted(fn):
 
     @functools.wraps(fn)
     def run(*a, **k):
+        import struct
+
+        from .cfb import CfbError
         from .limits import call_budget
 
-        with call_budget():
-            return fn(*a, **k)
+        try:
+            with call_budget():
+                return fn(*a, **k)
+        except (struct.error, CfbError) as e:
+            # 記録の長さ・位置の合わない、壊れたファイル：読み方の内部のエラー（struct.error）をそのまま見せない
+            raise ApiError(broken_message(a[0] if a else k.get("path"), e)) from None
 
     return run
+
+
+def broken_message(path, e: Exception) -> str:
+    """壊れたファイルを読めなかったときの、本人とエージェントに分かる言い方（複合ファイルなら「壊れた Office の旧形式」）。"""
+    import struct
+
+    from .cfb import BROKEN, MAGIC, CfbError
+
+    if isinstance(e, CfbError) and not isinstance(e, struct.error):
+        return str(e)
+    head = b""
+    try:
+        p = Path(str(path)).expanduser()
+        if p.is_file():
+            with p.open("rb") as f:
+                head = f.read(8)
+    except (OSError, ValueError):
+        head = b""
+    if head == MAGIC:
+        return f"{BROKEN}（.xls・.doc など）：記録の長さや位置が合わず、読めません。元のファイルが壊れていないか、もう一度受け取り直してください"
+    return "ファイルが壊れていて読めません（中の記録の長さや位置が合いません）。元のファイルが壊れていないか、もう一度受け取り直してください"
 
 
 def _member(path: str) -> tuple[str, list[str]] | None:
@@ -351,6 +379,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         before = fields(path, password, encoding)
         labels = {f["id"]: f.get("label", "") for f in before}  # 白紙のときの見出し（対話で伝える一覧に使う）
         printed = {f["id"] for f in before if f.get("label_printed")}  # 見出しが文書に印刷される字の欄
+        result["_inline"] = {f["id"] for f in before if f.get("kind") == "inline"}  # 文字の中に空欄のあるマス（書く前の窓）
     except ApiError:
         labels, printed = {}, set()
     if k in ("xlsx", "xls"):
@@ -375,19 +404,18 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             result.update({"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
                            "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
                            "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"}})
-            # 文字の中の空き（セルの中の［　］）に値の並び（リスト）で書いたセル：読み戻しと本人に伝える値は、書いたセルの字
-            from .formula.parser import addr as _addr
-            from .xlsx.edit import resolve_target
-
-            after_of = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "input"}
-            for key_, v_ in cell_values.items():
-                if isinstance(v_, (list, tuple)):
-                    try:
-                        sn_, r_, c_ = resolve_target(wb, key_)
-                    except EditError:
-                        continue
-                    if (sn_, _addr(r_, c_)) in after_of:
-                        readback_values[key_] = after_of[(sn_, _addr(r_, c_))]
+            # 字のセルの一部を書き換えたセル（空欄ごとの値のリスト・箱の字への true/false・字を目印にした old/new）：
+            # 読み戻しと本人に伝える値は、書いた後のセルの字そのもの（true ではなく「■移動支援」）
+            for key_, (id_, text_) in (res.text_written or {}).items():
+                readback_values.pop(key_, None)
+                readback_values[id_] = text_
+            if res.anchored:
+                result["anchored"] = dict(res.anchored)
+            if res.replaced_text:
+                # 印刷された字を、明示（overwrite_text・old/new）なしに置き換えた：証明の想定外の変更として示す（提出させない）
+                result["proof_ok"] = False
+                result["unexpected"] = list(res.replaced_text) + result["unexpected"]
+                result["proof"] += f"。印刷された字を置き換えたセルが {len(res.replaced_text)} か所あります（明示されていない置き換え）"
         else:
             new_blob = blob
             result.update({"proof_ok": True, "proof": "", "warnings": [], "unexpected": [], "structure_errors": [], "recalculated": {}})
@@ -443,8 +471,12 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         if circled:
             # 印刷された字を○で囲んだ所：読み戻しは、書いた後のファイルのページを読み直して、下で確かめる
             result["circled"] = [{"key": p.key, "id": p.id, "page": p.page, "text": p.circle["text"],
-                                  "label": p.circle["label"], "context": p.circle["context"], "how": "ページに楕円を描いた",
-                                  "ellipse_pt": p.circle["ellipse"]} for p in circled]
+                                  "label": p.circle["label"], "context": p.circle["context"],
+                                  "style": p.circle.get("style", "ellipse"),
+                                  "how": ("ページに四角い囲み線を描いた（○ではなく□）" if p.circle.get("style") == "border"
+                                          else "ページに楕円を描いた"),
+                                  **({"border_pt": p.circle.get("border")} if p.circle.get("style") == "border"
+                                     else {"ellipse_pt": p.circle["ellipse"]})} for p in circled]
         placed = [p for p in res.patches if p.kind == "seal"]
         if placed:
             # 本人の印影・署名の画像（本人が同意したときだけ）：何を、どこに置いたか。読み戻しは、書いた後のファイルで下で確かめる
@@ -519,8 +551,13 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             pr = prove(blob, res.blob, written_of(res.patches))
             new_blob = res.blob
             result.update({"proof_ok": pr.ok, "proof": pr.headline(), "unexpected": pr.unexpected[:20],
-                           "structure_errors": pr.lint_errors[:20]})
-            anchored = {p.key: p.id for p in res.patches if getattr(p, "anchor", None)}
+                           "structure_errors": pr.lint_errors[:20], "warnings": list(getattr(res, "warnings", None) or [])})
+            # 書いた字の書式（読み戻し）：取り消し線・非表示・自動でない字の色など、書いた字が消したように・目立って見える書式
+            fmt = _written_formatting(k, res.blob, name, res.patches)
+            if fmt:
+                result["written_formatting"] = fmt
+                result["warnings"] += [f"{x['id']}: 書いた字の書式に「{'・'.join(x['formatting'])}」があります" for x in fmt]
+            anchored = {(p.key or p.id): p.id for p in res.patches if getattr(p, "anchor", None)}
         else:
             new_blob = blob
             anchored = {}
@@ -640,19 +677,52 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         mismatch += [{"id": "段落", "written": "", "read_back": x} for x in result.pop("para_read_back", [])]
     result["read_back_ok"] = not mismatch
     result["read_back_differences"] = mismatch[:30]
+    hand = _HAND_ONLY.get(result["original_sha256"])
+    if hand is not None:
+        # 段階を決めたとき（grade_document の findings）に見つかった、手で行う所（書く D）：本人に伝えることに必ず入れる
+        result["hand_only"] = hand
+    else:
+        result["hand_only_unchecked"] = ("署名・押印など手で行う所は、まだ確かめていません（grade_document で窓を読んで findings に"
+                                         "渡すと、書き込みの結果の本人に伝えることに入ります）")
+    rects: dict = {}
+    if k == "pdf":
+        # PDF：同じ所の別の読み方（規則の欄と「？」の所）を、書いた所と重なる欄として、まだ空いている欄から外すのに使う
+        try:
+            _k, wdoc, _p = window(str(tmp), password)
+            for pg in wdoc.get("pages", []):
+                for f_ in pg.get("fields", []):
+                    if f_.get("rect"):
+                        rects[f_["id"]] = (pg.get("number"), f_["rect"])
+        except Exception:  # noqa: BLE001  重なりで外せないだけ（欄はそのまま数える）
+            rects = {}
     if told is not None:
         # 一太郎：書いた所の印がないので、読み直した窓の同じ id（残りの空白）ではなく、証明で確かめた書いた値を伝える
         rest = rest_fields if rest_fields is not None else [f for f in after_list if f["id"] not in told]
-        result.update(_to_tell(rest, told, result, labels, printed))
+        result.update(_to_tell(rest, told, result, labels, printed, rects))
     elif xl_back:
         # Excel：本人に伝える値は、セルの表示形式を通した見えている字（日付は「2026/11/3」、数は「3」）
         shown_list = [dict(f, value=xl_back[f["id"]][1]) if f["id"] in xl_back else f for f in after_list]
         result.update(_to_tell(shown_list, {k_: xl_back[k_][1] if k_ in xl_back else v for k_, v in readback_values.items()},
-                               result, labels, printed))
+                               result, labels, printed, rects))
     else:
-        result.update(_to_tell(after_list, readback_values, result, labels, printed))
+        result.update(_to_tell(after_list, readback_values, result, labels, printed, rects))
     _publish(tmp, dst, src, overwrite, result)
     return result
+
+
+def _written_formatting(k: str, blob: bytes, name: str, patches) -> list[dict]:
+    """Word（.docx・.doc）：書いた後のファイルを読み直し、書いた字の書式に、取り消し線・非表示・自動でない字の色・蛍光ペン・
+    網かけがあれば [{id, formatting}]（書いた字が、消したように・目立って印刷されるのを、読み戻しで伝える）。"""
+    try:
+        if k == "doc":
+            from .doc.fill import written_formatting
+        else:
+            from .docx.fill import written_formatting
+        found = written_formatting(blob, name)
+    except Exception as e:  # noqa: BLE001  確かめられなかったことを、黙らずに伝える
+        return [{"id": "書いた所", "formatting": [f"書いた字の書式を読み直せませんでした（{type(e).__name__}）"]}]
+    by_mark = {str(p.id).replace(".", "_").replace("#", "_"): p.id for p in patches}
+    return [dict(x, id=by_mark.get(x["id"], x["id"])) for x in found]
 
 
 def _not_source(src: Path, dst: Path) -> None:
@@ -799,7 +869,9 @@ def _circle_excel(blob: bytes, name: str, k: str, circ: dict, result: dict) -> b
     result["proof"] = (result.get("proof") or "") + (f"○ {len(sds)} つは、シートの図形に楕円を足しただけです（ほかの部品はバイト一致）"
                                                      if not bad else f"○の書き込みで想定外の変更 {len(bad)} 件")
     result["circled"] = [{"key": key_, "id": sd["id"], "sheet": sd["sheet"], "cell": sd["cell"], "text": sd["text"],
-                          "label": sd["label"], "context": sd["context"], "how": "シートの図形に楕円を足した",
+                          "label": sd["label"], "context": sd["context"], "style": sd.get("style", "ellipse"),
+                          "how": ("シートの図形に四角を足した（○ではなく□。Excel にはセルの字の一部を囲む罫線がないため、図形で囲んだ）"
+                                  if sd.get("style") == "border" else "シートの図形に楕円を足した"),
                           "uncertain": "位置は見積もり。印刷か画面で確かめが要る" + (f"：{'・'.join(sd['notes'])}" if sd["notes"] else "")}
                          for key_, sd in sds]
     w = list(result.get("warnings") or [])
@@ -834,7 +906,8 @@ def _circle_word(blob: bytes, name: str, circ: dict, result: dict) -> bytes:
     result["circled"] = [{"key": key_, "id": sd["id"], "text": sd["text"], "label": sd["label"], "context": sd["context"],
                           "style": sd["style"], "size": sd["size"],
                           "how": "字に結び付けた楕円の図形を足した" if sd["style"] == "ellipse" else "字に四角い囲み線を付けた（○ではなく□）",
-                          "uncertain": "位置は見積もり。印刷か画面で確かめが要る" if sd["style"] == "ellipse" else ""}
+                          "uncertain": ("位置は見積もり。印刷か画面で確かめが要る" + (f"：{'・'.join(sd['notes'])}" if sd.get("notes") else "")
+                                        if sd["style"] == "ellipse" else "")}
                          for key_, sd in sds]
     if any(sd["style"] == "ellipse" for _k, sd in sds):
         w = list(result.get("warnings") or [])
@@ -928,8 +1001,36 @@ def _say_value(v) -> str:
     return str(v)
 
 
+def _overlaps(a: tuple, b: tuple) -> bool:
+    """(ページ, [x0, y0, x1, y1]) の2つが、小さいほうの面積の半分以上で重なるか。"""
+    if a[0] != b[0]:
+        return False
+    (ax0, ay0, ax1, ay1), (bx0, by0, bx1, by1) = ([min(r[0], r[2]), min(r[1], r[3]), max(r[0], r[2]), max(r[1], r[3])]
+                                                  for r in (a[1], b[1]))
+    w, h = min(ax1, bx1) - max(ax0, bx0), min(ay1, by1) - max(ay0, by0)
+    small = min((ax1 - ax0) * (ay1 - ay0), (bx1 - bx0) * (by1 - by0))
+    return w > 0 and h > 0 and small > 0 and w * h >= 0.5 * small
+
+
+def _verbatim_label(f: dict) -> str:
+    """本人に伝える見出し：窓の見出しが「推定した見出し：その行の字（［▶］入り）」の形で、推定した見出しの語がその行（context。
+    窓の読み順の字のとおり）にないときは、その語を外し、行の字のとおりにする（ほかの行・列から推定した語「個人番号：」が、
+    手帳番号の欄に付いて伝わらないように）。"""
+    lab, ctx = f.get("label") or "", f.get("context") or ""
+    i = lab.find("［▶")
+    p = lab.rfind("：", 0, i) if i > 0 else -1
+    if p <= 0 or "［" in lab[:p]:
+        return lab
+
+    def flat(s: str) -> str:
+        return re.sub(r"\s+", "", s)
+
+    keep = [x for x in lab[:p].split("／") if x and flat(x) in flat(ctx)]
+    return "／".join(keep) + "：" + lab[p + 1:] if keep else lab[p + 1:]
+
+
 def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict | None = None,
-             printed: set | None = None) -> dict:
+             printed: set | None = None, rects: dict | None = None) -> dict:
     """本人が Word などで開いて確かめなくても、エージェントが対話で伝えられるように：書いた所（見出しと、書いた後の
     ファイルを読み直した値）・まだ空いている欄・本人に伝えること。
     見出しは、書く前の書類の見出し（labels）を使う：書いた後の書類では、いま書いた値が隣の欄の見出しに見えることがある
@@ -938,18 +1039,43 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
     labels = labels or {}
     printed = printed or set()
     after_list = [dict(f, label=labels[f["id"]]) if labels.get(f["id"]) else f for f in after_list]
+    after_list = [dict(f, label=_verbatim_label(f)) if f.get("label") and f.get("context") else f for f in after_list]
     by_id = {f["id"]: f for f in after_list}
     told = []
+    whole_text = set()  # 文字の中に空欄のあるマス（inline）：読み戻した値は、マスの字の全体
+    inline_before = result.pop("_inline", None) or set()
     for key, v in written.items():
         f = by_id.get(key, {})
-        d = {"id": key, "label": (labels or {}).get(key) or f.get("label", ""), "value": f.get("value", v) if f else v}
+        lab = labels.get(key) or f.get("label", "")
+        if f.get("label") and f.get("context"):
+            lab = f["label"]
+        d = {"id": key, "label": lab, "value": f.get("value", v) if f else v}
         for k_ in ("sheet", "page"):
             if k_ in f:
                 d[k_] = f[k_]
+        if (f.get("kind") == "inline" or key in inline_before) and isinstance(d["value"], str) and "!" in key:
+            whole_text.add(key)
         told.append(d)
+    written_ids = {d["id"] for d in told} | set((result.get("anchored") or {}).values())
+    rects = rects or {}
+    written_rects = [rects[i] for i in written_ids if i in rects]
+
+    def covered(f: dict) -> bool:
+        """書いた所と同じ所の欄（同じ id・同じ所の別の読み方・ページの上で大きく重なる欄）：まだ空いている欄に数えない。"""
+        if f["id"] in written_ids or f.get("alternative_to") in written_ids:
+            return True
+        r = rects.get(f["id"])
+        return r is not None and any(_overlaps(r, w) for w in written_rects)
+
     empty = [f for f in after_list if f.get("value") in (None, "") and not f.get("readonly") and not f.get("agent")
-             and f.get("kind") not in ("checkbox", "radio", "button", "picture")]
+             and f.get("kind") not in ("checkbox", "radio", "button", "picture") and not covered(f)]
     notes = list(result.get("warnings") or [])
+    hand = result.get("hand_only")
+    if hand:
+        # 手で行う所（署名・押印など。段階の書く D の理由）：とどくは書いていない。本人が紙の上で行うことを、必ず伝える
+        notes.insert(0, "手で行う所（とどくは書いていません。本人が紙の上で行います）："
+                     + "／".join(f"{h['title']}" + (f"（{h['detail']}）" if h.get("detail") else "")
+                                + (f"［{'・'.join(h['where'])}］" if h.get("where") else "") for h in hand))
     if not result.get("proof_ok", True):
         notes.insert(0, "書き込みの証明で、想定外の変更が見つかりました：" + "／".join(map(str, result.get("unexpected") or []))[:300])
     if not result.get("read_back_ok", True):
@@ -977,6 +1103,8 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
 
     def shown(d: dict) -> str:
         v = "☑" if d["value"] is True else "☐" if d["value"] is False else _say_value(d["value"])
+        if d["id"] in whole_text:
+            return v.strip()  # マスの字の全体（書いた後の字のとおり。空欄に差し込んだ形にしない）
         lab = d["label"] or ""
         m = re.search(r"［▶[^］]*］", lab) or re.search(r"［[ 　]*］", lab)
         if lab and m:
@@ -1309,6 +1437,7 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
     """段階（S〜F）：誰が扱えば正確に読んで入れられるか。規則で決めた段階と、エージェントが確かめること。
     findings（エージェントが窓を読んで見つけたこと：{grade, title, detail, where}）を渡すと、段階に合わせる。
     パスワードで保護された書類は、本人に聞いたパスワードで解いた中身で決める（パスワードがなければ PasswordNeeded）。"""
+    from .cfb import CfbError
     from .grade import combine, grade_blob, unsupported_grade
     from .unlock import pdf_password
 
@@ -1317,11 +1446,40 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
     except Unsupported as e:
         g = unsupported_grade(e.kind)  # まだ読めない形式：段階 F と、その理由
         return (combine(g, findings or [], answered) if findings or answered else g).to_dict()
+    except CfbError as e:
+        # 形式を見分ける前に、複合ファイルの作りが壊れている：開けない（F）
+        from .grade import _locked
+
+        g = _locked("開けない", str(e), "読めないので、書けません")
+        return (combine(g, findings or [], answered) if findings or answered else g).to_dict()
     encoding = _encoding(blob, k, encoding)
     g = grade_blob(blob, name, password=pdf_password(lock), encoding=encoding)
     if findings or answered:
         g = combine(g, findings or [], answered)
+    _remember_hand_only(path, g, findings, answered)
     return g.to_dict()
+
+
+# 手で行う所（署名・押印・拇印・公証など。書く段階 D の理由）：段階を決めたときに見つかったものを、ファイルの中身ごとに控え、
+# そのファイルに書いた結果の「本人に伝えること」に入れる（白紙のまま残る署名の欄を、本人に伝え落とさないように）
+_HAND_ONLY: "dict[str, list[dict]]" = {}
+
+
+def _remember_hand_only(path: str, g, findings, answered) -> None:
+    hand = [{"title": r.title, "detail": r.detail, "where": list(r.where), "by": r.by}
+            for r in g.write_reasons if r.grade == "D" and r.by == "agent"]
+    checked = bool(hand) or "cannot_do" in (answered or []) or any((f or {}).get("check") == "cannot_do" for f in findings or [])
+    if not checked:
+        return
+    p = Path(path).expanduser()
+    if not p.is_file():
+        return
+    try:
+        _HAND_ONLY[hashlib.sha256(_read_file(p)).hexdigest()] = hand
+    except Exception:  # noqa: BLE001  控えられないだけ（書き込みの結果に「まだ確かめていない」と出る）
+        return
+    while len(_HAND_ONLY) > 64:
+        _HAND_ONLY.pop(next(iter(_HAND_ONLY)))
 
 
 @_budgeted

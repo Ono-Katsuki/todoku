@@ -34,6 +34,79 @@ class Patch:
     key: str = ""  # 指定したときの名前（「@1」など）
 
 
+# 書いた字に引き継がない文字の書式（w:rPr の子）：消したように見える（取り消し線・非表示）・目立つ（字の色・蛍光ペン・網かけ）もの。
+# 空のマスの段落記号・空白の字の要素に残った書式（見本の字を消した跡など）が、本人の名前に付かないように。値が「なし」のものは残す
+_DROP_RPR = {"strike": "取り消し線", "dstrike": "二重取り消し線", "vanish": "非表示", "specVanish": "非表示",
+             "webHidden": "非表示（Web）", "color": "字の色", "highlight": "蛍光ペン", "shd": "網かけ"}
+_RPR_CHILD = re.compile(rb"<(?:[\w.-]+:)?(strike|dstrike|vanish|specVanish|webHidden|color|highlight|shd)\b([^>]*?)(?:/>|>.*?</(?:[\w.-]+:)?\1>)",
+                        re.S)
+
+
+def _rpr_on(name: str, attrs: bytes) -> bool:
+    """rPr の子の要素が、見た目を変える値か（「なし」・自動・黒でないか）。"""
+    val = re.search(rb'(?:\w+:)?val="([^"]*)"', attrs)
+    v = val[1].decode().lower() if val else None
+    if name in ("strike", "dstrike", "vanish", "specVanish", "webHidden"):
+        return v not in ("false", "0", "off")
+    if name == "color":
+        return v not in ("auto", "000000", None) or b"themeColor" in attrs
+    if name == "highlight":
+        return v not in ("none", None)
+    if name == "shd":
+        fill = re.search(rb'(?:\w+:)?fill="([^"]*)"', attrs)
+        f = fill[1].decode().lower() if fill else "auto"
+        return f not in ("auto", "ffffff", "") or v not in ("clear", "nil", None)
+    return False
+
+
+def clean_rpr(rpr: bytes) -> tuple[bytes, list[str]]:
+    """書いた字に付ける書式（rPr のバイト列）：_DROP_RPR の、見た目を変える値の要素を除いたものと、除いた書式の名前。
+    子の要素のなくなった rPr は b""（段落・スタイルの既定の書式）。証明（docx/proof.py）も同じ関数で、認める書式を作る。"""
+    if not rpr:
+        return rpr, []
+    names: list[str] = []
+
+    def drop(m: re.Match) -> bytes:
+        name = m[1].decode()
+        if _rpr_on(name, m[2]):
+            names.append(_DROP_RPR[name])
+            return b""
+        return m[0]
+
+    out = _RPR_CHILD.sub(drop, rpr)
+    if re.fullmatch(rb"<(?:[\w.-]+:)?rPr\b[^>]*>\s*</(?:[\w.-]+:)?rPr>", out):
+        out = b""
+    return out, list(dict.fromkeys(names))
+
+
+def written_formatting(blob: bytes, name: str = "") -> list[dict]:
+    """書いた後の文書を読み直し、書いた所（しおり _todoku_…）の字の書式に、消したように・目立って見えるもの（_DROP_RPR の
+    「なし」でない値）があれば [{id, formatting}]（読み戻しで伝える）。"""
+    from ..zipraw import RawZip
+
+    z = RawZip(blob)
+    out = []
+    start = re.compile(rb'<(?:[\w.-]+:)?bookmarkStart\b[^>]*?\bw?:?id="(\d+)"[^>]*?\bw?:?name="' + re.escape(MARK_PREFIX.encode())
+                       + rb'([^"]*)"[^>]*/>')
+    for part in z.names():
+        if not (part.startswith("word/") and part.endswith(".xml")):
+            continue
+        xml = z.read(part)
+        if MARK_PREFIX.encode() not in xml:
+            continue
+        for m in start.finditer(xml):
+            end = re.search(rb'<(?:[\w.-]+:)?bookmarkEnd\b[^>]*?\bid="' + m[1] + rb'"', xml[m.end():])
+            body = xml[m.end():m.end() + end.start()] if end else b""
+            found = []
+            for rp in re.finditer(rb"<(?:[\w.-]+:)?rPr\b[^>]*>.*?</(?:[\w.-]+:)?rPr>", body, re.S):
+                for c in _RPR_CHILD.finditer(rp[0]):
+                    if _rpr_on(c[1].decode(), c[2]):
+                        found.append(_DROP_RPR[c[1].decode()])
+            if found:
+                out.append({"id": m[2].decode(), "formatting": list(dict.fromkeys(found))})
+    return out
+
+
 def written_of(patches) -> dict:
     """証明に渡す、書いた欄 → 値（字を目印にした書き込みは、目印も渡す）。"""
     return {p.id: ({"@": p.anchor, "value": p.value} if p.anchor else p.value) for p in patches}
@@ -228,10 +301,14 @@ class Filler:
             xml = ed.xml
             rpr = run.find("rPr")
             rpr_b = xml[rpr.s:rpr.e] if rpr is not None else b""
+            rpr_v, dropped = clean_rpr(rpr_b)  # 書いた値の字の書式（取り消し線・字の色などは引き継がない）
             r_open = xml[run.s:run.se] if run.se != run.e else f"<{pre}:r>".encode()
             r_close = f"</{pre}:r>".encode()
             out = bytearray()
             buf = bytearray()
+            if dropped and any(op[3] is not None for op in ops):
+                self.note_dropped([m_[1].decode() for op in ops if op[3] is not None and op[4]
+                                   for m_ in [re.search(rb'name="' + MARK_PREFIX.encode() + rb'([^"]*)"', op[4][0])] if m_], dropped)
 
             def flush():
                 nonlocal buf
@@ -272,7 +349,7 @@ class Filler:
                     buf += _t(pre, text[cur:k0])
                     if value is not None:
                         flush()
-                        out.extend((bm[0] if bm else b"") + r_open + rpr_b + _t(pre, value) + r_close + (bm[1] if bm else b""))
+                        out.extend((bm[0] if bm else b"") + r_open + rpr_v + _t(pre, value) + r_close + (bm[1] if bm else b""))
                         buf += _t(pre, pad)
                     cur = k1
                 buf += _t(pre, text[cur:])
@@ -346,6 +423,12 @@ class Filler:
             at = ppr.e if ppr is not None else node.find("pPr").e
             ped.put(at, at, bm[0] + bm[1])
 
+    def note_dropped(self, ids: list, names: list[str]) -> None:
+        """引き継がなかった書式を、警告で伝える（書いた字の書式を、黙って決めない）。"""
+        shown = "・".join(str(i) for i in ids if i) or "書いた所"
+        self.warnings.append(f"{shown}: 書く所に残っていた書式（{'・'.join(names)}）は、書いた字に引き継がず、"
+                             "段落・スタイルの既定の書式（字の大きさ・書体はそのまま）で書きました")
+
     # ------------------------------------------------------------------ 表の空のマス
     def fill_cell(self, item: dict, value: str) -> None:
         p: Para = item["para"]
@@ -362,6 +445,9 @@ class Filler:
             if mark is not None:
                 inner = b"".join(xml[x.s:x.e] for x in mark.kids if x.local not in ("ins", "del", "moveFrom", "moveTo"))
                 rpr_b = f"<{pre}:rPr>".encode() + inner + f"</{pre}:rPr>".encode() if inner else b""
+        rpr_b, dropped = clean_rpr(rpr_b)  # 空のマスに残った取り消し線・字の色などは引き継がない
+        if dropped:
+            self.note_dropped([item["id"]], dropped)
         start_bm, end_bm = self.bookmark(item["id"])
         run = start_bm + f"<{pre}:r>".encode() + rpr_b + _t(pre, value) + f"</{pre}:r>".encode() + end_bm
         if node.se == node.e:
@@ -385,6 +471,9 @@ class Filler:
         src = after_run if style_run is None else style_run
         rpr = src.find("rPr") if src is not False else None
         rpr_b = xml[rpr.s:rpr.e] if rpr is not None else b""
+        rpr_b, dropped = clean_rpr(rpr_b)
+        if dropped:
+            self.note_dropped([item["id"]], dropped)
         start_bm, end_bm = self.bookmark(item["id"])
         ed.put(after_run.e, after_run.e,
                start_bm + f"<{pre}:r>".encode() + rpr_b + _t(pre, value) + f"</{pre}:r>".encode() + end_bm)

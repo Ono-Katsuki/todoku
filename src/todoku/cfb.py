@@ -22,6 +22,14 @@ class CfbError(ValueError):
     pass
 
 
+BROKEN = "壊れた Office の旧形式（複合ファイル）です"
+
+
+def broken(e: Exception) -> CfbError:
+    """複合ファイルの記録の長さ・位置が合わない（途中で切れた・壊れた）ときの、todoku のエラー（struct.error などを包む）。"""
+    return CfbError(f"{BROKEN}：記録の長さや位置が合わず、読めません（途中で切れているか、壊れています）")
+
+
 @dataclass
 class DirEntry:
     index: int
@@ -39,6 +47,14 @@ class CFB:
     def __init__(self, blob: bytes):
         if blob[:8] != MAGIC:
             raise CfbError("複合ファイルではありません")
+        try:
+            self._parse(blob)
+        except CfbError:
+            raise
+        except (struct.error, IndexError, ValueError, OverflowError, MemoryError) as e:
+            raise broken(e) from None
+
+    def _parse(self, blob: bytes) -> None:
         self.blob = blob
         (self.minor, self.major, order, sshift, mshift) = struct.unpack_from("<HHHHH", blob, 0x18)
         if order != 0xFFFE:

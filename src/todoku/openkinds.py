@@ -14,7 +14,8 @@ KIND_JA = {"csv": "CSV", "tsv": "TSV（タブ区切り）", "json": "JSON", "jso
            "odt": "OpenDocument の文書（.odt）", "ods": "OpenDocument の表計算（.ods）",
            "fodt": "OpenDocument の文書（.fodt・1つの XML）", "fods": "OpenDocument の表計算（.fods・1つの XML）",
            "txt": "テキスト（.txt）", "pptx": "PowerPoint（.pptx）",
-           "hwpx": "한글の文書（.hwpx）", "hwp": "한글の文書（.hwp・HWP 5）"}
+           "hwpx": "한글の文書（.hwpx）", "hwp": "한글の文書（.hwp・HWP 5）",
+           "markup": "HTML・XML（字だけを読む）"}
 KINDS = frozenset(KIND_JA)
 DATA = frozenset({"csv", "tsv", "json", "jsonl"})
 TEXT_DOCS = frozenset({"odt", "fodt"})
@@ -31,7 +32,7 @@ def _err(e: Exception) -> OpenFormatError:
 
 
 # ====================================================================== 窓
-TEXT_FILES = DATA | {"txt"}  # 文字だけのファイル：文字コードを textenc で決める（encoding を渡せる）
+TEXT_FILES = DATA | {"txt", "markup"}  # 文字だけのファイル：文字コードを textenc で決める（encoding を渡せる）
 
 
 def window(k: str, blob: bytes, name: str, encoding: str | None = None) -> tuple[dict, list[tuple[str, str]]]:
@@ -83,6 +84,11 @@ def window(k: str, blob: bytes, name: str, encoding: str | None = None) -> tuple
 
             win = build5(Hwp5Document(blob, name))
             return win, markdown_parts(win)
+        if k == "markup":
+            from . import markup
+
+            win = markup.build(blob, name, encoding)
+            return win, markup.markdown_parts(win)
     except (ValueError, KeyError) as e:
         raise _err(e) from None
     raise OpenFormatError(f"この形式（{k}）は扱えません")
@@ -114,6 +120,9 @@ def summary(k: str, doc: dict) -> dict:
         d["format"] = doc.get("format")
     elif k == "pptx":
         d["slides"] = len(doc.get("slides") or [])
+    elif k == "markup":
+        d["format"] = doc.get("format")
+        d["read_only"] = doc.get("note")
     else:
         d["protection"] = doc.get("protection")
     return d
@@ -146,6 +155,9 @@ def fill(k: str, blob: bytes, name: str, values: dict, force: bool = False, enco
         return api_fill(blob, name, values, force)
     if k == "hwpx":
         return _fill_hwpx(blob, name, values, force)
+    if k == "markup":
+        raise OpenFormatError("HTML・XML には書きません（とどくは字だけを読みます。タグのある字への書き込みを証明する方法を"
+                              "作っていません）。書く必要があれば、本人に、Word・Excel・PDF など書ける形式の様式があるかを確かめてください")
     if k == "hwp":
         raise OpenFormatError("HWP 5（.hwp）には書けません。HWPX で保存し直せば書ける（한글の「다른 이름으로 저장」で .hwpx を選ぶ。"
                               "本人に、HWPX で保存し直したファイルを頼んでください）")
@@ -337,6 +349,10 @@ def audit_runner(k: str, encoding: str | None = None):
         from .hwpx.audit import run5
 
         return run5
+    if k == "markup":
+        from .markup import audit
+
+        return audit
     raise OpenFormatError(f"この形式（{k}）は検査できません")
 
 
@@ -362,6 +378,10 @@ def grade(k: str, blob: bytes, name: str, encoding: str | None = None):
             return _grade_textdoc(build(RtfDocument(blob, name)), "RTF", "フォームの欄")
         if k == "txt":
             return _grade_txt(blob, name, encoding)
+        if k == "markup":
+            from .markup import grade as mgrade
+
+            return mgrade(blob, name, encoding)
         if k == "pptx":
             from .pptx.document import PptxDocument
             from .pptx.window import build
@@ -372,7 +392,8 @@ def grade(k: str, blob: bytes, name: str, encoding: str | None = None):
             win = build(doc)
             # スライドの画像は、スライドの中身（スライドの型の絵は数えない）。見出しは、タイトルのプレースホルダーの段落
             slides = [b for sl in doc.slides for b in sl["blocks"]]
-            extra = content_image_reasons(doc, win, slides, lambda p: p.style == "Title", "スライド")
+            extra = content_image_reasons(doc, win, slides, lambda p: p.style == "Title", "スライド",
+                                          pages=[sl["blocks"] for sl in doc.slides])
             return _grade_textdoc(win, "PowerPoint", "作り手の印のある欄", extra)
         if k in HANGUL:
             from .hwpx.grade import grade as hgrade

@@ -309,6 +309,14 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None, enc
         if k == "jtd":
             return _grade_jtd(blob, filename)
     except Exception as e:  # noqa: BLE001
+        import struct
+
+        from .cfb import BROKEN, MAGIC
+
+        if isinstance(e, struct.error) and blob[:8] == MAGIC:
+            return _locked("開けない", f"{BROKEN}：記録の長さや位置が合わず、読めません", "読めないので、書けません")
+        if isinstance(e, struct.error):
+            return _locked("開けない", "ファイルが壊れていて読めません（中の記録の長さや位置が合いません）", "読めないので、書けません")
         return _locked("開けない", f"ファイルを読めませんでした（{type(e).__name__}: {str(e)[:80]}）", "読めないので、書けません")
     return _locked("対応していない形式", f"この形式（{k}）は、まだ読めません", "読めないので、書けません")
 
@@ -692,7 +700,7 @@ def _words(p) -> str:
     return "".join(s.text for s in getattr(p, "segs", []) if not s.hidden and s.kind in ("t", "sym", "math", "ruby")).strip()
 
 
-def content_image_reasons(doc, win: dict, body_blocks, heading, body_ja: str) -> list[Reason]:
+def content_image_reasons(doc, win: dict, body_blocks, heading, body_ja: str, pages: list | None = None) -> list[Reason]:
     """本文の中身である、説明（代わりの字）のない画像：エージェントは画像の中身を字として読めないので、見て確かめる。
     本文の中身か（ヘッダー・フッターの飾りでないか）は、画像のある段落が本文の段落か（表のマス・テキストボックスの中も含む）で、
     飾りかは作り手の印（decorative）で決める（ファイルの作り。大きさや字の数の目安は使わない）。
@@ -719,8 +727,86 @@ def content_image_reasons(doc, win: dict, body_blocks, heading, body_ja: str) ->
         return [Reason("E", "中身が画像の文書",
                        f"{body_ja}には、見出し・図表番号のほかに字の段落がなく、中身は説明（代わりの字）のない画像 {len(bare)} 個です。{see}",
                        where[:12])]
+    # ページ（スライド）ごと：字が1字もなく、説明のない画像だけのページは、PDF の画像だけのページと同じく読む E
+    # （ページの区切りは、ファイルの作り：スライド、Word が最後に描いたときのページの区切り w:lastRenderedPageBreak・
+    # 改ページ・ページを改める区切り。区切りの記録のない文書は、ページごとには決めない）
+    by_n = {f"図{p['n']}": w for p, w in zip(bare, where)}
+    only = _image_only_pages(paras, bare, pages)
+    if only:
+        what = "スライド" if pages is not None else "ページ"
+        return [Reason("E", f"画像だけの{what}",
+                       f"字が1字もなく、中身が説明（代わりの字）のない画像だけの{what}が {len(only)} あります"
+                       f"（{'・'.join(f'{n} {what}目' for n, _p in only[:12])}）。PDF の画像だけのページと同じく、中身は字として読めません。{see}",
+                       [by_n.get(f"図{p['n']}", f"図{p['n']}") for _n, ps in only for p in ps][:12])]
     # ほかに本文の字がある：説明のない画像は、段階とは別のアクセシビリティの注意（picture_alerts）に位置を示す。段階は変えない
     return []
+
+
+def _image_only_pages(paras: list, bare: list[dict], pages: list | None) -> list[tuple[int, list[dict]]]:
+    """字が1字もなく、説明のない画像（bare）のあるページ（スライド）：[(何ページ目か, その画像)]。
+    pages：スライドごとの段落の並び（PowerPoint）。なければ、Word の段落の中の区切り（w:lastRenderedPageBreak・
+    w:br type="page"・w:pageBreakBefore・ページを改めるセクションの区切り）でページに分ける。区切りがなければ []。"""
+    from .docx.document import iter_paras
+
+    bare_by_para: dict[int, list[dict]] = {}
+    for p in bare:
+        bare_by_para.setdefault(id(p.get("para")), []).append(p)
+    out = []
+    if pages is not None:
+        for n, blocks in enumerate(pages, 1):
+            ps = list(iter_paras(blocks))
+            pics = [x for q in ps for x in bare_by_para.get(id(q), [])]
+            if pics and not any(_words(q) for q in ps):
+                out.append((n, pics))
+        return out
+    # Word：段落の字・画像・区切りを、XML の中の位置（同じ部品の中では、文書の順）で並べる
+    events: list[tuple[int, int, str, object]] = []  # (位置, 同じ位置での順, 何か, 画像)
+    breaks = 0
+    for q in paras:
+        node = getattr(q, "node", None)
+        if node is None or not hasattr(node, "iter"):
+            return []
+        ppr = node.find("pPr")
+        pb = ppr.find("pageBreakBefore") if ppr is not None else None
+        if pb is not None and str(pb.get("val", "1")).lower() not in ("0", "false", "off"):
+            events.append((node.s, 0, "break", None))
+            breaks += 1
+        for n_ in node.iter():
+            if n_.local == "lastRenderedPageBreak" or (n_.local == "br" and n_.get("type") == "page"):
+                events.append((n_.s, 1, "break", None))
+                breaks += 1
+        for s in q.segs:
+            if s.hidden:
+                continue
+            at = s.node.s if s.node is not None else (s.run.s if s.run is not None else node.s)
+            if s.kind in ("t", "sym", "math", "ruby") and s.text.strip():
+                events.append((at, 2, "text", None))
+        for x in bare_by_para.get(id(q), []):
+            mark = f"〔図{x['n']}（説明なし）〕"
+            seg = next((s for s in q.segs if s.text == mark), None)
+            at = seg.run.s if seg is not None and seg.run is not None else node.s
+            events.append((at, 2, "pic", x))
+        sect = ppr.find("sectPr") if ppr is not None else None
+        if sect is not None:
+            typ = sect.find("type")
+            if typ is None or typ.get("val") not in ("continuous",):
+                events.append((node.e, 3, "break", None))
+                breaks += 1
+    if not breaks or len({getattr(q, "part", "") for q in paras}) > 1:
+        return []
+    page, has_text, pics = 1, False, []
+    for _at, _o, what, x in sorted(events, key=lambda e: (e[0], e[1])):
+        if what == "break":
+            if pics and not has_text:
+                out.append((page, pics))
+            page, has_text, pics = page + 1, False, []
+        elif what == "text":
+            has_text = True
+        else:
+            pics.append(x)
+    if pics and not has_text:
+        out.append((page, pics))
+    return out
 
 
 def _word_lost(doc, win: dict, kind: str) -> list[Reason]:

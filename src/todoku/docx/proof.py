@@ -175,6 +175,10 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
         old_fmt = {_fmt(p_old, s, a) for s in p_old.segs if s.run is not None}
         old_fmt.add(_mark_fmt(p_old, a))
         old_fmt.add(b"")
+        # 書いた字には、取り消し線・字の色などを引き継がない（docx.fill.clean_rpr）：その書式を除いた形も、元の段落の書式として認める
+        from .fill import clean_rpr
+
+        old_fmt |= {clean_rpr(f)[0] for f in old_fmt}
         # 書いたコンテンツコントロールの字の、プレースホルダーの文字のスタイル（w:rStyle）を外した書式：Word が値を入れるときと
         # 同じ変更なので、書き込みの一部として認める（外してよいのは、そのスタイルの要素だけ）
         from .fill import placeholder_style
