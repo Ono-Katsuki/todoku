@@ -132,6 +132,39 @@ def test_right_gap_keeps_one_em_before_the_following_text(tmp_path):
     assert doc is not None
 
 
+# ---------------------------------------------------------------- PDF：字の行が縦に並ぶマスの欄
+def _stack_pdf() -> bytes:
+    rules = (b"0.8 w 60 700 m 300 700 l S 60 630 m 300 630 l S 60 700 m 60 630 l S 300 700 m 300 630 l S "
+             b"20 700 m 60 700 l S 20 630 m 60 630 l S 20 700 m 20 630 l S\n")
+    return _pdf([(25, 662, 10, "金融機関"), (200, 688, 10, "銀行"), (200, 674, 10, "信用金庫"), (200, 660, 10, "信用組合"),
+                 (200, 646, 10, "農協")], rules)
+
+
+def _stack_spot(data):
+    from todoku.pdf.doc import PdfDocument
+    from todoku.pdf.window import build
+
+    win = build(PdfDocument(data))
+    return next(f for pg in win["pages"] for f in pg["fields"] if f.get("kind") == "text" and f["rect"][0] < 200
+                and f["rect"][2] <= 201 and f["rect"][3] - f["rect"][1] > 40)
+
+
+def test_value_beside_stacked_lines_goes_to_the_circled_line(tmp_path):
+    data = _stack_pdf()
+    spot = _stack_spot(data)
+    r, _ = _write(tmp_path, data, "t.pdf", {spot["id"]: "架空", "@c1": {"circle": "信用金庫", "page": 1, "style": "border"}})
+    assert r["proof_ok"] and r["read_back_ok"]
+    assert any("○で囲んだ「信用金庫」の行の高さ" in w for w in r["warnings"]), r["warnings"]
+
+
+def test_value_beside_stacked_lines_without_circle_avoids_the_lines(tmp_path):
+    data = _stack_pdf()
+    spot = _stack_spot(data)
+    r, _ = _write(tmp_path, data, "t.pdf", {spot["id"]: "架空"})
+    assert r["proof_ok"] and r["read_back_ok"]
+    assert any("行の高さにかからない" in w or "続けて読めることがあります" in w for w in r["warnings"]), r["warnings"]
+
+
 # ---------------------------------------------------------------- ○：near の字の中の囲む字（circlepick）
 def _two_rows_pdf() -> bytes:
     return _pdf([(70, 700, 10, "生年月日　大・昭・平・令　　年"), (70, 660, 10, "交付日　大・昭・平・令　　年"),

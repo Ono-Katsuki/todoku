@@ -1245,6 +1245,7 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
     used: dict = {}
     circ_used: dict = {}  # ○で囲んだ所（ページ → 番号と楕円）
     layouts: dict = {}
+    circled_spans = None  # 同じ書き込みで○で囲む字の所（ページ → [(上, 下)]）：字の行が縦に並ぶマスの欄の高さを決める
     xf = _xfa_form(doc)
     xfa_values = {k: v for k, v in values.items() if xf is not None and k in xf.by_id}
     for key, value in values.items():
@@ -1313,6 +1314,9 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
             if page_no not in views:
                 views[page_no] = View(doc, f.pages[page_no - 1])
             sd, value = as_kind(sd, value)
+            if circled_spans is None:
+                circled_spans = _circled_spans(doc, values, layouts)
+            sd = _stacked_band(f, doc, page_no, sd, value, layouts, circled_spans)
             f.add_widget(page_no, sd, value, views[page_no])
         except FillError as e:
             msg = str(e)
@@ -1350,6 +1354,90 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
             raise FillError("書いた所が、ほかの字や線に重なるので、書き出していません：\n" + "\n".join(probs[:12]))
         f.warnings += [x for x in notes if x not in f.warnings]
     return FillResult(blob, f.patches, f.warnings, denied=denied)
+
+
+def _circled_spans(doc, values: dict, layouts: dict) -> dict:
+    """同じ書き込みで○で囲む字の所：ページ → [(上, 下)]（見た目の座標）。決まらない○は、ここでは除く（あとで断る）。"""
+    from . import circle as _circle
+    from .anchor import AnchorError
+
+    out: dict = {}
+    for _k, v in values.items():
+        if not (isinstance(v, dict) and "circle" in v):
+            continue
+        try:
+            n, _cell, ln, a, b = _circle.find(doc, v, layouts)
+        except (AnchorError, Exception):  # noqa: BLE001  決まらない○は、書くときに理由を添えて断る
+            continue
+        r = ln.span_rect(a, b)
+        out.setdefault(n, []).append((r[1], r[3]))
+    return out
+
+
+def _stacked_band(f: Filler, doc, page_no: int, sd: dict, value, layouts: dict, circled: dict) -> dict:
+    """窓の欄（字の欄）のすぐ右か左に、印刷された字の行が縦に 2 つ以上並ぶ（「銀行／信用金庫／信用組合／農協」）とき、
+    欄の縦の中ほどに書くと、たまたまその高さにある行（「信用組合」）に続けて読める。そこで書く高さを決める：
+    1) 同じ書き込みで、並んだ行のどれかの字を○で囲むなら、その行の高さ
+    2) なければ、並んだ行のどれの高さにもかからない、字の入る空き（帯）
+    3) どちらもなければ、元のまま書いて、どの行に続けて読めるかを伝える"""
+    if sd.get("kind") != "text" or sd.get("source") == "acroform" or not sd.get("rect") or "\n" in str(value):
+        return sd
+    from . import circle as _circle
+
+    lay = _circle.layout(doc, page_no, layouts)
+    x0, y0, x1, y1 = sd["rect"]
+    size = float(sd.get("size") or 10.5)
+    reach = 3 * size
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    home = next((c for c in lay.cells if c.x0 <= cx <= c.x1 and c.y0 <= cy <= c.y1), None)  # 欄のあるマス（同じマスの行だけ）
+    rows = []
+    for cell_, ln in _circle._lines(lay):
+        if ln.vertical or not ln.text.strip() or ln.y0 < y0 - 0.5 or ln.y1 > y1 + 0.5:
+            continue
+        if home is not None and cell_ is not home:
+            continue
+        right = ln.x0 >= x1 - 1 and ln.x0 - x1 <= reach
+        left = ln.x1 <= x0 + 1 and x0 - ln.x1 <= reach
+        if right or left:
+            rows.append(ln)
+    rows.sort(key=lambda ln: ln.y0)
+    distinct = []
+    for ln in rows:
+        if not distinct or ln.y0 >= distinct[-1].y1 - 0.2 * ln.size:
+            distinct.append(ln)
+    if len(distinct) < 2:
+        return sd
+    def _short(ln) -> str:
+        return re.sub(r"\s+", "", ln.text)[:8]
+
+    names = "／".join(_short(ln) for ln in distinct[:6])
+
+    def band(ln):
+        return (max(y0, ln.y0 - 0.15 * ln.size), min(y1, ln.y1 + 0.15 * ln.size))
+
+    picked = [ln for ln in distinct if any(a < ln.y1 and b > ln.y0 for a, b in circled.get(page_no, []))]
+    if len(picked) == 1:
+        b0, b1 = band(picked[0])
+        f.warnings.append(f"{sd['id']}: 横に字の行が {len(distinct)} 行並ぶ所（{names}）なので、○で囲んだ"
+                          f"「{_short(picked[0])}」の行の高さに書きました")
+        return {**sd, "rect": [x0, b0, x1, b1]}
+    # 並んだ行の高さにかからない空き
+    need = 0.9 * min(size, 10.5)
+    edges = [y0] + [v for ln in distinct for v in (ln.y0 - 0.1 * ln.size, ln.y1 + 0.1 * ln.size)] + [y1]
+    gaps = [(edges[i], edges[i + 1]) for i in range(0, len(edges) - 1, 2) if edges[i + 1] - edges[i] >= need]
+    if gaps:
+        g0, g1 = max(gaps, key=lambda g: g[1] - g[0])
+        where = "上" if g1 <= distinct[0].y0 else "下" if g0 >= distinct[-1].y1 else "あいだ"
+        f.warnings.append(f"{sd['id']}: 横に字の行が {len(distinct)} 行並ぶ所（{names}）なので、どの行の字にも続けて読めないよう、"
+                          f"行の高さにかからない{where}の空きに書きました。選ぶ行の字を同じ書き込みで○にすると、その行の高さに書きます")
+        return {**sd, "rect": [x0, g0, x1, g1]}
+    mid = (y0 + y1) / 2
+    level = next((ln for ln in distinct if ln.y0 <= mid <= ln.y1), None)
+    f.warnings.append(f"{sd['id']}: 横に字の行が {len(distinct)} 行並ぶ所（{names}）で、どの行の高さにもかからない空きが"
+                      "ありません。書いた字は欄の縦の中ほど" + (f"（「{_short(level)}」の行の高さ）" if level else "")
+                      + "に置いたので、その行の字に続けて読めることがあります。選ぶ行の字を同じ書き込みで○にすると、その行の高さに"
+                      "書きます。本人に確かめてください")
+    return sd
 
 
 def _permissions(f: Filler) -> list[dict]:
