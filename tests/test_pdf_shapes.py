@@ -11,14 +11,18 @@ import pdfmini  # noqa: E402
 from test_pdf_scripts import flags, glyphs_pdf, window  # noqa: E402
 
 
-def test_comb_run_keeps_wider_last_box():
-    # 口座番号：幅 20 のマス 6 個と、表の縁まで広げた幅 30 の最後のマス
-    xs = [200 + 20 * i for i in range(7)] + [350]
+def test_comb_run_is_equal_boxes_and_the_wider_last_box_is_its_own_cell():
+    # 口座番号：幅 20 のマス 7 個と、表の縁まで広げた幅 10 の最後のマス。並びは同じ大きさのマスだけ（大きさの違う最後のマスを
+    # 並びに入れるかの見込み（これまでの「幅 2 倍まで」）は付けない）。最後のマスは、それだけで空のマスの所（大きさは facts に）
+    xs = [200 + 20 * i for i in range(8)] + [350]
     lines = ["200 700 m 350 700 l S", "200 680 m 350 680 l S"] + [f"{x} 680 m {x} 700 l S" for x in xs]
     lines += ["100 680 m 100 700 l S", "100 700 m 200 700 l S", "100 680 m 200 680 l S"]
     blob = glyphs_pdf([(ch, 110 + 12 * k, 685) for k, ch in enumerate("口座番号")], extra="\n".join(lines))
-    combs = [f for f in window(blob)["pages"][0]["fields"] if f["kind"] == "comb"]
-    assert combs and combs[0]["boxes"] == 7
+    fields = window(blob)["pages"][0]["fields"]
+    combs = [f for f in fields if f["kind"] == "comb"]
+    assert len(combs) == 1 and combs[0]["boxes"] == 7 and combs[0]["facts"]["left"]["text"] == "口座番号"
+    last = [f for f in fields if f.get("shape") == "cell" and not f.get("alternative_to")]
+    assert len(last) == 1 and last[0]["facts"]["size_mm"] == [3.5, 7.1], last
 
 
 def _glyph_shape(x: float, y: float) -> str:

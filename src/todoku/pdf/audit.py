@@ -130,31 +130,24 @@ def _count(texts) -> Counter:
 
 def overprints(glyphs) -> Counter:
     """重ね書き（同じ字を同じ所に重ねて描いたもの）の、余分な字の数（字ごと）。
-    これは「窓と食い違わないか」の照らし合わせ（整合の検査）で、独立の検査ではない：決まりは窓（layout.is_overprint）と同じ
+    これは「窓と食い違わないか」の照らし合わせ（整合の検査）で、独立の検査ではない：決まりは窓と同じ layout.is_overprint
     （同じ字で、送りの向きにそった2つの字の送りの幅の重なりが、狭い方の幅の半分より多く、直角のずれが字の大きさの 1/4 より
-    小さく、大きさがほぼ同じもの）を、窓の関数を使わず、窓の位置の換算（view）も通さずに、ページの座標で数え直す。
-    決まりそのものの正しさは、ここでは確かめない。決まりとは別の量（描いた字の箱の重なり）で見て、箱が重ならない字を1字にした
-    所は、窓の読む段階の注意（「重ね書きとして1字にした字」C）で知らせる。"""
+    小さく、大きさがほぼ同じもの）をそのまま使い（決まりを 2 か所に書かない）、窓とは別の手順で数え直す：窓の位置の換算（view）を
+    通さずにページの座標で、探す範囲の区切りを使わずにすべての字どうしを比べる。決まりそのものの正しさは、ここでは確かめない。
+    決まりとは別の量（描いた字の箱の重なり）で見て、箱が重ならない字を1字にした所は、窓の読む段階の注意（「重ね書きとして1字に
+    した字」C）で知らせる。"""
+    from .layout import glyph_frame, is_overprint
+
     out: Counter = Counter()
     kept: dict[str, list] = {}
     for g in glyphs:
         if not g.text or g.size < 0.5:
             continue
-        n = (g.dx * g.dx + g.dy * g.dy) ** 0.5
-        ux, uy = (g.dx / n, g.dy / n) if n > 1e-9 else ((0.0, 1.0) if g.vertical else (1.0, 0.0))
-        w = g.adv if g.adv > 1e-9 else max(abs((g.x1 - g.x0) * ux) + abs((g.y1 - g.y0) * uy), 1e-6)
-        dup = False
-        for (x, y, vx, vy, w0, s0) in kept.get(g.text, ()):
-            px, py = g.ox - x, g.oy - y
-            t = px * vx + py * vy
-            if min(w0, t + w) - max(0.0, t) > 0.5 * min(w0, w) and abs(-px * vy + py * vx) < 0.25 * max(s0, g.size) \
-                    and abs(s0 - g.size) < 0.2 * max(s0, g.size):
-                dup = True
-                break
-        if dup:
+        fr = glyph_frame(g)
+        if any(is_overprint(f0, fr, s0, g.size) for f0, s0 in kept.get(g.text, ())):
             out[g.text] += 1
         else:
-            kept.setdefault(g.text, []).append((g.ox, g.oy, ux, uy, w, g.size))
+            kept.setdefault(g.text, []).append((fr, g.size))
     return out
 
 

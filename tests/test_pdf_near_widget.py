@@ -83,8 +83,10 @@ def test_widget_in_the_gap_of_a_line_is_labelled_by_that_line():
 
 def test_gap_token_keeps_the_measured_spaces():
     # 「？」の空きの印に、行の空白（測った 24pt の空き＝12pt の字 2 つぶん）をそのまま入れる
+    import re
+
     text = "\n".join(_gap_page()["reading"])
-    assert "年［p1.a2？　　］月［p1.a3？　　］日" in text, text
+    assert re.search(r"年［p1\.g\d+-\d+？　　］月［p1\.g\d+-\d+？　　］日", text), text
 
 
 def test_overlap_of_one_em_is_alternative_beside_is_not():
@@ -93,7 +95,7 @@ def test_overlap_of_one_em_is_alternative_beside_is_not():
     over = [f for f in lay if f.get("alternative_to") == "name"]
     assert len(over) == 1 and over[0]["agent"] and "フォームの欄 name に重なる" in over[0]["why"], lay
     # 欄 tel のすぐ隣のかっこの中（重ならない・字の形で決まる空欄）：規則の空欄のまま。alternative_to にしない
-    paren = [f for f in lay if "電話番号" in f["label"]]
+    paren = [f for f in lay if f.get("shape") == "bracket"]
     assert len(paren) == 1 and not paren[0].get("agent") and not paren[0].get("alternative_to"), paren
     assert "フォームの欄 tel" in paren[0]["reason"], paren
 
@@ -121,7 +123,7 @@ def test_writing_both_the_widget_and_its_alternative_is_refused():
         fill(PdfDocument(blob, "a.pdf"), {"name": "山田", alt: "山田"})
     assert "name" in str(e.value) and alt in str(e.value) and "どちらか1つ" in str(e.value), str(e.value)
     # 一方だけなら書ける。重ならない隣の所（かっこの中）は、欄 tel と一緒に書ける
-    paren = next(f["id"] for f in fields if "電話番号" in f["label"] and f["source"] == "layout")
+    paren = next(f["id"] for f in fields if f.get("shape") == "bracket")
     assert fill(PdfDocument(blob, "a.pdf"), {"name": "山田", "tel": "03", paren: "1234"}).patches
 
 
@@ -131,7 +133,7 @@ def test_list_value_on_a_layout_spot_is_refused():
     from todoku.pdf.fill import FillError, fill
 
     blob = _form_pdf(_GAP_ROWS, _GAP_WIDGETS)
-    paren = next(f["id"] for f in _gap_page()["fields"] if "電話番号" in f["label"] and f["source"] == "layout")
+    paren = next(f["id"] for f in _gap_page()["fields"] if f.get("shape") == "bracket")
     for bad in (["本人"], {"x": 1}):
         with pytest.raises(FillError) as e:
             fill(PdfDocument(blob, "a.pdf"), {paren: bad})

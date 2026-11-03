@@ -139,7 +139,10 @@ def test_fonts_helpers():
                                      # 全角の空白 1 つ（PDF の窓では、測った 1 em 以上の空き）も空き
                                      ("　　　都　道　　　　　市　区　　　", 5), ("　　第　号", 2), ("令和　年　月　日", 3),
                                      # 字間を空けた見出しの形（「第　号」「氏　　名」）：落とさず spaced の「？」
-                                     ("第　号", 1), ("氏　　名", 1), ("　　　氏　　名　　　", 1), ("金　　　　円", 1),
+                                     # 中央にそろえた行の両側の空きは、行の中に空きのないときだけ、そろえ方の空き（行の中に字間の
+                                     # 空きがあれば、両側も 1 字ぶん以上の空きとして示す：見出しかどうかはエージェントが見る）
+                                     ("第　号", 1), ("氏　　名", 1), ("　　　氏　　名　　　", 3), ("　　　申請書　　　", 0),
+                                     ("金　　　　円", 1),
                                      # マスの縁までの空き（行の終わりの後ろ）：語は見ないので、見出しの後ろも ？ の候補
                                      ("付表第一号（一）　　　", 1),
                                      # 中華民國・韓国・中国の日付と住所、点線・下線・かっこ・チェックの箱（語の表なしで）
@@ -287,18 +290,23 @@ def test_pdf_blanks_tell_structural_from_keyword():
 
 
 def test_ambiguous_kinds_and_alternatives_are_offered_not_decided():
-    # 7つの同じ大きさのマス：1字ずつ書く欄か1つの欄かは形の大きさでは決めない（候補の種類を示す）。
-    # 「氏名」の右の空き：すぐ右の空のマスと同じ値の書く所の別の候補（両方には書けない）
+    # 7つの同じ大きさのマス：1字ずつ書く欄か1つの欄かは形の大きさでは決めない（並び全体の所と、マス 1 つずつの所の両方を示す）。
+    # 並びとマスは重なる（alternative_to）：両方には書けない。「氏名」の右の空き（行末の後）と、すぐ右の空のマスは重ならないので、
+    # どちらに書くかの見込み（これまでの「値はそちらに書くことが多い」）は付けない
     blob = sample_form()
     doc = PdfDocument(blob, "s.pdf")
     fields = build(doc)["pages"][0]["fields"]
     comb = next(f for f in fields if f["kind"] == "comb")
-    assert comb["agent"] and comb["kind_candidates"] == ["comb", "text"] and "マスの幅" in comb["why"]
-    name = next(f for f in fields if f["label"] == "氏名" and not f.get("agent"))
-    alt = next(f for f in fields if f.get("alternative_to") == name["id"])
-    assert alt["agent"]
+    assert comb["agent"] and comb["kind_candidates"] == ["comb", "text"] and comb["facts"]["cells"] == 7
+    assert len(comb["cell_ids"]) == 7 and comb["facts"]["left"]["text"] == "郵便番号"
+    name = next(f for f in fields if f["label"] == "氏名" and f.get("shape") == "cell")
+    assert not name.get("agent") and name["facts"]["left"] == {"text": "氏名", "mm": 0.0}
+    trail = next(f for f in fields if f.get("shape") == "trail" and f["facts"]["line"] == "氏名")
+    assert trail["agent"] and not trail.get("alternative_to") and not name.get("alternative_to")
+    cell = next(f for f in fields if f["id"] == comb["cell_ids"][0])
+    assert cell["alternative_to"] == comb["id"]
     with pytest.raises(FillError, match="どちらか1つ"):
-        fill(PdfDocument(blob, "s.pdf"), {name["id"]: "とどく", alt["id"]: "とどく"})
+        fill(PdfDocument(blob, "s.pdf"), {comb["id"]: "1000001", cell["id"]: "1"})
     # 1字ずつ（既定）
     res = fill(PdfDocument(blob, "s.pdf"), {comb["id"]: "1000001"})
     assert prove(blob, res.blob, {comb["id"]}).ok
@@ -309,12 +317,15 @@ def test_ambiguous_kinds_and_alternatives_are_offered_not_decided():
         fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"as": "text", "value": "100-0001"}})
     with pytest.raises(FillError, match="としては書けません"):
         fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"as": "checkbox", "value": True}})
-    # 日付の空欄は語（年・月・日）を手がかりにしたもの：規則では決められない所
+    # 日付の空欄は字の間の空き：描かれた空欄ではないので「？」
     assert all(f.get("agent") for f in fields if f["kind"] == "inline")
-    # 規則の型に合わない行の右の空きは、欄にせず印で示す（字を目印にして書く）
+    # 行の終わりの後ろの 1 字ぶん以上の空き（ページの字の端まで）も所。字を目印にしても書ける
     win = build(doc)
-    assert any(ln.endswith("日［→余白 20pt］") for ln in win["pages"][0]["reading"]), win["pages"][0]["reading"]
-    assert "［→余白 12pt］" in win["notation"] and win["pages"][0]["room_marks"] == 1
+    end = next(f for f in fields if f.get("shape") == "trail" and f["facts"]["line"].startswith("令和"))
+    assert end["facts"]["bound"]["kind"] == "page" and end["facts"]["width_em"] >= 1
+    assert any(ln.endswith(f"日［{end['id']}？］") for ln in win["pages"][0]["reading"]), win["pages"][0]["reading"]
+    # 字のあるマスの、字の下の 1 字ぶん以上の空きは、欄にせず mm の印で示す
+    assert "［↓余白 12.0 mm］" in win["notation"] and win["pages"][0]["room_marks"] >= 1
     res = fill(PdfDocument(blob, "s.pdf"), {"@1": {"after": "日", "value": "8", "page": 1}})
     assert prove(blob, res.blob, {"p1.w1"}, {"p1.w1": {"after": "日", "value": "8", "page": 1}}).ok
 
@@ -325,8 +336,10 @@ def test_small_square_cell_can_be_checked_or_written():
     c = b"0.5 w 60 700 m 72 700 l S 60 688 m 72 688 l S 60 700 m 60 688 l S 72 700 m 72 688 l S\n"
     c += b"BT /F1 10 Tf 76 690 Td " + jp_text(codes, "有") + b" Tj ET\n"
     blob = make_pdf(c, {"F1": font}, extra)
-    f = next(x for x in build(PdfDocument(blob, "b.pdf"))["pages"][0]["fields"] if x["kind"] == "checkbox")
-    assert f["agent"] and f["kind_candidates"] == ["checkbox", "text"] and f["label"] == "有"
+    # 空のマスはどれも同じ種類の所（字か印を書く）：大きさで checkbox と決めない。右の字は facts に（見出しは右の字）
+    f = next(x for x in build(PdfDocument(blob, "b.pdf"))["pages"][0]["fields"] if x.get("shape") == "cell")
+    assert f["kind_candidates"] == ["text", "checkbox"] and f["label"] == "有" and f["facts"]["right"]["text"] == "有"
+    assert f["facts"]["size_mm"] == [4.2, 4.2]
     for value, want in ((True, True), ("1", "1")):
         res = fill(PdfDocument(blob, "b.pdf"), {f["id"]: value})
         got = {x["id"]: x["value"] for x in build(PdfDocument(res.blob, "b.pdf"))["pages"][0]["fields"]}
@@ -341,6 +354,6 @@ def test_printed_checked_mark_is_shown_as_a_candidate():
     blob = make_pdf(c, {"F1": font}, extra)
     pg = build(PdfDocument(blob, "m.pdf"))["pages"][0]
     f = next(x for x in pg["fields"] if x["kind"] == "checkbox")
-    assert f["agent"] and f["readonly"] and f["value"] is True and "■" in f["why"]
+    assert f["agent"] and f["readonly"] and f["value"] is True and f["facts"]["char"] == "■"
     assert any(f"■［{f['id']}？］有" in ln for ln in pg["reading"]), pg["reading"]
     assert audit(blob, "m.pdf").ok
