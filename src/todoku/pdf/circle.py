@@ -575,6 +575,9 @@ def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None
            "ellipse": [round(v, 3) for v in g] if style == "ellipse" else None,
            "label": label, "context": context[:60], "size": size, "rect": [round(v, 3) for v in rect],
            "around": around(ln.text, a, b)}  # 囲んだ字の前後の字（どの「無」を囲んだかを伝える）
+    ob_ = _outer(style, g, line_width(size))
+    ob_ = ob_ if style == "border" else (ob_[0] - ob_[2], ob_[1] - ob_[3], ob_[0] + ob_[2], ob_[1] + ob_[3])
+    out["box_mm"] = [round(v / lay.view.mm, 1) for v in ob_]  # ○の外枠（ページの左上からの mm。view_page で確かめる）
     if loose:
         mm = lay.view.mm
         near_c = [o for o in others if hits(style, g, o, line_width(size))]

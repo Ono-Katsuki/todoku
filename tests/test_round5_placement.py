@@ -14,7 +14,6 @@ import re
 import pytest
 
 from todoku import api
-from todoku.pdf.fill import inline_align
 
 from test_circle import _pdf, _write
 
@@ -50,13 +49,6 @@ def test_circle_crossing_table_rules_or_written_value_is_refused(tmp_path):
         _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "無"},
                                          "@1": {"page": 1, "box": [left + 9, (842 - 712) * 25.4 / 72, left + 40,
                                                                     (842 - 698) * 25.4 / 72], "value": "本店"}})
-
-
-# ====================================================================== 広い空欄のそろえ方
-@pytest.mark.parametrize("rect, text_w, want", [([0, 0, 288, 12], 30, "right"), ([0, 0, 40, 12], 30, "center")])
-def test_wide_gap_between_words_aligns_to_the_following_text(rect, text_w, want):
-    assert inline_align({"label": "目黒区長宛て［ ］年 月 日", "rect": rect, "size": 12}, text_w) == want
-    assert inline_align({"label": "目黒区長宛て［ ］年 月 日"}) == "center"  # 幅の分からないときは、これまでどおり
 
 
 # ====================================================================== ○の選び方

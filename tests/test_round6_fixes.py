@@ -85,7 +85,7 @@ def test_number_in_narrow_wrap_cell_predicts_hashes_not_wrap(tmp_path):
 
 
 # ---------------------------------------------------------------- PDF：after の見出しのマスに読める大きさで入らない
-def test_after_label_moves_to_the_value_cell_when_the_heading_cell_is_too_small(tmp_path):
+def test_after_label_in_a_narrow_heading_cell_warns_with_the_free_place(tmp_path):
     rules = (b"0.8 w 60 700 m 400 700 l S 60 680 m 400 680 l S 60 700 m 60 680 l S 140 700 m 140 680 l S "
              b"400 700 m 400 680 l S\n")
     data = _pdf([(70, 686, 10, "氏　　名"), (340, 686, 10, "番号")], rules)
@@ -95,41 +95,42 @@ def test_after_label_moves_to_the_value_cell_when_the_heading_cell_is_too_small(
     from todoku.pdf.anchor import resolve_write
 
     sp = resolve_write(PdfDocument(data), {"after": "氏　　名", "value": "山田　花子", "page": 1}, {}, {})
-    x0, _y0, x1, _y1 = sp["rect"]
-    assert x0 >= 140 and x1 <= 340, sp["rect"]  # 右のマスの、「番号」の手前
-    assert not any("読みにくい" in w for w in r["warnings"]), r["warnings"]
+    assert sp["rect"][2] <= 140  # 置く所は見出しのマスのまま（エージェントが決める）
+    # 字がとても小さくなることと、右のマスの字のない所（mm）を知らせる
+    assert any("狭い空き" in w and "右のマスの字のない所" in w and "box" in w for w in r["warnings"]), r["warnings"]
 
 
-# ---------------------------------------------------------------- PDF：後ろの字にくっつけるのは単位のような字だけ
-def test_right_alignment_only_glues_to_unit_like_text():
-    from todoku.pdf.fill import inline_align, unit_like
-
-    assert unit_like("年") and unit_like("月　日") and unit_like("級") and unit_like("号")
-    assert not unit_like("信用金庫") and not unit_like("（続柄）") and not unit_like("")
-    assert inline_align({"label": "［ ］年"}) == "right"
-    assert inline_align({"label": "［ ］信用金庫 支店"}) == "right_gap"
-    assert inline_align({"label": "氏 名［ ］（続柄）", "rect": [0, 0, 200, 12], "size": 10}, 40) == "right_gap"
-
-
-def test_right_gap_keeps_one_em_before_the_following_text(tmp_path):
-    rules = b"0.8 w 60 700 m 400 700 l S 60 680 m 400 680 l S\n"
-    data = _pdf([(300, 686, 10, "信用金庫")], rules)
+# ---------------------------------------------------------------- PDF：置き方はエージェントが決める（align・pad_mm）
+def _gap_spot(data):
     from todoku.pdf.doc import PdfDocument
     from todoku.pdf.window import build
 
     win = build(PdfDocument(data))
-    spot = next(f for pg in win["pages"] for f in pg["fields"] if "信用金庫" in (f.get("label") or ""))
+    return next(f for pg in win["pages"] for f in pg["fields"] if "信用金庫" in (f.get("label") or ""))
+
+
+def _drawn_x(out: str) -> float:
+    m = re.findall(rb"1 0 0 1 ([\d.]+) ([\d.]+) Tm", open(out, "rb").read())
+    return float(m[-1][0])
+
+
+def test_default_is_left_and_align_right_is_honoured(tmp_path):
+    rules = b"0.8 w 60 700 m 400 700 l S 60 680 m 400 680 l S\n"
+    data = _pdf([(300, 686, 10, "信用金庫")], rules)
+    spot = _gap_spot(data)
     r, out = _write(tmp_path, data, "t.pdf", {spot["id"]: "架空"})
     assert r["proof_ok"] and r["read_back_ok"]
-    doc = PdfDocument(open(out, "rb").read())
-    blob = open(out, "rb").read()
-    m = re.findall(rb"1 0 0 1 ([\d.]+) ([\d.]+) Tm", blob)
-    assert m
-    x = float(m[-1][0])
+    assert _drawn_x(out) <= 2.0  # 既定は左（枠の左の端から、決まった小さな余白）
+    rect = r["written_rects"][spot["id"]]
+    assert rect["align"] == "left" and rect["page"] == 1 and rect["w"] > 0 and rect["size_pt"] > 0
+    r, out = _write(tmp_path, data, "t2.pdf", {spot["id"]: {"value": "架空", "align": "right", "pad_mm": 3}})
+    assert r["proof_ok"] and r["read_back_ok"]
     w = spot["rect"][2] - spot["rect"][0]
-    # 字の右の端（x + 2 字）と、欄の右の端（＝「信用金庫」の手前）のあいだに、1 字ぶん（10pt 近く）の空き
-    assert w - (x + 2 * float(spot.get("size") or 10)) >= 8, (x, w)
-    assert doc is not None
+    x = _drawn_x(out)
+    assert w - (x + 2 * 10) == pytest.approx(3 * 72 / 25.4, abs=1.5), (x, w)  # 右の端から 3 mm
+    assert r["written_rects"][spot["id"]]["align"] == "right"
+    with pytest.raises(api.ApiError, match="align"):
+        _write(tmp_path, data, "t3.pdf", {spot["id"]: {"value": "架空", "align": "justify"}})
 
 
 # ---------------------------------------------------------------- PDF：字の行が縦に並ぶマスの欄
@@ -149,20 +150,14 @@ def _stack_spot(data):
                 and f["rect"][2] <= 201 and f["rect"][3] - f["rect"][1] > 40)
 
 
-def test_value_beside_stacked_lines_goes_to_the_circled_line(tmp_path):
-    data = _stack_pdf()
-    spot = _stack_spot(data)
-    r, _ = _write(tmp_path, data, "t.pdf", {spot["id"]: "架空", "@c1": {"circle": "信用金庫", "page": 1, "style": "border"}})
-    assert r["proof_ok"] and r["read_back_ok"]
-    assert any("○で囲んだ「信用金庫」の行の高さ" in w for w in r["warnings"]), r["warnings"]
-
-
-def test_value_beside_stacked_lines_without_circle_avoids_the_lines(tmp_path):
+def test_value_beside_stacked_lines_is_reported_not_moved(tmp_path):
     data = _stack_pdf()
     spot = _stack_spot(data)
     r, _ = _write(tmp_path, data, "t.pdf", {spot["id"]: "架空"})
     assert r["proof_ok"] and r["read_back_ok"]
-    assert any("行の高さにかからない" in w or "続けて読めることがあります" in w for w in r["warnings"]), r["warnings"]
+    assert any("行並ぶマス" in w and "mm" in w for w in r["warnings"]), r["warnings"]
+    got = r["written_rects"][spot["id"]]
+    assert abs(got["y"] - round(spot["rect"][1] * 25.4 / 72, 1)) <= 0.1  # 置く所は変えない
 
 
 # ---------------------------------------------------------------- PDF：一続きのマスの字の大きさをそろえる

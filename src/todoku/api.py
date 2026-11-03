@@ -514,11 +514,16 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                                   "how": ("ページに字を囲む四角の線を描いた" if p.circle.get("style") == "border"
                                           else "ページに楕円を描いた"),
                                   "ellipse_pt": p.circle["ellipse"],
+                                  **({"box_mm": p.circle["box_mm"]} if p.circle.get("box_mm") else {}),
                                   **({"border_pt": p.circle["border"]} if p.circle.get("border") else {}),
                                   # 字の読めない所に枠で描いた○：囲んだ字は確かめていない（本人に伝える）
                                   **({"unread": p.circle["unread"], "uncertain": p.circle["unread"]}
                                      if p.circle.get("unread") else {})}
                                  for p in circled]
+        rects = {(p.key or p.id): {"id": p.id, **p.rect_mm} for p in res.patches if getattr(p, "rect_mm", None)}
+        if rects:
+            # とどくが置いた字の枠（ページの左上からの mm）・字の大きさ・そろえ方：view_page で見て確かめ、違えば box・align で書き直す
+            result["written_rects"] = rects
         placed = [p for p in res.patches if p.kind == "seal"]
         if placed:
             # 本人の印影・署名の画像（本人が同意したときだけ）：何を、どこに置いたか。読み戻しは、書いた後のファイルで下で確かめる

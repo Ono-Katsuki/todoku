@@ -172,6 +172,7 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
         raise AnchorError(f"「{after}」が {len(hits)} か所にあります。page か occurrence（何番目か）で1つに決めてください：{listing}")
     n, _y, _x, i, cell, ln, lay, j = hits[0]
     sz = ln.size
+    note = None  # 知らせること（見出しのマスの狭い空きで字が小さくなる、など）
     text = ln.text
     if where == "cover":
         x0, y0, x1, y1 = ln.span_rect(i, j)
@@ -195,19 +196,23 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
                 rb = r.pos
         rect = (x0, ln.y0 - 0.1 * sz, rb - 1.5, ln.y1 + 0.1 * sz)
         unit = lay.view.unit
-        here = _fit_size(value, rect, sz, unit) if rect[2] - rect[0] >= 1.5 * sz else 0.0
-        if cell is not None and not rest and here * unit < max(MIN_READABLE_PT, 0.6 * sz * unit):
-            # 見出しのマスに空きがない、または、そこでは字が読める大きさで入らない（「氏　　名」の後ろの 1 字ぶんの空き）：
-            # すぐ右の、同じ行の高さにあるマス（見出しのマスの右の縁に接する）の、字のない所に書く。そこでも大きく
-            # ならなければ、見出しのマスのまま（字が小さくなることは、書くときに伝える）
-            band = _right_cell_band(lay, cell, ln)
-            if band is None:
-                nxt = _empty_cell_right(lay, cell, ln)
-                if nxt is not None:
-                    # 高さは見出しの行の高さ（マスが何行ぶんもあるとき、ほかの行の見出しの高さに書かない）
-                    band = (nxt.x0 + 1.5, max(nxt.y0 + 0.5, ln.y0 - 0.15 * sz), nxt.x1 - 1.5, min(nxt.y1 - 0.5, ln.y1 + 0.15 * sz))
-            if band is not None and band[2] - band[0] >= 1.5 * sz and _fit_size(value, band, sz, unit) > here:
-                rect = band
+        if rect[2] - rect[0] < 1.5 * sz and cell is not None and not rest:
+            # 見出しのマスに空きがない：すぐ右の、同じ行の高さにある空のマス（見出しのマスの右の縁に接する）に書く
+            nxt = _empty_cell_right(lay, cell, ln)
+            if nxt is not None:
+                # 高さは見出しの行の高さ（マスが何行ぶんもあるとき、ほかの行の見出しの高さに書かない）
+                rect = (nxt.x0 + 1.5, max(nxt.y0 + 0.5, ln.y0 - 0.15 * sz), nxt.x1 - 1.5, min(nxt.y1 - 0.5, ln.y1 + 0.15 * sz))
+        elif cell is not None and not rest:
+            here = _fit_size(value, rect, sz, unit)
+            if here * unit < max(MIN_READABLE_PT, 0.6 * sz * unit):
+                # 見出しのマスの中の狭い空き（「氏　　名」の後ろ）では、字がとても小さくなる：置く所は変えずに（エージェントが
+                # 決める）、そのことと、右のマスの字のない所（あれば）を、位置（mm）で知らせる
+                mm = lay.view.mm
+                band = _right_cell_band(lay, cell, ln)
+                alt = (f"右のマスの字のない所（左 {band[0] / mm:.1f}・上 {band[1] / mm:.1f}・右 {band[2] / mm:.1f}・下 {band[3] / mm:.1f} mm）"
+                       "に書くなら box で" if band is not None and band[2] - band[0] >= 1.5 * sz else "広い所に書くなら box で")
+                note = (f"「{after}」の右は、見出しのマスの中の狭い空き（幅 {(rect[2] - rect[0]) / mm:.1f} mm）なので、字が約 "
+                        f"{here * unit:.1f} pt になります（見出しの字は {sz * unit:.1f} pt）。{alt}書き直してください")
         if rect[2] - rect[0] < 1.5 * sz:
             raise AnchorError(f"「{after}」の右に、書く空きがありません（where を \"below\" にすると、見出しの下に書けます）")
     elif where == "before":
@@ -247,7 +252,7 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
         side = {"right": "右", "before": "左", "below": "下"}[where]
         raise AnchorError(f"「{after}」の{side}の所に、ほかの字（「{''.join(c.text for c in inside[:6])}」）があります")
     return _place(n, rect, used, taken_names, {"id": None, "page": n, "kind": "inline" if where == "cover" else "text",
-                                              "size": None, "anchored": dict(spec)}, where, after, sz,
+                                              "size": None, "anchored": dict(spec), **({"note": note} if note else {})}, where, after, sz,
                   unit=lay.view.unit)
 
 
