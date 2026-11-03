@@ -491,35 +491,79 @@ def std14_width(base: str, code: int) -> float:
 
 
 # ====================================================================== Unicode でない符号のフォント
-# インド系・ビルマ文字・シンハラ文字・クメール文字などの、Unicode 以前の書体：字の形を ASCII（またはほかの文字）の符号に
-# 割り当てているので、ToUnicode があっても、取り出した字は元の文字ではない（「Kruti Dev」の「d」は「क」）。
-# 書体の名前（BaseFont）で決める。出典：各書体の配布元の説明（Kruti Dev・DevLys・Chanakya・Walkman-Chanakya・Shusha・
-# APS-DV・Agra（デーヴァナーガリー）、Bamini・TAB・TAM・SunTommy・Kalaham（タミル）、SutonnyMJ ほか Bijoy の MJ 系（ベンガル）、
-# AnmolLipi・GurbaniAkhar・Joy（グルムキー）、Terafont・LMG-Arun（グジャラート）、Nudi・Baraha の旧版（カンナダ）、
-# ML-TT・FML（マラヤーラム）、FM-・DL-（シンハラ：FM Abhaya など）、Zawgyi・Win Innwa（ビルマ）、Limon（クメール））
-_LEGACY_FONTS = re.compile(
-    r"kruti\s*dev|devlys|chanakya|shusha|aps-?dv|\bagra\b|"
-    r"bamini|^tab[-_ ]|^tam[-_ ]|suntommy|kalaham|"
-    r"sutonnymj|[a-z]+mj$|bijoy|"
-    r"anmol\s*lipi|gurbani\s*akhar|^joy\b|"
-    r"terafont|lmg[-_ ]?arun|"
-    r"^nudi|baraha\s*(kan|devanagari)|"
-    r"^ml[-_]tt|^fml[-_]|"
-    r"^fm[-_ ]|^dl[-_ ]|"
-    r"zawgyi|win\s*innwa|"
-    r"^limon", re.I)
+# インド系・ビルマ文字・シンハラ文字・クメール文字・エチオピア文字などの、Unicode 以前の書体：字の形を ASCII（またはほかの文字）の
+# 符号に割り当てているので、ToUnicode があっても、取り出した字は元の文字ではない（「Kruti Dev」の「d」は「क」）。
+# 書体の名前（BaseFont）の、知られた書体の家族の名前で決める（名前の頭から、家族の名前と同じもの。似た名前の別の書体
+# 「FM-Gothic」「Tab-Sans」「Joy Sans」などは含めない）。名前を知らない書体は、ここでは見分けられない（layout の
+# 「字の符号が Unicode でない書体かもしれない」が、書類の文字の種類から別に知らせる）。
+# 出典：各書体の配布元の説明（Kruti Dev・DevLys・Chanakya・Walkman-Chanakya・Shusha・APS-DV（デーヴァナーガリー）、
+# Preeti・Kantipur・Sagarmatha・Himalb・PCS NEPALI・Shree-Dev-0714（ネパール語）、Bamini・SunTommy・Kalaham・TSCu（タミル）、
+# SutonnyMJ・SutonnyOMJ・Bijoy（ベンガル）、AnmolLipi・GurbaniAkhar・Joy（グルムキー）、Terafont・LMG-Arun（グジャラート）、
+# Nudi・Baraha の旧版（カンナダ）、ML-TT・FML-TT（マラヤーラム）、FM Abhaya などの FM 系・DL-Manel（シンハラ）、
+# Zawgyi・Win Innwa（ビルマ）、Limon（クメール）、PowerGeez・VisualGeez（エチオピア文字））
+_LEGACY_FAMILIES = (
+    "krutidev", "devlys", "chanakya", "walkmanchanakya", "shusha", "apsdv",
+    "preeti", "kantipur", "sagarmatha", "himalb", "pcsnepali", "shreedev",
+    "bamini", "suntommy", "kalaham", "tscu",
+    "sutonnymj", "sutonnyomj", "bijoy",
+    "anmollipi", "gurbaniakhar",
+    "terafont", "lmgarun",
+    "barahakan", "barahadevanagari",
+    "mltt", "fmltt",
+    "fmabhaya", "fmmalithi", "fmbindumathi", "fmganganee", "fmderana", "fmemanee", "fmbasuru", "fmarjunn",
+    "fmsamantha", "fmgemunu", "fmsandhyanee", "dlmanel",
+    "zawgyi", "wininnwa",
+    "limon",
+    "powergeez", "visualgeez",
+)
+# 家族の名前だけでは短すぎて、ほかの書体の名前の頭にもなるもの：名前の全体（番号を除いて）が同じときだけ
+_LEGACY_EXACT = re.compile(r"(joy|nudi\d*.*|agra)", re.I)
+
+
+def _family_key(base: str) -> str:
+    name = (base or "").split("+")[-1].replace("#20", " ")
+    name = re.sub(r"[,-](bold|italic|regular|normal|oblique)+$", "", name, flags=re.I)
+    return re.sub(r"[\s\-_.]", "", name).lower()
 
 
 def legacy_encoding(base: str) -> str:
     """書体の名前から、Unicode でない符号の書体かを決める。
     "ascii"：字の形を ASCII・Latin-1 の符号に割り当てた書体（取り出した字が ASCII などなら、元の文字ではない）、
     "zawgyi"：ビルマ文字の符号を使うが、並びと字の割り当てが Unicode と違う書体（取り出した字はどれも信用できない）、
-    ""：それ以外。"""
-    name = (base or "").split("+")[-1].replace("#20", " ")
-    name = re.sub(r"[,-](bold|italic|regular|normal|oblique)+$", "", name, flags=re.I)
-    if not _LEGACY_FONTS.search(name):
+    ""：それ以外（知らない書体も含む）。"""
+    key = _family_key(base)
+    if not key or "unicode" in key:  # 「Visual Geez Unicode」など、同じ家族の Unicode の版
         return ""
-    return "zawgyi" if re.search(r"zawgyi", name, re.I) else "ascii"
+    if not (key.startswith(_LEGACY_FAMILIES) or _LEGACY_EXACT.fullmatch(key)):
+        return ""
+    return "zawgyi" if key.startswith("zawgyi") else "ascii"
+
+
+# 書類の言語（Catalog の /Lang の頭の部分）の、ふつうの文字の種類（CLDR の likely subtags から）。ラテン文字と東アジアの
+# 文字（漢字・仮名・ハングル）の言語は含めない：東アジアの文字には国の符号（Shift_JIS など）があり、ASCII に字の形を割り当てた
+# 書体の習わしがない。日本語の書類の欧文（TEL・FAX など）を、Unicode でない書体と取り違えないため
+LANG_SCRIPT = {
+    "hi": "DEVANAGARI", "mr": "DEVANAGARI", "ne": "DEVANAGARI", "sa": "DEVANAGARI", "mai": "DEVANAGARI", "kok": "DEVANAGARI",
+    "bn": "BENGALI", "as": "BENGALI", "pa": "GURMUKHI", "gu": "GUJARATI", "or": "ORIYA", "ta": "TAMIL", "te": "TELUGU",
+    "kn": "KANNADA", "ml": "MALAYALAM", "si": "SINHALA", "my": "MYANMAR", "km": "KHMER", "lo": "LAO", "th": "THAI",
+    "am": "ETHIOPIC", "ti": "ETHIOPIC", "bo": "TIBETAN", "dz": "TIBETAN", "ar": "ARABIC", "fa": "ARABIC", "ur": "ARABIC",
+    "ps": "ARABIC", "he": "HEBREW", "yi": "HEBREW", "ka": "GEORGIAN", "hy": "ARMENIAN", "el": "GREEK", "ru": "CYRILLIC",
+    "uk": "CYRILLIC", "bg": "CYRILLIC", "sr": "CYRILLIC", "mk": "CYRILLIC", "be": "CYRILLIC", "mn": "CYRILLIC",
+    "kk": "CYRILLIC", "ky": "CYRILLIC", "tg": "CYRILLIC", "dv": "THAANA",
+}
+EAST_ASIAN = ("CJK", "HIRAGANA", "KATAKANA", "HANGUL", "BOPOMOFO", "HALFWIDTH", "FULLWIDTH", "IDEOGRAPHIC")
+
+
+def letter_script(ch: str) -> str:
+    """字の文字の種類（Unicode の字の名前の頭の語：「DEVANAGARI」「LATIN」など）。字・結合の記号でなければ ""。"""
+    import unicodedata
+
+    if not unicodedata.category(ch).startswith(("L", "M")):
+        return ""
+    try:
+        return unicodedata.name(ch).split(" ", 1)[0]
+    except ValueError:
+        return ""
 
 
 def legacy_text(kind: str, text: str) -> bool:
@@ -555,6 +599,9 @@ class PdfFont:
             self._init_composite(fd)
         else:
             self._init_simple(fd)
+        d = getattr(self, "_desc", None)
+        # 書体のプログラムを PDF に埋め込んだか（Type 3 は、字の形をページの命令で描く）
+        self.embedded = self.subtype == "Type3" or (isinstance(d, dict) and any(k in d for k in ("FontFile", "FontFile2", "FontFile3")))
 
     # ------------------------------------------------------------------ 複合フォント（Type0）
     def _init_composite(self, fd: dict) -> None:

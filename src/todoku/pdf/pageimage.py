@@ -46,7 +46,8 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int = 160
     pc = page_content(doc, page)
     skipped = []
     stamps = []
-    pics = list(pc.pictures) + _annot_pictures(doc, page, stamps)
+    annot_failed: list[str] = []
+    pics = list(pc.pictures) + _annot_pictures(doc, page, stamps, annot_failed)
     for pic in pics:
         if pic.ctm is None or pic.image is None:
             continue
@@ -64,13 +65,14 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int = 160
     rgb[1::3] = canvas
     rgb[2::3] = canvas
     return {"rgb": rgb, "w": W, "h": H, "scale": s, "origin_mm": (x0, y0), "page_mm": (pw, ph), "skipped": skipped,
-            "view": view, "stamps": stamps}
+            "view": view, "stamps": stamps, "annot_failed": annot_failed}
 
 
-def _annot_pictures(doc, page: dict, stamps: list) -> list:
+def _annot_pictures(doc, page: dict, stamps: list, failed: list | None = None) -> list:
     """注釈の見た目（/AP の N）に描かれた画像：置いた印影・署名の画像（スタンプの注釈）など。
     見た目のフォームを、仕様（ISO 32000-1 12.5.5）どおり、BBox を Matrix で写した四角を Rect に合わせる行列で描く。
-    隠した注釈（F の Hidden）と、印刷しない注釈は描かない。stamps には、画像のある注釈の名前と位置（mm）を入れる。"""
+    隠した注釈（F の Hidden）と、印刷しない注釈は描かない。stamps には、画像のある注釈の名前と位置（mm）を入れる。
+    failed には、見た目を描けなかった注釈（名前と理由）を入れる（黙って描かないままにしない）。"""
     from .content import Interpreter, apply, mul
     from .objects import PdfString, Stream, decode_text
 
@@ -95,9 +97,13 @@ def _annot_pictures(doc, page: dict, stamps: list) -> list:
             bbox = [float(doc.resolve(v)) for v in doc.resolve(n.dict.get("BBox"))]
             m = n.dict.get("Matrix")
             m = tuple(float(doc.resolve(v)) for v in doc.resolve(m)) if m is not None else (1, 0, 0, 1, 0, 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as e:
+            if failed is not None:
+                failed.append(f"{getattr(ad.get('Subtype'), 'name', '注釈')}：位置か大きさを読めない（{type(e).__name__}）")
             continue
         if len(rect) != 4 or len(bbox) != 4 or len(m) != 6:
+            if failed is not None:
+                failed.append(f"{getattr(ad.get('Subtype'), 'name', '注釈')}：位置か大きさの数が足りない")
             continue
         pts = [apply(m, x, y) for x in (bbox[0], bbox[2]) for y in (bbox[1], bbox[3])]
         bx0, by0 = min(p[0] for p in pts), min(p[1] for p in pts)
@@ -109,7 +115,11 @@ def _annot_pictures(doc, page: dict, stamps: list) -> list:
         fit = (sx, 0, 0, sy, rx0 - bx0 * sx, ry0 - by0 * sy)
         try:
             pc = Interpreter(doc).run_stream(doc.decode(n), doc.resolve(n.dict.get("Resources")) or {}, mul(m, fit))
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            if failed is not None:
+                vx0, vy0, vx1, vy1 = view.rect(rx0, ry0, rx1, ry1)
+                failed.append(f"{getattr(ad.get('Subtype'), 'name', '注釈')}（左 {vx0 / MM:.0f}・上 {vy0 / MM:.0f}・右 {vx1 / MM:.0f}・"
+                              f"下 {vy1 / MM:.0f} mm）：{type(e).__name__}")
             continue
         if pc.pictures:
             out += pc.pictures
@@ -276,6 +286,9 @@ def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | No
             "位置を目で確かめてください。この画像には、ページに置かれた画像だけを描いています（字や線のデータは窓で読みます）。")
     if r["skipped"]:
         text += " 描けなかった画像：" + "／".join(r["skipped"][:5])
+    if r.get("annot_failed"):
+        text += (" 見た目を描けなかった注釈があります（この画像には描いていないので、その所に見える印影・字などは、この画像からは"
+                 "分かりません）：" + "／".join(r["annot_failed"][:5]))
     if r.get("stamps"):
         text += (" このページに置かれた画像（印影・署名などの注釈）も描いています："
                  + "／".join(f"{m['id'] or m['kind']}（左 {m['box'][0]:.0f}・上 {m['box'][1]:.0f}・右 {m['box'][2]:.0f}・"

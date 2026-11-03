@@ -45,6 +45,8 @@ class Glyph:
     actual: bool = False  # ActualText で置き換えた文字
     legacy: bool = False  # Unicode でない符号の書体で描いた字（取り出した字は元の文字ではない）
     adv: float = 0.0  # フォントの決める、この字の送りの幅（ページ上の長さ。字間・語間の調整は含まない）
+    fontbase: str = ""  # 書体の名前（BaseFont）
+    embedded: bool = False  # 書体のプログラムを埋め込んだ書体か
 
     @property
     def cx(self) -> float:
@@ -327,7 +329,8 @@ class Interpreter:
                 out.glyphs.append(Glyph(text, min(xs), min(ys), max(xs), max(ys), size, ox, oy, nx - ox, ny - oy,
                                         f.vertical, gs.tr in (3, 7), gs.font, gs.fill, mcid,
                                         legacy=legacy_text(f.legacy, text),
-                                        adv=((fx - ox) ** 2 + (fy - oy) ** 2) ** 0.5))
+                                        adv=((fx - ox) ** 2 + (fy - oy) ** 2) ** 0.5,
+                                        fontbase=f.base, embedded=getattr(f, "embedded", False)))
 
         def adjust(v):
             nonlocal tm
@@ -670,7 +673,8 @@ class Interpreter:
                                 merged = Glyph(actual, min(g.x0 for g in gl), min(g.y0 for g in gl), max(g.x1 for g in gl),
                                                max(g.y1 for g in gl), g0.size, g0.ox, g0.oy, gl[-1].ox + gl[-1].dx - g0.ox,
                                                gl[-1].oy + gl[-1].dy - g0.oy, g0.vertical, g0.invisible, g0.font, g0.color,
-                                               mcid, True, sum(g.adv for g in gl))
+                                               mcid=mcid, actual=True, legacy=any(g.legacy for g in gl), adv=sum(g.adv for g in gl),
+                                               fontbase=g0.fontbase, embedded=g0.embedded)
                                 del out.glyphs[first:]
                                 out.glyphs.append(merged)
             except LimitExceeded:

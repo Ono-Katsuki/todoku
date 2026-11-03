@@ -85,7 +85,9 @@ def test_pdf_option_candidates_are_structural_and_chosen_is_read_back(tmp_path):
     assert ("有", "無") in circ  # マスにその行だけがあり、左に見出し（指示の字がなくても）
     assert ("１", "２", "３", "４", "５", "６") in circ  # 数の並び
     assert any(k[0].startswith("１") and "男" in k[0] for k in circ)  # 番号の付いた並び
-    assert not any("通勤を除く" in o for k in circ for o in k)  # 注のかっこ
+    # 注のかっこ：落とさずに、規則では決められない所（？）として理由を添えて示す（エージェントが決める）
+    note = next(f for k, f in circ.items() if "通勤を除く" in k)
+    assert note["agent"] and "注のかっこかもしれない" in note["why"]
     assert not any("交付" in o for k in circ for o in k)  # 日付の空欄に重なる並び
     yes = circ[("有", "無")]["id"]
     num = circ[("１", "２", "３", "４", "５", "６")]["id"]

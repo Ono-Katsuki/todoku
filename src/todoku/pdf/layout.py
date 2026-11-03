@@ -192,24 +192,26 @@ def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges:
         c = Ch(g.text, x0, y0, x1, y1, max(g.size, 1.0), vertical, base, g.invisible, g.legacy, seq)
         # 同じ字を同じ位置に重ねたもの（太字に見せる重ね書き、色の層）は1字にする
         kx, ky = int(ox // cell), int(oy // cell)
-        dup = False
+        dup = None  # 重ね書きとした前の字
         for ix in (kx - 1, kx, kx + 1):
             for iy in (ky - 1, ky, ky + 1):
-                for ofr, osize in seen.get((g.text, ix, iy), ()):
+                for ofr, osize, och in seen.get((g.text, ix, iy), ()):
                     if is_overprint(ofr, fr, osize, g.size):
-                        dup = True
+                        dup = och
                         break
                 if dup:
                     break
             if dup:
                 break
-        if dup:
+        if dup is not None:
             if dropped is not None:
                 dropped.append(("dup", g.text))
             if merges is not None:
-                merges.append((g.text, 1.0, (c.x0, c.y0, c.x1, c.y1)))  # is_overprint：送りの幅が半分より多く重なる
+                # 字の箱（描いた字の形の範囲）の重なり：送りの幅（is_overprint）とは別の量。重ならない箱を1字にしたら、
+                # 読む段階で知らせる（_read_flags の「重ね書きとして1字にした字」）
+                merges.append((g.text, _box_overlap(dup, c), (c.x0, c.y0, c.x1, c.y1)))
             continue
-        seen.setdefault((g.text, kx, ky), []).append((fr, g.size))
+        seen.setdefault((g.text, kx, ky), []).append((fr, g.size, c))
         out.append(c)
     _vertical_runs(out)
     return out
@@ -913,6 +915,8 @@ def _blank_spans(text: str, lead: int = 0, trail: int = 0) -> list[tuple[int, in
 
 
 _OPTION_GROUP = re.compile(r"[^・／/（）()\s\u3000]{1,10}(?:[\s\u3000]*[・／/][\s\u3000]*[^・／/（）()\s\u3000]{1,10}){1,5}")
+# 区切りの字で並ぶ語（数・長さを決めない）：○で囲む選択肢の候補。選択肢らしくない所は、落とさずに理由を添えて示す
+_OPTION_LIST = re.compile(r"[^・／/（）()\s\u3000]+(?:[\s\u3000]*[・／/][\s\u3000]*[^・／/（）()\s\u3000]+)+")
 
 
 MIN_WRITE = 6.0  # これより低い字の行の所は、小さな字の行として（書けるかは書き込みと同じ決め方で）示す
@@ -1019,6 +1023,7 @@ class PageLayout:
                 cell.chars.append(c)
         self.overprinted: list[list[Line]] = []  # 重ねて描かれ、分けた行の組
         self.added: list[str] = []  # 窓で足した字（ルビのかっこ）
+        self.ruby_merges: list[tuple] = []  # ルビとして基の行につないだ所：(基の行の字, ルビの字, ルビの行の位置)
         for cell in self.cells:
             cell.lines = self._ruby(make_lines(cell.chars, self.overprinted)) if cell.chars else []
         self.free_lines = self._ruby(make_lines(self.free, self.overprinted))
@@ -1045,8 +1050,9 @@ class PageLayout:
         if self.drawn_text:
             # 図形で描いた字の所：字の形の線や塗りからできたマス・空きは、書く所ではない
             m = 0.5 * max(self.typical, 10)  # 字の形の線（下線に見える横の線など）は、字の形の外へ少し出る
+            # （中に字のある所は、飾りの形かもしれないので、欄の候補は消さない）
             self.spots = [k for k in self.spots if not any(
-                _overlap(k.rect, (r[0] - m, r[1] - m, r[2] + m, r[3] + m)) > 0 for r, _n in self.drawn_text)]
+                _overlap(k.rect, (r[0] - m, r[1] - m, r[2] + m, r[3] + m)) > 0 for r, _n, mixed in self.drawn_text if not mixed)]
         self._circled()
         for k in self.spots:
             # 書き込みと同じ決め方で1字も入らない所も、消さずに示す（規則では決められない所・書けない所として）
@@ -1058,39 +1064,50 @@ class PageLayout:
         self._read_flags()
 
     def _drawn_text_regions(self) -> list[tuple]:
-        """字を図形（曲線を含む塗りの形）にして描いた所：字の大きさほどの小さな塗りの形が 10 個以上、間を空けずに
-        並んでいて、その所に字（字の情報）がないもの。窓では字として読めないので、位置を示して知らせる。"""
+        """字を図形（曲線を含む塗りの形）にして描いたかもしれない所：字の大きさほどの（ページのふつうの字の大きさの 3 倍まで）
+        小さな塗りの形のまとまりで、字の情報のないもの。いくつ並べば字かは決めない（1つでも、字の形かもしれない）。
+        近くのまとまり（字3つぶんの内）は1つの所にまとめて、知らせる所が多くなりすぎないようにする。
+        返すもの：(位置, 形の数, 中に字（字の情報）があるか)。字がある所も、飾りか字かは決めずに知らせる（エージェントが画像で決める）。"""
+        typ = max(self.typical, 10)
         shapes = []
         for x0, y0, x1, y1, stroke, fill in self.pc.curves:
             if not fill:
                 continue
             r = self.view.rect(x0, y0, x1, y1)
             w, h = r[2] - r[0], r[3] - r[1]
-            if 0.3 <= max(w, h) <= 3 * max(self.typical, 10):
+            if 0.3 <= max(w, h) <= 3 * typ:
                 shapes.append(r)
-        if len(shapes) < 10:
+        if not shapes:
             return []
-        gap = 1.2 * max(self.typical, 10)  # 行の間（字1字ぶんほど）も、同じ所のつながりとする
-        groups: list[list] = []
-        for r in sorted(shapes):
-            hit = [g for g in groups if g[0][0] - gap <= r[2] and r[0] <= g[0][2] + gap and g[0][1] - gap <= r[3] and r[1] <= g[0][3] + gap]
-            if hit:
-                g = hit[0]
-                for o in hit[1:]:
-                    g[0] = (min(g[0][0], o[0][0]), min(g[0][1], o[0][1]), max(g[0][2], o[0][2]), max(g[0][3], o[0][3]))
-                    g[1] += o[1]
-                    groups.remove(o)
-                g[0] = (min(g[0][0], r[0]), min(g[0][1], r[1]), max(g[0][2], r[2]), max(g[0][3], r[3]))
-                g[1] += 1
-            else:
-                groups.append([r, 1])
+
+        def cluster(items: list, gap: float) -> list[list]:
+            groups: list[list] = []
+            for r, n in sorted(items):
+                hit = [g for g in groups
+                       if g[0][0] - gap <= r[2] and r[0] <= g[0][2] + gap and g[0][1] - gap <= r[3] and r[1] <= g[0][3] + gap]
+                if hit:
+                    g = hit[0]
+                    for o in hit[1:]:
+                        g[0] = (min(g[0][0], o[0][0]), min(g[0][1], o[0][1]), max(g[0][2], o[0][2]), max(g[0][3], o[0][3]))
+                        g[1] += o[1]
+                        groups.remove(o)
+                    g[0] = (min(g[0][0], r[0]), min(g[0][1], r[1]), max(g[0][2], r[2]), max(g[0][3], r[3]))
+                    g[1] += n
+                else:
+                    groups.append([r, n])
+            return groups
+
+        # 字の間・行の間（字1字ぶんほど）でつながる形を1つのまとまりに。まとまりどうしが字3つぶんの内なら、同じ所にまとめる
+        groups = cluster([(r, 1) for r in shapes], 1.2 * typ)
+        while True:
+            merged = cluster([(tuple(g[0]), g[1]) for g in groups], 3 * typ)
+            if len(merged) == len(groups):
+                break
+            groups = merged
         out = []
         for box, n in groups:
-            if n < 10:
-                continue
-            if any(box[0] <= c.cx <= box[2] and box[1] <= c.cy <= box[3] for c in self.chars if not c.text.isspace()):
-                continue  # 字のある所（図形は飾り・表の模様など）
-            out.append((box, n))
+            mixed = any(box[0] <= c.cx <= box[2] and box[1] <= c.cy <= box[3] for c in self.chars if not c.text.isspace())
+            out.append((box, n, mixed))
         return out
 
     # ------------------------------------------------------------------ ルビ
@@ -1139,6 +1156,7 @@ class PageLayout:
                 b.text = b.text[:at] + ins + b.text[at:]
                 b.pos = b.pos[:at] + [(q[1], q[1])] * len(ins) + b.pos[at:]
                 self.added += ["（", "）"]
+            self.ruby_merges.append((b.text, r.text.strip(" \u3000"), (r.x0, r.y0, r.x1, r.y1)))
             b.chars = sorted(b.chars + r.chars, key=lambda c: c.x0)
             b.y0 = min(b.y0, r.y0)
             b.ruby = getattr(b, "ruby", []) + [g[0] for g in groups]
@@ -1170,7 +1188,15 @@ class PageLayout:
         if legacy:
             self.flag("E", "字の符号が Unicode でない",
                       "Unicode 以前の書体（字の形を ASCII などの符号に割り当てたもの）で描いた字があります。窓の字は元の文字ではありません。"
-                      "その位置の字は view_page で画像を見て読みます", legacy)
+                      "その位置の字は view_page で画像を見て読みます（この書体は、知られた書体の名前で見分けました。名前を知らない"
+                      "書体は、見分けられないことがあります）", legacy)
+        maybe = self._maybe_legacy()
+        if maybe:
+            self.flag("B", "字の符号が Unicode でない書体かもしれない",
+                      "字の符号が Unicode でない書体かもしれない：書類の文字（ほかの字か、書類の言語 /Lang）はラテン文字でないのに、"
+                      "埋め込んだ書体の字が、ラテン文字（ASCII など）だけになっています。Unicode 以前の書体（字の形を ASCII の符号に"
+                      "割り当てたもの）なら、窓の字は元の文字ではありません。ふつうの欧文のこともあるので、その位置は view_page で"
+                      "画像を見て、窓の字と同じかを確かめる（とどくは書体の名前を知らないので、決めていません）", maybe)
         if pua:
             self.flag("B", "外字（私用の符号の字）",
                       "外字：中身は view_page で画像を見て確かめる（私用の符号 U+E000〜F8FF などは、書類ごとに字の形が決まり、"
@@ -1200,15 +1226,65 @@ class PageLayout:
         if self.drawn_text:
             # ページのほかに字があれば、窓はその所を除いて読める（外字と同じ B）。字がそれだけのページは、画像を見るほかない（E）
             has_text = any(not c.text.isspace() and not c.invisible for c in self.chars)
-            self.flag("B" if has_text else "E", "図形で描いた字（字の情報がない）",
-                      "字の形を図形（線と塗り）にして描いた所があり、字の情報がないので、窓に字として出せません。注意書きなど大事な文の"
-                      "ことがあるので、その位置は view_page でページの画像を見て読み、中身を推測で埋めない",
-                      [f"{self.number}ページ（左 {r[0]:.0f}・上 {r[1]:.0f}〜右 {r[2]:.0f}・下 {r[3]:.0f} pt、字の形 {n} 個）"
-                       for r, n in self.drawn_text])
+            self.flag("B" if has_text else "E", "図形で描いた字かもしれない所（字の情報がない）",
+                      "図形で描いた字かもしれない所：view_page で確かめる。字の大きさほどの塗りの形（曲線を含む）があり、"
+                      "そこには字の情報がないので、字だったとしても窓には出せません。字か飾り（記号・模様・ロゴ）かは、とどくは"
+                      "決めません。注意書きなど大事な文のことがあるので、その位置は view_page でページの画像を見て読み、中身を推測で"
+                      "埋めない（字の情報のない所の欄の候補は出していません。書く所なら、近くの字を目印にして書けます）",
+                      [f"{self.number}ページ（左 {r[0]:.0f}・上 {r[1]:.0f}〜右 {r[2]:.0f}・下 {r[3]:.0f} pt、塗りの形 {n} 個"
+                       + ("。中に字もある：飾りの形かもしれない" if mixed else "") + "）"
+                       for r, n, mixed in self.drawn_text])
+        if self.ruby_merges:
+            # ルビ（振り仮名）とした小さな字の行：字の大きさと位置の決まり（JIS X 4051）でつないだが、小さな注の字のこともある
+            self.flag("B", "ルビとして基の字につないだ字",
+                      "すぐ上の小さな字の行を、ルビ（振り仮名）として基の字の後ろに「（）」でつなぎました（かっこは窓で足した字）。"
+                      "小さな注の字・別の見出しのこともあるので、その位置は窓の字と view_page の画像で、ルビかを確かめる",
+                      [self.where(r[0], r[1], f"{base.strip()[:16]} ← {ruby[:12]}") for base, ruby, r in self.ruby_merges])
         bad = [m for m in self.merges if m[1] <= 0.5]
         if bad:
             self.flag("C", "重ね書きとして1字にした字", "箱が重ならない字を、重ね書きとして1字にしました（読み落としのおそれ）",
                       [self.where(r[0], r[1], t) for t, _ov, r in bad])
+
+    def _maybe_legacy(self) -> list[str]:
+        """名前を知らない Unicode 以前の書体かもしれない書体：埋め込んだ書体（Type 3 を含む）で、このページで描いた字が
+        ラテン文字だけ（字が1つ以上）のもの。書類の文字がラテン文字でないこと（このページのほかの書体の字の文字の種類か、
+        Catalog の /Lang）が分かるときだけ。東アジアの文字（漢字・仮名・ハングル）の書類は含めない（fonts.LANG_SCRIPT）。
+        返すもの：書体ごとに、はじめの行の位置と書体の名前。"""
+        from .fonts import EAST_ASIAN, LANG_SCRIPT, letter_script
+
+        glyphs = self.pc.glyphs
+        by_font: dict[str, set] = {}
+        first: dict[str, Ch] = {}
+        embedded: dict[str, bool] = {}
+        for c in self.chars:
+            if c.legacy or c.invisible or not (0 <= c.seq < len(glyphs)):
+                continue
+            g = glyphs[c.seq]
+            fb = g.fontbase or g.font
+            for ch in c.text:
+                sc = letter_script(ch)
+                if sc:
+                    by_font.setdefault(fb, set()).add(sc)
+                    first.setdefault(fb, c)
+            embedded[fb] = embedded.get(fb, False) or g.embedded
+        others = {sc for scs in by_font.values() for sc in scs if sc != "LATIN"}
+        if any(sc.startswith(EAST_ASIAN) for sc in others):
+            return []
+        lang = self.doc.resolve(self.doc.root.get("Lang")) if hasattr(self.doc, "root") else None
+        from .objects import PdfString, decode_text
+
+        lang = decode_text(lang) if isinstance(lang, (bytes, PdfString)) else ""
+        want = LANG_SCRIPT.get(lang.split("-")[0].strip().lower(), "")
+        out = []
+        for fb, scs in by_font.items():
+            if scs != {"LATIN"} or not embedded.get(fb):
+                continue
+            if not (others or want):
+                continue
+            c = first[fb]
+            why = "ほかの字：" + "・".join(sorted(others)) if others else f"書類の言語 {lang}"
+            out.append(self.where(c.x0, c.y0, "") + f" 書体 {fb.split('+')[-1]}（{why}）")
+        return out
 
     def _circled(self) -> None:
         """○で囲む選択肢のうち、ページに描かれた楕円（線の曲線の外枠に内接する楕円）が、その字だけを囲んでいるもの：選んだ字。"""
@@ -1854,8 +1930,9 @@ class PageLayout:
 
     def _option_choice(self, ln: Line, cell: Cell | None) -> None:
         """○で囲んで選ぶ選択肢の候補（規則では決められない所として示す。どれも字の並びの形だけで見つける）：
-        - かっこの中を「・」「／」で区切った並び（「（父携帯・母携帯・自宅）」）。ただし、一つだけが句（かなの後ろに漢字の続く
-          「通勤を除く」）の並びは、注のかっこなので除く
+        - かっこの中を「・」「／」で区切った並び（「（父携帯・母携帯・自宅）」）。一つだけが句（かなの後ろに漢字の続く
+          「通勤を除く」）の並びは、注のかっこかもしれないが、落とさずに理由を添えて示す（エージェントが決める）
+        - 語が 7 個以上・11 字以上の語・句読点（、。：）のある語・数だけの語のある並びも、落とさずに理由を添えて示す
         - 選択肢だけの行（「有　・　無」）：区切りの前後を空けて並べたもの、またはマスの中にその行だけがあり、同じ高さの左の
           マスに字（見出し）があるもの
         - 番号の付いた並び（「1.新規　2.更新」「１　自家　２　借家」）：続き番号が 2 つ以上
@@ -1871,7 +1948,7 @@ class PageLayout:
         # 後ろの「その他（　　）」の書く所は選択肢に含めない
         body = re.sub(r"[（(][ \u3000]*[）)]$", "", whole).rstrip(" \u3000")
         spaced_sep = bool(re.search(r"[ \u3000]+[・／/][ \u3000]+", body))
-        if body and _OPTION_GROUP.fullmatch(body) and (spaced_sep or self._alone_with_label(ln, cell)):
+        if body and _OPTION_LIST.fullmatch(body) and (spaced_sep or self._alone_with_label(ln, cell)):
             groups.append((text.index(body), body, False))
         for start, inner, paren in groups:
             parts = re.split(r"([・／/])", inner)
@@ -1884,15 +1961,25 @@ class PageLayout:
                         a = pos + part.index(word)
                         opts.append((word, a, a + len(word)))
                 pos += len(part)
-            if not (2 <= len(opts) <= 6) or any(len(w) > 10 or re.search(r"[、。：:]", w) for w, _a, _b in opts):
-                continue
+            if len(opts) < 2:
+                continue  # 語が1つ：並びでない
+            doubt = []  # 選択肢らしくない所（落とさずに、？ の候補の理由にする）
+            if len(opts) > 6:
+                doubt.append(f"語が {len(opts)} 個並ぶ（文の中の並びかもしれない）")
+            if any(len(w) > 10 for w, _a, _b in opts):
+                doubt.append("11 字以上の語がある（文かもしれない）")
+            if any(re.search(r"[、。：:]", w) for w, _a, _b in opts):
+                doubt.append("句読点のある語がある（文かもしれない）")
             if any(re.fullmatch(r"[\d０-９]+", w) for w, _a, _b in opts):
-                continue
+                doubt.append("数だけの語がある（日付・番号の並びかもしれない）")
             phrase = [bool(re.search(r"[\u3041-\u309f][\u3400-\u9fff]", w)) for w, _a, _b in opts]
             if paren and any(phrase) and not all(phrase):
-                continue  # 注のかっこ（「（通学・通所・通勤を除く）」）：選択肢の並びでなく、句が混ざる
+                doubt.append("句が混ざる（注のかっこかもしれない）")  # 「（通学・通所・通勤を除く）」
             head = text[:start].rstrip("（( \u3000")
-            self._add_options(ln, cell, opts, head, "選択肢が「・」で並ぶ（どれかを○で囲む）")
+            why = "選択肢が「・」で並ぶ（どれかを○で囲む）"
+            if doubt:
+                why += "。ただし選択肢でないかもしれない：" + "・".join(doubt)
+            self._add_options(ln, cell, opts, head, why, gate="option-doubt" if doubt else "")
         self._numbered_options(ln, cell)
 
     def _alone_with_label(self, ln: Line, cell: Cell | None) -> bool:
@@ -1942,7 +2029,8 @@ class PageLayout:
                 best = list(cur)
         return best
 
-    def _add_options(self, ln: Line, cell: Cell | None, opts: list, head: str, why: str, numbered: bool = False) -> None:
+    def _add_options(self, ln: Line, cell: Cell | None, opts: list, head: str, why: str, numbered: bool = False,
+                     gate: str = "") -> None:
         rects = [(w, ln.span_rect(a, b)) for w, a, b in opts]
         for k in self.spots:
             if k.kind == "circle" and k.host is ln and any(_overlap(r, o) > 0.3 for _w, r in rects for _t, o in k.options):
@@ -1958,6 +2046,7 @@ class PageLayout:
         sp = Spot("circle", r, f"{label}（○で囲む）", why, cell=cell, host=ln, at=None, size=ln.size, confidence="agent")
         sp.options = rects
         sp.numbered = numbered  # 選択肢の名前は「番号と語」、○は番号を囲む
+        sp.gate = gate
         self.spots.append(sp)
 
     def _era_choice(self, ln: Line, cell: Cell | None) -> None:

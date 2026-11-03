@@ -48,6 +48,8 @@ INSTRUCTIONS = (
     "段階とは別に伝えてください。"
     "fill_document の結果の read_back_ok が false のときは、ファイルはもう書き出されていますが、書いた後のファイルを読み直した値が"
     "書いた値と違う欄があります（read_back_differences）。確かめずに本人に渡さず、違いを読んで直すか、そのことを本人に伝えてください。"
+    "結果に check_visually（書く B）があるときは、その欄を view_page でページの画像を見て、字の形が正しいかを確かめてください"
+    "（字を組み立てて描いた文字は、字の並びは確かめていますが、見た目そのものは確かめていません）。"
 )
 
 _OVERWRITE = {"type": "boolean", "default": False,
@@ -262,6 +264,10 @@ def call_tool(name: str, args: dict) -> dict:
         head = ("書き込みました。" if ok else "書き込みましたが、確認が必要な点があります。"
                 + (f"確かめられなかったので「{res['out_path']}」に書き出しました（提出しないでください）。" if res.get("unverified") else "")
                 ) + f"{res.get('proof', '')}"
+        if res.get("check_visually"):
+            cv = res["check_visually"]
+            head += ("　書く[B] 見た目を確かめる欄：" + "・".join(f"{x['id']}（{x['page']}ページ）" if x.get("page") else x["id"]
+                                                     for x in cv["fields"]) + "。" + cv["why"])
         # 本人は書類を開いて確かめないので、say_to_user（書いた所の見出しと値・まだ空いている欄・本人に伝えること）を、対話で伝える
         return {"content": [_text(head), _text(res.get("say_to_user", "")), _text(res)], "structuredContent": res,
                 "isError": not ok}
@@ -366,6 +372,15 @@ def tool_result(name: str, args: dict) -> dict:
                 "isError": True}
 
 
+def _instructions() -> str:
+    """サーバーの説明：この環境で上限が効かないこと（Windows・ps がない）は、エージェントにも知らせる。"""
+    from . import isolate
+
+    isolate.enabled()
+    n = isolate.notice()
+    return INSTRUCTIONS + (f"（この環境の注意：{n}）" if n else "")
+
+
 def handle(msg: dict) -> dict | None:
     mid = msg.get("id")
     method = msg.get("method")
@@ -374,7 +389,7 @@ def handle(msg: dict) -> dict | None:
         ver = params.get("protocolVersion") or PROTOCOL
         return {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": ver, "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "todoku", "title": "とどく", "version": "0.2.0"}, "instructions": INSTRUCTIONS}}
+            "serverInfo": {"name": "todoku", "title": "とどく", "version": "0.2.0"}, "instructions": _instructions()}}
     if method in ("notifications/initialized", "notifications/cancelled", "initialized"):
         return None
     if method == "ping":

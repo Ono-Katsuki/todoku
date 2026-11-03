@@ -128,9 +128,12 @@ def _count(texts) -> Counter:
 
 
 def overprints(glyphs) -> Counter:
-    """本当の重ね書き（同じ字を同じ所に重ねて描いたもの）の、余分な字の数（字ごと）。窓の作り方とは別に、ここで決める：
-    同じ字で、送りの向きにそった2つの字の送りの幅（フォントが決める幅）の重なりが、狭い方の幅の半分より多く、
-    直角のずれが字の大きさの 1/4 より小さく、大きさがほぼ同じもの。続けて並べた字（「ll」）は重ならないので数えない。"""
+    """重ね書き（同じ字を同じ所に重ねて描いたもの）の、余分な字の数（字ごと）。
+    これは「窓と食い違わないか」の照らし合わせ（整合の検査）で、独立の検査ではない：決まりは窓（layout.is_overprint）と同じ
+    （同じ字で、送りの向きにそった2つの字の送りの幅の重なりが、狭い方の幅の半分より多く、直角のずれが字の大きさの 1/4 より
+    小さく、大きさがほぼ同じもの）を、窓の関数を使わず、窓の位置の換算（view）も通さずに、ページの座標で数え直す。
+    決まりそのものの正しさは、ここでは確かめない。決まりとは別の量（描いた字の箱の重なり）で見て、箱が重ならない字を1字にした
+    所は、窓の読む段階の注意（「重ね書きとして1字にした字」C）で知らせる。"""
     out: Counter = Counter()
     kept: dict[str, list] = {}
     for g in glyphs:
@@ -160,12 +163,14 @@ def check_reading(doc: PdfDocument, win: dict) -> list[Check]:
 
 def check_glyphs(doc: PdfDocument, win: dict) -> Check:
     """読み落とし：ページの描画の命令を順に読んだ字（raw_chars）を、窓に実際に出た字（入力欄の印に置き換えた字は数えない）と
-    比べる。窓が1字にした字は、理由ごとに数えて差し引く：本当の重ね書き（overprints が、字の位置と送りの幅から別に決める）と、
-    0.5pt に満たない字・ページの何倍もある字。窓が、本当の重ね書きより多くの字を「重ね書き」として落としたら、読み落とし。"""
+    比べる。窓が1字にした字は、理由ごとに数えて差し引く：重ね書き（overprints が、窓と同じ決まりを窓とは別の手順で数え直す。
+    整合の検査）と、0.5pt に満たない字・ページの何倍もある字。窓が、数え直した重ね書きより多くの字を「重ね書き」として落としたら、
+    読み落とし。数え直せないページがあれば、通ったことにしない（「確かめられない」）。"""
     from .content import page_content
 
     missing, extra = [], []
     dup_total = 0
+    unsure = []
     for pg, page in zip(win["pages"], doc.pages()):
         raw = _count(raw_chars(doc, page))
         shown = _count(pg["_plain"]) - _count(pg.get("_added") or [])  # 窓で足した字（ルビのかっこ）は除く
@@ -173,8 +178,9 @@ def check_glyphs(doc: PdfDocument, win: dict) -> Check:
         merged = _count(t for k, t in pg["_dropped"] if k == "dup")
         try:
             real = _count(ch for t, n in overprints(page_content(doc, page).glyphs).items() for ch in [t] * n)
-        except Exception:  # noqa: BLE001
-            real = merged
+        except Exception as e:  # noqa: BLE001  数え直せないものは、窓の数を正しいとしない
+            unsure.append(f"ページ {pg['number']}: 重ね書きを数え直せませんでした（{type(e).__name__}: {str(e)[:60]}）")
+            continue
         dup_total += sum(real.values())
         for ch, n in (merged - real).items():
             missing.append(f"ページ {pg['number']}: 「{ch}」が {n} 字、重ね書きとして1字にされましたが、同じ所に重ねた字ではありません")
@@ -186,10 +192,13 @@ def check_glyphs(doc: PdfDocument, win: dict) -> Check:
         for ch, n in (shown - raw).items():
             extra.append(f"ページ {pg['number']}: 「{ch}」が {n} 字、元にないのに窓に出ています")
     total = sum(p["chars"] for p in win["pages"])
+    if unsure:
+        return Check("読み落とし（確かめられない）", False,
+                     f"{len(unsure)} ページは、窓の読み落としを確かめられませんでした（重ね書きを数え直せない）", unsure + missing + extra)
     out = [Check("読み落とし（ページの文字）", not missing and not extra,
                  f"ページの文字 {total:,} 字を、窓とは別の読み方（文字の命令を順に）で拾い、すべて窓に出ていることを確かめました"
-                 + (f"（同じ字を同じ所に重ねて描いた太字などの {dup_total:,} 字は、字の位置と送りの幅から重ね書きと確かめ、"
-                    "1字として読んでいます）" if dup_total else ""),
+                 + (f"（同じ字を同じ所に重ねて描いた太字などの {dup_total:,} 字は、1字として読んでいます。重ね書きかは、窓と同じ"
+                    "決まり（字の位置と送りの幅）を別の手順で数え直して照らしたもので、決まりそのものは確かめていません）" if dup_total else ""),
                  missing + extra)]
     return out[0]
 

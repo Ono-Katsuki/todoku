@@ -409,6 +409,17 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                        "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
                        "written_as": {p.id: p.value for p in res.patches
                                       if not p.anchor and str(p.value) != str(values.get(p.id))}})
+        # 字を組み立てて（シェーピング）描いた欄：証明は、とどく自身の組み立てと照らすだけで、見た目そのものは確かめていない。
+        # 書く段階 B として、エージェントに書いた欄の画像を確かめてもらう
+        from .pdf.glyphs import shaped as _shaped
+
+        shaped_ids = [{"id": p.id, "page": p.page} for p in res.patches
+                      if p.kind == "input" and isinstance(p.value, str) and _shaped(p.value)]
+        if shaped_ids:
+            result["check_visually"] = {
+                "grade": "B", "fields": shaped_ids,
+                "why": "字を組み立てて（シェーピング）描いた欄です。字の並びを、とどくの字の組み立てで確かめました（見た目そのものは"
+                       "確かめていません）。view_page でその欄のページの画像を見て、字の形・つながり・並びが正しいかを確かめてください"}
         # 値（/V）と見た目の字が違う欄（選択肢の書き出しの値と見せる字・書式で整えた数）：読み戻しは値で、本人に伝えるのは見た目の字で
         pdf_v = {p.id: p.value for p in res.patches if p.kind in ("input", "control") and not p.anchor}
         pdf_shown = {p.id: (p.value, p.shown) for p in res.patches
@@ -560,8 +571,11 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             xl_back = _xrb.check(ods_after, readback_values)
             result["recalculated_cells"] = _xrb.recalculated(
                 ods_before, ods_after, [(i.rsplit("!", 1)[0], i.rsplit("!", 1)[1], v) for i, v in (result.get("recalculated") or {}).items()])
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001  確かめられなかったことを、黙らずに伝える
             xl_back = {}
+            result["recalculation_unchecked"] = (f"書いた後の表を読み直せず、見えている字と、数式の計算し直し（recalculated_cells）を"
+                                                 f"確かめられませんでした（{type(e).__name__}）。値の読み戻しは、セルの値だけで照らしました")
+            result["warnings"] = list(result.get("warnings") or []) + [result["recalculation_unchecked"]]
     if k in ("xlsx", "xls"):
         # 欄の一覧に出ないセル（番地で書いたセル）も、書いた後のブックのセルの値を直接読んで照らす
         from .book import open_book
@@ -584,14 +598,21 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             if cell_values or not circ:
                 result["recalculated_cells"] = _xrb.recalculated(
                     wb, wb_after, [(p.sheet, p.address, p.after) for p in res.patches if p.kind == "formula"])
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001  確かめられなかったことを、黙らずに伝える
+            result["recalculation_unchecked"] = (f"書いた後のブックを読み直せず、見えている字と、数式の計算し直し（recalculated_cells）を"
+                                                 f"確かめられませんでした（{type(e).__name__}）")
+            result["warnings"] = list(result.get("warnings") or []) + [result["recalculation_unchecked"]]
     if k == "pdf":
         readback_values.update({i: v for i, v in pdf_v.items() if i in readback_values})
     mismatch = []
+    # 読み戻しのしかた：書いた所の印を置けない形式（一太郎・Word 6.0/95・PowerPoint・.txt）は、証明の中で書いた後のファイルを
+    # 読み直して照らす（readback_values は空）。ほかは、書いた後のファイルの窓（after）で照らす
+    result["read_back_by"] = "proof" if told is not None else "window"
     for key, v in readback_values.items():
         g = after.get(key)
         if key not in after:
+            # 書いた所が、書いた後のファイルの窓に見つからない：照らせていないので、合ったことにしない
+            mismatch.append({"id": key, "written": v, "read_back": None, "why": "読み戻せなかった（書いた後のファイルに、この欄が見つかりません）"})
             continue
         if key in xl_back:
             ok = xl_back[key][0]

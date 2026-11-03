@@ -438,11 +438,23 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         from .objects import decode_text
 
         txt = decode_text(doc.resolve(ad.get("Contents"))) if ad.get("Contents") is not None else ""
-        drawn = _appearance_text(doc, ad)
-        if txt or drawn or st in ("FreeText", "Stamp", "Text"):
+        drawn, unread = _appearance_text(doc, ad)
+        if txt or drawn or unread or st in ("FreeText", "Stamp", "Text"):
             d_ = {"kind": st, "text": txt}
             if drawn and drawn.split() != txt.split():
                 d_["drawn"] = drawn  # 注釈の見た目（/AP）に描かれた字：ページに見えるのはこの字
+            if unread:
+                d_["unread"] = unread  # 見た目を読めなかった：ページに見える字は、窓に出ていないかもしれない
+                try:
+                    r_ = [float(doc.resolve(v)) for v in doc.resolve(ad.get("Rect"))]
+                    vx0, vy0, _vx1, _vy1 = lay.view.rect(min(r_[0], r_[2]), min(r_[1], r_[3]), max(r_[0], r_[2]), max(r_[1], r_[3]))
+                    where = lay.where(vx0, vy0, txt)
+                except (TypeError, ValueError, IndexError):
+                    where = f"{number}ページ（位置の分からない注釈）"
+                lay.flag("B", "見た目を読めない注釈",
+                         "注釈（スタンプ・FreeText など）の見た目（/AP）を読めませんでした。ページに見える字が窓に出ていないかも"
+                         "しれないので、その位置は view_page で画像を見て確かめる（中身を推測で埋めない）",
+                         [f"{where}（{st}：{unread}）"])
             annots.append(d_)
     marks, inword = unmapped_places(lay)
     return {"number": number, "width": round(view.width, 1), "height": round(view.height, 1), "rotate": view.rot,
@@ -492,8 +504,9 @@ def unmapped_places(lay) -> tuple[list[dict], list[dict]]:
     return marks, inword
 
 
-def _appearance_text(doc: PdfDocument, ad: dict) -> str:
-    """注釈の見た目（/AP の /N）に描かれた字を、描いた順に（スタンプ・FreeText の字は、ページの描画の命令の外にある）。"""
+def _appearance_text(doc: PdfDocument, ad: dict) -> tuple[str, str]:
+    """注釈の見た目（/AP の /N）に描かれた字を、描いた順に（スタンプ・FreeText の字は、ページの描画の命令の外にある）。
+    (字, 読めなかった理由)。見た目のない注釈は ("", "")。"""
     from .content import Interpreter
     from .objects import Stream
 
@@ -503,12 +516,12 @@ def _appearance_text(doc: PdfDocument, ad: dict) -> str:
         st = getattr(doc.resolve(ad.get("AS")), "name", None)
         n = doc.resolve(n.get(st)) if st else None
     if not isinstance(n, Stream):
-        return ""
+        return "", ""
     try:
         pc = Interpreter(doc).run_stream(doc.decode(n), doc.resolve(n.dict.get("Resources")) or {})
-    except Exception:  # noqa: BLE001
-        return ""
-    return "".join(g.text for g in pc.glyphs).strip()
+    except Exception as e:  # noqa: BLE001  読めないことを、黙って「字がない」にしない
+        return "", f"{type(e).__name__}: {str(e)[:60]}"
+    return "".join(g.text for g in pc.glyphs).strip(), ""
 
 
 def _pictures(doc: PdfDocument, page: dict, number: int, pc, lay) -> list[dict]:
