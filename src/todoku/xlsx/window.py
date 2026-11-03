@@ -1367,10 +1367,17 @@ class Layout:
                 else b.cell.value.strip() for b in phrase)
             method.append("前後の字")
         label = "／".join(dict.fromkeys(p for p in parts if p))
+        section = None
         if phrase_text:
-            label = f"{label}：{phrase_text}" if label else phrase_text
+            # 字にはさまれた欄の並び（「第［▶］号」）：見出しは、その並びの印刷された字そのまま。前のマスの見出し・区分・
+            # 上の見出し・行の名前は、ほかのマス・行の字なので、見出しの前に付けず section に分けて示す
+            # （「個人番号：手帳番号［▶］」のように、別の欄の字を見出しに付けない）
+            section = "／".join(p for p in dict.fromkeys(parts) if p) or None
+            label = phrase_text
         out = {"label": label or None, "label_method": "・".join(method) or None,
                "context": self.line(r, mark_box=target)}
+        if section:
+            out["section"] = section  # 区分・上の見出しなど（見出しには付けていない、ほかのマス・行の字）
         if between_text:
             out["text_before"] = between_text  # 前（左）の字と、あいだの欄（見出しにはしていない）
         if not shown and target.kind != "check":

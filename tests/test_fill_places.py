@@ -1,0 +1,40 @@
+"""書く所の見つけ方（72 の様式の試し書きから）：見出しは印刷された字そのまま・字間を空けた見出しは所にしない・
+弱い候補の印・見落としていた所（マスの中の上の行の下の空き、行の頭の空き、空の段落など）。"""
+
+from __future__ import annotations
+
+import io
+
+import pytest
+
+from todoku.xlsx import window
+from todoku.xlsx.workbook import Workbook
+
+openpyxl = pytest.importorskip("openpyxl")
+from openpyxl.styles import Protection  # noqa: E402
+
+
+def _xlsx(build) -> dict:
+    wb = openpyxl.Workbook()
+    build(wb)
+    buf = io.BytesIO()
+    wb.save(buf)
+    doc = window.build(Workbook(buf.getvalue(), "t.xlsx"))
+    return {f["id"]: f for sh in doc["sheets"] for f in sh["fields"]}
+
+
+def test_phrase_label_does_not_take_other_cells_text_as_prefix():
+    def build(wb):
+        ws = wb.active
+        ws.title = "S"
+        for ref, v in {"A4": "なし・あり（１・２・３）", "B4": "計画作成日", "D4": "令和", "F4": "年", "H4": "月"}.items():
+            ws[ref] = v
+        for ref in ("C4", "E4", "G4"):
+            ws[ref].protection = Protection(locked=False)
+        ws.protection.sheet = True
+
+    f = _xlsx(build)
+    lab = f["S!E4"]["label"]
+    # 見出しは、並びの字とすぐ前のマスの見出しだけ。左の別のマスの字（「なし・あり…」）を見出しの前に付けない
+    assert "なし・あり" not in lab and "令和［▶］年" in lab
+    assert "なし・あり" in (f["S!E4"].get("section") or "")
