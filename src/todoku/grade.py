@@ -410,6 +410,15 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
         xr, xw_ = _xfa_reasons(win.get("xfa"))
         reasons += xr
         write += xw_
+    from .pdf.glyphs import shaped as _shaped
+
+    sh = [f"{p['number']}ページ" for p in win["pages"] if any(_shaped(ln) for ln in p.get("reading") or [])]
+    if sh:
+        # 字を組み立てて（シェーピング）描く文字：書けるが、証明はとどく自身の組み立てと照らすだけで、見た目そのものは確かめない
+        write.append(Reason("B", "字を組み立てて書く文字（見た目は画像で確かめる）",
+                            "この書類の文字（アラビア文字・インド系の文字など）は、字を組み立てて（シェーピング）描きます。"
+                            "字の並びは、とどくの字の組み立てで確かめますが、見た目そのものは確かめていません。書いた欄は view_page で"
+                            "ページの画像を見て確かめます", sh[:12]))
     from .pdf.signatures import write_reasons as _sig_reasons
 
     write += _sig_reasons(doc)  # 変更を許さない電子署名（DocMDP P=1）は書けない

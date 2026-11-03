@@ -409,6 +409,17 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                        "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
                        "written_as": {p.id: p.value for p in res.patches
                                       if not p.anchor and str(p.value) != str(values.get(p.id))}})
+        # 字を組み立てて（シェーピング）描いた欄：証明は、とどく自身の組み立てと照らすだけで、見た目そのものは確かめていない。
+        # 書く段階 B として、エージェントに書いた欄の画像を確かめてもらう
+        from .pdf.glyphs import shaped as _shaped
+
+        shaped_ids = [{"id": p.id, "page": p.page} for p in res.patches
+                      if p.kind == "input" and isinstance(p.value, str) and _shaped(p.value)]
+        if shaped_ids:
+            result["check_visually"] = {
+                "grade": "B", "fields": shaped_ids,
+                "why": "字を組み立てて（シェーピング）描いた欄です。字の並びを、とどくの字の組み立てで確かめました（見た目そのものは"
+                       "確かめていません）。view_page でその欄のページの画像を見て、字の形・つながり・並びが正しいかを確かめてください"}
         # 値（/V）と見た目の字が違う欄（選択肢の書き出しの値と見せる字・書式で整えた数）：読み戻しは値で、本人に伝えるのは見た目の字で
         pdf_v = {p.id: p.value for p in res.patches if p.kind in ("input", "control") and not p.anchor}
         pdf_shown = {p.id: (p.value, p.shown) for p in res.patches

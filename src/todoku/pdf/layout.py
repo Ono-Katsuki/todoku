@@ -1045,8 +1045,9 @@ class PageLayout:
         if self.drawn_text:
             # 図形で描いた字の所：字の形の線や塗りからできたマス・空きは、書く所ではない
             m = 0.5 * max(self.typical, 10)  # 字の形の線（下線に見える横の線など）は、字の形の外へ少し出る
+            # （中に字のある所は、飾りの形かもしれないので、欄の候補は消さない）
             self.spots = [k for k in self.spots if not any(
-                _overlap(k.rect, (r[0] - m, r[1] - m, r[2] + m, r[3] + m)) > 0 for r, _n in self.drawn_text)]
+                _overlap(k.rect, (r[0] - m, r[1] - m, r[2] + m, r[3] + m)) > 0 for r, _n, mixed in self.drawn_text if not mixed)]
         self._circled()
         for k in self.spots:
             # 書き込みと同じ決め方で1字も入らない所も、消さずに示す（規則では決められない所・書けない所として）
@@ -1058,39 +1059,50 @@ class PageLayout:
         self._read_flags()
 
     def _drawn_text_regions(self) -> list[tuple]:
-        """字を図形（曲線を含む塗りの形）にして描いた所：字の大きさほどの小さな塗りの形が 10 個以上、間を空けずに
-        並んでいて、その所に字（字の情報）がないもの。窓では字として読めないので、位置を示して知らせる。"""
+        """字を図形（曲線を含む塗りの形）にして描いたかもしれない所：字の大きさほどの（ページのふつうの字の大きさの 3 倍まで）
+        小さな塗りの形のまとまりで、字の情報のないもの。いくつ並べば字かは決めない（1つでも、字の形かもしれない）。
+        近くのまとまり（字3つぶんの内）は1つの所にまとめて、知らせる所が多くなりすぎないようにする。
+        返すもの：(位置, 形の数, 中に字（字の情報）があるか)。字がある所も、飾りか字かは決めずに知らせる（エージェントが画像で決める）。"""
+        typ = max(self.typical, 10)
         shapes = []
         for x0, y0, x1, y1, stroke, fill in self.pc.curves:
             if not fill:
                 continue
             r = self.view.rect(x0, y0, x1, y1)
             w, h = r[2] - r[0], r[3] - r[1]
-            if 0.3 <= max(w, h) <= 3 * max(self.typical, 10):
+            if 0.3 <= max(w, h) <= 3 * typ:
                 shapes.append(r)
-        if len(shapes) < 10:
+        if not shapes:
             return []
-        gap = 1.2 * max(self.typical, 10)  # 行の間（字1字ぶんほど）も、同じ所のつながりとする
-        groups: list[list] = []
-        for r in sorted(shapes):
-            hit = [g for g in groups if g[0][0] - gap <= r[2] and r[0] <= g[0][2] + gap and g[0][1] - gap <= r[3] and r[1] <= g[0][3] + gap]
-            if hit:
-                g = hit[0]
-                for o in hit[1:]:
-                    g[0] = (min(g[0][0], o[0][0]), min(g[0][1], o[0][1]), max(g[0][2], o[0][2]), max(g[0][3], o[0][3]))
-                    g[1] += o[1]
-                    groups.remove(o)
-                g[0] = (min(g[0][0], r[0]), min(g[0][1], r[1]), max(g[0][2], r[2]), max(g[0][3], r[3]))
-                g[1] += 1
-            else:
-                groups.append([r, 1])
+
+        def cluster(items: list, gap: float) -> list[list]:
+            groups: list[list] = []
+            for r, n in sorted(items):
+                hit = [g for g in groups
+                       if g[0][0] - gap <= r[2] and r[0] <= g[0][2] + gap and g[0][1] - gap <= r[3] and r[1] <= g[0][3] + gap]
+                if hit:
+                    g = hit[0]
+                    for o in hit[1:]:
+                        g[0] = (min(g[0][0], o[0][0]), min(g[0][1], o[0][1]), max(g[0][2], o[0][2]), max(g[0][3], o[0][3]))
+                        g[1] += o[1]
+                        groups.remove(o)
+                    g[0] = (min(g[0][0], r[0]), min(g[0][1], r[1]), max(g[0][2], r[2]), max(g[0][3], r[3]))
+                    g[1] += n
+                else:
+                    groups.append([r, n])
+            return groups
+
+        # 字の間・行の間（字1字ぶんほど）でつながる形を1つのまとまりに。まとまりどうしが字3つぶんの内なら、同じ所にまとめる
+        groups = cluster([(r, 1) for r in shapes], 1.2 * typ)
+        while True:
+            merged = cluster([(tuple(g[0]), g[1]) for g in groups], 3 * typ)
+            if len(merged) == len(groups):
+                break
+            groups = merged
         out = []
         for box, n in groups:
-            if n < 10:
-                continue
-            if any(box[0] <= c.cx <= box[2] and box[1] <= c.cy <= box[3] for c in self.chars if not c.text.isspace()):
-                continue  # 字のある所（図形は飾り・表の模様など）
-            out.append((box, n))
+            mixed = any(box[0] <= c.cx <= box[2] and box[1] <= c.cy <= box[3] for c in self.chars if not c.text.isspace())
+            out.append((box, n, mixed))
         return out
 
     # ------------------------------------------------------------------ ルビ
@@ -1200,11 +1212,14 @@ class PageLayout:
         if self.drawn_text:
             # ページのほかに字があれば、窓はその所を除いて読める（外字と同じ B）。字がそれだけのページは、画像を見るほかない（E）
             has_text = any(not c.text.isspace() and not c.invisible for c in self.chars)
-            self.flag("B" if has_text else "E", "図形で描いた字（字の情報がない）",
-                      "字の形を図形（線と塗り）にして描いた所があり、字の情報がないので、窓に字として出せません。注意書きなど大事な文の"
-                      "ことがあるので、その位置は view_page でページの画像を見て読み、中身を推測で埋めない",
-                      [f"{self.number}ページ（左 {r[0]:.0f}・上 {r[1]:.0f}〜右 {r[2]:.0f}・下 {r[3]:.0f} pt、字の形 {n} 個）"
-                       for r, n in self.drawn_text])
+            self.flag("B" if has_text else "E", "図形で描いた字かもしれない所（字の情報がない）",
+                      "図形で描いた字かもしれない所：view_page で確かめる。字の大きさほどの塗りの形（曲線を含む）があり、"
+                      "そこには字の情報がないので、字だったとしても窓には出せません。字か飾り（記号・模様・ロゴ）かは、とどくは"
+                      "決めません。注意書きなど大事な文のことがあるので、その位置は view_page でページの画像を見て読み、中身を推測で"
+                      "埋めない（字の情報のない所の欄の候補は出していません。書く所なら、近くの字を目印にして書けます）",
+                      [f"{self.number}ページ（左 {r[0]:.0f}・上 {r[1]:.0f}〜右 {r[2]:.0f}・下 {r[3]:.0f} pt、塗りの形 {n} 個"
+                       + ("。中に字もある：飾りの形かもしれない" if mixed else "") + "）"
+                       for r, n, mixed in self.drawn_text])
         bad = [m for m in self.merges if m[1] <= 0.5]
         if bad:
             self.flag("C", "重ね書きとして1字にした字", "箱が重ならない字を、重ね書きとして1字にしました（読み落としのおそれ）",

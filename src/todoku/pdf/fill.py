@@ -823,8 +823,9 @@ class Filler:
         self.up.put(ref, t0)
         if shaped:
             self.warnings.append(f"{sf.script.ja or sf.script.name}は、字の組み立て（シェーピング）をして、このパソコンの書体 "
-                                 f"{font.name}（{font.path}）から、使った字形だけを PDF に埋め込みました（見た目の字は、"
-                                 "書いた字として読み戻して確かめました）")
+                                 f"{font.name}（{font.path}）から、使った字形だけを PDF に埋め込みました。字の並びを、とどくの字の組み立てで確かめました"
+                                 "（見た目そのものは確かめていません。描いた字形がいまの組み立てと同じかを、とどく自身の組み立て・"
+                                 "ActualText と照らしただけです）。書いた欄は view_page でページの画像を見て、字の形が正しいかを確かめる")
             return
         names = "".join(sorted(ch for ch in used.values() if ch))
         self.warnings.append(f"「{names[:40]}」の字は、標準の書体に字形がないので、このパソコンの書体 {font.name}（{font.path}）から、"

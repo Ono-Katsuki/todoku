@@ -212,7 +212,10 @@ def test_fill_shaped_text_with_proof_and_read_back(script, tmp_path):
     out = str(tmp_path / "o.pdf")
     r = api.fill(src, {f"w{i}": w for i, w in enumerate(words)}, out)
     assert r["proof_ok"] and r["read_back_ok"], (r["unexpected"], r["read_back_differences"])
-    assert any("シェーピング" in w for w in r["warnings"])
+    assert any("シェーピング" in w and "見た目そのものは確かめていません" in w for w in r["warnings"])
+    # 証明はとどく自身の組み立てと照らすだけ：書いた欄を、エージェントが画像で確かめる（書く B）
+    assert r["check_visually"]["grade"] == "B"
+    assert {x["id"] for x in r["check_visually"]["fields"]} == {f"w{i}" for i in range(len(words))}
     for i, w in enumerate(words):
         doc, st = _field_ap(out, f"w{i}")
         raw = doc.decode(st) if st.num else st.raw
@@ -333,3 +336,14 @@ def test_refuses_comb_field_and_bidi_controls(tmp_path):
 def test_latin_combining_marks_still_refused():
     with pytest.raises(glyphs.GlyphError, match="シェーピング"):
         glyphs.choose(chr(0x301))
+
+
+def test_grade_write_B_for_a_document_in_a_shaped_script():
+    from test_pdf_scripts import glyphs_pdf
+    from todoku.grade import grade_blob
+
+    g = grade_blob(glyphs_pdf([(ch, 300 - 10 * k, 700) for k, ch in enumerate("الاسم")]), "a.pdf")
+    r = [x for x in g.write_reasons if x.title.startswith("字を組み立てて書く文字")]
+    assert r and r[0].grade == "B" and "view_page" in r[0].detail
+    g2 = grade_blob(glyphs_pdf([(ch, 60 + 12 * k, 700) for k, ch in enumerate("委任状")]), "a.pdf")
+    assert not [x for x in g2.write_reasons if x.title.startswith("字を組み立てて書く文字")]

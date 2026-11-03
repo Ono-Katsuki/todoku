@@ -30,9 +30,54 @@ def test_text_drawn_as_shapes_is_flagged_and_not_candidates():
     shapes = "\n".join(_glyph_shape(60 + 10 * k, 780 - 14 * r) for r in range(3) for k in range(12))
     blob = glyphs_pdf([(ch, 60 + 12 * k, 600) for k, ch in enumerate("委任状")], extra=shapes)
     f = flags(blob)
-    assert "図形で描いた字（字の情報がない）" in f
+    assert "図形で描いた字かもしれない所（字の情報がない）" in f
     fields = window(blob)["pages"][0]["fields"]
     assert not [x for x in fields if x["rect"][1] < 842 - 740]
+
+
+DRAWN = "図形で描いた字かもしれない所（字の情報がない）"
+
+
+def _grade(blob: bytes):
+    from todoku.grade import grade_blob
+    return grade_blob(blob, "a.pdf")
+
+
+def test_few_drawn_shapes_are_flagged_with_position():
+    # 形の数で決めない：9 個でも 1 個でも、字の情報のない字の大きさの塗りの形は、位置を示して知らせる（B）
+    for n in (9, 1):
+        shapes = "\n".join(_glyph_shape(60 + 10 * k, 780) for k in range(n))
+        blob = glyphs_pdf([(ch, 60 + 12 * k, 600) for k, ch in enumerate("委任状")], extra=shapes)
+        f = flags(blob)
+        assert DRAWN in f and f[DRAWN]["grade"] == "B", n
+        assert "view_page" in f[DRAWN]["detail"]
+        assert len(f[DRAWN]["where"]) == 1 and "左 60" in f[DRAWN]["where"][0]
+        assert _grade(blob).grade != "A"
+
+
+def test_drawn_shapes_with_a_real_char_inside_are_still_flagged():
+    shapes = "\n".join(_glyph_shape(60 + 10 * k, 780) for k in range(12))
+    blob = glyphs_pdf([(ch, 60 + 12 * k, 600) for k, ch in enumerate("委任状")] + [("注", 100, 782)], extra=shapes)
+    f = flags(blob)
+    assert DRAWN in f and "中に字もある" in f[DRAWN]["where"][0]
+
+
+def test_page_of_only_drawn_shapes_is_E():
+    shapes = "\n".join(_glyph_shape(60 + 10 * k, 780) for k in range(5))
+    blob = glyphs_pdf([], extra=shapes)
+    assert flags(blob)[DRAWN]["grade"] == "E"
+
+
+def test_nearby_drawn_clusters_merge_into_one_region_far_ones_stay_apart():
+    near = [_glyph_shape(60 + 10 * k, 780) for k in range(3)] + [_glyph_shape(110 + 10 * k, 780) for k in range(3)]
+    far = [_glyph_shape(60 + 10 * k, 300) for k in range(3)]
+    blob = glyphs_pdf([(ch, 60 + 12 * k, 600) for k, ch in enumerate("委任状")], extra="\n".join(near + far))
+    assert len(flags(blob)[DRAWN]["where"]) == 2
+
+
+def test_page_without_filled_curves_has_no_drawn_flag():
+    blob = glyphs_pdf([(ch, 60 + 12 * k, 600) for k, ch in enumerate("委任状")])
+    assert DRAWN not in flags(blob)
 
 
 def test_annotation_appearance_text_is_shown():
