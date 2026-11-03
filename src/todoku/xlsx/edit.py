@@ -222,7 +222,7 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value) -> tuple[ob
     d = parse_date_text(s)
     if d is not None:
         if is_date_format(fmt):
-            return float(date_to_serial(d)), notes
+            return float(date_to_serial(d, wb.date1904)), notes
         notes.append(f"{where}: 「{s}」は日付として読めますが、このセルの表示形式は日付ではないので、文字として書き込みました")
         return s, notes
     m = _NUMBER.fullmatch(t)
@@ -366,8 +366,17 @@ def _issues_for(wb: Workbook, sheet: str, r: int, c: int, value, calc: Calc, rul
             if lo is None or (op in ("between", "notBetween") and hi is None):
                 continue
             if not _OPS.get(op, lambda *a: True)(x, lo, hi):
-                rng = _OP_TEXT.get(op, op).format(lo=number_to_text(lo), hi=number_to_text(hi) if hi is not None else "")
-                out.append(Issue(where, f"{where}: 値 {to_text(value)} は入力規則（{rng}）の範囲外です{extra}", v.blocks))
+                show = number_to_text
+                if v.type == "date":
+                    def show(n, _b=wb.date1904):  # 日付の規則：シリアル値ではなく、ブックの数え方で日付にして示す
+                        from ..formula.numfmt import format_value
+
+                        try:
+                            return format_value(n, "yyyy/m/d", _b)
+                        except Exception:  # noqa: BLE001
+                            return number_to_text(n)
+                rng = _OP_TEXT.get(op, op).format(lo=show(lo), hi=show(hi) if hi is not None else "")
+                out.append(Issue(where, f"{where}: 値 {show(x)} は入力規則（{rng}）の範囲外です{extra}", v.blocks))
         elif v.type == "textLength":
             lo = _rule_number(calc, sheet, v, r, c, v.formula1)
             hi = _rule_number(calc, sheet, v, r, c, v.formula2)

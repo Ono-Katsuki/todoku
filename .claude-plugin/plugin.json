@@ -21,6 +21,7 @@
       "args": [
         "run",
         "--quiet",
+        "--no-dev",
         "--directory",
         "${CLAUDE_PLUGIN_ROOT}",
         "todoku-mcp"

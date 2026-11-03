@@ -10,7 +10,7 @@ import hashlib
 import re
 from pathlib import Path
 
-from .book import FormatError, kind_of
+from .book import UNSUPPORTED, FormatError, kind_of, unsupported_message
 
 KIND_JA = {"xlsx": "Excel", "xls": "古い Excel（.xls）", "pdf": "PDF", "docx": "Word", "doc": "古い Word（.doc）"}
 # 一太郎（.jtd）：読む・書く（同じ字数の上書きと、本文の字数を変える書き込み。圧縮した文書は縮め直す）
@@ -27,6 +27,14 @@ KIND_JA["zip"] = "ZIP（ファイルをまとめたもの）"
 
 class ApiError(ValueError):
     pass
+
+
+class Unsupported(ApiError):
+    """見分けたが、まだ読めない形式（HWP・HWPX）。段階は F（grade は、この形式でも段階を返す）。"""
+
+    def __init__(self, message: str, kind: str):
+        super().__init__(message)
+        self.kind = kind
 
 
 class PasswordNeeded(ApiError):
@@ -56,6 +64,8 @@ def _read(path: str, password: str | None = None):
     except WrongPassword as e:
         raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
     k = kind_of(plain, p.name)  # 名前は、中身だけでは決まらない形式（CSV・JSON など）を見分けるのに使う
+    if k in UNSUPPORTED:
+        raise Unsupported(unsupported_message(k), k)  # 見分けたが、まだ読めない形式（HWP・HWPX）
     if k not in KIND_JA:
         raise ApiError(f"この形式（{k}）は扱えません。Excel・PDF・Word のファイルを指定してください")
     return plain, p.name, k, lock
@@ -99,6 +109,8 @@ def _read_member(path: str, password: str | None):
     except WrongPassword as e:
         raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
     k = kind_of(plain, name)
+    if k in UNSUPPORTED:
+        raise Unsupported(f"ZIP の中の「{name}」：" + unsupported_message(k), k)
     if k not in KIND_JA:
         raise ApiError(f"ZIP の中の「{name}」の形式（{k}）は扱えません")
     return plain, name, k, lock
@@ -261,7 +273,7 @@ def _field(f: dict, **where) -> dict:
     d = {"id": f["id"], "label": f.get("label", ""), "kind": f.get("kind", ""), "value": f.get("value")}
     for key in ("options", "maxlen", "format", "readonly", "protected", "confidence", "context", "boxes", "write_as",
                 "options_depend_on", "unit", "rules", "agent", "why", "placeholder", "cover", "kind_candidates",
-                "alternative_to", "group", "why_not"):
+                "alternative_to", "group", "why_not", "label_printed"):
         if f.get(key) not in (None, "", [], False):
             d[key] = f[key]
     d.update({k: v for k, v in where.items() if v is not None})
@@ -293,9 +305,11 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     told = None  # 本人に伝える、書いた所（ほかの形式は読み戻しの値と同じ）
     rest_fields = None  # まだ空いている欄を数える、欄の一覧（なければ、書いた後のファイルの欄）
     try:
-        labels = {f["id"]: f.get("label", "") for f in fields(path, password, encoding)}  # 白紙のときの見出し（対話で伝える一覧に使う）
+        before = fields(path, password, encoding)
+        labels = {f["id"]: f.get("label", "") for f in before}  # 白紙のときの見出し（対話で伝える一覧に使う）
+        printed = {f["id"] for f in before if f.get("label_printed")}  # 見出しが文書に印刷される字の欄
     except ApiError:
-        labels = {}
+        labels, printed = {}, set()
     if k in ("xlsx", "xls"):
         from .book import open_book
         from .xlsx.edit import EditError
@@ -352,6 +366,13 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
                        "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
                        "written_as": {p.id: p.value for p in res.patches
                                       if not p.anchor and str(p.value) != str(values.get(p.id))}})
+        # 値（/V）と見た目の字が違う欄（選択肢の書き出しの値と見せる字・書式で整えた数）：読み戻しは値で、本人に伝えるのは見た目の字で
+        pdf_v = {p.id: p.value for p in res.patches if p.kind in ("input", "control") and not p.anchor}
+        pdf_shown = {p.id: (p.value, p.shown) for p in res.patches
+                     if p.kind in ("input", "calc") and getattr(p, "shown", None) not in (None, p.value)}
+        from .pdf.fill import appearance_readback
+
+        pdf_ap_diff = appearance_readback(_pdf(res.blob, name, lock), res.patches)
         xfa_written = {p.id: p.value for p in res.patches if p.kind == "xfa"}
         if xfa_written:
             # XFA の欄：窓に出る値（日付・数は決まった形、選択肢はデータの値）で読み戻す
@@ -455,6 +476,13 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             result["anchored"] = anchored
             readback_values = {k: v for k, v in values.items() if not k.startswith("@")}
             readback_values.update({p.id: p.value for p in res.patches if getattr(p, "anchor", None)})
+        # 欄の書式で書いた値（日付の欄の w:dateFormat「yyyy年M月d日」など）：読み戻しは、書式を通した字で比べる
+        shaped = {p.id: p.value for p in (res.patches if values or not circ else []) if not getattr(p, "anchor", None) and p.kind == "input"
+                  and p.id in values and not isinstance(values[p.id], bool) and str(p.value) != str(values[p.id])
+                  and not _num_equal(p.value, values[p.id])}
+        if shaped:
+            result["written_as"] = shaped
+            readback_values.update(shaped)
         if circ:
             new_blob = _circle_word(new_blob, name, circ, result)
     written_plain = new_blob  # 書いた中身（保護し直す前）
@@ -475,8 +503,21 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか
     after_list = fields(str(dst), password, encoding)
     after = {f["id"]: f.get("value") for f in after_list}
+    xl_back: dict = {}  # Excel：書いた所の (読み戻しが合うか, 見えている字)。日付・数は、ブックの数え方と表示形式でそろえて比べる
     if k in _open.KINDS:  # 追加の形式：欄の一覧に出ないマス・値も、書いた後のファイルを読み直して照らす
         after.update(_open.read_back(k, written_plain, name, readback_values, encoding))
+    if k in _open.SHEETS:
+        # OpenDocument の表計算：Excel と同じく、日付・数をそろえて比べ、見えている字（ファイルに保存された字）で伝える
+        try:
+            from .odf.sheet import OdsWorkbook
+            from .xlsx import readback as _xrb
+
+            ods_before, ods_after = OdsWorkbook(blob, name), OdsWorkbook(written_plain, name)
+            xl_back = _xrb.check(ods_after, readback_values)
+            result["recalculated_cells"] = _xrb.recalculated(
+                ods_before, ods_after, [(i.rsplit("!", 1)[0], i.rsplit("!", 1)[1], v) for i, v in (result.get("recalculated") or {}).items()])
+        except Exception:  # noqa: BLE001
+            xl_back = {}
     if k in ("xlsx", "xls"):
         # 欄の一覧に出ないセル（番地で書いたセル）も、書いた後のブックのセルの値を直接読んで照らす
         from .book import open_book
@@ -493,19 +534,35 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
                     continue  # 部品の名前など、セルでない指定
                 cell = wb_after.sheet(sh_).cells.get((r_, c_))
                 after[key] = cell.value if cell is not None else None
+            from .xlsx import readback as _xrb
+
+            xl_back = _xrb.check(wb_after, readback_values)
+            if cell_values or not circ:
+                result["recalculated_cells"] = _xrb.recalculated(
+                    wb, wb_after, [(p.sheet, p.address, p.after) for p in res.patches if p.kind == "formula"])
         except Exception:  # noqa: BLE001
             pass
+    if k == "pdf":
+        readback_values.update({i: v for i, v in pdf_v.items() if i in readback_values})
     mismatch = []
     for key, v in readback_values.items():
         g = after.get(key)
         if key not in after:
             continue
-        if isinstance(v, bool) or isinstance(g, bool):
+        if key in xl_back:
+            ok = xl_back[key][0]
+            g = xl_back[key][1]
+        elif isinstance(v, bool) or isinstance(g, bool):
             ok = bool(g) == (v if isinstance(v, bool) else str(v).lower() in ("true", "1", "yes", "はい", "あり"))
         else:
             ok = str(g) == str(v) or _num_equal(g, v)
         if not ok:
             mismatch.append({"id": key, "written": v, "read_back": g})
+    if k == "pdf":
+        mismatch += pdf_ap_diff  # 見た目（/AP）の字：描ける字形で、見せるはずの字か
+        for f_ in after_list:
+            if f_["id"] in pdf_shown and str(f_.get("value")) == str(pdf_shown[f_["id"]][0]):
+                f_["value"] = pdf_shown[f_["id"]][1]  # 本人に伝えるのは、書類に見える字（選択肢の名前・書式で整えた数）
     if result.get("placed"):
         mismatch += _read_back_placed(k, written_plain, name, lock, values, result["placed"])
     if result.get("circled"):
@@ -521,9 +578,14 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     if told is not None:
         # 一太郎：書いた所の印がないので、読み直した窓の同じ id（残りの空白）ではなく、証明で確かめた書いた値を伝える
         rest = rest_fields if rest_fields is not None else [f for f in after_list if f["id"] not in told]
-        result.update(_to_tell(rest, told, result, labels))
+        result.update(_to_tell(rest, told, result, labels, printed))
+    elif xl_back:
+        # Excel：本人に伝える値は、セルの表示形式を通した見えている字（日付は「2026/11/3」、数は「3」）
+        shown_list = [dict(f, value=xl_back[f["id"]][1]) if f["id"] in xl_back else f for f in after_list]
+        result.update(_to_tell(shown_list, {k_: xl_back[k_][1] if k_ in xl_back else v for k_, v in readback_values.items()},
+                               result, labels, printed))
     else:
-        result.update(_to_tell(after_list, readback_values, result, labels))
+        result.update(_to_tell(after_list, readback_values, result, labels, printed))
     return result
 
 
@@ -733,9 +795,25 @@ def _prove_pdf(prove, original: bytes, new: bytes, allowed: set, anchored: dict,
     return prove(original, new, allowed, anchored)
 
 
-def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict | None = None) -> dict:
+def _say_value(v) -> str:
+    """本人に伝える値：数は Excel の標準の表示と同じ字（3.0 ではなく 3）。"""
+    if isinstance(v, float):
+        from .formula.values import number_to_text
+
+        return number_to_text(v)
+    return str(v)
+
+
+def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict | None = None,
+             printed: set | None = None) -> dict:
     """本人が Word などで開いて確かめなくても、エージェントが対話で伝えられるように：書いた所（見出しと、書いた後の
-    ファイルを読み直した値）・まだ空いている欄・本人に伝えること。"""
+    ファイルを読み直した値）・まだ空いている欄・本人に伝えること。
+    見出しは、書く前の書類の見出し（labels）を使う：書いた後の書類では、いま書いた値が隣の欄の見出しに見えることがある
+    （「電話／東京都千代田区1-1」）。見出しは書類に印刷された字で、todoku が書いた値ではない。
+    printed：見出しが書類に印刷された字の欄（欄の名前と同じ字でも「見出しなし」にしない）。"""
+    labels = labels or {}
+    printed = printed or set()
+    after_list = [dict(f, label=labels[f["id"]]) if labels.get(f["id"]) else f for f in after_list]
     by_id = {f["id"]: f for f in after_list}
     told = []
     for key, v in written.items():
@@ -764,7 +842,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
     def name(d: dict) -> str:
         """読み上げても分かる欄の名前：窓の印（［▶］・［　］）は「何番目の欄」に、見出しのない欄はセルの番地にする。"""
         lab = d.get("label") or ""
-        if not lab or lab == d["id"]:
+        if not lab or (lab == d["id"] and d["id"] not in printed):
             return f"{bare_id(d)}（見出しなし）"
         slots = list(re.finditer(r"［[^］]*］", lab))
         if not slots:
@@ -774,14 +852,14 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         return f"{base}（{k}つ目の欄）" if k and len(slots) > 1 else base
 
     def shown(d: dict) -> str:
-        v = "☑" if d["value"] is True else "☐" if d["value"] is False else str(d["value"])
+        v = "☑" if d["value"] is True else "☐" if d["value"] is False else _say_value(d["value"])
         lab = d["label"] or ""
         m = re.search(r"［▶[^］]*］", lab) or re.search(r"［[ 　]*］", lab)
         if lab and m:
             rest = re.sub(r"［[^］]*］", "［ ］", lab[m.end():])
             head = re.sub(r"［[^］]*］", "［ ］", lab[:m.start()])
             return f"{head}［{v}］{rest}"  # 「令和［8］年［ ］月」：空欄に値を入れた形で
-        return f"{name(d)}：{v}"
+        return f"{name(d).rstrip('：:　 ')}：{v}"  # 見出しの終わりの「：」は重ねない（「人数：12」）
 
     # 記入した内容の一覧：書いた所を、書類の中の順（シート・ページごと）に、全部。値は書いた後のファイルを読み直したもの
     order = {f["id"]: i for i, f in enumerate(after_list)}
@@ -792,7 +870,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         vals: dict[int, str] = {}
         for d in run:
             k = next((n for n, m in enumerate(re.finditer(r"［[^］]*］", d["label"])) if "▶" in m.group()), None)
-            vals[k] = "☑" if d["value"] is True else "☐" if d["value"] is False else str(d["value"])
+            vals[k] = "☑" if d["value"] is True else "☐" if d["value"] is False else _say_value(d["value"])
         it = iter(range(10 ** 6))
         return re.sub(r"［[^］]*］", lambda m: f"［{vals.get(next(it), ' ')}］", lab)
 
@@ -840,6 +918,10 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         same = len({place(f) for f in nxt[:10]}) == 1
         head = f"続きの空欄（{place(nxt[0]).rstrip('・')}）：" if same and place(nxt[0]) else "続きの空欄："
         lines.append(head + "、".join(name(f) if same else f"{place(f)}{name(f)}" for f in nxt[:10]) + ("ほか" if len(nxt) > 10 else ""))
+    if result.get("recalculated_cells"):
+        from .xlsx.readback import say as _recalc_say
+
+        lines.append(_recalc_say(result["recalculated_cells"]))  # 書いた値から計算し直して変わったセル（金額・合計など）
     if notes:
         lines.append("本人に伝えること：" + "／".join(notes[:10]))
     return {"written": told, "still_empty": [{"id": f["id"], "label": f.get("label", ""), **({"sheet": f["sheet"]} if "sheet" in f else {}),
@@ -1094,10 +1176,14 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
     """段階（S〜F）：誰が扱えば正確に読んで入れられるか。規則で決めた段階と、エージェントが確かめること。
     findings（エージェントが窓を読んで見つけたこと：{grade, title, detail, where}）を渡すと、段階に合わせる。
     パスワードで保護された書類は、本人に聞いたパスワードで解いた中身で決める（パスワードがなければ PasswordNeeded）。"""
-    from .grade import combine, grade_blob
+    from .grade import combine, grade_blob, unsupported_grade
     from .unlock import pdf_password
 
-    blob, name, k, lock = _read(path, password)
+    try:
+        blob, name, k, lock = _read(path, password)
+    except Unsupported as e:
+        g = unsupported_grade(e.kind)  # まだ読めない形式：段階 F と、その理由
+        return (combine(g, findings or [], answered) if findings or answered else g).to_dict()
     encoding = _encoding(blob, k, encoding)
     g = grade_blob(blob, name, password=pdf_password(lock), encoding=encoding)
     if findings or answered:

@@ -178,6 +178,8 @@ class RtfWriter:
     def control(self, item: dict, value) -> None:
         self.check(item)
         c = item["control"]
+        if getattr(c, "unwritable", "") and not self.force:
+            raise FillError(f"{item['id']}: {c.unwritable}")
         ff = getattr(c, "ff", {})
         if c.kind == "checkbox":
             on = _as_bool(value)
@@ -223,7 +225,7 @@ class RtfWriter:
             s, e = ff["fftype_pos"]
             self.put(e, e, B + b"ffres" + str(value).encode())
         else:
-            raise FillError(f"{c.name}: 欄の状態（\\ffres）を書く場所がありません")
+            raise FillError(f"{c.name or 'フォームの欄'}: 欄の状態（\\ffres）を書く場所がありません")
 
     def build(self) -> bytes:
         out = bytearray()

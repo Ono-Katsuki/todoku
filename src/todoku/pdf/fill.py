@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass, field
 
 from .doc import PdfDocument
-from .fonts import _HELV, cid_inverse
+from . import glyphs
 from .form import FF_COMB, FF_RADIO, FormField, read_fields
 from .layout import View
 from .objects import Name, PdfError, PdfString, Ref, Stream, dumps, text_string
@@ -21,6 +21,11 @@ from .objects import Name, PdfError, PdfString, Ref, Stream, dumps, text_string
 
 class FillError(ValueError):
     pass
+
+
+# 書いた字がこれより小さくなったら知らせる：6pt は、印刷物の注記に使われる下限の大きさの目安（1pt = 1/72 インチ、6pt ≒ 2.1mm）。
+# 書類の集まりから決めた値ではない
+MIN_READABLE_PT = 6.0
 
 
 @dataclass
@@ -33,6 +38,7 @@ class Patch:
     key: str = ""  # 指定したときの名前（「@1」など）
     seal: dict | None = None  # 本人の印影・署名の画像を置いたとき：本人に伝える文・位置・画像の SHA-256
     circle: dict | None = None  # 印刷された字を○で囲んだとき：囲んだ字・楕円（見た目の座標）・見出し（circle.resolve）
+    shown: str | None = None  # 見た目に描いた字（値と違うとき：選択肢の見せる字・書式で整えた数など）。読み戻しで見た目と照らす
 
 
 @dataclass
@@ -186,92 +192,42 @@ def _uses_xref_stream(blob: bytes, pos: int) -> bool:
 # ====================================================================== 文字の見た目
 HELV = {"Type": Name("Font"), "Subtype": Name("Type1"), "BaseFont": Name("Helvetica"), "Encoding": Name("WinAnsiEncoding")}
 ZADB = {"Type": Name("Font"), "Subtype": Name("Type1"), "BaseFont": Name("ZapfDingbats")}
-CJK = {  # 字形の集まり → (資源の名前, 書体, CMap, 補遺)
-    "Adobe-Japan1": ("TdkJ", "HeiseiKakuGo-W5", "UniJIS-UCS2-HW-H", 2),
-    "Adobe-Korea1": ("TdkK", "HYGoThic-Medium", "UniKS-UCS2-H", 1),
-    "Adobe-GB1": ("TdkG", "STSong-Light", "UniGB-UCS2-H", 2),
-    "Adobe-CNS1": ("TdkC", "MSung-Light", "UniCNS-UCS2-H", 0),
-}
-
-
-def cjk_font(ros: str) -> dict:
-    res, base, cmap, sup = CJK[ros]
-    reg, order = ros.split("-")
-    desc = {"Type": Name("FontDescriptor"), "FontName": Name(base), "Flags": 4, "FontBBox": [-100, -250, 1100, 900],
-            "ItalicAngle": 0, "Ascent": 880, "Descent": -120, "CapHeight": 700, "StemV": 80}
-    cid = {"Type": Name("Font"), "Subtype": Name("CIDFontType0"), "BaseFont": Name(base),
-           "CIDSystemInfo": {"Registry": PdfString(reg.encode()), "Ordering": PdfString(order.encode()), "Supplement": sup},
-           "FontDescriptor": desc, "DW": 1000}
-    if ros == "Adobe-Japan1":
-        cid["W"] = [231, 389, 500]  # 半角（英数字・カタカナ）は 500
-    return {"Type": Name("Font"), "Subtype": Name("Type0"), "BaseFont": Name(f"{base}-{cmap}"), "Encoding": Name(cmap),
-            "DescendantFonts": [cid]}
+CJK = glyphs.CJK  # 字形の集まり → (資源の名前, 書体, CMap, 補遺)
+cjk_font = glyphs.cjk_font
 
 
 def _latin(ch: str) -> bool:
-    try:
-        ch.encode("cp1252")
-        return True
-    except UnicodeEncodeError:
-        return False
+    return glyphs.winansi(ch) is not None or ch in glyphs.EXT_CODE
 
 
 def runs_for(text: str) -> list[tuple[str, str]]:
-    """文字列を、同じ書体で描ける並びに分ける：(資源の名前, 文字列)。"""
-    out: list[tuple[str, str]] = []
-    for ch in text:
-        if ord(ch) > 0xFFFF:
-            raise FillError(f"「{ch}」（U+{ord(ch):X}）は、この書き込みでは描けない字です（基本多言語面の外の字）")
-        if _latin(ch) and not ("＀" <= ch <= "￯"):
-            key = "Helv"
-        elif ch in cid_inverse("Adobe-Japan1"):
-            key = "TdkJ"
-        elif "가" <= ch <= "힯" or "ᄀ" <= ch <= "ᇿ" or "㄰" <= ch <= "㆏":
-            key = "TdkK"
-        elif ch in cid_inverse("Adobe-GB1"):
-            key = "TdkG"
-        elif ch in cid_inverse("Adobe-CNS1"):
-            key = "TdkC"
-        else:
-            raise FillError(f"「{ch}」（U+{ord(ch):04X}）を描ける字形の集まりがありません")
-        if out and out[-1][0] == key:
-            out[-1] = (key, out[-1][1] + ch)
-        else:
-            out.append((key, ch))
-    return out
+    """文字列を、同じ書体で描ける並びに分ける：(資源の名前, 文字列)。描けない字は、理由を添えて FillError。"""
+    try:
+        return glyphs.runs(text)
+    except glyphs.GlyphError as e:
+        raise FillError(str(e)) from None
 
 
 def text_width(text: str, size: float) -> float:
-    w = 0.0
-    for key, run in runs_for(text):
-        for ch in run:
-            if key == "Helv":
-                code = ch.encode("cp1252")[0]
-                w += (_HELV[code - 32] if 32 <= code <= 126 else 556) / 1000.0
-            elif key == "TdkJ" and ord(ch) < 0x80:
-                w += 0.5
-            elif "｡" <= ch <= "ﾟ":
-                w += 0.5
-            else:
-                w += 1.0
-    return w * size
+    try:
+        return glyphs.width(text) * size
+    except glyphs.GlyphError as e:
+        raise FillError(str(e)) from None
 
 
 def _show(key: str, run: str) -> bytes:
-    if key == "Helv":
-        data = run.encode("cp1252")
-    else:
-        data = run.encode("utf-16-be")
-    return b"<" + data.hex().upper().encode() + b"> Tj"
+    return b"<" + glyphs.encode_run(key, run).hex().upper().encode() + b"> Tj"
 
 
-def text_ops(lines: list[str], size: float, x: float, y: float, leading: float, align_w: float | None = None) -> bytes:
-    """文字の行を描く命令。x, y は1行目の基線の始まり。align_w があれば、その幅の中で中央にそろえる。"""
+def text_ops(lines: list[str], size: float, x: float, y: float, leading: float, align_w: float | None = None,
+             align: str = "center") -> bytes:
+    """文字の行を描く命令。x, y は1行目の基線の始まり。align_w があれば、その幅の中で align（center・right）にそろえる。"""
     out = bytearray(b"BT\n0 g\n")
     for i, line in enumerate(lines):
         lx = x
         if align_w is not None:
-            lx = x + max(0.0, (align_w - text_width(line, size)) / 2)
+            room = max(0.0, align_w - text_width(line, size))
+            lx = x + (room if align == "right" else room / 2)
         ly = y - i * leading
         out += f"1 0 0 1 {lx:.2f} {ly:.2f} Tm\n".encode()
         for key, run in runs_for(line):
@@ -359,9 +315,29 @@ def _rot_matrix(rot: int, w: float, h: float):
     return None
 
 
+def inline_align(spot: dict) -> str:
+    """文字の中の空欄に書く字のそろえ方：空欄の前後の字で決める（見出しの字に寄せる）。
+    前にだけ字がある（「〒［　］」「○○区［　］」）→ 左、後ろにだけ字がある（「［　］年」）→ 右（後ろの字の手前）、
+    前後に字がある（「令和［　］年」）→ 中央。覆って書く所（cover）は中央。"""
+    if spot.get("cover"):
+        return "center"
+    lab = spot.get("label") or ""
+    marks = list(re.finditer(r"［[^］]*］", lab))
+    m = next((x for x in marks if "▶" in x.group()), marks[0] if len(marks) == 1 else None)
+    if m is None:
+        return "center"
+    before = re.sub(r"［[^］]*］", "", lab[:m.start()]).strip(" 　")
+    after = re.sub(r"［[^］]*］", "", lab[m.end():]).strip(" 　")
+    if before and not after:
+        return "left"
+    if after and not before:
+        return "right"
+    return "center"
+
+
 def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, size: float, dr_fonts: dict, *,
                     center: bool = False, comb: list | None = None, rot: int = 0, multiline: bool = True,
-                    cover: bool = False) -> tuple[Ref, float]:
+                    cover: bool = False, align: str = "left") -> tuple[Ref, float]:
     """cover：欄の下地を白く塗ってから書く（伏せ字の「○○」の上に書くときに、下の字を覆う。元の字は消さない）。"""
     vw, vh = (rect_h, rect_w) if rot in (90, 270) else (rect_w, rect_h)
     bg = f"q\n1 g\n0 0 {vw:.2f} {vh:.2f} re\nf\nQ\n".encode() if cover else b""
@@ -386,7 +362,9 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
     block = leading * (len(lines) - 1) + s
     y = (vh + block) / 2 - s * 0.8
     pad = min(1.5, 0.1 * vw)
-    ops = bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, (vw - 2 * pad) if center else None) + b"Q\nEMC\n"
+    align = "center" if center else align
+    ops = bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, (vw - 2 * pad) if align in ("center", "right") else None,
+                                          align) + b"Q\nEMC\n"
     return _ap(update, rect_w, rect_h, ops, fonts_used(lines), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
 
 
@@ -445,6 +423,9 @@ class Filler:
         self.patches: list[Patch] = []
         self.warnings: list[str] = []
         self.circles: dict[int, list[dict]] = {}  # ページ → ○で囲む所（circle.resolve）
+        from .signatures import read as read_signatures
+
+        self.sigs = read_signatures(doc)  # 電子署名：固定された欄・認証の署名が許す変更
 
     # ------------------------------------------------------------------ 共通の資源
     def font(self, key: str) -> Ref:
@@ -455,8 +436,14 @@ class Filler:
                 return existing
             if key == "Helv":
                 self.dr_fonts[key] = self.up.new(dict(HELV))
+            elif key == "TdkL":
+                font, tu = glyphs.ext_font()
+                font["ToUnicode"] = self.up.new(Stream({}, tu))
+                self.dr_fonts[key] = self.up.new(font)
             elif key == "ZaDb":
                 self.dr_fonts[key] = self.up.new(dict(ZADB))
+            elif key == "TdkE":
+                self.dr_fonts[key] = self.up.new({})  # 埋め込む書体：使った字形が決まってから、仕上げで中身を書く（_embed_font）
             else:
                 ros = next(r for r, v in CJK.items() if v[0] == key)
                 self.dr_fonts[key] = self.up.new(cjk_font(ros))
@@ -475,13 +462,15 @@ class Filler:
         if isinstance(ref, Ref):
             fd = self.doc.resolve(ref)
             base = getattr(fd.get("BaseFont"), "name", "") if isinstance(fd, dict) else ""
-            if base in ("Helvetica", "ZapfDingbats"):
-                return ref
+            enc = getattr(self.doc.resolve(fd.get("Encoding")), "name", "")
+            if (base, enc) in (("Helvetica", "WinAnsiEncoding"), ("ZapfDingbats", "")):
+                return ref  # 同じ書体・同じ符号化のときだけ（符号化が違うと、同じ文字コードで別の字形になる）
         return None
 
     # ------------------------------------------------------------------ フォームの欄
-    def set_field(self, f: FormField, value, force: bool, display: str | None = None) -> None:
-        """display：見た目に描く字（XFA の静的なフォームで、値は決まった形・見た目は書式で整えた字のとき）。"""
+    def set_field(self, f: FormField, value, force: bool, display: str | None = None, calc: bool = False) -> None:
+        """display：見た目に描く字（XFA の静的なフォームで、値は決まった形・見た目は書式で整えた字のとき）。
+        calc：計算の欄を、計算し直した値で書くとき（_recalculate だけが使う）。"""
         if f.readonly and not force:
             raise FillError(f"{f.name}: 読み取り専用の欄です")
         k = f.kind
@@ -489,68 +478,88 @@ class Filler:
             raise FillError(f"{f.name}: 電子署名の欄には、文字を書き込めません")
         if k == "button":
             raise FillError(f"{f.name}: 押すだけのボタンで、値を持ちません")
+        sig = self.sigs.locked_by(f.name) if self.sigs is not None else None
+        if sig is not None:
+            raise FillError(f"{f.name}: 電子署名（{sig}）で固定された欄です（署名の /Lock・FieldMDP）。書くと署名が無効と表示される"
+                            "ので、読み取り専用の欄として書きません")
         fd = self.up.get(f.ref) if f.ref is not None else None
         if fd is None:
             raise FillError(f"{f.name}: 欄のオブジェクトが見つかりません")
+        from . import acrojs
+
+        node = self.doc.resolve(f.ref)
+        js = acrojs.actions(self.doc, node) if f.ref is not None else {}
+        if "C" in js and not calc and display is None:
+            srcs = acrojs.calc_sources(js["C"])
+            raise FillError(f"{f.name}: 計算で決まる欄です（{('「' + '」「'.join(srcs) + '」から計算') if srcs else '計算のスクリプト'}）。"
+                            "書いても、Acrobat などで開くと計算し直されて変わるので、書きません。元になる欄に書いてください")
         if k == "checkbox":
-            on = _as_bool(value)
-            state = None
-            for w in f.widgets:
-                if w.on:
-                    state = w.on
-            if on and state is None:
-                raise FillError(f"{f.name}: チェックの「入」の見た目がありません")
-            fd["V"] = Name(state) if on else Name("Off")
-            for w in f.widgets:
+            states = self._check_states(f, fd)
+            on = True if isinstance(value, str) and value in {st for _w, st in states} | {o[0] for o in f.options}                 else _as_bool(value)  # 「入」の状態の名前・書き出しの値（/Ja など）で指してもよい
+            fd["V"] = Name(states[0][1]) if on and states else Name("Off")
+            if on and not states:
+                raise FillError(f"{f.name}: チェックの「入」の状態の名前がありません")
+            for w, st in states:
                 wd = self.up.get(w.ref) if w.ref is not None and w.ref != f.ref else fd
-                wd["AS"] = Name(w.on) if (on and w.on) else Name("Off")
+                wd["AS"] = Name(st) if on else Name("Off")
+                self._ensure_state_ap(wd, w, st, check=True)
             self.patches.append(Patch(f.name, "control", on))
             return
         if k == "radio":
             want = _as_text(value)
-            states = [(w, w.on) for w in f.widgets if w.on]
+            states = self._radio_states(f, fd)
             labels = {}
-            for w, st in states:
-                from .form import name_text
-
-                lab = name_text(st)
-                if f.options and st.isdigit() and int(st) < len(f.options):
-                    lab = f.options[int(st)][1] or f.options[int(st)][0]
+            for _w, st, lab in states:
                 labels[st] = lab
-            pick = next((st for st, lab in labels.items() if lab == want or st == want), None)
+            pick = next((st for st, lab in labels.items() if lab == want), None) or \
+                next((st for st in labels if st == want), None)
+            if not states:
+                raise FillError(f"{f.name}: 選択肢の名前が書類にありません（見た目（/AP）の状態も /Opt もなく、どれを選んだかを"
+                                "書けません）")
             if pick is None:
                 raise FillError(f"{f.name}: 「{want}」は選択肢にありません。選べるのは " + "、".join(f"「{x}」" for x in labels.values()))
             fd["V"] = Name(pick)
-            for w, st in states:
+            for w, st, _lab in states:
                 wd = self.up.get(w.ref) if w.ref is not None and w.ref != f.ref else fd
                 wd["AS"] = Name(st) if st == pick else Name("Off")
+                self._ensure_state_ap(wd, w, st, check=False)
             self.patches.append(Patch(f.name, "control", labels[pick]))
             return
         text = _as_text(value)
-        from . import acrojs
-
-        js = acrojs.actions(self.doc, self.doc.resolve(f.ref)) if f.ref is not None else {}
+        shown_fmt = None
         fmt_js = {kk: v for kk, v in js.items() if kk in ("F", "K", "V")}
         if fmt_js and display is None:
             if all(acrojs.known(v) for v in fmt_js.values()):
                 try:
-                    text = acrojs.commit(fmt_js, text)
+                    text, shown_fmt = acrojs.commit_pair(fmt_js, text)
                 except acrojs.JsError as e:
                     raise FillError(f"{f.name}: {e}") from None
             else:
                 self.warnings.append(f"{f.name}: 独自のスクリプト（書式・入力の制限）は実行していません")
+        label = None
         if k in ("combo", "list"):
             opts = [o[1] or o[0] for o in f.options]
             exports = [o[0] for o in f.options]
             if text not in opts and text not in exports and not (f.flags & (1 << 18)):
                 raise FillError(f"{f.name}: 「{text}」は選択肢にありません。選べるのは " + "、".join(f"「{x}」" for x in opts[:30]))
-            if text in opts and text not in exports:
+            if text in opts:
+                label = text
                 text = exports[opts.index(text)]
+            elif text in exports:
+                label = opts[exports.index(text)]  # 書き出しの値で指したとき：見た目には、選択肢の見せる字
+        if "\n" in text or "\r" in text:
+            if k != "text" or not (f.flags & (1 << 12)):
+                raise FillError(f"{f.name}: 1行の欄です。改行は書けません（改行の代わりに空白や「、」で区切るなど、"
+                                "1行にして書いてください）")
+            text = text.replace("\r\n", "\n").replace("\r", "\n")
         if f.maxlen and len(text) > f.maxlen:
             raise FillError(f"{f.name}: 「{text}」は {len(text)} 字です（この欄は {f.maxlen} 字まで）")
+        shown = display if display is not None else (label if label is not None else (shown_fmt if shown_fmt is not None else text))
+        try:
+            keys = fonts_used([shown]) if shown else set()
+        except FillError as e:
+            raise FillError(f"{f.name}: {e}") from None
         fd["V"] = text_string(text)
-        shown = text if display is None else display
-        keys = fonts_used([shown]) if shown else set()
         for w in f.widgets:
             wd = self.up.get(w.ref) if w.ref is not None and w.ref != f.ref else fd
             x0, y0, x1, y1 = w.rect
@@ -562,14 +571,59 @@ class Filler:
             rot = int(self.doc.resolve((self.doc.resolve(wd.get("MK")) or {}).get("R")) or 0) if isinstance(wd, dict) else 0
             ap, s = text_appearance(self.up, x1 - x0, y1 - y0, shown, size, self.fonts_for(keys | {"Helv"}),
                                     comb=comb, rot=rot, multiline=bool(f.flags & (1 << 12)) or (y1 - y0) > 2.4 * size,
-                                    center=f.q == 1)
+                                    align={1: "center", 2: "right"}.get(f.q, "left"))  # /Q（0 左・1 中央・2 右）
             wd["AP"] = {"N": ap}
             if keys - {"Helv"}:
                 # 日本語などは Helvetica では描けないので、欄の書体の指定も合わせる
-                cjk = sorted(keys - {"Helv"})[0]
+                cjk = _da_key(keys)
                 wd["DA"] = PdfString(f"/{cjk} {s:.1f} Tf 0 g".encode())
                 fd["DA"] = wd["DA"]
-        self.patches.append(Patch(f.name, "input", text))
+        p = Patch(f.name, "input", text)
+        p.shown = shown
+        self.patches.append(p)
+
+    def _check_states(self, f: FormField, fd: dict) -> list:
+        """チェックの部品ごとの「入」の状態の名前。見た目（/AP /N）にあればそれ。なければ /Opt の書き出しの値か、
+        仕様の勧める Yes（ISO 32000-1 12.7.4.2.3）。"""
+        opt = [o[0] for o in f.options]
+        out = []
+        for i, w in enumerate(f.widgets):
+            st = w.on or (opt[i] if i < len(opt) and opt[i] else None) or "Yes"
+            out.append((w, st))
+        return out
+
+    def _radio_states(self, f: FormField, fd: dict) -> list:
+        """ラジオの部品ごとの (部品, 状態の名前, 見せる名前)。見た目の状態がない部品は、/Opt の順（状態の名前は番号）で決める。"""
+        from .form import name_text
+
+        out = []
+        for i, w in enumerate(f.widgets):
+            st = w.on
+            if st is None:
+                if i < len(f.options):
+                    st = str(i)
+                else:
+                    continue
+            lab = name_text(st)
+            if f.options and st.isdigit() and int(st) < len(f.options):
+                lab = f.options[int(st)][1] or f.options[int(st)][0]
+            out.append((w, st, lab))
+        return out
+
+    def _ensure_state_ap(self, wd: dict, w, st: str, check: bool) -> None:
+        """見た目（/AP）のない部品（/NeedAppearances の書類）：入と切の見た目を足す（どのビューアーでも同じに見えるように）。"""
+        if w.on is not None:
+            return
+        x0, y0, x1, y1 = w.rect
+        bw, bh = x1 - x0, y1 - y0
+        mk = self.doc.resolve(wd.get("MK")) if isinstance(wd, dict) else None
+        ca = self.doc.resolve(mk.get("CA")) if isinstance(mk, dict) else None
+        char = bytes(ca).decode("latin-1")[:1] if isinstance(ca, (bytes, PdfString)) and ca else ""
+        if not char.isalnum():
+            char = "4" if check else "l"  # ZapfDingbats：4 はチェックの印、l は黒い丸
+        on = check_appearance(self.up, bw, bh, self.fonts_for({"ZaDb"}), char)
+        off = empty_appearance(self.up, bw, bh)
+        wd["AP"] = {"N": {st: on, "Off": off}}
 
     # ------------------------------------------------------------------ 配置から見つけた欄
     def add_widget(self, page_no: int, spot: dict, value, view: View) -> None:
@@ -635,28 +689,31 @@ class Filler:
                 comb.append((bx0 - vx0, by0 - vy0, bx1 - vx0, by1 - vy0))
         cover = bool(spot.get("cover"))
         ap, s = text_appearance(self.up, w, h, text, size, self.fonts_for(fonts_used([text]) | {"Helv"}),
-                                center=k in ("inline",), comb=comb, rot=rot, multiline=(vy1 - vy0) > 2.4 * min(size, 10.5),
-                                cover=cover)
+                                align=inline_align(spot) if k == "inline" else "left", comb=comb, rot=rot,
+                                multiline=(vy1 - vy0) > 2.4 * min(size, 10.5), cover=cover)
         if cover:
             self.warnings.append(f"{spot['id']}: 元の字「{spot.get('covered', '')}」は、白い下地の欄で覆いました（元の字は消していません）")
-        if text and s < 0.6 * size:
+        if text and s < MIN_READABLE_PT:
+            self.warnings.append(f"{spot['id']}: 欄に収めるため、字が {s:.1f} pt になり、印刷すると読みにくい大きさです"
+                                 f"（{MIN_READABLE_PT:g} pt 未満）。もっと広い所に書くか、短く書けないか確かめてください")
+        elif text and s < 0.6 * size:
             self.warnings.append(f"{spot['id']}: 欄に収めるため、字を {s:.1f} pt に小さくしました（元の大きさ {size:.1f} pt）")
         keys = fonts_used([text]) or {"Helv"}
-        da_font = sorted(keys - {"Helv"})[0] if keys - {"Helv"} else "Helv"
+        da_font = _da_key(keys)
         d = {**base, "FT": Name("Tx"), "Rect": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)],
              "V": text_string(text), "DA": PdfString(f"/{da_font} {s:.1f} Tf 0 g".encode()), "AP": {"N": ap}}
         if comb:
             d["Ff"] = FF_COMB
             d["MaxLen"] = len(comb)
         if k == "inline":
-            d["Q"] = 1
+            d["Q"] = {"center": 1, "right": 2}.get(inline_align(spot), 0)
         if rot:
             d["MK"] = {"R": rot}
         if cover:
             d.setdefault("MK", {})["BG"] = [1]  # 見た目を作り直すソフトでも、下地は白
         ref = self.up.new(d)
         self._attach(page_no, ref)
-        self.patches.append(Patch(spot["id"], "input", text, page_no))
+        self.patches.append(Patch(spot["id"], "input", text, page_no, shown=text))
 
     def _attach(self, page_no: int, ref: Ref, field: bool = True) -> None:
         self.page_annots.setdefault(page_no, []).append(ref)
@@ -685,9 +742,38 @@ class Filler:
                 old = [pd.get("Contents")]
             pd["Contents"] = [pre] + old + [post]
 
+    def _embed_font(self) -> None:
+        """TdkE：書いた見た目が使う字形（GID）だけを、このパソコンの TrueType の書体から埋め込む。"""
+        from .embedfont import compress, font_objects, system_font
+
+        font = system_font()
+        ref = self.dr_fonts["TdkE"]
+        inv: dict[int, str] = {}
+        for u, g in sorted(font.cmap.items()):
+            inv.setdefault(g, chr(u))
+        used: dict[int, str] = {}
+        for _num, (_gen, o) in self.up.objs.items():
+            if isinstance(o, Stream) and b"/TdkE " in o.raw:
+                for m in re.finditer(rb"/TdkE [\d.]+ Tf <([0-9A-F]+)> Tj", o.raw):
+                    h = m[1].decode()
+                    for i in range(0, len(h), 4):
+                        g = int(h[i:i + 4], 16)
+                        used[g] = inv.get(g, "")
+        t0, cid, desc, data, tu = font_objects(font, used)
+        desc["FontFile2"] = self.up.new(Stream({"Length1": len(data), "Filter": Name("FlateDecode")}, compress(data)))
+        cid["FontDescriptor"] = self.up.new(desc)
+        t0["DescendantFonts"] = [self.up.new(cid)]
+        t0["ToUnicode"] = self.up.new(Stream({}, tu))
+        self.up.put(ref, t0)
+        names = "".join(sorted(ch for ch in used.values() if ch))
+        self.warnings.append(f"「{names[:40]}」の字は、標準の書体に字形がないので、このパソコンの書体 {font.name}（{font.path}）から、"
+                             "書いた字の字形だけを PDF に埋め込みました")
+
     def finish(self) -> bytes:
         doc = self.doc
         up = self.up
+        if "TdkE" in self.dr_fonts:
+            self._embed_font()
         if self.circles:
             self._draw_circles()
         for page_no, refs in self.page_annots.items():
@@ -737,6 +823,14 @@ class Filler:
         return up.build()
 
 
+def _da_key(keys: set[str]) -> str:
+    """欄の書体の指定（/DA）にする書体：見た目を作り直すソフトが使うので、日本語などの書体を先に（欧文の拡張の TdkL は最後）。"""
+    for k in ("TdkJ", "TdkK", "TdkG", "TdkC", "TdkE", "TdkL"):
+        if k in keys:
+            return k
+    return "Helv"
+
+
 def _da_size(da: str) -> float | None:
     m = re.search(r"([\d.]+)\s+Tf", da or "")
     if m:
@@ -749,9 +843,9 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
     """欄の名前（窓の［］の中）→ 値。フォームの欄はその名前、配置から見つけた欄は p{ページ}.{番号}。"""
     from .window import build as build_window
 
-    if _certified_no_changes(doc):
-        raise FillError("この PDF は「変更を許さない」電子署名（認証）がされています。書き込むと署名が無効になります")
     f = Filler(doc)
+    if f.sigs.docmdp == 1:
+        raise FillError("この PDF は「変更を許さない」電子署名（認証、DocMDP P=1）がされています。書き込むと署名が無効になるので、書きません")
     win = build_window(doc)
     spots = {}
     views = {}
@@ -768,6 +862,7 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
         if key in xfa_values:
             continue
         try:
+            _signed_new(f, key, value, spots)
             if xf is not None and (key.startswith("@") or (key not in f.by_name and key in spots)):
                 raise FillError(f"{key}: この PDF は XFA のフォームです。XFA のフォームの欄でない所に書いても、Adobe Acrobat・"
                                 "Reader では表示されないことがあるので、書きません（窓の XFA の入力欄の id を指定してください）")
@@ -850,7 +945,8 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
             sd, value = as_kind(sd, value)
             f.add_widget(page_no, sd, value, views[page_no])
         except FillError as e:
-            problems.append(str(e))
+            msg = str(e)
+            problems.append(msg if msg.startswith(str(key)) or ":" in msg.split(chr(10))[0][:60] else f"{key}: {msg}")
     problems += alternative_conflicts([spots[k][1] for k in values if k in spots and spots[k][1].get("source") == "layout"])
     if xfa_values and not problems:
         try:
@@ -861,8 +957,62 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
         raise FillError("\n".join(problems))
     if f.patches and not xfa_values:
         _recalculate(f, values)
+    note = f.sigs.note()
+    if note and f.patches:
+        f.warnings.insert(0, note)
     blob = f.finish() if f.patches else doc.blob
     return FillResult(blob, f.patches, f.warnings)
+
+
+def _signed_new(f: Filler, key: str, value, spots: dict) -> None:
+    """認証の電子署名（DocMDP P=2・3）：新しい欄・注釈・ページの描画を足す書き込みを、書く前に断る。"""
+    if f.sigs.docmdp is None or (key in f.by_name):
+        return
+    from .signatures import refuse_new
+
+    if key.startswith("@") and isinstance(value, dict):
+        if "seal" in value or "signature" in value:
+            why = refuse_new(f.sigs, "印影・署名の画像（スタンプの注釈）", annotation=True)
+        elif "circle" in value:
+            why = refuse_new(f.sigs, "○（ページの描画）")
+        else:
+            why = refuse_new(f.sigs, "新しい欄（字を目印にした書き込み・枠）")
+    elif key in spots and spots[key][1].get("source") != "acroform":
+        why = refuse_new(f.sigs, "○（ページの描画）" if spots[key][1].get("kind") == "circle" else "新しい欄（窓の推定した欄）")
+    else:
+        return
+    if why:
+        raise FillError(f"{key}: {why}")
+
+
+def appearance_readback(doc: PdfDocument, patches: list[Patch]) -> list[dict]:
+    """書いた後の文書で、書いた文字の欄の見た目（/AP）を読み直す：描いた字が、見せるはずの字と同じで、どれも描ける字形か。
+    （/V の読み戻しでは、見た目の字が白く抜けても気づかないので。）空白・改行は比べない（折り返しで変わるため）。"""
+    from .glyphs import appearance_text, widget_appearance
+
+    by = {x.name: x for x in read_fields(doc)}
+    out = []
+    for p in patches:
+        if p.kind not in ("input", "calc") or p.shown is None:
+            continue
+        fld = by.get(p.id)
+        if fld is None:
+            continue
+        want = re.sub(r"\s", "", str(p.shown))
+        for w in fld.widgets:
+            wd = doc.resolve(w.ref) if w.ref is not None else doc.resolve(fld.ref)
+            st = widget_appearance(doc, wd)
+            if st is None:
+                out.append({"id": p.id, "written": p.shown, "read_back": "見た目（/AP）がありません"})
+                break
+            got, probs = appearance_text(doc, st)
+            if probs:
+                out.append({"id": p.id, "written": p.shown, "read_back": "見た目の字が描けません：" + "／".join(probs)[:300]})
+                break
+            if re.sub(r"\s", "", got) != want:
+                out.append({"id": p.id, "written": p.shown, "read_back": f"見た目の字：{got}"})
+                break
+    return out
 
 
 def as_kind(sd: dict, value):
@@ -1004,7 +1154,7 @@ def _fill_xfa(f: Filler, xf, values: dict, force: bool) -> None:
                 if x.kind == "radio" and not raw:
                     _radio_off(f, acro)
                 else:
-                    f.set_field(acro, val, True, display=disp)
+                    f.set_field(acro, val, True, display=disp, calc=True)
                     f.patches.pop()
             except FillError as e:
                 raise FillError(f"{key}: XFA のデータは書けますが、同じ名前の PDF の欄に書けません（{e}）") from None
@@ -1055,24 +1205,9 @@ def _recalculate(f: Filler, values: dict) -> None:
         if str(current.get(fld.name)) == str(val):
             continue
         try:
-            f.set_field(fld, val, force=True)
+            f.set_field(fld, val, force=True, calc=True)
         except FillError as e:
             f.warnings.append(f"{fld.name}: 計算した値 {val} を書けません（{e}）")
             continue
         current[fld.name] = f.patches[-1].value
         f.patches[-1].kind = "calc"
-
-
-def _certified_no_changes(doc: PdfDocument) -> bool:
-    perms = doc.resolve(doc.root.get("Perms"))
-    if not isinstance(perms, dict):
-        return False
-    sig = doc.resolve(perms.get("DocMDP"))
-    if not isinstance(sig, dict):
-        return False
-    for ref in doc.resolve(sig.get("Reference")) or []:
-        r = doc.resolve(ref)
-        tp = doc.resolve((r or {}).get("TransformParams")) or {}
-        if int(doc.resolve(tp.get("P")) or 2) == 1:
-            return True
-    return False

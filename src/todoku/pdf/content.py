@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .fonts import UNKNOWN, PdfFont, load_font
+from .fonts import UNKNOWN, PdfFont, legacy_text, load_font
 from .objects import Lexer, Name, PdfString, Ref, Stream, parse_object
 
 IDENT = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
@@ -43,6 +43,7 @@ class Glyph:
     color: tuple
     mcid: int | None = None
     actual: bool = False  # ActualText で置き換えた文字
+    legacy: bool = False  # Unicode でない符号の書体で描いた字（取り出した字は元の文字ではない）
     adv: float = 0.0  # フォントの決める、この字の送りの幅（ページ上の長さ。字間・語間の調整は含まない）
 
     @property
@@ -316,6 +317,7 @@ class Interpreter:
                 size = (abs(a * d - b * c)) ** 0.5 if (a or b or c or d) else 0.0
                 out.glyphs.append(Glyph(text, min(xs), min(ys), max(xs), max(ys), size, ox, oy, nx - ox, ny - oy,
                                         f.vertical, gs.tr in (3, 7), gs.font, gs.fill, mcid,
+                                        legacy=legacy_text(f.legacy, text),
                                         adv=((fx - ox) ** 2 + (fy - oy) ** 2) ** 0.5))
 
         def adjust(v):

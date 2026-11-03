@@ -36,19 +36,34 @@ with Severe Physical Disability*, ASSETS '26）
 
 どの AI エージェントからも使えるように、MCP（Model Context Protocol）のサーバーになっています。
 
-**Claude Code では、プラグインとして入れると、どのフォルダからでも使えます**（[uv](https://docs.astral.sh/uv/) が要ります）。
+**Claude Code では、プラグインとして入れると、どのフォルダからでも使えます。**
 MCP サーバーと、申請書を探して記入するときの進め方（スキル `shinsei`）が一緒に入ります。
 
-```
-/plugin marketplace add Ono-Katsuki/todoku
-/plugin install todoku@todoku
-```
+1. Python の道具 [uv](https://docs.astral.sh/uv/) を入れます（とどくを動かすのに使います。とどくは Python の標準の機能だけで動きます）。
+
+   ```
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+   （Homebrew を使っていれば `brew install uv`。Windows は PowerShell で `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`）
+2. Claude Code の中で、プラグインを入れます。
+
+   ```
+   /plugin marketplace add Ono-Katsuki/todoku
+   /plugin install todoku@todoku
+   ```
+
+**iPad・スマートフォンから使う**：とどくはパソコンの上で動きます（書類もパソコンから出しません）。Claude Code の
+[Remote Control](https://code.claude.com/docs/en/remote-control) で、パソコンの Claude Code を iPad から操作できます。
+パソコンで `claude remote-control`（または開いている Claude Code の会話で `/remote-control`）を実行し、iPad の Claude アプリか、
+ブラウザーの [claude.ai/code](https://claude.ai/code) から、そのセッションにつなぎます。パソコンの MCP サーバー（とどく）とファイルは
+そのまま使えます。パソコンは付けたままにしておきます（Pro・Max・Team・Enterprise などのプランで使えます。API キーでは使えません）。
 
 あとは「寝たきりの私が使える助成を探して、申請書を書いて」「この様式に事業所の情報を入れて」のように話しかけるだけです。
 このリポジトリの中で開いたときは、`.mcp.json` からも使えます。ほかの MCP 対応のエージェントでは、次のように設定します。
 
 ```json
-{ "mcpServers": { "todoku": { "command": "uv", "args": ["run", "--quiet", "--directory", "<このリポジトリの場所>", "todoku-mcp"] } } }
+{ "mcpServers": { "todoku": { "command": "uv", "args": ["run", "--quiet", "--no-dev", "--directory", "<このリポジトリの場所>", "todoku-mcp"] } } }
 ```
 
 | 道具 | すること |
@@ -90,6 +105,9 @@ MCP サーバーと、申請書を探して記入するときの進め方（ス�
 | スキャンした紙（画像だけの PDF のページ） | 画像（CCITT G3・G4、JPEG、Flate など）を自前で開き、ページの見た目どおりの画像をエージェントに見せる（`view_page`） | エージェントが画像を見て決めた枠（mm）に書く。書く前に枠を描いて確かめる | 元のファイルのバイト列は1つも変えない |
 | ZIP | 中のファイルを「a.zip!/中の名前」で、その形式のまま読む | 中のファイルに書き、ZIP はその部品だけを入れ替える | 書いた部品のほかはバイト一致 |
 
+韓国のワープロ（한글）の **HWPX** は読んで書けます。**HWP 5（.hwp）** は読むだけです（書く段階 D：HWPX で保存し直せば書ける）。
+配布用（배포용）・パスワードで保護した HWP は、本文が暗号化されていて読めません（読む段階 F）。
+
 **パスワードで保護された書類**（Office の暗号・古い .xls/.doc の暗号・PDF の暗号）も、本人に聞いたパスワードで開き、
 書いた後は元と同じパスワードで保護し直します。**パスワードは結果にも記録にも残しません。**
 
@@ -100,6 +118,16 @@ MCP サーバーと、申請書を探して記入するときの進め方（ス�
 証明は、足したのがスタンプの注釈とその見た目・画像だけで、画像が本人の画像と一致する（JPEG はファイルのバイト列、PNG は開いた画素と透け）ことを確かめ、
 `view_page` は置いた画像をページに描いて見せます。実印・自署（手書き）が求められる所では画像は受け付けられないことがあるので、
 そのことを本人に伝えます（受け付けられるかは様式の決まりで、言葉の一致では決めません）。Word・Excel には、まだ置けません（証明つきで置く方法を作るまで、書かずに断ります）。
+
+**PDF に書く字は、描ける字形があるものだけです。** 欧文は Helvetica（WinAnsi と、標準の 14 書体の字形の表にあるラテン文字の拡張
+ş ğ İ ł ř ő など）、日本語・中国語・韓国語は埋め込まない CID フォント（平成角ゴシックなど）で、CMap（Adobe の公開の対応表、
+`scripts/make_write_cmaps.py`）で決まる字形が、宣言した字形の集まりの補遺の範囲にあるものだけを使います。どちらにもない字
+（ギリシャ文字のアクセント・ベトナム語の字など）は、このパソコンの TrueType の書体（Arial など。`TODOKU_PDF_FONT` で指定、
+空にすると使わない）から、書いた字の字形だけを埋め込みます（書体の埋め込みの許しを確かめ、字の並べ替えの要る字は使いません）。
+それでも描けない字は、白く抜けた見た目を書かずに、理由を添えて断ります。証明と読み戻しは、値（/V）だけでなく見た目（/AP）の字も読み直し、
+どの字も描ける字形で、見せるはずの字かを確かめます。**電子署名された PDF** は、署名が許す範囲だけに書きます
+（固定された欄・変更を許さない認証の署名には書かず、記入だけを許す署名では新しい欄・○を足しません）。署名があれば、
+書き込みが「署名のあとの変更」として表示されることを本人に伝えます。
 
 ## 確かめていること
 

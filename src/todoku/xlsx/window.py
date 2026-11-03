@@ -18,7 +18,7 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from ..formula.numfmt import format_value, is_date_format
-from ..formula.parser import RefNode, addr, iter_refs
+from ..formula.parser import RefNode, addr, iter_refs, parse_cell
 from ..formula.values import ExcelError, Unsupported, is_number, to_text
 from .workbook import Cell, Control, Sheet, Workbook
 
@@ -36,22 +36,35 @@ def norm_label(s: str) -> str:
     return re.sub(r"[ \u3000\r\n\t]+", " ", t)
 
 
-def display(wb: Workbook, cell: Cell) -> str:
+def display(wb: Workbook, cell: Cell, flag: bool = True) -> str:
+    """セルの見えている字（表示形式を通した字）。再現できない表示形式は、推測した字を出さずに、元の値とそう示す
+    （flag=False：元の値だけ）。"""
+    return shown_text(wb, cell, flag)[0]
+
+
+def unshown_mark(fmt: str, raw: str) -> str:
+    return f"〔表示形式「{fmt}」は再現できません：元の値 {raw}〕"
+
+
+def shown_text(wb: Workbook, cell: Cell, flag: bool = True) -> tuple[str, str | None]:
+    """(見えている字, 再現できなかった理由)。"""
     shown = getattr(wb, "shown_text", None)  # 見える字をファイルに保存している形式（OpenDocument の表計算）は、その字
     if shown is not None:
         t = shown(cell)
         if t is not None:
-            return t
+            return t, None
     v = cell.value
     if v is None:
-        return ""
+        return "", None
     if isinstance(v, ExcelError):
-        return v.code
+        return v.code, None
     fmt = wb.style(cell.style).num_fmt
     try:
-        return format_value(v, fmt)
-    except (Unsupported, Exception):  # noqa: BLE001
-        return to_text(v)
+        return format_value(v, fmt, getattr(wb, "date1904", False)), None
+    except Exception as e:  # noqa: BLE001  再現できない表示形式（Unsupported）・壊れた表示形式
+        raw = to_text(v)
+        why = str(e) if isinstance(e, Unsupported) else f"表示形式を読めません（{type(e).__name__}）"
+        return (unshown_mark(fmt, raw) if flag else raw), why
 
 
 @dataclass
@@ -785,6 +798,16 @@ class Layout:
                 elif cell is not None and cell.has_formula:
                     b = Box(a.r, a.c1, a.r2, a.c2, "formula", cell, display(wb, cell), outside=outside)
                 elif cell is None or cell.value is None or cell.value == "":
+                    # 保護されたシートのロックされた空のマスで、見出しのすぐ右にあり、欄の作り（罫線・塗り・結合・日付や数の
+                    # 表示形式）のあるもの：見出しの欄として配置に入れ、「保護されたセル」と示す（見出しはロックの有無でなく
+                    # 配置で決める。入れないと、見出しがその右の、ロックを外した別のセルについてしまう）
+                    if shown_sheet and sh.protected and (a.r, a.c1) not in self.links and cell is not None and \
+                            wb.style(sh.style_of(a.r, a.c1)).locked and self._locked_slot(a):
+                        b = Box(a.r, a.c1, a.r2, a.c2, "locked", cell, "", outside=outside)
+                        self.rows.setdefault(a.r, []).append(b)
+                        for rr in range(a.r + 1, a.r2 + 1):
+                            self.cover.setdefault(rr, []).append(b)
+                        continue
                     # 空のマス：罫線・塗り・結合（ファイルの作り）があれば、欄かもしれない所としてエージェントに示す。
                     # 保護されたシートのロックされたセル（Excel でも書けない）・部品のつながり先は除く
                     if shown_sheet and (a.r, a.c1) not in self.links and \
@@ -884,6 +907,28 @@ class Layout:
             self.rows[r].sort(key=lambda b: (b.c1, b.kind != "check"))
         self._agent_cells(under)
         self._agent_text_spans()
+
+    def _locked_slot(self, a: "Anchor") -> bool:
+        """ロックされた空のマスが、見出しの欄の作りか：同じ行のすぐ左（4列以内、あいだは空）に見出しの字があり、
+        マスに日付・数の表示形式（作り手が値の形を決めた印）があるか、罫線・塗り・結合があって同じ行の右に入力欄がある
+        （配置に入れないと、見出しがその入力欄についてしまう所）。"""
+        row = self.rows.get(a.r, [])
+        left = [b for b in row if b.c2 < a.c1 and b.kind != "check"]
+        if not left:
+            return False
+        b = left[-1]
+        if not (b.kind == "text" and b.r2 == b.r and isinstance(b.cell.value, str) and b.cell.value.strip()
+                and not _is_phrase_text(b.cell.value) and a.c1 - b.c2 - 1 <= 4):
+            return False
+        fmt = self.wb.style(self.sh.style_of(a.r, a.c1)).num_fmt or "General"
+        if fmt not in ("General", "@"):
+            return True
+        last = self.__dict__.get("_last_input")
+        if last is None:
+            last = self.__dict__["_last_input"] = {}
+            for (r, c) in self.inputs:
+                last[r] = max(c, last.get(r, 0))
+        return last.get(a.r, 0) > a.c2 and blank_marks(self.wb, self.sh, a) is not None
 
     def _agent_cells(self, under: set) -> None:
         """規則では欄と決められない空のマス（kind "agent"）を整える：部品の下に敷かれたマスを除き、表の行の入力欄の印のない
@@ -1321,6 +1366,8 @@ class Layout:
             return f"{b.text}［{'▶' if mark else ''}{b.ref}］"
         if b.kind == "agent":
             return f"［{'▶' if mark else ''}{b.ref}？］"  # 規則では欄と決められない空のマス
+        if b.kind == "locked":
+            return f"［{'▶' if mark else ''}{b.ref}：保護されたセル］"  # 保護されたシートのロックされた欄（書けない）
         if b.blanks:
             # 文字の中の空欄は［　］で示し、どのセルの文字かを添える。規則では決められない所は［？］
             t = b.cell.value
@@ -1446,6 +1493,10 @@ class _Options:
         return self.cache[key]
 
 
+LOCKED_FIELD = ("保護されたセル：書けない／パスワードが要る（シートの保護でロックされていて、Excel でも書けません。"
+                "書くには、保護を外すパスワードが要ります。本人が書く欄か、窓を読んで確かめてください）")
+
+
 def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dict]:
     out = []
     from .controls import CHOICE_KINDS, VALUE_KINDS, radio_groups
@@ -1504,6 +1555,13 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
                     f["why"] = "・".join(dict.fromkeys(AGENT_WHY[k] for k in whys))
                     f["provenance"] = AGENT
                 out.append(f)
+                continue
+            if b.kind == "locked":
+                d = lay.describe(b)
+                out.append({"id": f"{sh.name}!{b.cell_ref}", "cell": b.cell_ref, "kind": _field_kind(wb, b.cell, []),
+                            "value": None, **d, "readonly": True, "locked": True,
+                            "protected": LOCKED_FIELD, "reason": ["見出しのすぐ右の、保護されたシートのロックされたセル"],
+                            "provenance": LAYOUT})
                 continue
             if b.kind != "input":
                 continue
@@ -1622,7 +1680,7 @@ def _control_field(wb: Workbook, sh: Sheet, lay: Layout, b: Box, groups: dict, d
 AGENT_CELLS_RULE = ("規則では入力欄と決められない空のマス。出すのは、ファイルの作りに印のある空のマスだけ"
                     "（罫線で囲まれたもの［左右か上下の両方・下線］・塗り・結合のあるもの、入力欄のある表の行の空のマス）で、印のない空のマスは出さない。"
                     "入力規則のあるマス・保護されたシートでロックを外したマスは入力欄［B5］、保護されたシートのロックされたマス"
-                    "（Excel でも書けない）と非表示のシート・行・列は出さない。書く所かは、根拠（罫線・塗り・近くの字）と"
+                    "（Excel でも書けない。見出しのすぐ右の欄の作りのものだけは［B5：保護されたセル］と出す）と非表示のシート・行・列は出さない。書く所かは、根拠（罫線・塗り・近くの字）と"
                     "その行を読んで判断し、書くなら入力欄と同じく番地で書く")
 
 
@@ -1645,6 +1703,7 @@ def build(wb: Workbook) -> dict:
                      "〔B3〕令和［？］年": "文字の中の、規則では決められない空き（語の並びから推定した所など）。"
                                       "書くなら、空欄ごとの値のリストで（書かない所は null）",
                      "〈AF35＝値〉": "計算結果（数式）",
+                     "［B5：保護されたセル］": "見出しの欄だが、シートの保護でロックされていて書けない（パスワードが要る）",
                      "☐［BA116］ / ☑［BA116］": "チェックボックス（［］はつながっているセル）",
                      "（法人名）": "上の行から続く、縦に結合された見出し", "［▶…］": "いま説明している欄",
                      "〔印刷範囲外〕": "画面には出るが印刷されない",
@@ -1698,9 +1757,11 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
         if cell is not None and cell.value is not None:
             v = cell.value
             item["value"] = v.code if isinstance(v, ExcelError) else v
-            d = display(wb, cell)
+            d, why = shown_text(wb, cell)
             if d != (str(v) if not is_number(v) else None):
                 item["display"] = d
+            if why:
+                item["display_unsupported"] = why
             if is_number(v) and is_date_format(wb.style(cell.style).num_fmt):
                 item["type"] = "date"
         if cell is not None and cell.formula:
@@ -1725,6 +1786,9 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
     undecided = [{"cell": f["cell"], "column": f.get("label") or "", "decide": "agent", "provenance": AGENT,
                   "why": f["why"], "why_key": f["why_key"], "evidence": f["evidence"], "reason": f["why"]}
                  for f in fields if f.get("agent") and f["kind"] != "inline"]
+    unshown = [{"cell": it["cell"], "format": wb.style(sh.cells[parse_cell(it["cell"])].style).num_fmt,
+                "value": it.get("value"), "why": it["display_unsupported"], "provenance": DET}
+               for it in cells if it.get("display_unsupported")]
     labels = {f["cell"]: f for f in fields if f.get("cell")}
     for item in cells:
         f = labels.get(item["cell"])
@@ -1741,6 +1805,7 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
         "header_footer": sh.header_footer,
         "fields": fields,
         "undecided": undecided,
+        "unshown_formats": unshown,  # 再現できない表示形式のセル（窓には元の値と〔表示形式「…」は再現できません〕を出す）
         "reading": reading(lay),
         "hidden_by_format": [addr(*k) for k in lay.hidden_by_format],
         "validations": [{"sqref": v.sqref_text, **_rule_dict(v), "provenance": DET} for v in sh.validations],
@@ -1948,6 +2013,10 @@ def _md_sheet(sh: dict) -> list[str]:
     if sh.get("hidden_by_format"):
         info.append(f"条件付き書式でいまは見えない文字 {len(sh['hidden_by_format'])} か所（読み順の行の"
                     "〔条件付き書式でいまは見えない〕のあとに番地つきで出しています）")
+    if sh.get("unshown_formats"):
+        u = sh["unshown_formats"]
+        info.append(f"表示形式を再現できないセル {len(u)} か所（{_compact([x['cell'] for x in u])}）："
+                    "Excel の見える字ではなく、元の値を〔表示形式「…」は再現できません：元の値 …〕と出しています")
     if info:
         out += ["- " + "／".join(info), ""]
     fields = sh.get("fields", [])
@@ -2156,6 +2225,8 @@ def _kind_text(f: dict) -> str:
             k += f"（書けない：{f['readonly']}）"
     if f.get("undecided"):
         k += f"（規則では決められない：{f['undecided']}）"
+    if f.get("locked"):
+        k += "（保護されたセル：書けない／パスワードが要る）"
     if f.get("unit"):
         k += f"（単位 {f['unit']}）"
     if f.get("highlighted"):
