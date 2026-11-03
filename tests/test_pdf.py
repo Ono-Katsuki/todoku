@@ -299,6 +299,12 @@ def test_ambiguous_kinds_and_alternatives_are_offered_not_decided():
         fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"as": "checkbox", "value": True}})
     # 日付の空欄は語（年・月・日）を手がかりにしたもの：規則では決められない所
     assert all(f.get("agent") for f in fields if f["kind"] == "inline")
+    # 規則の型に合わない行の右の空きは、欄にせず印で示す（字を目印にして書く）
+    win = build(doc)
+    assert any(ln.endswith("日［→余白 20pt］") for ln in win["pages"][0]["reading"]), win["pages"][0]["reading"]
+    assert "［→余白 12pt］" in win["notation"] and win["pages"][0]["room_marks"] == 1
+    res = fill(PdfDocument(blob, "s.pdf"), {"@1": {"after": "日", "value": "8", "page": 1}})
+    assert prove(blob, res.blob, {"p1.w1"}, {"p1.w1": {"after": "日", "value": "8", "page": 1}}).ok
 
 
 def test_small_square_cell_can_be_checked_or_written():

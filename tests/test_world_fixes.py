@@ -58,6 +58,17 @@ def test_blanks_in_tiny_text_are_shown_but_not_writable(tmp_path):
     assert api.audit(str(tiny))["ok"]
 
 
+def test_word_and_pdf_agree_on_structural_blanks(tmp_path):
+    # かっこの組の中が空白だけの所（「（　　　）」）は、PDF と同じく作りで決まる空欄（規則の欄）。年月日の空欄は語からの推定（？）
+    src = tmp_path / "a.docx"
+    src.write_bytes(make_docx(p("電話（　　　　）") + p("令和　　年　　月　　日")))
+    fs = api.fields(str(src))
+    tel = [f for f in fs if f["label"].startswith("電話")]
+    date = [f for f in fs if "令和" in f["label"]]
+    assert tel and not any(f.get("agent") for f in tel), fs
+    assert date and all(f.get("agent") for f in date), fs
+
+
 def test_append_after_a_footnote_mark_uses_the_body_format(tmp_path):
     # 「人口※1」の後ろ（段落の終わりが脚注の印）：書けて、書いた字は印の上付きでなく本文の書式
     body = (p("届出書") + '<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>人口</w:t></w:r><w:r><w:rPr><w:vertAlign w:val="superscript"/>'

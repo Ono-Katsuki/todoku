@@ -529,10 +529,11 @@ _BRACKETS = {"（": "）", "(": ")", "［": "］", "[": "]", "【": "】", "「"
 
 
 def _structural(text: str, a: int, b: int) -> bool:
-    """空欄 text[a:b] が、字の形だけで決まるもの：下線の字だけ、または かっこの組の中が空白だけ（「（　　）」）。"""
+    """空欄 text[a:b] が、字の形だけで決まるもの：下線の字だけ、または かっこの組の中が空白だけ（「（　　）」）。
+    英数字・「/」「.」「-」にはさまれた下線の字の並び（URL・ファイルの名前の「__icsFiles」）は、名前の一部のこともあるので除く。"""
     seg = text[a:b]
     if seg and all(ch in "_＿" for ch in seg):
-        return True
+        return not underscore_in_word(text, a, b)
     if not seg or seg.strip(" 　"):
         return False
     i, j = a, b
@@ -541,6 +542,19 @@ def _structural(text: str, a: int, b: int) -> bool:
     while j < len(text) and text[j] in " 　":
         j += 1
     return i > 0 and j < len(text) and _BRACKETS.get(text[i - 1]) == text[j]
+
+
+def underscore_in_word(text: str, a: int, b: int) -> bool:
+    """下線の字の並び（text[a:b] を含む、続いた並び全体）が、英数字・「/」「.」「-」にはさまれているか。"""
+    def ident(ch: str) -> bool:
+        return ch.isascii() and (ch.isalnum() or ch in ".-/")
+
+    x, y = a, b
+    while x > 0 and text[x - 1] in "_＿":
+        x -= 1
+    while y < len(text) and text[y] in "_＿":
+        y += 1
+    return 0 < x and y < len(text) and ident(text[x - 1]) and ident(text[y])
 
 
 def pdf_blanks(text: str, lead: int = 0, trail: int = 0) -> list[Blank]:
@@ -718,6 +732,7 @@ class PageLayout:
         self.right = max(xe) if xe else self.view.width
         self.spots: list[Spot] = []
         self.slivers: list[Cell] = []  # 字の入らない細い空のマス（数だけを窓に出す）
+        self.room_marks: list[tuple] = []  # 欄にしない空き（行かマス, 向き, 大きさ pt）：窓に「［→余白 n pt］」と出す
         self._big_empty = [c for c in self._big_empty
                            if not any(c.x0 <= ch.cx <= c.x1 and c.y0 <= ch.cy <= c.y1 for ch in self.chars)
                            and not any(o.x0 >= c.x0 - 0.5 and o.x1 <= c.x1 + 0.5 and o.y0 >= c.y0 - 0.5 and o.y1 <= c.y1 + 0.5
@@ -997,16 +1012,12 @@ class PageLayout:
             self.spots.append(Spot("text", (c.x0 + 1.5, c.y0 + 0.5, left - 1.5, c.y1 - 0.5), rl or name,
                                    "マスの中の字の左の空き", cell=c, size=_fit_size(c.h, typ), host=c))
         else:
-            # 規則の型（空きの大きさ・マスの幅）に合わない：いちばん大きな空きを、測った大きさを添えて候補にする
-            # （その行の字 1 字も入らない空きは、空きではない）
-            rooms = [(below, "下", (c.x0 + 1.5, bottom + 0.5, c.x1 - 1.5, c.y1 - 0.5), c.w - 3),
-                     (above, "上", (c.x0 + 1.5, c.y0 + 0.5, c.x1 - 1.5, top - 0.5), c.w - 3),
-                     (leftroom, "左", (c.x0 + 1.5, c.y0 + 0.5, left - 1.5, c.y1 - 0.5), c.h - 1)]
-            depth, side, rect, other = max(rooms, key=lambda r: r[0] * r[3])
+            # 規則の型（空きの大きさ・マスの幅）に合わない：欄にはせず、いちばん大きな空きの向きと大きさを窓の印で示す
+            # （エージェントが字を目印にして書く。その行の字 1 字も入らない空きは、空きではない）
+            rooms = [(below, "↓", c.w - 3), (above, "↑", c.w - 3), (leftroom, "←", c.h - 1)]
+            depth, arrow, other = max(rooms, key=lambda r: r[0] * r[2])
             if depth >= sz + 1 and other >= sz:
-                self.spots.append(_agent(Spot("text", rect, name, f"マスの中の字の{side}の空き（空きは {depth:.1f}pt・マスは幅 "
-                                              f"{c.w:.1f}pt・高さ {c.h:.1f}pt。字は {sz:.1f}pt）", cell=c,
-                                              size=_fit_size(min(rect[3] - rect[1], 2.5 * sz), typ), host=c), gate="room"))
+                self.room_marks.append((c, arrow, depth))
 
     def _right_room(self, c: Cell, ln: Line, hor: list, typ: float) -> None:
         sz = ln.size
@@ -1041,12 +1052,9 @@ class PageLayout:
                                    "見出しと同じマスの右の空き", cell=c, size=_fit_size(band[1] - band[0], typ), host=ln,
                                    at=(len(ln.text), len(ln.text))))
             return
-        # 規則の型（見出しの長さ・空きの幅・マスの高さ・選択肢や空欄のない行）に合わない：測った大きさを添えて候補にする
+        # 規則の型（見出しの長さ・空きの幅・マスの高さ・選択肢や空欄のない行）に合わない：欄にはせず、空きの幅を窓の印で示す
         if rect[2] - rect[0] >= sz and rect[3] - rect[1] >= sz:
-            why = "; ".join(gate_fail + [f"右の空き 幅 {room:.1f}pt（マスの幅 {c.w:.1f}pt）・字 {sz:.1f}pt"])
-            self.spots.append(_agent(Spot("text", rect, norm_label(seg)[-30:], f"マスの中の字の右の空き（{why}）", cell=c,
-                                          size=_fit_size(band[1] - band[0], typ), host=ln, at=(len(ln.text), len(ln.text))),
-                                     gate="room"))
+            self.room_marks.append((ln, "→", rect[2] - rect[0]))
 
     def _group_stacked(self, start: int) -> None:
         """同じマスの上下の行で、同じ横の位置にある空欄（「都 道／府 県」の前の空き）は、1つの欄かもしれない組として示す
@@ -1086,7 +1094,7 @@ class PageLayout:
                 why = "行の頭の空き（「" + next(u for u in LEAD_UNITS if t.startswith(u)) + f"」で始まる行。左の空き {room:.1f}pt）"
                 self.spots.append(_agent(Spot("inline", (ln.x0 - w, ln.y0, ln.x0 - 0.3 * sz, ln.y1),
                                               norm_label("［　］" + t), why, line_text=ln.text, size=sz,
-                                              host=ln, at=(0, 0)), gate="" if room >= 2.5 * sz else "room"))
+                                              host=ln, at=(0, 0)), gate="" if room >= 2.5 * sz else "lead_room"))
         right_bound = min([c.x0 for c in same_row if c.x0 >= ln.x1 - 0.5] + [self.right])
         for r in self.vs:
             if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1 and ln.x1 <= r.pos < right_bound:
@@ -1114,15 +1122,9 @@ class PageLayout:
             self.spots.append(Spot("space", rect, norm_label(t), "見出しの右の余白（入力欄とは限らない）", size=sz, host=ln,
                                    at=(len(ln.text), len(ln.text)), confidence="agent"))
         elif rect[2] - rect[0] >= sz:
-            # 見出しの右の余白の型（短い見出し・広い空き・中央でない・詰まった行でない）に合わない行の右の空きも、
-            # 測った大きさを添えて示す（文の終わりの余白のことも多い）
-            notes = [f"右の空き {room:.1f}pt・字 {sz:.1f}pt・行の字数 {len(t)}"]
-            if centered:
-                notes.append("ページの中央にそろえた行")
-            if tight:
-                notes.append("すぐ上か下に、左をそろえた行")
-            self.spots.append(_agent(Spot("space", rect, norm_label(t)[-30:], "行の右の余白（" + "・".join(notes) + "）",
-                                          size=sz, host=ln, at=(len(ln.text), len(ln.text))), gate="free_line"))
+            # 見出しの右の余白の型（短い見出し・広い空き・中央でない・詰まった行でない）に合わない行の右の空き（文の終わりの
+            # 余白のことも多い）：欄にはせず、空きの幅を窓の印で示す（エージェントが字を目印にして書く）
+            self.room_marks.append((ln, "→", rect[2] - rect[0]))
 
     def _line_spots(self, ln: Line, cell: Cell | None) -> None:
         text = ln.text

@@ -223,6 +223,22 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                 names[k] = f"p{number}.{counter[0]}"
         return names[k]
 
+    # 欄にしていない空き（規則の型に合わない、行の右・マスの中の字の下などの空き）：行の後ろに「［→余白 n pt］」と出す。
+    # 行の終わりに、もう欄（候補）があるときは出さない
+    marks_of: dict[int, str] = {}
+    emitted_marks = [0]
+    for host, arrow, size in (lay.room_marks if layout else []):
+        if isinstance(host, Line) and any(sp.at and sp.at[0] >= len(host.text.rstrip(" \u3000"))
+                                          for sp in line_spots.get(id(host), [])):
+            continue
+        marks_of[id(host)] = f"［{arrow}余白 {size:.0f}pt］"
+
+    def room_mark(host) -> str:
+        m = marks_of.get(id(host))
+        if m:
+            emitted_marks[0] += 1
+        return m or ""
+
     reading = []
     plain: list[str] = []
     for row in rows:
@@ -234,7 +250,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             elif it.cell is not None:
                 plain.extend(ln.text for ln in it.cell.lines)
             if it.line is not None:
-                t = _render_line(it.line, line_spots.get(id(it.line), []), name)
+                t = _render_line(it.line, line_spots.get(id(it.line), []), name) + room_mark(it.line)
             elif getattr(it, "spot", None) is not None:
                 sp = it.spot
                 mark = _filled_mark(sp, name)
@@ -254,8 +270,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                         pieces.append(("☑" if sp.checked else "☐") + f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
                     else:
                         pieces.append(f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
-                rendered = [_render_line(ln, line_spots.get(id(ln), []), name) for ln in c.lines]
-                pieces.append(_join(rendered))
+                rendered = [_render_line(ln, line_spots.get(id(ln), []), name) + room_mark(ln) for ln in c.lines]
+                pieces.append(_join(rendered) + room_mark(c))
                 for sp in circles:
                     nm = name(sp)
                     chosen = next((f.value_text() for f, _ in (sp.widget or []) if f.name == nm), None)
@@ -393,7 +409,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             # 窓の作り方で1つにした字：同じ位置に重ねて描いた同じ字（太字に見せる重ね書き）・縦に1字ずつ積んだ字の列
             "merged_glyphs": sum(1 for k, _t in lay.dropped if k == "dup"),
             "unseen_glyphs": sum(1 for k, _t in lay.dropped if k == "size"),  # 0.5pt に満たない字・ページの何倍もある字
-            "slivers": len(lay.slivers) if layout else 0,  # 字の入らない細い空のマス（幅か高さが 4pt 未満）
+            "slivers": len(lay.slivers) if layout else 0,
+            "room_marks": emitted_marks[0],  # 欄にしていない空きの印（［→余白 n pt］）の数  # 字の入らない細い空のマス（幅か高さが 4pt 未満）
             "stacked_columns": sum(1 for ln in [x for c in lay.cells for x in c.lines] + list(lay.free_lines)
                                    if getattr(ln, "stacked", 0))}
 
@@ -501,6 +518,10 @@ def build(doc: PdfDocument) -> dict:
         "notation": {"［p1.3］": "入力欄（1ページ目の3番目）",
                      "［p1.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
                                     "書かなければ何も変わらない）",
+                     "［→余白 12pt］": "欄にしていない、行の右の空き（↓ はマスの中の字の下、↑ は上、← は左。12pt はその幅か高さ）。"
+                                      "書く所と判断したら、字を目印にして {\"@1\": {\"after\": 見出しの字, \"value\": 書く字, "
+                                      "\"page\": ページ}}（下なら \"where\": \"below\"。上・左は {\"page\": …, \"box\": [左, 上, 右, 下]（mm）, "
+                                      "\"value\": …}）で書く",
                      "［名前＝値］": "フォームの欄といまの値", "☐［p1.5］ / ☑": "チェックの印",
                      "○［欄＝選択肢］ / ◉": "ひとつ選ぶ欄の選択肢", " ｜ ": "表のマスの区切り"},
         "form": {"acroform_fields": len(fields), "xfa": has_xfa(doc), "encrypted": doc.decryptor is not None},

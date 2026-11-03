@@ -103,25 +103,19 @@ def _trailing_blank(text: str) -> list[tuple[int, int, str]]:
     return [(start, m.end(), "trailing_blank" if typical else "trailing_space")]
 
 
-def _blank_why(text: str, a: int, b: int) -> str | None:
-    """pdf_blanks（Excel と同じ規則に、PDF の型を足したもの）が見つけた空欄 [a, b) の理由の鍵。None は書類の作りで決まるもの：
-    下線の字（＿＿＿・___）の並び。ただし英数字・「/」「.」「-」にはさまれた下線の字（URL・ファイルの名前の「__icsFiles」）は、
-    名前の一部のこともあるので規則では決めない（underscore_in_word）。
-    ほかは、空白の前後の字（単位・「第」・かっこ・住所の単位など）から推定したもの（字の並びの推定）で、規則では決めない（keyword_blank）。
-    ※ フック：pdf/layout.py の pdf_blanks が、字の並びから推定した空欄と、作りで決まる空欄とを見分ける印を返すようになったら、
-      ここでその印を使う（いまは、空欄の字が下線の字だけかで見分ける）。"""
-    if b > a and all(ch in "_＿" for ch in text[a:b]):
-        def ident(ch: str) -> bool:
-            return ch.isascii() and (ch.isalnum() or ch in ".-/")
+def _blank_why(text: str, blank) -> str | None:
+    """pdf_blanks（Excel と同じ規則に、PDF の型を足したもの）が見つけた空欄（pdf.layout.Blank）の理由の鍵。
+    None は書類の作りで決まるもの（Blank.structural。PDF と同じ見分け方）：下線の字（＿＿＿・___）の並びと、
+    かっこの組の中が空白だけのもの（「（　　）」）。英数字・「/」「.」「-」にはさまれた下線の字（URL・ファイルの名前の
+    「__icsFiles」）は、名前の一部のこともあるので規則では決めない（underscore_in_word）。
+    ほかは、空白の前後の字（単位・「第」・住所の単位など）から推定したもの（字の並びの推定）で、規則では決めない（keyword_blank）。"""
+    from ..pdf.layout import underscore_in_word
 
-        x, y = a, b  # 続いた下線の字の並び全体（「__」を1字ずつの空欄に分けて見つけることもある）
-        while x > 0 and text[x - 1] in "_＿":
-            x -= 1
-        while y < len(text) and text[y] in "_＿":
-            y += 1
-        if 0 < x and y < len(text) and ident(text[x - 1]) and ident(text[y]):
-            return "underscore_in_word"
+    a, b = blank
+    if getattr(blank, "structural", False):
         return None
+    if b > a and all(ch in "_＿" for ch in text[a:b]) and underscore_in_word(text, a, b):
+        return "underscore_in_word"
     return "keyword_blank"
 
 
@@ -139,8 +133,9 @@ def para_spans(p: Para) -> list[tuple[int, int, str | None]]:
             return  # 同じ所：先に見つけた理由（作りで決まるもの・下線のような作りの手がかり）を残す
         spans[(a, b)] = why
 
-    for a, b in pdf_blanks(text):
-        put(a, b, _blank_why(text, a, b))
+    for blank in pdf_blanks(text):
+        a, b = blank
+        put(a, b, _blank_why(text, blank))
     for a, b, long_ in _underlined_blanks(p):
         put(a, b, None if long_ else "short_underline")
     for a, b, why in _trailing_blank(text):
