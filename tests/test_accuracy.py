@@ -125,6 +125,7 @@ def test_new_cell_keeps_column_style():
 
 
 # ------------------------------------------------------------------ チェックボックス
+@pytest.mark.corpus
 def test_checkbox_write_matches_excel_bytes():
     blank, example = form("wakayama_r8keikaku"), form("wakayama_r8keikaku_rei")
     res = fill(Workbook(blank.read_bytes()), {f"別紙様式2-1 （総括表）!BA{r}": True for r in range(116, 123)})
@@ -139,6 +140,7 @@ def test_checkbox_write_matches_excel_bytes():
     assert pr.ok and len(pr.control_changes) == 7, pr.unexpected
 
 
+@pytest.mark.corpus
 def test_checkbox_by_name_and_refuses_non_bool():
     blank = form("wakayama_r8keikaku")
     res = fill(Workbook(blank.read_bytes()), {"別紙様式2-1 （総括表）!Check Box 3": True})
@@ -153,6 +155,7 @@ def test_checkbox_by_name_and_refuses_non_bool():
 
 
 # ------------------------------------------------------------------ 見出し
+@pytest.mark.corpus
 def test_labels_distinguish_same_words():
     doc = window.build(Workbook(form("wakayama_r8keikaku").read_bytes()))
     basic = fields_of(doc, "基本情報")
@@ -177,6 +180,7 @@ def test_labels_distinguish_same_words():
     assert s22["R13"]["label"] == "令和［▶］年［　］月～令和［　］年［　］月"
 
 
+@pytest.mark.corpus
 def test_labels_without_merged_sections():
     # 区分の見出しが最初の行にだけ書かれ、結合されていない様式（新潟県）
     doc = window.build(Workbook(form("niigata_490353").read_bytes()))
@@ -188,6 +192,7 @@ def test_labels_without_merged_sections():
     assert "〒 ｜ ［M24］ ｜ ［▶N24］ ｜ ［O24］ ｜ － ｜ ［Q24］" in basic["N24"]["context"]
 
 
+@pytest.mark.corpus
 def test_dependent_choices_follow_other_fields():
     # 市区町村の選択肢は、同じ行の都道府県で決まる。V37 の規則 INDIRECT($Q36) は範囲 V36:V40 の左上を基準に
     # 書かれているので、V37 では Q37 を見る（Excelと同じく相対参照をずらす）
@@ -198,6 +203,7 @@ def test_dependent_choices_follow_other_fields():
 
 
 # ------------------------------------------------------------------ 見え方
+@pytest.mark.corpus
 def test_conditional_format_hides_warning_when_satisfied():
     name = "別紙様式3-1（処遇改善加算　総括表）"
     ex = window.build(Workbook(form("niigata_490358").read_bytes()))
@@ -212,6 +218,7 @@ def test_conditional_format_hides_warning_when_satisfied():
     assert "下回っています" not in shown and "〔AQ18〕" in faded and "下回っています" in faded
 
 
+@pytest.mark.corpus
 def test_values_hidden_by_merge_are_listed():
     doc = window.build(Workbook(form("wakayama_r8keikaku").read_bytes()))
     sh = next(s for s in doc["sheets"] if s["name"].startswith("別紙様式2-1"))
@@ -219,6 +226,7 @@ def test_values_hidden_by_merge_are_listed():
     assert e100["hidden_by_merge"] == "B100:E101" and e100["value"] is False
 
 
+@pytest.mark.corpus
 def test_window_fits_in_context():
     doc = window.build(Workbook(form("wakayama_r8keikaku").read_bytes()))
     # 3,000か所を超える入力欄があっても、見えるシートは AI が一度に読める大きさ。非表示のシート（市町村の一覧など）の中身も
@@ -234,6 +242,7 @@ def test_audit_fixture():
     assert au.ok, [(c.name, c.items[:3]) for c in au.checks if not c.ok]
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("blank, example", [
     ("wakayama_r8keikaku", "wakayama_r8keikaku_rei"),
     ("niigata_490353", "niigata_490358"),

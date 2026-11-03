@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from todoku.grade import grade_blob
 from todoku.pdf.doc import PdfDocument
 from todoku.pdf.window import build, to_markdown
@@ -88,6 +90,7 @@ def test_word_picture_without_description_is_an_alert():
     assert ok.alerts == [] and ok.grade == "A"
 
 
+@pytest.mark.corpus
 def test_old_word_picture_without_description_is_an_alert():
     import glob
 

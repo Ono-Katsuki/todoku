@@ -187,6 +187,7 @@ def test_empty_paragraph_in_cell_with_long_text_is_a_candidate():
     assert [f["id"] for f in cand] == ["P2.c0"], win["fields"]
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("name", ["11ninshintodoke.docx", "torisage-word.docx", "sanko15_kakunin_seiyakusy.docx", "jigyoukeikaku.docx"])
 def test_corpus_audit(name):
     path = next((x for x in CORPUS if Path(x).name == name), None)
