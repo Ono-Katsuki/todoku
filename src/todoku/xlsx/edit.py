@@ -1045,8 +1045,7 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             from .window import input_cells
 
             if (r, c) in input_cells(wb, sh):
-                # 入力欄（ロックの解除・入力規則のあるセル）の、いまの値の書き換え：印刷された字ではないが、伝える
-                warnings.append(f"{sheet}!{addr(r, c)}: いまの値「{cell.value.strip()[:40]}」を「{to_text(val)[:40]}」に書き換えました")
+                pass  # 入力欄（ロックの解除・入力規則のあるセル）のいまの値：印刷された字ではなく、書き換える値
             else:
                 replaced_text.append(f"{sheet}!{addr(r, c)}: 印刷された字「{cell.value.strip()[:60]}」を、"
                                      f"「{to_text(val)[:60]}」に置き換えました（元の字が残っていません）。"
