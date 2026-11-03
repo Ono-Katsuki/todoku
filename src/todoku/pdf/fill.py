@@ -443,15 +443,15 @@ def _as_text(v) -> str:
     return "" if v is None else str(v)
 
 
-def _as_bool(v) -> bool:
-    if isinstance(v, bool):
-        return v
-    t = str(v).strip().lower()
-    if t in ("1", "true", "yes", "on", "x", "✓", "✔", "☑", "レ", "はい", "あり", "有", "○", "〇"):
-        return True
-    if t in ("0", "false", "no", "off", "", "いいえ", "なし", "無"):
-        return False
-    raise FillError(f"チェックの欄には、はい／いいえ（true / false）で書いてください（「{v}」）")
+def _as_bool(v, on=()) -> bool:
+    """チェックの欄の値：true / false と、PDF が決めた「切」の状態の名前 Off（PDF 32000-1 12.7.4.2.3）と、
+    その欄の「入」の状態の名前（on）だけ（inputcheck.checkbox_value。言葉の意味では決めない）。"""
+    from ..inputcheck import InputError, checkbox_value
+
+    try:
+        return checkbox_value(v, tuple(on), ("Off",))
+    except InputError as e:
+        raise FillError(str(e)) from None
 
 
 class Filler:
@@ -544,8 +544,8 @@ class Filler:
         hidden_ok = calc or display is not None  # 計算し直した欄・XFA の欄（XFA の側で、隠した欄を確かめる）
         if k == "checkbox":
             states = self._check_states(f, fd)
-            on = True if isinstance(value, str) and value in {st for _w, st in states} | {o[0] for o in f.options} \
-                else _as_bool(value)  # 「入」の状態の名前・書き出しの値（/Ja など）で指してもよい
+            # true / false か、その欄の「入」の状態の名前・書き出しの値（/Ja など）・Off で指す（inputcheck.checkbox_value）
+            on = _as_bool(value, [st for _w, st in states] + [o[0] for o in f.options])
             if on and not states:
                 raise FillError(f"{f.name}: チェックの「入」の状態の名前がありません")
             if not hidden_ok:

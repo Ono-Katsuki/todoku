@@ -171,14 +171,13 @@ def _is_text_value(v) -> str:
 
 
 def _as_bool(v) -> bool:
-    if isinstance(v, bool):
-        return v
-    t = str(v).strip().lower()
-    if t in ("1", "true", "yes", "on", "x", "✓", "✔", "☑", "■", "レ", "はい", "あり", "有", "○", "〇"):
-        return True
-    if t in ("0", "false", "no", "off", "", "いいえ", "なし", "無", "□", "☐"):
-        return False
-    raise FillError(f"チェックの欄には、はい／いいえ（true / false）で書いてください（「{v}」）")
+    """チェックの欄の値：true / false と、箱の字（☐・☑ など）だけ（inputcheck.checkbox_value。言葉の意味では決めない）。"""
+    from ..inputcheck import GLYPH_OFF, GLYPH_ON, InputError, checkbox_value
+
+    try:
+        return checkbox_value(v, GLYPH_ON, GLYPH_OFF)
+    except InputError as e:
+        raise FillError(str(e)) from None
 
 
 # 要素の w:id（しおり・変更履歴・コメントの範囲・脚注など、番号の要素すべて。数だけの番号）

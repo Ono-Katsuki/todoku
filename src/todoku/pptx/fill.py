@@ -20,6 +20,7 @@ from ..docx.fill import FillError, _as_bool, _is_text_value
 from ..docx.proof import _expected_text
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from ..docx.xmlpos import escape, parse
+from ..inputcheck import GLYPH_OFF, GLYPH_ON, checkbox_state
 from ..zipraw import RawZip
 from .document import PptxDocument, PptxError
 
@@ -465,7 +466,7 @@ def written_formatting(original: bytes, new: bytes, written: dict) -> list[dict]
             span, text = ((0, len(p.text)) if p.text else (0, 0)), str(value)
         elif it["kind"] == "checkbox":
             x, y = it["span"]
-            on = value is True or str(value).lower() in ("true", "1", "yes", "はい", "あり", "☑", "■")
+            on = checkbox_state(value, GLYPH_ON, GLYPH_OFF) is True  # 書き手と同じ読み方（inputcheck）
             span, text = (x, y), box_mark(p.text[x:y], on)
         else:
             span, text = it["span"], str(value)

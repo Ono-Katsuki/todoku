@@ -141,12 +141,15 @@ def test_checkbox_write_matches_excel_bytes():
 
 def test_checkbox_by_name_and_refuses_non_bool():
     blank = form("wakayama_r8keikaku")
-    res = fill(Workbook(blank.read_bytes()), {"別紙様式2-1 （総括表）!Check Box 3": "はい"})
+    res = fill(Workbook(blank.read_bytes()), {"別紙様式2-1 （総括表）!Check Box 3": True})
     sh = Workbook(res.blob).sheet("別紙様式2-1 （総括表）")
     assert sh.cells[parse_cell("BA118")].value is True  # つながったセルも一緒に変わる
     assert next(c for c in sh.controls if c.name == "Check Box 3").is_checked
     with pytest.raises(EditError, match="チェックボックス"):
         fill(Workbook(blank.read_bytes()), {"別紙様式2-1 （総括表）!BA118": "済"})
+    # 言葉（「はい」）の意味では決めない：true / false に直して書くのはエージェント（inputcheck.checkbox_value）
+    with pytest.raises(EditError, match="チェックボックス"):
+        fill(Workbook(blank.read_bytes()), {"別紙様式2-1 （総括表）!Check Box 3": "はい"})
 
 
 # ------------------------------------------------------------------ 見出し

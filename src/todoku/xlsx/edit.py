@@ -160,23 +160,12 @@ def half_width(s: str) -> str:
     return s.translate(_WIDE)
 
 
-_TRUE = {"TRUE", "1", "ON", "CHECKED", "YES", "☑", "✓", "✔", "はい", "あり", "有"}
-_FALSE = {"FALSE", "0", "OFF", "UNCHECKED", "NO", "☐", "□", "いいえ", "なし", "無"}
-
-
 def as_bool(value) -> bool | None:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    if isinstance(value, (int, float)):
-        return bool(value) if value in (0, 1) else None
-    t = half_width(str(value)).strip().upper()
-    if t in _TRUE:
-        return True
-    if t in _FALSE or t == "":
-        return False
-    return None
+    """チェックボックス・つながったセルの値：true / false（Excel の論理値 TRUE・FALSE も同じ綴り）だけ。
+    受けない値は None（inputcheck.checkbox_state。「はい」「あり」などの言葉の意味では決めない）。"""
+    from ..inputcheck import checkbox_state
+
+    return checkbox_state(value)
 
 
 _WESTERN = re.compile(r"(\d{4})\s*[/\-.年]\s*(\d{1,2})\s*[/\-.月]\s*(\d{1,2})\s*日?")

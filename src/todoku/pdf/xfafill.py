@@ -24,8 +24,6 @@ class XfaFillError(ValueError):
     pass
 
 
-_TRUE = ("1", "true", "yes", "on", "x", "✓", "✔", "☑", "レ", "はい", "あり", "有", "○", "〇")
-_FALSE = ("0", "false", "no", "off", "", "いいえ", "なし", "無")
 
 
 def _text(v) -> str:
@@ -53,18 +51,13 @@ def normalize(x: XfaForm, f: XField, value, force: bool = False) -> tuple[str | 
         notes.append(f"{f.id}: 表示されない欄に書きました（スクリプトが表示を切り替える欄かもしれません）")
     loc = x.locale_of(f.f)[1]
     if f.kind == "checkbox":
-        if isinstance(value, str) and value in (f.on, f.off) and value not in ("", "0", "1"):
-            on = value == f.on
-        else:
-            t = _text(value).strip().lower()
-            if t == f.on.lower() and t:
-                on = True
-            elif t in _TRUE:
-                on = True
-            elif t in _FALSE or t == f.off.lower():
-                on = False
-            else:
-                raise XfaFillError(f"{f.id}: チェックの欄には、はい／いいえ（true / false）で書いてください（「{value}」）")
+        # true / false と、XFA の <items> が決めた「入」「切」の値（f.on・f.off）だけ（言葉の意味では決めない）
+        from ..inputcheck import InputError, checkbox_value
+
+        try:
+            on = checkbox_value(value, tuple(x for x in (f.on,) if x != ""), tuple(x for x in (f.off,) if x != ""), f.id)
+        except InputError as e:
+            raise XfaFillError(str(e)) from None
         return (f.on if on else f.off), on, notes
     if f.kind == "radio":
         t = _text(value)

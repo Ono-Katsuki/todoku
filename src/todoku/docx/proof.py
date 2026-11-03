@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 from ..zipraw import RawZip
 from .document import DocxDocument, Para, iter_paras
+from ..inputcheck import GLYPH_OFF, GLYPH_ON, checkbox_state
 from .window import Spots, box_mark
 
 
@@ -456,7 +457,7 @@ def _expected_text(p: Para, items) -> str | None:
             edits.append((0, len(text), str(value)))
         elif kind == "checkbox":
             a, b = it["span"]
-            on = value is True or str(value).lower() in ("true", "1", "yes", "はい", "あり", "☑", "■")
+            on = checkbox_state(value, GLYPH_ON, GLYPH_OFF) is True  # 書き手と同じ読み方（inputcheck）
             orig = text[a:b]
             edits.append((a, b, box_mark(orig, on)))
         else:

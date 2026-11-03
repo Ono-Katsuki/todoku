@@ -76,3 +76,54 @@ def normalize_values(values: dict) -> dict:
         key = check_text(k, "欄の id") if isinstance(k, str) else k
         out[key] = walk(v, str(key))
     return out
+
+
+# ====================================================================== チェックの欄の値（どの形式も、この 1 つで読む）
+# 受ける値は 2 種類だけ：
+# 1. 真偽値：JSON の true / false（Python の True / False）と、その綴りの字「true」「false」（大文字・小文字は問わない）
+# 2. その書類・その形式が宣言した状態の値（on・off）：PDF のチェックの「入」の状態の名前と Off（PDF 32000-1 12.7.4.2.3）、
+#    XFA の <items> の値、ActiveX の Value、Word などの箱の字（☐・☑ など。GLYPH_ON・GLYPH_OFF）
+# 「はい」「あり」「有」「○」のような言葉は受けない（言葉の意味で決めない）。本人の答えを true / false に直すのはエージェント。
+CHECKBOX_HINT = ("チェックの欄には true / false（JSON の真偽値）か、この欄が宣言した状態の値で書いてください。"
+                 "「はい」「あり」などの言葉は受けません（本人の答えを true / false に直して書いてください）")
+
+
+def _glyph_states() -> tuple[frozenset, frozenset]:
+    from . import chars
+
+    return chars.CHECKED_BOXES | chars.MAYBE_CHECKED, chars.EMPTY_BOXES
+
+
+GLYPH_ON, GLYPH_OFF = _glyph_states()  # 箱の字で表すチェック（Word・一太郎・テキスト・PowerPoint など）の、状態の字
+
+
+def checkbox_state(value, on=(), off=()) -> bool | None:
+    """チェックの欄に書く値 → True（入）・False（切）。受けない値は None（言葉・数・空の字・None も None）。
+    on・off：その欄が宣言した状態の値（字のとおりに比べる）。"""
+    if isinstance(value, bool):
+        return value
+    if not isinstance(value, str):
+        return None
+    if value in on:
+        return True
+    if value in off:
+        return False
+    t = value.strip()
+    if t in on:
+        return True
+    if t in off:
+        return False
+    low = t.lower()
+    if low in ("true", "false"):
+        return low == "true"
+    return None
+
+
+def checkbox_value(value, on=(), off=(), where: str = "") -> bool:
+    """checkbox_state と同じ。受けない値なら InputError（宣言した状態の値があれば、それを添える）。"""
+    got = checkbox_state(value, on, off)
+    if got is None:
+        declared = [str(x) for x in (*on, *off) if str(x)]
+        extra = f"（この欄の状態の値：{'・'.join(dict.fromkeys(declared))}）" if declared else ""
+        raise InputError(f"{where + ': ' if where else ''}{CHECKBOX_HINT}{extra}（「{value}」）")
+    return got

@@ -759,14 +759,14 @@ def value_range(ctl: Control) -> tuple[int, int]:
 
 
 def as_checked(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    t = str(value).strip().lower()
-    if t in ("1", "true", "yes", "on", "☑", "■", "✓", "✔", "はい", "あり", "有", "○", "〇", "レ", "-1"):
-        return True
-    if t in ("0", "false", "no", "off", "", "☐", "□", "いいえ", "なし", "無"):
-        return False
-    raise AxError(f"チェックの部品には、はい／いいえ（true / false）で書いてください（「{value}」）")
+    """チェックの部品の値：true / false と、部品の Value に入る値「1」「0」（MS-OFORMS 2.2.5.1 CheckBox の Value）だけ
+    （inputcheck.checkbox_value。言葉の意味では決めない）。"""
+    from .inputcheck import InputError, checkbox_value
+
+    try:
+        return checkbox_value(value, ("1",), ("0",))
+    except InputError as e:
+        raise AxError(str(e)) from None
 
 
 def plan(ctl: Control, value, items: list[str] | None = None, force: bool = False) -> tuple[dict, list[str]]:
