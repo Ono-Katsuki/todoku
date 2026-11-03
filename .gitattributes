@@ -1,0 +1,26 @@
+# 改行：作業の場所でも LF にそろえる（Windows の core.autocrlf で、表（.tsv）やスクリプトの改行が CRLF に変わらないように）
+* text=auto eol=lf
+
+# テストの書類は、1 バイトも変えない（改行の変換をしない）。中身の比べ（diff）もしない
+tests/fixtures/** -text -diff
+tests/fixtures/public/MANIFEST.json text eol=lf diff
+*.pdf binary
+*.xls binary
+*.xlsx binary
+*.doc binary
+*.docx binary
+*.jtd binary
+*.hwpx binary
+*.jpg binary
+*.png binary
+*.gz binary
+
+# 世界調査のデータ（scripts/world_*.py が作る・読む。ポータルと再現に要る）：作ったファイルなので diff を出さない
+#   world/sample.jsonl 約 11 MB・world/results.jsonl 約 10 MB・world/domains.json 約 2 MB・world/frames.json 約 0.4 MB・
+#   world/population.json 約 0.2 MB・world/validation/*.json 約 0.8 MB・world/portal/data.json 約 0.5 MB
+world/*.json linguist-generated=true -diff
+world/*.jsonl linguist-generated=true -diff
+world/validation/*.json linguist-generated=true -diff
+world/portal/data.json linguist-generated=true -diff
+world/portal/countries-110m.json linguist-vendored=true -diff
+src/todoku/pdf/data/*.json.gz linguist-generated=true

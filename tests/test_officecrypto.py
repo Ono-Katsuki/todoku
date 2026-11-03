@@ -468,6 +468,7 @@ def test_decrypted_non_zip_is_refused():
 
 
 # ------------------------------------------------------------------ Office が暗号化したファイル（corpus）
+@pytest.mark.corpus
 @pytest.mark.parametrize("name,out,method", FIXTURES, ids=[f[0] for f in FIXTURES])
 def test_office_file_decrypts_to_known_output(name, out, method):
     blob, want = fixture(name, out)
@@ -479,6 +480,7 @@ def test_office_file_decrypts_to_known_output(name, out, method):
         decrypt_ooxml(blob, "Password1234")
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("name,out,method", FIXTURES, ids=[f[0] for f in FIXTURES])
 def test_office_file_reencrypts_identically(name, out, method):
     blob, want = fixture(name, out)
@@ -489,6 +491,7 @@ def test_office_file_reencrypts_identically(name, out, method):
     assert encrypt_ooxml(key, want) == blob
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("name,out,method", FIXTURES, ids=[f[0] for f in FIXTURES])
 def test_office_file_written_and_reencrypted(name, out, method):
     """中身の ZIP の1つの部品を書き換えて暗号化し直す：同じパスワードで開け、書き換えたとおりの中身になる。"""
@@ -508,6 +511,7 @@ def test_office_file_written_and_reencrypted(name, out, method):
     assert "記入した内容".encode() in zipfile.ZipFile(io.BytesIO(back)).read(part)
 
 
+@pytest.mark.corpus
 def test_office_file_tamper_detected():
     blob, _ = fixture("example_password.xlsx", "example.xlsx")
     c = CFB(blob)

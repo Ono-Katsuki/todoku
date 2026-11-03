@@ -75,6 +75,7 @@ def test_window_apply_without_edit_is_identical(tmp_path):
 
 
 # ------------------------------------------------------------------ 関数
+@pytest.mark.corpus
 @pytest.mark.parametrize("path", corpus_files(), ids=lambda p: p.name)
 def test_formulas_match_cached(path):
     """Excelで保存された実物の書類で、全数式がExcelの保存した計算結果と一致する。"""
@@ -83,6 +84,7 @@ def test_formulas_match_cached(path):
     assert not bad, bad[:5]
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("name,pair", example_pairs(), ids=lambda x: x if isinstance(x, str) else "")
 def test_fill_matches_excel_example(name, pair):
     """空の様式に記入例の入力を書き込み、記入例でExcelが計算した値と全数で比べる。"""
@@ -309,6 +311,7 @@ def test_drop_calc_chain_keeps_the_meaning_of_other_entries():
     assert n == 1 and calc_chain_entries(new) == [(1, "B4"), (2, "C1")] and b'r="B4" i="1" l="1"' in new
 
 
+@pytest.mark.corpus
 def test_overwriting_a_formula_removes_only_its_calc_chain_entry():
     # 数式のセルに値を書いたら（マクロが書いたときなど）、calcChain.xml からそのセルの記録だけを取り除く
     from todoku.xlsx.edit import calc_chain_entries

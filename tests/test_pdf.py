@@ -221,6 +221,7 @@ def test_sample_form_audit():
 
 
 # ====================================================================== 公開の様式
+@pytest.mark.corpus
 @pytest.mark.parametrize("name", ["r9kojinnbanngoukinyuuyousi.pdf", "400747.pdf", "FUNDING-REQUEST-FORM.pdf",
                                   "tamen_siharai-92.pdf"])
 def test_corpus_audit(name):

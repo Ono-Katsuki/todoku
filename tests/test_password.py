@@ -20,6 +20,7 @@ def _need(name: str) -> Path:
     return path
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("name", ["example_password.xlsx", "example_password.docx", "ecma376standard_password.docx"])
 def test_needs_and_checks_the_password(name):
     path = str(_need(name))
@@ -31,6 +32,7 @@ def test_needs_and_checks_the_password(name):
     assert k in ("xlsx", "docx") and parts and parts[0][1]
 
 
+@pytest.mark.corpus
 def test_fill_keeps_the_same_password(tmp_path):
     from todoku.officecrypto import decrypt_ooxml, verify_integrity
 
@@ -51,6 +53,7 @@ def test_fill_keeps_the_same_password(tmp_path):
     assert Workbook(inner).sheet("Sheet1").cells[(2, 1)].value == "とどく"
 
 
+@pytest.mark.corpus
 def test_mcp_asks_for_the_password_in_dialogue():
     path = str(_need("example_password.docx"))
     r = handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "open_document", "arguments": {"path": path}}})
@@ -61,6 +64,7 @@ def test_mcp_asks_for_the_password_in_dialogue():
     assert "Word" in r["content"][0]["text"]
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("name,kind", [("rc4cryptoapi_password.xls", "xls"), ("rc4cryptoapi_password.doc", "doc")])
 def test_old_binary_files_keep_the_same_password(tmp_path, name, kind):
     from todoku import bincrypto
@@ -80,6 +84,7 @@ def test_old_binary_files_keep_the_same_password(tmp_path, name, kind):
     assert "とどく" in "".join(t for _n, t in parts)
 
 
+@pytest.mark.corpus
 def test_encrypted_xls_is_refused_unless_decrypted():
     from todoku.xls.book import XlsError, XlsWorkbook
 
@@ -88,6 +93,7 @@ def test_encrypted_xls_is_refused_unless_decrypted():
         XlsWorkbook(src.read_bytes(), src.name)
 
 
+@pytest.mark.corpus
 def test_pdf_password_through_the_api(tmp_path):
     src = CRYPTO / "pdf"
     files = sorted(src.rglob("*.pdf")) if src.exists() else []

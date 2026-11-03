@@ -239,6 +239,7 @@ def _hakodate(name: str) -> bytes:
     return p.read_bytes()
 
 
+@pytest.mark.corpus
 def test_doc_embedded_table_write_redraws_both_pictures():
     from todoku.doc.audit import prove as prove_doc
     from todoku.doc.book import DocFile
@@ -282,6 +283,7 @@ def test_doc_embedded_table_write_redraws_both_pictures():
     assert "100" in ep2 and "9430000" not in ep2 and "9418000" in ep2
 
 
+@pytest.mark.corpus
 def test_docx_ole_bin_with_excel_pictures():
     # .docx に .xls の表を OLE の入れ物（oleObject1.bin）で埋め込んだもの：中身と絵は函館市の様式の埋め込みから作る
     from todoku.cfb import SubStorage
@@ -315,6 +317,7 @@ def test_docx_ole_bin_with_excel_pictures():
     assert "9440000" in {r.text for r in Emf(c.read("\x03EPRINT")).runs}
 
 
+@pytest.mark.corpus
 def test_layout_reproduces_excel_drawing_of_the_filled_example():
     # 記入例（Excel が描いた絵）の字を、ここでの規則で描き直した位置・大きさと比べる（縮小して全体を表示するセルも含む）
     from todoku.doc.book import DocFile
@@ -355,6 +358,7 @@ def _wide(name: str) -> bytes:
     return p.read_bytes()
 
 
+@pytest.mark.corpus
 def test_doc_inline_picture_blip_is_found_by_property_order():
     # 表示用の絵の pib の値（4）は、図形の中の絵の入れ物の数（1）を超える：入れ物は BLIP の性質の順に並ぶ（MS-ODRAW 2.2.15）
     from todoku.doc.audit import prove as prove_doc
@@ -374,6 +378,7 @@ def test_doc_inline_picture_blip_is_found_by_property_order():
         fill_doc(DocFile(blob, "w.doc"), {"E1!Sheet1!A1": "x"})
 
 
+@pytest.mark.corpus
 def test_print_picture_without_gridlines_right_aligned_number():
     # 印刷用の絵（EPRINT）には目盛り線がなく、字は右寄せの数字だけ：右寄せの字の右端（境 − 余白）は決まるので、数字は描ける。
     # 左寄せの字の位置は決まらないので、書かない
@@ -389,6 +394,7 @@ def test_print_picture_without_gridlines_right_aligned_number():
         fill(DocxDocument(blob, "e.docx"), {"E1!Sheet1!B1": "テスト"})
 
 
+@pytest.mark.corpus
 def test_embedded_workbook_showing_a_chart_sheet():
     # 選ばれているシートがグラフのシート：絵はグラフ。グラフが使うセルの値が変わらない書き込みだけを受け付ける
     from todoku.doc.audit import prove as prove_doc
@@ -405,6 +411,7 @@ def test_embedded_workbook_showing_a_chart_sheet():
     assert "グラフを表示している埋め込み 1 個" in pr.embed_note
 
 
+@pytest.mark.corpus
 def test_xls_proof_with_a_chart_sheet_before_the_worksheets():
     # グラフのシート（Excel.Chart.8）が先にあるブック：シートの部分とシートを位置で結ぶ（ずれると変更を見落とす）
     from todoku.doc.book import DocFile
@@ -423,6 +430,7 @@ def test_xls_proof_with_a_chart_sheet_before_the_worksheets():
     assert len(tail) == 21979 and bb.wb.data.endswith(tail)
 
 
+@pytest.mark.corpus
 def test_embedded_workbook_with_macros_that_do_not_run_on_change():
     # マクロはあるが、セルの値を変えたときに動くもの（Worksheet_Change など）はない：書ける（マクロがあることは知らせる）
     from todoku.embed import macro_block, open_book
@@ -433,6 +441,7 @@ def test_embedded_workbook_with_macros_that_do_not_run_on_change():
     assert wb.has_macros and macro_block(wb) == ""
 
 
+@pytest.mark.corpus
 def test_text_boxes_in_a_drawing_canvas_are_all_read():
     # 描画キャンバス（wpc）の中の、いくつものテキストボックス：どれも窓に出す（Fallback の同じ中身は数えない）
     from todoku.docx.audit import check_reading
@@ -443,6 +452,7 @@ def test_text_boxes_in_a_drawing_canvas_are_all_read():
     assert "RPAの適用により、正確性の向上や入力ミス等が減少した。" in to_markdown(win)
 
 
+@pytest.mark.corpus
 def test_empty_workbook_is_not_a_reading_failure():
     # どのシートにも値のあるセルがないブック（埋め込みだけ）：読み落としではない（XML を直接読んで確かめる）
     from todoku.xlsx.audit import run
@@ -452,6 +462,7 @@ def test_empty_workbook_is_not_a_reading_failure():
     assert c.ok and au.ok
 
 
+@pytest.mark.corpus
 def test_word_document_shorter_cbmac_is_valid():
     # cbMac は WordDocument の中の意味のあるバイトの数：ストリームの方が長くてよい（MS-DOC 2.5.4）
     from todoku.doc.audit import lint

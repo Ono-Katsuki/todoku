@@ -402,6 +402,7 @@ def test_picture_alternatives_and_predefined():
 
 
 # ====================================================================== 集めた様式
+@pytest.mark.corpus
 @pytest.mark.skipif(not WIDE, reason="corpus/wide_xfa がありません")
 @pytest.mark.parametrize("path", WIDE, ids=[p.name for p in WIDE])
 def test_corpus_reading(path):
@@ -418,6 +419,7 @@ def test_corpus_reading(path):
 SMALL = [p for p in WIDE if p.stat().st_size < 400_000]
 
 
+@pytest.mark.corpus
 @pytest.mark.skipif(not SMALL, reason="corpus/wide_xfa がありません")
 @pytest.mark.parametrize("path", SMALL, ids=[p.name for p in SMALL])
 def test_corpus_writing(path):

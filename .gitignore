@@ -1,4 +1,5 @@
-corpus/
+# 集めた公開の様式・仕様書（再配布しない。sources/ に出どころを記録）
+corpus
 .venv/
 __pycache__/
 *.pyc
@@ -7,3 +8,13 @@ out/
 notes/
 .claude/worktrees/
 .playwright-mcp/
+# 試しに書き出したもの：確かめられなかった書き込み（名前.unverified.拡張子）と、書き出しの途中の一時ファイル
+*.unverified.*
+.*.todoku-tmp.*
+# テストの結果（CI と同じに手元で動かしたとき）
+junit.xml
+# 根に落ちた画面の写し（Playwright など）
+/*.png
+/*.jpeg
+/*.jpg
+.DS_Store

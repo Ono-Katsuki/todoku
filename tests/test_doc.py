@@ -23,6 +23,7 @@ def test_sprm_sizes():
     assert out[0] == (0x2416, b"\x01") and out[1] == (0x6649, b"\x02\x00\x00\x00") and out[2][0] == 0xD608
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("path", CORPUS, ids=lambda p: Path(p).name)
 def test_doc_corpus_audit(path):
     blob = Path(path).read_bytes()
@@ -31,6 +32,7 @@ def test_doc_corpus_audit(path):
     assert au.ok, [(c.name, c.detail, c.items[:3]) for c in au.checks if not c.ok]
 
 
+@pytest.mark.corpus
 def test_doc_header_field_and_bookmarks():
     path = next((p for p in CORPUS if Path(p).name == "mynumber.doc"), None)
     if path is None:
@@ -48,6 +50,7 @@ def test_doc_header_field_and_bookmarks():
     assert any(p.text.startswith("様式第１６号") and "8年" in p.text for _k, _p, bl in after.stories for p in bl if hasattr(p, "text"))
 
 
+@pytest.mark.corpus
 def test_doc_proof_keeps_word_document_bytes_and_finds_a_changed_byte():
     # 本文のストリームの元のバイトは、FIB の位置と長さの記録のほかそのまま残る。それ以外の 1 バイトの違いも見つける
     from todoku.cfb import CFB
@@ -71,6 +74,7 @@ def test_doc_proof_keeps_word_document_bytes_and_finds_a_changed_byte():
     assert not pr.ok and any("WordDocument" in u for u in pr.unexpected)
 
 
+@pytest.mark.corpus
 def test_embedded_excel_table_in_doc_is_shown_as_plain_text():
     # .doc に埋め込んだ Excel の表（ObjectPool の入れ物。名前は EMBED のフィールドの区切りの字の sprmCPicLocation）
     from todoku.docx.window import build, to_markdown
