@@ -1108,7 +1108,7 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
                 f.patches.append(Patch(item["id"], "input", item["value"], p.part, anchor=dict(value), key=key))
                 continue
             if item is None:
-                raise FillError(f"{key}: そのような欄はありません")
+                raise FillError(f"{key}: そのような欄はありません{f.sp.items.hint(key)}")
             if item.get("control") is not None and item["control"].source == "activex":
                 # ActiveX の部品：部品の中身（activeX*.bin・性質の袋）と控えの絵を書き換える（axfile）
                 from ..activex import AxError

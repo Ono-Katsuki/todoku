@@ -276,7 +276,7 @@ def fill(doc: PptxDocument, values: dict, *, force: bool = False) -> FillResult:
                 continue
             item = sp.items.get(key)
             if item is None:
-                raise FillError(f"{key}: そのような欄はありません")
+                raise FillError(f"{key}: そのような欄はありません{sp.items.hint(key)}")
             p = item["para"]
             kind = item["kind"]
             if kind == "cell":
@@ -507,8 +507,9 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
     result = {"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
               "unexpected": (pr.unexpected + pr.readback)[:20], "structure_errors": pr.lint_errors[:20],
               "para_read_back": pr.readback[:30],
-              "ids_after_writing": "PowerPoint には書いた所の印を置けません。書いた後のファイルでは、書いた段落の残りの空欄の id の番号が"
-                                   "前に詰まり、書いたマスは欄の一覧から消えます。続けて書くときは、書いた後のファイルを開き直して id を"
+              "ids_after_writing": "PowerPoint には書いた所の印を置けません。書いた後のファイルでは、書いた字も印刷された字に数えるので、"
+                                   "書いた段落の後ろの空欄の id の字数が増え（P2.c2 に「8」と書くと、P2.c3 だった空欄が P2.c4 になる）、"
+                                   "書いたマスは欄の一覧から消えます。続けて書くときは、書いた後のファイルを開き直して id を"
                                    "確かめるか、元のファイルに、まとめて書いてください"}
     from ..openkinds import _formatting
 

@@ -324,7 +324,7 @@ def fill(doc: RtfDocument, values: dict, *, force: bool = False) -> FillResult:
                 w.patches.append(Patch(item["id"], "input", item["value"], anchor=dict(value), key=key))
                 continue
             if item is None:
-                raise FillError(f"{key}: そのような欄はありません")
+                raise FillError(f"{key}: そのような欄はありません{sp.items.hint(key)}")
             if item.get("control") is not None:
                 w.control(item, value)
                 continue

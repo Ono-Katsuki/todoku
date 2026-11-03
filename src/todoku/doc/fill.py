@@ -545,7 +545,7 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                 key, value = it["id"], it["value"]
                 w.current_key = key
             if it is None:
-                raise FillError(f"{key}: そのような欄はありません")
+                raise FillError(f"{key}: そのような欄はありません{sp.items.hint(key)}")
             if doc.protection_enforced and not force:
                 if doc.protection != "forms" or it.get("control") is None:
                     raise FillError(f"{key}: この文書は保護されていて（{doc.protection}）、ここには書けません")

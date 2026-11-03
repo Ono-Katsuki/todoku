@@ -169,20 +169,20 @@ def test_odt_window_fill_proof_and_stable_ids():
     win = build(OdtDocument(blob, "a.odt"))
     lines = [ln for st in win["stories"] for ln in st["reading"]]
     # 「令和　年　月　日」の空きは字の並びからの推定（？）。マスの見出し「氏名」の後ろも、右のマスの代わりの所として示す（消さない）
-    assert "令和［P2.1？　　］年［P2.2？　　］月［P2.3？　　］日" in lines and "氏名［P3.a1？］ ｜ ［T1.R1.C2］" in lines, lines
+    assert "令和［P2.c2？　　］年［P2.c3？　　］月［P2.c4？　　］日" in lines and "氏名［P3.c2？］ ｜ ［T1.R1.C2］" in lines, lines
     by = {f["id"]: f for f in win["fields"]}
     assert by["同意"]["label"] == "する" and by["同意"]["kind"] == "checkbox"
-    assert by["P9.a1"]["readonly"] and by["P9.a1"]["protected"]  # 保護された節の中
-    vals = {"P2.1": "8", "T1.R1.C2": "山田 太郎", "P5.1": True, "氏名": "山田", "同意": True, "P6.1": "代表 一郎"}
+    assert by["P9.c5"]["readonly"] and by["P9.c5"]["protected"]  # 保護された節の中
+    vals = {"P2.c2": "8", "T1.R1.C2": "山田 太郎", "P5.c0": True, "氏名": "山田", "同意": True, "P6.c3": "代表 一郎"}
     res = fill(OdtDocument(blob, "a.odt"), vals)
     pr = prove(blob, res.blob, written_of(res.patches))
     assert pr.ok, pr.unexpected
     after = build(OdtDocument(res.blob, "a.odt"))
     got = {f["id"]: f.get("value") for f in after["fields"]}
-    assert got["P2.1"] == "8" and got["T1.R1.C2"] == "山田 太郎" and got["氏名"] == "山田" and got["同意"] is True
-    assert got["P6.1"] == "代表 一郎" and got["P5.1"] is True
+    assert got["P2.c2"] == "8" and got["T1.R1.C2"] == "山田 太郎" and got["氏名"] == "山田" and got["同意"] is True
+    assert got["P6.c3"] == "代表 一郎" and got["P5.c0"] is True
     with pytest.raises(ValueError):
-        fill(OdtDocument(blob, "a.odt"), {"P9.a1": "1"})  # 保護された節には書かない
+        fill(OdtDocument(blob, "a.odt"), {"P9.c5": "1"})  # 保護された節には書かない
     content = zipfile.ZipFile(io.BytesIO(res.blob)).read("content.xml").decode()
     assert "山田<text:s/>太郎" in content  # 値の中の空白は text:s（ODF の空白の決まりで消えない）
 
@@ -342,15 +342,15 @@ def test_rtf_window_fill_and_proof():
     win = build(RtfDocument(RTF, "a.rtf"))
     lines = [ln for st in win["stories"] for ln in st["reading"]]
     # 「令和　年　月　日」の空きは字の並びからの推定（？）。マスの見出し「氏名」の後ろも、右のマスの代わりの所として示す（消さない）
-    assert "令和［P2.1？　　］年［P2.2？　　］月［P2.3？　　］日" in lines and "氏名［P3.a1？］ ｜ ［T1.R1.C2］" in lines, lines
+    assert "令和［P2.c2？　　］年［P2.c3？　　］月［P2.c4？　　］日" in lines and "氏名［P3.c2？］ ｜ ［T1.R1.C2］" in lines, lines
     by = {f["id"]: f for f in win["fields"]}
     assert by["Tel"]["value"] == "" and by["Agree"]["kind"] == "checkbox" and by["Agree"]["value"] is False
-    vals = {"P2.1": "8", "T1.R1.C2": "山田 太郎", "Tel": "03-1234", "Agree": True, "P8.1": True}
+    vals = {"P2.c2": "8", "T1.R1.C2": "山田 太郎", "Tel": "03-1234", "Agree": True, "P8.c0": True}
     res = fill(RtfDocument(RTF, "a.rtf"), vals)
     pr = prove(RTF, res.blob, written_of(res.patches))
     assert pr.ok, pr.unexpected
     got = {f["id"]: f.get("value") for f in build(RtfDocument(res.blob, "a.rtf"))["fields"]}
-    assert got["P2.1"] == "8" and got["T1.R1.C2"] == "山田 太郎" and got["Tel"] == "03-1234" and got["Agree"] is True and got["P8.1"] is True
+    assert got["P2.c2"] == "8" and got["T1.R1.C2"] == "山田 太郎" and got["Tel"] == "03-1234" and got["Agree"] is True and got["P8.c0"] is True
     assert (B + "u23665?" + B + "u30000?").encode() in res.blob  # 「山田」：\\uN と、\\uc1 の数だけの代わりの字
     assert (B + "ffres1").encode() in res.blob
 

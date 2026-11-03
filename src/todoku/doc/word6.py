@@ -587,7 +587,7 @@ def plan(doc: Word6File, values: dict, *, force: bool = False):
             else:
                 it = sp.items.get(key)
                 if it is None:
-                    raise FillError(f"{key}: そのような欄はありません")
+                    raise FillError(f"{key}: そのような欄はありません{sp.items.hint(key)}")
                 fid, text = key, None
             if doc.protection_enforced and not force:
                 if doc.protection != "forms" or it.get("control") is None:

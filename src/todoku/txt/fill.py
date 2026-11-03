@@ -74,7 +74,7 @@ def plan(doc: TxtDocument, values: dict) -> tuple[list[tuple[int, int, str, int]
             else:
                 it = sp.items.get(key)
                 if it is None:
-                    raise FillError(f"{key}: そのような欄はありません")
+                    raise FillError(f"{key}: そのような欄はありません{sp.items.hint(key)}")
                 if it["kind"] == "checkbox":
                     text = _as_bool(value)
                     patch = Patch(key, "control", text, key=key, label=it.get("label", ""))
@@ -245,8 +245,9 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False, encoding
     result = {"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
               "unexpected": (pr.unexpected + pr.readback)[:20], "structure_errors": pr.lint_errors[:20],
               "text_read_back": pr.readback[:30],
-              "ids_after_writing": "文字だけのファイルには、書いた所の印を置けません。書いた後のファイルでは、残りの空欄の id の番号が"
-                                   "前に詰まります（P3.1 に書くと、P3.2 だった空欄が P3.1 になる）。続けて書くときは、書いた後のファイルを"
+              "ids_after_writing": "文字だけのファイルには、書いた所の印を置けません。書いた後のファイルでは、書いた字も印刷された字に"
+                                   "数えるので、同じ行の後ろの空欄の id の字数が増えます（P3.c2 に「8」と書くと、P3.c3 だった空欄が P3.c4 になる）。"
+                                   "続けて書くときは、書いた後のファイルを"
                                    "開き直して id を確かめるか、元のファイルに、まとめて書いてください"}
     anchored = {p.key: p.id for p in res.patches if p.anchor}
     if anchored:

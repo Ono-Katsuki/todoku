@@ -190,7 +190,7 @@ def test_kind(blob):
 
 def test_window_reads_everything(blob):
     win = build(HwpxDocument(blob, "a.hwpx"))
-    lines = [re.sub(r"［P\d+\.a\d+？］", "", ln) for st in win["stories"] for ln in st["reading"]]  # 規則では決められない所の印は除いて見る
+    lines = [re.sub(r"［P\d+\.c\d+(?:\.\d+)?？］", "", ln) for st in win["stories"] for ln in st["reading"]]  # 規則では決められない所の印は除いて見る
     text = "\n".join(lines)
     assert "보조금 지급 신청서" in lines[0]
     assert "1. 신청인" in text and "가) 연락처" in text and "2. 신청 내용" in text  # 段落の番号（numbering の書式）
@@ -400,7 +400,7 @@ def test_hwp5_reads(tmp_path):
     p = tmp_path / "a.hwp"
     p.write_bytes(b)
     k, win, parts = api.window(str(p))
-    lines = [re.sub(r"［P\d+\.a\d+？］", "", ln) for st in win["stories"] for ln in st["reading"]]
+    lines = [re.sub(r"［P\d+\.c\d+(?:\.\d+)?？］", "", ln) for st in win["stories"] for ln in st["reading"]]
     assert lines[0] == "복지 급여 신청서"
     assert "성명: ［ctl1］" in lines[1]
     assert "주소 ｜ ［T1.R1.C2］" in lines

@@ -106,8 +106,8 @@ def test_word_address_cell_insertion_point():
     # すぐ右のマスの欄の代わりの所（alternative_to）とする
     inl = [f for f in win["fields"] if f["kind"] == "inline" and f["id"].startswith("P2.")]
     assert len(inl) == 3 and all(f.get("agent") for f in inl), [f["label"] for f in inl]
-    beside = {f["id"]: f for f in win["fields"]}["P1.a1"]
-    assert beside["alternative_to"] == "P2.1", beside
+    beside = {f["id"]: f for f in win["fields"]}["P1.c2"]
+    assert beside["alternative_to"] == "P2.c0", beside
     vals = dict(zip([f["id"] for f in inl], ["山梨", "甲府"]))
     res = docx_fill(DocxDocument(blob, "a.docx"), vals)
     after = docx_build(DocxDocument(res.blob, "a.docx"))

@@ -334,8 +334,12 @@ def _field(f: dict, **where) -> dict:
     for key in ("options", "maxlen", "format", "readonly", "protected", "confidence", "context", "boxes", "write_as",
                 "options_depend_on", "unit", "rules", "agent", "why", "placeholder", "cover", "kind_candidates",
                 "alternative_to", "group", "why_not", "label_printed", "text_before", "options_labels", "export_value",
-                "hidden", "hidden_why", "not_printed", "not_printed_why"):
+                "hidden", "hidden_why", "not_printed", "not_printed_why", "legacy_id", "why_code", "reason_codes",
+                "row_label", "column_label", "column_label_partial", "label_clipped", "neighbours"):
         if f.get(key) not in (None, "", [], False):
+            d[key] = f[key]
+    for key in ("row_label_gap", "column_label_gap"):  # 数の事実（0 も、すぐ隣という事実）
+        if isinstance(f.get(key), int) and not isinstance(f.get(key), bool):
             d[key] = f[key]
     d.update({k: v for k, v in where.items() if v is not None})
     return d
@@ -388,6 +392,14 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         labels = {f["id"]: f.get("label", "") for f in before}  # 白紙のときの見出し（対話で伝える一覧に使う）
         printed = {f["id"] for f in before if f.get("label_printed")}  # 見出しが文書に印刷される字の欄
         result["_inline"] = {f["id"] for f in before if f.get("kind") == "inline"}  # 文字の中に空欄のあるマス（書く前の窓）
+        # 古い数え順の名前（Word と同じ窓の形式の P12.1・P12.a1）：同じ所を指すと決まるもの（legacy_id）だけ、いまの名前に直して書く
+        now_ids = {f["id"] for f in before}
+        alias = {f["legacy_id"]: f["id"] for f in before if f.get("legacy_id")}
+        renamed = {k_: alias[k_] for k_ in values if k_ not in now_ids and k_ in alias and alias[k_] not in values}
+        if renamed:
+            values = {renamed.get(k_, k_): v for k_, v in values.items()}
+            readback_values = dict(values)
+            result["renamed_ids"] = renamed
     except ApiError:
         labels, printed = {}, set()
     if k in ("xlsx", "xls"):

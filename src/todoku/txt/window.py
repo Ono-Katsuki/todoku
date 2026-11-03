@@ -1,14 +1,14 @@
 """文字だけのファイル（.txt）の窓：すべての行を「行番号｜字」の形で、上から順に（空の行も、行の頭の空白・タブもそのまま）。
 
 入力欄の推定は Word と同じ（docx/window.py の Spots：「令和　年　月　日」などの空欄・□・「？」の所）。1行を1段落として
-数えるので、欄の id の「P12.1」は 12 行目の1つ目の空欄。空欄の字は［P12.1］に置き換えて示す（Word の窓と同じ）。
+数えるので、欄の id の「P12.c5」は 12 行目の、前に印刷された字が 5 字ある空欄。空欄の字は［P12.c5］に置き換えて示す（Word の窓と同じ）。
 """
 
 from __future__ import annotations
 
 import re
 
-from ..docx.window import AGENT, KIND_JA, Spots
+from ..docx.window import AGENT, KIND_JA, PLACE_ID_NOTE, Spots
 from ..docx.window import build as word_build
 from ..xlsx.window import GAP_TOKEN_NOTE
 from .document import TxtDocument
@@ -66,12 +66,11 @@ def build(doc: TxtDocument) -> dict:
     win["kind_ja"] = "テキスト（.txt）"
     win["source"]["note"] = ("元のファイルが正本。書き込みは、書いた所の字のバイトだけを、そのファイルの文字コードで作ったバイト列に"
                              "置き換える（ほかのバイト・改行・BOM はそのまま）。")
-    win["notation"] = {"12｜": "12行目", "［P12.1］": "12行目の中の空欄（1つ目）",
-                       "［P12.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
-                                      "書かなければ何も変わらない。［P12.a1？＝○○］は、伏せ字の○○を書き換える所）",
-                       "［P12.1？］": "12行目の中の、字の並び（年・月・日などの字）から推定した空欄（エージェントが判断する）",
-                       "［P12.1？　］": GAP_TOKEN_NOTE,
-                       "☐［P12.1］": "チェック（□）", "■［P12.1？］": "チェック済みの印らしい字（■ は箇条の印のこともある）"}
+    win["notation"] = {"12｜": "12行目", "［P12.c5］": PLACE_ID_NOTE.replace("12番目の段落", "12行目"),
+                       "［P12.c5？］": "規則では決められない、書き込む所かもしれない所（字の形と並びだけで見つけた所。エージェントが読んで判断する。"
+                                      "書くなら id を指定する。書かなければ何も変わらない。［P12.c5？＝○○］は、伏せ字の○○を書き換える所）",
+                       "［P12.c5？　］": GAP_TOKEN_NOTE,
+                       "☐［P12.c0］": "チェック（□）", "■［P12.c0？］": "チェック済みの印らしい字（■ は箇条の印のこともある）"}
     win["format"] = doc.format_info()
     win["lines"] = lines
     for st in win["stories"]:

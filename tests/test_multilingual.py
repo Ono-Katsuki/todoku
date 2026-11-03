@@ -140,19 +140,20 @@ def test_word_places_in_other_languages():
     blob = make_docx(body)
     win = docx_build(DocxDocument(blob, "w.docx"))
     by = {f["id"]: f for f in win["fields"]}
-    n = {k: [f for f in win["fields"] if f["id"].startswith(f"P{k}.") and not f["id"][len(f"P{k}."):].startswith("a")]
+    # 段落の後ろの候補（文の区切りの字のない段落の後ろ：why_code after_label）は数えない
+    n = {k: [f for f in win["fields"] if f["id"].startswith(f"P{k}.") and f.get("why_code") not in ("after_label", "after_colon")]
          for k in range(1, 10)}
     assert len(n[1]) == 3 and all(f.get("agent") for f in n[1])  # 中華民國　　年　　月　　日
     assert len(n[2]) == 3 and len(n[3]) == 3  # 　　년　　월　　일 ・ 　　省　　市　　县
     for k in (4, 5, 6):
         assert len(n[k]) == 1 and n[k][0].get("agent") and "点線" in n[k][0]["why"]
     assert len(n[7]) == 2 and not any(f.get("agent") for f in n[7])  # [ ] Yes [ ] No
-    assert [by["P8.1"]["kind"], by["P8.1"]["label"], by["P8.2"]["label"]] == ["checkbox", "Male", "Female"]
+    assert [by["P8.c0"]["kind"], by["P8.c0"]["label"], by["P8.c4"]["label"]] == ["checkbox", "Male", "Female"]
     assert len(n[9]) == 2  # ( ) Male ( ) Female
-    res = docx_fill(DocxDocument(blob, "w.docx"), {"P1.1": "115", "P1.2": "11", "P1.3": "3", "P8.1": True})
+    res = docx_fill(DocxDocument(blob, "w.docx"), {"P1.c4": "115", "P1.c5": "11", "P1.c6": "3", "P8.c0": True})
     lines = [ln for st in docx_build(DocxDocument(res.blob, "w.docx"))["stories"] for ln in st["reading"]]
-    assert any(ln.startswith("中華民國［P1.1＝115］年［P1.2＝11］月［P1.3＝3］日") for ln in lines), lines
-    assert any(ln.startswith("☑［P8.1］ Male") for ln in lines), lines
+    assert any(ln.startswith("中華民國［P1.c4＝115］年［P1.c5＝11］月［P1.c6＝3］日") for ln in lines), lines
+    assert any(ln.startswith("☑［P8.c0］ Male") for ln in lines), lines
 
 
 def test_word_long_line_of_blanks_is_linear():
