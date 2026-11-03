@@ -1026,7 +1026,7 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
                 edits.append((a, b, ("☑" if v else "☐") + f"［{name}］"))
             else:
                 edits.append((a, b, f"［{name}＝{v}］" if v not in (None, "") else f"［{name}］"))
-    for e in sorted(sp.spaced_marks.get(id(p), ())):
+    for e in sorted(getattr(sp, "spaced_marks", {}).get(id(p), ())):  # 埋め込みの読み方（欄なし）には印もない
         edits.append((e, e, SPACED_MARK))  # 字間を空けた見出しの並びの後ろ（字の間の空白は、元のまま）
     edits.sort()
     out, at = [], 0
