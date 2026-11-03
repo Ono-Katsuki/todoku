@@ -154,6 +154,8 @@ def as_bool(value) -> bool | None:
 
 _WESTERN = re.compile(r"(\d{4})\s*[/\-.年]\s*(\d{1,2})\s*[/\-.月]\s*(\d{1,2})\s*日?")
 _WAREKI = re.compile(r"(明治|大正|昭和|平成|令和|[MTSHR])\s*(元|\d{1,2})\s*[年/\-.]\s*(\d{1,2})\s*[月/\-.]\s*(\d{1,2})\s*日?", re.I)
+# 年が先頭でない、数字だけの日付（03/11/2026・3.11.26・11-03-2026）：日・月の順が地域で違う
+_DAY_MONTH = re.compile(r"\d{1,2}\s*[/\-.]\s*\d{1,2}\s*[/\-.]\s*\d{1,4}\.?")
 _NUMBER = re.compile(r"([+-])?[¥$]?((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?|\.\d+)(?:[eE]([+-]?\d+))?(%)?")
 
 
@@ -183,8 +185,12 @@ def _is_percent(fmt: str) -> bool:
     return "%" in re.sub(r'"[^"]*"|\\.', "", fmt)
 
 
-def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value) -> tuple[object, list[str]]:
+def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value, *, refuse_ambiguous: bool = True) -> tuple[object, list[str]]:
     """書き込む値を、Excelでそのセルに手で入力したときと同じ規則で、数値・日付・論理値・文字にする。
+
+    日付は、年が先頭の形（ISO の 2026-11-03・2026/11/3・2026年11月3日）と和暦（令和8年11月3日・R8.11.3）を読み、セルの
+    表示形式で表示する。日付の表示形式のセルに、年が先頭でない数字の日付（03/11/2026）を書くと、日・月の順が地域で違うので
+    推測せず EditError にする（refuse_ambiguous=False：マクロが書いた字などは、文字のまま書き、そのことを返す）。
 
     セルの書式は変えない。Excelなら書式まで変える入力（日付を標準のセルに入れるなど）は、
     文字のまま書き込み、その旨を返す。
@@ -225,6 +231,15 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value) -> tuple[ob
             return float(date_to_serial(d, wb.date1904)), notes
         notes.append(f"{where}: 「{s}」は日付として読めますが、このセルの表示形式は日付ではないので、文字として書き込みました")
         return s, notes
+    if is_date_format(fmt) and _DAY_MONTH.fullmatch(t):
+        # 03/11/2026 のように年が先頭でない日付：日・月の順（dd/mm）か月・日の順（mm/dd）かは地域で違い、Excel も開く PC の
+        # 地域の設定で読み分ける。todoku は推測しない
+        msg = (f"{where}: 「{s}」は、日と月のどちらが先かが地域で違う書き方です。日付は ISO の形（2026-11-03 のように年-月-日）で"
+               "指定してください（セルの表示形式どおりに表示されます）")
+        if refuse_ambiguous:
+            raise EditError(msg)
+        notes.append(msg + "。文字として書き込みました")
+        return s, notes
     m = _NUMBER.fullmatch(t)
     if m:
         digits = re.sub(r"\D", "", m[2])
@@ -246,6 +261,9 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value) -> tuple[ob
         if t != s.strip() and re.search(r"[０-９]", s):
             notes.append(f"{where}: 全角の数字「{s}」を数値 {number_to_text(x)} として書き込みました（Excelと同じ扱い）")
         return x, notes
+    if is_date_format(fmt) and re.search(r"\d", t):
+        notes.append(f"{where}: このセルの表示形式は日付・時刻ですが、「{s}」は日付として読めないので、文字として書き込みました"
+                     "（日付なら ISO の形 2026-11-03 で指定してください）")
     return s, notes
 
 
@@ -715,7 +733,7 @@ def _run_change_macros(wb, targets: dict, warnings: list, answers, inputs) -> tu
     written = set()
     for (s, r, c), v in run.changed.items():
         if isinstance(v, str):
-            v = interpret_input(wb, s, r, c, v)[0]  # マクロが Value に入れた文字も、Excel は入力と同じように読む
+            v = interpret_input(wb, s, r, c, v, refuse_ambiguous=False)[0]  # マクロが Value に入れた文字も、Excel は入力と同じように読む
         targets[(s, r, c)] = v
         written.add((s, r, c))
     if run.error:

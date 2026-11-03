@@ -25,7 +25,7 @@ A エージェントがそのまま書ける（入力欄がすべて作り手の
 B 解析しないと書けない（書く所を、罫線・空き・空のセルなどの配置から推定するか、規則では決められない所（窓の「？」）を
   エージェントが窓を読んで決める。スキャンのページ（PDF）は、エージェントがページの画像（view_page）を見て枠で書く）
 C 画面（UI）から入力する（ボタンで動くマクロ、または書類が電子申請などの画面からの入力を求めている）
-D 書けない（アクセスできない・字の情報がなく、ページの画像も作れない紙・押印や自署のような手書き）
+D 書けない（アクセスできない・字の情報がなく、ページの画像も作れない紙・署名・印・拇印・公証など、手で行う所）
   ※様式が認める所には、本人が同意したときだけ、本人の印影・署名の画像を置ける（fill の seal・signature）。
     それで書けるかは書類の決まり（意味）によるので、段階は変えず、問い（cannot_do）でエージェントが確かめる
   ※郵送・持参・来庁などの提出のしかたは、書類の外のことなので、段階の対象にしない
@@ -67,12 +67,15 @@ NAMES = {
 # エージェントが窓を読んで確かめること（規則では決めない）。見つかれば、その段階（score：read 読む・write 書く）
 AGENT_CHECKS = [
     {"id": "cannot_do", "score": "write", "grade": "D", "title": "エージェントにはできない記入",
-     "question": "押印・自署（手書き）のように、書類の中で、エージェントには代わりにできない記入を求めていますか。"
-                 "求めていれば、その場所と書き方を答えてください（「押印不要」のように求めていないものは除く。"
+     "question": "署名・印・拇印・公証など、手で行う所（本人や立会人が、紙の上で自分の手で行う記入や、役所・公証人の前で"
+                 "行う手続き。印は 印・인감・公章・stamp など、署名は自署・서명・signature など、書類の言葉は問いません）"
+                 "のように、書類の中で、エージェントには代わりにできない記入を求めていますか。"
+                 "求めていれば、その場所と書き方を答えてください（「押印不要」「no signature required」のように"
+                 "求めていないものは除く。"
                  "郵送・持参・来庁などの提出のしかたは、書類の外のことなので、ここでは数えません）。"
                  "なお、様式が印影・署名の画像を認めている所（注意書きに、画像や電子の印影でよいとある所など）には、"
                  "本人が同意したときだけ、fill_document で本人の印影・署名の画像を置けます"
-                 "（{\"seal\": 画像のパス, \"consent\": true, …}）。実印の押印・自署（手書き）が求められる所や、"
+                 "（{\"seal\": 画像のパス, \"consent\": true, …}）。登録した印（実印など）・手書きの署名・拇印・立会い・公証が求められる所や、"
                  "画像でよいかが書類から分からない所は、ここに答えて、本人に伝えてください。"},
     {"id": "ui_only", "score": "write", "grade": "C", "title": "画面からの入力",
      "question": "この書類のファイルに書くのではなく、電子申請の画面など、別の画面（UI）から入力するよう求めていますか。"
@@ -618,6 +621,7 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
     else:
         reasons += content_image_reasons(doc, win, doc.body, lambda p: word_heading(doc, p), "本文")
     reasons += _word_lost(doc, win, kind)
+    reasons += _numbering_reasons(doc)
     write += _write_fields(fields, layout, agent, "フォームの欄・コンテンツコントロール",
                            "欄のない所は、前後の字を指定して書き換えます")
     write += _write_embeds(win.get("embeds") or [])
@@ -628,6 +632,25 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
     g = _final(reasons, write)
     g.alerts = picture_alerts(win.get("pictures") or [])
     return g
+
+
+def _numbering_reasons(doc) -> list[Reason]:
+    """段落番号の書式（ST_NumberFormat）を再現できない段落：窓は 1, 2, 3 にせず〔n：番号の書式「…」は再現できません〕と出す。
+    番号の字の見え方はエージェントが書式の名前と番号から読む（読む B）。"""
+    from .docx.document import iter_paras
+
+    bad = []
+    for p in iter_paras(getattr(doc, "body", []) or []):
+        m = re.search(r"番号の書式「([^」]*)」は再現できません", getattr(p, "label", "") or "")
+        if m:
+            bad.append((m[1], (_words(p) or "")[:20]))
+    if not bad:
+        return []
+    names = "・".join(sorted({f for f, _t in bad}))
+    return [Reason("B", "再現できない段落番号",
+                   f"{len(bad)} 段落の段落番号は、番号の書式（{names}）の字の決まりを確かめていないので、窓では 1, 2, 3 にせず"
+                   "〔n：番号の書式「…」は再現できません〕と示しています。番号の字は、エージェントが書式の名前と番号から読みます",
+                   [f"「{t}」の段落" for _f, t in bad[:12]])]
 
 
 # 見出し・図表番号の、組み込みのスタイルの名前（ECMA-376 第1部 17.7.4.9 の name。大文字・小文字は区別しない）
@@ -851,10 +874,23 @@ def image_only_sheets(wb) -> list[str]:
 
 def unshown_reasons(doc: dict) -> list[Reason]:
     """表示形式を再現できないセル（窓には推測した字でなく元の値を出す）：読む B。"""
-    where = [f"{sh['name']}!{u['cell']}" for sh in doc.get("sheets", []) for u in sh.get("unshown_formats", [])]
+    from .formula.numfmt import builtin_id
+
+    items = [(f"{sh['name']}!{u['cell']}", builtin_id(u.get("format"))) for sh in doc.get("sheets", [])
+             for u in sh.get("unshown_formats", [])]
+    out = []
+    pc = [(w, i) for w, i in items if i is not None]
+    if pc:
+        ids = "・".join(str(i) for i in sorted({i for _w, i in pc}))
+        out.append(Reason("B", f"組み込みの表示形式（番号 {ids}）は、開く PC の地域の設定で見え方が変わる",
+                          f"{len(pc)} か所のセルは、組み込みの表示形式（ECMA-376 第1部 18.8.30 の番号 {ids}）で、形式の字がファイルに"
+                          "なく、開く PC の地域の設定（短い日付など）で見え方が変わります。todoku は受け取る人の PC を知らないので、"
+                          "特定の地域の字にせず、窓には元の値と、地域によらない書き方（ISO 8601）を示します",
+                          [w for w, _i in pc][:12]))
+    where = [w for w, i in items if i is None]
     if not where:
-        return []
-    return [Reason("B", "再現できない表示形式",
+        return out
+    return out + [Reason("B", "再現できない表示形式",
                    f"{len(where)} か所のセルは、表示形式（ロケール・暦・漢数字などの指定）を規則どおりに再現できません。"
                    "窓には推測した字ではなく元の値を出しているので、Excel での見え方は、エージェントが元の値と表示形式から読みます",
                    where[:12])]

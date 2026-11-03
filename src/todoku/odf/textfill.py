@@ -283,7 +283,9 @@ class OdtWriter:
             d = _parse_any_date(text)
             fmt = c.date_format or "YYYY-MM-DD"
             # LibreOffice の数の書式の日付（YYYY・MM・DD は大文字でも小文字でも同じ）を、Word の書式の字で読む
-            text = format_word_date(d, fmt.replace("Y", "y").replace("D", "d"))
+            # 言語は loext:date-rfc-language-tag（BCP 47）。LibreOffice の書式の記号で Word にないもの（NN・NNN の曜日・
+            # E の元号の年など）は、推測せずに FillError になる
+            text = format_word_date(d, fmt.replace("Y", "y").replace("D", "d"), el.get("loext:date-rfc-language-tag") or None)
             new_tag = set_attr(new_tag, f"{lp}:current-date", d.strftime("%Y-%m-%dT00:00:00Z"))
         self._cc_text(item, c, part, inline_xml(text, tp), tp)
         if new_tag != tag:

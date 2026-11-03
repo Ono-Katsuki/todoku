@@ -44,6 +44,24 @@ def _number(el: El, percent: bool = False) -> str:
     return intpart + frac
 
 
+_CALENDARS = {"gengou", "ROC", "buddhist", "hijri"}
+
+
+def _locale_prefix(el: El, cal: str) -> str | None:
+    """日付・時刻の書式の言語（number:language・number:country、ODF 1.3 第3部 19.351・19.342）と暦を、Excel の表示形式の
+    [$-…]（BCP 47 の名前）・B2 にする。言語の指定がなければ何も付けない（文書の既定の言語）。"""
+    lang = (el.get("number:language") or "").strip()
+    country = (el.get("number:country") or "").strip()
+    tag = f"{lang}-{country}" if lang and country else lang
+    if cal == "ROC":
+        if tag and tag.lower() not in ("zh-tw", "zh-hant"):
+            return None  # 民国の暦を、台湾の中国語でない言語で書く書式：Excel の表示形式で同じ字になるかを確かめていない
+        return "[$-zh-TW]"
+    if cal == "hijri":
+        return ("[$-" + tag + "]" if tag else "") + "B2"
+    return "[$-" + tag + "]" if tag else ""
+
+
 def section(el: El, data: bytes) -> tuple[str, str]:
     """1つの書式（style:map を除く）→ (Excel の書式の1節, 種類)。"""
     loc = el.local
@@ -51,6 +69,15 @@ def section(el: El, data: bytes) -> tuple[str, str]:
             "date-style": "date", "time-style": "time", "boolean-style": "boolean", "text-style": "text"}.get(loc, "number")
     out = []
     color = None
+    # 暦（number:calendar、ODF 1.3 第3部 19.341：gregorian・gengou・ROC・hanja_yoil・hanja・hijri・jewish・buddhist など）。
+    # 年月日の要素ごとに書けるが、1つの書式に違う暦が混じるものは作らない。Excel の表示形式で同じ字になる暦だけを使う：
+    # gengou → 元号（g・e）、ROC → 民国の年（[$-zh-TW] の e）、buddhist → 仏暦（b）、hijri → ヒジュラ暦（B2）。ほかは作らない
+    # （グレゴリオ暦の年を黙って出さない）
+    cals = {ch.get("number:calendar") for ch in el.els() if ch.tag.startswith(_N) and ch.get("number:calendar")}
+    cals.discard("gregorian")
+    if len(cals) > 1 or (cals and next(iter(cals)) not in _CALENDARS):
+        return "", kind
+    cal = next(iter(cals), "")
     for ch in el.els():
         t = ch.tag
         if t == q("style:text-properties"):
@@ -60,7 +87,7 @@ def section(el: El, data: bytes) -> tuple[str, str]:
             continue
         n = ch.local
         long_ = ch.get("number:style") == "long"
-        gengou = ch.get("number:calendar") == "gengou"
+        gengou = cal == "gengou"
         if n == "number":
             out.append(_number(ch, kind == "percentage"))
         elif n == "scientific-number":
@@ -82,8 +109,15 @@ def section(el: El, data: bytes) -> tuple[str, str]:
         elif n == "boolean":
             out.append("TRUE/FALSE")
         elif n == "year":
-            out.append("e" if gengou else ("yyyy" if long_ else "yy"))
+            if gengou or cal == "ROC":
+                out.append("e")
+            elif cal == "buddhist":
+                out.append("bbbb" if long_ else "bb")
+            else:
+                out.append("yyyy" if long_ else "yy")
         elif n == "era":
+            if cal not in ("", "gengou"):
+                return "", kind  # 民国・仏暦・ヒジュラ暦の元号の名前は、Excel の表示形式で同じ字にできるかを確かめていない
             out.append("ggg" if long_ else "g")
         elif n == "month":
             if ch.get("number:textual") == "true":
@@ -110,6 +144,11 @@ def section(el: El, data: bytes) -> tuple[str, str]:
         elif n == "embedded-text":
             return "", kind
     fmt = "".join(out)
+    if fmt and kind in ("date", "time"):
+        pre = _locale_prefix(el, cal)
+        if pre is None:
+            return "", kind
+        fmt = pre + fmt
     if kind == "percentage" and "%" not in fmt:
         fmt += "%"
     if color and fmt:

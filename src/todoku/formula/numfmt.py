@@ -14,21 +14,69 @@ from .dates import serial_parts, serial_to_date, to_wareki, weekday_sun0
 from .locale_fmt import Loc, dbnum_digits, dbnum_units, hijri_tabular, name_table, numeral_mode, parse_section, shape_digits
 from .values import Unsupported, dec15, number_to_text
 
-# 組み込みの表示形式ID（ECMA-376 18.8.30 と日本語版の既定）
+# 組み込みの表示形式ID（ECMA-376 第1部 18.8.30）。ファイルには番号だけがあり、形式の字（formatCode）はない。
+# 14（短い日付）・22（短い日付と時刻）と、27〜36・50〜58（東アジアの日付・時刻）は、開く PC の地域の設定で形式が変わる
+# （18.8.30 は、この番号を zh-tw・zh-cn・ja-jp・ko-kr・th-th で別々に定め、ほかの地域の形は定めない。14 は PC の「短い日付」：
+# 日本語の PC は yyyy/m/d、米国は m/d/yyyy、ドイツは dd.mm.yyyy）。todoku は書類を受け取る人の PC を知らないので、この番号は
+# 特定の地域の字にしない：format_value は LocaleDependent を投げ、窓には地域によらない書き方（ISO 8601）を添えて、見え方が
+# 変わることを示す。ブックが形式の字を書いていれば（styles.xml の numFmts・BIFF の FORMAT）、そちらを使う。
+LOCALE_BUILTIN = frozenset({14, 22, *range(27, 37), *range(50, 59)})
+# todoku の印（Excel の形式の字ではない）。後ろの ISO の形は、日付の形式と分かるため（is_date_format・入力の読み取り）
+_BUILTIN_TAG = "[$-x-builtin-{}]yyyy-mm-dd"
+_BUILTIN_RE = re.compile(r"\[\$-x-builtin-(\d+)\]")
 BUILTIN = {
     0: "General", 1: "0", 2: "0.00", 3: "#,##0", 4: "#,##0.00",
     9: "0%", 10: "0.00%", 11: "0.00E+00", 12: "# ?/?", 13: "# ??/??",
-    14: "yyyy/m/d", 15: "d-mmm-yy", 16: "d-mmm", 17: "mmm-yy",
-    18: "h:mm AM/PM", 19: "h:mm:ss AM/PM", 20: "h:mm", 21: "h:mm:ss", 22: "yyyy/m/d h:mm",
+    15: "d-mmm-yy", 16: "d-mmm", 17: "mmm-yy",
+    18: "h:mm AM/PM", 19: "h:mm:ss AM/PM", 20: "h:mm", 21: "h:mm:ss",
+    37: "#,##0 ;(#,##0)", 38: "#,##0 ;[Red](#,##0)", 39: "#,##0.00;(#,##0.00)", 40: "#,##0.00;[Red](#,##0.00)",
+    45: "mm:ss", 46: "[h]:mm:ss", 47: "mm:ss.0", 48: "##0.0E+0", 49: "@",
+    **{i: _BUILTIN_TAG.format(i) for i in sorted(LOCALE_BUILTIN)},
+}
+# 日本語の PC（ja-JP）での、地域で変わる番号の形（ブックが日本語の PC の設定と分かるときに使う。18.8.30 の ja-jp の表）
+JA_JP_BUILTIN = {
+    14: "yyyy/m/d", 22: "yyyy/m/d h:mm",
     27: '[$-411]ge.m.d', 28: '[$-411]ggge"年"m"月"d"日"', 29: '[$-411]ggge"年"m"月"d"日"',
     30: "m/d/yy", 31: 'yyyy"年"m"月"d"日"', 32: 'h"時"mm"分"', 33: 'h"時"mm"分"ss"秒"',
     34: 'yyyy"年"m"月"', 35: 'm"月"d"日"', 36: '[$-411]ge.m.d',
-    37: "#,##0 ;(#,##0)", 38: "#,##0 ;[Red](#,##0)", 39: "#,##0.00;(#,##0.00)", 40: "#,##0.00;[Red](#,##0.00)",
-    45: "mm:ss", 46: "[h]:mm:ss", 47: "mm:ss.0", 48: "##0.0E+0", 49: "@",
     50: '[$-411]ge.m.d', 51: '[$-411]ggge"年"m"月"d"日"', 52: 'yyyy"年"m"月"', 53: 'm"月"d"日"',
     54: '[$-411]ggge"年"m"月"d"日"', 55: 'yyyy"年"m"月"', 56: 'm"月"d"日"', 57: '[$-411]ge.m.d',
     58: '[$-411]ggge"年"m"月"d"日"',
 }
+
+
+class LocaleDependent(Unsupported):
+    """組み込みの表示形式で、開く PC の地域の設定で見え方が変わるもの。shown：地域によらない書き方（ISO 8601）。"""
+
+    def __init__(self, fmt_id: int, shown: str):
+        super().__init__(f"組み込みの表示形式（番号 {fmt_id}）は、開く PC の地域の設定で見え方が変わる"
+                         f"（地域によらない書き方では {shown}）")
+        self.fmt_id = fmt_id
+        self.shown = shown
+
+
+def builtin_id(fmt: str | None) -> int | None:
+    """PC の地域の設定で変わる組み込みの表示形式（の印）なら、その番号。"""
+    m = _BUILTIN_RE.search(fmt or "")
+    return int(m[1]) if m else None
+
+
+def iso_text(x: float, date1904: bool | None = None) -> str:
+    """シリアル値の、地域によらない書き方（ISO 8601：yyyy-mm-dd、時刻があれば Thh:mm:ss。1900 年の数え方の 1 未満は時刻だけ）。"""
+    from .dates import current_1904
+
+    if x < 0:
+        return number_to_text(x)
+    day = math.floor(x)
+    secs = int(Decimal(repr((x - day) * 86400)).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+    if secs >= 86400:
+        day, secs = day + 1, secs - 86400
+    hh, rem = divmod(secs, 3600)
+    t = f"{hh:02d}:{rem // 60:02d}:{rem % 60:02d}"
+    if day == 0 and not (current_1904() if date1904 is None else date1904):
+        return t
+    y, m, d = serial_parts(day, date1904)
+    return f"{y:04d}-{m:02d}-{d:02d}" + (f"T{t}" if secs else "")
 
 _DATE_CODE_RE = re.compile(r"(?i)(?<![\\])(yy|y|d|h|s|g|e|am/pm)")
 
@@ -91,6 +139,9 @@ def format_value(v, fmt: str, date1904: bool | None = None) -> str:
             return _literal(parse_section(fmt)[0]).replace("@", v)
         return v
     x = float(v)
+    bid = builtin_id(fmt)
+    if bid is not None:
+        raise LocaleDependent(bid, iso_text(x, date1904))
     if fmt in ("General", "general", ""):
         return _general(x)
     secs = _split_sections(fmt)
@@ -399,13 +450,13 @@ def _format_date(x: float, sec: str, loc: Loc = Loc(), numerals: int = 0, db: in
             return dbnum_units(n, db)
         return shape_digits(str(n).rjust(width, "0"), numerals)
 
-    def calendar_ymd() -> tuple[int, int, int]:
-        """暦の年月日（y・m・d の記号に使う）。"""
+    def calendar_ymd(part: int = 0) -> tuple[int, int, int]:
+        """暦の年月日（y・m・d の記号に使う。part：0 年・1 月・2 日。和暦・民国の暦の月と日は、グレゴリオ暦と同じ）。"""
         if cal == 6:
             if date is None:
                 raise Unsupported("ヒジュラ暦の、1900年3月1日より前の日付")
             return hijri_tabular(date.year, date.month, date.day)
-        if cal in (0x03, 0x04):
+        if cal in (0x03, 0x04) and part == 0:
             raise Unsupported(f"和暦・民国の暦の指定（{loc.text}）での年の記号 y")
         if cal == 0 and lang == "ar":
             # アラビア語（サウジアラビアなど）の既定の暦は、PC ごとにグレゴリオ暦かヒジュラ暦（ウンム・アル＝クラー暦）かが違う
@@ -460,7 +511,7 @@ def _format_date(x: float, sec: str, loc: Loc = Loc(), numerals: int = 0, db: in
             out.append("." + shape_digits(sub_digits, numerals) if not db else _raise(f"[DBNum{db}] の秒の小数"))
             skip_zero = True
         elif low.startswith("y"):
-            cy = calendar_ymd()[0]
+            cy = calendar_ymd(0)[0]
             if db:
                 raise Unsupported(f"[DBNum{db}] の年の記号 y（西暦）")
             out.append(num(cy % 100, 2) if len(t) <= 2 else num(cy, 4))
@@ -478,7 +529,7 @@ def _format_date(x: float, sec: str, loc: Loc = Loc(), numerals: int = 0, db: in
             if (prev.startswith("h") or nxt.startswith("s")) and len(t) <= 2:
                 out.append(num(mi, 2) if len(t) >= 2 else num(mi))
             elif len(t) <= 2:
-                cm = calendar_ymd()[1]
+                cm = calendar_ymd(1)[1]
                 out.append(num(cm, 2) if len(t) == 2 else num(cm))
             else:
                 if cal not in _GREGORIAN + (0x03, 0x04, 0x07):
@@ -493,7 +544,7 @@ def _format_date(x: float, sec: str, loc: Loc = Loc(), numerals: int = 0, db: in
                     out.append(names("mmm" if len(t) == 3 else "mmmm", has_day)[mo - 1])
         elif low.startswith("d"):
             if len(t) <= 2:
-                cd = calendar_ymd()[2]
+                cd = calendar_ymd(2)[2]
                 out.append(num(cd, 2) if len(t) == 2 else num(cd))
             else:
                 if int(x) == 0 and not date1904:
