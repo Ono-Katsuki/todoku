@@ -611,6 +611,13 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             readback_values.update(shaped)
         if circ:
             new_blob = _circle_word(new_blob, name, circ, result)
+    from . import pkgsig
+
+    sig = pkgsig.find(blob)
+    if sig is not None and new_blob != blob:
+        # パッケージの電子署名：書いた部品のバイト列が変わるので、署名は無効になる。黙って無効にしない（本人に伝えることの先頭に）
+        result["warnings"] = [sig.message] + list(result.get("warnings") or [])
+        result["digital_signature"] = dict(sig.to_dict(), invalidated=True)
     written_plain = new_blob  # 書いた中身（保護し直す前）
     if lock is not None:
         # 元と同じパスワードで保護し直し、それを同じパスワードで解いて、書いた中身とバイト一致かを確かめてから書き出す
@@ -1367,6 +1374,15 @@ def audit(path: str, password: str | None = None, encoding: str | None = None) -
     pw = pdf_password(lock)
     au = run(blob, name, password=pw) if pw and "password" in inspect.signature(run).parameters else run(blob, name)
     d = au.to_dict()
+    from . import pkgsig
+
+    sig = pkgsig.find(blob)
+    if sig is not None:
+        # パッケージの電子署名：確かめ（audit）の中の書き込みの試しは、署名を無効にする（書き出したファイルは署名し直しが要る）
+        d["digital_signature"] = sig.to_dict()
+        d.setdefault("checks", []).append({"name": "電子署名", "ok": True, "agent": False,
+                                           "detail": sig.message + "。署名そのものの正しさ（証明書・ハッシュ）は、とどくは確かめていません",
+                                           "items": list(sig.parts)})
     d["grade"] = grade(path, password=password, encoding=encoding)
     if lock is not None:
         d["password_protected"] = f"パスワードで保護された書類です（{lock.label}）。解いた中身を確かめました"

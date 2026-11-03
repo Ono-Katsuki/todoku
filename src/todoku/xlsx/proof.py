@@ -260,6 +260,130 @@ def _xls_rich_problems(original: bytes, new: bytes, rich) -> list[str]:
     return out
 
 
+def _table_changes(a: Workbook, b: Workbook, unexpected: list) -> tuple[dict, set, set]:
+    """テーブルの部品の変わり方を確かめる。返すのは (列の名前の書き換え {テーブル（小文字）: {元（小文字）: 新}},
+    確かめたテーブルの部品, 構造化参照を書き換えたセル（あとで足す）)。
+
+    - 列の名前・集計の行の見出し（totalsRowLabel）のほかの、テーブルの部品の変更は認めない
+    - テーブルの部品の XML は、元の XML の列の属性と数式の構造化参照を、その書き換えで直したものとバイト一致
+    - 書いた後のブックで、見出しのセルの字と列の名前、集計の行のセルの字と集計の行の見出しが合っている
+      （元のブックで合っていた所）。数式の構造化参照は、元のブックで指せていた列を、書いた後も指せている"""
+    from ..formula.values import to_text
+    from . import tablerename as tr
+
+    renames: dict = {}
+    parts: set = set()
+    if not getattr(a, "tables", None):
+        return renames, parts, set()
+    col_changes: dict = {}
+    for key, ta in a.tables.items():
+        tb = b.tables.get(key)
+        if tb is None or not ta.part:
+            if tb is None:
+                unexpected.append(f"テーブル「{ta.name}」がなくなりました")
+            continue
+        xa = a.zip.read(ta.part) if a.zip.has(ta.part) else b""
+        xb = b.zip.read(tb.part) if b.zip.has(tb.part) else b""
+        if xa == xb:
+            continue
+        aa, ab = tr.column_attrs(xa), tr.column_attrs(xb)
+        if len(aa) != len(ab) or (ta.r1, ta.c1, ta.r2, ta.c2) != (tb.r1, tb.c1, tb.r2, tb.c2):
+            unexpected.append(f"テーブル「{ta.name}」の範囲か列の数が変わりました")
+            continue
+        cols: dict = {}
+        for i, (x, y) in enumerate(zip(aa, ab)):
+            for k in set(x) | set(y):
+                if x.get(k) == y.get(k):
+                    continue
+                if k not in ("name", "totalsRowLabel") or y.get(k) is None:
+                    unexpected.append(f"テーブル「{ta.name}」の列 {i + 1} の定義（{k}）が変わりました")
+                    continue
+                cols.setdefault(i, {})[k] = y[k]
+                if k == "name":
+                    renames.setdefault(key, {})[x["name"].lower()] = y["name"]
+        col_changes[ta.part] = (ta, cols)
+    for part, (ta, cols) in col_changes.items():
+        if tr.table_xml(a.zip.read(part), ta.name, cols, renames) != b.zip.read(part):
+            unexpected.append(f"{part}: テーブルの列の名前・集計の行の見出しと、構造化参照の書き換えのほかにも変更があります")
+        parts.add(part)
+    # ほかのテーブルの部品も、構造化参照の書き換え（calculatedColumnFormula など）で変わることがある
+    for key, ta in a.tables.items():
+        if ta.part in parts or not ta.part or not a.zip.has(ta.part) or not b.zip.has(ta.part):
+            continue
+        xa, xb = a.zip.read(ta.part), b.zip.read(ta.part)
+        if xa != xb and renames and tr.table_xml(xa, ta.name, {}, renames) == xb:
+            parts.add(ta.part)
+    # 書いた後のブックで、見出し・集計の行のセルの字が、テーブルの定義と合っているか（元で合っていた所）
+    for key, ta in a.tables.items():
+        tb = b.tables.get(key)
+        if tb is None or not b.has_sheet(tb.sheet) or not tb.part or not b.zip.has(tb.part):
+            continue
+        attrs_a = tr.column_attrs(a.zip.read(ta.part)) if a.zip.has(ta.part) else []
+        attrs_b = tr.column_attrs(b.zip.read(tb.part))
+        for i in range(min(len(attrs_a), len(attrs_b))):
+            c = tb.c1 + i
+
+            def text(wb, sheet, r):
+                cell = wb.sheet(sheet).cells.get((r, c))
+                return to_text(cell.value) if cell is not None and cell.value is not None else ""
+
+            if tb.header_rows:
+                if text(a, ta.sheet, ta.r1) == attrs_a[i].get("name") and text(b, tb.sheet, tb.r1) != attrs_b[i].get("name"):
+                    unexpected.append(f"{tb.sheet}!{addr(tb.r1, c)}: 表の見出しの字「{text(b, tb.sheet, tb.r1)}」が、テーブル「{tb.name}」の"
+                                      f"列の名前「{attrs_b[i].get('name')}」と違います（Excel は開くときに修復を求めます）")
+            if tb.totals_rows and attrs_b[i].get("totalsRowLabel") is not None:
+                if text(a, ta.sheet, ta.r2) == attrs_a[i].get("totalsRowLabel") and \
+                        text(b, tb.sheet, tb.r2) != attrs_b[i].get("totalsRowLabel"):
+                    unexpected.append(f"{tb.sheet}!{addr(tb.r2, c)}: 集計の行の字「{text(b, tb.sheet, tb.r2)}」が、テーブル「{tb.name}」の"
+                                      f"集計の行の見出し「{attrs_b[i].get('totalsRowLabel')}」と違います")
+    if renames:
+        unexpected += _dangling_struct_refs(a, b)
+    return renames, parts, set()
+
+
+def _renamed_formula(a: Workbook, sheet: str, k: tuple, fa: str, fb: str, renames: dict) -> bool:
+    """書いた後の数式 fb が、元の数式 fa の構造化参照の列の名前を書き換えただけのものか（構文木で比べる）。"""
+    from ..formula.parser import parse
+    from . import tablerename as tr
+
+    here = tr.table_at(a, sheet, *k)
+    try:
+        return tr.rename_ast(parse(fa), renames, here.name if here else None) == parse(fb)
+    except Exception:  # noqa: BLE001  読めない数式：書き換えだけかを確かめられない
+        return False
+
+
+def _dangling_struct_refs(a: Workbook, b: Workbook) -> list[str]:
+    """元のブックで、ある列を指していた構造化参照が、書いた後のブックでは、ない列を指している（列の名前を書き換えたのに、
+    参照を書き換えていない）。"""
+    from ..formula.parser import parse
+    from . import tablerename as tr
+
+    def bad(wb) -> set:
+        out = set()
+        cols = {k: {c.lower() for c in t.columns} for k, t in wb.tables.items()}
+        for sh in wb.sheets:
+            for (r, c), cell in sh.cells.items():
+                f = cell.formula
+                if not f or "[" not in f:
+                    continue
+                try:
+                    ast = parse(f)
+                except Exception:  # noqa: BLE001
+                    continue
+                here = tr.table_at(wb, sh.name, r, c)
+                for ref in tr.struct_refs(ast):
+                    tn = (ref.table or (here.name if here else "")).lower()
+                    for col in (ref.col1, ref.col2):
+                        if col is not None and tn in cols and col.lower() not in cols[tn]:
+                            out.add((sh.name, addr(r, c), ref.table or tn, col))
+        return out
+
+    before = bad(a)
+    return [f"{s}!{c}: 数式の構造化参照 {t}[{col}] が、テーブルにない列を指しています（列の名前と参照がずれています）"
+            for s, c, t, col in sorted(bad(b) - before)]
+
+
 def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | None = None,
           allowed_controls: set[tuple[str, str]] | None = None, overwrite: set[tuple[str, str]] | None = None,
           rich: set[tuple[str, str]] | None = None) -> Proof:
@@ -313,6 +437,9 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
             if _without_checked(ra) != _without_checked(rb):
                 unexpected.append(f"{n}: 部品の状態（チェック・選んだ項目・値）のほかにも変更があります")
 
+    # テーブルの見出し・集計の行の見出しを書き換えたとき（force）：列の名前・集計の行の見出しと、その列を指す構造化参照だけが、
+    # 見出しのセルの字に合わせて変わったこと（tablerename）
+    renames, table_parts, renamed_cells = _table_changes(a, b, unexpected)
     changes = []
     for sa in a.sheets:
         try:
@@ -330,7 +457,10 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
             sty_a = ca.style if ca else sa.style_of(*k)
             sty_b = cb.style if cb else sb.style_of(*k)
             if fa != fb and not (fb is None and overwrite and (sa.name, addr(*k)) in overwrite):
-                unexpected.append(f"{sa.name}!{addr(*k)}: 数式が変わりました")
+                if renames and fa is not None and fb is not None and _renamed_formula(a, sa.name, k, fa, fb, renames):
+                    renamed_cells.add((sa.name, addr(*k)))
+                else:
+                    unexpected.append(f"{sa.name}!{addr(*k)}: 数式が変わりました")
             if sty_a != sty_b:
                 unexpected.append(f"{sa.name}!{addr(*k)}: 書式が変わりました")
             same = values_equal(va, vb) and type(va) is type(vb)
@@ -388,6 +518,7 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
             keys = {c["cell"] for c in changes if c["sheet"] == by_path[n]}
             keys |= {cell for sh, cell in (allowed_inputs or ()) if sh == by_path[n]}
             keys |= {cell for sh, cell in (overwrite or ()) if sh == by_path[n]}
+            keys |= {cell for sh, cell in renamed_cells if sh == by_path[n]}
             n_sheets += 1
             where = _outside_cells(a.zip.read(n), b.zip.read(n), keys)
             if where is None:
@@ -401,6 +532,8 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
             # ActiveX の部品の控えの絵を分けたときに、分けた絵への関係を足すことだけ（どの絵かは ActiveX の証明で確かめる）
             if _AX_REL.sub(b"", b.zip.read(n)) != a.zip.read(n):
                 unexpected.append(f"{n}: 分けた控えの絵への関係を足すほかにも変更があります")
+        elif n in table_parts:
+            pass  # テーブルの部品：_table_changes で確かめた
         elif not (n == getattr(a, "calc_chain", None) or n.endswith(".vml") or "/ctrlProps/" in n or "/activeX/" in n
                   or "/media/" in n):
             unexpected.append(f"{n}: 書き込みで変わってよい部品ではありません")

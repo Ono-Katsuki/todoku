@@ -215,6 +215,8 @@ class Table:
     header_rows: int
     totals_rows: int
     columns: list[str]
+    part: str = ""  # テーブルの部品（xl/tables/tableN.xml）
+    table_type: str = "worksheet"  # worksheet / xml / queryTable
 
 
 @dataclass
@@ -755,7 +757,8 @@ class Workbook:
                 cols = [_unxml(c.get("name", "")) for c in t.iter(M + "tableColumn")]
                 name = t.get("displayName") or t.get("name") or ""
                 self.tables[name.lower()] = Table(name, sh.name, r1, c1, r2, c2, int(t.get("headerRowCount", "1")),
-                                                  int(t.get("totalsRowCount", "0")), cols)
+                                                  int(t.get("totalsRowCount", "0")), cols, target,
+                                                  t.get("tableType", "worksheet"))
 
     def _load_controls(self, sh: Sheet, root: ET.Element, rels: dict) -> None:
         """チェックボックスなどのフォームコントロールを、状態とリンク先のセルとともに読む。"""

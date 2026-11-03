@@ -243,9 +243,13 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value, *, refuse_a
         if not math.isfinite(x):
             raise EditError(f"{where}: 値 {value!r} は数ではありません（無限大・NaN は書けません）")
         if _general(fmt) and x == int(x) and "E" in _general_shown(x):
-            # 12 桁以上の整数（個人番号など）：標準の表示形式では「1.23457E+11」と表示され、番号が読めない
+            # 12 桁以上の整数（個人番号など）を JSON の数で指定した：数として書く（指定どおり）。標準の表示形式では
+            # 「1.23457E+11」と表示され、番号が読めないので、そのことと、桁を残す書き方（字で指定する）を伝える
             digits = str(int(value)) if isinstance(value, int) else number_to_text(x)
-            return _shown_differs(wb, sheet, r, c, where, digits, x, _general_shown(x), notes)
+            notes.append(f"{where}: {digits} を数として書き込みました（数で指定されたため）。セルの表示形式が標準なので"
+                         f"「{_general_shown(x)}」と表示・印刷され、全部の桁は見えません。番号として全部の桁を見せるなら、"
+                         f"字（\"{digits}\"）で指定してください（書いたとおりの字として書きます）")
+            return x, notes
         if _is_percent(fmt) and abs(x) >= 1:
             notes.append(f"{where}: パーセントの書式のセルに {number_to_text(x)} を書き込みました（{number_to_text(x * 100)}% と表示されます。"
                          f"{number_to_text(x)}% のつもりなら {number_to_text(x / 100)} か「{number_to_text(x)}%」と指定してください）")
@@ -300,8 +304,19 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value, *, refuse_a
             # todoku はセルの書式を変えないので、標準の表示形式のままでは「1000」「0.5」と、入力した字と違って見える
             return _shown_differs(wb, sheet, r, c, where, s, x, _general_shown(x), notes)
         if _general(fmt) and not m[3] and "E" in _general_shown(x):
-            # 12 桁以上の数字（個人番号など）：標準の表示形式では「1.23457E+11」と表示され、番号が読めない
-            return _shown_differs(wb, sheet, r, c, where, s, x, _general_shown(x), notes)
+            # 12 桁以上の数字（個人番号など）を字で指定した：数にすると標準の表示形式で「1.23457E+11」と表示され、番号が
+            # 読めないので、書いたとおりの字として書く（指定どおり）。数の入力規則のあるセルだけは、規則が数を求めるので数にする
+            shown = _general_shown(x)
+            sh_ = wb.sheet(sheet)
+            if any(v.covers(r, c) and v.type in ("whole", "decimal") for v in getattr(sh_, "validations", ())):
+                return _shown_differs(wb, sheet, r, c, where, s, x, shown, notes)
+            msg = (f"{where}: 「{s}」を、書いたとおりの字として書き込みました（字で指定されたため。数にすると標準の表示形式で"
+                   f"「{shown}」と表示され、桁が読めません）")
+            if _numeric_use(wb, sheet, r, c):
+                msg += ("。このセルは数式から参照されるので、数式からは字として見えます（計算に使う数なら、JSON の数 "
+                        f"{number_to_text(x)} で指定してください）")
+            notes.append(msg)
+            return s, notes
         elif _is_percent(fmt):
             # Excelの「パーセント形式での自動入力」：1以上の数は % として受け取る
             if abs(x) >= 1:
@@ -451,6 +466,39 @@ def list_options(wb: Workbook, sheet: str, formula1: str, r: int | None = None, 
         return None
 
 
+def empty_list_source(wb: Workbook, sheet: str, rule, r: int, c: int) -> str | None:
+    """入力規則（リスト）の選択肢が、そのまま範囲を指す参照（$H$1:$H$2・別のシートの範囲・範囲だけの名前）で、範囲のセルに
+    字も数式もない（ほかの欄に書いても変わらない）なら、その範囲の番地（「S!H1:H2」）。そうでなければ None。"""
+    from ..formula.parser import NameNode, RefNode
+
+    f = (rule.formula1 or "").strip().lstrip("=")
+    try:
+        node = parse(f)
+    except Exception:  # noqa: BLE001
+        return None
+    here = sheet
+    dr, dc = r - rule.origin[0], c - rule.origin[1]
+    if isinstance(node, NameNode):
+        d = wb.defined_name(node.name, node.sheet or sheet) if hasattr(wb, "defined_name") else None
+        if d is None or d.ast is None or not isinstance(d.ast, RefNode):
+            return None
+        node, here, dr, dc = d.ast, d.sheet_scope or sheet, 0, 0
+    if not isinstance(node, RefNode):
+        return None
+    ref = node.shifted(dr, dc)
+    name = ref.sheet or here
+    if not wb.has_sheet(name):
+        return None
+    sh = wb.sheet(name)
+    r1, r2 = sorted((ref.r1, ref.r2))
+    c1, c2 = sorted((ref.c1, ref.c2))
+    for (rr, cc), cell in sh.cells.items():
+        if r1 <= rr <= r2 and c1 <= cc <= c2 and (cell.has_formula or cell.value not in (None, "")):
+            return None
+    rng = addr(r1, c1) + (f":{addr(r2, c2)}" if (r1, c1) != (r2, c2) else "")
+    return f"{sh.name}!{rng}"
+
+
 _OPS = {
     "between": lambda x, lo, hi: lo <= x <= hi,
     "notBetween": lambda x, lo, hi: not (lo <= x <= hi),
@@ -505,7 +553,13 @@ def _issues_for(wb: Workbook, sheet: str, r: int, c: int, value, calc: Calc, rul
         extra = f"（様式の説明: {v.error}）" if v.error else ""
         if v.type == "list" and v.formula1:
             opts = list_options(wb, sheet, v.formula1, r, c, v, calc)
-            if opts is None:
+            empty = empty_list_source(wb, sheet, v, r, c) if opts is None else None
+            if empty is not None:
+                # 選択肢の範囲が、字も数式もない空のセルだけ：Excel は、どの値も選択肢にないとして受け付けない
+                out.append(Issue(where, f"{where}: 選択肢の範囲（{v.formula1}）の {empty} が空で、選べる値がありません。"
+                                        f"Excel でも、どの値も受け付けません（様式の選択肢の範囲が空のままです。本人か様式の"
+                                        f"作り手に確かめてください）{extra}", v.blocks))
+            elif opts is None:
                 out.append(Issue(where, f"{where}: 選択肢を確かめられませんでした（{v.formula1}）。連動する欄を先に入れると確かめられます", False))
             elif not any(_eq(value, o) or to_text(value) == to_text(o) for o in opts):
                 # 文字列の書式のセルに「0」を入れたときも、一覧の 0 と同じものとして受け付ける（見た目の文字で照らす）
@@ -737,6 +791,22 @@ class SheetPatcher:
         self.inserts: list[tuple[int, int, int, bytes]] = []  # 行の中への新しいセル：(位置, 行, 列, XML)
         self.row_inserts: dict = {}  # 新しい行：((位置), 行) → {"wrap": (開き, 閉じ), "cells": {列: XML}}
         self._index: dict[str, tuple[int, int]] | None = None
+        self.ftext: dict[str, str] = {}  # セルの番地 → 数式の新しい字（テーブルの列の名前を書き換えたとき）
+
+    def set_formula_text(self, r: int, c: int, text: str) -> None:
+        """セルの数式（<f> の字）を text にする（値・ほかの属性は変えない。build でまとめて書く）。"""
+        if not self.find_cell(r, c):
+            raise EditError(f"{addr(r, c)} の数式セルが見つかりません")
+        self.ftext[addr(r, c)] = text
+
+    def _with_ftext(self, cell_xml: bytes, text: str) -> bytes:
+        p = re.escape(self.prefix)
+        m = re.search(rb"(<" + p + rb"f\b[^>]*?>)(.*?)(</" + p + rb"f>)", cell_xml, re.S)
+        if not m:
+            if re.search(rb"<" + p + rb'f\b[^>]*\bt="shared"[^>]*/>', cell_xml):
+                return cell_xml  # 共有数式の子：字は親の数式にある（親を書き換える）
+            raise EditError("数式の字を書き換える所（<f>）が見つかりません")
+        return cell_xml[:m.start()] + m[1] + escape(text).encode("utf-8") + m[3] + cell_xml[m.end():]
 
     def find_cell(self, r: int, c: int) -> tuple[int, int] | None:
         if self._index is None:
@@ -801,6 +871,18 @@ class SheetPatcher:
         return (end, end), (new_row_open, new_row_close)
 
     def build(self) -> bytes:
+        if self.ftext:
+            # 数式の字の書き換え：値を書き換えたセルは、書き換えた後の XML の <f> を、ほかのセルは元の XML の <f> を書き換える
+            by_span = {(s_, e_): i for i, (s_, e_, _n) in enumerate(self.edits)}
+            for a_, text in self.ftext.items():
+                span = self._index[a_]
+                if span in by_span:
+                    k = by_span[span]
+                    s_, e_, new = self.edits[k]
+                    self.edits[k] = (s_, e_, self._with_ftext(new, text))
+                else:
+                    self.edits.append((span[0], span[1], self._with_ftext(self.xml[span[0]:span[1]], text)))
+            self.ftext = {}
         # 書き換え（start, end）と、差し込み（同じ位置なら、行の番号・列の番号の順）をまとめて並べる
         edits = [(s_, e_, 0, 0, new) for s_, e_, new in self.edits]
         edits += [(pos, pos, r, c, new) for pos, r, c, new in self.inserts]
@@ -1054,6 +1136,7 @@ class InputPlan:
     rich: dict = field(default_factory=dict)  # (シート, 行, 列) → (<is> の中身, 書いた後の字ごとの書式, 外したふりがな)：字ごとの書式を残す
     direct: dict = field(default_factory=dict)  # (シート, 行, 列) → 指示の鍵：セルの番地・字を目印に書いたセル
     exclusive: list = field(default_factory=list)  # 2つのうち1つを選ぶ箱の両方に印をつけた所（警告）
+    table_changes: dict = field(default_factory=dict)  # テーブルの見出し・集計の行の見出しの書き換え（force のときだけ）
 
 
 def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bool = False,
@@ -1239,6 +1322,7 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             warnings += notes
         targets[(sheet, r, c)] = val
 
+    table_changes = _table_label_writes(wb, targets, force)
     # Excel のセルに入る字は 32,767 字まで（それより長い字は、Excel で開くと切られる）
     for (s_, r_, c_), v_ in targets.items():
         if isinstance(v_, str) and len(v_) > MAX_CELL_TEXT:
@@ -1288,7 +1372,139 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
         if rich[cell_][2]:
             warnings.append(f"{s_}!{addr(r_, c_)}: 書き換えた字に付いていたふりがな（{'・'.join(rich[cell_][2])} の読み）を外しました")
     direct = {c_: k_ for c_, (k_, _a) in claimed.items() if c_ not in linked_cells}
-    return InputPlan(targets, controls, writes, ax_writes, warnings, text_written, replaced_text, anchored, rich, direct, exclusive)
+    return InputPlan(targets, controls, writes, ax_writes, warnings, text_written, replaced_text, anchored, rich, direct, exclusive,
+                     table_changes)
+
+
+def _table_label_writes(wb: Workbook, targets: dict, force: bool) -> dict:
+    """テーブル（リストオブジェクト）の見出し・集計の行の見出しのセルに、いまと違う字を書く指示。
+
+    ふつうは書かない（EditError）：見出しの字は列の名前（tableColumn/@name）と同じでなければならず、構造化参照（T1[金額]）も
+    その名前で列を指す。force のときは、Excel で見出しを書き換えたときと同じく、列の名前と、その列を指す構造化参照を
+    合わせて書き換える予定を返す：{テーブルの部品: {"table": テーブル, "cols": {列の番号: {属性: 値}}, "renames": {元: 新}}}。"""
+    from . import tablerename as tr
+
+    if not getattr(wb, "tables", None) or getattr(wb, "kind", "xlsx") != "xlsx":
+        return {}
+    out: dict = {}
+    refused: list[str] = []
+    for (s_, r_, c_), v_ in targets.items():
+        hit = tr.label_cell(wb, s_, r_, c_)
+        if hit is None:
+            continue
+        t, kind, i = hit
+        cell = wb.sheet(s_).cells.get((r_, c_))
+        old = cell.value if cell is not None else None
+        if values_equal(old, v_) and type(old) is type(v_):
+            continue
+        where = f"{s_}!{addr(r_, c_)}"
+        col = t.columns[i] if 0 <= i < len(t.columns) else ""
+        if kind == "header":
+            why = (f"{where}: {tr.HEADER_REASON}（テーブル「{t.name}」の列の名前「{col}」。数式の {t.name}[{col}] などの構造化参照も、"
+                   "この名前で列を指します）")
+        else:
+            why = (f"{where}: {tr.TOTALS_REASON}（テーブル「{t.name}」の集計の行。集計の行の見出しは、テーブルの定義にも"
+                   "書かれています）")
+        if not force:
+            refused.append(why + "。書き換えると決めたなら、force を付けて {\"value\": …, \"overwrite_text\": true} の形で"
+                                 "書いてください（列の名前と構造化参照を、Excel と同じく合わせて書き換えます）")
+            continue
+        problems = _table_rename_problems(wb, t, kind, i, v_)
+        if problems:
+            refused.append(why + "。" + problems)
+            continue
+        new = str(v_)
+        ent = out.setdefault(t.part, {"table": t, "cols": {}, "renames": {}})
+        if kind == "header":
+            ent["cols"].setdefault(i, {})["name"] = new
+            ent["renames"][col.lower()] = new
+        else:
+            ent["cols"].setdefault(i, {})["totalsRowLabel"] = new
+    if refused:
+        raise EditError("\n".join(refused))
+    # 同じテーブルの列の名前が重ならないこと（書き換えた後の名前どうし・書き換えない列の名前と）
+    for ent in out.values():
+        t = ent["table"]
+        names = [ent["cols"].get(i, {}).get("name", n) for i, n in enumerate(t.columns)]
+        low = [n.lower() for n in names]
+        dup = sorted({n for n in names if low.count(n.lower()) > 1})
+        if dup:
+            raise EditError(f"テーブル「{t.name}」の列の名前が重なります（{'・'.join(dup)}）。Excel では列の名前は重ねられないので、"
+                            "書いていません")
+    return out
+
+
+def _table_rename_problems(wb: Workbook, t, kind: str, i: int, value) -> str:
+    """force で見出し・集計の行の見出しを書き換えるとき、合わせて書き換えられない所があれば、その説明（なければ ""）。"""
+    from . import tablerename as tr
+
+    if not isinstance(value, str) or not value.strip():
+        return "テーブルの見出し・集計の行の見出しには、空でない字を書いてください（数・空にすると、Excel は名前を自動で付け直します）"
+    if any(ch in value for ch in "\n\r\t"):
+        return "改行・タブを含む名前は、列の名前として合わせて書き換えられないので、書いていません"
+    if t.table_type != "worksheet":
+        return f"このテーブルは外部のデータにつながっています（{t.table_type}）。列の名前を書き換えると、つながりの定義とずれるので、書いていません"
+    if not t.part or not wb.zip.has(t.part):
+        return "テーブルの部品が見つからないので、書いていません"
+    attrs = tr.column_attrs(wb.zip.read(t.part))
+    if len(attrs) != len(t.columns) or not (0 <= i < len(attrs)):
+        return "テーブルの列の定義を読めないので、書いていません"
+    if kind == "totals" and attrs[i].get("totalsRowFunction", "none") not in ("none", ""):
+        return "集計の行の、集計の式のある列です。書いていません"
+    if kind == "header":
+        for d in getattr(wb, "names", []):
+            if re.search(re.escape(t.name) + r"\s*\[", d.text or "", re.I):
+                return f"名前付き範囲「{d.name}」がこのテーブルを構造化参照で指していて、合わせて書き換えられないので、書いていません"
+        for n in wb.zip.names():
+            if "pivotCache" in n and n.endswith(".xml"):
+                x = wb.zip.read(n)
+                if re.search(rb'<(?:\w+:)?worksheetSource\b[^>]*\bname="' + re.escape(t.name.encode()) + rb'"', x, re.I):
+                    return "ピボットテーブルがこのテーブルの列を使っていて、合わせて書き換えられないので、書いていません"
+    return ""
+
+
+def _apply_table_changes(wb: Workbook, changes: dict, patcher, patches: list, warnings: list) -> dict:
+    """force で書き換えたテーブルの見出し・集計の行の見出し：テーブルの部品の列の名前・集計の行の見出しと、その列を指す構造化参照
+    （すべてのテーブルの calculatedColumnFormula・totalsRowFormula と、すべてのシートのセルの数式）を書き換える。
+    書き換えたテーブルの部品 → XML を返す（シートの数式は patcher に入れる）。"""
+    if not changes:
+        return {}
+    from . import tablerename as tr
+
+    renames = {ent["table"].name.lower(): ent["renames"] for ent in changes.values() if ent["renames"]}
+    out: dict = {}
+    for t in wb.tables.values():
+        if not t.part or not wb.zip.has(t.part):
+            continue
+        ent = changes.get(t.part)
+        xml = wb.zip.read(t.part)
+        new = tr.table_xml(xml, t.name, ent["cols"] if ent else {}, renames)
+        if new != xml:
+            out[t.part] = new
+            patches.append(Patch(t.part, t.sheet, t.name, "workbook", None,
+                                 "テーブルの列の名前・集計の行の見出しと、その列を指す数式の構造化参照を書き換えた"))
+    if renames:
+        for sh in wb.sheets:
+            for (r, c), cell in sh.cells.items():
+                f = cell._formula
+                if not f or "[" not in f or cell._shared_from is not None:
+                    continue
+                here = tr.table_at(wb, sh.name, r, c)
+                nf = tr.rename_in_formula(f, renames, here.name if here else None)
+                if nf != f:
+                    patcher(sh.name).set_formula_text(r, c, nf)
+                    patches.append(Patch(sh.path, sh.name, addr(r, c), "workbook", f, nf))
+    n_f = sum(1 for p_ in patches if p_.kind == "workbook" and p_.part.endswith(".xml") and "/worksheets/" in p_.part)
+    for ent in changes.values():
+        t = ent["table"]
+        for i, ch in sorted(ent["cols"].items()):
+            if "name" in ch:
+                warnings.append(f"テーブル「{t.name}」の列の名前を「{t.columns[i]}」から「{ch['name']}」に書き換えました（Excel で見出しを"
+                                "書き換えたときと同じ）。その列を指す構造化参照も合わせて書き換えました"
+                                + (f"（セルの数式 {n_f} か所）" if n_f else ""))
+            if "totalsRowLabel" in ch:
+                warnings.append(f"テーブル「{t.name}」の集計の行の見出しを「{ch['totalsRowLabel']}」に書き換えました（テーブルの定義も合わせました）")
+    return out
 
 
 def _both_boxes_marked(old: str, new: str, where: str) -> list[str]:
@@ -1384,8 +1600,11 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
         s, e, n = patcher(sheet).set_formula_value(r, c, val)
         patches.append(Patch(wb.sheet(sheet).path, sheet, addr(r, c), "formula", cell.value, val, (s, e), n))
 
+    table_parts = _apply_table_changes(wb, plan_.table_changes, patcher, patches, warnings)
     for sheet, p in by_sheet.items():
         wb.zip.replace(wb.sheet(sheet).path, p.build())
+    for part, data in table_parts.items():
+        wb.zip.replace(part, data)
     # 数式のセルに値を書いた（マクロが書いた・数式の上書きを許した）：calcChain.xml から、そのセルの記録を取り除く
     # （数式のないセルが残っていると、Excel は開くときに修復を求める）
     gone = {(wb.sheet(p_.sheet).sheet_id, p_.address) for p_ in patches if p_.kind in ("input", "macro")

@@ -181,6 +181,34 @@ def _as_bool(v) -> bool:
     raise FillError(f"チェックの欄には、はい／いいえ（true / false）で書いてください（「{v}」）")
 
 
+# 要素の w:id（しおり・変更履歴・コメントの範囲・脚注など、番号の要素すべて。数だけの番号）
+_ANNOT_ID = re.compile(rb'\s(?:[\w.-]+:)?id="(\d+)"')
+# 変更履歴の入れ物：挿入（ins・moveTo）と削除（del・moveFrom）
+REVISION_WRAPPERS = ("ins", "del", "moveTo", "moveFrom")
+
+
+def revision_wrappers(node: Node) -> list[Node]:
+    """node（字の要素など）を囲む、段落の中の変更履歴の入れ物（内側から順に）。"""
+    out = []
+    x = node.parent
+    while x is not None and x.local not in ("p", "body", "tc", "txbxContent", "#root"):
+        if x.local in REVISION_WRAPPERS:
+            out.append(x)
+        x = x.parent
+    return out
+
+
+def revision_counts(doc) -> dict[str, int]:
+    """文書（本文・ヘッダー・脚注など）に残っている、承諾も却下もされていない変更履歴の数：{挿入, 削除, 書式}。"""
+    n = {"挿入": 0, "削除": 0, "書式": 0}
+    for part in doc.parts:
+        xml = doc.xml(part)
+        n["挿入"] += len(re.findall(rb"<(?:[\w.-]+:)?(?:ins|moveTo)\b[^>]*>", xml))
+        n["削除"] += len(re.findall(rb"<(?:[\w.-]+:)?(?:del|moveFrom)\b[^>]*>", xml))
+        n["書式"] += len(re.findall(rb"<(?:[\w.-]+:)?(?:rPrChange|pPrChange|sectPrChange|tblPrChange|trPrChange|tcPrChange)\b", xml))
+    return n
+
+
 class Filler:
     def __init__(self, doc: DocxDocument, force: bool = False):
         self.doc = doc
@@ -189,7 +217,9 @@ class Filler:
         self.editors: dict[str, Editor] = {}
         self.patches: list[Patch] = []
         self.warnings: list[str] = []
-        self.next_bm = 1 + max([int(m) for part in doc.parts for m in re.findall(rb'bookmark(?:Start|End)\b[^>]*?\bw?:?id="(\d+)"', doc.xml(part))] + [0])
+        # しおりの番号：しおりだけでなく、変更履歴（w:ins・w:del・書式の変更）・コメントの範囲などの w:id とも重ねない
+        # （Word はこれらの番号を同じ数の並びとして扱い、重なると開くときに修復を求めることがある）
+        self.next_bm = 1 + max([int(m) for part in doc.parts for m in _ANNOT_ID.findall(doc.xml(part))] + [0])
         self.run_ops: dict[tuple[str, int], tuple[Node, list]] = {}
         self.bm_ids: dict[int, str] = {}
         self.bound: dict[tuple[str, int, int], tuple[str, str, object]] = {}  # 結び付けた XML の値の所 → (欄, 書く値, 所)
@@ -302,6 +332,28 @@ class Filler:
             ed = self.ed(part)
             pre = ed.pre
             xml = ed.xml
+            # 変更履歴の中の字に書く：書いた字を変更履歴の中に入れない（ほかの人の挿入として承諾・却下されないように）。
+            # 挿入（w:ins）の中の字は、その挿入をそこで分けて、書いた字を挿入の外に置く。削除の中・入れ子の中には書かない
+            wraps = revision_wrappers(run)
+            split = None
+            if wraps:
+                ids = [self.bm_ids.get(int(m_[1]), "") for op in ops if op[4] for m_ in [re.search(rb'\bw?:?id="(\d+)"', op[4][0])] if m_]
+                who = "・".join(str(i) for i in ids if i) or "書いた所"
+                w0 = wraps[0]
+                if len(wraps) > 1 or w0.local != "ins" or run.parent is not w0:
+                    kinds = "・".join(dict.fromkeys(w.local for w in wraps))
+                    raise FillError(f"{who}: 書く所が、変更履歴（{kinds}）の中にあります。変更履歴の中には書きません"
+                                    "（Word で変更履歴を承諾するか元に戻してから、もう一度書いてください）")
+                tag = xml[w0.s:w0.se]
+                close = xml[w0.es:w0.e]
+
+                def reopen(tag=tag):
+                    nid = self.next_bm  # 分けた後ろの挿入には、新しい番号（書き込みごと）
+                    self.next_bm += 1
+                    return re.sub(rb'(\s(?:[\w.-]+:)?id=")\d+(")', lambda m_: m_[1] + str(nid).encode() + m_[2], tag, count=1)
+
+                split = (close, reopen, w0.get("author", ""))
+                self.revision_split = getattr(self, "revision_split", []) + [(who, split[2])]
             rpr = run.find("rPr")
             rpr_b = xml[rpr.s:rpr.e] if rpr is not None else b""
             rpr_v, dropped = clean_rpr(rpr_b)  # 書いた値の字の書式（取り消し線・字の色などは引き継がない）
@@ -344,7 +396,8 @@ class Filler:
                             to = b"F0A8" if pua else f"{ord(value):04X}".encode()
                             sym = re.sub(rb'(char=")[0-9A-Fa-f]+(")', rb"\g<1>" + to + rb"\g<2>", sym)
                     flush()
-                    out.extend((bm[0] if bm else b"") + r_open + rpr_b + sym + r_close + (bm[1] if bm else b""))
+                    out.extend((split[0] if split else b"") + (bm[0] if bm else b"") + r_open + rpr_b + sym + r_close
+                               + (bm[1] if bm else b"") + (split[1]() if split else b""))
                     continue
                 text = kid.text
                 cur = 0
@@ -352,7 +405,8 @@ class Filler:
                     buf += _t(pre, text[cur:k0])
                     if value is not None:
                         flush()
-                        out.extend((bm[0] if bm else b"") + r_open + rpr_v + _t(pre, value) + r_close + (bm[1] if bm else b""))
+                        out.extend((split[0] if split else b"") + (bm[0] if bm else b"") + r_open + rpr_v + _t(pre, value)
+                                   + r_close + (bm[1] if bm else b"") + (split[1]() if split else b""))
                         buf += _t(pre, pad)
                     cur = k1
                 buf += _t(pre, text[cur:])
@@ -475,10 +529,19 @@ class Filler:
         rpr = src.find("rPr") if src is not False else None
         rpr_b = xml[rpr.s:rpr.e] if rpr is not None else b""
         rpr_b, dropped = clean_rpr(rpr_b)
+        at = after_run.e
+        wraps = revision_wrappers(after_run)
+        if wraps:
+            # 変更履歴の中の字の後ろ：書いた字は、変更履歴の入れ物の外（すぐ後ろ）に置く。入れ物の中で後ろに字があれば書かない
+            outer = wraps[-1]
+            if re.search(rb"<(?:[\w.-]+:)?(?:r|t|tab|sym)\b", xml[after_run.e:outer.es]):
+                raise FillError(f"{item['id']}: 書く所が、変更履歴（{outer.local}）の中にあります。変更履歴の中には書きません"
+                                "（Word で変更履歴を承諾するか元に戻してから、もう一度書いてください）")
+            at = outer.e
         if dropped:
             self.note_dropped([item["id"]], dropped)
         start_bm, end_bm = self.bookmark(item["id"])
-        ed.put(after_run.e, after_run.e,
+        ed.put(at, at,
                start_bm + f"<{pre}:r>".encode() + rpr_b + _t(pre, value) + f"</{pre}:r>".encode() + end_bm)
 
     # ------------------------------------------------------------------ フォームの欄・コンテンツコントロール
@@ -490,6 +553,10 @@ class Filler:
         xml = ed.xml
         inner = [sg.node.s for sg in c.result_segs if sg.node is not None]
         self.check_editable(item, part, inner[0] if inner else c.node.s)
+        wraps = revision_wrappers(c.node) + [w for sg in c.result_segs if sg.node is not None for w in revision_wrappers(sg.node)]
+        if wraps:
+            raise FillError(f"{item['id']}: この欄は、変更履歴（{'・'.join(dict.fromkeys(w.local for w in wraps))}）の中にあります。"
+                            "変更履歴の中には書きません（Word で変更履歴を承諾するか元に戻してから、もう一度書いてください）")
         if c.lock in ("contentLocked", "sdtContentLocked") and not self.force:
             raise FillError(f"{item['id']}: 中身を変えられないように固定された欄です")
         if c.source == "formfield":
@@ -656,6 +723,106 @@ class Filler:
                 ed.put(content.se, content.se, f"<{pre}:r>".encode() + _t(pre, text) + f"</{pre}:r>".encode())
             return
         raise FillError(f"{item['id']}: 値を書く場所がありません")
+
+
+def revision_warnings(f: "Filler") -> None:
+    """変更履歴：承諾も却下もされていない変更履歴があること・変更履歴の記録がオンでも、書いた字は変更履歴にしていないことを伝える。"""
+    doc = f.doc
+    n = revision_counts(doc)
+    if any(n.values()):
+        what = "・".join(f"{k} {v}" for k, v in n.items() if v)
+        f.warnings.insert(0, f"この文書には、まだ承諾も却下もされていない変更履歴（{what}）があります。Word で開くと変更履歴として"
+                             "表示され、承諾・却下で字が変わります。書いた字は、変更履歴の外に、ふつうの字として書きました。"
+                             "提出する前に、変更履歴をどうするか本人に確かめてください")
+    for who, author in getattr(f, "revision_split", []):
+        f.warnings.append(f"{who}: 書く所が、ほかの人（{author or '名前なし'}）の変更履歴の挿入の中だったので、その挿入を書く所で分け、"
+                          "書いた字を挿入の外に置きました（挿入を却下すると、挿入の字は消え、書いた字は残ります）")
+    if getattr(doc, "track_revisions", False):
+        f.warnings.append("この文書は「変更履歴の記録」がオンになっていますが、とどくの書き込みは変更履歴として記録していません"
+                          "（ふつうの字として書きました。Word の変更履歴には、書いた所は出ません）")
+
+
+def _apply_edits(xml: bytes, s0: int, e0: int, edits: list) -> bytes:
+    """xml[s0:e0] に、その中の書き換え（start, end, bytes）を当てたバイト列。"""
+    out, at = bytearray(), s0
+    for s, e, b in sorted(edits, key=lambda x: (x[0], x[1])):
+        out += xml[at:s] + b
+        at = e
+    out += xml[at:e0]
+    return bytes(out)
+
+
+def _paras_under(node: Node, skip: tuple = ("Fallback",)) -> list[Node]:
+    """node の中の段落（w:p）を文書の順に。skip の要素（入れ子の代わりの中身）の中は数えない。"""
+    out = []
+    stack = list(reversed(node.kids))
+    while stack:
+        n = stack.pop()
+        if n.local in skip:
+            continue
+        if n.local == "p":
+            out.append(n)
+        stack.extend(reversed(n.kids))
+    return out
+
+
+def fallback_twins(root: Node, xml: bytes, edits: list) -> tuple[list, list]:
+    """書き換え（start, end, bytes）のある mc:Choice の、mc:Fallback の扱い：(写す [(Fallback の段落, Choice の段落)],
+    取り除く [Fallback])。写せるのは、Choice と Fallback の段落の数が同じで、書き換えのある段落（いちばん内側）の
+    Fallback の同じ順の段落のバイト列が、書く前の Choice の段落と同じとき。証明（docx/proof.py）も同じ関数で決める。"""
+    copy, drop = [], []
+    for ac in root.iter("AlternateContent"):
+        ch, fb = ac.find("Choice"), ac.find("Fallback")
+        if ch is None or fb is None:
+            continue
+        hit = [e for e in edits if ch.s <= e[0] and e[1] <= ch.e]
+        if not hit:
+            continue
+        cps, fps = _paras_under(ch), _paras_under(fb)
+        pairs = []
+        ok = len(cps) == len(fps)
+        if ok:
+            for k, cp in enumerate(cps):
+                inner = [e for e in hit if cp.s <= e[0] and e[1] <= cp.e]
+                if not inner or any(q is not cp and cp.s <= q.s and q.e <= cp.e and
+                                    any(q.s <= e[0] and e[1] <= q.e for e in inner) for q in cps):
+                    continue
+                fp = fps[k]
+                if xml[cp.s:cp.e] != xml[fp.s:fp.e]:
+                    ok = False
+                    break
+                pairs.append((fp, cp))
+            ok = ok and all(any(cp.s <= e[0] and e[1] <= cp.e for cp in cps) for e in hit)
+        if ok and pairs:
+            copy += pairs
+        else:
+            drop.append(fb)
+    return copy, drop
+
+
+def mirror_fallbacks(f: "Filler") -> None:
+    """図形のテキストボックスは、Word が表示する mc:Choice（wps）と、古い Word・ほかのソフト用の mc:Fallback（VML）の2つに
+    同じ中身を持つ。Choice のテキストボックスの段落に書いたら、Fallback の同じ順の段落にも同じ書き込みを写す（写した字には
+    しおりを付けない。しおりの名前は文書で1つ）。写せないときは Fallback を取り除き、そのことを警告で伝える
+    （書いていない字の古い中身が、ほかのソフトで見えないように）。"""
+    for part, ed in list(f.editors.items()):
+        if not ed.edits:
+            continue
+        root = f.doc.parts[part][1]
+        xml = ed.xml
+        edits = list(ed.edits)
+        copy, drop = fallback_twins(root, xml, edits)
+        for fp, cp in copy:
+            new = _apply_edits(xml, cp.s, cp.e, [e for e in edits if cp.s <= e[0] and e[1] <= cp.e])
+            new = re.sub(rb'<(?:[\w.-]+:)?bookmark(?:Start|End)\b[^>]*?\bid="(\d+)"[^>]*/>',
+                         lambda m_: b"" if int(m_[1]) in f.bm_ids else m_[0], new)
+            ed.put(fp.s, fp.e, new)
+        for fb in drop:
+            ed.put(fb.s, fb.e, b"")
+        if drop:
+            f.warnings.append("テキストボックスに書きました。このテキストボックスの、古い Word・ほかのソフト用の代わりの中身"
+                              "（mc:Fallback の VML）は、作りが表示用の中身（mc:Choice）と違い、同じ書き込みを写せないので、"
+                              "取り除きました（いまの Word は表示用の中身を使います。古い Word では、図形が表示されないことがあります）")
 
 
 # 行の区切りの字（str.splitlines が区切る字）：1行の欄には書かない
@@ -1000,6 +1167,9 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
     f.finish_bullets()
     f.finish_runs()
     bound_parts = f.finish_bound()
+    mirror_fallbacks(f)
+    if any(ed.edits for ed in f.editors.values()) or embed_parts or bound_parts:
+        revision_warnings(f)
     z = doc.zip
     from ..zipraw import RawZip
 

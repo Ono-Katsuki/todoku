@@ -157,12 +157,17 @@ def _general(ws):
 
 
 def test_twelve_digit_number_is_written_as_text(tmp_path):
+    """字で指定した 12 桁の番号は字のまま。JSON の数で指定したら数として書き、「1.23457E+11」と見えることと、桁を残す書き方を伝える
+    （第5回：指定した型を守る）。"""
     p = _xlsx(tmp_path, _general)
-    for v in ("123456789012", 123456789012):
-        r = api.fill(str(p), {"S!B1": v}, str(tmp_path / "o.xlsx"), overwrite=True)
-        assert r["verified"]
-        assert openpyxl.load_workbook(r["out_path"])["S"]["B1"].value == "123456789012"
-        assert "1.23457E+11" in r["say_to_user"] and "E+11" not in r["written"][0]["value"]
+    r = api.fill(str(p), {"S!B1": "123456789012"}, str(tmp_path / "o.xlsx"), overwrite=True)
+    assert r["verified"]
+    assert openpyxl.load_workbook(r["out_path"])["S"]["B1"].value == "123456789012"
+    assert "1.23457E+11" in r["say_to_user"] and "E+11" not in r["written"][0]["value"]
+    r = api.fill(str(p), {"S!B1": 123456789012}, str(tmp_path / "o.xlsx"), overwrite=True)
+    assert r["verified"]
+    assert openpyxl.load_workbook(r["out_path"])["S"]["B1"].value == 123456789012
+    assert "1.23457E+11" in r["say_to_user"] and "\"123456789012\"" in r["say_to_user"]
 
 
 def test_currency_and_percent_in_general_cells(tmp_path):

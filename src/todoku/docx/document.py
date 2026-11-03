@@ -538,7 +538,10 @@ class DocxDocument:
         settings = self._load("word/settings.xml")
         self.protection = ""
         self.protection_enforced = False
+        self.track_revisions = False  # 変更履歴の記録（w:trackRevisions）がオンか
         if settings is not None and settings.kids:
+            tr_ = settings.kids[0].find("trackRevisions")
+            self.track_revisions = tr_ is not None and str(tr_.get("val", "1")).lower() not in ("0", "false", "off")
             dp = settings.kids[0].find("documentProtection")
             if dp is not None:
                 self.protection = dp.get("edit", "")

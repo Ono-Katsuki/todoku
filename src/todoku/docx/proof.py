@@ -162,8 +162,13 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
         spans_a += sdt_spans.get(part, [])
         if sdt_spans.get(part):
             spans_b += _matching_sdt(b, part, len(sdt_spans[part]), sdt_spans[part], a)
+        # テキストボックスの代わりの中身（mc:Fallback）：書いた段落と同じ順の段落に同じ字を写したか、取り除いたこと
+        fa_, fb_ = _fallbacks(a, b, part, spans_a, pr)
+        spans_a += fa_
+        spans_b += fb_
         if _cut(xa, spans_a) != _cut(xb, spans_b):
             pr.unexpected.append(f"{part}：書いた欄のある段落の外が変わっています")
+        pr.lint_errors += _mark_ids(b, part)
         if len(set(re.findall(rb'bookmarkStart\b[^>]*?\bw?:?id="(\d+)"', xb))) != len(re.findall(rb'bookmarkStart\b[^>]*?\bw?:?id="(\d+)"', xb)):
             pr.lint_errors.append(f"{part}：しおりの番号が重なっています")
     # 書いた段落：文字と書式
@@ -330,6 +335,82 @@ def _cut(xml: bytes, spans: list[tuple[int, int]]) -> bytes:
         at = e
     out += xml[at:]
     return bytes(out)
+
+
+def _ptext(node) -> str:
+    return "".join(t.text for t in node.iter("t"))
+
+
+def _fallbacks(a: DocxDocument, b: DocxDocument, part: str, spans_a: list, pr: DocxProof) -> tuple[list, list]:
+    """書いた段落のある mc:Choice の mc:Fallback を、書き込みと同じ決め方（docx.fill.fallback_twins）で決め、
+    写した段落は、書いた後に Choice の段落と同じ字か、取り除いたものは、書いた後に Fallback がないかを確かめる。
+    比べから外す範囲（元・書いた後）を返す。"""
+    from .fill import _paras_under, fallback_twins
+
+    ra, rb_ = a.parts[part][1], b.parts[part][1]
+    acs_a, acs_b = list(ra.iter("AlternateContent")), list(rb_.iter("AlternateContent"))
+    copy, drop = fallback_twins(ra, a.xml(part), [(s_, e_, b"") for s_, e_ in spans_a])
+    if not copy and not drop:
+        return [], []
+    if len(acs_a) != len(acs_b):
+        pr.unexpected.append(f"{part}：図形の入れ物（mc:AlternateContent）の数が変わっています")
+        return [], []
+    out_a, out_b = [], []
+    for fp, cp in copy:
+        k = next(i for i, ac in enumerate(acs_a) if ac.s <= fp.s and fp.e <= ac.e and ac.find("Fallback") is not None
+                 and ac.find("Fallback").s <= fp.s and fp.e <= ac.find("Fallback").e)
+        ac_b = acs_b[k]
+        ch_b, fb_b = ac_b.find("Choice"), ac_b.find("Fallback")
+        ca, fa = _paras_under(acs_a[k].find("Choice")), _paras_under(acs_a[k].find("Fallback"))
+        cb, fbs = (_paras_under(ch_b), _paras_under(fb_b)) if ch_b is not None and fb_b is not None else ([], [])
+        if len(cb) != len(ca) or len(fbs) != len(fa):
+            pr.unexpected.append(f"{part}：テキストボックスの段落の数が変わっています")
+            continue
+        i = fa.index(fp)
+        j = ca.index(cp)
+        if _ptext(fbs[i]) != _ptext(cb[j]):
+            pr.unexpected.append(f"{part}：テキストボックスの代わりの中身（mc:Fallback）の字「{_ptext(fbs[i])[:40]}」が、"
+                                 f"書いた後の表示用の中身の字「{_ptext(cb[j])[:40]}」と違います")
+        out_a.append((fp.s, fp.e))
+        out_b.append((fbs[i].s, fbs[i].e))
+    for fb in drop:
+        k = next(i for i, ac in enumerate(acs_a) if ac.find("Fallback") is fb)
+        ac_b = acs_b[k]
+        if ac_b.find("Fallback") is not None or ac_b.find("Choice") is None:
+            pr.unexpected.append(f"{part}：書き写せないテキストボックスの代わりの中身（mc:Fallback）が、取り除かれていません")
+            continue
+        out_a.append((fb.s, fb.e))
+        out_b.append((ac_b.find("Choice").e, ac_b.find("Choice").e))
+    return out_a, out_b
+
+
+_REV = ("ins", "del", "moveTo", "moveFrom")
+
+
+def _mark_ids(b: DocxDocument, part: str) -> list[str]:
+    """書いた所の印（しおり _todoku_…）：変更履歴（w:ins・w:del など）の中にないこと、番号がほかの要素の w:id と重ならないこと。"""
+    from .window import MARK_PREFIX
+
+    out = []
+    root = b.parts[part][1]
+    ids: dict[str, int] = {}
+    for n in root.iter():
+        v = n.get("id")
+        if v is not None and n.local != "docPr" and v.isdigit():
+            ids[v] = ids.get(v, 0) + 1
+    for n in root.iter("bookmarkStart"):
+        if not (n.get("name") or "").startswith(MARK_PREFIX):
+            continue
+        x = n.parent
+        while x is not None and x.local != "p":
+            if x.local in _REV:
+                out.append(f"{part}：書いた所の印 {n.get('name')} が、変更履歴（{x.local}）の中にあります")
+                break
+            x = x.parent
+        # 同じ番号は、しおりの始まりと終わりの2つだけ
+        if ids.get(n.get("id"), 0) > 2:
+            out.append(f"{part}：書いた所の印 {n.get('name')} の番号 {n.get('id')} が、ほかの要素（変更履歴・コメントなど）の番号と重なっています")
+    return out
 
 
 def _merge(spans):
