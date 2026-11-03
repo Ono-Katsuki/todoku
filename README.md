@@ -209,10 +209,11 @@ uv run pytest          # 2,300 件以上のテスト
 uv run python scripts/audit_corpus.py corpus/wide   # 集めた様式の一括検査（様式は fetch で取得）
 ```
 
-**Python の版**：Python 3.11 に固定しています（`requires-python = ">=3.11,<3.12"`。uv が 3.11 を用意します）。
-字の種類の表（`chars.py`：コロン・かっこ・空白など）は、動かす Python の `unicodedata` と同じ Unicode の版（3.11 は 14.0.0。
-3.12 以降は 15.0 以降）で作ってあり、版が違うと字の種類が食い違うためです。Python の版を上げるときは、その版で
-`scripts/make_chars.py` を動かして表を作り直し、`requires-python` を変えます（試験 `test_char_tables_cite_unicode` が確かめます）。
+**Python の版**：Python 3.11 以降で動きます（`requires-python = ">=3.11"`）。字の種類（`chars.py`）のうち、
+一般カテゴリ・東アジアの字の幅・字の名前（コロン・空白・下線の字・ダッシュなど）は、動かす Python の `unicodedata` から
+その場で読みます（版は `chars.UCD_VERSION`）。`unicodedata` にない資料（かっこの組 BidiBrackets.txt・文の終わりの字
+PropList.txt・字の文字の種類 Scripts.txt）だけを、版つきの小さな表（`chars.TABLES_UCD_VERSION`）で持ち、
+`scripts/make_chars.py` で作り直せます。
 
 ## 書類と仕様書の出どころ
 
