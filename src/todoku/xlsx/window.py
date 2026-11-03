@@ -1346,15 +1346,20 @@ class Layout:
             key = self.row_key(r, first.c1, with_between=True)
             if key:
                 text, between = key
-                if between:
-                    # あいだに別の欄（ロックされた見出しの欄 B5 など）がはさまる：その字はあいだの欄の見出しで、この欄（補助の
-                    # セル・数式が参照する値など）の見出しとは言えない。見出しにせず、前の字として別に示す（本人に伝えるときに
-                    # 「開始日：5」と取り違えない）
+                # 補助のセル：数式が参照する値で、もう値の入っているもの（空の 1 桁ずつのマスは、数式が参照しても欄の並び）
+                helper = ("数式が参照している値" in self.inputs.get((target.r, target.c1), [])
+                          and target.cell is not None and target.cell.value not in (None, "")) or any(
+                    b.kind == "locked" and b.cell_ref in between for b in row)
+                if between and helper:
+                    # あいだに別の欄がはさまり、この欄が数式の参照する値（補助のセル）か、あいだがロックされた見出しの欄
+                    # （B5）：その字はあいだの欄の見出しで、この欄の見出しとは言えない。見出しにせず、前の字として別に示す
+                    # （本人に伝えるときに「開始日：5」「氏名：10」と取り違えない）
                     between_text = f"{text}（あいだに欄 {'・'.join(between)}）"
                     method.append(f"{before}の字は、あいだの欄の見出し（この欄の見出しにしない）")
                 else:
+                    # あいだの欄が、同じ並びの欄（郵便番号を 1 桁ずつ書くマス「〒｜［M24］｜［N24］」）：前の字をそのまま示す
                     parts.append(text)
-                    method.append(f"{before}の字")
+                    method.append(f"{before}の字（あいだに欄 {'・'.join(between)}）" if between else f"{before}の字")
         phrase_text = None
         if shown:
             phrase_text = "".join(
