@@ -915,6 +915,8 @@ def build(doc: DocxDocument) -> dict:
             d["label_printed"] = True  # 見出しは文書に印刷される字（欄の名前・タグではない）
         if it["id"] in legacy_of:
             d["legacy_id"] = legacy_of[it["id"]]  # 古い数え順の名前（その段落にこの並びの所が 1 つだけなので、同じ所を指す）
+        if c is not None and c.para is not None and c.para.cell is not None and c.para.cell.table is not None:
+            d.update(cell_neighbours(c.para.cell.table, c.para.cell, sp.written_cells))  # マスの中の欄：左・上のマスの字（事実）
         if c is not None and c.source == "activex":
             from ..axfile import word_describe
 
@@ -1076,7 +1078,10 @@ def printed_label(sp: "Spots", it: dict) -> str:
         return head
     cell = p.cell
     if cell is not None and cell.table is not None:
-        return _cell_label(cell.table, cell, sp.written_cells)[0]
+        # 段落の頭の欄：いちばん近い見出しのマスの字をそのまま（同じ行の左のマスがあればそれ、なければ上のマス）。
+        # 2 つをつないで 1 つの見出しにはしない（両方の字と間のマスの数は、欄の row_label・column_label に出す）
+        nb = cell_neighbours(cell.table, cell, sp.written_cells)
+        return norm_label(nb.get("row_label") or nb.get("column_label") or "")
     return ""
 
 

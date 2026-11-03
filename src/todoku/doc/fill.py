@@ -17,7 +17,6 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass, field
 
-from ..cfb import CFB
 from ..docx.fill import FillError, _as_bool, _is_text_value
 from ..docx.window import MARK_PREFIX, Spots, box_mark
 from .book import FC_NAMES, DocFile
@@ -378,14 +377,18 @@ class DocWriter:
 
     def _finish(self, blob: bytes, wd: bytearray, tb: bytearray | None) -> bytes:
         """WordDocument・表・Data と、埋め込みの入れ物のストリームを書き戻す（変えないストリームはそのまま）。"""
+        from ..cfbwrite import replace_stream
+
         doc = self.doc
         for pos, b in self.wd_patches:
             if wd[pos:pos + len(b)] != b:
                 wd[pos:pos + len(b)] = b
+        # 大きさの変わるストリームも、小さなストリーム（4096 バイト未満でミニストリームにある。小さな .doc）のまま・
+        # ふつうのセクタへの移し替えも、ほかのストリームのバイトを変えずに書き戻す（cfbwrite.replace_stream。MS-CFB 2.6.3）
         if bytes(wd) != doc.wd:
-            blob = CFB(blob).replace("WordDocument", bytes(wd))
+            blob = replace_stream(blob, "WordDocument", bytes(wd))
         if tb is not None:
-            blob = CFB(blob).replace(doc.table_name, bytes(tb))
+            blob = replace_stream(blob, doc.table_name, bytes(tb))
         if self.data_patches or self.data_tail:
             if not doc.cfb.has("Data"):
                 raise FillError("この文書には Data のストリームがありません")
@@ -393,11 +396,9 @@ class DocWriter:
             for pos, b in self.data_patches:
                 data[pos:pos + len(b)] = b
             try:
-                blob = CFB(blob).replace("Data", bytes(data) + self.data_tail)
+                blob = replace_stream(blob, "Data", bytes(data) + self.data_tail)
             except Exception as e:  # noqa: BLE001
                 raise FillError(f"Data のストリームを書き戻せません（{e}）") from None
-        from ..cfbwrite import replace_stream
-
         for path, data in self.streams.items():
             try:
                 blob = replace_stream(blob, path, data)  # 小さなストリーム（印刷用の絵など）の大きさが変わってもよい

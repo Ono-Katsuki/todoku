@@ -123,3 +123,21 @@ def test_near_scope_is_an_option():
     assert [x.id for x in res.patches] == ["P8.w1"]
     with pytest.raises(FillError, match="near_paras"):
         fill(DocxDocument(blob, "a.docx"), {"@1": {"old": "備考　記入", "new": "備考　なし", "near": "P1.c2", "near_paras": -1}})
+
+
+# ---------------------------------------------------------------------- LibreOffice が書き出した小さな .doc
+def test_libreoffice_doc_form_fields_and_small_streams(tmp_path):
+    """FFData の位置が欄の命令の中の 0x01 の字にある .doc（LibreOffice）：欄の名前・選択肢を読み、マスの中の欄の見出しは
+    いちばん近いマスの字（上のマスの字は column_label に別に出す）。ストリームが 4096 バイト未満（ミニストリーム）でも書ける。"""
+    from pathlib import Path
+
+    from todoku import api
+
+    src = str(Path(__file__).parent / "fixtures" / "public" / "form.doc")
+    f = {x["id"]: x for x in api.fields(src)}
+    assert f["ctl1"]["options"][1:4] == ["新規", "変更", "廃止"] and f["ctl1"]["label"] == "区分"
+    assert f["ctl1"]["column_label"] == "ここに氏名を入力" and "Tel" in f and "Mail" in f
+    r = api.fill(src, {"Tel": "03-0000-0000", "ctl1": "変更", "Mail": True}, str(tmp_path / "o.doc"))
+    assert r["proof_ok"] and r["read_back_ok"], r
+    got = {x["id"]: x["value"] for x in api.fields(str(tmp_path / "o.doc"))}
+    assert got["Tel"] == "03-0000-0000" and got["ctl1"] == "変更" and got["Mail"] is True
