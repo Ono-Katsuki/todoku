@@ -10,7 +10,8 @@ import re
 from functools import lru_cache
 from decimal import ROUND_HALF_UP, Decimal
 
-from .dates import serial_parts, serial_to_date, to_wareki
+from .dates import serial_parts, serial_to_date, to_wareki, weekday_sun0
+from .locale_fmt import Loc, dbnum_digits, dbnum_units, hijri_tabular, name_table, numeral_mode, parse_section, shape_digits
 from .values import Unsupported, dec15, number_to_text
 
 # 組み込みの表示形式ID（ECMA-376 18.8.30 と日本語版の既定）
@@ -43,7 +44,7 @@ def is_date_format(fmt: str) -> bool:
     core = _strip_literals(sec)
     core = re.sub(r"(?i)general", "", core)  # 「標準」の G・e を日付の記号と取り違えない
     core = re.sub(r"[eE][+-]", "", core)  # 指数表示（0.00E+00）
-    return bool(re.search(r"(?i)[ydhsge]", core)) or bool(re.search(r"(?i)m", core) and not re.search(r"[0#?]", core))
+    return bool(re.search(r"(?i)[ydhsgeb]", core)) or bool(re.search(r"(?i)m", core) and not re.search(r"[0#?]", core))
 
 
 def split_sections(fmt: str) -> list[str]:
@@ -74,8 +75,9 @@ def _split_sections(fmt: str) -> tuple[str, ...]:
     return tuple(out)
 
 
-def format_value(v, fmt: str) -> str:
-    """セルの値を表示形式で文字列にする。"""
+def format_value(v, fmt: str, date1904: bool | None = None) -> str:
+    """セルの値を表示形式で文字列にする。date1904：ブックの日付の数え方（None は計算中のブックの数え方。dates.py）。
+    再現できない表示形式は、推測した字を返さずに Unsupported を投げる。"""
     if v is None:
         return ""
     if isinstance(v, bool):
@@ -83,9 +85,10 @@ def format_value(v, fmt: str) -> str:
     if isinstance(v, str):
         secs = split_sections(fmt)
         if len(secs) >= 4:
-            return _literal(secs[3]).replace("@", v) if "@" in secs[3] else _literal(secs[3])
+            t = parse_section(secs[3])[0]
+            return _literal(t).replace("@", v) if "@" in t else _literal(t)
         if "@" in fmt and len(secs) == 1:
-            return _literal(fmt).replace("@", v)
+            return _literal(parse_section(fmt)[0]).replace("@", v)
         return v
     x = float(v)
     if fmt in ("General", "general", ""):
@@ -96,9 +99,10 @@ def format_value(v, fmt: str) -> str:
         return _general(x)
     sec = None
     neg_has_own = False
-    # 条件付きセクション [>=100] などは未対応
     if _conditional(fmt):
-        raise Unsupported(f"条件付きの表示形式: {fmt}")
+        # 条件のあるセクション（ECMA-376 第1部 18.8.31：[<=999]000;000-0000 など）。負の数の符号の付け方は確かめていない
+        sec = _conditional_section(secs, x, fmt)
+        secs = (sec,)
     if len(secs) == 1:
         sec = secs[0]
     elif len(secs) >= 2:
@@ -111,12 +115,53 @@ def format_value(v, fmt: str) -> str:
             sec = secs[2]
     if neg_has_own:
         x = abs(x)
-    sec, kind = _clean_section(sec)
+    sec, kind, loc = _clean_section(sec)
+    numerals, db = numeral_mode(loc)
     if kind == "general":
-        return _general(x)
+        if db:
+            if x != int(x) or x < 0:
+                raise Unsupported(f"[DBNum{db}] の標準の表示で、整数でない数・負の数")
+            return dbnum_units(int(x), db)
+        return shape_digits(_general(x), numerals)
     if kind == "date":
-        return _format_date(x, sec)
-    return _format_number(x, sec)
+        return _format_date(x, sec, loc, numerals, db, date1904)
+    if re.search(r"(?i)general", _literal_free(sec)):
+        # 字と「標準」を組み合わせたセクション（"計"General など）：標準の表示の前後に字を付ける
+        if len(re.findall(r"(?i)general", sec)) != 1 or len(re.findall(r"(?i)general", _literal_free(sec))) != 1:
+            raise Unsupported(f"標準（General）を含む表示形式: {sec}")
+        head, tail = re.split(r"(?i)general", sec, maxsplit=1)
+        g = dbnum_units(int(x), db) if db and x == int(x) and x > 0 else (_raise("[DBNum] と標準") if db else _general(x))
+        return _literal(head) + shape_digits(g, numerals) + _literal(tail)
+    if db:
+        return _format_number(x, sec, lambda t: dbnum_digits(t, db))
+    return _format_number(x, sec, (lambda t: shape_digits(t, numerals)) if numerals else None)
+
+
+_COND = re.compile(r"\[(<=|>=|<>|<|>|=)\s*(-?\d+(?:\.\d+)?)\]")
+
+
+def _conditional_section(secs: tuple[str, ...], x: float, fmt: str) -> str:
+    """条件のあるセクションから、値に使うセクションを選ぶ（条件を取り除いて返す）：1つ目・2つ目の条件を順に見て、
+    合うものを使う。どちらにも合わなければ、3つ目のセクション（2つ目に条件がなければ2つ目）。"""
+    if x < 0:
+        raise Unsupported(f"条件付きの表示形式の負の数: {fmt}")
+    ops = {"<=": x.__le__, ">=": x.__ge__, "<>": x.__ne__, "<": x.__lt__, ">": x.__gt__, "=": x.__eq__}
+    conds = []
+    for sec in secs[:4]:
+        m = _COND.search(sec)
+        if m is None and re.search(r"\[(<|>|=)", sec):
+            raise Unsupported(f"読めない条件: {fmt}")
+        conds.append((m, _COND.sub("", sec, count=1) if m else sec))
+    if len(secs) > 3 or (len(secs) == 3 and conds[2][0] is not None):
+        raise Unsupported(f"条件付きの表示形式の形: {fmt}")
+    for m, body in conds[:2]:
+        if m is not None and ops[m[1]](float(m[2])):
+            return body
+    if len(conds) >= 3:
+        return conds[2][1]
+    if len(conds) == 2 and conds[1][0] is None:
+        return conds[1][1]
+    raise Unsupported(f"どの条件にも合わない値: {fmt}")
 
 
 @lru_cache(maxsize=4096)
@@ -125,15 +170,13 @@ def _conditional(fmt: str) -> bool:
 
 
 @lru_cache(maxsize=4096)
-def _clean_section(sec: str) -> tuple[str, str]:
-    """セクションから色・ロケール・漢数字の指定を除き、種類（general・date・number）を決める（同じセクションは控える）。"""
+def _clean_section(sec: str) -> tuple[str, str, Loc]:
+    """セクションから色・ロケール・漢数字の指定を取り出し、種類（general・date・number）を決める（同じセクションは控える）。"""
     sec = re.sub(r"(?i)\[(red|black|blue|green|white|yellow|magenta|cyan|color\s*\d+)\]", "", sec)
-    sec = re.sub(r"\[\$-[^\]]*\]", "", sec)  # [$-411] [$-ja-JP] などのロケール指定
-    sec = re.sub(r"\[\$([^\]-]+)(-[^\]]*)?\]", lambda m: '"' + m[1] + '"', sec)  # [$¥-411] は通貨記号
-    sec = re.sub(r"\[DBNum\d\]", "", sec, flags=re.I)
+    sec, loc = parse_section(sec)  # [$-411]・[$-ja-JP-x-gannen]・[$¥-411]（通貨記号は字）・[DBNum1]・B2
     if sec.strip().lower() == "general":
-        return sec, "general"
-    return sec, "date" if is_date_format(sec) else "number"
+        return sec, "general", loc
+    return sec, "date" if (is_date_format(sec) or loc.hijri_prefix) else "number", loc
 
 
 def _general(x: float) -> str:
@@ -208,7 +251,8 @@ def _tokens(sec: str) -> list[tuple[str, str]]:
     return out
 
 
-def _format_number(x: float, sec: str) -> str:
+def _format_number(x: float, sec: str, shape=None) -> str:
+    """shape：数の部分の字を変える（数字の形・漢数字）。"""
     toks = _tokens(sec)
     codes = "".join(t for k, t in toks if k == "code")
     if "E" in codes.upper() and re.search(r"[0#]E[+-]", codes, re.I):
@@ -247,7 +291,44 @@ def _format_number(x: float, sec: str) -> str:
             digits[k] = " " if frac_pat[k] == "?" else ""
             k -= 1
         fp = "".join(digits)
+    # 整数部の桁の記号のあいだに字がある（「000-0000」の郵便番号など）：桁を右から1つずつ記号に当てる
+    code_idx = [i for i, (k, t) in enumerate(toks) if k == "code"]
+    dot = next((i for i in code_idx if toks[i][1] == "."), len(toks))
+    int_ph = [i for i in code_idx if i < dot and toks[i][1] in "0#?"]
+    frac_ph = [i for i in code_idx if i > dot and toks[i][1] in "0#?"]
+    if frac_ph and any(not (toks[i][0] == "code" and toks[i][1] in "0#?") for i in range(frac_ph[0], frac_ph[-1] + 1)):
+        raise Unsupported(f"小数部の桁のあいだに字のある表示形式: {sec}")
+    if int_ph and any(not (toks[i][0] == "code" and toks[i][1] in "0#?,") for i in range(int_ph[0], int_ph[-1] + 1)):
+        if thousands:
+            raise Unsupported(f"桁区切りと、桁のあいだの字のある表示形式: {sec}")
+        digits_ = ip[len(pad):] if pad and ip.startswith(pad) else ip.lstrip(" ")
+        n = len(int_pat)
+        assign = []
+        for i in range(n):
+            j = len(digits_) - (n - i)
+            assign.append(digits_[j] if j >= 0 else {"0": "0", "?": " ", "#": ""}[int_pat[i]])
+        if len(digits_) > n:
+            assign[0] = digits_[:len(digits_) - n + 1]
+        frac_text = ("." + fp if frac_digits and (fp or "." in codes) else ("." if "." in codes and not fp else ""))
+        out, ii = [], 0
+        for i, (k, t) in enumerate(toks):
+            if k == "lit":
+                out.append(t)
+            elif i == dot:
+                out.append(shape(frac_text) if shape is not None and frac_text != "." else frac_text)
+            elif t in "0#?":
+                if i < dot:
+                    out.append(shape(assign[ii]) if shape is not None else assign[ii])
+                    ii += 1
+            elif t == "," or (t.startswith("[") and t.endswith("]")):
+                continue
+            else:
+                out.append(t)
+        res = "".join(out)
+        return ("-" + res) if neg and float(d) != 0 else res
     number = ip + ("." + fp if frac_digits and (fp or "." in codes) else ("." if "." in codes and not fp else ""))
+    if shape is not None:
+        number = shape(number)
     # 記号の位置に数字を差し込み、前後の文字はそのまま残す
     out = []
     placed = False
@@ -262,32 +343,98 @@ def _format_number(x: float, sec: str) -> str:
             out.append("%")
         else:
             out.append(t)
-    if not placed:
+    if not placed and re.search(r"[0#?]", codes):
         out.insert(0, number)
+    # 桁の記号のないセクション（0;-0;"ゼロ" の「"ゼロ"」など）は、字だけを出す（Excel も数を出さない）
     res = "".join(out)
     if neg and float(d) != 0:
         res = "-" + res
     return res
 
 
-def _format_date(x: float, sec: str) -> str:
+# 暦（CC）：グレゴリオ暦として年月日を出す番号（00 既定・01 各国語・02 米国の英語）。09〜0C もグレゴリオ暦だが、名前の言語が違う
+_GREGORIAN = (0x00, 0x01, 0x02)
+_GREGORIAN_OTHER_NAMES = (0x09, 0x0A, 0x0B, 0x0C)
+
+
+def _format_date(x: float, sec: str, loc: Loc = Loc(), numerals: int = 0, db: int = 0, date1904: bool | None = None) -> str:
     if x < 0:
         raise Unsupported("負の日付")
-    toks = _tokens(sec)
-    has_ampm = any(t.upper() in ("AM/PM", "A/P") for k, t in toks if k == "code") or re.search(r"(?i)am/pm", sec)
     if re.search(r"(?i)am/pm", sec):
-        sec2 = re.sub(r"(?i)am/pm", "\x01", sec)
-        toks = _tokens(sec2)
-    y, mo, d = serial_parts(x)
+        sec = re.sub(r"(?i)am/pm", "\x01", sec)
+    toks = _tokens(sec)
+    has_ampm = any(t == "\x01" for k, t in toks if k == "code")
+    cal = 6 if loc.hijri_prefix else loc.calendar
+    if cal not in _GREGORIAN + _GREGORIAN_OTHER_NAMES + (0x03, 0x04, 0x06, 0x07):
+        raise Unsupported(f"暦の番号 0x{cal:02X}（{loc.text}）")
+    lang = loc.lang
+    y, mo, d = serial_parts(x, date1904)
     frac = x - math.floor(x)
-    secs_total = int(Decimal(str(frac * 86400)).quantize(Decimal(1), rounding=ROUND_HALF_UP))
-    hh, rem = divmod(secs_total, 3600)
+    # 秒の小数（ss.00）：小数の桁数で丸める
+    codes = [t for k, t in toks if k == "code"]
+    sub = 0
+    for i, t in enumerate(codes):
+        if t == "." and i + 1 < len(codes) and codes[i + 1] == "0":
+            j = i + 1
+            while j < len(codes) and codes[j] == "0":
+                j += 1
+            sub = j - i - 1
+            break
+    secs_total = Decimal(str(frac * 86400)).quantize(Decimal(1).scaleb(-sub), rounding=ROUND_HALF_UP)
+    whole = int(secs_total)
+    sub_digits = format(secs_total - whole, "f")[2:2 + sub].ljust(sub, "0") if sub else ""
+    hh, rem = divmod(whole, 3600)
     mi, ss = divmod(rem, 60)
     try:
-        date = serial_to_date(x) if int(x) not in (0, 60) else None
+        date = serial_to_date(x, date1904) if (date1904 or int(x) not in (0, 60)) else None
     except ValueError:
         date = None
-    era_name, era_abbr, era_year = to_wareki(date) if date else ("", "", y)
+    sun0 = weekday_sun0(x, date1904)
+
+    def num(n: int, width: int = 1) -> str:
+        """日付・時刻の数（年月日・時分秒）を、数字の形・漢数字の指定どおりに字にする。"""
+        if db:
+            if width > 1:
+                raise Unsupported(f"[DBNum{db}] の、桁をそろえる日付の記号（2桁）")
+            return dbnum_units(n, db)
+        return shape_digits(str(n).rjust(width, "0"), numerals)
+
+    def calendar_ymd() -> tuple[int, int, int]:
+        """暦の年月日（y・m・d の記号に使う）。"""
+        if cal == 6:
+            if date is None:
+                raise Unsupported("ヒジュラ暦の、1900年3月1日より前の日付")
+            return hijri_tabular(date.year, date.month, date.day)
+        if cal in (0x03, 0x04):
+            raise Unsupported(f"和暦・民国の暦の指定（{loc.text}）での年の記号 y")
+        if cal == 0 and lang == "ar":
+            # アラビア語（サウジアラビアなど）の既定の暦は、PC ごとにグレゴリオ暦かヒジュラ暦（ウンム・アル＝クラー暦）かが違う
+            raise Unsupported(f"暦を指定しないアラビア語のロケール（{loc.text}）の年月日")
+        if cal == 7:
+            return y + 543, mo, d
+        return y, mo, d
+
+    def era() -> tuple[str, str, int, str]:
+        """(元号, 略号, 年, 種類)：和暦（ja）か民国（zh-TW）。"""
+        jp = cal == 0x03 or (cal in _GREGORIAN and lang in (None, "ja"))
+        roc = cal == 0x04 or (cal in _GREGORIAN and lang == "zh-TW")
+        if date is None:
+            raise Unsupported("1900年3月1日より前の日付の元号")
+        if jp:
+            name, abbr, n = to_wareki(date)
+            if not name:
+                raise Unsupported("明治より前の日付の元号")
+            return name, abbr, n, "jp"
+        if roc:
+            if date.year <= 1911:
+                raise Unsupported("中華民国の暦より前の日付")
+            return "", "", date.year - 1911, "roc"
+        raise Unsupported(f"このロケール・暦（{loc.text or '指定なし'}）の元号の記号 g・e")
+
+    def names(kind: str, with_day: bool = False) -> list[str]:
+        if cal in _GREGORIAN_OTHER_NAMES or cal == 6:
+            raise Unsupported(f"この暦（0x{cal:02X}）の月・曜日の名前")
+        return name_table(lang, kind, with_day)
 
     # 記号を連続でまとめる
     groups: list[tuple[str, str]] = []
@@ -296,55 +443,100 @@ def _format_date(x: float, sec: str) -> str:
             groups[-1] = ("code", groups[-1][1] + t)
         else:
             groups.append((k, t))
+    has_day = any(k == "code" and t.lower() in ("d", "dd") for k, t in groups)
     out = []
+    skip_zero = False
     for idx, (k, t) in enumerate(groups):
         if k == "lit":
             out.append(t)
             continue
         low = t.lower()
+        if skip_zero and t == "0":
+            continue
+        skip_zero = False
         if t == "\x01":
             out.append("AM" if hh < 12 else "PM")
+        elif t == "." and sub and idx + 1 < len(groups) and groups[idx + 1] == ("code", "0"):
+            out.append("." + shape_digits(sub_digits, numerals) if not db else _raise(f"[DBNum{db}] の秒の小数"))
+            skip_zero = True
         elif low.startswith("y"):
-            out.append(f"{y % 100:02d}" if len(t) <= 2 else f"{y:04d}")
+            cy = calendar_ymd()[0]
+            if db:
+                raise Unsupported(f"[DBNum{db}] の年の記号 y（西暦）")
+            out.append(num(cy % 100, 2) if len(t) <= 2 else num(cy, 4))
+        elif low.startswith("b") and len(t) in (2, 4):
+            if date is None:
+                raise Unsupported("1900年3月1日より前の日付の仏暦")
+            by = date.year + 543  # 仏暦（タイ）：西暦 + 543
+            if db:
+                raise Unsupported(f"[DBNum{db}] の仏暦の記号 b")
+            out.append(num(by % 100, 2) if len(t) == 2 else num(by, 4))
         elif low.startswith("m"):
             # 直前が h か直後が s なら「分」
             prev = next((g[1].lower() for g in reversed(groups[:idx]) if g[0] == "code" and g[1].strip() and g[1][0].isalpha()), "")
             nxt = next((g[1].lower() for g in groups[idx + 1:] if g[0] == "code" and g[1].strip() and g[1][0].isalpha()), "")
-            if prev.startswith("h") or nxt.startswith("s"):
-                out.append(f"{mi:02d}" if len(t) >= 2 else str(mi))
-            elif len(t) == 1:
-                out.append(str(mo))
-            elif len(t) == 2:
-                out.append(f"{mo:02d}")
+            if (prev.startswith("h") or nxt.startswith("s")) and len(t) <= 2:
+                out.append(num(mi, 2) if len(t) >= 2 else num(mi))
+            elif len(t) <= 2:
+                cm = calendar_ymd()[1]
+                out.append(num(cm, 2) if len(t) == 2 else num(cm))
             else:
-                import calendar
-
-                out.append(calendar.month_abbr[mo] if len(t) == 3 else calendar.month_name[mo])
+                if cal not in _GREGORIAN + (0x03, 0x04, 0x07):
+                    raise Unsupported(f"この暦（0x{cal:02X}）の月の名前")
+                if len(t) == 5:
+                    if lang not in (None, "en"):
+                        raise Unsupported(f"ロケール {lang} の月の頭文字 mmmmm")
+                    out.append(_EN_MONTHS[mo - 1][0])
+                elif len(t) > 5:
+                    raise Unsupported(f"月の記号 {t}")
+                else:
+                    out.append(names("mmm" if len(t) == 3 else "mmmm", has_day)[mo - 1])
         elif low.startswith("d"):
-            if len(t) == 1:
-                out.append(str(d))
-            elif len(t) == 2:
-                out.append(f"{d:02d}")
+            if len(t) <= 2:
+                cd = calendar_ymd()[2]
+                out.append(num(cd, 2) if len(t) == 2 else num(cd))
             else:
-                wd = ["月", "火", "水", "木", "金", "土", "日"][date.weekday()] if date else ""
-                out.append(wd)
+                if int(x) == 0 and not date1904:
+                    raise Unsupported("1900年1月0日の曜日")
+                out.append(names("ddd" if len(t) == 3 else "dddd")[sun0])
         elif low.startswith("a") and len(t) >= 3:
-            wd = ["月", "火", "水", "木", "金", "土", "日"][date.weekday()] if date else ""
-            out.append(wd + ("曜日" if len(t) >= 4 else ""))
+            if int(x) == 0 and not date1904:
+                raise Unsupported("1900年1月0日の曜日")
+            out.append(names("aaa" if len(t) == 3 else "aaaa")[sun0])
         elif low.startswith("h"):
             h = hh % 12 or 12 if has_ampm else hh
-            out.append(f"{h:02d}" if len(t) >= 2 else str(h))
+            out.append(num(h, 2) if len(t) >= 2 else num(h))
         elif low.startswith("s"):
-            out.append(f"{ss:02d}" if len(t) >= 2 else str(ss))
+            out.append(num(ss, 2) if len(t) >= 2 else num(ss))
         elif low.startswith("g"):
-            out.append(era_name if len(t) >= 3 else (era_name[:1] if len(t) == 2 else era_abbr))
+            name, abbr, _n, kind = era()
+            if kind != "jp":
+                raise Unsupported(f"民国の元号の記号 g（{loc.text}）")
+            out.append(name if len(t) >= 3 else (name[:1] if len(t) == 2 else abbr))
         elif low.startswith("e"):
-            out.append(f"{era_year:02d}" if len(t) >= 2 else str(era_year))
+            _name, _abbr, n, kind = era()
+            if n == 1 and loc.gannen and kind == "jp":
+                nxt_lit = next((g[1] for g in groups[idx + 1:]), "")
+                if not nxt_lit.startswith("年"):
+                    # 「元年」と続かない書き方（R元.5.1 など）で Excel がどう見せるかは確かめていない
+                    raise Unsupported(f"「年」の続かない元年の表示（{loc.text}）")
+                out.append("元")  # [$-ja-JP-x-gannen]：元号の最初の年は「元年」
+            else:
+                out.append(num(n, 2) if len(t) >= 2 else num(n))
         elif t.startswith("["):
             raise Unsupported(f"経過時間の表示形式: {sec}")
+        elif t.isascii() and t.isalpha():
+            raise Unsupported(f"日付の表示形式の記号「{t}」")
         else:
             out.append(t)
     return "".join(out)
+
+
+_EN_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+
+
+def _raise(msg: str):
+    raise Unsupported(msg)
 
 
 def number_display(x: float) -> str:

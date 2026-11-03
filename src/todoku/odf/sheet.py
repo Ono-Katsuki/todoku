@@ -472,7 +472,7 @@ class OdsWorkbook:
                 serial = (d.date() if isinstance(d, dt.datetime) else d) - self.null_date
                 x = float(serial.days)
                 if self.null_date == dt.date(1899, 12, 30):
-                    x = float(date_to_serial(d.date() if isinstance(d, dt.datetime) else d))
+                    x = float(date_to_serial(d.date() if isinstance(d, dt.datetime) else d, False))
                 if isinstance(d, dt.datetime):
                     x += (d.hour * 3600 + d.minute * 60 + d.second + d.microsecond / 1e6) / 86400
                 cell.value = x
@@ -613,8 +613,15 @@ class OdsWorkbook:
 
 
 # ====================================================================== 入力規則の条件
-def _args(s: str) -> list[str]:
-    """引数を、かっこ・引用符・角かっこの外の「;」で分ける。"""
+def _pair(s: str) -> list[str]:
+    """cell-content-is-between(値, 値) などの2つの値：ODF 1.2 第1部 19.595 table:condition の文法では「,」で分ける
+    （LibreOffice もそう書く）。「;」で書いたものも読む。"""
+    x = _args(s, ",")
+    return x if len(x) > 1 else _args(s)
+
+
+def _args(s: str, sep: str = ";") -> list[str]:
+    """引数を、かっこ・引用符・角かっこの外の「;」（sep）で分ける。"""
     out, cur, depth, q_, br = [], [], 0, False, 0
     for ch in s:
         if ch == '"':
@@ -628,7 +635,7 @@ def _args(s: str) -> list[str]:
                 br += 1
             elif ch == "]":
                 br -= 1
-            elif ch == ";" and depth == 0 and br == 0:
+            elif ch == sep and depth == 0 and br == 0:
                 out.append("".join(cur).strip())
                 cur = []
                 continue
@@ -691,7 +698,7 @@ def condition(cond: str) -> tuple[str, str | None, str | None, str | None]:
         for name, op in (("cell-content-text-length-is-between", "between"), ("cell-content-text-length-is-not-between", "notBetween")):
             a = _call(s, name)
             if a is not None:
-                x = _args(a)
+                x = _pair(a)
                 return "textLength", op, to_excel(x[0]), to_excel(x[1]) if len(x) > 1 else None
         mm = re.search(r"cell-content-text-length\(\)\s*(<=|>=|!=|<>|<|>|=)\s*(.+)$", s)
         if mm:
@@ -699,7 +706,7 @@ def condition(cond: str) -> tuple[str, str | None, str | None, str | None]:
         for name, op in (("cell-content-is-between", "between"), ("cell-content-is-not-between", "notBetween")):
             a = _call(s, name)
             if a is not None:
-                x = _args(a)
+                x = _pair(a)
                 return typ or "decimal", op, to_excel(x[0]), to_excel(x[1]) if len(x) > 1 else None
         mm = re.search(r"cell-content\(\)\s*(<=|>=|!=|<>|<|>|=)\s*(.+)$", s)
         if mm:

@@ -258,7 +258,7 @@ def cell_text(wb, sh, fmts: list[CellFormat], r: int, c: int) -> CellText:
         fmt = st.num_fmt or "General"
         marked, pads, fills = _mark(fmt)
         try:
-            s = format_value(v, marked)
+            s = format_value(v, marked, getattr(wb, "date1904", False))
         except Exception as e:  # noqa: BLE001
             out.problem = f"表示形式「{fmt}」で、Excel と同じ字にできません（{e}）"
             return out

@@ -22,6 +22,7 @@ from .parser import (
     StructRef,
     Unary,
 )
+from .dates import _CURRENT_1904
 from .values import (
     NAME,
     REF,
@@ -61,6 +62,7 @@ class Evaluator:
         self.dc = dc
         self.array = array
         self.volatile = False
+        self.date1904 = bool(getattr(ctx, "date1904", False))  # ブックの日付の数え方（DATE・TEXT などが使う）
 
     # -------------------------------------------------------------- 入口
     def run(self, node: Node):
@@ -72,6 +74,14 @@ class Evaluator:
         return v
 
     def ev(self, node: Node):
+        if _CURRENT_1904.get() is not self.date1904:
+            token = _CURRENT_1904.set(self.date1904)  # この計算の間は、ブックの日付の数え方で日付を数える
+            try:
+                return self._ev(node)
+            except ExcelError as e:
+                return e
+            finally:
+                _CURRENT_1904.reset(token)
         try:
             return self._ev(node)
         except ExcelError as e:

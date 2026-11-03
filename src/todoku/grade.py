@@ -775,9 +775,12 @@ def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "�
     - A：すべての欄が、ファイルの作りとしての印（入力規則・保護の中のロックの解除・フォームの部品）で決まる
     - B：罫線・塗りと近くの見出し・文字の中の空欄の字の形・数式の入力から推定した欄（印ではない）、規則では決められない所
       （窓の［B5？］・文字の中の［？］。エージェントが判断する）、重なった入力規則（どれが使われるかをエージェントが読む）"""
-    marked, boxed, inferred, inline, overlap, agent = [], [], [], [], [], []
+    marked, boxed, inferred, inline, overlap, agent, locked = [], [], [], [], [], [], []
     for sh in doc["sheets"]:
         for f in sh.get("fields", []):
+            if f.get("locked"):
+                locked.append(f["id"])  # 見出しの欄だが、保護でロックされたセル（窓の［B5：保護されたセル］）
+                continue
             if f.get("agent"):
                 agent.append(f)
                 continue
@@ -807,11 +810,16 @@ def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "�
                             inferred[:12]))
     if agent:
         write.append(_agent_reason(agent))
+    if locked:
+        write.append(Reason("B", "保護されたセルの欄",
+                            f"{len(locked)} か所は、見出しのすぐ右の欄ですが、{protect}でロックされていて、Excel でも書けません"
+                            "（書くには保護を外すパスワードが要ります）。本人が書く欄かを窓で確かめ、書くなら本人にパスワードを聞くか、"
+                            "保護を外さずに書く（force）ことを本人に確かめます", locked[:12]))
     if overlap:
         write.append(Reason("B", "重なった入力規則",
                             f"{len(overlap)} か所に入力規則が重なっていて、どの規則が使われるかはファイルから決まりません。"
                             "窓に出したそれぞれの規則を、エージェントが読んで、合う値を書きます", overlap[:12]))
-    if not (guessed or agent or overlap):
+    if not (guessed or agent or overlap or locked):
         if n_fields:
             write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・{protect}・フォームの部品の印で決まり、そのまま書けます"))
         else:
@@ -836,6 +844,17 @@ def image_only_sheets(wb) -> list[str]:
     return out
 
 
+def unshown_reasons(doc: dict) -> list[Reason]:
+    """表示形式を再現できないセル（窓には推測した字でなく元の値を出す）：読む B。"""
+    where = [f"{sh['name']}!{u['cell']}" for sh in doc.get("sheets", []) for u in sh.get("unshown_formats", [])]
+    if not where:
+        return []
+    return [Reason("B", "再現できない表示形式",
+                   f"{len(where)} か所のセルは、表示形式（ロケール・暦・漢数字などの指定）を規則どおりに再現できません。"
+                   "窓には推測した字ではなく元の値を出しているので、Excel での見え方は、エージェントが元の値と表示形式から読みます",
+                   where[:12])]
+
+
 def _grade_excel(blob: bytes, filename: str) -> Grade:
     from .book import open_book
     from .xlsx.calc import verify
@@ -846,6 +865,7 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
     reasons: list[Reason] = []
     write: list[Reason] = []
     sheet_input_reasons(doc, reasons, write)
+    reasons += unshown_reasons(doc)
     vr = verify(wb)
     rep = vr.summary()
     if rep["unsupported"]:

@@ -503,8 +503,21 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか
     after_list = fields(str(dst), password, encoding)
     after = {f["id"]: f.get("value") for f in after_list}
+    xl_back: dict = {}  # Excel：書いた所の (読み戻しが合うか, 見えている字)。日付・数は、ブックの数え方と表示形式でそろえて比べる
     if k in _open.KINDS:  # 追加の形式：欄の一覧に出ないマス・値も、書いた後のファイルを読み直して照らす
         after.update(_open.read_back(k, written_plain, name, readback_values, encoding))
+    if k in _open.SHEETS:
+        # OpenDocument の表計算：Excel と同じく、日付・数をそろえて比べ、見えている字（ファイルに保存された字）で伝える
+        try:
+            from .odf.sheet import OdsWorkbook
+            from .xlsx import readback as _xrb
+
+            ods_before, ods_after = OdsWorkbook(blob, name), OdsWorkbook(written_plain, name)
+            xl_back = _xrb.check(ods_after, readback_values)
+            result["recalculated_cells"] = _xrb.recalculated(
+                ods_before, ods_after, [(i.rsplit("!", 1)[0], i.rsplit("!", 1)[1], v) for i, v in (result.get("recalculated") or {}).items()])
+        except Exception:  # noqa: BLE001
+            xl_back = {}
     if k in ("xlsx", "xls"):
         # 欄の一覧に出ないセル（番地で書いたセル）も、書いた後のブックのセルの値を直接読んで照らす
         from .book import open_book
@@ -521,6 +534,12 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
                     continue  # 部品の名前など、セルでない指定
                 cell = wb_after.sheet(sh_).cells.get((r_, c_))
                 after[key] = cell.value if cell is not None else None
+            from .xlsx import readback as _xrb
+
+            xl_back = _xrb.check(wb_after, readback_values)
+            if cell_values or not circ:
+                result["recalculated_cells"] = _xrb.recalculated(
+                    wb, wb_after, [(p.sheet, p.address, p.after) for p in res.patches if p.kind == "formula"])
         except Exception:  # noqa: BLE001
             pass
     if k == "pdf":
@@ -530,7 +549,10 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         g = after.get(key)
         if key not in after:
             continue
-        if isinstance(v, bool) or isinstance(g, bool):
+        if key in xl_back:
+            ok = xl_back[key][0]
+            g = xl_back[key][1]
+        elif isinstance(v, bool) or isinstance(g, bool):
             ok = bool(g) == (v if isinstance(v, bool) else str(v).lower() in ("true", "1", "yes", "はい", "あり"))
         else:
             ok = str(g) == str(v) or _num_equal(g, v)
@@ -557,6 +579,11 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         # 一太郎：書いた所の印がないので、読み直した窓の同じ id（残りの空白）ではなく、証明で確かめた書いた値を伝える
         rest = rest_fields if rest_fields is not None else [f for f in after_list if f["id"] not in told]
         result.update(_to_tell(rest, told, result, labels, printed))
+    elif xl_back:
+        # Excel：本人に伝える値は、セルの表示形式を通した見えている字（日付は「2026/11/3」、数は「3」）
+        shown_list = [dict(f, value=xl_back[f["id"]][1]) if f["id"] in xl_back else f for f in after_list]
+        result.update(_to_tell(shown_list, {k_: xl_back[k_][1] if k_ in xl_back else v for k_, v in readback_values.items()},
+                               result, labels, printed))
     else:
         result.update(_to_tell(after_list, readback_values, result, labels, printed))
     return result
@@ -768,6 +795,15 @@ def _prove_pdf(prove, original: bytes, new: bytes, allowed: set, anchored: dict,
     return prove(original, new, allowed, anchored)
 
 
+def _say_value(v) -> str:
+    """本人に伝える値：数は Excel の標準の表示と同じ字（3.0 ではなく 3）。"""
+    if isinstance(v, float):
+        from .formula.values import number_to_text
+
+        return number_to_text(v)
+    return str(v)
+
+
 def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict | None = None,
              printed: set | None = None) -> dict:
     """本人が Word などで開いて確かめなくても、エージェントが対話で伝えられるように：書いた所（見出しと、書いた後の
@@ -816,7 +852,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         return f"{base}（{k}つ目の欄）" if k and len(slots) > 1 else base
 
     def shown(d: dict) -> str:
-        v = "☑" if d["value"] is True else "☐" if d["value"] is False else str(d["value"])
+        v = "☑" if d["value"] is True else "☐" if d["value"] is False else _say_value(d["value"])
         lab = d["label"] or ""
         m = re.search(r"［▶[^］]*］", lab) or re.search(r"［[ 　]*］", lab)
         if lab and m:
@@ -834,7 +870,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         vals: dict[int, str] = {}
         for d in run:
             k = next((n for n, m in enumerate(re.finditer(r"［[^］]*］", d["label"])) if "▶" in m.group()), None)
-            vals[k] = "☑" if d["value"] is True else "☐" if d["value"] is False else str(d["value"])
+            vals[k] = "☑" if d["value"] is True else "☐" if d["value"] is False else _say_value(d["value"])
         it = iter(range(10 ** 6))
         return re.sub(r"［[^］]*］", lambda m: f"［{vals.get(next(it), ' ')}］", lab)
 
@@ -882,6 +918,10 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         same = len({place(f) for f in nxt[:10]}) == 1
         head = f"続きの空欄（{place(nxt[0]).rstrip('・')}）：" if same and place(nxt[0]) else "続きの空欄："
         lines.append(head + "、".join(name(f) if same else f"{place(f)}{name(f)}" for f in nxt[:10]) + ("ほか" if len(nxt) > 10 else ""))
+    if result.get("recalculated_cells"):
+        from .xlsx.readback import say as _recalc_say
+
+        lines.append(_recalc_say(result["recalculated_cells"]))  # 書いた値から計算し直して変わったセル（金額・合計など）
     if notes:
         lines.append("本人に伝えること：" + "／".join(notes[:10]))
     return {"written": told, "still_empty": [{"id": f["id"], "label": f.get("label", ""), **({"sheet": f["sheet"]} if "sheet" in f else {}),
