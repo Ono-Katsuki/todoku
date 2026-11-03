@@ -230,6 +230,12 @@ def text_ops(lines: list[str], size: float, x: float, y: float, leading: float, 
             lx = x + (room if align == "right" else room / 2)
         ly = y - i * leading
         out += f"1 0 0 1 {lx:.2f} {ly:.2f} Tm\n".encode()
+        if glyphs.shaped(line):
+            try:
+                out += glyphs.line_ops(line, size)
+            except glyphs.GlyphError as e:
+                raise FillError(str(e)) from None
+            continue
         for key, run in runs_for(line):
             out += f"/{key} {size:.2f} Tf ".encode() + _show(key, run) + b"\n"
     out += b"ET\n"
@@ -248,11 +254,11 @@ def wrap(text: str, size: float, width: float) -> list[str]:
     lines = []
     for para in str(text).split("\n"):
         cur = ""
-        for ch in para:
+        for ch in glyphs.units(para):  # 字を組み立てる文字は、音節・記号の付いた字を切り離さない
             if cur and text_width(cur + ch, size) > width:
-                # 欧文は単語の切れ目で折り返す
+                # 欧文・字を組み立てる文字は、単語の切れ目で折り返す
                 k = cur.rfind(" ")
-                if _latin(ch) and ch != " " and k > 0:
+                if (_latin(ch[0]) or glyphs.shaped(ch)) and ch != " " and k > 0:
                     lines.append(cur[:k])
                     cur = cur[k + 1:] + ch
                     continue
@@ -342,6 +348,8 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
     vw, vh = (rect_h, rect_w) if rot in (90, 270) else (rect_w, rect_h)
     bg = f"q\n1 g\n0 0 {vw:.2f} {vh:.2f} re\nf\nQ\n".encode() if cover else b""
     if comb:
+        if glyphs.shaped(str(value)):
+            raise FillError(f"「{value}」は、字を組み立てて（シェーピング）描く文字なので、1 字ずつの枠（comb）の欄には書けません")
         chars = list(str(value))
         if len(chars) > len(comb):
             raise FillError(f"「{value}」は {len(chars)} 字です（この欄は {len(comb)} 字まで）")
@@ -442,7 +450,7 @@ class Filler:
                 self.dr_fonts[key] = self.up.new(font)
             elif key == "ZaDb":
                 self.dr_fonts[key] = self.up.new(dict(ZADB))
-            elif key == "TdkE":
+            elif key == "TdkE" or key.startswith("TdkX"):
                 self.dr_fonts[key] = self.up.new({})  # 埋め込む書体：使った字形が決まってから、仕上げで中身を書く（_embed_font）
             else:
                 ros = next(r for r, v in CJK.items() if v[0] == key)
@@ -742,29 +750,82 @@ class Filler:
                 old = [pd.get("Contents")]
             pd["Contents"] = [pre] + old + [post]
 
-    def _embed_font(self) -> None:
-        """TdkE：書いた見た目が使う字形（GID）だけを、このパソコンの TrueType の書体から埋め込む。"""
+    def _used_gids(self, key: str) -> list[int]:
+        """書いた見た目のストリームで、書体 key で描いた字形（Tj・TJ の 2 バイトずつ）。"""
+        from .objects import Lexer
+
+        out: list[int] = []
+        tag = f"/{key} ".encode()
+        for _num, (_gen, o) in self.up.objs.items():
+            if not isinstance(o, Stream) or tag not in o.raw:
+                continue
+            lx = Lexer(o.raw, 0)
+            cur = None
+            stack: list = []
+            while True:
+                kind, val = lx.token()
+                if kind == "eof":
+                    break
+                if kind == "kw":
+                    if val == "Tf" and len(stack) >= 2 and isinstance(stack[-2], Name):
+                        cur = stack[-2].name
+                    elif val in ("Tj", "TJ") and cur == key:
+                        for x in (stack[-1] if val == "TJ" and stack and isinstance(stack[-1], list) else stack[-1:]):
+                            if isinstance(x, (bytes, PdfString)):
+                                b = bytes(x)
+                                out += [int.from_bytes(b[i:i + 2], "big") for i in range(0, len(b) - 1, 2)]
+                    stack = []
+                elif kind == "[":
+                    arr = []
+                    while True:
+                        k2, v2 = lx.token()
+                        if k2 in ("]", "eof"):
+                            break
+                        arr.append(v2)
+                    stack.append(arr)
+                elif kind == "<<":
+                    depth = 1
+                    while depth:
+                        k2, _v = lx.token()
+                        if k2 == "eof":
+                            break
+                        depth += {"<<": 1, ">>": -1}.get(k2, 0)
+                else:
+                    stack.append(val)
+        return out
+
+    def _embed_font(self, key: str = "TdkE") -> None:
+        """TdkE：書いた見た目が使う字形（GID）だけを、このパソコンの TrueType の書体から埋め込む。
+        TdkX…：字を組み立てて描いた書体（shape.py）。ToUnicode は、字形が表す元の字（合字なら合わせた字）にする
+        （行の元の字は、見た目の ActualText にある）。"""
         from .embedfont import compress, font_objects, system_font
 
-        font = system_font()
-        ref = self.dr_fonts["TdkE"]
+        shaped = key.startswith("TdkX")
+        if shaped:
+            from .shape import font_by_key
+
+            sf = font_by_key(key)
+            font = sf.tt
+        else:
+            font = system_font()
+        ref = self.dr_fonts[key]
         inv: dict[int, str] = {}
         for u, g in sorted(font.cmap.items()):
             inv.setdefault(g, chr(u))
         used: dict[int, str] = {}
-        for _num, (_gen, o) in self.up.objs.items():
-            if isinstance(o, Stream) and b"/TdkE " in o.raw:
-                for m in re.finditer(rb"/TdkE [\d.]+ Tf <([0-9A-F]+)> Tj", o.raw):
-                    h = m[1].decode()
-                    for i in range(0, len(h), 4):
-                        g = int(h[i:i + 4], 16)
-                        used[g] = inv.get(g, "")
+        for g in self._used_gids(key):
+            used[g] = (sf.glyph_chars.get(g) if shaped else None) or inv.get(g, "")
         t0, cid, desc, data, tu = font_objects(font, used)
         desc["FontFile2"] = self.up.new(Stream({"Length1": len(data), "Filter": Name("FlateDecode")}, compress(data)))
         cid["FontDescriptor"] = self.up.new(desc)
         t0["DescendantFonts"] = [self.up.new(cid)]
         t0["ToUnicode"] = self.up.new(Stream({}, tu))
         self.up.put(ref, t0)
+        if shaped:
+            self.warnings.append(f"{sf.script.ja or sf.script.name}は、字の組み立て（シェーピング）をして、このパソコンの書体 "
+                                 f"{font.name}（{font.path}）から、使った字形だけを PDF に埋め込みました（見た目の字は、"
+                                 "書いた字として読み戻して確かめました）")
+            return
         names = "".join(sorted(ch for ch in used.values() if ch))
         self.warnings.append(f"「{names[:40]}」の字は、標準の書体に字形がないので、このパソコンの書体 {font.name}（{font.path}）から、"
                              "書いた字の字形だけを PDF に埋め込みました")
@@ -772,8 +833,9 @@ class Filler:
     def finish(self) -> bytes:
         doc = self.doc
         up = self.up
-        if "TdkE" in self.dr_fonts:
-            self._embed_font()
+        for k in list(self.dr_fonts):
+            if k == "TdkE" or k.startswith("TdkX"):
+                self._embed_font(k)
         if self.circles:
             self._draw_circles()
         for page_no, refs in self.page_annots.items():
@@ -825,9 +887,14 @@ class Filler:
 
 def _da_key(keys: set[str]) -> str:
     """欄の書体の指定（/DA）にする書体：見た目を作り直すソフトが使うので、日本語などの書体を先に（欧文の拡張の TdkL は最後）。"""
-    for k in ("TdkJ", "TdkK", "TdkG", "TdkC", "TdkE", "TdkL"):
+    for k in ("TdkJ", "TdkK", "TdkG", "TdkC", "TdkE"):
         if k in keys:
             return k
+    for k in sorted(keys):
+        if k.startswith("TdkX"):
+            return k
+    if "TdkL" in keys:
+        return "TdkL"
     return "Helv"
 
 

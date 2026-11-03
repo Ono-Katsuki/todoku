@@ -7,6 +7,9 @@
   宣言した字形の集まりの補遺（Supplement）の範囲にあり、幅が決まっているもの。範囲の外の CID は、ビューアーが持つ字形に
   ないことがあり、白く抜ける（証明も読み戻しも /V を読むので、気づかない）
 どれでも描けない字は、白く抜けた見た目を書かずに、理由を添えて断る。
+字の組み立て（シェーピング）が要る行（アラビア文字・ヘブライ文字・インド系の文字・タイ文字）は shape.py で組み立て、
+このパソコンの書体から使った字形だけを埋め込んで描く（行を元の字の ActualText で包む）。読み直すときは、その範囲の
+字形の並びが、元の字をいま組み立てた並びと同じかを確かめる。
 """
 
 from __future__ import annotations
@@ -250,7 +253,71 @@ def _embedded(ch: str):
     return "TdkE", g.to_bytes(2, "big"), font.width(g)
 
 
+def shaped(text: str) -> bool:
+    """字の組み立て（シェーピング）をして描く行か（アラビア文字・インド系の文字など。shape.py）。"""
+    from .shape import needs
+
+    return needs(text)
+
+
+def units(text: str) -> list[str]:
+    """折り返してよい単位（組み立てる字は、音節・記号の付いた字の並びを切り離さない）。"""
+    from .shape import units as _units
+
+    return _units(text)
+
+
+def line_ops(text: str, size: float) -> bytes:
+    """組み立てて描く 1 行の命令（文字の命令の中、Tm の後に置く）。行全体を ActualText（論理の順の元の字）で包み、
+    組み立てた字形は、位置の差を TJ の数と Ts（上下）で指す。"""
+    from .shape import line
+
+    ln = line(text)
+    out = bytearray(b"/Span <</ActualText <FEFF" + text.encode("utf-16-be").hex().upper().encode() + b">>> BDC\n")
+    for sg in ln.segs:
+        out += f"/{sg.key} {size:.2f} Tf ".encode()
+        if not sg.shaped:
+            out += b"<" + encode_run(sg.key, sg.text).hex().upper().encode() + b"> Tj\n"
+            continue
+        parts: list[bytes] = []
+        cur = 0.0
+        rise = 0.0
+
+        def flush():
+            if parts:
+                out.extend(b"[" + b" ".join(parts) + b"] TJ\n")
+                parts.clear()
+
+        for gid, x, y, w in sg.glyphs:
+            if abs(y - rise) > 0.005:
+                flush()
+                out += f"{y * size / 1000:.3f} Ts\n".encode()
+                rise = y
+            adj = cur - x
+            if abs(adj) >= 0.005:
+                parts.append(_num(adj))
+            parts.append(b"<%04X>" % gid)
+            cur = x + w
+        adj = cur - sg.width
+        if abs(adj) >= 0.005:
+            parts.append(_num(adj))
+        flush()
+        if rise:
+            out += b"0 Ts\n"
+    out += b"EMC\n"
+    return bytes(out)
+
+
+def _num(v: float) -> bytes:
+    t = f"{v:.2f}".rstrip("0").rstrip(".")
+    return (t if t not in ("-0", "") else "0").encode()
+
+
 def runs(text: str) -> list[tuple[str, str]]:
+    if shaped(text):
+        from .shape import line
+
+        return [(sg.key, sg.logical if sg.shaped else sg.text) for sg in line(text).segs]
     out: list[tuple[str, str]] = []
     for ch in text:
         key = choose(ch)[0]
@@ -267,11 +334,24 @@ def encode_run(key: str, run: str) -> bytes:
 
 def width(text: str) -> float:
     """字の並びの幅（1000 分の 1 の和を 1000 で割ったもの：字の大きさ 1 のときの幅）。"""
+    if shaped(text):
+        from .shape import line
+
+        return line(text).width / 1000.0
     return sum(choose(ch)[2] for ch in text) / 1000.0
 
 
 def undrawable(text: str) -> list[str]:
     """描けない字の理由（重ねない）。"""
+    if shaped(text):
+        from .shape import line
+
+        try:
+            for ln in text.split("\n"):
+                line(ln)
+        except GlyphError as e:
+            return [str(e)]
+        return []
     out = []
     seen = set()
     for ch in text:
@@ -424,7 +504,7 @@ class _FontInfo:
                 elif not self.tt.glyph(g) and not ch.isspace():
                     probs.append(f"「{ch}」の字形（番号 {g}）の中身が、埋め込んだ書体 {self.name} にありません")
                 if ch == "�":
-                    probs.append(f"字形の番号 {g} の字が、ToUnicode で決まりません")
+                    probs.append(f"字形の番号 {g} の字が、{_NO_TU}")
                 out.append(ch)
             return "".join(out), probs
         if self.kind == "cid":
@@ -445,9 +525,45 @@ class _FontInfo:
         return "", [self.problem]
 
 
+_NO_TU = "ToUnicode で決まりません"
+_EMPTY = "の中身が、埋め込んだ書体"
+
+
+def _check_span(actual: str, drawn: list) -> tuple[list[str], bool]:
+    """ActualText の範囲で、組み立てた書体で描いた字形：元の字をいま組み立てた字形と同じか・点線の丸を入れていないか。
+    (理由, 組み立てた字形と同じだと確かめたか)。"""
+    from .shape import font_by_name, verify
+
+    probs = []
+    seq = []
+    fonts: dict[str, object] = {}
+    for info, gid in drawn:
+        nm = info.name.split("+", 1)[-1]
+        if nm not in fonts:
+            fonts[nm] = font_by_name(nm)
+        sf = fonts[nm]
+        if sf is None:
+            continue
+        seq.append((sf.name, gid))
+        dot = sf.gid(0x25CC)
+        if dot is not None and gid == dot and "\u25cc" not in actual:
+            probs.append(f"「{actual}」の見た目に、元の字にない点線の丸（U+25CC）があります（組み立てられなかった並び）")
+    ok = False
+    if seq:
+        why = verify(actual, seq)
+        if why:
+            probs.append(why)
+        else:
+            ok = not probs
+    return probs, ok
+
+
 def appearance_text(doc, stream, resources=None) -> tuple[str, list[str]]:
     """見た目のストリーム（Form XObject）が描く字と、描けない字の理由。行は改行でつなぐ。
-    ZapfDingbats など記号の書体の字は、字に数えない（チェックの印）。"""
+    ZapfDingbats など記号の書体の字は、字に数えない（チェックの印）。
+    ActualText の範囲（字を組み立てて描いた行）は、その字にし、描いた字形がその字を組み立てたものかを確かめる。"""
+    from .objects import PdfError, _obj, decode_text
+
     if not isinstance(stream, Stream):
         return "", []
     res = resources if resources is not None else doc.resolve(stream.dict.get("Resources"))
@@ -460,6 +576,8 @@ def appearance_text(doc, stream, resources=None) -> tuple[str, list[str]]:
     cache: dict[str, _FontInfo] = {}
     text: list[str] = []
     probs: list[str] = []
+    drawn: list = []  # 埋め込んだ書体で描いた (書体, 字形)
+    marks: list = []  # 印の付いた範囲：(text の位置, ActualText, drawn の位置, probs の位置)
     line_started = False
     while True:
         kind, val = lx.token()
@@ -467,6 +585,20 @@ def appearance_text(doc, stream, resources=None) -> tuple[str, list[str]]:
             break
         if kind == "kw":
             op = val
+            if op in ("BDC", "BMC"):
+                props = stack[-1] if op == "BDC" and stack else None
+                at = props.get("ActualText") if isinstance(props, dict) else None
+                actual = decode_text(at) if isinstance(at, (bytes, PdfString)) else None
+                marks.append((len(text), actual, len(drawn), len(probs)))
+            elif op == "EMC" and marks:
+                t0, actual, d0, p0 = marks.pop()
+                if actual is not None:
+                    sp, ok = _check_span(actual, drawn[d0:])
+                    # 字を組み立てた字形だと確かめた範囲：字形ごとの ToUnicode・中身のない字形（書体の組み立てが使う空きの
+                    # 字形）は、元の字（ActualText）と字形の並びで確かめたので、問題にしない
+                    probs[p0:] = [p for p in probs[p0:] if _NO_TU not in p and not (ok and _EMPTY in p)]
+                    probs += sp
+                    text[t0:] = [actual]
             if op == "Tf" and len(stack) >= 2 and isinstance(stack[-2], Name):
                 key = stack[-2].name
                 if key not in cache:
@@ -483,6 +615,9 @@ def appearance_text(doc, stream, resources=None) -> tuple[str, list[str]]:
                     t, p = cur.decode(bytes(s))
                     text.append(t)
                     probs += p
+                    if cur.kind == "embedded":
+                        bs = bytes(s)
+                        drawn += [(cur, int.from_bytes(bs[i:i + 2], "big")) for i in range(0, len(bs) - 1, 2)]
                 line_started = True
             elif op in ("Tm", "Td", "TD", "T*") and line_started:
                 text.append("\n")
@@ -502,12 +637,10 @@ def appearance_text(doc, stream, resources=None) -> tuple[str, list[str]]:
             stack.append(arr)
             continue
         if kind == "<<":
-            depth = 1
-            while depth:
-                k2, _v = lx.token()
-                if k2 == "eof":
-                    break
-                depth += {"<<": 1, ">>": -1}.get(k2, 0)
+            try:
+                stack.append(_obj(lx, "<<", None))
+            except PdfError:
+                break
             continue
         stack.append(val)
     out = "".join(text).strip("\n")

@@ -5,7 +5,9 @@
   Liberation Sans の順。見つからなければ埋め込まず、その字は理由を添えて断る（glyphs.choose）
 - 書体の埋め込みの許し（OS/2 の fsType、OpenType の仕様）：Restricted License・ビットマップだけ・部分の埋め込み不可のものは使わない
 - 部分の埋め込み：字形の番号（GID）は元のまま（CIDToGIDMap /Identity）、使う字形（と、組み合わせの字形の部品）の中身だけを残し、
-  ほかは空にする。字の並べ替え・合字（Arabic・Hebrew・Devanagari など）はしないので、結合の字（Mn・Mc・Me）・右から左の字は使わない
+  ほかは空にする。この書体（TdkE）では字の並べ替え・合字をしないので、結合の字（Mn・Mc・Me）・右から左の字は使わない
+  （アラビア文字・インド系の文字などは、shape.py が字を組み立てて、文字ごとの書体（TdkX…）で描く。TrueType Collection
+  （.ttc）の書体も、その中の 1 つの書体の表から埋め込める）
 """
 
 from __future__ import annotations
@@ -25,13 +27,46 @@ CANDIDATES = [
 ]
 
 
-class TrueType:
-    def __init__(self, path: str, data: bytes):
-        from .sfnt import cmap_subtables, tables
+def face_tables(data: bytes, offset: int = 0) -> dict[str, bytes]:
+    """書体のファイルの表（TrueType Collection（.ttc）なら、offset の位置の書体の表）。"""
+    out: dict[str, bytes] = {}
+    n = struct.unpack_from(">H", data, offset + 4)[0]
+    for i in range(n):
+        tag, _chk, off, ln = struct.unpack_from(">4sIII", data, offset + 12 + 16 * i)
+        out[tag.decode("latin-1")] = data[off:off + ln]
+    return out
 
+
+def collection_faces(data: bytes) -> list[int]:
+    """TrueType Collection の書体ごとの表の位置（ふつうの書体なら [0]）。"""
+    if data[:4] == b"ttcf":
+        n = struct.unpack_from(">I", data, 8)[0]
+        return [struct.unpack_from(">I", data, 12 + 4 * i)[0] for i in range(n)]
+    return [0]
+
+
+def _cmap(t: bytes) -> dict[int, int]:
+    from .sfnt import _subtable
+
+    subs: dict[tuple[int, int], dict[int, int]] = {}
+    n = struct.unpack_from(">H", t, 2)[0]
+    for i in range(n):
+        pid, eid, off = struct.unpack_from(">HHI", t, 4 + 8 * i)
+        try:
+            m = _subtable(t, off)
+        except (struct.error, IndexError):
+            m = {}
+        if m:
+            subs.setdefault((pid, eid), m)
+    return subs.get((3, 10)) or subs.get((0, 4)) or subs.get((3, 1)) or subs.get((0, 3)) or {}
+
+
+class TrueType:
+    def __init__(self, path: str, data: bytes, offset: int = 0):
         self.path = path
         self.data = data
-        self.t = tables(data)
+        self.offset = offset
+        self.t = face_tables(data, offset)
         for need in ("head", "hhea", "maxp", "hmtx", "loca", "glyf"):
             if need not in self.t:
                 raise ValueError(f"TrueType の {need} がありません")
@@ -51,8 +86,7 @@ class TrueType:
             self.loca = list(struct.unpack_from(f">{self.num + 1}I", loca, 0))
         else:
             self.loca = [x * 2 for x in struct.unpack_from(f">{self.num + 1}H", loca, 0)]
-        subs = cmap_subtables(data)
-        self.cmap = subs.get((3, 10)) or subs.get((0, 4)) or subs.get((3, 1)) or subs.get((0, 3)) or {}
+        self.cmap = _cmap(self.t["cmap"]) if "cmap" in self.t else {}
         os2 = self.t.get("OS/2", b"")
         self.fstype = struct.unpack_from(">H", os2, 8)[0] if len(os2) >= 10 else 0
         self.cap = struct.unpack_from(">h", os2, 88)[0] if len(os2) >= 90 else self.ascent
