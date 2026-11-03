@@ -247,6 +247,7 @@ class Sheet:
     cond_rules: list[CondRule] = field(default_factory=list)
     autofilter: tuple[int, int, int, int] | None = None  # オートフィルターの範囲（ここで隠れた行は SUBTOTAL が常に除く）
     has_vml_controls: bool = False
+    right_to_left: bool = False  # sheetView の rightToLeft（列 A が画面の右端。アラビア語・ヘブライ語などのシート）
     max_row: int = 0
     max_col: int = 0
 
@@ -700,6 +701,9 @@ class Workbook:
             v.formula2 = f2.find(_q("xm:f")).text if f2 is not None and f2.find(_q("xm:f")) is not None else v.formula2
             sh.validations.append(v)
         sh.protected = root.find(M + "sheetProtection") is not None and root.find(M + "sheetProtection").get("sheet") in ("1", "true")
+        sv = root.find(M + "sheetViews")
+        sv = sv.find(M + "sheetView") if sv is not None else None
+        sh.right_to_left = sv is not None and sv.get("rightToLeft") in ("1", "true")
         spr = root.find(M + "sheetPr")
         if spr is not None and spr.get("codeName"):
             sh.code_name = spr.get("codeName")

@@ -103,15 +103,15 @@ def test_text_cell_gaps_are_agent_and_structural_blanks_are_rules():
     def build(wb):
         ws = wb.active
         ws.title = "S"
-        ws["A1"] = "議長　　　　氏"  # 語と語の間の空き：規則の型に合わない
-        ws["A2"] = "令和　　年　　月　　日"  # 語（年号・年月日）から推定した空欄
+        ws["A1"] = "議長　　　　氏"  # 2つ以上の空白の並び：字の意味からは決めない（「？」）
+        ws["A2"] = "令和　　年　　月　　日"  # 同じ（年・月・日の語は見ない）
         ws["A3"] = "電話（　　　　）"  # かっこの中の空白だけ：字の形で決まる
         ws["A4"] = "氏名＿＿＿＿"  # 下線：字の形で決まる
 
     blob = blob_of(build)
     doc = doc_of(blob)
     f = fields_of(doc)
-    assert f["S!A1"]["agent"] and f["S!A1"]["spans"][0]["rule"] is False and "語と語の間" in f["S!A1"]["why"]
+    assert f["S!A1"]["agent"] and f["S!A1"]["spans"][0]["rule"] is False and "2つ以上の空白" in f["S!A1"]["why"]
     assert f["S!A2"]["agent"] and f["S!A2"]["blanks"] == 3 and not any(s["rule"] for s in f["S!A2"]["spans"])
     assert not f["S!A3"].get("agent") and f["S!A3"]["provenance"] == "layout"
     assert not f["S!A4"].get("agent") and f["S!A4"]["spans"][0]["rule"]
