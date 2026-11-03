@@ -1133,6 +1133,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
     after_list = [dict(f, label=_verbatim_label(f)) if f.get("label") and f.get("context") else f for f in after_list]
     by_id = {f["id"]: f for f in after_list}
     told = []
+    sheet_kind = result.get("kind") in ("xlsx", "xls") or result.get("kind") in _open.SHEETS
     whole_text = set()  # 文字の中に空欄のあるマス（inline）：読み戻した値は、マスの字の全体
     inline_before = result.pop("_inline", None) or set()
     for key, v in written.items():
@@ -1144,6 +1145,9 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         for k_ in ("sheet", "page"):
             if k_ in f:
                 d[k_] = f[k_]
+        if "sheet" not in d and "page" not in d and "!" in key and not key.startswith("@") and sheet_kind:
+            # 欄の一覧にない、番地で書いたセル（「計画 (表)!BB3」）：番地のシートの所に入れる（ほかのシートの見出しの下にしない）
+            d["sheet"] = key.rsplit("!", 1)[0].strip("'")
         if (f.get("kind") == "inline" or key in inline_before) and isinstance(d["value"], str) and "!" in key:
             whole_text.add(key)
         told.append(d)
@@ -1206,7 +1210,13 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
 
     # 記入した内容の一覧：書いた所を、書類の中の順（シート・ページごと）に、全部。値は書いた後のファイルを読み直したもの
     order = {f["id"]: i for i, f in enumerate(after_list)}
-    told.sort(key=lambda d: order.get(d["id"], len(order)))
+    sheets: dict = {}
+    for f in after_list:
+        if f.get("sheet") is not None:
+            sheets.setdefault(f["sheet"], len(sheets))
+    # シートごとに（シートの順に）、その中は書類の中の順。欄の一覧にないセルは、そのシートの終わりに
+    told.sort(key=lambda d: (sheets.get(d.get("sheet"), len(sheets)) if d.get("sheet") is not None else -1,
+                             order.get(d["id"], len(order))))
     def joined(run: list[dict]) -> str:
         """1つの項目が分かれた欄（〒［▶］-［　］と〒［　］-［▶］）は、1行に：〒［123］-［4567］。"""
         lab = run[0]["label"]
