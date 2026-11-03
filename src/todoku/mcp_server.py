@@ -183,7 +183,7 @@ TOOLS = [
 
 # ---------------------------------------------------------------------- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument・.txt・PowerPoint）
 _MORE = ("（ほかに CSV・TSV・JSON・JSON Lines・RTF・OpenDocument の文書 .odt と表計算 .ods・文字だけのファイル .txt・"
-         "PowerPoint .pptx も開けます）")
+         "PowerPoint .pptx・한글 .hwpx（読む・書く）と .hwp（HWP 5。読むだけ）も開けます）")
 for _t in TOOLS:
     if _t["name"] == "open_document":
         _t["description"] += _MORE
@@ -193,7 +193,10 @@ for _t in TOOLS:
                               "置けないので、書いた後のファイルでは残りの空欄の番号が詰まる（続けて書くときは、開き直して id を確かめる）。"
                               "OpenDocument の表計算（.ods）は Excel と同じ書き方（シート!B3）。CSV・TSV は「R行.C列」（R3.C2・R3.氏名。"
                               "今ある行の次の行に書くと、行を足す）、JSON は JSON Pointer（/applicant/name。ない名前は足し、配列の終わりは /items/-）、"
-                              "JSON Lines は「L行/名前」。")
+                              "JSON Lines は「L行/名前」。"
+                              "한글（.hwpx）は Word と同じ書き方で、누름틀（クリックして書く欄）とフォームの部品は、その名前（名前のない 누름틀は ctl番号）で書く。"
+                              "placeholder は値のないときに한글が表示する案内の字で、値ではない。HWP 5（.hwp）には書けない"
+                              "（本人に HWPX で保存し直したファイルを頼む）。")
 
 # 文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）の文字コード：規則で決められず、窓に候補が並んだとき、エージェントが選んだもの
 _ENCODING = {"type": "string",

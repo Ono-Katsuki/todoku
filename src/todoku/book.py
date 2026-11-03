@@ -26,6 +26,11 @@ def kind_of(blob: bytes, filename: str = "") -> str:
         odf = _odf_kind(blob, names)  # OpenDocument（.odt・.ods）：mimetype の部品で見分ける
         if odf:
             return odf
+        if "mimetype" in names or "Contents/content.hpf" in names:  # 한글の HWPX：mimetype が application/hwp+zip
+            from .hwpx.package import is_hwpx
+
+            if is_hwpx(blob):
+                return "hwpx"
         if "[Content_Types].xml" not in names:
             return "zip"  # Office の書類（OOXML：部品の種類の一覧が必ずある）でない ZIP（CSV をまとめたものなど）
         return "xlsx"
@@ -44,6 +49,11 @@ def kind_of(blob: bytes, filename: str = "") -> str:
 
         if is_jtd(names):
             return "jtd"
+        if "fileheader" in names:  # 한글の HWP 5：FileHeader の先頭が「HWP Document File」
+            from .hwpx.hwp5 import is_hwp5
+
+            if is_hwp5(blob):
+                return "hwp"
         return "cfb"
     if blob[:4] == b"%PDF":
         return "pdf"

@@ -84,6 +84,8 @@ MCP サーバーと、申請書を探して記入するときの進め方（ス�
 | 一太郎（.jtd） | 本文・表・枠・ヘッダーとフッター・脚注・ルビ・リンク・圧縮して保存した文書 | 空白・伏せ字・□ の上の上書き、空のマスへの書き込み（字数を変える書き込み） | 変わったのは書いた字と、直すと決めた構造だけ |
 | OpenDocument（.odt・.ods）・RTF・CSV・TSV・JSON | それぞれの仕様どおり | それぞれの仕様どおり | 書いた所の外は1バイトも変えない |
 | PowerPoint（.pptx・.pptm） | スライドの順に、図形・表（結合したマス）・まとめた図形・ノート・スライドの型（レイアウト・マスター）の字・グラフ・SmartArt・絵の説明 | 表の空のマス・空欄・□・字を目印にした書き込み（Word と同じ欄の決め方） | 変わったのは書いた段落のあるスライドの部品だけ（ほかの部品は圧縮したバイトまで一致、書いた段落も字の要素のほかは一致） |
+| 한글（.hwpx。韓国の行政の様式の多く） | 本文・表（結合したマス）・누름틀（クリックして書く欄。案内の字）・フォームの部品（チェック・ラジオ・コンボ・字の欄）・図形の中の字・ヘッダーとフッター・脚注・メモ・段落の番号・数式・絵の説明・한글のマクロ（JScript）のソース | 누름틀・フォームの部品・表の空のマス・空欄・□・字を目印にした書き込み（Word と同じ欄の決め方） | 変わったのは書いた段落のある本文の節の部品だけ（ほかの部品は圧縮したバイトまで一致。字を変えた段落は、한글の行の配置の控え hp:linesegarray を除き、한글が開くときに配置し直す） |
+| 한글（.hwp・HWP 5） | 本文・表・누름틀・글상자・ヘッダーとフッター・脚注・数式・絵の説明（配布用・パスワードの文書は読めない：F） | 書けない（HWPX で保存し直せば書ける） | — |
 | テキスト（.txt） | 文字コード（CSV と同じ決め方）・すべての行（空の行・行の頭の空白もそのまま、「行番号｜字」） | 空欄・□・字を目印にした書き込み（Word と同じ欄の決め方。改行は書かない） | 書いた所の字のバイトのほかは、文字コード・BOM・改行まで1バイトも変えない |
 | スキャンした紙（画像だけの PDF のページ） | 画像（CCITT G3・G4、JPEG、Flate など）を自前で開き、ページの見た目どおりの画像をエージェントに見せる（`view_page`） | エージェントが画像を見て決めた枠（mm）に書く。書く前に枠を描いて確かめる | 元のファイルのバイト列は1つも変えない |
 | ZIP | 中のファイルを「a.zip!/中の名前」で、その形式のまま読む | 中のファイルに書き、ZIP はその部品だけを入れ替える | 書いた部品のほかはバイト一致 |
@@ -184,7 +186,7 @@ CAPTCHA や取得の制限は破っていません。
 | 暗号化された PDF（正解つき） | [pypdf](https://github.com/py-pdf/pypdf)（BSD 3 条項）と [pdf.js](https://github.com/mozilla/pdf.js)（Apache-2.0）のテストのファイル（`sources/crypto__pdf.txt`） |
 | XFA のフォーム | pdf.js のテストのファイル（Apache-2.0）と、カナダ・米国政府の公開様式（`sources/wide_xfa.txt`） |
 | 埋め込み・グラフの例 | [Apache POI](https://github.com/apache/poi) のテストのファイル（Apache-2.0）と、総務省・環境省・BODIK の公開ファイル（`sources/wide_embed.txt`） |
-| ファイル形式の仕様書 | Microsoft Open Specifications（MS-XLS・MS-XLSX・MS-DOC・MS-OFFCRYPTO・MS-OVBA・MS-OFORMS・MS-ODRAW・MS-OLEDS・MS-CFB・MS-EMF・MS-WMF・MS-OI29500 など）、ISO 32000（PDF）、XFA 3.3、OpenDocument 1.3、OpenOffice.org の Excel 形式の解説、Word 6 の形式の解説（`sources/specs.txt`、`scripts/fetch_specs.py`） |
+| ファイル形式の仕様書 | Microsoft Open Specifications（MS-XLS・MS-XLSX・MS-DOC・MS-OFFCRYPTO・MS-OVBA・MS-OFORMS・MS-ODRAW・MS-OLEDS・MS-CFB・MS-EMF・MS-WMF・MS-OI29500 など）、ISO 32000（PDF）、XFA 3.3、OpenDocument 1.3、OWPML（KS X 6101。HWPX）と「한글 문서 파일 형식 5.0」（Hancom の公開文書）、OpenOffice.org の Excel 形式の解説、Word 6 の形式の解説（`sources/specs.txt`、`scripts/fetch_specs.py`） |
 
 これらのプロジェクトのコードは使っていません。テストの正解として、ファイルだけを使っています。
 `tests/fixtures/kami_meisai.xlsx` は、このリポジトリのスクリプトで作った架空の様式です。**個人情報は含みません。**
@@ -203,6 +205,7 @@ src/todoku/
   jtd/            一太郎（Ssmg の入れ物・LHA の圧縮）
   odf/ rtf/ datafile/   OpenDocument・RTF・CSV・JSON
   pptx/ txt/      PowerPoint・文字だけのファイル（窓と欄の決め方は Word と共通）
+  hwpx/           한글（HWPX は読む・書く、HWP 5 は読むだけ。窓と欄の決め方は Word と共通）
   vba.py vbarun/  マクロのソースの抽出と、VBA の解釈実行（Excel を使わずにボタンの処理を動かす）
   activex.py ax*.py     ActiveX の部品（MS-OFORMS）
   embed.py embeds/      埋め込んだ表への書き込み、グラフ・SmartArt・埋め込みの読み取り
