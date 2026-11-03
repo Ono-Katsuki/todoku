@@ -80,22 +80,79 @@ def test_pdf_circle_refuses_when_it_would_touch_other_text(tmp_path):
     assert any("無［p1.c1：○］" in ln for ln in win["pages"][0]["reading"]), win["pages"][0]["reading"]
 
 
-def test_pdf_circle_fits_between_tight_neighbours(tmp_path):
-    """23 区の様式（「補装具費（購入・借受け・修理）」）：囲む字の箱に、かっこ「（」の箱が重なる。すき間を 0 まで小さくし、
-    縦長の楕円で、ほかの字の面に触れずに囲む。読み戻しも、書くときと同じ決め方（字の箱を囲み、ほかの字の面に触れない）で通る。"""
+def test_pdf_circle_between_tight_neighbours_does_not_cut_the_glyphs(tmp_path):
+    """23 区の様式（「補装具費（購入・借受け・修理）」）：囲む字の箱に、かっこ「（」と「・」の箱が接する。楕円の線の内側の縁が
+    囲む字の箱にかからず（字の箱の角まで字が描かれることがある）、外側の縁がほかの字の面に触れない楕円はないので、楕円では
+    断って四角の囲み線を勧める。四角の囲み線（字の箱の外に線の内側の縁）は囲める。読み戻しも同じ決め方。"""
     data = _pdf([(70, 700, 10, "補装具費（購入・借受け・修理）支給申請書")])
-    r, out = _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "購入"}})
+    with pytest.raises(api.ApiError, match="触れます.*border"):
+        _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "購入"}})
+    r, out = _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "購入", "style": "border"}})
     assert r["proof_ok"] and r["read_back_ok"], (r["unexpected"], r["read_back_differences"])
-    e = r["circled"][0]["ellipse_pt"]
-    assert e[3] > e[2] / 2  # 縦に長い楕円（左右は字の箱にほぼ沿う）
-    r, out = _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "購入", "pad": 0}})
-    assert r["read_back_ok"], r["read_back_differences"]
+    c = r["circled"][0]
+    assert c["style"] == "border" and c["border_pt"] and c["ellipse_pt"] is None and "四角" in c["how"], c
+    assert "補装具費（【購入】・借受け" in c["around"] and "補装具費（【購入】・借受け" in r["say_to_user"], r["say_to_user"]
+
+
+def test_pdf_circle_outline_never_crosses_the_target_glyph_boxes():
+    # 書いた楕円の線（内側の縁）は、囲む字の箱にかからない（中心でなく箱で比べる）
+    from todoku.pdf import circle
+
+    data = _pdf([(70, 700, 10, "購入"), (70, 650, 10, "有・無")])
+    doc = PdfDocument(data)
+    for spec in ({"circle": "購入"}, {"circle": "無"}):
+        lays: dict = {}
+        r = circle.resolve(doc, spec, lays, {})
+        n, _cell, ln, a, b = circle.find(doc, spec, lays)
+        lw = circle.line_width(r["size"])
+        assert all(circle.encloses("ellipse", r["ellipse"], c, lw) for c in circle.target_chars(lays[n], ln, a, b)), r
 
 
 def test_pdf_circle_ambiguous_target_lists_candidates(tmp_path):
     data = _pdf([(70, 700, 10, "有・無"), (70, 650, 10, "有・無")])
     with pytest.raises(api.ApiError, match="2 か所"):
         _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "有"}})
+
+
+def test_pdf_circle_never_picks_the_heading_text(tmp_path):
+    # 板橋区・練馬区の様式：「…受給の有無｜有・無」。near の見出しの字の中の「無」・字の並びに埋まった「無」は選ばない
+    data = _pdf([(70, 700, 10, "障害手当受給の有無"), (200, 700, 10, "有・無")])
+    r, _ = _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "無", "near": "障害手当受給の有無"}})
+    assert r["proof_ok"] and r["read_back_ok"], (r["unexpected"], r["read_back_differences"])
+    assert r["circled"][0]["around"].endswith("有・【無】"), r["circled"]
+    assert "有・【無】" in r["say_to_user"], r["say_to_user"]
+    # near なしでも、区切りではさまれた所（「有・無」の「無」）だけが候補
+    r, _ = _write(tmp_path, data, "u.pdf", {"@c1": {"circle": "無"}})
+    assert r["circled"][0]["around"].endswith("有・【無】")
+    # 字の並びの中にしかない字：選ばずに断り、前後の字を添えて候補を示す
+    only = _pdf([(70, 700, 10, "障害手当受給の有無")])
+    with pytest.raises(api.ApiError, match="字の並びの中") as e:
+        _write(tmp_path, only, "v.pdf", {"@c1": {"circle": "無"}})
+    assert "受給の有【無】" in str(e.value)
+
+
+def test_pdf_circle_refuses_a_lone_heading_when_a_listed_choice_exists(tmp_path):
+    # 足立区の様式：「変更内容｜３ 送付先　４ 振込口座」と、下の表の見出し「振込口座」。いちばん近いのが行にその字だけの所で、
+    # 区切って並んだ所もある：どちらかは形からは決めず、候補を示して断る
+    data = _pdf([(70, 700, 10, "変更内容"), (200, 720, 10, "３ 送付先　４ 振込口座"), (130, 690, 10, "振込口座")])
+    with pytest.raises(api.ApiError, match="occurrence") as e:
+        _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "振込口座", "near": "変更内容"}})
+    assert "４ 【振込口座】" in str(e.value)
+
+
+def test_pdf_borders_on_adjacent_rows_and_a_box_on_an_image_only_page(tmp_path):
+    # 6 mm（17pt）離れた隣の行の四角の囲み線どうしは、四角のまま比べる（外接する楕円では重なって見えて断っていた）
+    data = _pdf([(70, 700, 10, "１ 有・無"), (70, 683, 10, "２ 有・無")])
+    r, _ = _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "無", "occurrence": 1, "style": "border"},
+                                            "@c2": {"circle": "無", "occurrence": 2, "style": "border"}})
+    assert r["proof_ok"] and r["read_back_ok"], (r["unexpected"], r["read_back_differences"])
+    # 字のない（画像だけの）ページ：枠（box）を決めた○は描け、囲んだ字は確かめていないと伝える
+    from pdfmini import build as raw_pdf
+
+    blank = raw_pdf("0 0 1 rg 50 50 100 100 re f", "<< >>", [])
+    r, _ = _write(tmp_path, blank, "b.pdf", {"@c1": {"circle": "無", "box": [20, 20, 30, 28], "page": 1}})
+    assert r["proof_ok"] and r["read_back_ok"], (r["unexpected"], r["read_back_differences"])
+    assert r["circled"][0]["unread"] and "確かめていません" in r["say_to_user"], r["say_to_user"]
 
 
 def test_pdf_printed_choices_stay_text_and_circled_text_is_read_back(tmp_path):
