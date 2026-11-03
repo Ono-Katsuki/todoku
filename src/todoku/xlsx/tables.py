@@ -1,7 +1,7 @@
 """Excel の表を、見出しの列で行ごとに取り出す（エージェントが表を読むたびに処理を書かなくてよいように）。
 
-- 見出し：エージェントが渡す見出しの字（header）がある行から始め、数の入っていない行が続くあいだを見出しの行とする
-  （header_rows で行数を決めてもよい）。列の名前は、見出しの行を上から下へ「／」でつなぐ（「サービスコード／種類」）。
+- 見出し：エージェントが渡す見出しの字（header）がある行（字が同じセルを先に選ぶ）と、その行の見出しが縦に結合されている範囲。
+  その下の行が見出しの続きかどうかは規則では決めず、下の数行をそのまま返す（エージェントが読んで header_rows で決める）。列の名前は、見出しの行を上から下へ「／」でつなぐ（「サービスコード／種類」）。
   結合した見出しの下にいくつもの列があるときは、列の文字を添えて分ける（「算定項目（D）」）。
 - 値：Excel の画面に出る字（表示形式どおり）。結合したセルは、範囲のすべてのセルに同じ値を入れる（画面の見た目どおり）。
   値ごとに、元のセルの番地を添える（結合の左上）。
@@ -50,15 +50,6 @@ def _grid(wb, sh):
     return g
 
 
-def _is_number_text(s: str) -> bool:
-    t = _norm(s).replace(",", "").replace("%", "").replace("¥", "").replace("円", "")
-    try:
-        float(t)
-        return True
-    except ValueError:
-        return False
-
-
 def read(wb, header: str, sheet: str | None = None, header_rows: int | None = None) -> dict:
     """{columns: 列の名前, rows: [{_sheet, _row, 列の名前: 値, …}], sources: 値ごとの元のセル, sheets: 読んだシート}。"""
     want = _norm(header)
@@ -74,22 +65,25 @@ def read(wb, header: str, sheet: str | None = None, header_rows: int | None = No
         if sh is None or getattr(sh, "state", "").startswith("non-worksheet"):
             continue
         g = _grid(wb, sh)
-        hits = sorted((r, c) for (r, c), (t, _s) in g.items() if want in _norm(t))
+        # 字が見出しと同じセルを先に選ぶ（表題「…サービスコード表」の中の字に引っかからないように）。なければ、字を含むセル
+        hits = sorted((r, c) for (r, c), (t, _s) in g.items() if _norm(t) == want) or \
+            sorted((r, c) for (r, c), (t, _s) in g.items() if want in _norm(t))
         if not hits:
             continue
-        top = hits[0][0]
-        # 見出しの行：header のある行から、数の入っていない行が続くあいだ（header_rows があればその行数）
-        band = [top]
+        top, hc = hits[0]
+        # 見出しの行：規則で決めるのは、構造から確実に分かることだけ（header のある行と、その行の見出しが縦に結合されている範囲）。
+        # その下の行が2段目の見出しかどうかは決めない：下の行をそのまま返し、エージェントが読んで header_rows で決める
         if header_rows:
             band = list(range(top, top + header_rows))
+            how = f"エージェントの指定（header_rows={header_rows}）"
         else:
-            r = top + 1
-            while r <= top + 3:
-                cells = [t for (rr, _c), (t, _s) in g.items() if rr == r]
-                if not cells or any(_is_number_text(t) for t in cells):
-                    break
-                band.append(r)
-                r += 1
+            end = top
+            for c in {c for (r, c) in g if r == top}:
+                m = sh.merged_at(top, c)
+                if m and m[0] == top:
+                    end = max(end, m[2])
+            band = list(range(top, end + 1))
+            how = "見出しの字のある行" + ("（と、縦に結合した見出しの範囲）" if end > top else "")
         cols = sorted({c for (r, c) in g if r in band})
         if not cols:
             continue
@@ -98,8 +92,9 @@ def read(wb, header: str, sheet: str | None = None, header_rows: int | None = No
             parts = []
             for r in band:
                 t = g.get((r, c))
-                if t and _norm(t[0]) and t[0].strip() not in parts:
-                    parts.append(t[0].strip().replace("\n", ""))
+                text = t[0].strip().replace("\n", "") if t else ""
+                if _norm(text) and text not in parts:  # 縦に結合した見出しは、1回だけ
+                    parts.append(text)
             if parts:
                 names[c] = "／".join(parts)
         # 同じ名前の列（結合した見出しの下の列）：列の文字を添える
@@ -111,7 +106,13 @@ def read(wb, header: str, sheet: str | None = None, header_rows: int | None = No
                 for c in cs:
                     names[c] = f"{n}（{num_to_col(c)}）"
         lo, hi = min(names), max(names)
-        read_sheets.append({"sheet": sh.name, "header_rows": [band[0], band[-1]], "columns": [names[c] for c in sorted(names)]})
+        below = []
+        for r in range(band[-1] + 1, band[-1] + 4):
+            cells = {addr(r, c): g[(r, c)][0] for c in range(lo, hi + 1) if (r, c) in g}
+            if cells:
+                below.append({"row": r, "cells": cells})
+        read_sheets.append({"sheet": sh.name, "header_cell": addr(top, hc), "header_rows": [band[0], band[-1]], "header_rule": how,
+                            "columns": [names[c] for c in sorted(names)], "rows_below_header": below})
         for n in (names[c] for c in sorted(names)):
             if n not in columns:
                 columns.append(n)
@@ -127,4 +128,7 @@ def read(wb, header: str, sheet: str | None = None, header_rows: int | None = No
                 rows.append({"_sheet": sh.name, "_row": r, **rec, "_cells": src})
     if not read_sheets:
         raise TableError(f"「{header}」のある表が見つかりません")
-    return {"columns": columns, "rows": rows, "sheets": read_sheets}
+    return {"columns": columns, "rows": rows, "sheets": read_sheets,
+            "check": "見出しの下の行（rows_below_header）が見出しの続き（2段目の見出し・単位の行など）か、データの行かは、"
+                     "規則では決めていません。読んで、見出しの続きなら header_rows（見出しの行数）を指定してもう一度呼んでください。"
+                     "表の後ろの注の行もそのまま返すので、どこまでが表かも読んで決めてください"}

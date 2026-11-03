@@ -790,7 +790,7 @@ def read_table(path: str, header: str, sheet: str | None = None, header_rows: in
     except TableError as e:
         raise ApiError(str(e)) from None
     out = {"columns": t["columns"], "rows": len(t["rows"]), "sheets": t["sheets"][:50], "sheet_count": len(t["sheets"]),
-           "first_rows": t["rows"][:20]}
+           "first_rows": t["rows"][:20], "check": t["check"]}
     if out_path:
         dst = Path(out_path).expanduser().resolve()
         src = Path(_member(path)[0] if _member(path) else path).expanduser().resolve()
