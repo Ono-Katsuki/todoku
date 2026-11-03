@@ -1324,6 +1324,7 @@ class Layout:
                     secs.append(t)
         heads = self.header(target, phrase)
         parts = list(secs)
+        between_text = None  # 前の字が、あいだの別の欄の見出しのとき（見出しにせず、別に示す）
         sh_ = self.shape(r)
         repeated = bool(sh_) and (self.shape(r - 1) == sh_ or self.shape(r + 1) == sh_)
         if heads and (item is None or repeated or self._list_table(r, target.c1) is not None):
@@ -1345,8 +1346,15 @@ class Layout:
             key = self.row_key(r, first.c1, with_between=True)
             if key:
                 text, between = key
-                parts.append(text)
-                method.append(f"{before}の字（あいだに欄 {'・'.join(between)}）" if between else f"{before}の字")
+                if between:
+                    # あいだに別の欄（ロックされた見出しの欄 B5 など）がはさまる：その字はあいだの欄の見出しで、この欄（補助の
+                    # セル・数式が参照する値など）の見出しとは言えない。見出しにせず、前の字として別に示す（本人に伝えるときに
+                    # 「開始日：5」と取り違えない）
+                    between_text = f"{text}（あいだに欄 {'・'.join(between)}）"
+                    method.append(f"{before}の字は、あいだの欄の見出し（この欄の見出しにしない）")
+                else:
+                    parts.append(text)
+                    method.append(f"{before}の字")
         phrase_text = None
         if shown:
             phrase_text = "".join(
@@ -1358,6 +1366,8 @@ class Layout:
             label = f"{label}：{phrase_text}" if label else phrase_text
         out = {"label": label or None, "label_method": "・".join(method) or None,
                "context": self.line(r, mark_box=target)}
+        if between_text:
+            out["text_before"] = between_text  # 前（左）の字と、あいだの欄（見出しにはしていない）
         if not shown and target.kind != "check":
             # すぐ後ろ（右。右から左のシートでは左）のマスの字（「金額｜［］｜円」の「円」）：そのまま示す（単位かどうかは決めない）
             nxt = [b for b in row if b.c1 > target.c2 and b.kind != "check"]

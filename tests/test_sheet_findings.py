@@ -216,11 +216,15 @@ def test_locked_label_cell_keeps_its_label(tmp_path):
     fields = {f["id"]: f for f in api.fields(str(src))}
     b5 = fields["申請!B5"]
     assert b5["label"] == "開始日" and b5["readonly"] and "パスワードが要る" in b5["protected"]
-    # 右の補助のセル（D5 の数式が使う）：見出しの見つからない欄にせず、前（左）の字をそのまま示し、あいだの欄（B5）を添える。
-    # その字がこの欄の見出しかどうかは、エージェントが判断する
-    assert fields["申請!C5"]["label"] == "開始日"
+    # 右の補助のセル（D5 の数式が使う）：前（左）の字「開始日」は、あいだの欄 B5 の見出しなので、この欄の見出しにしない
+    # （本人に「開始日：5」と伝えない）。前の字とあいだの欄は text_before に別に示す（エージェントが判断する）
+    assert not fields["申請!C5"]["label"] and fields["申請!C5"]["text_before"] == "開始日（あいだに欄 B5）"
     c5 = next(f for sh in api.window(str(src))[1]["sheets"] for f in sh["fields"] if f["cell"] == "C5")
-    assert c5["label_method"] == "左の字（あいだに欄 B5）"
+    assert "あいだの欄の見出し" in c5["label_method"]
+    # 入力欄 B2 の右の補助の値 C2 も、「氏名」を見出しにしない（書いた結果で「氏名：10」と伝えない）
+    assert not fields["申請!C2"]["label"] and fields["申請!B2"]["label"] == "氏名"
+    r = api.fill(str(src), {"申請!C2": 10}, str(tmp_path / "c2.xlsx"))
+    assert "氏名：10" not in r["say_to_user"], r["say_to_user"]
     _k, doc, parts = api.window(str(src))
     md = "\n".join(t for _n, t in parts)
     assert "開始日 ｜ ［B5：保護されたセル］ ｜ ［C5＝5］" in md
