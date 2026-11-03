@@ -1184,7 +1184,15 @@ class PageLayout:
         if legacy:
             self.flag("E", "字の符号が Unicode でない",
                       "Unicode 以前の書体（字の形を ASCII などの符号に割り当てたもの）で描いた字があります。窓の字は元の文字ではありません。"
-                      "その位置の字は view_page で画像を見て読みます", legacy)
+                      "その位置の字は view_page で画像を見て読みます（この書体は、知られた書体の名前で見分けました。名前を知らない"
+                      "書体は、見分けられないことがあります）", legacy)
+        maybe = self._maybe_legacy()
+        if maybe:
+            self.flag("B", "字の符号が Unicode でない書体かもしれない",
+                      "字の符号が Unicode でない書体かもしれない：書類の文字（ほかの字か、書類の言語 /Lang）はラテン文字でないのに、"
+                      "埋め込んだ書体の字が、ラテン文字（ASCII など）だけになっています。Unicode 以前の書体（字の形を ASCII の符号に"
+                      "割り当てたもの）なら、窓の字は元の文字ではありません。ふつうの欧文のこともあるので、その位置は view_page で"
+                      "画像を見て、窓の字と同じかを確かめる（とどくは書体の名前を知らないので、決めていません）", maybe)
         if pua:
             self.flag("B", "外字（私用の符号の字）",
                       "外字：中身は view_page で画像を見て確かめる（私用の符号 U+E000〜F8FF などは、書類ごとに字の形が決まり、"
@@ -1226,6 +1234,47 @@ class PageLayout:
         if bad:
             self.flag("C", "重ね書きとして1字にした字", "箱が重ならない字を、重ね書きとして1字にしました（読み落としのおそれ）",
                       [self.where(r[0], r[1], t) for t, _ov, r in bad])
+
+    def _maybe_legacy(self) -> list[str]:
+        """名前を知らない Unicode 以前の書体かもしれない書体：埋め込んだ書体（Type 3 を含む）で、このページで描いた字が
+        ラテン文字だけ（字が1つ以上）のもの。書類の文字がラテン文字でないこと（このページのほかの書体の字の文字の種類か、
+        Catalog の /Lang）が分かるときだけ。東アジアの文字（漢字・仮名・ハングル）の書類は含めない（fonts.LANG_SCRIPT）。
+        返すもの：書体ごとに、はじめの行の位置と書体の名前。"""
+        from .fonts import EAST_ASIAN, LANG_SCRIPT, letter_script
+
+        glyphs = self.pc.glyphs
+        by_font: dict[str, set] = {}
+        first: dict[str, Ch] = {}
+        embedded: dict[str, bool] = {}
+        for c in self.chars:
+            if c.legacy or c.invisible or not (0 <= c.seq < len(glyphs)):
+                continue
+            g = glyphs[c.seq]
+            fb = g.fontbase or g.font
+            for ch in c.text:
+                sc = letter_script(ch)
+                if sc:
+                    by_font.setdefault(fb, set()).add(sc)
+                    first.setdefault(fb, c)
+            embedded[fb] = embedded.get(fb, False) or g.embedded
+        others = {sc for scs in by_font.values() for sc in scs if sc != "LATIN"}
+        if any(sc.startswith(EAST_ASIAN) for sc in others):
+            return []
+        lang = self.doc.resolve(self.doc.root.get("Lang")) if hasattr(self.doc, "root") else None
+        from .objects import PdfString, decode_text
+
+        lang = decode_text(lang) if isinstance(lang, (bytes, PdfString)) else ""
+        want = LANG_SCRIPT.get(lang.split("-")[0].strip().lower(), "")
+        out = []
+        for fb, scs in by_font.items():
+            if scs != {"LATIN"} or not embedded.get(fb):
+                continue
+            if not (others or want):
+                continue
+            c = first[fb]
+            why = "ほかの字：" + "・".join(sorted(others)) if others else f"書類の言語 {lang}"
+            out.append(self.where(c.x0, c.y0, "") + f" 書体 {fb.split('+')[-1]}（{why}）")
+        return out
 
     def _circled(self) -> None:
         """○で囲む選択肢のうち、ページに描かれた楕円（線の曲線の外枠に内接する楕円）が、その字だけを囲んでいるもの：選んだ字。"""
