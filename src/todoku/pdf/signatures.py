@@ -107,8 +107,10 @@ def write_reasons(doc):
 
     try:
         s = read(doc)
-    except Exception:  # noqa: BLE001
-        return []
+    except Exception as e:  # noqa: BLE001  確かめられないものを「署名なし」にしない
+        return [Reason("C", "署名を確かめられない",
+                       f"電子署名と、署名が許す変更（DocMDP・FieldMDP）を読めませんでした（{type(e).__name__}: {str(e)[:60]}）。"
+                       "署名があれば、書き込みで署名が無効と表示されるかもしれません。書く前に、署名のある書類かを本人に確かめる")]
     if s.docmdp == 1:
         return [Reason("D", "変更を許さない電子署名", "認証の電子署名（DocMDP P=1）がされていて、どの書き込みも署名を無効にするので、書けません")]
     return []

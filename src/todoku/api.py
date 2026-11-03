@@ -571,8 +571,11 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             xl_back = _xrb.check(ods_after, readback_values)
             result["recalculated_cells"] = _xrb.recalculated(
                 ods_before, ods_after, [(i.rsplit("!", 1)[0], i.rsplit("!", 1)[1], v) for i, v in (result.get("recalculated") or {}).items()])
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001  確かめられなかったことを、黙らずに伝える
             xl_back = {}
+            result["recalculation_unchecked"] = (f"書いた後の表を読み直せず、見えている字と、数式の計算し直し（recalculated_cells）を"
+                                                 f"確かめられませんでした（{type(e).__name__}）。値の読み戻しは、セルの値だけで照らしました")
+            result["warnings"] = list(result.get("warnings") or []) + [result["recalculation_unchecked"]]
     if k in ("xlsx", "xls"):
         # 欄の一覧に出ないセル（番地で書いたセル）も、書いた後のブックのセルの値を直接読んで照らす
         from .book import open_book
@@ -595,14 +598,21 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             if cell_values or not circ:
                 result["recalculated_cells"] = _xrb.recalculated(
                     wb, wb_after, [(p.sheet, p.address, p.after) for p in res.patches if p.kind == "formula"])
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001  確かめられなかったことを、黙らずに伝える
+            result["recalculation_unchecked"] = (f"書いた後のブックを読み直せず、見えている字と、数式の計算し直し（recalculated_cells）を"
+                                                 f"確かめられませんでした（{type(e).__name__}）")
+            result["warnings"] = list(result.get("warnings") or []) + [result["recalculation_unchecked"]]
     if k == "pdf":
         readback_values.update({i: v for i, v in pdf_v.items() if i in readback_values})
     mismatch = []
+    # 読み戻しのしかた：書いた所の印を置けない形式（一太郎・Word 6.0/95・PowerPoint・.txt）は、証明の中で書いた後のファイルを
+    # 読み直して照らす（readback_values は空）。ほかは、書いた後のファイルの窓（after）で照らす
+    result["read_back_by"] = "proof" if told is not None else "window"
     for key, v in readback_values.items():
         g = after.get(key)
         if key not in after:
+            # 書いた所が、書いた後のファイルの窓に見つからない：照らせていないので、合ったことにしない
+            mismatch.append({"id": key, "written": v, "read_back": None, "why": "読み戻せなかった（書いた後のファイルに、この欄が見つかりません）"})
             continue
         if key in xl_back:
             ok = xl_back[key][0]

@@ -92,3 +92,104 @@ def test_unusual_option_lists_are_kept_as_agent_candidates_with_reason(inner, wh
     blob = glyphs_pdf([(ch, 40 + 12 * k, 700) for k, ch in enumerate(text)])
     circ = [f for f in window(blob)["pages"][0]["fields"] if f["kind"] == "circle"]
     assert circ and circ[0]["agent"] and why in circ[0]["why"], circ
+
+
+# ====================================================================== 黙って飲み込まない
+def test_signature_read_failure_is_a_write_C(monkeypatch):
+    from todoku.pdf import signatures
+    from todoku.pdf.doc import PdfDocument
+    from test_pdf_scripts import glyphs_pdf
+
+    def boom(_doc):
+        raise RuntimeError("broken")
+
+    monkeypatch.setattr(signatures, "read", boom)
+    r = signatures.write_reasons(PdfDocument(glyphs_pdf([("委", 40, 700)]), "t.pdf"))
+    assert r and r[0].grade == "C" and r[0].title == "署名を確かめられない"
+
+
+def test_unreadable_annotation_appearance_is_recorded_and_flagged(monkeypatch):
+    from todoku.pdf import content
+    from test_pdf_scripts import window
+
+    ap = pdfmini.stream("BT /F1 12 Tf 2 2 Td (x) Tj ET", "/Type /XObject /Subtype /Form /BBox [0 0 60 20]")
+    blob = pdfmini.build("", "<< >>", [ap, "<< /Type /Annot /Subtype /Stamp /Rect [100 700 160 720] /AP << /N 2 0 R >> >>"],
+                         annots="/Annots [3 0 R]")
+    orig = content.Interpreter.run_stream
+
+    def boom(self, data, res, *a, **k):
+        if b"(x)" in data:
+            raise RuntimeError("bad appearance")
+        return orig(self, data, res, *a, **k)
+
+    monkeypatch.setattr(content.Interpreter, "run_stream", boom)
+    pg = window(blob)["pages"][0]
+    assert pg["annotations"] and "RuntimeError" in pg["annotations"][0]["unread"]
+    fl = {f["title"]: f for f in pg["read_flags"]}
+    assert fl["見た目を読めない注釈"]["grade"] == "B" and "左 100" in fl["見た目を読めない注釈"]["where"][0]
+
+
+def test_view_page_tells_about_annotation_it_could_not_draw(monkeypatch):
+    from todoku.pdf import content
+    from todoku.pdf.doc import PdfDocument
+    from todoku.pdf.pageimage import view_page
+
+    ap = pdfmini.stream("q 10 0 0 10 0 0 cm /Im1 Do Q", "/Type /XObject /Subtype /Form /BBox [0 0 60 20]")
+    blob = pdfmini.build("", "<< >>", [ap, "<< /Type /Annot /Subtype /Stamp /Rect [100 700 160 720] /AP << /N 2 0 R >> >>"],
+                         annots="/Annots [3 0 R]")
+    orig = content.Interpreter.run_stream
+
+    def boom(self, data, res, *a, **k):
+        if b"/Im1" in data:
+            raise RuntimeError("bad")
+        return orig(self, data, res, *a, **k)
+
+    monkeypatch.setattr(content.Interpreter, "run_stream", boom)
+    v = view_page(PdfDocument(blob, "t.pdf"), 1, max_side=200)
+    assert "見た目を描けなかった注釈" in v["text"] and "Stamp" in v["text"]
+
+
+def test_written_id_missing_after_re_read_is_not_read_back_ok(monkeypatch, tmp_path):
+    from todoku import api
+
+    src = tmp_path / "a.csv"
+    src.write_bytes("名前,年\n,\n".encode("utf-8"))
+    out = tmp_path / "b.csv"
+    orig = api.fields
+
+    def drop(*a, **k):  # 書いた後のファイルの窓から、書いた欄が消えたことにする
+        r = orig(*a, **k)
+        return [f for f in r if not str(a[0]).endswith(".todoku-tmp.csv") or f["id"] != "R2.C1"]
+
+    monkeypatch.setattr(api, "fields", drop)
+    monkeypatch.setattr(api._open, "read_back", lambda *a, **k: {})
+    r = api.fill(str(src), {"R2.C1": "山田"}, str(out))
+    assert r["read_back_by"] == "window"
+    assert not r["read_back_ok"] and any("読み戻せなかった" in d.get("why", "") for d in r["read_back_differences"])
+
+
+def test_proof_read_back_formats_are_marked(tmp_path):
+    from todoku import api
+
+    src = tmp_path / "a.txt"
+    src.write_bytes("氏名：\r\n".encode("cp932"))
+    fl = api.fields(str(src))
+    r = api.fill(str(src), {fl[0]["id"]: "山田"}, str(tmp_path / "b.txt"))
+    assert r["read_back_by"] == "proof" and r["read_back_ok"]
+
+
+def test_ods_recalculation_that_cannot_be_checked_is_told(monkeypatch, tmp_path):
+    from test_openformats import SHEET, make_ods
+    from todoku import api
+    from todoku.xlsx import readback
+
+    src = tmp_path / "a.ods"
+    src.write_bytes(make_ods(SHEET))
+
+    def broken(*_a, **_k):
+        raise RuntimeError("broken")
+
+    monkeypatch.setattr(readback, "check", broken)
+    r = api.fill(str(src), {"Sheet1!B1": "山田"}, str(tmp_path / "b.ods"))
+    assert "確かめられませんでした" in r["recalculation_unchecked"]
+    assert any("計算し直し" in w for w in r["warnings"])
