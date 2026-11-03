@@ -55,7 +55,14 @@
    "other_document_mimes": {
     "application/pdf": 556
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "AL": {
    "name": "アルバニア",
@@ -111,7 +118,14 @@
    "other_document_mimes": {
     "application/pdf": 4727
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "DZ": {
    "name": "アルジェリア",
@@ -167,7 +181,14 @@
    "other_document_mimes": {
     "application/pdf": 189
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "AD": {
    "name": "アンドラ",
@@ -239,7 +260,14 @@
    "other_document_mimes": {
     "application/pdf": 176
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "AG": {
    "name": "アンティグア・バーブーダ",
@@ -287,18 +315,30 @@
      "truncated_in_pool": 140
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 152,
+     "pool": 56,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "core": 56
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 74,
+      "edge": 2
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 54,
+     "pool": 20,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "core": 20
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 74,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 21,
@@ -319,7 +359,14 @@
     "application/illustrator": 1,
     "application/vnd.ms-powerpoint": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 45,
+     "edge": 1
+    },
+    "stop": "enough"
+   }
   },
   "AM": {
    "name": "アルメニア",
@@ -367,23 +414,31 @@
      "truncated_in_pool": 447
     },
     "sheet": {
-     "frame": 162,
-     "pool": 14,
+     "frame": 98,
+     "pool": 20,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 14
+      "core": 20
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 71,
+      "edge": 1
+     }
     },
     "text": {
-     "frame": 2900,
-     "pool": 254,
+     "frame": 305,
+     "pool": 63,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 250,
-      "edge": 4
+      "core": 62,
+      "edge": 1
      },
-     "truncated_in_pool": 6
+     "truncated_in_pool": 1,
+     "blocks_read": {
+      "core": 71,
+      "edge": 1
+     }
     },
     "csv": {
      "frame": 174,
@@ -405,7 +460,13 @@
     "application/rtf": 1,
     "application/vnd.ms-excel": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 41
+    },
+    "stop": "enough"
+   }
   },
   "AT": {
    "name": "オーストリア",
@@ -437,22 +498,31 @@
      "truncated_in_pool": 333
     },
     "sheet": {
-     "frame": 20,
-     "pool": 5,
+     "frame": 21,
+     "pool": 20,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 5
+      "core": 20
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 115,
+      "edge": 2
+     }
     },
     "text": {
-     "frame": 106,
-     "pool": 26,
+     "frame": 80,
+     "pool": 76,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 26
+      "core": 73,
+      "edge": 3
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 115,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 0,
@@ -471,7 +541,14 @@
     "application/vnd.ms-excel": 2,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.template": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 85,
+     "edge": 1
+    },
+    "stop": "enough"
+   }
   },
   "AZ": {
    "name": "アゼルバイジャン",
@@ -530,7 +607,14 @@
     "application/pdf": 1361,
     "application/illustrator": 19
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BS": {
    "name": "バハマ",
@@ -584,7 +668,14 @@
    "other_document_mimes": {
     "application/pdf": 301
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BH": {
    "name": "バーレーン",
@@ -638,7 +729,14 @@
    "other_document_mimes": {
     "application/pdf": 14
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BD": {
    "name": "バングラデシュ",
@@ -671,21 +769,29 @@
     },
     "sheet": {
      "frame": 5,
-     "pool": 4,
-     "exact": false,
+     "pool": 5,
+     "exact": true,
      "pool_by_block_stratum": {
-      "core": 4
+      "core": 5
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 36,
+      "edge": 2
+     }
     },
     "text": {
-     "frame": 8,
+     "frame": 6,
      "pool": 6,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "core": 6
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 36,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 0,
@@ -701,7 +807,13 @@
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 4,
     "application/x-bibtex-text-file": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 8
+    },
+    "stop": "exhausted"
+   }
   },
   "BB": {
    "name": "バルバドス",
@@ -755,7 +867,14 @@
    "other_document_mimes": {
     "application/pdf": 111
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BY": {
    "name": "ベラルーシ",
@@ -789,18 +908,26 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 38,
+      "edge": 2
+     }
     },
     "text": {
-     "frame": 22,
-     "pool": 16,
-     "exact": false,
+     "frame": 18,
+     "pool": 18,
+     "exact": true,
      "pool_by_block_stratum": {
-      "core": 16
+      "core": 18
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 38,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 0,
@@ -815,7 +942,13 @@
     "application/msword": 9,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 6
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 10
+    },
+    "stop": "exhausted"
+   }
   },
   "BE": {
    "name": "ベルギー",
@@ -884,7 +1017,14 @@
     "application/octet-stream": 2,
     "application/vnd.ms-excel.sheet.macroenabled.12": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BZ": {
    "name": "ベリーズ",
@@ -938,7 +1078,14 @@
    "other_document_mimes": {
     "application/pdf": 9
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BJ": {
    "name": "ベナン",
@@ -1017,7 +1164,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BO": {
    "name": "ボリビア",
@@ -1080,7 +1234,14 @@
     "application/vnd.oasis.opendocument.spreadsheet": 1,
     "application/vnd.ms-excel": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BA": {
    "name": "ボスニア・ヘルツェゴビナ",
@@ -1147,7 +1308,14 @@
     "application/x-tika-msoffice": 1,
     "application/x-x509-cert; format=der": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BW": {
    "name": "ボツワナ",
@@ -1201,7 +1369,14 @@
    "other_document_mimes": {
     "application/pdf": 60
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BR": {
    "name": "ブラジル",
@@ -1232,22 +1407,30 @@
      "truncated_in_pool": 321
     },
     "sheet": {
-     "frame": 162,
-     "pool": 6,
+     "frame": 532,
+     "pool": 23,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 6
+      "core": 23
      },
-     "truncated_in_pool": 1
+     "truncated_in_pool": 2,
+     "blocks_read": {
+      "core": 35,
+      "edge": 1
+     }
     },
     "text": {
-     "frame": 216,
-     "pool": 8,
+     "frame": 485,
+     "pool": 21,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 8
+      "core": 21
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 35,
+      "edge": 1
+     }
     },
     "csv": {
      "frame": 297,
@@ -1269,7 +1452,13 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 3,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 5
+    },
+    "stop": "enough"
+   }
   },
   "BN": {
    "name": "ブルネイ",
@@ -1326,7 +1515,14 @@
     "application/pdf": 1453,
     "application/octet-stream": 36
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BG": {
    "name": "ブルガリア",
@@ -1398,7 +1594,14 @@
    "other_document_mimes": {
     "application/pdf": 129
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BI": {
    "name": "ブルンジ",
@@ -1486,7 +1689,14 @@
    "other_document_mimes": {
     "application/pdf": 850
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CM": {
    "name": "カメルーン",
@@ -1542,7 +1752,14 @@
    "other_document_mimes": {
     "application/pdf": 492
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CA": {
    "name": "カナダ",
@@ -1574,22 +1791,30 @@
      "truncated_in_pool": 73
     },
     "sheet": {
-     "frame": 69,
-     "pool": 14,
+     "frame": 37,
+     "pool": 30,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 14
+      "core": 30
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 2,
+     "blocks_read": {
+      "core": 117,
+      "edge": 3
+     }
     },
     "text": {
-     "frame": 10,
-     "pool": 2,
+     "frame": 13,
+     "pool": 11,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 2
+      "core": 11
      },
-     "truncated_in_pool": 1
+     "truncated_in_pool": 3,
+     "blocks_read": {
+      "core": 117,
+      "edge": 3
+     }
     },
     "csv": {
      "frame": 0,
@@ -1608,7 +1833,14 @@
     "application/x-beyond2020": 2,
     "application/x-sh": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 88,
+     "edge": 2
+    },
+    "stop": "cap"
+   }
   },
   "CF": {
    "name": "中央アフリカ",
@@ -1707,7 +1939,14 @@
     "application/x-stata-dta; version=14": 2,
     "application/x-spss-sav": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "CN": {
    "name": "中国",
@@ -1773,7 +2012,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 7,
     "application/octet-stream": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "CO": {
    "name": "コロンビア",
@@ -1842,7 +2088,14 @@
     "application/vnd.oasis.opendocument.text": 4,
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": 3
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "KM": {
    "name": "コモロ",
@@ -1896,7 +2149,14 @@
    "other_document_mimes": {
     "application/pdf": 19
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CG": {
    "name": "コンゴ共和国",
@@ -1981,7 +2241,14 @@
     "application/vnd.oasis.opendocument.spreadsheet": 15,
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": 11
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "CI": {
    "name": "コートジボワール",
@@ -2037,7 +2304,14 @@
    "other_document_mimes": {
     "application/pdf": 279
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "HR": {
    "name": "クロアチア",
@@ -2109,7 +2383,14 @@
    "other_document_mimes": {
     "application/pdf": 285
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CY": {
    "name": "キプロス",
@@ -2175,7 +2456,14 @@
     "application/vnd.google-earth.kmz": 1,
     "application/msword": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CZ": {
    "name": "チェコ",
@@ -2245,7 +2533,14 @@
     "application/msword": 15,
     "application/data": 13
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "KP": {
    "name": "北朝鮮",
@@ -2295,7 +2590,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CD": {
    "name": "コンゴ民主共和国",
@@ -2343,7 +2645,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "DK": {
    "name": "デンマーク",
@@ -2429,7 +2738,14 @@
    "other_document_mimes": {
     "application/pdf": 165
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "DO": {
    "name": "ドミニカ共和国",
@@ -2499,7 +2815,14 @@
     "application/vnd.ms-spreadsheetml": 2,
     "application/octet-stream": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "EC": {
    "name": "エクアドル",
@@ -2568,7 +2891,14 @@
     "application/vnd.ms-excel": 6,
     "application/octet-stream": 6
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "EG": {
    "name": "エジプト",
@@ -2624,7 +2954,14 @@
    "other_document_mimes": {
     "application/pdf": 610
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SV": {
    "name": "エルサルバドル",
@@ -2690,7 +3027,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 2,
     "application/x-x509-cert; format=der": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GQ": {
    "name": "赤道ギニア",
@@ -2772,7 +3116,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SZ": {
    "name": "エスワティニ",
@@ -2845,7 +3196,14 @@
     "application/pdf": 392,
     "application/x-stata-dta; version=14": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "FJ": {
    "name": "フィジー",
@@ -2901,7 +3259,14 @@
    "other_document_mimes": {
     "application/pdf": 205
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "FI": {
    "name": "フィンランド",
@@ -2985,7 +3350,14 @@
     "application/vnd.oasis.opendocument.spreadsheet": 3,
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "GA": {
    "name": "ガボン",
@@ -3083,7 +3455,14 @@
     "application/vnd.ms-excel.sheet.macroenabled.12": 1,
     "application/octet-stream": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "DE": {
    "name": "ドイツ",
@@ -3143,7 +3522,14 @@
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 7,
     "application/x-sqlite3": 3
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GH": {
    "name": "ガーナ",
@@ -3210,7 +3596,14 @@
     "application/epub+zip": 1,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GR": {
    "name": "ギリシャ",
@@ -3241,22 +3634,30 @@
      "truncated_in_pool": 170
     },
     "sheet": {
-     "frame": 115,
-     "pool": 62,
+     "frame": 90,
+     "pool": 50,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 62
+      "core": 50
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 30,
+      "edge": 1
+     }
     },
     "text": {
-     "frame": 35,
-     "pool": 19,
+     "frame": 38,
+     "pool": 21,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 19
+      "core": 21
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 30,
+      "edge": 1
+     }
     },
     "csv": {
      "frame": 179,
@@ -3278,7 +3679,13 @@
     "application/vnd.google-earth.kmz": 3,
     "application/ocsp-response": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 1
+    },
+    "stop": "enough"
+   }
   },
   "GD": {
    "name": "グレナダ",
@@ -3332,7 +3739,14 @@
    "other_document_mimes": {
     "application/pdf": 3
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GT": {
    "name": "グアテマラ",
@@ -3399,7 +3813,14 @@
     "application/vnd.oasis.opendocument.spreadsheet": 11,
     "application/x-tika-msoffice": 8
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "GN": {
    "name": "ギニア",
@@ -3456,7 +3877,14 @@
     "application/pdf": 268,
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": 6
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GW": {
    "name": "ギニアビサウ",
@@ -3528,7 +3956,14 @@
    "other_document_mimes": {
     "application/pdf": 137
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "HT": {
    "name": "ハイチ",
@@ -3585,7 +4020,14 @@
     "application/pdf": 243,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "HN": {
    "name": "ホンジュラス",
@@ -3648,7 +4090,14 @@
     "application/x-tika-msoffice": 7,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "HU": {
    "name": "ハンガリー",
@@ -3711,20 +4160,30 @@
      "truncated_in_pool": 638
     },
     "sheet": {
-     "frame": 8,
-     "pool": 1,
+     "frame": 4,
+     "pool": 2,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 1
+      "core": 2
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 118,
+      "edge": 2
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 4,
+     "pool": 2,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "core": 2
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 118,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 0,
@@ -3739,7 +4198,14 @@
     "application/octet-stream": 76,
     "application/vnd.ms-excel.sheet.macroenabled.12": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 89,
+     "edge": 1
+    },
+    "stop": "cap"
+   }
   },
   "ID": {
    "name": "インドネシア",
@@ -3771,20 +4237,30 @@
      "truncated_in_pool": 220
     },
     "sheet": {
-     "frame": 50,
-     "pool": 6,
+     "frame": 305,
+     "pool": 146,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 6
+      "core": 146
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 120,
+      "edge": 1
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 23,
+     "pool": 11,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "core": 11
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 120,
+      "edge": 1
+     }
     },
     "csv": {
      "frame": 0,
@@ -3803,7 +4279,13 @@
     "application/vnd.ms-excel": 2,
     "application/proses": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 90
+    },
+    "stop": "cap"
+   }
   },
   "IR": {
    "name": "イラン",
@@ -3865,7 +4347,14 @@
     "application/octet-stream": 7,
     "application/vnd.ms-excel": 6
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "IQ": {
    "name": "イラク",
@@ -3922,7 +4411,14 @@
     "application/pdf": 265,
     "application/x-bibtex-text-file": 55
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "IE": {
    "name": "アイルランド",
@@ -3983,7 +4479,14 @@
     "application/octet-stream": 1,
     "application/vnd.google-earth.kmz": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "IL": {
    "name": "イスラエル",
@@ -4046,7 +4549,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1,
     "application/octet-stream": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "IT": {
    "name": "イタリア",
@@ -4115,7 +4625,14 @@
     "application/vnd.ms-excel": 5,
     "application/vnd.oasis.opendocument.spreadsheet": 3
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "JM": {
    "name": "ジャマイカ",
@@ -4163,22 +4680,30 @@
      "truncated_in_pool": 638
     },
     "sheet": {
-     "frame": 28,
-     "pool": 1,
+     "frame": 253,
+     "pool": 36,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 1
+      "core": 36
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 118,
+      "edge": 2
+     }
     },
     "text": {
-     "frame": 55,
-     "pool": 2,
+     "frame": 155,
+     "pool": 22,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 2
+      "core": 22
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 118,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 0,
@@ -4197,7 +4722,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1,
     "application/msword": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 88,
+     "edge": 1
+    },
+    "stop": "enough"
+   }
   },
   "JO": {
    "name": "ヨルダン",
@@ -4253,7 +4785,14 @@
    "other_document_mimes": {
     "application/pdf": 3717
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KZ": {
    "name": "カザフスタン",
@@ -4320,7 +4859,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 10,
     "application/pkcs7-signature": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "KE": {
    "name": "ケニア",
@@ -4388,7 +4934,14 @@
     "application/vnd.ms-powerpoint.presentation.macroenabled.12": 1,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KI": {
    "name": "キリバス",
@@ -4443,7 +4996,14 @@
     "application/pdf": 167,
     "application/x-tika-msoffice": 5
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KW": {
    "name": "クウェート",
@@ -4503,7 +5063,14 @@
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 13,
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": 7
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KG": {
    "name": "キルギス",
@@ -4567,7 +5134,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 2,
     "application/msword": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LA": {
    "name": "ラオス",
@@ -4629,7 +5203,14 @@
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 2,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LV": {
    "name": "ラトビア",
@@ -4698,7 +5279,14 @@
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": 6,
     "application/x-geopackage": 4
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "LB": {
    "name": "レバノン",
@@ -4754,7 +5342,14 @@
    "other_document_mimes": {
     "application/pdf": 1115
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LS": {
    "name": "レソト",
@@ -4808,7 +5403,14 @@
    "other_document_mimes": {
     "application/pdf": 30
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LR": {
    "name": "リベリア",
@@ -4864,7 +5466,14 @@
    "other_document_mimes": {
     "application/pdf": 269
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LY": {
    "name": "リビア",
@@ -4920,7 +5529,14 @@
    "other_document_mimes": {
     "application/pdf": 251
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LI": {
    "name": "リヒテンシュタイン",
@@ -4990,7 +5606,14 @@
    "other_document_mimes": {
     "application/pdf": 82
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LU": {
    "name": "ルクセンブルク",
@@ -5062,7 +5685,14 @@
    "other_document_mimes": {
     "application/pdf": 424
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MW": {
    "name": "マラウイ",
@@ -5116,7 +5746,14 @@
    "other_document_mimes": {
     "application/pdf": 130
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MY": {
    "name": "マレーシア",
@@ -5148,22 +5785,30 @@
      "truncated_in_pool": 263
     },
     "sheet": {
-     "frame": 229,
-     "pool": 81,
+     "frame": 138,
+     "pool": 52,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 81
+      "core": 52
      },
-     "truncated_in_pool": 2
+     "truncated_in_pool": 2,
+     "blocks_read": {
+      "core": 31,
+      "edge": 1
+     }
     },
     "text": {
-     "frame": 17,
-     "pool": 6,
+     "frame": 66,
+     "pool": 25,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 6
+      "core": 25
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 31,
+      "edge": 1
+     }
     },
     "csv": {
      "frame": 14,
@@ -5185,7 +5830,13 @@
     "application/x-bibtex-text-file": 3,
     "application/octet-stream": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 2
+    },
+    "stop": "enough"
+   }
   },
   "MV": {
    "name": "モルディブ",
@@ -5247,7 +5898,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 10,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 6
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ML": {
    "name": "マリ",
@@ -5301,7 +5959,14 @@
    "other_document_mimes": {
     "application/pdf": 49
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MT": {
    "name": "マルタ",
@@ -5390,7 +6055,14 @@
     "application/pdf": 139,
     "application/illustrator": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MU": {
    "name": "モーリシャス",
@@ -5440,7 +6112,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MX": {
    "name": "メキシコ",
@@ -5472,23 +6151,31 @@
      "truncated_in_pool": 2166
     },
     "sheet": {
-     "frame": 131,
+     "frame": 121,
      "pool": 30,
      "exact": false,
      "pool_by_block_stratum": {
       "core": 20,
       "edge": 10
      },
-     "truncated_in_pool": 2
+     "truncated_in_pool": 2,
+     "blocks_read": {
+      "core": 33,
+      "edge": 1
+     }
     },
     "text": {
-     "frame": 89,
-     "pool": 16,
+     "frame": 294,
+     "pool": 58,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 16
+      "core": 58
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 3,
+     "blocks_read": {
+      "core": 33,
+      "edge": 1
+     }
     },
     "csv": {
      "frame": 28,
@@ -5510,7 +6197,13 @@
     "application/vnd.ms-excel.sheet.macroenabled.12": 5,
     "application/x-bibtex-text-file": 4
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 3
+    },
+    "stop": "enough"
+   }
   },
   "FM": {
    "name": "ミクロネシア連邦",
@@ -5617,7 +6310,14 @@
     "application/x-x509-cert; format=der": 1,
     "application/x-sh": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ME": {
    "name": "モンテネグロ",
@@ -5682,7 +6382,14 @@
     "application/rtf": 1,
     "application/x-x509-cert; format=pem": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "MA": {
    "name": "モロッコ",
@@ -5738,7 +6445,14 @@
    "other_document_mimes": {
     "application/pdf": 2218
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MZ": {
    "name": "モザンビーク",
@@ -5798,7 +6512,14 @@
     "application/vnd.ms-excel": 1,
     "application/octet-stream": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MM": {
    "name": "ミャンマー",
@@ -5868,7 +6589,14 @@
    "other_document_mimes": {
     "application/pdf": 150
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "NR": {
    "name": "ナウル",
@@ -5922,7 +6650,14 @@
    "other_document_mimes": {
     "application/pdf": 214
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "NP": {
    "name": "ネパール",
@@ -5986,24 +6721,32 @@
      "truncated_in_pool": 418
     },
     "sheet": {
-     "frame": 24,
-     "pool": 9,
-     "exact": false,
+     "frame": 15,
+     "pool": 15,
+     "exact": true,
      "pool_by_block_stratum": {
-      "core": 4,
-      "edge": 5
+      "edge": 5,
+      "core": 10
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 98,
+      "edge": 2
+     }
     },
     "text": {
-     "frame": 13,
+     "frame": 5,
      "pool": 5,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "core": 2,
       "edge": 3
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 98,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 297,
@@ -6025,7 +6768,14 @@
     "application/vnd.ms-excel.sheet.macroenabled.12": 1,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.template": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 69,
+     "edge": 1
+    },
+    "stop": "exhausted"
+   }
   },
   "NI": {
    "name": "ニカラグア",
@@ -6083,7 +6833,14 @@
    "other_document_mimes": {
     "application/pdf": 532
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "NE": {
    "name": "ニジェール",
@@ -6166,7 +6923,14 @@
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": 2,
     "application/msword": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MK": {
    "name": "北マケドニア",
@@ -6233,7 +6997,14 @@
     "application/vnd.oasis.opendocument.text": 1,
     "application/vnd.ms-excel.sheet.macroenabled.12": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "NO": {
    "name": "ノルウェー",
@@ -6309,7 +7080,14 @@
     "application/vnd.ms-excel": 3,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "PK": {
    "name": "パキスタン",
@@ -6374,7 +7152,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1,
     "application/x-x509-cert; format=der": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "PW": {
    "name": "パラオ",
@@ -6428,7 +7213,14 @@
    "other_document_mimes": {
     "application/pdf": 30
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "PA": {
    "name": "パナマ",
@@ -6490,7 +7282,14 @@
     "application/vnd.ms-spreadsheetml": 1,
     "application/x-iso9660-image": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "PG": {
    "name": "パプアニューギニア",
@@ -6575,7 +7374,14 @@
     "application/x-tika-msoffice": 2,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "PE": {
    "name": "ペルー",
@@ -6606,22 +7412,30 @@
      "truncated_in_pool": 813
     },
     "sheet": {
-     "frame": 14,
+     "frame": 15,
+     "pool": 15,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 15
+     },
+     "truncated_in_pool": 2,
+     "blocks_read": {
+      "core": 80,
+      "edge": 2
+     }
+    },
+    "text": {
+     "frame": 5,
      "pool": 5,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "core": 5
      },
-     "truncated_in_pool": 0
-    },
-    "text": {
-     "frame": 3,
-     "pool": 1,
-     "exact": false,
-     "pool_by_block_stratum": {
-      "core": 1
-     },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 80,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 0,
@@ -6640,7 +7454,14 @@
     "application/octet-stream": 2,
     "application/vnd.google-earth.kmz": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 51,
+     "edge": 1
+    },
+    "stop": "exhausted"
+   }
   },
   "PH": {
    "name": "フィリピン",
@@ -6672,20 +7493,30 @@
      "truncated_in_pool": 258
     },
     "sheet": {
-     "frame": 8,
-     "pool": 3,
+     "frame": 27,
+     "pool": 23,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 3
+      "core": 23
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 67,
+      "edge": 1
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 33,
+     "pool": 28,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "core": 28
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 67,
+      "edge": 1
+     }
     },
     "csv": {
      "frame": 0,
@@ -6700,7 +7531,13 @@
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 2,
     "application/vnd.oasis.opendocument.spreadsheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 38
+    },
+    "stop": "enough"
+   }
   },
   "PL": {
    "name": "ポーランド",
@@ -6767,7 +7604,14 @@
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 11,
     "application/illustrator": 8
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "PT": {
    "name": "ポルトガル",
@@ -6834,7 +7678,14 @@
     "application/msword": 2,
     "application/postscript": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "QA": {
    "name": "カタール",
@@ -6890,7 +7741,14 @@
    "other_document_mimes": {
     "application/pdf": 496
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KR": {
    "name": "韓国",
@@ -6922,22 +7780,30 @@
      "truncated_in_pool": 378
     },
     "sheet": {
-     "frame": 44,
-     "pool": 4,
+     "frame": 208,
+     "pool": 75,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 4
+      "core": 75
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 118,
+      "edge": 3
+     }
     },
     "text": {
-     "frame": 11,
-     "pool": 1,
+     "frame": 6,
+     "pool": 2,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 1
+      "core": 2
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 118,
+      "edge": 3
+     }
     },
     "csv": {
      "frame": 0,
@@ -6957,7 +7823,14 @@
     "application/msword": 2,
     "application/octet-stream": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 88,
+     "edge": 2
+    },
+    "stop": "cap"
+   }
   },
   "RO": {
    "name": "ルーマニア",
@@ -7051,7 +7924,14 @@
     "application/msword": 6,
     "application/marc": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KN": {
    "name": "セントクリストファー・ネービス",
@@ -7107,7 +7987,14 @@
    "other_document_mimes": {
     "application/pdf": 90
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LC": {
    "name": "セントルシア",
@@ -7161,7 +8048,14 @@
    "other_document_mimes": {
     "application/pdf": 13
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "VC": {
    "name": "セントビンセント及びグレナディーン諸島",
@@ -7215,7 +8109,14 @@
    "other_document_mimes": {
     "application/pdf": 120
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "WS": {
    "name": "サモア",
@@ -7269,7 +8170,14 @@
    "other_document_mimes": {
     "application/pdf": 196
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SM": {
    "name": "サンマリノ",
@@ -7335,18 +8243,26 @@
     "sheet": {
      "frame": 8,
      "pool": 8,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "core": 8
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 29,
+      "edge": 2
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 29,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 0,
@@ -7360,7 +8276,13 @@
     "application/pdf": 1417,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 8
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 1
+    },
+    "stop": "exhausted"
+   }
   },
   "SN": {
    "name": "セネガル",
@@ -7416,7 +8338,14 @@
    "other_document_mimes": {
     "application/pdf": 267
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "RS": {
    "name": "セルビア",
@@ -7487,7 +8416,14 @@
     "application/msword": 3,
     "application/octet-stream": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "SC": {
    "name": "セーシェル",
@@ -7543,7 +8479,14 @@
    "other_document_mimes": {
     "application/pdf": 86
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SL": {
    "name": "シエラレオネ",
@@ -7602,7 +8545,14 @@
     "application/pdf": 200,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SG": {
    "name": "シンガポール",
@@ -7662,7 +8612,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 3,
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SK": {
    "name": "スロバキア",
@@ -7750,7 +8707,14 @@
    "other_document_mimes": {
     "application/pdf": 37
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SO": {
    "name": "ソマリア",
@@ -7806,7 +8770,14 @@
    "other_document_mimes": {
     "application/pdf": 93
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ZA": {
    "name": "南アフリカ",
@@ -7838,22 +8809,30 @@
      "truncated_in_pool": 1182
     },
     "sheet": {
-     "frame": 12,
-     "pool": 10,
+     "frame": 31,
+     "pool": 29,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 10
+      "core": 29
      },
-     "truncated_in_pool": 2
+     "truncated_in_pool": 4,
+     "blocks_read": {
+      "core": 31,
+      "edge": 2
+     }
     },
     "text": {
-     "frame": 75,
-     "pool": 64,
+     "frame": 57,
+     "pool": 54,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 64
+      "core": 54
      },
-     "truncated_in_pool": 5
+     "truncated_in_pool": 3,
+     "blocks_read": {
+      "core": 31,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 0,
@@ -7873,7 +8852,13 @@
     "application/x-tika-msoffice": 3,
     "application/vnd.oasis.opendocument.spreadsheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 3
+    },
+    "stop": "enough"
+   }
   },
   "SS": {
    "name": "南スーダン",
@@ -7927,7 +8912,14 @@
    "other_document_mimes": {
     "application/pdf": 57
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ES": {
    "name": "スペイン",
@@ -7959,20 +8951,30 @@
      "truncated_in_pool": 117
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "frame": 21,
+     "pool": 21,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 21
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 74,
+      "edge": 2
+     }
     },
     "text": {
-     "frame": 3,
-     "pool": 1,
-     "exact": false,
+     "frame": 7,
+     "pool": 7,
+     "exact": true,
      "pool_by_block_stratum": {
-      "core": 1
+      "core": 7
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 74,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 8,
@@ -7990,7 +8992,14 @@
     "application/vnd.oasis.opendocument.text": 1,
     "application/x-x509-cert; format=der": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 45,
+     "edge": 1
+    },
+    "stop": "exhausted"
+   }
   },
   "LK": {
    "name": "スリランカ",
@@ -8059,7 +9068,14 @@
     "application/msword": 1,
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SD": {
    "name": "スーダン",
@@ -8115,7 +9131,14 @@
    "other_document_mimes": {
     "application/pdf": 276
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SR": {
    "name": "スリナム",
@@ -8179,20 +9202,30 @@
      "truncated_in_pool": 247
     },
     "sheet": {
-     "frame": 113,
-     "pool": 46,
+     "frame": 84,
+     "pool": 53,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 46
+      "core": 53
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 45,
+      "edge": 2
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 35,
+     "pool": 22,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "core": 22
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 45,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 10,
@@ -8211,7 +9244,14 @@
     "application/x-x509-cert; format=der": 2,
     "application/x-geopackage": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 16,
+     "edge": 1
+    },
+    "stop": "enough"
+   }
   },
   "SY": {
    "name": "シリア",
@@ -8267,7 +9307,14 @@
    "other_document_mimes": {
     "application/pdf": 264
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TJ": {
    "name": "タジキスタン",
@@ -8321,7 +9368,14 @@
    "other_document_mimes": {
     "application/pdf": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TH": {
    "name": "タイ",
@@ -8353,20 +9407,28 @@
      "truncated_in_pool": 373
     },
     "sheet": {
-     "frame": 21,
-     "pool": 3,
+     "frame": 183,
+     "pool": 105,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 3
+      "core": 105
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 119,
+      "edge": 2
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
      "exact": false,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 119,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 0,
@@ -8385,7 +9447,14 @@
     "application/vnd.lotus-organizer": 1,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 89,
+     "edge": 1
+    },
+    "stop": "cap"
+   }
   },
   "TL": {
    "name": "東ティモール",
@@ -8441,7 +9510,14 @@
    "other_document_mimes": {
     "application/pdf": 341
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TG": {
    "name": "トーゴ",
@@ -8511,7 +9587,14 @@
    "other_document_mimes": {
     "application/pdf": 208
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TT": {
    "name": "トリニダード・トバゴ",
@@ -8569,7 +9652,14 @@
     "application/vnd.openxmlformats-officedocument.presentationml.slideshow": 4,
     "application/vnd.ms-xpsdocument": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TN": {
    "name": "チュニジア",
@@ -8625,7 +9715,14 @@
    "other_document_mimes": {
     "application/pdf": 1133
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TR": {
    "name": "トルコ",
@@ -8656,20 +9753,30 @@
      "truncated_in_pool": 306
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
-    },
-    "text": {
-     "frame": 4,
-     "pool": 1,
+     "frame": 31,
+     "pool": 30,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 1
+      "core": 30
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 104,
+      "edge": 2
+     }
+    },
+    "text": {
+     "frame": 26,
+     "pool": 26,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 26
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 104,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 0,
@@ -8686,7 +9793,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1,
     "application/x-tika-msoffice": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 75,
+     "edge": 1
+    },
+    "stop": "enough"
+   }
   },
   "TM": {
    "name": "トルクメニスタン",
@@ -8741,7 +9855,14 @@
    "other_document_mimes": {
     "application/pdf": 128
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TV": {
    "name": "ツバル",
@@ -8823,7 +9944,14 @@
     "application/x-sh": 1,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "UA": {
    "name": "ウクライナ",
@@ -8889,7 +10017,14 @@
     "application/msword": 1,
     "application/x-tika-msoffice": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "AE": {
    "name": "アラブ首長国連邦",
@@ -8955,7 +10090,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 10,
     "application/msword": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GB": {
    "name": "英国",
@@ -9024,7 +10166,14 @@
     "application/vnd.oasis.opendocument.spreadsheet": 4,
     "application/vnd.ms-excel.sheet.macroenabled.12": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "TZ": {
    "name": "タンザニア",
@@ -9080,7 +10229,14 @@
    "other_document_mimes": {
     "application/pdf": 3102
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "US": {
    "name": "米国",
@@ -9112,22 +10268,30 @@
      "truncated_in_pool": 338
     },
     "sheet": {
-     "frame": 1538,
-     "pool": 13,
+     "frame": 1183,
+     "pool": 25,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 13
+      "core": 25
      },
-     "truncated_in_pool": 1
+     "truncated_in_pool": 1,
+     "blocks_read": {
+      "core": 75,
+      "edge": 1
+     }
     },
     "text": {
-     "frame": 118,
-     "pool": 1,
+     "frame": 3739,
+     "pool": 79,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 1
+      "core": 79
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 8,
+     "blocks_read": {
+      "core": 75,
+      "edge": 1
+     }
     },
     "csv": {
      "frame": 118,
@@ -9148,7 +10312,13 @@
     "application/x-sas-data": 1,
     "application/msword": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 45
+    },
+    "stop": "enough"
+   }
   },
   "UY": {
    "name": "ウルグアイ",
@@ -9180,23 +10350,31 @@
      "truncated_in_pool": 226
     },
     "sheet": {
-     "frame": 142,
-     "pool": 136,
+     "frame": 52,
+     "pool": 50,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 22,
-      "edge": 114
+      "edge": 41,
+      "core": 9
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 29,
+      "edge": 2
+     }
     },
     "text": {
-     "frame": 12,
-     "pool": 10,
+     "frame": 34,
+     "pool": 28,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 10
+      "core": 28
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 29,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 60,
@@ -9218,7 +10396,13 @@
     "application/vnd.ms-excel.sheet.macroenabled.12": 3,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 1
+    },
+    "stop": "enough"
+   }
   },
   "UZ": {
    "name": "ウズベキスタン",
@@ -9284,18 +10468,26 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 29,
+      "edge": 3
+     }
     },
     "text": {
      "frame": 5,
      "pool": 5,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "core": 5
      },
-     "truncated_in_pool": 2
+     "truncated_in_pool": 2,
+     "blocks_read": {
+      "core": 29,
+      "edge": 3
+     }
     },
     "csv": {
      "frame": 0,
@@ -9311,7 +10503,13 @@
     "application/marc": 3,
     "application/x-bibtex-text-file": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 2
+    },
+    "stop": "exhausted"
+   }
   },
   "VN": {
    "name": "ベトナム",
@@ -9377,7 +10575,14 @@
     "application/octet-stream": 17,
     "application/x-tika-msoffice": 4
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "YE": {
    "name": "イエメン",
@@ -9431,7 +10636,14 @@
    "other_document_mimes": {
     "application/pdf": 13
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ZM": {
    "name": "ザンビア",
@@ -9487,7 +10699,14 @@
    "other_document_mimes": {
     "application/pdf": 574
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ZW": {
    "name": "ジンバブエ",
@@ -9544,7 +10763,14 @@
     "application/pdf": 13,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "HK": {
    "name": "香港",
@@ -9576,20 +10802,28 @@
      "truncated_in_pool": 489
     },
     "sheet": {
-     "frame": 34,
-     "pool": 25,
-     "exact": false,
+     "frame": 26,
+     "pool": 26,
+     "exact": true,
      "pool_by_block_stratum": {
-      "core": 25
+      "core": 26
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 40,
+      "edge": 2
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 40,
+      "edge": 2
+     }
     },
     "csv": {
      "frame": 0,
@@ -9608,7 +10842,14 @@
     "application/pkcs7-signature": 1,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 11,
+     "edge": 1
+    },
+    "stop": "exhausted"
+   }
   },
   "TW": {
    "name": "台湾",
@@ -9676,7 +10917,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 55,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 38
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   }
  },
  "wikidata": {
@@ -9710,21 +10958,31 @@
      "truncated_in_pool": 197
     },
     "sheet": {
-     "frame": 109,
-     "pool": 30,
-     "exact": false,
+     "frame": 43,
+     "pool": 43,
+     "exact": true,
      "pool_by_block_stratum": {
-      "core": 6,
-      "edge": 24
+      "edge": 33,
+      "core": 10
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 30,
+      "edge": 79
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "frame": 18,
+     "pool": 18,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 18
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 30,
+      "edge": 79
+     }
     },
     "csv": {
      "frame": 0,
@@ -9742,7 +11000,14 @@
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 6,
     "application/x-ms-asx": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 57,
+     "core": 22
+    },
+    "stop": "exhausted"
+   }
   },
   "DE": {
    "name": "ドイツ",
@@ -9774,22 +11039,31 @@
      "truncated_in_pool": 127
     },
     "sheet": {
-     "frame": 1413,
-     "pool": 74,
+     "frame": 250,
+     "pool": 52,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 74
+      "edge": 50,
+      "core": 2
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 37,
+      "edge": 83
+     }
     },
     "text": {
-     "frame": 153,
+     "frame": 39,
      "pool": 8,
      "exact": false,
      "pool_by_block_stratum": {
       "edge": 8
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 37,
+      "edge": 83
+     }
     },
     "csv": {
      "frame": 0,
@@ -9804,7 +11078,14 @@
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 74,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 8
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 62,
+     "core": 28
+    },
+    "stop": "cap"
+   }
   },
   "BR": {
    "name": "ブラジル",
@@ -9836,21 +11117,32 @@
      "truncated_in_pool": 46
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
-    },
-    "text": {
-     "frame": 164,
-     "pool": 19,
+     "frame": 8,
+     "pool": 4,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 3,
-      "edge": 16
+      "edge": 1,
+      "core": 3
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 36,
+      "edge": 84
+     }
+    },
+    "text": {
+     "frame": 90,
+     "pool": 43,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 22,
+      "core": 21
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 36,
+      "edge": 84
+     }
     },
     "csv": {
      "frame": 0,
@@ -9869,7 +11161,14 @@
     "application/x-font-ttf": 1,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 28,
+     "edge": 62
+    },
+    "stop": "cap"
+   }
   },
   "KE": {
    "name": "ケニア",
@@ -9924,7 +11223,14 @@
    "other_document_mimes": {
     "application/pdf": 169
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "IN": {
    "name": "インド",
@@ -9960,14 +11266,22 @@
      "pool": 0,
      "exact": false,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 120
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
      "exact": false,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 120
+     }
     },
     "csv": {
      "frame": 0,
@@ -9981,7 +11295,13 @@
     "application/pdf": 857,
     "application/x-bibtex-text-file": 341
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 90
+    },
+    "stop": "cap"
+   }
   },
   "AF": {
    "name": "アフガニスタン",
@@ -10031,7 +11351,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "AL": {
    "name": "アルバニア",
@@ -10085,7 +11412,14 @@
    "other_document_mimes": {
     "application/pdf": 4
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "DZ": {
    "name": "アルジェリア",
@@ -10141,7 +11475,14 @@
    "other_document_mimes": {
     "application/pdf": 1662
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "AD": {
    "name": "アンドラ",
@@ -10195,7 +11536,14 @@
    "other_document_mimes": {
     "application/pdf": 59
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "AO": {
    "name": "アンゴラ",
@@ -10245,7 +11593,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "AG": {
    "name": "アンティグア・バーブーダ",
@@ -10299,7 +11654,14 @@
    "other_document_mimes": {
     "application/pdf": 15
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "AR": {
    "name": "アルゼンチン",
@@ -10331,16 +11693,24 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 39
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 39
+     }
     },
     "csv": {
      "frame": 0,
@@ -10353,7 +11723,13 @@
    "other_document_mimes": {
     "application/pdf": 119
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 9
+    },
+    "stop": "exhausted"
+   }
   },
   "AM": {
    "name": "アルメニア",
@@ -10419,7 +11795,14 @@
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 5,
     "application/vnd.ms-excel": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "AU": {
    "name": "オーストラリア",
@@ -10451,20 +11834,30 @@
      "truncated_in_pool": 115
     },
     "sheet": {
-     "frame": 3,
-     "pool": 1,
-     "exact": false,
+     "frame": 14,
+     "pool": 14,
+     "exact": true,
      "pool_by_block_stratum": {
-      "edge": 1
+      "edge": 14
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 1,
+     "blocks_read": {
+      "core": 13,
+      "edge": 80
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "frame": 19,
+     "pool": 19,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 19
+     },
+     "truncated_in_pool": 1,
+     "blocks_read": {
+      "core": 13,
+      "edge": 80
+     }
     },
     "csv": {
      "frame": 46,
@@ -10481,7 +11874,14 @@
     "application/octet-stream": 33,
     "application/vnd.ms-excel.sheet.macroenabled.12": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 9,
+     "edge": 54
+    },
+    "stop": "exhausted"
+   }
   },
   "AT": {
    "name": "オーストリア",
@@ -10513,20 +11913,30 @@
      "truncated_in_pool": 49
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
-    },
-    "text": {
-     "frame": 64,
+     "frame": 16,
      "pool": 2,
      "exact": false,
      "pool_by_block_stratum": {
       "edge": 2
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 3,
+      "edge": 118
+     }
+    },
+    "text": {
+     "frame": 65,
+     "pool": 8,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 8
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 3,
+      "edge": 118
+     }
     },
     "csv": {
      "frame": 0,
@@ -10541,7 +11951,14 @@
     "application/vnd.oasis.opendocument.text": 1,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 88,
+     "core": 2
+    },
+    "stop": "cap"
+   }
   },
   "AZ": {
    "name": "アゼルバイジャン",
@@ -10596,7 +12013,14 @@
    "other_document_mimes": {
     "application/pdf": 16
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BS": {
    "name": "バハマ",
@@ -10646,7 +12070,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BH": {
    "name": "バーレーン",
@@ -10700,7 +12131,14 @@
    "other_document_mimes": {
     "application/pdf": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BD": {
    "name": "バングラデシュ",
@@ -10750,7 +12188,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BB": {
    "name": "バルバドス",
@@ -10800,7 +12245,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BY": {
    "name": "ベラルーシ",
@@ -10854,7 +12306,14 @@
    "other_document_mimes": {
     "application/pdf": 6
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BE": {
    "name": "ベルギー",
@@ -10886,22 +12345,30 @@
      "truncated_in_pool": 29
     },
     "sheet": {
-     "frame": 107,
-     "pool": 5,
+     "frame": 48,
+     "pool": 9,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 5
+      "edge": 9
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 3,
+      "edge": 117
+     }
     },
     "text": {
-     "frame": 214,
+     "frame": 53,
      "pool": 10,
      "exact": false,
      "pool_by_block_stratum": {
       "edge": 10
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 3,
+      "edge": 117
+     }
     },
     "csv": {
      "frame": 0,
@@ -10917,7 +12384,14 @@
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 5,
     "application/msword": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 88,
+     "core": 2
+    },
+    "stop": "cap"
+   }
   },
   "BZ": {
    "name": "ベリーズ",
@@ -10967,7 +12441,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BJ": {
    "name": "ベナン",
@@ -11021,7 +12502,14 @@
    "other_document_mimes": {
     "application/pdf": 26
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BT": {
    "name": "ブータン",
@@ -11075,7 +12563,14 @@
    "other_document_mimes": {
     "application/pdf": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BO": {
    "name": "ボリビア",
@@ -11129,7 +12624,14 @@
    "other_document_mimes": {
     "application/pdf": 63
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BA": {
    "name": "ボスニア・ヘルツェゴビナ",
@@ -11188,7 +12690,14 @@
     "application/msword": 1,
     "application/x-tika-msoffice": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BW": {
    "name": "ボツワナ",
@@ -11243,7 +12752,14 @@
     "application/pdf": 363,
     "application/octet-stream": 4
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BN": {
    "name": "ブルネイ",
@@ -11328,7 +12844,14 @@
     "application/octet-stream": 50,
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": 7
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "BF": {
    "name": "ブルキナファソ",
@@ -11382,7 +12905,14 @@
    "other_document_mimes": {
     "application/pdf": 3
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "BI": {
    "name": "ブルンジ",
@@ -11436,7 +12966,14 @@
    "other_document_mimes": {
     "application/pdf": 11
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CV": {
    "name": "カーボベルデ",
@@ -11490,7 +13027,14 @@
    "other_document_mimes": {
     "application/pdf": 226
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KH": {
    "name": "カンボジア",
@@ -11544,7 +13088,14 @@
    "other_document_mimes": {
     "application/pdf": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CM": {
    "name": "カメルーン",
@@ -11598,7 +13149,14 @@
    "other_document_mimes": {
     "application/pdf": 49
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CA": {
    "name": "カナダ",
@@ -11630,18 +13188,30 @@
      "truncated_in_pool": 10
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 93,
+     "pool": 11,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "core": 11
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 13,
+      "edge": 107
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 17,
+     "pool": 2,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "core": 2
+     },
+     "truncated_in_pool": 1,
+     "blocks_read": {
+      "core": 13,
+      "edge": 107
+     }
     },
     "csv": {
      "frame": 0,
@@ -11654,7 +13224,14 @@
    "other_document_mimes": {
     "application/pdf": 766
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 81,
+     "core": 9
+    },
+    "stop": "cap"
+   }
   },
   "CF": {
    "name": "中央アフリカ",
@@ -11702,7 +13279,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TD": {
    "name": "チャド",
@@ -11756,7 +13340,14 @@
    "other_document_mimes": {
     "application/pdf": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CL": {
    "name": "チリ",
@@ -11787,20 +13378,30 @@
      "truncated_in_pool": 45
     },
     "sheet": {
-     "frame": 6,
+     "frame": 3,
+     "pool": 2,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 2,
+      "edge": 118
+     }
+    },
+    "text": {
+     "frame": 2,
      "pool": 1,
      "exact": false,
      "pool_by_block_stratum": {
       "edge": 1
      },
-     "truncated_in_pool": 0
-    },
-    "text": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 2,
+      "edge": 118
+     }
     },
     "csv": {
      "frame": 0,
@@ -11814,7 +13415,14 @@
     "application/pdf": 604,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 89,
+     "core": 1
+    },
+    "stop": "cap"
+   }
   },
   "CN": {
    "name": "中国",
@@ -11846,18 +13454,30 @@
      "truncated_in_pool": 15
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 1,
+     "pool": 1,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 2,
+      "edge": 118
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 6,
+     "pool": 4,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "edge": 4
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 2,
+      "edge": 118
+     }
     },
     "csv": {
      "frame": 0,
@@ -11870,7 +13490,14 @@
    "other_document_mimes": {
     "application/pdf": 77
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 89,
+     "core": 1
+    },
+    "stop": "cap"
+   }
   },
   "CO": {
    "name": "コロンビア",
@@ -11933,7 +13560,14 @@
     "application/vnd.openxmlformats-officedocument.presentationml.slideshow": 4,
     "application/epub+zip": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KM": {
    "name": "コモロ",
@@ -12003,7 +13637,14 @@
    "other_document_mimes": {
     "application/pdf": 112
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CR": {
    "name": "コスタリカ",
@@ -12057,7 +13698,14 @@
    "other_document_mimes": {
     "application/pdf": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CI": {
    "name": "コートジボワール",
@@ -12111,7 +13759,14 @@
    "other_document_mimes": {
     "application/pdf": 35
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "HR": {
    "name": "クロアチア",
@@ -12142,22 +13797,30 @@
      "truncated_in_pool": 31
     },
     "sheet": {
-     "frame": 120,
-     "pool": 12,
+     "frame": 55,
+     "pool": 21,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 12
+      "edge": 21
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 111
+     }
     },
     "text": {
-     "frame": 50,
-     "pool": 5,
+     "frame": 189,
+     "pool": 72,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 5
+      "edge": 72
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 111
+     }
     },
     "csv": {
      "frame": 0,
@@ -12175,7 +13838,13 @@
     "application/vnd.ms-word.document.macroenabled.12": 3,
     "application/vnd.oasis.opendocument.spreadsheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 82
+    },
+    "stop": "enough"
+   }
   },
   "CU": {
    "name": "キューバ",
@@ -12233,7 +13902,14 @@
     "application/x-bibtex-text-file": 47,
     "application/epub+zip": 31
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CY": {
    "name": "キプロス",
@@ -12287,7 +13963,14 @@
    "other_document_mimes": {
     "application/pdf": 20
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CZ": {
    "name": "チェコ",
@@ -12319,24 +14002,32 @@
      "truncated_in_pool": 78
     },
     "sheet": {
-     "frame": 390,
-     "pool": 6,
+     "frame": 352,
+     "pool": 19,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 1,
-      "edge": 5
+      "edge": 18,
+      "core": 1
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 120
+     }
     },
     "text": {
-     "frame": 3026,
-     "pool": 45,
+     "frame": 2931,
+     "pool": 157,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 6,
-      "edge": 39
+      "edge": 151,
+      "core": 6
      },
-     "truncated_in_pool": 1
+     "truncated_in_pool": 2,
+     "blocks_read": {
+      "core": 1,
+      "edge": 120
+     }
     },
     "csv": {
      "frame": 63,
@@ -12357,7 +14048,13 @@
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 2,
     "application/vnd.ms-excel.sheet.macroenabled.12": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 90
+    },
+    "stop": "cap"
+   }
   },
   "KP": {
    "name": "北朝鮮",
@@ -12407,7 +14104,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "CD": {
    "name": "コンゴ民主共和国",
@@ -12461,7 +14165,14 @@
    "other_document_mimes": {
     "application/pdf": 25
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "DK": {
    "name": "デンマーク",
@@ -12493,18 +14204,30 @@
      "truncated_in_pool": 38
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "frame": 16,
+     "pool": 16,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 16
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 9,
+      "edge": 87
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 9,
+      "edge": 87
+     }
     },
     "csv": {
      "frame": 0,
@@ -12517,7 +14240,14 @@
    "other_document_mimes": {
     "application/pdf": 244
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 60,
+     "core": 6
+    },
+    "stop": "exhausted"
+   }
   },
   "DJ": {
    "name": "ジブチ",
@@ -12571,7 +14301,14 @@
    "other_document_mimes": {
     "application/pdf": 65
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "DM": {
    "name": "ドミニカ国",
@@ -12637,7 +14374,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "EC": {
    "name": "エクアドル",
@@ -12691,7 +14435,14 @@
    "other_document_mimes": {
     "application/pdf": 19
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "EG": {
    "name": "エジプト",
@@ -12745,7 +14496,14 @@
    "other_document_mimes": {
     "application/pdf": 64
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SV": {
    "name": "エルサルバドル",
@@ -12815,7 +14573,14 @@
    "other_document_mimes": {
     "application/pdf": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ER": {
    "name": "エリトリア",
@@ -12863,7 +14628,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "EE": {
    "name": "エストニア",
@@ -12895,22 +14667,30 @@
      "truncated_in_pool": 31
     },
     "sheet": {
-     "frame": 3,
+     "frame": 2,
      "pool": 2,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "edge": 2
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 39
+     }
     },
     "text": {
-     "frame": 3,
+     "frame": 2,
      "pool": 2,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "edge": 2
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 39
+     }
     },
     "csv": {
      "frame": 1,
@@ -12929,7 +14709,13 @@
     "application/rtf": 1,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 10
+    },
+    "stop": "exhausted"
+   }
   },
   "SZ": {
    "name": "エスワティニ",
@@ -12979,7 +14765,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ET": {
    "name": "エチオピア",
@@ -13033,7 +14826,14 @@
    "other_document_mimes": {
     "application/pdf": 9
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "FJ": {
    "name": "フィジー",
@@ -13087,7 +14887,14 @@
    "other_document_mimes": {
     "application/pdf": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "FI": {
    "name": "フィンランド",
@@ -13123,16 +14930,24 @@
      "pool": 0,
      "exact": false,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 6,
+      "edge": 114
+     }
     },
     "text": {
-     "frame": 55,
+     "frame": 13,
      "pool": 4,
      "exact": false,
      "pool_by_block_stratum": {
       "edge": 4
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 6,
+      "edge": 114
+     }
     },
     "csv": {
      "frame": 0,
@@ -13147,7 +14962,14 @@
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": 11,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 4
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 86,
+     "core": 4
+    },
+    "stop": "cap"
+   }
   },
   "FR": {
    "name": "フランス",
@@ -13182,14 +15004,24 @@
      "pool": 0,
      "exact": false,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 4,
+      "edge": 116
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 59,
+     "pool": 1,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 4,
+      "edge": 116
+     }
     },
     "csv": {
      "frame": 0,
@@ -13202,7 +15034,14 @@
    "other_document_mimes": {
     "application/pdf": 806
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 87,
+     "core": 3
+    },
+    "stop": "cap"
+   }
   },
   "GA": {
    "name": "ガボン",
@@ -13252,7 +15091,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GM": {
    "name": "ガンビア",
@@ -13310,7 +15156,14 @@
     "application/octet-stream": 6,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GE": {
    "name": "ジョージア",
@@ -13375,7 +15228,14 @@
     "application/rtf": 7,
     "application/vnd.ms-excel.sheet.binary.macroenabled.12": 4
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "GH": {
    "name": "ガーナ",
@@ -13431,7 +15291,14 @@
    "other_document_mimes": {
     "application/pdf": 447
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GR": {
    "name": "ギリシャ",
@@ -13463,18 +15330,30 @@
      "truncated_in_pool": 27
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 132,
+     "pool": 25,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "edge": 25
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 3,
+      "edge": 56
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 184,
+     "pool": 35,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "edge": 35
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 3,
+      "edge": 56
+     }
     },
     "csv": {
      "frame": 0,
@@ -13487,7 +15366,14 @@
    "other_document_mimes": {
     "application/pdf": 711
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 28,
+     "core": 1
+    },
+    "stop": "enough"
+   }
   },
   "GD": {
    "name": "グレナダ",
@@ -13541,7 +15427,14 @@
    "other_document_mimes": {
     "application/pdf": 16
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GT": {
    "name": "グアテマラ",
@@ -13598,7 +15491,14 @@
     "application/pdf": 181,
     "application/vnd.ms-excel.sheet.macroenabled.12": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GN": {
    "name": "ギニア",
@@ -13648,7 +15548,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GW": {
    "name": "ギニアビサウ",
@@ -13698,7 +15605,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "GY": {
    "name": "ガイアナ",
@@ -13748,7 +15662,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "HT": {
    "name": "ハイチ",
@@ -13798,7 +15719,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "HN": {
    "name": "ホンジュラス",
@@ -13852,7 +15780,14 @@
    "other_document_mimes": {
     "application/pdf": 11
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "HU": {
    "name": "ハンガリー",
@@ -13919,7 +15854,14 @@
     "application/x-msaccess": 2,
     "application/java-archive": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "enough"
+   }
   },
   "IS": {
    "name": "アイスランド",
@@ -13952,18 +15894,26 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 3,
+      "edge": 65
+     }
     },
     "text": {
-     "frame": 2,
+     "frame": 1,
      "pool": 1,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "edge": 1
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 3,
+      "edge": 65
+     }
     },
     "csv": {
      "frame": 0,
@@ -13977,7 +15927,14 @@
     "application/pdf": 444,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 36,
+     "core": 2
+    },
+    "stop": "exhausted"
+   }
   },
   "ID": {
    "name": "インドネシア",
@@ -14037,7 +15994,14 @@
     "application/x-bibtex-text-file": 5,
     "application/vnd.oasis.opendocument.text": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "IR": {
    "name": "イラン",
@@ -14070,16 +16034,24 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 10,
+      "edge": 36
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 10,
+      "edge": 36
+     }
     },
     "csv": {
      "frame": 0,
@@ -14094,7 +16066,14 @@
     "application/x-bibtex-text-file": 50,
     "application/x-endnote-refer": 25
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 13,
+     "core": 3
+    },
+    "stop": "exhausted"
+   }
   },
   "IQ": {
    "name": "イラク",
@@ -14148,7 +16127,14 @@
    "other_document_mimes": {
     "application/pdf": 3
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "IE": {
    "name": "アイルランド",
@@ -14179,22 +16165,30 @@
      "truncated_in_pool": 135
     },
     "sheet": {
-     "frame": 3,
-     "pool": 1,
-     "exact": false,
+     "frame": 5,
+     "pool": 5,
+     "exact": true,
      "pool_by_block_stratum": {
-      "edge": 1
+      "edge": 5
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 93
+     }
     },
     "text": {
-     "frame": 3,
+     "frame": 1,
      "pool": 1,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "edge": 1
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 93
+     }
     },
     "csv": {
      "frame": 0,
@@ -14213,7 +16207,13 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1,
     "application/vnd.ms-excel.sheet.macroenabled.12": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 63
+    },
+    "stop": "exhausted"
+   }
   },
   "IL": {
    "name": "イスラエル",
@@ -14245,16 +16245,24 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 52
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 52
+     }
     },
     "csv": {
      "frame": 0,
@@ -14267,7 +16275,13 @@
    "other_document_mimes": {
     "application/pdf": 41
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 22
+    },
+    "stop": "exhausted"
+   }
   },
   "IT": {
    "name": "イタリア",
@@ -14299,22 +16313,30 @@
      "truncated_in_pool": 83
     },
     "sheet": {
-     "frame": 91,
-     "pool": 2,
+     "frame": 33,
+     "pool": 3,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 2
+      "edge": 3
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 14,
+      "edge": 106
+     }
     },
     "text": {
-     "frame": 227,
-     "pool": 5,
+     "frame": 423,
+     "pool": 38,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 5
+      "edge": 38
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 14,
+      "edge": 106
+     }
     },
     "csv": {
      "frame": 18199,
@@ -14335,7 +16357,14 @@
     "application/vnd.oasis.opendocument.spreadsheet": 1,
     "application/vnd.ms-excel": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 80,
+     "core": 10
+    },
+    "stop": "cap"
+   }
   },
   "JM": {
    "name": "ジャマイカ",
@@ -14389,7 +16418,14 @@
    "other_document_mimes": {
     "application/pdf": 406
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "JO": {
    "name": "ヨルダン",
@@ -14443,7 +16479,14 @@
    "other_document_mimes": {
     "application/pdf": 4
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KZ": {
    "name": "カザフスタン",
@@ -14504,7 +16547,14 @@
     "application/x-tika-msoffice": 5,
     "application/vnd.ms-excel": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KI": {
    "name": "キリバス",
@@ -14570,7 +16620,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KG": {
    "name": "キルギス",
@@ -14620,7 +16677,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LA": {
    "name": "ラオス",
@@ -14698,7 +16762,14 @@
     "application/vnd.ms-excel": 1,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LB": {
    "name": "レバノン",
@@ -14748,7 +16819,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LS": {
    "name": "レソト",
@@ -14798,7 +16876,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LR": {
    "name": "リベリア",
@@ -14868,7 +16953,14 @@
    "other_document_mimes": {
     "application/pdf": 11
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LI": {
    "name": "リヒテンシュタイン",
@@ -14922,7 +17014,14 @@
    "other_document_mimes": {
     "application/pdf": 4
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LT": {
    "name": "リトアニア",
@@ -14952,20 +17051,30 @@
      "truncated_in_pool": 14
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
-    },
-    "text": {
-     "frame": 3,
+     "frame": 1,
      "pool": 1,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "edge": 1
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 103
+     }
+    },
+    "text": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 103
+     }
     },
     "csv": {
      "frame": 0,
@@ -14979,7 +17088,13 @@
     "application/pdf": 292,
     "application/vnd.oasis.opendocument.text": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 73
+    },
+    "stop": "exhausted"
+   }
   },
   "LU": {
    "name": "ルクセンブルク",
@@ -15013,18 +17128,26 @@
     "sheet": {
      "frame": 7,
      "pool": 7,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "core": 7
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 4,
+      "edge": 29
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 4,
+      "edge": 29
+     }
     },
     "csv": {
      "frame": 0,
@@ -15040,7 +17163,13 @@
     "application/vnd.ms-excel.sheet.macroenabled.12": 2,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 3
+    },
+    "stop": "exhausted"
+   }
   },
   "MG": {
    "name": "マダガスカル",
@@ -15094,7 +17223,14 @@
    "other_document_mimes": {
     "application/pdf": 34
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MW": {
    "name": "マラウイ",
@@ -15148,7 +17284,14 @@
    "other_document_mimes": {
     "application/pdf": 3
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MY": {
    "name": "マレーシア",
@@ -15206,7 +17349,14 @@
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 8,
     "application/octet-stream": 3
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MV": {
    "name": "モルディブ",
@@ -15276,7 +17426,14 @@
    "other_document_mimes": {
     "application/pdf": 5
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MT": {
    "name": "マルタ",
@@ -15330,7 +17487,14 @@
    "other_document_mimes": {
     "application/pdf": 23
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MH": {
    "name": "マーシャル諸島",
@@ -15384,7 +17548,14 @@
    "other_document_mimes": {
     "application/pdf": 464
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MR": {
    "name": "モーリタニア",
@@ -15439,7 +17610,14 @@
    "other_document_mimes": {
     "application/pdf": 3
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MU": {
    "name": "モーリシャス",
@@ -15493,7 +17671,14 @@
    "other_document_mimes": {
     "application/pdf": 73
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MX": {
    "name": "メキシコ",
@@ -15525,20 +17710,28 @@
      "truncated_in_pool": 437
     },
     "sheet": {
-     "frame": 31,
+     "frame": 30,
      "pool": 30,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "edge": 30
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 2,
+      "edge": 29
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 2,
+      "edge": 29
+     }
     },
     "csv": {
      "frame": 0,
@@ -15556,7 +17749,13 @@
     "application/epub+zip": 28,
     "application/vnd.openxmlformats-officedocument.presentationml.slideshow": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 1
+    },
+    "stop": "exhausted"
+   }
   },
   "FM": {
    "name": "ミクロネシア連邦",
@@ -15606,7 +17805,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MD": {
    "name": "モルドバ",
@@ -15640,18 +17846,26 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 4,
+      "edge": 41
+     }
     },
     "text": {
-     "frame": 64,
+     "frame": 48,
      "pool": 48,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "core": 48
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 4,
+      "edge": 41
+     }
     },
     "csv": {
      "frame": 0,
@@ -15667,7 +17881,14 @@
     "application/msword": 4,
     "application/x-x509-cert; format=der": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 1,
+     "edge": 14
+    },
+    "stop": "exhausted"
+   }
   },
   "MC": {
    "name": "モナコ",
@@ -15723,7 +17944,14 @@
    "other_document_mimes": {
     "application/pdf": 155
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MN": {
    "name": "モンゴル",
@@ -15778,7 +18006,14 @@
     "application/pdf": 51,
     "application/x-tika-msoffice": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ME": {
    "name": "モンテネグロ",
@@ -15836,7 +18071,14 @@
     "application/vnd.oasis.opendocument.text": 1,
     "application/vnd.ms-xpsdocument": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MA": {
    "name": "モロッコ",
@@ -15868,16 +18110,24 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 37
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 37
+     }
     },
     "csv": {
      "frame": 0,
@@ -15890,7 +18140,13 @@
    "other_document_mimes": {
     "application/pdf": 80
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 7
+    },
+    "stop": "exhausted"
+   }
   },
   "MZ": {
    "name": "モザンビーク",
@@ -15938,7 +18194,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "MM": {
    "name": "ミャンマー",
@@ -15992,7 +18255,14 @@
    "other_document_mimes": {
     "application/pdf": 5
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "NA": {
    "name": "ナミビア",
@@ -16046,7 +18316,14 @@
    "other_document_mimes": {
     "application/pdf": 14
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "NR": {
    "name": "ナウル",
@@ -16100,7 +18377,14 @@
    "other_document_mimes": {
     "application/pdf": 7
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "NP": {
    "name": "ネパール",
@@ -16130,18 +18414,28 @@
      "truncated_in_pool": 74
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 72
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 72
+     }
     },
     "csv": {
      "frame": 0,
@@ -16154,7 +18448,13 @@
    "other_document_mimes": {
     "application/pdf": 688
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 42
+    },
+    "stop": "exhausted"
+   }
   },
   "NL": {
    "name": "オランダ",
@@ -16185,20 +18485,28 @@
      "truncated_in_pool": 34
     },
     "sheet": {
-     "frame": 20,
-     "pool": 1,
+     "frame": 10,
+     "pool": 2,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 1
+      "edge": 2
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 5,
+      "edge": 115
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
      "exact": false,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 5,
+      "edge": 115
+     }
     },
     "csv": {
      "frame": 0,
@@ -16212,7 +18520,14 @@
     "application/pdf": 175,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 87,
+     "core": 3
+    },
+    "stop": "cap"
+   }
   },
   "NZ": {
    "name": "ニュージーランド",
@@ -16269,7 +18584,14 @@
     "application/pdf": 35,
     "application/rtf": 7
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "NI": {
    "name": "ニカラグア",
@@ -16323,7 +18645,14 @@
    "other_document_mimes": {
     "application/pdf": 9
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "NE": {
    "name": "ニジェール",
@@ -16377,7 +18706,14 @@
    "other_document_mimes": {
     "application/pdf": 4
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "NG": {
    "name": "ナイジェリア",
@@ -16407,16 +18743,24 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 46
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 46
+     }
     },
     "csv": {
      "frame": 0,
@@ -16427,7 +18771,13 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 16
+    },
+    "stop": "exhausted"
+   }
   },
   "MK": {
    "name": "北マケドニア",
@@ -16484,7 +18834,14 @@
     "application/pdf": 81,
     "application/vnd.ms-excel": 3
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "NO": {
    "name": "ノルウェー",
@@ -16515,22 +18872,32 @@
      "truncated_in_pool": 134
     },
     "sheet": {
-     "frame": 5,
-     "pool": 1,
+     "frame": 6,
+     "pool": 5,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 1
+      "edge": 1,
+      "core": 4
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 27,
+      "edge": 93
+     }
     },
     "text": {
-     "frame": 50,
-     "pool": 10,
+     "frame": 29,
+     "pool": 24,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 10
+      "edge": 14,
+      "core": 10
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 27,
+      "edge": 93
+     }
     },
     "csv": {
      "frame": 0,
@@ -16550,7 +18917,14 @@
     "application/msword": 1,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 69,
+     "core": 21
+    },
+    "stop": "cap"
+   }
   },
   "OM": {
    "name": "オマーン",
@@ -16604,7 +18978,14 @@
    "other_document_mimes": {
     "application/pdf": 12
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "PK": {
    "name": "パキスタン",
@@ -16658,7 +19039,14 @@
    "other_document_mimes": {
     "application/pdf": 238
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "PW": {
    "name": "パラオ",
@@ -16712,7 +19100,14 @@
    "other_document_mimes": {
     "application/pdf": 301
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "PA": {
    "name": "パナマ",
@@ -16769,7 +19164,14 @@
     "application/pdf": 395,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "PG": {
    "name": "パプアニューギニア",
@@ -16823,7 +19225,14 @@
    "other_document_mimes": {
     "application/pdf": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "PY": {
    "name": "パラグアイ",
@@ -16877,7 +19286,14 @@
    "other_document_mimes": {
     "application/pdf": 8
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "PE": {
    "name": "ペルー",
@@ -16927,7 +19343,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "PH": {
    "name": "フィリピン",
@@ -16961,18 +19384,26 @@
     "sheet": {
      "frame": 1,
      "pool": 1,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {
       "core": 1
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 63
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 63
+     }
     },
     "csv": {
      "frame": 0,
@@ -16987,7 +19418,13 @@
     "application/vnd.ms-excel.sheet.macroenabled.12": 1,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.template": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 33
+    },
+    "stop": "exhausted"
+   }
   },
   "PL": {
    "name": "ポーランド",
@@ -17019,22 +19456,31 @@
      "truncated_in_pool": 50
     },
     "sheet": {
-     "frame": 317,
+     "frame": 80,
      "pool": 11,
      "exact": false,
      "pool_by_block_stratum": {
       "edge": 11
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 17,
+      "edge": 103
+     }
     },
     "text": {
-     "frame": 5279,
-     "pool": 183,
+     "frame": 854,
+     "pool": 125,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 183
+      "edge": 83,
+      "core": 42
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 17,
+      "edge": 103
+     }
     },
     "csv": {
      "frame": 0,
@@ -17053,7 +19499,14 @@
     "application/rtf": 3,
     "application/vnd.oasis.opendocument.spreadsheet": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 77,
+     "core": 13
+    },
+    "stop": "cap"
+   }
   },
   "PT": {
    "name": "ポルトガル",
@@ -17085,22 +19538,30 @@
      "truncated_in_pool": 95
     },
     "sheet": {
-     "frame": 74,
-     "pool": 21,
-     "exact": false,
+     "frame": 85,
+     "pool": 85,
+     "exact": true,
      "pool_by_block_stratum": {
-      "edge": 21
+      "edge": 85
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 1,
+     "blocks_read": {
+      "core": 13,
+      "edge": 92
+     }
     },
     "text": {
-     "frame": 18,
-     "pool": 5,
-     "exact": false,
+     "frame": 13,
+     "pool": 13,
+     "exact": true,
      "pool_by_block_stratum": {
-      "edge": 5
+      "edge": 13
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 13,
+      "edge": 92
+     }
     },
     "csv": {
      "frame": 0,
@@ -17120,7 +19581,14 @@
     "application/vnd.ms-excel": 2,
     "application/vnd.oasis.opendocument.text": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 9,
+     "edge": 66
+    },
+    "stop": "exhausted"
+   }
   },
   "QA": {
    "name": "カタール",
@@ -17170,7 +19638,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KR": {
    "name": "韓国",
@@ -17201,20 +19676,28 @@
      "truncated_in_pool": 40
     },
     "sheet": {
-     "frame": 2,
-     "pool": 1,
-     "exact": false,
+     "frame": 3,
+     "pool": 3,
+     "exact": true,
      "pool_by_block_stratum": {
-      "edge": 1
+      "edge": 3
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 4,
+      "edge": 56
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 4,
+      "edge": 56
+     }
     },
     "csv": {
      "frame": 0,
@@ -17230,7 +19713,14 @@
     "application/x-tex": 7,
     "application/vnd.ms-excel": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 28,
+     "core": 2
+    },
+    "stop": "exhausted"
+   }
   },
   "RO": {
    "name": "ルーマニア",
@@ -17261,22 +19751,32 @@
      "truncated_in_pool": 42
     },
     "sheet": {
-     "frame": 18,
+     "frame": 7,
+     "pool": 6,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 5,
+      "core": 1
+     },
+     "truncated_in_pool": 1,
+     "blocks_read": {
+      "core": 4,
+      "edge": 116
+     }
+    },
+    "text": {
+     "frame": 5,
      "pool": 4,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 4
+      "edge": 3,
+      "core": 1
      },
-     "truncated_in_pool": 0
-    },
-    "text": {
-     "frame": 4,
-     "pool": 1,
-     "exact": false,
-     "pool_by_block_stratum": {
-      "edge": 1
-     },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 4,
+      "edge": 116
+     }
     },
     "csv": {
      "frame": 0,
@@ -17291,7 +19791,14 @@
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 4,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 87,
+     "core": 3
+    },
+    "stop": "cap"
+   }
   },
   "RU": {
    "name": "ロシア",
@@ -17323,20 +19830,31 @@
      "truncated_in_pool": 20
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
-    },
-    "text": {
-     "frame": 5,
+     "frame": 1,
      "pool": 1,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 1
+      "core": 1
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 11,
+      "edge": 109
+     }
+    },
+    "text": {
+     "frame": 220,
+     "pool": 189,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 68,
+      "core": 121
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 11,
+      "edge": 109
+     }
     },
     "csv": {
      "frame": 0,
@@ -17351,7 +19869,14 @@
     "application/x-tika-msoffice": 5,
     "application/rtf": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 82,
+     "core": 8
+    },
+    "stop": "cap"
+   }
   },
   "RW": {
    "name": "ルワンダ",
@@ -17405,7 +19930,14 @@
    "other_document_mimes": {
     "application/pdf": 10
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "KN": {
    "name": "セントクリストファー・ネービス",
@@ -17455,7 +19987,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "LC": {
    "name": "セントルシア",
@@ -17505,7 +20044,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "VC": {
    "name": "セントビンセント及びグレナディーン諸島",
@@ -17571,7 +20117,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SM": {
    "name": "サンマリノ",
@@ -17625,7 +20178,14 @@
    "other_document_mimes": {
     "application/pdf": 87
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ST": {
    "name": "サントメ・プリンシペ",
@@ -17673,7 +20233,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SA": {
    "name": "サウジアラビア",
@@ -17727,7 +20294,14 @@
    "other_document_mimes": {
     "application/pdf": 191
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SN": {
    "name": "セネガル",
@@ -17781,7 +20355,14 @@
    "other_document_mimes": {
     "application/pdf": 48
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "RS": {
    "name": "セルビア",
@@ -17811,20 +20392,30 @@
      "truncated_in_pool": 82
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "frame": 2,
+     "pool": 2,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 32
+     }
     },
     "text": {
-     "frame": 13,
-     "pool": 12,
-     "exact": false,
+     "frame": 26,
+     "pool": 26,
+     "exact": true,
      "pool_by_block_stratum": {
-      "edge": 12
+      "edge": 26
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 0,
+      "edge": 32
+     }
     },
     "csv": {
      "frame": 0,
@@ -17840,7 +20431,13 @@
     "application/octet-stream": 5,
     "application/x-tika-msoffice": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 2
+    },
+    "stop": "exhausted"
+   }
   },
   "SC": {
    "name": "セーシェル",
@@ -17894,7 +20491,14 @@
    "other_document_mimes": {
     "application/pdf": 14
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SL": {
    "name": "シエラレオネ",
@@ -17944,7 +20548,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SG": {
    "name": "シンガポール",
@@ -17998,7 +20609,14 @@
    "other_document_mimes": {
     "application/pdf": 53
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SK": {
    "name": "スロバキア",
@@ -18029,22 +20647,30 @@
      "truncated_in_pool": 25
     },
     "sheet": {
-     "frame": 36,
-     "pool": 1,
+     "frame": 100,
+     "pool": 11,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 1
+      "edge": 11
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 3,
+      "edge": 118
+     }
     },
     "text": {
-     "frame": 1318,
-     "pool": 37,
+     "frame": 2319,
+     "pool": 256,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 37
+      "edge": 256
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 3,
+     "blocks_read": {
+      "core": 3,
+      "edge": 118
+     }
     },
     "csv": {
      "frame": 0,
@@ -18062,7 +20688,14 @@
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": 1,
     "application/vnd.ms-excel": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 88,
+     "core": 2
+    },
+    "stop": "cap"
+   }
   },
   "SI": {
    "name": "スロベニア",
@@ -18094,23 +20727,32 @@
      "truncated_in_pool": 32
     },
     "sheet": {
-     "frame": 43,
-     "pool": 12,
+     "frame": 28,
+     "pool": 20,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 11,
-      "edge": 1
+      "core": 18,
+      "edge": 2
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 21,
+      "edge": 52
+     }
     },
     "text": {
-     "frame": 441,
-     "pool": 131,
+     "frame": 244,
+     "pool": 175,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 131
+      "edge": 53,
+      "core": 122
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 21,
+      "edge": 52
+     }
     },
     "csv": {
      "frame": 2392,
@@ -18132,7 +20774,14 @@
     "application/zip": 2,
     "application/vnd.ms-excel": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 13,
+     "edge": 30
+    },
+    "stop": "enough"
+   }
   },
   "SB": {
    "name": "ソロモン諸島",
@@ -18198,7 +20847,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ZA": {
    "name": "南アフリカ",
@@ -18253,7 +20909,14 @@
     "application/pdf": 734,
     "application/octet-stream": 77
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SS": {
    "name": "南スーダン",
@@ -18301,7 +20964,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ES": {
    "name": "スペイン",
@@ -18332,20 +21002,32 @@
      "truncated_in_pool": 34
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
-    },
-    "text": {
-     "frame": 193,
-     "pool": 2,
+     "frame": 9062,
+     "pool": 336,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 2
+      "edge": 3,
+      "core": 333
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 1,
+     "blocks_read": {
+      "core": 10,
+      "edge": 110
+     }
+    },
+    "text": {
+     "frame": 557,
+     "pool": 21,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 3,
+      "core": 18
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 10,
+      "edge": 110
+     }
     },
     "csv": {
      "frame": 0,
@@ -18359,7 +21041,14 @@
     "application/pdf": 388,
     "application/vnd.oasis.opendocument.text": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 83,
+     "core": 7
+    },
+    "stop": "enough"
+   }
   },
   "LK": {
    "name": "スリランカ",
@@ -18415,7 +21104,14 @@
     "application/octet-stream": 2,
     "application/marc": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SD": {
    "name": "スーダン",
@@ -18469,7 +21165,14 @@
    "other_document_mimes": {
     "application/pdf": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SR": {
    "name": "スリナム",
@@ -18523,7 +21226,14 @@
    "other_document_mimes": {
     "application/pdf": 46
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "SE": {
    "name": "スウェーデン",
@@ -18555,18 +21265,30 @@
      "truncated_in_pool": 95
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 3,
+     "pool": 1,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 5,
+      "edge": 115
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 3,
+     "pool": 1,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 5,
+      "edge": 115
+     }
     },
     "csv": {
      "frame": 360,
@@ -18582,7 +21304,14 @@
     "application/pdf": 1021,
     "application/octet-stream": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 86,
+     "core": 4
+    },
+    "stop": "cap"
+   }
   },
   "CH": {
    "name": "スイス",
@@ -18614,20 +21343,31 @@
      "truncated_in_pool": 58
     },
     "sheet": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
-    },
-    "text": {
-     "frame": 4,
-     "pool": 1,
+     "frame": 31,
+     "pool": 21,
      "exact": false,
      "pool_by_block_stratum": {
-      "edge": 1
+      "core": 21
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 44,
+      "edge": 51
+     }
+    },
+    "text": {
+     "frame": 114,
+     "pool": 77,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1,
+      "core": 76
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 44,
+      "edge": 51
+     }
     },
     "csv": {
      "frame": 0,
@@ -18642,7 +21382,14 @@
     "application/vnd.google-earth.kmz": 3,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 35,
+     "core": 30
+    },
+    "stop": "enough"
+   }
   },
   "SY": {
    "name": "シリア",
@@ -18697,7 +21444,14 @@
    "other_document_mimes": {
     "application/pdf": 39
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TJ": {
    "name": "タジキスタン",
@@ -18751,7 +21505,14 @@
    "other_document_mimes": {
     "application/pdf": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TH": {
    "name": "タイ",
@@ -18785,16 +21546,24 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 31
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 1,
+      "edge": 31
+     }
     },
     "csv": {
      "frame": 0,
@@ -18807,7 +21576,13 @@
    "other_document_mimes": {
     "application/pdf": 925
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 2
+    },
+    "stop": "exhausted"
+   }
   },
   "TL": {
    "name": "東ティモール",
@@ -18861,7 +21636,14 @@
    "other_document_mimes": {
     "application/pdf": 18
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TG": {
    "name": "トーゴ",
@@ -18915,7 +21697,14 @@
    "other_document_mimes": {
     "application/pdf": 13
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TO": {
    "name": "トンガ",
@@ -18985,7 +21774,14 @@
    "other_document_mimes": {
     "application/pdf": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TN": {
    "name": "チュニジア",
@@ -19046,7 +21842,14 @@
     "application/vnd.ms-excel.sheet.macroenabled.12": 7,
     "application/vnd.ms-excel": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TR": {
    "name": "トルコ",
@@ -19080,16 +21883,26 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 2,
+      "edge": 71
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
-     "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "frame": 4,
+     "pool": 4,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 4
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 2,
+      "edge": 71
+     }
     },
     "csv": {
      "frame": 0,
@@ -19103,7 +21916,14 @@
     "application/pdf": 982,
     "application/x-tika-msoffice": 8
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 1,
+     "edge": 42
+    },
+    "stop": "exhausted"
+   }
   },
   "TM": {
    "name": "トルクメニスタン",
@@ -19151,7 +21971,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TV": {
    "name": "ツバル",
@@ -19199,7 +22026,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "UG": {
    "name": "ウガンダ",
@@ -19253,7 +22087,14 @@
    "other_document_mimes": {
     "application/pdf": 54
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "UA": {
    "name": "ウクライナ",
@@ -19286,18 +22127,26 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 11,
+      "edge": 106
+     }
     },
     "text": {
-     "frame": 8,
-     "pool": 2,
-     "exact": false,
+     "frame": 3,
+     "pool": 3,
+     "exact": true,
      "pool_by_block_stratum": {
-      "edge": 2
+      "edge": 3
      },
-     "truncated_in_pool": 1
+     "truncated_in_pool": 1,
+     "blocks_read": {
+      "core": 11,
+      "edge": 106
+     }
     },
     "csv": {
      "frame": 0,
@@ -19313,7 +22162,14 @@
     "application/pkcs7-signature": 6,
     "application/msword": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 79,
+     "core": 8
+    },
+    "stop": "exhausted"
+   }
   },
   "AE": {
    "name": "アラブ首長国連邦",
@@ -19346,16 +22202,24 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 6,
+      "edge": 26
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 6,
+      "edge": 26
+     }
     },
     "csv": {
      "frame": 0,
@@ -19368,7 +22232,13 @@
    "other_document_mimes": {
     "application/pdf": 8
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 2
+    },
+    "stop": "exhausted"
+   }
   },
   "GB": {
    "name": "英国",
@@ -19400,22 +22270,30 @@
      "truncated_in_pool": 307
     },
     "sheet": {
-     "frame": 80,
-     "pool": 7,
+     "frame": 199,
+     "pool": 25,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 7
+      "core": 25
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 23,
+      "edge": 18
+     }
     },
     "text": {
-     "frame": 69,
-     "pool": 6,
+     "frame": 1520,
+     "pool": 191,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 6
+      "core": 191
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 4,
+     "blocks_read": {
+      "core": 23,
+      "edge": 18
+     }
     },
     "csv": {
      "frame": 0,
@@ -19433,7 +22311,14 @@
     "application/x-bat": 2,
     "application/x-bibtex-text-file": 2
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 7,
+     "edge": 4
+    },
+    "stop": "enough"
+   }
   },
   "TZ": {
    "name": "タンザニア",
@@ -19487,7 +22372,14 @@
    "other_document_mimes": {
     "application/pdf": 16
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "US": {
    "name": "米国",
@@ -19522,14 +22414,24 @@
      "pool": 0,
      "exact": false,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 2,
+      "edge": 118
+     }
     },
     "text": {
-     "frame": 0,
-     "pool": 0,
+     "frame": 237,
+     "pool": 8,
      "exact": false,
-     "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "pool_by_block_stratum": {
+      "edge": 8
+     },
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 2,
+      "edge": 118
+     }
     },
     "csv": {
      "frame": 0,
@@ -19543,7 +22445,14 @@
     "application/pdf": 295,
     "application/octet-stream": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 89,
+     "core": 1
+    },
+    "stop": "cap"
+   }
   },
   "UY": {
    "name": "ウルグアイ",
@@ -19598,7 +22507,14 @@
    "other_document_mimes": {
     "application/pdf": 443
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "UZ": {
    "name": "ウズベキスタン",
@@ -19632,16 +22548,24 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 10,
+      "edge": 36
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 10,
+      "edge": 36
+     }
     },
     "csv": {
      "frame": 0,
@@ -19654,7 +22578,14 @@
    "other_document_mimes": {
     "application/pdf": 250
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 13,
+     "core": 3
+    },
+    "stop": "exhausted"
+   }
   },
   "VU": {
    "name": "バヌアツ",
@@ -19704,7 +22635,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "VE": {
    "name": "ベネズエラ",
@@ -19754,7 +22692,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "VN": {
    "name": "ベトナム",
@@ -19788,16 +22733,24 @@
     "sheet": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 20,
+      "edge": 50
+     }
     },
     "text": {
      "frame": 0,
      "pool": 0,
-     "exact": false,
+     "exact": true,
      "pool_by_block_stratum": {},
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 20,
+      "edge": 50
+     }
     },
     "csv": {
      "frame": 0,
@@ -19811,7 +22764,14 @@
     "application/pdf": 40,
     "application/x-tika-msoffice": 1
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "edge": 29,
+     "core": 11
+    },
+    "stop": "exhausted"
+   }
   },
   "YE": {
    "name": "イエメン",
@@ -19865,7 +22825,14 @@
    "other_document_mimes": {
     "application/pdf": 47
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ZM": {
    "name": "ザンビア",
@@ -19919,7 +22886,14 @@
    "other_document_mimes": {
     "application/pdf": 8
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "ZW": {
    "name": "ジンバブエ",
@@ -19973,7 +22947,14 @@
    "other_document_mimes": {
     "application/pdf": 9
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "HK": {
    "name": "香港",
@@ -20023,7 +23004,14 @@
     }
    },
    "other_document_mimes": {},
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 0,
+     "edge": 0
+    },
+    "stop": "exhausted"
+   }
   },
   "TW": {
    "name": "台湾",
@@ -20054,22 +23042,30 @@
      "truncated_in_pool": 103
     },
     "sheet": {
-     "frame": 176,
-     "pool": 10,
+     "frame": 358,
+     "pool": 26,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 10
+      "core": 26
      },
-     "truncated_in_pool": 0
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 37,
+      "edge": 1
+     }
     },
     "text": {
-     "frame": 1931,
-     "pool": 110,
+     "frame": 1376,
+     "pool": 100,
      "exact": false,
      "pool_by_block_stratum": {
-      "core": 110
+      "core": 100
      },
-     "truncated_in_pool": 1
+     "truncated_in_pool": 0,
+     "blocks_read": {
+      "core": 37,
+      "edge": 1
+     }
     },
     "csv": {
      "frame": 0,
@@ -20089,7 +23085,13 @@
     "application/vnd.oasis.opendocument.spreadsheet": 8,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 5
    },
-   "built": "2026-11-03"
+   "built": "2026-11-03",
+   "extend": {
+    "read": {
+     "core": 8
+    },
+    "stop": "enough"
+   }
   }
  }
 }

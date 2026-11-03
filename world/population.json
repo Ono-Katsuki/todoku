@@ -351,14 +351,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 25888,
-     "sheet": 0,
-     "text": 0,
+     "sheet": 152,
+     "text": 54,
      "csv": 21
     },
     "pool": {
      "pdf": 3839,
-     "sheet": 0,
-     "text": 0,
+     "sheet": 56,
+     "text": 20,
      "csv": 3
     },
     "suffix": {
@@ -457,14 +457,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 52853,
-     "sheet": 165,
-     "text": 2900,
+     "sheet": 112,
+     "text": 324,
      "csv": 220
     },
     "pool": {
      "pdf": 6433,
-     "sheet": 15,
-     "text": 254,
+     "sheet": 34,
+     "text": 82,
      "csv": 30
     },
     "suffix": {
@@ -511,14 +511,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 26366,
-     "sheet": 20,
-     "text": 170,
+     "sheet": 37,
+     "text": 145,
      "csv": 0
     },
     "pool": {
      "pdf": 4376,
-     "sheet": 5,
-     "text": 28,
+     "sheet": 22,
+     "text": 84,
      "csv": 0
     },
     "suffix": {
@@ -728,12 +728,12 @@
     "families": {
      "pdf": 6215,
      "sheet": 5,
-     "text": 8,
+     "text": 6,
      "csv": 0
     },
     "pool": {
      "pdf": 4839,
-     "sheet": 4,
+     "sheet": 5,
      "text": 6,
      "csv": 0
     },
@@ -836,13 +836,13 @@
     "families": {
      "pdf": 3525,
      "sheet": 0,
-     "text": 22,
+     "text": 18,
      "csv": 0
     },
     "pool": {
      "pdf": 2609,
      "sheet": 0,
-     "text": 16,
+     "text": 18,
      "csv": 0
     },
     "suffix": {
@@ -890,13 +890,13 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 11167,
-     "sheet": 110,
-     "text": 221,
+     "sheet": 51,
+     "text": 60,
      "csv": 8
     },
     "pool": {
      "pdf": 1996,
-     "sheet": 8,
+     "sheet": 12,
      "text": 17,
      "csv": 8
     },
@@ -1266,14 +1266,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 167516,
-     "sheet": 162,
-     "text": 380,
+     "sheet": 540,
+     "text": 575,
      "csv": 297
     },
     "pool": {
      "pdf": 7615,
-     "sheet": 6,
-     "text": 27,
+     "sheet": 27,
+     "text": 64,
      "csv": 11
     },
     "suffix": {
@@ -1693,14 +1693,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 27027,
-     "sheet": 69,
-     "text": 10,
+     "sheet": 130,
+     "text": 30,
      "csv": 0
     },
     "pool": {
      "pdf": 2161,
-     "sheet": 14,
-     "text": 2,
+     "sheet": 41,
+     "text": 13,
      "csv": 0
     },
     "suffix": {
@@ -1852,14 +1852,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 19843,
-     "sheet": 122,
-     "text": 165,
+     "sheet": 119,
+     "text": 167,
      "csv": 2
     },
     "pool": {
      "pdf": 8468,
-     "sheet": 58,
-     "text": 81,
+     "sheet": 59,
+     "text": 82,
      "csv": 1
     },
     "suffix": {
@@ -1906,14 +1906,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 28409,
-     "sheet": 610,
-     "text": 779,
+     "sheet": 611,
+     "text": 785,
      "csv": 0
     },
     "pool": {
      "pdf": 1725,
-     "sheet": 36,
-     "text": 46,
+     "sheet": 37,
+     "text": 50,
      "csv": 0
     },
     "suffix": {
@@ -2227,14 +2227,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 7767,
-     "sheet": 120,
-     "text": 50,
+     "sheet": 55,
+     "text": 189,
      "csv": 0
     },
     "pool": {
      "pdf": 774,
-     "sheet": 12,
-     "text": 5,
+     "sheet": 21,
+     "text": 72,
      "csv": 0
     },
     "suffix": {
@@ -2389,14 +2389,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 74785,
-     "sheet": 544,
-     "text": 3410,
+     "sheet": 506,
+     "text": 3315,
      "csv": 127
     },
     "pool": {
      "pdf": 6791,
-     "sheet": 90,
-     "text": 255,
+     "sheet": 103,
+     "text": 367,
      "csv": 42
     },
     "suffix": {
@@ -2549,14 +2549,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 774,
-     "sheet": 0,
-     "text": 0,
+     "sheet": 16,
+     "text": 1,
      "csv": 0
     },
     "pool": {
      "pdf": 244,
-     "sheet": 0,
-     "text": 0,
+     "sheet": 16,
+     "text": 1,
      "csv": 0
     },
     "suffix": {
@@ -3031,8 +3031,8 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 1493,
-     "sheet": 3,
-     "text": 3,
+     "sheet": 2,
+     "text": 2,
      "csv": 1
     },
     "pool": {
@@ -3244,7 +3244,7 @@
     "families": {
      "pdf": 14467,
      "sheet": 0,
-     "text": 55,
+     "text": 13,
      "csv": 0
     },
     "pool": {
@@ -3298,13 +3298,13 @@
     "families": {
      "pdf": 197727,
      "sheet": 441,
-     "text": 1075,
+     "text": 1134,
      "csv": 6
     },
     "pool": {
      "pdf": 2679,
      "sheet": 76,
-     "text": 186,
+     "text": 187,
      "csv": 1
     },
     "suffix": {
@@ -3509,13 +3509,13 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 70707,
-     "sheet": 1420,
-     "text": 153,
+     "sheet": 257,
+     "text": 39,
      "csv": 0
     },
     "pool": {
      "pdf": 4498,
-     "sheet": 81,
+     "sheet": 59,
      "text": 8,
      "csv": 0
     },
@@ -3617,14 +3617,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 13532,
-     "sheet": 115,
-     "text": 35,
+     "sheet": 222,
+     "text": 222,
      "csv": 179
     },
     "pool": {
      "pdf": 4004,
-     "sheet": 62,
-     "text": 19,
+     "sheet": 75,
+     "text": 56,
      "csv": 96
     },
     "suffix": {
@@ -4098,7 +4098,7 @@
     "families": {
      "pdf": 991,
      "sheet": 0,
-     "text": 2,
+     "text": 1,
      "csv": 0
     },
     "pool": {
@@ -4152,14 +4152,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 84424,
-     "sheet": 8,
-     "text": 0,
+     "sheet": 4,
+     "text": 4,
      "csv": 0
     },
     "pool": {
      "pdf": 10948,
-     "sheet": 1,
-     "text": 0,
+     "sheet": 2,
+     "text": 2,
      "csv": 0
     },
     "suffix": {
@@ -4206,14 +4206,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 21085,
-     "sheet": 50,
-     "text": 1,
+     "sheet": 305,
+     "text": 24,
      "csv": 0
     },
     "pool": {
      "pdf": 2557,
-     "sheet": 6,
-     "text": 1,
+     "sheet": 146,
+     "text": 12,
      "csv": 0
     },
     "suffix": {
@@ -4368,13 +4368,13 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 6301,
-     "sheet": 4,
-     "text": 3,
+     "sheet": 6,
+     "text": 1,
      "csv": 0
     },
     "pool": {
      "pdf": 2962,
-     "sheet": 2,
+     "sheet": 6,
      "text": 1,
      "csv": 0
     },
@@ -4476,14 +4476,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 122941,
-     "sheet": 157,
-     "text": 310,
+     "sheet": 99,
+     "text": 506,
      "csv": 18312
     },
     "pool": {
      "pdf": 7370,
-     "sheet": 33,
-     "text": 44,
+     "sheet": 34,
+     "text": 77,
      "csv": 481
     },
     "suffix": {
@@ -4583,14 +4583,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 356492,
-     "sheet": 137,
-     "text": 55,
+     "sheet": 296,
+     "text": 173,
      "csv": 0
     },
     "pool": {
      "pdf": 17631,
-     "sheet": 31,
-     "text": 2,
+     "sheet": 79,
+     "text": 40,
      "csv": 0
     },
     "suffix": {
@@ -5337,13 +5337,13 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 1073,
-     "sheet": 0,
-     "text": 3,
+     "sheet": 1,
+     "text": 1,
      "csv": 0
     },
     "pool": {
      "pdf": 367,
-     "sheet": 0,
+     "sheet": 1,
      "text": 1,
      "csv": 0
     },
@@ -5551,14 +5551,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 11434,
-     "sheet": 229,
-     "text": 25,
+     "sheet": 138,
+     "text": 74,
      "csv": 14
     },
     "pool": {
      "pdf": 4151,
-     "sheet": 81,
-     "text": 14,
+     "sheet": 52,
+     "text": 33,
      "csv": 5
     },
     "suffix": {
@@ -5926,14 +5926,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 120816,
-     "sheet": 162,
-     "text": 89,
+     "sheet": 151,
+     "text": 294,
      "csv": 28
     },
     "pool": {
      "pdf": 23106,
      "sheet": 60,
-     "text": 16,
+     "text": 58,
      "csv": 5
     },
     "suffix": {
@@ -6031,7 +6031,7 @@
     "families": {
      "pdf": 3510,
      "sheet": 0,
-     "text": 64,
+     "text": 48,
      "csv": 0
     },
     "pool": {
@@ -6510,13 +6510,13 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 1502,
-     "sheet": 0,
+     "sheet": 1,
      "text": 0,
      "csv": 0
     },
     "pool": {
      "pdf": 626,
-     "sheet": 0,
+     "sheet": 1,
      "text": 0,
      "csv": 0
     },
@@ -6562,13 +6562,13 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 3106,
-     "sheet": 20,
+     "sheet": 10,
      "text": 0,
      "csv": 0
     },
     "pool": {
      "pdf": 157,
-     "sheet": 1,
+     "sheet": 2,
      "text": 0,
      "csv": 0
     },
@@ -6616,13 +6616,13 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 22333,
-     "sheet": 24,
-     "text": 20,
+     "sheet": 15,
+     "text": 12,
      "csv": 297
     },
     "pool": {
      "pdf": 6818,
-     "sheet": 9,
+     "sheet": 15,
      "text": 12,
      "csv": 88
     },
@@ -6882,14 +6882,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 7502,
-     "sheet": 5,
-     "text": 50,
+     "sheet": 6,
+     "text": 29,
      "csv": 0
     },
     "pool": {
      "pdf": 1513,
-     "sheet": 1,
-     "text": 10,
+     "sheet": 5,
+     "text": 24,
      "csv": 0
     },
     "suffix": {
@@ -7262,14 +7262,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 26441,
-     "sheet": 14,
-     "text": 3,
+     "sheet": 15,
+     "text": 5,
      "csv": 0
     },
     "pool": {
      "pdf": 9585,
-     "sheet": 5,
-     "text": 1,
+     "sheet": 15,
+     "text": 5,
      "csv": 0
     },
     "suffix": {
@@ -7316,14 +7316,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 21960,
-     "sheet": 9,
-     "text": 0,
+     "sheet": 28,
+     "text": 33,
      "csv": 0
     },
     "pool": {
      "pdf": 8221,
-     "sheet": 4,
-     "text": 0,
+     "sheet": 24,
+     "text": 28,
      "csv": 0
     },
     "suffix": {
@@ -7370,14 +7370,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 76267,
-     "sheet": 515,
-     "text": 6476,
+     "sheet": 278,
+     "text": 2051,
      "csv": 0
     },
     "pool": {
      "pdf": 10159,
      "sheet": 55,
-     "text": 449,
+     "text": 391,
      "csv": 0
     },
     "suffix": {
@@ -7424,14 +7424,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 14291,
-     "sheet": 82,
-     "text": 20,
+     "sheet": 93,
+     "text": 15,
      "csv": 0
     },
     "pool": {
      "pdf": 6738,
-     "sheet": 29,
-     "text": 7,
+     "sheet": 93,
+     "text": 15,
      "csv": 0
     },
     "suffix": {
@@ -7533,14 +7533,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 20981,
-     "sheet": 46,
-     "text": 11,
+     "sheet": 211,
+     "text": 6,
      "csv": 0
     },
     "pool": {
      "pdf": 2198,
-     "sheet": 5,
-     "text": 1,
+     "sheet": 78,
+     "text": 2,
      "csv": 0
     },
     "suffix": {
@@ -7585,14 +7585,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 9889,
-     "sheet": 18,
-     "text": 4,
+     "sheet": 7,
+     "text": 5,
      "csv": 0
     },
     "pool": {
      "pdf": 2206,
-     "sheet": 4,
-     "text": 1,
+     "sheet": 6,
+     "text": 4,
      "csv": 0
     },
     "suffix": {
@@ -7637,14 +7637,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 1249,
-     "sheet": 0,
-     "text": 5,
+     "sheet": 1,
+     "text": 220,
      "csv": 0
     },
     "pool": {
      "pdf": 279,
-     "sheet": 0,
-     "text": 1,
+     "sheet": 1,
+     "text": 189,
      "csv": 0
     },
     "suffix": {
@@ -8173,14 +8173,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 9697,
-     "sheet": 192,
-     "text": 65,
+     "sheet": 194,
+     "text": 78,
      "csv": 100
     },
     "pool": {
      "pdf": 7586,
-     "sheet": 142,
-     "text": 59,
+     "sheet": 144,
+     "text": 73,
      "csv": 74
     },
     "suffix": {
@@ -8387,14 +8387,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 30894,
-     "sheet": 36,
-     "text": 1318,
+     "sheet": 100,
+     "text": 2319,
      "csv": 0
     },
     "pool": {
      "pdf": 867,
-     "sheet": 1,
-     "text": 37,
+     "sheet": 11,
+     "text": 256,
      "csv": 0
     },
     "suffix": {
@@ -8439,14 +8439,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 2195,
-     "sheet": 43,
-     "text": 441,
+     "sheet": 28,
+     "text": 244,
      "csv": 2392
     },
     "pool": {
      "pdf": 640,
-     "sheet": 12,
-     "text": 131,
+     "sheet": 20,
+     "text": 175,
      "csv": 660
     },
     "suffix": {
@@ -8601,14 +8601,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 19090,
-     "sheet": 12,
-     "text": 75,
+     "sheet": 31,
+     "text": 57,
      "csv": 0
     },
     "pool": {
      "pdf": 16319,
-     "sheet": 10,
-     "text": 64,
+     "sheet": 29,
+     "text": 54,
      "csv": 0
     },
     "suffix": {
@@ -8709,14 +8709,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 40951,
-     "sheet": 0,
-     "text": 196,
+     "sheet": 9083,
+     "text": 564,
      "csv": 8
     },
     "pool": {
      "pdf": 2059,
-     "sheet": 0,
-     "text": 3,
+     "sheet": 357,
+     "text": 28,
      "csv": 3
     },
     "suffix": {
@@ -8921,14 +8921,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 15257,
-     "sheet": 0,
-     "text": 0,
+     "sheet": 3,
+     "text": 3,
      "csv": 360
     },
     "pool": {
      "pdf": 1017,
-     "sheet": 0,
-     "text": 0,
+     "sheet": 1,
+     "text": 1,
      "csv": 27
     },
     "suffix": {
@@ -8975,14 +8975,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 12161,
-     "sheet": 113,
-     "text": 4,
+     "sheet": 115,
+     "text": 149,
      "csv": 10
     },
     "pool": {
      "pdf": 4387,
-     "sheet": 46,
-     "text": 1,
+     "sheet": 74,
+     "text": 99,
      "csv": 4
     },
     "suffix": {
@@ -9137,13 +9137,13 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 24306,
-     "sheet": 21,
+     "sheet": 183,
      "text": 0,
      "csv": 0
     },
     "pool": {
      "pdf": 4311,
-     "sheet": 3,
+     "sheet": 105,
      "text": 0,
      "csv": 0
     },
@@ -9459,14 +9459,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 13047,
-     "sheet": 0,
-     "text": 4,
+     "sheet": 31,
+     "text": 30,
      "csv": 0
     },
     "pool": {
      "pdf": 3892,
-     "sheet": 0,
-     "text": 1,
+     "sheet": 30,
+     "text": 30,
      "csv": 0
     },
     "suffix": {
@@ -9675,13 +9675,13 @@
     "families": {
      "pdf": 30401,
      "sheet": 8823,
-     "text": 15027,
+     "text": 15022,
      "csv": 0
     },
     "pool": {
      "pdf": 1983,
      "sheet": 517,
-     "text": 882,
+     "text": 883,
      "csv": 0
     },
     "suffix": {
@@ -9782,14 +9782,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 158883,
-     "sheet": 30546,
-     "text": 743,
+     "sheet": 30665,
+     "text": 2194,
      "csv": 1561
     },
     "pool": {
      "pdf": 9420,
-     "sheet": 1725,
-     "text": 44,
+     "sheet": 1743,
+     "text": 229,
      "csv": 88
     },
     "suffix": {
@@ -9890,14 +9890,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 857597,
-     "sheet": 1538,
-     "text": 118,
+     "sheet": 1183,
+     "text": 3976,
      "csv": 118
     },
     "pool": {
      "pdf": 7426,
-     "sheet": 13,
-     "text": 1,
+     "sheet": 25,
+     "text": 87,
      "csv": 1
     },
     "suffix": {
@@ -9944,14 +9944,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 5644,
-     "sheet": 142,
-     "text": 12,
+     "sheet": 52,
+     "text": 34,
      "csv": 60
     },
     "pool": {
      "pdf": 4619,
-     "sheet": 136,
-     "text": 10,
+     "sheet": 50,
+     "text": 28,
      "csv": 48
     },
     "suffix": {
@@ -10373,13 +10373,13 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 11672,
-     "sheet": 34,
+     "sheet": 26,
      "text": 0,
      "csv": 0
     },
     "pool": {
      "pdf": 8433,
-     "sheet": 25,
+     "sheet": 26,
      "text": 0,
      "csv": 0
     },
@@ -10427,14 +10427,14 @@
     "crawl": "CC-MAIN-2026-43",
     "families": {
      "pdf": 64022,
-     "sheet": 1852,
-     "text": 6727,
+     "sheet": 2034,
+     "text": 6172,
      "csv": 0
     },
     "pool": {
      "pdf": 5997,
-     "sheet": 232,
-     "text": 741,
+     "sheet": 248,
+     "text": 731,
      "csv": 0
     },
     "suffix": {
