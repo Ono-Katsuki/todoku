@@ -4,7 +4,7 @@
 - 旧来のフォームの欄（FORMTEXT・FORMCHECKBOX・FORMDROPDOWN）とコンテンツコントロール（名前は欄の名前・タグ）
 - 表の空のマス（左か上のマスの文字を見出しにする）：T{表}.R{行}.C{列}
 - 段落の中の空欄（下線を引いた空白、下線の字「＿＿＿」、かっこの中の空白「（　）」「[ ]」）とチェックの箱の字（☐ □ など）：P{段落}.{番号}
-- 字の形と並びだけで見つけた所（2つ以上の空白の並び・点線・ダッシュの並び）と、チェック済みの印らしい字（☑・■・✓）は、
+- 字の形と並びだけで見つけた所（1 字ぶん以上の空白の並び（wide_space）・点線・ダッシュの並び）と、チェック済みの印らしい字（☑・■・✓）は、
   同じ P{段落}.{番号} の並びで、規則では決めない所（「？」）として示す（字の意味は見ない。エージェントが前後の字から判断する）
 - 規則の型に合わない、書き込む所かもしれない所：P{段落}.a{番号}（「？」）。すぐ隣の欄の代わりの所は alternative_to で示す
 書き込んだ欄は、見えないしおり（_todoku_…）で囲み、書いた後も同じ名前で読めるようにする。
@@ -20,17 +20,16 @@ import itertools
 import re
 
 from .. import chars
-from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, GAP_MIN, _ident, agent_blanks, blank_places, norm_label  # _ident：名前の字（xlsx と同じ決まり）
+from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, norm_label, wide_space
 from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 
 DET = "deterministic"
 LAYOUT = "layout"
 AGENT = "agent"  # 規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する）
 BOX = chars.EMPTY_BOXES  # 空のチェックの箱の字（規則のチェックボックス。chars.py：Ballot Box・白い四角など）
-# 影つきの白い四角（U+274F〜U+2752 ❏❐❑❒）は Word の箇条書きの印（Wingdings の q・r など）に多く、本文に並んでいても
-# チェックの箱とは決められない：規則の欄にせず「？」（理由 bullet_box）で示す。
-# TODO：chars.py が「チェックの箱」と「箇条の印にもなる箱」を分けたら、その分け方を使う
-BULLET_LIKE_BOXES = frozenset("❏❐❑❒") & BOX
+# 箇条書きの印にもよく使う箱の字（chars.BULLET_LIKE_BOXES：影つきの白い四角 ❏❐❑❒・◻・◽）は、本文に並んでいても
+# チェックの箱とは決められない：規則の欄にせず「？」（理由 bullet_box）で示す
+BULLET_LIKE_BOXES = chars.BULLET_LIKE_BOXES
 # 印のついたチェックの印らしい字：☑・☒（Ballot Box）はチェック済みの箱、■ は箇条の印・飾りのこともあり、✓ は本文の印のこともある。
 # 規則では決めず、チェック済み（checked）のチェックボックスの候補として「？」をつけて示す（エージェントが判断する）
 CHECKED = chars.CHECKED_BOXES | chars.MAYBE_CHECKED
@@ -50,7 +49,7 @@ KIND_JA = {"text": "文字", "inline": "文字の中の空欄", "checkbox": "チ
 WORD_WHY = {
     **AGENT_WHY,
     "short_underline": "下線を引いた短い空白（1〜2字。下線の空欄は3字以上のことが多い）",
-    "bullet_box": "影つきの白い四角（❏・❐・❑・❒。箇条書きの印に多く、チェックの箱とは決められない）",
+    "bullet_box": "箇条書きの印にもよく使う箱の字（❏・❐・❑・❒・◻・◽。チェックの箱とは決められない）",
     "checked_mark": "印のついたチェックの印らしい字（☑・☒・■・✓。いまはチェック済みとして読む。■ は箇条の印・飾りのこともある）",
     "underscore_in_word": "英数字にはさまれた下線の字（「＿＿」。URL・ファイルの名前の一部のこともある）",
     "next_line_long": "見出しのあるマスの中の、空の段落（マスのほかの字が長く、見出しではなく説明の文のこともある）",
@@ -101,7 +100,7 @@ def _underlined_blanks(p: Para) -> list[tuple[int, int, bool]]:
 def para_spans(p: Para, text: str | None = None) -> list[tuple[int, int, str | None]]:
     """段落の中の空欄：(始め, 終わり, 理由の鍵)。理由の鍵が None のものは、書類の作りで決まる空欄（規則の欄）：
     下線を引いた空白の並び（3字以上）・下線の字の並び・かっこの組の中が空白だけの所。ほかは字の形と並びだけで見つけた所
-    （2つ以上の空白の並び・点線・ダッシュの並び。xlsx.window.blank_places）で、理由の鍵（WORD_WHY）をつけてエージェントに示す。
+    （1 字ぶん以上の空白の並び（wide_space）・点線・ダッシュの並び。xlsx.window.blank_places）で、理由の鍵（WORD_WHY）をつけてエージェントに示す。
     英数字にはさまれた下線の字（URL・ファイルの名前の「__icsFiles」）は、名前の一部のこともあるので規則では決めない。
     重なる空欄は1つにまとめる（どれかが作りで決まるものなら、まとめた所も規則の欄）。text は p.text（呼ぶ側で作ってあれば渡す）。"""
     if text is None:
@@ -148,15 +147,15 @@ def _field_mask(p: Para) -> bytearray:
 
 
 def _option_end(text: str, b: int, stops: list[int]) -> int:
-    """チェックの箱の字の後ろの項目の字の終わり：次の箱の字か、2つ以上の空白の並びの始めまで（stops は段落ごとに作った位置）。"""
+    """チェックの箱の字の後ろの項目の字の終わり：次の箱の字か、1 字ぶん以上の空白の並びの始めまで（stops は段落ごとに作った位置）。"""
     i = bisect.bisect_left(stops, b)
     return stops[i] if i < len(stops) else len(text)
 
 
 def _option_stops(text: str) -> list[int]:
-    """項目の字の区切りになる位置（チェックの箱の字・印のついた箱の字・2つ以上の空白の並びの始め）。段落ごとに 1 回だけ作る。"""
+    """項目の字の区切りになる位置（チェックの箱の字・印のついた箱の字・1 字ぶん以上の空白の並びの始め：wide_space）。段落ごとに 1 回だけ作る。"""
     out = [i for i, ch in enumerate(text) if ch in BOX or ch in CHECKED]
-    out += [a for a, b, k in chars.char_runs(text) if k == "space" and b - a >= GAP_MIN]
+    out += [a for a, b, k in chars.char_runs(text) if k == "space" and wide_space(text[a:b])]
     return sorted(out)
 
 
@@ -292,7 +291,7 @@ class Spots:
                         s_.text for s_ in p.segs if not s_.hidden and s_.kind in ("t", "sym", "tab")).strip(" \u3000\t"):
                     continue  # 図・埋め込みの印だけの段落（窓のために作った字だけ）
                 free_ka = (n for n in itertools.count(1) if n not in mark_ka)
-                found_agent = agent_blanks(text, [(x, y) for x, y, _k, _w in spans] + written, p.cell is not None)
+                found_agent = agent_blanks(text, [(x, y) for x, y, _k, _w in spans] + written)
                 # 見出しのあるマスの中の空の段落（「〒」の下の行に住所を書くなど）。マスのほかの字が長いもの（説明の文のこともある）も、
                 # 理由を分けて示す（字数では決めない）
                 c = p.cell

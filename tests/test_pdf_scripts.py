@@ -83,7 +83,8 @@ def test_lam_alef_ligature_is_two_letters():
 
 
 def test_hangul_word_space_is_ascii():
-    blob = glyphs_pdf([("홍", 40, 800), ("길", 52, 800), ("동", 64, 800), ("씨", 88, 800)])
+    # 語の間の空き 0.3 em（ハングルの語の間の空白）。1 em 以上の空きは、字の間の空き（「？」の所）になる
+    blob = glyphs_pdf([("홍", 40, 800), ("길", 52, 800), ("동", 64, 800), ("씨", 79.6, 800)])
     lines = reading(blob)
     assert lines == ["홍길동 씨"]
 

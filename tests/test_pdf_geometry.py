@@ -41,15 +41,89 @@ def test_gaps_by_geometry_in_any_language():
     assert gap_blanks("────────────────") == []  # 線の字だけの行（飾り）
 
 
-def test_spaced_headings_are_not_blanks():
+def test_spaced_headings_are_offered_with_their_own_key():
     assert evenly_spaced("氏　　名") and evenly_spaced("事　業　所") and not evenly_spaced("：　　～　　：")
-    assert gap_blanks("氏　　名") == [] and gap_blanks("事　業　所") == []
+    # 字間を空けた見出しの形（「氏　　名」と「第　　号」「年　　月　　日」は形が同じ）は落とさず、spaced の「？」
+    assert [x.why for x in gap_blanks("氏　　名")] == ["spaced"] and [x.why for x in gap_blanks("事　業　所")] == ["spaced"] * 2
+    assert [x.why for x in gap_blanks("　　　氏　　名　　　", 3, 3)] == ["spaced"]  # 中央にそろえた見出し：前後の空きは示さない
     # 前に空きのある並び（右にそろえた日付）は、字の間も空欄の並び
-    assert len(gap_blanks("　　　年　　月　　日", 3, 0)) == 3
+    assert [x.why for x in gap_blanks("　　　年　　月　　日", 3, 0)] == ["lead", "gap", "gap"]
+    # 点線・ダッシュだけの長い行も、落とさず decor の「？」
+    assert [x.why for x in gap_blanks("..............................")] == ["decor"]
     # 中央にそろえた見出し（左右の空きがほぼ同じで、行の中に空欄がない）：前後の空きは示さない
     assert gap_blanks("　　　申請書　　　", 3, 3) == []
     # 文の終わりの字で終わる行の後ろは、文の終わりの余白
     assert gap_blanks("上記のとおり申請します。　　　", 0, 3) == []
+
+
+def _row(text: str, x: float, y: float, size: float, em: float, word_gap: float) -> list[tuple[str, float, float]]:
+    """字を左から 1 字ずつ置く：字の送りは em（/1000）、空白の所は送りの代わりに word_gap（字の大きさに対する割合）だけ空ける。"""
+    out = []
+    for ch in text:
+        if ch == " ":
+            x += word_gap * size
+            continue
+        out.append((ch, x, y))
+        x += em * size / 1000
+    return out
+
+
+def _gap_places(blob: bytes) -> list[dict]:
+    return [f for pg in window(blob)["pages"] for f in pg["fields"]
+            if f["kind"] == "inline" and f.get("why", "").startswith("空白の並び")]
+
+
+def test_word_spaces_in_justified_paragraphs_are_not_places():
+    # 両端そろえで広げた語の間の空き（0.6 em まで）は、和字の空白 1 字ぶん（1 em）に届かない：ラテン・キリル・アラビア文字
+    paras = ["Applicants must submit the signed form together with proof of residence before the stated deadline",
+             "Заявитель должен представить подписанную форму вместе с документом о месте жительства",
+             "يجب على مقدم الطلب تقديم النموذج الموقع مع إثبات الإقامة قبل الموعد المحدد"]
+    for para in paras:
+        words = para.split()
+        glyphs = []
+        for row in range(4):  # 4 行：語の間を 0.25・0.33・0.5・0.6 em に広げる
+            glyphs += _row(" ".join(words[row * 3:row * 3 + 4]), 40, 760 - 16 * row, 10, 500, (0.25, 0.33, 0.5, 0.6)[row])
+        blob = glyphs_pdf(glyphs, {ch: 500 for ch in set(para) if ch != " "}, size=10)
+        assert not _gap_places(blob), (para[:20], _gap_places(blob))
+
+
+def test_one_ideographic_space_between_units_is_a_place():
+    # 「第　号」「令和　年　月　日」：単位の字の間の、和字の空白 1 字ぶん（U+3000 は 1 em）の空き。空きが U+3000 の字でも、
+    # 半角の空白の字の並びでも、字の位置を動かしただけでも、測った幅で「？」の所にする
+    lines = ["40 700 m 400 700 l S", "40 640 m 400 640 l S", "40 640 m 40 700 l S", "400 640 m 400 700 l S",
+             "40 670 m 400 670 l S", "120 640 m 120 700 l S"]
+    g = _row("氏 名", 50, 680, 12, 1000, 1.0)  # 字間を空けた見出し（マスの縁に接する 2 字）：所にしない
+    g += _row("第 号", 300, 680, 12, 1000, 1.0)  # 字の位置を動かしただけの 1 em の空き
+    g += [("令", 200, 650), ("和", 212, 650), ("　", 224, 650), ("年", 236, 650)]  # U+3000 の字で描いた空き
+    g += [(" ", 248 + 3 * k, 650) for k in range(4)] + [("月", 260, 650)]  # 半角の空白の字（0.25 em）4 つの空き
+    g += _row(" 日", 272, 650, 12, 1000, 1.0)
+    blob = glyphs_pdf(g, {"　": 1000, " ": 250}, extra="\n".join(lines))
+    places = _gap_places(blob)
+    hints = sorted(f["why"].split("。")[-1] for f in places)
+    assert len(places) == 4, hints  # 第□号・令和□年・年□月・月□日
+    assert not any("「氏」" in h for h in hints), hints
+    # 1 em に届かない空き（0.6 em）は所にしない
+    blob = glyphs_pdf(_row("第 号", 300, 680, 12, 1000, 0.6), extra="\n".join(lines))
+    assert not _gap_places(blob)
+    # プロポーショナルな書体（U+3000 の送りが 0.66 em）：字の大きさに対して 1 em に届かないので、所にしない
+    g = [("第", 300, 680), ("　", 312, 680), ("号", 319.92, 680)]
+    assert not _gap_places(glyphs_pdf(g, {"　": 660}, extra="\n".join(lines)))
+
+
+def test_only_closed_curves_are_circles_and_shadowed_squares_are_left_to_the_agent():
+    # 曲線だけで閉じた図形（○）は字を囲む○。直線を含む曲線の図形（角の丸い四角）は○としない
+    k = 0.5523 * 10
+    oval = (f"306 690 m 306 {690 + k} {316 - k} 700 316 700 c {316 + k} 700 326 {690 + k} 326 690 c "
+            f"326 {690 - k} {316 + k} 680 316 680 c {316 - k} 680 306 {690 - k} 306 690 c S")
+    rounded = "306 682 m 306 698 l 306 699 307 700 308 700 c 324 700 l 325 700 326 699 326 698 c 326 682 l " \
+              "326 681 325 680 324 680 c 308 680 l 307 680 306 681 306 682 c S"
+    g = [("有", 310, 685), ("・", 322, 685), ("無", 334, 685)]
+    assert [c["text"] for c in window(glyphs_pdf(g, extra=oval))["pages"][0]["circled"]] == ["有"]
+    assert window(glyphs_pdf(g, extra=rounded))["pages"][0]["circled"] == []
+    # 影のついた四角（❏）はチェックの箱にも箇条の印にも使う：チェックの印の所だが「？」。□ は規則のチェックの印
+    pg = window(glyphs_pdf([("❏", 40, 700), ("A", 52, 700), ("□", 40, 680), ("B", 52, 680)]))["pages"][0]
+    boxes = {f["label"]: f for f in pg["fields"] if f["kind"] == "checkbox"}
+    assert boxes["A"].get("agent") and not boxes["B"].get("agent"), boxes
 
 
 def test_rtl_line_head_is_on_the_right():
@@ -66,20 +140,28 @@ def test_rtl_line_head_is_on_the_right():
     assert not heads, heads  # 行の頭（右）はマスの縁に接している
 
 
-def test_places_next_to_real_form_fields_are_not_offered():
-    # 本物のフォームの欄（AcroForm）のすぐ右の見出し「Family name」の後ろの空きは、その欄に書くので別の所にしない
+def test_places_next_to_real_form_fields_are_kept_as_agent_places():
+    # 本物のフォームの欄（AcroForm）に重なる・すぐ隣の所（見出し「Family name」の後ろの空き）は、消さずに「？」にして、
+    # その欄の名前を添える（同じ種類なら alternative_to：どちらか一方に書く。種類が違えば理由に欄の名前）
     win = build(PdfDocument(build_all(), "a.pdf"))
     pg = win["pages"][0]
-    real = [f for f in pg["fields"] if f["source"] == "acroform"]
+    real = {f["id"]: f for f in pg["fields"] if f["source"] == "acroform"}
     layout = [f for f in pg["fields"] if f["source"] == "layout"]
     assert real
     for f in layout:
-        for r in real:
+        for r in real.values():
             h = min(f["rect"][3] - f["rect"][1], r["rect"][3] - r["rect"][1])
             vov = min(f["rect"][3], r["rect"][3]) - max(f["rect"][1], r["rect"][1])
             gap = max(f["rect"][0] - r["rect"][2], r["rect"][0] - f["rect"][2])
-            assert not (vov >= 0.5 * h and gap <= r["rect"][3] - r["rect"][1]), (f, r)
-    assert not any("Family name" in f.get("label", "") for f in layout)
+            if vov >= 0.5 * h and gap <= r["rect"][3] - r["rect"][1]:
+                assert f.get("agent"), (f, r)
+                assert f.get("alternative_to") in real or "フォームの欄 " in f["why"], f
+    fam = [f for f in layout if f.get("label") == "Family name"]
+    assert fam and fam[0]["alternative_to"] == "family" and fam[0]["agent"], fam
+    agree = [f for f in layout if "フォームの欄 agree" in f.get("why", "")]
+    assert agree and not agree[0].get("alternative_to"), agree  # 余白とチェックの欄：種類が違うので、別の読み方にはしない
+    text = "\n".join(pg["reading"])
+    assert f"［{fam[0]['id']}？］" in text
 
 
 def test_ruby_needs_han_and_thai_joins_without_space():

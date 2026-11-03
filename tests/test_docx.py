@@ -129,9 +129,9 @@ def test_only_structural_blanks_are_rules_and_word_patterns_are_agent():
             + p("https://example.jp/__icsFiles/a.docx"))
     win = build(DocxDocument(make_docx(body), "b.docx"))
     by = {f["id"]: f for f in win["fields"]}
-    assert all(by[i].get("agent") and "2つ以上の空白" in by[i]["why"] for i in ("P1.1", "P1.2", "P1.3"))
+    assert all(by[i].get("agent") and "1 字ぶん以上の空白" in by[i]["why"] for i in ("P1.1", "P1.2", "P1.3"))
     assert not by["P2.1"].get("agent") and not by["P3.1"].get("agent")  # 「＿＿＿＿」・下線を引いた空白
-    assert by["P4.1"].get("agent") and "2つ以上の空白" in by["P4.1"]["why"]  # 段落の終わりの空白の並び：前は出さなかった
+    assert by["P4.1"].get("agent") and "1 字ぶん以上の空白" in by["P4.1"]["why"]  # 段落の終わりの空白の並び：前は出さなかった
     assert by["P5.1"].get("agent") and "下線を引いた短い空白" in by["P5.1"]["why"]  # 2字の下線：前は出さなかった
     assert by["P6.1"].get("agent") and "URL" in by["P6.1"]["why"]  # 英数字にはさまれた「__」は名前の一部のことも
     md = to_markdown(win)
@@ -209,9 +209,10 @@ def test_anchored_write_where_rules_found_nothing():
     pr = prove(blob, res.blob, written_of(res.patches))
     assert pr.ok, pr.unexpected
     lines = [ln for st in build(DocxDocument(res.blob, "a.docx"))["stories"] for ln in st["reading"]]
-    # 「殿」で終わる段落の後ろも、語を見ずに「？」の所として示す（字の意味では除かない）
-    assert any(ln.startswith("茨城県　［P9.w1＝土浦］　農林事務所長　殿") for ln in lines), lines
-    assert "第３条　訓練は年［P11.w1＝２］回以上行う。" in lines, lines
+    # 「殿」で終わる段落の後ろも、語を見ずに「？」の所として示す（字の意味では除かない）。書いた値の前後に残った全角の空白 1 つ
+    # （1 字ぶんの空き）も「？」の所
+    assert "茨城県［P9.1？］［P9.w1＝土浦］［P9.2？］農林事務所長［P9.3？］殿［P9.a1？］" in lines, lines
+    assert "第３条［P11.1？］訓練は年［P11.w1＝２］回以上行う。" in lines, lines
     # 決まらないときは、候補を添えて断る
     with pytest.raises(FillError, match="2 か所にあります"):
         fill(DocxDocument(blob, "a.docx"), {"@1": {"old": "年１回", "new": "年２回"}})

@@ -350,14 +350,27 @@ def _boxed_blanks(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], str]:
 # 字の集まりは chars.py（Unicode の資料から作った表）。
 #
 # - 規則（書類の作りで決まる空欄）：下線の字（一般カテゴリ Pc）の並び・かっこの組（BidiBrackets.txt）の中が空白だけの所
-# - 規則では決めない所（「？」）：2つ以上の空白（一般カテゴリ Zs）の並び・点線（……・......）・ダッシュ（Pd）の 3 字以上の並び
-# 字間を空けた見出し（「事　　業　　所」：1 字ずつが同じ幅の空白で 3 字以上並ぶもの）の空白は、語を使わない形の判断で除く。
-GAP_MIN = 2  # 空白の並びを「空き」とする字数（1 つの空白は語の区切り）
+# - 規則では決めない所（「？」）：1 字ぶん以上の空白（一般カテゴリ Zs）の並び（wide_space）・点線（……・......）・
+#   ダッシュ（Pd）の 3 字以上の並び・点線やダッシュだけの長い行（decor）
+# 字間を空けた見出しの形（「事　　業　　所」：1 字ずつが同じ幅の空白で 3 字以上並ぶもの）の空白は、「年　　月　　日」と形が
+# 同じなので落とさず、別の鍵（spaced）の「？」として示す（どちらかはエージェントが前後の字から判断する）。
+GAP_MIN = 2  # 空白の並びを「空き」とする字数（半角の空白 1 つは語の区切り。全角の空白は 1 つでも空き：wide_space）
 SPACED_MIN = 3  # 字間を空けた見出しとみなす、1 字ずつの並びの字数（2 字では「同じ幅の空白」が 1 か所しかなく、形からは決まらない）
 DASH_MIN = 3  # ダッシュの並びを空きとする字数（1・2 字は「1-2」「--」のような区切り）
 DECOR_MIN = 8  # 段落・マスの字が、同じ記号・点線・ダッシュだけで、この字数以上のもの：区切りの飾り（切り取り線など）
 
 BLANK_RULE_KINDS = ("underscore", "bracket")  # 規則の空欄（書類の作りで決まる）
+
+
+def wide_space(run: str) -> bool:
+    """空白の並び run が、字の間に 1 字を書ける空き（1 字ぶん＝1 em 以上の幅）か。字の意味は見ず、空白の字の幅だけで決める：
+    - 全角の空白（東アジアの字の幅 UAX #11 が W・F の空白：U+3000 IDEOGRAPHIC SPACE）を含む：U+3000 の幅は、Unicode
+      （第 6 章 6.2 の空白の字の表「the width of ideographic (CJK) characters」）と JIS X 4051（全角の空白は 1 字ぶん）で 1 em
+      （「第　号」「平成　年　月　日」「郡　市」）
+    - 半角の空白などの幅の狭い空白が GAP_MIN 字以上並ぶ（1 つは語の間の空白：欧文で 0.25〜0.33 em。空きにしない）
+    PDF の窓の行の空白は、測った空きから作る（1 em 以上の空きだけが、全角の空白か 2 つ以上の半角の空白になる）ので、同じ決め方になる。
+    段落の頭・終わりの全角の空白 1 つ（字下げ・行末の空白）は、字と字の間の空きではないので、blank_places は空きにしない。"""
+    return len(run) >= GAP_MIN or any(chars.is_wide(ch) for ch in run)
 
 
 def _ident(ch: str) -> bool:
@@ -374,6 +387,22 @@ def _spaced_heading(text: str) -> bool:
         return False
     toks = [text[a:b] for a, b in zip([0] + [y for _x, y in runs], [x for x, _y in runs] + [len(text)])]
     return len(toks) >= SPACED_MIN and all(len(t) == 1 for t in toks)
+
+
+def _spaced_option(text: str, a: int) -> bool:
+    """text[a] の空白が、チェックの箱の字のすぐ後ろの、字間を空けた選択肢の字（「□地　域　移　行　支　援」）の中か：
+    前の箱の字から次の箱の字（なければ終わり）までの、前後の空白を除いた並びが、字間を空けた見出しの形。"""
+    start = next((i for i in range(a - 1, -1, -1) if text[i] in chars.BOXES or text[i] in chars.MAYBE_CHECKED), None)
+    if start is None:
+        return False
+    end = next((i for i in range(a, len(text)) if text[i] in chars.BOXES or text[i] in chars.MAYBE_CHECKED), len(text))
+    seg = text[start + 1:end]
+    i, j = 0, len(seg)
+    while i < j and chars.is_space(seg[i]):
+        i += 1
+    while j > i and chars.is_space(seg[j - 1]):
+        j -= 1
+    return _spaced_heading(seg[i:j])
 
 
 def blank_places(text: str) -> list[tuple[int, int, str]]:
@@ -394,17 +423,17 @@ def blank_places(text: str) -> list[tuple[int, int, str]]:
             opener = text[a - 1] if a > 0 else ""
             if opener and b < len(text) and chars.closing(opener) == text[b]:
                 out.append((a, b, "bracket"))  # 「（　　）」「[ ]」「( )」：かっこの組の中が空白だけ
-            elif b - a >= GAP_MIN and not spaced and b - a < len(text) and not (
+            elif wide_space(run) and (b - a >= GAP_MIN or 0 < a and b < len(text)) and b - a < len(text) and not (
                     b < len(text) and (text[b] in chars.BOXES or text[b] in chars.MAYBE_CHECKED)):
-                # チェックの箱の字の前の空白（「☐ 新規　　☐ 変更」）は、箱の字の項目どうしの区切り
-                out.append((a, b, "gap"))
+                # チェックの箱の字の前の空白（「☐ 新規　　☐ 変更」）は、箱の字の項目どうしの区切り。
+                # 字間を空けた見出しの形（「事　業　所」と「年　　月　　日」は形が同じ）は落とさず、別の鍵（spaced）の「？」で示す
+                out.append((a, b, "spaced" if spaced or _spaced_option(text, a) else "gap"))
         elif kind in ("leader", "dash"):
             long_enough = chars.dot_run(text, a, b) if kind == "leader" else b - a >= DASH_MIN
             if not long_enough:
                 continue
-            if len(run) == len(stripped) and len(run) >= DECOR_MIN:
-                continue  # 点線・ダッシュだけの長い行（区切りの飾り）
-            out.append((a, b, kind))
+            # 点線・ダッシュだけの長い行：区切りの飾り（切り取り線）のことも、書く線のこともある。落とさず「？」（decor）で示す
+            out.append((a, b, "decor" if len(run) == len(stripped) and len(run) >= DECOR_MIN else kind))
     return out
 
 
@@ -432,9 +461,13 @@ def space_width(text: str, a: int, b: int) -> float:
 # 規則の型には合わないが、書き込む所かもしれない所。規則では欄と決めず、窓に「？」をつけて示し、エージェントが読んで判断する。
 # 書くと決めたら、ほかの欄と同じように id を指定して書く（証明も同じ）。書かなければ、何も変わらない。
 AGENT_WHY = {
-    "gap": "2つ以上の空白の並び（字の意味からは決めていません。空きの幅と前後の字から判断してください）",
+    "gap": "1 字ぶん以上の空白の並び（全角の空白 1 つ以上か、半角の空白 2 つ以上。字の意味からは決めていません。"
+           "空きの幅と前後の字から判断してください）",
     "leader": "点線（……・......）の並び",
     "dash": "ダッシュ（---・－－－）の 3 字以上の並び",
+    "decor": "点線・ダッシュ・同じ記号だけの長い行（区切りの飾り・切り取り線のことが多いが、書く線のこともある）",
+    "spaced": "1 字ずつを同じ空白でつないだ並びの字の間（字間を空けた見出し「事　業　所」のことが多いが、「年　　月　　日」"
+              "「第　　号」のように書く所のこともある）",
     "placeholder": "同じ記号の並び（○○・＊＊＊・×× など。伏せ字として書き換える所のことがある）",
     "after_colon": "コロン（:・： など）で終わる字の後ろ",
     "after_label": "文の区切りの字（。・,・、 など）のない短い段落の後ろ",
@@ -497,9 +530,9 @@ def _lead_marker(body: str) -> str:
     return body[k:]
 
 
-def agent_blanks(text: str, found=(), in_cell: bool = False, detail: bool = False) -> list[tuple[int, int, str]]:
+def agent_blanks(text: str, found=(), detail: bool = False) -> list[tuple[int, int, str]]:
     """規則では決められない、書き込む所かもしれない所（blank_places の空き・点線のほか）：(始め, 終わり, 何か（AGENT_WHY の鍵）)。
-    found は先に見つけた所（重なる所・すぐ隣の所は出さない）。in_cell は表のマスの中の字か（いまは見つけ方を変えない）。
+    found は先に見つけた所（重なる所・すぐ隣の所は出さない）。
     どれも字の形と並び（同じ記号の並び・コロンや文の区切りの字（Unicode の性質）で終わるか）だけで決め、語は見ない。"""
     taken = sorted(tuple(x[:2]) for x in found)  # 先に見つけた所（始めの順。重なりを二分探索で調べる：所の数 × 段落の長さにしない）
     reach = list(itertools.accumulate((y for _x, y in taken), max))  # その所までの、終わりの最大
@@ -531,9 +564,8 @@ def agent_blanks(text: str, found=(), in_cell: bool = False, detail: bool = Fals
         else:
             merged.append([a, b])
     for a, b in merged:
-        if b - a >= DECOR_MIN and text[a:b] == core:
-            continue  # 同じ記号だけの長い行（区切りの飾り）
-        add(a, b, "placeholder")
+        # 同じ記号だけの長い行（区切りの飾りのことが多い）も、落とさず「？」で示す
+        add(a, b, "decor" if b - a >= DECOR_MIN and text[a:b] == core else "placeholder")
     if not core:
         return sorted(out)
     last = core[-1]
@@ -558,7 +590,7 @@ def cell_blanks(text: str) -> list[tuple[int, int, str | None]]:
     文字なら規則では決められない所（AGENT_WHY の鍵。エージェントが窓を読んで判断する）。
 
     - 規則（字の形だけで決まる）：下線の字の並び・かっこの中の空白だけの所（「（　　）」「[ ]」）・チェックの箱の字（☐ □ など）
-    - 規則では決められない：2つ以上の空白の並び・点線・ダッシュの並び（blank_places）と、agent_blanks の見つけ方
+    - 規則では決められない：1 字ぶん以上の空白の並び（wide_space）・点線・ダッシュの並び（blank_places）と、agent_blanks の見つけ方
       （同じ記号の並び・コロンで終わる字の後ろ）"""
     found = blank_places(text)
     out: list[tuple[int, int, str | None]] = [(a, b, None if k in BLANK_RULE_KINDS else k) for a, b, k in found]
@@ -569,7 +601,7 @@ def cell_blanks(text: str) -> list[tuple[int, int, str | None]]:
     # 値は別のマスに書く作りで、見出しの後ろまで出すと、すべての見出し・すべての値のマス（表の中の「東京都」など）が候補になり、
     # 窓が読めなくなる。値を書くマスは、入力欄か、印（罫線・塗り・結合）があれば［B5？］として出る。見出しのマスに書き足すときは、
     # 書き換えたあとの文字全体を書く
-    out += [x for x in agent_blanks(text, [(a, b) for a, b, _k in out], True) if x[2] != "after_label"]
+    out += [x for x in agent_blanks(text, [(a, b) for a, b, _k in out]) if x[2] != "after_label"]
     return sorted(out)
 
 
