@@ -158,7 +158,10 @@ def test_xlsx_circle_adds_an_ellipse_shape_with_proof(tmp_path):
     assert b"<drawing " in z.read("xl/worksheets/sheet1.xml")
     assert b"drawing+xml" in z.read("[Content_Types].xml")
     # 書いた後のブックの値・窓は変わらない
-    assert isinstance(api.fields(out), list)  # 書いた後も窓を作れる（「有　・　無」の 1 つの空白は所にしないので、欄の数は問わない）
+    src_ = str(tmp_path / "t.xlsx")
+    assert api.fields(out) == api.fields(src_)  # ○を足しても、欄（id・見出し・値）は同じ
+    shown = "".join(t for _, t in api.window(out)[2])
+    assert "有　・　無" in shown and "囲んだ字「無」（B1）" in shown  # 字はそのままで、囲んだことが窓に出る
     # 2つ目の○は、ある図形の部品に足す
     r2, _ = _write(tmp_path, open(out, "rb").read(), "t2.xlsx", {"@c1": {"circle": "有", "cell": "S!B1"}})
     assert r2["proof_ok"] and r2["read_back_ok"], r2["unexpected"]

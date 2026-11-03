@@ -20,7 +20,7 @@ import itertools
 import re
 
 from .. import chars
-from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, GAP_MIN, agent_blanks, blank_places, norm_label
+from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, GAP_MIN, _ident, agent_blanks, blank_places, norm_label  # _ident：名前の字（xlsx と同じ決まり）
 from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 
 DET = "deterministic"
@@ -96,10 +96,6 @@ def _underlined_blanks(p: Para) -> list[tuple[int, int, bool]]:
                     out.append((start, pos, False))
             start = None
     return out
-
-
-def _ident(ch: str) -> bool:
-    return ch.isascii() and (ch.isalnum() or ch in ".-/")
 
 
 def para_spans(p: Para, text: str | None = None) -> list[tuple[int, int, str | None]]:

@@ -181,7 +181,8 @@ def test_labels_without_merged_sections():
     assert basic["M23"]["label"] == "法人名／名称"
     assert basic["M28"]["label"] == "法人代表者／氏名"
     # 郵便番号を1桁ずつ書くマス：見出しは、いちばん近い字をそのまま（「1マスに1文字」とは推定しない。並びは context に出る）
-    assert basic["N24"]["label"] and "（1マスに1文字）" not in basic["N24"]["label"]
+    assert basic["N24"]["label"] == "〒" and basic["Q24"]["label"] == "－"
+    assert "〒 ｜ ［M24］ ｜ ［▶N24］ ｜ ［O24］ ｜ － ｜ ［Q24］" in basic["N24"]["context"]
 
 
 def test_dependent_choices_follow_other_fields():
