@@ -63,3 +63,66 @@ def test_place_inside_a_real_field_is_the_field_itself():
     lay = [f for f in pg["fields"] if f["source"] == "layout" and f["kind"] == "checkbox"]
     assert not lay, lay
     assert any(f["id"] == "chk" for f in pg["fields"])
+
+
+# 電話番号［tel］（　　　　） / 氏名［name］　　年　　月　　日（欄 name は「氏名」と「年」の間の空きに置かれている）
+_GAP_ROWS = [("電話番号", 50, 700), ("（　　　　）", 176, 700), ("氏名", 50, 660), ("　　年　　月　　日", 176, 660)]
+_GAP_WIDGETS = [("tel", "Tx", [100, 697, 175, 713]), ("name", "Tx", [80, 657, 175, 673])]
+
+
+def _gap_page():
+    return window(PdfDocument(_form_pdf(_GAP_ROWS, _GAP_WIDGETS), "a.pdf"))["pages"][0]
+
+
+def test_widget_in_the_gap_of_a_line_is_labelled_by_that_line():
+    # 欄が、同じ高さの行の字の間に置かれているとき：見出しは、その行の欄より前の字（上の行ではない）
+    by = {f["id"]: f for f in _gap_page()["fields"]}
+    assert by["name"]["label"] == "氏名", by["name"]
+    assert by["tel"]["label"] == "電話番号", by["tel"]
+
+
+def test_overlap_of_one_em_is_alternative_beside_is_not():
+    lay = [f for f in _gap_page()["fields"] if f["source"] == "layout"]
+    # 欄 name に 1 字ぶん以上重なる空き：同じ所の別の読み方
+    over = [f for f in lay if f.get("alternative_to") == "name"]
+    assert len(over) == 1 and over[0]["agent"] and "フォームの欄 name に重なる" in over[0]["why"], lay
+    # 欄 tel のすぐ隣のかっこの中（重ならない・字の形で決まる空欄）：規則の空欄のまま。alternative_to にしない
+    paren = [f for f in lay if "電話番号" in f["label"]]
+    assert len(paren) == 1 and not paren[0].get("agent") and not paren[0].get("alternative_to"), paren
+    assert "フォームの欄 tel" in paren[0]["reason"], paren
+
+
+def test_beside_a_widget_is_agent_without_alternative():
+    # 字の形で決まらない空き（測った空白）が、欄のすぐ隣にあるだけ：「？」で理由に欄の名前。alternative_to にはしない
+    # 氏 50〜62・名 62〜74・空白 74〜122・様 122〜134：欄は 136〜200（空きから 14pt：欄の高さ 16pt の内）
+    rows = [("氏名　　　　様", 50, 700)]
+    pg = window(PdfDocument(_form_pdf(rows, [("nm", "Tx", [136, 697, 200, 713])]), "a.pdf"))["pages"][0]
+    near = [f for f in pg["fields"] if f["source"] == "layout" and "フォームの欄 nm" in (f.get("why") or "")]
+    assert near, pg["fields"]
+    for f in near:
+        assert f["agent"] and not f.get("alternative_to") and "すぐ隣" in f["why"], f
+
+
+def test_writing_both_the_widget_and_its_alternative_is_refused():
+    import pytest
+
+    from todoku.pdf.fill import FillError, fill
+
+    blob = _form_pdf(_GAP_ROWS, _GAP_WIDGETS)
+    fields = _gap_page()["fields"]
+    alt = next(f["id"] for f in fields if f.get("alternative_to") == "name")
+    with pytest.raises(FillError) as e:
+        fill(PdfDocument(blob, "a.pdf"), {"name": "山田", alt: "山田"})
+    assert "name" in str(e.value) and alt in str(e.value) and "どちらか1つ" in str(e.value), str(e.value)
+    # 一方だけなら書ける。重ならない隣の所（かっこの中）は、欄 tel と一緒に書ける
+    paren = next(f["id"] for f in fields if "電話番号" in f["label"] and f["source"] == "layout")
+    assert fill(PdfDocument(blob, "a.pdf"), {"name": "山田", "tel": "03", paren: "1234"}).patches
+
+
+def test_say_to_user_names_the_widget_by_its_own_line(tmp_path):
+    from todoku import api
+
+    src = tmp_path / "a.pdf"
+    src.write_bytes(_form_pdf(_GAP_ROWS, _GAP_WIDGETS))
+    r = api.fill(str(src), {"name": "山田"}, str(tmp_path / "b.pdf"))
+    assert "氏名：山田" in r["say_to_user"] and "電話番号 （ ）：山田" not in r["say_to_user"], r["say_to_user"]

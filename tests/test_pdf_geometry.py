@@ -157,7 +157,9 @@ def test_places_next_to_real_form_fields_are_kept_as_agent_places():
                 assert f.get("agent"), (f, r)
                 assert f.get("alternative_to") in real or "フォームの欄 " in f["why"], f
     fam = [f for f in layout if f.get("label") == "Family name"]
-    assert fam and fam[0]["alternative_to"] == "family" and fam[0]["agent"], fam
+    # 見出しの右の余白は、欄 family に 1 字ぶん（10pt）に足りない 7.8pt だけかかる：重なりではなく「すぐ隣」。
+    # 「？」で理由に欄の名前を添えるが、同じ所の別の読み方（alternative_to）にはしない
+    assert fam and not fam[0].get("alternative_to") and fam[0]["agent"] and "フォームの欄 family" in fam[0]["why"], fam
     agree = [f for f in layout if "フォームの欄 agree" in f.get("why", "")]
     assert agree and not agree[0].get("alternative_to"), agree  # 余白とチェックの欄：種類が違うので、別の読み方にはしない
     text = "\n".join(pg["reading"])

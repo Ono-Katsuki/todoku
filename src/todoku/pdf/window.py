@@ -601,18 +601,34 @@ def _inside_widget(sp: Spot, r) -> bool:
 _CHECK_WIDGETS = ("checkbox", "radio")
 
 
+def _em_overlap(sp: Spot, r) -> float:
+    """配置の所と、フォームの欄が、行の向きに重なる長さを、1 字ぶん（1 em）を 1 として測った数（重ならなければ 0）。
+    1 em は、その所の字の大きさ。ただし所か欄が 1 字より狭いとき（小さなチェックの箱など）は、狭いほうの幅を 1 とする。
+    行と直角の向きには、狭いほうの高さの半分以上が重なるときだけ重なると見る（上下の行にかかるだけの欄は重ならない）。"""
+    vertical = isinstance(sp.host, Line) and sp.host.vertical
+    a0, a1, b0, b1 = (1, 3, 0, 2) if vertical else (0, 2, 1, 3)  # 行の向き・直角の向き
+    along = min(sp.rect[a1], r[a1]) - max(sp.rect[a0], r[a0])
+    across = min(sp.rect[b1], r[b1]) - max(sp.rect[b0], r[b0])
+    if along <= 0 or across < 0.5 * min(sp.rect[b1] - sp.rect[b0], r[b1] - r[b0]):
+        return 0.0
+    em = min(max(sp.size, 1.0), sp.rect[a1] - sp.rect[a0], r[a1] - r[a0])
+    return along / max(em, 1e-6)
+
+
 def _near_widget(sp: Spot, real_ws: list):
     """配置の所と、元からあるフォームの欄との関係："inside"（欄の中に収まる：その欄そのもの）、
-    (欄, "overlap" か "beside", 離れ pt)（重なる・同じ行ですぐ隣：規則では決められない）、None（関係なし）。"""
+    (欄, "overlap" か "beside", 離れ pt)（1 字ぶん以上重なる・同じ行ですぐ隣か 1 字に足りないだけ重なる）、None（関係なし）。
+    1 字ぶん以上重なる所だけを、欄と同じ所の別の読み方の候補にする（両方に書くと字が重なる）。接する・わずかに重なるだけの所は、
+    欄の隣に別に書く所（「電話番号［欄］（　　）」のかっこの中）のことがあるので、重なりとしない。"""
     best = None
     for f, _w, r in real_ws:
         if _inside_widget(sp, r):
             return "inside"
-        ov = _overlap(sp.rect, r)
-        if ov > 0:
-            key = (0, -ov)
+        em = _em_overlap(sp, r)
+        if em >= 1.0:
+            key = (0, -em)
             cand = (f, "overlap", 0.0)
-        elif _beside_widget(sp.rect, r):
+        elif _overlap(sp.rect, r) > 0 or _beside_widget(sp.rect, r):
             gap = max(sp.rect[0] - r[2], r[0] - sp.rect[2], 0.0)
             key = (1, gap)
             cand = (f, "beside", gap)
@@ -624,18 +640,28 @@ def _near_widget(sp: Spot, real_ws: list):
 
 
 def _flag_near_widget(sp: Spot, f: FormField, how: str, gap: float) -> None:
-    """元からあるフォームの欄に重なる・すぐ隣の所：消さずに「？」（規則では決められない）にして、その欄の名前を理由に添える。
-    同じ種類の読み方（字の所と字の欄・チェックの所とチェックの欄）なら、同じ所の別の読み方（alternative_to：どちらか一方に書く）。
-    種類が違えば（「□ その他（欄）」の □ と字の欄など）、両方に書くこともあるので alternative_to にはしない。"""
+    """元からあるフォームの欄に重なる・すぐ隣の所：消さずに、その欄の名前を理由に添える。
+    - 1 字ぶん以上重なる所（how="overlap"）：「？」（規則では決められない）。同じ種類の読み方（字の所と字の欄・チェックの所と
+      チェックの欄）なら、同じ所の別の読み方（alternative_to：どちらか一方に書く。fill は両方に書くと断る）。種類が違えば
+      （「□ その他（欄）」の □ と字の欄など）、両方に書くこともあるので alternative_to にはしない。
+    - すぐ隣の所（how="beside"）：重ならないので alternative_to にはしない。字の形だけで決まる規則の空欄（かっこの中・下線）は、
+      欄の隣にあっても規則の空欄のまま（理由に欄の名前を添えるだけ）。それ以外は「？」（理由に欄の名前）。"""
     same = (sp.kind == "checkbox") == (f.kind in _CHECK_WIDGETS)
-    where = (f"フォームの欄 {f.name} に重なる" if how == "overlap"
-             else f"フォームの欄 {f.name} と同じ行の、すぐ隣（{gap:.0f}pt）")
-    if same:
-        why = f"{where}：その欄と同じ所の別の読み方かもしれない（書くならどちらか一方）"
-        sp.alt_widget = f.name
+    if how == "overlap":
+        where = f"フォームの欄 {f.name} に重なる"
+        if same:
+            why = f"{where}：その欄と同じ所の別の読み方かもしれない（書くならどちらか一方）"
+            sp.alt_widget = f.name
+        else:
+            why = (f"{where}：種類が違う（この所は{KIND_JA.get(sp.kind, sp.kind)}、欄は{KIND_JA.get(f.kind, f.kind)}）。"
+                   "その欄とは別に書く所か、規則では決められない")
     else:
-        why = (f"{where}：種類が違う（この所は{KIND_JA.get(sp.kind, sp.kind)}、欄は{KIND_JA.get(f.kind, f.kind)}）。"
-               "その欄とは別に書く所か、規則では決められない")
+        where = f"フォームの欄 {f.name} と同じ行の、すぐ隣（{gap:.0f}pt）"
+        if sp.kind == "inline" and sp.confidence != "agent":
+            why = f"{where}。重ならず、字の形で決まる空欄なので、その欄とは別の所"
+            sp.reason = f"{sp.reason}。{why}" if sp.reason else why
+            return
+        why = f"{where}：その欄の続きか、その欄とは別に書く所か、規則では決められない（重ならない）"
     sp.confidence = "agent"
     sp.reason = f"{sp.reason}。{why}" if sp.reason else why
 
@@ -685,8 +711,45 @@ def _hint(it: _Item) -> float:
     return max(6.0, (it.y1 - it.y0) / 3)
 
 
+def _label_within_line(lay: PageLayout, r) -> str:
+    """フォームの欄が、同じ高さ（字の高さの半分以上が欄と重なる）の行の、字と字の間の空きに置かれているとき：
+    その行の、欄より前の字（左から右へ書く行は欄の左、右から左へ書く行は欄の右）。
+    「氏名［欄］年　月　日」の欄は「氏名」の欄で、上の行の見出しではない。欄の前で終わる行（「見出し　［欄］」）も同じ。
+    同じ高さに、欄の前の字（200pt の内）がなければ ""。"""
+    best = None
+    for ln in lay.free_lines:
+        if ln.vertical or not ln.text.strip():
+            continue
+        h = ln.y1 - ln.y0
+        if h <= 0 or min(ln.y1, r[3]) - max(ln.y0, r[1]) < 0.5 * h:
+            continue
+        rtl = bool(getattr(ln, "rtl", False))
+        # 見た目の順（左から右へ書く行は左から、右から左へ書く行は右から）に、欄より前で始まる字を取る。欄にかかって
+        # 続く語の字（見出しの終わりが欄の下にはみ出した「Given name (…given)」）は、空白か 1 字の半分以上の空きまで足す
+        order = sorted(range(len(ln.pos)), key=lambda i: -ln.pos[i][1] if rtl else ln.pos[i][0])
+        idx: list[int] = []
+        for i in order:
+            p = ln.pos[i]
+            if (p[1] > r[2]) if rtl else (p[0] < r[0]):
+                idx.append(i)
+                continue
+            q = ln.pos[idx[-1]] if idx else None
+            if q is None or ln.text[i].isspace() or ((q[0] - p[1]) if rtl else (p[0] - q[1])) >= 0.5 * ln.size:
+                break
+            idx.append(i)
+        head = "".join(ln.text[i] for i in sorted(idx)).strip()
+        if not head:
+            continue
+        gap = (min(ln.pos[i][0] for i in idx) - r[2]) if rtl else (r[0] - max(ln.pos[i][1] for i in idx))
+        if gap > 200:
+            continue
+        if best is None or gap < best[0]:
+            best = (gap, head)
+    return norm_label(best[1]) if best is not None else ""
+
+
 def _near_label(lay: PageLayout, r) -> str:
-    """フォームの欄のそばの文字（同じマスの文字、左のマス、左の行、上の行）。"""
+    """フォームの欄のそばの文字（同じマスの文字、欄が字の間に置かれた同じ行の前の字、左の行、上の行）。"""
     cx, cy = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
     c = lay.index.at(cx, cy)
     if c is not None:
@@ -695,6 +758,9 @@ def _near_label(lay: PageLayout, r) -> str:
         label, _rl, _cl = lay._label_for(c, c)
         if label:
             return label
+    within = _label_within_line(lay, r)
+    if within:
+        return within
     best = None
     for ln in lay.free_lines:
         if ln.vertical:

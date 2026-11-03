@@ -971,7 +971,9 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
         except FillError as e:
             msg = str(e)
             problems.append(msg if msg.startswith(str(key)) or ":" in msg.split(chr(10))[0][:60] else f"{key}: {msg}")
-    problems += alternative_conflicts([spots[k][1] for k in values if k in spots and spots[k][1].get("source") == "layout"])
+    # 書いた欄すべて（配置の所・元からあるフォームの欄）：配置の所の alternative_to は、フォームの欄の名前のこともある
+    written = [spots[k][1] if k in spots else {"id": k} for k in values if k in spots or k in f.by_name]
+    problems += alternative_conflicts(written)
     if xfa_values and not problems:
         try:
             _fill_xfa(f, xf, xfa_values, force)
@@ -1066,7 +1068,9 @@ def as_kind(sd: dict, value):
 
 
 def alternative_conflicts(written: list[dict]) -> list[str]:
-    """同じ所の別の読み方（alternative_to でつながる候補）の両方に書こうとしたもの：どちらか1つにする（重なって書かれるので）。"""
+    """同じ所の別の読み方（alternative_to でつながる候補）の両方に書こうとしたもの：どちらか1つにする（重なって書かれるので）。
+    written：書いた欄（id と、あれば alternative_to・rect）。alternative_to の先は、配置の所のことも、元からあるフォームの欄の
+    名前のこともある（フォームの欄に 1 字ぶん以上重なる所）。"""
     out = []
     ids = {d["id"] for d in written}
     groups: dict[str, list[dict]] = {}
