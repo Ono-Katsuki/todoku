@@ -174,7 +174,7 @@ def _read(wb, recs: list[tuple[int, int, bytes]], ch: Chart, sheet: str | None) 
             rw, col, ixfe = struct.unpack_from("<HHH", b, 0)
             if t == NUMBER:
                 v = struct.unpack_from("<d", b, 6)[0]
-                cache[(si, col, rw)] = number_text(repr(v), wb.style(ixfe).num_fmt)
+                cache[(si, col, rw)] = number_text(repr(v), wb.style(ixfe).num_fmt, getattr(wb, "date1904", False), ch.notes)
             elif t == LABEL:
                 from ..xls.book import xlstring
 
@@ -225,7 +225,7 @@ def _read(wb, recs: list[tuple[int, int, bytes]], ch: Chart, sheet: str | None) 
             if ifmt is not None and got:
                 fmt = getattr(wb, "_formats", {}).get(ifmt)
                 if fmt:
-                    got = {i: _reformat(v, fmt) for i, v in got.items()}
+                    got = {i: _reformat(v, fmt, getattr(wb, "date1904", False), ser.notes) for i, v in got.items()}
             setattr(ser, key, got)
         ser.n_cats = s["n_x"]
         ser.n_vals = s["n_y"]
@@ -269,12 +269,13 @@ def _decode(wb, rgce: bytes) -> str:
         return ""
 
 
-def _reformat(v: str, fmt: str) -> str:
+def _reformat(v: str, fmt: str, date1904: bool = False, notes: list | None = None) -> str:
+    """date1904：ブックの日付の数え方（BIFF の DATEMODE）。notes：地域で見え方が変わる表示形式の注を足す所。"""
     try:
         x = float(v.replace(",", ""))
     except ValueError:
         return v
-    return number_text(repr(x), fmt)
+    return number_text(repr(x), fmt, date1904, notes)
 
 
 # ====================================================================== シートの中のグラフ

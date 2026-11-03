@@ -143,7 +143,7 @@ def _drawing(wb, part: str) -> tuple[list[Chart], list[dict]]:
                 continue
             if g["kind"] == "chart":
                 try:
-                    ch = read_chart(z.read(target), target, z, workbook_resolver(wb))
+                    ch = read_chart(z.read(target), target, z, workbook_resolver(wb), getattr(wb, "date1904", False))
                 except Exception as e:  # noqa: BLE001
                     ch = Chart(part=target, error=str(e))
                 ch.where, ch.name, ch.alt = where, name, alt

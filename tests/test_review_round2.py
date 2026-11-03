@@ -48,6 +48,29 @@ def test_chart_cache_locale_date_is_iso():
     from todoku.embeds.chart import number_text
 
     assert number_text("46329", BUILTIN[14]) == "2026-11-03"
+    notes: list = []
+    assert number_text("46329", BUILTIN[14], notes=notes) == "2026-11-03" and number_text("46330", BUILTIN[14], notes=notes)
+    assert len(notes) == 1 and "ISO 8601" in notes[0] and "番号 14" in notes[0], notes  # 同じ注は 1 度だけ
+    assert number_text("44867", BUILTIN[14], True) == "2026-11-03"  # 1904 年の数え方
+
+
+def test_chart_series_tells_iso_and_chartex_uses_book_date1904():
+    from todoku.embeds.chart import read_chart
+
+    C = 'xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"'
+    xml = (f'<c:chartSpace {C}><c:chart><c:plotArea><c:lineChart><c:ser><c:idx val="0"/><c:order val="0"/>'
+           '<c:cat><c:numRef><c:f>S!$A$1</c:f><c:numCache><c:formatCode>[$-x-builtin-14]</c:formatCode><c:ptCount val="1"/>'
+           '<c:pt idx="0"><c:v>46329</c:v></c:pt></c:numCache></c:numRef></c:cat>'
+           '<c:val><c:numLit><c:ptCount val="1"/><c:pt idx="0"><c:v>1</c:v></c:pt></c:numLit></c:val>'
+           '</c:ser></c:lineChart></c:plotArea></c:chart></c:chartSpace>')
+    s = read_chart(xml.encode(), "chart.xml").series[0]
+    assert s.cats == {0: "2026-11-03"} and any("ISO 8601" in n for n in s.notes), s.notes
+    cx = ('<cx:chartSpace xmlns:cx="http://schemas.microsoft.com/office/drawing/2014/chartex"><cx:chartData><cx:data id="0">'
+          '<cx:numDim type="val"><cx:lvl ptCount="1" formatCode="yyyy-mm-dd"><cx:pt idx="0">44867</cx:pt></cx:lvl></cx:numDim>'
+          '</cx:data></cx:chartData><cx:chart><cx:plotArea><cx:plotAreaRegion><cx:series layoutId="funnel">'
+          '<cx:dataId val="0"/></cx:series></cx:plotAreaRegion></cx:plotArea></cx:chart></cx:chartSpace>')
+    assert read_chart(cx.encode(), "c.xml", date1904=True).series[0].vals == {0: "2026-11-03"}
+    assert read_chart(cx.encode(), "c.xml").series[0].vals == {0: "2022-11-02"}
 
 
 def test_vba_range_text_of_locale_date_is_iso_and_told():
