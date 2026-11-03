@@ -6,3 +6,4 @@ out/
 .pytest_cache/
 notes/
 .claude/worktrees/
+.playwright-mcp/
