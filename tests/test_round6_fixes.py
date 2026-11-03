@@ -181,6 +181,25 @@ def test_adjacent_cells_in_one_fill_get_one_font_size():
     assert any("そろえました" in w for w in f.warnings)
 
 
+# ---------------------------------------------------------------- PDF：重なりは、はっきりしたものだけ断り、ほかは位置を添えて知らせる
+def test_write_across_a_curved_stamp_is_warned_with_the_position(tmp_path):
+    # 「見本」の印のような曲線（半円）が、書く枠を横切る：断らずに、位置（mm）を添えて知らせる
+    stamp = b"1 w 100 640 m 100 700 200 700 200 640 c S\n"
+    data = _pdf([(70, 760, 10, "氏名")], stamp)
+    top = (842 - 682) * 25.4 / 72
+    r, _ = _write(tmp_path, data, "t.pdf", {"@1": {"page": 1, "box": [30, top - 3, 80, top + 3], "value": "山田 花子"}})
+    assert r["proof_ok"] and r["read_back_ok"]
+    assert any("曲線" in w and "mm" in w for w in r["warnings"]), r["warnings"]
+
+
+def test_write_on_top_of_printed_text_is_still_refused(tmp_path):
+    data = _pdf([(70, 700, 10, "見本見本見本")])
+    top = (842 - 710) * 25.4 / 72
+    left = 70 * 25.4 / 72
+    with pytest.raises(api.ApiError, match="ページの字|の上に重なります"):
+        _write(tmp_path, data, "t.pdf", {"@1": {"page": 1, "box": [left, top, left + 21, top + 5], "value": "山田花子"}})
+
+
 # ---------------------------------------------------------------- ○：near の字の中の囲む字（circlepick）
 def _two_rows_pdf() -> bytes:
     return _pdf([(70, 700, 10, "生年月日　大・昭・平・令　　年"), (70, 660, 10, "交付日　大・昭・平・令　　年"),

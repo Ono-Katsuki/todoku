@@ -1283,6 +1283,8 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
                     except AnchorError as e:
                         raise FillError(f"{key}: {e}") from None
                     f.circles.setdefault(sd["page"], []).append(sd)
+                    if sd.get("note"):
+                        f.warnings.append(sd["note"])
                     f.patches.append(Patch(sd["id"], "circle", sd["text"], sd["page"], anchor=dict(value), key=key, circle=sd))
                     continue
                 try:

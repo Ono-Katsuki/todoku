@@ -509,6 +509,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                                   # occurrence で指した、字の並びの中の字：長い字の並びの一部を囲んだことを伝える
                                   **({"inside_word": "長い字の並びの中の字を囲みました（occurrence で指定）"}
                                      if p.circle.get("inside_word") else {}),
+                                  **({"loose": True} if p.circle.get("loose") else {}),  # ほかの字の縁に触れる（知らせて描いた）
                                   "style": p.circle.get("style", "ellipse"),
                                   "how": ("ページに字を囲む四角の線を描いた" if p.circle.get("style") == "border"
                                           else "ページに楕円を描いた"),

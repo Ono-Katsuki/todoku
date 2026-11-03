@@ -322,8 +322,13 @@ def resolve(doc: DocxDocument, spec: dict, used: dict, original: DocxDocument | 
     if pad is not None and not (isinstance(pad, (int, float)) and not isinstance(pad, bool) and 0 <= pad <= 3 * size):
         raise CircleError(f"pad は、字と○のすき間（pt、0〜{3 * size:.0f}）で指定してください")
     e = None
+    loose_hit = None
     if style == "ellipse":
         e, hit = shape(rect, size, others, None, pad)
+        if e is None:
+            # 前後の字の面に触れる所しかない：字の墨を切らない○なら描いて、触れる字を知らせる（位置は見積もり。見て確かめる）
+            e, _h = shape(rect, size, others, None, pad, loose=True)
+            loose_hit = hit if e is not None else None
         if e is None:
             raise CircleError(f"「{spec['circle']}」を○で囲むと、前後の字" + (f"「{hit.text}」" if hit else "") +
                               "に触れます。pad を小さくするか、style を \"border\"（字の囲み線）にしてください")
@@ -339,6 +344,8 @@ def resolve(doc: DocxDocument, spec: dict, used: dict, original: DocxDocument | 
     near = p.text[max(0, a - 6):b + 6]
     notes = (["幅の変わる字（ラテン文字・キリル文字・アラビア文字など、書体で字ごとに幅が違う字）を含む（字の幅は見積もり）"]
              if any(not fixed_width(ch, wide) for ch in near if not ch.isspace()) else [])
+    if loose_hit is not None:
+        notes.append(f"○の線が、前後の字「{loose_hit.text}」の縁に触れる見込み（字の間が詰まっている）")
     if style == "border" and _exact_line(p):
         notes.append("行の高さが固定（w:spacing の lineRule=exact）の段落なので、囲み線の上か下が、行の高さで切れて見えることがあります")
     if style == "ellipse" and _indented(doc, p):

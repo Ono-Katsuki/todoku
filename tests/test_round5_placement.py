@@ -20,12 +20,12 @@ from test_circle import _pdf, _write
 
 
 # ====================================================================== 重なり
-def test_box_write_crossed_by_a_rule_is_refused(tmp_path):
-    # 横線（y 700pt = 上 50.8 mm）をまたぐ枠：字を線が横切るので断る。線の上の枠なら書ける
+def test_box_write_crossed_by_a_rule_is_warned_with_the_position(tmp_path):
+    # 横線（y 700pt = 上 50.8 mm）をまたぐ枠：断らずに、位置（mm）を添えて知らせる（エージェントが見て確かめる）。線の上の枠なら何も言わない
     data = _pdf([(70, 760, 10, "氏名")], b"0.8 w 60 700 m 540 700 l S\n")
     top = (842 - 700) * 25.4 / 72
-    with pytest.raises(api.ApiError, match="罫線が横切ります"):
-        _write(tmp_path, data, "t.pdf", {"@1": {"page": 1, "box": [40, top - 2.5, 100, top + 2.5], "value": "山田 花子"}})
+    r, _ = _write(tmp_path, data, "t0.pdf", {"@1": {"page": 1, "box": [40, top - 2.5, 100, top + 2.5], "value": "山田 花子"}})
+    assert any("罫線がかかる見込み" in w and "mm" in w for w in r["warnings"]), r["warnings"]
     r, _ = _write(tmp_path, data, "t.pdf", {"@1": {"page": 1, "box": [40, top - 6, 100, top - 0.5], "value": "山田 花子"}})
     assert r["proof_ok"] and r["read_back_ok"]
 
@@ -38,11 +38,11 @@ def test_written_values_overlapping_each_other_are_refused(tmp_path):
 
 
 def test_circle_crossing_table_rules_or_written_value_is_refused(tmp_path):
-    # 高さ 12pt の行（上下に罫線）の中の 10pt の字：楕円は行の罫線を横切るので断る
+    # 高さ 12pt の行（上下に罫線）の中の 10pt の字：楕円は行の罫線にかかる。断らずに位置を添えて知らせる
     rules = b"0.8 w 60 690 m 540 690 l S 60 678 m 540 678 l S\n"
     data = _pdf([(70, 681, 10, "有・無")], rules)
-    with pytest.raises(api.ApiError, match="○の線が、ページの横の罫線を横切ります"):
-        _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "有"}})
+    r, _ = _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "有"}})
+    assert any("○の線が、ページの横の罫線にかかる見込み" in w for w in r["warnings"]), r["warnings"]
     # 書いた値に重なる○
     data = _pdf([(70, 700, 10, "有・無")])
     left = 70 * 25.4 / 72
