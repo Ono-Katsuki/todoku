@@ -20,7 +20,7 @@ import itertools
 import re
 
 from .. import chars
-from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, GAP_MIN, agent_blanks, blank_places, norm_label
+from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, agent_blanks, blank_places, norm_label, wide_space
 from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 
 DET = "deterministic"
@@ -147,15 +147,15 @@ def _field_mask(p: Para) -> bytearray:
 
 
 def _option_end(text: str, b: int, stops: list[int]) -> int:
-    """チェックの箱の字の後ろの項目の字の終わり：次の箱の字か、2つ以上の空白の並びの始めまで（stops は段落ごとに作った位置）。"""
+    """チェックの箱の字の後ろの項目の字の終わり：次の箱の字か、1 字ぶん以上の空白の並びの始めまで（stops は段落ごとに作った位置）。"""
     i = bisect.bisect_left(stops, b)
     return stops[i] if i < len(stops) else len(text)
 
 
 def _option_stops(text: str) -> list[int]:
-    """項目の字の区切りになる位置（チェックの箱の字・印のついた箱の字・2つ以上の空白の並びの始め）。段落ごとに 1 回だけ作る。"""
+    """項目の字の区切りになる位置（チェックの箱の字・印のついた箱の字・1 字ぶん以上の空白の並びの始め：wide_space）。段落ごとに 1 回だけ作る。"""
     out = [i for i, ch in enumerate(text) if ch in BOX or ch in CHECKED]
-    out += [a for a, b, k in chars.char_runs(text) if k == "space" and b - a >= GAP_MIN]
+    out += [a for a, b, k in chars.char_runs(text) if k == "space" and wide_space(text[a:b])]
     return sorted(out)
 
 

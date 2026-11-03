@@ -19,53 +19,10 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
-from ..xlsx.window import norm_label
+from .. import chars as _chars  # 字の種類（空白・下線の字・ダッシュ・点線・かっこの組・チェックの箱の字）：Unicode の資料の表
+from ..xlsx.window import norm_label, wide_space
 from .content import Glyph, PageContent
 
-try:  # 字の種類（空白・下線の字・ダッシュ・点線・かっこの組・チェックの箱の字）は、Unicode の資料から作った todoku.chars の表
-    from .. import chars as _chars
-except ImportError:  # TODO: todoku.chars（字の種類の共通の表）が main に入ったら、この代わり（同じ字の集まりの最小の写し）は消す
-    class _chars:  # noqa: N801
-        # 点線の字（Unicode の名前に DOT LEADER・ELLIPSIS・MIDDLE DOT を含む句読点と FULL STOP）
-        LEADERS = frozenset(".．·․‥…⋯⸱・･᠁︙︰")
-        MULTI_DOT = frozenset("‥…⋯᠁︙︰")  # 1 字で 2 つ以上の点
-        # 印のないチェックの箱：Ballot Box U+2610・Geometric Shapes の白い四角 U+25A1・U+25A2・U+25FB・U+25FD・U+274F〜2752・U+2B1C
-        EMPTY_BOXES = frozenset("☐□▢◻◽❏❐❑❒⬜")
-        CHECKED_BOXES = frozenset("☑☒")  # U+2611・U+2612
-        MAYBE_CHECKED = frozenset("■✓✔")  # 印のついた箱かもしれない字（箇条の印・本文の印のこともある）
-        # BidiBrackets.txt の組のうち、書類によく使うもの
-        BRACKET_PAIRS = dict(zip("([{（［｛「『【〔〈《〖〘〚｟｢", ")]}）］｝」』】〕〉》〗〙〛｠｣"))
-
-        @staticmethod
-        def is_space(ch: str) -> bool:
-            return unicodedata.category(ch) == "Zs"
-
-        @staticmethod
-        def is_connector(ch: str) -> bool:
-            return unicodedata.category(ch) == "Pc"
-
-        @staticmethod
-        def is_dash(ch: str) -> bool:
-            return unicodedata.category(ch) == "Pd"
-
-        @staticmethod
-        def closing(ch: str) -> str | None:
-            return _chars.BRACKET_PAIRS.get(ch)
-
-        LABEL_COLONS = frozenset(":：﹕︓")  # 一般カテゴリ Po で、名前に COLON を含む字のうち、書類によく使うもの
-
-        @staticmethod
-        def is_label_colon(ch: str) -> bool:
-            return ch in _chars.LABEL_COLONS
-
-        @staticmethod
-        def is_sentence_terminal(ch: str) -> bool:
-            # PropList.txt の Sentence_Terminal のうち、書類によく使うもの
-            return ch in "!.?։؟۔।॥။።፧᙮。．｡！？"
-
-        @staticmethod
-        def dot_run(text: str, a: int, b: int) -> bool:
-            return b - a >= 3 or (b - a >= 2 and any(ch in _chars.MULTI_DOT for ch in text[a:b]))
 
 def _sentence_end(ch: str) -> bool:
     """文の終わりの字（Unicode の Sentence_Terminal：。 . ! ? । ۔ ؟ ። ։ など）。"""
@@ -662,7 +619,8 @@ def _vertical_stacks(lines: list[Line]) -> list[Line]:
 # 「width of ideographic (CJK) characters」）と JIS X 4051（日本語文書の組版方法：全角の空白は 1 字ぶん）で決まる幅。
 # 字と字の間がこの幅以上空いていれば、字の間に 1 字を書ける空き（「第　号」「年　月　日」）とする。空きが U+3000 の字で
 # 描かれても、半角の空白の並びでも、字の位置を動かしただけでも、測った幅で決める。欧文の語の間の空白は 0.25〜0.33 em
-# （両端そろえで広げても 0.6 em ほど）で、この幅に届かない。
+# （両端そろえで広げても 0.6 em ほど）で、この幅に届かない。プロポーショナルな和文の書体（MS P明朝 など）は U+3000 を
+# 0.66 em ほどの送りで描くので、その 1 字だけの空きは 1 em に届かず、空きにしない（字の大きさに対する幅で決める）。
 EM_SPACE = 1.0
 EM_ROUND = 0.02  # 測った位置の丸め（座標・字の幅は小数 2 桁ほどで書かれる）の分だけ、1 em にわずかに届かないものも 1 em とする
 
@@ -675,7 +633,7 @@ def wide_gap(gap: float, size: float) -> bool:
 def _spaces(parts: list, pos: list, a1: float, gap: float, sz: float, cjk: bool, had_space: bool,
             em: float | None = None) -> None:
     """字と字の間の空き（ポイント）を、空白の字にする。窓の空白の字は、測った幅を表す（gap_blanks はこれで空きを決める）：
-    - 1 em（em：両どなりの字の小さい方の大きさ）以上の空き：全角の文字のまわりは全角の空白（1 つを 1 字ぶん）、ほかは
+    - 和字の空白 1 字ぶん（1 em。em：両どなりの字の小さい方の大きさ）以上の空き：全角の文字のまわりは全角の空白（1 つを 1 字ぶん）、ほかは
       2 つ以上の半角の空白（1 つを半字ぶん）。どちらも、字の間に 1 字を書ける空き
     - 1 em に届かない空き：半角の空白 1 つ（語の間の空白。空きではない）"""
     em = sz if em is None else em
@@ -711,12 +669,13 @@ def _line(row: list[Ch], vertical: bool, stacked: bool = False) -> Line:
             sz = max(prev.size, c.size)
             had_space = any((x.cy if vertical else x.cx) > a1 - 0.5 and (x.cy if vertical else x.cx) < b0 + 0.5 for x in spaces)
             cjk = _is_cjk(prev.text[-1:]) or _is_cjk(c.text[:1])
+            em = min(prev.size, c.size)  # 和字の空白 1 字ぶんの幅（1 em）：両どなりの字の小さい方の大きさ
             if stacked:
                 gap = gap - 0.8 * sz if gap > 1.5 * sz else 0.0
             if gap > 0 or had_space:
                 sp_parts: list[str] = []
                 sp_pos: list[tuple[float, float]] = []
-                _spaces(sp_parts, sp_pos, a1, max(gap, 0.0), sz, cjk, had_space, min(prev.size, c.size))
+                _spaces(sp_parts, sp_pos, a1, max(gap, 0.0), sz, cjk, had_space, em)
                 units += [[t, [q], None] for t, q in zip(sp_parts, sp_pos)]
         t = c.text
         lo, hi = (c.y0, c.y1) if vertical else (c.x0, c.x1)
@@ -850,7 +809,8 @@ def _move_pre_base(units: list[list]) -> list[list]:
 # ====================================================================== 入力欄
 # 文字の中の空き（書く所の候補）は、字の意味（「年」「市」「様」などの語）からは決めず、字の形と並び・測った空きだけで示す。
 # 字の集まり（空白・下線の字・ダッシュ・点線・かっこの組・チェックの箱の字）は Unicode の資料で決まるもの（todoku.chars）。
-GAP_MIN = 2  # 空白の並びを空きとする字数（PDF の行の空白は、測った空きから作る：1.5 字ぶん以上の空きが 2 字以上の空白になる）
+# 空白の並びが空き（1 字ぶん＝1 em 以上）かは wide_space（xlsx/window.py：Excel・Word などの窓と同じ決め方）。PDF の行の空白は
+# 測った空きから作る（_spaces：1 em 以上の空きだけが、全角の空白か 2 字以上の半角の空白になる）
 DASH_MIN = 3  # ダッシュの並びを空きとする字数（1・2 字は「1-2」「－」のような区切り）
 DECOR_MIN = 8  # 行の字が、点線・ダッシュだけで、この字数以上のもの：区切りの飾り（切り取り線など）
 # 窓に示す、見つけた形の名前
@@ -951,7 +911,8 @@ def gap_blanks(text: str, lead: int = 0, trail: int = 0, keep_trail: bool = True
     """文字の中の空欄（書く所の候補）：字の形と並び・測った空きだけで決める（語は見ない）。各要素は Blank。
     - 下線の字（Unicode の Pc）の並び：英数字に接しないものは規則の空欄（structural）
     - かっこの組（BidiBrackets.txt の組）の中が空白だけのもの：規則の空欄（「（　　）」「[ ]」「( )」）
-    - 2 字以上の空白（Zs）の並び：字の間・字の前後の空き（PDF の行の空白は測った空きから作る：1.5 字ぶん以上の空きが 2 字以上）
+    - 1 字ぶん（1 em）以上の空白（Zs）の並び（wide_space）：字の間の空き（PDF の行の空白は測った空きから作る：1 em 以上の空きは
+      全角の空白か 2 字以上の半角の空白、1 em に届かない語の間の空白は半角の空白 1 字）
     - 点線（「……」「......」）・3 字以上のダッシュの並び（同じ字だけの長い行は、区切りの飾りなので除く）
     lead・trail：マスの縁（またはマスの外の、左右の字・縦の罫線）までの空きを空白にして前後に足した数（1.5 字ぶん以上のとき）。
     その空きも、行の頭の前・行の終わりの後ろの空きとして示す。ただし、左右どちらにも空きがあり、行の中に空欄のない行（中央・
@@ -1019,7 +980,7 @@ def gap_blanks(text: str, lead: int = 0, trail: int = 0, keep_trail: bool = True
         if opener and b < n and _chars.closing(opener) == text[b]:
             out.append(Blank(a, b, True, "bracket"))  # 「（　　）」「[ ]」：かっこの組の中が空白だけ
             continue
-        if b - a < GAP_MIN or heading or spaced_option(a):
+        if not wide_space(run) or heading or spaced_option(a):
             continue
         if text[b] in BOX_GLYPHS or text[b] in CHECKED_GLYPHS:
             continue  # チェックの箱の字の前の空白（「☐ 新規　　☐ 変更」）は、箱の字の項目どうしの区切り
@@ -1048,7 +1009,7 @@ def _cut_option(t: str) -> str:
     if m and evenly_spaced(m[0]) and len(re.split(r"[ 　]+", m[0])) >= 3:
         return re.sub(r"[ 　]+", "", m[0])
     for a, b, kind in _runs(t):
-        if kind == "space" and b - a >= GAP_MIN and a > 0:
+        if kind == "space" and wide_space(t[a:b]) and a > 0:
             t = t[:a]
             break
     return t.strip(" 　")
@@ -1997,7 +1958,7 @@ class PageLayout:
         if ln.vertical:
             return
         # 行の前後の空き：マスの中の行はマスの縁（または同じ高さのほかの行）まで、マスの外の行は同じ高さのほかの字・縦の罫線・
-        # ページの字の端まで。1.5 字ぶん以上あれば空白にして前後に足す（pdf_blanks が行の頭の前・行の終わりの後ろの空きとして示す）
+        # ページの字の端まで。1.5 字ぶん以上あれば空白にして前後に足す（gap_blanks が行の頭の前・行の終わりの後ろの空きとして示す）
         sz = ln.size
         if cell is not None:
             lb, rb = cell.x0, cell.x1
@@ -2263,128 +2224,3 @@ def _blank_hint(text: str, at: tuple[int, int]) -> str:
     before = text[:at[0]].rstrip(" 　")[-4:]
     after = text[at[1]:].lstrip(" 　")[:4]
     return "・".join(x for x in ((f"前「{before}」" if before else ""), (f"後「{after}」" if after else "")) if x) or "行の空き"
-
-
-# ---- これまでの呼び出しのため（PDF の窓では使わない）：Word・ODF・テキスト・HWPX などの窓（docx/window.py の para_spans）と
-# Excel の窓（xlsx/window.py の agent_blanks）が使う、語（単位・年月日・住所の単位など）を手がかりにした空欄の決め方。
-# PDF の窓は gap_blanks（字の形と測った空きだけ）で決める。TODO：それらの窓が字の種類（todoku.chars）の決め方に移ったら消す
-ADDRESS_UNITS = set("市区町村郡都道府県")
-# 数の後ろに付く単位（その前の空きに数を書く）。「日／月」「時間／週」のような割合も
-UNIT_ONLY = re.compile(r"(?:時間|日間|週間|か月|ヶ月|カ月|千円|万円|年度|[日時分秒年月週回人名件号円台本枚個歳才種級％%])"
-                       r"(?:[／/](?:時間|[日時週月年回]))?")
-
-
-def _unit_at(text: str, i: int) -> bool:
-    """text の i 文字目から単位（「分」「日／月」「種」）があり、その後ろが字でない（「分類」「種類」は単位でない）。"""
-    m = UNIT_ONLY.match(text, i)
-    if not m:
-        return False
-    nxt = text[m.end():m.end() + 1]
-    return not nxt or not ("\u3040" <= nxt <= "\u30ff" or "\u3400" <= nxt <= "\u9fff" or nxt.isalpha())
-
-
-# 時刻の欄だけの行（「　　：　　～　　：　　」）、または時刻の範囲を含む行
-_TIME_SKELETON = re.compile(r"[：:～~（）() \u3000]*[：:][：:～~（）() \u3000]*")
-_TIME_RANGE = re.compile(r"[：:][ \u3000]{2,}[～~][ \u3000]{2,}[：:]")
-# 字間を空けた見出し（「事　業　所」「氏　　名」）
-_SPACED = re.compile(r"(?:\S[ \u3000]+)+\S")
-DASHES = "－-‐−―–—"
-LEAD_UNITS = ("年", "知事", "市長", "町長", "村長", "区長", "長　殿", "長殿")
-
-
-
-
-_BRACKETS = {"（": "）", "(": ")", "［": "］", "[": "]", "【": "】", "「": "」", "〔": "〕"}
-
-
-def _structural(text: str, a: int, b: int) -> bool:
-    """空欄 text[a:b] が、字の形だけで決まるもの：下線の字だけ、または かっこの組の中が空白だけ（「（　　）」）。
-    英数字・「/」「.」「-」にはさまれた下線の字の並び（URL・ファイルの名前の「__icsFiles」）は、名前の一部のこともあるので除く。"""
-    seg = text[a:b]
-    if seg and all(ch in "_＿" for ch in seg):
-        # 下線の字の並びが、英数字（「/」「.」「-」を含む）に接していない：書くための線（「氏名＿＿＿」「: ____」）。
-        # 片側でも接していれば（「Name____」「_HVeg」）、語の一部（名前の区切り）のこともあるので、規則では決めない
-        return not underscore_touches_word(text, a, b)
-    if not seg or seg.strip(" 　"):
-        return False
-    i, j = a, b
-    while i > 0 and text[i - 1] in " 　":
-        i -= 1
-    while j < len(text) and text[j] in " 　":
-        j += 1
-    return i > 0 and j < len(text) and _BRACKETS.get(text[i - 1]) == text[j]
-
-
-
-
-def pdf_blanks(text: str, lead: int = 0, trail: int = 0) -> list[Blank]:  # noqa: C901
-    """文字の中の空欄（Excel と同じ規則）に、PDF でよく見る形を足す。各要素は Blank（(始め, 終わり) と structural）。
-    lead・trail は、マスの縁までの空きを空白にして前後に足した数（作った空白なので、強い手がかりがあるときだけ空欄にする）。
-    - 住所の欄：「　　　市　区」「　　　町　村」の前の空き、「都 道」「府 県」の前の空き、「市 区」の後の空き
-    - 行の頭の空き（「　　　知事　殿」「　　　年　月　日」）、「（内線）」の前後の空き
-    - 「　　　－　　　」のようにハイフンでつながる空き
-    語（単位・年月日・「区長」・「：」・「－」など）を手がかりにしたものは structural が偽。"""
-    return [Blank(a, b, _structural(text, a, b)) for a, b in _blank_spans(text, lead, trail)]
-
-
-def _blank_spans(text: str, lead: int = 0, trail: int = 0) -> list[tuple[int, int]]:
-    """pdf_blanks の中身：空欄の (始め, 終わり)。"""
-    core = text[lead:len(text) - trail] if trail else text[lead:]
-    from ..xlsx.window import inline_blanks
-
-    out = set(inline_blanks(text))
-    time_like = bool(_TIME_SKELETON.fullmatch(core) or _TIME_RANGE.search(core))
-    spaced = bool(_SPACED.fullmatch(core.strip(" \u3000")))
-    for m in re.finditer(r"[ \u3000]{2,}", text):
-        a, b = m.start(), m.end()
-        after = text[b:b + 2]
-        before = text[a - 1:a] if a else ""
-        a1, b1 = after[:1], before  # どちらも空の文字列のことがある（"" はどの文字列にも含まれるので、確かめてから比べる）
-        if a1 and a1 in ADDRESS_UNITS and (len(after) < 2 or after[1] in ADDRESS_UNITS or after[1] in " \u3000・"):
-            out.add((a, b))
-        elif any(text[b:].startswith(u) for u in ("区長", "市長", "町長", "村長", "知事")):
-            out.add((a, b))  # 「名古屋市　　　区長」の区の名前、「　　県知事」の県の名前
-        elif a == 0 and any(text[b:].startswith(u) for u in LEAD_UNITS):
-            out.add((a, b))
-        elif a == 0 and a1 in ("（", "("):
-            out.add((a, b))
-        elif b == len(text) and b1 and (b1 in ADDRESS_UNITS or b1 == "〒"):
-            out.add((a, b))
-        elif a1 and a1 in DASHES and text[b + 1:b + 2] in (" ", "\u3000", ""):
-            out.add((a, b))
-        elif b1 and b1 in DASHES and (b < len(text) or a > 0):
-            out.add((a, b))  # 「〒　　　−　　　　」の「−」の後ろ
-        elif a1 and a1 in "：:" and time_like:
-            out.add((a, b))  # 時刻「　　：　　～　　：　　」の時（「：」の前）
-        elif b1 and b1 in "：:" and time_like:
-            out.add((a, b))  # 時刻の分（「：」の後ろ）
-        elif a1 and a1 in "～~" and a > 0:
-            out.add((a, b))  # 「　　～　　」の「～」の前
-        elif b1 and b1 in "～~" and b < len(text):
-            out.add((a, b))  # 「～」の後ろ
-        elif a > 0 and b1 and not b1.isspace() and _unit_at(text, b) and not spaced:
-            out.add((a, b))  # 「片道　　分」「手帳　　種　　級」「　　日／月」の単位の前（「氏　　名」のような見出しは除く）
-    kept: list[tuple[int, int]] = []
-    for a, b in sorted(out):
-        if trail and a >= len(text) - trail:
-            # 縁までの空き（後ろ）：住所の単位の後、または「（内線）」のように かっこだけの文字の後
-            before = text[a - 1:a]
-            short_paren = core.strip(" \u3000").startswith(("（", "(")) and len(core.strip(" \u3000")) <= 10
-            if not before or not (before in ADDRESS_UNITS or before == "〒" or before in DASHES or (before in "）)" and short_paren)
-                                  or (before in "：:" and time_like)):
-                continue
-        if lead and b <= lead:
-            after = text[b:b + 2]
-            date_like = bool(re.search(r"[年月][ \u3000]+[月日]", core)) or bool(re.search(r"時[ \u3000]+分", core))
-            unit_only = bool(UNIT_ONLY.fullmatch(core.strip(" \u3000")))
-            if not after[:1] or not (after[:1] in ADDRESS_UNITS or after[:1] in "（(" or
-                    any(text[b:].startswith(u) for u in LEAD_UNITS if u != "年") or
-                    (after[:1] in "年月日時" and date_like) or unit_only or (after[:1] in "：:" and time_like)):
-                continue
-        if kept and a < kept[-1][1]:
-            if b > kept[-1][1]:
-                kept[-1] = (kept[-1][0], b)
-            continue
-        kept.append((a, b))
-    return kept
-

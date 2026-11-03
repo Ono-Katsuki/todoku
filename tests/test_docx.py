@@ -209,9 +209,10 @@ def test_anchored_write_where_rules_found_nothing():
     pr = prove(blob, res.blob, written_of(res.patches))
     assert pr.ok, pr.unexpected
     lines = [ln for st in build(DocxDocument(res.blob, "a.docx"))["stories"] for ln in st["reading"]]
-    # 「殿」で終わる段落の後ろも、語を見ずに「？」の所として示す（字の意味では除かない）
-    assert any(ln.startswith("茨城県　［P9.w1＝土浦］　農林事務所長　殿") for ln in lines), lines
-    assert "第３条　訓練は年［P11.w1＝２］回以上行う。" in lines, lines
+    # 「殿」で終わる段落の後ろも、語を見ずに「？」の所として示す（字の意味では除かない）。書いた値の前後に残った全角の空白 1 つ
+    # （1 字ぶんの空き）も「？」の所
+    assert "茨城県［P9.1？］［P9.w1＝土浦］［P9.2？］農林事務所長［P9.3？］殿［P9.a1？］" in lines, lines
+    assert "第３条［P11.1？］訓練は年［P11.w1＝２］回以上行う。" in lines, lines
     # 決まらないときは、候補を添えて断る
     with pytest.raises(FillError, match="2 か所にあります"):
         fill(DocxDocument(blob, "a.docx"), {"@1": {"old": "年１回", "new": "年２回"}})

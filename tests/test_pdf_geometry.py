@@ -52,6 +52,60 @@ def test_spaced_headings_are_not_blanks():
     assert gap_blanks("上記のとおり申請します。　　　", 0, 3) == []
 
 
+def _row(text: str, x: float, y: float, size: float, em: float, word_gap: float) -> list[tuple[str, float, float]]:
+    """字を左から 1 字ずつ置く：字の送りは em（/1000）、空白の所は送りの代わりに word_gap（字の大きさに対する割合）だけ空ける。"""
+    out = []
+    for ch in text:
+        if ch == " ":
+            x += word_gap * size
+            continue
+        out.append((ch, x, y))
+        x += em * size / 1000
+    return out
+
+
+def _gap_places(blob: bytes) -> list[dict]:
+    return [f for pg in window(blob)["pages"] for f in pg["fields"]
+            if f["kind"] == "inline" and f.get("why", "").startswith("空白の並び")]
+
+
+def test_word_spaces_in_justified_paragraphs_are_not_places():
+    # 両端そろえで広げた語の間の空き（0.6 em まで）は、和字の空白 1 字ぶん（1 em）に届かない：ラテン・キリル・アラビア文字
+    paras = ["Applicants must submit the signed form together with proof of residence before the stated deadline",
+             "Заявитель должен представить подписанную форму вместе с документом о месте жительства",
+             "يجب على مقدم الطلب تقديم النموذج الموقع مع إثبات الإقامة قبل الموعد المحدد"]
+    for para in paras:
+        words = para.split()
+        glyphs = []
+        for row in range(4):  # 4 行：語の間を 0.25・0.33・0.5・0.6 em に広げる
+            glyphs += _row(" ".join(words[row * 3:row * 3 + 4]), 40, 760 - 16 * row, 10, 500, (0.25, 0.33, 0.5, 0.6)[row])
+        blob = glyphs_pdf(glyphs, {ch: 500 for ch in set(para) if ch != " "}, size=10)
+        assert not _gap_places(blob), (para[:20], _gap_places(blob))
+
+
+def test_one_ideographic_space_between_units_is_a_place():
+    # 「第　号」「令和　年　月　日」：単位の字の間の、和字の空白 1 字ぶん（U+3000 は 1 em）の空き。空きが U+3000 の字でも、
+    # 半角の空白の字の並びでも、字の位置を動かしただけでも、測った幅で「？」の所にする
+    lines = ["40 700 m 400 700 l S", "40 640 m 400 640 l S", "40 640 m 40 700 l S", "400 640 m 400 700 l S",
+             "40 670 m 400 670 l S", "120 640 m 120 700 l S"]
+    g = _row("氏 名", 50, 680, 12, 1000, 1.0)  # 字間を空けた見出し（マスの縁に接する 2 字）：所にしない
+    g += _row("第 号", 300, 680, 12, 1000, 1.0)  # 字の位置を動かしただけの 1 em の空き
+    g += [("令", 200, 650), ("和", 212, 650), ("　", 224, 650), ("年", 236, 650)]  # U+3000 の字で描いた空き
+    g += [(" ", 248 + 3 * k, 650) for k in range(4)] + [("月", 260, 650)]  # 半角の空白の字（0.25 em）4 つの空き
+    g += _row(" 日", 272, 650, 12, 1000, 1.0)
+    blob = glyphs_pdf(g, {"　": 1000, " ": 250}, extra="\n".join(lines))
+    places = _gap_places(blob)
+    hints = sorted(f["why"].split("。")[-1] for f in places)
+    assert len(places) == 4, hints  # 第□号・令和□年・年□月・月□日
+    assert not any("「氏」" in h for h in hints), hints
+    # 1 em に届かない空き（0.6 em）は所にしない
+    blob = glyphs_pdf(_row("第 号", 300, 680, 12, 1000, 0.6), extra="\n".join(lines))
+    assert not _gap_places(blob)
+    # プロポーショナルな書体（U+3000 の送りが 0.66 em）：字の大きさに対して 1 em に届かないので、所にしない
+    g = [("第", 300, 680), ("　", 312, 680), ("号", 319.92, 680)]
+    assert not _gap_places(glyphs_pdf(g, {"　": 660}, extra="\n".join(lines)))
+
+
 def test_rtl_line_head_is_on_the_right():
     # 右から左へ書く表：右のマスに見出し「الاسم」、左のマスが空。見出しの左の空き（読む順の行の終わりの後ろ）は、すぐ左の空のマスに書く
     from test_pdf_order import _visual

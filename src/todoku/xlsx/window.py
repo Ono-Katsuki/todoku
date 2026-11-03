@@ -360,6 +360,17 @@ DECOR_MIN = 8  # 段落・マスの字が、同じ記号・点線・ダッシュ
 BLANK_RULE_KINDS = ("underscore", "bracket")  # 規則の空欄（書類の作りで決まる）
 
 
+def wide_space(run: str) -> bool:
+    """空白の並び run が、字の間に 1 字を書ける空き（1 字ぶん＝1 em 以上の幅）か。字の意味は見ず、空白の字の幅だけで決める：
+    - 全角の空白（東アジアの字の幅 UAX #11 が W・F の空白：U+3000 IDEOGRAPHIC SPACE）を含む：U+3000 の幅は、Unicode
+      （第 6 章 6.2 の空白の字の表「the width of ideographic (CJK) characters」）と JIS X 4051（全角の空白は 1 字ぶん）で 1 em
+      （「第　号」「平成　年　月　日」「郡　市」）
+    - 半角の空白などの幅の狭い空白が GAP_MIN 字以上並ぶ（1 つは語の間の空白：欧文で 0.25〜0.33 em。空きにしない）
+    PDF の窓の行の空白は、測った空きから作る（1 em 以上の空きだけが、全角の空白か 2 つ以上の半角の空白になる）ので、同じ決め方になる。
+    段落の頭・終わりの全角の空白 1 つ（字下げ・行末の空白）は、字と字の間の空きではないので、blank_places は空きにしない。"""
+    return len(run) >= GAP_MIN or any(chars.is_wide(ch) for ch in run)
+
+
 def _ident(ch: str) -> bool:
     return ch.isascii() and (ch.isalnum() or ch in ".-/")
 
@@ -374,6 +385,22 @@ def _spaced_heading(text: str) -> bool:
         return False
     toks = [text[a:b] for a, b in zip([0] + [y for _x, y in runs], [x for x, _y in runs] + [len(text)])]
     return len(toks) >= SPACED_MIN and all(len(t) == 1 for t in toks)
+
+
+def _spaced_option(text: str, a: int) -> bool:
+    """text[a] の空白が、チェックの箱の字のすぐ後ろの、字間を空けた選択肢の字（「□地　域　移　行　支　援」）の中か：
+    前の箱の字から次の箱の字（なければ終わり）までの、前後の空白を除いた並びが、字間を空けた見出しの形。"""
+    start = next((i for i in range(a - 1, -1, -1) if text[i] in chars.BOXES or text[i] in chars.MAYBE_CHECKED), None)
+    if start is None:
+        return False
+    end = next((i for i in range(a, len(text)) if text[i] in chars.BOXES or text[i] in chars.MAYBE_CHECKED), len(text))
+    seg = text[start + 1:end]
+    i, j = 0, len(seg)
+    while i < j and chars.is_space(seg[i]):
+        i += 1
+    while j > i and chars.is_space(seg[j - 1]):
+        j -= 1
+    return _spaced_heading(seg[i:j])
 
 
 def blank_places(text: str) -> list[tuple[int, int, str]]:
@@ -394,7 +421,8 @@ def blank_places(text: str) -> list[tuple[int, int, str]]:
             opener = text[a - 1] if a > 0 else ""
             if opener and b < len(text) and chars.closing(opener) == text[b]:
                 out.append((a, b, "bracket"))  # 「（　　）」「[ ]」「( )」：かっこの組の中が空白だけ
-            elif b - a >= GAP_MIN and not spaced and b - a < len(text) and not (
+            elif wide_space(run) and (b - a >= GAP_MIN or 0 < a and b < len(text)) and not spaced \
+                    and b - a < len(text) and not _spaced_option(text, a) and not (
                     b < len(text) and (text[b] in chars.BOXES or text[b] in chars.MAYBE_CHECKED)):
                 # チェックの箱の字の前の空白（「☐ 新規　　☐ 変更」）は、箱の字の項目どうしの区切り
                 out.append((a, b, "gap"))

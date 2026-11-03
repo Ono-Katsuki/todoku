@@ -104,7 +104,8 @@ def test_pdf_printed_choices_stay_text_and_circled_text_is_read_back(tmp_path):
     win = build(PdfDocument(_table_pdf()))
     assert not [f for pg in win["pages"] for f in pg["fields"] if f["kind"] == "circle"]
     text = "\n".join(win["pages"][0]["reading"])
-    assert "有・無" in text and "１　２　３" in text and "通勤を除く" in text
+    # 数の間の 1 字ぶん（1 em）の空きは「？」の所として示す（書く所かはエージェントが決める）。字はそのまま
+    assert "有・無" in text and "１　２　３" in re.sub(r"［[^］]*？］", "　", text) and "通勤を除く" in text
     assert "印刷された選択肢は欄として並べていません" in "".join(t for _h, t in api.window(_save(tmp_path, _table_pdf()))[2])
     r, out = _write(tmp_path, _table_pdf(), "t.pdf", {"@c1": {"circle": "無", "near": "障害支援区分の認定"},
                                                       "@c2": {"circle": "６", "near": "区分"},

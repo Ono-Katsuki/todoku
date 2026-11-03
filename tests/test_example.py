@@ -7,7 +7,7 @@ from todoku.docx.example import check as word_check
 from todoku.docx.fill import fill as docx_fill
 from todoku.docx.window import build as docx_build
 from todoku.pdf.example import check as pdf_check
-from todoku.pdf.layout import pdf_blanks
+from todoku.pdf.layout import gap_blanks
 from todoku.xlsx.window import inline_blanks
 
 from test_docx import SAMPLE_BODY, make_docx, p
@@ -78,7 +78,7 @@ def test_word_example_reports_text_outside_fields():
 def _blanks(text: str) -> int:
     lead = len(text) - len(text.lstrip("　"))
     trail = len(text) - len(text.rstrip("　"))
-    return len(pdf_blanks(text, lead, trail))
+    return len(gap_blanks(text, lead, trail))
 
 
 def test_time_fields():
@@ -96,15 +96,15 @@ def test_unit_fields_and_spaced_labels():
 
 
 def test_word_address_cell_insertion_point():
-    # 住所のマス「　　　都道　　　　郡　市」：2 つ以上の空白の並び（都道の前・郡の前）に書ける。字の意味（住所の単位）は見ないので、
-    # 「郡　市」の 1 つの空白・「市」の後ろは所にしない（書くときは字を目印にする）
+    # 住所のマス「　　　都道　　　　郡　市」：空白の並び（都道の前・郡の前）と、「郡　市」の全角の空白 1 つ（1 字ぶんの空き）に
+    # 書ける。字の意味（住所の単位）は見ないので、「市」の後ろは所にしない（書くときは字を目印にする）
     body = '<w:tbl><w:tr><w:tc>' + p("住所") + '</w:tc><w:tc>' + p("　　　都道　　　　郡　市") + '</w:tc></w:tr></w:tbl>'
     blob = make_docx(body)
     win = docx_build(DocxDocument(blob, "a.docx"))
     # 空白の並びは「？」（エージェントが判断する）。見出し「住所」の後ろの所も消さずに示し、
     # すぐ右のマスの欄の代わりの所（alternative_to）とする
     inl = [f for f in win["fields"] if f["kind"] == "inline" and f["id"].startswith("P2.")]
-    assert len(inl) == 2 and all(f.get("agent") for f in inl), [f["label"] for f in inl]
+    assert len(inl) == 3 and all(f.get("agent") for f in inl), [f["label"] for f in inl]
     beside = {f["id"]: f for f in win["fields"]}["P1.a1"]
     assert beside["alternative_to"] == "P2.1", beside
     vals = dict(zip([f["id"] for f in inl], ["山梨", "甲府"]))
