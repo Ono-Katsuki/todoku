@@ -140,10 +140,17 @@ def check_reading(doc: PdfDocument, win: dict) -> list[Check]:
                      f"{unmapped} 字は、フォントに文字の対応がなく、文字に直せませんでした（窓では �）",
                      [f"ページ {p['number']}: {p['unmapped']} 字" for p in win["pages"] if p["unmapped"]]))
     img = [p["number"] for p in win["pages"] if p.get("image_only")]
-    out.append(Check("画像だけのページ", not img,
+    from .pageimage import unreadable_images
+
+    pages = doc.pages()
+    bad = {n: unreadable_images(doc, pages[n - 1]) for n in img}
+    bad = {n: v for n, v in bad.items() if v}
+    out.append(Check("画像だけのページ", not bad,
                      "すべてのページに文字の情報があります" if not img else
-                     f"{len(img)} ページは画像だけで、文字の情報がありません（画像を見て読む必要があります）",
-                     [f"ページ {n}" for n in img]))
+                     f"{len(img)} ページは画像だけで、文字の情報がありません。" +
+                     (f"{len(img) - len(bad)} ページは、エージェントがページの画像（view_page）を見て読み、枠（mm）で書きます。" if len(bad) < len(img) else "") +
+                     (f"{len(bad)} ページは画像の圧縮を開けません" if bad else ""),
+                     [f"ページ {n}" + (f"（開けない：{'・'.join(bad[n])}）" if n in bad else "") for n in img], agent=bool(img) and not bad))
     return out
 
 

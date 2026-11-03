@@ -327,9 +327,22 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
                               "読めないものには、エージェントもアクセスできません", unmapped))
     img = [f"{p['number']}ページ" for p in win["pages"] if p.get("image_only")]
     if img:
-        reasons.append(Reason("E", "画像だけのページ", f"{len(img)} ページは文字の情報がなく、画像（スキャン）です。読むには文字の認識が要ります", img))
-        write.append(Reason("D", "画像だけのページ", f"{len(img)} ページは字の情報のない紙（スキャン）で、書く所を字で示せません。"
-                            "手で書く紙として扱います", img))
+        from .pdf.pageimage import unreadable_images
+
+        pages = doc.pages()
+        bad = {f"{p['number']}ページ": unreadable_images(doc, pages[p["number"] - 1]) for p in win["pages"] if p.get("image_only")}
+        bad = {k: v for k, v in bad.items() if v}
+        ok = [x for x in img if x not in bad]
+        if ok:
+            reasons.append(Reason("E", "画像だけのページ", f"{len(ok)} ページは文字の情報がなく、画像（スキャン）です。"
+                                  "エージェントがページの画像（view_page）を見て読みます", ok))
+            write.append(Reason("B", "画像だけのページ", f"{len(ok)} ページは字の情報のない紙（スキャン）です。エージェントがページの画像"
+                                "（view_page）を見て、書く所を枠（mm）で決めて書きます", ok))
+        if bad:
+            reasons.append(Reason("F", "開けない画像だけのページ", f"{len(bad)} ページは画像だけで、その画像の圧縮（"
+                                  + "・".join(sorted({x.split('：')[-1] for v in bad.values() for x in v})) + "）を todoku が開けません",
+                                  list(bad)))
+            write.append(Reason("D", "開けない画像だけのページ", f"{len(bad)} ページは画像を開けないので、書く所を決められません", list(bad)))
     if win["form"]["xfa"]:
         xr, xw_ = _xfa_reasons(win.get("xfa"))
         reasons += xr

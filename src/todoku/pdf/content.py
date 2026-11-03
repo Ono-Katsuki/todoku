@@ -85,6 +85,8 @@ class Picture:
     artifact: bool = False  # 飾り（Artifact）と印が付いている
     mc: tuple | None = None  # 内側の MCID：(持ち主, MCID)。持ち主は "page" か StructParents の番号
     objparent: int | None = None  # 画像（か、包むフォームの部品）の StructParent
+    ctm: tuple | None = None  # 画像を置いた行列（画像の単位の四角 → ページの座標）。ページの見た目を描くのに使う
+    image: object = None  # 画像の XObject（Stream）か、埋め込みの画像の (辞書, データ)
 
 
 @dataclass
@@ -586,11 +588,13 @@ class Interpreter:
                             pts = [apply(gs.ctm, 0, 0), apply(gs.ctm, 1, 0), apply(gs.ctm, 0, 1), apply(gs.ctm, 1, 1)]
                             sp = doc.resolve(xo.dict.get("StructParent"))
                             pic = picture(pts, name, sp if isinstance(sp, int) else None)
+                            pic.ctm, pic.image = gs.ctm, xo
                             if not self._thin_image(pic, xo.dict, None, gs, xo):
                                 out.pictures.append(pic)
                 elif op == "EI":
                     pts = [apply(gs.ctm, 0, 0), apply(gs.ctm, 1, 0), apply(gs.ctm, 0, 1), apply(gs.ctm, 1, 1)]
                     pic = picture(pts, "inline")
+                    pic.ctm, pic.image = gs.ctm, inline_img
                     if not self._thin_image(pic, inline_img[0] if inline_img else {}, inline_img[1] if inline_img else b"", gs):
                         out.pictures.append(pic)
                     inline_img = None

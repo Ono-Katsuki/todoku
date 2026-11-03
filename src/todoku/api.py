@@ -704,6 +704,40 @@ def audit(path: str, password: str | None = None) -> dict:
     return d
 
 
+def view_page(path: str, page: int, region: list | None = None, marks: list | None = None,
+              password: str | None = None) -> dict:
+    """PDF のページの画像（スキャンした紙のページを、エージェントが見て読み、書く所を mm の枠で決めるため）。
+    todoku が書き込んだ欄（p ページ.w 番号など）は、青い枠で描き、id と値を添える。"""
+    from .pdf.pageimage import view_page as pview
+
+    blob, name, k, lock = _read(path, password)
+    if k != "pdf":
+        raise ApiError("view_page は PDF のページの画像です（ほかの形式は窓で読めます）")
+    doc = _pdf(blob, name, lock)
+    try:
+        return pview(doc, int(page), region, marks, written=_written_boxes(path, password, int(page)))
+    except ValueError as e:
+        raise ApiError(str(e)) from None
+
+
+def _written_boxes(path: str, password: str | None, page: int) -> list[dict]:
+    """ページの、値の入った入力欄（フォームの欄・todoku が書いた欄）の枠（mm）と値。"""
+    from .pdf.pageimage import MM
+
+    out = []
+    k, doc, _ = window(path, password)
+    for pg in doc.get("pages", []):
+        if pg["number"] != page:
+            continue
+        for f in pg["fields"]:
+            v = f.get("value")
+            r = f.get("rect")
+            if v in (None, "", False) or not r:
+                continue
+            out.append({"box": [r[0] / MM, r[1] / MM, r[2] / MM, r[3] / MM], "id": f["id"], "value": v})
+    return out
+
+
 def _audit_zip(path: str, blob: bytes, password: str | None) -> dict:
     """ZIP：中の、扱える形式のファイルを1つずつ検査する（検査の名前の頭に、中の名前を付ける）。"""
     from . import ziparc

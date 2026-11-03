@@ -94,6 +94,18 @@ TOOLS = [
          "answers": {"type": "array", "description": "MsgBox・InputBox の答え（順に。「はい」「いいえ」、入力する値）"},
          "files": {"type": "object", "description": "マクロが読むファイル：{マクロの中のパス: 手元のファイルのパス}"}},
          "required": ["path", "macro", "out_path"]}},
+    {"name": "view_page",
+     "description": "PDF のページを画像で見る（スキャンした紙のように、字の情報がない画像だけのページを読むため）。"
+                    "上と左の帯に、ページの左上からの mm の目盛りが付く。小さな字は region（[左, 上, 右, 下] mm）で拡大して読む。"
+                    "書く所は、画像を見て決めた枠を fill_document に {\"@1\": {\"page\": ページ, \"box\": [左, 上, 右, 下]（mm）, \"value\": 書く字}} で渡す。"
+                    "書く前に marks（[{\"box\": [...], \"label\": \"1\"}]）を渡すと、その枠を赤で描くので、位置が合っているかを目で確かめる。"
+                    "書いた後のファイルを見ると、値の入った欄が青い枠で描かれ、値は文で返る。画像の中の字は推測で埋めず、読めない所は本人に伝える。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
+         "page": {"type": "integer", "minimum": 1},
+         "region": {"type": "array", "items": {"type": "number"}, "description": "[左, 上, 右, 下]（mm）。省くとページ全体"},
+         "marks": {"type": "array", "items": {"type": "object"}, "description": "赤で描く枠：[{box: [左, 上, 右, 下]（mm）, label: 番号}]"}},
+         "required": ["path", "page"]}},
     {"name": "grade_document",
      "description": "書類の段階を返す：読む段階（S〜F）と書く段階（A〜D：そのまま書ける／解析しないと書けない／画面から入力する／書けない）。"
                     "規則で決めた段階に、エージェントが窓を読んで確かめたこと（findings）を合わせる。"
@@ -172,6 +184,10 @@ def call_tool(name: str, args: dict) -> dict:
         head = (f"マクロ {res['macro']} を動かしました。" + (f"{res.get('proof', '')}" if res.get("out_path") else res.get("note", ""))
                 + (f"　エラー：{res['error']}" if res.get("error") else ""))
         return {"content": [_text(head), _text(res)], "structuredContent": res, "isError": bool(res.get("error"))}
+    if name == "view_page":
+        v = api.view_page(args["path"], args["page"], args.get("region"), args.get("marks"), args.get("password"))
+        return {"content": [_text(v["text"]), {"type": "image", "data": v["png_base64"], "mimeType": "image/png"}],
+                "structuredContent": {"text": v["text"], "width": v["width"], "height": v["height"]}}
     if name == "grade_document":
         g = api.grade(args["path"], args.get("findings") or [], args.get("answered") or [], password=args.get("password"))
         mark = lambda r: "（エージェントの判断）" if r.get("by") == "agent" else ""  # noqa: E731

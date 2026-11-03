@@ -572,7 +572,9 @@ def _md_head(doc: dict) -> list[str]:
 def _md_page(pg: dict) -> list[str]:
     out = [f"## ページ {pg['number']}（{pg['width']:.0f}×{pg['height']:.0f}pt）", ""]
     if pg.get("image_only"):
-        out += ["- **このページは画像だけです**（文字の情報がありません。画像を見て読む必要があります）", ""]
+        out += ["- **このページは画像だけです**（文字の情報がありません）。view_page でページの画像を見て読み、"
+                "書く所は画像の目盛り（mm）で枠を決めて、fill_document に {\"@1\": {\"page\": ページ, \"box\": [左, 上, 右, 下], "
+                "\"value\": 書く字}} で書きます", ""]
     if pg.get("unmapped"):
         out += [f"- 文字に直せない字が {pg['unmapped']} 字あります（�で示しています）", ""]
     fields = pg["fields"]
