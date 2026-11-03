@@ -12,7 +12,7 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 
-from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, norm_label, one_wide_space, shown_gap
+from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, SPACED_MARK, SPACED_NOTE, norm_label, one_wide_space, shown_gap, weak_line, weak_space
 from .content import page_content
 from .doc import PdfDocument
 from .form import FormField, Widget, has_xfa, read_fields
@@ -37,12 +37,15 @@ class _Item:
     marks: list = field(default_factory=list)  # (順番の x, 印の文字列を返す関数)
 
 
-def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, circled: list | None = None) -> str:
+def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, circled: list | None = None,
+                 spaced=None) -> str:
     """行の文字に、入力欄の印（［p1.3］）を入れる。kept があれば、窓に出した元の字（印に置き換えて消えた字を除いたもの）を足す
     （読み落としの検査が、窓に実際に出た字で数えるため）。circled：ページに描かれた○が囲む字 (始め, 終わり, id)：その字の後ろに
     「［○］」（とどくが描いた○は「［p1.c1：○］」）。4 つ目が真のもの（角の丸い四角など、○かもしれない囲み）は「［○？］」。"""
     text = ln.text
     edits = []
+    for e in sorted(spaced[1]) if spaced else []:
+        edits.append((e, e, SPACED_MARK))  # 字間を空けた見出しの並びの後ろ（字の間の空白は、元のまま）
     for a, b, ident, *maybe in circled or []:
         edits.append((b, b, "［○？］" if maybe and maybe[0] else f"［{ident}：○］" if ident else "［○］"))
     for sp in sorted(spots, key=lambda x: x.at or (0, 0)):
@@ -275,7 +278,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         parts = []
         for it in row:
             if it.line is not None:
-                t = _render_line(it.line, line_spots.get(id(it.line), []), name, plain, circ.get(id(it.line))) + room_mark(it.line)
+                t = _render_line(it.line, line_spots.get(id(it.line), []), name, plain, circ.get(id(it.line)),
+                                 lay.spaced_marks.get(id(it.line))) + room_mark(it.line)
             elif getattr(it, "spot", None) is not None:
                 sp = it.spot
                 mark = _filled_mark(sp, name)
@@ -295,7 +299,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                         pieces.append(f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
                 rendered = []
                 for ln in c.lines:
-                    r_ = _render_line(ln, line_spots.get(id(ln), []), name, plain, circ.get(id(ln))) + room_mark(ln)
+                    r_ = _render_line(ln, line_spots.get(id(ln), []), name, plain, circ.get(id(ln)), lay.spaced_marks.get(id(ln))) + room_mark(ln)
                     grp = getattr(ln, "overprint", None)
                     if grp is not None and rendered and rendered[-1][1] == grp:
                         rendered[-1] = (rendered[-1][0] + " ／ " + r_, grp)  # 重ねて描かれた行
@@ -341,8 +345,12 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         if sp.confidence == "agent":
             d["agent"] = True  # 規則では決められない所（エージェントが読んで判断する）
             d["why"] = sp.reason
+            weak = sp.weak
             if isinstance(sp.host, Line) and sp.at and one_wide_space(sp.host.text[sp.at[0]:sp.at[1]]):
                 d["why"] += f"。{ONE_WIDE_SPACE_WHY}"  # いちばん狭い空き（エージェントが順を決める目安）
+                weak = weak or ("one_space" if weak_space(sp.host.text, *sp.at) else "")
+            if weak:
+                d["weak"] = weak  # 弱い候補（消さずに順を下げる。窓の欄の一覧では、まとめて 1 行で示す）
         if sp.kind_candidates:
             d["kind_candidates"] = list(sp.kind_candidates)  # 種類が形だけでは決まらない：書き方は fill の as_kind
         if sp.alternative_to is not None:
@@ -789,6 +797,7 @@ def build(doc: PdfDocument) -> dict:
                                       "書く所と判断したら、字を目印にして {\"@1\": {\"after\": 見出しの字, \"value\": 書く字, "
                                       "\"page\": ページ}}（下なら \"where\": \"below\"。上・左は {\"page\": …, \"box\": [左, 上, 右, 下]（mm）, "
                                       "\"value\": …}）で書く",
+                     SPACED_MARK: SPACED_NOTE,
                      "［○］": "直前の字を、ページに描かれた○（線の曲線）が囲んでいる（とどくが描いた○は［p1.c1：○］）",
                      "［○？］": "直前の字を、曲線と直線で閉じた図形（角の丸い四角など）が囲んでいる：○で選んだ印か、ただの枠か、"
                                "規則では決められない（view_page で見て確かめる）",
@@ -950,10 +959,14 @@ def _md_page(pg: dict) -> list[str]:
         out.append("")
     fields = pg["fields"]
     if fields:
+        weak = [f for f in fields if f.get("weak") and _value(f) in ("", "☐ なし")]
+        strong = [f for f in fields if not any(f is w for w in weak)]
         out += [f"### 入力欄（{len(fields)} か所）", "", "| 欄 | 見出し | 種類 | いまの値 |", "|---|---|---|---|"]
-        for f in fields:
+        for f in strong:
             out.append(f"| {_md(f['id'])} | {_md(f['label'])} | {_md(_kind_text(f))} | {_md(_value(f))} |")
         out.append("")
+        if weak:
+            out += [weak_line(weak), ""]
     out += ["### 読み順（上から）", ""]
     for line in pg["reading"]:
         out.append(f"- {line}")
