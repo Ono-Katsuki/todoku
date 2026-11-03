@@ -658,20 +658,39 @@ def _vertical_stacks(lines: list[Line]) -> list[Line]:
     return [ln for ln in lines if id(ln) not in used] + out
 
 
-def _spaces(parts: list, pos: list, a1: float, gap: float, sz: float, cjk: bool, had_space: bool) -> None:
-    """字と字の間の空き（ポイント）を、空白の字にする。全角の文字のまわりは、全角の空白1つを1字ぶんとする。"""
+# 和字の空白（U+3000 IDEOGRAPHIC SPACE）の幅：字の大きさの 1 字ぶん（1 em）。Unicode（第 6 章 6.2 の空白の字の表：
+# 「width of ideographic (CJK) characters」）と JIS X 4051（日本語文書の組版方法：全角の空白は 1 字ぶん）で決まる幅。
+# 字と字の間がこの幅以上空いていれば、字の間に 1 字を書ける空き（「第　号」「年　月　日」）とする。空きが U+3000 の字で
+# 描かれても、半角の空白の並びでも、字の位置を動かしただけでも、測った幅で決める。欧文の語の間の空白は 0.25〜0.33 em
+# （両端そろえで広げても 0.6 em ほど）で、この幅に届かない。
+EM_SPACE = 1.0
+EM_ROUND = 0.02  # 測った位置の丸め（座標・字の幅は小数 2 桁ほどで書かれる）の分だけ、1 em にわずかに届かないものも 1 em とする
+
+
+def wide_gap(gap: float, size: float) -> bool:
+    """字と字の間の空き（ポイント）が、和字の空白 1 字ぶん（1 em）以上か。size は両どなりの字の小さい方の大きさ。"""
+    return gap >= (EM_SPACE - EM_ROUND) * size
+
+
+def _spaces(parts: list, pos: list, a1: float, gap: float, sz: float, cjk: bool, had_space: bool,
+            em: float | None = None) -> None:
+    """字と字の間の空き（ポイント）を、空白の字にする。窓の空白の字は、測った幅を表す（gap_blanks はこれで空きを決める）：
+    - 1 em（em：両どなりの字の小さい方の大きさ）以上の空き：全角の文字のまわりは全角の空白（1 つを 1 字ぶん）、ほかは
+      2 つ以上の半角の空白（1 つを半字ぶん）。どちらも、字の間に 1 字を書ける空き
+    - 1 em に届かない空き：半角の空白 1 つ（語の間の空白。空きではない）"""
+    em = sz if em is None else em
+    if not wide_gap(gap, em):
+        if gap <= (0.3 if cjk else 0.15) * sz and not had_space:
+            return
+        parts.append(" ")
+        pos.append((a1, a1 + gap))
+        return
     if cjk:
-        n = round(gap / sz)
-        if n == 0 and (gap > 0.3 * sz or had_space):
-            n = 1
+        n = max(1, round(gap / sz))
         ch = "\u3000"
     else:
-        if gap <= 0.15 * sz and not had_space:
-            return
-        n = 1 if gap < 1.5 * sz else max(2, round(gap / (0.5 * sz)))
+        n = max(2, round(gap / (0.5 * sz)))
         ch = " "
-    if n <= 0:
-        return
     step = gap / n
     for k in range(n):
         parts.append(ch)
@@ -697,7 +716,7 @@ def _line(row: list[Ch], vertical: bool, stacked: bool = False) -> Line:
             if gap > 0 or had_space:
                 sp_parts: list[str] = []
                 sp_pos: list[tuple[float, float]] = []
-                _spaces(sp_parts, sp_pos, a1, max(gap, 0.0), sz, cjk, had_space)
+                _spaces(sp_parts, sp_pos, a1, max(gap, 0.0), sz, cjk, had_space, min(prev.size, c.size))
                 units += [[t, [q], None] for t, q in zip(sp_parts, sp_pos)]
         t = c.text
         lo, hi = (c.y0, c.y1) if vertical else (c.x0, c.x1)
