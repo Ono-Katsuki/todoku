@@ -259,7 +259,10 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     reading = []
     plain: list[str] = []
     for row in rows:
-        row.sort(key=lambda it: it.x0)
+        if all(_is_vertical(it) for it in row) or _rtl_row(row):
+            row.sort(key=lambda it: -it.x1)  # 縦書きの列・右から左へ書く表の行は、右から読む
+        else:
+            row.sort(key=lambda it: it.x0)
         parts = []
         for it in row:
             if it.line is not None:
@@ -283,8 +286,15 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                         pieces.append(("☑" if sp.checked else "☐") + f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
                     else:
                         pieces.append(f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
-                rendered = [_render_line(ln, line_spots.get(id(ln), []), name, plain) + room_mark(ln) for ln in c.lines]
-                pieces.append(_join(rendered) + room_mark(c))
+                rendered = []
+                for ln in c.lines:
+                    r_ = _render_line(ln, line_spots.get(id(ln), []), name, plain) + room_mark(ln)
+                    grp = getattr(ln, "overprint", None)
+                    if grp is not None and rendered and rendered[-1][1] == grp:
+                        rendered[-1] = (rendered[-1][0] + " ／ " + r_, grp)  # 重ねて描かれた行
+                    else:
+                        rendered.append((r_, grp))
+                pieces.append(_join([r_ for r_, _g in rendered]) + room_mark(c))
                 for sp in circles:
                     nm = name(sp)
                     chosen = next((f.value_text() for f, _ in (sp.widget or []) if f.name == nm), None)
@@ -368,13 +378,24 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         if f.options:
             d["options"] = [o[1] or o[0] for o in f.options]
             d["export_values"] = [o[0] for o in f.options]
+            if getattr(f, "bad_opts", None):
+                lay.flag("C", "字の読めない選択肢の名前",
+                         "一覧から選ぶ欄の選択肢の字が、PDF の文字列の決まり（PDFDocEncoding・UTF-16BE）で読めません"
+                         "（Shift_JIS などで書いたもの）。字を推し量らず、元のバイト列を示しました。どれが何の選択肢かは view_page で確かめる",
+                         [f"{f.name}：" + "、".join("<" + b.hex().upper() + ">" for b in f.bad_opts[:6])])
         if f.kind == "radio":
             if f.options:
                 d["options"] = [o[1] or o[0] for o in f.options]
             else:
-                from .form import name_text
+                from .form import name_text, name_unreadable
 
                 d["options"] = [name_text(x.on) for x in f.widgets if x.on]
+                bad = [x.on for x in f.widgets if x.on and name_unreadable(x.on)]
+                if bad:
+                    lay.flag("C", "字の読めない選択肢の名前",
+                             "ひとつ選ぶ欄の選択肢の名前が、PDF の名前の決まり（UTF-8）で読めません（Shift_JIS などで作った名前）。"
+                             "字を推し量らず、バイト列のまま（#82#CD のように）示しました。どれが何の選択肢かは view_page で確かめ、"
+                             "書くときはこの形の名前で選びます", [f"{f.name}：" + "、".join(name_text(b) for b in bad[:6])])
         if f.maxlen:
             d["maxlen"] = f.maxlen
         if f.readonly:
@@ -417,15 +438,19 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         from .objects import decode_text
 
         txt = decode_text(doc.resolve(ad.get("Contents"))) if ad.get("Contents") is not None else ""
-        if txt or st in ("FreeText", "Stamp", "Text"):
-            annots.append({"kind": st, "text": txt})
+        drawn = _appearance_text(doc, ad)
+        if txt or drawn or st in ("FreeText", "Stamp", "Text"):
+            d_ = {"kind": st, "text": txt}
+            if drawn and drawn.split() != txt.split():
+                d_["drawn"] = drawn  # 注釈の見た目（/AP）に描かれた字：ページに見えるのはこの字
+            annots.append(d_)
     marks, inword = unmapped_places(lay)
     return {"number": number, "width": round(view.width, 1), "height": round(view.height, 1), "rotate": view.rot,
             "fields": out_fields, "reading": reading, "chars": chars, "unmapped": pc.unmapped, "images": images,
             # 字に直せない字の、行の中での役割（字の並びの形で決める）：行の頭の印（箇条の印）と、それ以外（本文の字）
             "unmapped_marks": marks, "unmapped_text": inword,
             "image_only": chars == 0 and images > 0, "pictures": pictures, "problems": pc.problems, "annotations": annots,
-            "_plain": plain, "_dropped": lay.dropped,
+            "_plain": plain, "_dropped": lay.dropped, "_added": lay.added, "read_flags": lay.flags,
             # 窓の作り方で1つにした字：同じ位置に重ねて描いた同じ字（太字に見せる重ね書き）・縦に1字ずつ積んだ字の列
             "merged_glyphs": sum(1 for k, _t in lay.dropped if k == "dup"),
             "unseen_glyphs": sum(1 for k, _t in lay.dropped if k == "size"),  # 0.5pt に満たない字・ページの何倍もある字
@@ -465,6 +490,25 @@ def unmapped_places(lay) -> tuple[list[dict], list[dict]]:
                 "near": near, "count": n}
         (marks if is_mark else inword).append(item)
     return marks, inword
+
+
+def _appearance_text(doc: PdfDocument, ad: dict) -> str:
+    """注釈の見た目（/AP の /N）に描かれた字を、描いた順に（スタンプ・FreeText の字は、ページの描画の命令の外にある）。"""
+    from .content import Interpreter
+    from .objects import Stream
+
+    ap = doc.resolve(ad.get("AP"))
+    n = doc.resolve(ap.get("N")) if isinstance(ap, dict) else None
+    if isinstance(n, dict) and not isinstance(n, Stream):
+        st = getattr(doc.resolve(ad.get("AS")), "name", None)
+        n = doc.resolve(n.get(st)) if st else None
+    if not isinstance(n, Stream):
+        return ""
+    try:
+        pc = Interpreter(doc).run_stream(doc.decode(n), doc.resolve(n.dict.get("Resources")) or {})
+    except Exception:  # noqa: BLE001
+        return ""
+    return "".join(g.text for g in pc.glyphs).strip()
 
 
 def _pictures(doc: PdfDocument, page: dict, number: int, pc, lay) -> list[dict]:
@@ -513,13 +557,35 @@ def _join(texts: list[str]) -> str:
 
 
 def _cjk(ch: str) -> bool:
-    return ord(ch) >= 0x2E80 and ch not in "［］"
+    from .layout import _is_cjk
+
+    return _is_cjk(ch) and ch not in "［］"
 
 
 def _alias(sp: Spot, b: Spot) -> Spot:
     a = Spot(sp.kind, sp.rect, sp.label, host=b.host, at=b.at, checked=sp.checked)
     a.alias_of = sp
     return a
+
+
+def _rtl_row(row: list[_Item]) -> bool:
+    """行の字が、すべて右から左へ書く字の行か。"""
+    lines = []
+    for it in row:
+        if it.line is not None:
+            lines.append(it.line)
+        elif it.cell is not None:
+            lines += it.cell.lines
+    lines = [ln for ln in lines if not ln.vertical and ln.text.strip()]
+    return bool(lines) and all(getattr(ln, "rtl", False) for ln in lines)
+
+
+def _is_vertical(it: _Item) -> bool:
+    if it.line is not None:
+        return it.line.vertical
+    if it.cell is not None and it.cell.lines:
+        return all(ln.vertical for ln in it.cell.lines)
+    return False
 
 
 def _hint(it: _Item) -> float:
@@ -670,7 +736,7 @@ def _md_head(doc: dict) -> list[str]:
     out.append("- この文書は読むための窓です。書き込みは `todoku fill` で元のファイルの後ろに足します（元の部分は変えません）。")
     out.append("- 欄として示していない所に書くときは、見出しの字を目印にして、その右（または下）の空いている所に書けます："
                "`{\"@1\": {\"after\": \"見出しの字\", \"value\": \"書く字\", \"page\": 1}}`（下に書くときは "
-               "`\"where\": \"below\"`。同じ字がいくつもあるときは `occurrence` で何番目かを指定する）。"
+               "`\"where\": \"below\"`、右から左へ書く字の見出しの左に書くときは `\"where\": \"before\"`。同じ字がいくつもあるときは `occurrence` で何番目かを指定する）。"
                "伏せ字（「○○」）の上に書くときは `{\"@1\": {\"cover\": \"○○\", \"value\": \"書く字\"}}`"
                "（白い下地の欄で覆って書く。元の字は消さない）。")
     out.append("- 記号: " + "、".join(f"{k} は{v}" for k, v in doc["notation"].items()))
@@ -722,6 +788,11 @@ def _md_page(pg: dict) -> list[str]:
         if pg.get("stacked_columns"):
             notes.append(f"横書きの字を縦に1字ずつ積んだ列 {pg['stacked_columns']} 個を、上から読む縦の行にしました")
         out += ["- " + "。".join(notes) + "。", ""]
+    for fl in pg.get("read_flags") or []:
+        out.append(f"- **{fl['title']}**：{fl['detail']}。位置：" + "、".join(_md(w) for w in fl["where"][:12])
+                   + (f"（ほか {len(fl['where']) - 12} か所）" if len(fl["where"]) > 12 else ""))
+    if pg.get("read_flags"):
+        out.append("")
     fields = pg["fields"]
     if fields:
         out += [f"### 入力欄（{len(fields)} か所）", "", "| 欄 | 見出し | 種類 | いまの値 |", "|---|---|---|---|"]
@@ -743,7 +814,8 @@ def _md_page(pg: dict) -> list[str]:
     if pg.get("annotations"):
         out += ["### 注釈（ページに貼られたメモなど）", ""]
         for a in pg["annotations"]:
-            out.append(f"- {a['kind']}: {_md(a['text']) or '（文字なし）'}")
+            out.append(f"- {a['kind']}: {_md(a['text']) or '（文字なし）'}"
+                       + (f"（見た目に描かれた字：{_md(a['drawn'])}）" if a.get("drawn") else ""))
         out.append("")
     return out
 

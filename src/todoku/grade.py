@@ -241,12 +241,31 @@ def _macro_reasons(info) -> list[Reason]:
     return [Reason("C", "マクロの処理", detail, [m["name"] for m in busy][:12])]
 
 
+def unsupported_grade(kind: str) -> Grade:
+    """見分けたが、まだ読めない形式（HWP・HWPX）：読む F・書く D。"""
+    from .book import UNSUPPORTED
+
+    return _locked("未対応の形式：HWP/HWPX（韓国のワープロ）",
+                   f"とどくはまだ読めません（{UNSUPPORTED.get(kind, kind)} の文書。中身を推測して読むことはしません）",
+                   "読めないので、書けません")
+
+
 # ====================================================================== 形式ごと
 def grade_blob(blob: bytes, filename: str = "", password: str | None = None, encoding: str | None = None) -> Grade:
     """password：パスワードで保護された PDF を開くとき（Office の書類は、api で解いた中身を渡す）。
     encoding：文字だけのファイル（CSV・TSV・JSON・.txt）の文字コードを、エージェントが候補から選んで指定したとき。"""
     from .book import kind_of
 
+    if blob[:2] == b"PK":  # ZIP の入れ物（Office・OpenDocument・ZIP）：中身が二通りに読めるものは、読めない・書けない
+        from .zipraw import AmbiguousZip, RawZip
+
+        try:
+            RawZip(blob)
+        except AmbiguousZip as e:
+            return _locked("ZIP の中身が二通りに読める", f"{e.detail}。読む道具によって違う中身になるので、正確に読めません",
+                           "どちらの中身に書いたのか証明できないので、書けません")
+        except Exception:  # noqa: BLE001  ほかの壊れ方は、形式ごとの読み方で決める
+            pass
     # ---- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument）：形式ごとの段階の決め方で（openkinds）
     from .openkinds import KINDS as _OPEN_KINDS
     from .openkinds import grade as _open_grade
@@ -262,6 +281,8 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None, enc
         k = kind_of(blob)
     except Exception as e:  # noqa: BLE001
         return _locked("開けない", f"ファイルの形式を判別できませんでした（{type(e).__name__}）", "開けないので、書けません")
+    if k in ("hwp", "hwpx"):
+        return unsupported_grade(k)
     if k == "zip":
         return _grade_zip(blob, password)
     locked = k == "encrypted"
@@ -351,6 +372,16 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
                               f"{n} 字は、フォントに文字の対応がなく、字に直せません（窓では �）。その所の中身は、ページを画像として"
                               "見て読みます（todoku の view_page は画像だけを描き、字は描かないので、PDF を描ける別の道具で見ます）。"
                               "中身を推測で埋めないでください", [w for w, _k in body][:12]))
+    flagged: dict[str, Reason] = {}
+    for p in win["pages"]:
+        for fl in p.get("read_flags") or []:
+            r = flagged.get(fl["title"])
+            if r is None:
+                r = flagged[fl["title"]] = Reason(fl["grade"], fl["title"], fl["detail"], [])
+            r.where += fl["where"]
+    for r in flagged.values():
+        r.where = r.where[:12] + ([f"ほか {len(r.where) - 12} か所"] if len(r.where) > 12 else [])
+        reasons.append(r)
     img = [f"{p['number']}ページ" for p in win["pages"] if p.get("image_only")]
     if img:
         from .pdf.pageimage import unreadable_images
@@ -479,6 +510,21 @@ def _write_fields(fields: list[dict], layout: list[dict], agent: list[dict], mar
     return [Reason("B", "印のある欄がない", f"作り手の印のある欄がありません。{free}")]
 
 
+def word_reasons(win: dict) -> tuple[list[Reason], list[Reason]]:
+    """Word と同じ窓の文書（Word・RTF・OpenDocument の文書）の、読む・書くの理由：変更履歴で削除された字が残っている（読む B）、
+    書けない入力欄がある（書く D）。"""
+    read, write = [], []
+    gone = win.get("tracked_deletions") or []
+    if gone:
+        read.append(Reason("B", "変更履歴", f"変更履歴で削除された字が {len(gone)} 段落に残っています。窓では本文に入れず"
+                           "〔変更履歴で削除された字〕と示しています。印刷される字は、ソフトの変更履歴の表示の設定で変わります", gone[:12]))
+    bad = [f for f in win.get("fields") or [] if f.get("unwritable")]
+    if bad:
+        write.append(Reason("D", "書けない入力欄", f"入力欄 {len(bad)} か所は、ファイルの作りのために書けません：{bad[0].get('why', '')}",
+                            [f["id"] for f in bad[:12]]))
+    return read, write
+
+
 def _write_embeds(embeds: list[dict]) -> list[Reason]:
     """文書に埋め込んだ Excel の表：表のセルと、表示・印刷の絵を描き直して書く（B）。描き直せない形なら書けない（D）。"""
     out = []
@@ -582,6 +628,9 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
                            "欄のない所は、前後の字を指定して書き換えます")
     write += _write_embeds(win.get("embeds") or [])
     write += _write_macros(win.get("macros"))
+    wr, ww = word_reasons(win)
+    reasons += wr
+    write += ww
     g = _final(reasons, write)
     g.alerts = picture_alerts(win.get("pictures") or [])
     return g
@@ -736,9 +785,12 @@ def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "�
     - A：すべての欄が、ファイルの作りとしての印（入力規則・保護の中のロックの解除・フォームの部品）で決まる
     - B：罫線・塗りと近くの見出し・文字の中の空欄の字の形・数式の入力から推定した欄（印ではない）、規則では決められない所
       （窓の［B5？］・文字の中の［？］。エージェントが判断する）、重なった入力規則（どれが使われるかをエージェントが読む）"""
-    marked, boxed, inferred, inline, overlap, agent = [], [], [], [], [], []
+    marked, boxed, inferred, inline, overlap, agent, locked = [], [], [], [], [], [], []
     for sh in doc["sheets"]:
         for f in sh.get("fields", []):
+            if f.get("locked"):
+                locked.append(f["id"])  # 見出しの欄だが、保護でロックされたセル（窓の［B5：保護されたセル］）
+                continue
             if f.get("agent"):
                 agent.append(f)
                 continue
@@ -768,11 +820,16 @@ def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "�
                             inferred[:12]))
     if agent:
         write.append(_agent_reason(agent))
+    if locked:
+        write.append(Reason("B", "保護されたセルの欄",
+                            f"{len(locked)} か所は、見出しのすぐ右の欄ですが、{protect}でロックされていて、Excel でも書けません"
+                            "（書くには保護を外すパスワードが要ります）。本人が書く欄かを窓で確かめ、書くなら本人にパスワードを聞くか、"
+                            "保護を外さずに書く（force）ことを本人に確かめます", locked[:12]))
     if overlap:
         write.append(Reason("B", "重なった入力規則",
                             f"{len(overlap)} か所に入力規則が重なっていて、どの規則が使われるかはファイルから決まりません。"
                             "窓に出したそれぞれの規則を、エージェントが読んで、合う値を書きます", overlap[:12]))
-    if not (guessed or agent or overlap):
+    if not (guessed or agent or overlap or locked):
         if n_fields:
             write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・{protect}・フォームの部品の印で決まり、そのまま書けます"))
         else:
@@ -797,6 +854,17 @@ def image_only_sheets(wb) -> list[str]:
     return out
 
 
+def unshown_reasons(doc: dict) -> list[Reason]:
+    """表示形式を再現できないセル（窓には推測した字でなく元の値を出す）：読む B。"""
+    where = [f"{sh['name']}!{u['cell']}" for sh in doc.get("sheets", []) for u in sh.get("unshown_formats", [])]
+    if not where:
+        return []
+    return [Reason("B", "再現できない表示形式",
+                   f"{len(where)} か所のセルは、表示形式（ロケール・暦・漢数字などの指定）を規則どおりに再現できません。"
+                   "窓には推測した字ではなく元の値を出しているので、Excel での見え方は、エージェントが元の値と表示形式から読みます",
+                   where[:12])]
+
+
 def _grade_excel(blob: bytes, filename: str) -> Grade:
     from .book import open_book
     from .xlsx.calc import verify
@@ -807,6 +875,7 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
     reasons: list[Reason] = []
     write: list[Reason] = []
     sheet_input_reasons(doc, reasons, write)
+    reasons += unshown_reasons(doc)
     vr = verify(wb)
     rep = vr.summary()
     if rep["unsupported"]:

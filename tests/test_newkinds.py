@@ -174,7 +174,7 @@ def test_csv_empty_line_is_one_empty_field(tmp_path, name, blob):
     assert res["proof_ok"] and res["read_back_ok"]
     lines = out.read_bytes().decode().split(nl)
     assert lines[r - 1] == f"{d}b"
-    res = api.fill(str(p), {f"R{n + 1}.C1": "3"}, str(out))  # 字のない行の後ろに行を足す
+    res = api.fill(str(p), {f"R{n + 1}.C1": "3"}, str(out), overwrite=True)  # 字のない行の後ろに行を足す（同じ名前に書き直す）
     assert res["proof_ok"] and res["read_back_ok"]
     assert out.read_bytes().startswith(blob if blob.endswith(nl.encode()) else blob + nl.encode())
 

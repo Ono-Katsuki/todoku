@@ -52,6 +52,29 @@ def test_libreoffice_floats_are_kept_byte_exact(tmp_path):
     assert b"595.303937007874" in tail and b"841.889763779528" in tail  # 書き換えたページの辞書でも、元の字のまま
 
 
+def test_libreoffice_floats_survive_the_audit_write_probes(tmp_path):
+    """書類の検査（audit）の試し書き：表の欄・○で囲む選択肢（ページの描画を足す）・字を目印にした書き込みのどれでも、
+    書き換えたページの辞書の小数が元の字のまま（「MediaBox が変わっています」にならない）。"""
+    chars = "氏名生年月日昭和・平成住所"
+    font, (desc, tu), codes = jp_font_objs(chars, 6)
+    t = lambda s: jp_text(codes, s).decode()  # noqa: E731
+    content = ("0.5 w 60 760 m 540 760 l S 60 730 m 540 730 l S 60 700 m 540 700 l S 60 670 m 540 670 l S "
+               "60 760 m 60 670 l S 200 760 m 200 670 l S 540 760 m 540 670 l S "
+               f"BT /F1 10 Tf 70 742 Td {t('氏名')} Tj ET BT /F1 10 Tf 70 712 Td {t('生年月日')} Tj ET "
+               f"BT /F1 10 Tf 210 712 Td {t('昭和・平成')} Tj ET BT /F1 10 Tf 70 682 Td {t('住所')} Tj ET").encode()
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.303937007874 841.889763779528] /Resources << /Font << /F1 5 0 R >> >>"
+            b" /Contents 4 0 R >>",
+            stream("", content), font, desc, tu]
+    src = _write(tmp_path, pdf(objs, 1))
+    a = api.audit(src)
+    bad = [c for c in a["checks"] if not c["ok"] and c["name"] in ("全入力欄への書き込み", "読み戻し", "字を目印にした書き込み")]
+    assert not bad, [c["items"] for c in bad]
+    probes = [c for c in a["checks"] if c["name"] == "全入力欄への書き込み"]
+    assert probes and "○" in probes[0]["detail"]  # ○の試し書き（ページの描画を足す）も通った
+
+
 # ====================================================================== 2. 描けない字
 @pytest.fixture
 def no_embed(monkeypatch):

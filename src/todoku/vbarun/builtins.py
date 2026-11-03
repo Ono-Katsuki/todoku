@@ -205,7 +205,9 @@ def f_lcase(rt, args, fr, node):
 
 @fn("space", "space$")
 def f_space(rt, args, fr, node):
-    return " " * to_long(_arg(rt, args, 0, fr))
+    n = to_long(_arg(rt, args, 0, fr))
+    rt.make_string(n)
+    return " " * n
 
 
 @fn("string", "string$")
@@ -213,6 +215,7 @@ def f_string(rt, args, fr, node):
     n = to_long(_arg(rt, args, 0, fr))
     c = _arg(rt, args, 1, fr)
     ch = chr(to_long(c)) if not isinstance(c, str) else c[:1]
+    rt.make_string(n)
     return ch * n
 
 

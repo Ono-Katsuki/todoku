@@ -80,7 +80,7 @@ def model(wb: Workbook, doc: dict) -> dict:
     inputs = {}
     for sh in doc["sheets"]:
         for f in sh.get("fields", []):
-            if f.get("cell") and f.get("kind") != "inline":
+            if f.get("cell") and f.get("kind") != "inline" and not f.get("locked"):
                 r, c = parse_cell(f["cell"].split(":")[0])
                 inputs[(sh["name"], r, c)] = f
     formulas = {(s.name, r, c): cell for s in wb.sheets for (r, c), cell in s.cells.items() if cell.has_formula}
@@ -166,7 +166,7 @@ def _show(wb: Workbook, cell, v):
         return v.code
     if is_number(v):
         try:
-            return format_value(v, wb.style(cell.style).num_fmt)
+            return format_value(v, wb.style(cell.style).num_fmt, wb.date1904)
         except Exception:  # noqa: BLE001
             return v
     return v

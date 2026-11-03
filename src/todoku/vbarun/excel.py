@@ -87,7 +87,7 @@ class Host:
         m = sh.merged_at(r, c)
         if m and (r, c) != (m[0], m[1]):
             r, c = m[0], m[1]  # 結合セルの途中に書いた値は、左上のセルに入る
-        val = _from_vba(v)
+        val = _from_vba(v, self.wb)
         key = (sh.name, r, c)
         self.over[key] = val
         if by_macro:
@@ -208,18 +208,20 @@ def _to_vba(v, wb, cell):
     if isinstance(v, (int, float)):
         fmt = wb.style(cell.style).num_fmt if cell is not None else "General"
         if is_date_format(fmt):
-            return VDate(float(v))
+            # VBA の日付は 1900 年の数え方のシリアル値。1904 年の数え方のブックは 1462 日ずらす（ECMA-376 18.2.28 date1904）
+            return VDate(float(v) + (1462 if getattr(wb, "date1904", False) else 0))
         return int(v) if float(v) == int(v) and abs(v) < 2**31 else float(v)
     return v
 
 
-def _from_vba(v):
+def _from_vba(v, wb=None):
     from ..formula.values import ExcelError
 
     if v is EMPTY or v is None:
         return None
     if isinstance(v, VDate):
-        return float(v)
+        # 1904 年の数え方のブックのセルには、1462 日ずらしたシリアル値が入る
+        return float(v) - (1462 if getattr(wb, "date1904", False) else 0)
     if isinstance(v, bool):
         return v
     if isinstance(v, int):
@@ -294,7 +296,14 @@ class Range:
                 out.data[(i + 1, j + 1)] = self.host.get(self.sheet, self.r1 + i, self.c1 + j)
         return out
 
+    def _not_huge(self, what: str) -> None:
+        from ..limits import MAX_VBA_RANGE
+
+        if self.rows * self.cols > MAX_VBA_RANGE:
+            raise Unsupported(f"とても大きな範囲{what}（{self.rows * self.cols:,} マス。{MAX_VBA_RANGE:,} マスまで再現します）")
+
     def set_value(self, v) -> None:
+        self._not_huge("への書き込み")
         cells = [(self.r1 + i, self.c1 + j) for i in range(self.rows) for j in range(self.cols)]
         if isinstance(v, VArray):
             if len(v.lbounds) == 2:
@@ -331,7 +340,7 @@ class Range:
         cell = sh.cells.get((self.r1, self.c1))
         key = (sh.name, self.r1, self.c1)
         if key not in self.host.over and cell is not None and not cell.has_formula:
-            return display(self.host.wb, cell)
+            return display(self.host.wb, cell, flag=False)
         fmt = self.host.wb.style(sh.style_of(self.r1, self.c1)).num_fmt
         raw = float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else (None if v is EMPTY else v)
         if raw is None:
@@ -340,7 +349,9 @@ class Range:
             return raw
         if isinstance(raw, bool):
             return "TRUE" if raw else "FALSE"
-        return format_value(raw, fmt)
+        if isinstance(v, VDate) and self.host.wb.date1904:
+            raw -= 1462  # VBA の日付（1900 年の数え方）を、ブックの数え方のシリアル値に
+        return format_value(raw, fmt, self.host.wb.date1904)
 
     # ---------------------------------------------------------------- メンバー
     def vba_get(self, name: str, args: list, named: dict):
@@ -495,6 +506,7 @@ class Range:
     def copy_to(self, dest) -> None:
         if not isinstance(dest, Range):
             raise VbaError(424)
+        self._not_huge("のコピー")
         sh = self.host.sheet(self.sheet)
         for i in range(self.rows):
             for j in range(self.cols):

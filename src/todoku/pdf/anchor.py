@@ -75,7 +75,7 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
     """見出しの字で指した書き込み → 書く所（窓の欄と同じ形の辞書：id「p ページ.w 番号」・ページ・矩形・字の大きさ）。
 
     spec：{"after": 見出しの字（窓の字のとおり）, "value": 書く字, "page": ページ（省くと全ページから）,
-    "where": "right"（既定。見出しの右）/ "below"（見出しの下）, "occurrence": 何番目か（読む順。1 から）}、
+    "where": "right"（既定。見出しの右）/ "before"（見出しの左。右から左へ書く字の見出し）/ "below"（見出しの下）, "occurrence": 何番目か（読む順。1 から）}、
     または {"cover": 覆う字（伏せ字の「○○」など）, "value": 書く字, …}：その字の上を白い下地の欄で覆って書く（元の字は消さない）。
     見つからない・いくつもあって決まらない・空いている所がないときは、理由（と候補）を添えて断る。"""
     if spec.get("box") is not None:
@@ -87,8 +87,8 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
         raise AnchorError('PDF で欄のない所に書くときは {"after": 見出しの字, "value": 書く字}（字を覆って書くときは '
                           '{"cover": 覆う字, "value": 書く字}）の形で指定してください')
     where = "cover" if cover is not None else spec.get("where", "right")
-    if where not in ("right", "below", "cover"):
-        raise AnchorError('where は "right"（見出しの右）か "below"（見出しの下）です')
+    if where not in ("right", "below", "before", "cover"):
+        raise AnchorError('where は "right"（見出しの右）・"before"（見出しの左：右から左へ書く字の見出し）・"below"（見出しの下）です')
     pages = doc.pages()
     page_no = spec.get("page")
     if page_no is not None and not (isinstance(page_no, int) and 1 <= page_no <= len(pages)):
@@ -140,6 +140,22 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
         rect = (x0, ln.y0 - 0.1 * sz, rb - 1.5, ln.y1 + 0.1 * sz)
         if rect[2] - rect[0] < 1.5 * sz:
             raise AnchorError(f"「{after}」の右に、書く空きがありません（where を \"below\" にすると、見出しの下に書けます）")
+    elif where == "before":
+        # 右から左へ書く字（アラビア文字など）の見出し：見出しの左の空き（右の空きを左右に映したもの）
+        x1 = ln.span_rect(i, j)[0] - 0.3 * sz
+        lb = cell.x0 if cell is not None else lay.left
+        for c in ln.chars:
+            if not c.text.isspace() and c.x1 <= x1 + 0.3 * sz - 0.5:
+                lb = max(lb, c.x1)  # 同じ行の、見出しの左の字
+        for o in (cell.lines if cell is not None else lay.free_lines):
+            if o is not ln and not o.vertical and o.y0 < ln.y1 - 0.2 * sz and o.y1 > ln.y0 + 0.2 * sz and o.x1 <= x1 + 0.5:
+                lb = max(lb, o.x1)
+        for r in lay.vs:
+            if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1 and lb < r.pos <= x1:
+                lb = r.pos
+        rect = (lb + 1.5, ln.y0 - 0.1 * sz, x1, ln.y1 + 0.1 * sz)
+        if rect[2] - rect[0] < 1.5 * sz:
+            raise AnchorError(f"「{after}」の左に、書く空きがありません")
     else:
         x0 = ln.span_rect(i, j)[0]
         y0 = ln.y1 + 0.15 * sz
@@ -158,7 +174,8 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
     inside = [] if where == "cover" else [c for c in lay.chars if not c.text.isspace() and rect[0] < (c.x0 + c.x1) / 2 < rect[2]
                                           and rect[1] < (c.y0 + c.y1) / 2 < rect[3]]
     if inside:
-        raise AnchorError(f"「{after}」の{'右' if where == 'right' else '下'}の所に、ほかの字（「{''.join(c.text for c in inside[:6])}」）があります")
+        side = {"right": "右", "before": "左", "below": "下"}[where]
+        raise AnchorError(f"「{after}」の{side}の所に、ほかの字（「{''.join(c.text for c in inside[:6])}」）があります")
     return _place(n, rect, used, taken_names, {"id": None, "page": n, "kind": "inline" if where == "cover" else "text",
                                               "size": None, "anchored": dict(spec)}, where, after, sz)
 
@@ -181,7 +198,7 @@ def _place(n, rect, used, taken_names, out, where, after, sz, prefix: str = "w",
         label = f"{n}ページの枠（左 {rect[0] / MM:.0f}・上 {rect[1] / MM:.0f} mm）"
     else:
         size = min(sz if sz >= 6 else 10.5, (rect[3] - rect[1]) * 0.8) if where == "below" else sz
-        label = f"「{after}」を覆って" if where == "cover" else f"{after}（の{'右' if where == 'right' else '下'}）"
+        label = f"「{after}」を覆って" if where == "cover" else f"{after}（の{ {'right': '右', 'before': '左', 'below': '下'}[where] }）"
     out = {**out, "id": f"p{n}.{prefix}{k}", "rect": [round(v, 2) for v in rect], "size": round(size, 2), "label": label}
     if where == "cover":
         out["cover"] = True

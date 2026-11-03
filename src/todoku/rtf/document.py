@@ -76,6 +76,7 @@ class _St:
     itap: int = 0
     first: bool = True  # グループの最初の字句か（宛先の制御語を見分ける）
     star: bool = False  # \* のあと
+    deleted: bool = False  # 変更履歴で削除された字（\deleted）
 
 
 @dataclass
@@ -146,7 +147,20 @@ class RtfDocument:
         elif re.search(rb"\\readprot(?![a-z])", head):
             self.protection, self.protection_enforced = "readOnly", True
         self._parse()
+        self._name_fields()
         self.pictures = self._pictures()
+
+    def _name_fields(self) -> None:
+        """名前（\\ffname）のないフォームの欄：欄のすぐ前か後ろのしおり（\\bkmkstart）の名前を、欄の名前にする（Word の
+        フォームの欄の名前は、欄を囲むしおりの名前。LibreOffice は \\ffname を書かず、しおりだけを書く）。"""
+        for c in self.controls:
+            at = getattr(c, "rtf_pos", None)
+            if c.name or at is None:
+                continue
+            names = [n.strip() for n, which, p, pos in self.marks_raw
+                     if which == "start" and p is c.para and pos in at and n.strip() and not n.startswith(MARK_PREFIX)]
+            if names:
+                c.name = names[0]
 
     # ------------------------------------------------------------------ 絵の説明（代わりの字）
     def _pictures(self) -> list[dict]:
@@ -342,12 +356,15 @@ class RtfDocument:
             p = para()
             fctl = None
             for _d, fd in reversed(fields):
-                if fd.kind == "result":
+                if fd.kind == "result" and getattr(fd, "story", story) is story:
                     fctl = fd.ctl if fd.ctl is not None else fd.dummy
                     break
             segs = p.segs
-            if kind == "t" and segs and segs[-1].kind == "t" and segs[-1].node is not None and segs[-1].node.kind == "txt" \
-                    and segs[-1].hidden == st.hidden and segs[-1].underline == st.ul and segs[-1].field is fctl \
+            if st.deleted and kind == "t":
+                kind = "del"  # 変更履歴で削除された字：本文の字にしない（窓では印をつけて示す）
+            hid = st.hidden or kind == "del"
+            if kind in ("t", "del") and segs and segs[-1].kind == kind and segs[-1].node is not None and segs[-1].node.kind == "txt" \
+                    and segs[-1].hidden == hid and segs[-1].underline == st.ul and segs[-1].field is fctl \
                     and getattr(segs[-1], "_open", False) and segs[-1].node.e == s_join[0]:
                 sg = segs[-1]
                 sg.text += ch
@@ -357,7 +374,7 @@ class RtfDocument:
             else:
                 if segs and getattr(segs[-1], "_open", False):
                     segs[-1]._open = False
-                sg = Seg(ch, kind, RSrc("txt", s, e, [s], [e], st.uc), None, st.hidden, st.ul, fctl)
+                sg = Seg(ch, kind, RSrc("txt", s, e, [s], [e], st.uc), None, hid, st.ul, fctl)
                 sg._open = True
                 segs.append(sg)
             s_join[0] = e
@@ -413,7 +430,7 @@ class RtfDocument:
             if k == "open":
                 flush_bytes()
                 stack.append(st)
-                st = _St(st.dest, st.skip, st.uc, st.font, st.hidden, st.ul, st.intbl, st.itap, True, False)
+                st = _St(st.dest, st.skip, st.uc, st.font, st.hidden, st.ul, st.intbl, st.itap, True, False, st.deleted)
                 depth += 1
                 s_join[0] = -1
                 continue
@@ -448,11 +465,10 @@ class RtfDocument:
                 flush_bytes()
                 st.first = False
                 data = t.data
-                if st.dest in ("bkmkstart", "bkmkend", "ffname", "ffl", "ffdeftext", "ffhelptext", "ffstattext"):
+                if st.dest in NAME_DESTS:
                     info = nearest(special_groups, depth)
                     if info is not None:
-                        info.setdefault("raw", bytearray()).extend(data)
-                        info["cp"] = self.codepage(st.font)
+                        _name_bytes(info, data, self.codepage(st.font))
                     continue
                 if any(x >= 0x80 for x in data):
                     cp = self.codepage(st.font)
@@ -468,11 +484,10 @@ class RtfDocument:
                 continue
             if k == "hex":
                 st.first = False
-                if st.dest in ("bkmkstart", "bkmkend", "ffname", "ffl", "ffdeftext", "ffhelptext", "ffstattext"):
+                if st.dest in NAME_DESTS:
                     info = nearest(special_groups, depth)
                     if info is not None:
-                        info.setdefault("raw", bytearray()).extend(t.data)
-                        info["cp"] = self.codepage(st.font)
+                        _name_bytes(info, t.data, self.codepage(st.font))
                     continue
                 cp = self.codepage(st.font)
                 if pending and pending[-1][3] != cp:
@@ -531,6 +546,15 @@ class RtfDocument:
                     continue
                 if known == "keep":
                     continue
+            if w == "u" and t.param is not None and st.dest in NAME_DESTS:
+                # しおりの名前・フォームの欄の名前と選択肢（\ffl）の中の \uN：Unicode の字。続く代わりの字（\ucN の数）は読まない
+                info = nearest(special_groups, depth)
+                if info is not None:
+                    _name_flush(info)
+                    code = t.param + 65536 if t.param < 0 else t.param
+                    info["text"] += chr(code) if not 0xD800 <= code < 0xE000 else ""
+                    info["uskip"] = st.uc
+                continue
             if st.skip:
                 if st.dest == "formfield" or (fields and st.dest in ("formfield",)):
                     pass
@@ -564,7 +588,9 @@ class RtfDocument:
             elif w == "f" and t.param is not None:
                 st.font = t.param
             elif w == "plain":
-                st.font, st.hidden, st.ul = self.deff, False, False
+                st.font, st.hidden, st.ul, st.deleted = self.deff, False, False, False
+            elif w == "deleted":
+                st.deleted = t.param != 0  # 変更履歴で削除された字（RTF 1.9.1 の Revision Marks）
             elif w == "v":
                 st.hidden = t.param != 0
             elif w.startswith("ul") and w not in ("ulc",):
@@ -619,6 +645,7 @@ class RtfDocument:
             fd = _Field()
             fd.dummy = Control("field", "rtf-field", "", None, "rtf")
             fd.start = t.s
+            fd.story = story  # フィールドを置いた流れ（図形の字の流れの中の字は、このフィールドの結果にしない）
             fields.append((depth, fd))
             st.dest = "field"
             return "keep"
@@ -717,7 +744,10 @@ class RtfDocument:
             story.para = p
         fd.para = p
         fd.n0 = len(p.segs)
+        pos0 = len(p.text)
         ff = fd.ff
+        fd.dummy.instr = " ".join(instr.split())  # フォームの欄でないフィールド（MERGEFIELD など）の命令：書けない理由に使う
+        fd.dummy.name = word
         if word in ("FORMTEXT", "FORMCHECKBOX", "FORMDROPDOWN"):
             kind = {"FORMTEXT": "text", "FORMCHECKBOX": "checkbox", "FORMDROPDOWN": "dropdown"}[word]
             ctl = Control(kind, "formfield", ff.get("ffname", ""), None, "rtf", p, help=ff.get("ffhelptext", "") or "")
@@ -736,6 +766,11 @@ class RtfDocument:
             if ff.get("fftypetxt") == 2:
                 ctl.kind = "date"
             ctl.ff = dict(ff)
+            ctl.rtf_pos = (pos0, pos0)
+            if kind in ("checkbox", "dropdown") and "fftype_pos" not in ff and "ffres_pos" not in ff:
+                # 欄の定義（\\formfield）のない FORMCHECKBOX・FORMDROPDOWN：状態（\\ffres）を書く所がない
+                ctl.unwritable = ("この欄は、状態を入れる所（{\\*\\formfield} の \\ffres）がファイルにないので、書けません"
+                                  "（RTF を書き出したソフトが欄の定義を省いています）。元の様式（.docx・.odt など）があれば、そちらに書いてください")
             ctl.result_open = t.e
             fd.ctl = ctl
             self.controls.append(ctl)
@@ -762,6 +797,8 @@ class RtfDocument:
             sg = Seg("", "field", RSrc("ctl", t.s, t.s), None, False, False, ctl)
             p.segs.append(sg)
             ctl.result_segs = [sg]
+        if hasattr(ctl, "rtf_pos"):
+            ctl.rtf_pos = (ctl.rtf_pos[0], len(p.text))  # 欄の終わりの字の位置（欄のすぐ後ろのしおりを、欄の名前に使う）
 
     # ------------------------------------------------------------------ 表
     def _row_def(self, story: _Story, st: _St, w: str, param) -> None:
@@ -911,6 +948,32 @@ class RtfDocument:
             elif key in starts and starts[key][0] is p:
                 out[key] = (p, starts[key][1], pos)
         return out
+
+
+NAME_DESTS = ("bkmkstart", "bkmkend", "ffname", "ffl", "ffdeftext", "ffhelptext", "ffstattext")
+
+
+def _name_flush(info: dict) -> None:
+    raw = info.pop("raw", None)
+    if raw:
+        try:
+            info["text"] += bytes(raw).decode(info.get("cp", "cp1252"), "replace")
+        except LookupError:
+            info["text"] += bytes(raw).decode("latin-1")
+
+
+def _name_bytes(info: dict, data: bytes, cp: str) -> None:
+    """名前・選択肢の宛先の字のバイト。\\uN のあとの代わりの字（uskip の数）は読まない。"""
+    skip = info.get("uskip", 0)
+    if skip:
+        n = min(skip, len(data))
+        info["uskip"] = skip - n
+        data = data[n:]
+    if data:
+        if info.get("raw") and info.get("cp") != cp:
+            _name_flush(info)
+        info.setdefault("raw", bytearray()).extend(data)
+        info["cp"] = cp
 
 
 def paragraphs(doc: RtfDocument) -> list[Para]:
