@@ -7,6 +7,7 @@ hb-shape（HarfBuzz）があれば、同じ書体（morx などを除いて GSUB
 from __future__ import annotations
 
 import re
+from pathlib import Path
 import shutil
 import subprocess
 
@@ -35,7 +36,7 @@ def _write(tmp_path, blob: bytes, name: str = "in.pdf") -> str:
 
 
 def _field_ap(path: str, name: str = "family"):
-    doc = PdfDocument(open(path, "rb").read())
+    doc = PdfDocument(Path(path).read_bytes())
     f = next(x for x in read_fields(doc) if x.name == name)
     st = glyphs.widget_appearance(doc, doc.resolve(f.ref))
     return doc, st
@@ -218,7 +219,7 @@ def test_fill_shaped_text_with_proof_and_read_back(script, tmp_path):
         assert b"/ActualText <FEFF" + w.encode("utf-16-be").hex().upper().encode() in raw  # 行の元の字（論理の順）
         text, probs = glyphs.appearance_text(doc, st)
         assert probs == [] and text == w
-    new = open(out, "rb").read()
+    new = Path(out).read_bytes()
     assert b"/ToUnicode" in new and b"/FontFile2" in new
 
 

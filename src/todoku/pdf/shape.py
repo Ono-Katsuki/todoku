@@ -245,7 +245,7 @@ def _env_font(path_idx: str, info: ScriptInfo) -> ShapeFont | None:
     from .embedfont import TrueType, collection_faces
 
     try:
-        data = open(path, "rb").read()
+        data = Path(path).read_bytes()
         off = collection_faces(data)[int(idx or 0)]
         tt = TrueType(path, data, off)
     except (OSError, ValueError, IndexError):
