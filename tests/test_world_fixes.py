@@ -44,13 +44,29 @@ def _blank_pdf(size: int) -> bytes:
     return make_pdf(c, {"F1": font}, extra)
 
 
-def test_blanks_in_tiny_text_are_not_fields(tmp_path):
-    # 書き込みと同じ決め方で1字も入らない空欄（1pt の字の図の注記など）は、欄にしない
+def test_blanks_in_tiny_text_are_shown_but_not_writable(tmp_path):
+    # 書き込みと同じ決め方で1字も入らない空欄（1pt の字の図の注記など）も、消さずに「？」の所として示す。
+    # 書けない理由（小さい）を添えて読み取り専用にし、書こうとすれば「入りきりません」と断る。監査は通る
     big, tiny = tmp_path / "big.pdf", tmp_path / "tiny.pdf"
     big.write_bytes(_blank_pdf(10))
     tiny.write_bytes(_blank_pdf(1))
-    assert api.fields(str(big))
-    assert not api.fields(str(tiny))
+    assert any(not f.get("readonly") for f in api.fields(str(big)))
+    small = api.fields(str(tiny))
+    assert small and all(f.get("agent") and f.get("readonly") and "小さい" in f.get("why_not", "") for f in small), small
+    with pytest.raises(api.ApiError, match="入りきりません"):
+        api.fill(str(tiny), {small[0]["id"]: "1"}, str(tmp_path / "out.pdf"))
+    assert api.audit(str(tiny))["ok"]
+
+
+def test_word_and_pdf_agree_on_structural_blanks(tmp_path):
+    # かっこの組の中が空白だけの所（「（　　　）」）は、PDF と同じく作りで決まる空欄（規則の欄）。年月日の空欄は語からの推定（？）
+    src = tmp_path / "a.docx"
+    src.write_bytes(make_docx(p("電話（　　　　）") + p("令和　　年　　月　　日")))
+    fs = api.fields(str(src))
+    tel = [f for f in fs if f["label"].startswith("電話")]
+    date = [f for f in fs if "令和" in f["label"]]
+    assert tel and not any(f.get("agent") for f in tel), fs
+    assert date and all(f.get("agent") for f in date), fs
 
 
 def test_append_after_a_footnote_mark_uses_the_body_format(tmp_path):
