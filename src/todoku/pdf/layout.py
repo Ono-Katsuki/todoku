@@ -1374,10 +1374,12 @@ class PageLayout:
     def _circled(self) -> None:
         """ページに描かれた○（線の曲線）が、1 つの行の続いた字だけを囲んでいる所：self.circled に (行, 始め, 終わり, id) を。
         囲んでいるかは、○を書くとき・読み戻すときと同じ決め方（circle.encloses）。とどくが描いた○（印 TdkCircle）は、その形
-        （楕円・四角）と id で、ほかは曲線だけで閉じた図形（pc.ovals）を、その外枠に内接する楕円で比べる。どの選択肢を選んだか（字の意味）は決めない。"""
+        （楕円・四角）と id で、ほかは曲線だけで閉じた図形（pc.ovals）を、その外枠に内接する楕円で比べる。どの選択肢を選んだか（字の意味）は決めない。
+        曲線と長さのある直線で閉じた図形（角の丸い四角：pc.maybe_ovals）が囲む字は、self.maybe_circled（○かもしれない：「？」）。"""
         from .circle import drawn, encloses
 
         self.circled = []
+        self.maybe_circled = []
         shapes = []
         if not any(stroke for *_r, stroke, _f in self.pc.curves):
             return
@@ -1387,22 +1389,28 @@ class PageLayout:
             tdk = []
         for i, kind, g, _lw in tdk:
             shapes.append((kind, g, i))
-        # ○と比べるのは、曲線だけで閉じた図形（○・楕円）。直線を含む曲線の図形（角の丸い四角・表の枠の角の丸み）は、字を囲む○とは
-        # 形から言えないので比べない
-        for x0, y0, x1, y1, stroke, _fill in getattr(self.pc, "ovals", []):
-            if not stroke:
-                continue
-            r = self.view.rect(x0, y0, x1, y1)
-            if r[2] - r[0] <= 0.5 or r[3] - r[1] <= 0.5:
-                continue
-            if any(abs(r[0] - (g[0] - g[2] if k == "ellipse" else g[0])) < 0.5 and abs(r[1] - (g[1] - g[3] if k == "ellipse" else g[1])) < 0.5
-                   for k, g, _i in shapes if _i):
-                continue  # とどくが描いた○（上で、形と id で比べた）
-            shapes.append(("ellipse", ((r[0] + r[2]) / 2, (r[1] + r[3]) / 2, (r[2] - r[0]) / 2, (r[3] - r[1]) / 2), ""))
+        # ○と比べるのは、曲線だけで閉じた図形（○・楕円：pc.ovals）。長さのある直線を含む曲線の閉じた図形（角の丸い四角：
+        # pc.maybe_ovals）は、字を囲む○か枠か、形から言えないので、囲む字を self.maybe_circled（窓の「［○？］」）に分けて示す
+        maybe: set[int] = set()  # shapes の番号
+        for src, guess in ((getattr(self.pc, "ovals", []), False), (getattr(self.pc, "maybe_ovals", []), True)):
+            for x0, y0, x1, y1, stroke, _fill in src:
+                if not stroke:
+                    continue
+                r = self.view.rect(x0, y0, x1, y1)
+                if r[2] - r[0] <= 0.5 or r[3] - r[1] <= 0.5:
+                    continue
+                if any(abs(r[0] - (g[0] - g[2] if k == "ellipse" else g[0])) < 0.5 and abs(r[1] - (g[1] - g[3] if k == "ellipse" else g[1])) < 0.5
+                       for k, g, _i in shapes if _i):
+                    continue  # とどくが描いた○（上で、形と id で比べた）
+                if guess:
+                    maybe.add(len(shapes))
+                    shapes.append(("border", r, ""))  # 角の丸い四角：外枠の四角で比べる
+                else:
+                    shapes.append(("ellipse", ((r[0] + r[2]) / 2, (r[1] + r[3]) / 2, (r[2] - r[0]) / 2, (r[3] - r[1]) / 2), ""))
         if not shapes:
             return
         lines = [ln for ln in self.all_lines() if ln.text.strip()]
-        for kind, g, ident in shapes:
+        for n, (kind, g, ident) in enumerate(shapes):
             inner = {id(c) for c in self.chars if not c.text.isspace() and encloses(kind, g, c)}
             if not inner:
                 continue
@@ -1419,7 +1427,7 @@ class PageLayout:
                 continue  # 囲んだ字の間に、囲まれていない字がある
             idx = [k for k, q in enumerate(ln.pos) if not ln.text[k].isspace() and lo - 0.01 <= (q[0] + q[1]) / 2 <= hi + 0.01]
             if idx:
-                self.circled.append((ln, min(idx), max(idx) + 1, ident))
+                (self.maybe_circled if n in maybe else self.circled).append((ln, min(idx), max(idx) + 1, ident))
 
     def cell_fill(self, c: Cell):
         """マスを塗っている色（いちばん上に描かれたもの）。なければ None。"""

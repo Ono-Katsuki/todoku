@@ -40,11 +40,11 @@ class _Item:
 def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, circled: list | None = None) -> str:
     """行の文字に、入力欄の印（［p1.3］）を入れる。kept があれば、窓に出した元の字（印に置き換えて消えた字を除いたもの）を足す
     （読み落としの検査が、窓に実際に出た字で数えるため）。circled：ページに描かれた○が囲む字 (始め, 終わり, id)：その字の後ろに
-    「［○］」（とどくが描いた○は「［p1.c1：○］」）。"""
+    「［○］」（とどくが描いた○は「［p1.c1：○］」）。4 つ目が真のもの（角の丸い四角など、○かもしれない囲み）は「［○？］」。"""
     text = ln.text
     edits = []
-    for a, b, ident in circled or []:
-        edits.append((b, b, f"［{ident}：○］" if ident else "［○］"))
+    for a, b, ident, *maybe in circled or []:
+        edits.append((b, b, "［○？］" if maybe and maybe[0] else f"［{ident}：○］" if ident else "［○］"))
     for sp in sorted(spots, key=lambda x: x.at or (0, 0)):
         a, b = sp.at
         mark = _filled_mark(sp, name)
@@ -262,6 +262,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     circ: dict[int, list] = {}  # 行 → ページに描かれた○が囲む字 (始め, 終わり, id)
     for ln_, a_, b_, ident in getattr(lay, "circled", []):
         circ.setdefault(id(ln_), []).append((a_, b_, ident))
+    for ln_, a_, b_, ident in getattr(lay, "maybe_circled", []):
+        circ.setdefault(id(ln_), []).append((a_, b_, ident, True))
     reading = []
     plain: list[str] = []
     for row in rows:
@@ -456,8 +458,13 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     marks, inword = unmapped_places(lay)
     circled = [{"text": ln_.text[a_:b_], "id": ident or None, "context": re.sub(r"[ 　]+", " ", ln_.text).strip()[:60],
                 "rect": [round(v, 1) for v in ln_.span_rect(a_, b_)]} for ln_, a_, b_, ident in getattr(lay, "circled", [])]
+    # 角の丸い四角など（曲線と長さのある直線で閉じた図形）が囲む字：○で選んだ印か、ただの枠か、規則では決められない
+    maybe_circled = [{"text": ln_.text[a_:b_], "context": re.sub(r"[ 　]+", " ", ln_.text).strip()[:60],
+                      "rect": [round(v, 1) for v in ln_.span_rect(a_, b_)], "agent": True,
+                      "why": "曲線と直線で閉じた図形（角の丸い四角など）が囲む字：○で選んだ印か、ただの枠か、規則では決められない"}
+                     for ln_, a_, b_, _ident in getattr(lay, "maybe_circled", [])]
     return {"number": number, "width": round(view.width, 1), "height": round(view.height, 1), "rotate": view.rot,
-            "fields": out_fields, "reading": reading, "circled": circled, "chars": chars, "unmapped": pc.unmapped, "images": images,
+            "fields": out_fields, "reading": reading, "circled": circled, "maybe_circled": maybe_circled, "chars": chars, "unmapped": pc.unmapped, "images": images,
             # 字に直せない字の、行の中での役割（字の並びの形で決める）：行の頭の印（箇条の印）と、それ以外（本文の字）
             "unmapped_marks": marks, "unmapped_text": inword,
             "image_only": chars == 0 and images > 0, "pictures": pictures, "problems": pc.problems, "annotations": annots,
@@ -796,6 +803,8 @@ def build(doc: PdfDocument) -> dict:
                                       "\"page\": ページ}}（下なら \"where\": \"below\"。上・左は {\"page\": …, \"box\": [左, 上, 右, 下]（mm）, "
                                       "\"value\": …}）で書く",
                      "［○］": "直前の字を、ページに描かれた○（線の曲線）が囲んでいる（とどくが描いた○は［p1.c1：○］）",
+                     "［○？］": "直前の字を、曲線と直線で閉じた図形（角の丸い四角など）が囲んでいる：○で選んだ印か、ただの枠か、"
+                               "規則では決められない（view_page で見て確かめる）",
                      "［名前＝値］": "フォームの欄といまの値", "☐［p1.5］ / ☑": "チェックの印",
                      "○［欄＝選択肢］ / ◉": "ひとつ選ぶ欄の選択肢", " ｜ ": "表のマスの区切り"},
         "form": {"acroform_fields": len(fields), "xfa": has_xfa(doc), "encrypted": doc.decryptor is not None},

@@ -119,7 +119,16 @@ def test_only_closed_curves_are_circles_and_shadowed_squares_are_left_to_the_age
               "326 681 325 680 324 680 c 308 680 l 307 680 306 681 306 682 c S"
     g = [("有", 310, 685), ("・", 322, 685), ("無", 334, 685)]
     assert [c["text"] for c in window(glyphs_pdf(g, extra=oval))["pages"][0]["circled"]] == ["有"]
-    assert window(glyphs_pdf(g, extra=rounded))["pages"][0]["circled"] == []
+    # 角の丸い四角は○と決めないが、落とさずに「○かもしれない」所（［○？］）として示す
+    pg = window(glyphs_pdf(g, extra=rounded))["pages"][0]
+    assert pg["circled"] == [] and [c["text"] for c in pg["maybe_circled"]] == ["有"], pg["maybe_circled"]
+    assert pg["maybe_circled"][0]["agent"] and "有［○？］" in "\n".join(pg["reading"]), pg["reading"]
+    # 長さ 0 の直線（「x0 y0 l」）で閉じた○（作る道具がよく足す）・対角線の 1% に足りない直線を含む○は、○のまま
+    zero = oval.replace(" S", " 306 690 l S")
+    tiny = oval.replace("306 690 m", "306 690 m 306 690.1 l 306 690 l")
+    for path in (zero, tiny):
+        pg = window(glyphs_pdf(g, extra=path))["pages"][0]
+        assert [c["text"] for c in pg["circled"]] == ["有"] and not pg["maybe_circled"], (path, pg["circled"])
     # 影のついた四角（❏）はチェックの箱にも箇条の印にも使う：チェックの印の所だが「？」。□ は規則のチェックの印
     pg = window(glyphs_pdf([("❏", 40, 700), ("A", 52, 700), ("□", 40, 680), ("B", 52, 680)]))["pages"][0]
     boxes = {f["label"]: f for f in pg["fields"] if f["kind"] == "checkbox"}
