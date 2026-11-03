@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from ..cfb import CFB
 from ..docx.document import WINGDINGS, iter_paras
-from ..docx.window import Spots, build, markdown_parts
+from ..docx.window import Spots, box_mark, build, markdown_parts
 from ..xlsx.audit import Audit, Check
 from .book import DocFile
 from .fill import SHIFT, FillError, fill
@@ -259,7 +259,7 @@ def _expected(p, items) -> str | None:
             a, b = it["span"]
             on = value is True
             orig = text[a:b]
-            edits.append((a, b, ("☑" if orig == "☐" else "■") if on else orig))
+            edits.append((a, b, box_mark(orig, on)))
         else:
             a, b = it["span"]
             edits.append((a, b, str(value)))

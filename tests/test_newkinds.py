@@ -22,8 +22,9 @@ def test_txt_kind_by_name_and_window_keeps_every_line(tmp_path):
     k, doc, parts = api.window(str(p))
     md = parts[0][1]
     assert k == "txt" and doc["format"]["encoding"] == "cp932" and doc["format"]["newline"] == "CRLF"
-    assert "3｜　令和［P3.1］年［P3.2］月［P3.3］日" in md  # 行の頭の全角の空白もそのまま
-    assert "2｜" in md.split("\n") and "6｜\t氏名［P6.1］" in md  # 空の行・行の頭のタブ
+    # 「令和　年　月　日」・「氏名　　　」の空きは、字の並びからの推定なので「？」（規則では決めず、エージェントが判断する）
+    assert "3｜　令和［P3.1？］年［P3.2？］月［P3.3？］日" in md  # 行の頭の全角の空白もそのまま
+    assert "2｜" in md.split("\n") and "6｜\t氏名［P6.1？］" in md  # 空の行・行の頭のタブ
     ids = {f["id"]: f for f in api.fields(str(p))}
     assert {"P3.1", "P3.2", "P3.3", "P6.1", "P7.1"} <= set(ids)
     assert ids["P7.1"]["kind"] == "checkbox" and ids["P8.a1"].get("agent")  # 「：」の後ろは「？」の所
@@ -41,8 +42,22 @@ def test_txt_fill_changes_only_written_bytes(tmp_path, enc):
     want = FORM.replace("令和　　年　　月", "令和8年4月").replace("氏名　　　　　　　", "氏名山田　太郎").replace("□", "■") \
         .replace("以上", "以上です")
     assert out.read_bytes() == want.encode(enc)  # 改行（CRLF）・BOM・文字コードはそのまま
-    assert "P3.3" in {d["id"] for d in r["still_empty"]}  # 元のファイルの id で、まだ空いている欄
+    # P3.3（「日」の前の空き）は規則では決めない所（？）なので、まだ空いている欄の一覧ではなく、窓の「？」の所に残る（元の id のまま）
+    assert "P3.3" not in {d["id"] for d in r["still_empty"]}
+    assert {f["id"]: f for f in api.fields(str(out))}["P3.1"].get("agent")
     assert "令和［8］年" in r["say_to_user"]
+
+
+def test_txt_checked_marks_can_be_unchecked(tmp_path):
+    # ☑・■ はチェック済みの候補（？）。外すと印のない箱（☐・□）にし、証明と読み戻しが通る
+    p = tmp_path / "c.txt"
+    p.write_bytes("☑ 同意する\n■ 見出し\n".encode())
+    ids = {f["id"]: f for f in api.fields(str(p))}
+    assert ids["P1.1"]["value"] is True and ids["P1.1"].get("agent") and ids["P2.1"].get("agent")
+    out = tmp_path / "d.txt"
+    r = api.fill(str(p), {"P1.1": False, "P2.1": True}, str(out))
+    assert r["proof_ok"] and r["read_back_ok"], r
+    assert out.read_text() == "☐ 同意する\n■ 見出し\n"
 
 
 def test_txt_proof_catches_extra_change(tmp_path):
@@ -121,7 +136,7 @@ def test_txt_inside_zip(tmp_path):
     src = tmp_path / "a.zip"
     src.write_bytes(buf.getvalue())
     k, _doc, parts = api.window(f"{src}!/readme.txt")
-    assert k == "txt" and "令和［P3.1］年" in parts[0][1]
+    assert k == "txt" and "令和［P3.1？］年" in parts[0][1]
     out = tmp_path / "b.zip"
     r = api.fill(f"{src}!/readme.txt", {"P3.1": "8"}, str(out))
     assert r["proof_ok"] and r["read_back_ok"]
@@ -188,7 +203,8 @@ def test_pptx_window_reads_slides_tables_groups_notes_and_template(tmp_path):
     k, doc, parts = api.window(str(p))
     md = parts[0][1]
     assert k == "pptx" and api.summary(str(p))["slides"] == 2
-    for s in ("## スライド 1", "令和［P2.1］年［P2.2］月［P2.3］日", "氏名 ｜ ［T1.R1.C2］", "ノートの字です",
+    # 「令和　年　月　日」の空きは字の並びからの推定（？）。マスの見出し「氏名」の後ろも、右のマスの代わりの所として示す
+    for s in ("## スライド 1", "令和［P2.1？］年［P2.2？］月［P2.3？］日", "氏名［P4.a1？］ ｜ ［T1.R1.C2］", "ノートの字です",
               "スライド 2（非表示のスライド）", "グループの中の字 & <記号>", "株式会社テスト", "〔図: 会社のロゴ〕", "〔図2（説明なし）〕"):
         assert s in md, s
     assert "マスターのタイトルの書式" not in md and "タイトルを入力" not in md  # 型のプレースホルダーの見本の字は出さない
@@ -213,8 +229,10 @@ def test_pptx_fill_proof_and_read_back(tmp_path):
     x = z1.read("ppt/slides/slide1.xml").decode()
     assert '<a:r><a:rPr lang="ja-JP" sz="1400"/><a:t>山田 &amp; &lt;太郎&gt;</a:t></a:r><a:endParaRPr lang="ja-JP" sz="1400"/>' in x
     md = api.window(str(out))[2][0][1]
-    assert "令和8年［P2.1］月［P2.2］日" in md and "■ 同意する" in md and "グループの中の字（改）" in md
-    assert "P2.2" in {d["id"] for d in r["still_empty"]}
+    # 書いた後の ■ は、チェック済みの印らしい字として「？」で示す（値は True）。残りの「月」「日」の空きも「？」の所
+    assert "令和8年［P2.1？］月［P2.2？］日" in md and "■［P3.1？］ 同意する" in md and "グループの中の字（改）" in md
+    after = {f["id"]: f for f in api.fields(str(out))}
+    assert after["P3.1"]["value"] is True and after["P2.2"].get("agent")
 
 
 def test_pptx_proof_catches_change_outside_written_paragraph():

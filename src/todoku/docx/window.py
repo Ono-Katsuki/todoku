@@ -3,7 +3,10 @@
 入力欄：
 - 旧来のフォームの欄（FORMTEXT・FORMCHECKBOX・FORMDROPDOWN）とコンテンツコントロール（名前は欄の名前・タグ）
 - 表の空のマス（左か上のマスの文字を見出しにする）：T{表}.R{行}.C{列}
-- 段落の中の空欄（「令和　　年　　月　　日」、下線を引いた空白、「＿＿＿」）と □：P{段落}.{番号}
+- 段落の中の空欄（下線を引いた空白、「＿＿＿」）と □：P{段落}.{番号}
+- 字の並びから推定した空欄（「令和　　年　　月　　日」・住所の単位の前後・段落の終わりの空白など）と、チェック済みの印らしい字
+  （☑・■・✓）は、同じ P{段落}.{番号} の並びで、規則では決めない所（「？」）として示す（エージェントが判断する）
+- 規則の型に合わない、書き込む所かもしれない所：P{段落}.a{番号}（「？」）。すぐ隣の欄の代わりの所は alternative_to で示す
 書き込んだ欄は、見えないしおり（_todoku_…）で囲み、書いた後も同じ名前で読めるようにする。
 埋め込んだ Excel の表は、Excel の窓と同じ読み方で節に出し、書くときの欄の名前（E1!Sheet1!C4）と、
 Word が表示・印刷に使う表の絵を描き直せるか（描き直せなければ、その理由）を添える。
@@ -21,63 +24,146 @@ from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 DET = "deterministic"
 LAYOUT = "layout"
 AGENT = "agent"  # 規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する）
-BOX = set("□☐")
+BOX = set("□☐")  # 空のチェックの印（規則のチェックボックス）
+# 印のついたチェックの印らしい字：チェック済みの欄かもしれないが、■ は箇条の印・飾りのこともあり、✓ は本文の印のこともある。
+# 規則では決めず、チェック済み（checked）のチェックボックスの候補として「？」をつけて示す（エージェントが判断する）
+CHECKED = set("☑☒■✓✔")
+UNCHECK = {"☑": "☐", "☒": "☐", "■": "□", "✓": "□", "✔": "□"}  # チェックを外すときに書く字（印のない同じ形の箱）
 MARK_PREFIX = "_todoku_"
 
 KIND_JA = {"text": "文字", "inline": "文字の中の空欄", "checkbox": "チェック", "dropdown": "一覧から選ぶ", "combo": "一覧から選ぶ（自由入力も可）",
            "date": "日付", "richtext": "文字（書式つき）", "picture": "画像", "cell": "文字"}
 
+# Word の窓で足した、規則では決められない所の理由（xlsx/window.py の AGENT_WHY に足す。鍵は why_key）
+WORD_WHY = {
+    **AGENT_WHY,
+    "keyword_blank": "空白の前後の字（年・月・日・号・円・「第」・かっこ・「〒」・住所の単位など）から、空欄と推定した所"
+                     "（字の並びからの推定で、書類の作りからは決まりません）",
+    "address_end": "住所の単位（市・区・町・村・郡・都・道・府・県）で終わるマスの、字の後ろ（町名・番地を書き足す所かもしれません）",
+    "trailing_blank": "見出しの後ろに、全角の空白が続いて段落が終わる所（「住所　　　　　」。字の並びからの推定）",
+    "trailing_space": "段落の終わりの2つ以上の空白（見出しが長い・「。」「様」「殿」「御中」で終わる・全角の空白が4つ未満など、"
+                      "「住所　　　　」の型には合わない所）",
+    "short_underline": "下線を引いた短い空白（1〜2字。下線の空欄は3字以上のことが多い）",
+    "checked_mark": "印のついたチェックの印らしい字（☑・☒・■・✓。いまはチェック済みとして読む。■ は箇条の印・飾りのこともある）",
+    "underscore_in_word": "英数字にはさまれた下線の字（「＿＿」。URL・ファイルの名前の一部のこともある）",
+    "next_line_long": "見出しのあるマスの中の、空の段落（マスのほかの字が長く、見出しではなく説明の文のこともある）",
+}
 
-def _underlined_blanks(p: Para) -> list[tuple[int, int]]:
-    """下線を引いた空白の並び（「氏名＿＿＿」を下線つきの空白で作ったもの）。"""
-    out = []
-    pos = 0
-    start = None
+
+def box_mark(orig: str, on: bool) -> str:
+    """チェックボックスの字 orig に、チェックを入れる（on）・外すときに書く字（変えないときは orig のまま）。
+    □ は ■、☐ は ☑ にする。チェック済みの印（☑・■・✓ など）は、外すときに印のない箱（☐・□）にする。"""
+    if orig in CHECKED:
+        return orig if on else UNCHECK[orig]
+    return ("☑" if orig == "☐" else "■") if on else orig
+
+
+def _underlined_blanks(p: Para) -> list[tuple[int, int, bool]]:
+    """下線を引いた空白の並び（「氏名＿＿＿」を下線つきの空白で作ったもの）：(始め, 終わり, 3字以上か)。
+    3字以上は書類の作り（下線の空欄）として規則の欄。1〜2字は、下線つきの見出しの字間のこともあるので、規則では決めない（エージェント）。
+    下線つきの字にはさまれた空白（下線を引いた字の中の、語の間の空白）は、空欄の形ではないので出さない。"""
+    chars: list[tuple[str, bool]] = []  # (字, 下線つきか)
+    blanks: list[bool] = []
     for s in p.segs:
         if s.hidden:
             continue
         for ch in s.text:
-            is_blank = s.underline and ch in " \u3000\u2002\u2003" and s.kind == "t"
-            if is_blank and start is None:
-                start = pos
-            elif not is_blank and start is not None:
-                if pos - start >= 3:
-                    out.append((start, pos))
-                start = None
-            pos += 1
-    if start is not None and pos - start >= 3:
-        out.append((start, pos))
+            blanks.append(bool(s.underline and ch in " \u3000\u2002\u2003" and s.kind == "t"))
+            chars.append((ch, bool(s.underline)))
+    out = []
+    start = None
+    for pos, is_blank in enumerate(blanks + [False]):
+        if is_blank and start is None:
+            start = pos
+        elif not is_blank and start is not None:
+            if pos - start >= 3:
+                out.append((start, pos, True))
+            else:
+                inside = start > 0 and pos < len(chars) and chars[start - 1][1] and chars[pos][1] \
+                    and not chars[start - 1][0].isspace() and not chars[pos][0].isspace()
+                if not inside:
+                    out.append((start, pos, False))
+            start = None
     return out
 
 
-def _trailing_blank(text: str) -> list[tuple[int, int]]:
-    """短い見出しの後ろに、全角の空白が続いて段落が終わるもの（「住所　　　　　　　」）。"""
-    m = re.search(r"[\u3000]{4,}$", text)
+def _trailing_blank(text: str) -> list[tuple[int, int, str]]:
+    """段落の終わりの空白：(始め, 終わり, 理由の鍵)。どちらも字の並びからの推定なので、エージェントの判断（「？」）。
+    - 短い見出しの後ろに、全角の空白が4つ以上続いて段落が終わるもの（「住所　　　　　　　」）：trailing_blank
+    - それ以外の、2つ以上の空白で段落が終わるもの（見出しが長い・「様」「殿」で終わる・空白が少ない）：trailing_space"""
+    m = re.search(r"[ \u3000]{2,}$", text)
     if not m:
         return []
     head = text[:m.start()].strip(" \u3000")
-    if not head or len(head) > 20 or head.endswith(("。", "様", "殿", "御中")):
+    if not head:
         return []
     start = len(text[:m.start()].rstrip(" \u3000"))  # 「氏　名　  　　　」：見出しの後ろの空白はすべて空欄
-    return [(start, m.end())]
+    full = re.search(r"[\u3000]{4,}$", text)
+    typical = bool(full) and len(head) <= 20 and not head.endswith(("。", "様", "殿", "御中"))
+    return [(start, m.end(), "trailing_blank" if typical else "trailing_space")]
 
 
-def para_blanks(p: Para) -> list[tuple[int, int]]:
+def _blank_why(text: str, a: int, b: int) -> str | None:
+    """pdf_blanks（Excel と同じ規則に、PDF の型を足したもの）が見つけた空欄 [a, b) の理由の鍵。None は書類の作りで決まるもの：
+    下線の字（＿＿＿・___）の並び。ただし英数字・「/」「.」「-」にはさまれた下線の字（URL・ファイルの名前の「__icsFiles」）は、
+    名前の一部のこともあるので規則では決めない（underscore_in_word）。
+    ほかは、空白の前後の字（単位・「第」・かっこ・住所の単位など）から推定したもの（字の並びの推定）で、規則では決めない（keyword_blank）。
+    ※ フック：pdf/layout.py の pdf_blanks が、字の並びから推定した空欄と、作りで決まる空欄とを見分ける印を返すようになったら、
+      ここでその印を使う（いまは、空欄の字が下線の字だけかで見分ける）。"""
+    if b > a and all(ch in "_＿" for ch in text[a:b]):
+        def ident(ch: str) -> bool:
+            return ch.isascii() and (ch.isalnum() or ch in ".-/")
+
+        x, y = a, b  # 続いた下線の字の並び全体（「__」を1字ずつの空欄に分けて見つけることもある）
+        while x > 0 and text[x - 1] in "_＿":
+            x -= 1
+        while y < len(text) and text[y] in "_＿":
+            y += 1
+        if 0 < x and y < len(text) and ident(text[x - 1]) and ident(text[y]):
+            return "underscore_in_word"
+        return None
+    return "keyword_blank"
+
+
+def para_spans(p: Para) -> list[tuple[int, int, str | None]]:
+    """段落の中の空欄：(始め, 終わり, 理由の鍵)。理由の鍵が None のものは、書類の作りで決まる空欄（規則の欄）：
+    下線を引いた空白の並び（3字以上）と「＿＿＿」。ほかは字の並びからの推定で、理由の鍵（WORD_WHY）をつけてエージェントに示す。
+    重なる空欄は1つにまとめる（どれかが作りで決まるものなら、まとめた所も規則の欄）。"""
     from ..pdf.layout import ADDRESS_UNITS, pdf_blanks
 
     text = p.text
-    spans = set(pdf_blanks(text)) | set(_underlined_blanks(p)) | set(_trailing_blank(text))
-    # 住所のマス：「　　郡　市」のように住所の単位で終わる段落は、その後ろに町名・番地を書き足す
+    spans: dict[tuple[int, int], str | None] = {}
+
+    def put(a: int, b: int, why: str | None) -> None:
+        if (a, b) in spans and why is not None:
+            return  # 同じ所：先に見つけた理由（作りで決まるもの・下線のような作りの手がかり）を残す
+        spans[(a, b)] = why
+
+    for a, b in pdf_blanks(text):
+        put(a, b, _blank_why(text, a, b))
+    for a, b, long_ in _underlined_blanks(p):
+        put(a, b, None if long_ else "short_underline")
+    for a, b, why in _trailing_blank(text):
+        put(a, b, why)
+    # 住所のマス：「　　郡　市」のように住所の単位で終わる段落は、その後ろに町名・番地を書き足すことがある
     core = text.rstrip(" \u3000")
-    if p.cell is not None and core and core[-1] in ADDRESS_UNITS and len(core) <= 30 and core == text:
-        spans.add((len(text), len(text)))
-    kept: list[tuple[int, int]] = []
-    for a, b in sorted(spans):
+    if p.cell is not None and core and core[-1] in ADDRESS_UNITS and core == text:
+        put(len(text), len(text), "address_end")
+    kept: list[list] = []
+    for (a, b), why in sorted(spans.items()):
         if kept and a < kept[-1][1]:
-            kept[-1] = (kept[-1][0], max(b, kept[-1][1]))
+            if b > kept[-1][1]:
+                kept[-1][1] = b
+            if why is None:
+                kept[-1][2] = None
             continue
-        kept.append((a, b))
-    return kept
+        kept.append([a, b, why])
+    return [(a, b, why) for a, b, why in kept]
+
+
+def para_blanks(p: Para) -> list[tuple[int, int]]:
+    """段落の中の空欄の位置（規則の欄も、字の並びから推定した所も）。"""
+    return [(a, b) for a, b, _w in para_spans(p)]
 
 
 class Spots:
@@ -143,15 +229,21 @@ class Spots:
                 pi = self.para_index[id(p)]
                 text = p.text
                 k = 0
-                spans = []
+                spans = []  # (始め, 終わり, 種類, 理由の鍵（None は規則の欄）)
                 for i, ch in enumerate(text):
                     if ch in BOX and not _in_field(p, i):
-                        spans.append((i, i + 1, "checkbox"))
-                for a, b in para_blanks(p):
-                    if not any(_in_field(p, i) for i in range(a, b)):
-                        spans.append((a, b, "inline"))
+                        spans.append((i, i + 1, "checkbox", None))
+                    elif ch in CHECKED and not _in_field(p, i):
+                        spans.append((i, i + 1, "checkbox", "checked_mark"))  # チェック済みの欄かもしれない（■ は箇条の印のことも）
+                for a, b, why in para_spans(p):
+                    if any(_in_field(p, i) for i in range(a, b)):
+                        continue
+                    if why in ("trailing_space", "short_underline") and _touches_field(p, a, b):
+                        continue  # フォームの欄にすぐ接する空白は、欄の字の飾り（欄はその id で書く）
+                    spans.append((a, b, "inline", why))
                 # 書き込み済みの欄（しおり）は、その番号を持ったまま（4 で作る）。残りの空欄に、しおりの番号を除いた番号を
-                # 位置の順に割り当てる（元の白紙のときと同じ id になる：P16.1 に書いた後も、P16.2・P16.3 はそのまま）
+                # 位置の順に割り当てる（元の白紙のときと同じ id になる：P16.1 に書いた後も、P16.2・P16.3 はそのまま）。
+                # 字の並びから推定した所（理由の鍵のある所）も、同じ番号の並びで P段落.番号 とし、窓に「？」をつけて示す
                 mark_k: dict[int, tuple[int, int]] = {}
                 mark_ka: dict[int, tuple[int, int]] = {}
                 for name, (q, x, y) in self.marks.items():
@@ -161,17 +253,21 @@ class Spots:
                 written = [(x, y) for q, x, y in self.marks.values() if q is p]
                 spans = [t for t in spans if not _overlaps(t[0], t[1], written)]
                 free_k = (n for n in itertools.count(1) if n not in mark_k)
-                for a, b, kind in sorted(spans):
+                for a, b, kind, why in sorted(spans, key=lambda t: t[:3]):
                     k = next(free_k)
                     fid = f"P{pi}.{k}"
                     if kind == "checkbox":
-                        m = re.search(r"[\u3000 ]{2,}|□|☐|※", text[b:])
+                        m = re.search(r"[\u3000 ]{2,}|[□☐☑☒■✓✔]|※", text[b:])
                         opt = text[b:b + m.start()] if m else text[b:]
                         label = norm_label(opt.strip(" \u3000")) or norm_label(text[:a].strip(" \u3000"))[-30:]
                     else:
                         label = self._label(p, a, b)
-                    self.items[fid] = {"id": fid, "kind": kind, "source": "layout", "para": p, "span": (a, b),
-                                       "label": label, "provenance": LAYOUT}
+                    it = {"id": fid, "kind": kind, "source": "layout", "para": p, "span": (a, b), "label": label, "provenance": LAYOUT}
+                    if why is not None:
+                        it.update(provenance=AGENT, why=WORD_WHY[why], why_key=why)
+                        if why == "checked_mark":
+                            it["checked"] = True
+                    self.items[fid] = it
                 # 規則では決められない所：窓に「？」をつけて示し、エージェントが読んで判断する（id は P段落.a番号）
                 if any(s_.field is not None for s_ in p.segs):
                     continue
@@ -179,65 +275,71 @@ class Spots:
                         s_.text for s_ in p.segs if not s_.hidden and s_.kind in ("t", "sym", "tab")).strip(" \u3000\t"):
                     continue  # 図・埋め込みの印だけの段落（窓のために作った字だけ）
                 free_ka = (n for n in itertools.count(1) if n not in mark_ka)
-                found_agent = agent_blanks(text, [(x, y) for x, y, _k in spans] + written, p.cell is not None)
-                # 見出しのあるマスの中の空の段落（「〒」の下の行に住所を書くなど）
+                found_agent = agent_blanks(text, [(x, y) for x, y, _k, _w in spans] + written, p.cell is not None)
+                # 見出しのあるマスの中の空の段落（「〒」の下の行に住所を書くなど）。マスのほかの字が長いもの（説明の文のこともある）も、
+                # 理由を分けて示す（字数では決めない）
                 c = p.cell
                 if c is not None and not text.strip(" \u3000") and not spans and not written:
                     others = [q.text.strip(" \u3000") for q in c.paras() if q is not p and q.text.strip(" \u3000")]
                     before = [q for q in c.paras()[:c.paras().index(p)] if q.text.strip(" \u3000")] if p in c.paras() else []
-                    if others and before and all(len(o) <= 16 for o in others):
-                        found_agent = [(0, len(text), "next_line")]
+                    if others and before:
+                        found_agent = [(0, len(text), "next_line" if all(len(o) <= 16 for o in others) else "next_line_long")]
                 for a, b, why in found_agent:
-                    if any(_in_field(p, i) for i in range(a, max(a + 1, b))) or self._beside_cell_field(p, why):
+                    if any(_in_field(p, i) for i in range(a, max(a + 1, b))):
                         continue
                     fid = f"P{pi}.a{next(free_ka)}"
                     it = {"id": fid, "kind": "inline", "source": "layout", "para": p, "span": (a, b),
-                          "label": self._label(p, a, b), "provenance": AGENT, "why": AGENT_WHY[why], "why_key": why}
+                          "label": self._label(p, a, b), "provenance": AGENT, "why": WORD_WHY[why], "why_key": why}
                     if why == "placeholder":
                         it["placeholder"] = text[a:b]
+                    alt = self._beside_cell_field(p, why)
+                    if alt:
+                        it["alternative_to"] = alt
                     self.items[fid] = it
-        # 3') マスの中の見出し（「住所」「住所：」「所在地　〒」）の後ろ：すぐ右のマスに規則の欄があれば、値はそちらに書く
-        ruled_cells = set()
-        for it in self.items.values():
-            if it.get("provenance") == AGENT:
-                continue
+        # 3') マスの中の見出し（「住所」「住所：」「所在地　〒」）の後ろ：すぐ右のマスに欄があれば、値はそちらに書くことが多い。
+        # 消さずに残し、どちらに書くかはエージェントが窓を読んで決める（alternative_to：代わりの欄。規則の欄を先に）
+        in_cell: dict[int, list[str]] = {}
+        for fid_, it in self.items.items():
             c_ = it.get("cell") or (it["para"].cell if it.get("para") is not None else None)
             if c_ is not None:
-                ruled_cells.add(id(c_))
+                in_cell.setdefault(id(c_), []).append(fid_)
         for fid in [f for f, it in self.items.items() if it.get("why_key") in ("after_label", "after_colon", "after_mark")]:
-            c_ = self.items[fid]["para"].cell
-            if c_ is None or c_.table is None:
+            it = self.items[fid]
+            c_ = it["para"].cell
+            if it.get("alternative_to") or c_ is None or c_.table is None:
                 continue
             right = [x for x in c_.table.rows[c_.row] if x.col == c_.col + c_.span]
-            if right and id(right[0]) in ruled_cells:
-                del self.items[fid]
+            there = in_cell.get(id(right[0]), []) if right else []
+            ruled = [x for x in there if self.items[x].get("provenance") != AGENT]
+            if ruled or there:
+                it["alternative_to"] = (ruled or there)[0]
         # 4) 書き込み済みの欄（しおり）：同じ名前の欄が見つからなければ、しおりから作る
         for name, (p, a, b) in self.marks.items():
             if name in self.items:
                 continue
-            kind = "checkbox" if p.text[a:b] in ("■", "☑", "☒", "□", "☐") else ("cell" if name.startswith("T") else "inline")
+            kind = "checkbox" if p.text[a:b] in tuple(BOX | CHECKED) else ("cell" if name.startswith("T") else "inline")
             label = self._label(p, a, b) if kind == "inline" else ""
             if kind == "cell" and p.cell is not None and p.cell.table is not None:
                 label = _cell_label(p.cell.table, p.cell)[0]  # 書き込み済みのマスも、表の行・列の見出しで示す
             self.items[name] = {"id": name, "kind": kind, "source": "layout", "para": p, "span": (a, b), "filled": True,
                                 "label": label, "provenance": LAYOUT}
 
-    def _beside_cell_field(self, p: Para, why: str) -> bool:
-        """マスの中の「住所：」のすぐ右のマスが空のマスの欄（そこに書く）か、「人」だけのマスの下に空のマスの欄がある
-        （列の見出し）。どちらも、規則で見つけた欄がもうあるので、出さない。"""
+    def _beside_cell_field(self, p: Para, why: str) -> str | None:
+        """マスの中の「住所：」のすぐ右のマスが空のマスの欄（そこに書くことが多い）か、「人」だけのマスの下に空のマスの欄がある
+        （列の見出し）：その規則の欄の id。どちらも、候補は消さずに alternative_to（代わりの欄）として示す。"""
         c = p.cell
         if c is None or why not in ("after_colon", "before_unit", "after_label", "after_mark"):
-            return False
+            return None
         for it in self.items.values():
             x = it.get("cell")
             if x is None or it.get("kind") != "cell" or x.table is not c.table:
                 continue
             if why in ("after_colon", "after_label", "after_mark") and x.row == c.row and x.col == c.col + c.span \
                     and self.items.get(it["id"], {}).get("provenance") != AGENT:
-                return True
+                return it["id"]
             if why == "before_unit" and x.row > c.row and x.col <= c.col < x.col + x.span:
-                return True
-        return False
+                return it["id"]
+        return None
 
     def _label(self, p: Para, a: int, b: int) -> str:
         """段落の中の空欄の見出し：その空欄を［　］にした段落の文字。書き込み済みのほかの欄の値は除く（白紙のときと同じ見出し）。"""
@@ -259,7 +361,7 @@ class Spots:
             p, a, b = self.marks[name]
             t = p.text[a:b]
             if item["kind"] == "checkbox":
-                return t in ("■", "☑", "☒")
+                return t in CHECKED
             return t
         c: Control | None = item.get("control")
         if c is not None:
@@ -276,7 +378,7 @@ class Spots:
                 return c.value
             return t.strip("\u2002 ") if c.source == "formfield" else t
         if item["kind"] == "checkbox":
-            return False
+            return bool(item.get("checked"))  # チェック済みの印らしい字（☑・■ など）の候補は、チェック済みとして読む
         return None
 
 
@@ -426,6 +528,18 @@ def _in_field(p: Para, i: int) -> bool:
     return False
 
 
+def _touches_field(p: Para, a: int, b: int) -> bool:
+    """[a, b) が、フォームの欄の字（長さ 0 の欄も）に接するか重なるか。"""
+    k = 0
+    for s in p.segs:
+        if s.hidden:
+            continue
+        if s.field is not None and k <= b and a <= k + len(s.text):
+            return True
+        k += len(s.text)
+    return False
+
+
 def _has_control(c: Cell) -> bool:
     return any(s.field is not None for p in c.paras() for s in p.segs)
 
@@ -514,6 +628,8 @@ def build(doc: DocxDocument) -> dict:
         "notation": {"［T1.R3.C2］": "表の空のマス（1つ目の表の3行目・2列目）", "［P12.1］": "段落の中の空欄（12番目の段落の1つ目）",
                      "［P12.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
                                     "書かなければ何も変わらない。［P12.a1？＝○○］は、伏せ字の○○を書き換える所）",
+                     "［P12.1？］": "段落の中の、字の並び（年・月・日などの字）から推定した空欄。規則では決めないので、エージェントが判断する",
+                     "■［P12.1？］": "チェック済みの印らしい字（☑・■・✓ など。■ は箇条の印のこともある）。チェックの欄なら True / False で書く",
                      "［名前＝値］": "入力欄といまの値", "☐［…］ / ☑": "チェック", " ｜ ": "表のマスの区切り"},
         "protection": {"edit": doc.protection, "enforced": doc.protection_enforced},
         "macros": _macros(doc),
@@ -562,6 +678,8 @@ def build(doc: DocxDocument) -> dict:
             d["why"] = it["why"]
             if it.get("placeholder"):
                 d["placeholder"] = it["placeholder"]
+            if it.get("alternative_to"):
+                d["alternative_to"] = it["alternative_to"]  # 同じ値を書く、代わりの欄（どちらか一方に書く）
         if it.get("row_label"):
             d["row_label"] = it["row_label"]
         if it.get("column_label"):
@@ -725,13 +843,15 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
             _p, a, b = sp.marks[name]
             v = text[a:b]
             if it["kind"] == "checkbox":
-                edits.append((a, b, ("☑" if v in ("■", "☑", "☒") else "☐") + f"［{name}］"))
+                edits.append((a, b, ("☑" if v in CHECKED else "☐") + f"［{name}］"))
             else:
                 edits.append((a, b, f"［{name}＝{v}］"))
             continue
         if "span" in it:
             a, b = it["span"]
-            if it["kind"] == "checkbox":
+            if it["kind"] == "checkbox" and it.get("provenance") == AGENT:
+                edits.append((a, b, f"{text[a:b]}［{name}？］"))  # チェック済みの印らしい字：元の字のまま（■ は箇条の印のことも）
+            elif it["kind"] == "checkbox":
                 edits.append((a, b, f"☐［{name}］"))
             elif it.get("provenance") == AGENT:
                 edits.append((a, b, f"［{name}？＝{text[a:b]}］" if it.get("placeholder") else f"［{name}？］"))
@@ -830,7 +950,7 @@ def to_markdown(doc: dict) -> str:
             if f.get("format"):
                 k += f"（書式 {f['format']}）"
             if f.get("agent"):
-                k = f"規則では決められない：{f['why']}"
+                k = f"規則では決められない：{f['why']}" + (f"（{f['alternative_to']} の代わりの所かもしれません。書くのはどちらか一方）" if f.get("alternative_to") else "")
             if f.get("protected"):
                 k += "（文書の保護で書けない欄）"
             elif f.get("readonly"):

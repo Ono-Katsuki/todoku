@@ -1,3 +1,5 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>とどく 世界調査</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -30,8 +32,9 @@
   --wA: #4fa3d6; --wB: #2f78a8; --wC: #b59c55; --wD: #d0664a; color-scheme: dark;
 }
 * { box-sizing: border-box; }
-body { background: var(--paper); color: var(--ink); font-family: var(--body); line-height: 1.7; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); line-height: 1.7; }
 .wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 72px; display: grid; gap: 64px; }
+.wrap > * { min-width: 0; }  /* 表の最小幅で、ほかの節まで横に広げない（表は表の箱の中で横に送る） */
 h2 { font-family: var(--display); font-size: 1.45rem; margin: 0 0 6px; text-wrap: balance; }
 .sub { color: var(--muted); font-size: .88rem; margin: 0 0 18px; max-width: 48em; }
 .kicker { font-size: .78rem; letter-spacing: .14em; color: var(--muted); margin: 0 0 20px; }
@@ -140,6 +143,73 @@ tr.unr td { color: var(--muted); }
 .refs { font-size: .78rem; color: var(--muted); margin-top: 18px; display: grid; gap: 2px; }
 .refs a { word-break: break-all; }
 
+/* ---- 冒頭：墨の地に、本人の言葉が一点からにじみ出て輪郭を結ぶ。論文は箱なしの小さな白い字で、言葉のまわりに ----
+   単一の見た目（墨の黒と紙の白）。色の飾りはなく、強調は明暗だけ */
+@property --ink { syntax: "<percentage>"; inherits: false; initial-value: 140%; }
+.opening {
+  --sumi: #0c0b0a; --sumi-2: #171513; --shiro: #f3f2ee; --usuzumi: #a9a49b; --nibi: #6f6a62;
+  position: relative; background: radial-gradient(90% 70% at 50% 46%, var(--sumi-2) 0%, var(--sumi) 70%);
+  color: var(--shiro); color-scheme: dark; overflow: hidden; padding: clamp(56px, 9vh, 96px) 20px clamp(64px, 10vh, 104px);
+  min-height: min(100svh, 880px); display: grid; align-content: center;
+}
+.opening .kicker { position: absolute; top: 22px; left: 0; right: 0; text-align: center; margin: 0; color: var(--nibi);
+  font-size: .72rem; letter-spacing: .5em; }
+.opening .orbit { max-width: 1200px; margin: 0 auto; width: 100%; gap: 40px 56px; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.opening .voice { padding: 12px 0; }
+.opening .voice blockquote { color: color-mix(in srgb, var(--shiro) 78%, var(--sumi)); font-weight: 700; letter-spacing: .04em;
+  font-size: clamp(1.6rem, 1rem + 2.4vw, 2.6rem); line-height: 1.6; }
+.opening .voice blockquote em { color: var(--shiro); }
+.opening .voice .who { color: var(--usuzumi); font-size: .8rem; line-height: 1.8; margin: 22px auto 0; max-width: 30em; text-wrap: balance; }
+/* 論文：箱なし。左の列は言葉の側へ寄せ、右の列は外へ流す */
+.opening .slip { background: none; border: 0; box-shadow: none; padding: 0; transform: none; animation: none; color: var(--usuzumi);
+  max-width: 26em; font-size: .78rem; line-height: 1.75; }
+.opening .s1, .opening .s4, .opening .s6 { justify-self: end; text-align: right; }
+.opening .s3, .opening .s5, .opening .s8 { justify-self: start; }
+.opening .s2, .opening .s7 { justify-self: center; text-align: center; }
+.opening .slip .src { display: block; margin-bottom: 4px; }
+.opening .slip .venue { color: var(--shiro); font-weight: 400; letter-spacing: .14em; font-size: .68rem; }
+.opening .slip .au { color: var(--nibi); font-size: .68rem; margin-left: .6em; }
+.opening .slip p { font-family: var(--display); color: color-mix(in srgb, var(--shiro) 82%, var(--sumi)); font-size: .9rem; line-height: 1.8; text-wrap: balance; word-break: auto-phrase; }
+.opening .slip a { color: var(--nibi); text-decoration: none; font-size: .66rem; font-variant-numeric: tabular-nums; }
+.opening .slip a:hover { color: var(--usuzumi); }
+/* 墨のにじみ：一点から広がる円の中だけが見え、ぼけが引いて輪郭を結ぶ */
+.opening .ln, .opening .who, .opening .slip {
+  -webkit-mask-image: radial-gradient(circle at var(--ox, 50%) var(--oy, 50%), #000 calc(var(--ink) - 40%), transparent var(--ink));
+          mask-image: radial-gradient(circle at var(--ox, 50%) var(--oy, 50%), #000 calc(var(--ink) - 40%), transparent var(--ink));
+}
+.opening .ln { display: block; white-space: nowrap; --ink: 0%; animation: bleed 1.9s cubic-bezier(.3, .1, .2, 1) both; }
+.opening .ln:nth-child(1) { animation-delay: .35s; --ox: 18%; }
+.opening .ln:nth-child(2) { animation-delay: 1.05s; --ox: 72%; }
+.opening .ln:nth-child(3) { animation-delay: 1.75s; --ox: 40%; }
+.opening .who { --ink: 0%; animation: bleed 1.6s ease 2.7s both; }
+.opening .slip { --ink: 0%; animation: bleed 2.2s cubic-bezier(.3, .1, .2, 1) calc(3.1s + var(--i) * .22s) both; }
+@keyframes bleed {
+  0%   { --ink: 0%; filter: blur(9px); opacity: .2; }
+  55%  { filter: blur(1.5px); opacity: 1; }
+  100% { --ink: 140%; filter: blur(0); opacity: 1; }
+}
+.opening .cue { position: absolute; bottom: 22px; left: 0; right: 0; width: max-content; margin: 0 auto; color: var(--nibi);
+  text-decoration: none; font-size: .72rem; letter-spacing: .3em; animation: fadein 1s ease 5.4s both; }
+.opening .cue:hover { color: var(--shiro); }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+.stage-ctl { position: absolute; right: 18px; bottom: 18px; display: flex; gap: 14px; }
+.stage-ctl button { background: none; border: 0; padding: 4px 0; color: var(--nibi); font-size: .7rem; letter-spacing: .2em; cursor: pointer; }
+.stage-ctl button:hover { color: var(--shiro); }
+.stage-ctl button:focus-visible, .opening a:focus-visible { outline: 1px solid var(--usuzumi); outline-offset: 4px; }
+#op-replay { display: none; }
+.opening.done #op-skip { display: none; } .opening.done #op-replay { display: inline-block; }
+.opening.done .ln, .opening.done .who, .opening.done .slip, .opening.done .cue { animation: none; --ink: 140%; filter: none; opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .opening .ln, .opening .who, .opening .slip, .opening .cue { animation: none !important; --ink: 140%; filter: none; opacity: 1; }
+  .stage-ctl { display: none; }
+}
+@media (max-width: 860px) {
+  .opening { min-height: auto; }
+  .opening .orbit { gap: 26px; grid-template-columns: 1fr; }
+  .opening .ln { white-space: normal; }
+  .opening .slip { justify-self: stretch !important; text-align: left !important; max-width: none; }
+}
+
 @media (max-width: 860px) {
   .orbit { grid-template-columns: 1fr 1fr; grid-template-areas: "q q" "a b" "c d" "e f" "g h"; }
   .voice { padding: 8px 0 12px; }
@@ -152,31 +222,36 @@ tr.unr td { color: var(--muted); }
 }
 </style>
 
-<div class="wrap">
-  <header>
-    <p class="kicker">とどく ／ 世界調査</p>
-    <section class="orbit" aria-label="本人の言葉と、まわりの研究">
+<section class="opening" id="opening" aria-label="冒頭：本人の言葉と、まわりの研究">
+  <p class="kicker">とどく ／ 世界調査</p>
+  <div class="orbit">
       <div class="voice">
-        <blockquote>エージェントが全て正確に<br>読み書きできないと、<br><em>申請で困るのは私</em>だからね。</blockquote>
+        <blockquote><span class="ln">エージェントが全て正確に</span><span class="ln">読み書きできないと、</span><span class="ln"><em>申請で困るのは私</em>だからね。</span></blockquote>
         <p class="who">小野克樹。申請する本人。話すことも手を動かすこともできず、頭のスイッチ1つで Claude を使う<br>（Ono, ASSETS '26）</p>
       </div>
-      <aside class="slip s1"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
+      <aside class="slip s1" style="--i:0;--fx:-1;--fy:-1"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
         <p>手続きの負担を、学ぶ・従う・心理の3つのコストに分けた。</p><a href="https://doi.org/10.1093/jopart/muu009">doi:10.1093/jopart/muu009</a></aside>
-      <aside class="slip s2"><div class="src"><span class="venue">2018</span><span class="au">Herd &amp; Moynihan</span></div>
+      <aside class="slip s2" style="--i:1;--fx:0;--fy:-1"><div class="src"><span class="venue">2018</span><span class="au">Herd &amp; Moynihan</span></div>
         <p>行政の負担は、法律を変えずに政策を動かす「別の手段」になる。</p><a href="https://doi.org/10.7758/9781610448789">doi:10.7758/9781610448789</a></aside>
-      <aside class="slip s3"><div class="src"><span class="venue">JITP 2011</span><span class="au">Goodwin ほか</span></div>
+      <aside class="slip s3" style="--i:2;--fx:1;--fy:-1"><div class="src"><span class="venue">JITP 2011</span><span class="au">Goodwin ほか</span></div>
         <p>国連加盟 192 か国の政府ポータルと省庁サイトのアクセシビリティを測った。</p><a href="https://doi.org/10.1080/19331681.2010.508011">doi:10.1080/19331681.2010.508011</a></aside>
-      <aside class="slip s4"><div class="src"><span class="venue">IMC 2020</span><span class="au">Singanamalla ほか</span></div>
+      <aside class="slip s4" style="--i:3;--fx:-1;--fy:0"><div class="src"><span class="venue">IMC 2020</span><span class="au">Singanamalla ほか</span></div>
         <p>政府のホスト名 135,408 件を集めた。上位サイトの一覧に載るのは 1 割に満たない。</p><a href="https://doi.org/10.1145/3419394.3423645">doi:10.1145/3419394.3423645</a></aside>
-      <aside class="slip s5"><div class="src"><span class="venue">ASSETS 2024</span><span class="au">Kumar &amp; Wang</span></div>
+      <aside class="slip s5" style="--i:4;--fx:1;--fy:0"><div class="src"><span class="venue">ASSETS 2024</span><span class="au">Kumar &amp; Wang</span></div>
         <p>約 2 万件の学術 PDF を層別に選び、アクセシビリティを調べた。</p><a href="https://doi.org/10.1145/3663548.3675634">doi:10.1145/3663548.3675634</a></aside>
-      <aside class="slip s6"><div class="src"><span class="venue">Internet Research 2009</span><span class="au">Hackett &amp; Parmanto</span></div>
+      <aside class="slip s6" style="--i:5;--fx:-1;--fy:1"><div class="src"><span class="venue">Internet Research 2009</span><span class="au">Hackett &amp; Parmanto</span></div>
         <p>トップページだけでは、サイト全体のアクセシビリティは分からない。</p><a href="https://doi.org/10.1108/10662240910927830">doi:10.1108/10662240910927830</a></aside>
-      <aside class="slip s7"><div class="src"><span class="venue">W4A 2013</span><span class="au">Vigo, Brown &amp; Conway</span></div>
+      <aside class="slip s7" style="--i:6;--fx:0;--fy:1"><div class="src"><span class="venue">W4A 2013</span><span class="au">Vigo, Brown &amp; Conway</span></div>
         <p>自動の検査ツールだけに頼ると、見つかる問題はおよそ 10 のうち 4。</p><a href="https://doi.org/10.1145/2461121.2461124">doi:10.1145/2461121.2461124</a></aside>
-      <aside class="slip s8"><div class="src"><span class="venue">CHI 2022</span><span class="au">Fok ほか</span></div>
+      <aside class="slip s8" style="--i:7;--fx:1;--fy:1"><div class="src"><span class="venue">CHI 2022</span><span class="au">Fok ほか</span></div>
         <p>312 のアプリを 16 か月追い、画像のラベルの欠けを調べた。</p><a href="https://doi.org/10.1145/3491102.3502143">doi:10.1145/3491102.3502143</a></aside>
-    </section>
+  </div>
+  <div class="stage-ctl"><button type="button" id="op-skip">スキップ</button><button type="button" id="op-replay">もう一度</button></div>
+  <a class="cue" href="#h-map">下へ ↓</a>
+</section>
+
+<div class="wrap">
+  <header>
     <p class="lead">行政の負担や、公的なページのアクセシビリティを外から測った研究はたくさんある。この調査は、申請する本人の言葉から始めて、政府の公開書類を AI エージェントが正確に読めるか、書けるかを、国ごとに測る。</p>
   </header>
 
@@ -268,6 +343,19 @@ tr.unr td { color: var(--muted); }
   </section>
 </div>
 
+<script>
+// 冒頭の上映：スキップ（すぐ完成した形に）と、もう一度
+(() => {
+  const op = document.getElementById("opening");
+  if (!op) return;
+  document.getElementById("op-skip").addEventListener("click", () => op.classList.add("done"));
+  document.getElementById("op-replay").addEventListener("click", () => {
+    op.classList.remove("done");
+    op.querySelectorAll("*").forEach(el => { el.style.animation = "none"; void el.offsetWidth; el.style.animation = ""; });
+  });
+  setTimeout(() => op.classList.add("done"), 6600);  // 上映が終わったら「もう一度」を出す
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
 <script>
