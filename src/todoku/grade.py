@@ -492,6 +492,31 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
     return g
 
 
+def _saved_by(wb) -> str | None:
+    """xlsx を保存したアプリ（docProps/app.xml の Application。記録がなければ「記録なし」）。xls は None（分からない）。"""
+    import re as _re
+
+    z = getattr(wb, "zip", None)
+    if z is None:
+        return None
+    try:
+        xml = z.read("docProps/app.xml").decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001
+        return "保存したアプリの記録なし"
+    m = _re.search(r"<(?:\w+:)?Application>([^<]*)</", xml)
+    return m[1].strip() if m and m[1].strip() else "保存したアプリの記録なし"
+
+
+def _cell_text(v) -> str:
+    from .formula.values import ExcelError
+
+    if isinstance(v, ExcelError):
+        return v.code
+    if v is None or v == "":
+        return "（空）"
+    return repr(v) if isinstance(v, str) else str(v)
+
+
 def _unverifiable_rules(wb) -> list[str]:
     """数式を使う入力規則のうち、読めない数式か、計算できない関数を使うもの（シート!範囲：数式）。"""
     from dataclasses import fields as dc_fields
@@ -499,15 +524,17 @@ def _unverifiable_rules(wb) -> list[str]:
     from .formula.functions import EAGER, LAZY
     from .formula.parser import Func, Node, parse
 
-    def unknown(n) -> bool:
+    def unknown(n) -> list[str]:
+        """計算できない関数の名前（なければ空）。"""
+        out = []
         if isinstance(n, Func) and n.name not in EAGER and n.name not in LAZY:
-            return True
+            out.append(n.name)
         if isinstance(n, Node):
             for fd in dc_fields(n):
                 x = getattr(n, fd.name)
-                if any(unknown(y) for y in (x if isinstance(x, list) else [x])):
-                    return True
-        return False
+                for y in (x if isinstance(x, list) else [x]):
+                    out += unknown(y)
+        return out
 
     out = []
     for sh in wb.sheets:
@@ -517,10 +544,11 @@ def _unverifiable_rules(wb) -> list[str]:
                     continue
                 try:
                     bad = unknown(parse(f.lstrip("=")))
+                    why = f"（計算できない関数：{'・'.join(dict.fromkeys(bad))}）" if bad else ""
                 except Exception:  # noqa: BLE001
-                    bad = True
+                    bad, why = True, "（数式を読めない）"
                 if bad:
-                    out.append(f"{sh.name}!{v.sqref_text or ''}：={f}")
+                    out.append(f"{sh.name}!{v.sqref_text or ''}：={f}{why}")
                     break
     return out
 
@@ -572,11 +600,22 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
                               "窓に出したそれぞれの規則を、エージェントが読んで判断します", overlap[:12]))
     if n_fields and not (inline or inferred or undecided or overlap):
         reasons.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・シート保護・枠などの印で決まります"))
-    rep = verify(wb).summary()
+    vr = verify(wb)
+    rep = vr.summary()
     if rep["unsupported"]:
         reasons.append(Reason("C", "確かめられない数式", f"{rep['unsupported']} 個の数式は、規則どおりに計算し直して確かめられません"))
     if rep["mismatch"]:
-        reasons.append(Reason("C", "保存された値と合わない数式", f"{rep['mismatch']} 個のセルで、保存された計算結果が数式と一致しません"))
+        app = _saved_by(wb)
+        where = [f"{r.sheet}!{r.address}：保存 {_cell_text(r.expected)} → Excel の規則で {_cell_text(r.actual)}"
+                 for r in vr.results if r.status == "mismatch"][:12]
+        if app is None or app.startswith("Microsoft Excel"):
+            reasons.append(Reason("C", "保存された値と合わない数式", f"{rep['mismatch']} 個のセルで、保存された計算結果が数式と一致しません", where))
+        else:
+            # Excel 以外のアプリが保存した計算結果（Google スプレッドシートの書き出しなど）：Excel で開くと計算し直される
+            reasons.append(Reason("B", "Excel 以外で保存された計算結果",
+                                  f"このファイルは Excel 以外（{app}）で保存されていて、{rep['mismatch']} 個のセルの保存された計算結果が、"
+                                  "Excel の規則で計算した値と違います。Excel で開くと、計算し直した値になります（窓に出ているのは保存された値）。"
+                                  "読むときは、計算し直した値を使ってください", where))
     unchecked = _unverifiable_rules(wb)
     if unchecked:
         write.append(Reason("B", "確かめられない入力規則",

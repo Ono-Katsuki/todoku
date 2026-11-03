@@ -426,10 +426,11 @@ GRADE_KEYS = ("content_type", "sha256", "bytes", "kind", "read", "write", "read_
               "error", "changed")
 
 
-def regrade(jobs: int, only_ungraded: bool = False) -> int:
+def regrade(jobs: int, only_ungraded: bool = False, only_grades: str = "") -> int:
     """同じ標本（world/results.jsonl の URL）を取り直して、段階だけを付け直す（道具を直したあと）。
     届いた書類だけを取り直す（届かなかった標本は、そのまま）。中身が前と変わっていれば changed に記録する。
-    only_ungraded：届いたが段階を付けられなかった書類（対応していなかった形式など）だけ。"""
+    only_ungraded：届いたが段階を付けられなかった書類（対応していなかった形式など）だけ。
+    only_grades：読む段階がこれ（「E,F」など）の書類だけ（only_ungraded と合わせると、どちらか）。"""
     res_path = OUT / "results.jsonl"
     old = [json.loads(x) for x in res_path.read_text(encoding="utf-8").splitlines() if x.strip()]
     tmp = KEEP.parent / "world_tmp"
@@ -446,8 +447,12 @@ def regrade(jobs: int, only_ungraded: bool = False) -> int:
     lock = threading.Lock()
 
     def one(rec: dict):
-        if rec["id"] in done or rec.get("reach") != "ok" or (only_ungraded and rec.get("read")):
+        if rec["id"] in done or rec.get("reach") != "ok":
             return
+        if only_ungraded or only_grades:
+            pick = (only_ungraded and not rec.get("read")) or (rec.get("read") in only_grades.split(",") if only_grades else False)
+            if not pick:
+                return
         base = {k: v for k, v in rec.items() if k not in GRADE_KEYS}
         before = rec.get("sha256")
         r = run_sample({k: v for k, v in base.items() if k != "reach"}, tmp)
@@ -483,11 +488,12 @@ def main(argv=None) -> int:
     ap.add_argument("--graders", type=int, default=8)
     ap.add_argument("--regrade", action="store_true", help="同じ標本を取り直して、段階だけを付け直す")
     ap.add_argument("--only-ungraded", action="store_true", help="--regrade で、段階を付けられなかった書類だけ")
+    ap.add_argument("--only-grades", default="", help="--regrade で、読む段階がこれ（E,F など）の書類だけ")
     a = ap.parse_args(argv)
     OUT.mkdir(parents=True, exist_ok=True)
     _graders = threading.Semaphore(a.graders)
     if a.regrade:
-        return regrade(a.jobs, a.only_ungraded)
+        return regrade(a.jobs, a.only_ungraded, a.only_grades)
     countries = [c for c in a.countries.split(",") if c]
     frames = build_frames(countries)
     (OUT / "unreached.json").write_text(json.dumps(UNREACHED, ensure_ascii=False, indent=1), encoding="utf-8")
