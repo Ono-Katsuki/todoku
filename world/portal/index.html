@@ -9,7 +9,7 @@
 :root {
   --paper: #f4f6f8; --ink: #17202b; --muted: #5b6878; --line: #c9d2dc; --slip: #ffffff; --pen: #1f4fb8;
   --none: #e3e8ee;          /* 調べていない国 */
-  --hatch: #b7c0cb;         /* 目録に届かない国 */
+  --hatch: #b7c0cb;         /* 政府の書類が収集にない国 */
   /* 段階の色（意味の色。強調の青とは別） */
   --gS: #0b4f6c; --gA: #1d7aa8; --gB: #5fa8d3; --gC: #c9b26b; --gD: #d9854a; --gE: #c45a3c; --gF: #7d2e2e;
   --wA: #1d7aa8; --wB: #5fa8d3; --wC: #c9b26b; --wD: #c45a3c;
@@ -296,7 +296,7 @@ tr.unr td { color: var(--muted); }
       <aside class="slip s3" style="--i:2;--fx:1;--fy:-1"><div class="src"><span class="venue">JITP 2011</span><span class="au">Goodwin ほか</span></div>
         <p>192 か国の政府のサイトを、障害のある人が使えるかという基準で、国ごとに測った。</p><p class="so">この調査も、国ごとに比べる。</p><a href="https://doi.org/10.1080/19331681.2010.508011">doi:10.1080/19331681.2010.508011</a></aside>
       <aside class="slip s4" style="--i:3;--fx:-1;--fy:0"><div class="src"><span class="venue">IMC 2020</span><span class="au">Singanamalla ほか</span></div>
-        <p>政府のサイト 135,408 件のうち、よく見られる上位の一覧に載るのは 1 割に満たない。目立つ所だけ調べても分からない。</p><p class="so">この調査は、政府の目録から無作為に選ぶ。</p><a href="https://doi.org/10.1145/3419394.3423645">doi:10.1145/3419394.3423645</a></aside>
+        <p>政府のサイト 135,408 件のうち、よく見られる上位の一覧に載るのは 1 割に満たない。目立つ所だけ調べても分からない。</p><p class="so">この調査は、政府のサイトの書類から無作為に選ぶ。</p><a href="https://doi.org/10.1145/3419394.3423645">doi:10.1145/3419394.3423645</a></aside>
       <aside class="slip s5" style="--i:4;--fx:1;--fy:0"><div class="src"><span class="venue">ASSETS 2024</span><span class="au">Kumar &amp; Wang</span></div>
         <p>約 2 万件の論文の PDF を層に分けて選び、支援技術で読めるかを調べた。</p><p class="so">この調査も、書類を層に分けて選ぶ。</p><a href="https://doi.org/10.1145/3663548.3675634">doi:10.1145/3663548.3675634</a></aside>
       <aside class="slip s6" style="--i:5;--fx:-1;--fy:1"><div class="src"><span class="venue">Internet Research 2009</span><span class="au">Hackett &amp; Parmanto</span></div>
@@ -317,7 +317,7 @@ tr.unr td { color: var(--muted); }
 
   <section aria-label="調査の規模">
     <div class="band" id="band">
-      <div><b class="num" id="b-countries">—</b><span>国と地域（目録に届いた所）</span></div>
+      <div><b class="num" id="b-countries">—</b><span>国と地域（政府の書類が収集にある所）</span></div>
       <div><b class="num" id="b-sampled">—</b><span>選んだ書類</span></div>
       <div><b class="num" id="b-graded">—</b><span>取得して段階を付けた書類</span><small id="b-ungraded"></small></div>
       <div><b class="num live" id="b-progress">—</b><span id="b-progress-l">予定に対する進み</span></div>
@@ -334,7 +334,7 @@ tr.unr td { color: var(--muted); }
         <li><b>探すだけで重い。</b>様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。</li>
         <li><b>印刷して手で書く前提。</b>入力欄のない印刷用の PDF で、紙に書いて窓口か郵送で出します。ペンを持てない私には書けません。</li>
         <li><b>そもそも、私が使う iPad では Office の書類も崩れて扱えません。</b>iPad の Excel は、マクロ（VBA）も動かせません。</li>
-        <li><b>署名は手書きの欄。</b>とどくは、本人が同意すれば署名の画像を置けます。ただし、画像の署名を区が認めるかは様式しだいです。</li>
+        <li><b>署名は手書きの欄。</b>とどくは、私が同意すれば署名の画像を置けます。ただし、画像の署名を区が認めるかは様式しだいです。</li>
       </ul>
       <div class="brow">
         <span class="blab">頭のスイッチで<br>字を入れたとしたら</span>
@@ -390,7 +390,7 @@ tr.unr td { color: var(--muted); }
 
   <section aria-labelledby="h-map">
     <h2 id="h-map">世界地図</h2>
-    <p class="sub">各国の政府の公式オープンデータ目録にあり、取得できた書類のうち、AI エージェントがとどくを使って<b>正確に扱える書類の割合</b>です。政府の書類全体や、申請の様式だけの割合ではありません。色が濃い国ほど、届く書類が多いことを示します。上のボタンで、何を見るか（読める・書ける・様式に書ける・取得できる）を切り替えられます。国を選ぶと、右に内訳が出ます。</p>
+    <p class="sub">各国の政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って<b>正確に扱える書類の割合</b>です。申請の様式だけの割合ではありません。色が濃い国ほど、届く書類が多いことを示します。上のボタンで、何を見るか（読める・書ける・様式に書ける・取得できる）を切り替えられます。国を選ぶと、右に内訳が出ます。</p>
     <div class="tabs" role="group" aria-label="地図に示す値">
       <button type="button" id="t-read" data-m="read_ok" aria-pressed="true">正確に読める</button>
       <button type="button" id="t-write" data-m="write_a" aria-pressed="false">そのまま書ける</button>
@@ -437,7 +437,7 @@ tr.unr td { color: var(--muted); }
 
   <section aria-labelledby="h-docs">
     <h2 id="h-docs">書類を探す</h2>
-    <p class="sub">選んだ書類のひとつひとつの結果です。書類そのものは置いていません。元の公開場所へのリンクだけです。</p>
+    <p class="sub">選んだ書類のひとつひとつの結果です。書類そのものは置いていません。元の公開場所へのリンクだけです（収集のあとで消えた書類もあります）。</p>
     <div class="filters">
       <label for="f-c">国<select id="f-c"><option value="">すべて</option></select></label>
       <label for="f-g">形式の群<select id="f-g"><option value="">すべて</option><option value="pdf">PDF</option><option value="sheet">表計算</option><option value="text">文書</option><option value="csv">CSV</option></select></label>
@@ -445,7 +445,7 @@ tr.unr td { color: var(--muted); }
       <label for="f-w">書く段階<select id="f-w"><option value="">すべて</option></select></label>
       <label for="f-fc">入力欄<select id="f-fc"><option value="">すべて</option><option value="marked">作り手の印がある様式</option><option value="inferred">推定の欄だけ</option><option value="none">欄なし</option></select></label>
       <label for="f-o">届いたか<select id="f-o"><option value="">すべて</option><option value="ok">取得できた</option><option value="no">取得できない</option></select></label>
-      <label for="f-q">題名・発行者・分類<input id="f-q" type="search" placeholder="例：障害、福祉、Statistik"></label>
+      <label for="f-q">ファイル名・サイト<input id="f-q" type="search" placeholder="例：form、申請、antrag"></label>
       <label for="f-s">並び順<select id="f-s">
         <option value="read-hi">読むスコアが高い順</option><option value="read-lo">読むスコアが低い順</option>
         <option value="write-hi">書くスコアが高い順</option><option value="write-lo">書くスコアが低い順</option>
@@ -459,14 +459,15 @@ tr.unr td { color: var(--muted); }
   <section aria-labelledby="h-method">
     <h2 id="h-method">方法と限界</h2>
     <div class="method">
-      <div><h3>母集団と標本</h3><p>各国の政府の公式のオープンデータ目録に登録された、PDF・表計算・文書・CSV の書類。国 × 形式の群を層にして、層ごとに 250 件を無作為に選びました（二段の抽出。選ばれる重みを記録）。国は選び出さず、国連の加盟 193 か国のすべてについて、公式の目録を探した結果（届く・目録はあるが使えない（理由）・公式の国の目録が見つからない）を地図に示しています。robots.txt は RFC 9309 のとおりに読み、目録の API が禁止されている国は届かない国としています。</p></div>
-      <div><h3>分析の単位</h3><p>主の単位は書類（ファイル）です。段階がファイルごとに付くためです。書く段階の理由は入力欄ごとにも数えます。書類の数だけでなく、字数や欄の数でも偏りを確かめます。</p></div>
-      <div><h3>測ること</h3><p>届くか（robots.txt・HTTP・ログイン・ボット対策）、読む段階 S〜F、書く段階 A〜D、その理由。すべて決定的な処理です。10% の部分標本では、全欄に書いて、書いた所のほかはバイト一致することを証明しました。</p></div>
-      <div><h3>限界</h3><p>数字が表すのは「公式の目録を自動で読める国の、取得できた書類」で、政府の書類全体ではありません。測れた国は公開の目録を持つ国に偏り（ヨーロッパと所得の高い国が多い）、robots.txt・ボット対策で取れなかった書類は、取れた書類と性質が違うかもしれません。オープンデータの目録には統計の表や報告書が多く、申請の様式は少なめです。省庁の様式のページは枠に入っていません。段階の妥当性は、人の評価者 2 人による一致度（κ）で確かめる予定です。</p></div>
-      <div><h3>礼儀</h3><p>robots.txt を RFC 9309 のとおりに読んで守り（Crawl-delay も守る）、同じ相手には 2 秒以上の間をあけました。ボット対策やログインは破らず、そう記録しました。書類はスコアを付けたあとに消し、URL・SHA-256・結果だけを残しています。</p></div>
+      <div><h3>母集団と標本</h3><p>国連の加盟 193 か国の、政府のサイトにある PDF・表計算・文書・CSV の書類です。政府のサイトは、国のドメインの政府用の区分（gov.br・go.jp・lg.jp・gouv.fr・gob.mx など。Public Suffix List と各国の登録機関の規則が根拠）と、米国の .gov などの国の政府のドメイン、Wikidata にある省庁・政府の機関・自治体の公式のサイトで決めました。書類は、Common Crawl の 2026 年 10 月の収集（CC-MAIN-2026-43）の中から選びます。収集の索引を区切りごとに無作為に選び、その中の政府のサイトの書類を候補にして、国 × 形式の群の層ごとに 20 件を無作為に選びました（選ばれる確率を記録）。国は選び出さず、193 か国のすべての結果（測った・書類が収集にない・ドメインが見つからない）を地図に示しています。</p></div>
+      <div><h3>分析の単位</h3><p>主の単位は書類（ファイル）です。段階がファイルごとに付くためです。同じ中身の書類は 1 件に数えます。書く段階の理由は入力欄ごとにも数えます。書類の数だけでなく、字数や欄の数でも偏りを確かめます。</p></div>
+      <div><h3>測ること</h3><p>書類の全体を取得できたか、読む段階 S〜F、書く段階 A〜D、その理由。すべて決定的な処理です。Common Crawl は大きな書類を途中で切って保存するので、切れた書類は、そのままスコアを付けず、robots.txt が許すときだけ政府のサイトから取り直しました。10% の部分標本では、全欄に書いて、書いた所のほかはバイト一致することを証明しました。</p></div>
+      <div><h3>限界</h3><p>数字が表すのは「Common Crawl が集めた、政府のサイトの書類」です。Common Crawl は、リンクの多いページや HTML を先に集め、robots.txt で断られたサイトやログインの奥は集めません。Office の書類は PDF よりずっと少なく、標本の少ない国・形式は区間が広くなります。政府のドメインの一覧は、国のドメインに政府用の区分のない国（ドイツ・オランダなど）では Wikidata に頼るため、載っていない機関・自治体は入りません。切れた書類で取り直せなかったものは分母から除いているので、大きな書類が少なめに数えられます。段階の妥当性は、人の評価者 2 人による一致度（κ）で確かめる予定です。</p></div>
+      <div><h3>礼儀</h3><p>書類は政府のサーバーからでなく、Common Crawl の保存庫から、その記録だけを取りました（Common Crawl は集めるときに robots.txt を守っています）。保存庫への要求は一度に一つ、間をあけ、混んでいるときは待ちました。政府のサイトに行くのは、切れた書類を取り直すときだけで、robots.txt を RFC 9309 のとおりに読んで守り、同じサイトには 2 秒以上の間をあけました。ボット対策やログインは破りません。書類はスコアを付けたあとに消し、URL・SHA-256・結果だけを残しています。</p></div>
     </div>
     <div class="refs">
       <span>Moynihan, Herd &amp; Harvey (2015) JPART · Herd &amp; Moynihan (2018) · Goodwin et al. (2011) JITP · Singanamalla et al. (2020) IMC · Kumar &amp; Wang (2024) ASSETS · Foppiano (2026) WAC · Fok et al. (2022) CHI · Hackett &amp; Parmanto (2009) · Vigo, Brown &amp; Conway (2013) W4A · Brown, Cai &amp; DasGupta (2001) · Korn &amp; Graubard (1998) · Cohen (1960) · Thelwall &amp; Stuart (2006) · Partridge &amp; Allman (2016) · Ono (2026) ASSETS</span>
+      <span>書類：Common Crawl（CC-MAIN-2026-43）· 政府のドメイン：Public Suffix List · Wikidata（CC0）</span>
       <span>地図の国境：Natural Earth（world-atlas, ISC）</span>
     </div>
   </section>
@@ -495,13 +496,15 @@ tr.unr td { color: var(--muted); }
   const WRITE_JA = { A: "そのまま書ける", B: "解析して書く", C: "画面から入力", D: "書けない" };
   const FAM_JA = { pdf: "PDF", sheet: "表計算", text: "文書", csv: "CSV" };
   const OUT_JA = { ok: "取得できた", robots: "robots.txt で禁止", captcha: "ボット対策", login: "ログインが必要", html: "ウェブページが返った",
-    too_large: "25MB を超える", error: "接続できない", empty: "空のファイル", frame_empty: "目録に書類がない" };
+    too_large: "25MB を超える", error: "接続できない", empty: "空のファイル", truncated: "保存が途中で切れていて、取り直せない",
+    cc_error: "保存庫から取れない", digest_mismatch: "保存の中身が索引と合わない" };
+  const UNR_JA = { no_documents: "政府のサイトは収集にあるが書類がない", not_in_crawl: "政府のドメインが収集にない", no_domains: "政府のドメインが見つからない" };
   const outJa = o => OUT_JA[o] || (String(o).startsWith("http_") ? "HTTP " + String(o).slice(5) : String(o));
   const METRIC = {
     read_ok: { label: "正確に読める書類の割合", note: "取りに行けた書類のうち、AI エージェントが中身を正確に読めるもの（読む段階 S・A・B）。" },
     write_a: { label: "そのまま書ける書類の割合", note: "取りに行けた書類のうち、書く所がはっきりしていて、エージェントがそのまま書けるもの（書く段階 A）。" },
     forms_writable: { label: "申請の様式に書ける割合", note: "入力欄のある申請の様式のうち、エージェントが書けるもの（画面からの入力や手書き・押印が要らない。書く段階 A・B）。" },
-    reach: { label: "取得できる書類の割合", note: "選んだ書類のうち、ログインやボット対策、リンク切れに止められずに取りに行けたもの。" },
+    reach: { label: "取得できる書類の割合", note: "選んだ書類のうち、全体を取得できたもの（Common Crawl の保存から。保存が途中で切れていたものは、robots.txt が許せば政府のサイトから取り直した）。" },
   };
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const pct = p => p == null ? "—" : (p * 100).toFixed(0) + "%";
@@ -545,7 +548,7 @@ tr.unr td { color: var(--muted); }
       .attr("fill", f => {
         const cc = byIso[f.id];
         if (cc) { const v = DATA.countries[cc][metric]; return v && v.p != null ? color(v.p) : css("--none"); }
-        if (unr[f.id]) return DATA.unreached[unr[f.id]].outcome === "none" ? css("--line") : "url(#hatch)";
+        if (unr[f.id]) return DATA.unreached[unr[f.id]].outcome === "no_domains" ? css("--line") : "url(#hatch)";
         return css("--none");
       })
       .attr("tabindex", f => byIso[f.id] ? 0 : null)
@@ -566,11 +569,11 @@ tr.unr td { color: var(--muted); }
       });
     const lg = document.getElementById("legend");
     lg.innerHTML = BINS.map(([a, , label], i) => `<span><span class="sw" style="background:var(--q${i + 1})"></span>${label}</span>`).join("") +
-      `<span><span class="sw" style="background:repeating-linear-gradient(45deg,${css("--hatch")} 0 2px,transparent 2px 5px);border:1px solid ${css("--line")}"></span>目録に届かない</span>` +
-      `<span><span class="sw" style="background:${css("--line")}"></span>公式の国の目録が見つからない</span>` +
-      `<span><span class="sw" style="background:${css("--none")}"></span>調べていない</span>`;
+      `<span><span class="sw" style="background:repeating-linear-gradient(45deg,${css("--hatch")} 0 2px,transparent 2px 5px);border:1px solid ${css("--line")}"></span>政府の書類が収集にない</span>` +
+      `<span><span class="sw" style="background:${css("--line")}"></span>政府のドメインが見つからない</span>` +
+      `<span><span class="sw" style="background:${css("--none")}"></span>まだ測っていない</span>`;
     document.getElementById("metric-note").textContent = METRIC[metric].label + "：" + METRIC[metric].note +
-      "国の値は、PDF・表計算・文書・CSV の割合を、その国の目録にある数に合わせて足し合わせたものです（選んだ数の偏りを直すため）。マルタは地図では小さすぎるので、下の一覧で見てください。";
+      "国の値は、PDF・表計算・文書・CSV の割合を、その国の政府のサイトにある数（収集の索引から推定）に合わせて足し合わせたものです（選んだ数の偏りを直すため）。マルタは地図では小さすぎるので、下の一覧で見てください。";
   }
 
   function select(cc) {
@@ -588,7 +591,7 @@ tr.unr td { color: var(--muted); }
        </dl>
        <div style="font-size:.78rem;color:var(--muted)">読む段階</div>${stackHtml(c.read, READ, "g", READ_JA)}${stackLabels(c.read, READ, "g", READ_JA)}
        <div style="font-size:.78rem;color:var(--muted)">書く段階</div>${stackHtml(c.write, WRITE, "w", WRITE_JA)}${stackLabels(c.write, WRITE, "w", WRITE_JA)}
-       <div class="tablebox" style="margin-top:6px"><table style="min-width:0;font-size:.76rem"><thead><tr><th>群</th><th class="num">目録</th><th class="num">選んだ</th><th class="num">段階</th><th class="num">S〜B</th></tr></thead><tbody>${fams}</tbody></table></div>
+       <div class="tablebox" style="margin-top:6px"><table style="min-width:0;font-size:.76rem"><thead><tr><th>群</th><th class="num">枠（推定）</th><th class="num">選んだ</th><th class="num">段階</th><th class="num">S〜B</th></tr></thead><tbody>${fams}</tbody></table></div>
        <p style="margin:10px 0 0"><a href="#h-docs" id="see-docs">この国の書類を見る</a></p>`;
     document.getElementById("see-docs").addEventListener("click", () => { document.getElementById("f-c").value = cc; page = 1; renderDocs(); });
     drawMap();
@@ -605,7 +608,7 @@ tr.unr td { color: var(--muted); }
     const tb = document.querySelector("#table tbody");
     const btn = document.getElementById("t-all");
     btn.hidden = rows.length <= 10 && !pending.length;
-    btn.textContent = allCountries ? "先頭の 10 か国だけ表示" : `すべての国を表示（調べた ${rows.length} か国と、まだ・届かない国）`;
+    btn.textContent = allCountries ? "先頭の 10 か国だけ表示" : `すべての国を表示（測った ${rows.length} か国と、まだの国・書類が収集にない国）`;
     const visible = allCountries ? rows : rows.slice(0, 10);
     tb.innerHTML = visible.map(({ cc, c }) =>
       `<tr><td><a href="#h-map" data-cc="${cc}">${esc(c.name)}</a></td><td class="num">${c.reach.n}</td>
@@ -615,9 +618,9 @@ tr.unr td { color: var(--muted); }
        <td class="num">${pct(c.write_a.p)}<br><span class="ci">${ci(c.write_a.ci)}</span></td>
        <td>${stackHtml(c.write, WRITE, "w", WRITE_JA)}</td>
        <td class="num">${pct(c.forms_writable.p)}<br><span class="ci">${c.forms_writable.n ? "様式 " + c.forms_writable.n : ""}</span></td></tr>`).join("") +
-      (!allCountries ? "" : pending.length ? `<tr class="unr"><td>まだ選んでいない ${pending.length} か国</td><td colspan="7">目録には届いていて、標本をまだ選んでいません：${pending.map(esc).join("・")}</td></tr>` : "") +
-      Object.entries(Object.values(DATA.unreached).reduce((m, u) => ((m[u.why] ||= []).push(u.name), m), {}))
-        .filter(() => allCountries).map(([why, names]) => `<tr class="unr"><td>${why.startsWith("公式の国の目録が見つからない") ? "目録が見つからない" : "目録に届かない"} ${names.length} か国</td><td colspan="7">${esc(why)}：${names.map(esc).join("・")}</td></tr>`).join("");
+      (!allCountries ? "" : pending.length ? `<tr class="unr"><td>まだ測っていない ${pending.length} か国</td><td colspan="7">枠はあり、標本をまだ測っていません：${pending.map(esc).join("・")}</td></tr>` : "") +
+      Object.entries(Object.values(DATA.unreached).reduce((m, u) => ((m[u.outcome] ||= []).push(u.name), m), {}))
+        .filter(() => allCountries).map(([o, names]) => `<tr class="unr"><td>${esc(UNR_JA[o] || o)} ${names.length} か国</td><td colspan="7">${names.map(esc).join("・")}</td></tr>`).join("");
     tb.querySelectorAll("a[data-cc]").forEach(a => a.addEventListener("click", () => select(a.dataset.cc)));
   }
   // コピーのボタン（使えないときは、字を選んだ状態にする）
@@ -670,7 +673,7 @@ tr.unr td { color: var(--muted); }
       const chips = d.r ? `<span class="chip" style="background:var(--g${d.r})" title="読む ${d.r} ${esc(READ_JA[d.r])}"><span>${d.r}<br><small>読む</small></span></span>` +
         `<span class="chip" style="background:var(--w${d.w})" title="書く ${d.w} ${esc(WRITE_JA[d.w])}"><span>${d.w}<br><small>書く</small></span></span>`
         : `<span class="chip o">${esc(outJa(d.o))}${d.e ? "<br>" + esc(d.e) : ""}</span>`;
-      const kind = d.k ? (d.d && d.k.toUpperCase() !== d.d ? `目録では ${esc(d.d)}・中身は ${esc(d.k)}` : esc(d.k)) : esc(d.d);
+      const kind = (d.k ? esc(d.k) : esc(d.d)) + (d.s === "live" ? "・政府のサイトから取り直し" : "");
       const rs = d.rr.length || d.wr.length ? `<div class="rs">${d.rr.map(esc).join("・")}${d.wr.length ? " ／ 書く：" + d.wr.map(esc).join("・") : ""}</div>` : "";
       return `<div class="doc"><div class="chips">${chips}</div><div style="min-width:0">
         <div class="t">${esc(d.t || "（題名なし）")}</div>
