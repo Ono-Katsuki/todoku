@@ -192,24 +192,26 @@ def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges:
         c = Ch(g.text, x0, y0, x1, y1, max(g.size, 1.0), vertical, base, g.invisible, g.legacy, seq)
         # 同じ字を同じ位置に重ねたもの（太字に見せる重ね書き、色の層）は1字にする
         kx, ky = int(ox // cell), int(oy // cell)
-        dup = False
+        dup = None  # 重ね書きとした前の字
         for ix in (kx - 1, kx, kx + 1):
             for iy in (ky - 1, ky, ky + 1):
-                for ofr, osize in seen.get((g.text, ix, iy), ()):
+                for ofr, osize, och in seen.get((g.text, ix, iy), ()):
                     if is_overprint(ofr, fr, osize, g.size):
-                        dup = True
+                        dup = och
                         break
                 if dup:
                     break
             if dup:
                 break
-        if dup:
+        if dup is not None:
             if dropped is not None:
                 dropped.append(("dup", g.text))
             if merges is not None:
-                merges.append((g.text, 1.0, (c.x0, c.y0, c.x1, c.y1)))  # is_overprint：送りの幅が半分より多く重なる
+                # 字の箱（描いた字の形の範囲）の重なり：送りの幅（is_overprint）とは別の量。重ならない箱を1字にしたら、
+                # 読む段階で知らせる（_read_flags の「重ね書きとして1字にした字」）
+                merges.append((g.text, _box_overlap(dup, c), (c.x0, c.y0, c.x1, c.y1)))
             continue
-        seen.setdefault((g.text, kx, ky), []).append((fr, g.size))
+        seen.setdefault((g.text, kx, ky), []).append((fr, g.size, c))
         out.append(c)
     _vertical_runs(out)
     return out

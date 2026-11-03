@@ -62,6 +62,26 @@ def test_reading_audit_catches_glyphs_dropped_as_false_overprints(monkeypatch):
     doc = PdfDocument(blob, "t.pdf")
     bad = check_reading(doc, build(doc))[0]
     assert not bad.ok and any("「l」" in x and "重ねた字ではありません" in x for x in bad.items), bad.items
+    # 窓の側でも：字の箱が重ならない字を1字にしたら、読む C で知らせる（箱の重なりを実際に測る）
+    fl = {f["title"]: f for f in build(PdfDocument(blob, "t.pdf"))["pages"][0]["read_flags"]}
+    assert fl.get("重ね書きとして1字にした字", {}).get("grade") == "C", fl.keys()
+
+
+def test_true_overprints_are_not_flagged_as_bad_merges():
+    fl = {f["title"] for f in build(PdfDocument(_line_pdf(), "t.pdf"))["pages"][0]["read_flags"]}
+    assert "重ね書きとして1字にした字" not in fl
+
+
+def test_reading_audit_that_cannot_recount_fails(monkeypatch):
+    from todoku.pdf import audit
+
+    def boom(_g):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(audit, "overprints", boom)
+    doc = PdfDocument(_line_pdf(), "t.pdf")
+    c = check_reading(doc, build(doc))[0]
+    assert not c.ok and "確かめられない" in c.name
 
 
 def test_literal_underscores_stay_in_the_window():
