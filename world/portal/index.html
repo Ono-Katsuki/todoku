@@ -144,6 +144,26 @@ tr.unr td { color: var(--muted); }
 /* ---- 方法 ---- */
 .method { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; font-size: .88rem; }
 .method h3 { font-size: .95rem; margin: 0 0 4px; }
+
+/* 1 通を書く負担の図：横の棒（同じ目盛り。とどくの棒は 3 分 ÷ 95 分） */
+.burden { margin: 0 0 26px; padding: 18px 20px; background: var(--slip); border: 1px solid var(--line); border-radius: 3px; display: grid; gap: 12px; max-width: 980px; }
+.burden figcaption { font-size: .84rem; color: var(--muted); line-height: 1.7; }
+.burden figcaption b { color: var(--ink); }
+.brow { display: grid; grid-template-columns: 8.5em minmax(0, 1fr) 11.5em; gap: 12px; align-items: center; }
+.blab { font-size: .82rem; color: var(--ink); line-height: 1.4; }
+.btrack { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bfill { display: block; height: 18px; width: var(--w); min-width: 6px; border-radius: 0 4px 4px 0; }
+.bfill.hand { background: var(--gE); }
+.bfill.todoku { background: var(--pen); }
+.bmore { grid-column: 2 / -1; font-size: .72rem; color: var(--muted); margin-top: -6px; }
+.bval { font-size: .8rem; color: var(--muted); }
+.bval b { font-size: 1.05rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.bnote { margin: 0; font-size: .78rem; color: var(--muted); line-height: 1.7; }
+.bnote b { color: var(--ink); }
+@media (max-width: 640px) {
+  .brow { grid-template-columns: 1fr; gap: 4px; }
+  .bmore { grid-column: auto; margin-top: 0; }
+}
 /* とどくの5つの段階（順番に意味がある：開く→見つける→越える→書いて証明→伝える） */
 .how { list-style: none; counter-reset: step; margin: 0; padding: 0; display: grid; gap: 18px 32px;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
@@ -290,6 +310,21 @@ tr.unr td { color: var(--muted); }
   <section aria-labelledby="h-how">
     <h2 id="h-how">とどくで、どう届くようにしたか</h2>
     <p class="sub">壁は様式の側にあり、なくすことはできません。とどくは、書類を変えずに、AI エージェントが全てを正確に読み書きできる道をつくります。どの段階も AI を使わない決まった処理で、同じ書類からは必ず同じ結果が出ます。数は、この調査で段階を付けた書類のものです。</p>
+    <figure class="burden" aria-labelledby="burden-cap">
+      <figcaption id="burden-cap"><b>1 通の計画書を書くとき</b>　和歌山県 処遇改善加算の計画書（白紙と記入例が公開されている様式）。入力欄 3,322 か所（4 シート）のうち、記入例で書かれていたのは 233 か所・1,584 字。</figcaption>
+      <div class="brow">
+        <span class="blab">頭のスイッチで<br>字を入れる</span>
+        <span class="btrack"><span class="bfill hand" style="--w: 100%" title="1,584 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）"></span></span>
+        <span class="bval"><b>1 時間 35 分</b>より長い</span>
+        <span class="bmore">＋ 3,322 か所から書く欄を探して移る操作（測れていないので含めていません）</span>
+      </div>
+      <div class="brow">
+        <span class="blab">とどく ＋<br>エージェント</span>
+        <span class="btrack"><span class="bfill todoku" style="--w: 3.2%" title="本人が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）"></span></span>
+        <span class="bval"><b>2〜3 分</b>で頼む</span>
+      </div>
+      <p class="bnote">とどくが 233 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで <b>2.5 秒</b>。本人は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、本人の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
+    </figure>
     <ol class="how">
       <li><h3>開いて、一字も変えずに読む</h3>
         <p>PDF・Excel・Word・一太郎・CSV・ZIP など <b class="num" id="how-kinds">—</b> の形式の書類 <b class="num" id="how-docs">—</b> 件を、元の内容を一字も変えずに読める「窓」にしました。Office も外部のライブラリも使わず、公開された仕様書から実装しています。</p></li>
