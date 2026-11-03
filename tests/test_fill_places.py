@@ -38,3 +38,18 @@ def test_phrase_label_does_not_take_other_cells_text_as_prefix():
     # 見出しは、並びの字とすぐ前のマスの見出しだけ。左の別のマスの字（「なし・あり…」）を見出しの前に付けない
     assert "なし・あり" not in lab and "令和［▶］年" in lab
     assert "なし・あり" in (f["S!E4"].get("section") or "")
+
+
+def test_pdf_circle_occurrence_counts_among_near_candidates(tmp_path):
+    from todoku import api
+    from test_circle import _pdf
+
+    # 「通院頻度 月・週」の行と、上の「生年月日 年・月・日」の行。near と occurrence を合わせると、near に近い（同じ行の）
+    # 候補の中の何番目か（Word・Excel と同じ）。文書全体の 1 番目（上の行の「月」）にはしない
+    data = _pdf([(70, 700, 10, "生年月日"), (150, 700, 10, "年・月・日"), (70, 650, 10, "通院頻度"), (150, 650, 10, "月・週")])
+    src = tmp_path / "t.pdf"
+    src.write_bytes(data)
+    r = api.fill(str(src), {"@c1": {"circle": "月", "near": "通院頻度", "occurrence": 1}}, str(tmp_path / "o.pdf"))
+    assert "通院頻度 【月】・週" in r["circled"][0]["around"], r["circled"]
+    with pytest.raises(api.ApiError, match="near"):
+        api.fill(str(src), {"@c1": {"circle": "月", "near": "通院頻度", "occurrence": 2}}, str(tmp_path / "p.pdf"))
