@@ -156,7 +156,9 @@ def test_labels_distinguish_same_words():
     assert basic["L21"]["label"] == "法人 代表者／氏名"
     assert basic["L24"]["label"] == "書類作成 担当者／氏名"  # 同じ「氏名」でも、だれの氏名かが分かる
     assert basic["L15"]["label"] == "法人名／フリガナ"
-    assert basic["Q17"]["label"] == "法人住所：〒［　］-［▶］"
+    # 「〒｜［L17］｜-｜［Q17］」：欄の並びの後ろが字で終わらない（字にはさまれていない）ので並びにはせず、
+    # いちばん近い字「-」をそのまま見出しにする（「〒」「-」を語として読まない）。並び全体は context に出る
+    assert basic["Q17"]["label"] == "法人住所／-" and "〒 ｜ ［L17:O17］ ｜ - ｜ ［▶Q17:U17］" in basic["Q17"]["context"]
     assert basic["Q35"]["label"] == "事業所の所在地／都道府県"
     s21 = fields_of(doc, "別紙様式2-1")
     assert s21["E131"]["label"] == "令和［▶］年［　］月［　］日"
@@ -165,8 +167,11 @@ def test_labels_distinguish_same_words():
     assert s21["BA116"]["kind"] == "checkbox" and s21["BA116"]["label"].startswith("・処遇改善加算として給付される額は")
     assert s21["Q18"]["label"].startswith("②令和８年度の賃金改善の見込額 （①の額以上")  # 番号も文字も変えない
     s22 = fields_of(doc, "別紙様式2-2")
-    assert s22["AF13"]["label"] == "①月額賃金要件／月額賃金要件を満たす"
-    assert s22["R13"]["label"].startswith("算定対象月 (c)")
+    # 見出しは、すぐ左の字「ヶ月）」（前の欄の並びの続き）もそのまま入れる（「ヶ月」を単位の語として除かない）
+    assert s22["AF13"]["label"] == "ヶ月）／①月額賃金要件／月額賃金要件を満たす"
+    # 「令和［R13］年［T13］月～令和［V13］年［X13］月｜（｜…｜ヶ月）」：字にはさまれた欄の並びをそのまま見出しにする。上の見出し
+    # 「算定対象月 (c)」は、並びの後ろの字のマス（「（」「ヶ月）」）まで覆うので使わない（字の意味で除かない）。並びは context に出る
+    assert s22["R13"]["label"] == "令和［▶］年［　］月～令和［　］年［　］月"
 
 
 def test_labels_without_merged_sections():
@@ -175,7 +180,8 @@ def test_labels_without_merged_sections():
     basic = fields_of(doc, "基本情報")
     assert basic["M23"]["label"] == "法人名／名称"
     assert basic["M28"]["label"] == "法人代表者／氏名"
-    assert basic["N24"]["label"].endswith("（1マスに1文字）")  # 郵便番号を1桁ずつ書くマス
+    # 郵便番号を1桁ずつ書くマス：見出しは、いちばん近い字をそのまま（「1マスに1文字」とは推定しない。並びは context に出る）
+    assert basic["N24"]["label"] and "（1マスに1文字）" not in basic["N24"]["label"]
 
 
 def test_dependent_choices_follow_other_fields():

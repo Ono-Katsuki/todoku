@@ -17,6 +17,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
+from .. import chars
 from ..formula.numfmt import format_value, is_date_format
 from ..formula.parser import RefNode, addr, iter_refs, parse_cell
 from ..formula.values import ExcelError, Unsupported, is_number, to_text
@@ -28,10 +29,11 @@ AGENT = "agent"  # 規則では決められない所（欄かどうかを、エ�
 
 
 def norm_label(s: str) -> str:
-    """見出しの空白と改行を1つにまとめ、「事 業 所 番 号」のように字間を空けたものは詰める。文字そのものは変えない。"""
+    """見出しの空白と改行を1つにまとめ、「事 業 所 番 号」のように全角の字（UAX #11 の W・F）の字間を空けたものは詰める。
+    文字そのものは変えない。全角でない字（「I am a b c」「[ ] Yes [ ] No」）の間の空白は、語の区切りなので残す。"""
     t = str(s).strip()
     parts = re.split(r"[ \u3000\r\n\t]+", t)
-    if len(parts) >= 3 and all(len(p) <= 2 for p in parts):
+    if len(parts) >= 3 and all(len(p) <= 2 and all(chars.is_wide(ch) for ch in p) for p in parts):
         return "".join(parts)
     return re.sub(r"[ \u3000\r\n\t]+", " ", t)
 
@@ -62,7 +64,7 @@ def shown_text(wb: Workbook, cell: Cell, flag: bool = True) -> tuple[str, str | 
     try:
         return format_value(v, fmt, getattr(wb, "date1904", False)), None
     except Exception as e:  # noqa: BLE001  再現できない表示形式（Unsupported）・壊れた表示形式
-        raw = to_text(v)
+        raw = getattr(e, "shown", None) or to_text(v)  # 地域で見え方が変わる組み込みの形式（LocaleDependent）は ISO 8601 の字
         why = str(e) if isinstance(e, Unsupported) else f"表示形式を読めません（{type(e).__name__}）"
         return (unshown_mark(fmt, raw) if flag else raw), why
 
@@ -342,242 +344,232 @@ def _boxed_blanks(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], str]:
     return out
 
 
-_BLANK_UNITS = ("年間", "か月", "ヶ月", "カ月", "時間", "年度", "年", "月", "日", "号", "円", "人", "名", "件", "回", "時",
-                "分", "歳", "才", "枚", "部", "台", "）", ")", "】", "］")
-_TOK = re.compile(r"令和|平成|昭和|大正|明治|西暦|[ \u3000]+|[_＿]{3,}|.", re.S)
-_ERAS = {"令和", "平成", "昭和", "大正", "明治", "西暦"}
+# ---------------------------------------------------------------- 文字の中の、書き込む所（字の形と並びだけで決める）
+# 字の意味（「年」「様」「市」などの語）からは決めない。どの言語の書類にも同じ見つけ方で、決まるのは「どこに・どれだけの
+# 空きがあり、その前後にどんな字が印刷されているか」だけ。何を書く所かは、エージェントが前後の字（そのまま示す）から判断する。
+# 字の集まりは chars.py（Unicode の資料から作った表）。
+#
+# - 規則（書類の作りで決まる空欄）：下線の字（一般カテゴリ Pc）の並び・かっこの組（BidiBrackets.txt）の中が空白だけの所
+# - 規則では決めない所（「？」）：2つ以上の空白（一般カテゴリ Zs）の並び・点線（……・......）・ダッシュ（Pd）の 3 字以上の並び
+# 字間を空けた見出し（「事　　業　　所」：1 字ずつが同じ幅の空白で 3 字以上並ぶもの）の空白は、語を使わない形の判断で除く。
+GAP_MIN = 2  # 空白の並びを「空き」とする字数（1 つの空白は語の区切り）
+SPACED_MIN = 3  # 字間を空けた見出しとみなす、1 字ずつの並びの字数（2 字では「同じ幅の空白」が 1 か所しかなく、形からは決まらない）
+DASH_MIN = 3  # ダッシュの並びを空きとする字数（1・2 字は「1-2」「--」のような区切り）
+DECOR_MIN = 8  # 段落・マスの字が、同じ記号・点線・ダッシュだけで、この字数以上のもの：区切りの飾り（切り取り線など）
 
-
-_COUNT_PREFIX = set("第金約計全各満延毎総月年週時")
-
-
-
-def _letter(t: str) -> bool:
-    """字（漢字・かな・ラテン文字など）1字か、年号。"""
-    import unicodedata
-
-    return t in _ERAS or (len(t) == 1 and unicodedata.category(t)[0] == "L")
+BLANK_RULE_KINDS = ("underscore", "bracket")  # 規則の空欄（書類の作りで決まる）
 
 
 def _ident(ch: str) -> bool:
     return ch.isascii() and (ch.isalnum() or ch in ".-/")
 
 
-def inline_blanks(text: str) -> list[tuple[int, int]]:
-    """文字の中の、書き込むための空欄（「令和　　年　　月　　日」の空白、「第　　　号」の空白、「＿＿＿」）の位置。
+def _spaced_heading(text: str) -> bool:
+    """字間を空けた見出し（「事　　業　　所」）：前後に空白がなく、1 字ずつが同じ空白の並びで SPACED_MIN 字以上つながる。"""
+    runs = [(a, b) for a, b, k in chars.char_runs(text) if k == "space"]
+    if not runs or runs[0][0] == 0 or runs[-1][1] == len(text):
+        return False
+    seps = {text[a:b] for a, b in runs}
+    if len(seps) != 1:
+        return False
+    toks = [text[a:b] for a, b in zip([0] + [y for _x, y in runs], [x for x, _y in runs] + [len(text)])]
+    return len(toks) >= SPACED_MIN and all(len(t) == 1 for t in toks)
 
-    - 単位（年・月・日・号・円など）や閉じかっこの直前の、2つ以上の空白
-    - 「第」「（」「：」の直後の空白、全角の「（」の直前の空白、文の終わりの「）」の後の空白（電話番号の欄など）
-    - 「平成　年　月　日」のように、年号と年・月・日が1つの空白でつながったもの
-    - 下線（＿＿＿、___）
-    字間を空けた見出し（「廃　業　年　月　日」）の空白や、飾りの空白（「北海道知事　　　様」）は空欄にしない。"""
-    # 2字を空けた見出し（「氏　　名」「番　　号」）：後ろの字が単位でも、空欄にしない。
-    # 「第　　号」「金　　円」「月　　回」のように、前の字が数を受ける字のときだけ空欄
-    two = re.fullmatch(r"[ \u3000]*(\S)[ \u3000]+(\S)[ \u3000]*", text)
-    if two and _letter(two[1]) and _letter(two[2]) and two[1] not in _COUNT_PREFIX:
-        return []
-    toks = [(m.start(), m.end(), m[0]) for m in _TOK.finditer(text)]
-    chain_space = _chains(toks)
-    out = []
-    for k, (a, b, t) in enumerate(toks):
-        if t[0] in "_＿":
-            # 英数字にはさまれた半角の「_」（URL・ファイルの名前・メールアドレスの中の「minji05_00589」）は、名前の一部で空欄ではない
-            if t == "_" and 0 < a and b < len(text) and _ident(text[a - 1]) and _ident(text[b]):
+
+def blank_places(text: str) -> list[tuple[int, int, str]]:
+    """文字の中の、書き込む所（の候補）：(始め, 終わり, 種類)。種類は BLANK_KINDS の鍵。
+    "underscore"・"bracket" は規則の空欄、ほかは規則では決めない所（エージェントが前後の字を読んで判断する）。"""
+    out: list[tuple[int, int, str]] = []
+    text = str(text)
+    stripped = "".join(ch for ch in text if not chars.is_space(ch))
+    spaced = _spaced_heading(text)
+    for a, b, kind in chars.char_runs(text):
+        run = text[a:b]
+        if kind == "connector":
+            # 英数字にはさまれた 1 つの「_」（URL・ファイルの名前・メールアドレスの「minji05_00589」）は、名前の一部
+            if b - a == 1 and 0 < a and b < len(text) and _ident(text[a - 1]) and _ident(text[b]):
                 continue
-            out.append((a, b))
-            continue
-        if not t.isspace():
-            continue
-        if k in chain_space:
-            if chain_space[k]:
-                out.append((a, b))
-            continue
-        after = text[b:b + 2]
-        before = text[max(0, a - 1):a]
-        jp_before = a > 0 and ord(text[a - 1]) > 0x2E80
-        unit_after = any(after.startswith(u) for u in _BLANK_UNITS)
-        if b - a == 1:
-            # 1つの空白：日本語の文字のあとの半角の空白＋単位（「から 年間」）だけ
-            if t == " " and jp_before and unit_after:
-                out.append((a, b))
-            continue
-        opener_before = before in ("第", "（", "：", "－", "〒", "№", "(", ":") or (a == 0 and unit_after)
-        paren_after = after[:1] == "（" and jp_before
-        tail = b == len(text) and before == "）"
-        if unit_after or (opener_before and b < len(text)) or paren_after or tail:
-            out.append((a, b))
+            out.append((a, b, "underscore"))
+        elif kind == "space":
+            opener = text[a - 1] if a > 0 else ""
+            if opener and b < len(text) and chars.closing(opener) == text[b]:
+                out.append((a, b, "bracket"))  # 「（　　）」「[ ]」「( )」：かっこの組の中が空白だけ
+            elif b - a >= GAP_MIN and not spaced and b - a < len(text) and not (
+                    b < len(text) and (text[b] in chars.BOXES or text[b] in chars.MAYBE_CHECKED)):
+                # チェックの箱の字の前の空白（「☐ 新規　　☐ 変更」）は、箱の字の項目どうしの区切り
+                out.append((a, b, "gap"))
+        elif kind in ("leader", "dash"):
+            long_enough = chars.dot_run(text, a, b) if kind == "leader" else b - a >= DASH_MIN
+            if not long_enough:
+                continue
+            if len(run) == len(stripped) and len(run) >= DECOR_MIN:
+                continue  # 点線・ダッシュだけの長い行（区切りの飾り）
+            out.append((a, b, kind))
     return out
 
 
-def _chains(toks: list[tuple[int, int, str]]) -> dict[int, bool]:
-    """同じ幅の空白でつながった並び（字間を空けた見出しか、年月日の並び）の、区切りの空白 → 年月日の並びか。
-    1つの空白ならどんな字でも、2つ以上の空白なら字（漢字・かな・年号）だけの並び（「職　　業　　名」「令和　　年　　月　　日」）"""
-    chain_space: dict[int, bool] = {}
-    i = 0
-    while i < len(toks):
-        j = i
-        while j + 2 < len(toks) and toks[j + 1][2].isspace() and not toks[j][2].isspace() and not toks[j + 2][2].isspace() \
-                and toks[j + 1][2] == toks[i + 1][2] and \
-                (toks[j + 1][2] in (" ", "\u3000") or (_letter(toks[j][2]) and _letter(toks[j + 2][2]))):
-            j += 2
-        if j - i >= 4:  # 3つ以上の文字が1つの空白でつながっている
-            words = [toks[k][2] for k in range(i, j + 1, 2)]
-            body = words[1:] if words[0] in _ERAS else words
-            date = all(w in ("年", "月", "日") for w in body) and len(body) >= 2
-            for k in range(i + 1, j, 2):
-                chain_space[k] = date
-            i = j + 1
-        else:
-            i += 1
-    return chain_space
+def inline_blanks(text: str) -> list[tuple[int, int]]:
+    """文字の中の、書き込む所の位置（blank_places の、規則の空欄と規則では決めない所の両方。チェックの箱の字は含めない）。"""
+    return [(a, b) for a, b, _k in blank_places(text)]
+
+
+def blank_token(text: str, a: int, b: int, why, mark: bool = False) -> str:
+    """窓で、文字の中の所 text[a:b] の代わりに出す字：規則の空欄は［　］、規則では決めない所は［？］（mark：書く所に ▶）。
+    チェックの箱の字（☐ □ など）は、字を消さずに、字のあとに［　］をつける（「☐［　］Male」）。"""
+    m = "▶" if mark else ""
+    box = text[a:b] if b - a == 1 and text[a:b] in chars.BOXES else ""
+    if why is None:
+        return f"{box}［{m or '　'}］"
+    return f"{box}［{m}？］"
+
+
+def space_width(text: str, a: int, b: int) -> float:
+    """text[a:b] の幅（全角の字（UAX #11 の W・F）を 1、ほかを 0.5 とした、字の幅のおよその数。窓に示すだけで、判断には使わない）。"""
+    return sum(1.0 if chars.is_wide(ch) else 0.5 for ch in text[a:b])
 
 
 # ---------------------------------------------------------------- 規則では決められない所（エージェントが判断する）
 # 規則の型には合わないが、書き込む所かもしれない所。規則では欄と決めず、窓に「？」をつけて示し、エージェントが読んで判断する。
 # 書くと決めたら、ほかの欄と同じように id を指定して書く（証明も同じ）。書かなければ、何も変わらない。
 AGENT_WHY = {
-    "date_gap": "日付らしい並びの空き（区切りの空白の幅が不揃い・空白が1つだけ）",
-    "date_dots": "「・」で区切った日付らしい並びの空き",
-    "placeholder": "伏せ字（○○・＊＊＊ など。書き換える所）",
-    "after_colon": "「：」で終わる見出しの後ろ",
-    "list_item": "箇条の印だけの行の中身",
-    "before_unit": "単位だけのマスの、単位の前",
-    "date_cell": "「年　月」のように単位で始まるマスの、初めの単位の前",
-    "after_label": "見出しだけの短い段落（「住所」「１　農産物名」）の後ろ",
-    "after_label_long": "見出しだけの段落の後ろ（1 字か 17 字以上の、長い見出し・表題のこともある段落）",
+    "gap": "2つ以上の空白の並び（字の意味からは決めていません。空きの幅と前後の字から判断してください）",
+    "leader": "点線（……・......）の並び",
+    "dash": "ダッシュ（---・－－－）の 3 字以上の並び",
+    "placeholder": "同じ記号の並び（○○・＊＊＊・×× など。伏せ字として書き換える所のことがある）",
+    "after_colon": "コロン（:・： など）で終わる字の後ろ",
+    "after_label": "文の区切りの字（。・,・、 など）のない短い段落の後ろ",
+    "after_label_long": "文の区切りの字のない段落の後ろ（1 字か 17 字以上の、長い見出し・表題のこともある段落）",
     "after_label_more": "段落の終わりの後ろ（同じ段落に、ほかの空欄・空きもある）",
-    "after_mark": "「〒」「＠」や通貨の記号で終わる段落の、記号の後ろ",
-    "gap": "語と語の間の、2つ以上の空白（「議長　　　　氏」「代表者の氏名　　　殿」）",
     "empty_cell": "見出しの見つからない空のマス",
     "next_line": "見出しのあるマスの中の、空の段落",
     # 表計算（Excel・OpenDocument）のマス
-    "keyword": "単位・年号などの語の前後の空白（「令和　　年」「第　　号」「金　　円」。語の並びから推定した空欄）",
     "blank_box": "枠・塗り・結合のある空のマスで、入力欄と決める印（入力規則・保護の中のロックの解除・すぐそばの見出し）がないもの",
     "table_row": "表の行に入力欄があるのに、この列のセルには入力欄の印（入力規則・枠・ロックの解除）がないもの",
 }
-# 単位だけのマスの単位（規則の UNIT_ONLY に、階・坪・棟・戸・室・畳と、㎡ などの単位の記号（CJK 互換用文字の U+3371〜U+33DF）を足す）
-_AGENT_UNIT = re.compile(r"[階坪棟戸室畳\u3371-\u33df]|m²|ｍ²|m2|ｍ２")
-_PH_RUN = re.compile(r"([○〇●◯＊*×✕△▲◇◆])(?:[ \u3000]?\1)+")
-_ELLIPSIS = re.compile(r"[…‥]+")
-_LIST_ONLY = re.compile(r"[ \u3000]*(?:[・•●◦]|[①-⑳]|[（(]?[0-9０-９]{1,3}[)）.．]|[（(][ア-ンａ-ｚa-z][)）]|[ア-ン][.．])[ \u3000]*")
-_COLON_LABEL = re.compile(r"[ \u3000]*([^。．！？!?：:]{1,24}?)[ \u3000]*[：:]([ \u3000]*)")
-_DOTS_ONLY = re.compile(r"[ \u3000]*・[ \u3000]*・[ \u3000]*")
-_NEXT_UNIT = {"年": "月", "月": "日", "時": "分"}
-_OPTION_NEXT = re.compile(r"[□☐■☑☒○◯〇]|[0-9０-９]{1,2}[.．)）]|[（(][0-9０-９]{1,2}[)）]|[①-⑳]")
+
+
+def _repeat_runs(text: str) -> list[tuple[int, int]]:
+    """同じ記号（一般カテゴリ S・「*」「＊」）が 2 つ以上続く所（間に 1 つの空白をはさんでもよい）。
+    チェックの箱の字・点線・ダッシュは、それぞれの見つけ方で示すので含めない。"""
+    def sym(ch: str) -> bool:
+        return (unicodedata.category(ch)[0] == "S" or ch in "*＊") and ch not in chars.BOXES and ch not in chars.MAYBE_CHECKED
+
+    out, i, n = [], 0, len(text)
+    while i < n:
+        ch = text[i]
+        if not sym(ch):
+            i += 1
+            continue
+        j, count = i + 1, 1
+        while j < n:
+            if text[j] == ch:
+                j, count = j + 1, count + 1
+            elif chars.is_space(text[j]) and j + 1 < n and text[j + 1] == ch:
+                j, count = j + 2, count + 1
+            else:
+                break
+        if count >= 2:
+            out.append((i, j))
+        i = j
+    return out
+
+
+def _lead_marker(body: str) -> str:
+    """段落の頭の番号・記号（「1.」「(2)」「①」「ア」「a)」）と、そのあとの空白を除いた字。字の種類だけで見る。"""
+    n = len(body)
+    i = 1 if n and chars.closing(body[0]) else 0
+    j = i
+    while j < n and unicodedata.category(body[j]) in ("Nd", "No", "Nl"):
+        j += 1
+    circled = j > i and all(unicodedata.category(ch) in ("No", "Nl") for ch in body[i:j])  # 「①」「Ⅳ」：字そのものが番号
+    if j == i and j < n and unicodedata.category(body[j])[0] == "L":
+        j += 1  # 1 字の字の印（「ア　」「a)」）
+    if j == i:
+        return body
+    sep = j < n and (unicodedata.category(body[j]) == "Pe" or chars.is_terminal_punctuation(body[j]))
+    if sep:
+        j += 1
+    k = j
+    while k < n and chars.is_space(body[k]):
+        k += 1
+    if not (sep or k > j or circled):
+        return body  # 番号・字のあとに区切りも空白もない（「100円」「アイス」）：番号ではない
+    return body[k:]
 
 
 def agent_blanks(text: str, found=(), in_cell: bool = False, detail: bool = False) -> list[tuple[int, int, str]]:
-    """規則では決められない、書き込む所かもしれない所：(始め, 終わり, 何か（AGENT_WHY の鍵）)。
-    found は規則で見つけた空欄（重なる所・すぐ隣の所は出さない）。in_cell は表のマスの中の文字か。"""
-    from ..pdf.layout import UNIT_ONLY
-
-    taken = [tuple(x[:2]) for x in found]
+    """規則では決められない、書き込む所かもしれない所（blank_places の空き・点線のほか）：(始め, 終わり, 何か（AGENT_WHY の鍵）)。
+    found は先に見つけた所（重なる所・すぐ隣の所は出さない）。in_cell は表のマスの中の字か（いまは見つけ方を変えない）。
+    どれも字の形と並び（同じ記号の並び・コロンや文の区切りの字（Unicode の性質）で終わるか）だけで決め、語は見ない。"""
+    taken = sorted(tuple(x[:2]) for x in found)  # 先に見つけた所（始めの順。重なりを二分探索で調べる：所の数 × 段落の長さにしない）
+    reach = list(itertools.accumulate((y for _x, y in taken), max))  # その所までの、終わりの最大
     out: list[tuple[int, int, str]] = []
 
+    def meets(a: int, b: int, x: int, y: int) -> bool:
+        return (a < y and x < b) or (a == b and x <= a <= y) or (x == y and a <= x <= b)
+
     def add(a: int, b: int, why: str) -> None:
-        for x, y in taken + [(o[0], o[1]) for o in out]:
-            if (a < y and x < b) or (a == b and x <= a <= y) or (x == y and a <= x <= b):
+        # 先に見つけた所：始めが b 以下のもののうち、終わりが a 以上のものだけを見る
+        i = bisect.bisect_right(taken, (b, float("inf")))
+        while i > 0 and reach[i - 1] >= a:
+            if meets(a, b, *taken[i - 1]):
                 return
+            i -= 1
+        # ここで足す所は、位置の順に足す（同じ記号の並び → 字の後ろ）ので、最後に足した所とだけ比べればよい
+        if out and meets(a, b, out[-1][0], out[-1][1]):
+            return
         out.append((a, b, why))
 
-    stripped = text.strip(" \u3000")
-    lead = len(text) - len(text.lstrip(" \u3000"))
-    # 伏せ字：同じ記号が2つ以上続く所。続く「……」や、短い区切り（「県」「市」「－」など空白のない3字まで）でつながるものは1つの所
-    runs = [(m.start(), m.end()) for m in _PH_RUN.finditer(text)]
-    if runs:
-        ells = [(m.start(), m.end()) for m in _ELLIPSIS.finditer(text)]
-        spans = sorted(runs + [e for e in ells if any(0 <= e[0] - r[1] <= 3 or 0 <= r[0] - e[1] <= 3 for r in runs)])
-        merged: list[list[int]] = []
-        for a, b in spans:
-            gap = text[merged[-1][1]:a] if merged else None
-            if merged and gap is not None and len(gap) <= 3 and not any(ch in " \u3000\t" for ch in gap):
-                merged[-1][1] = max(merged[-1][1], b)
-            else:
-                merged.append([a, b])
-        for a, b in merged:
-            core = text[a:b].replace(" ", "").replace("\u3000", "")
-            if b - a >= 8 and len(set(core)) == 1 and text[a:b] == stripped:
-                continue  # 同じ記号だけの長い行（区切りの飾り）
-            add(a, b, "placeholder")
-    # 日付らしい並びの、規則の型に合わない空き（「令和 年　月」の年と月の間・「６年　月」）。字間を空けた見出しの空白は除く
-    toks = [(m.start(), m.end(), m[0]) for m in _TOK.finditer(text)]
-    chains = _chains(toks)
-    for k in range(1, len(toks) - 1):
-        a, b, t = toks[k]
-        if not t.isspace() or b - a != 1 or chains.get(k) is False:
-            continue
-        prev, nxt = toks[k - 1][2], toks[k + 1][2]
-        if (prev in _ERAS and nxt == "年") or _NEXT_UNIT.get(prev) == nxt:
-            add(a, b, "date_gap")
-    if _DOTS_ONLY.fullmatch(text):
-        d1 = text.index("・")
-        d2 = text.index("・", d1 + 1)
-        add(0, d1, "date_dots")
-        add(d1 + 1, d2, "date_dots")
-        add(d2 + 1, len(text), "date_dots")
-    # 「：」で終わる短い見出しの後ろ（「住所：」「Facility Name:」）
-    m = _COLON_LABEL.fullmatch(text)
-    if m and any(unicodedata.category(ch)[0] == "L" for ch in m[1]):
-        add(m.start(2), len(text), "after_colon")
-    # 箇条の印だけの行（「・」「(1)」）の中身
-    if stripped and _LIST_ONLY.fullmatch(text):
-        add(len(text.rstrip(" \u3000")), len(text), "list_item")
-    # 「〒」「＠」・通貨の記号で終わる段落：記号の後ろに書く（「所在地　〒」「電子メール　　　＠」）
-    core_end = len(text.rstrip(" \u3000"))
-    if stripped and (stripped[-1] in "〒＠@" or unicodedata.category(stripped[-1]) == "Sc"):
-        add(core_end, len(text), "after_mark")
-    # 語と語の間の、規則の型に合わない2つ以上の空白（字間を空けた見出し・2字の見出し「氏　　名」は除く）
-    if not re.fullmatch(r"[ \u3000]*(\S)[ \u3000]+(\S)[ \u3000]*", text):
-        for k in range(1, len(toks) - 1):
-            a, b, t = toks[k]
-            # 選択肢の区切り（「□新規　　□変更」「１．有　　２．無」）の空白は除く
-            if t.isspace() and b - a >= 2 and k not in chains and not _OPTION_NEXT.match(text, b):
-                add(a, b, "gap")
-    # 見出しだけの段落（「住所」「１　農産物名」）の後ろ：値を見出しの後ろに書き足す書類が多い（表題・節の見出しのこともある）。
-    # 字数（以前は 2〜16 字だけ）や、同じ段落にほかの空きがあるか（以前はないときだけ）では落とさず、候補にする。
-    # どれに当たるかは detail=True のとき why の鍵で示す（after_label：短い見出しだけ・after_label_long：1 字か 17 字以上・
-    # after_label_more：ほかの空き・空欄もある段落）。detail=False（これまでの呼び方）では、どれも after_label
-    body = re.sub(r"^(?:[0-9０-９]{1,2}|[（(][0-9０-９]{1,2}[)）]|[①-⑳]|[ア-ン])[ \u3000.．、]+", "", stripped)
-    if (body and not re.search(r"[。．!?！？、，,：:]", body)
-            and not body.endswith(("殿", "様", "御中")) and any(unicodedata.category(ch)[0] == "L" for ch in body)
-            and not re.search(r"[ \u3000]{2,}", body)):
+    core = text.strip("".join(ch for ch in set(text) if chars.is_space(ch)))
+    core_end = len(text.rstrip("".join(ch for ch in set(text) if chars.is_space(ch))))
+    # 同じ記号の並びが、空白のない短い字（3 字まで：「県」「市」「－」）でつながるもの（「○○県○○市○○区」）は 1 つの所
+    merged: list[list[int]] = []
+    for a, b in _repeat_runs(text):
+        gap = text[merged[-1][1]:a] if merged else None
+        if gap is not None and len(gap) <= 3 and not any(chars.is_space(ch) for ch in gap):
+            merged[-1][1] = b
+        else:
+            merged.append([a, b])
+    for a, b in merged:
+        if b - a >= DECOR_MIN and text[a:b] == core:
+            continue  # 同じ記号だけの長い行（区切りの飾り）
+        add(a, b, "placeholder")
+    if not core:
+        return sorted(out)
+    last = core[-1]
+    if chars.is_label_colon(last):
+        add(core_end, len(text), "after_colon")  # 「住所：」「Facility Name:」「Nom :」
+        return sorted(out)
+    # 文の区切りの字（Unicode の Terminal_Punctuation：。 . , 、 ; ! ? । ؟ など）のない段落の後ろ：見出しだけの段落の後ろに
+    # 値を書き足す書類が多い（表題・節の見出しのこともある）。中に 2 つ以上の空白の並びがある段落（空きは別の所として示す）は除く
+    body = _lead_marker(core)
+    if (body and not any(chars.is_terminal_punctuation(ch) for ch in body)
+            and any(unicodedata.category(ch)[0] in ("L", "N") for ch in body)
+            and not any(k == "space" and b - a >= GAP_MIN for a, b, k in chars.char_runs(body))):
         key = "after_label"
         if detail:
             key = "after_label_more" if (found or out) else "after_label" if 2 <= len(body) <= 16 else "after_label_long"
         add(core_end, len(text), key)
-    if in_cell and stripped:
-        if UNIT_ONLY.fullmatch(stripped) or _AGENT_UNIT.fullmatch(stripped):
-            add(0, lead, "before_unit")  # 「人」「名」「円」「階」「㎡」だけのマス
-        elif toks and stripped[0] in _NEXT_UNIT and re.match(r"[年月時][ \u3000]+[月日分]", stripped):
-            add(0, lead, "date_cell")  # 「年　月」で始まるマス（数は単位の前に書く）
     return sorted(out)
-
-
-def _bracketed(text: str, a: int, b: int) -> bool:
-    """空白が、かっこの組（「（　　）」「［　］」）の中にそれだけで入っている。字の形だけで決まる空欄。"""
-    pairs = {"（": "）", "(": ")", "［": "］", "[": "]", "【": "】", "「": "」"}
-    return 0 < a and b < len(text) and pairs.get(text[a - 1]) == text[b] and not text[a:b].strip(" 　")
 
 
 def cell_blanks(text: str) -> list[tuple[int, int, str | None]]:
     """表計算のマスの文字の中の、書き込む所（の候補）：(始め, 終わり, 何か)。何かが None なら規則で決まる空欄、
     文字なら規則では決められない所（AGENT_WHY の鍵。エージェントが窓を読んで判断する）。
 
-    - 規則（字の形だけで決まる）：下線（＿＿＿、___）・かっこの中の空白だけの所（「（　　）」）
-    - 規則では決められない：語（年・月・日・号・円などの単位、年号、「第」「〒」など）の前後の空白（"keyword"）と、
-      agent_blanks の見つけ方（語と語の間の空き・伏せ字・「：」の後ろなど）。語の並びから推定した所は、
-      空欄とは言い切らず、窓に「？」をつけて示す
-    Word・PDF も使う inline_blanks（語から決める空欄）は、そのまま変えない。"""
-    found = inline_blanks(text)
-    out: list[tuple[int, int, str | None]] = []
-    for a, b in found:
-        rule = text[a:b][:1] in ("_", "＿") or _bracketed(text, a, b)
-        out.append((a, b, None if rule else "keyword"))
-    # 見出しだけの短い字（「住所」）の後ろ（after_label）は、表計算のマスでは出さない。表計算では、見出しは1つのマスに書き、
+    - 規則（字の形だけで決まる）：下線の字の並び・かっこの中の空白だけの所（「（　　）」「[ ]」）・チェックの箱の字（☐ □ など）
+    - 規則では決められない：2つ以上の空白の並び・点線・ダッシュの並び（blank_places）と、agent_blanks の見つけ方
+      （同じ記号の並び・コロンで終わる字の後ろ）"""
+    found = blank_places(text)
+    out: list[tuple[int, int, str | None]] = [(a, b, None if k in BLANK_RULE_KINDS else k) for a, b, k in found]
+    for i, ch in enumerate(text):
+        if ch in chars.EMPTY_BOXES or ch in chars.CHECKED_BOXES:
+            out.append((i, i + 1, None))  # チェックの箱の字：書くときは、その字を ☑ などに書き換える
+    # 文の区切りのない字（「住所」）の後ろ（after_label）は、表計算のマスでは出さない。表計算では、見出しは1つのマスに書き、
     # 値は別のマスに書く作りで、見出しの後ろまで出すと、すべての見出し・すべての値のマス（表の中の「東京都」など）が候補になり、
     # 窓が読めなくなる。値を書くマスは、入力欄か、印（罫線・塗り・結合）があれば［B5？］として出る。見出しのマスに書き足すときは、
     # 書き換えたあとの文字全体を書く
-    out += [x for x in agent_blanks(text, found, True) if x[2] != "after_label"]
+    out += [x for x in agent_blanks(text, [(a, b) for a, b, _k in out], True) if x[2] != "after_label"]
     return sorted(out)
 
 
@@ -688,24 +680,20 @@ class Box:
         return addr(self.r, self.c1)
 
 
-_UNIT_WORDS = ("千円", "万円", "円", "か月", "ヶ月", "カ月", "ケ月", "か所", "ヶ所", "箇所", "日間", "週間", "年間", "時間",
-               "世帯", "年度", "年", "月", "日", "人", "名", "件", "回", "分", "秒", "歳", "才", "号", "番", "割", "倍", "時",
-               "台", "枚", "部", "冊", "本", "個", "週", "点", "級", "階", "室", "床", "％", "%", "㎡", "km", "kg")
-_ERA_WORDS = ("令和", "平成", "昭和", "大正", "明治", "西暦", "〒", "第", "から", "まで", "No.", "№")
-_SEP = "-－‐―～~〜・/／（）()「」 　:：,、"
-_TOKEN = re.compile("(?:" + "|".join(re.escape(w) for w in sorted(_UNIT_WORDS + _ERA_WORDS, key=len, reverse=True))
-                    + "|[" + re.escape(_SEP) + "])+")
-_MARKER = re.compile(r"^[\(（]?(?:[①-⑳㉑-㉟㊱-㊿]|[0-9０-９]{1,2}|[イロハニホヘトチリヌ]|[ⅰ-ⅻⅠ-Ⅻ]+|[a-zａ-ｚ])[\)）．.]?$")
-
-
-def _is_phrase_text(t: str) -> bool:
+def _is_marker(t: str) -> bool:
+    """項目の番号・記号だけの字（「①」「(2)」「ア.」「Ⅳ」）か。字の種類（数・1 字の字・かっこ・区切り）だけで見て、語は見ない。"""
     t = t.strip()
-    return bool(t) and len(t) <= 6 and _TOKEN.fullmatch(t) is not None
+    return bool(t) and _lead_marker(t) == ""
 
 
-def _unit_of(t: str) -> str | None:
-    t = t.strip().strip("()（）[]［］")
-    return t if t in _UNIT_WORDS else None
+def _text(b: Box) -> bool:
+    """字の書かれたマス（見出しになりうる、印刷される字）。"""
+    return b.kind == "text" and isinstance(b.cell.value, str) and bool(b.cell.value.strip())
+
+
+def _word(b: Box) -> bool:
+    """1 行のマスの、字の書かれたマス（入力欄と交互に並ぶ字）。"""
+    return _text(b) and b.r2 == b.r
 
 
 # ActiveX の部品（MS-OFORMS）：入力欄として読むもの（文字）と、印で読むもの（チェック・オプション・スピン）
@@ -918,7 +906,7 @@ class Layout:
             return False
         b = left[-1]
         if not (b.kind == "text" and b.r2 == b.r and isinstance(b.cell.value, str) and b.cell.value.strip()
-                and not _is_phrase_text(b.cell.value) and a.c1 - b.c2 - 1 <= 4):
+                and a.c1 - b.c2 - 1 <= 4):
             return False
         fmt = self.wb.style(self.sh.style_of(a.r, a.c1)).num_fmt or "General"
         if fmt not in ("General", "@"):
@@ -980,25 +968,16 @@ class Layout:
         return out
 
     def _agent_text_spans(self) -> None:
-        """文字の中の、規則では決められない所のうち、すぐ隣のマスに欄がある（値はそちらに書く）ものは出さない：
-        見出しの後ろ（「住所」「住所：」「〒」）は右のマスが欄・空のマス、単位の前（「人」だけのマス）は左のマスが欄・空のマス。
-        """
-        right_kinds = ("after_colon", "after_mark")
-        left_kinds = ("before_unit", "date_cell")
+        """文字の中の、規則では決められない所のうち、コロンで終わる字の後ろ（「住所：」）は、すぐ右のマスが欄・空のマスなら
+        出さない（値はそちらに書く。マスの並びだけで決める）。空白の並びは、隣に欄があっても消さずに示す（どちらに書くかは
+        エージェントが判断する）。"""
         for r, items in self.rows.items():
-            slots = {(b.c1, "c1"): b for b in items + self.agent.get(r, []) if b.kind in ("input", "agent")}
-            slots.update({(b.c2, "c2"): b for b in items + self.agent.get(r, []) if b.kind in ("input", "agent")})
+            slots = {b.c1 for b in items + self.agent.get(r, []) if b.kind in ("input", "agent")}
             for b in items:
-                if b.kind != "text" or not any(k in right_kinds + left_kinds for _a, _z, k in b.blanks):
+                if b.kind != "text" or not b.blanks:
                     continue
-                keep = []
-                for a, z, k in b.blanks:
-                    if k in right_kinds and (b.c2 + 1, "c1") in slots:
-                        continue
-                    if k in left_kinds and (b.c1 - 1, "c2") in slots:
-                        continue
-                    keep.append((a, z, k))
-                b.blanks = keep
+                if b.c2 + 1 in slots:
+                    b.blanks = [x for x in b.blanks if x[2] != "after_colon"]
 
     def agent_boxes(self, r: int) -> list[Box]:
         return self.agent.get(r, [])
@@ -1101,47 +1080,53 @@ class Layout:
 
     # ------------------------------------------------------------------ 見出し
     def phrase(self, r: int, target: Box) -> tuple[list[Box], int]:
-        """入力欄の前後に続く「令和［］年［］月［］日」のような、短い語と欄が交互に並ぶところ。"""
+        """入力欄と、すぐ隣のマス（あいだに空の列をはさまない）の字が交互に並ぶ所（「令和｜［］｜年｜［］｜月｜［］｜日」）。
+        字の意味は見ず、マスの並びだけで決める。両端の欄（この欄のほか）は外し、両端が字になるようにする。
+        describe は、両端が字で、欄が2つ以上あるもの（字にはさまれた欄の並び）だけを、並びとして見出しに出す。"""
         row = [b for b in self.boxes(r) if b.kind != "check" and (not b.outside or target.outside)]
         i = row.index(target)
 
-        def word(b: Box) -> bool:
-            return b.kind == "text" and isinstance(b.cell.value, str) and _is_phrase_text(b.cell.value)
-
         def slot(b: Box) -> bool:
-            return b.kind == "input" or (b.kind == "formula" and 0 < len(b.text) <= 6)
-
-        def cell1(b: Box) -> bool:
-            return b.kind == "input" and b.c1 == b.c2 and b.r == b.r2
+            return b.kind == "input" or (b.kind == "formula" and bool(b.text))
 
         seq = [target]
         for step in (-1, 1):
             j = i + step
-            after_word = False
             prev = target
             while 0 <= j < len(row):
                 b = row[j]
-                if word(b):
-                    after_word = True
-                elif slot(b) and (after_word or (cell1(b) and cell1(prev) and abs(b.c1 - prev.c1) == 1)):
-                    after_word = False
-                else:
+                if not ((_word(b) and slot(prev)) or (slot(b) and _word(prev))):
                     break
-                prev = b
                 if step < 0:
                     seq.insert(0, b)
                 else:
                     seq.append(b)
+                prev = b
                 j += step
-        # 端の欄は、語でつながっていないので外す
-        while len(seq) > 1 and seq[0] is not target and not word(seq[0]):
+        while len(seq) > 1 and seq[0] is not target and not _word(seq[0]):
             seq.pop(0)
-        while len(seq) > 1 and seq[-1] is not target and not word(seq[-1]):
+        while len(seq) > 1 and seq[-1] is not target and not _word(seq[-1]):
             seq.pop()
         return seq, seq.index(target)
 
+    def _list_table(self, r: int, c: int):
+        """セル (r, c) を本体（見出しの行・集計の行を除く）に含むテーブル（リストオブジェクト）。なければ None。"""
+        for t in (getattr(self.wb, "tables", None) or {}).values():
+            if t.sheet == self.sh.name and t.c1 <= c <= t.c2 and t.r1 + t.header_rows <= r <= t.r2 - t.totals_rows:
+                return t
+        return None
+
     def header(self, target: Box, phrase: list[Box]) -> list[str]:
-        """同じ列の上にある見出し（2段まで）。行の中のほかのマスまで覆う見出し（表題など）は使わない。"""
+        """同じ列の上にある見出し（2段まで）。行の中のほかのマスまで覆う見出し（表題など）は使わない。
+        テーブル（リストオブジェクト）の本体のマスは、テーブルの見出しの行の字（ファイルが見出しと決めている字）をそのまま使い、
+        本体の中の字（見本の値など）を見出しにしない。"""
+        t = self._list_table(target.r, target.c1)
+        if t is not None and t.header_rows:
+            cell = self.sh.cells.get((t.r1 + t.header_rows - 1, target.c1))
+            v = cell.value if cell is not None and isinstance(cell.value, str) and cell.value.strip() else None
+            if v is None and target.c1 - t.c1 < len(t.columns):
+                v = t.columns[target.c1 - t.c1] or None
+            return [norm_label(v)] if v else []
         others = [b for b in self.boxes(target.r) if b not in phrase and b.kind != "check"]
         lo = min(b.c1 for b in phrase) if phrase else target.c1
         hi = max(b.c2 for b in phrase) if phrase else target.c2
@@ -1160,8 +1145,7 @@ class Layout:
             cand = self._cand(r, span)
             if not out and any(b.kind == "input" for b in cand):
                 break  # すぐ上に別の入力欄がある：この欄の見出しは上にはない
-            texts = [b for b in cand if b.kind == "text" and isinstance(b.cell.value, str) and b.cell.value.strip()
-                     and not _is_phrase_text(b.cell.value)]
+            texts = [b for b in cand if _text(b)]
             if out and any(b.kind in ("input", "formula") or (b.kind == "text" and not isinstance(b.cell.value, str))
                            for b in cand):
                 break  # 親の見出しは、すぐ上に続く見出しだけ（欄や数値をまたがない）
@@ -1170,8 +1154,7 @@ class Layout:
                 continue
             h = texts[0]
             covered = [o for o in others if o.c1 <= h.c2 and o.c2 >= h.c1 and not (lo <= o.c1 and o.c2 <= hi)
-                       and not (o.kind == "formula" and not o.text)
-                       and not (o.kind == "text" and isinstance(o.cell.value, str) and _is_phrase_text(o.cell.value))]
+                       and not (o.kind == "formula" and not o.text)]
             if out:
                 # 2段目（親の見出し）は、いくつかの列をまとめていてよい。表題のように広いものは使わない
                 if len(covered) > 4 or (h.c2 - h.c1 + 1) > max(12, 3 * (span[1] - span[0] + 1)):
@@ -1186,60 +1169,65 @@ class Layout:
         return out
 
     def describe(self, target: Box, options: list | None = None) -> dict:
-        """入力欄（またはチェックボックス）の見出しと、判断の材料。"""
+        """入力欄（またはチェックボックス）の見出しと、判断の材料。見出しは、印刷された字をそのまま使う：
+        同じ行の前（左。右から左へ表示するシートでは画面の右）のいちばん近い字・同じ列の上の字。字の意味（単位・年号など）では選ばない。"""
         r = target.r
         row = self.boxes(r)
         phrase, pi = self.phrase(r, target) if target.kind == "input" else ([target], 0)
-        first = phrase[0] if phrase else target
+        n_slots = sum(b.kind in ("input", "formula") for b in phrase)
+        shown = n_slots >= 2 and _word(phrase[0]) and _word(phrase[-1])  # 字にはさまれた、2 つ以上の欄の並び
+        if not shown:
+            phrase = [target]
+        first = phrase[0]
         secs = [norm_label(b.cell.value) for b in self.sections(r, first.c1)]
         left_edge = first.c1
         nearest = [b for b in row if b.c2 < left_edge and b.kind != "check"]
         lefts = []
         if nearest:
             b = nearest[-1]
-            if (b.kind == "text" and b.r2 == b.r and isinstance(b.cell.value, str) and b.cell.value.strip()
-                    and not _is_phrase_text(b.cell.value) and left_edge - b.c2 - 1 <= 4):
+            if _text(b) and b.r2 == b.r and left_edge - b.c2 - 1 <= 4:
                 lefts = [b]
-        right_edge = phrase[-1].c2 if phrase else target.c2
-        rights = [b for b in row if b.kind == "text" and b.c1 > right_edge
-                  and isinstance(b.cell.value, str) and b.cell.value.strip()]
+        right_edge = phrase[-1].c2
+        rights = [b for b in row if b.c1 > right_edge and _text(b)]
         mark = target.kind == "check" or (options is not None and len(options) <= 6
                                           and all(isinstance(o, str) and len(o) <= 3 for o in options))
         item = None
         method = []
+        before, after = self.side("左"), self.side("右")
         if target.kind == "check":
-            carried_right = [b for b in self.cover.get(r, []) if b.kind == "text" and b.c1 > target.c2
-                             and isinstance(b.cell.value, str) and b.cell.value.strip()]
+            carried_right = [b for b in self.cover.get(r, []) if b.c1 > target.c2 and _text(b)]
             rights = sorted(rights + carried_right, key=lambda b: b.c1)
         if mark and rights:
-            # チェック欄・○を付ける欄は、右に書かれた項目が見出し（①などの番号は続く文と合わせる）
+            # チェック欄・○を付ける欄は、後ろ（右）に書かれた項目が見出し（①などの番号だけのマスは、続く字と合わせる）
             nxt = [b for b in row if b.c1 > target.c2 and b.kind != "check"]
-            if (nxt and nxt[0].kind == "text" and not _is_phrase_text(str(nxt[0].cell.value))) or target.kind == "check":
+            if (nxt and nxt[0].kind == "text") or target.kind == "check":
                 t = rights[0]
                 item = norm_label(t.cell.value)
-                if _MARKER.match(item):
-                    nxt_text = [b for b in self.boxes(t.r) if b.kind == "text" and b.c1 > t.c2
-                                and isinstance(b.cell.value, str) and b.cell.value.strip()]
+                if _is_marker(item):
+                    nxt_text = [b for b in self.boxes(t.r) if b.c1 > t.c2 and _text(b)]
                     if nxt_text:
                         item = item + norm_label(nxt_text[0].cell.value)
                     elif len(rights) > 1:
                         item = item + norm_label(rights[1].cell.value)
-                method.append("右の項目")
+                method.append(f"{after}の項目")
         if item is None and lefts:
             item = norm_label(lefts[-1].cell.value)
-            method.append("左の見出し")
+            method.append(f"{before}の見出し")
         if lefts:
-            # 同じ行で、見出しのすぐ左に続く見出し（「法人名｜フリガナ」の「法人名」）は区分として読む。
+            # 同じ行で、見出しのすぐ前に続く見出し（「法人名｜フリガナ」の「法人名」）は区分として読む。
             # あいだに欄がはさまるもの（横に並んだ別の表の見出し）は区分にしない
             more = []
-            for b in reversed([b for b in row if b.c2 < lefts[0].c1]):
-                if b.kind != "text" or b.r2 != b.r or not isinstance(b.cell.value, str) or not b.cell.value.strip():
+            before_lab = [b for b in row if b.c2 < lefts[0].c1]
+            for k in range(len(before_lab) - 1, -1, -1):
+                b = before_lab[k]
+                if not (_text(b) and b.r2 == b.r):
                     break
-                if not _is_phrase_text(b.cell.value):
-                    more.insert(0, b)
+                if k > 0 and before_lab[k - 1].kind in ("input", "formula"):
+                    break  # すぐ前が欄の字（「［］ヶ月）」の「ヶ月）」）：前の欄の並びの続きで、この欄の区分ではない
+                more.insert(0, b)
             for b in more:
                 t = norm_label(b.cell.value)
-                if _MARKER.match(t) and item:
+                if _is_marker(t) and item:
                     item = t + item
                 elif t not in secs:
                     secs.append(t)
@@ -1247,8 +1235,8 @@ class Layout:
         parts = list(secs)
         sh_ = self.shape(r)
         repeated = bool(sh_) and (self.shape(r - 1) == sh_ or self.shape(r + 1) == sh_)
-        if heads and (item is None or repeated):
-            # 表の欄（同じ形の行が続く）：行の見出し（左）と列の見出し（上）の両方で呼ぶ。
+        if heads and (item is None or repeated or self._list_table(r, target.c1) is not None):
+            # 表の欄（同じ形の行が続く・テーブルの本体）：行の見出し（前）と列の見出し（上）の両方で呼ぶ。
             # 「見出し｜値」が縦に並ぶだけの行では、上の行の値を見出しと取り違えないよう、上は見ない
             if item is None:
                 key = self.row_key(r, first.c1)
@@ -1260,36 +1248,57 @@ class Layout:
             method.append("上の見出し")
         elif item:
             parts.append(item)
+        elif target.kind != "check":
+            # 近くに見出しのない欄（すぐ前が別の欄の、補助のマスなど）：同じ表の続きの中で、前にある字をそのまま示す。
+            # あいだにある欄は、method に書く（その字が、この欄の見出しとは限らない）
+            key = self.row_key(r, first.c1, with_between=True)
+            if key:
+                text, between = key
+                parts.append(text)
+                method.append(f"{before}の字（あいだに欄 {'・'.join(between)}）" if between else f"{before}の字")
         phrase_text = None
-        unit = None
-        n_inputs = sum(b.kind == "input" for b in phrase)
-        if len(phrase) > 1 and (n_inputs >= 2 or any(isinstance(b.cell.value, str) and b.cell.value.strip() in _ERA_WORDS
-                                                    for b in phrase if b.kind == "text")):
+        if shown:
             phrase_text = "".join(
                 "［▶］" if b is target else "［　］" if b.kind == "input" else f"〈{b.text}〉" if b.kind == "formula"
                 else b.cell.value.strip() for b in phrase)
-            singles = [b for b in phrase if b.kind == "input" and b.c1 == b.c2]
-            if len(singles) >= 3:
-                phrase_text += "（1マスに1文字）"
-            method.append("前後の語")
-        else:
-            after = [b for b in row if b.c1 > target.c2]
-            if after and after[0].kind == "text" and isinstance(after[0].cell.value, str):
-                unit = _unit_of(after[0].cell.value)
+            method.append("前後の字")
         label = "／".join(dict.fromkeys(p for p in parts if p))
         if phrase_text:
             label = f"{label}：{phrase_text}" if label else phrase_text
-        elif unit and label:
-            label = f"{label}（{unit}）"
-        return {"label": label or None, "label_method": "・".join(method) or None, "unit": unit,
-                "context": self.line(r, mark_box=target)}
+        out = {"label": label or None, "label_method": "・".join(method) or None,
+               "context": self.line(r, mark_box=target)}
+        if not shown and target.kind != "check":
+            # すぐ後ろ（右。右から左のシートでは左）のマスの字（「金額｜［］｜円」の「円」）：そのまま示す（単位かどうかは決めない）
+            nxt = [b for b in row if b.c1 > target.c2 and b.kind != "check"]
+            if nxt and nxt[0].c1 == target.c2 + 1 and _word(nxt[0]):
+                out["after"] = norm_label(nxt[0].cell.value)
+        return out
 
-    def row_key(self, r: int, before_col: int) -> str | None:
-        """表の行の名前：左へたどって、欄をとばして最初にある文字の見出し（横に並んだ表でも、その表の行の名前）。"""
-        for b in reversed([b for b in self.boxes(r) if b.c2 < before_col and b.kind != "check"]):
-            if (b.kind == "text" and isinstance(b.cell.value, str) and len(b.cell.value.strip()) >= 2
-                    and not _is_phrase_text(b.cell.value)):
-                return norm_label(b.cell.value)
+    def side(self, word: str) -> str:
+        """窓に書く「左」「右」：右から左へ表示するシート（sheetView の rightToLeft）では、列 A が画面の右にあるので入れ替える。
+        配置は列の番号の順（読む順）で調べるので、字の前は列の番号の小さい側（左から右のシートでは左、右から左のシートでは右）。"""
+        if not getattr(self.sh, "right_to_left", False):
+            return word
+        return {"左": "右", "右": "左"}.get(word, word)
+
+    def row_key(self, r: int, before_col: int, with_between: bool = False):
+        """表の行の名前：前（左）へたどって、欄をとばして最初にある字の見出し（横に並んだ表でも、その表の行の名前）。
+        何も書かれていない列（空の列）か、テーブル（リストオブジェクト）の端まで来たら、別の表なので止める。
+        with_between：(字, あいだにとばした欄の番地) を返す。"""
+        t = self._list_table(r, before_col)
+        stop = t.c1 if t is not None else 0
+        boxes = [b for b in self.boxes(r) + self.cover.get(r, []) if b.c2 < before_col and b.kind != "check"]
+        edge = before_col
+        between: list[str] = []
+        for b in sorted(boxes, key=lambda b: b.c2, reverse=True):
+            if b.c2 < stop or b.c2 < edge - 1:
+                break  # 空の列をはさむ・テーブルの外
+            edge = min(edge, b.c1)
+            if b.r == r and _text(b) and not _is_marker(b.cell.value):
+                text = norm_label(b.cell.value)
+                return (text, between) if with_between else text
+            if b.kind in ("input", "formula", "agent", "locked"):
+                between.insert(0, b.cell_ref)
         return None
 
     def _repeated(self, r: int) -> bool:
@@ -1374,10 +1383,7 @@ class Layout:
             parts, at = [], 0
             for a, z, k in b.blanks:
                 parts.append(t[at:a])
-                if k is None:
-                    parts.append("［▶］" if mark else "［　］")
-                else:
-                    parts.append("［▶？］" if mark else "［？］")
+                parts.append(blank_token(t, a, z, k, mark))
                 at = z
             parts.append(t[at:])
             return f"〔{b.cell_ref}〕" + "".join(parts).replace("\n", " ").strip()
@@ -1536,16 +1542,21 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
             if b.kind == "text" and b.blanks:
                 t = b.cell.value
                 spans = [(x, y) for x, y, _k in b.blanks]
-                shown = "".join(t[x:y] if k % 2 == 0 else ("［　］" if b.blanks[k // 2][2] is None else "［？］")
+                shown = "".join(t[x:y] if k % 2 == 0 else blank_token(t, x, y, b.blanks[k // 2][2])
                                 for k, (x, y) in enumerate(_split_spans(t, spans)))
+                boxes = [i for i, (x, y, _k) in enumerate(b.blanks, 1) if y - x == 1 and t[x:y] in chars.BOXES]
                 whys = [k for _x, _y, k in b.blanks if k is not None]
                 n = len(b.blanks)
                 f = {"id": f"{sh.name}!{b.cell_ref}", "cell": b.cell_ref, "kind": "inline",
                      "value": t, "blanks": n, "label": norm_label(shown),
                      "label_method": "文字の中の空欄", "context": lay.line(r, mark_box=b),
                      "write_as": f"空欄ごとの値のリスト（{n} 個、例 {['…'] * n}。［？］の所も数え、書かない所は null）か、"
-                                 "書き換えたあとの文字全体",
-                     "spans": [{"n": i, "before": norm_label(t[max(0, x - 8):x]), "after": norm_label(t[y:y + 8]),
+                                 "書き換えたあとの文字全体"
+                                 + (f"（チェックの箱の字の所（{'・'.join(map(str, boxes))} 番目）は、印をつけるなら ☑ などの字、"
+                                    "つけないなら null）" if boxes else ""),
+                     # 所ごとの、元の字（空白・下線・点線・箱の字）・その幅（全角を 1 とした字の幅のおよその数）と、前後の字（そのまま）
+                     "spans": [{"n": i, "before": t[max(0, x - 8):x], "printed": t[x:y], "after": t[y:y + 8],
+                                "width": space_width(t, x, y),
                                 "rule": k is None, **({"why": AGENT_WHY[k]} if k is not None else {})}
                                for i, (x, y, k) in enumerate(b.blanks, 1)],
                      "reason": ["文字の中の空欄"], "provenance": LAYOUT}
@@ -1605,7 +1616,7 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
     return out
 
 
-def evidence_text(ev: dict) -> str:
+def evidence_text(ev: dict, before: str = "左") -> str:
     """判断の材料（blank_marks と近くの字）を、窓に出す短い文に。"""
     parts = []
     if ev.get("borders"):
@@ -1616,7 +1627,7 @@ def evidence_text(ev: dict) -> str:
         parts.append(f"結合 {ev['merged']}")
     if ev.get("left"):
         x = ev["left"]
-        parts.append(f"左の字「{x['text']}」（{'すぐ左' if not x['cols'] else str(x['cols']) + ' 列あけて左'}）")
+        parts.append(f"{before}の字「{x['text']}」（{'すぐ' + before if not x['cols'] else str(x['cols']) + ' 列あけて' + before}）")
     if ev.get("above"):
         x = ev["above"]
         parts.append(f"上の字「{x['text']}」（{x['rows']} 行上）")
@@ -1629,7 +1640,7 @@ def _agent_field(wb: Workbook, sh: Sheet, lay: Layout, b: Box) -> dict:
     whys = list(dict.fromkeys(b.why))
     f = {"id": f"{sh.name}!{b.cell_ref}", "cell": b.cell_ref, "kind": _field_kind(wb, b.cell, []), "value": None, **d,
          "agent": True, "why": "・".join(AGENT_WHY[k] for k in whys), "why_key": whys,
-         "evidence": dict(b.evidence), "evidence_text": evidence_text(b.evidence),
+         "evidence": dict(b.evidence), "evidence_text": evidence_text(b.evidence, lay.side("左")),
          "reason": [AGENT_WHY[k] for k in whys], "provenance": AGENT}
     if b.ref != b.cell_ref:
         f["merged"] = b.ref
@@ -1798,6 +1809,7 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
         "name": sh.name,
         "state": sh.state,
         "protected": sh.protected,
+        "right_to_left": getattr(sh, "right_to_left", False),
         "used_range": f"A1:{addr(max(sh.max_row, 1), max(sh.max_col, 1))}",
         "print_area": sh.print_area,
         "hidden_rows": _runs(sorted(sh.hidden_rows)),
@@ -2000,6 +2012,8 @@ def _md_sheet(sh: dict) -> list[str]:
         return out + sheet_markdown(sh)
     out = [f"## シート「{sh['name']}」", ""]
     info = []
+    if sh.get("right_to_left"):
+        info.append("右から左へ表示するシート（列 A が右端）。読み順は列 A から（画面の右から左へ）。見出しの「左」「右」は画面で見た向き")
     if sh.get("print_area"):
         info.append(f"印刷範囲 {sh['print_area'].rsplit('!', 1)[-1].replace('$', '')}")
     if sh.get("hidden_cols"):
@@ -2227,8 +2241,8 @@ def _kind_text(f: dict) -> str:
         k += f"（規則では決められない：{f['undecided']}）"
     if f.get("locked"):
         k += "（保護されたセル：書けない／パスワードが要る）"
-    if f.get("unit"):
-        k += f"（単位 {f['unit']}）"
+    if f.get("after"):
+        k += f"（すぐ後ろのマスの字「{f['after']}」）"
     if f.get("highlighted"):
         k += "（色付きの欄）"
     if f.get("rules_overlap"):

@@ -216,7 +216,11 @@ def test_locked_label_cell_keeps_its_label(tmp_path):
     fields = {f["id"]: f for f in api.fields(str(src))}
     b5 = fields["申請!B5"]
     assert b5["label"] == "開始日" and b5["readonly"] and "パスワードが要る" in b5["protected"]
-    assert not fields["申請!C5"].get("label")  # 右の補助のセル（D5 の数式が使う）は、見出しを取らない
+    # 右の補助のセル（D5 の数式が使う）：見出しの見つからない欄にせず、前（左）の字をそのまま示し、あいだの欄（B5）を添える。
+    # その字がこの欄の見出しかどうかは、エージェントが判断する
+    assert fields["申請!C5"]["label"] == "開始日"
+    c5 = next(f for sh in api.window(str(src))[1]["sheets"] for f in sh["fields"] if f["cell"] == "C5")
+    assert c5["label_method"] == "左の字（あいだに欄 B5）"
     _k, doc, parts = api.window(str(src))
     md = "\n".join(t for _n, t in parts)
     assert "開始日 ｜ ［B5：保護されたセル］ ｜ ［C5＝5］" in md

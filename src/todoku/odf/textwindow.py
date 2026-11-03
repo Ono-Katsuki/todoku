@@ -72,4 +72,8 @@ def _beside(p, c) -> str:
                 break
             run.insert(0, s.text)
         text = "".join(run)
-    return norm_label(text.strip(" 　:：")[:40])
+    # 前後の空白（一般カテゴリ Zs）と、見出しのあとのコロン（chars.LABEL_COLONS）を除く。字の意味は見ない
+    from .. import chars
+
+    trim = "".join(ch for ch in set(text) if chars.is_space(ch) or chars.is_label_colon(ch))
+    return norm_label(text.strip(trim)[:40])

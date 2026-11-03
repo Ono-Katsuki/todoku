@@ -681,7 +681,7 @@ def excel_field(wb, sh, lay, b, d: dict) -> dict:
         f["group_selected"] = next((x.name for x in grp if x.ax.control.checked), None)
     if ref.kind in CAPTION_KINDS and ref.control is not None and ref.control.caption:
         # 見出しのある部品（チェック・オプション）：部品の中の見出しが項目の名前（配置から読んだ見出しは区分として添える）
-        near = d.get("label") if d.get("label_method") == "左の見出し" or "上の見出し" in (d.get("label_method") or "") else None
+        near = d.get("label") if d.get("label_method") in ("左の見出し", "右の見出し") or "上の見出し" in (d.get("label_method") or "") else None
         f["label"] = f"{near}／{ref.control.caption}" if near and near != ref.control.caption else ref.control.caption
         f["label_method"] = "部品の見出し（Caption）"
     return f

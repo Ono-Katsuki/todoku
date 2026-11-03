@@ -7,7 +7,7 @@ from todoku.docx.example import check as word_check
 from todoku.docx.fill import fill as docx_fill
 from todoku.docx.window import build as docx_build
 from todoku.pdf.example import check as pdf_check
-from todoku.pdf.layout import gap_blanks
+from todoku.pdf.layout import pdf_blanks
 from todoku.xlsx.window import inline_blanks
 
 from test_docx import SAMPLE_BODY, make_docx, p
@@ -78,7 +78,7 @@ def test_word_example_reports_text_outside_fields():
 def _blanks(text: str) -> int:
     lead = len(text) - len(text.lstrip("　"))
     trail = len(text) - len(text.rstrip("　"))
-    return len(gap_blanks(text, lead, trail))
+    return len(pdf_blanks(text, lead, trail))
 
 
 def test_time_fields():
@@ -89,28 +89,29 @@ def test_time_fields():
 def test_unit_fields_and_spaced_labels():
     assert _blanks("□身体障害者手帳　　種　　級") == 2  # 「種」「級」の前に書く
     assert _blanks("片道　　　　　分") == 1
-    assert _blanks("氏　　名") == 0  # 字間を空けた見出しは欄でない
-    assert _blanks("事　業　主　氏　名") == 0
-    assert _blanks("　　分類") == 1  # 字の前の空き（語は見ないので、「分」が単位かは決めない：？ の候補）
-    assert len(inline_blanks("番　　号")) == 0 and len(inline_blanks("第　　号")) == 1
+    assert _blanks("事　業　主　氏　名") == 0  # 1 つの空白は語の区切り（所にしない）
+    # 2 字の間の 2 つ以上の空白（「氏　　名」「番　　号」と「第　　号」）は形が同じ：字の意味では分けず、どれも所の候補（「？」）
+    assert len(inline_blanks("番　　号")) == 1 and len(inline_blanks("第　　号")) == 1 and len(inline_blanks("氏　　名")) == 1
+    assert len(inline_blanks("事　　業　　所")) == 0  # 1 字ずつ同じ空白で 3 字以上：字間を空けた見出し
 
 
 def test_word_address_cell_insertion_point():
-    # 住所のマス「　　　都道　　　　郡　市」：都道府県の前、郡の前、市の後ろ（町名・番地）に書ける
+    # 住所のマス「　　　都道　　　　郡　市」：2 つ以上の空白の並び（都道の前・郡の前）に書ける。字の意味（住所の単位）は見ないので、
+    # 「郡　市」の 1 つの空白・「市」の後ろは所にしない（書くときは字を目印にする）
     body = '<w:tbl><w:tr><w:tc>' + p("住所") + '</w:tc><w:tc>' + p("　　　都道　　　　郡　市") + '</w:tc></w:tr></w:tbl>'
     blob = make_docx(body)
     win = docx_build(DocxDocument(blob, "a.docx"))
-    # 住所の単位の前後の空きは、字の並びからの推定なので「？」（エージェントが判断する）。見出し「住所」の後ろの所も消さずに示し、
+    # 空白の並びは「？」（エージェントが判断する）。見出し「住所」の後ろの所も消さずに示し、
     # すぐ右のマスの欄の代わりの所（alternative_to）とする
     inl = [f for f in win["fields"] if f["kind"] == "inline" and f["id"].startswith("P2.")]
-    assert len(inl) == 3 and all(f.get("agent") for f in inl), [f["label"] for f in inl]
+    assert len(inl) == 2 and all(f.get("agent") for f in inl), [f["label"] for f in inl]
     beside = {f["id"]: f for f in win["fields"]}["P1.a1"]
     assert beside["alternative_to"] == "P2.1", beside
-    vals = dict(zip([f["id"] for f in inl], ["山梨", "甲府", "丸の内１－６－１"]))
+    vals = dict(zip([f["id"] for f in inl], ["山梨", "甲府"]))
     res = docx_fill(DocxDocument(blob, "a.docx"), vals)
     after = docx_build(DocxDocument(res.blob, "a.docx"))
     text = "\n".join(after["reading"]) if isinstance(after.get("reading"), list) else str(after)
-    assert "丸の内１－６－１" in text
+    assert "甲府" in text
     got = {f["id"]: f.get("value") for f in after["fields"]}
     assert all(got.get(k) == v for k, v in vals.items()), got
 

@@ -37,7 +37,8 @@ def test_doc_header_field_and_bookmarks():
         pytest.skip("mynumber.doc")
     doc = DocFile(Path(path).read_bytes(), "m.doc")
     win = build(doc)
-    header = [f["id"] for f in win["fields"] if f["context"].startswith("様式第１６号")]
+    # ヘッダーの「様式第１６号　　≪保育園等用≫　　年　　月　　日」：空白の並びはどれも同じ番号の並びの「？」。年の前の所に書く
+    header = [f["id"] for f in win["fields"] if f["context"].startswith("様式第１６号") and "［ ］年" in f["label"]]
     body = next(f["id"] for f in win["fields"] if f["id"].startswith("T"))
     res = fill(doc, {header[0]: "8", body: "とどく"})
     after = DocFile(res.blob, "m.doc")
