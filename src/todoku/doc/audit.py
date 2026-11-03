@@ -269,6 +269,19 @@ def _expected(p, items) -> str | None:
     return out
 
 
+def check_reading(doc: DocFile, win: dict) -> Check:
+    """読み落とし：ピースの表から直接拾った字と、窓に出た字を照らす。"""
+    raw = _count(raw_chars(doc))
+    shown = Counter()
+    for st in win["stories"]:
+        shown += _count(st["_plain"])
+    missing = [f"「{ch}」が {n} 字、窓に出ていません" for ch, n in (raw - shown).items()]
+    extra = [f"「{ch}」が {n} 字、元にないのに窓に出ています" for ch, n in (shown - raw).items()]
+    return Check("読み落とし（文書の文字）", not missing and not extra,
+                 f"本文・表・ヘッダー/フッター・脚注・コメント・テキストボックスの字 {sum(raw.values()):,} 字を、"
+                 "窓とは別の読み方（ピースの表から直接）で拾い、すべて窓に出ていることを確かめました", missing + extra)
+
+
 def run(blob: bytes, filename: str = "") -> Audit:
     from .word6 import is_word6
 
@@ -279,15 +292,7 @@ def run(blob: bytes, filename: str = "") -> Audit:
     doc = DocFile(blob, filename)
     win = build(doc)
     au = Audit(filename)
-    raw = _count(raw_chars(doc))
-    shown = Counter()
-    for st in win["stories"]:
-        shown += _count(st["_plain"])
-    missing = [f"「{ch}」が {n} 字、窓に出ていません" for ch, n in (raw - shown).items()]
-    extra = [f"「{ch}」が {n} 字、元にないのに窓に出ています" for ch, n in (shown - raw).items()]
-    au.checks.append(Check("読み落とし（文書の文字）", not missing and not extra,
-                           f"本文・表・ヘッダー/フッター・脚注・コメント・テキストボックスの字 {sum(raw.values()):,} 字を、"
-                           "窓とは別の読み方（ピースの表から直接）で拾い、すべて窓に出ていることを確かめました", missing + extra))
+    au.checks.append(check_reading(doc, win))
     from ..axfile import reading_check
 
     axc = reading_check(getattr(doc, "ax_refs", []), win)  # ActiveX の部品の見出しと文字

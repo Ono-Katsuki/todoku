@@ -147,14 +147,14 @@ class TxtProof:
                 + ("" if self.ok else f"（想定外 {len(self.unexpected) + len(self.lint_errors) + len(self.readback)} 件）"))
 
 
-def prove(original: bytes, new: bytes, written: dict) -> TxtProof:
+def prove(original: bytes, new: bytes, written: dict, encoding: str | None = None) -> TxtProof:
     """書き込み処理の結果を使わずに、元のファイルで書く所を決め直し、前後の 2 つのファイルを読み直して比べる。
     - バイト：書いた後のファイルは、元のファイルの「書く所の字のバイト」だけを、値をファイルの文字コードにしたバイト列に
       置き換えたものと、1バイトも違わない
     - 読み直し：文字コード・BOM・行の数・行ごとの改行が同じで、書いていない行の字は同じ。書いた行の字は
       「元の字の、書いた所だけを値に替えたもの」"""
     pr = TxtProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest())
-    a = TxtDocument(original)
+    a = TxtDocument(original, encoding=encoding)
     sp = Spots(a)
     used: dict = {}
     by_line: dict[int, list] = {}
@@ -206,7 +206,7 @@ def prove(original: bytes, new: bytes, written: dict) -> TxtProof:
         pr.unexpected.append(f"書いた後のファイルが、元のファイルの書く所だけを置き換えたものと違います（{k} バイト目から）")
     # 読み直し
     try:
-        b = TxtDocument(new)
+        b = TxtDocument(new, encoding=encoding)
     except TxtError as e:
         pr.lint_errors.append(f"書き込み後のファイルを読めません：{e}")
         return pr
@@ -232,15 +232,15 @@ def prove(original: bytes, new: bytes, written: dict) -> TxtProof:
 
 
 # ====================================================================== api から
-def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
+def api_fill(blob: bytes, name: str, values: dict, force: bool = False, encoding: str | None = None) -> dict:
     from ..openkinds import OpenFormatError
 
     try:
-        doc = TxtDocument(blob, name)
+        doc = TxtDocument(blob, name, encoding)
         res = fill(doc, values, force=force)
     except (FillError, TxtError) as e:
         raise OpenFormatError(str(e)) from None
-    pr = prove(blob, res.blob, written_of(res.patches))
+    pr = prove(blob, res.blob, written_of(res.patches), encoding)
     result = {"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
               "unexpected": (pr.unexpected + pr.readback)[:20], "structure_errors": pr.lint_errors[:20],
               "text_read_back": pr.readback[:30],

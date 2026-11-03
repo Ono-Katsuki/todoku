@@ -394,9 +394,9 @@ def test_corpus_data(path):
     assert au.ok, [(c.name, c.items[:5]) for c in au.checks if not c.ok]
     g = grade_blob(blob, path.name)
     # データそのもの（S）。ただし、いくつもの文字コードで仕様どおりに読めるもの（Shift_JIS と GBK の両方で読めるものなど）は、
-    # 規則では文字コードを決められないので C（窓に候補を示し、エージェントが決める）
-    if g.grade == "C":
-        assert [r.title for r in g.reasons if r.grade == "C"] == ["文字コードを規則では決められない"], g.reasons
+    # 規則では文字コードを決められないので B（中身は窓にすべて出ていて、窓に候補を示し、エージェントが決める）
+    if g.grade == "B":
+        assert [r.title for r in g.reasons if r.grade == "B"] == ["文字コードを規則では決められない"], g.reasons
     else:
         assert g.grade == "S"
 

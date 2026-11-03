@@ -144,6 +144,10 @@ def overprints(glyphs) -> Counter:
 
 
 def check_reading(doc: PdfDocument, win: dict) -> list[Check]:
+    return [check_glyphs(doc, win)] + _check_unmapped_and_images(doc, win)
+
+
+def check_glyphs(doc: PdfDocument, win: dict) -> Check:
     """読み落とし：ページの描画の命令を順に読んだ字（raw_chars）を、窓に実際に出た字（入力欄の印に置き換えた字は数えない）と
     比べる。窓が1字にした字は、理由ごとに数えて差し引く：本当の重ね書き（overprints が、字の位置と送りの幅から別に決める）と、
     0.5pt に満たない字・ページの何倍もある字。窓が、本当の重ね書きより多くの字を「重ね書き」として落としたら、読み落とし。"""
@@ -176,6 +180,11 @@ def check_reading(doc: PdfDocument, win: dict) -> list[Check]:
                  + (f"（同じ字を同じ所に重ねて描いた太字などの {dup_total:,} 字は、字の位置と送りの幅から重ね書きと確かめ、"
                     "1字として読んでいます）" if dup_total else ""),
                  missing + extra)]
+    return out[0]
+
+
+def _check_unmapped_and_images(doc: PdfDocument, win: dict) -> list[Check]:
+    out = []
     unmapped = sum(p["unmapped"] for p in win["pages"])
     out.append(Check("文字に直せない字", unmapped == 0,
                      "すべての字を文字（Unicode）に直せました" if not unmapped else

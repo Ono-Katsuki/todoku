@@ -295,6 +295,22 @@ def check_markdown(doc: dict, links: set | None = None) -> Check:
                 a, b = (int(x) for x in ln["rows"].split("-"))
                 s0, s1 = (int(x) for x in ln.get("same_as", f"{a - 1}-{a - 1}").split("-"))
                 runs.append((a, b, s0, s1 - s0 + 1, {d["cell"]: d["text"] for d in ln.get("differs", [])}))
+        # 行 → まとめの行（大きなシートでも、セルごとにまとめの行を探し直さない）・行の字（空白を除いたもの。行ごとに1回だけ作る）
+        run_of: dict[int, tuple] = {}
+        for x in runs:
+            for rr in range(x[0], x[1] + 1):
+                run_of.setdefault(rr, x)
+        squashed: dict[int, tuple[str, str]] = {}
+
+        def row_text(rr: int, got: list[str]) -> tuple[str, str]:
+            v = squashed.get(rr)
+            if v is None:
+                text = "".join(got)
+                plain = text
+                for m in _BLANK_MARKS:
+                    plain = plain.replace(m, "")
+                v = squashed[rr] = (_md_squash(text), _md_squash(plain))
+            return v
 
         def shown(c: dict) -> str:
             v = c.get("display", c.get("value"))
@@ -312,11 +328,8 @@ def check_markdown(doc: dict, links: set | None = None) -> Check:
             total += 1
             got = lines.get(r)
             if got is not None:
-                text = "".join(got)
-                plain = text
-                for m in _BLANK_MARKS:
-                    plain = plain.replace(m, "")
-                if _md_squash(want) in _md_squash(text):
+                sq_text, sq_plain = row_text(r, got)
+                if _md_squash(want) in sq_text:
                     continue
                 # 文字の中の空欄は［　］・［？］に置き換えて出す：置き換えた所を除いて、残りの字が順に出ているか
                 from .window import cell_blanks
@@ -326,11 +339,11 @@ def check_markdown(doc: dict, links: set | None = None) -> Check:
                     rest.append(t[at:x])
                     at = y
                 rest.append(t[at:])
-                if all(_md_squash(p) in _md_squash(plain) for p in rest if _md_squash(p)):
+                if all(_md_squash(p) in sq_plain for p in rest if _md_squash(p)):
                     continue
                 missing.append(f"{sh['name']}!{c['cell']}: {want[:40]!r}")
                 continue
-            run = next((x for x in runs if x[0] <= r <= x[1]), None)
+            run = run_of.get(r)
             if run is not None:
                 a, b, s0, per, differs = run
                 if c["cell"] in differs:

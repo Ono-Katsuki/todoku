@@ -299,6 +299,7 @@ class DocxDocument:
         self.style_names: dict[str, str] = {}
         self.style_num: dict[str, tuple[str, int]] = {}
         self.style_based: dict[str, str] = {}
+        self.style_outline: dict[str, int] = {}  # スタイルの見出しの段（w:outlineLvl。0〜8 が見出し、9 は本文）
         if styles is not None:
             for st in styles.kids[0].findall("style") if styles.kids else []:
                 sid = st.get("styleId")
@@ -308,6 +309,9 @@ class DocxDocument:
                 if b is not None:
                     self.style_based[sid] = b.get("val")
                 ppr = st.find("pPr")
+                ol = ppr.find("outlineLvl") if ppr is not None else None
+                if ol is not None and str(ol.get("val", "")).isdigit():
+                    self.style_outline[sid] = int(ol.get("val"))
                 npr = ppr.find("numPr") if ppr is not None else None
                 if npr is not None:
                     nid = npr.find("numId")
@@ -654,18 +658,22 @@ class DocxDocument:
 
     def _picture(self, node: Node, p: Para, alt: str) -> bool:
         """図の中に絵（a:blip・v:imagedata）があれば、絵の一覧に足す。代わりの中身（Fallback）とテキストボックスの中は数えない。"""
-        found = False
+        found = None
         for n in list(node.iter("blip")) + list(node.iter("imagedata")):
             if not any(x.local in ("Fallback", "txbxContent") for x in _ancestors(n, node)):
-                found = True
+                found = n
                 break
-        if not found:
+        if found is None:
             return False
+        rid = found.get("embed") or found.get("id") or ""
+        target = self._rels(p.part).get(rid, ("", ""))[1] if rid else ""
+        media = _join(p.part, target) if target else ""
         pr = next(iter(node.iter("docPr")), None)
         deco = pr is not None and any(x.local == "decorative" and x.get("val") in ("1", "true") for x in pr.iter("decorative"))
         if not alt:
             alt = next((s.get("alt") for s in node.iter("shape") if s.get("alt")), "") or ""  # VML の絵の説明
-        self.pictures.append({"n": len(self.pictures) + 1, "alt": alt.strip(), "decorative": deco, "para": p})
+        self.pictures.append({"n": len(self.pictures) + 1, "alt": alt.strip(), "decorative": deco, "para": p,
+                              "media": media if self.zip.has(media) else ""})
         return True
 
     def _graphics(self, node: Node, part: str) -> list[str]:

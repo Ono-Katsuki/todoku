@@ -81,8 +81,8 @@ def _csv_sample(f: CsvFile, k: int) -> str:
     return s
 
 
-def csv_writing(blob: bytes, filename: str, kind: str, doc: dict) -> list[Check]:
-    f = CsvFile(blob, filename, kind)
+def csv_writing(blob: bytes, filename: str, kind: str, doc: dict, encoding: str | None = None) -> list[Check]:
+    f = CsvFile(blob, filename, kind, encoding)
     targets = {}
     for k, fd in enumerate(doc["fields"]):
         targets[fd["id"]] = _csv_sample(f, k)
@@ -91,11 +91,11 @@ def csv_writing(blob: bytes, filename: str, kind: str, doc: dict) -> list[Check]
     except CsvError as e:
         return [Check("全マスへの書き込み", False, f"{len(targets)} マスに書き込めませんでした", str(e).splitlines()[:20])]
     written = {(p.row, p.col): p.value for p in res.patches}
-    pr = csv_prove(blob, res.blob, written, filename, kind)
+    pr = csv_prove(blob, res.blob, written, filename, kind, encoding)
     note = "（マスが多いので、空のマスと足す行だけ）" if doc.get("fields_truncated") else ""
     out = [Check("全マスへの書き込み", pr.ok, f"マス {len(targets):,} か所に試しの値（引用符・カンマ・改行を含む）を書き込み{note}。{pr.headline()}",
                  [*pr.unexpected, *pr.lint_errors])]
-    g = CsvFile(res.blob, filename, kind)
+    g = CsvFile(res.blob, filename, kind, encoding)
     wrong = [f"R{r}.C{c}: 書いた値 {v!r} → 読み直すと {g.value(r, c)!r}" for (r, c), v in written.items() if g.value(r, c) != v]
     other = independent_rows(g.text, g.delim)
     wrong +=[f"R{r}.C{c}: 別の読み方では {(other[r - 1][c - 1] if r <= len(other) and c <= len(other[r - 1]) else None)!r}"
@@ -196,8 +196,8 @@ def _json_sample(kind: str, k: int):
     return ["テスト", '引用符"と\\逆斜線', "改行\nあり"][k % 3]
 
 
-def json_writing(blob: bytes, filename: str, kind: str, doc: dict) -> list[Check]:
-    f = JsonFile(blob, filename, kind)
+def json_writing(blob: bytes, filename: str, kind: str, doc: dict, encoding: str | None = None) -> list[Check]:
+    f = JsonFile(blob, filename, kind, encoding)
     targets = {}
     for k, fd in enumerate(doc["fields"]):
         targets[fd["id"]] = _json_sample(fd.get("json_type", "string"), k)
@@ -209,11 +209,11 @@ def json_writing(blob: bytes, filename: str, kind: str, doc: dict) -> list[Check
     except JsonError as e:
         return [Check("全値への書き込み", False, f"{len(targets)} か所に書き込めませんでした", str(e).splitlines()[:20])]
     written = {p.id: p.value for p in res.patches}
-    pr = json_prove(blob, res.blob, written, filename, kind)
+    pr = json_prove(blob, res.blob, written, filename, kind, encoding)
     note = "（値が多いので、空の値だけ）" if doc.get("fields_truncated") else ""
     out = [Check("全値への書き込み", pr.ok, f"値 {len(targets):,} か所に試しの値を書き込み（ない名前に足すのも含む）{note}。{pr.headline()}",
                  [*pr.unexpected, *pr.lint_errors])]
-    g = JsonFile(res.blob, filename, kind)
+    g = JsonFile(res.blob, filename, kind, encoding)
     got = {i: n.value for i, n, _d in g.leaves()}
     wrong = [f"{i}: 書いた値 {v!r} → 読み直すと {got.get(i)!r}" for i, v in written.items() if got.get(i) != v or type(got.get(i)) is not type(v)]
     try:
@@ -227,10 +227,10 @@ def json_writing(blob: bytes, filename: str, kind: str, doc: dict) -> list[Check
 
 
 # ====================================================================== 入口
-def run(blob: bytes, filename: str = "", kind: str = "csv") -> Audit:
+def run(blob: bytes, filename: str = "", kind: str = "csv", encoding: str | None = None) -> Audit:
     au = Audit(filename)
     if kind in ("csv", "tsv"):
-        f = CsvFile(blob, filename, kind)
+        f = CsvFile(blob, filename, kind, encoding)
         doc = build_csv(f)
         parts = parts_csv(doc)
         md = "\n".join(t for _n, t in parts)
@@ -238,7 +238,7 @@ def run(blob: bytes, filename: str = "", kind: str = "csv") -> Audit:
         if f.problems:
             au.checks.append(Check("書き方", False, "RFC 4180 に合わない書き方があります（窓に、どう読んだかを書きました）", f.problems[:20]))
     else:
-        f = JsonFile(blob, filename, kind)
+        f = JsonFile(blob, filename, kind, encoding)
         doc = build_json(f)
         parts = parts_json(doc)
         md = "\n".join(t for _n, t in parts)
@@ -247,7 +247,8 @@ def run(blob: bytes, filename: str = "", kind: str = "csv") -> Audit:
     au.checks.append(Check("窓の大きさ", biggest <= 150_000,
                            f"Markdown {sum(len(t) for _, t in parts):,} 文字" + (f"を {len(parts)} 部分に分け、いちばん大きい部分も {biggest:,} 文字"
                                                                              if len(parts) > 1 else "") + "（AIが1回で読める目安 15万文字以内）"))
-    au.checks += csv_writing(blob, filename, kind, doc) if kind in ("csv", "tsv") else json_writing(blob, filename, kind, doc)
+    au.checks += (csv_writing(blob, filename, kind, doc, encoding) if kind in ("csv", "tsv")
+                  else json_writing(blob, filename, kind, doc, encoding))
     return au
 
 

@@ -183,7 +183,11 @@ class PptxDocument:
                     continue  # スライドの型のプレースホルダー：スライドの側に字がなければ、スライドには出ない（見本の字）
                 body = ch.find("txBody")
                 if body is not None:
-                    out += [self._para(p, part, None) for p in body.findall("p")]
+                    paras = [self._para(p, part, None) for p in body.findall("p")]
+                    if _placeholder_type(ch) in ("title", "ctrTitle", "subTitle"):
+                        for p_ in paras:
+                            p_.style = "Title"  # タイトルのプレースホルダー（PresentationML の ph の type）：見出しの段落
+                    out += paras
                 sppr = ch.find("spPr")
                 if not template and sppr is not None and sppr.find("blipFill") is not None:
                     out.append(self._picture(ch, part, "nvSpPr"))
@@ -199,8 +203,12 @@ class PptxDocument:
         c = pr.find("cNvPr") if pr is not None else None
         alt = ((c.get("descr") or "") if c is not None else "").strip()
         deco = c is not None and any(_on(x.get("val")) for x in c.iter("decorative"))
+        blip = next(iter(node.iter("blip")), None)
+        rid = (blip.get("embed") or "") if blip is not None else ""
+        target = rels_of(self.zip, part).get(rid, ("", ""))[1] if rid else ""
+        media = _join(part, target) if target else ""
         pic = {"n": len(self.pictures) + 1, "alt": alt, "decorative": deco, "slide": self._slide,
-               "name": (c.get("name") or "") if c is not None else ""}
+               "name": (c.get("name") or "") if c is not None else "", "media": media if self.zip.has(media) else ""}
         self.pictures.append(pic)
         mark = f"〔図: {alt}〕" if alt else ("" if deco else f"〔図{pic['n']}（説明なし）〕")
         pic["para"] = Para(node, part, [Seg(mark, "other", None)] if mark else [])
@@ -282,6 +290,14 @@ class PptxDocument:
     def marks(self) -> dict:
         """書き込んだ欄の印：PowerPoint の字には、Word のしおりのような見えない印がない（書いた所は、証明で読み直して確かめる）。"""
         return {}
+
+
+def _placeholder_type(sp: Node) -> str:
+    """プレースホルダーの種類（p:ph の type。省くと body）。プレースホルダーでなければ ""。"""
+    nv = sp.find("nvSpPr")
+    pr = nv.find("nvPr") if nv is not None else None
+    ph = pr.find("ph") if pr is not None else None
+    return "" if ph is None else (ph.get("type") or "body")
 
 
 def _placeholder(sp: Node) -> bool:

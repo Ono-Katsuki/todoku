@@ -699,7 +699,7 @@ tr.unr td { color: var(--muted); }
     document.getElementById("b-countries").textContent = T.countries;
     document.getElementById("b-sampled").textContent = T.sampled.toLocaleString();
     document.getElementById("b-graded").textContent = T.graded.toLocaleString();
-    const reason = (t) => (T.top_read_reasons.find(([k]) => k === t) || [, 0])[1];
+    const reason = (t) => ([...T.top_read_reasons, ...(T.top_write_reasons || [])].find(([k]) => k === t) || [, 0])[1];
     const setN = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = Number(v || 0).toLocaleString(); };
     setN("how-docs", T.graded); setN("how-kinds", Object.keys(T.kinds || {}).length || 10);
     setN("how-agent", reason("規則では決められない所")); setN("how-scan", reason("画像だけのページ"));

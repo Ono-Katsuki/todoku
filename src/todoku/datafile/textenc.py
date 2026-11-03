@@ -10,6 +10,10 @@
 3. ASCII の字だけなら UTF-8（ファイルからは決まらない。ascii_only）。
 4. UTF-8 として厳密に読めれば UTF-8（UTF-8 は、先頭のバイトと続くバイトの形が決まっていて、ほかの文字コードの字の並びが
    たまたま全体で合うことは、仕様の形からほぼない。HTML の仕様の決め方と同じ）。
+4'. ファイルの中の、文字コードの宣言：XML の宣言（ファイルの頭の <?xml … encoding="…"?>。XML 1.0 4.3.3）、HTML の meta
+   （頭の 1024 バイトの中の <meta charset> か <meta http-equiv="Content-Type" content="…; charset=…">。HTML の仕様の
+   prescan と同じ範囲）、RTF の \ansicpg（頭の {\rtf1 の後の、ANSI のコードページ）。宣言があり、その文字コードで厳密に
+   きれいに読めれば、それ（basis "declared"）。宣言と中身が合わない（読めない）ときは、宣言を使わず、下の段で決める。
 5. 多バイトの文字コード（Shift_JIS（CP932）・EUC-JP・Big5（CP950・HKSCS）・GBK（CP936）・UHC（CP949））を、それぞれ厳密に
    試す。これらは、先頭のバイトと続くバイトの範囲が決まっているので、全体が合うことが手がかりになる。きれいに読めたものが
    1つなら、それ。2つ以上で、読んだ字が違うなら、**規則では決められない**：いちばん前のもの（todoku が主に読む日本の書類の
@@ -32,6 +36,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass, field
 
@@ -61,7 +66,24 @@ BASIS_JA = {"bom": "BOM", "nul": "NUL のバイトの並び（BOM のない UTF-
             "utf-8": "UTF-8 として厳密に読める", "multibyte": "多バイトの文字コードのうち、これだけが厳密に読める",
             "singlebyte": "1バイトの文字コードのうち、これだけがきれいに読める",
             "order": "規則では決められない（いくつもの文字コードで読める。決まった順の前のもので読んだ）",
-            "none": "どの文字コードとしても読めない", "given": "指定された文字コード"}
+            "none": "どの文字コードとしても読めない",
+            "declared": "ファイルの中の宣言（XML の宣言・HTML の meta charset・RTF の \\ansicpg）",
+            "given": "エージェントが選んで指定した文字コード（encoding）"}
+# 文字コードの名前（宣言・エージェントの指定）→ このモジュールの名前。WHATWG Encoding の対応に合わせる
+# （Shift_JIS は Windows-31J（CP932）、EUC-KR は Windows-949、GB2312 は GBK、ISO-8859-1 は Windows-1252 として読む）
+ALIASES = {"shift_jis": "cp932", "shift-jis": "cp932", "sjis": "cp932", "x-sjis": "cp932", "windows-31j": "cp932",
+           "ms932": "cp932", "ms_kanji": "cp932", "csshiftjis": "cp932", "cp932": "cp932",
+           "euc-jp": "euc_jp", "eucjp": "euc_jp", "x-euc-jp": "euc_jp", "euc_jp": "euc_jp",
+           "gb2312": "gbk", "gbk": "gbk", "x-gbk": "gbk", "cp936": "gbk", "windows-936": "gbk", "gb18030": "gb18030",
+           "big5": "cp950", "cp950": "cp950", "big5-hkscs": "big5hkscs", "big5hkscs": "big5hkscs",
+           "euc-kr": "cp949", "ks_c_5601-1987": "cp949", "windows-949": "cp949", "cp949": "cp949", "uhc": "cp949",
+           "iso-8859-1": "cp1252", "latin1": "cp1252", "us-ascii": "cp1252", "ascii": "utf-8", "utf8": "utf-8",
+           "utf-8": "utf-8", "utf-8-sig": "utf-8", "utf-16le": "utf-16-le", "utf-16be": "utf-16-be",
+           "utf-32le": "utf-32-le", "utf-32be": "utf-32-be", "mac": "mac_roman", "macintosh": "mac_roman"}
+for _k in range(1250, 1259):
+    ALIASES[f"windows-{_k}"] = ALIASES[f"cp{_k}"] = f"cp{_k}"
+ALIASES["windows-874"] = ALIASES["cp874"] = "cp874"
+ALIASES.update({v.lower(): k for k, v in NAME_JA.items() if k != "latin-1"})  # 日本語の名前（窓の候補の label）でも指せる
 WHITESPACE_CC = set("\t\n\v\f\r")
 
 
@@ -94,6 +116,7 @@ class Decoded:
     # 規則では決められないとき、ほかに読める文字コード：[{encoding, label, sample}]（sample は、読んだ字が違う最初の行）
     candidates: list = field(default_factory=list)
     controls: int = 0  # 制御文字（NUL など）の数
+    declared_by: str = ""  # 宣言で決めたとき、どこの宣言か（XML の宣言・HTML の meta charset・RTF の \\ansicpg）
 
     @property
     def label(self) -> str:
@@ -113,6 +136,10 @@ class Decoded:
     def info(self) -> dict:
         """窓の format に入れる、文字コードの決め方。"""
         out = {"encoding_basis": self.basis, "encoding_basis_ja": BASIS_JA.get(self.basis, self.basis)}
+        if self.basis == "given":
+            out["encoding_chosen_by"] = "agent"  # エージェントが候補から選んで指定した（規則で決めたのではない）
+        if self.declared_by:
+            out["encoding_declared_by"] = self.declared_by
         if self.candidates:
             out["encoding_candidates"] = list(self.candidates)
         if self.controls:
@@ -122,6 +149,9 @@ class Decoded:
     def note_lines(self) -> list[str]:
         """Markdown の窓の注意（文字コードを決められないとき・制御文字があるとき）。"""
         out = []
+        if self.basis == "given":
+            out.append(f"- 文字コードは、エージェントが選んで指定した {NAME_JA.get(self.encoding, self.encoding)} で読みました"
+                       "（規則では決められなかったもの。このファイルを厳密に読めることは確かめました）。")
         if self.basis == "none":
             out.append("- **文字コードを決められませんでした**：BOM がなく、UTF-8・UTF-16・多バイト（Shift_JIS・EUC-JP・Big5・"
                        "GBK・EUC-KR）・1バイトの文字コードのどれとしても、きれいに読めません。バイトを1字ずつ Latin-1 の字にして"
@@ -129,10 +159,12 @@ class Decoded:
         elif self.candidates:
             out.append(f"- **文字コードを規則では決められません**：{NAME_JA.get(self.encoding, self.encoding)} で読みましたが、"
                        "次の文字コードでも、仕様どおりにきれいに読めます。字の違う最初の行を並べます。意味の通る方を選んでください"
-                       "（この窓の字が化けていれば、ほかの文字コードが正しい）。")
-            out.append(f"  - {NAME_JA.get(self.encoding, self.encoding)}（この窓）：{self.sample_of(self.text, self.candidates[0])}")
+                       "（この窓の字が化けていれば、ほかの文字コードが正しい）。選んだら、その名前（encoding の値）を、"
+                       "どの道具にも encoding で渡してください（窓・欄・書き込み・段階が、その文字コードで読み直されます）。")
+            out.append(f"  - {NAME_JA.get(self.encoding, self.encoding)}（この窓。encoding: \"{self.encoding}\"）："
+                       f"{self.sample_of(self.text, self.candidates[0])}")
             for c in self.candidates:
-                out.append(f"  - {c['label']}：{c['sample']}")
+                out.append(f"  - {c['label']}（encoding: \"{c['encoding']}\"）：{c['sample']}")
         if self.controls:
             out.append(f"- 制御文字（NUL など、タブ・改行以外）が {self.controls:,} 個あります。字としてそのまま読みました"
                        "（窓では見えないことがあります）。")
@@ -219,14 +251,46 @@ def _choose(blob: bytes, encs: tuple, basis_one: str, text_of=None) -> Decoded |
     return Decoded(enc, b"", text, False, basis_one if not cands else "order", cands, controls(text))
 
 
+def canonical(label: str) -> str | None:
+    """文字コードの名前 → このモジュールの名前（Python の codec の名前）。知らない名前は None。"""
+    import codecs
+
+    x = (label or "").strip().lower()
+    if not x:
+        return None
+    if x in ALIASES:
+        return ALIASES[x]
+    try:
+        name = codecs.lookup(x).name
+    except LookupError:
+        return None
+    return ALIASES.get(name, name)
+
+
+_XML_DECL = re.compile(rb"^<\?xml\s[^>]*?\bencoding\s*=\s*[\"']([A-Za-z][A-Za-z0-9._:-]*)[\"']")
+_META = re.compile(rb"<meta\b[^>]*?\bcharset\s*=\s*[\"']?\s*([A-Za-z][A-Za-z0-9._:-]*)", re.I)
+_RTF_CPG = re.compile(rb"^\{\\rtf1?\b[^{}]*?\\ansicpg(\d+)")
+
+
+def declared(blob: bytes) -> tuple[str, str] | None:
+    """ファイルの中の、文字コードの宣言：(宣言の名前, どこの宣言か)。なければ None（このモジュールの説明の 4'）。"""
+    m = _XML_DECL.match(blob[:512])
+    if m:
+        return m[1].decode("ascii"), "XML の宣言"
+    m = _RTF_CPG.match(blob[:1024])
+    if m:
+        return f"cp{int(m[1])}", "RTF の \\ansicpg"
+    m = _META.search(blob[:1024])
+    if m:
+        return m[1].decode("ascii"), "HTML の meta charset"
+    return None
+
+
 def decode(blob: bytes, encoding: str | None = None) -> Decoded:
     """バイト列 → 字（決め方はこのモジュールの説明のとおり）。encoding を渡せば、その文字コードで厳密に読む
     （エージェントが候補から選んだとき）。"""
     if encoding:
-        enc = encoding.lower().replace("_", "-") if encoding.lower().startswith("utf") else encoding.lower()
-        bom = next((b for b, e in BOMS if e == enc and blob.startswith(b)), b"")
-        text = blob[len(bom):].decode(enc, errors="strict")
-        return Decoded(enc, bom, text, False, "given", [], controls(text))
+        return _given(blob, encoding)
     for bom, enc in BOMS:
         if blob.startswith(bom):
             text = _strict(blob[len(bom):], enc)
@@ -248,6 +312,14 @@ def decode(blob: bytes, encoding: str | None = None) -> Decoded:
     if text is not None:
         return Decoded("utf-8", b"", text, False, "utf-8", [], controls(text))
     if b"\x00" not in blob:
+        dec = declared(blob)
+        enc = canonical(dec[0]) if dec else None
+        if enc and enc not in WIDE:
+            t = _strict(blob, enc)
+            if t is not None and clean(t):
+                # ファイルの中の宣言のとおりに、厳密にきれいに読める：宣言で決まる（仕様の決め方。候補はない）
+                return Decoded(enc, b"", t, False, "declared", [], controls(t), dec[1])
+    if b"\x00" not in blob:
         # NUL のバイトは、UTF-8・UTF-16・UTF-32 でなければ、文字のファイルにはない（POSIX の「文字のファイル」の定義）。
         # NUL があるのに UTF の形で読めないものは、多バイト・1バイトの文字コードを試さない（バイナリか、壊れたファイル）
         for encs, basis in ((MULTI, "multibyte"), (SINGLE, "singlebyte")):
@@ -256,3 +328,26 @@ def decode(blob: bytes, encoding: str | None = None) -> Decoded:
                 return got
     text = blob.decode("latin-1")
     return Decoded("latin-1", b"", text, False, "none", [], controls(text))
+
+
+def _given(blob: bytes, encoding: str) -> Decoded:
+    """エージェントが選んで指定した文字コードで、厳密に読む（読めなければ EncodingError。きれいかは問わない：選んだのは
+    エージェント）。BOM は、指定した文字コードの BOM なら外して覚える（書くときに元のまま残す）。"""
+    enc = canonical(encoding)
+    if enc is None:
+        raise EncodingError(f"文字コード「{encoding}」を知りません（例：UTF-8・Shift_JIS・EUC-JP・GBK・Big5・EUC-KR・Windows-1252）")
+    if enc in ("utf-16", "utf-32"):
+        # 向き（エンディアン）は BOM で決める。BOM がなければ決められないので、向きまで指定してもらう
+        hit = next(((b, e) for b, e in BOMS if e.startswith(enc) and blob.startswith(b)), None)
+        if hit is None:
+            raise EncodingError(f"{encoding}：BOM がないので、向きが決まりません。{enc}-le か {enc}-be を指定してください")
+        enc = hit[1]
+    bom = next((b for b, e in BOMS if e == enc and blob.startswith(b)), b"")
+    try:
+        text = blob[len(bom):].decode(enc, errors="strict")
+    except UnicodeDecodeError as e:
+        raise EncodingError(f"指定された文字コード（{NAME_JA.get(enc, enc)}）では、このファイルを厳密に読めません"
+                            f"（{e.start} バイト目：{e.reason}）") from None
+    except LookupError:
+        raise EncodingError(f"文字コード「{encoding}」を知りません") from None
+    return Decoded(enc, bom, text, False, "given", [], controls(text))

@@ -104,6 +104,22 @@ def _read_member(path: str, password: str | None):
     return plain, name, k, lock
 
 
+def _encoding(blob: bytes, k: str, encoding: str | None) -> str | None:
+    """エージェントが選んだ文字コード（encoding）を確かめる：文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）にだけ使え、
+    ファイルがその文字コードとして厳密に読めること。読めなければ ApiError（黙ってほかの文字コードで読まない）。"""
+    if not encoding:
+        return None
+    if k not in _open.TEXT_FILES:
+        raise ApiError(f"encoding（文字コード）は、文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）にだけ指定できます"
+                       f"（この書類は {KIND_JA.get(k, k)}。文字コードはファイルの作りで決まります）")
+    from .datafile.textenc import EncodingError, decode
+
+    try:
+        return decode(blob, encoding).encoding
+    except EncodingError as e:
+        raise ApiError(str(e)) from None
+
+
 def _pdf(blob: bytes, name: str, lock):
     from .pdf.doc import PdfDocument
     from .unlock import pdf_password
@@ -114,21 +130,22 @@ def _pdf(blob: bytes, name: str, lock):
 
 # 窓の控え：対話では、同じファイルを開いてから書く（open_document → fill_document）ので、中身が同じなら作り直さない。
 # 鍵はファイルの中身のハッシュと名前だけ（パスワードで保護された書類は控えない。パスワードは控えにも残さない）
-_WINDOWS: "dict[tuple[str, str], tuple[str, bytes]]" = {}
+_WINDOWS: "dict[tuple, tuple[str, bytes]]" = {}
 _WINDOWS_MAX = 8
 
 
-def window(path: str, password: str | None = None) -> tuple[str, dict, list[tuple[str, str]]]:
-    """(形式, 窓の JSON, Markdown の部分)。"""
+def window(path: str, password: str | None = None, encoding: str | None = None) -> tuple[str, dict, list[tuple[str, str]]]:
+    """(形式, 窓の JSON, Markdown の部分)。encoding：文字だけのファイルの文字コードを、エージェントが候補から選んだとき。"""
     import hashlib
     import pickle
 
     blob, name, k, lock = _read(path, password)
-    key = (hashlib.sha256(blob).hexdigest(), name) if lock is None else None
+    encoding = _encoding(blob, k, encoding)
+    key = (hashlib.sha256(blob).hexdigest(), name, encoding) if lock is None else None
     if key is not None and key in _WINDOWS:
         _WINDOWS[key] = _WINDOWS.pop(key)  # いちばん新しく使ったものにする
         return pickle.loads(_WINDOWS[key][1])  # 呼んだ側が変えても控えは変わらないよう、写しを返す
-    out = _window(blob, name, k, lock)
+    out = _window(blob, name, k, lock, encoding)
     if key is not None:
         try:
             _WINDOWS[key] = (k, pickle.dumps(out, protocol=pickle.HIGHEST_PROTOCOL))
@@ -139,7 +156,7 @@ def window(path: str, password: str | None = None) -> tuple[str, dict, list[tupl
     return out
 
 
-def _window(blob: bytes, name: str, k: str, lock) -> tuple[str, dict, list[tuple[str, str]]]:
+def _window(blob: bytes, name: str, k: str, lock, encoding: str | None = None) -> tuple[str, dict, list[tuple[str, str]]]:
     if k == "zip":
         from .ziparc import ArchiveError
         from .ziparc import window as zwindow
@@ -151,7 +168,7 @@ def _window(blob: bytes, name: str, k: str, lock) -> tuple[str, dict, list[tuple
         return k, doc, parts
     if k in _open.KINDS:  # 追加の形式
         try:
-            doc, parts = _open.window(k, blob, name)
+            doc, parts = _open.window(k, blob, name, encoding)
         except _open.OpenFormatError as e:
             raise ApiError(str(e)) from None
         return k, doc, parts
@@ -210,9 +227,9 @@ def _word(blob: bytes, name: str, k: str):
     return DocxDocument(blob, name)
 
 
-def fields(path: str, password: str | None = None) -> list[dict]:
+def fields(path: str, password: str | None = None, encoding: str | None = None) -> list[dict]:
     """入力欄の一覧（名前・見出し・種類・選択肢・いまの値・書けるか・その行の文脈）。"""
-    k, doc, _ = window(path, password)
+    k, doc, _ = window(path, password, encoding)
     if k == "zip":
         return []  # ZIP そのものに欄はない（中のファイルを「a.zip!/名前」で開く）
     if k in _open.KINDS:  # 追加の形式
@@ -251,25 +268,32 @@ def _field(f: dict, **where) -> dict:
     return d
 
 
-def fill(path: str, values: dict, out_path: str, force: bool = False, password: str | None = None) -> dict:
+def fill(path: str, values: dict, out_path: str, force: bool = False, password: str | None = None,
+         encoding: str | None = None) -> dict:
     """書き込み、証明し、書き込み後のファイルを読み直して、書いた値がそのまま出ているかを確かめる。
-    パスワードで保護された書類は、解いた中身に書いて証明し、元と同じパスワードで保護し直して書き出す。"""
+    パスワードで保護された書類は、解いた中身に書いて証明し、元と同じパスワードで保護し直して書き出す。
+    encoding：文字だけのファイルの文字コードを、エージェントが候補から選んだとき（その文字コードで読み、書いた所だけを
+    その文字コードのバイトにして置き換える。ほかのバイトは元のまま）。"""
     if _member(path) is not None:
-        return _fill_member(path, values, out_path, force, password)
+        return _fill_member(path, values, out_path, force, password, encoding)
     src = Path(path).expanduser().resolve()
     dst = Path(out_path).expanduser().resolve()
     if src == dst:
         raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
     blob, name, k, lock = _read(path, password)
+    encoding = _encoding(blob, k, encoding)
     if k == "zip":
         raise ApiError("ZIP そのものには書けません。中のファイルを path に「" + path + "!/中の名前」で指定してください")
     _seal_supported(k, values)
     result: dict = {"kind": k, "out_path": str(dst), "original_sha256": hashlib.sha256(src.read_bytes()).hexdigest()}
+    if encoding:
+        result["encoding"] = {"encoding": encoding, "chosen_by": "agent",
+                              "detail": "エージェントが選んで指定した文字コードで読み、書いた所だけをその文字コードのバイトにしました"}
     readback_values = dict(values)  # 読み戻しで確かめる、欄の id → 書いた値
     told = None  # 本人に伝える、書いた所（ほかの形式は読み戻しの値と同じ）
     rest_fields = None  # まだ空いている欄を数える、欄の一覧（なければ、書いた後のファイルの欄）
     try:
-        labels = {f["id"]: f.get("label", "") for f in fields(path, password)}  # 白紙のときの見出し（対話で伝える一覧に使う）
+        labels = {f["id"]: f.get("label", "") for f in fields(path, password, encoding)}  # 白紙のときの見出し（対話で伝える一覧に使う）
     except ApiError:
         labels = {}
     if k in ("xlsx", "xls"):
@@ -352,7 +376,7 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         result["jtd_read_back"] = pr.readback[:30]
     elif k in _open.KINDS:  # 追加の形式：書き込みと証明は、形式ごとの部品で
         try:
-            res_ = _open.fill(k, blob, name, values, force)
+            res_ = _open.fill(k, blob, name, values, force, encoding)
         except _open.OpenFormatError as e:
             raise ApiError(str(e)) from None
         new_blob = res_["blob"]
@@ -404,10 +428,10 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     dst.write_bytes(new_blob)
     result["new_sha256"] = hashlib.sha256(new_blob).hexdigest()
     # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか
-    after_list = fields(str(dst), password)
+    after_list = fields(str(dst), password, encoding)
     after = {f["id"]: f.get("value") for f in after_list}
     if k in _open.KINDS:  # 追加の形式：欄の一覧に出ないマス・値も、書いた後のファイルを読み直して照らす
-        after.update(_open.read_back(k, written_plain, name, readback_values))
+        after.update(_open.read_back(k, written_plain, name, readback_values, encoding))
     if k in ("xlsx", "xls"):
         # 欄の一覧に出ないセル（番地で書いたセル）も、書いた後のブックのセルの値を直接読んで照らす
         from .book import open_book
@@ -456,7 +480,8 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     return result
 
 
-def _fill_member(path: str, values: dict, out_path: str, force: bool, password: str | None) -> dict:
+def _fill_member(path: str, values: dict, out_path: str, force: bool, password: str | None,
+                 encoding: str | None = None) -> dict:
     """ZIP の中のファイルに書く：取り出したファイルに書いて証明し、ZIP はそのファイルの部品だけを入れ替えて書き出す。
     書き出した ZIP から取り出し直したファイルが、証明した書き込み後のファイルとバイト一致し、ほかの部品が元とバイト一致するかを確かめる。"""
     import tempfile
@@ -481,7 +506,7 @@ def _fill_member(path: str, values: dict, out_path: str, force: bool, password: 
         a.parent.mkdir()
         b.parent.mkdir()
         a.write_bytes(member_blob)
-        result = fill(str(a), values, str(b), force, password)
+        result = fill(str(a), values, str(b), force, password, encoding)
         written = b.read_bytes()
     # 内側から順に、書いた部品だけを入れ替える
     new = written
@@ -742,12 +767,13 @@ def _num_equal(a, b) -> bool:
         return False
 
 
-def audit(path: str, password: str | None = None) -> dict:
+def audit(path: str, password: str | None = None, encoding: str | None = None) -> dict:
     import inspect
 
     from .unlock import pdf_password
 
     blob, name, k, lock = _read(path, password)
+    encoding = _encoding(blob, k, encoding)
     if k == "zip":
         return _audit_zip(path, blob, password)
     if k == "pdf":
@@ -759,13 +785,13 @@ def audit(path: str, password: str | None = None) -> dict:
     elif k == "jtd":
         from .jtd.audit import run
     elif k in _open.KINDS:  # 追加の形式
-        run = _open.audit_runner(k)
+        run = _open.audit_runner(k, encoding)
     else:
         from .xlsx.audit import run
     pw = pdf_password(lock)
     au = run(blob, name, password=pw) if pw and "password" in inspect.signature(run).parameters else run(blob, name)
     d = au.to_dict()
-    d["grade"] = grade(path, password=password)
+    d["grade"] = grade(path, password=password, encoding=encoding)
     if lock is not None:
         d["password_protected"] = f"パスワードで保護された書類です（{lock.label}）。解いた中身を確かめました"
     return d
@@ -909,23 +935,24 @@ def _audit_zip(path: str, blob: bytes, password: str | None) -> dict:
 
 
 def grade(path: str, findings: list[dict] | None = None, answered: list[str] | None = None,
-          password: str | None = None) -> dict:
+          password: str | None = None, encoding: str | None = None) -> dict:
     """段階（S〜F）：誰が扱えば正確に読んで入れられるか。規則で決めた段階と、エージェントが確かめること。
     findings（エージェントが窓を読んで見つけたこと：{grade, title, detail, where}）を渡すと、段階に合わせる。
     パスワードで保護された書類は、本人に聞いたパスワードで解いた中身で決める（パスワードがなければ PasswordNeeded）。"""
     from .grade import combine, grade_blob
     from .unlock import pdf_password
 
-    blob, name, _k, lock = _read(path, password)
-    g = grade_blob(blob, name, password=pdf_password(lock))
+    blob, name, k, lock = _read(path, password)
+    encoding = _encoding(blob, k, encoding)
+    g = grade_blob(blob, name, password=pdf_password(lock), encoding=encoding)
     if findings or answered:
         g = combine(g, findings or [], answered)
     return g.to_dict()
 
 
-def summary(path: str, password: str | None = None) -> dict:
-    k, doc, parts = window(path, password)
-    fl = fields(path, password)
+def summary(path: str, password: str | None = None, encoding: str | None = None) -> dict:
+    k, doc, parts = window(path, password, encoding)
+    fl = fields(path, password, encoding)
     d = {"file": Path(path).name, "kind": k, "kind_ja": KIND_JA[k], "fields": len(fl),
          "writable_fields": sum(1 for f in fl if not f.get("readonly")), "window_parts": len(parts),
          "window_chars": sum(len(t) for _, t in parts)}

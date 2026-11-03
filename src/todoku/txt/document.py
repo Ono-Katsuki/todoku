@@ -65,11 +65,11 @@ class TxtDocument:
 
     kind = "txt"
 
-    def __init__(self, blob: bytes, filename: str = ""):
+    def __init__(self, blob: bytes, filename: str = "", encoding: str | None = None):
         self.blob = blob
         self.filename = filename
         try:
-            self.dec: Decoded = decode(blob)
+            self.dec: Decoded = decode(blob, encoding)
         except UnicodeDecodeError as e:
             raise TxtError(f"文字コードを読めません（{e.reason}）") from None
         self.text = self.dec.text

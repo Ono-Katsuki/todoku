@@ -307,10 +307,10 @@ def parts_json(doc: dict, budget: int = BUDGET) -> list[tuple[str, str]]:
 
 
 # ====================================================================== 入口
-def build(blob: bytes, filename: str, kind: str) -> dict:
+def build(blob: bytes, filename: str, kind: str, encoding: str | None = None) -> dict:
     if kind in ("csv", "tsv"):
-        return build_csv(CsvFile(blob, filename, kind))
-    return build_json(JsonFile(blob, filename, kind))
+        return build_csv(CsvFile(blob, filename, kind, encoding))
+    return build_json(JsonFile(blob, filename, kind, encoding))
 
 
 def markdown_parts(doc: dict) -> list[tuple[str, str]]:

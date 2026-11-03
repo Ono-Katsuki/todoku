@@ -196,14 +196,15 @@ def test_big5_is_not_read_as_latin1():
 
 
 def test_ambiguous_encoding_is_handed_to_the_agent(tmp_path):
-    """Shift_JIS としても GBK としても仕様どおりに読めるとき：決めずに候補を示し、段階は C（エージェントが決める）。"""
+    """Shift_JIS としても GBK としても仕様どおりに読めるとき：決めずに候補を示し、段階は B（中身は窓にすべて出ていて、
+    候補の見本を根拠に、エージェントが決める）。"""
     text = "国民の祝日,名称\r\n1955/1/1,元日\r\n"
     blob = text.encode("cp932")
     d = decode(blob)
     assert d.encoding == "cp932" and d.text == text
     assert [c["encoding"] for c in d.candidates][:1] == ["gbk"]
     g = grade_blob(blob, "a.csv")
-    assert g.grade == "C" and any(r.title == "文字コードを規則では決められない" for r in g.reasons)
+    assert g.grade == "B" and any(r.title == "文字コードを規則では決められない" for r in g.reasons)
     p = tmp_path / "a.csv"
     p.write_bytes(blob)
     _k, _doc, parts = api.window(str(p))

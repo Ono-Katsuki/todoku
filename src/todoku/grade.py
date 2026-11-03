@@ -7,12 +7,16 @@
 S 素で問題ない（表のデータそのもの：CSV・JSON など）
 A 規則だけで正確に読める（中身の字・並び・表示の値がファイルの作りから決まり、数式もすべて確かめられる）
 B エージェントが読めば正確（中身は窓にすべて出ているが、一部の値の読み方が規則では決まらず、窓に示した根拠で
-  エージェントが決める：Excel 以外のアプリが保存した計算結果 など）
+  エージェントが決める：Excel 以外のアプリが保存した計算結果、いくつもの文字コードで仕様どおりに読める文字のファイル
+  （候補と見本を窓に並べる。エージェントが選んで encoding で渡せば、その文字コードで読み直し、段階は下げない）、
+  本文の中身である説明のない画像（字の中身はあるが、画像の所はエージェントが見て確かめる。タグ付きの PDF の Alt のない図も）など）
 C エージェントが工夫して変換できる（マクロ・確かめられない数式・自動で動くスクリプトなど、規則では再現しない処理がある。
-  文字コードを決められない）
+  どの文字コードとしても読めない。窓の読み落とし：窓とは別の読み方で拾った中身が窓に出ていない（Excel の Markdown の窓・
+  PDF のページの字・Word の文字）ので、エージェントは窓だけを信じてはいけない。落ちた所を where に示す）
 D エージェントの解釈が必要（書く値がおおよそでよい・人によって解釈が分かれる書き方がある：エージェントの判断）
 E エージェントが得意でない形式（字として読めない中身があり、エージェントがページを画像として見て読む：画像だけの
-  ページ・スキャン（todoku が開けない圧縮の画像も含む）、字に直せない本文の字、画像だけのシート・文書）
+  ページ・スキャン（todoku が開けない圧縮の画像も含む）、字に直せない本文の字、画像だけのシート・文書、本文に見出し・
+  図表番号のほかに字の段落がなく中身が説明のない画像の文書・スライド）
 F アクセスできない（開けない・パスワードが分からない・中身を取り出せない・ページが1つもない）
   ※字に直せない字が、行の頭の印（箇条の印など）だけなら、語は欠けていないので段階は変えず、注意（alerts）に位置を示す
 
@@ -94,7 +98,9 @@ class Reason:
     title: str
     detail: str
     where: list[str] = field(default_factory=list)
-    by: str = "rules"  # rules（規則）/ agent（エージェントの判断）
+    # rules（規則）/ agent（エージェントの判断：combine の findings）/ agent_choice（エージェントが道具に渡した選択で、
+    # 規則がそれを確かめたもの：文字だけのファイルの encoding など。規則の理由と同じく、combine で残す）
+    by: str = "rules"
 
 
 @dataclass
@@ -174,8 +180,8 @@ def combine(rule: "Grade | dict", findings: list[dict], answered: list[str] | No
                      alerts=[Reason(**a) for a in rule.get("alerts", [])], write=w.get("grade", "A"),
                      write_reasons=[Reason(**r) for r in w.get("reasons", [])])
     checks = {c["id"]: c for c in AGENT_CHECKS}
-    reasons = [r for r in rule.reasons if r.by == "rules"]
-    write = [r for r in rule.write_reasons if r.by == "rules"]
+    reasons = [r for r in rule.reasons if r.by != "agent"]
+    write = [r for r in rule.write_reasons if r.by != "agent"]
     found: set[str] = set()
     for f in findings:
         c = checks.get(str(f.get("check") or ""))
@@ -236,8 +242,9 @@ def _macro_reasons(info) -> list[Reason]:
 
 
 # ====================================================================== 形式ごと
-def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> Grade:
-    """password：パスワードで保護された PDF を開くとき（Office の書類は、api で解いた中身を渡す）。"""
+def grade_blob(blob: bytes, filename: str = "", password: str | None = None, encoding: str | None = None) -> Grade:
+    """password：パスワードで保護された PDF を開くとき（Office の書類は、api で解いた中身を渡す）。
+    encoding：文字だけのファイル（CSV・TSV・JSON・.txt）の文字コードを、エージェントが候補から選んで指定したとき。"""
     from .book import kind_of
 
     # ---- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument）：形式ごとの段階の決め方で（openkinds）
@@ -249,7 +256,7 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> 
     except Exception:  # noqa: BLE001
         k_open = None
     if k_open in _OPEN_KINDS:
-        return _open_grade(k_open, blob, filename)
+        return _open_grade(k_open, blob, filename, encoding)
     # ----
     try:
         k = kind_of(blob)
@@ -366,6 +373,8 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
                                   list(bad)))
             write.append(Reason("D", "開けない画像だけのページ", f"{len(bad)} ページは、画像の圧縮（{codecs}）を todoku が開けず、"
                                 "ページの画像で書く所を確かめられないので、書けません", list(bad)))
+    reasons += _pdf_lost(doc, win)
+    reasons += _pdf_figures(win)
     if win["form"]["xfa"]:
         xr, xw_ = _xfa_reasons(win.get("xfa"))
         reasons += xr
@@ -379,6 +388,33 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
     g = _final(reasons, write)
     g.alerts = picture_alerts([p for pg in win["pages"] for p in pg.get("pictures", [])]) + _mark_alerts(marks)
     return g
+
+
+def _pdf_lost(doc, win: dict) -> list[Reason]:
+    """PDF の窓の読み落とし：ページの描画の命令を順に読んだ字と、窓に出た字を照らす（audit の check_glyphs。落ちた字・
+    重ね書きでないのに1字にした字・元にない字は、ページと字で where に）。字に直せない字・画像だけのページは、別の理由で決める。"""
+    from .pdf.audit import Check, check_glyphs
+
+    try:
+        c = check_glyphs(doc, win)
+    except Exception as e:  # noqa: BLE001  確かめられないものは、通ったことにしない
+        c = Check("読み落とし（確かめられない）", False, f"窓の読み落としを確かめられませんでした（{type(e).__name__}: {str(e)[:80]}）")
+    return lost_reason([c], "ページ")
+
+
+def _pdf_figures(win: dict) -> list[Reason]:
+    """タグ付きの PDF の、字のあるページの、説明（Alt）のない図（構造の木の要素に結びつき、Artifact でない画像）：中身の図
+    （PDF/UA 7.3）なので、エージェントがページを見て確かめる（読む B。where に位置）。画像だけのページは E（別の理由）。
+    タグのない PDF の画像は、中身の図か飾りかがファイルの作りから決まらない（大きさの目安で決めることはしない）ので、
+    段階は変えず、注意（alerts）に位置と大きさを示す。"""
+    figs = [f"{p['id']}（{p['where']}・{p['size_mm'][0]}×{p['size_mm'][1]} mm" + (f"・近くの字「{p['near']}」" if p.get("near") else "") + "）"
+            for pg in win["pages"] if not pg.get("image_only")
+            for p in pg.get("pictures", []) if p.get("tagged") and not p.get("alt") and not p.get("decorative")]
+    if not figs:
+        return []
+    return [Reason("B", "説明のない図（タグ付きの PDF）",
+                   f"字のあるページの図 {len(figs)} 個は、構造の木（タグ）で中身の図とされていますが、説明（Alt）がなく、中身を字として"
+                   "読めません。図の所は、エージェントがページを見て読み（PDF を描ける道具で）、中身を推測で埋めないでください", figs[:12])]
 
 
 def _unmapped(pages: list[dict]) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
@@ -536,6 +572,9 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
         reasons.append(Reason("E", "画像だけの文書", f"本文に字がなく、中身は画像 {len(pics)} 個だけです。中身は画像を見て読みます",
                               [p["id"] for p in pics[:12]]))
         write.append(Reason("D", "画像だけの文書", "字の情報がなく、書く所を字で示せないので、書けません（手で書く紙として扱います）"))
+    else:
+        reasons += content_image_reasons(doc, win, doc.body, lambda p: word_heading(doc, p), "本文")
+    reasons += _word_lost(doc, win, kind)
     write += _write_fields(fields, layout, agent, "フォームの欄・コンテンツコントロール",
                            "欄のない所は、前後の字を指定して書き換えます")
     write += _write_embeds(win.get("embeds") or [])
@@ -543,6 +582,84 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
     g = _final(reasons, write)
     g.alerts = picture_alerts(win.get("pictures") or [])
     return g
+
+
+# 見出し・図表番号の、組み込みのスタイルの名前（ECMA-376 第1部 17.7.4.9 の name。大文字・小文字は区別しない）
+_HEADING_STYLES = {f"heading {k}" for k in range(1, 10)} | {"title", "subtitle", "caption"}
+
+
+def word_heading(doc, p) -> bool:
+    """Word の段落が見出し・図表番号か（ファイルの作りで決める：段落か、スタイル（basedOn をたどる）の w:outlineLvl が 0〜8、
+    またはスタイルが組み込みの見出し（heading 1〜9）・表題（Title・Subtitle）・図表番号（caption））。字の中身は見ない。"""
+    node = getattr(p, "node", None)
+    ppr = node.find("pPr") if node is not None and hasattr(node, "find") else None
+    ol = ppr.find("outlineLvl") if ppr is not None else None
+    if ol is not None and str(ol.get("val", "")).isdigit():
+        return int(ol.get("val")) < 9
+    sid, seen = getattr(p, "style", "") or "", 0
+    names = getattr(doc, "style_names", {}) or {}
+    while sid and seen < 20:
+        if str(names.get(sid, sid)).strip().lower() in _HEADING_STYLES:
+            return True
+        lvl = (getattr(doc, "style_outline", {}) or {}).get(sid)
+        if lvl is not None:
+            return lvl < 9
+        sid = (getattr(doc, "style_based", {}) or {}).get(sid, "")
+        seen += 1
+    return False
+
+
+def _words(p) -> str:
+    """段落の、ファイルの文字の要素から来た字（非表示の字・図の印〔図N…〕などの、todoku が足した印を除く）。"""
+    return "".join(s.text for s in getattr(p, "segs", []) if not s.hidden and s.kind in ("t", "sym", "math", "ruby")).strip()
+
+
+def content_image_reasons(doc, win: dict, body_blocks, heading, body_ja: str) -> list[Reason]:
+    """本文の中身である、説明（代わりの字）のない画像：エージェントは画像の中身を字として読めないので、見て確かめる。
+    本文の中身か（ヘッダー・フッターの飾りでないか）は、画像のある段落が本文の段落か（表のマス・テキストボックスの中も含む）で、
+    飾りかは作り手の印（decorative）で決める（ファイルの作り。大きさや字の数の目安は使わない）。
+    - 本文に、見出し・図表番号・空の段落のほかに字のある段落が1つもない：読む E（中身は画像。画像を見て読む）
+    - ほかに本文の字がある：読む B（字の中身は窓にあるが、画像の所はエージェントが見て確かめる。where に位置）"""
+    from .docx.document import iter_paras
+
+    paras = list(iter_paras(body_blocks))
+    ids = {id(p) for p in paras}
+    bare = [p for p in getattr(doc, "pictures", []) or []
+            if id(p.get("para")) in ids and not p.get("alt") and not p.get("decorative")]
+    if not bare:
+        return []
+    where_of = {p["id"]: p.get("where", "") for p in win.get("pictures") or []}
+    where = []
+    for p in bare:
+        pid = f"図{p['n']}"
+        where.append(f"{pid}（{where_of.get(pid, '')}" + (f"・{p['media']}" if p.get("media") else "") + "）")
+    text = [p for p in paras if _words(p) and not heading(p)]
+    see = ("画像の中身は、todoku は字にしません。エージェントが画像そのもの（ファイルの中の画像の部品。where に名前）を見て読み、"
+           "中身を推測で埋めないでください")
+    if not text:
+        return [Reason("E", "中身が画像の文書",
+                       f"{body_ja}には、見出し・図表番号のほかに字の段落がなく、中身は説明（代わりの字）のない画像 {len(bare)} 個です。{see}",
+                       where[:12])]
+    return [Reason("B", "説明のない本文の画像",
+                   f"{body_ja}の画像 {len(bare)} 個に説明（代わりの字）がなく、中身を字として読めません。{see}", where[:12])]
+
+
+def _word_lost(doc, win: dict, kind: str) -> list[Reason]:
+    """Word の窓の読み落とし：XML の文字の要素（.doc はピースの表）から直接拾った字が、窓に出ているか（audit の check_reading）。"""
+    from .xlsx.audit import Check
+
+    try:
+        if kind == "doc":
+            from .doc.audit import check_reading as doc_check
+
+            checks = [doc_check(doc, win)]
+        else:
+            from .docx.audit import check_reading
+
+            checks = check_reading(doc, win)
+    except Exception as e:  # noqa: BLE001  確かめられないものは、通ったことにしない
+        checks = [Check("読み落とし（確かめられない）", False, f"窓の読み落としを確かめられませんでした（{type(e).__name__}: {str(e)[:80]}）")]
+    return lost_reason(checks, "文書")
 
 
 def _saved_by(wb) -> str | None:
@@ -660,20 +777,15 @@ def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "�
 
 
 def image_only_sheets(wb) -> list[str]:
-    """画像だけのシート：絵があり、使っている範囲（印刷範囲が絵に重なれば、その中）に、値・数式のあるセルも、字のある図形・部品も
-    ない（ファイルの作りで決まる）。グラフはセルの値から描くもので、中身は値として読めるので数えない。"""
+    """画像だけのシート：ファイルの作りだけで決める。絵（picture。グラフは除く：グラフはセルの値から描くもので、中身は値として
+    窓に出る）が1つ以上あり、シートのどこにも値・数式のあるセルがなく、字のある図形・部品もないシート。
+    印刷範囲は見ない（印刷範囲の外のセルの値も、窓に出る中身なので）。"""
     out = []
     for sh in wb.sheets:
         shapes = getattr(sh, "shapes", [])
-        # グラフは、セルの値から描くもの（中身は値として窓に出る）なので、画像に数えない。絵（picture）だけ
-        pics = [s for s in shapes if s.kind == "picture"]
-        if not pics:
+        if not any(s.kind == "picture" for s in shapes):
             continue
-        # 印刷範囲が絵のどれとも重ならない（使っている範囲の外にある、など）ときは、印刷範囲で見ず、シート全体で見る
-        anchors = [getattr(s, "anchor", None) for s in pics]
-        in_area = any(a is not None and sh.in_print_area(*a) for a in anchors) or all(a is None for a in anchors)
-        if any((c.has_formula or c.value not in (None, "")) and (not in_area or sh.in_print_area(r, col))
-               for (r, col), c in sh.cells.items()):
+        if any(c.has_formula or c.value not in (None, "") for c in sh.cells.values()):
             continue
         if any((getattr(s, "text", "") or "").strip() for s in shapes) or \
                 any((getattr(c, "text", "") or "").strip() for c in getattr(sh, "controls", [])):
@@ -717,6 +829,7 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
         write.append(Reason("B", "確かめられない数式", f"{rep['unsupported']} 個の数式は計算し直せないので、書いた値から計算される所を確かめられません"))
     reasons += _macro_reasons(doc.get("macros"))
     write += _write_macros(doc.get("macros"))
+    reasons += _excel_lost(wb, doc)
     for name in image_only_sheets(wb):
         reasons.append(Reason("E", "画像だけのシート", f"シート「{name}」の中身は画像で、セルの文字がありません", [name]))
         write.append(Reason("D", "画像だけのシート", f"シート「{name}」は画像だけで、書くセルがありません。手で書く紙として扱います",
@@ -733,6 +846,31 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
     g = _final(reasons, write)
     g.alerts = picture_alerts(pictures)
     return g
+
+
+def lost_reason(checks: list, what: str) -> list[Reason]:
+    """読み落としの検査（audit の、窓とは別の読み方で拾った中身と窓を照らすもの）が落ちたら、読む C：中身が窓にすべては
+    出ていないので、エージェントは窓だけを信じてはいけない（落ちた所は where に）。検査が通れば、何も足さない。"""
+    bad = [c for c in checks if not c.ok]
+    if not bad:
+        return []
+    items = [x for c in bad for x in (c.items or [c.detail])]
+    return [Reason("C", "窓の読み落とし",
+                   f"{what}の中身のうち {len(items)} 件が、窓に出ていないか、元と違って出ています（{'・'.join(c.name for c in bad)}）。"
+                   "窓だけを信じず、落ちた所（where）はファイルの別の読み方で確かめます", items[:12])]
+
+
+def _excel_lost(wb, doc: dict) -> list[Reason]:
+    """Excel の窓の読み落とし：XML（.xls はレコード）から直接拾ったセル・図形・メモなどが JSON の窓にあるか（check_reading）と、
+    値のあるすべてのセルが、エージェントの読む Markdown の窓に出ているか（check_markdown）。"""
+    from .xlsx.audit import Check, check_markdown, check_reading
+
+    links = {(c.link_cell[0], c.link_cell[1], c.link_cell[2]) for s in wb.sheets for c in s.controls if c.link_cell}
+    try:
+        checks = check_reading(wb, doc) + [check_markdown(doc, links)]
+    except Exception as e:  # noqa: BLE001  確かめられないものは、通ったことにしない
+        checks = [Check("読み落とし（確かめられない）", False, f"窓の読み落としを確かめられませんでした（{type(e).__name__}: {str(e)[:80]}）")]
+    return lost_reason(checks, "ブック")
 
 
 def _grade_word6(doc) -> Grade:

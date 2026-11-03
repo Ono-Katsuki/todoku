@@ -211,7 +211,7 @@ def test_read_grade_ignores_field_candidates_of_a_statistics_table():
     assert g.write == "B"
 
 
-def test_chart_or_misplaced_print_area_is_not_an_image_only_sheet():
+def test_image_only_sheet_is_decided_by_structure_only():
     from types import SimpleNamespace
 
     from todoku.grade import image_only_sheets
@@ -227,9 +227,14 @@ def test_chart_or_misplaced_print_area_is_not_an_image_only_sheet():
     wb = SimpleNamespace(sheets=[
         sheet("グラフ", {}, [chart]),  # グラフだけ（値は別のシート）：画像ではない
         sheet("範囲の外", {(5, 2): cell("値")}, [pic], area=(101, 2, 119, 10)),  # 印刷範囲が絵にもセルにも重ならない
-        sheet("絵", {(200, 1): cell("欄外の控え")}, [pic], area=(1, 1, 40, 10)),  # 印刷範囲の中は絵だけ
+        # 印刷範囲の中は絵だけでも、範囲の外のセルに値がある：その値は窓に出る中身なので、画像だけのシートではない
+        # （印刷範囲は見ず、ファイルの作りだけで決める）
+        sheet("欄外に値", {(200, 1): cell("欄外の控え")}, [pic], area=(1, 1, 40, 10)),
+        sheet("空の値", {(3, 3): cell(""), (4, 4): cell(None)}, [pic, chart], area=(1, 1, 40, 10)),  # 値のないセルだけ
+        sheet("字のある図形", {}, [pic, SimpleNamespace(kind="shape", text="氏名", anchor=(2, 2))]),
+        sheet("絵", {}, [pic]),
     ])
-    assert image_only_sheets(wb) == ["絵"]
+    assert image_only_sheets(wb) == ["空の値", "絵"]
 
 
 def test_tounicode_helper_still_used():
