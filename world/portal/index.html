@@ -383,6 +383,7 @@ tr.unr td { color: var(--muted); }
         <th class="num"><button type="button" data-k="forms_writable">様式に書ける</button></th>
       </tr></thead><tbody></tbody>
     </table></div>
+    <button type="button" class="more" id="t-all" hidden></button>
   </section>
 
   <section aria-labelledby="h-why">
@@ -406,10 +407,14 @@ tr.unr td { color: var(--muted); }
       <label for="f-fc">入力欄<select id="f-fc"><option value="">すべて</option><option value="marked">作り手の印がある様式</option><option value="inferred">推定の欄だけ</option><option value="none">欄なし</option></select></label>
       <label for="f-o">届いたか<select id="f-o"><option value="">すべて</option><option value="ok">取得できた</option><option value="no">取得できない</option></select></label>
       <label for="f-q">題名・発行者・分類<input id="f-q" type="search" placeholder="例：障害、福祉、Statistik"></label>
+      <label for="f-s">並び順<select id="f-s">
+        <option value="read-hi">読むスコアが高い順</option><option value="read-lo">読むスコアが低い順</option>
+        <option value="write-hi">書くスコアが高い順</option><option value="write-lo">書くスコアが低い順</option>
+        <option value="fields">欄の多い順</option><option value="country">国の順</option></select></label>
     </div>
     <p class="count" id="count"></p>
     <div class="docs" id="docs"></div>
-    <button type="button" class="more" id="more" hidden>さらに 50 件</button>
+    <button type="button" class="more" id="more" hidden>さらに 20 件</button>
   </section>
 
   <section aria-labelledby="h-method">
@@ -550,7 +555,7 @@ tr.unr td { color: var(--muted); }
   }
 
   // ---------------------------------------------------------------- 表
-  let sortKey = "n", sortDir = -1;
+  let sortKey = "read_ok", sortDir = -1, allCountries = false;
   function renderTable() {
     const all = Object.entries(DATA.countries);
     const pending = all.filter(([, c]) => !c.reach.n).map(([, c]) => c.name).sort((a, b) => a.localeCompare(b, "ja"));
@@ -558,7 +563,11 @@ tr.unr td { color: var(--muted); }
       reach: c.reach.p ?? -1, read_ok: c.read_ok.p ?? -1, write_a: c.write_a.p ?? -1, forms_writable: c.forms_writable.p ?? -1 }));
     rows.sort((a, b) => (typeof a[sortKey] === "string" ? a[sortKey].localeCompare(b[sortKey], "ja") : a[sortKey] - b[sortKey]) * sortDir);
     const tb = document.querySelector("#table tbody");
-    tb.innerHTML = rows.map(({ cc, c }) =>
+    const btn = document.getElementById("t-all");
+    btn.hidden = rows.length <= 10 && !pending.length;
+    btn.textContent = allCountries ? "先頭の 10 か国だけ表示" : `すべての国を表示（調べた ${rows.length} か国と、まだ・届かない国）`;
+    const visible = allCountries ? rows : rows.slice(0, 10);
+    tb.innerHTML = visible.map(({ cc, c }) =>
       `<tr><td><a href="#h-map" data-cc="${cc}">${esc(c.name)}</a></td><td class="num">${c.reach.n}</td>
        <td class="num">${pct(c.reach.p)}<br><span class="ci">${ci(c.reach.ci)}</span></td>
        <td class="num">${pct(c.read_ok.p)}<br><span class="ci">${ci(c.read_ok.ci)}</span></td>
@@ -566,11 +575,12 @@ tr.unr td { color: var(--muted); }
        <td class="num">${pct(c.write_a.p)}<br><span class="ci">${ci(c.write_a.ci)}</span></td>
        <td>${stackHtml(c.write, WRITE, "w", WRITE_JA)}</td>
        <td class="num">${pct(c.forms_writable.p)}<br><span class="ci">${c.forms_writable.n ? "様式 " + c.forms_writable.n : ""}</span></td></tr>`).join("") +
-      (pending.length ? `<tr class="unr"><td>まだ選んでいない ${pending.length} か国</td><td colspan="7">目録には届いていて、標本をまだ選んでいません：${pending.map(esc).join("・")}</td></tr>` : "") +
+      (!allCountries ? "" : pending.length ? `<tr class="unr"><td>まだ選んでいない ${pending.length} か国</td><td colspan="7">目録には届いていて、標本をまだ選んでいません：${pending.map(esc).join("・")}</td></tr>` : "") +
       Object.entries(Object.values(DATA.unreached).reduce((m, u) => ((m[u.why] ||= []).push(u.name), m), {}))
-        .map(([why, names]) => `<tr class="unr"><td>目録に届かない ${names.length} か国</td><td colspan="7">${esc(why)}：${names.map(esc).join("・")}</td></tr>`).join("");
+        .filter(() => allCountries).map(([why, names]) => `<tr class="unr"><td>目録に届かない ${names.length} か国</td><td colspan="7">${esc(why)}：${names.map(esc).join("・")}</td></tr>`).join("");
     tb.querySelectorAll("a[data-cc]").forEach(a => a.addEventListener("click", () => select(a.dataset.cc)));
   }
+  document.getElementById("t-all").addEventListener("click", () => { allCountries = !allCountries; renderTable(); });
   document.querySelectorAll("#table th button").forEach(b => b.addEventListener("click", () => {
     const k = b.dataset.k; sortDir = sortKey === k ? -sortDir : (k === "name" ? 1 : -1); sortKey = k; renderTable();
   }));
@@ -591,10 +601,23 @@ tr.unr td { color: var(--muted); }
       && (!o || (o === "ok" ? d.o === "ok" : d.o !== "ok"))
       && (!q || (d.t + " " + d.p + " " + d.th.join(" ")).toLowerCase().includes(q)));
   }
+  // スコアの順（S が最も良い。段階の付かなかった書類は、どの並びでも最後）
+  const RANK_R = "SABCDEF", RANK_W = "ABCD";
+  function sortDocs(list) {
+    const key = document.getElementById("f-s").value;
+    const r = d => d.r ? RANK_R.indexOf(d.r) : 99, w = d => d.w ? RANK_W.indexOf(d.w) : 99;
+    const cmp = {
+      "read-hi": (a, b) => r(a) - r(b), "read-lo": (a, b) => (r(b) === 99 ? -1 : r(a) === 99 ? 1 : r(b) - r(a)),
+      "write-hi": (a, b) => w(a) - w(b), "write-lo": (a, b) => (w(b) === 99 ? -1 : w(a) === 99 ? 1 : w(b) - w(a)),
+      "fields": (a, b) => (b.f || 0) - (a.f || 0),
+      "country": (a, b) => (DATA.countries[a.c]?.name || a.c).localeCompare(DATA.countries[b.c]?.name || b.c, "ja"),
+    }[key];
+    return cmp ? [...list].sort(cmp) : list;
+  }
   function renderDocs() {
-    const list = filtered();
+    const list = sortDocs(filtered());
     document.getElementById("count").textContent = `${list.length.toLocaleString()} 件`;
-    const shown = list.slice(0, page * 50);
+    const shown = list.slice(0, 10 + (page - 1) * 20);
     document.getElementById("docs").innerHTML = shown.map(d => {
       const chips = d.r ? `<span class="chip" style="background:var(--g${d.r})" title="読む ${d.r} ${esc(READ_JA[d.r])}"><span>${d.r}<br><small>読む</small></span></span>` +
         `<span class="chip" style="background:var(--w${d.w})" title="書く ${d.w} ${esc(WRITE_JA[d.w])}"><span>${d.w}<br><small>書く</small></span></span>`
@@ -609,7 +632,7 @@ tr.unr td { color: var(--muted); }
     document.getElementById("more").hidden = shown.length >= list.length;
   }
   document.getElementById("more").addEventListener("click", () => { page++; renderDocs(); });
-  ["f-c", "f-g", "f-r", "f-w", "f-fc", "f-o"].forEach(id => document.getElementById(id).addEventListener("change", () => { page = 1; renderDocs(); }));
+  ["f-c", "f-g", "f-r", "f-w", "f-fc", "f-o", "f-s"].forEach(id => document.getElementById(id).addEventListener("change", () => { page = 1; renderDocs(); }));
   document.getElementById("f-q").addEventListener("input", () => { page = 1; renderDocs(); });
 
   // ---------------------------------------------------------------- 地図の切り替え
