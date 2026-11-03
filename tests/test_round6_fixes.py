@@ -84,6 +84,22 @@ def test_number_in_narrow_wrap_cell_predicts_hashes_not_wrap(tmp_path):
     assert not any("####" in w for w in r["warnings"]), r["warnings"]
 
 
+# ---------------------------------------------------------------- PDF：after の見出しのマスに読める大きさで入らない
+def test_after_label_moves_to_the_value_cell_when_the_heading_cell_is_too_small(tmp_path):
+    rules = (b"0.8 w 60 700 m 400 700 l S 60 680 m 400 680 l S 60 700 m 60 680 l S 140 700 m 140 680 l S "
+             b"400 700 m 400 680 l S\n")
+    data = _pdf([(70, 686, 10, "氏　　名"), (340, 686, 10, "番号")], rules)
+    r, _ = _write(tmp_path, data, "t.pdf", {"@1": {"after": "氏　　名", "value": "山田　花子", "page": 1}})
+    assert r["proof_ok"] and r["read_back_ok"]
+    from todoku.pdf.doc import PdfDocument
+    from todoku.pdf.anchor import resolve_write
+
+    sp = resolve_write(PdfDocument(data), {"after": "氏　　名", "value": "山田　花子", "page": 1}, {}, {})
+    x0, _y0, x1, _y1 = sp["rect"]
+    assert x0 >= 140 and x1 <= 340, sp["rect"]  # 右のマスの、「番号」の手前
+    assert not any("読みにくい" in w for w in r["warnings"]), r["warnings"]
+
+
 # ---------------------------------------------------------------- ○：near の字の中の囲む字（circlepick）
 def _two_rows_pdf() -> bytes:
     return _pdf([(70, 700, 10, "生年月日　大・昭・平・令　　年"), (70, 660, 10, "交付日　大・昭・平・令　　年"),

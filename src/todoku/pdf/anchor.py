@@ -90,6 +90,42 @@ def _empty_cell_right(lay, cell, ln):
     return box
 
 
+MIN_READABLE_PT = 6.0  # fill.MIN_READABLE_PT と同じ：これより小さい字は、印刷すると読みにくい
+
+
+def _fit_size(value, rect, sz: float, unit: float) -> float:
+    """rect に value を書くときの字の大きさ（fill.add_widget と同じ決め方）。入らなければ 0。"""
+    from .fill import FillError, layout_text
+
+    w, h = rect[2] - rect[0], rect[3] - rect[1]
+    if w <= 0 or h <= 0:
+        return 0.0
+    try:
+        return layout_text(str(value), w, h, min(sz, h * 0.8), multiline=h > 2.4 * min(sz, 10.5 / unit), unit=unit)[1]
+    except FillError:
+        return 0.0
+
+
+def _right_cell_band(lay, cell, ln):
+    """見出しのマス cell の右の縁に接し（1.5pt 以内）、見出しの行の高さを含むマス（いちばん左のもの）の、見出しの行の高さの
+    帯のうち、左の縁から、帯にかかる字・縦の罫線の手前まで（字のある所には書かない）。なければ None。"""
+    cy = (ln.y0 + ln.y1) / 2
+    sz = ln.size
+    cand = [c for c in lay.cells if c is not cell and abs(c.x0 - cell.x1) <= 1.5 and c.y0 - 0.5 <= cy <= c.y1 + 0.5]
+    if not cand:
+        return None
+    c = min(cand, key=lambda c: (c.x0, c.y0))
+    y0, y1 = max(c.y0 + 0.5, ln.y0 - 0.15 * sz), min(c.y1 - 0.5, ln.y1 + 0.15 * sz)
+    x1 = c.x1
+    for ch in c.chars:
+        if not ch.text.isspace() and ch.y0 < y1 and ch.y1 > y0 and ch.x0 > c.x0:
+            x1 = min(x1, ch.x0)
+    for r in lay.vs:
+        if r.a - 1 <= y0 and r.b + 1 >= y1 and c.x0 + 1.5 < r.pos < x1:
+            x1 = r.pos
+    return (c.x0 + 1.5, y0, x1 - 1.5, y1)
+
+
 def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | None = None,
                   taken_names: set | None = None) -> dict:
     """見出しの字で指した書き込み → 書く所（窓の欄と同じ形の辞書：id「p ページ.w 番号」・ページ・矩形・字の大きさ）。
@@ -158,12 +194,20 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
             if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1 and x0 <= r.pos < rb:
                 rb = r.pos
         rect = (x0, ln.y0 - 0.1 * sz, rb - 1.5, ln.y1 + 0.1 * sz)
-        if rect[2] - rect[0] < 1.5 * sz and cell is not None and not rest:
-            # 見出しのマスに空きがない：すぐ右の、同じ行の高さにある空のマス（見出しのマスの右の縁に接する）に書く
-            nxt = _empty_cell_right(lay, cell, ln)
-            if nxt is not None:
-                # 高さは見出しの行の高さ（マスが何行ぶんもあるとき、ほかの行の見出しの高さに書かない）
-                rect = (nxt.x0 + 1.5, max(nxt.y0 + 0.5, ln.y0 - 0.15 * sz), nxt.x1 - 1.5, min(nxt.y1 - 0.5, ln.y1 + 0.15 * sz))
+        unit = lay.view.unit
+        here = _fit_size(value, rect, sz, unit) if rect[2] - rect[0] >= 1.5 * sz else 0.0
+        if cell is not None and not rest and here * unit < max(MIN_READABLE_PT, 0.6 * sz * unit):
+            # 見出しのマスに空きがない、または、そこでは字が読める大きさで入らない（「氏　　名」の後ろの 1 字ぶんの空き）：
+            # すぐ右の、同じ行の高さにあるマス（見出しのマスの右の縁に接する）の、字のない所に書く。そこでも大きく
+            # ならなければ、見出しのマスのまま（字が小さくなることは、書くときに伝える）
+            band = _right_cell_band(lay, cell, ln)
+            if band is None:
+                nxt = _empty_cell_right(lay, cell, ln)
+                if nxt is not None:
+                    # 高さは見出しの行の高さ（マスが何行ぶんもあるとき、ほかの行の見出しの高さに書かない）
+                    band = (nxt.x0 + 1.5, max(nxt.y0 + 0.5, ln.y0 - 0.15 * sz), nxt.x1 - 1.5, min(nxt.y1 - 0.5, ln.y1 + 0.15 * sz))
+            if band is not None and band[2] - band[0] >= 1.5 * sz and _fit_size(value, band, sz, unit) > here:
+                rect = band
         if rect[2] - rect[0] < 1.5 * sz:
             raise AnchorError(f"「{after}」の右に、書く空きがありません（where を \"below\" にすると、見出しの下に書けます）")
     elif where == "before":
