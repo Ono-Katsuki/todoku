@@ -13,6 +13,9 @@ import zipfile
 import pytest
 
 from todoku import api
+from test_circle import _pdf, _write
+from test_docx import make_docx
+from test_docx import p as wp
 from test_round5_office import _xlsx
 
 
@@ -79,3 +82,35 @@ def test_number_in_narrow_wrap_cell_predicts_hashes_not_wrap(tmp_path):
     wb_.save(p)
     r = api.fill(str(p), {"S!B1": 3.14159}, str(tmp_path / "o2.xlsx"))
     assert not any("####" in w for w in r["warnings"]), r["warnings"]
+
+
+# ---------------------------------------------------------------- ○：near の字の中の囲む字（circlepick）
+def _two_rows_pdf() -> bytes:
+    return _pdf([(70, 700, 10, "生年月日　大・昭・平・令　　年"), (70, 660, 10, "交付日　大・昭・平・令　　年"),
+                 (70, 620, 10, "住所　都県市"), (70, 600, 10, "東 京 都　港区")])
+
+
+def test_pdf_option_list_near_circles_the_item_inside_it(tmp_path):
+    r, _ = _write(tmp_path, _two_rows_pdf(), "t.pdf", {"@c1": {"circle": "昭", "near": "生年月日　大・昭・平・令"}})
+    assert r["proof_ok"] and r["read_back_ok"]
+    assert "大・【昭】" in r["circled"][0]["around"] and "生年月日" in r["circled"][0]["context"]
+
+
+def test_pdf_option_list_near_twice_asks_for_occurrence(tmp_path):
+    with pytest.raises(api.ApiError, match="選択肢の並び.*occurrence"):
+        _write(tmp_path, _two_rows_pdf(), "t.pdf", {"@c1": {"circle": "昭", "near": "大・昭・平・令"}})
+    r, _ = _write(tmp_path, _two_rows_pdf(), "t.pdf", {"@c1": {"circle": "昭", "near": "大・昭・平・令", "occurrence": 2}})
+    assert "交付日" in r["circled"][0]["context"]
+
+
+def test_pdf_target_inside_near_word_does_not_jump_to_another_line(tmp_path):
+    # 「都県市」の「都」（字の並びの中）：下の行の「東京都」へ黙って移らない。near の中の所も番号で選べる
+    with pytest.raises(api.ApiError, match="別の行.*【都】県市"):
+        _write(tmp_path, _two_rows_pdf(), "t.pdf", {"@c1": {"circle": "都", "near": "都県市"}})
+
+
+def test_word_option_list_near(tmp_path):
+    body = wp("生年月日　S・H　年　月　日生") + wp("H　S　T")
+    r, _ = _write(tmp_path, make_docx(body), "t.docx", {"@c1": {"circle": "S", "near": "S・H"}})
+    assert r["proof_ok"] and r["read_back_ok"]
+    assert "【S】・H" in r["circled"][0]["around"]

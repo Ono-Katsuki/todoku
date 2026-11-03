@@ -196,17 +196,36 @@ def find(doc, spec: dict, layouts: dict) -> tuple[int, object, object, int, int]
     def rank(h, ans):
         return min((_rank(h[2].span_rect(h[3], h[4]), an[1]) for an in ans if an[0] == h[0]), default=(9, float("inf")))
 
+    inside: list = []  # near の字の中にある候補（選択肢の項目でないもの）と、その near の所
     if anchors:
-        def in_near(h) -> bool:
-            return any(an[0] == h[0] and an[3] is h[2] and an[4] <= h[3] and h[4] <= an[5] for an in anchors)
+        from ..circlepick import inside_message, items_message, option_item
 
-        hits = [h for h in hits if not in_near(h)]
+        def near_of(h):
+            return next((an for an in anchors if an[0] == h[0] and an[3] is h[2] and an[4] <= h[3] and h[4] <= an[5]), None)
+
+        selfs = [(h, near_of(h)) for h in hits]
+        items = [h for h, an in selfs if an is not None and option_item(h[2].text, h[3], h[4], an[4], an[5])]
+        if items:
+            # near が選択肢の並び（「大・昭・平・令」）で、囲む字がその項目：その所を囲む
+            if occ is not None:
+                if occ > len(items):
+                    raise AnchorError(f"near の「{near}」の中の「{target}」は {len(items)} か所です"
+                                      f"（{_listing(items, items, all_hits, where_mm)}）。occurrence は 1〜{len(items)} で指定してください")
+                return items[occ - 1]
+            if len(items) == 1:
+                return items[0]
+            raise AnchorError(items_message(target, near, len(items), _listing(items, items, all_hits, where_mm)))
+        inside = [(h, an) for h, an in selfs if an is not None]
+        hits = [h for h, an in selfs if an is None]
         if not hits:
-            raise AnchorError(f"「{target}」は、near の「{near}」の字の中にしか見つかりません（見出しの字は囲みません）。"
-                              "囲む選択肢の字を、窓の字のとおりに指定してください")
+            if inside and occ is not None and occ <= len(inside):
+                return inside[occ - 1][0]
+            raise AnchorError(f"「{target}」は、near の「{near}」の字の中にしか見つかりません（区切られた選択肢の項目では"
+                              "ありません）。その字を囲むなら occurrence で指定してください："
+                              f"{_listing([h for h, _a in inside], [h for h, _a in inside], all_hits, where_mm)}")
         ranks = [rank(h, anchors) for h in hits]
         best_kind = min(r[0] for r in ranks)
-        order = [h for h, r in zip(hits, ranks) if r[0] == best_kind]
+        order = [h for h, r in zip(hits, ranks) if r[0] == best_kind] + [h for h, _a in inside]
     if occ is not None:
         if occ > len(order):
             if anchors:
@@ -214,6 +233,23 @@ def find(doc, spec: dict, layouts: dict) -> tuple[int, object, object, int, int]
                                   f"occurrence は、その中の何番目か（1〜{len(order)}）で指定してください")
             raise AnchorError(f"occurrence は 1〜{len(order)} で指定してください（「{target}」は{where} {len(order)} か所）")
         return order[occ - 1]
+    got = _pick_free(hits, anchors, order, all_hits, where_mm, rank, near, target)
+    if inside:
+        def same_line(h, an) -> bool:
+            if an[0] != h[0]:
+                return False
+            if h[2] is an[3]:
+                return True
+            r, s_ = h[2].span_rect(h[3], h[4]), an[3].span_rect(an[4], an[5])
+            return min(r[3], s_[3]) - max(r[1], s_[1]) > 0
+        if not any(same_line(got, an) for _h, an in inside):
+            # 囲む字は near の字の中にもある（「都県市」の「都」）。いちばん近いほかの候補は別の行：黙って移らずに断る
+            raise AnchorError(inside_message(target, near, _listing(order, order, all_hits, where_mm)))
+    return got
+
+
+def _pick_free(hits, anchors, order, all_hits, where_mm, rank, near, target):
+    """occurrence のないときの選び方（near の字の中の候補は、hits から除いてある）。"""
     if len(anchors) > 1:
         # near の字が何か所にもある（「浴」が「入浴」にも「浴槽」にもある）：それぞれのいちばん近い候補が違えば、どの near か
         # 決まらないので断る（黙って片方を選ばない）
@@ -231,7 +267,8 @@ def find(doc, spec: dict, layouts: dict) -> tuple[int, object, object, int, int]
     free = [h for h in hits if bounded(h[2].text, h[3], h[4])]
     if not free:
         raise AnchorError(f"「{target}」は、どれもほかの字の並びの中にあります（区切りの字ではさまれた所がありません）。"
-                          f"選択肢の字か確かめて、囲むなら occurrence（何番目か）で指定してください：{_listing(order, hits, all_hits, where_mm)}")
+                          f"選択肢の字か確かめて、囲むなら occurrence（何番目か）で指定してください："
+                          f"{_listing(order, hits + [h for h in order if not any(h is x for x in hits)], all_hits, where_mm)}")
     if anchors and len(free) > 1:
         scored = sorted(((rank(h, anchors), h) for h in free), key=lambda x: x[0])
         best = scored[0]

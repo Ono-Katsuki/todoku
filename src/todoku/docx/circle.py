@@ -131,45 +131,77 @@ def around(text: str, a: int, b: int) -> str:
     return _a(text, a, b)
 
 
-def choose(hits: list, near: str | None, occ, anchors_of, rank_of, where_of, target: str) -> tuple:
+def choose(hits: list, near: str | None, occ, anchors_of, rank_of, where_of, target: str,
+           line_kinds: tuple = (0,)) -> tuple:
     """同じ字がいくつもあるときの決め方（Word・Excel で同じ。PDF の pdf.circle.find と同じ規則。字の形だけで決め、意味は見ない）：
-    1) near の字そのものの中にある候補（見出し「…の有無」の「無」）は、けっして選ばない
+    1) near の字そのものの中にある候補：near が選択肢の並び（「大・昭・平・令」）でその項目なら、その所を選ぶ。そうでなければ
+       （見出し「…の有無」の「無」）選ばず、ほかの候補が near と同じ行（段落・表の行）になければ断る（circlepick）
     2) 前後が区切りではさまれた候補（「有・無」の「無」）だけを選ぶ。字の並びに埋まった候補（「生年月日」の「月」）しかなければ断る
     3) near があれば、near といちばん近い関係（同じ段落・同じ行・同じ列…）の候補に絞る。occurrence は、その絞った候補の中の
        何番目か（読む順。断るときの一覧の番号と同じ）。occurrence がなければ、いちばん近い1つ。同じくらい近い候補が残れば断る
     4) near がなければ、occurrence は文書のすべての候補の中の何番目か。なくて候補が2つ以上なら断る
     断るときは、候補の前後の字（【】が囲む字）を示す。
     hits：[(場所, 始め, 終わり, …)]。anchors_of(near) → [(場所, 始め, 終わり, …)]。rank_of(hit, anchors) → 近さ（小さいほど近い。
-    最初の数が関係の種類）。where_of(hit) → (字, 始め, 終わり)。"""
+    最初の数が関係の種類）。where_of(hit) → (字, 始め, 終わり)。line_kinds：near と「同じ行」とみなす関係の種類。"""
     def listing(hs) -> str:
         return "／".join(f"{k}番目：「{around(*where_of(h))}」" + ("" if bounded(*where_of(h)) else "（字の並びの中）")
                         for k, h in enumerate(hs[:10], 1)) + ("ほか" if len(hs) > 10 else "")
 
     if isinstance(near, str) and near.strip():
+        from ..circlepick import inside_message, items_message, option_item
+
         anchors = anchors_of(near)
         if not anchors:
             raise CircleError(f"near の「{near}」が見つかりません")
-        hits = [h for h in hits if not any((an[0] is h[0] or (isinstance(an[0], tuple) and an[0] == h[0]))
-                                           and an[1] <= h[1] and h[2] <= an[2] for an in anchors)]
+
+        def near_of(h):
+            return next((an for an in anchors if (an[0] is h[0] or (isinstance(an[0], tuple) and an[0] == h[0]))
+                         and an[1] <= h[1] and h[2] <= an[2]), None)
+
+        def occ_ok(n: int) -> bool:
+            return isinstance(occ, int) and not isinstance(occ, bool) and 1 <= occ <= n
+
+        selfs = [(h, near_of(h)) for h in hits]
+        items = [h for h, an in selfs if an is not None and option_item(where_of(h)[0], h[1], h[2], an[1], an[2])]
+        if items:
+            # near が選択肢の並び（「大・昭・平・令」「S・H」）で、囲む字がその項目：その所を囲む
+            if occ is not None:
+                if not occ_ok(len(items)):
+                    raise CircleError(f"near の「{near}」の中の「{target}」は {len(items)} か所です（{listing(items)}）。"
+                                      f"occurrence は 1〜{len(items)} で指定してください")
+                return items[occ - 1]
+            if len(items) == 1:
+                return items[0]
+            raise CircleError(items_message(target, near, len(items), listing(items)))
+        inside = [(h, an) for h, an in selfs if an is not None]
+        hits = [h for h, an in selfs if an is None]
         if not hits:
-            raise CircleError(f"「{target}」は、near の「{near}」の字の中にしか見つかりません（見出しの字は囲みません。"
-                              "囲む選択肢の字を、窓の字のとおりに指定してください）")
+            if inside and occ is not None and occ_ok(len(inside)):
+                return inside[occ - 1][0]
+            raise CircleError(f"「{target}」は、near の「{near}」の字の中にしか見つかりません（区切られた選択肢の項目では"
+                              f"ありません）。その字を囲むなら occurrence で指定してください：{listing([h for h, _a in inside])}")
         free = [h for h in hits if bounded(*where_of(h))]
-        if not free:
+        if not free and not inside:
             raise CircleError(f"「{target}」は、どれもほかの字の並びの中にあります（区切りの字ではさまれた所がありません）。"
                               f"選択肢の字か確かめてください：{listing(hits)}")
         ranks = [rank_of(h, anchors) for h in free]
-        best = min(ranks)
-        scope = [h for h, r in zip(free, ranks) if r[0] == best[0]]  # near といちばん近い関係の候補（読む順）
+        best = min(ranks) if ranks else None
+        scope = [h for h, r in zip(free, ranks) if r[0] == best[0]] + [h for h, _a in inside]  # near といちばん近い関係の候補（読む順）
         if occ is not None:
-            if not isinstance(occ, int) or isinstance(occ, bool) or not 1 <= occ <= len(scope):
+            if not occ_ok(len(scope)):
                 raise CircleError(f"near の「{near}」に近い「{target}」は {len(scope)} か所です（{listing(scope)}）。"
                                   f"occurrence は、その中の何番目か（1〜{len(scope)}）で指定してください")
             return scope[occ - 1]
+        if not free:
+            raise CircleError(f"「{target}」は、near の「{near}」の字の中のほかは、どれもほかの字の並びの中にあります。"
+                              f"occurrence で1つに決めてください：{listing(scope)}")
         top = [h for h, r in zip(free, ranks) if r == best]
         if len(top) > 1:
             raise CircleError(f"「{near}」に同じくらい近い「{target}」が {len(top)} か所あります。occurrence（near に近い候補の中の"
                               f"何番目か）で1つに決めてください：{listing(scope)}")
+        if inside and not any(rank_of(top[0], [an])[0] in line_kinds for _h, an in inside):
+            # 囲む字は near の字の中にもある（「都道府県」の「都」）。いちばん近いほかの候補は別の行：黙って移らずに断る
+            raise CircleError(inside_message(target, near, listing(scope)))
         return top[0]
     if occ is not None:
         if not isinstance(occ, int) or isinstance(occ, bool) or not 1 <= occ <= len(hits):
@@ -216,7 +248,7 @@ def find(doc: DocxDocument, spec: dict):
         return best
 
     return choose(hits, spec.get("near"), spec.get("occurrence"), anchors_of, rank_of,
-                  lambda h: (h[0].text, h[1], h[2]), target)
+                  lambda h: (h[0].text, h[1], h[2]), target, line_kinds=(0, 1))  # 同じ段落・表の同じ行
 
 
 def _glyphs(doc: DocxDocument, p: Para) -> list[_G]:
