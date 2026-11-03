@@ -85,8 +85,14 @@ def md_csv_head(doc: dict) -> list[str]:
            f"新しい行は R{n + 1}.C1 のように、今ある {n} 行の次から足せます。",
            "- 記号: " + "、".join(f"{k} は{v}" for k, v in doc["notation"].items() if k != "R3.C2"),
            "- 1行目を列の見出しとして、入力欄の見出しに使いました（1行目が見出しでないときは、列の番号で指してください）。"]
+    if fm.get("empty_lines"):
+        rs = fm["empty_lines"]
+        out.append("- 字のない行（改行だけの行）：" + "、".join(f"R{r}" for r in rs[:20]) + ("ほか" if len(rs) > 20 else "")
+                   + f"（{len(rs)} 行）。RFC 4180 の決まりどおり、空のマスが1つの行として読みました"
+                   "（書けば、その行に字が入ります。行を足すときは、その後ろに足します）。")
     if fm.get("ascii_only"):
         out.append("- このファイルは ASCII の字だけなので、文字コードは決まりません（日本語を書くと UTF-8 で書きます）。")
+    out += fm.get("encoding_notes") or []
     for p in doc.get("problems") or []:
         out.append(f"- **書き方の問題**：{p}")
     out.append("")
@@ -186,7 +192,8 @@ def build_json(f: JsonFile) -> dict:
         "source": {"file": f.filename, "sha256": f.sha256(), "bytes": len(f.blob),
                    "note": "元のファイルが正本。書き込みは、書いた値の字だけを置き換える。"},
         "format": {"encoding": f.dec.encoding, "encoding_ja": f.dec.label, "bom": bool(f.dec.bom),
-                   "escape_nonascii": f.escape_nonascii, "documents": len(f.docs)},
+                   "escape_nonascii": f.escape_nonascii, "documents": len(f.docs),
+                   **f.dec.info(), "encoding_notes": f.dec.note_lines()},
         "notation": {"/a/b": "JSON Pointer（RFC 6901）。配列は /items/0（0から）。名前の中の / は ~1、~ は ~0",
                      "L3/a": "JSON Lines の3行目の値の中（L3 は3行目の全体）"},
         "values": values, "blocks": blocks, "fields": fields, "fields_truncated": truncated,
@@ -255,6 +262,7 @@ def md_json_head(doc: dict) -> list[str]:
            "- 値は JSON の書き方のまま出しています（文字列は \"…\"、値のないものは null）。"]
     if doc["kind"] == "jsonl":
         out.append("- JSON Lines の id は、行の番号を付けて L3/name のように書きます（L3 は3行目の値の全体）。")
+    out += fm.get("encoding_notes") or []
     for p in doc.get("duplicates") or []:
         out.append(f"- **同じ名前が2つ以上あります**：{p}（JSON Pointer では1つに決まらないので、ここには書けません）")
     out.append("")
@@ -299,10 +307,10 @@ def parts_json(doc: dict, budget: int = BUDGET) -> list[tuple[str, str]]:
 
 
 # ====================================================================== 入口
-def build(blob: bytes, filename: str, kind: str) -> dict:
+def build(blob: bytes, filename: str, kind: str, encoding: str | None = None) -> dict:
     if kind in ("csv", "tsv"):
-        return build_csv(CsvFile(blob, filename, kind))
-    return build_json(JsonFile(blob, filename, kind))
+        return build_csv(CsvFile(blob, filename, kind, encoding))
+    return build_json(JsonFile(blob, filename, kind, encoding))
 
 
 def markdown_parts(doc: dict) -> list[tuple[str, str]]:

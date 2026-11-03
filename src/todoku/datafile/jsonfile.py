@@ -206,12 +206,12 @@ class Doc:
 
 
 class JsonFile:
-    def __init__(self, blob: bytes, filename: str = "", kind: str = "json"):
+    def __init__(self, blob: bytes, filename: str = "", kind: str = "json", encoding: str | None = None):
         self.blob = blob
         self.filename = filename
         self.kind = kind
         try:
-            self.dec: Decoded = decode(blob)
+            self.dec: Decoded = decode(blob, encoding)
         except UnicodeDecodeError as e:
             raise JsonError(f"文字コードを読めません（{e.reason}）") from None
         self.text = self.dec.text
@@ -494,12 +494,13 @@ class JsonProof:
                 + ("" if not self.unexpected else f"（想定外の変更 {len(self.unexpected)} 件）"))
 
 
-def prove(original: bytes, new: bytes, written: dict[str, object], filename: str = "", kind: str = "json") -> JsonProof:
+def prove(original: bytes, new: bytes, written: dict[str, object], filename: str = "", kind: str = "json",
+          encoding: str | None = None) -> JsonProof:
     """written：id（JSON Pointer。JSON Lines は L行/…）→ 書いた値。書く前と後を読み直して比べる。"""
     pr = JsonProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest())
-    a = JsonFile(original, filename, kind)
+    a = JsonFile(original, filename, kind, encoding)
     try:
-        b = JsonFile(new, filename, kind)
+        b = JsonFile(new, filename, kind, encoding)
     except JsonError as e:
         pr.lint_errors.append(f"書いた後のファイルを JSON として読めません：{e}")
         return pr

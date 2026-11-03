@@ -1,22 +1,32 @@
-"""世界調査：各国の政府の公式のオープンデータ目録から、公開書類を層別に無作為に選び、AI エージェントにとって
-「届くか」「読めるか（読む段階 S〜F）」「書けるか（書く段階 A〜D）」を、決定的な処理で測る。設計は docs/世界調査の設計.md。
+"""世界調査：各国の政府のサイトにある書類を、Common Crawl の収集から層別に無作為に選び、AI エージェントにとって
+「読めるか（読む段階 S〜F）」「書けるか（書く段階 A〜D）」を、決定的な処理で測る。設計は docs/世界調査の設計.md。
 
-- 層：国 × 形式の群（PDF／表計算／文書／CSV）。層ごとに --quota 件（既定 250）。
-- 層の中：目録の検索の何番目かを無作為に決めて登録を1つ取り、その登録の中の、その群の書類を1つ無作為に選ぶ（二段の抽出）。
-  選ばれる重みを記録する（層の登録の数 × 登録の中の書類の数 ÷ 標本の数）。検索の深さに上限がある目録は、目録の中の小さな目録ごとに先に選ぶ。
-- 礼儀：robots.txt を守り、同じ相手には間をあける（書類の取得 2 秒・目録の API 1 秒）。CAPTCHA・ログインは破らず、そう記録する。
-- 書類は段階を付けたら消す（確かめ直し用の 1% だけを corpus/world/ に残す。公開しない）。公開するのは URL・SHA-256・結果だけ（world/）。
+- 枠と標本は scripts/world_frame.py が作る（world/domains.json・world/frames.json・world/sample.jsonl）。
+  層は国 × 形式の群（pdf・sheet・text・csv）。標本は層ごとに順番（rank）が付いていて、--rank 未満を測る
+  （1回目 20、2回目 50。選び直さないので、2回目は足すだけ）。
+- 書類は Common Crawl の保存庫（data.commoncrawl.org）から、索引の位置（WARC のファイル・offset・length）で
+  その記録だけを範囲指定で取る。政府のサーバーには負担をかけない。保存の中身の SHA-1 が索引の digest と合うことを確かめる。
+- Common Crawl は大きな書類を途中で切って保存する（WARC-Truncated）。切れた書類は、そのままでは段階を付けない。
+  その URL の robots.txt（RFC 9309）が許すときだけ、政府のサイトから取り直す（同じホストには 2 秒以上の間・一度に一つ）。
+  許されない・取れないときは truncated と記録する。どこから取ったか（cc・live）を記録する。
+- 礼儀：Common Crawl への要求は一度に一つ・0.5 秒以上の間・混んでいたら待って取り直す。名乗る User-Agent を付ける。
+  CAPTCHA・ログインは破らず、そう記録する。
+- 書類は段階を付けたら消す（確かめ直し用の 1% だけを corpus/world/ に残す。公開しない）。公開するのは URL・SHA-256・結果だけ。
 - 途中で止めても、もう一度動かせば続きから（world/results.jsonl にある標本は飛ばす）。
 
-使い方: uv run python scripts/world_survey.py [--quota 250] [--countries JP,GB,...] [--jobs 24] [--graders 8]
+使い方: PYTHONPATH=src .venv/bin/python scripts/world_survey.py [--rank 20] [--countries JP,DE] [--jobs 4] [--graders 2]
+       道具を直したあと、同じ標本で段階を付け直す：... scripts/world_survey.py --regrade
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
+import gzip
 import hashlib
+import http.client
 import json
-import random
+import re
 import subprocess
 import sys
 import threading
@@ -24,73 +34,28 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.robotparser
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "world"
 KEEP = ROOT / "corpus" / "world"
+TMP = ROOT / "corpus" / "world_tmp"
 UA = "todoku-research/0.2 (accessibility research on public documents; polite crawler; https://github.com/Ono-Katsuki/todoku)"
-DELAY_DOC = 2.0
-DELAY_API = 1.0
+CC_DATA = "https://data.commoncrawl.org/"
+DELAY_DOC = 2.0  # 政府のサイト（切れた書類の取り直しだけ）：同じホストに 2 秒以上
+DELAY_CC = 0.5  # Common Crawl：0.5 秒以上
 MAX_BYTES = 25 * 1024 * 1024
 KEEP_RATE = 0.01  # 確かめ直し用に残す割合（SHA-256 で決める）
 AUDIT_RATE = 0.10  # 道具の正しさを確かめる（全欄に書いて証明する）部分標本の割合（SHA-256 で決める）
-EU_WINDOW = 10_000  # EU の統合目録の検索で取れる深さ
-
-FAMILIES = {
-    "pdf": ["PDF"],
-    "sheet": ["XLSX", "XLS", "ODS"],
-    "text": ["DOCX", "DOC", "ODT", "RTF"],
-    "csv": ["CSV"],
-}
-FAMILY_OF = {f: fam for fam, fs in FAMILIES.items() for f in fs}
-MIME = {
-    "application/pdf": "PDF", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "XLSX",
-    "application/vnd.ms-excel": "XLS", "application/msword": "DOC",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "DOCX",
-    "application/vnd.oasis.opendocument.spreadsheet": "ODS", "application/vnd.oasis.opendocument.text": "ODT",
-    "application/rtf": "RTF", "text/rtf": "RTF", "text/csv": "CSV",
-}
-
-# 国の目録（CKAN）：robots.txt で package_search に届くことを確かめたもの（2026-11-03）
-CKAN = {
-    "JP": ("日本", "https://data.e-gov.go.jp/data"),
-    "GB": ("英国", "https://data.gov.uk"),
-    "CA": ("カナダ", "https://open.canada.ca/data/en"),
-    "NL": ("オランダ", "https://data.overheid.nl/data"),
-    "GR": ("ギリシャ", "https://data.gov.gr"),
-    "UA": ("ウクライナ", "https://data.gov.ua"),
-    "HR": ("クロアチア", "https://data.gov.hr/ckan"),
-    "LV": ("ラトビア", "https://data.gov.lv/dati"),
-    "IL": ("イスラエル", "https://data.gov.il"),
-}
-# EU の統合目録（data.europa.eu）で国ごとに選ぶ国（国の目録に届かない国）
-EU_HUB = "https://data.europa.eu/api/hub/search/search"
-EU = {
-    "DE": "ドイツ", "AT": "オーストリア", "IT": "イタリア", "BE": "ベルギー", "PT": "ポルトガル", "FR": "フランス",
-    "SI": "スロベニア", "CH": "スイス", "ES": "スペイン", "IE": "アイルランド", "PL": "ポーランド", "SK": "スロバキア",
-    "MD": "モルドバ", "SE": "スウェーデン", "FI": "フィンランド", "RO": "ルーマニア", "HU": "ハンガリー", "EE": "エストニア",
-    "DK": "デンマーク", "ME": "モンテネグロ", "MT": "マルタ", "NO": "ノルウェー", "LT": "リトアニア", "CZ": "チェコ",
-    "AL": "アルバニア", "IS": "アイスランド",
-}
-# 目録に届かなかった国（地図に「届かない」として示す。理由は probe の結果）
-UNREACHED = {
-    "AU": ("オーストラリア", "robots.txt で目録の API が禁止"), "NZ": ("ニュージーランド", "robots.txt で目録の API が禁止"),
-    "TW": ("台湾", "robots.txt で目録の API が禁止"), "SG": ("シンガポール", "robots.txt で目録の API が禁止"),
-    "TH": ("タイ", "robots.txt で目録の API が禁止"), "MX": ("メキシコ", "robots.txt で目録の API が禁止"),
-    "BR": ("ブラジル", "robots.txt で目録の API が禁止"), "AR": ("アルゼンチン", "robots.txt で目録の API が禁止"),
-    "CL": ("チリ", "robots.txt で目録の API が禁止"), "UY": ("ウルグアイ", "robots.txt で目録の API が禁止"),
-    "EC": ("エクアドル", "robots.txt で目録の API が禁止"), "BG": ("ブルガリア", "robots.txt で目録の API が禁止"),
-}
 
 
 # ====================================================================== 礼儀
 _last: dict[str, float] = {}
 _host_locks: dict[str, threading.Lock] = {}
 _lock = threading.Lock()
-_robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
+_robots: dict[str, "Robots"] = {}
+_cc = threading.Lock()  # Common Crawl へは一度に一つ
 
 
 def polite_wait(host: str, delay: float) -> None:
@@ -102,6 +67,64 @@ def polite_wait(host: str, delay: float) -> None:
         time.sleep(at - now)
 
 
+class Robots:
+    """robots.txt を RFC 9309 のとおりに読む。標準ライブラリの urllib.robotparser は、User-agent の行のあとの空行で組を閉じ、
+    最初に当たった行で決め（最も長く当たる行でなく）、* や $ を解さないため、禁止されている経路を許可と答えることがある。"""
+
+    TOKEN = UA.split("/", 1)[0].lower()  # 製品の名前（todoku-research）
+
+    def __init__(self, text: str | None, status: int):
+        self.status = status
+        self.rules: list[tuple[bool, str]] = []
+        self.delay = 0.0
+        if text is None:
+            return
+        groups, cur, in_ua = [], None, False
+        for line in text.splitlines():
+            line = line.split("#", 1)[0].strip()
+            if ":" not in line:
+                continue  # 空行は組を閉じない（RFC 9309 2.2）
+            k, v = (x.strip() for x in line.split(":", 1))
+            k = k.lower()
+            if k == "user-agent":
+                if not in_ua:
+                    cur = {"ua": [], "rules": [], "delay": None}
+                    groups.append(cur)
+                cur["ua"].append(v.lower())
+                in_ua = True
+                continue
+            in_ua = False
+            if cur is None:
+                continue
+            if k in ("allow", "disallow") and v:
+                cur["rules"].append((k == "allow", v))
+            elif k == "crawl-delay":
+                try:
+                    cur["delay"] = float(v)
+                except ValueError:
+                    pass
+        mine = [g for g in groups if any(u != "*" and self.TOKEN.startswith(u) for u in g["ua"])]
+        use = mine or [g for g in groups if "*" in g["ua"]]  # 名指しの組があればそれだけ、なければ * の組（同じ名の組はまとめる）
+        for g in use:
+            self.rules += g["rules"]
+            self.delay = max(self.delay, g["delay"] or 0)
+
+    @staticmethod
+    def _match(rule: str, path: str) -> bool:
+        pat = re.escape(rule).replace(r"\*", ".*")
+        if pat.endswith(r"\$"):
+            pat = pat[:-2] + "$"
+        return re.match(pat, path) is not None
+
+    def can_fetch(self, url: str) -> bool:
+        if self.status >= 500 or self.status == 0:
+            return False  # robots.txt に届かない（5xx・つながらない）：すべて禁止とみなす（RFC 9309 2.3.1.4）
+        p = urllib.parse.urlparse(url)
+        path = (p.path or "/") + (f"?{p.query}" if p.query else "")
+        hits = [(len(r), allow) for allow, r in self.rules if self._match(r, path)]
+        return True if not hits else max(hits)[1]  # 最も長く当たる行。同じ長さなら Allow（RFC 9309 2.2.2）
+
+
 def allowed(url: str) -> bool:
     url = safe_url(url)
     p = urllib.parse.urlparse(url)
@@ -110,20 +133,23 @@ def allowed(url: str) -> bool:
         hl = _host_locks.setdefault(base, threading.Lock())
     with hl:
         if base not in _robots:
-            rp = urllib.robotparser.RobotFileParser()
-            rp.set_url(base + "/robots.txt")
+            polite_wait(p.netloc, DELAY_DOC)
+            req = urllib.request.Request(base + "/robots.txt", headers={"User-Agent": UA})
             try:
-                polite_wait(p.netloc, DELAY_DOC)
-                req = urllib.request.Request(base + "/robots.txt", headers={"User-Agent": UA})
                 with urllib.request.urlopen(req, timeout=20) as r:
-                    rp.parse(r.read(500_000).decode("utf-8", "replace").splitlines())
+                    _robots[base] = Robots(r.read(500_000).decode("utf-8", "replace"), r.status)
             except urllib.error.HTTPError as e:
-                rp = None if e.code >= 400 else rp  # robots.txt がない（4xx/5xx）：禁止の指定はない
+                _robots[base] = Robots(None, e.code)  # 4xx：禁止の指定はない。5xx：すべて禁止とみなす
             except Exception:  # noqa: BLE001
-                rp = None
-            _robots[base] = rp
-    rp = _robots[base]
-    return True if rp is None else rp.can_fetch(UA, url)
+                _robots[base] = Robots(None, 0)
+    return _robots[base].can_fetch(url)
+
+
+def crawl_delay(url: str) -> float:
+    """robots.txt の Crawl-delay（あれば）。間はこれと決めた間の長い方をとる。"""
+    p = urllib.parse.urlparse(safe_url(url))
+    rb = _robots.get(f"{p.scheme}://{p.netloc}")
+    return rb.delay if rb else 0.0
 
 
 def safe_url(url: str) -> str:
@@ -134,182 +160,143 @@ def safe_url(url: str) -> str:
 def fetch(url: str, delay: float, limit: int = MAX_BYTES, timeout: int = 60) -> dict:
     url = safe_url(url)
     p = urllib.parse.urlparse(url)
-    polite_wait(p.netloc, delay)
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            body = r.read(limit + 1)
-            return {"status": r.status, "final_url": r.geturl(), "type": r.headers.get("Content-Type", ""),
-                    "body": body, "too_large": len(body) > limit}
-    except urllib.error.HTTPError as e:
+    with _lock:
+        hl = _host_locks.setdefault(f"get:{p.netloc}", threading.Lock())
+    with hl:  # 同じホストには一度に一つ
+        polite_wait(p.netloc, max(delay, crawl_delay(url)))
+        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"})
         try:
-            body = e.read(200_000)
-        except Exception:  # noqa: BLE001
-            body = b""
-        return {"status": e.code, "final_url": url, "type": (e.headers.get("Content-Type", "") if e.headers else ""), "body": body}
-    except Exception as e:  # noqa: BLE001
-        return {"status": 0, "error": f"{type(e).__name__}: {str(e)[:160]}", "body": b""}
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                body = r.read(limit + 1)
+                return {"status": r.status, "final_url": r.geturl(), "type": r.headers.get("Content-Type", ""),
+                        "body": body, "too_large": len(body) > limit}
+        except urllib.error.HTTPError as e:
+            try:
+                body = e.read(200_000)
+            except Exception:  # noqa: BLE001
+                body = b""
+            return {"status": e.code, "final_url": url, "type": (e.headers.get("Content-Type", "") if e.headers else ""), "body": body}
+        except Exception as e:  # noqa: BLE001
+            return {"status": 0, "error": f"{type(e).__name__}: {str(e)[:160]}", "body": b""}
 
 
-def get_json(url: str):
-    r = fetch(url, DELAY_API, limit=20_000_000, timeout=90)
-    if r.get("status") != 200:
-        return None
-    try:
-        return json.loads(r["body"])
-    except json.JSONDecodeError:
-        return None
+# ====================================================================== Common Crawl の保存庫から取る
+_cc_conn: list = [None]
 
 
-def norm_format(s) -> str:
-    s = str(s or "").strip()
-    if s.lower() in MIME:
-        return MIME[s.lower()]
-    return s.upper().rsplit("/", 1)[-1].lstrip(".").replace("Х", "X")  # キリル文字の Х（хlsx）も
+def cc_get(path: str, offset: int, length: int) -> bytes:
+    """WARC の記録を一つだけ範囲指定で取る。一度に一つ・間をあける・混んでいたら待って取り直す（間を倍に延ばす）。
+    つながりは一つを使い回す（keep-alive）。"""
+    wait = 2.0
+    for attempt in range(8):
+        with _cc:
+            polite_wait("data.commoncrawl.org", DELAY_CC)
+            st, raw, err = 0, b"", ""
+            try:
+                if _cc_conn[0] is None:
+                    _cc_conn[0] = http.client.HTTPSConnection("data.commoncrawl.org", timeout=120)
+                c = _cc_conn[0]
+                c.request("GET", "/" + path, headers={"User-Agent": UA, "Range": f"bytes={offset}-{offset + length - 1}"})
+                r = c.getresponse()
+                st, raw = r.status, r.read()
+                err = f"HTTP {st}"
+            except (http.client.HTTPException, OSError) as e:
+                err = type(e).__name__
+                if _cc_conn[0] is not None:
+                    _cc_conn[0].close()
+                _cc_conn[0] = None
+        if st == 206 and len(raw) == length:
+            return raw
+        if st not in (0, 206, 429, 500, 502, 503, 504):
+            raise RuntimeError(err)
+        if attempt == 7:
+            raise RuntimeError(f"{err}（取り直しても取れない）")
+        print(f"  （Common Crawl が混んでいる：{err}。{wait:.0f} 秒待つ）", flush=True)
+        time.sleep(wait)
+        wait = min(wait * 2, 300)
+    raise RuntimeError("unreachable")
 
 
-# ====================================================================== 標本の枠
-class CkanFrame:
-    def __init__(self, cc: str, base: str):
-        self.cc, self.base = cc, base
-
-    def _search(self, **params):
-        q = urllib.parse.urlencode({k: (json.dumps(v) if isinstance(v, (list, dict)) else v) for k, v in params.items()})
-        d = get_json(f"{self.base}/api/3/action/package_search?{q}")
-        return (d or {}).get("result") if (d or {}).get("success", True) else None
-
-    def strata(self) -> dict:
-        """群 → [(目録での形式の名前, 登録の数)]。"""
-        r = self._search(rows=0, **{"facet.field": ["res_format"], "facet.limit": 1000})
-        if not r:
-            return {}
-        out: dict[str, list] = {}
-        for it in r.get("search_facets", {}).get("res_format", {}).get("items", []):
-            fam = FAMILY_OF.get(norm_format(it.get("name")))
-            if fam:
-                out.setdefault(fam, []).append((it["name"], int(it.get("count", 0))))
-        return out
-
-    def draw(self, fam: str, names: list, rnd: random.Random) -> dict | None:
-        total = sum(c for _, c in names)
-        nm, cnt = _pick_weighted(names, rnd)
-        off = rnd.randrange(cnt)
-        r = self._search(rows=1, start=off, fq=f'res_format:"{nm}"')
-        if not r or not r.get("results"):
-            return None
-        pkg = r["results"][0]
-        res = [x for x in pkg.get("resources", []) if FAMILY_OF.get(norm_format(x.get("format"))) == fam
-               and str(x.get("url") or "").startswith(("http://", "https://"))]
-        if not res:
-            return {"empty": True}
-        x = rnd.choice(res)
-        return {"url": x["url"], "declared": norm_format(x.get("format")), "dataset": pkg.get("title") or pkg.get("name"),
-                "dataset_id": pkg.get("id"), "publisher": (pkg.get("organization") or {}).get("title", ""),
-                # 発行者が付けた分類（目録のグループ・タグ）。キーワードで当てたものではない
-                "themes": [g.get("title") or g.get("name") for g in pkg.get("groups") or []],
-                "tags": [t.get("name") for t in pkg.get("tags") or []][:30],
-                "frame_datasets": total, "in_dataset": len(res)}
+def parse_warc(raw: bytes) -> dict:
+    """gzip の1メンバーの WARC 応答の記録 → WARC の見出し・HTTP の見出し・中身。"""
+    rec = gzip.decompress(raw)
+    head, rest = rec.split(b"\r\n\r\n", 1)
+    wh = {}
+    for line in head.decode("utf-8", "replace").split("\r\n")[1:]:
+        if ":" in line:
+            k, v = line.split(":", 1)
+            wh[k.strip().lower()] = v.strip()
+    block = rest[: int(wh.get("content-length", len(rest)))]
+    hh, _, payload = block.partition(b"\r\n\r\n")
+    http = {}
+    lines = hh.decode("latin-1").split("\r\n")
+    for line in lines[1:]:
+        if ":" in line:
+            k, v = line.split(":", 1)
+            http[k.strip().lower()] = v.strip()
+    return {"warc": wh, "status_line": lines[0] if lines else "", "http": http, "payload": payload}
 
 
-class EuFrame:
-    def __init__(self, cc: str):
-        self.cc = cc
-
-    def _search(self, facets: dict, limit: int = 0, page: int = 0):
-        q = urllib.parse.urlencode({"filter": "dataset", "limit": limit, "page": page, "facets": json.dumps(facets)})
-        d = get_json(f"{EU_HUB}?{q}")
-        return (d or {}).get("result")
-
-    @staticmethod
-    def _facet(r, fid) -> list:
-        return [(i["id"], int(i["count"])) for f in (r or {}).get("facets", []) if f["id"] == fid for i in f["items"]]
-
-    def strata(self) -> dict:
-        r = self._search({"country": [self.cc.lower()]})
-        out: dict[str, list] = {}
-        for name, cnt in self._facet(r, "format"):
-            fam = FAMILY_OF.get(norm_format(name))
-            if fam and cnt:
-                out.setdefault(fam, []).append((name, cnt))
-        return out
-
-    def draw(self, fam: str, names: list, rnd: random.Random) -> dict | None:
-        total = sum(c for _, c in names)
-        nm, cnt = _pick_weighted(names, rnd)
-        facets = {"country": [self.cc.lower()], "format": [nm]}
-        if cnt > EU_WINDOW:
-            # 深い所が取れない：目録の中の小さな目録（catalog）を、登録の数に比べた確率で先に選ぶ
-            cats = self._facet(self._search(facets), "catalog")
-            if not cats:
-                return None
-            cat, cnt = _pick_weighted(cats, rnd)
-            facets["catalog"] = [cat]
-        off = rnd.randrange(min(cnt, EU_WINDOW))
-        r = self._search(facets, limit=1, page=off)
-        if not r or not r.get("results"):
-            return None
-        ds = r["results"][0]
-        res = []
-        for d in ds.get("distributions") or []:
-            f = norm_format((d.get("format") or {}).get("id"))
-            urls = (d.get("download_url") or []) + (d.get("access_url") or [])
-            url = next((u for u in urls if str(u).startswith(("http://", "https://"))), None)
-            if FAMILY_OF.get(f) == fam and url:
-                res.append((url, f))
-        if not res:
-            return {"empty": True}
-        url, f = rnd.choice(res)
-        title = ds.get("title") or {}
-        pub = ds.get("publisher") or {}
-        return {"url": url, "declared": f, "dataset": (title.get("en") or next(iter(title.values()), "")) if isinstance(title, dict) else title,
-                "dataset_id": ds.get("id"), "publisher": pub.get("name", "") if isinstance(pub, dict) else str(pub),
-                "catalog": (ds.get("catalog") or {}).get("id"),
-                # 発行者が付けた分類（DCAT-AP の data-theme：SOCI・HEAL・GOVE など 13 種）とキーワード
-                "themes": [c.get("id") for c in ds.get("categories") or [] if isinstance(c, dict)],
-                "tags": [k.get("label") or k.get("id") for k in ds.get("keywords") or [] if isinstance(k, dict)][:30],
-                "frame_datasets": total, "in_dataset": len(res),
-                "window_capped": cnt > EU_WINDOW}
+def sha1_b32(b: bytes) -> str:
+    return base64.b32encode(hashlib.sha1(b).digest()).decode()
 
 
-def _pick_weighted(items: list, rnd: random.Random):
-    total = sum(c for _, c in items)
-    x = rnd.randrange(total)
-    for nm, c in items:
-        if x < c:
-            return nm, c
-        x -= c
-    return items[-1]
-
-
-# ====================================================================== 取得と段階
 CAPTCHA = (b"captcha", b"cf-chl", b"challenge-platform", b"Just a moment", b"Attention Required", b"hcaptcha", b"recaptcha")
 
 
-def reach(url: str) -> tuple[dict, bytes | None]:
+def live_copy(url: str) -> tuple[dict, bytes | None]:
+    """切れた書類を、政府のサイトから取り直す（robots.txt が許すときだけ）。"""
     if not allowed(url):
-        return {"reach": "robots"}, None
+        return {"live": "robots"}, None
     r = fetch(url, DELAY_DOC)
     st, body = r.get("status", 0), r.get("body", b"")
     if st == 0:
-        return {"reach": "error", "error": r.get("error", "")}, None
+        return {"live": "error", "live_error": r.get("error", "")}, None
     if st in (401, 403):
-        return {"reach": "captcha" if any(m in body[:200_000] for m in CAPTCHA) else f"http_{st}"}, None
+        return {"live": "captcha" if any(m in body[:200_000] for m in CAPTCHA) else f"http_{st}"}, None
     if st >= 400:
-        return {"reach": f"http_{st}"}, None
+        return {"live": f"http_{st}"}, None
     if r.get("too_large"):
-        return {"reach": "too_large"}, None
+        return {"live": "too_large"}, None
     head = body[:2048].lstrip().lower()
     if head.startswith((b"<!doctype html", b"<html")) or b"<html" in head[:512]:
         if any(m in body[:200_000] for m in CAPTCHA):
-            return {"reach": "captcha"}, None
+            return {"live": "captcha"}, None
         if b'type="password"' in body or any(w in r.get("final_url", "").lower() for w in ("login", "signin", "auth")):
-            return {"reach": "login"}, None
-        return {"reach": "html"}, None
+            return {"live": "login"}, None
+        return {"live": "html"}, None
     if not body:
-        return {"reach": "empty"}, None
-    return {"reach": "ok", "content_type": r.get("type", "")}, body
+        return {"live": "empty"}, None
+    return {"live": "ok", "live_content_type": r.get("type", "")}, body
 
 
+def obtain(s: dict) -> tuple[dict, bytes | None]:
+    """標本の書類の中身。reach：ok（cc か live）・truncated・cc_error・digest_mismatch など。"""
+    try:
+        w = parse_warc(cc_get(s["filename"], s["offset"], s["length"]))
+    except Exception as e:  # noqa: BLE001
+        return {"reach": "cc_error", "error": f"{type(e).__name__}: {str(e)[:160]}"}, None
+    info = {"warc_date": w["warc"].get("warc-date"), "content_type": w["http"].get("content-type", "")}
+    trunc = w["warc"].get("warc-truncated")
+    if trunc:
+        info["cc_truncated"] = trunc
+        info["cc_bytes"] = len(w["payload"])
+        live, body = live_copy(s["url"])
+        info.update(live)
+        if body is None:
+            return {**info, "reach": "truncated"}, None
+        info["source"] = "live"
+        info["same_as_crawl"] = sha1_b32(body) == s["digest"]  # 収集のあとで書き換わったか（切れる前の中身の digest）
+        return {**info, "reach": "ok"}, body
+    body = w["payload"]
+    if sha1_b32(body) != s["digest"]:
+        return {**info, "reach": "digest_mismatch"}, None
+    if not body:
+        return {**info, "reach": "empty"}, None
+    return {**info, "reach": "ok", "source": "cc"}, body
+
+
+# ====================================================================== 段階
 GRADE_CODE = r"""
 import json, sys
 from pathlib import Path
@@ -353,127 +340,202 @@ print(json.dumps(out, ensure_ascii=False, default=str))
 _graders: threading.Semaphore | None = None
 
 
+MEM_LIMIT_MB = 4096  # 段階付けの1本が使ってよいメモリ。超えたら、その書類だけ止める（パソコン全体を巻き込まない）
+
+
+def _rss_mb(pid: int) -> float:
+    """その処理が使っている実メモリ（MB）。ps の RSS（KB）から。"""
+    try:
+        out = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout.strip()
+        return int(out) / 1024 if out else 0.0
+    except (ValueError, subprocess.SubprocessError):
+        return 0.0
+
+
 def grade_file(path: Path, do_audit: bool, timeout: int = 300) -> dict:
     assert _graders is not None
     with _graders:
         t = time.time()
-        try:
-            r = subprocess.run([sys.executable, "-c", GRADE_CODE, str(path), "1" if do_audit else "0"],
-                               capture_output=True, timeout=timeout * (3 if do_audit else 1), cwd=ROOT)
-            lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
-            out = json.loads(lines[-1]) if lines else {"error": "crash", "stderr": r.stderr.decode("utf-8", "replace")[-400:]}
-        except subprocess.TimeoutExpired:
-            out = {"error": "timeout"}
-        except json.JSONDecodeError:
-            out = {"error": "crash"}
+        limit = timeout * (3 if do_audit else 1)
+        # 優先度を下げて動かし、メモリと時間を見張る
+        proc = subprocess.Popen(["nice", "-n", "10", sys.executable, "-c", GRADE_CODE, str(path), "1" if do_audit else "0"],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=ROOT)
+        why = None
+        peak = 0.0
+        out_b, err_b = b"", b""
+        while True:
+            try:
+                out_b, err_b = proc.communicate(timeout=1)
+                break
+            except subprocess.TimeoutExpired:
+                peak = max(peak, _rss_mb(proc.pid))
+                if peak > MEM_LIMIT_MB:
+                    why = "memory"
+                elif time.time() - t > limit:
+                    why = "timeout"
+                if why:
+                    proc.kill()
+                    proc.communicate()
+                    break
+        if why:
+            out = {"error": why, **({"peak_mb": round(peak)} if why == "memory" else {})}
+        else:
+            lines = out_b.decode("utf-8", "replace").strip().splitlines()
+            try:
+                out = json.loads(lines[-1]) if lines else {"error": "crash", "stderr": err_b.decode("utf-8", "replace")[-400:]}
+            except json.JSONDecodeError:
+                out = {"error": "crash"}
         out["seconds"] = round(time.time() - t, 2)
         return out
 
 
-EXT = {"PDF": ".pdf", "XLSX": ".xlsx", "XLS": ".xls", "ODS": ".ods", "DOCX": ".docx", "DOC": ".doc", "ODT": ".odt",
-       "RTF": ".rtf", "CSV": ".csv"}
+# 書類の名前の拡張子：とどくは CSV・TSV・.txt を中身だけでは決めず、名前で見分けるため、URL の拡張子・中身で見分けた形式から決める
+KNOWN_SUFFIX = {".pdf", ".xlsx", ".xlsm", ".xls", ".ods", ".docx", ".doc", ".odt", ".rtf", ".csv", ".tsv", ".txt"}
+MIME_SUFFIX = {
+    "application/pdf": ".pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.ms-excel": ".xls", "application/vnd.ms-excel.sheet.macroenabled.12": ".xlsm",
+    "application/vnd.oasis.opendocument.spreadsheet": ".ods", "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.oasis.opendocument.text": ".odt", "application/rtf": ".rtf", "text/rtf": ".rtf", "text/csv": ".csv",
+}
+
+
+def suffix_for(s: dict) -> str:
+    ext = Path(urllib.parse.unquote(urllib.parse.urlsplit(s["url"]).path)).suffix.lower()
+    md = (s.get("mime_detected") or "").lower()
+    if ext in KNOWN_SUFFIX and MIME_SUFFIX.get(md, ext)[:4] == ext[:4]:
+        return ext  # 名前と中身が合う（.xlsm・.tsv なども、そのまま）
+    return MIME_SUFFIX.get(md, ext if ext in KNOWN_SUFFIX else "")
 
 
 def _rate(h: str, salt: str) -> float:
     return int(hashlib.sha256((salt + h).encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
 
 
-def run_sample(s: dict, tmp: Path) -> dict:
+def run_sample(s: dict) -> dict:
     rec = dict(s)
-    r, body = reach(s["url"])
+    r, body = obtain(s)
     rec.update(r)
     if body is None:
         return rec
     h = hashlib.sha256(body).hexdigest()
     rec.update(sha256=h, bytes=len(body))
-    path = tmp / f"{h[:20]}{EXT.get(s.get('declared', ''), '')}"
+    # 標本ごとの名前（同じ書類が別の標本で同時に選ばれても、ほかの標本の段階付けの途中で消さない）
+    path = TMP / f"{h[:20]}-{s['id']}{suffix_for(s)}"
     path.write_bytes(body)
     try:
         rec.update(grade_file(path, _rate(h, "audit") < AUDIT_RATE))
     finally:
         if _rate(h, "keep") < KEEP_RATE:
             KEEP.mkdir(parents=True, exist_ok=True)
-            path.replace(KEEP / path.name)
+            path.replace(KEEP / f"{h[:20]}{path.suffix}")
         else:
             path.unlink(missing_ok=True)
     return rec
 
 
 # ====================================================================== 全体
-def build_frames(countries: list[str]) -> dict:
-    path = OUT / "frames.json"
-    frames = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    todo = [cc for cc in countries if cc not in frames]
+GRADE_KEYS = ("sha256", "bytes", "kind", "read", "write", "read_reasons", "write_reasons", "agent_checks",
+              "alerts", "fields", "writable_fields", "chars", "pages", "seconds", "summary_error", "audit_ok", "audit_failed",
+              "error", "changed", "peak_mb", "stderr")
+OBTAIN_KEYS = ("reach", "warc_date", "content_type", "cc_truncated", "cc_bytes", "live", "live_error", "live_content_type",
+               "source", "same_as_crawl")
 
-    def one(cc):
-        fr = CkanFrame(cc, CKAN[cc][1]) if cc in CKAN else EuFrame(cc)
-        st = fr.strata()
-        return cc, {"name": CKAN[cc][0] if cc in CKAN else EU[cc], "source": CKAN[cc][1] if cc in CKAN else EU_HUB,
-                    "strata": st, "built": time.strftime("%Y-%m-%d")}
 
-    with ThreadPoolExecutor(8) as ex:
-        for cc, f in ex.map(one, todo):
-            frames[cc] = f
-            print(f"[枠] {cc} {f['name']}: " + "・".join(f"{fam} {sum(c for _, c in v):,}" for fam, v in f["strata"].items()), flush=True)
-    path.write_text(json.dumps(frames, ensure_ascii=False, indent=1), encoding="utf-8")
-    return frames
+def _read_results(path: Path) -> list[dict]:
+    out = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass  # 止めたときに途中まで書かれた行
+    return out
+
+
+def regrade(jobs: int, only_ungraded: bool = False, only_grades: str = "") -> int:
+    """同じ標本（world/results.jsonl）を取り直して、段階だけを付け直す（道具を直したあと）。
+    届いた書類だけを取り直す（届かなかった標本は、そのまま）。中身が前と変わっていれば changed に記録する。
+    only_ungraded：届いたが段階を付けられなかった書類（対応していなかった形式など）だけ。
+    only_grades：読む段階がこれ（「E,F」など）の書類だけ（only_ungraded と合わせると、どちらか）。"""
+    res_path = OUT / "results.jsonl"
+    old = _read_results(res_path)
+    new_path = OUT / "results.regrade.jsonl"
+    done = {r["id"]: r for r in _read_results(new_path) if "id" in r}
+    lock = threading.Lock()
+
+    def one(rec: dict):
+        if rec["id"] in done or rec.get("reach") != "ok":
+            return
+        if only_ungraded or only_grades:
+            pick = (only_ungraded and not rec.get("read")) or (rec.get("read") in only_grades.split(",") if only_grades else False)
+            if not pick:
+                return
+        base = {k: v for k, v in rec.items() if k not in GRADE_KEYS and k not in OBTAIN_KEYS}
+        before = rec.get("sha256")
+        r = run_sample(base)
+        if r.get("reach") != "ok":
+            # 取り直せなかった（一時の失敗など）：届いたという前の記録を残し、段階は前の道具のものと印を付ける
+            r = dict(rec, regrade=f"取り直せない（{r.get('reach')}）")
+        elif before and r.get("sha256") != before:
+            r["changed"] = True
+        with lock:
+            with new_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
+            done[r["id"]] = r
+        print(f"[{r.get('reach')}] {r['id']} {r.get('kind') or ''} 読む {rec.get('read', '-')}→{r.get('read', '-')} "
+              f"書く {rec.get('write', '-')}→{r.get('write', '-')}", flush=True)
+
+    with ThreadPoolExecutor(jobs) as ex:
+        list(ex.map(one, old))
+    merged = [done.get(r["id"], r) for r in old]  # 前の順で、付け直した記録に置き換える
+    res_path.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in merged), encoding="utf-8")
+    new_path.unlink(missing_ok=True)
+    print("終わり")
+    return 0
 
 
 def main(argv=None) -> int:
     global _graders
     ap = argparse.ArgumentParser()
-    ap.add_argument("--quota", type=int, default=250)
-    ap.add_argument("--countries", default=",".join(list(CKAN) + list(EU)))
-    ap.add_argument("--seed", type=int, default=20261103)
-    ap.add_argument("--jobs", type=int, default=24)
-    ap.add_argument("--graders", type=int, default=8)
+    ap.add_argument("--rank", type=int, default=20, help="層ごとに、標本の順番がこれ未満のものを測る（1回目 20・2回目 50）")
+    ap.add_argument("--countries", default="", help="既定：world/sample.jsonl のすべての国")
+    ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--graders", type=int, default=2)
+    ap.add_argument("--regrade", action="store_true", help="同じ標本を取り直して、段階だけを付け直す")
+    ap.add_argument("--only-ungraded", action="store_true", help="--regrade で、段階を付けられなかった書類だけ")
+    ap.add_argument("--only-grades", default="", help="--regrade で、読む段階がこれ（E,F など）の書類だけ")
     a = ap.parse_args(argv)
-    OUT.mkdir(parents=True, exist_ok=True)
     _graders = threading.Semaphore(a.graders)
-    countries = [c for c in a.countries.split(",") if c]
-    frames = build_frames(countries)
-    (OUT / "unreached.json").write_text(json.dumps(UNREACHED, ensure_ascii=False, indent=1), encoding="utf-8")
+    TMP.mkdir(parents=True, exist_ok=True)
+    if a.regrade:
+        return regrade(a.jobs, a.only_ungraded, a.only_grades)
+    want = {c for c in a.countries.split(",") if c}
+    samples = [json.loads(x) for x in (OUT / "sample.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+    samples = [s for s in samples if s["rank"] < a.rank and (not want or s["country"] in want)]
     res_path = OUT / "results.jsonl"
-    done = set()
-    if res_path.exists():
-        for line in res_path.read_text(encoding="utf-8").splitlines():
-            try:
-                done.add(json.loads(line)["id"])
-            except (json.JSONDecodeError, KeyError):
-                pass
-    tmp = KEEP.parent / "world_tmp"
-    tmp.mkdir(parents=True, exist_ok=True)
+    # 済みの標本：id と digest が同じもの（枠を作り直して同じ id に別の書類が入ったときは、測り直す）
+    done = {(r["id"], r.get("digest")) for r in _read_results(res_path) if "id" in r}
+    todo = [s for s in samples if (s["id"], s["digest"]) not in done]
+    # 国を混ぜて進める（止めたときに、どの国もそれなりに進んでいるように）：順番 → 国 → 群
+    todo.sort(key=lambda s: (s["rank"], s["country"], s["family"]))
+    print(f"標本 {len(samples):,}・済み {len(samples) - len(todo):,}・これから {len(todo):,}", flush=True)
     out_lock = threading.Lock()
+    t0, n = time.time(), [0]
 
-    def cell(cc: str, fam: str):
-        names = frames[cc]["strata"].get(fam) or []
-        if not names:
-            return
-        fr = CkanFrame(cc, CKAN[cc][1]) if cc in CKAN else EuFrame(cc)
-        n = min(a.quota, sum(c for _, c in names))
-        for i in range(n):
-            sid = f"{cc}-{fam}-{i:04d}"
-            if sid in done:
-                continue
-            rnd = random.Random(f"{a.seed}:{sid}")  # 標本ごとの種：続きからでも、同じ標本になる
-            d = None
-            for _try in range(3):
-                d = fr.draw(fam, names, rnd)
-                if d and not d.get("empty"):
-                    break
-            if not d or d.get("empty"):
-                rec = {"id": sid, "country": cc, "family": fam, "reach": "frame_empty"}
-            else:
-                rec = run_sample({"id": sid, "country": cc, "family": fam, "quota": n, **d}, tmp)
-            with out_lock:
-                with res_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
-            print(f"[{rec.get('reach')}] {sid} {rec.get('kind') or ''} 読む {rec.get('read', '-')} 書く {rec.get('write', '-')} "
-                  f"{rec.get('error', '')} {str(rec.get('url', ''))[:80]}", flush=True)
+    def one(s: dict):
+        rec = run_sample(s)
+        with out_lock:
+            with res_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
+            n[0] += 1
+            eta = (time.time() - t0) / n[0] * (len(todo) - n[0]) / 3600
+        print(f"[{rec.get('reach')}{'・live' if rec.get('source') == 'live' else ''}] {s['id']} {rec.get('kind') or ''} "
+              f"読む {rec.get('read', '-')} 書く {rec.get('write', '-')} {rec.get('error', '')} "
+              f"（{n[0]}/{len(todo)}・残り約 {eta:.1f} 時間）", flush=True)
 
-    cells = [(cc, fam) for cc in countries if cc in frames for fam in FAMILIES]
     with ThreadPoolExecutor(a.jobs) as ex:
-        list(ex.map(lambda x: cell(*x), cells))
+        list(ex.map(one, todo))
     print("終わり")
     return 0
 

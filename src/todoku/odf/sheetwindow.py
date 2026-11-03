@@ -142,48 +142,14 @@ def markdown_parts(doc: dict) -> list[tuple[str, str]]:
 
 def grade_sheets(blob: bytes, name: str):
     """Excel と同じ決め方（入力欄の印・規則では決められないセル・数式の照合）に、OpenDocument の表計算の事情を足す。"""
-    from ..grade import Reason, _final, _macro_reasons, _write_macros
+    from ..grade import Reason, _final, _macro_reasons, _write_macros, image_only_sheets, sheet_input_reasons
     from ..xlsx.calc import verify
 
     wb = OdsWorkbook(blob, name)
     doc = build_wb(wb)
     reasons: list = []
     write: list = []
-    explicit = {"入力規則があるセル", "シート保護の中で編集できるセル", "枠のある空欄", "色の付いた空欄"}
-    inferred, inline, overlap, undecided, n_fields = [], [], [], [], 0
-    for sh in doc["sheets"]:
-        for f in sh.get("fields", []):
-            if f.get("unlabeled"):
-                continue
-            n_fields += 1
-            if f["kind"] == "inline":
-                inline.append(f["id"])
-            elif f["kind"] != "checkbox" and not (set(f.get("reason", [])) & explicit):
-                inferred.append(f["id"])
-            if f.get("rules_overlap"):
-                overlap.append(f["id"])
-        undecided += [f"{sh['name']}!{u['cell']}" for u in sh.get("undecided", [])]
-    if inline:
-        reasons.append(Reason("B", "文字の中の空欄", f"{len(inline)} か所は、「令和　年　月　日」のような文字の中の空白から推定した欄です", inline[:12]))
-    if inferred:
-        reasons.append(Reason("B", "印のない入力欄", f"{len(inferred)} か所は、入力規則も枠もなく、数式の入力になっていることから推定した欄です",
-                              inferred[:12]))
-    if undecided:
-        reasons.append(Reason("C", "入力欄か決められないセル",
-                              f"表の {len(undecided)} か所の空のセルは、入力欄の印がなく、規則では決められません。"
-                              "エージェントが窓を読んで判断し、書くならセルの番地を指定して書きます", undecided[:12]))
-    if overlap:
-        reasons.append(Reason("C", "重なった入力規則", f"{len(overlap)} か所に入力規則が重なっています", overlap[:12]))
-    if n_fields and not (inline or inferred or undecided or overlap):
-        reasons.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・シートの保護・枠などの印で決まります"))
-    if inline or inferred or undecided or overlap:
-        ids = inline + inferred + undecided + overlap
-        write.append(Reason("B", "解析して決める入力欄", f"{len(ids)} か所は、入力欄の印がなく（か、入力規則が重なっていて）、"
-                            "文字の中の空き・数式の入力・表の作りから解析して書く所を決めます", ids[:12]))
-    elif n_fields:
-        write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・シートの保護・枠などの印で決まり、そのまま書けます"))
-    else:
-        write.append(Reason("B", "印のある欄がない", "入力欄の印（入力規則・シートの保護・枠など）がありません。表の作りを読んで、書くセルを番地で指定します"))
+    sheet_input_reasons(doc, reasons, write, protect="シートの保護")
     rep = verify(wb).summary()
     if rep["unsupported"]:
         reasons.append(Reason("C", "確かめられない数式", f"{rep['unsupported']} 個の数式は、規則どおりに計算し直して確かめられません"
@@ -196,9 +162,9 @@ def grade_sheets(blob: bytes, name: str):
     write += _write_macros(doc.get("macros"))
     for u in doc.get("unread") or []:
         reasons.append(Reason("F", "読めない部分", u))
+    image_only = set(image_only_sheets(wb))
     for sh_obj in wb.sheets:
-        pics = [s for s in sh_obj.shapes if s.kind in ("picture", "chart")]
-        if pics and len(sh_obj.cells) < 5:
+        if sh_obj.name in image_only:
             reasons.append(Reason("E", "画像だけのシート", f"シート「{sh_obj.name}」の中身は画像で、セルの文字がありません", [sh_obj.name]))
             write.append(Reason("D", "画像だけのシート", f"シート「{sh_obj.name}」は画像だけで、書くセルがありません。手で書く紙として扱います",
                                 [sh_obj.name]))

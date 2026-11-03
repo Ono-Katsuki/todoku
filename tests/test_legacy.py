@@ -80,7 +80,7 @@ def test_jtd_reads_tables_boxes_and_overwrites_in_place():
     doc = JtdFile(blob, "t.jtd")
     win = build(doc)
     md = to_markdown(win)
-    assert "一太郎" in md and "受付印" in md and "住所 ｜" in md
+    assert "一太郎" in md and "受付印" in md and "住所［P4.a1？］ ｜ ［T1.R1.C2］" in md  # 見出し「住所」の後ろも、右のマスの代わりの所として示す（消さない）
     # 窓とは別の読み方で数えた字が、窓に全部出ている
     assert sum(raw_chars(doc).values()) == len("申請書氏名住所電話同意する受付印")
     fields = {f["id"]: f for f in win["fields"]}
@@ -1078,7 +1078,7 @@ def test_word6_reads_text_tables_and_fields_in_codepage():
         assert isinstance(doc, Word6File) and doc.enc == "cp932" and doc.complex == bool(kw)
         win = build(doc)
         md = to_markdown(win)
-        assert "申請書" in md and "住所 ｜" in md and "同意する" in md and "〔非表示の文字: 秘密〕" in md, md
+        assert "申請書" in md and "住所［P3.a1？］ ｜ ［T1.R1.C2］" in md and "同意する" in md and "〔非表示の文字: 秘密〕" in md, md
         assert "状態は読めません" in md  # チェックボックスの状態（FFDATA）は読まない
         assert sum(raw_chars(doc).values()) == len("申請書氏名様住所同意する電話確認秘密")  # 非表示の字も数える（窓に「非表示の文字」として出す）
         kinds = sorted(f["kind"] for f in win["fields"])

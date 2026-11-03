@@ -91,6 +91,9 @@ def format_value(v, fmt: str) -> str:
     if fmt in ("General", "general", ""):
         return _general(x)
     secs = _split_sections(fmt)
+    if len(secs) == 1 and "@" in _literal_free(secs[0]):
+        # 文字列の区画（@）だけの表示形式：数は標準の表示（Excel で、数のセルに「文字列」の書式を付けたとき）
+        return _general(x)
     sec = None
     neg_has_own = False
     # 条件付きセクション [>=100] などは未対応
@@ -346,3 +349,20 @@ def _format_date(x: float, sec: str) -> str:
 
 def number_display(x: float) -> str:
     return number_to_text(x)
+
+
+def _literal_free(sec: str) -> str:
+    """区画の、引用符の中と \ の次の字を除いた部分（@ が書式の記号として使われているかを見る）。"""
+    out, i = [], 0
+    while i < len(sec):
+        ch = sec[i]
+        if ch == '"':
+            j = sec.find('"', i + 1)
+            i = len(sec) if j < 0 else j + 1
+            continue
+        if ch == "\\":
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)

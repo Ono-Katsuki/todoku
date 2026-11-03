@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from ..zipraw import RawZip
 from .document import DocxDocument, Para, iter_paras
-from .window import Spots
+from .window import Spots, box_mark
 
 
 @dataclass
@@ -318,7 +318,7 @@ def _expected_text(p: Para, items) -> str | None:
             a, b = it["span"]
             on = value is True or str(value).lower() in ("true", "1", "yes", "はい", "あり", "☑", "■")
             orig = text[a:b]
-            edits.append((a, b, ("☑" if orig == "☐" else "■") if on else orig))
+            edits.append((a, b, box_mark(orig, on)))
         else:
             a, b = it["span"]
             v = str(value)

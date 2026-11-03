@@ -83,7 +83,9 @@ def test_word_picture_without_description_is_an_alert():
     g = grade_blob(make_docx(SAMPLE_BODY + pic.format(alt="")), "p.docx")
     assert [a.title for a in g.alerts] == ["説明のない画像"] and "「地図」の段落" in g.alerts[0].where[0]
     ok = grade_blob(make_docx(SAMPLE_BODY + pic.format(alt=' descr="事業所の地図"')), "p.docx")
-    assert ok.alerts == [] and ok.grade == g.grade  # 段階は変えない
+    # 説明のない本文の画像：中身を字として読めないので、画像の所はエージェントが見て確かめる（読む B）。説明があれば下げない
+    assert g.grade == "B" and [r.title for r in g.reasons if r.grade == "B"] == ["説明のない本文の画像"]
+    assert ok.alerts == [] and ok.grade == "A"
 
 
 def test_old_word_picture_without_description_is_an_alert():

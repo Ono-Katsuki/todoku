@@ -1,0 +1,1147 @@
+{
+ "grade_check": {
+  "seed": 20261104,
+  "cap": 8,
+  "n": 125,
+  "frame": {
+   "file": "results_snapshot.jsonl",
+   "sha256": "9274dabadb433cd09358b9ec100415f42be1bb40f127cf12fa539bb7d32ef2be",
+   "records": 10762,
+   "graded": 7656
+  },
+  "absent_strata": [
+   "pdf:S",
+   "pdf:D",
+   "sheet:D",
+   "text:S",
+   "text:D",
+   "text:E",
+   "csv:D",
+   "csv:E"
+  ],
+  "read_agreement": {
+   "rate": 0.5125228578892372,
+   "ci95": [
+    0.41730346947385666,
+    0.6077422463046178
+   ],
+   "ci95_method": "estimate ± 1.96·SE（層ごとの分散を Agresti–Coull の p̃ で見積もる）",
+   "ci95_bootstrap": [
+    0.5103676854754441,
+    0.5152331504702194
+   ],
+   "n": 125,
+   "population": 7656
+  },
+  "read_agreement_strict": {
+   "rate": 0.4967019331243469,
+   "ci95": [
+    0.40020366363448456,
+    0.5932002026142092
+   ],
+   "ci95_method": "estimate ± 1.96·SE（層ごとの分散を Agresti–Coull の p̃ で見積もる）",
+   "ci95_bootstrap": [
+    0.46448863636363635,
+    0.5143351619644723
+   ],
+   "n": 125,
+   "population": 7656
+  },
+  "read_within_one_grade": {
+   "rate": 0.6194487983281086,
+   "ci95": [
+    0.5208252494957821,
+    0.7180723471604351
+   ],
+   "ci95_method": "estimate ± 1.96·SE（層ごとの分散を Agresti–Coull の p̃ で見積もる）",
+   "ci95_bootstrap": [
+    0.5818312434691745,
+    0.6714831504702194
+   ],
+   "n": 125,
+   "population": 7656
+  },
+  "todoku_more_severe": {
+   "rate": 0.48698733019853707,
+   "ci95": [
+    0.3917679417831565,
+    0.5822067186139177
+   ],
+   "ci95_method": "estimate ± 1.96·SE（層ごとの分散を Agresti–Coull の p̃ で見積もる）",
+   "ci95_bootstrap": [
+    0.4842933646812957,
+    0.48915882967607105
+   ],
+   "n": 125,
+   "population": 7656
+  },
+  "todoku_more_lenient": {
+   "rate": 0.0004898119122257053,
+   "ci95": [
+    0.0,
+    0.09570041449902554
+   ],
+   "ci95_method": "estimate ± 1.96·SE（層ごとの分散を Agresti–Coull の p̃ で見積もる）",
+   "ci95_bootstrap": [
+    0.0,
+    0.0010286050156739811
+   ],
+   "n": 125,
+   "population": 7656
+  },
+  "regrade_same_as_recorded": {
+   "rate": 0.9589864158829676,
+   "ci95": [
+    0.8621671921659363,
+    1.0
+   ],
+   "ci95_method": "estimate ± 1.96·SE（層ごとの分散を Agresti–Coull の p̃ で見積もる）",
+   "ci95_bootstrap": [
+    0.9218096917450366,
+    0.9867097701149425
+   ],
+   "n": 125,
+   "population": 7656
+  },
+  "read_agreement_current_code": {
+   "rate": 0.4868403866248694,
+   "ci95": [
+    0.3903423102024931,
+    0.5833384630472457
+   ],
+   "ci95_method": "estimate ± 1.96·SE（層ごとの分散を Agresti–Coull の p̃ で見積もる）",
+   "ci95_bootstrap": [
+    0.4545291274817137,
+    0.5044899425287356
+   ],
+   "n": 125,
+   "population": 7656
+  },
+  "confusion_current_code": {
+   "A": {
+    "A": 10,
+    "E": 1
+   },
+   "B": {
+    "A": 7
+   },
+   "C": {
+    "A": 55,
+    "F": 1,
+    "B": 7,
+    "E": 1
+   },
+   "E": {
+    "E": 10,
+    "A": 4,
+    "C": 1
+   },
+   "F": {
+    "S": 1,
+    "F": 4,
+    "E": 4,
+    "A": 3
+   },
+   "S": {
+    "S": 9
+   },
+   "error": {
+    "A": 7
+   }
+  },
+  "claim_true": {
+   "rate": 0.5712023249738767,
+   "ci95": [
+    0.472586693334192,
+    0.6698179566135614
+   ],
+   "ci95_method": "estimate ± 1.96·SE（層ごとの分散を Agresti–Coull の p̃ で見積もる）",
+   "ci95_bootstrap": [
+    0.5352991118077325,
+    0.6236285266457681
+   ],
+   "n": 125,
+   "population": 7656
+  },
+  "window_faithful": {
+   "rate": 0.9041601358411703,
+   "ci95": [
+    0.8018769339764691,
+    1.0
+   ],
+   "ci95_method": "estimate ± 1.96·SE（層ごとの分散を Agresti–Coull の p̃ で見積もる）",
+   "ci95_bootstrap": [
+    0.8308352925809822,
+    0.9671336206896551
+   ],
+   "n": 125,
+   "population": 7656
+  },
+  "per_grade": {
+   "S": {
+    "n": 9,
+    "agree": 9,
+    "rate": 1.0,
+    "wilson95": [
+     0.7008472464490407,
+     1.0
+    ],
+    "claim_true": 9,
+    "claim_wilson95": [
+     0.7008472464490407,
+     1.0
+    ]
+   },
+   "A": {
+    "n": 27,
+    "agree": 26,
+    "rate": 0.9629629629629629,
+    "wilson95": [
+     0.8171614606584348,
+     0.9934320234669025
+    ],
+    "claim_true": 25,
+    "claim_wilson95": [
+     0.7663002270926937,
+     0.9794457783026165
+    ]
+   },
+   "B": {
+    "n": 23,
+    "agree": 4,
+    "rate": 0.17391304347826086,
+    "wilson95": [
+     0.06978540350612772,
+     0.37138054785295666
+    ],
+    "claim_true": 4,
+    "claim_wilson95": [
+     0.06978540350612772,
+     0.37138054785295666
+    ]
+   },
+   "C": {
+    "n": 32,
+    "agree": 0,
+    "rate": 0.0,
+    "wilson95": [
+     0.0,
+     0.1071827150573635
+    ],
+    "claim_true": 4,
+    "claim_wilson95": [
+     0.04970053844474301,
+     0.2806864978482796
+    ]
+   },
+   "E": {
+    "n": 15,
+    "agree": 10,
+    "rate": 0.6666666666666666,
+    "wilson95": [
+     0.41713125151212976,
+     0.8482389930530876
+    ],
+    "claim_true": 10,
+    "claim_wilson95": [
+     0.41713125151212976,
+     0.8482389930530876
+    ]
+   },
+   "F": {
+    "n": 19,
+    "agree": 4,
+    "rate": 0.21052631578947367,
+    "wilson95": [
+     0.08507538491591576,
+     0.43334714240266087
+    ],
+    "claim_true": 10,
+    "claim_wilson95": [
+     0.31707482511825114,
+     0.7267049451255145
+    ]
+   }
+  },
+  "confusion": {
+   "S": {
+    "S": 9
+   },
+   "A": {
+    "A": 26,
+    "E": 1
+   },
+   "B": {
+    "A": 18,
+    "B": 4,
+    "E": 1
+   },
+   "C": {
+    "A": 28,
+    "F": 1,
+    "B": 3
+   },
+   "E": {
+    "E": 10,
+    "A": 4,
+    "C": 1
+   },
+   "F": {
+    "S": 1,
+    "F": 4,
+    "E": 4,
+    "A": 10
+   }
+  },
+  "write_agreement_unweighted": {
+   "n": 125,
+   "agree": 99,
+   "rate": 0.792,
+   "wilson95": [
+    0.7126703312982824,
+    0.853916857932525
+   ]
+  },
+  "write_confusion": {
+   "A": {
+    "B": 3,
+    "A": 9
+   },
+   "B": {
+    "B": 83,
+    "D": 9
+   },
+   "D": {
+    "A": 1,
+    "D": 7,
+    "B": 13
+   }
+  },
+  "disagreements": [
+   {
+    "id": "GB-csv-0190",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "MA-csv-0006",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "LV-csv-0145",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "IT-csv-0060",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "HR-csv-0035",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "LV-csv-0245",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "UA-csv-0127",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "CA-csv-0041",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "HK-csv-0217",
+    "todoku": "C",
+    "judged": "F",
+    "cause": "中の 數據用戶須知.txt（Big5）を「文字コードを決められない」として Latin-1 で読み、窓は文字化け。段階は C だが、その部分はエージェントにも読めない（F）"
+   },
+   {
+    "id": "HR-csv-0173",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "RS-csv-0022",
+    "todoku": "F",
+    "judged": "S",
+    "cause": "区切り「;」の UTF-8 の CSV（29,790 行）。値に NUL バイト（53,085 個）があるので「文字のファイルではない（バイナリ）」として F。窓には中身がすべて出ている"
+   },
+   {
+    "id": "UA-pdf-0118",
+    "todoku": "A",
+    "judged": "E",
+    "cause": "4 ページの画像だけの PDF（スキャン）を、todoku は 0 ページと読み、理由なしで A にした。pypdf は 4 ページを読む"
+   },
+   {
+    "id": "HR-pdf-0006",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "JP-pdf-0067",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "JP-pdf-0144",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "JP-pdf-0017",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "CA-pdf-0143",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "CA-pdf-0075",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "IT-pdf-0032",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "PK-pdf-0048",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "LU-pdf-0096",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "HR-pdf-0145",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "JP-pdf-0189",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "CA-pdf-0242",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "GB-pdf-0038",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "PK-pdf-0019",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "UA-pdf-0211",
+    "todoku": "F",
+    "judged": "E",
+    "cause": "スキャンの PDF。画像の圧縮（JBIG2・JPX）を todoku が開けないことを、書類の段階 F（アクセスできない）にした。書類の性質は E"
+   },
+   {
+    "id": "HR-pdf-0248",
+    "todoku": "F",
+    "judged": "E",
+    "cause": "96 ページのうち 1 ページ（p66）だけが JPX の画像のページ。todoku が開けないことで、書類全体を F にした"
+   },
+   {
+    "id": "UA-pdf-0177",
+    "todoku": "F",
+    "judged": "E",
+    "cause": "スキャンの PDF。画像の圧縮（JBIG2・JPX）を todoku が開けないことを、書類の段階 F（アクセスできない）にした。書類の性質は E"
+   },
+   {
+    "id": "JP-pdf-0170",
+    "todoku": "F",
+    "judged": "A",
+    "cause": "字に直せない字は箇条の記号（Wingdings など）の 9〜12 字だけで、本文は読める。F は厳しすぎる"
+   },
+   {
+    "id": "GB-pdf-0202",
+    "todoku": "F",
+    "judged": "A",
+    "cause": "字に直せない字は箇条の記号（Wingdings など）の 9〜12 字だけで、本文は読める。F は厳しすぎる"
+   },
+   {
+    "id": "UA-pdf-0165",
+    "todoku": "F",
+    "judged": "E",
+    "cause": "スキャンの PDF。画像の圧縮（JBIG2・JPX）を todoku が開けないことを、書類の段階 F（アクセスできない）にした。書類の性質は E"
+   },
+   {
+    "id": "PK-sheet-0101",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "GB-sheet-0154",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "JP-sheet-0161",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "RS-sheet-0235",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "GB-sheet-0095",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "MA-sheet-0200",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "JP-sheet-0015",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "RS-sheet-0234",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "LU-sheet-0188",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "LV-sheet-0214",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "HR-sheet-0140",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "MA-sheet-0222",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "MA-sheet-0187",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "MA-sheet-0121",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "HK-sheet-0144",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "MA-sheet-0000",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "GB-sheet-0190",
+    "todoku": "E",
+    "judged": "A",
+    "cause": "グラフだけのシートを「画像だけのシート」とした。グラフの値はセルにあり、todoku の窓もグラフの値の表を出している"
+   },
+   {
+    "id": "JP-sheet-0147",
+    "todoku": "E",
+    "judged": "A",
+    "cause": "グラフだけのシートを「画像だけのシート」とした"
+   },
+   {
+    "id": "HR-sheet-0087",
+    "todoku": "E",
+    "judged": "C",
+    "cause": "「画像だけのシート」は誤り：シート 4_7 にはセルが 1,316 個あるが、印刷範囲（B101:J119）が使っている範囲（77 行）の外なので、範囲の中が空になった。C の理由「保存された値と合わない数式」は本当（=#REF! の数式に保存された値 0）"
+   },
+   {
+    "id": "PK-sheet-0186",
+    "todoku": "E",
+    "judged": "A",
+    "cause": "グラフだけのシートを「画像だけのシート」とした。グラフの値はセルにあり、todoku の窓もグラフの値の表を出している"
+   },
+   {
+    "id": "MA-sheet-0218",
+    "todoku": "E",
+    "judged": "A",
+    "cause": "グラフだけのシートを「画像だけのシート」とした。グラフの値はセルにあり、todoku の窓もグラフの値の表を出している"
+   },
+   {
+    "id": "JP-sheet-0239",
+    "todoku": "F",
+    "judged": "A",
+    "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした"
+   },
+   {
+    "id": "JP-sheet-0168",
+    "todoku": "F",
+    "judged": "A",
+    "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした"
+   },
+   {
+    "id": "JP-sheet-0127",
+    "todoku": "F",
+    "judged": "A",
+    "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした"
+   },
+   {
+    "id": "CA-sheet-0123",
+    "todoku": "F",
+    "judged": "A",
+    "cause": "ZIP の中の metadata の .html・.xml を todoku が扱えないことを F にした。中身は字なので、エージェントは読める（中の .txt のデータは正確）"
+   },
+   {
+    "id": "JP-sheet-0215",
+    "todoku": "F",
+    "judged": "A",
+    "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした"
+   },
+   {
+    "id": "JP-sheet-0086",
+    "todoku": "F",
+    "judged": "A",
+    "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした"
+   },
+   {
+    "id": "JP-sheet-0217",
+    "todoku": "F",
+    "judged": "A",
+    "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした"
+   },
+   {
+    "id": "JP-sheet-0074",
+    "todoku": "F",
+    "judged": "A",
+    "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした"
+   },
+   {
+    "id": "GB-text-0144",
+    "todoku": "B",
+    "judged": "E",
+    "cause": "中身が説明のない画像 16 枚（グラフ・図）と空の表だけの Word。B（配置から推定した入力欄）としたが、中身は字として読めない（E）。Word には画像だけの規則がない"
+   },
+   {
+    "id": "UA-text-0104",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "UA-text-0034",
+    "todoku": "B",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "GB-text-0118",
+    "todoku": "C",
+    "judged": "B",
+    "cause": "規則では決められない所を C にしたが、定義（B：一部の欄が配置からの推定か、規則では決められない）では B"
+   },
+   {
+    "id": "UA-text-0076",
+    "todoku": "C",
+    "judged": "B",
+    "cause": "規則では決められない所を C にしたが、定義では B"
+   },
+   {
+    "id": "UA-text-0241",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "LV-text-0007",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "GB-text-0084",
+    "todoku": "C",
+    "judged": "B",
+    "cause": "規則では決められない所を C にしたが、定義（B：一部の欄が配置からの推定か、規則では決められない）では B"
+   },
+   {
+    "id": "CA-text-0007",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "UA-text-0124",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   },
+   {
+    "id": "UA-text-0125",
+    "todoku": "C",
+    "judged": "A",
+    "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない"
+   }
+  ],
+  "bugs": [
+   {
+    "id": "HK-csv-0217",
+    "url": "https://www.censtatd.gov.hk/en/data/stat_report/product/B1010006/att/B10100062026AN26B01.zip",
+    "bug": "テキストの文字コードの候補が UTF-8・Shift_JIS・EUC-JP だけで、Big5 などは Latin-1 に落ちる（注意は窓に出る）"
+   },
+   {
+    "id": "RS-csv-0022",
+    "url": "https://prodavnicasunce.rs/cenovnik/cene_proizvoda_QVATTRO_COMPANY.csv",
+    "bug": "CSV の中の NUL バイトだけで「読めない（F）」にする"
+   },
+   {
+    "id": "UA-pdf-0118",
+    "url": "https://data.gov.ua/dataset/01de86b7-2a7f-492e-9d01-c9824b444290/resource/3660a7cb-2b98-4405-9b11-4959dc3cd3b9/download/13-01-2023-preiskurant-tsin-z-terapevtichnoyi-ta-khirurgichnoyi-stomatologiyi.pdf",
+    "bug": "ページを1つも見つけられない PDF（todoku・pdfminer は 0 ページ、pypdf は 4 ページ）で、窓が空のまま、理由なしの A になる（0 ページを段階の理由にしない）"
+   },
+   {
+    "id": "CA-pdf-0075",
+    "url": "https://api-proxy.edh-cde.dfo-mpo.gc.ca/catalogue/records/58a5280d-0dea-4004-b2cf-719936d3f8dd/attachments/Reference_Table.pdf",
+    "bug": "PDF の窓で「ll」の片方が落ちる（細い字が続くと、同じ字の重ね書きとみなして1字にする：layout.py の重なりの判定が字の大きさの 1/4 で、幅の狭い字の隣どうしを重ねとみなす）"
+   },
+   {
+    "id": "IT-pdf-0032",
+    "url": "https://bdap-opendata.rgs.mef.gov.it//sites/default/files/metadata_updfile/report/5398_SIOPE%20Movimenti%20cumulati%20mensili%20di%20Spesa.pdf",
+    "bug": "PDF の窓で「ll」の片方が落ちる（細い字が続くと、同じ字の重ね書きとみなして1字にする：layout.py の重なりの判定が字の大きさの 1/4 で、幅の狭い字の隣どうしを重ねとみなす）"
+   },
+   {
+    "id": "GB-pdf-0038",
+    "url": "https://data.london.gov.uk/download/2o8xd/71ee0389-e5d6-4d57-bc7f-f7ef5aecdcd6/GLA%20stats%20-%20general%20programmes_Q4_2025-26%20(002)optimized%20Fully%20accessible%20(002).pdf",
+    "bug": "PDF の窓で「ll」の片方が落ちる（細い字が続くと、同じ字の重ね書きとみなして1字にする：layout.py の重なりの判定が字の大きさの 1/4 で、幅の狭い字の隣どうしを重ねとみなす）"
+   },
+   {
+    "id": "PK-pdf-0019",
+    "url": "https://opendata.com.pk/dataset/f5f9d9d5-c84c-4b6d-9206-ed110964101c/resource/bf1c093b-0202-4d84-a90a-83630340e715/download/summary-apr19_0.pdf",
+    "bug": "PDF の窓で「ll」の片方が落ちる（細い字が続くと、同じ字の重ね書きとみなして1字にする：layout.py の重なりの判定が字の大きさの 1/4 で、幅の狭い字の隣どうしを重ねとみなす）"
+   },
+   {
+    "id": "CA-sheet-0138",
+    "url": "https://opendata.gov.nl.ca/public/opendata/filedownload/?file-id=16992",
+    "bug": "表計算の窓の「○行目と同じ形の行が続きます（入力欄はすべて空欄）」のまとめで、値のある行が消える"
+   },
+   {
+    "id": "MA-sheet-0222",
+    "url": "https://data.gov.ma/data/fr/dataset/2ef881b4-6a4e-4ce9-9989-73cf8a00800e/resource/b374632c-f244-4be5-b810-3213fd7ee19c/download/pj-ait-melloul-6235-_-aitmelloul-2019-2020.xlsx",
+    "bug": "表計算の窓の「○行目と同じ形の行が続きます（入力欄はすべて空欄）」のまとめで、値のある行が消える"
+   },
+   {
+    "id": "GB-sheet-0226",
+    "url": "http://data.defra.gov.uk/Forestry/FC_OpenData/NFI/NFI-GB-25-Year-Forecast-Standing-Coniferous-Volume-Increment_2012.xls",
+    "bug": "表計算の窓の「○行目と同じ形の行が続きます（入力欄はすべて空欄）」のまとめで、値のある行が消える"
+   },
+   {
+    "id": "GB-sheet-0190",
+    "url": "https://data.london.gov.uk/download/ep8ow/a7a69c22-150c-49f3-a1fd-90d4c24d98d4/tfl-journeys-type%20(2).xlsx",
+    "bug": "画像だけのシートの規則が、グラフ（値から描くもの）も絵と同じに数える"
+   },
+   {
+    "id": "JP-sheet-0147",
+    "url": "https://www.e-stat.go.jp/SG1/estat/Xlsdl.do?sinfid=000031399270",
+    "bug": "表計算の窓の「○行目と同じ形の行が続きます（入力欄はすべて空欄）」のまとめで、値のある行が消える"
+   },
+   {
+    "id": "HR-sheet-0087",
+    "url": "https://data.gov.hr/ckan/dataset/8111eb66-38b4-4c47-b2d7-6759695b4c79/resource/0aacd4eb-2d41-4388-8178-4ba8a11cf8c3/download/statisticki_pregled_2022_konacna_za-webfinal.xlsx",
+    "bug": "印刷範囲が使っている範囲の外にあるシートを、画像だけのシートとする；表計算の窓の「○行目と同じ形の行が続きます（入力欄はすべて空欄）」のまとめで、値のある行が消える"
+   },
+   {
+    "id": "PK-sheet-0186",
+    "url": "https://opendata.com.pk/dataset/a3f6b82b-d589-480b-a462-e04f87d5b2b3/resource/fd4ec2fb-f454-4e21-a8a5-57299b73dccc/download/suicide-blasts-final.xlsx",
+    "bug": "画像だけのシートの規則が、グラフ（値から描くもの）も絵と同じに数える"
+   },
+   {
+    "id": "MA-sheet-0218",
+    "url": "https://data.gov.ma/data/fr/dataset/3a6102e2-e452-40a6-a5b7-cea4060a647c/resource/79f95f49-3467-45f4-9038-fea3bd993a29/download/trans.narsa2022.xlsx",
+    "bug": "画像だけのシートの規則が、グラフ（値から描くもの）も絵と同じに数える"
+   },
+   {
+    "id": "JP-sheet-0239",
+    "url": "https://www.e-stat.go.jp/SG1/estat/Xlsdl.do?sinfid=000015170657",
+    "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+   },
+   {
+    "id": "JP-sheet-0168",
+    "url": "https://www.e-stat.go.jp/SG1/estat/Xlsdl.do?sinfid=000012663181",
+    "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+   },
+   {
+    "id": "JP-sheet-0127",
+    "url": "https://www.e-stat.go.jp/SG1/estat/Xlsdl.do?sinfid=000021089800",
+    "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+   },
+   {
+    "id": "JP-sheet-0215",
+    "url": "https://www.e-stat.go.jp/SG1/estat/Xlsdl.do?sinfid=000002947577",
+    "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+   },
+   {
+    "id": "JP-sheet-0086",
+    "url": "http://www.e-stat.go.jp/SG1/estat/Xlsdl.do?sinfid=000001186921",
+    "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+   },
+   {
+    "id": "JP-sheet-0217",
+    "url": "http://www.e-stat.go.jp/SG1/estat/Xlsdl.do?sinfid=000012680746",
+    "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+   },
+   {
+    "id": "JP-sheet-0074",
+    "url": "https://www.e-stat.go.jp/SG1/estat/Xlsdl.do?sinfid=000001226082",
+    "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+   }
+  ]
+ },
+ "compare": {
+  "n_read": 125,
+  "tools": {
+   "todoku": {
+    "opened": 118,
+    "char_recall_mean": 0.9266,
+    "unit_recall_mean": 0.8656,
+    "bigram_recall_mean": 0.9187,
+    "docs_bigram_recall_lt_0.995": 22,
+    "docs_unit_recall_ge_0.99": 81,
+    "n_recall": 112,
+    "segment_precision_mean": 0.7376,
+    "seconds_median": 0.05,
+    "seconds_total": 42.6,
+    "features": {
+     "comment": {
+      "docs": 1,
+      "conveyed_mean": 1.0,
+      "docs_fully": 1
+     },
+     "display_format": {
+      "docs": 12,
+      "conveyed_mean": 1.0,
+      "docs_fully": 12
+     },
+     "formula_marked": {
+      "docs": 7,
+      "conveyed_mean": 1.0,
+      "docs_fully": 7
+     },
+     "formula_text": {
+      "docs": 7,
+      "conveyed_mean": 0.0429,
+      "docs_fully": 0
+     },
+     "formula_value": {
+      "docs": 6,
+      "conveyed_mean": 0.8333,
+      "docs_fully": 5
+     },
+     "hidden_content": {
+      "docs": 2,
+      "conveyed_mean": 0.35,
+      "docs_fully": 0
+     },
+     "hidden_marked": {
+      "docs": 2,
+      "conveyed_mean": 1.0,
+      "docs_fully": 2
+     },
+     "legacy_format": {
+      "docs": 30,
+      "conveyed_mean": 0.7667,
+      "docs_fully": 23
+     },
+     "merged": {
+      "docs": 11,
+      "conveyed_mean": 0.1854,
+      "docs_fully": 1
+     },
+     "textbox": {
+      "docs": 2,
+      "conveyed_mean": 1.0,
+      "docs_fully": 2
+     }
+    }
+   },
+   "markitdown": {
+    "opened": 117,
+    "char_recall_mean": 0.9257,
+    "unit_recall_mean": 0.8176,
+    "bigram_recall_mean": 0.9156,
+    "docs_bigram_recall_lt_0.995": 41,
+    "docs_unit_recall_ge_0.99": 64,
+    "n_recall": 112,
+    "segment_precision_mean": 0.7421,
+    "seconds_median": 0.43,
+    "seconds_total": 99.4,
+    "features": {
+     "comment": {
+      "docs": 1,
+      "conveyed_mean": 0.0,
+      "docs_fully": 0
+     },
+     "display_format": {
+      "docs": 12,
+      "conveyed_mean": 0.2507,
+      "docs_fully": 1
+     },
+     "formula_marked": {
+      "docs": 7,
+      "conveyed_mean": 0.0,
+      "docs_fully": 0
+     },
+     "formula_text": {
+      "docs": 7,
+      "conveyed_mean": 0.0,
+      "docs_fully": 0
+     },
+     "formula_value": {
+      "docs": 6,
+      "conveyed_mean": 0.8276,
+      "docs_fully": 4
+     },
+     "hidden_content": {
+      "docs": 2,
+      "conveyed_mean": 1.0,
+      "docs_fully": 2
+     },
+     "hidden_marked": {
+      "docs": 2,
+      "conveyed_mean": 0.0,
+      "docs_fully": 0
+     },
+     "legacy_format": {
+      "docs": 30,
+      "conveyed_mean": 0.7667,
+      "docs_fully": 23
+     },
+     "merged": {
+      "docs": 11,
+      "conveyed_mean": 0.0,
+      "docs_fully": 0
+     },
+     "textbox": {
+      "docs": 2,
+      "conveyed_mean": 0.5,
+      "docs_fully": 0
+     }
+    }
+   },
+   "naive": {
+    "opened": 109,
+    "char_recall_mean": 0.8487,
+    "unit_recall_mean": 0.8134,
+    "bigram_recall_mean": 0.8487,
+    "docs_bigram_recall_lt_0.995": 36,
+    "docs_unit_recall_ge_0.99": 79,
+    "n_recall": 112,
+    "segment_precision_mean": 0.7722,
+    "seconds_median": 0.05,
+    "seconds_total": 17.4,
+    "features": {
+     "comment": {
+      "docs": 1,
+      "conveyed_mean": 0.0,
+      "docs_fully": 0
+     },
+     "display_format": {
+      "docs": 12,
+      "conveyed_mean": 0.2569,
+      "docs_fully": 1
+     },
+     "formula_marked": {
+      "docs": 7,
+      "conveyed_mean": 1.0,
+      "docs_fully": 7
+     },
+     "formula_text": {
+      "docs": 7,
+      "conveyed_mean": 1.0,
+      "docs_fully": 7
+     },
+     "formula_value": {
+      "docs": 6,
+      "conveyed_mean": 0.5287,
+      "docs_fully": 3
+     },
+     "hidden_content": {
+      "docs": 2,
+      "conveyed_mean": 1.0,
+      "docs_fully": 2
+     },
+     "hidden_marked": {
+      "docs": 2,
+      "conveyed_mean": 0.0,
+      "docs_fully": 0
+     },
+     "legacy_format": {
+      "docs": 30,
+      "conveyed_mean": 0.7333,
+      "docs_fully": 22
+     },
+     "merged": {
+      "docs": 11,
+      "conveyed_mean": 0.0021,
+      "docs_fully": 0
+     },
+     "textbox": {
+      "docs": 2,
+      "conveyed_mean": 0.5,
+      "docs_fully": 0
+     }
+    }
+   }
+  },
+  "write": {
+   "docx:naive": {
+    "docs": 4,
+    "landed": 4,
+    "lost_something": 2,
+    "parts_changed_total": 56,
+    "parts_same_total": 61,
+    "lost:w14_attrs": 2
+   },
+   "docx:todoku": {
+    "docs": 4,
+    "landed": 4,
+    "lost_something": 0,
+    "proof_ok": 4,
+    "read_back_ok": 4,
+    "parts_changed_total": 4,
+    "parts_same_total": 113
+   },
+   "pdf:naive": {
+    "docs": 19,
+    "error": 19
+   },
+   "pdf:todoku": {
+    "docs": 19,
+    "landed": 19,
+    "landed_in_rect": 17,
+    "lost_something": 0,
+    "pdf_original_bytes_kept": 19,
+    "proof_ok": 19,
+    "read_back_ok": 19,
+    "parts_changed_total": 0,
+    "parts_same_total": 0
+   },
+   "xls:naive": {
+    "docs": 9,
+    "error": 9
+   },
+   "xls:todoku": {
+    "docs": 9,
+    "landed": 9,
+    "lost_something": 0,
+    "proof_ok": 9,
+    "read_back_ok": 9,
+    "parts_changed_total": 0,
+    "parts_same_total": 0
+   },
+   "xlsx:naive": {
+    "docs": 19,
+    "landed": 19,
+    "lost_something": 19,
+    "lost:parts": 17,
+    "lost:customXml": 2,
+    "lost:printerSettings": 15,
+    "parts_removed_docs": 19,
+    "parts_changed_total": 266,
+    "parts_same_total": 27,
+    "lost:comments_parts": 1,
+    "lost:extLst": 15,
+    "lost:mc_AlternateContent": 15,
+    "lost:media": 1,
+    "lost:drawings": 4,
+    "lost:embeddings": 1,
+    "lost:definedName": 1,
+    "lost:sp_shapes": 4,
+    "lost:sheetProtection": 1,
+    "lost:legacyDrawing": 1,
+    "lost:cellXfs_xf": 1,
+    "lost:pivot": 1
+   },
+   "xlsx:todoku": {
+    "docs": 19,
+    "landed": 19,
+    "lost_something": 0,
+    "proof_ok": 19,
+    "read_back_ok": 19,
+    "parts_changed_total": 21,
+    "parts_same_total": 682
+   }
+  },
+  "write_skipped": {
+   "書ける欄がない": 49,
+   "KeyError: 'r1'": 7
+  }
+ }
+}

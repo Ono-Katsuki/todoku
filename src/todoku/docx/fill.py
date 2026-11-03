@@ -15,8 +15,8 @@ import datetime as dt
 import re
 from dataclasses import dataclass, field
 
-from .document import DocxDocument, Para, iter_paras
-from .window import MARK_PREFIX, Spots
+from .document import WINGDINGS, DocxDocument, Para, iter_paras
+from .window import CHECKED, MARK_PREFIX, Spots, box_mark
 from .xmlpos import Node, escape, prefix_of
 
 
@@ -178,6 +178,11 @@ class Filler:
                 elif nxt is None:
                     self.append_run(item, p, sg.run, value)  # 段落の終わりのタブ・記号の後ろ：同じ書式の字の要素を足す
                     return
+            if sg.kind in ("note", "other") and a == len(pos) and sg.run is not None:
+                # 段落の終わりの脚注の印・図の印（「人口※4」）の後ろ：本文の字の書式（印の上付きでなく）で、字の要素を足す
+                body = next((x.run for x in reversed(p.segs[:i]) if x.kind == "t" and x.run is not None), None)
+                self.append_run(item, p, sg.run, value, style_run=body or False)
+                return
             if sg.kind != "t" or sg.node is None or sg.run is None:
                 raise FillError(f"{item['id']}: 書き足す位置が、書き換えられない部分にあります")
             self.check_editable(item, part, sg.node.s)
@@ -242,6 +247,15 @@ class Filler:
                     sym = xml[kid.s:kid.e]
                     if value in ("■", "☑", "☒"):
                         sym = re.sub(rb'(char=")[0-9A-Fa-f]+(")', rb"\g<1>F0FE\g<2>", sym)
+                    elif value in ("□", "☐"):
+                        # チェックを外す：Wingdings などの記号の字（私用の領域）は Wingdings の空の箱、ふつうの字はその字に
+                        m_ = re.search(rb'char="([0-9A-Fa-f]+)"', sym)
+                        code = int(m_[1], 16) if m_ else 0
+                        pua = code >= 0xE000 or code < 0x100
+                        was = WINGDINGS.get(code if code >= 0xF000 else code + 0xF000) if pua else chr(code)
+                        if was in CHECKED:  # 印のない箱のチェックを外す（変えない）ときは、元の字のまま
+                            to = b"F0A8" if pua else f"{ord(value):04X}".encode()
+                            sym = re.sub(rb'(char=")[0-9A-Fa-f]+(")', rb"\g<1>" + to + rb"\g<2>", sym)
                     flush()
                     out.extend((bm[0] if bm else b"") + r_open + rpr_b + sym + r_close + (bm[1] if bm else b""))
                     continue
@@ -351,8 +365,9 @@ class Filler:
             at = ppr.e if ppr is not None else node.se
             ed.put(at, at, run)
 
-    def append_run(self, item: dict, p: Para, after_run, value: str) -> None:
-        """字の要素 after_run のすぐ後ろに、同じ書式（rPr）の字の要素を足して書く（タブで終わる段落の後ろなど）。"""
+    def append_run(self, item: dict, p: Para, after_run, value: str, style_run=None) -> None:
+        """字の要素 after_run のすぐ後ろに、同じ書式（rPr）の字の要素を足して書く（タブで終わる段落の後ろなど）。
+        style_run：書式を写す字の要素（after_run と違うとき。False なら書式を写さない）。"""
         part = p.part
         ed = self.ed(part)
         pre = ed.pre
@@ -360,7 +375,8 @@ class Filler:
         self.check_editable(item, part, after_run.s)
         if (part, after_run.s) in self.run_ops:
             raise FillError(f"{item['id']}: 同じ字の要素の中に、ほかの書き込みがあります")
-        rpr = after_run.find("rPr")
+        src = after_run if style_run is None else style_run
+        rpr = src.find("rPr") if src is not False else None
         rpr_b = xml[rpr.s:rpr.e] if rpr is not None else b""
         start_bm, end_bm = self.bookmark(item["id"])
         ed.put(after_run.e, after_run.e,
@@ -619,7 +635,7 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
                 p = item["para"]
                 a, b = item["span"]
                 orig = p.text[a:b]
-                mark = ("☑" if orig == "☐" else "■") if on else orig
+                mark = box_mark(orig, on)
                 f.replace_span(item, p, a, b, mark)
                 f.patches.append(Patch(key, "control", on, p.part))
             elif kind == "inline":

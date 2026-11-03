@@ -934,18 +934,25 @@ def f_t(ev, x):
 
 @fn("ROW")
 def f_row(ev, ref=None):
+    # 配列として計算するとき（配列数式・SUMPRODUCT の中など）、複数の行の範囲の ROW は、行の番号の縦の配列
+    # （ROW(A2:A5) は {2;3;4;5}）。ふつうの数式では、最初の行の番号（Excel の仕様）
     if ref is None:
         return float(ev.row)
     if isinstance(ref, Rng):
+        if ev.array and ref.rows > 1:
+            return Arr([[float(r)] for r in range(ref.r1, ref.r2 + 1)])
         return float(ref.r1)
     raise err(VALUE)
 
 
 @fn("COLUMN")
 def f_column(ev, ref=None):
+    # 配列として計算するとき、複数の列の範囲の COLUMN は、列の番号の横の配列（COLUMN(B1:D1) は {2,3,4}）
     if ref is None:
         return float(ev.col)
     if isinstance(ref, Rng):
+        if ev.array and ref.cols > 1:
+            return Arr([[float(c) for c in range(ref.c1, ref.c2 + 1)]])
         return float(ref.c1)
     raise err(VALUE)
 
@@ -1420,7 +1427,7 @@ _ZEN = str.maketrans({chr(i): chr(i + 0xFEE0) for i in range(0x21, 0x7F)} | {" "
 _HAN = str.maketrans({chr(i + 0xFEE0): chr(i) for i in range(0x21, 0x7F)} | {"　": " "})
 
 
-@fn("JIS")
+@fn("JIS DBCS")  # 同じ関数（日本語版の名前が JIS、英語版の名前が DBCS）
 def f_jis(ev, x):
     import unicodedata
 

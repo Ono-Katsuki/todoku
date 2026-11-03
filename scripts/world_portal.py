@@ -1,139 +1,221 @@
-"""世界調査の結果（world/results.jsonl）から、ポータルのデータ（world/portal/data.json）を作る。
+"""世界調査の結果から、ポータルのデータ（world/portal/data.json）を作る。
 
-- 国ごと・層（国 × 形式の群）ごとに、届いた割合・読む段階・書く段階の分布を数え、Wilson の 95% 区間を付ける。
-- 国の値は、層の大きさ（目録の登録の数）で重みを付けて合わせる（層別の推定。分散は層ごとの和）。
-- 書類ごとの記録は、ページで絞り込めるように短い形で入れる（URL・形式・段階・理由・発行者の分類）。
-使い方: uv run python scripts/world_portal.py
+入力：world/population.json（母集団と国ごとの結果）・world/domains.json（政府のドメイン）・world/frames.json（枠）・
+world/sample.jsonl（標本）・world/results.jsonl（測った結果）。結果は、今の標本と id・digest が同じものだけを使う。
+
+- 層（国 × 形式の群）の中の割合は、選ばれる確率の逆数で重みを付けた比の推定。分散は、索引のブロック（集落）ごとに
+  まとめた線形化の推定（同じブロックの書類は似ているため）。
+- 国の値は、層の大きさ（枠の推定の数）で重みを付けて合わせる（層別の推定。分散は層ごとの和）。区間は、分散から出した
+  有効な標本の大きさのウィルソン区間（Korn & Graubard 1998）。
+使い方: PYTHONPATH=src .venv/bin/python scripts/world_portal.py
 """
 
 from __future__ import annotations
 
 import json
 import math
+import urllib.parse
 from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 W = ROOT / "world"
 Z = 1.959964
+FIRST_PASS = 20  # 1回目に測る標本の順番（world_survey.py の --rank）
 
-ISO_NUM = {
-    "JP": "392", "GB": "826", "CA": "124", "NL": "528", "GR": "300", "UA": "804", "HR": "191", "LV": "428", "IL": "376",
-    "DE": "276", "AT": "040", "IT": "380", "BE": "056", "PT": "620", "FR": "250", "SI": "705", "CH": "756", "ES": "724",
-    "IE": "372", "PL": "616", "SK": "703", "MD": "498", "SE": "752", "FI": "246", "RO": "642", "HU": "348", "EE": "233",
-    "DK": "208", "ME": "499", "MT": "470", "NO": "578", "LT": "440", "CZ": "203", "AL": "008", "IS": "352",
-    "AU": "036", "NZ": "554", "TW": "158", "SG": "702", "TH": "764", "MX": "484", "BR": "076", "AR": "032", "CL": "152",
-    "UY": "858", "EC": "218", "BG": "100",
-}
+POP = json.loads((W / "population.json").read_text(encoding="utf-8"))["countries"]
+ISO_NUM = {c["iso2"]: c["num"] for c in POP}
 READ_OK = set("SAB")  # 正確に読める（素のデータ・規則だけで・エージェントが読めば）
 # 様式の見分け（構造の印だけで決める）：作り手が入力欄の印を付けた書類（PDF・XFA のフォームの欄、Word のコンテンツコントロール、
 # Excel の入力の印・フォームの部品など）。配置や空白から推定した欄だけの書類は「推定の欄」として別に数える
 MARKED = {"XFA のフォームの欄", "フォームの欄", "印のある入力欄", "作り手の印のある入力欄", "データに結びつかない XFA の欄",
           "状態の読めないフォームの欄"}
-INFERRED = {"配置から推定した入力欄", "文字の中の空欄", "印のない入力欄", "解析して決める入力欄", "入力欄か決められないセル"}
+# 推定の欄：いまの grade.py の書く段階の理由の名前（配置・枠や塗り・文字の中の空欄・数式の入力から推定した欄、規則では決められない所
+# （窓の「？」）、重なった入力規則）。古い記録の名前（「解析して決める入力欄」は上の推定の名前に分かれ、「入力欄か決められないセル」は
+# 「規則では決められない所」になった）も、取り直す前の記録を読むために残す
+INFERRED = {"配置から推定した入力欄", "枠・塗りから推定した入力欄", "文字の中の空欄", "印のない入力欄", "規則では決められない所",
+            "重なった入力規則"}
+INFERRED_OLD = {"解析して決める入力欄", "入力欄か決められないセル"}
 
 
 def form_class(r: dict) -> str:
     titles = {t for _g, t in (r.get("read_reasons") or []) + (r.get("write_reasons") or [])}
     if titles & MARKED:
         return "marked"
-    if titles & INFERRED or (r.get("fields") or 0) > 0:
+    if titles & (INFERRED | INFERRED_OLD) or (r.get("fields") or 0) > 0:
         return "inferred"
     return "none"
 
 
-def wilson(k: int, n: int) -> list:
-    if n == 0:
+def wilson(k: float, n: float) -> list:
+    if not n:
         return [None, None]
     p = k / n
     d = 1 + Z * Z / n
     c = (p + Z * Z / (2 * n)) / d
-    h = Z * math.sqrt(p * (1 - p) / n + Z * Z / (4 * n * n)) / d
+    h = Z * math.sqrt(max(p * (1 - p) / n + Z * Z / (4 * n * n), 0)) / d
     return [round(max(0, c - h), 4), round(min(1, c + h), 4)]
 
 
-def stratified(cells: list[tuple[int, int, int]]) -> dict:
-    """cells：(層の大きさ N, 標本 n, 当たり k)。層別の推定と、正規近似の 95% 区間。"""
-    cells = [c for c in cells if c[1] > 0]
+def ratio(rows: list[tuple[float, str, int]]) -> tuple[float | None, float, int]:
+    """rows：(重み, 集落, 当たり 0/1)。重み付きの割合・集落でまとめた線形化の分散・件数。"""
+    if not rows:
+        return None, 0.0, 0
+    sw = sum(w for w, _c, _y in rows)
+    p = sum(w * y for w, _c, y in rows) / sw
+    by = defaultdict(float)
+    for w, c, y in rows:
+        by[c] += w * (y - p)
+    k = len(by)
+    var = (k / (k - 1)) * sum(v * v for v in by.values()) / (sw * sw) if k > 1 else 0.0
+    return p, var, len(rows)
+
+
+def combine(cells: list[tuple[float, float | None, float, int]]) -> dict:
+    """cells：(層の大きさ N, 割合 p, 分散 v, 件数 n)。層別の推定と、有効な標本の大きさのウィルソン区間。"""
+    cells = [c for c in cells if c[3] > 0 and c[0] > 0]
     tot = sum(c[0] for c in cells)
     if not tot:
         return {"p": None, "ci": [None, None], "n": 0}
-    p = sum(N / tot * k / n for N, n, k in cells)
-    var = sum((N / tot) ** 2 * (k / n) * (1 - k / n) / max(n - 1, 1) for N, n, k in cells)
-    h = Z * math.sqrt(var)
-    return {"p": round(p, 4), "ci": [round(max(0, p - h), 4), round(min(1, p + h), 4)], "n": sum(c[1] for c in cells)}
+    p = sum(N / tot * pp for N, pp, _v, _n in cells)
+    var = sum((N / tot) ** 2 * v for N, _p, v, _n in cells)
+    # 正規近似のままだと、どの層も 0% か 100% のとき分散が 0 になり、区間の幅が 0 になる（Korn & Graubard 1998）
+    n_all = sum(c[3] for c in cells)
+    n_eff = min(p * (1 - p) / var, n_all) if var > 0 else n_all
+    lo, hi = wilson(p * n_eff, n_eff)
+    return {"p": round(p, 4), "ci": [lo, hi], "n": n_all}
+
+
+def _ungraded_why(r: dict) -> str:
+    e, k = r.get("error") or "", r.get("kind") or ""
+    if e == "unknown_kind":
+        return {"zip": "ZIP（Office の書類でない）"}.get(k, "対応していない形式")
+    return {"password": "パスワード", "encrypted": "暗号化", "timeout": "時間切れ", "crash": "処理の失敗", "memory": "メモリの上限"}.get(e, e or "その他")
+
+
+def _source_line(d: dict) -> str:
+    s = [x["suffix"] for x in d["suffixes"] if "excluded" not in x]
+    parts = []
+    if s:
+        parts.append("・".join(s[:6]) + (f" ほか {len(s) - 6}" if len(s) > 6 else ""))
+    if d["hosts"]:
+        parts.append(f"Wikidata の政府の機関・自治体のサイト {len(d['hosts']):,}")
+    return "政府のドメイン：" + "＋".join(parts) if parts else ""
 
 
 def main() -> int:
     frames = json.loads((W / "frames.json").read_text(encoding="utf-8"))
-    unreached = json.loads((W / "unreached.json").read_text(encoding="utf-8"))
-    recs = [json.loads(x) for x in (W / "results.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+    crawl = frames["crawl"]
+    parts = {"suffix": frames.get("countries", {}), "wikidata": frames.get("wikidata", {})}
+    doms = json.loads((W / "domains.json").read_text(encoding="utf-8"))["countries"]
+    samples = {s["id"]: s for s in (json.loads(x) for x in (W / "sample.jsonl").read_text(encoding="utf-8").splitlines() if x.strip())}
+    recs = []
+    if (W / "results.jsonl").exists():
+        for x in (W / "results.jsonl").read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(x)
+            except json.JSONDecodeError:
+                continue
+            s = samples.get(r.get("id"))
+            if s and s["digest"] == r.get("digest"):
+                recs.append(r)
     by_cell = defaultdict(list)
     for r in recs:
-        by_cell[(r["country"], r["family"])].append(r)
+        by_cell[(r["country"], r["family"], r.get("domain_source", "suffix"))].append(r)
+    pop = {c["iso2"]: c for c in POP}
 
-    countries = {}
-    for cc, f in frames.items():
+    countries, unreached = {}, {}
+    for c in POP:
+        cc = c["iso2"]
+        # 層：国 × 群 × ドメインの出典（重ならない）
+        strata = [(fam, src, ff) for src, part in parts.items() for fam, ff in ((part.get(cc) or {}).get("families") or {}).items()]
+        if not any(ff["pool"] for _f, _s, ff in strata):
+            unreached[cc] = {"name": c["ja"], "why": c.get("reason") or "", "outcome": c["outcome"], "iso": ISO_NUM.get(cc)}
+            continue
         fams = {}
-        reach_c, read_c, write_c, form_write_c = [], [], [], []
-        for fam, names in f["strata"].items():
-            N = sum(c for _, c in names)
-            rs = by_cell.get((cc, fam), [])
+        cells = {k: [] for k in ("reach", "read_ok", "write_ok", "forms_writable")}
+        for fam, src, ff in strata:
+            if not ff["pool"]:
+                continue
+            N = ff["frame"] or ff["pool"]
+            rs = by_cell.get((cc, fam, src), [])
             got = [r for r in rs if r.get("reach") == "ok"]
             graded = [r for r in got if r.get("read")]
             forms = [r for r in graded if form_class(r) == "marked"]
-            n_ok = sum(1 for r in graded if r["read"] in READ_OK)
-            n_wa = sum(1 for r in graded if r["write"] == "A")
-            n_fa = sum(1 for r in forms if r["write"] in "AB")
-            fams[fam] = {
-                "frame": N, "sampled": len(rs), "reached": len(got), "graded": len(graded), "forms": len(forms),
-                "reach_ci": wilson(len(got), len(rs)),
-                "read": dict(Counter(r["read"] for r in graded)), "write": dict(Counter(r["write"] for r in graded)),
-                "read_ok_ci": wilson(n_ok, len(graded)), "write_a_ci": wilson(n_wa, len(graded)),
-                "outcomes": dict(Counter(r.get("reach") for r in rs)),
+            wt = lambda r: 1.0 / r["pi"]  # noqa: E731
+            est = {
+                "reach": ratio([(wt(r), str(r["block"]), int(r.get("reach") == "ok")) for r in rs]),
+                "read_ok": ratio([(wt(r), str(r["block"]), int(r["read"] in READ_OK)) for r in graded]),
+                "write_ok": ratio([(wt(r), str(r["block"]), int(r["write"] in ("A", "B"))) for r in graded]),
+                "forms_writable": ratio([(wt(r), str(r["block"]), int(r["write"] in "AB")) for r in forms]),
             }
-            reach_c.append((N, len(rs), len(got)))
-            read_c.append((N, len(graded), n_ok))
-            write_c.append((N, len(graded), n_wa))
-            form_write_c.append((N, len(forms), n_fa))
-        countries[cc] = {"name": f["name"], "iso": ISO_NUM.get(cc), "source": f["source"], "families": fams,
-                         "reach": stratified(reach_c), "read_ok": stratified(read_c), "write_a": stratified(write_c),
-                         "forms_writable": stratified(form_write_c),
-                         "read": dict(Counter(r["read"] for r in recs if r["country"] == cc and r.get("read"))),
-                         "write": dict(Counter(r["write"] for r in recs if r["country"] == cc and r.get("write")))}
+            for k, (p, v, n) in est.items():
+                cells[k].append((N, p, v, n))
+            g = fams.setdefault(fam, {"frame": 0, "exact": True, "pool": 0, "planned": 0, "sampled": 0, "reached": 0,
+                                      "graded": 0, "forms": 0, "live": 0, "truncated": 0, "read": Counter(), "write": Counter(),
+                                      "outcomes": Counter()})
+            g["frame"] += N
+            g["exact"] = g["exact"] and ff["exact"]
+            g["pool"] += ff["pool"]
+            g["planned"] += min(FIRST_PASS, ff["pool"])
+            g["sampled"] += len(rs)
+            g["reached"] += len(got)
+            g["graded"] += len(graded)
+            g["forms"] += len(forms)
+            g["live"] += sum(1 for r in got if r.get("source") == "live")
+            g["truncated"] += sum(1 for r in rs if r.get("reach") == "truncated")
+            g["read"].update(r["read"] for r in graded)
+            g["write"].update(r["write"] for r in graded)
+            g["outcomes"].update(r.get("reach") for r in rs)
+        mine = [r for r in recs if r["country"] == cc]
+        countries[cc] = {"name": c["ja"], "iso": ISO_NUM.get(cc), "source": _source_line(doms[cc]), "families": fams,
+                         **{k: combine(v) for k, v in cells.items()},
+                         "read": dict(Counter(r["read"] for r in mine if r.get("read"))),
+                         "write": dict(Counter(r["write"] for r in mine if r.get("write")))}
 
     docs = []
     for r in recs:
-        if r.get("reach") == "frame_empty":
-            continue
+        u = r.get("url") or ""
+        sp = urllib.parse.urlsplit(u)
+        name = urllib.parse.unquote(sp.path.rsplit("/", 1)[-1]) or sp.netloc
         docs.append({
-            "c": r["country"], "g": r["family"], "k": r.get("kind") or "", "d": r.get("declared") or "",
+            "c": r["country"], "g": r["family"], "k": r.get("kind") or "", "d": (r.get("mime_detected") or "").rsplit("/", 1)[-1][:40],
             "o": r.get("reach"), "r": r.get("read") or "", "w": r.get("write") or "",
             "rr": [t for _g, t in (r.get("read_reasons") or [])][:4], "wr": [t for _g, t in (r.get("write_reasons") or [])][:3],
-            "u": r.get("url") or "", "t": str(r.get("dataset") or "")[:140], "p": str(r.get("publisher") or "")[:80],
-            "th": (r.get("themes") or [])[:4], "f": r.get("fields") or 0, "fc": form_class(r) if r.get("read") else "", "e": r.get("error") or "",
+            "u": u, "t": name[:140], "p": sp.netloc[:80], "th": [], "f": r.get("fields") or 0,
+            "fc": form_class(r) if r.get("read") else "", "e": r.get("error") or "", "s": r.get("source") or "",
         })
     reasons = Counter(t for r in recs for _g, t in (r.get("read_reasons") or []))
     wreasons = Counter(t for r in recs for _g, t in (r.get("write_reasons") or []))
     total = {
-        "sampled": sum(1 for r in recs if r.get("reach") != "frame_empty"),
+        "crawl": crawl,
+        "sampled": len(recs),
         "reached": sum(1 for r in recs if r.get("reach") == "ok"),
         "graded": sum(1 for r in recs if r.get("read")),
-        "planned": sum(min(250, sum(c for _, c in v)) for x in frames.values() for v in x["strata"].values()),
-        "countries": len(frames),
+        "live": sum(1 for r in recs if r.get("source") == "live"),
+        "truncated": sum(1 for r in recs if r.get("cc_truncated")),
+        # 届いたが段階を付けられなかった書類（対応していない形式・パスワード・時間切れなど）：分母から除くので、数と理由を出す
+        "ungraded": dict(Counter(_ungraded_why(r) for r in recs if r.get("reach") == "ok" and not r.get("read"))),
+        "regrade_kept": sum(1 for r in recs if r.get("regrade")),
+        "planned": sum(min(FIRST_PASS, v["pool"]) for part in parts.values() for x in part.values()
+                       for v in (x.get("families") or {}).values()),
+        "countries": len(countries),
+        "measured_countries": sum(1 for c in countries.values() if c["read_ok"]["n"]),
         "outcomes": dict(Counter(r.get("reach") for r in recs)),
         "read": dict(Counter(r["read"] for r in recs if r.get("read"))),
         "write": dict(Counter(r["write"] for r in recs if r.get("write"))),
         "top_read_reasons": reasons.most_common(12), "top_write_reasons": wreasons.most_common(8),
         "form_classes": dict(Counter(form_class(r) for r in recs if r.get("read"))),
         "audited": sum(1 for r in recs if "audit_ok" in r), "audit_ok": sum(1 for r in recs if r.get("audit_ok")),
+        "kinds": dict(Counter(r.get("kind") for r in recs if r.get("read"))),
     }
-    out = {"total": total, "countries": countries,
-           "unreached": {cc: {"name": v[0], "why": v[1], "iso": ISO_NUM.get(cc)} for cc, v in unreached.items()},
+    out = {"total": total, "countries": countries, "unreached": unreached,
+           "population": {"size": sum(1 for c in POP if c["un_member"]),
+                          "outcomes": dict(Counter(pop[cc]["outcome"] for cc in pop if pop[cc]["un_member"]))},
            "docs": docs}
     (W / "portal").mkdir(exist_ok=True)
     (W / "portal" / "data.json").write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"書類 {len(docs):,} 件・国 {len(countries)}・段階を付けた {total['graded']:,} 件")
+    print(f"書類 {len(docs):,} 件・枠のある国 {len(countries)}・測った国 {total['measured_countries']}・段階を付けた {total['graded']:,} 件")
     return 0
 
 
