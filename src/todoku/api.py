@@ -406,6 +406,9 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                            "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"}})
             # 字のセルの一部を書き換えたセル（空欄ごとの値のリスト・箱の字への true/false・字を目印にした old/new）：
             # 読み戻しと本人に伝える値は、書いた後のセルの字そのもの（true ではなく「■移動支援」）
+            for key_, v_ in cell_values.items():
+                if isinstance(v_, dict) and "value" in v_:  # {"value": 値, "overwrite_text": true}：読み戻しは値で
+                    readback_values[key_] = v_["value"]
             for key_, (id_, text_) in (res.text_written or {}).items():
                 readback_values.pop(key_, None)
                 readback_values[id_] = text_
@@ -874,7 +877,7 @@ def _circle_excel(blob: bytes, name: str, k: str, circ: dict, result: dict) -> b
     result["proof"] = (result.get("proof") or "") + (f"○ {len(sds)} つは、シートの図形に楕円を足しただけです（ほかの部品はバイト一致）"
                                                      if not bad else f"○の書き込みで想定外の変更 {len(bad)} 件")
     result["circled"] = [{"key": key_, "id": sd["id"], "sheet": sd["sheet"], "cell": sd["cell"], "text": sd["text"],
-                          "label": sd["label"], "context": sd["context"], "style": sd.get("style", "ellipse"),
+                          "label": sd["label"], "context": sd["context"], "around": sd.get("around"), "style": sd.get("style", "ellipse"),
                           "how": ("シートの図形に四角を足した（○ではなく□。Excel にはセルの字の一部を囲む罫線がないため、図形で囲んだ）"
                                   if sd.get("style") == "border" else "シートの図形に楕円を足した"),
                           "uncertain": "位置は見積もり。印刷か画面で確かめが要る" + (f"：{'・'.join(sd['notes'])}" if sd["notes"] else "")}
@@ -908,7 +911,7 @@ def _circle_word(blob: bytes, name: str, circ: dict, result: dict) -> bytes:
     result["proof_ok"] = bool(result.get("proof_ok", True)) and not bad
     result["proof"] = (result.get("proof") or "") + (f"○ {len(sds)} つは、字の前に図形（または字の囲み線）を足しただけです"
                                                      "（ほかの部品はバイト一致）" if not bad else f"○の書き込みで想定外の変更 {len(bad)} 件")
-    result["circled"] = [{"key": key_, "id": sd["id"], "text": sd["text"], "label": sd["label"], "context": sd["context"],
+    result["circled"] = [{"key": key_, "id": sd["id"], "text": sd["text"], "label": sd["label"], "context": sd["context"], "around": sd.get("around"),
                           "style": sd["style"], "size": sd["size"],
                           "how": "字に結び付けた楕円の図形を足した" if sd["style"] == "ellipse" else "字に四角い囲み線を付けた（○ではなく□）",
                           "uncertain": ("位置は見積もり。印刷か画面で確かめが要る" + (f"：{'・'.join(sd['notes'])}" if sd.get("notes") else "")

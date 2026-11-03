@@ -119,64 +119,70 @@ def _cell_pos(p: Para):
 
 
 def bounded(text: str, a: int, b: int) -> bool:
-    """text[a:b] が、語の中に埋まっていない（前と後ろが、文の端か、字・数字（一般カテゴリ L・M・N）でない字）か。
-    「有・無」「（月・週）」の「月」は区切られていて、「生年月日」「有無」の中の「月」「無」は埋まっている。"""
-    import unicodedata
+    """PDF と同じ決め方（pdf.circle.bounded）：text[a:b] の前後が区切り（端・空白・記号。字・数字・結合の字でないもの）か。"""
+    from ..pdf.circle import bounded as _b
 
-    def letter(ch: str) -> bool:
-        return unicodedata.category(ch)[0] in "LMN"
+    return _b(text, a, b)
 
-    return (a == 0 or not letter(text[a - 1])) and (b >= len(text) or not letter(text[b]))
+
+def around(text: str, a: int, b: int) -> str:
+    from ..pdf.circle import around as _a
+
+    return _a(text, a, b)
 
 
 def choose(hits: list, near: str | None, occ, anchors_of, rank_of, where_of, target: str) -> tuple:
-    """同じ字がいくつもあるときの決め方（Word・Excel で同じ）：
-    - near があれば、near の字そのものの中の字（見出し「…の有無」の「無」）は候補から外し、near にいちばん近い関係（同じ段落・
-      同じ行・同じ列…）の候補だけに絞る。occurrence は、その絞った候補の中の何番目か（読む順）
-    - occurrence がなければ、いちばん近い候補。同じくらい近い候補が残れば、区切られた字（bounded）を語の中に埋まった字より先にし、
-      それでも決まらなければ、決めずに断る（候補の前後の字を示す）
-    hits：[(場所, 始め, 終わり, …)]。anchors_of(near) → [(場所, 始め, 終わり)]。rank_of(hit, anchors) → 近さ（小さいほど近い。
-    最初の数が関係の種類）。where_of(hit) → (字, 始め, 終わり)：前後の字を示すため。"""
-    def ctx(h) -> str:
-        t, a, b = where_of(h)
-        return f"「{t[max(0, a - 6):a].strip()}［{t[a:b]}］{t[b:b + 6].strip()}」"
-
+    """同じ字がいくつもあるときの決め方（Word・Excel で同じ。PDF の pdf.circle.find と同じ規則。字の形だけで決め、意味は見ない）：
+    1) near の字そのものの中にある候補（見出し「…の有無」の「無」）は、けっして選ばない
+    2) 前後が区切りではさまれた候補（「有・無」の「無」）だけを選ぶ。字の並びに埋まった候補（「生年月日」の「月」）しかなければ断る
+    3) near があれば、near といちばん近い関係（同じ段落・同じ行・同じ列…）の候補に絞る。occurrence は、その絞った候補の中の
+       何番目か（読む順。断るときの一覧の番号と同じ）。occurrence がなければ、いちばん近い1つ。同じくらい近い候補が残れば断る
+    4) near がなければ、occurrence は文書のすべての候補の中の何番目か。なくて候補が2つ以上なら断る
+    断るときは、候補の前後の字（【】が囲む字）を示す。
+    hits：[(場所, 始め, 終わり, …)]。anchors_of(near) → [(場所, 始め, 終わり, …)]。rank_of(hit, anchors) → 近さ（小さいほど近い。
+    最初の数が関係の種類）。where_of(hit) → (字, 始め, 終わり)。"""
     def listing(hs) -> str:
-        return "／".join(f"{k}番目：{ctx(h)}" for k, h in enumerate(hs[:10], 1)) + ("ほか" if len(hs) > 10 else "")
+        return "／".join(f"{k}番目：「{around(*where_of(h))}」" + ("" if bounded(*where_of(h)) else "（字の並びの中）")
+                        for k, h in enumerate(hs[:10], 1)) + ("ほか" if len(hs) > 10 else "")
 
     if isinstance(near, str) and near.strip():
         anchors = anchors_of(near)
         if not anchors:
             raise CircleError(f"near の「{near}」が見つかりません")
-        # near の字そのものの中にある候補は外す（見出しの中の字を囲まない）
-        hits = [h for h in hits if not any((an[0] is h[0] or (isinstance(an[0], tuple) and an[0] == h[0])) and an[1] < h[2] and h[1] < an[2] for an in anchors)]
+        hits = [h for h in hits if not any((an[0] is h[0] or (isinstance(an[0], tuple) and an[0] == h[0]))
+                                           and an[1] <= h[1] and h[2] <= an[2] for an in anchors)]
         if not hits:
-            raise CircleError(f"「{target}」は、near の「{near}」の字の中にしかありません（見出しの中の字は囲みません。"
-                              "囲む選択肢の字か、近くの別の見出しを指定してください）")
-        ranks = [rank_of(h, anchors) for h in hits]
+            raise CircleError(f"「{target}」は、near の「{near}」の字の中にしか見つかりません（見出しの字は囲みません。"
+                              "囲む選択肢の字を、窓の字のとおりに指定してください）")
+        free = [h for h in hits if bounded(*where_of(h))]
+        if not free:
+            raise CircleError(f"「{target}」は、どれもほかの字の並びの中にあります（区切りの字ではさまれた所がありません）。"
+                              f"選択肢の字か確かめてください：{listing(hits)}")
+        ranks = [rank_of(h, anchors) for h in free]
         best = min(ranks)
-        scope = [h for h, r in zip(hits, ranks) if r[0] == best[0]]  # near といちばん近い関係（同じ段落・行・列など）の候補
+        scope = [h for h, r in zip(free, ranks) if r[0] == best[0]]  # near といちばん近い関係の候補（読む順）
         if occ is not None:
             if not isinstance(occ, int) or isinstance(occ, bool) or not 1 <= occ <= len(scope):
                 raise CircleError(f"near の「{near}」に近い「{target}」は {len(scope)} か所です（{listing(scope)}）。"
                                   f"occurrence は、その中の何番目か（1〜{len(scope)}）で指定してください")
             return scope[occ - 1]
-        top = [h for h, r in zip(hits, ranks) if r == best]
+        top = [h for h, r in zip(free, ranks) if r == best]
         if len(top) > 1:
-            free = [h for h in top if bounded(*where_of(h))]
-            if len(free) == 1:
-                return free[0]
             raise CircleError(f"「{near}」に同じくらい近い「{target}」が {len(top)} か所あります。occurrence（near に近い候補の中の"
-                              f"何番目か）で決めてください：{listing(scope)}")
+                              f"何番目か）で1つに決めてください：{listing(scope)}")
         return top[0]
     if occ is not None:
         if not isinstance(occ, int) or isinstance(occ, bool) or not 1 <= occ <= len(hits):
-            raise CircleError(f"occurrence は 1〜{len(hits)} で指定してください")
+            raise CircleError(f"occurrence は 1〜{len(hits)} で指定してください：{listing(hits)}")
         return hits[occ - 1]
-    if len(hits) > 1:
-        raise CircleError(f"「{target}」が {len(hits)} か所にあります。near（近くの見出しの字）か occurrence（何番目か）で"
+    free = [h for h in hits if bounded(*where_of(h))]
+    if not free:
+        raise CircleError(f"「{target}」は、どれもほかの字の並びの中にあります（区切りの字ではさまれた所がありません）。"
+                          f"選択肢の字か確かめて、occurrence（何番目か）で1つに決めてください：{listing(hits)}")
+    if len(free) > 1:
+        raise CircleError(f"「{target}」が {len(free)} か所にあります。near（近くの見出しの字）か occurrence（何番目か）で"
                           f"1つに決めてください：{listing(hits)}")
-    return hits[0]
+    return free[0]
 
 
 def find(doc: DocxDocument, spec: dict):
@@ -273,7 +279,7 @@ def resolve(doc: DocxDocument, spec: dict, used: dict) -> dict:
                      "\"style\": \"border\"（位置のずれない囲み線）で書き直してください")
     return {"id": f"○{k}", "part": p.part, "para": p, "start": a, "end": b, "text": p.text[a:b], "style": style,
             "ellipse": [round(v, 3) for v in e] if e else None, "size": size, "label": label,
-            "context": re.sub(r"\s+", " ", p.text).strip()[:60], "notes": notes}
+            "context": re.sub(r"\s+", " ", p.text).strip()[:60], "notes": notes, "around": around(p.text, a, b)}
 
 
 def _indented(doc: DocxDocument, p: Para) -> bool:

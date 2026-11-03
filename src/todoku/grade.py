@@ -639,6 +639,7 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
         reasons += content_image_reasons(doc, win, doc.body, lambda p: word_heading(doc, p), "本文")
     reasons += _word_lost(doc, win, kind)
     reasons += _numbering_reasons(doc)
+    reasons += word_pua_reasons(doc)
     write += _write_fields(fields, layout, agent, "フォームの欄・コンテンツコントロール",
                            "欄のない所は、前後の字を指定して書き換えます")
     write += _write_embeds(win.get("embeds") or [])
@@ -649,6 +650,44 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
     g = _final(reasons, write)
     g.alerts = picture_alerts(win.get("pictures") or [])
     return g
+
+
+def is_pua(ch: str) -> bool:
+    """私用の符号（外字）：U+E000〜F8FF・第15・16面（PDF の pdf.layout と同じ範囲）。"""
+    o = ord(ch)
+    return 0xE000 <= o <= 0xF8FF or o >= 0xF0000
+
+
+def pua_context(text: str, n: int = 8) -> str:
+    """外字の前後の字（外字は〔U+XXXX〕にして示す）。"""
+    i = next(k for k, ch in enumerate(text) if is_pua(ch))
+    seg = text[max(0, i - n):i + n + 1]
+    return re.sub(r"\s+", " ", "".join(f"〔U+{ord(ch):04X}〕" if is_pua(ch) else ch for ch in seg)).strip()
+
+
+def pua_reasons(where: list[str]) -> list[Reason]:
+    """外字（私用の符号の字）のある所：PDF と同じく読む B（字の意味は符号からは分からない）。"""
+    if not where:
+        return []
+    return [Reason("B", "外字（私用の符号の字）",
+                   f"外字：中身は分かりません（私用の符号 U+E000〜F8FF などは、書類ごとに字の形が決まり、字の意味は符号からは"
+                   f"分かりません）。{len(where)} か所。どの字かは、本人か書類の作り手に確かめ、推測で読まないでください", where[:12])]
+
+
+def word_pua_reasons(doc) -> list[Reason]:
+    """Word の段落の字（窓に出す字。記号の書体の字は、窓が □ などに直した後の字）の外字。"""
+    from .docx.document import iter_paras
+
+    where = []
+    try:
+        blocks = [b for _k, _part, bl in doc.all_blocks() for b in bl]
+    except Exception:  # noqa: BLE001
+        blocks = getattr(doc, "body", []) or []
+    for n, p in enumerate(iter_paras(blocks), 1):
+        t = "".join(s.text for s in p.segs if not s.hidden)
+        if any(is_pua(ch) for ch in t):
+            where.append(f"{n} 段落目「{pua_context(t)}」")
+    return pua_reasons(where)
 
 
 def _numbering_reasons(doc) -> list[Reason]:
@@ -1041,6 +1080,15 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
             at = f"の {addr(*s.anchor)} 付近" if s.anchor else ""
             pictures.append({"id": f"{sh_obj.name}!{s.name or f'図{n}'}", "alt": (s.alt or "").strip() or None,
                              "decorative": getattr(s, "decorative", False), "where": f"シート「{sh_obj.name}」{at}"})
+    # 外字（私用の符号の字）：セルの字（窓に出す字）にあれば、その位置
+    pua = []
+    for sh_obj in wb.sheets:
+        from .formula.parser import addr
+
+        for (r, c), cell in sorted(sh_obj.cells.items()):
+            if isinstance(cell.value, str) and any(is_pua(ch) for ch in cell.value):
+                pua.append(f"{sh_obj.name}!{addr(r, c)}「{pua_context(cell.value)}」")
+    reasons += pua_reasons(pua)
     # Excel 5.0/95（BIFF5）のブックも、BIFF8 と同じく書けて証明できる（xls/write.py・xls/proof.py）。段階は、ほかの理由だけで決まる
     g = _final(reasons, write)
     g.alerts = picture_alerts(pictures)

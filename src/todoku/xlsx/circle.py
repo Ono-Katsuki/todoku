@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from ..formula.parser import addr, parse_cell
 from ..textwidth import cells, east_asian_context, fixed_width
 from ..pdf.circle import _pattern, shape, touches, face, inside
+from ..pdf.circle import around as _around
 from ..pdf.circle import border as _border
 from ..pdf.circle import encloses as _encloses
 from ..pdf.circle import hits as _hits
@@ -314,7 +315,7 @@ def resolve(wb, spec: dict, used: dict) -> dict:
     label = spec.get("near") or _row_label(wb, sh, r, c) or text[:30]
     return {"id": f"{sh.name}!○{k}", "sheet": sh.name, "row": r, "col": c, "cell": addr(r, c), "text": "".join(g.text for g in mine),
             "ellipse": [round(v, 3) for v in e], "label": label, "context": text[:60], "notes": notes, "size": size,
-            "style": style}
+            "style": style, "around": _around(text, a, b)}
 
 
 def _row_label(wb, sh, r: int, c: int) -> str:
