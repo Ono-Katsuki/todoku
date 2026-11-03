@@ -9,6 +9,9 @@
   （setrlimit が失敗する）ので、働き手の中で最大の常駐メモリ（ru_maxrss）を見張り、サーバーの側でも ps で見張る。
 - やりとりは、パイプの上の長さつきの JSON（結果は MCP にそのまま返すもので、もともと JSON にする）。
 - TODOKU_ISOLATE=0 なら、別のプロセスにせず、サーバーの中で動かす（上限は、展開・描画の予算だけになる）。
+- Windows（os.name == "nt"）では、パイプの受け渡し（pass_fds）・パイプの select・resource が使えないので、別のプロセスに
+  せず、サーバーの中で動かす（標準エラーに一度知らせ、サーバーの説明 notice() にも書く）。
+- ps が使えないとき（外からのメモリの見張りができない）も、標準エラーに一度知らせ、notice() に書く（黙って見張りを止めない）。
 """
 
 from __future__ import annotations
@@ -28,8 +31,38 @@ EXIT_MEMORY = 86  # 働き手が、メモリの上限を超えたと自分で気
 EXIT_TIME = 87  # 働き手が、時間の上限を超えたと自分で気づいて終わったとき（サーバーの見張りが先に止めるのがふつう）
 
 
+_TOLD: set[str] = set()  # 標準エラーに一度だけ知らせたこと
+
+
+def _tell_once(key: str, text: str) -> None:
+    if key not in _TOLD:
+        _TOLD.add(key)
+        print(f"todoku: {text}", file=sys.stderr, flush=True)
+
+
+_NO_ISOLATE_NT = ("Windows では、道具の呼び出しを別のプロセス（働き手）に分けられないので、サーバーの中で動かします。"
+                  "壊れた書類の時間とメモリの上限（働き手を止める上限）は効かず、展開・描画の予算だけになります")
+_NO_PS = ("ps が使えないので、働き手のメモリを外から見張れません（働き手の中の見張りだけになります。macOS では、"
+          "メモリの上限を超えても止められないことがあります）")
+
+
 def enabled() -> bool:
-    return os.environ.get("TODOKU_ISOLATE", "1") not in ("0", "false", "no", "")
+    if os.environ.get("TODOKU_ISOLATE", "1") in ("0", "false", "no", ""):
+        return False
+    if os.name == "nt":
+        _tell_once("nt", _NO_ISOLATE_NT)
+        return False
+    return True
+
+
+def notice() -> str:
+    """サーバーの説明に足す、上限が効かないことの知らせ（なければ空）。"""
+    out = []
+    if os.name == "nt" and os.environ.get("TODOKU_ISOLATE", "1") not in ("0", "false", "no", ""):
+        out.append(_NO_ISOLATE_NT + "。")
+    if "ps" in _TOLD:
+        out.append(_NO_PS + "。")
+    return "".join(out)
 
 
 # ---------------------------------------------------------------------- やりとり
@@ -63,7 +96,8 @@ def _rss_kb(pid: int) -> int:
     try:
         out = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout
         return int(out.strip() or 0)
-    except (OSError, ValueError, subprocess.SubprocessError):
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        _tell_once("ps", f"{_NO_PS}（{type(e).__name__}）")  # 0 を返すと見張りが黙って止まるので、知らせる
         return 0
 
 
@@ -179,10 +213,13 @@ _BUSY = {"since": None}  # いま動いている呼び出しの始まり（time.
 def _watchdog() -> None:
     """働き手の中の見張り：メモリ（Linux は RLIMIT_AS も）・1 回の呼び出しの時間・親（サーバー）がいること。
     サーバーの側でも見張るが、サーバーが先に終わったとき（親がいなくなった）にも、働き手が動き続けないように。"""
-    import resource
-
+    try:
+        import resource
+    except ImportError:  # resource のない環境（Windows）：働き手の中のメモリの見張りはできない
+        resource = None
+        _tell_once("resource", "resource が使えないので、働き手の中のメモリの見張りはしません")
     cap = limits.MEMORY_LIMIT
-    if sys.platform != "darwin" and hasattr(resource, "RLIMIT_AS"):  # macOS は RLIMIT_AS を守らない
+    if resource is not None and sys.platform != "darwin" and hasattr(resource, "RLIMIT_AS"):  # macOS は RLIMIT_AS を守らない
         try:
             hard = resource.getrlimit(resource.RLIMIT_AS)[1]
             want = cap + 512 * limits.MB  # 読み込んだライブラリの分の余裕
@@ -194,7 +231,7 @@ def _watchdog() -> None:
 
     def watch():
         while True:
-            if resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * scale > cap:
+            if resource is not None and resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * scale > cap:
                 os._exit(EXIT_MEMORY)
             if os.getppid() != parent:
                 os._exit(0)

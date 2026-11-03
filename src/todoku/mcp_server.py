@@ -372,6 +372,15 @@ def tool_result(name: str, args: dict) -> dict:
                 "isError": True}
 
 
+def _instructions() -> str:
+    """サーバーの説明：この環境で上限が効かないこと（Windows・ps がない）は、エージェントにも知らせる。"""
+    from . import isolate
+
+    isolate.enabled()
+    n = isolate.notice()
+    return INSTRUCTIONS + (f"（この環境の注意：{n}）" if n else "")
+
+
 def handle(msg: dict) -> dict | None:
     mid = msg.get("id")
     method = msg.get("method")
@@ -380,7 +389,7 @@ def handle(msg: dict) -> dict | None:
         ver = params.get("protocolVersion") or PROTOCOL
         return {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": ver, "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "todoku", "title": "とどく", "version": "0.2.0"}, "instructions": INSTRUCTIONS}}
+            "serverInfo": {"name": "todoku", "title": "とどく", "version": "0.2.0"}, "instructions": _instructions()}}
     if method in ("notifications/initialized", "notifications/cancelled", "initialized"):
         return None
     if method == "ping":

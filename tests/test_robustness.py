@@ -465,3 +465,29 @@ def test_isolated_calls_stop_on_time_and_memory_and_the_server_survives(monkeypa
     r = _handle("open_document", path=str(csv))  # 止めた後も、次の呼び出しは動く
     assert not r.get("isError")
     isolate.worker().stop()
+
+
+def test_windows_falls_back_to_in_process_with_a_notice(monkeypatch, capsys):
+    from todoku import isolate, mcp_server
+
+    monkeypatch.setattr(isolate, "_TOLD", set())
+    monkeypatch.setattr(isolate.os, "name", "nt")
+    monkeypatch.setenv("TODOKU_ISOLATE", "1")
+    assert isolate.enabled() is False
+    assert "Windows" in capsys.readouterr().err
+    r = mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    assert "Windows" in r["result"]["instructions"]
+
+
+def test_missing_ps_is_told_once_not_silent(monkeypatch, capsys):
+    from todoku import isolate
+
+    monkeypatch.setattr(isolate, "_TOLD", set())
+
+    def no_ps(*_a, **_k):
+        raise FileNotFoundError("ps")
+
+    monkeypatch.setattr(isolate.subprocess, "run", no_ps)
+    assert isolate._rss_kb(1) == 0 and isolate._rss_kb(1) == 0
+    assert capsys.readouterr().err.count("ps が使えない") == 1
+    assert "ps が使えない" in isolate.notice()
