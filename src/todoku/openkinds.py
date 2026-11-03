@@ -221,20 +221,45 @@ def _fill_hwpx(blob: bytes, name: str, values: dict, force: bool) -> dict:
     from .hwpx.fill import fill, written_of
     from .hwpx.proof import prove
 
+    circ = {k: v for k, v in values.items() if isinstance(v, dict) and "circle" in v}  # 字を囲む（字の囲み線）
+    plain = {k: v for k, v in values.items() if k not in circ}
     try:
-        res = fill(HwpxDocument(blob, name), values, force=force)
+        res = fill(HwpxDocument(blob, name), plain, force=force)
     except FillError as e:
         raise _err(e) from None
     pr = prove(blob, res.blob, written_of(res.patches))
     result = {"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings), "unexpected": pr.unexpected[:20],
               "structure_errors": pr.lint_errors[:20],
               "relayout": "字を変えた段落は、한글の行の配置の控え（hp:linesegarray）を除きました。한글が開くときに、その段落の行を配置し直します"}
-    readback = {key: v for key, v in values.items() if not key.startswith("@")}
+    readback = {key: v for key, v in plain.items() if not key.startswith("@")}
     anchored = {p.key: p.id for p in res.patches if p.anchor}
     if anchored:
         result["anchored"] = anchored
         readback.update({p.id: p.value for p in res.patches if p.anchor})
-    return {"blob": res.blob, "result": result, "readback": readback, "labels": {}}
+    out = res.blob
+    if circ:
+        from .docx.circle import CircleError
+        from .hwpx import circle as hc
+
+        doc = HwpxDocument(out, name)
+        used: dict = {}
+        try:
+            sds = [(k, hc.resolve(doc, spec, used)) for k, spec in circ.items()]
+            boxed = hc.apply(doc, [sd for _k, sd in sds])
+        except CircleError as e:
+            raise _err(e) from None
+        bad = hc.prove(out, boxed, name, [sd for _k, sd in sds], list(circ.values()))
+        out = boxed
+        result["unexpected"] = result["unexpected"] + bad
+        result["proof_ok"] = result["proof_ok"] and not bad
+        result["proof"] += (f"。囲み {len(sds)} つは、字を字の並びに分けて囲み線の形（header.xml に足した charPr・borderFill）を"
+                            "付けただけ（段落の字は同じ）" if not bad else f"。囲みで想定外の変更 {len(bad)} 件")
+        result["circled"] = [{"key": k, "id": sd["id"], "text": sd["text"], "label": sd["label"], "context": sd["context"],
+                              "style": "border", "how": "字に四角い囲み線を付けた（○ではなく□）", "uncertain": hc.UNCERTAIN}
+                             for k, sd in sds]
+        result["warnings"] = result["warnings"] + [hc.UNCERTAIN]
+        result["anchored"] = {**result.get("anchored", {}), **{k: sd["id"] for k, sd in sds}}
+    return {"blob": out, "result": result, "readback": readback, "labels": {}}
 
 
 def read_back(k: str, blob: bytes, name: str, keys: dict, encoding: str | None = None) -> dict:

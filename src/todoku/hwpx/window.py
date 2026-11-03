@@ -44,9 +44,13 @@ def build(doc: HwpxDocument) -> dict:
         if c is not None and getattr(c, "num_only", False):
             f["format"] = "数字だけ"  # hp:edit の numOnly="1"
         cell = p.cell if p is not None else None
-        if cell is not None and getattr(cell, "protected", False):
+        if (cell is not None and getattr(cell, "protected", False)) or (p is not None and getattr(p, "protected", False)):
             f["readonly"] = True
-            f["protected"] = True  # 保護したマスの中
+            f["protected"] = True  # 保護したマスの中（その中の図形の字も）
+        if c is not None and c.source == "hwpx-clickhere" and c.end_ctrl is None:
+            f["readonly"] = True  # 段落をまたぐ 누름틀：値の字が後ろの段落に続くので、欄の id では書かない
+            f["why"] = ("この 누름틀は段落をまたいでいます（終わりの印が後ろの段落にある）。欄の id では書けないので、"
+                        "中の字を目印にした書き込み（{\"@1\": {\"old\": …, \"new\": …}}）で書き換えてください")
     # 한글のマクロ（JScript）：ソースを窓に出す（動作は規則では再現しない）
     win["scripts"] = [{"name": n, "source": src} for n, src in doc.scripts]
     win["unread"] = list(doc.unread)

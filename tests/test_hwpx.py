@@ -36,6 +36,11 @@ XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>'
 LSA = '<hp:linesegarray><hp:lineseg textpos="0" vertpos="0" vertsize="1000" textheight="1000" baseline="850" spacing="600" horzpos="0" horzsize="42520" flags="393216"/></hp:linesegarray>'
 
 HEADER = (XML + f'<hh:head {NS} version="1.4" secCnt="1"><hh:refList>'
+          '<hh:borderFills itemCnt="1"><hh:borderFill id="1" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0">'
+          '<hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/>'
+          '<hh:leftBorder type="NONE" width="0.1 mm" color="#000000"/><hh:rightBorder type="NONE" width="0.1 mm" color="#000000"/>'
+          '<hh:topBorder type="NONE" width="0.1 mm" color="#000000"/><hh:bottomBorder type="NONE" width="0.1 mm" color="#000000"/>'
+          '<hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/></hh:borderFill></hh:borderFills>'
           '<hh:charProperties itemCnt="2">'
           '<hh:charPr id="0" height="1000" borderFillIDRef="1"><hh:underline type="NONE" shape="SOLID" color="#000000"/></hh:charPr>'
           '<hh:charPr id="1" height="1000" borderFillIDRef="1"><hh:underline type="BOTTOM" shape="SOLID" color="#000000"/></hh:charPr>'
@@ -276,7 +281,7 @@ def test_fill_refuses(blob):
         fill(HwpxDocument(blob), {"나이": "마흔"})
     with pytest.raises(FillError, match="字まで"):
         fill(HwpxDocument(blob), {"나이": "1234"})
-    with pytest.raises(FillError, match="○で囲む"):
+    with pytest.raises(FillError, match="字を囲む指定"):
         fill(HwpxDocument(blob), {"@c": {"circle": "예"}})
 
 
@@ -414,3 +419,22 @@ def test_hwp5_distribution_is_f():
     assert g.grade == "F" and g.write == "D" and g.reasons[0].title == "配布用の文書"
     g = grade_blob(make_hwp5(props=1 | 2), "a.hwp")
     assert g.grade == "F" and g.reasons[0].title == "パスワード"
+
+
+def test_circle_is_char_border(tmp_path, blob):
+    src = tmp_path / "a.hwpx"
+    src.write_bytes(blob)
+    out = tmp_path / "b.hwpx"
+    r = api.fill(str(src), {"T1.R1.C2": "홍길동", "@c1": {"circle": "아니오"}}, str(out))
+    assert r["proof_ok"] and r["read_back_ok"], json.dumps(r, ensure_ascii=False)[:2000]
+    assert r["circled"][0]["text"] == "아니오" and r["circled"][0]["style"] == "border"
+    assert "囲み線" in r["say_to_user"]
+    za, zb = RawZip(blob), RawZip(out.read_bytes())
+    changed = [n for n in za.names() if za.get(n).data != zb.get(n).data]
+    assert sorted(changed) == ["Contents/header.xml", "Contents/section0.xml"]
+    head = zb.read("Contents/header.xml").decode()
+    assert 'itemCnt="3"' in head and '<hh:charPr id="2"' in head  # 文字の形の写しを1つ足した
+    sec = zb.read("Contents/section0.xml").decode()
+    assert '<hp:run charPrIDRef="2"><hp:t>아니오</hp:t></hp:run>' in sec
+    with pytest.raises(api.ApiError, match="border"):
+        api.fill(str(src), {"@c1": {"circle": "아니오", "style": "ellipse"}}, str(tmp_path / "c.hwpx"))

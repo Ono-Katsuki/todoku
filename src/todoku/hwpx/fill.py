@@ -336,8 +336,7 @@ def fill(doc: HwpxDocument, values: dict, *, force: bool = False) -> FillResult:
         item = sp.items.get(key)
         try:
             if isinstance(value, dict) and "circle" in value:
-                raise FillError(f"{key}: HWPX の字を○で囲む書き方は、まだありません（選択肢の字を残して書くなら、"
-                                "字を目印にした書き込みで「○」などを添えてください）")
+                raise FillError(f"{key}: 字を囲む指定は、fill_document（api.fill）で書いてください（字の囲み線。hwpx/circle.py）")
             if key.startswith("@"):
                 if not isinstance(value, dict):
                     raise FillError(f'{key}: 字を目印にした書き込みは {{"old": …, "new": …}} の形で指定してください')
