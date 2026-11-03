@@ -40,6 +40,44 @@ def test_phrase_label_does_not_take_other_cells_text_as_prefix():
     assert "なし・あり" in (f["S!E4"].get("section") or "")
 
 
+def _docx_win(body: str):
+    from test_docx import make_docx
+    from todoku.docx.document import DocxDocument
+    from todoku.docx.window import build, to_markdown
+
+    win = build(DocxDocument(make_docx(body), "t.docx"))
+    return {f["id"]: f for f in win["fields"]}, to_markdown(win)
+
+
+def test_docx_first_empty_paragraph_in_cell_and_head_of_date_chain():
+    from test_docx import p
+
+    # 世田谷区の様式：氏名のマスの空の 1 行目（後ろの段落「個人番号」だけに字がある）
+    body = ('<w:tbl><w:tr><w:tc>' + p("氏名") + '</w:tc><w:tc><w:p/>' + p("個人番号") + '</w:tc></w:tr></w:tbl>'
+            + p("年　　月　　日") + p("氏　　名") + p("重　度　訪　問　介　護"))
+    by, md = _docx_win(body)
+    first = [f for f in by.values() if f.get("agent") and "初めの空の段落" in (f.get("why") or "")]
+    assert first, by
+    # 「年　　月　　日」で始まる段落の、初めの字の前（年を書く所）。2 字の「氏　　名」には出さない
+    heads = [f for f in by.values() if "初めの字の前" in (f.get("why") or "")]
+    assert len(heads) == 1 and heads[0]["label"].startswith("［"), heads
+    # 字間を空けた 4 字以上の並び：id にせず〔字間〕
+    assert "重　度　訪　問　介　護〔字間〕" in md
+    assert not any("重" in (f.get("label") or "") and f.get("agent") for f in by.values())
+
+
+def test_xlsx_head_of_date_chain_and_spaced_heading():
+    def build(wb):
+        ws = wb.active
+        ws.title = "S"
+        ws["B2"] = "年　　月　　日"
+        ws["B3"] = "事　業　所　の　住　所"
+
+    f = _xlsx(build)
+    assert f["S!B2"]["blanks"] == 3 and "初めの字の前" in f["S!B2"]["why"], f["S!B2"]
+    assert "S!B3" not in f
+
+
 def _pdf_win(lines, rules: bytes = b""):
     from test_circle import _pdf
     from todoku.pdf.doc import PdfDocument

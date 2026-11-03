@@ -476,6 +476,25 @@ def spaced_chain(text: str, a: int, b: int) -> tuple[int, int, int]:
     return hi - lo + 1, toks[lo][0], toks[hi][1]
 
 
+def chain_head(text: str) -> tuple[int, int] | None:
+    """段落（マス）の初めの字から、1 字ずつを同じ 1 字ぶん以上の空白（wide_space）でつないだ 2・3 字の並び（「年　　月　　日」
+    「年　月　日生」）が始まるとき、その初めの字の前（段落の頭の空白ごと）：(0, 初めの字の位置)。並びの字の間が書く所なら、
+    初めの字の前も同じ形の書く所のことがある（「［　］年［　］月［　］日」）。字の意味は見ず、並びの形だけで決める。"""
+    lead = len(text) - len(text.lstrip("".join(ch for ch in set(text) if chars.is_space(ch))))
+    if lead >= len(text) or chars.is_space(text[lead]):
+        return None
+    a = lead + 1
+    if a >= len(text) or not chars.is_space(text[a]):
+        return None
+    b = a
+    while b < len(text) and chars.is_space(text[b]):
+        b += 1
+    if not wide_space(text[a:b]):
+        return None
+    cnt, s, _e = spaced_chain(text, a, b)
+    return (0, lead) if cnt in (2, 3) and s == lead else None
+
+
 def heading_gap(text: str, a: int, b: int) -> tuple[int, int] | None:
     """空白の並び text[a:b] が、1 字ずつを同じ空白でつないだ HEADING_CHAIN 字以上の並び（3 つ以上の同じ空き：字間を空けた
     見出し「就　労　定　着　支　援」の形）の中の空きなら、その並びの (始め, 終わり)。そうでなければ None。
@@ -619,6 +638,8 @@ AGENT_WHY = {
     "blank_box": "枠・塗り・結合のある空のマスで、入力欄と決める印（入力規則・保護の中のロックの解除・すぐそばの見出し）がないもの",
     "table_row": "表の行に入力欄があるのに、この列のセルには入力欄の印（入力規則・枠・ロックの解除）がないもの",
     "bullet_box": "箇条書きの印にもよく使う箱の字（❏・❐・❑・❒・◻・◽。チェックの箱とは決められない）",
+    "chain_head": "1 字ずつを同じ空白でつないだ 2・3 字の並び（「年　　月　　日」の形）の、初めの字の前（字の間と同じく、"
+                  "字の前に書く所のことがある）",
 }
 
 
@@ -749,6 +770,10 @@ def cell_blanks(text: str) -> list[tuple[int, int, str | None]]:
     # 窓が読めなくなる。値を書くマスは、入力欄か、印（罫線・塗り・結合）があれば［B5？］として出る。見出しのマスに書き足すときは、
     # 書き換えたあとの文字全体を書く
     out += [x for x in agent_blanks(text, [(a, b) for a, b, _k in out]) if x[2] != "after_label"]
+    head = chain_head(text)
+    if head is not None and sum(1 for a, _b, k in out if a >= head[1] and k is not None) >= 2 \
+            and not any(a < head[1] or (a == b == 0) for a, b, _k in out):
+        out.append((head[0], head[1], "chain_head"))  # 「年　月　日」の初めの字の前（後ろに「？」の所が 2 つ以上あるときだけ）
     return sorted(out)
 
 

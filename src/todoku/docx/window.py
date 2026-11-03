@@ -21,7 +21,7 @@ import re
 
 from .. import chars
 from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, label_tail, norm_label, shown_gap, wide_space
-from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, SPACED_MARK, SPACED_NOTE, heading_gap, one_wide_space, weak_line, weak_space
+from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, SPACED_MARK, SPACED_NOTE, chain_head, heading_gap, one_wide_space, weak_line, weak_space
 from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 
 DET = "deterministic"
@@ -53,6 +53,7 @@ WORD_WHY = {
     "checked_mark": "印のついたチェックの印らしい字（☑・☒・■・✓。いまはチェック済みとして読む。■ は箇条の印・飾りのこともある）",
     "underscore_in_word": "英数字にはさまれた下線の字（「＿＿」。URL・ファイルの名前の一部のこともある）",
     "next_line_long": "見出しのあるマスの中の、空の段落（マスのほかの字が長く、見出しではなく説明の文のこともある）",
+    "first_line": "字のあるマスの、初めの空の段落（後ろの段落にだけ字がある。その字は見出しのことも、別の欄の見出しのこともある）",
 }
 
 
@@ -313,6 +314,15 @@ class Spots:
                     before = [q for q in c.paras()[:c.paras().index(p)] if q.text.strip(" \u3000")] if p in c.paras() else []
                     if others and before:
                         found_agent = [(0, len(text), "next_line" if all(len(o) <= 16 for o in others) else "next_line_long")]
+                    elif others:
+                        # マスの初めの空の段落（後ろの段落にだけ字がある：「（空）／個人番号」の空の 1 行目に氏名を書くなど）
+                        found_agent = [(0, len(text), "first_line")]
+                head = chain_head(text)
+                if head is not None and sum(1 for a, _b, _k, w in spans if a >= head[1] and w is not None) >= 2 \
+                        and not any(a < head[1] or a == b == 0 for a, b, _k, _w in spans) and not written \
+                        and not any(a < head[1] for a, _b, _w in found_agent):
+                    # 「年　　月　　日」で始まる段落：初めの字の前（後ろに「？」の所が 2 つ以上あるときだけ：「氏　名」の 1 つの空きでは出さない）
+                    found_agent = sorted(found_agent + [(head[0], head[1], "chain_head")])
                 for a, b, why in found_agent:
                     if has_field and any(fmask[a:max(a + 1, b)]):
                         continue
