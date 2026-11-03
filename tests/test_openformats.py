@@ -169,7 +169,7 @@ def test_odt_window_fill_proof_and_stable_ids():
     win = build(OdtDocument(blob, "a.odt"))
     lines = [ln for st in win["stories"] for ln in st["reading"]]
     # 「令和　年　月　日」の空きは字の並びからの推定（？）。マスの見出し「氏名」の後ろも、右のマスの代わりの所として示す（消さない）
-    assert "令和［P2.1？］年［P2.2？］月［P2.3？］日" in lines and "氏名［P3.a1？］ ｜ ［T1.R1.C2］" in lines, lines
+    assert "令和［P2.1？　　］年［P2.2？　　］月［P2.3？　　］日" in lines and "氏名［P3.a1？］ ｜ ［T1.R1.C2］" in lines, lines
     by = {f["id"]: f for f in win["fields"]}
     assert by["同意"]["label"] == "する" and by["同意"]["kind"] == "checkbox"
     assert by["P9.a1"]["readonly"] and by["P9.a1"]["protected"]  # 保護された節の中
@@ -342,7 +342,7 @@ def test_rtf_window_fill_and_proof():
     win = build(RtfDocument(RTF, "a.rtf"))
     lines = [ln for st in win["stories"] for ln in st["reading"]]
     # 「令和　年　月　日」の空きは字の並びからの推定（？）。マスの見出し「氏名」の後ろも、右のマスの代わりの所として示す（消さない）
-    assert "令和［P2.1？］年［P2.2？］月［P2.3？］日" in lines and "氏名［P3.a1？］ ｜ ［T1.R1.C2］" in lines, lines
+    assert "令和［P2.1？　　］年［P2.2？　　］月［P2.3？　　］日" in lines and "氏名［P3.a1？］ ｜ ［T1.R1.C2］" in lines, lines
     by = {f["id"]: f for f in win["fields"]}
     assert by["Tel"]["value"] == "" and by["Agree"]["kind"] == "checkbox" and by["Agree"]["value"] is False
     vals = {"P2.1": "8", "T1.R1.C2": "山田 太郎", "Tel": "03-1234", "Agree": True, "P8.1": True}

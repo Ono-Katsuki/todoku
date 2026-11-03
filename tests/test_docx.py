@@ -135,7 +135,9 @@ def test_only_structural_blanks_are_rules_and_word_patterns_are_agent():
     assert by["P5.1"].get("agent") and "下線を引いた短い空白" in by["P5.1"]["why"]  # 2字の下線：前は出さなかった
     assert by["P6.1"].get("agent") and "URL" in by["P6.1"]["why"]  # 英数字にはさまれた「__」は名前の一部のことも
     md = to_markdown(win)
-    assert "令和［P1.1？］年［P1.2？］月［P1.3？］日" in md and "氏名［P2.1］" in md
+    # 「？」の所の印は、元の空白をそのまま中に入れる（全角の空白 2 つの空き・半角の空白 2 つの下線）
+    assert "令和［P1.1？　　］年［P1.2？　　］月［P1.3？　　］日" in md and "氏名［P2.1］" in md
+    assert "番号［P5.1？  ］" in md and "連絡先［P4.1？　　］" in md
     # 「？」の所も id で書け、証明と読み戻しが通る
     blob = make_docx(body)
     vals = {"P1.1": "8", "P1.2": "4", "P1.3": "1", "P2.1": "山田", "P4.1": "03", "P5.1": "12"}
@@ -209,10 +211,10 @@ def test_anchored_write_where_rules_found_nothing():
     pr = prove(blob, res.blob, written_of(res.patches))
     assert pr.ok, pr.unexpected
     lines = [ln for st in build(DocxDocument(res.blob, "a.docx"))["stories"] for ln in st["reading"]]
-    # 「殿」で終わる段落の後ろも、語を見ずに「？」の所として示す（字の意味では除かない）。書いた値の前後に残った全角の空白 1 つ
-    # （1 字ぶんの空き）も「？」の所
-    assert "茨城県［P9.1？］［P9.w1＝土浦］［P9.2？］農林事務所長［P9.3？］殿［P9.a1？］" in lines, lines
-    assert "第３条［P11.1？］訓練は年［P11.w1＝２］回以上行う。" in lines, lines
+    # 書いた値の前後に残った全角の空白 1 つ（1 字ぶんの空き）も「？」の所。中に 1 字ぶん以上の空きのある段落なので、
+    # 段落の後ろ（「殿」の後ろ）は示さない（書く前と同じ。字の意味では決めず、空きのある段落の形で決める）
+    assert "茨城県［P9.1？　］［P9.w1＝土浦］［P9.2？　］農林事務所長［P9.3？　］殿" in lines, lines
+    assert "第３条［P11.1？　］訓練は年［P11.w1＝２］回以上行う。" in lines, lines
     # 決まらないときは、候補を添えて断る
     with pytest.raises(FillError, match="2 か所にあります"):
         fill(DocxDocument(blob, "a.docx"), {"@1": {"old": "年１回", "new": "年２回"}})

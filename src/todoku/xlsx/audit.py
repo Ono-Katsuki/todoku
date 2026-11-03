@@ -263,7 +263,8 @@ def check_reading(wb: Workbook, doc: dict) -> list[Check]:
     return head + out
 
 
-_BLANK_MARKS = ("［▶？］", "［？］", "［▶］", "［　］")
+# 文字の中の空欄の印（空白を除いた形：「？」の所の印は、元の空白を中に入れる「［？　］」ので、空白を除いてから比べる）
+_BLANK_MARKS = ("［▶？］", "［？］", "［▶］", "［］")
 
 
 def _md_squash(s: str) -> str:
@@ -306,10 +307,10 @@ def check_markdown(doc: dict, links: set | None = None) -> Check:
             v = squashed.get(rr)
             if v is None:
                 text = "".join(got)
-                plain = text
+                plain = _md_squash(text)
                 for m in _BLANK_MARKS:
                     plain = plain.replace(m, "")
-                v = squashed[rr] = (_md_squash(text), _md_squash(plain))
+                v = squashed[rr] = (_md_squash(text), plain)
             return v
 
         def shown(c: dict) -> str:

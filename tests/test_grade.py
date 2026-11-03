@@ -55,19 +55,22 @@ def test_places_rules_cannot_decide_are_c_and_writable():
     agent = {f["id"]: f for f in win["fields"] if f.get("agent")}
     # P1.a1：表題「申請書」の後ろ。P2.1〜P2.3：「令和　　年　　月　　日」の2つ以上の空白の並び（字の意味は見ないので「？」）。
     # P3.a1：マスの見出し「氏名」の後ろ（すぐ右の空のマス T1.R1.C2 の代わりの所として、消さずに示す）
-    # P9.a1：「令和 年　月」の後ろ。P9.1：「年　月」の全角の空白 1 つ（1 字ぶんの空き）。半角の空白 1 つ（「令和 年」）は語の区切りで、
+    # P9.1：「年　月」の全角の空白 1 つ（1 字ぶんの空き）。中に 1 字ぶんの空きがある段落なので、段落の後ろ（「月」の後ろ）は
+    # 示さない（空きと段落の後ろの両方を出さない）。半角の空白 1 つ（「令和 年」）は語の区切りで、
     # 所にしない（字のまま窓に出る。書くときは字を目印にする）。P10：同じ記号の並び（○○○・○○県○○市○○）・点線「……」・
     # 全角の空白 1 つの空き（「〒　○○○」「…　○○県」）
-    assert set(agent) == {"P1.a1", "P2.1", "P2.2", "P2.3", "P3.a1", "P9.1", "P9.a1", "P10.1", "P10.2", "P10.3", "P10.a1", "P10.a2",
+    assert set(agent) == {"P1.a1", "P2.1", "P2.2", "P2.3", "P3.a1", "P9.1", "P10.1", "P10.2", "P10.3", "P10.a1", "P10.a2",
                           "P11.a1"}, agent
     assert agent["P3.a1"]["alternative_to"] == "T1.R1.C2"
     assert agent["P10.a2"]["placeholder"] == "○○県○○市○○"
-    res = fill(DocxDocument(blob, "c.docx"), {"P9.a1": "4", "P10.a2": "東京都千代田", "P11.a1": "東京都"})
+    assert "1 つの全角空白" in agent["P9.1"]["why"], agent["P9.1"]  # いちばん狭い空き（エージェントが順を決める目安）
+    res = fill(DocxDocument(blob, "c.docx"), {"P9.1": "4", "P10.a2": "東京都千代田", "P11.a1": "東京都"})
     pr = prove(blob, res.blob, {x.id: x.value for x in res.patches})
     assert pr.ok, pr.unexpected
     after = build(DocxDocument(res.blob, "c.docx"))
     lines = [ln for st in after["stories"] for ln in st["reading"]]
-    assert "令和 年［P9.1？］月［P9.a1＝4］" in lines and "住所：［P11.a1＝東京都］" in lines, lines
+    # 書いたあとは、段落に空きがなくなるので、段落の後ろ（「月」の後ろ）を「？」の所として示す
+    assert "令和 年［P9.1＝4］月［P9.a1？］" in lines and "住所：［P11.a1＝東京都］" in lines, lines
     assert any("［P10.a2＝東京都千代田］" in ln and "［P10.a1？＝○○○］" in ln for ln in lines), lines
 
 

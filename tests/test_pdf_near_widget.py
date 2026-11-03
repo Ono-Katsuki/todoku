@@ -81,6 +81,12 @@ def test_widget_in_the_gap_of_a_line_is_labelled_by_that_line():
     assert by["tel"]["label"] == "電話番号", by["tel"]
 
 
+def test_gap_token_keeps_the_measured_spaces():
+    # 「？」の空きの印に、行の空白（測った 24pt の空き＝12pt の字 2 つぶん）をそのまま入れる
+    text = "\n".join(_gap_page()["reading"])
+    assert "年［p1.a2？　　］月［p1.a3？　　］日" in text, text
+
+
 def test_overlap_of_one_em_is_alternative_beside_is_not():
     lay = [f for f in _gap_page()["fields"] if f["source"] == "layout"]
     # 欄 name に 1 字ぶん以上重なる空き：同じ所の別の読み方

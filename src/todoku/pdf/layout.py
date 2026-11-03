@@ -20,7 +20,7 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from .. import chars as _chars  # 字の種類（空白・下線の字・ダッシュ・点線・かっこの組・チェックの箱の字）：Unicode の資料の表
-from ..xlsx.window import norm_label, wide_space
+from ..xlsx.window import label_head, norm_label, wide_space
 from .content import PageContent
 
 
@@ -2137,9 +2137,9 @@ class PageLayout:
                     best = ln
         if best is None:
             return ""
-        t = best.text.strip()
-        m = re.search(r"[　 ]{2,}", t)
-        return norm_label(t[:m.start()] if m else t)
+        # 初めの、1 字ぶん以上の空白の並び（wide_space：窓の空きと同じ 1 em の決まり。PDF の行の空白は測った空きから作る）
+        # までの字（字間を空けた見出し「氏　名」はまとめる：label_head）
+        return norm_label(label_head(best.text))
 
     def _label_for(self, first: Cell, last: Cell) -> tuple[str, str, str]:
         """空のマスの見出し：左の文字のあるマス（行の見出し）と、上の文字のあるマス（列の見出し）。"""

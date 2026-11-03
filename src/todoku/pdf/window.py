@@ -12,7 +12,7 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 
-from ..xlsx.window import norm_label
+from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, norm_label, one_wide_space, shown_gap
 from .content import page_content
 from .doc import PdfDocument
 from .form import FormField, Widget, has_xfa, read_fields
@@ -62,7 +62,9 @@ def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, ci
         else:
             # 空欄の字（下線の字「＿＿＿」など）は消さずに残し、その後ろに印を置く（空白だけの空欄は印に置き換える）
             keep = text[a:b] if text[a:b].strip(" \u3000") else ""
-            edits.append((a, b, f"{keep}［{name(sp)}{q}］"))
+            # 「？」の所で空白だけのものは、行の空白（測った空きから作った字）をそのまま印の中に入れる（「［p1.a1？　］」）
+            gap = shown_gap(text[a:b]) if q else ""
+            edits.append((a, b, f"{keep}［{name(sp)}{q}{gap}］"))
     edits.sort(key=lambda e: (e[0], e[1]))
     out, at = [], 0
     shown = []
@@ -313,7 +315,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     out_fields = []
     context_of = {}
     for line in reading:
-        for m in re.finditer(r"［(p\d+\.a?\d+)？?[］＝]", line):
+        for m in re.finditer(r"［(p\d+\.a?\d+)？?[ 　]*[］＝]", line):  # 「？」の所の印は、元の空白を中に入れる
             context_of.setdefault(m[1], line)
     emitted: set[str] = set()
     for sp in spots:
@@ -339,6 +341,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         if sp.confidence == "agent":
             d["agent"] = True  # 規則では決められない所（エージェントが読んで判断する）
             d["why"] = sp.reason
+            if isinstance(sp.host, Line) and sp.at and one_wide_space(sp.host.text[sp.at[0]:sp.at[1]]):
+                d["why"] += f"。{ONE_WIDE_SPACE_WHY}"  # いちばん狭い空き（エージェントが順を決める目安）
         if sp.kind_candidates:
             d["kind_candidates"] = list(sp.kind_candidates)  # 種類が形だけでは決まらない：書き方は fill の as_kind
         if sp.alternative_to is not None:
@@ -780,6 +784,7 @@ def build(doc: PdfDocument) -> dict:
         "notation": {"［p1.3］": "入力欄（1ページ目の3番目）",
                      "［p1.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
                                     "書かなければ何も変わらない）",
+                     "［p1.a1？　］": GAP_TOKEN_NOTE + "（PDF の行の空白は、測った空きから作った字：全角の空白 1 つでおよそ 1 字ぶん）",
                      "［→余白 12pt］": "欄にしていない、行の右の空き（↓ はマスの中の字の下、↑ は上、← は左。12pt はその幅か高さ）。"
                                       "書く所と判断したら、字を目印にして {\"@1\": {\"after\": 見出しの字, \"value\": 書く字, "
                                       "\"page\": ページ}}（下なら \"where\": \"below\"。上・左は {\"page\": …, \"box\": [左, 上, 右, 下]（mm）, "

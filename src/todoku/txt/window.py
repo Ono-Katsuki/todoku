@@ -10,6 +10,7 @@ import re
 
 from ..docx.window import AGENT, KIND_JA, Spots
 from ..docx.window import build as word_build
+from ..xlsx.window import GAP_TOKEN_NOTE
 from .document import TxtDocument
 
 BUDGET = 120_000
@@ -38,7 +39,9 @@ def mark(fid: str, kind: str, covered: str) -> str:
     if kind == "placeholder":
         return f"［{fid}？＝{covered}］"
     if kind == "agent":
-        return f"［{fid}？］"
+        from ..xlsx.window import shown_gap
+
+        return f"［{fid}？{shown_gap(covered)}］"  # 空白だけの所は、元の空白を印の中に（「［P12.1？　］」）
     return f"［{fid}］"
 
 
@@ -67,6 +70,7 @@ def build(doc: TxtDocument) -> dict:
                        "［P12.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
                                       "書かなければ何も変わらない。［P12.a1？＝○○］は、伏せ字の○○を書き換える所）",
                        "［P12.1？］": "12行目の中の、字の並び（年・月・日などの字）から推定した空欄（エージェントが判断する）",
+                       "［P12.1？　］": GAP_TOKEN_NOTE,
                        "☐［P12.1］": "チェック（□）", "■［P12.1？］": "チェック済みの印らしい字（■ は箇条の印のこともある）"}
     win["format"] = doc.format_info()
     win["lines"] = lines
