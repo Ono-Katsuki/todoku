@@ -252,9 +252,11 @@ class Spots:
                     k = next(free_k)
                     fid = f"P{pi}.{k}"
                     if kind == "checkbox":
-                        m = re.search(r"[\u3000 ]{2,}|[□☐☑☒■✓✔]|※", text[b:])
-                        opt = text[b:b + m.start()] if m else text[b:]
-                        label = norm_label(opt.strip(" \u3000")) or norm_label(text[:a].strip(" \u3000"))[-30:]
+                        near = text[b:b + LABEL_WINDOW]  # とても長い段落でも、印の近くだけを見る
+                        m = re.search(r"[\u3000 ]{2,}|[□☐☑☒■✓✔]|※", near)
+                        opt = near[:m.start()] if m else near
+                        label = (norm_label(opt.strip(" \u3000"))
+                                 or norm_label(text[max(0, a - LABEL_WINDOW):a].strip(" \u3000"))[-30:])
                     else:
                         label = self._label(p, a, b)
                     it = {"id": fid, "kind": kind, "source": "layout", "para": p, "span": (a, b), "label": label, "provenance": LAYOUT}
@@ -337,16 +339,31 @@ class Spots:
         return None
 
     def _label(self, p: Para, a: int, b: int) -> str:
-        """段落の中の空欄の見出し：その空欄を［　］にした段落の文字。書き込み済みのほかの欄の値は除く（白紙のときと同じ見出し）。"""
-        cuts = [(x, y) for q, x, y in self.marks.values() if q is p and not (x == a and y == b) and y > x]
-        out, at = [], 0
+        """段落の中の空欄の見出し：その空欄を［　］にした段落の文字。書き込み済みのほかの欄の値は除く（白紙のときと同じ見出し）。
+        とても長い段落（改行のない数 MB の .txt など）は、空欄の前後 LABEL_WINDOW 字だけを見出しにする
+        （空欄ごとに段落の全部を作り直すと、空欄の数 × 段落の長さの時間がかかる）。"""
+        import bisect
+
+        per = self.__dict__.get("_cuts")
+        if per is None:  # 書き込み済みの欄の位置：段落ごとに 1 度だけ集めて並べる
+            per = self._cuts = {}
+            for q, x, y in self.marks.values():
+                if y > x:
+                    per.setdefault(id(q), []).append((x, y))
+            for v in per.values():
+                v.sort()
+        lo, hi = max(0, a - LABEL_WINDOW), min(len(p.text), b + LABEL_WINDOW)
+        mine = per.get(id(p), [])
+        near = mine[bisect.bisect_left(mine, (lo, -1)):bisect.bisect_right(mine, (hi, float("inf")))]
+        cuts = [(x, y) for x, y in near if not (x == a and y == b) and y <= hi]
+        out, at = [], lo
         for x, y in sorted(cuts + [(a, b)]):
             if x < at:
                 continue
             out.append(p.text[at:x])
             out.append("［　］" if (x, y) == (a, b) else "　")
             at = y
-        out.append(p.text[at:])
+        out.append(p.text[at:hi])
         return norm_label("".join(out))
 
     def value(self, item: dict):
@@ -375,6 +392,9 @@ class Spots:
         if item["kind"] == "checkbox":
             return bool(item.get("checked"))  # チェック済みの印らしい字（☑・■ など）の候補は、チェック済みとして読む
         return None
+
+
+LABEL_WINDOW = 2000  # 空欄の見出しに使う、空欄の前後の字の数（ふつうの段落はまるごと入る長さ）
 
 
 def _bookmarks(doc: DocxDocument) -> dict[str, tuple[Para, int, int]]:

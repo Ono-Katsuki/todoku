@@ -247,6 +247,16 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None, enc
     encoding：文字だけのファイル（CSV・TSV・JSON・.txt）の文字コードを、エージェントが候補から選んで指定したとき。"""
     from .book import kind_of
 
+    if blob[:2] == b"PK":  # ZIP の入れ物（Office・OpenDocument・ZIP）：中身が二通りに読めるものは、読めない・書けない
+        from .zipraw import AmbiguousZip, RawZip
+
+        try:
+            RawZip(blob)
+        except AmbiguousZip as e:
+            return _locked("ZIP の中身が二通りに読める", f"{e.detail}。読む道具によって違う中身になるので、正確に読めません",
+                           "どちらの中身に書いたのか証明できないので、書けません")
+        except Exception:  # noqa: BLE001  ほかの壊れ方は、形式ごとの読み方で決める
+            pass
     # ---- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument）：形式ごとの段階の決め方で（openkinds）
     from .openkinds import KINDS as _OPEN_KINDS
     from .openkinds import grade as _open_grade

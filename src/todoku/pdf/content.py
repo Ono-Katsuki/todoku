@@ -135,6 +135,9 @@ def _hexstr(b: bytes) -> PdfString:
 
 def tokens(data: bytes):
     """(種類, 値) を順に返す。種類: n 数 / s 文字列 / N 名前 / o 命令 / [ ] / << >> / I インライン画像のデータ。"""
+    from ..limits import budget
+
+    b = budget()  # 1 回の呼び出しで読む字句の数の合計（limits.MAX_PDF_OPS）：どの読み方で読んでも数える
     pos = 0
     n = len(data)
     match = _TOK.match
@@ -147,6 +150,9 @@ def tokens(data: bytes):
         pos = m.end()
         if kind == "ws":
             continue
+        b.ops += 1
+        if b.ops > b.ops_total:
+            raise b.ops_exceeded()
         t = m.group()
         if kind == "num":
             yield ("n", float(t) if b"." in t else int(t))
@@ -255,6 +261,9 @@ class Interpreter:
              objparent: int | None = None) -> None:
         if depth > 12:
             return
+        from ..limits import MAX_PAGE_OPS, LimitExceeded
+
+        drawing = self.__dict__.setdefault("_drawing", set())  # いま描いている途中のフォームの部品（自分を描く部品は描かない）
         doc = self.doc
         out = self.out
         stack: list = []
@@ -391,6 +400,11 @@ class Interpreter:
         sub = None
         inline_img = None
         for kind, val in tokens(data):
+            # 1 ページ（とその部品）の字句の数の上限：部品が部品を何度も描いて、読み終わらない PDF を止める
+            # （1 回の呼び出しの合計は tokens が数える）
+            self._ops = getattr(self, "_ops", 0) + 1
+            if self._ops > MAX_PAGE_OPS:
+                raise LimitExceeded(f"1 ページの描画の字句（数・名前・命令）が {MAX_PAGE_OPS:,} 個を超えます（部品が何度も部品を描くなど）")
             if kind != "o":
                 if kind == "[":
                     arr_stack.append([])
@@ -575,7 +589,10 @@ class Interpreter:
                     xo = doc.resolve((doc.resolve(res.get("XObject")) or {}).get(name))
                     if isinstance(xo, Stream):
                         st = getattr(xo.dict.get("Subtype"), "name", "")
-                        if st == "Form":
+                        key = xo.num or id(xo)
+                        if st == "Form" and key in drawing:
+                            out.problems.append(f"フォームの部品 {name} が自分自身を描いています（その所は描きません）")
+                        elif st == "Form":
                             m = xo.dict.get("Matrix")
                             m = tuple(float(doc.resolve(v)) for v in m) if isinstance(m, list) and len(m) == 6 else IDENT
                             sub_res = doc.resolve(xo.dict.get("Resources")) or res
@@ -583,11 +600,16 @@ class Interpreter:
                             g2.ctm = mul(m, gs.ctm)
                             sps = doc.resolve(xo.dict.get("StructParents"))
                             sp = doc.resolve(xo.dict.get("StructParent"))
+                            drawing.add(key)
                             try:
                                 self._run(doc.decode(xo), sub_res, g2, depth + 1, outer + tuple(x[3] for x in mc_stack),
                                           sps if isinstance(sps, int) else None, sp if isinstance(sp, int) else objparent)
+                            except (LimitExceeded, RecursionError, MemoryError):
+                                raise
                             except Exception as e:  # noqa: BLE001
                                 out.problems.append(f"フォームの部品 {name} を読めません: {e}")
+                            finally:
+                                drawing.discard(key)
                         elif st == "Image":
                             pts = [apply(gs.ctm, 0, 0), apply(gs.ctm, 1, 0), apply(gs.ctm, 0, 1), apply(gs.ctm, 1, 1)]
                             sp = doc.resolve(xo.dict.get("StructParent"))
@@ -649,6 +671,8 @@ class Interpreter:
                                                mcid, True, sum(g.adv for g in gl))
                                 del out.glyphs[first:]
                                 out.glyphs.append(merged)
+            except LimitExceeded:
+                raise
             except (IndexError, ValueError, TypeError, ZeroDivisionError):
                 pass
             stack.clear()

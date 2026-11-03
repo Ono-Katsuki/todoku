@@ -14,9 +14,11 @@ def kind_of(blob: bytes, filename: str = "") -> str:
         if len(blob) < 64:
             return "xlsx"
         try:
-            from .zipraw import RawZip
+            from .zipraw import AmbiguousZip, RawZip
 
             names = set(RawZip(blob).names())
+        except AmbiguousZip:
+            return "zip"  # 中身が二通りに読める ZIP：どの部品で形式を決めるかも決まらない（開くと、その理由を返す）
         except Exception:  # noqa: BLE001
             return "xlsx"
         if "word/document.xml" in names or any(n.startswith("word/") and n.endswith("document.xml") for n in names):

@@ -294,7 +294,14 @@ class Range:
                 out.data[(i + 1, j + 1)] = self.host.get(self.sheet, self.r1 + i, self.c1 + j)
         return out
 
+    def _not_huge(self, what: str) -> None:
+        from ..limits import MAX_VBA_RANGE
+
+        if self.rows * self.cols > MAX_VBA_RANGE:
+            raise Unsupported(f"とても大きな範囲{what}（{self.rows * self.cols:,} マス。{MAX_VBA_RANGE:,} マスまで再現します）")
+
     def set_value(self, v) -> None:
+        self._not_huge("への書き込み")
         cells = [(self.r1 + i, self.c1 + j) for i in range(self.rows) for j in range(self.cols)]
         if isinstance(v, VArray):
             if len(v.lbounds) == 2:
@@ -495,6 +502,7 @@ class Range:
     def copy_to(self, dest) -> None:
         if not isinstance(dest, Range):
             raise VbaError(424)
+        self._not_huge("のコピー")
         sh = self.host.sheet(self.sheet)
         for i in range(self.rows):
             for j in range(self.cols):
