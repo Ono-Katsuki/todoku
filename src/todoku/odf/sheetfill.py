@@ -481,8 +481,67 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
               "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"}}
     if res.stale:
         result["stale_formulas"] = res.stale
+    # 書いたことでセルの字が折り返す見込み（目安）：証明・読み戻しは字しか見ないので、見た目の変化を伝える
+    try:
+        wrapped = wrap_warnings(wb, res.patches)
+    except Exception as e:  # noqa: BLE001  見積もれなかったことを黙らない
+        wrapped = [f"書いたことで行が折り返すかを見積もれませんでした（{type(e).__name__}）"]
+    if wrapped:
+        result["wrap"] = wrapped
+        result["warnings"] += wrapped
     readback = {p.key or f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "input"}
     return {"blob": res.blob, "result": result, "readback": readback, "labels": {}}
+
+
+_ODS_PAD = 0.035 * 28.3465  # LibreOffice のセルの左右の余白の既定（0.035cm）の見積もり
+
+
+def wrap_warnings(wb: OdsWorkbook, patches) -> list[str]:
+    """折り返して表示するセル（fo:wrap-option="wrap"）に書いて、行が増える見込み（目安。wrapcheck）なら、その警告。
+    幅は列の style:column-width（結合したセルはその範囲）からセルの左右の余白（fo:padding。なければ 0.035cm）を引いた幅、
+    字の大きさはセルのスタイルの fo:font-size（なければ 10 pt）。書く前の字は、書く前の見える字。"""
+    from ..wrapcheck import say, wraps
+    from .sheet import _columns, _pt
+
+    st, part = wb.st, wb.part
+    out = []
+    tables = {t.get("table:name"): t for t in wb.book.findall("table:table")}
+    widths_of: dict[str, list] = {}
+    for p in patches:
+        if p.kind != "input" or not isinstance(p.after, str):
+            continue
+        r, c = _rc(p.address)
+        sh = wb.sheet(p.sheet)
+        cell = sh.cells.get((r, c))
+        name = wb.style_names[cell.style] if cell is not None and 0 <= cell.style < len(wb.style_names) else None
+        if st.prop(part, "table-cell", name, "style:table-cell-properties", "fo:wrap-option") != "wrap":
+            continue
+        if p.sheet not in widths_of:
+            ws = []
+            for col in _columns(tables.get(p.sheet)) if tables.get(p.sheet) is not None else []:
+                rep = min(int(col.get("table:number-columns-repeated", "1") or 1), 1024)
+                w = st.prop(part, "table-column", col.get("table:style-name"), "style:table-column-properties",
+                            "style:column-width")
+                ws += [_pt(w) if w else None] * rep
+            widths_of[p.sheet] = ws
+        ws = widths_of[p.sheet]
+        m = sh.merged_at(r, c)
+        r1, c1, r2, c2 = m if m else (r, c, r, c)
+        if c2 > len(ws) or any(w is None for w in ws[c1 - 1:c2]):
+            continue
+        pad = st.prop(part, "table-cell", name, "style:table-cell-properties", "fo:padding")
+        pad_pt = _pt(pad) if pad else _ODS_PAD
+        avail = sum(ws[c1 - 1:c2]) - 2 * pad_pt
+        size_v = st.prop(part, "table-cell", name, "style:text-properties", "fo:font-size")
+        size = _pt(size_v) if size_v and not size_v.endswith("%") else 10.0
+        before = wb.shown.get((p.sheet, r, c)) or ("" if p.before is None else str(p.before))
+        got = wraps(before, p.after, avail, size, size)
+        if got is None:
+            continue
+        merged = f"（結合したセル {addr(r1, c1)}:{addr(r2, c2)}）" if m else ""
+        out.append(say(f"{p.sheet}!{p.address}{merged}", p.after, got[0], got[1],
+                       f"列の幅 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイント", got[2]))
+    return out
 
 
 def _rc(a: str) -> tuple[int, int]:

@@ -230,6 +230,7 @@ class Sheet:
     protected: bool = False
     col_widths: dict[int, float] = field(default_factory=dict)
     default_col_width: float | None = None
+    base_col_width: int = 8  # sheetFormatPr の baseColWidth（defaultColWidth のないシートの列の幅の元。字の数）
     hidden_rows: set[int] = field(default_factory=set)
     hidden_cols: set[int] = field(default_factory=set)
     row_heights: dict[int, float] = field(default_factory=dict)
@@ -581,6 +582,8 @@ class Workbook:
         fmt = root.find(M + "sheetFormatPr")
         if fmt is not None and fmt.get("defaultColWidth"):
             sh.default_col_width = float(fmt.get("defaultColWidth"))
+        if fmt is not None and (fmt.get("baseColWidth") or "").isdigit():
+            sh.base_col_width = int(fmt.get("baseColWidth"))
         if fmt is not None and fmt.get("defaultRowHeight"):
             sh.default_row_height = float(fmt.get("defaultRowHeight"))
         cols = root.find(M + "cols")

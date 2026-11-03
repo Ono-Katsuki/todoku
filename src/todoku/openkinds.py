@@ -237,6 +237,16 @@ def _fill_odt(blob: bytes, name: str, values: dict, force: bool) -> dict:
     result = {"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings), "unexpected": pr.unexpected[:20],
               "structure_errors": pr.lint_errors[:20]}
     _formatting(result, lambda: odt_formatting(OdtDocument(res.blob, name)))
+    # 書いたことで段落の行が折り返す見込み（目安）：証明・読み戻しは字しか見ないので、見た目の変化を伝える
+    try:
+        from .odf.textwrap import wrap_warnings
+
+        wrapped = wrap_warnings(OdtDocument(blob, name), OdtDocument(res.blob, name))
+    except Exception as e:  # noqa: BLE001  見積もれなかったことを黙らない
+        wrapped = [f"書いたことで行が折り返すかを見積もれませんでした（{type(e).__name__}）"]
+    if wrapped:
+        result["wrap"] = wrapped
+        result["warnings"] += wrapped
     readback = {key: v for key, v in values.items() if not key.startswith("@")}
     anchored = {p.key: p.id for p in res.patches if p.anchor}
     if anchored:

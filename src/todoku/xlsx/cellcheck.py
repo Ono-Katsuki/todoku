@@ -178,6 +178,39 @@ def _empty(sh, r: int, c: int, targets: dict) -> bool:
     return cell is None or cell.value is None or cell.value == ""
 
 
+def _shown_before(wb, sh, r: int, c: int) -> str:
+    """書く前のセルの見えている字（表示形式を通した字）。"""
+    from ..formula.numfmt import format_value
+
+    cell = sh.cells.get((r, c))
+    if cell is None or cell.value in (None, "") or isinstance(cell.value, bool):
+        return ""
+    try:
+        return format_value(cell.value, wb.style(sh.style_of(r, c)).num_fmt or "General", getattr(wb, "date1904", False))
+    except Exception:  # noqa: BLE001
+        return str(cell.value)
+
+
+def _wrap_by_write(wb, sh, rng: tuple, before: str, after: str, size: float) -> str | None:
+    """折り返して表示するセルで、書いたことで行が増える見込みなら、その警告（所は「{place}」）。列の幅はピクセルで
+    （既定の書体の数字の幅 × 保存された字の数。xlsx.circle と同じ決め方）、セルの左右の余白は約 2 ピクセルずつ。"""
+    from ..wrapcheck import say, wraps
+    from .circle import mdw_for, width_px
+
+    fmts = _formats(wb)
+    base = fmts[0].font if fmts and fmts[0].font else None
+    mdw, _known = mdw_for(base.face if base else "", base.size if base else 11.0)
+    r1, c1, r2, c2 = rng
+    px = sum(0 if c in sh.hidden_cols else width_px(sh.col_widths.get(c, sh.default_col_width), mdw,
+                                                   getattr(sh, "base_col_width", 8) or 8) for c in range(c1, c2 + 1))
+    avail = max(px - 5, 1) * 0.75
+    got = wraps(before, after, avail, size, size)
+    if got is None:
+        return None
+    merged = f"（結合したセル {addr(r1, c1)}:{addr(r2, c2)}）" if (r1, c1) != (r2, c2) else ""
+    return say("{place}" + merged, after, got[0], got[1], f"列の幅 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイント", got[2])
+
+
 def fit_issues(wb, plan) -> list[dict]:
     """書いた字がセルに収まらず、切れて見える・「####」になる見込みの所：[{id, cell, message}]。"""
     from ..formula.numfmt import format_value
@@ -220,10 +253,18 @@ def fit_issues(wb, plan) -> list[dict]:
             n = sum(max(1, math.ceil(w / avail)) for w in widths)
             height = sum(_row_h(sh, r) for r in range(r1, r2 + 1))
             line_h = size * 1.2
+            # 書く前の字（同じセル）：書く前から切れて見える・折り返していたなら、書いたことで変わったのではない
+            before = _shown_before(wb, sh, r_, c_)
+            n0 = sum(max(1, math.ceil(text_cells(ln) * scale / avail)) for ln in before.split("\n")) if before else 0
             if n * line_h > height + 1:
                 out.append({"id": name, "cell": where, "message":
                             f"{where}: 折り返して {n} 行になる見込みですが、行の高さ（{height:g} ポイント）には約 {max(1, int(height // line_h))} 行"
-                            "しか入らず、下の行が切れて見える見込みです（列の幅・行の高さからの見積もり。字を短くするか、本人に確かめてください）"})
+                            "しか入らず、下の行が切れて見える見込みです（列の幅・行の高さからの見積もり。字を短くするか、本人に確かめてください）"
+                            + ("（書く前の字でも、同じように切れて見える見込みでした）" if before and n0 * line_h > height + 1 else "")})
+                continue
+            got = _wrap_by_write(wb, sh, (r1, c1, r2, c2), before, shown, size)
+            if got:
+                out.append({"id": name, "cell": where, "wrap": True, "message": got.replace("{place}", where)})
             continue
         if len(lines) > 1:
             out.append({"id": name, "cell": where, "message":

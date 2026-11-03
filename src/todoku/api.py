@@ -592,6 +592,11 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             if fmt:
                 result["written_formatting"] = fmt
                 result["warnings"] += [f"{x['id']}: 書いた字の書式に「{'・'.join(x['formatting'])}」があります" for x in fmt]
+            # 書いたことで段落の行が折り返す見込み（目安）：証明・読み戻しは字しか見ないので、見た目の変化を伝える
+            wrapped = _wrap_word(k, blob, res.blob, name, res.patches)
+            if wrapped:
+                result["wrap"] = wrapped
+                result["warnings"] += wrapped
             anchored = {(p.key or p.id): p.id for p in res.patches if getattr(p, "anchor", None)}
         else:
             new_blob = blob
@@ -772,6 +777,19 @@ def _writer_bool(k: str, v) -> bool | None:
         return None
 
 
+def _wrap_word(k: str, before: bytes, after: bytes, name: str, patches=()) -> list[str]:
+    """Word（.docx・.doc）：書いたことで段落の行が折り返す見込み（目安）の警告。見積もれなかったことも黙らずに伝える。"""
+    try:
+        if k == "doc":
+            from .doc.wrap import wrap_warnings
+        else:
+            from .docx.wrap import wrap_warnings
+        by_mark = {str(p.id).replace(".", "_").replace("#", "_"): p.id for p in patches}
+        return wrap_warnings(_word(before, name, k), _word(after, name, k), by_mark)
+    except Exception as e:  # noqa: BLE001
+        return [f"書いたことで行が折り返すかを見積もれませんでした（{type(e).__name__}）"]
+
+
 def _written_formatting(k: str, blob: bytes, name: str, patches) -> list[dict]:
     """Word（.docx・.doc）：書いた後のファイルを読み直し、書いた字の書式に、取り消し線・非表示・自動でない字の色・蛍光ペン・
     網かけがあれば [{id, formatting}]（書いた字が、消したように・目立って印刷されるのを、読み戻しで伝える）。"""
@@ -934,6 +952,7 @@ def _circle_excel(blob: bytes, name: str, k: str, circ: dict, result: dict) -> b
                           "label": sd["label"], "context": sd["context"], "around": sd.get("around"), "style": sd.get("style", "ellipse"),
                           "how": ("シートの図形に四角を足した（○ではなく□。Excel にはセルの字の一部を囲む罫線がないため、図形で囲んだ）"
                                   if sd.get("style") == "border" else "シートの図形に楕円を足した"),
+                          "ellipse_pt": sd["ellipse"], "error_mm": sd.get("error_mm"),
                           "uncertain": "位置は見積もり。印刷か画面で確かめが要る" + (f"：{'・'.join(sd['notes'])}" if sd["notes"] else "")}
                          for key_, sd in sds]
     w = list(result.get("warnings") or [])

@@ -1408,6 +1408,89 @@ class Layout:
             r = h.r - 1
         return out
 
+    def grid_header(self, target: Box) -> tuple[str | None, list[str]] | None:
+        """表の格子（左に行の見出しの列・上に列の見出しの行があり、そのあいだに空のマスが並ぶ表。週間の予定表など）の中の
+        マスなら、(行の見出し, [列の見出し]) を返す（どちらも印刷された字そのまま）。格子でなければ None。
+        列の見出し：同じ列を上へたどって最初にある字（あいだに欄があれば格子ではない）。その行に、ほかにも見出しが並ぶこと。
+        行の見出し：同じ行の、列の見出しの並びより左にある、いちばん近い字か数（時刻など。見えている字のまま）。その列に、
+        ほかの行の見出しもあること。行の見出しのない行（見出しのあいだの行）は、行の見出しを付けない（近くの行のものを借りない）。
+        列の見出しの上は、格子の角（行の見出しの列の、見出しの行のマス）が縦に結合された範囲の中だけを見る：表の上の罫線を
+        越えて、別の欄の見出し（「受給者証番号」など）を拾わない。"""
+        r = target.r
+        span = (target.c1, target.c2)
+        ch = None
+        for rr in range(r - 1, max(0, r - 60), -1):
+            cand = [b for b in self._cand(rr, span) if b.kind != "check" and b.r2 < r]
+            if not cand:
+                continue
+            # 上のマスが、同じ列割りの空の欄（格子のほかのマス）なら越える。値のある欄・数式・別の列割りの欄があれば格子ではない
+            if any(b.kind in ("formula", "locked") or (b.kind == "input" and ((b.c1, b.c2) != span or b.text
+                                                                              or (b.cell is not None and b.cell.value not in (None, ""))))
+                   for b in cand):
+                return None
+            cand = [b for b in cand if b.kind != "input"]
+            if not cand:
+                if sum(1 for b in self.boxes(rr) if _text(b)) >= 2:
+                    return None  # 見出しの行（ほかの列には見出しがある）で、この列の見出しのマスが空：上の表の字を拾わない
+                continue
+            texts = [b for b in cand if _text(b)]
+            if texts:
+                ch = texts[0]
+                break
+            if any(b.cell is not None and b.cell.value not in (None, "") for b in cand):
+                return None  # 字でない値（数など）が上にある：見出しの行ではない
+        if ch is None or ch.c1 > target.c1 or ch.c2 < target.c2:
+            return None
+        peers = [b for b in self.boxes(ch.r) if b is not ch and _text(b) and (b.r, b.r2) == (ch.r, ch.r2)]
+        if not peers:
+            return None
+        # 見出しの行の、見出しの並びの左端（行の見出しは、それより左）
+        row_peers = sorted([ch] + peers, key=lambda b: b.c1)
+        left_edge = row_peers[0].c1
+
+        def shown(b: Box) -> str:
+            if b.cell is None or b.cell.value in (None, ""):
+                return ""
+            return norm_label(b.cell.value) if isinstance(b.cell.value, str) else display(self.wb, b.cell, flag=False).strip()
+
+        def row_head(rr: int) -> Box | None:
+            left = [b for b in self.boxes(rr) + self.cover.get(rr, []) if b.c2 < left_edge and b.kind == "text" and shown(b)
+                    and b.r <= rr <= b.r2]
+            return max(left, key=lambda b: b.c2) if left else None
+
+        rh = row_head(r)
+        if rh is not None:
+            # 行の見出しと格子のマスのあいだ：格子のほかの空のマスだけ（字・数式・値のある欄があれば格子ではない）
+            if any(b.c1 > rh.c2 and b.c2 < target.c1 and (b.kind in ("formula", "text", "locked") or (
+                    b.kind == "input" and (b.text or (b.cell is not None and b.cell.value not in (None, "")))))
+                   for b in self.boxes(r) + self.cover.get(r, [])):
+                return None
+            col = (rh.c1, rh.c2)
+        others = []
+        for rr in range(ch.r2 + 1, ch.r2 + 80):
+            b = row_head(rr)
+            if b is not None and b is not rh and b.r == rr and (rh is None or (b.c1 <= col[1] and b.c2 >= col[0])):
+                others.append(b)
+                if (rh is not None and others) or len(others) >= 2:
+                    break
+        if (rh is not None and not others) or (rh is None and len(others) < 2):
+            return None
+        # 格子の角：行の見出しの列の、見出しの行のマス。縦に結合されていれば、その上端までが格子の見出しの行
+        col_ = col if rh is not None else (others[0].c1, others[0].c2)
+        corner = [b for b in self._cand(ch.r, col_) if b.r <= ch.r <= b.r2]
+        top = min([ch.r] + [b.r for b in corner])
+        if any(_text(b) and b.r < ch.r for b in corner):
+            return None  # 角に、見出しの行より上から続く字がある（表の作りが違う）
+        heads = [shown(ch)]
+        rr = ch.r - 1
+        while rr >= top:
+            up = [b for b in self._cand(rr, (ch.c1, ch.c2)) if _text(b) and b.r2 < ch.r and b.r >= top]
+            if up:
+                heads.insert(0, shown(up[0]))
+                break
+            rr -= 1
+        return (shown(rh) if rh is not None else None), [h for h in heads if h]
+
     def describe(self, target: Box, options: list | None = None) -> dict:
         """入力欄（またはチェックボックス）の見出しと、判断の材料。見出しは、印刷された字をそのまま使う：
         同じ行の前（左。右から左へ表示するシートでは画面の右）のいちばん近い字・同じ列の上の字。字の意味（単位・年号など）では選ばない。"""
@@ -1476,7 +1559,14 @@ class Layout:
         between_text = None  # 前の字が、あいだの別の欄の見出しのとき（見出しにせず、別に示す）
         sh_ = self.shape(r)
         repeated = bool(sh_) and (self.shape(r - 1) == sh_ or self.shape(r + 1) == sh_)
-        if heads and (item is None or repeated or self._list_table(r, target.c1) is not None):
+        grid = self.grid_header(target) if target.kind == "input" and not shown and self._list_table(r, target.c1) is None \
+            else None
+        if grid is not None:
+            # 表の格子のマス：行の見出し（左）／列の見出し（上）。どちらも、その表の中のいちばん近い見出しの字そのまま
+            row_h, col_h = grid
+            parts = ([row_h] if row_h else []) + [h for h in col_h if h != row_h]
+            method.append("表の行の見出し・列の見出し" if row_h else "表の列の見出し（この行に行の見出しはない）")
+        elif heads and (item is None or repeated or self._list_table(r, target.c1) is not None):
             # 表の欄（同じ形の行が続く・テーブルの本体）：行の見出し（前）と列の見出し（上）の両方で呼ぶ。
             # 「見出し｜値」が縦に並ぶだけの行では、上の行の値を見出しと取り違えないよう、上は見ない
             if item is None:

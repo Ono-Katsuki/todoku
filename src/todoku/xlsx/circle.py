@@ -15,17 +15,26 @@ style "border"（○でなくてよいと本人が確かめたとき。楕円が
 （全角は字の大きさ、半角はその半分と見積もる）から決める。決め方の分からない揃え（均等割り付け・両端揃え・縮小して全体を
 表示・折り返して自動で改行される字・字の回転）のセルは、置かずに理由と代わりの書き方（字の前に「○」を足す・字を書き換える。
 本人に確かめてから）を返す。位置は見積もりなので、結果には「確かめが要る」ことを添える。
+
+見積もりの元：列の幅は、既定の書体の数字の幅（ＭＳ Ｐゴシック・游ゴシック 11pt は 8 ピクセル、Calibri 11pt は 7 ピクセル。
+Excel が図形の位置を保存した様式の列の幅で確かめた値）× 保存された字の数。揃え（左・中央・右）・字下げ（1 段で数字 3 つ分）・
+セルの余白（約 2 ピクセル）・結合の範囲・縦の揃え・行の高さの比（書体の種類ごとの Excel の既定の行の高さ）・字の幅（全角は
+字の大きさ、ほかは半分）。書体の幅の種類（「Ｐ」の書体はかな・記号の幅が字ごとに変わる、欧文の書体は半角の字の幅が変わる）
+から、囲む字の中心の位置の誤差を見積もり（error_estimate）、字の幅の半分を超えるなら描かずに断る（「位置を確かめられない」）。
+折り返す・縮小して全体を表示するセルで、行の字の幅がセルの幅に近く、改行・縮小されるかが見積もりの誤差の中なら、同じく断る。
 """
 
 from __future__ import annotations
 
+import math
 import posixpath
 import re
+import unicodedata
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
 from ..formula.parser import addr, parse_cell
-from ..textwidth import cells, east_asian_context, fixed_width
+from ..textwidth import cells, east_asian_context
 from ..pdf.circle import _pattern, shape, touches, face, inside
 from ..pdf.circle import around as _around
 from ..pdf.circle import border as _border
@@ -95,19 +104,90 @@ def _font(wb, style: int) -> tuple[str, float]:
     return fonts[xf["font"]] if 0 <= xf["font"] < len(fonts) else fonts[0]
 
 
+@dataclass(frozen=True)
+class Family:
+    """書体の幅の種類（名前から決める。書体のファイルは読まない）。
+    cjk_prop：かな・全角の記号の幅が字ごとに変わる（ＭＳ Ｐゴシックなど「Ｐ」の書体・欧文の書体の代わりの字）。
+    latin_mono：半角の字が字の大きさの半分にそろう（ＭＳ ゴシックなど）。
+    pitch：Excel の行の高さ（1 行）÷ 字の大きさ。pitch_known：その値が Excel の既定の行の高さから分かる書体か。
+    digit：数字の幅（字の大きさに対する比。列の幅の単位を決める）。known：名前の分かる書体か。"""
+
+    cjk_prop: bool
+    latin_mono: bool
+    pitch: float
+    pitch_known: bool
+    digit: float
+    known: bool
+
+
+_P_FONT = re.compile(r"(ＭＳ\s*Ｐ|MS\s*P(?=[A-Z])|^HG[PS]|UDP|^IPAP|\bUI$|\sUI\b)", re.I)
+_MONO_CJK = re.compile(r"^(ＭＳ\s*(ゴシック|明朝)|MS\s*(Gothic|Mincho)|HG(?![PS])|IPA(?!P)|BIZ\s*UD(?!P)|Osaka.等幅)", re.I)
+_YU = re.compile(r"^(游|Yu\s)", re.I)
+_MEIRYO = re.compile(r"^(メイリオ|Meiryo)", re.I)
+_LATIN = {"calibri": (1.364, 0.507), "arial": (1.275, 0.556), "times new roman": (1.25, 0.5), "century": (1.3, 0.556),
+          "cambria": (1.3, 0.556), "verdana": (1.3, 0.636), "tahoma": (1.3, 0.546), "segoe ui": (1.36, 0.559)}
+
+
+def family(name: str) -> Family:
+    n = (name or "").strip()
+    if _P_FONT.search(n):
+        return Family(True, False, 1.705 if _YU.search(n) or _MEIRYO.search(n) else 1.227,
+                      bool(re.search(r"ＭＳ|MS\s*P|^HG", n)), 0.5, True)
+    if _MONO_CJK.search(n):
+        return Family(False, True, 1.227, bool(re.search(r"ＭＳ|^MS|^HG", n)), 0.5, True)
+    if _YU.search(n) or _MEIRYO.search(n):
+        return Family(False, False, 1.705, True, 0.5, True)
+    if re.search(r"[^\x00-\x7f]", n) or re.search(r"(Noto|Source Han|Hiragino|Gothic|Mincho|Sans CJK|SimSun|Malgun|"
+                                                    r"PMingLiU|MingLiU|Batang|Gulim)", n, re.I):
+        return Family(False, False, 1.3, False, 0.5, False)  # 東アジアの書体（名前から幅の種類が分からない）
+    lat = _LATIN.get(n.lower())
+    if lat:
+        return Family(True, False, lat[0], True, lat[1], True)  # 欧文の書体：かな・漢字は代わりの書体で描かれる
+    return Family(True, False, 1.3, False, 0.5, False)
+
+
+def _px(size: float) -> int:
+    """字の大きさ（pt）→ 96 dpi の字の高さ（ピクセル。四捨五入）。"""
+    return int(size * 96 / 72 + 0.5)
+
+
+def mdw_of(wb) -> tuple[int, bool]:
+    """列の幅の単位（既定の書体の数字の幅、ピクセル）と、その値が確かか。和文の書体は数字が字の大きさの半分で、
+    ＭＳ Ｐゴシック 11pt は 8 ピクセル（Excel が図形の位置を保存した様式の列の幅で確かめた値）。Calibri 11pt は 7。"""
+    name, size = (_styles(wb)["fonts"] or [("", 11.0)])[0]
+    return mdw_for(name, size)
+
+
+def mdw_for(name: str, size: float) -> tuple[int, bool]:
+    """書体の名前と字の大きさ（pt）から、数字の幅（ピクセル）と、その値が確かか。"""
+    fam = family(name)
+    ppem = _px(size)
+    if fam.digit == 0.5:
+        return max(3, int(ppem * 0.5 + 0.5)), fam.known
+    return max(3, int(ppem * fam.digit)), fam.known
+
+
+def width_px(w: float | None, mdw: int, base: int = 8) -> int:
+    """列の幅（保存された字の数。None は幅の指定のない列：baseColWidth と余白 5 ピクセルを 8 の倍数に切り上げた幅）の、ピクセル。"""
+    if w is None:
+        return -(-(base * mdw + 5) // 8) * 8
+    return int(((256 * w + int(128 / mdw)) / 256) * mdw)
+
+
 def _mdw(wb) -> int:
-    """既定の書体の数字の幅（ピクセル）：列の幅の単位。和文の書体・Calibri とも、数字はおよそ字の大きさの半分。"""
-    size = (_styles(wb)["fonts"] or [("", 11.0)])[0][1]
-    return max(5, round(size * 96 / 72 * 0.5))
+    return mdw_of(wb)[0]
+
+
+def col_px(wb, sh, c: int) -> int:
+    """列の幅（ピクセル。Excel の決め方：保存された字の数 × 数字の幅。幅のない列は defaultColWidth、それもなければ
+    baseColWidth の字の数と余白 5 ピクセルを 8 の倍数に切り上げた幅）。"""
+    if c in sh.hidden_cols:
+        return 0
+    return width_px(sh.col_widths.get(c, sh.default_col_width), _mdw(wb), getattr(sh, "base_col_width", 8) or 8)
 
 
 def col_pt(wb, sh, c: int) -> float:
-    if c in sh.hidden_cols:
-        return 0.0
-    w = sh.col_widths.get(c, sh.default_col_width if sh.default_col_width is not None else 8.43)
-    mdw = _mdw(wb)
-    px = int(((256 * w + int(128 / mdw)) / 256) * mdw)
-    return px * 0.75
+    return col_px(wb, sh, c) * 0.75
 
 
 def row_pt(sh, r: int) -> float:
@@ -122,6 +202,32 @@ def width(ch: str, size: float, ambiguous_wide: bool = False) -> float:
     if ch == "\n":
         return 0.0
     return 0.5 * size * cells(ch, ambiguous_wide)
+
+
+def _ideograph(ch: str) -> bool:
+    o = ord(ch)
+    return 0x4E00 <= o <= 0x9FFF or 0x3400 <= o <= 0x4DBF or 0x20000 <= o <= 0x3FFFF or 0xF900 <= o <= 0xFAFF or ch in "々〆〇"
+
+
+def spread(ch: str, fam: Family, wide: bool) -> float:
+    """字の幅の見積もりの、ありうるずれ（字の大きさに対する比）。漢字は、どの書体でも字の大きさ。かな・全角の記号は、
+    「Ｐ」の書体と欧文の書体（代わりの書体）では字ごとに幅が変わる。半角の字は、等幅の和文の書体だけがそろう。"""
+    if ch == "\n" or unicodedata.category(ch) in ("Mn", "Me", "Cf"):
+        return 0.0
+    n = cells(ch, wide)
+    if n == 2:
+        if _ideograph(ch) or ch == "　":  # 漢字と全角の空白は、「Ｐ」の書体でも字の大きさ
+            return 0.0
+        if unicodedata.east_asian_width(ch) == "A":
+            return 0.25 if fam.cjk_prop else 0.05
+        return 0.25 if fam.cjk_prop else 0.0
+    if fam.latin_mono:
+        return 0.0
+    if ch.isdigit():
+        return 0.06
+    if ch == " ":
+        return 0.15
+    return 0.2
 
 
 # ---------------------------------------------------------------------- 囲む所
@@ -205,14 +311,38 @@ def find(wb, spec: dict):
     return got[3]
 
 
-def glyphs(wb, sh, r: int, c: int, text: str) -> tuple[list[G], list[str]]:
-    """セルの字の箱の見積もり（シートの左上からの pt）と、見積もりの確かさに関わる注意。決め方の分からないセルは CircleError。"""
+@dataclass
+class Layout:
+    """セルの字の置き方の見積もり（glyphs の中身）：誤差の見積もりにも使う。"""
+
+    glyphs: list
+    notes: list
+    lines: list  # 行ごとの (始めの字の番号, 終わりの字の番号)
+    hal: str
+    val: str
+    size: float
+    fam: Family
+    wide: bool
+    pitch: float
+    rng: tuple  # 結合の範囲 (r1, c1, r2, c2)
+    x0: float
+    w: float
+
+
+_PAD = 2 * 0.75  # セルの縁から字までの余白（Excel は約 2 ピクセル）
+
+
+def layout(wb, sh, r: int, c: int, text: str) -> Layout:
+    """セルの字の箱の見積もり（シートの左上からの pt）。決め方の分からないセルは CircleError。
+    揃え（左・中央・右。均等割り付け・両端揃えは断る）・字下げ・字の大きさと書体の幅の種類・セルの余白（約 2 ピクセル）・
+    結合の範囲・縦の揃え・字の幅（textwidth の東アジアの幅）から決める。"""
     cell = sh.cells.get((r, c))
     style = cell.style if cell is not None else sh.style_of(r, c)
     st = _styles(wb)
     xf = st["xfs"][style] if 0 <= style < len(st["xfs"]) else {"h": "general", "v": "bottom", "wrap": False, "shrink": False,
                                                               "indent": 0, "rot": 0}
     name, size = _font(wb, style)
+    fam = family(name)
     notes = []
     if xf["rot"]:
         raise CircleError("字を回して表示するセルなので、字の位置を決められません")
@@ -226,45 +356,114 @@ def glyphs(wb, sh, r: int, c: int, text: str) -> tuple[list[G], list[str]]:
     w = sum(col_pt(wb, sh, k) for k in range(c1, c2 + 1))
     h = sum(row_pt(sh, k) for k in range(r1, r2 + 1))
     lines = text.split("\n") if xf["wrap"] else [text]  # 折り返さないセルの改行は、幅のない字として
-    pad = 2 * 0.75  # セルの縁から字までの余白（2 ピクセル）
     # 曖昧な幅の字は、セルの字に全角の字があるか、書体の名前が東アジアの字（ＭＳ ゴシックなど）のときだけ全角
     wide = east_asian_context(text) or bool(re.search(r"[^\x00-\x7f]", name or ""))
     lw = [sum(width(ch, size, wide) for ch in ln) for ln in lines]
-    if xf["wrap"] and max(lw) > w - 2 * pad:
+    lu = [math.sqrt(sum((spread(ch, fam, wide) * size) ** 2 for ch in ln)) for ln in lines]
+    indent = xf["indent"] * 3 * _mdw(wb) * 0.75 if xf["h"] in ("left", "right", "general") else 0.0
+    avail = w - 2 * _PAD - indent
+    if xf["wrap"] and max(lw) > avail:
         raise CircleError("折り返して表示するセルで、字が自動で改行される（改行の位置が分からない）ので、字の位置を決められません")
-    if xf["shrink"] and max(lw) > w - 2 * pad:
+    if xf["wrap"] and any(a + 2 * u > avail for a, u in zip(lw, lu)):
+        raise CircleError("位置を確かめられない：折り返して表示するセルで、行の字の幅がセルの幅に近く、自動で改行されるかが"
+                          "見積もりでは分かりません。字の前に「○」を足す書き方（old/new。本人に確かめてから）にしてください")
+    if xf["shrink"] and max(lw) > avail:
         raise CircleError("縮小して全体を表示するセルで、字の大きさが分からないので、字の位置を決められません")
-    pitch = size * 1.2
-    block = pitch * (len(lines) - 1) + size
+    if xf["shrink"] and any(a + 2 * u > avail for a, u in zip(lw, lu)):
+        raise CircleError("位置を確かめられない：縮小して全体を表示するセルで、字の幅がセルの幅に近く、縮むかが見積もりでは"
+                          "分かりません。字の前に「○」を足す書き方（old/new。本人に確かめてから）にしてください")
+    pitch = size * fam.pitch
+    n = len(lines)
     if xf["v"] == "top":
-        top = y0 + pad
+        top = y0 + _PAD / 2
     elif xf["v"] == "center":
-        top = y0 + (h - block) / 2
+        top = y0 + (h - n * pitch) / 2
     else:
-        top = y0 + h - pad - block
+        top = y0 + h - _PAD / 2 - n * pitch
     numeric = cell is not None and isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool)
-    hal = xf["h"] if xf["h"] != "general" else ("right" if numeric else "left")
+    boolean = cell is not None and isinstance(cell.value, bool)
+    hal = xf["h"] if xf["h"] != "general" else ("right" if numeric else "center" if boolean else "left")
     if xf["indent"]:
         notes.append("字下げ（インデント）のあるセル")
-    if any(not fixed_width(ch, wide) for ch in text if ch != "\n") or "P" in name.upper() or not re.search(r"[^\x00-\x7f]", name or "a"):
-        # ラテン文字・キリル文字・ギリシャ文字・アラビア文字などは、書体で字ごとに幅が変わる（プロポーショナル）
-        notes.append("半角の字・幅の変わる書体の字（ラテン文字・キリル文字など）を含む（字の幅は見積もり）")
+    if any(spread(ch, fam, wide) for ch in text if ch != "\n"):
+        # ラテン文字・キリル文字・ギリシャ文字・アラビア文字・「Ｐ」の書体のかななどは、書体で字ごとに幅が変わる（プロポーショナル）
+        notes.append("半角の字・幅の変わる書体の字（ラテン文字・キリル文字・「Ｐ」の書体のかななど）を含む（字の幅は見積もり）")
     out: list[G] = []
+    spans = []
+    k0 = 0
     for k, (ln, wd) in enumerate(zip(lines, lw)):
         if hal == "left":
-            x = x0 + pad + xf["indent"] * 3 * _mdw(wb) * 0.75
+            x = x0 + _PAD + indent
         elif hal == "center":
             x = x0 + (w - wd) / 2
         else:
-            x = x0 + w - pad - wd
-        y = top + k * pitch
+            x = x0 + w - _PAD - indent - wd
+        y = top + k * pitch + (pitch - size) / 2
         for ch in ln:
             cw = width(ch, size, wide)
             out.append(G(ch, x, y, x + cw, y + size, size))
             x += cw
+        spans.append((k0, k0 + len(ln)))
+        k0 += len(ln)
         if k < len(lines) - 1:
             out.append(G("\n", x, y, x, y + size, size))
-    return out, notes
+            k0 += 1
+    return Layout(out, notes, spans, hal, xf["v"] if xf["v"] in ("top", "center") else "bottom", size, fam, wide, pitch,
+                  (r1, c1, r2, c2), x0, w)
+
+
+def glyphs(wb, sh, r: int, c: int, text: str) -> tuple[list[G], list[str]]:
+    """セルの字の箱の見積もり（シートの左上からの pt）と、見積もりの確かさに関わる注意。決め方の分からないセルは CircleError。"""
+    lay = layout(wb, sh, r, c, text)
+    return lay.glyphs, lay.notes
+
+
+def error_estimate(wb, sh, lay: Layout, text: str, a: int, b: int, box_x: float) -> tuple[float, float, list[str]]:
+    """囲む字（text[a:b]）の中心の位置の、見積もりの誤差（横・縦、pt）と、その元。
+    横：囲む字より前（左揃え）・後ろ（右揃え）・前後の差の半分（中央揃え）の字の幅のずれ（字ごとに独立として二乗和の平方根）、
+    セルの余白（1 ピクセル）、字下げの単位（1 段ごとに数字 1 つ分）、列の幅の単位が分からない書体なら、図形を置く列までの
+    列の幅のずれ（列の幅の字の数 × 1 ピクセル）。縦：行の高さの比が分からない書体では、基準の行から囲む字の行までの行の数 ×
+    字の大きさの 2 割、行の中の字の位置（字の大きさの 1 割）。"""
+    size, fam, wide = lay.size, lay.fam, lay.wide
+    line = next(k for k, (s, e) in enumerate(lay.lines) if s <= a <= e)
+    s, e = lay.lines[line]
+    before = [spread(ch, fam, wide) * size for ch in text[s:a]]
+    after = [spread(ch, fam, wide) * size for ch in text[b:e]]
+    rss = lambda xs: math.sqrt(sum(x * x for x in xs))  # noqa: E731
+    why = []
+    if lay.hal == "left":
+        ex = rss(before) + 0.75
+    elif lay.hal == "right":
+        ex = rss(after) + 0.75
+    else:
+        ex = 0.5 * math.sqrt(sum(x * x for x in before + after))
+    if ex > 0.75 + 0.5:
+        why.append("前後の字の幅が書体で変わる")
+    st = _styles(wb)
+    cell = sh.cells.get(lay.rng[:2])
+    style = cell.style if cell is not None else sh.style_of(*lay.rng[:2])
+    xf = st["xfs"][style] if 0 <= style < len(st["xfs"]) else {"indent": 0}
+    if xf.get("indent") and lay.hal != "center":
+        ex += xf["indent"] * _mdw(wb) * 0.75
+        why.append("字下げの幅")
+    mdw, known = mdw_of(wb)
+    if not known:
+        # 列の幅の単位（数字の幅）が 1 ピクセル違うと、列ごとに「保存された字の数」ピクセルずれる
+        r1, c1, r2, c2 = lay.rng
+        anchor_col = _anchor_cell(wb, sh, box_x, 0)[0]
+        chars = lambda lo, hi: sum((sh.col_widths.get(k, sh.default_col_width) or 8.43) for k in range(lo, hi)  # noqa: E731
+                                   if k not in sh.hidden_cols)
+        to_anchor = chars(c1, anchor_col) if anchor_col > c1 else -chars(anchor_col, c1)
+        whole = chars(c1, c2 + 1)
+        ref = {"left": 0.0, "center": whole / 2, "right": whole}[lay.hal if lay.hal in ("left", "right") else "center"]
+        ex += abs(ref - to_anchor) * 0.75
+        why.append("既定の書体が分からず、列の幅の単位が見積もり")
+    n = len(lay.lines)
+    lines_from = {"top": line + 0.5, "bottom": n - line - 0.5, "center": abs(line - (n - 1) / 2)}[lay.val]
+    ey = (0.03 if fam.pitch_known else 0.2) * size * lines_from + 0.1 * size + (0.75 if lay.val != "center" else 0.0)
+    if not fam.pitch_known and lines_from >= 1:
+        why.append("行の高さの比が分からない書体で、複数の行")
+    return ex, ey, why
 
 
 def resolve(wb, spec: dict, used: dict) -> dict:
@@ -272,7 +471,8 @@ def resolve(wb, spec: dict, used: dict) -> dict:
     if getattr(wb, "kind", "xlsx") == "xls":
         raise CircleError("古い Excel（.xls）のシートには、○の図形を足す書き方をまだ作っていません")
     sh, r, c, text, a, b = find(wb, spec)
-    gl, notes = glyphs(wb, sh, r, c, text)
+    lay = layout(wb, sh, r, c, text)
+    gl, notes = lay.glyphs, list(lay.notes)
     flat = gl  # text の1字ごとの箱（改行も、幅のない箱として入る）
     if len(flat) != len(text):
         raise CircleError("セルの字の位置を、字ごとに決められません")
@@ -302,6 +502,25 @@ def resolve(wb, spec: dict, used: dict) -> dict:
             raise CircleError(f"「{spec['circle']}」を○で囲むと、同じセルのほかの字" + (f"「{hit.text}」" if hit else "") +
                               "に触れます。pad（字と○のすき間、pt）を小さくするか、○でなくてよいと本人が確かめたら"
                               " \"style\": \"border\"（字を囲む四角の図形）にしてください")
+    # 見積もりの誤差：囲む字の幅の半分を超えるなら、囲みがほかの字にずれるおそれがあるので描かない
+    ex, ey, why = error_estimate(wb, sh, lay, text, a, b, e[0] - e[2])
+    half_w = 0.5 * sum(g.x1 - g.x0 for g in mine) / len(mine)
+    mm = 25.4 / 72
+    if ex > half_w or ey > 0.5 * size:
+        over = (f"横 約 {ex * mm:.1f} mm（字の幅の半分 {half_w * mm:.1f} mm）" if ex > half_w
+                else f"縦 約 {ey * mm:.1f} mm（字の高さの半分 {0.5 * size * mm:.1f} mm）")
+        raise CircleError(f"位置を確かめられない：「{spec['circle']}」（{sh.name}!{addr(r, c)}）の位置の見積もりの誤差が{over}を超えます"
+                          + (f"（{'・'.join(why)}）" if why else "") + "。囲みがほかの字にずれるおそれがあるので、描いていません。"
+                          "字の前に「○」を足す書き方（old/new。本人に確かめてから）を使ってください"
+                          + ("（style \"border\" も同じ見積もりで置くので、変わりません）" if style == "ellipse" else ""))
+    notes.append(f"位置の見積もりの誤差 約 {max(ex, ey) * mm:.1f} mm 以内（目安）")
+    if lay.hal in ("center", "right"):
+        # 中央・右揃えの字の位置はセルの幅で決まる。列の幅の測り方が Excel と違うソフト（LibreOffice で 1 割半ほど狭く
+        # 測られた様式があった）では、その分ずれる。位置は Excel の列の幅で決めている
+        shift = (0.5 if lay.hal == "center" else 1.0) * 0.15 * lay.w
+        if shift > half_w:
+            notes.append(f"中央・右揃えのセル：列の幅の測り方が Excel と違うソフト（LibreOffice など）では、約 {shift * mm:.1f} mm "
+                         "ずれて見えることがあります（位置は Excel の列の幅で決めています）")
     from ..pdf.circle import ellipses_meet
 
     def outer(x):  # 重なりを比べる楕円：四角は、外接する楕円
@@ -315,7 +534,7 @@ def resolve(wb, spec: dict, used: dict) -> dict:
     label = spec.get("near") or _row_label(wb, sh, r, c) or text[:30]
     return {"id": f"{sh.name}!○{k}", "sheet": sh.name, "row": r, "col": c, "cell": addr(r, c), "text": "".join(g.text for g in mine),
             "ellipse": [round(v, 3) for v in e], "label": label, "context": text[:60], "notes": notes, "size": size,
-            "style": style, "around": _around(text, a, b)}
+            "style": style, "around": _around(text, a, b), "error_mm": round(max(ex, ey) * mm, 2)}
 
 
 def _row_label(wb, sh, r: int, c: int) -> str:
