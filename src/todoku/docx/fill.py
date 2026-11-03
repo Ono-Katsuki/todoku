@@ -178,6 +178,11 @@ class Filler:
                 elif nxt is None:
                     self.append_run(item, p, sg.run, value)  # 段落の終わりのタブ・記号の後ろ：同じ書式の字の要素を足す
                     return
+            if sg.kind in ("note", "other") and a == len(pos) and sg.run is not None:
+                # 段落の終わりの脚注の印・図の印（「人口※4」）の後ろ：本文の字の書式（印の上付きでなく）で、字の要素を足す
+                body = next((x.run for x in reversed(p.segs[:i]) if x.kind == "t" and x.run is not None), None)
+                self.append_run(item, p, sg.run, value, style_run=body or False)
+                return
             if sg.kind != "t" or sg.node is None or sg.run is None:
                 raise FillError(f"{item['id']}: 書き足す位置が、書き換えられない部分にあります")
             self.check_editable(item, part, sg.node.s)
@@ -284,8 +289,9 @@ class Filler:
             at = ppr.e if ppr is not None else node.se
             ed.put(at, at, run)
 
-    def append_run(self, item: dict, p: Para, after_run, value: str) -> None:
-        """字の要素 after_run のすぐ後ろに、同じ書式（rPr）の字の要素を足して書く（タブで終わる段落の後ろなど）。"""
+    def append_run(self, item: dict, p: Para, after_run, value: str, style_run=None) -> None:
+        """字の要素 after_run のすぐ後ろに、同じ書式（rPr）の字の要素を足して書く（タブで終わる段落の後ろなど）。
+        style_run：書式を写す字の要素（after_run と違うとき。False なら書式を写さない）。"""
         part = p.part
         ed = self.ed(part)
         pre = ed.pre
@@ -293,7 +299,8 @@ class Filler:
         self.check_editable(item, part, after_run.s)
         if (part, after_run.s) in self.run_ops:
             raise FillError(f"{item['id']}: 同じ字の要素の中に、ほかの書き込みがあります")
-        rpr = after_run.find("rPr")
+        src = after_run if style_run is None else style_run
+        rpr = src.find("rPr") if src is not False else None
         rpr_b = xml[rpr.s:rpr.e] if rpr is not None else b""
         start_bm, end_bm = self.bookmark(item["id"])
         ed.put(after_run.e, after_run.e,

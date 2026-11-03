@@ -658,6 +658,7 @@ class PageLayout:
         self.right = max(xe) if xe else self.view.width
         self.spots: list[Spot] = []
         self._find_spots()
+        self.spots = [k for k in self.spots if _holds_text(k)]  # 書けない大きさの欄は、欄にしない
 
     def cell_fill(self, c: Cell):
         """マスを塗っている色（いちばん上に描かれたもの）。なければ None。"""
@@ -1226,3 +1227,20 @@ def _typical_size(chars: list[Ch]) -> float:
 
 def _fit_size(h: float, typical: float) -> float:
     return max(6.0, min(h * 0.62, max(typical, 10.5), 14.0))
+
+
+def _holds_text(k: Spot) -> bool:
+    """字を書く欄は、書き込みと同じ決め方（いちばん小さな字の大きさで、1字が入るか）で入るものだけ。
+    小さな字の図（地図の注記など）の中の空欄は、書けないので欄にしない。"""
+    if k.kind not in ("text", "inline"):
+        return True
+    from .fill import FillError, layout_text
+
+    x0, y0, x1, y1 = k.rect
+    w, h = x1 - x0, y1 - y0
+    size = float(k.size or 10.5)
+    try:
+        layout_text("1", w, h, size, center=k.kind == "inline", multiline=h > 2.4 * min(size, 10.5))
+    except FillError:
+        return False
+    return True

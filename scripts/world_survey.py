@@ -9,6 +9,7 @@
 - 途中で止めても、もう一度動かせば続きから（world/results.jsonl にある標本は飛ばす）。
 
 使い方: uv run python scripts/world_survey.py [--quota 250] [--countries JP,GB,...] [--jobs 24] [--graders 8]
+       道具を直したあと、同じ標本で段階を付け直す：uv run python scripts/world_survey.py --regrade
 """
 
 from __future__ import annotations
@@ -386,14 +387,15 @@ def run_sample(s: dict, tmp: Path) -> dict:
         return rec
     h = hashlib.sha256(body).hexdigest()
     rec.update(sha256=h, bytes=len(body))
-    path = tmp / f"{h[:20]}{EXT.get(s.get('declared', ''), '')}"
+    # 標本ごとの名前（同じ書類が別の標本で同時に選ばれても、ほかの標本の段階付けの途中で消さない）
+    path = tmp / f"{h[:20]}-{s['id']}{EXT.get(s.get('declared', ''), '')}"
     path.write_bytes(body)
     try:
         rec.update(grade_file(path, _rate(h, "audit") < AUDIT_RATE))
     finally:
         if _rate(h, "keep") < KEEP_RATE:
             KEEP.mkdir(parents=True, exist_ok=True)
-            path.replace(KEEP / path.name)
+            path.replace(KEEP / f"{h[:20]}{path.suffix}")
         else:
             path.unlink(missing_ok=True)
     return rec
@@ -419,6 +421,58 @@ def build_frames(countries: list[str]) -> dict:
     return frames
 
 
+GRADE_KEYS = ("content_type", "sha256", "bytes", "kind", "read", "write", "read_reasons", "write_reasons", "agent_checks",
+              "alerts", "fields", "writable_fields", "chars", "pages", "seconds", "summary_error", "audit_ok", "audit_failed",
+              "error", "changed")
+
+
+def regrade(jobs: int, only_ungraded: bool = False) -> int:
+    """同じ標本（world/results.jsonl の URL）を取り直して、段階だけを付け直す（道具を直したあと）。
+    届いた書類だけを取り直す（届かなかった標本は、そのまま）。中身が前と変わっていれば changed に記録する。
+    only_ungraded：届いたが段階を付けられなかった書類（対応していなかった形式など）だけ。"""
+    res_path = OUT / "results.jsonl"
+    old = [json.loads(x) for x in res_path.read_text(encoding="utf-8").splitlines() if x.strip()]
+    tmp = KEEP.parent / "world_tmp"
+    tmp.mkdir(parents=True, exist_ok=True)
+    new_path = OUT / "results.regrade.jsonl"
+    done = {}
+    if new_path.exists():
+        for line in new_path.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(line)
+                done[r["id"]] = r
+            except (json.JSONDecodeError, KeyError):
+                pass
+    lock = threading.Lock()
+
+    def one(rec: dict):
+        if rec["id"] in done or rec.get("reach") != "ok" or (only_ungraded and rec.get("read")):
+            return
+        base = {k: v for k, v in rec.items() if k not in GRADE_KEYS}
+        before = rec.get("sha256")
+        r = run_sample({k: v for k, v in base.items() if k != "reach"}, tmp)
+        if r.get("reach") != "ok":
+            # 取り直せなかった（一時の 403・時間切れなど）：届いたという前の記録を残し、段階は前の道具のものと印を付ける
+            r = dict(rec, regrade=f"取り直せない（{r.get('reach')}）")
+        elif before and r.get("sha256") != before:
+            r["changed"] = True
+        with lock:
+            with new_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
+            done[r["id"]] = r
+        print(f"[{r.get('reach')}] {r['id']} {r.get('kind') or ''} 読む {rec.get('read', '-')}→{r.get('read', '-')} "
+              f"書く {rec.get('write', '-')}→{r.get('write', '-')}", flush=True)
+
+    with ThreadPoolExecutor(jobs) as ex:
+        list(ex.map(one, old))
+    # 前の順で、付け直した記録に置き換える
+    merged = [done.get(r["id"], r) for r in old]
+    res_path.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in merged), encoding="utf-8")
+    new_path.unlink()
+    print("終わり")
+    return 0
+
+
 def main(argv=None) -> int:
     global _graders
     ap = argparse.ArgumentParser()
@@ -427,9 +481,13 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=20261103)
     ap.add_argument("--jobs", type=int, default=24)
     ap.add_argument("--graders", type=int, default=8)
+    ap.add_argument("--regrade", action="store_true", help="同じ標本を取り直して、段階だけを付け直す")
+    ap.add_argument("--only-ungraded", action="store_true", help="--regrade で、段階を付けられなかった書類だけ")
     a = ap.parse_args(argv)
     OUT.mkdir(parents=True, exist_ok=True)
     _graders = threading.Semaphore(a.graders)
+    if a.regrade:
+        return regrade(a.jobs, a.only_ungraded)
     countries = [c for c in a.countries.split(",") if c]
     frames = build_frames(countries)
     (OUT / "unreached.json").write_text(json.dumps(UNREACHED, ensure_ascii=False, indent=1), encoding="utf-8")

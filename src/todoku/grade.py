@@ -238,14 +238,12 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> 
     if k_open in _OPEN_KINDS:
         return _open_grade(k_open, blob, filename)
     # ----
-    name = filename.lower()
-    if name.endswith((".csv", ".tsv", ".json", ".jsonl", ".xml")):
-        return Grade("S", [Reason("S", "データそのもの", "表のデータ（CSV・JSON など）で、変換しなくても機械が読めます")],
-                     write="A", write_reasons=[Reason("A", "データそのもの", "行と列（か、名前と値）のデータに、そのまま書けます")])
     try:
         k = kind_of(blob)
     except Exception as e:  # noqa: BLE001
         return _locked("開けない", f"ファイルの形式を判別できませんでした（{type(e).__name__}）", "開けないので、書けません")
+    if k == "zip":
+        return _grade_zip(blob, password)
     locked = k == "encrypted"
     if not locked and k in ("xls", "doc", "pdf") and not password:
         try:
@@ -269,6 +267,50 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None) -> 
     except Exception as e:  # noqa: BLE001
         return _locked("開けない", f"ファイルを読めませんでした（{type(e).__name__}: {str(e)[:80]}）", "読めないので、書けません")
     return _locked("対応していない形式", f"この形式（{k}）は、まだ読めません", "読めないので、書けません")
+
+
+def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0) -> Grade:
+    """ZIP：中のファイルごとに段階を決め、いちばん低いものを ZIP の段階にする（理由の頭に、中の名前を付ける）。
+    中の、扱えない形式のファイル・取り出せないファイルは、そのファイルが F（開けない）。"""
+    from .ziparc import ArchiveError, extract, files
+
+    try:
+        ms = files(blob)
+    except ArchiveError as e:
+        return _locked("開けない", str(e), "開けないので、書けません")
+    if not ms:
+        return _locked("空の ZIP", "ZIP の中にファイルがありません", "書くファイルがありません")
+    if depth >= 4:
+        return _locked("深い入れ子の ZIP", "ZIP の中の ZIP が深すぎて、中を読みません", "読めないので、書けません")
+    reasons: list[Reason] = []
+    write: list[Reason] = []
+    alerts: list[Reason] = []
+    reads, writes = [], []
+    for m in ms:
+        try:
+            sub = extract(blob, m.name)
+            g = _grade_zip(sub, password, depth + 1) if sub[:2] == b"PK" and _is_plain_zip(sub) else grade_blob(sub, m.name, password)
+        except ArchiveError as e:
+            g = _locked("取り出せない", str(e), "取り出せないので、書けません")
+        reads.append(g.grade)
+        writes.append(g.write)
+        reasons += [Reason(r.grade, f"{m.name}：{r.title}", r.detail, r.where, r.by) for r in g.reasons]
+        write += [Reason(r.grade, f"{m.name}：{r.title}", r.detail, r.where, r.by) for r in g.write_reasons]
+        alerts += [Reason(a.grade, a.title, f"{m.name}：{a.detail}", a.where, a.by) for a in g.alerts]
+    gr = max(reads, key=ORDER.index)
+    wr = max(writes, key=WRITE_ORDER.index)
+    checks = [dict(c) for c in AGENT_CHECKS] if gr not in ("S", "F") else []
+    return Grade(gr, sorted(reasons, key=lambda r: -ORDER.index(r.grade)), checks, alerts=alerts, write=wr,
+                 write_reasons=sorted(write, key=lambda r: -WRITE_ORDER.index(r.grade)))
+
+
+def _is_plain_zip(blob: bytes) -> bool:
+    from .book import kind_of
+
+    try:
+        return kind_of(blob) == "zip"
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade:
@@ -437,6 +479,39 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
     return g
 
 
+def _unverifiable_rules(wb) -> list[str]:
+    """数式を使う入力規則のうち、読めない数式か、計算できない関数を使うもの（シート!範囲：数式）。"""
+    from dataclasses import fields as dc_fields
+
+    from .formula.functions import EAGER, LAZY
+    from .formula.parser import Func, Node, parse
+
+    def unknown(n) -> bool:
+        if isinstance(n, Func) and n.name not in EAGER and n.name not in LAZY:
+            return True
+        if isinstance(n, Node):
+            for fd in dc_fields(n):
+                x = getattr(n, fd.name)
+                if any(unknown(y) for y in (x if isinstance(x, list) else [x])):
+                    return True
+        return False
+
+    out = []
+    for sh in wb.sheets:
+        for v in sh.validations:
+            for f in (v.formula1, v.formula2):
+                if not f or (v.type == "list" and f.strip().startswith('"')):
+                    continue
+                try:
+                    bad = unknown(parse(f.lstrip("=")))
+                except Exception:  # noqa: BLE001
+                    bad = True
+                if bad:
+                    out.append(f"{sh.name}!{v.sqref_text or ''}：={f}")
+                    break
+    return out
+
+
 def _grade_excel(blob: bytes, filename: str) -> Grade:
     from .book import open_book
     from .xlsx.calc import verify
@@ -489,6 +564,11 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
         reasons.append(Reason("C", "確かめられない数式", f"{rep['unsupported']} 個の数式は、規則どおりに計算し直して確かめられません"))
     if rep["mismatch"]:
         reasons.append(Reason("C", "保存された値と合わない数式", f"{rep['mismatch']} 個のセルで、保存された計算結果が数式と一致しません"))
+    unchecked = _unverifiable_rules(wb)
+    if unchecked:
+        write.append(Reason("B", "確かめられない入力規則",
+                            f"{len(unchecked)} 個の入力規則は、todoku が計算できない関数を使っているので、書いた値が規則に合うかを"
+                            "確かめられません。窓に出した規則を、エージェントが読んで合う値を書きます", unchecked[:12]))
     if rep["unsupported"]:
         write.append(Reason("B", "確かめられない数式", f"{rep['unsupported']} 個の数式は計算し直せないので、書いた値から計算される所を確かめられません"))
     reasons += _macro_reasons(doc.get("macros"))

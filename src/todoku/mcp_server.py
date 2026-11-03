@@ -43,7 +43,9 @@ INSTRUCTIONS = (
 
 TOOLS = [
     {"name": "open_document",
-     "description": "書類（Excel .xlsx/.xlsm/.xls・PDF・Word .docx/.doc）を開き、形式・入力欄の数・窓の分け方と、窓（Markdown）の最初の部分を返す。",
+     "description": "書類（Excel .xlsx/.xlsm/.xls・PDF・Word .docx/.doc）を開き、形式・入力欄の数・窓の分け方と、窓（Markdown）の最初の部分を返す。"
+                    "ZIP は中のファイルの一覧を返す。中のファイルは、どの道具でも path に「a.zip!/中の名前」と指定して開く・書く"
+                    "（書き出す out_path は ZIP。書いたファイルの部品だけを入れ替える）。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "書類のファイルのパス"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"}},
                      "required": ["path"]}},
     {"name": "read_window",

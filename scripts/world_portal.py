@@ -64,6 +64,13 @@ def stratified(cells: list[tuple[int, int, int]]) -> dict:
     return {"p": round(p, 4), "ci": [round(max(0, p - h), 4), round(min(1, p + h), 4)], "n": sum(c[1] for c in cells)}
 
 
+def _ungraded_why(r: dict) -> str:
+    e, k = r.get("error") or "", r.get("kind") or ""
+    if e == "unknown_kind":
+        return {"zip": "ZIP（Office の書類でない）"}.get(k, "対応していない形式")
+    return {"password": "パスワード", "encrypted": "暗号化", "timeout": "時間切れ", "crash": "処理の失敗"}.get(e, e or "その他")
+
+
 def main() -> int:
     frames = json.loads((W / "frames.json").read_text(encoding="utf-8"))
     unreached = json.loads((W / "unreached.json").read_text(encoding="utf-8"))
@@ -119,6 +126,9 @@ def main() -> int:
         "sampled": sum(1 for r in recs if r.get("reach") != "frame_empty"),
         "reached": sum(1 for r in recs if r.get("reach") == "ok"),
         "graded": sum(1 for r in recs if r.get("read")),
+        # 届いたが段階を付けられなかった書類（対応していない形式・パスワード・時間切れなど）：分母から除くので、数と理由を出す
+        "ungraded": dict(Counter(_ungraded_why(r) for r in recs if r.get("reach") == "ok" and not r.get("read"))),
+        "regrade_kept": sum(1 for r in recs if r.get("regrade")),
         "planned": sum(min(250, sum(c for _, c in v)) for x in frames.values() for v in x["strata"].values()),
         "countries": len(frames),
         "outcomes": dict(Counter(r.get("reach") for r in recs)),

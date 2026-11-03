@@ -21,6 +21,8 @@ KIND_JA["jtd"] = "一太郎（.jtd）"
 from . import openkinds as _open  # noqa: E402
 
 KIND_JA.update(_open.KIND_JA)
+# ZIP：中のファイルを「a.zip!/中の名前」で指して、その形式のまま読む・書く（ziparc）
+KIND_JA["zip"] = "ZIP（ファイルをまとめたもの）"
 
 
 class ApiError(ValueError):
@@ -41,6 +43,8 @@ def _read(path: str, password: str | None = None):
     from .unlock import NeedsPassword, WrongPassword, unlock
 
     p = Path(path).expanduser()
+    if not p.is_file() and _member(path) is not None:
+        return _read_member(path, password)
     if not p.is_file():
         raise ApiError(f"ファイルが見つかりません: {path}")
     blob = p.read_bytes()
@@ -55,6 +59,49 @@ def _read(path: str, password: str | None = None):
     if k not in KIND_JA:
         raise ApiError(f"この形式（{k}）は扱えません。Excel・PDF・Word のファイルを指定してください")
     return plain, p.name, k, lock
+
+
+def _member(path: str) -> tuple[str, list[str]] | None:
+    """「a.zip!/b.csv」の形の指定（a.zip がファイルとしてあるもの）。"""
+    from . import ziparc
+
+    sp = ziparc.split(path)
+    if sp is None or not Path(sp[0]).expanduser().is_file():
+        return None
+    return sp
+
+
+def _member_blob(path: str) -> tuple[bytes, str]:
+    """ZIP の中のファイルの中身と名前（ZIP の中の ZIP も、続けて「!/」で指す）。"""
+    from . import ziparc
+
+    outer, chain = _member(path)
+    blob = Path(outer).expanduser().read_bytes()
+    for m in chain:
+        if kind_of(blob) != "zip":
+            raise ApiError(f"「{m}」の外側のファイルは ZIP ではありません")
+        try:
+            blob = ziparc.extract(blob, m)
+        except ziparc.ArchiveError as e:
+            raise ApiError(str(e)) from None
+    return blob, ziparc.base_name(chain[-1])
+
+
+def _read_member(path: str, password: str | None):
+    from .unlock import NeedsPassword, WrongPassword, unlock
+
+    blob, name = _member_blob(path)
+    try:
+        plain, lock = unlock(blob, password)
+    except NeedsPassword as e:
+        raise PasswordNeeded(f"{e}。本人にパスワードを聞いて、password に入れてもう一度呼んでください"
+                             "（パスワードは、結果にも記録にも残しません）") from None
+    except WrongPassword as e:
+        raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
+    k = kind_of(plain, name)
+    if k not in KIND_JA:
+        raise ApiError(f"ZIP の中の「{name}」の形式（{k}）は扱えません")
+    return plain, name, k, lock
 
 
 def _pdf(blob: bytes, name: str, lock):
@@ -93,6 +140,15 @@ def window(path: str, password: str | None = None) -> tuple[str, dict, list[tupl
 
 
 def _window(blob: bytes, name: str, k: str, lock) -> tuple[str, dict, list[tuple[str, str]]]:
+    if k == "zip":
+        from .ziparc import ArchiveError
+        from .ziparc import window as zwindow
+
+        try:
+            doc, parts = zwindow(blob, name, KIND_JA)
+        except ArchiveError as e:
+            raise ApiError(str(e)) from None
+        return k, doc, parts
     if k in _open.KINDS:  # 追加の形式
         try:
             doc, parts = _open.window(k, blob, name)
@@ -157,6 +213,8 @@ def _word(blob: bytes, name: str, k: str):
 def fields(path: str, password: str | None = None) -> list[dict]:
     """入力欄の一覧（名前・見出し・種類・選択肢・いまの値・書けるか・その行の文脈）。"""
     k, doc, _ = window(path, password)
+    if k == "zip":
+        return []  # ZIP そのものに欄はない（中のファイルを「a.zip!/名前」で開く）
     if k in _open.KINDS:  # 追加の形式
         return [_field(f, **w) for f, w in _open.field_rows(k, doc)]
     out = []
@@ -195,11 +253,15 @@ def _field(f: dict, **where) -> dict:
 def fill(path: str, values: dict, out_path: str, force: bool = False, password: str | None = None) -> dict:
     """書き込み、証明し、書き込み後のファイルを読み直して、書いた値がそのまま出ているかを確かめる。
     パスワードで保護された書類は、解いた中身に書いて証明し、元と同じパスワードで保護し直して書き出す。"""
+    if _member(path) is not None:
+        return _fill_member(path, values, out_path, force, password)
     src = Path(path).expanduser().resolve()
     dst = Path(out_path).expanduser().resolve()
     if src == dst:
         raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
     blob, name, k, lock = _read(path, password)
+    if k == "zip":
+        raise ApiError("ZIP そのものには書けません。中のファイルを path に「" + path + "!/中の名前」で指定してください")
     result: dict = {"kind": k, "out_path": str(dst), "original_sha256": hashlib.sha256(src.read_bytes()).hexdigest()}
     readback_values = dict(values)  # 読み戻しで確かめる、欄の id → 書いた値
     told = None  # 本人に伝える、書いた所（ほかの形式は読み戻しの値と同じ）
@@ -371,6 +433,55 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         result.update(_to_tell([f for f in after_list if f["id"] not in told], told, result, labels))
     else:
         result.update(_to_tell(after_list, readback_values, result, labels))
+    return result
+
+
+def _fill_member(path: str, values: dict, out_path: str, force: bool, password: str | None) -> dict:
+    """ZIP の中のファイルに書く：取り出したファイルに書いて証明し、ZIP はそのファイルの部品だけを入れ替えて書き出す。
+    書き出した ZIP から取り出し直したファイルが、証明した書き込み後のファイルとバイト一致し、ほかの部品が元とバイト一致するかを確かめる。"""
+    import tempfile
+
+    from . import ziparc
+
+    outer, chain = _member(path)
+    src = Path(outer).expanduser().resolve()
+    dst = Path(out_path).expanduser().resolve()
+    if src == dst:
+        raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
+    original = src.read_bytes()
+    layers = [original]  # 外側から順の ZIP
+    try:
+        for m in chain[:-1]:
+            layers.append(ziparc.extract(layers[-1], m))
+    except ziparc.ArchiveError as e:
+        raise ApiError(str(e)) from None
+    member_blob, name = _member_blob(path)
+    with tempfile.TemporaryDirectory() as d:
+        a, b = Path(d) / "a" / name, Path(d) / "b" / name
+        a.parent.mkdir()
+        b.parent.mkdir()
+        a.write_bytes(member_blob)
+        result = fill(str(a), values, str(b), force, password)
+        written = b.read_bytes()
+    # 内側から順に、書いた部品だけを入れ替える
+    new = written
+    for zblob, m in reversed(list(zip(layers, chain))):
+        replaced = ziparc.replace(zblob, m, new)
+        problems = ziparc.unchanged_except(zblob, replaced, m)
+        if problems:
+            raise ApiError("ZIP に入れ直すと、書いたファイルのほかの部品も変わります（書き出していません）：" + "、".join(problems[:5]))
+        new = replaced
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(new)
+    inner = ziparc.SEP.join(chain)
+    back, _n = _member_blob(str(dst) + ziparc.SEP + inner)
+    if back != written:
+        dst.unlink(missing_ok=True)
+        raise ApiError("書き出した ZIP から取り出したファイルが、書き込んで証明したファイルと一致しません（書き出していません）")
+    result.update({"out_path": str(dst), "original_sha256": hashlib.sha256(original).hexdigest(),
+                   "new_sha256": hashlib.sha256(new).hexdigest(), "member": inner,
+                   "archive": "ZIP の中のファイルに書き、ZIP はそのファイルの部品だけを入れ替えました（ほかの部品は元とバイト一致）。"
+                              f"書いたファイルは「{dst}{ziparc.SEP}{inner}」で開けます"})
     return result
 
 
@@ -570,6 +681,8 @@ def audit(path: str, password: str | None = None) -> dict:
     from .unlock import pdf_password
 
     blob, name, k, lock = _read(path, password)
+    if k == "zip":
+        return _audit_zip(path, blob, password)
     if k == "pdf":
         from .pdf.audit import run
     elif k == "docx":
@@ -589,6 +702,22 @@ def audit(path: str, password: str | None = None) -> dict:
     if lock is not None:
         d["password_protected"] = f"パスワードで保護された書類です（{lock.label}）。解いた中身を確かめました"
     return d
+
+
+def _audit_zip(path: str, blob: bytes, password: str | None) -> dict:
+    """ZIP：中の、扱える形式のファイルを1つずつ検査する（検査の名前の頭に、中の名前を付ける）。"""
+    from . import ziparc
+
+    checks = []
+    for m in ziparc.files(blob):
+        try:
+            d = audit(path + ziparc.SEP + m.name, password)
+        except ApiError as e:
+            checks.append({"name": f"{m.name}：開けない", "ok": False, "agent": False, "detail": str(e), "items": []})
+            continue
+        checks += [{**c, "name": f"{m.name}：{c['name']}"} for c in d["checks"]]
+    return {"file": Path(path).name, "ok": all(c["ok"] for c in checks), "needs_agent": any(c["agent"] for c in checks),
+            "checks": checks, "grade": grade(path, password=password)}
 
 
 def grade(path: str, findings: list[dict] | None = None, answered: list[str] | None = None,
@@ -622,6 +751,8 @@ def summary(path: str, password: str | None = None) -> dict:
         if isinstance(m, dict) and m.get("readable"):
             d["macro_procedures"] = sum(len(x["procedures"]) for x in m["modules"])
             d["macro_runs_on_change"] = any(e["on_change"] for e in m["events"])
+    elif k == "zip":
+        d["members"] = [{"name": m["name"], "kind": m["kind"], "size": m["size"]} for m in doc["members"]]
     else:
         d["protection"] = doc.get("protection")
     if k in _open.KINDS:  # 追加の形式

@@ -26,6 +26,8 @@ def kind_of(blob: bytes, filename: str = "") -> str:
         odf = _odf_kind(blob, names)  # OpenDocument（.odt・.ods）：mimetype の部品で見分ける
         if odf:
             return odf
+        if "[Content_Types].xml" not in names:
+            return "zip"  # Office の書類（OOXML：部品の種類の一覧が必ずある）でない ZIP（CSV をまとめたものなど）
         return "xlsx"
     if blob[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
         from .cfb import CFB
