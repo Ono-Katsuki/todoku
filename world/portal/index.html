@@ -14,7 +14,7 @@
   --gS: #0b4f6c; --gA: #1d7aa8; --gB: #5fa8d3; --gC: #c9b26b; --gD: #d9854a; --gE: #c45a3c; --gF: #7d2e2e;
   --wA: #1d7aa8; --wB: #5fa8d3; --wC: #c9b26b; --wD: #c45a3c;
   /* 地図：割合の5段（0–20・20–40・40–60・60–80・80–100%）。1色の明暗、色の見え方の検証を通したもの */
-  --q1: #86b6ef; --q2: #5598e7; --q3: #2a78d6; --q4: #1c5cab; --q5: #0d366b;
+  --q1: #f2cf48; --q2: #78b84a; --q3: #0f8f99; --q4: #2c5fb0; --q5: #3f2478;
   --display: "BIZ UDPMincho", "Hiragino Mincho ProN", "Yu Mincho", serif;
   --body: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
   color-scheme: light;
@@ -25,7 +25,7 @@
     --none: #1c2836; --hatch: #3a4757;
     --gS: #7fc4e6; --gA: #4fa3d6; --gB: #2f78a8; --gC: #b59c55; --gD: #c9773f; --gE: #d0664a; --gF: #e08b8b;
     --wA: #4fa3d6; --wB: #2f78a8; --wC: #b59c55; --wD: #d0664a;
-    --q1: #184f95; --q2: #256abf; --q3: #3987e5; --q4: #6da7ec; --q5: #b7d3f6; color-scheme: dark;
+    --q1: #6238ad; --q2: #2f74c8; --q3: #16a7a0; --q4: #7cc152; --q5: #f2d35a; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
@@ -33,7 +33,7 @@
   --none: #1c2836; --hatch: #3a4757;
   --gS: #7fc4e6; --gA: #4fa3d6; --gB: #2f78a8; --gC: #b59c55; --gD: #c9773f; --gE: #d0664a; --gF: #e08b8b;
   --wA: #4fa3d6; --wB: #2f78a8; --wC: #b59c55; --wD: #d0664a;
-    --q1: #184f95; --q2: #256abf; --q3: #3987e5; --q4: #6da7ec; --q5: #b7d3f6; color-scheme: dark;
+    --q1: #6238ad; --q2: #2f74c8; --q3: #16a7a0; --q4: #7cc152; --q5: #f2d35a; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); line-height: 1.7; }
@@ -391,10 +391,10 @@ tr.unr td { color: var(--muted); }
 
   <section aria-labelledby="h-map">
     <h2 id="h-map">世界地図</h2>
-    <p class="sub">各国の政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って<b>正確に扱える書類の割合</b>です。申請の様式だけの割合ではありません。色が濃い国ほど、届く書類が多いことを示します。上のボタンで、何を見るか（読める・書ける・様式に書ける・取得できる）を切り替えられます。国を選ぶと、右に内訳が出ます。</p>
+    <p class="sub">各国の政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って<b>正確に扱える書類の割合</b>です。申請の様式だけの割合ではありません。色は、黄（少ない）から緑・青を経て紫（多い）へ、届く書類の割合を 5 段階で示します。上のボタンで、何を見るか（読める・書ける・様式に書ける・取得できる）を切り替えられます。国を選ぶと、右に内訳が出ます。</p>
     <div class="tabs" role="group" aria-label="地図に示す値">
       <button type="button" id="t-read" data-m="read_ok" aria-pressed="true">正確に読める</button>
-      <button type="button" id="t-write" data-m="write_a" aria-pressed="false">そのまま書ける</button>
+      <button type="button" id="t-write" data-m="write_ok" aria-pressed="false">書ける</button>
       <button type="button" id="t-forms" data-m="forms_writable" aria-pressed="false">申請の様式に書ける</button>
       <button type="button" id="t-reach" data-m="reach" aria-pressed="false">取得できる</button>
     </div>
@@ -418,7 +418,7 @@ tr.unr td { color: var(--muted); }
         <th class="num"><button type="button" data-k="reach">届く</button></th>
         <th class="num"><button type="button" data-k="read_ok">読む S〜B</button></th>
         <th>読む段階の内訳</th>
-        <th class="num"><button type="button" data-k="write_a">書く A</button></th>
+        <th class="num"><button type="button" data-k="write_ok">書ける</button></th>
         <th>書く段階の内訳</th>
         <th class="num"><button type="button" data-k="forms_writable">様式に書ける</button></th>
       </tr></thead><tbody></tbody>
@@ -503,7 +503,7 @@ tr.unr td { color: var(--muted); }
   const outJa = o => OUT_JA[o] || (String(o).startsWith("http_") ? "HTTP " + String(o).slice(5) : String(o));
   const METRIC = {
     read_ok: { label: "正確に読める書類の割合", note: "取りに行けた書類のうち、AI エージェントが中身を正確に読めるもの（読む段階 S・A・B）。" },
-    write_a: { label: "そのまま書ける書類の割合", note: "取りに行けた書類のうち、書く所がはっきりしていて、エージェントがそのまま書けるもの（書く段階 A）。" },
+    write_ok: { label: "書ける書類の割合", note: "取りに行けた書類のうち、エージェントがとどくで書けるもの（書く段階 A・B。B は、規則では欄と決められない所を、エージェントが窓を読んで決めて書くもの）。" },
     forms_writable: { label: "申請の様式に書ける割合", note: "入力欄のある申請の様式のうち、エージェントが書けるもの（画面からの入力や手書き・押印が要らない。書く段階 A・B）。" },
     reach: { label: "取得できる書類の割合", note: "選んだ書類のうち、全体を取得できたもの（Common Crawl の保存から。保存が途中で切れていたものは、robots.txt が許せば政府のサイトから取り直した）。" },
   };
@@ -587,7 +587,7 @@ tr.unr td { color: var(--muted); }
        <dl>
          <dt>届く</dt><dd>${pct(c.reach.p)} <span class="ci">${ci(c.reach.ci)}</span></dd>
          <dt>読む S〜B</dt><dd>${pct(c.read_ok.p)} <span class="ci">${ci(c.read_ok.ci)}</span></dd>
-         <dt>書く A</dt><dd>${pct(c.write_a.p)} <span class="ci">${ci(c.write_a.ci)}</span></dd>
+         <dt>書ける</dt><dd>${pct(c.write_ok.p)} <span class="ci">${ci(c.write_ok.ci)}</span></dd>
          <dt>様式に書ける</dt><dd>${pct(c.forms_writable.p)} <span class="ci">${ci(c.forms_writable.ci)}</span>（様式 ${c.forms_writable.n} 件）</dd>
        </dl>
        <div style="font-size:.78rem;color:var(--muted)">読む段階</div>${stackHtml(c.read, READ, "g", READ_JA)}${stackLabels(c.read, READ, "g", READ_JA)}
@@ -604,7 +604,7 @@ tr.unr td { color: var(--muted); }
     const all = Object.entries(DATA.countries);
     const pending = all.filter(([, c]) => !c.reach.n).map(([, c]) => c.name).sort((a, b) => a.localeCompare(b, "ja"));
     const rows = all.filter(([, c]) => c.reach.n).map(([cc, c]) => ({ cc, c, name: c.name, n: c.reach.n,
-      reach: c.reach.p ?? -1, read_ok: c.read_ok.p ?? -1, write_a: c.write_a.p ?? -1, forms_writable: c.forms_writable.p ?? -1 }));
+      reach: c.reach.p ?? -1, read_ok: c.read_ok.p ?? -1, write_ok: c.write_ok.p ?? -1, forms_writable: c.forms_writable.p ?? -1 }));
     rows.sort((a, b) => (typeof a[sortKey] === "string" ? a[sortKey].localeCompare(b[sortKey], "ja") : a[sortKey] - b[sortKey]) * sortDir);
     const tb = document.querySelector("#table tbody");
     const btn = document.getElementById("t-all");
@@ -616,7 +616,7 @@ tr.unr td { color: var(--muted); }
        <td class="num">${pct(c.reach.p)}<br><span class="ci">${ci(c.reach.ci)}</span></td>
        <td class="num">${pct(c.read_ok.p)}<br><span class="ci">${ci(c.read_ok.ci)}</span></td>
        <td>${stackHtml(c.read, READ, "g", READ_JA)}</td>
-       <td class="num">${pct(c.write_a.p)}<br><span class="ci">${ci(c.write_a.ci)}</span></td>
+       <td class="num">${pct(c.write_ok.p)}<br><span class="ci">${ci(c.write_ok.ci)}</span></td>
        <td>${stackHtml(c.write, WRITE, "w", WRITE_JA)}</td>
        <td class="num">${pct(c.forms_writable.p)}<br><span class="ci">${c.forms_writable.n ? "様式 " + c.forms_writable.n : ""}</span></td></tr>`).join("") +
       (!allCountries ? "" : pending.length ? `<tr class="unr"><td>まだ測っていない ${pending.length} か国</td><td colspan="7">枠はあり、標本をまだ測っていません：${pending.map(esc).join("・")}</td></tr>` : "") +
@@ -722,7 +722,7 @@ tr.unr td { color: var(--muted); }
     bars("r-write", T.top_write_reasons);
     bars("r-reach", Object.entries(T.outcomes).filter(([o]) => o !== "ok" && o !== "frame_empty").sort((a, b) => b[1] - a[1]).map(([o, n]) => [outJa(o), n]));
     renderTable(); renderDocs(); drawMap();
-    select(Object.keys(d.countries).find(cc => d.countries[cc].read_ok.n) || Object.keys(d.countries)[0]);
+    select(d.countries.JP?.read_ok.n ? "JP" : (Object.keys(d.countries).find(cc => d.countries[cc].read_ok.n) || Object.keys(d.countries)[0]));
   }).catch(e => {
     document.getElementById("panel").innerHTML = `<p>結果のデータを読み込めませんでした（${esc(e.message)}）。ページを開き直してください。</p>`;
   });

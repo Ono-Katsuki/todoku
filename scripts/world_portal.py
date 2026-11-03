@@ -133,7 +133,7 @@ def main() -> int:
             unreached[cc] = {"name": c["ja"], "why": c.get("reason") or "", "outcome": c["outcome"], "iso": ISO_NUM.get(cc)}
             continue
         fams = {}
-        cells = {k: [] for k in ("reach", "read_ok", "write_a", "forms_writable")}
+        cells = {k: [] for k in ("reach", "read_ok", "write_ok", "forms_writable")}
         for fam, src, ff in strata:
             if not ff["pool"]:
                 continue
@@ -146,7 +146,7 @@ def main() -> int:
             est = {
                 "reach": ratio([(wt(r), str(r["block"]), int(r.get("reach") == "ok")) for r in rs]),
                 "read_ok": ratio([(wt(r), str(r["block"]), int(r["read"] in READ_OK)) for r in graded]),
-                "write_a": ratio([(wt(r), str(r["block"]), int(r["write"] == "A")) for r in graded]),
+                "write_ok": ratio([(wt(r), str(r["block"]), int(r["write"] in ("A", "B"))) for r in graded]),
                 "forms_writable": ratio([(wt(r), str(r["block"]), int(r["write"] in "AB")) for r in forms]),
             }
             for k, (p, v, n) in est.items():
