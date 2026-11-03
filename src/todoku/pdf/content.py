@@ -109,6 +109,7 @@ class PageContent:
     boxes: list[Box] = field(default_factory=list)
     pictures: list[Picture] = field(default_factory=list)
     curves: list[tuple] = field(default_factory=list)  # 曲線を含む図形の外枠（丸など）
+    curve_paths: list[list] = field(default_factory=list)  # 曲線を含む図形（線・塗り）の点（制御点を含む。重なりの確かめ）
     # 曲線だけで閉じた図形（○・楕円。直線を含む角の丸い四角などは入れない）の外枠：(x0, y0, x1, y1, 線, 塗り)
     ovals: list[tuple] = field(default_factory=list)
     # 曲線と、長さのある直線とで閉じた図形（角の丸い四角など）の外枠：○かもしれない（字を囲む印にも枠にも使う）。窓で「？」にする
@@ -357,6 +358,8 @@ class Interpreter:
                     xs = [p[0] for p in pts]
                     ys = [p[1] for p in pts]
                     out.curves.append((min(xs), min(ys), max(xs), max(ys), stroke, fill))
+                    if (stroke or fill) and sub.get("poly") and len(out.curve_paths) < 20000:
+                        out.curve_paths.append(sub["poly"])
                     w, h = max(xs) - min(xs), max(ys) - min(ys)
                     ends = abs(pts[0][0] - pts[-1][0]) + abs(pts[0][1] - pts[-1][1])
                     # 直線のうち、図形の外枠の対角線の 1% に足りないもの（長さ 0 の「x0 y0 l」で閉じる・曲線のつなぎ目の
@@ -572,6 +575,18 @@ class Interpreter:
                         sub = new_sub(*pts[-1])
                     sub["curve"] = True
                     sub["pts"].extend(pts)
+                    if cur is not None:
+                        # 曲線の形（重なりの確かめ）：3 次ベジエ曲線を折れ線にする。v は初めの制御点が今の点、y は後の制御点が終わりの点
+                        c1, c2, p3 = ((pts[0], pts[1], pts[2]) if op == "c" else (cur, pts[0], pts[1]) if op == "v"
+                                      else (pts[0], pts[1], pts[1]))
+                        poly = sub.setdefault("poly", [cur])
+                        if poly[-1] != cur:
+                            poly.append(cur)  # 曲線のあいだの直線
+                        for k in range(1, 13):
+                            t = k / 12
+                            u = 1 - t
+                            poly.append((u ** 3 * cur[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t ** 3 * p3[0],
+                                         u ** 3 * cur[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t ** 3 * p3[1]))
                     cur = pts[-1]
                 elif op == "h":
                     if sub is not None:

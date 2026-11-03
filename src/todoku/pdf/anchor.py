@@ -90,6 +90,42 @@ def _empty_cell_right(lay, cell, ln):
     return box
 
 
+MIN_READABLE_PT = 6.0  # fill.MIN_READABLE_PT と同じ：これより小さい字は、印刷すると読みにくい
+
+
+def _fit_size(value, rect, sz: float, unit: float) -> float:
+    """rect に value を書くときの字の大きさ（fill.add_widget と同じ決め方）。入らなければ 0。"""
+    from .fill import FillError, layout_text
+
+    w, h = rect[2] - rect[0], rect[3] - rect[1]
+    if w <= 0 or h <= 0:
+        return 0.0
+    try:
+        return layout_text(str(value), w, h, min(sz, h * 0.8), multiline=h > 2.4 * min(sz, 10.5 / unit), unit=unit)[1]
+    except FillError:
+        return 0.0
+
+
+def _right_cell_band(lay, cell, ln):
+    """見出しのマス cell の右の縁に接し（1.5pt 以内）、見出しの行の高さを含むマス（いちばん左のもの）の、見出しの行の高さの
+    帯のうち、左の縁から、帯にかかる字・縦の罫線の手前まで（字のある所には書かない）。なければ None。"""
+    cy = (ln.y0 + ln.y1) / 2
+    sz = ln.size
+    cand = [c for c in lay.cells if c is not cell and abs(c.x0 - cell.x1) <= 1.5 and c.y0 - 0.5 <= cy <= c.y1 + 0.5]
+    if not cand:
+        return None
+    c = min(cand, key=lambda c: (c.x0, c.y0))
+    y0, y1 = max(c.y0 + 0.5, ln.y0 - 0.15 * sz), min(c.y1 - 0.5, ln.y1 + 0.15 * sz)
+    x1 = c.x1
+    for ch in c.chars:
+        if not ch.text.isspace() and ch.y0 < y1 and ch.y1 > y0 and ch.x0 > c.x0:
+            x1 = min(x1, ch.x0)
+    for r in lay.vs:
+        if r.a - 1 <= y0 and r.b + 1 >= y1 and c.x0 + 1.5 < r.pos < x1:
+            x1 = r.pos
+    return (c.x0 + 1.5, y0, x1 - 1.5, y1)
+
+
 def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | None = None,
                   taken_names: set | None = None) -> dict:
     """見出しの字で指した書き込み → 書く所（窓の欄と同じ形の辞書：id「p ページ.w 番号」・ページ・矩形・字の大きさ）。
@@ -136,6 +172,7 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
         raise AnchorError(f"「{after}」が {len(hits)} か所にあります。page か occurrence（何番目か）で1つに決めてください：{listing}")
     n, _y, _x, i, cell, ln, lay, j = hits[0]
     sz = ln.size
+    note = None  # 知らせること（見出しのマスの狭い空きで字が小さくなる、など）
     text = ln.text
     if where == "cover":
         x0, y0, x1, y1 = ln.span_rect(i, j)
@@ -158,12 +195,24 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
             if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1 and x0 <= r.pos < rb:
                 rb = r.pos
         rect = (x0, ln.y0 - 0.1 * sz, rb - 1.5, ln.y1 + 0.1 * sz)
+        unit = lay.view.unit
         if rect[2] - rect[0] < 1.5 * sz and cell is not None and not rest:
             # 見出しのマスに空きがない：すぐ右の、同じ行の高さにある空のマス（見出しのマスの右の縁に接する）に書く
             nxt = _empty_cell_right(lay, cell, ln)
             if nxt is not None:
                 # 高さは見出しの行の高さ（マスが何行ぶんもあるとき、ほかの行の見出しの高さに書かない）
                 rect = (nxt.x0 + 1.5, max(nxt.y0 + 0.5, ln.y0 - 0.15 * sz), nxt.x1 - 1.5, min(nxt.y1 - 0.5, ln.y1 + 0.15 * sz))
+        elif cell is not None and not rest:
+            here = _fit_size(value, rect, sz, unit)
+            if here * unit < max(MIN_READABLE_PT, 0.6 * sz * unit):
+                # 見出しのマスの中の狭い空き（「氏　　名」の後ろ）では、字がとても小さくなる：置く所は変えずに（エージェントが
+                # 決める）、そのことと、右のマスの字のない所（あれば）を、位置（mm）で知らせる
+                mm = lay.view.mm
+                band = _right_cell_band(lay, cell, ln)
+                alt = (f"右のマスの字のない所（左 {band[0] / mm:.1f}・上 {band[1] / mm:.1f}・右 {band[2] / mm:.1f}・下 {band[3] / mm:.1f} mm）"
+                       "に書くなら box で" if band is not None and band[2] - band[0] >= 1.5 * sz else "広い所に書くなら box で")
+                note = (f"「{after}」の右は、見出しのマスの中の狭い空き（幅 {(rect[2] - rect[0]) / mm:.1f} mm）なので、字が約 "
+                        f"{here * unit:.1f} pt になります（見出しの字は {sz * unit:.1f} pt）。{alt}書き直してください")
         if rect[2] - rect[0] < 1.5 * sz:
             raise AnchorError(f"「{after}」の右に、書く空きがありません（where を \"below\" にすると、見出しの下に書けます）")
     elif where == "before":
@@ -203,7 +252,7 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
         side = {"right": "右", "before": "左", "below": "下"}[where]
         raise AnchorError(f"「{after}」の{side}の所に、ほかの字（「{''.join(c.text for c in inside[:6])}」）があります")
     return _place(n, rect, used, taken_names, {"id": None, "page": n, "kind": "inline" if where == "cover" else "text",
-                                              "size": None, "anchored": dict(spec)}, where, after, sz,
+                                              "size": None, "anchored": dict(spec), **({"note": note} if note else {})}, where, after, sz,
                   unit=lay.view.unit)
 
 
