@@ -721,7 +721,7 @@ tr.unr td { color: var(--muted); }
     bars("r-write", T.top_write_reasons);
     bars("r-reach", Object.entries(T.outcomes).filter(([o]) => o !== "ok" && o !== "frame_empty").sort((a, b) => b[1] - a[1]).map(([o, n]) => [outJa(o), n]));
     renderTable(); renderDocs(); drawMap();
-    select(Object.keys(d.countries)[0]);
+    select(Object.keys(d.countries).find(cc => d.countries[cc].read_ok.n) || Object.keys(d.countries)[0]);
   }).catch(e => {
     document.getElementById("panel").innerHTML = `<p>結果のデータを読み込めませんでした（${esc(e.message)}）。ページを開き直してください。</p>`;
   });

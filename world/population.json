@@ -995,15 +995,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 149719,
+     "pdf": 167516,
      "sheet": 162,
-     "text": 216,
+     "text": 380,
      "csv": 297
     },
     "pool": {
-     "pdf": 5552,
+     "pdf": 7615,
      "sheet": 6,
-     "text": 8,
+     "text": 27,
      "csv": 11
     },
     "suffix": {
@@ -1017,7 +1017,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 69,
+      "edge": 190
+     },
+     "read": {
+      "core": 8,
+      "edge": 22
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -2668,15 +2678,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 725,
-     "sheet": 7,
-     "text": 0,
+     "pdf": 70707,
+     "sheet": 1420,
+     "text": 153,
      "csv": 0
     },
     "pool": {
-     "pdf": 725,
-     "sheet": 7,
-     "text": 0,
+     "pdf": 4498,
+     "sheet": 81,
+     "text": 8,
      "csv": 0
     },
     "suffix": {
@@ -2690,7 +2700,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 165,
+      "edge": 401
+     },
+     "read": {
+      "core": 9,
+      "edge": 21
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -3161,13 +3181,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 82450,
+     "pdf": 84424,
      "sheet": 8,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 10262,
+     "pdf": 10948,
      "sheet": 1,
      "text": 0,
      "csv": 0
@@ -3183,7 +3203,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 170
+     },
+     "read": {
+      "core": 1,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -3502,14 +3532,14 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 338463,
-     "sheet": 28,
+     "pdf": 356492,
+     "sheet": 137,
      "text": 55,
      "csv": 0
     },
     "pool": {
-     "pdf": 12680,
-     "sheet": 1,
+     "pdf": 17631,
+     "sheet": 31,
      "text": 2,
      "csv": 0
     },
@@ -3524,7 +3554,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 30,
+      "edge": 79
+     },
+     "read": {
+      "core": 8,
+      "edge": 22
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -3634,13 +3674,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 5988,
+     "pdf": 6155,
      "sheet": 1,
      "text": 5,
      "csv": 1
     },
     "pool": {
-     "pdf": 5988,
+     "pdf": 6155,
      "sheet": 1,
      "text": 5,
      "csv": 1
@@ -3656,7 +3696,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 12
+     },
+     "read": {
+      "core": 1,
+      "edge": 12
+     },
+     "exact": true
+    }
    }
   },
   {
