@@ -559,6 +559,82 @@ def _unverifiable_rules(wb) -> list[str]:
     return out
 
 
+_SHEET_MARKS = {"入力規則があるセル", "シート保護の中で編集できるセル"}  # ファイルの作りとして入力欄の印になっているもの
+_SHEET_BOXED = {"枠のある空欄", "色の付いた空欄"}  # 罫線・塗りと、近くの見出しから推定したもの（印ではない）
+_CONTROL_KINDS = ("checkbox", "radio", "select", "multiselect", "spin", "option", "combo")
+
+
+def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "シート保護") -> None:
+    """表計算（Excel・OpenDocument）の入力欄の段階：
+    - A：すべての欄が、ファイルの作りとしての印（入力規則・保護の中のロックの解除・フォームの部品）で決まる
+    - B：罫線・塗りと近くの見出し・文字の中の空欄の字の形・数式の入力から推定した欄（印ではない）
+    - C：規則では決められない所（窓の［B5？］・文字の中の［？］。エージェントが判断する）・重なった入力規則"""
+    marked, boxed, inferred, inline, overlap, agent = [], [], [], [], [], []
+    for sh in doc["sheets"]:
+        for f in sh.get("fields", []):
+            if f.get("agent"):
+                agent.append(f)
+                continue
+            if f.get("unlabeled"):
+                continue
+            why = set(f.get("reason", []))
+            if f["kind"] == "inline":
+                inline.append(f["id"])
+            elif why & _SHEET_MARKS or ((f["kind"] in _CONTROL_KINDS or f.get("activex")) and not f.get("undecided")):
+                marked.append(f["id"])
+            elif why & _SHEET_BOXED:
+                boxed.append(f["id"])
+            else:
+                inferred.append(f["id"])
+            if f.get("rules_overlap"):
+                overlap.append(f["id"])
+    n_fields = len(marked) + len(boxed) + len(inferred) + len(inline)
+    guessed = inline + boxed + inferred
+    if guessed or agent or overlap:
+        ids = guessed + [f["id"] for f in agent] + overlap
+        write.append(Reason("B", "解析して決める入力欄",
+                            f"{len(ids)} か所は、入力欄の印がなく（か、入力規則が重なっていて）、"
+                            "枠・塗りと近くの見出し・文字の中の空き・数式の入力・表の作りから解析して書く所を決めます", ids[:12]))
+    elif n_fields:
+        write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・{protect}・フォームの部品の印で決まり、そのまま書けます"))
+    else:
+        write.append(Reason("B", "印のある欄がない", f"入力欄の印（入力規則・{protect}など）がありません。表の作りを読んで、書くセルを番地で指定します"))
+    if boxed:
+        reasons.append(Reason("B", "枠・塗りから推定した入力欄",
+                              f"{len(boxed)} か所は、入力規則も{protect}の印もなく、枠や塗りのある空のマスで、そばに見出しがあることから推定した欄です",
+                              boxed[:12]))
+    if inline:
+        reasons.append(Reason("B", "文字の中の空欄", f"{len(inline)} か所は、「（　　）」「＿＿＿」のような、文字の中の空欄の形から推定した欄です", inline[:12]))
+    if inferred:
+        reasons.append(Reason("B", "印のない入力欄", f"{len(inferred)} か所は、入力規則も枠もなく、数式の入力になっていることから推定した欄です",
+                              inferred[:12]))
+    if agent:
+        reasons.append(_agent_reason(agent))
+    if overlap:
+        reasons.append(Reason("C", "重なった入力規則",
+                              f"{len(overlap)} か所に入力規則が重なっていて、どの規則が使われるかはファイルから決まりません。"
+                              "窓に出したそれぞれの規則を、エージェントが読んで判断します", overlap[:12]))
+    if n_fields and not (guessed or agent or overlap):
+        reasons.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・{protect}・フォームの部品の印で決まります"))
+
+
+def image_only_sheets(wb) -> list[str]:
+    """画像だけのシート：絵・グラフがあり、使っている範囲（印刷範囲があればその中）に、値・数式のあるセルも、字のある図形・部品もない
+    （ファイルの作りで決まる）。"""
+    out = []
+    for sh in wb.sheets:
+        shapes = getattr(sh, "shapes", [])
+        if not any(s.kind in ("picture", "chart") for s in shapes):
+            continue
+        if any((c.has_formula or c.value not in (None, "")) and sh.in_print_area(r, col) for (r, col), c in sh.cells.items()):
+            continue
+        if any((getattr(s, "text", "") or "").strip() for s in shapes) or \
+                any((getattr(c, "text", "") or "").strip() for c in getattr(sh, "controls", [])):
+            continue
+        out.append(sh.name)
+    return out
+
+
 def _grade_excel(blob: bytes, filename: str) -> Grade:
     from .book import open_book
     from .xlsx.calc import verify
@@ -568,44 +644,7 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
     doc = build(wb)
     reasons: list[Reason] = []
     write: list[Reason] = []
-    explicit = {"入力規則があるセル", "シート保護の中で編集できるセル", "枠のある空欄", "色の付いた空欄"}
-    inferred, inline, overlap, undecided, n_fields = [], [], [], [], 0
-    for sh in doc["sheets"]:
-        for f in sh.get("fields", []):
-            if f.get("unlabeled"):
-                continue
-            n_fields += 1
-            if f["kind"] == "inline":
-                inline.append(f["id"])
-            elif f["kind"] != "checkbox" and not (set(f.get("reason", [])) & explicit):
-                inferred.append(f["id"])
-            if f.get("rules_overlap"):
-                overlap.append(f["id"])
-        undecided += [f"{sh['name']}!{u['cell']}" for u in sh.get("undecided", [])]
-    if inline or inferred or undecided or overlap:
-        write.append(Reason("B", "解析して決める入力欄",
-                            f"{len(inline) + len(inferred) + len(undecided) + len(overlap)} か所は、入力欄の印がなく（か、入力規則が重なっていて）、"
-                            "文字の中の空き・数式の入力・表の作りから解析して書く所を決めます",
-                            (inline + inferred + undecided + overlap)[:12]))
-    elif n_fields:
-        write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・シート保護・枠などの印で決まり、そのまま書けます"))
-    else:
-        write.append(Reason("B", "印のある欄がない", "入力欄の印（入力規則・シート保護・枠など）がありません。表の作りを読んで、書くセルを番地で指定します"))
-    if inline:
-        reasons.append(Reason("B", "文字の中の空欄", f"{len(inline)} か所は、「令和　年　月　日」のような文字の中の空白から推定した欄です", inline[:12]))
-    if inferred:
-        reasons.append(Reason("B", "印のない入力欄", f"{len(inferred)} か所は、入力規則も枠もなく、数式の入力になっていることから推定した欄です",
-                              inferred[:12]))
-    if undecided:
-        reasons.append(Reason("C", "入力欄か決められないセル",
-                              f"表の {len(undecided)} か所の空のセルは、入力欄の印がなく、規則では決められません。"
-                              "エージェントが窓を読んで判断し、書くならセルの番地を指定して書きます", undecided[:12]))
-    if overlap:
-        reasons.append(Reason("C", "重なった入力規則",
-                              f"{len(overlap)} か所に入力規則が重なっていて、Excelがどれを使うかはファイルから決まりません。"
-                              "窓に出したそれぞれの規則を、エージェントが読んで判断します", overlap[:12]))
-    if n_fields and not (inline or inferred or undecided or overlap):
-        reasons.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・シート保護・枠などの印で決まります"))
+    sheet_input_reasons(doc, reasons, write)
     vr = verify(wb)
     rep = vr.summary()
     if rep["unsupported"]:
@@ -631,12 +670,10 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
         write.append(Reason("B", "確かめられない数式", f"{rep['unsupported']} 個の数式は計算し直せないので、書いた値から計算される所を確かめられません"))
     reasons += _macro_reasons(doc.get("macros"))
     write += _write_macros(doc.get("macros"))
-    for sh_obj in wb.sheets:
-        pics = [s for s in getattr(sh_obj, "shapes", []) if s.kind in ("picture", "chart")]
-        if pics and len(sh_obj.cells) < 5:
-            reasons.append(Reason("E", "画像だけのシート", f"シート「{sh_obj.name}」の中身は画像で、セルの文字がありません", [sh_obj.name]))
-            write.append(Reason("D", "画像だけのシート", f"シート「{sh_obj.name}」は画像だけで、書くセルがありません。手で書く紙として扱います",
-                                [sh_obj.name]))
+    for name in image_only_sheets(wb):
+        reasons.append(Reason("E", "画像だけのシート", f"シート「{name}」の中身は画像で、セルの文字がありません", [name]))
+        write.append(Reason("D", "画像だけのシート", f"シート「{name}」は画像だけで、書くセルがありません。手で書く紙として扱います",
+                            [name]))
     pictures = []
     for sh_obj in wb.sheets:
         from .formula.parser import addr

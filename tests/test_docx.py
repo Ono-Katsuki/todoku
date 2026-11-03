@@ -159,7 +159,8 @@ def test_checked_marks_are_checkbox_candidates():
     res = fill(DocxDocument(blob, "m.docx"), {"P1.1": False, "P1.2": True, "P2.1": False, "P3.1": True})
     assert prove(blob, res.blob, {x.id: x.value for x in res.patches}).ok
     after = build(DocxDocument(res.blob, "m.docx"))
-    got = {f["id"]: f["value"] for f in after["fields"]}
+    # 「申請者の情報」「確認した」の後ろ（P2.a1・P3.a1）も、見出しの後ろの候補（印の箱があっても落とさない）。書いたのは印だけ
+    got = {f["id"]: f["value"] for f in after["fields"] if not f["id"].endswith(".a1")}
     assert got == {"P1.1": False, "P1.2": True, "P2.1": False, "P3.1": True}, got
     text = "\n".join(ln for st in after["stories"] for ln in st["reading"])
     assert "☐［P1.1］ 新規" in text and "☑［P1.2］ 変更" in text and "☐［P2.1］ 申請者の情報" in text

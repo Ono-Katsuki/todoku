@@ -294,13 +294,13 @@ def fill(wb: OdsWorkbook, values: dict, *, force: bool = False) -> OdsFillResult
             problems.append(f"{sheet}!{addr(r, c)} はシートの保護でロックされたセルです（LibreOffice でも書き込めません）")
             continue
         if isinstance(v, (list, tuple)):
-            from ..xlsx.window import fill_blanks
+            from ..xlsx.window import blank_spans, fill_blanks
 
             if cell is None or not isinstance(cell.value, str):
                 problems.append(f"{sheet}!{addr(r, c)} は文字の中に空欄のあるセルではありません")
                 continue
             try:
-                v = fill_blanks(cell.value, list(v))
+                v = fill_blanks(cell.value, list(v), blank_spans(wb, sheet, r, c))
             except ValueError as e:
                 problems.append(f"{sheet}!{addr(r, c)}: {e}")
                 continue

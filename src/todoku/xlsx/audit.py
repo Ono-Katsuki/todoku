@@ -519,9 +519,9 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
         try:
             s, r, c = resolve_target(wb, k)
             if isinstance(v, list):
-                from .window import fill_blanks
+                from .window import blank_spans, fill_blanks
 
-                want = fill_blanks(wb.sheet(s).cells[(r, c)].value, v)
+                want = fill_blanks(wb.sheet(s).cells[(r, c)].value, v, blank_spans(wb, s, r, c))
             else:
                 want = interpret_input(wb, s, r, c, v)[0]
             key = f"{s}!{addr(r, c)}"
@@ -555,6 +555,9 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
                            f"Markdown {total:,} 文字" + (f"を {len(parts)} 部分に分け、いちばん大きい部分も {biggest:,} 文字"
                                                         if len(parts) > 1 else "") + "（AIが1回で読める目安 15万文字以内）"))
     au.checks += check_writing(open_book(blob, filename), doc)
+    ap = agent_places_check([f for sh in doc["sheets"] for f in sh.get("fields", [])])
+    if ap is not None:
+        au.checks.append(ap)  # 規則では決められない所（［B5？］・文字の中の［？］）：書き込みの試しにも含めた
     overlap = [f["id"] for sh in doc["sheets"] for f in sh.get("fields", []) if f.get("rules_overlap")]
     au.checks.append(Check("入力規則の重なり", True,
                            "入力規則の重なったセルはありません" if not overlap else

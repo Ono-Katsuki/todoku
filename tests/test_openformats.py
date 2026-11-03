@@ -256,7 +256,12 @@ def test_ods_window_fill_recalc_and_proof():
     assert fields["Sheet1!B4"]["kind"] == "date" and "D3" in fields["Sheet1!B3"]["write_as"]
     cell_d3 = next(c for c in doc["sheets"][0]["cells"] if c["cell"] == "D3")
     assert cell_d3["formula"] == "of:=[.B3]+[.C3]" and cell_d3["formula_excel"] == "=B3+C3"
-    assert grade_sheets(blob, "a.ods").grade == "A"
+    # 枠のある空欄は、罫線と近くの見出しから推定した欄なので B（印ではない）。見出しのない枠の空のマス（5〜7行目の B〜D）は、
+    # 規則では欄と決められない所［B5？］として窓に出すので C（エージェントが判断する）
+    g = grade_sheets(blob, "a.ods")
+    titles = {r.title: r.grade for r in g.reasons}
+    assert g.grade == "C" and titles.get("枠・塗りから推定した入力欄") == "B" and titles.get("規則では決められない所") == "C", g.headline()
+    assert fields["Sheet1!B5"]["agent"] and fields["Sheet1!B5"]["evidence"]["borders"] == ["左", "右", "上", "下"]
     res = fill(OdsWorkbook(blob, "a.ods"), {"Sheet1!B1": "山田 太郎", "Sheet1!B2": "女", "Sheet1!B3": "1,000", "Sheet1!C3": 234,
                                              "Sheet1!B4": "2026/4/1", "Sheet1!C6": "x"})
     recalc = {(p.sheet, *parse_cell(p.address)): p.after for p in res.patches if p.kind == "formula"}
