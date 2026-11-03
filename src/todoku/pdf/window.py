@@ -22,7 +22,6 @@ DET = "deterministic"
 LAYOUT = "layout"
 
 KIND_JA = {"text": "文字", "comb": "1字ずつ書く欄", "inline": "文字の中の空欄", "checkbox": "チェック", "space": "余白",
-           "circle": "○で囲んで選ぶ",
            "radio": "ひとつ選ぶ", "combo": "一覧から選ぶ", "list": "一覧から選ぶ", "signature": "署名（電子署名）",
            "button": "ボタン（押すだけ）"}
 
@@ -38,19 +37,15 @@ class _Item:
     marks: list = field(default_factory=list)  # (順番の x, 印の文字列を返す関数)
 
 
-def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None) -> str:
+def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, circled: list | None = None) -> str:
     """行の文字に、入力欄の印（［p1.3］）を入れる。kept があれば、窓に出した元の字（印に置き換えて消えた字を除いたもの）を足す
-    （読み落としの検査が、窓に実際に出た字で数えるため）。"""
+    （読み落としの検査が、窓に実際に出た字で数えるため）。circled：ページに描かれた○が囲む字 (始め, 終わり, id)：その字の後ろに
+    「［○］」（とどくが描いた○は「［p1.c1：○］」）。"""
     text = ln.text
     edits = []
+    for a, b, ident in circled or []:
+        edits.append((b, b, f"［{ident}：○］" if ident else "［○］"))
     for sp in sorted(spots, key=lambda x: x.at or (0, 0)):
-        if sp.kind == "circle":
-            # 選択肢の並びの後ろに「［p1.5：○で囲む］」の印
-            last = max(ln.text.index(o) + len(o) if o in ln.text else 0 for o, _r in sp.options)
-            chosen = next((f.value_text() for f, _w in (getattr(sp, "widget", None) or []) if f.name == name(sp)), None) \
-                or getattr(sp, "chosen", None)
-            edits.append((last, last, f"［{name(sp)}{'＝' + chosen if chosen else ''}：○で囲む］"))
-            continue
         a, b = sp.at
         mark = _filled_mark(sp, name)
         if mark is not None:
@@ -141,26 +136,28 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     by_name = {f.name: f for f, _, _ in ws}
     # 配置から見つけた欄のうち、フォームの欄と重なるものは、フォームの欄を使う
     spots = []
+    tdk = re.compile(rf"p{number}\.[a-z]?\d+")  # とどくが書き込んだ欄の名前（配置の欄・字を目印にした所・印影）
+    real = [r for f, w, r in ws if not tdk.fullmatch(f.name)]
+    hidden: set[int] = set()
     for sp in (lay.spots if layout else []):
         # 配置から見つけた欄に重なるフォームの欄（書き込んだ後の欄、または元からある欄）
-        if sp.kind == "circle":
-            # ○で囲む欄：選択肢のどれかに重なる欄（書き込みでは、選択肢ごとに囲みの欄を置く）
-            hits = [(f, w) for f, w, r in ws if any(_overlap(o, r) > 0.5 for _t, o in sp.options)]
-        else:
-            hits = [(f, w) for f, w, r in ws if _overlap(sp.rect, r) > 0.5]
+        hits = [(f, w) for f, w, r in ws if _overlap(sp.rect, r) > 0.5]
         sp.widget = hits or None
+        if not hits and any(_beside_widget(sp.rect, r) for r in real):
+            # 本物のフォームの欄（元からある欄）に重なる・すぐ隣に接する所：書く所はその欄なので、別の所として示さない
+            hidden.add(id(sp))
+            continue
         spots.append(sp)
+    for sp in spots:
+        if sp.alternative_to is not None and id(sp.alternative_to) in hidden:
+            sp.alternative_to = None
+        if sp.group:
+            sp.group = [x for x in sp.group if id(x) not in hidden]
     used_widgets: set[int] = set()
     items: list[_Item] = []
     cell_items: dict[int, _Item] = {}
     line_spots: dict[int, list[Spot]] = {}
     for sp in spots:
-        if sp.kind == "circle" and (sp.cell is None or sp.host in sp.cell.lines):
-            # 行の中の選択肢（○で囲む）：選択肢の後ろに印を出す
-            line_spots.setdefault(id(sp.host), []).append(sp)
-            continue
-        if sp.kind == "circle":
-            continue
         if isinstance(sp.host, Line):
             line_spots.setdefault(id(sp.host), []).append(sp)
             for b in getattr(sp, "also", []):
@@ -179,7 +176,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     # 行にもマスにも結びつかない候補（見出しのない下線・ページの半分を超える空のマス）：その位置に、印だけを出す
     cell_ids = {id(c) for c in lay.cells}
     for sp in spots:
-        if sp.kind != "circle" and (sp.host is None or (isinstance(sp.host, Cell) and id(sp.host) not in cell_ids)):
+        if sp.host is None or (isinstance(sp.host, Cell) and id(sp.host) not in cell_ids):
             it = _Item(*sp.rect)
             it.spot = sp
             items.append(it)
@@ -256,6 +253,9 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             emitted_marks[0] += 1
         return m or ""
 
+    circ: dict[int, list] = {}  # 行 → ページに描かれた○が囲む字 (始め, 終わり, id)
+    for ln_, a_, b_, ident in getattr(lay, "circled", []):
+        circ.setdefault(id(ln_), []).append((a_, b_, ident))
     reading = []
     plain: list[str] = []
     for row in rows:
@@ -266,7 +266,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         parts = []
         for it in row:
             if it.line is not None:
-                t = _render_line(it.line, line_spots.get(id(it.line), []), name, plain) + room_mark(it.line)
+                t = _render_line(it.line, line_spots.get(id(it.line), []), name, plain, circ.get(id(it.line))) + room_mark(it.line)
             elif getattr(it, "spot", None) is not None:
                 sp = it.spot
                 mark = _filled_mark(sp, name)
@@ -276,9 +276,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             else:
                 c = it.cell
                 pieces = []
-                own = [sp for sp in spots if sp.host is c]
-                circles = [sp for sp in spots if sp.kind == "circle" and sp.cell is c and sp.host not in c.lines]
-                for sp in own:
+                for sp in [sp for sp in spots if sp.host is c]:
                     mark = _filled_mark(sp, name)
                     if mark is not None:
                         pieces.append(mark)
@@ -288,18 +286,13 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                         pieces.append(f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
                 rendered = []
                 for ln in c.lines:
-                    r_ = _render_line(ln, line_spots.get(id(ln), []), name, plain) + room_mark(ln)
+                    r_ = _render_line(ln, line_spots.get(id(ln), []), name, plain, circ.get(id(ln))) + room_mark(ln)
                     grp = getattr(ln, "overprint", None)
                     if grp is not None and rendered and rendered[-1][1] == grp:
                         rendered[-1] = (rendered[-1][0] + " ／ " + r_, grp)  # 重ねて描かれた行
                     else:
                         rendered.append((r_, grp))
                 pieces.append(_join([r_ for r_, _g in rendered]) + room_mark(c))
-                for sp in circles:
-                    nm = name(sp)
-                    chosen = next((f.value_text() for f, _ in (sp.widget or []) if f.name == nm), None)
-                    pieces.insert(0, "（○で囲む［" + nm + (f"＝{chosen}" if chosen else "") + "］: " +
-                                  "・".join(o for o, _ in sp.options) + "）")
                 t = " ".join(p for p in pieces if p)
             for _, f, w in sorted(it.marks, key=lambda m: m[0]):
                 if f.name in names.values():
@@ -313,7 +306,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     out_fields = []
     context_of = {}
     for line in reading:
-        for m in re.finditer(r"［(p\d+\.a?\d+)？?[］＝：]", line):
+        for m in re.finditer(r"［(p\d+\.a?\d+)？?[］＝]", line):
             context_of.setdefault(m[1], line)
     emitted: set[str] = set()
     for sp in spots:
@@ -332,13 +325,6 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         if sp.kind == "comb":
             d["boxes"] = len(sp.boxes)
             d["box_rects"] = [[round(v, 2) for v in b] for b in sp.boxes]
-        if sp.kind == "circle":
-            if getattr(sp, "chosen", None) is not None:
-                d["value"] = sp.chosen  # ページに描かれた○が囲んでいる選択肢
-            d["options"] = [o for o, _ in sp.options]
-            if getattr(sp, "numbered", False):
-                d["numbered"] = True  # 番号の付いた選択肢：○は番号を囲む（値は番号・語・全体のどれでもよい）
-            d["option_rects"] = [[o, [round(v, 2) for v in r]] for o, r in sp.options]
         if sp.row_label:
             d["row_label"] = sp.row_label
         if sp.column_label:
@@ -360,7 +346,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             d["covered"] = sp.cover
             d["placeholder"] = sp.cover
         if sp.kind != "checkbox":
-            d["value"] = getattr(sp, "chosen", None) if sp.kind == "circle" else None
+            d["value"] = None
         if filled is not None:
             d["value"] = filled.checked if filled.kind == "checkbox" else filled.value_text()
         out_fields.append(d)
@@ -457,8 +443,10 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                          [f"{where}（{st}：{unread}）"])
             annots.append(d_)
     marks, inword = unmapped_places(lay)
+    circled = [{"text": ln_.text[a_:b_], "id": ident or None, "context": re.sub(r"[ 　]+", " ", ln_.text).strip()[:60],
+                "rect": [round(v, 1) for v in ln_.span_rect(a_, b_)]} for ln_, a_, b_, ident in getattr(lay, "circled", [])]
     return {"number": number, "width": round(view.width, 1), "height": round(view.height, 1), "rotate": view.rot,
-            "fields": out_fields, "reading": reading, "chars": chars, "unmapped": pc.unmapped, "images": images,
+            "fields": out_fields, "reading": reading, "circled": circled, "chars": chars, "unmapped": pc.unmapped, "images": images,
             # 字に直せない字の、行の中での役割（字の並びの形で決める）：行の頭の印（箇条の印）と、それ以外（本文の字）
             "unmapped_marks": marks, "unmapped_text": inword,
             "image_only": chars == 0 and images > 0, "pictures": pictures, "problems": pc.problems, "annotations": annots,
@@ -570,15 +558,25 @@ def _join(texts: list[str]) -> str:
 
 
 def _cjk(ch: str) -> bool:
-    from .layout import _is_cjk
+    from .layout import no_word_space
 
-    return _is_cjk(ch) and ch not in "［］"
+    return no_word_space(ch) and ch not in "［］"
 
 
 def _alias(sp: Spot, b: Spot) -> Spot:
     a = Spot(sp.kind, sp.rect, sp.label, host=b.host, at=b.at, checked=sp.checked)
     a.alias_of = sp
     return a
+
+
+def _beside_widget(rect, r) -> bool:
+    """配置の所 rect が、フォームの欄 r に重なるか、同じ行（上下の半分以上が重なる）で、欄の高さの内に接するか。"""
+    h = min(rect[3] - rect[1], r[3] - r[1])
+    vov = min(rect[3], r[3]) - max(rect[1], r[1])
+    if h <= 0 or vov < 0.5 * h:
+        return False
+    gap = max(rect[0] - r[2], r[0] - rect[2])  # 左右の離れ（負なら重なる）
+    return gap <= (r[3] - r[1])
 
 
 def _rtl_row(row: list[_Item]) -> bool:
@@ -653,6 +651,7 @@ def build(doc: PdfDocument) -> dict:
                                       "書く所と判断したら、字を目印にして {\"@1\": {\"after\": 見出しの字, \"value\": 書く字, "
                                       "\"page\": ページ}}（下なら \"where\": \"below\"。上・左は {\"page\": …, \"box\": [左, 上, 右, 下]（mm）, "
                                       "\"value\": …}）で書く",
+                     "［○］": "直前の字を、ページに描かれた○（線の曲線）が囲んでいる（とどくが描いた○は［p1.c1：○］）",
                      "［名前＝値］": "フォームの欄といまの値", "☐［p1.5］ / ☑": "チェックの印",
                      "○［欄＝選択肢］ / ◉": "ひとつ選ぶ欄の選択肢", " ｜ ": "表のマスの区切り"},
         "form": {"acroform_fields": len(fields), "xfa": has_xfa(doc), "encrypted": doc.decryptor is not None},
@@ -752,6 +751,9 @@ def _md_head(doc: dict) -> list[str]:
                "`\"where\": \"below\"`、右から左へ書く字の見出しの左に書くときは `\"where\": \"before\"`。同じ字がいくつもあるときは `occurrence` で何番目かを指定する）。"
                "伏せ字（「○○」）の上に書くときは `{\"@1\": {\"cover\": \"○○\", \"value\": \"書く字\"}}`"
                "（白い下地の欄で覆って書く。元の字は消さない）。")
+    out.append("- 印刷された選択肢は欄として並べていません。○で囲むときは、字を指定して circle で書いてください："
+               "`{\"@c1\": {\"circle\": \"囲む字\", \"near\": \"近くの見出しの字\", \"page\": 1}}`"
+               "（同じ字がいくつもあるときは `occurrence`。詰まった所で楕円がほかの字に触れるときは `\"style\": \"border\"`（四角の囲み線））。")
     out.append("- 記号: " + "、".join(f"{k} は{v}" for k, v in doc["notation"].items()))
     fm = doc["form"]
     if fm["acroform_fields"]:

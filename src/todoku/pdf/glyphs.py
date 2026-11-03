@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import gzip
 import json
+import contextlib
+import contextvars
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
@@ -200,6 +202,38 @@ def ext_font() -> tuple[dict, bytes]:
 
 # ====================================================================== 字ごとに書体を決める
 ORDER = ("Adobe-Japan1", "Adobe-Korea1", "Adobe-GB1", "Adobe-CNS1")
+# 漢字の字形の集まり（ROS）を、書類の言語（Catalog の /Lang、BCP 47）で先に選ぶ：同じ漢字でも、和文・中文（簡体・繁体）・
+# 韓国の字形は違う。言語の分からない書類は、これまでどおり ORDER の順（Adobe-Japan1 から）
+_LANG_ROS = {"ja": "Adobe-Japan1", "ko": "Adobe-Korea1", "zh-hant": "Adobe-CNS1", "zh-tw": "Adobe-CNS1", "zh-hk": "Adobe-CNS1",
+             "zh-mo": "Adobe-CNS1", "zh-hans": "Adobe-GB1", "zh-cn": "Adobe-GB1", "zh-sg": "Adobe-GB1", "zh": "Adobe-GB1"}
+_order = contextvars.ContextVar("todoku_cjk_order", default=ORDER)
+
+
+def order_for_lang(lang: str) -> tuple[str, ...]:
+    """書類の言語（/Lang の BCP 47。「zh-Hant-TW」「ko-KR」など）→ 字形の集まりを選ぶ順。分からなければ ORDER。"""
+    tags = [t.lower() for t in str(lang or "").replace("_", "-").split("-") if t]
+    if not tags:
+        return ORDER
+    first = None
+    if tags[0] == "zh":
+        for t in tags[1:]:
+            first = _LANG_ROS.get("zh-" + t)
+            if first:
+                break
+    first = first or _LANG_ROS.get(tags[0])
+    if first is None:
+        return ORDER
+    return (first,) + tuple(r for r in ORDER if r != first)
+
+
+@contextlib.contextmanager
+def cjk_order(lang: str):
+    """この中で描く字は、書類の言語の字形の集まりから先に選ぶ（fill が書類の /Lang で包む）。"""
+    token = _order.set(order_for_lang(lang))
+    try:
+        yield
+    finally:
+        _order.reset(token)
 
 
 def choose(ch: str) -> tuple[str, bytes, float]:
@@ -219,7 +253,7 @@ def choose(ch: str) -> tuple[str, bytes, float]:
     emb = _embedded(ch)
     if emb is not None and not wide and unicodedata.category(ch).startswith("L"):
         return emb  # ギリシャ文字・キリル文字など、東アジアでない文字：埋め込んだ書体の比例幅の字形で（全角の字形より自然）
-    for ros in ORDER:
+    for ros in _order.get():
         cid, _reason = cjk_cid(ros, ch)
         if cid is not None:
             return CJK[ros][0], ch.encode("utf-16-be"), cid_width(ros, cid, ch)

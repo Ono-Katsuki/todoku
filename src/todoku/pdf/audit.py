@@ -238,7 +238,7 @@ def _sample(f: dict):
     k = f["kind"]
     if k == "checkbox":
         return not bool(f.get("value"))
-    if k in ("circle", "radio"):
+    if k == "radio":
         opts = f.get("options") or []
         cur = f.get("value")
         for o in reversed(opts):
@@ -307,31 +307,42 @@ def _all_fields(win: dict) -> list[dict]:
     return out
 
 
-def _circle_sample(doc: PdfDocument, f: dict, used: dict):
-    """○で囲む選択肢のうち、書き込みと同じ決め方で囲めるもの。どれも囲めなければ (None, 理由)。"""
+def check_circles(doc: PdfDocument) -> Check | None:
+    """書いてある○（とどくが描いた、印 TdkCircle のもの）：試しに書き直さず（選んだものを変えない）、いまの○が囲んでいる字を、
+    書くときと同じ決め方（circle.encloses）で読み、窓がその字を「［p1.c1：○］」として出しているか（いまの値を読めるか）を確かめる。
+    ○の線がほかの字の面にかかっているもの（前の版で書いた○など）は、値は読めるので NG にはせず、位置を添えて
+    エージェントが画像で確かめる所として示す。○のない書類は None。"""
     from . import circle
-    from .anchor import AnchorError
+    from .content import page_content
+    from .layout import PageLayout
 
-    layouts = used.setdefault("_layouts", {})
-    why = ""
-    import re
-
-    for o, r in f.get("option_rects") or []:
-        trial = {k: list(v) for k, v in used.items() if k != "_layouts"}
-        word = re.match(r"[0-9０-９]+", o)[0] if f.get("numbered") and re.match(r"[0-9０-９]+", o) else o
-        try:
-            circle.resolve(doc, {"circle": word, "page": f["page"], "within": list(r)}, layouts, trial)
-        except AnchorError as e:
-            why = why or str(e)
+    bad, touching, n_all = [], [], 0
+    for n, pg in enumerate(doc.pages(), 1):
+        shapes = circle.drawn(doc, n)
+        if not shapes:
             continue
-        used.update(trial)
-        return o
-    return None, f"どの選択肢も、ほかの字に触れずには○で囲めない：{why[:80]}"
+        lay = PageLayout(doc, pg, page_content(doc, pg), n)
+        shown = {ident: ln.text[a_:b_] for ln, a_, b_, ident in getattr(lay, "circled", []) if ident}
+        for ident, kind, g, lw in shapes:
+            n_all += 1
+            inner, touch = circle.circled_text(lay, kind, g, lw)
+            if not inner or ident not in shown:
+                bad.append(f"{ident}：囲んでいる字「{''.join(c.text for c in inner)}」・窓に囲んだ字として出ていない"
+                           "（2 つの行にかかる・囲んだ字の間に囲まれていない字がある）")
+            elif touch:
+                touching.append(f"{ident}「{shown[ident]}」：○の線がほかの字「{''.join(c.text for c in touch[:6])}」にかかる"
+                                f"（{n} ページ。view_page で確かめる）")
+    if not n_all:
+        return None
+    detail = f"書いてある○ {n_all} 個を、試しに書き直さずに読みました（いまの値）。" + (
+        "どれも、囲んだ字を窓に出しています" if not bad else f"{len(bad)} 個は、囲んだ字を窓に出せません")
+    if touching:
+        detail += f"。{len(touching)} 個は○の線がほかの字にかかります（値は読めます。どれを囲んだかは画像で確かめる）"
+    return Check("書いてある○", not bad, detail, (bad + touching)[:30], agent=bool(touching) and not bad)
 
 
 def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> list[Check]:
     targets: dict[str, object] = {}
-    circle_used: dict = {}
     skipped, not_writable = [], []
     for f in _all_fields(win):
         if f["id"] in targets:
@@ -348,13 +359,6 @@ def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> l
         if v is None:
             skipped.append(f"{f['id']}: 試しの値を決められませんでした")
             continue
-        if f["kind"] == "circle" and f.get("source") == "layout":
-            # ○で囲む選択肢：ほかの字に触れずに囲める選択肢を試す。どれも囲めなければ、書けない理由を添えて除く
-            # （エージェントが pad・box を決めて書く所。書き込みの誤りではない）
-            v = _circle_sample(doc, f, circle_used)
-            if isinstance(v, tuple):
-                not_writable.append(f"{f['id']}（{v[1]}）")
-                continue
         targets[f["id"]] = v
     n_fields = len(_all_fields(win))
     passes = _passes(targets, {f["id"]: f for f in _all_fields(win)})
@@ -369,7 +373,7 @@ def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> l
             res = fill(doc, part)
         except FillError as e:
             return [Check("全入力欄への書き込み", False, f"{len(part)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
-        anchored = {p_.id: p_.anchor for p_ in res.patches if p_.anchor}  # ○で囲んだ選択肢（書き込みと同じ決め方で確かめる）
+        anchored = {p_.id: p_.anchor for p_ in res.patches if p_.anchor}
         pr = prove(doc.blob, res.blob, set(part), anchored or None, password=password)
         ok_all = ok_all and pr.ok
         unexpected += [*pr.unexpected, *pr.lint_errors]
@@ -496,6 +500,9 @@ def run(blob: bytes, filename: str = "", password: str | None = None) -> Audit:
                            f"Markdown {total:,} 文字" + (f"を {len(parts)} 部分に分け、いちばん大きい部分も {biggest:,} 文字"
                                                         if len(parts) > 1 else "") + "（AIが1回で読める目安 15万文字以内）"))
     au.checks += check_writing(PdfDocument(blob, filename, password=password), win, password)
+    cc = check_circles(doc)
+    if cc is not None:
+        au.checks.append(cc)
     from ..xlsx.audit import agent_places_check
 
     ap = agent_places_check([f for p_ in win["pages"] for f in p_["fields"]])

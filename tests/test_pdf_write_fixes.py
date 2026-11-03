@@ -53,7 +53,7 @@ def test_libreoffice_floats_are_kept_byte_exact(tmp_path):
 
 
 def test_libreoffice_floats_survive_the_audit_write_probes(tmp_path):
-    """書類の検査（audit）の試し書き：表の欄・○で囲む選択肢（ページの描画を足す）・字を目印にした書き込みのどれでも、
+    """書類の検査（audit）の試し書き：表の欄・字を目印にした書き込み・○（ページの描画を足す）のどれでも、
     書き換えたページの辞書の小数が元の字のまま（「MediaBox が変わっています」にならない）。"""
     chars = "氏名生年月日昭和・平成住所"
     font, (desc, tu), codes = jp_font_objs(chars, 6)
@@ -71,8 +71,12 @@ def test_libreoffice_floats_survive_the_audit_write_probes(tmp_path):
     a = api.audit(src)
     bad = [c for c in a["checks"] if not c["ok"] and c["name"] in ("全入力欄への書き込み", "読み戻し", "字を目印にした書き込み")]
     assert not bad, [c["items"] for c in bad]
-    probes = [c for c in a["checks"] if c["name"] == "全入力欄への書き込み"]
-    assert probes and "○" in probes[0]["detail"]  # ○の試し書き（ページの描画を足す）も通った
+    # ○（ページの描画を足す）：書いて、書いた後の書類の検査も通る（ページの辞書の小数は元の字のまま）
+    r = api.fill(src, {"@c1": {"circle": "昭和", "near": "生年月日"}}, str(tmp_path / "c.pdf"))
+    assert r["proof_ok"] and r["read_back_ok"], (r["unexpected"], r["read_back_differences"])
+    a = api.audit(str(tmp_path / "c.pdf"))
+    bad = [c for c in a["checks"] if not c["ok"] and c["name"] in ("全入力欄への書き込み", "読み戻し", "書いてある○")]
+    assert not bad, [c["items"] for c in bad]
 
 
 # ====================================================================== 2. 描けない字

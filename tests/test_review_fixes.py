@@ -83,15 +83,17 @@ def test_actual_text_span_is_not_legacy():
     assert "字の符号が Unicode でない" not in flags(blob)
 
 
-@pytest.mark.parametrize("inner, why", [("甲・乙・丙・丁・戊・己・庚", "7 個"), ("1・2・3", "数だけの語"),
-                                         ("とても長い名前の選択肢です・短い", "11 字以上")])
-def test_unusual_option_lists_are_kept_as_agent_candidates_with_reason(inner, why):
+@pytest.mark.parametrize("inner", ["甲・乙・丙・丁・戊・己・庚", "1・2・3", "とても長い名前の選択肢です・短い"])
+def test_printed_option_lists_stay_plain_text(inner):
+    # 印刷された選択肢の並びは、欄（○で囲む選択肢）にしない：字の意味（どれが選択肢か）はエージェントが窓の字を読んで決め、
+    # 字を指定して circle で書く
     from test_pdf_scripts import glyphs_pdf, window
 
     text = "種別（" + inner + "）"
     blob = glyphs_pdf([(ch, 40 + 12 * k, 700) for k, ch in enumerate(text)])
-    circ = [f for f in window(blob)["pages"][0]["fields"] if f["kind"] == "circle"]
-    assert circ and circ[0]["agent"] and why in circ[0]["why"], circ
+    w = window(blob)["pages"][0]
+    assert not [f for f in w["fields"] if f["kind"] == "circle"]
+    assert any(inner in ln for ln in w["reading"]), w["reading"]
 
 
 # ====================================================================== 黙って飲み込まない

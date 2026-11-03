@@ -18,7 +18,7 @@ from todoku.pdf.crypto import aes_cbc_decrypt, aes_cbc_encrypt, aes_ecb_encrypt,
 from todoku.pdf.doc import PdfDocument
 from todoku.pdf.fill import FillError, fill, runs_for
 from todoku.pdf.fonts import CMap, decode_predefined, glyph_to_unicode, split_predefined, visible_text
-from todoku.pdf.layout import pdf_blanks
+from todoku.pdf.layout import gap_blanks
 from todoku.pdf.objects import Lexer, Name, Ref, parse_object
 from todoku.pdf.proof import prove
 from todoku.pdf.window import build
@@ -136,11 +136,18 @@ def test_fonts_helpers():
 
 
 @pytest.mark.parametrize("text, n", [("令和　　年　　月　　日", 3), ("（郵便番号　　　　－　　　　）", 2),
-                                     ("　　　都　道　　　　　市　区　　　", 3), ("付表第一号（一）　　　", 0)])
+                                     ("　　　都　道　　　　　市　区　　　", 3),
+                                     # マスの縁までの空き（行の終わりの後ろ）：語は見ないので、見出しの後ろも ？ の候補
+                                     ("付表第一号（一）　　　", 1), ("氏　　名", 0), ("　　　氏　　名　　　", 0),
+                                     # 中華民國・韓国・中国の日付と住所、点線・下線・かっこ・チェックの箱（語の表なしで）
+                                     ("中華民國　　年　　月　　日", 3), ("　　년　　월　　일", 3), ("　　省　　市　　县", 3),
+                                     ("Name ..............................", 1), ("Nom : …………………………", 1),
+                                     ("नाम ...................", 1), ("Signature ______", 1), ("[ ] Yes [ ] No", 2),
+                                     ("( ) Male ( ) Female", 2), ("الاسم: ____", 1), ("──────────────", 0)])
 def test_pdf_blanks(text, n):
     lead = len(text) - len(text.lstrip("　")) if text.startswith("　") else 0
     trail = len(text) - len(text.rstrip("　"))
-    assert len(pdf_blanks(text, lead, trail)) == n
+    assert len(gap_blanks(text, lead, trail)) == n
 
 
 def test_acrojs_formats():
@@ -268,10 +275,10 @@ def test_cover_write_over_a_placeholder():
 def test_pdf_blanks_tell_structural_from_keyword():
     # 字の形だけで決まる空欄（下線の字・かっこの中の空白）と、語（年・月・市・区長）を手がかりにした空欄を分ける。
     # 2つの数の組としてはこれまでどおり（Word の呼び出しはそのまま）
-    (a, b), = pdf_blanks("電話（　　　　）")
-    assert (a, b) == (3, 7) and pdf_blanks("電話（　　　　）")[0].structural
-    assert pdf_blanks("氏名＿＿＿＿")[0].structural
-    date = pdf_blanks("令和　　年　　月　　日")
+    (a, b), = gap_blanks("電話（　　　　）")
+    assert (a, b) == (3, 7) and gap_blanks("電話（　　　　）")[0].structural
+    assert gap_blanks("氏名＿＿＿＿")[0].structural
+    date = gap_blanks("令和　　年　　月　　日")
     assert len(date) == 3 and not any(x.structural for x in date)
     assert set(date) == {(2, 4), (5, 7), (8, 10)}
 

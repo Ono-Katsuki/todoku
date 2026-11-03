@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from .doc import PdfDocument
 from . import glyphs
-from .form import FF_COMB, FF_RADIO, FormField, read_fields
+from .form import FF_COMB, FormField, read_fields
 from .layout import View
 from .objects import Name, PdfError, PdfString, Ref, Stream, dumps, text_string
 
@@ -196,6 +196,17 @@ CJK = glyphs.CJK  # 字形の集まり → (資源の名前, 書体, CMap, 補�
 cjk_font = glyphs.cjk_font
 
 
+def _word_spaced(ch: str) -> bool:
+    """語の間を空白で区切る文字か：東アジアの幅（UAX #11）が W・F の字（和文・中文の字）でないもの。ハングルは全角でも、語の間を
+    空白で区切る。"""
+    import unicodedata
+
+    o = ord(ch)
+    if 0x1100 <= o <= 0x11FF or 0x3130 <= o <= 0x318F or 0xA960 <= o <= 0xA97F or 0xAC00 <= o <= 0xD7FF:
+        return True
+    return unicodedata.east_asian_width(ch) not in ("W", "F")
+
+
 def _latin(ch: str) -> bool:
     return glyphs.winansi(ch) is not None or ch in glyphs.EXT_CODE
 
@@ -256,9 +267,11 @@ def wrap(text: str, size: float, width: float) -> list[str]:
         cur = ""
         for ch in glyphs.units(para):  # 字を組み立てる文字は、音節・記号の付いた字を切り離さない
             if cur and text_width(cur + ch, size) > width:
-                # 欧文・字を組み立てる文字は、単語の切れ目で折り返す
+                # 語の間を空白で区切る文字（ラテン・キリル・ギリシャ・アルメニア・グルジア文字・ハングル・字を組み立てる文字
+                # など）は、行に空白があれば、その切れ目で折り返す（UAX #14 を簡単にしたもの）。和文・中文の字（東アジアの幅が
+                # W・F の字。ハングルを除く）は、どの字の間でも折り返せる
                 k = cur.rfind(" ")
-                if (_latin(ch[0]) or glyphs.shaped(ch)) and ch != " " and k > 0:
+                if _word_spaced(ch[0]) and ch != " " and k > 0:
                     lines.append(cur[:k])
                     cur = cur[k + 1:] + ch
                     continue
@@ -380,18 +393,6 @@ def check_appearance(update: Update, w: float, h: float, dr_fonts: dict, char: s
     s = min(w, h) * 0.8
     ops = f"q\nBT\n0 g\n/ZaDb {s:.2f} Tf\n{(w - s * 0.85) / 2:.2f} {(h - s * 0.75) / 2:.2f} Td\n({char}) Tj\nET\nQ\n".encode()
     return _ap(update, w, h, ops, {"ZaDb"}, dr_fonts)
-
-
-def ellipse_appearance(update: Update, w: float, h: float) -> Ref:
-    k = 0.5523
-    rx, ry = w / 2 - 0.8, h / 2 - 0.8
-    cx, cy = w / 2, h / 2
-    ops = (f"q\n0 g\n0.9 w\n{cx + rx:.2f} {cy:.2f} m\n"
-           f"{cx + rx:.2f} {cy + k * ry:.2f} {cx + k * rx:.2f} {cy + ry:.2f} {cx:.2f} {cy + ry:.2f} c\n"
-           f"{cx - k * rx:.2f} {cy + ry:.2f} {cx - rx:.2f} {cy + k * ry:.2f} {cx - rx:.2f} {cy:.2f} c\n"
-           f"{cx - rx:.2f} {cy - k * ry:.2f} {cx - k * rx:.2f} {cy - ry:.2f} {cx:.2f} {cy - ry:.2f} c\n"
-           f"{cx + k * rx:.2f} {cy - ry:.2f} {cx + rx:.2f} {cy - k * ry:.2f} {cx + rx:.2f} {cy:.2f} c\nS\nQ\n").encode()
-    return _ap(update, w, h, ops, set(), {})
 
 
 def empty_appearance(update: Update, w: float, h: float) -> Ref:
@@ -658,34 +659,6 @@ class Filler:
             self._attach(page_no, ref)
             self.patches.append(Patch(spot["id"], "control", on, page_no))
             return
-        if k == "circle":
-            want = _as_text(value)
-            opts = spot.get("option_rects") or []
-            names = [o for o, _ in opts]
-            if want not in names:
-                raise FillError(f"{spot['id']}: 「{want}」は選択肢にありません。選べるのは " + "、".join(f"「{x}」" for x in names))
-            kids = []
-            parent = {"FT": Name("Btn"), "Ff": FF_RADIO | (1 << 14), "T": text_string(spot["id"]),
-                      "TU": text_string(spot.get("label") or spot["id"]),
-                      "Opt": [text_string(o) for o in names], "V": Name(str(names.index(want)))}
-            pref = self.up.new(parent)
-            for i, (o, r) in enumerate(opts):
-                pad = 2.0
-                ox0, oy0, ox1, oy1 = view.back_rect(r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad)
-                ow, oh = ox1 - ox0, oy1 - oy0
-                on = ellipse_appearance(self.up, ow, oh)
-                off = empty_appearance(self.up, ow, oh)
-                st = Name(str(i))
-                kd = {"Type": Name("Annot"), "Subtype": Name("Widget"), "Parent": pref, "F": 4, "P": page_ref,
-                      "Rect": [round(ox0, 3), round(oy0, 3), round(ox1, 3), round(oy1, 3)],
-                      "AS": st if o == want else Name("Off"), "AP": {"N": {str(i): on, "Off": off}}}
-                kref = self.up.new(kd)
-                kids.append(kref)
-                self._attach(page_no, kref, field=False)
-            parent["Kids"] = kids
-            self.new_fields.append(pref)
-            self.patches.append(Patch(spot["id"], "control", want, page_no))
-            return
         text = _as_text(value)
         size = float(spot.get("size") or 10.5)
         comb = None
@@ -908,7 +881,17 @@ def _da_size(da: str) -> float | None:
 
 
 def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
-    """欄の名前（窓の［］の中）→ 値。フォームの欄はその名前、配置から見つけた欄は p{ページ}.{番号}。"""
+    """欄の名前（窓の［］の中）→ 値。フォームの欄はその名前、配置から見つけた欄は p{ページ}.{番号}。
+    漢字の字形は、書類の言語（Catalog の /Lang）の字形の集まりから先に選ぶ（glyphs.cjk_order）。"""
+    from .objects import PdfString, decode_text
+
+    lang = doc.resolve(doc.root.get("Lang")) if hasattr(doc, "root") and isinstance(doc.root, dict) else None
+    lang = decode_text(lang) if isinstance(lang, (bytes, PdfString)) else ""
+    with glyphs.cjk_order(lang):
+        return _fill(doc, values, force=force)
+
+
+def _fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
     from .window import build as build_window
 
     f = Filler(doc)
@@ -981,33 +964,6 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
             if sd.get("source") == "acroform":
                 f.set_field(f.by_name[sd["name"]], value, force)
                 continue
-            if sd.get("kind") == "circle":
-                # 窓の「○で囲む選択肢」：選んだ字を、字を指した○と同じ書き方で囲む（ページに楕円を描く）
-                from . import circle as _circle
-                from .anchor import AnchorError
-
-                want = _as_text(value["circle"] if isinstance(value, dict) and "circle" in value else value)
-                opts = sd.get("option_rects") or []
-                # 番号の付いた選択肢（「1.新規」）は、番号・語・全体のどれで指してもよい（○は番号を囲む）
-                pick = [(o, r) for o, r in opts if o == want] or \
-                    [(o, r) for o, r in opts if want and re.sub(r"^[0-9０-９]+[ \u3000]?[.．、,，)）:：]?[ \u3000]?", "", o) in (want,)] or \
-                    [(o, r) for o, r in opts if want and re.match(r"[0-9０-９]+", o) and re.match(r"[0-9０-９]+", o)[0] == want]
-                if len(pick) != 1:
-                    raise FillError(f"{key}: 「{want}」は選択肢にありません。選べるのは " + "、".join(f"「{o}」" for o, _r in opts))
-                o_, r_ = pick[0]
-                word = re.match(r"[0-9０-９]+", o_)[0] if sd.get("numbered") else o_
-                spec = {"circle": word, "page": page_no, "within": list(r_)}
-                if isinstance(value, dict) and value.get("pad") is not None:
-                    spec["pad"] = value["pad"]
-                try:
-                    cd = _circle.resolve(doc, spec, layouts, circ_used)
-                except AnchorError as e:
-                    raise FillError(f"{key}: {e}") from None
-                cd["label"] = re.sub(r"（○で囲む）$", "", sd.get("label") or "") or cd["label"]
-                cd["option"] = o_  # 窓の選択肢の名前（読み戻しで、書いた後の窓の値と照らす）
-                f.circles.setdefault(cd["page"], []).append(cd)
-                f.patches.append(Patch(cd["id"], "circle", cd["text"], cd["page"], anchor=spec, key=key, circle=cd))
-                continue
             if page_no not in views:
                 views[page_no] = View(doc, f.pages[page_no - 1])
             sd, value = as_kind(sd, value)
@@ -1046,7 +1002,7 @@ def _signed_new(f: Filler, key: str, value, spots: dict) -> None:
         else:
             why = refuse_new(f.sigs, "新しい欄（字を目印にした書き込み・枠）")
     elif key in spots and spots[key][1].get("source") != "acroform":
-        why = refuse_new(f.sigs, "○（ページの描画）" if spots[key][1].get("kind") == "circle" else "新しい欄（窓の推定した欄）")
+        why = refuse_new(f.sigs, "新しい欄（窓の推定した欄）")
     else:
         return
     if why:

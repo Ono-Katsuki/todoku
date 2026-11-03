@@ -19,11 +19,61 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
-from ..xlsx.window import inline_blanks, norm_label
+from ..xlsx.window import norm_label
 from .content import Glyph, PageContent
 
-BOX_GLYPHS = set("□☐◻▢❏❐❑❒⬜")
-CHECKED_GLYPHS = set("☑☒■▣✓✔")
+try:  # 字の種類（空白・下線の字・ダッシュ・点線・かっこの組・チェックの箱の字）は、Unicode の資料から作った todoku.chars の表
+    from .. import chars as _chars
+except ImportError:  # TODO: todoku.chars（字の種類の共通の表）が main に入ったら、この代わり（同じ字の集まりの最小の写し）は消す
+    class _chars:  # noqa: N801
+        # 点線の字（Unicode の名前に DOT LEADER・ELLIPSIS・MIDDLE DOT を含む句読点と FULL STOP）
+        LEADERS = frozenset(".．·․‥…⋯⸱・･᠁︙︰")
+        MULTI_DOT = frozenset("‥…⋯᠁︙︰")  # 1 字で 2 つ以上の点
+        # 印のないチェックの箱：Ballot Box U+2610・Geometric Shapes の白い四角 U+25A1・U+25A2・U+25FB・U+25FD・U+274F〜2752・U+2B1C
+        EMPTY_BOXES = frozenset("☐□▢◻◽❏❐❑❒⬜")
+        CHECKED_BOXES = frozenset("☑☒")  # U+2611・U+2612
+        MAYBE_CHECKED = frozenset("■✓✔")  # 印のついた箱かもしれない字（箇条の印・本文の印のこともある）
+        # BidiBrackets.txt の組のうち、書類によく使うもの
+        BRACKET_PAIRS = dict(zip("([{（［｛「『【〔〈《〖〘〚｟｢", ")]}）］｝」』】〕〉》〗〙〛｠｣"))
+
+        @staticmethod
+        def is_space(ch: str) -> bool:
+            return unicodedata.category(ch) == "Zs"
+
+        @staticmethod
+        def is_connector(ch: str) -> bool:
+            return unicodedata.category(ch) == "Pc"
+
+        @staticmethod
+        def is_dash(ch: str) -> bool:
+            return unicodedata.category(ch) == "Pd"
+
+        @staticmethod
+        def closing(ch: str) -> str | None:
+            return _chars.BRACKET_PAIRS.get(ch)
+
+        LABEL_COLONS = frozenset(":：﹕︓")  # 一般カテゴリ Po で、名前に COLON を含む字のうち、書類によく使うもの
+
+        @staticmethod
+        def is_label_colon(ch: str) -> bool:
+            return ch in _chars.LABEL_COLONS
+
+        @staticmethod
+        def is_sentence_terminal(ch: str) -> bool:
+            # PropList.txt の Sentence_Terminal のうち、書類によく使うもの
+            return ch in "!.?։؟۔।॥။።፧᙮。．｡！？"
+
+        @staticmethod
+        def dot_run(text: str, a: int, b: int) -> bool:
+            return b - a >= 3 or (b - a >= 2 and any(ch in _chars.MULTI_DOT for ch in text[a:b]))
+
+def _sentence_end(ch: str) -> bool:
+    """文の終わりの字（Unicode の Sentence_Terminal：。 . ! ? । ۔ ؟ ። ։ など）。"""
+    return _chars.is_sentence_terminal(ch)
+
+
+BOX_GLYPHS = set(_chars.EMPTY_BOXES)
+CHECKED_GLYPHS = set(_chars.CHECKED_BOXES) | set(_chars.MAYBE_CHECKED)
 
 
 # ====================================================================== 座標
@@ -115,6 +165,13 @@ def _is_cjk(ch: str) -> bool:
     if 0xFF61 <= o <= 0xFFDC or 0xE000 <= o <= 0xF8FF:
         return True  # 半角のかな、外字（和文の書類の外字は全角の字）
     return unicodedata.east_asian_width(ch[0]) in ("W", "F")
+
+
+def _ruby_base(ch: str) -> bool:
+    """ルビ（振り仮名・注音）のつく字：漢字（Unicode の名前が CJK UNIFIED / COMPATIBILITY IDEOGRAPH のもの）と、外字。"""
+    if 0xE000 <= ord(ch) <= 0xF8FF:
+        return True
+    return unicodedata.name(ch, "").startswith(("CJK UNIFIED IDEOGRAPH", "CJK COMPATIBILITY IDEOGRAPH"))
 
 
 def _is_hangul(o: int) -> bool:
@@ -394,14 +451,27 @@ def cells_from(hs: list[Rule], vs: list[Rule], tol: float = 2.0) -> list[Cell]:
     return cells
 
 
+def no_word_space(ch: str) -> bool:
+    """語の間を空けずに書く字（行の折り返しで、空白なしでつなぐ字）：和文・中文の全角の字（_is_cjk）と、UAX #14 の行分割の種類
+    SA（Complex Context）の文字（タイ・ラーオ・クメール・ビルマ・タイ系の文字：語の切れ目が字からは分からず、空白を入れない）。"""
+    if not ch:
+        return False
+    o = ord(ch[0])
+    if 0x0E00 <= o <= 0x0EFF or 0x1000 <= o <= 0x109F or 0x1780 <= o <= 0x17FF or 0x1950 <= o <= 0x19DF \
+            or 0x1A20 <= o <= 0x1AAF or 0xA9E0 <= o <= 0xA9FF or 0xAA60 <= o <= 0xAADF or 0x19E0 <= o <= 0x19FF:
+        return True
+    return _is_cjk(ch)
+
+
 def join_lines(lines) -> str:
-    """マスの中の行をつなぐ。和文の折り返し（行の境の両側が全角）と、縦に1字ずつ並べた字は、空白なしでつなぐ。"""
+    """マスの中の行をつなぐ。和文の折り返し（行の境の両側が全角）・タイ文字などの語の間を空けない文字の折り返しと、縦に1字ずつ
+    並べた字は、空白なしでつなぐ。"""
     out = ""
     for ln in lines:
         t = ln.text.strip()
         if not t:
             continue
-        if out and not (_is_cjk(out[-1]) and _is_cjk(t[0])):
+        if out and not (no_word_space(out[-1]) and no_word_space(t[0])):
             out += " "
         out += t
     return out
@@ -759,63 +829,77 @@ def _move_pre_base(units: list[list]) -> list[list]:
 
 
 # ====================================================================== 入力欄
-ADDRESS_UNITS = set("市区町村郡都道府県")
-# 数の後ろに付く単位（その前の空きに数を書く）。「日／月」「時間／週」のような割合も
-UNIT_ONLY = re.compile(r"(?:時間|日間|週間|か月|ヶ月|カ月|千円|万円|年度|[日時分秒年月週回人名件号円台本枚個歳才種級％%])"
-                       r"(?:[／/](?:時間|[日時週月年回]))?")
+# 文字の中の空き（書く所の候補）は、字の意味（「年」「市」「様」などの語）からは決めず、字の形と並び・測った空きだけで示す。
+# 字の集まり（空白・下線の字・ダッシュ・点線・かっこの組・チェックの箱の字）は Unicode の資料で決まるもの（todoku.chars）。
+GAP_MIN = 2  # 空白の並びを空きとする字数（PDF の行の空白は、測った空きから作る：1.5 字ぶん以上の空きが 2 字以上の空白になる）
+DASH_MIN = 3  # ダッシュの並びを空きとする字数（1・2 字は「1-2」「－」のような区切り）
+DECOR_MIN = 8  # 行の字が、点線・ダッシュだけで、この字数以上のもの：区切りの飾り（切り取り線など）
+# 窓に示す、見つけた形の名前
+GAP_WHY = {"gap": "空白の並び（測った空き）", "lead": "行の頭の前の空き（マスの縁・左の字まで）",
+           "trail": "行の終わりの後ろの空き（マスの縁・右の字まで）", "leader": "点線の並び", "dash": "ダッシュの 3 字以上の並び",
+           "connector": "下線の字の並び", "bracket": "かっこの組の中の空白"}
 
 
-def _unit_at(text: str, i: int) -> bool:
-    """text の i 文字目から単位（「分」「日／月」「種」）があり、その後ろが字でない（「分類」「種類」は単位でない）。"""
-    m = UNIT_ONLY.match(text, i)
-    if not m:
-        return False
-    nxt = text[m.end():m.end() + 1]
-    return not nxt or not ("\u3040" <= nxt <= "\u30ff" or "\u3400" <= nxt <= "\u9fff" or nxt.isalpha())
+def _char_kind(ch: str) -> str | None:
+    if _chars.is_space(ch):
+        return "space"
+    if _chars.is_connector(ch):
+        return "connector"
+    if ch in _chars.LEADERS:
+        return "leader"
+    if _chars.is_dash(ch):
+        return "dash"
+    return None
 
 
-# 時刻の欄だけの行（「　　：　　～　　：　　」）、または時刻の範囲を含む行
-_TIME_SKELETON = re.compile(r"[：:～~（）() \u3000]*[：:][：:～~（）() \u3000]*")
-_TIME_RANGE = re.compile(r"[：:][ \u3000]{2,}[～~][ \u3000]{2,}[：:]")
-# 字間を空けた見出し（「事　業　所」「氏　　名」）
+def _runs(text: str) -> list[tuple[int, int, str]]:
+    """同じ種類の字の並び：(始め, 終わり, 種類)（space・connector・leader・dash）。"""
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        k = _char_kind(text[i])
+        if k is None:
+            i += 1
+            continue
+        j = i + 1
+        while j < n and _char_kind(text[j]) == k:
+            j += 1
+        out.append((i, j, k))
+        i = j
+    return out
+
+
+# 1 字ずつの字を空白でつないだ並び（「氏　名」「事 業 所」。空白の長さは問わない）
 _SPACED = re.compile(r"(?:\S[ \u3000]+)+\S")
-DASHES = "－-‐−―–—"
-LEAD_UNITS = ("年", "知事", "市長", "町長", "村長", "区長", "長　殿", "長殿")
+
+
+def evenly_spaced(core: str) -> bool:
+    """1 字ずつの字（Unicode の文字・数字：一般カテゴリ L・N）が、同じ長さの空白の並び（違いは 1 字まで）で 2 字以上つながる
+    （字間を空けた「氏　　名」「事　業　所」）。字の意味は見ない。前後に空白のない字の並び（core）で見る。記号・句読点の並び
+    （「：　　～　　：」）は見出しの字でないので含めない。"""
+    runs = [(a, b) for a, b, k in _runs(core) if k == "space"]
+    if not runs or runs[0][0] == 0 or runs[-1][1] == len(core):
+        return False
+    toks = [core[a:b] for a, b in zip([0] + [y for _x, y in runs], [x for x, _y in runs] + [len(core)])]
+    lens = [b - a for a, b in runs]
+    return len(toks) >= 2 and all(len(t) == 1 and unicodedata.category(t)[0] in "LN" for t in toks) \
+        and max(lens) - min(lens) <= 1
 
 
 class Blank(tuple):
-    """文字の中の空欄 (始め, 終わり)。structural：字の形だけで決まる空欄（「＿＿＿」の下線の字、かっこの組「（　　）」の中が
-    空白だけのもの）か。偽のものは、語（「市」「区長」「年」「：」など）を手がかりに見つけた空欄で、規則では欄と決められない
-    （エージェントが判断する所として示す）。2つの数の組としてそのまま使える（a, b = 空欄・set・sorted）ので、これまでの呼び出し
-    （Word など）はそのまま動く。"""
+    """文字の中の空欄 (始め, 終わり)。structural：字の形だけで決まる空欄（「＿＿＿」の下線の字の並びで英数字に接しないもの、
+    かっこの組の中が空白だけのもの「（　　）」「[ ]」）か。偽のものは、空き（空白の並び・測った空き・点線・ダッシュ）で、
+    規則では欄と決められない（エージェントが前後の字を読んで判断する所として示す）。why は見つけた形（GAP_WHY の鍵）。
+    2つの数の組としてそのまま使える（a, b = 空欄・set・sorted）ので、これまでの呼び出しはそのまま動く。"""
 
     structural: bool
+    why: str
 
-    def __new__(cls, a: int, b: int, structural: bool = False):
+    def __new__(cls, a: int, b: int, structural: bool = False, why: str = ""):
         t = super().__new__(cls, (a, b))
         t.structural = structural
+        t.why = why
         return t
-
-
-_BRACKETS = {"（": "）", "(": ")", "［": "］", "[": "]", "【": "】", "「": "」", "〔": "〕"}
-
-
-def _structural(text: str, a: int, b: int) -> bool:
-    """空欄 text[a:b] が、字の形だけで決まるもの：下線の字だけ、または かっこの組の中が空白だけ（「（　　）」）。
-    英数字・「/」「.」「-」にはさまれた下線の字の並び（URL・ファイルの名前の「__icsFiles」）は、名前の一部のこともあるので除く。"""
-    seg = text[a:b]
-    if seg and all(ch in "_＿" for ch in seg):
-        # 下線の字の並びが、英数字（「/」「.」「-」を含む）に接していない：書くための線（「氏名＿＿＿」「: ____」）。
-        # 片側でも接していれば（「Name____」「_HVeg」）、語の一部（名前の区切り）のこともあるので、規則では決めない
-        return not underscore_touches_word(text, a, b)
-    if not seg or seg.strip(" 　"):
-        return False
-    i, j = a, b
-    while i > 0 and text[i - 1] in " 　":
-        i -= 1
-    while j < len(text) and text[j] in " 　":
-        j += 1
-    return i > 0 and j < len(text) and _BRACKETS.get(text[i - 1]) == text[j]
 
 
 def underscore_touches_word(text: str, a: int, b: int) -> bool:
@@ -824,9 +908,9 @@ def underscore_touches_word(text: str, a: int, b: int) -> bool:
         return ch.isascii() and (ch.isalnum() or ch in ".-/")
 
     x, y = a, b
-    while x > 0 and text[x - 1] in "_＿":
+    while x > 0 and _chars.is_connector(text[x - 1]):
         x -= 1
-    while y < len(text) and text[y] in "_＿":
+    while y < len(text) and _chars.is_connector(text[y]):
         y += 1
     return (0 < x and ident(text[x - 1])) or (y < len(text) and ident(text[y]))
 
@@ -837,86 +921,94 @@ def underscore_in_word(text: str, a: int, b: int) -> bool:
         return ch.isascii() and (ch.isalnum() or ch in ".-/")
 
     x, y = a, b
-    while x > 0 and text[x - 1] in "_＿":
+    while x > 0 and _chars.is_connector(text[x - 1]):
         x -= 1
-    while y < len(text) and text[y] in "_＿":
+    while y < len(text) and _chars.is_connector(text[y]):
         y += 1
     return 0 < x and y < len(text) and ident(text[x - 1]) and ident(text[y])
 
 
-def pdf_blanks(text: str, lead: int = 0, trail: int = 0) -> list[Blank]:
-    """文字の中の空欄（Excel と同じ規則）に、PDF でよく見る形を足す。各要素は Blank（(始め, 終わり) と structural）。
-    lead・trail は、マスの縁までの空きを空白にして前後に足した数（作った空白なので、強い手がかりがあるときだけ空欄にする）。
-    - 住所の欄：「　　　市　区」「　　　町　村」の前の空き、「都 道」「府 県」の前の空き、「市 区」の後の空き
-    - 行の頭の空き（「　　　知事　殿」「　　　年　月　日」）、「（内線）」の前後の空き
-    - 「　　　－　　　」のようにハイフンでつながる空き
-    語（単位・年月日・「区長」・「：」・「－」など）を手がかりにしたものは structural が偽。"""
-    return [Blank(a, b, _structural(text, a, b)) for a, b in _blank_spans(text, lead, trail)]
+def gap_blanks(text: str, lead: int = 0, trail: int = 0, keep_trail: bool = True) -> list[Blank]:
+    """文字の中の空欄（書く所の候補）：字の形と並び・測った空きだけで決める（語は見ない）。各要素は Blank。
+    - 下線の字（Unicode の Pc）の並び：英数字に接しないものは規則の空欄（structural）
+    - かっこの組（BidiBrackets.txt の組）の中が空白だけのもの：規則の空欄（「（　　）」「[ ]」「( )」）
+    - 2 字以上の空白（Zs）の並び：字の間・字の前後の空き（PDF の行の空白は測った空きから作る：1.5 字ぶん以上の空きが 2 字以上）
+    - 点線（「……」「......」）・3 字以上のダッシュの並び（同じ字だけの長い行は、区切りの飾りなので除く）
+    lead・trail：マスの縁（またはマスの外の、左右の字・縦の罫線）までの空きを空白にして前後に足した数（1.5 字ぶん以上のとき）。
+    その空きも、行の頭の前・行の終わりの後ろの空きとして示す。ただし、左右どちらにも空きがあり、行の中に空欄のない行（中央・
+    途中にそろえた見出し）の前後の空きは示さない（片側だけに空きのある行：左にそろえた見出しの後ろ・右にそろえた「　　年」の前は
+    示す）。文の終わりの字（Sentence_Terminal）で終わる行の後ろも示さない。keep_trail が偽なら、行の終わりの後ろの空きは示さない
+    （マスの外の行：文の終わりの余白が多いので、見出しの右の余白として別に見る）。
+    字間を空けた見出し（1 字ずつが同じ空白でつながる「氏　　名」）は、前に空きがない（行の頭がマスの縁・左の字に接する）か、
+    中央にそろえた 2 字のとき、字の間の空白を空欄にしない（前に空きのある並び「　　年　　月　　日」は、空欄の並び）。
+    ここで決めたものは、どれも「？」の候補（規則の空欄の structural を除く）。"""
+    n = len(text)
+    core_a, core_b = lead, n - trail
+    while core_a < core_b and _chars.is_space(text[core_a]):
+        core_a += 1
+    while core_b > core_a and _chars.is_space(text[core_b - 1]):
+        core_b -= 1
+    core = text[core_a:core_b]
+    room_l, room_r = core_a, n - core_b  # 字の前後の空白の数（足した数と、元の字の空白）
+    centered = room_l > 0 and room_r > 0 and abs(room_l - room_r) <= 1
+    # 字間を空けた見出し：前に空きがない（行の頭がマスの縁・左の字に接する）か、中央にそろえた 2 字（「氏　　名」）。中央にそろえた
+    # 3 字以上の並び（「　年　　月　　日　」）は、字の前の空きと字の間の空きの並び（2 字では、空きが 1 か所だけで形から決まらない）
+    heading = evenly_spaced(core) and (room_l == 0 or (centered and len(core.split()) == 2))
+    stripped = sum(1 for ch in core if not _chars.is_space(ch))
+    boxes = [i for i in range(core_a, core_b) if text[i] in BOX_GLYPHS or text[i] in CHECKED_GLYPHS]
 
+    def spaced_option(a: int) -> bool:
+        # チェックの箱の字のすぐ後ろの、字間を空けた選択肢の字（「□重　　度　　訪　　問」）：箱の字から次の箱の字までの並び
+        start = max((i for i in boxes if i < a), default=None)
+        if start is None:
+            return False
+        end = min((i for i in boxes if i > a), default=core_b)
+        seg = text[start + 1:end]
+        i, j = 0, len(seg)
+        while i < j and _chars.is_space(seg[i]):
+            i += 1
+        while j > i and _chars.is_space(seg[j - 1]):
+            j -= 1
+        return evenly_spaced(seg[i:j])
 
-def _blank_spans(text: str, lead: int = 0, trail: int = 0) -> list[tuple[int, int]]:
-    """pdf_blanks の中身：空欄の (始め, 終わり)。"""
-    core = text[lead:len(text) - trail] if trail else text[lead:]
-    out = set(inline_blanks(text))
-    time_like = bool(_TIME_SKELETON.fullmatch(core) or _TIME_RANGE.search(core))
-    spaced = bool(_SPACED.fullmatch(core.strip(" \u3000")))
-    for m in re.finditer(r"[ \u3000]{2,}", text):
-        a, b = m.start(), m.end()
-        after = text[b:b + 2]
-        before = text[a - 1:a] if a else ""
-        a1, b1 = after[:1], before  # どちらも空の文字列のことがある（"" はどの文字列にも含まれるので、確かめてから比べる）
-        if a1 and a1 in ADDRESS_UNITS and (len(after) < 2 or after[1] in ADDRESS_UNITS or after[1] in " \u3000・"):
-            out.add((a, b))
-        elif any(text[b:].startswith(u) for u in ("区長", "市長", "町長", "村長", "知事")):
-            out.add((a, b))  # 「名古屋市　　　区長」の区の名前、「　　県知事」の県の名前
-        elif a == 0 and any(text[b:].startswith(u) for u in LEAD_UNITS):
-            out.add((a, b))
-        elif a == 0 and a1 in ("（", "("):
-            out.add((a, b))
-        elif b == len(text) and b1 and (b1 in ADDRESS_UNITS or b1 == "〒"):
-            out.add((a, b))
-        elif a1 and a1 in DASHES and text[b + 1:b + 2] in (" ", "\u3000", ""):
-            out.add((a, b))
-        elif b1 and b1 in DASHES and (b < len(text) or a > 0):
-            out.add((a, b))  # 「〒　　　−　　　　」の「−」の後ろ
-        elif a1 and a1 in "：:" and time_like:
-            out.add((a, b))  # 時刻「　　：　　～　　：　　」の時（「：」の前）
-        elif b1 and b1 in "：:" and time_like:
-            out.add((a, b))  # 時刻の分（「：」の後ろ）
-        elif a1 and a1 in "～~" and a > 0:
-            out.add((a, b))  # 「　　～　　」の「～」の前
-        elif b1 and b1 in "～~" and b < len(text):
-            out.add((a, b))  # 「～」の後ろ
-        elif a > 0 and b1 and not b1.isspace() and _unit_at(text, b) and not spaced:
-            out.add((a, b))  # 「片道　　分」「手帳　　種　　級」「　　日／月」の単位の前（「氏　　名」のような見出しは除く）
-    kept: list[tuple[int, int]] = []
-    for a, b in sorted(out):
-        if trail and a >= len(text) - trail:
-            # 縁までの空き（後ろ）：住所の単位の後、または「（内線）」のように かっこだけの文字の後
-            before = text[a - 1:a]
-            short_paren = core.strip(" \u3000").startswith(("（", "(")) and len(core.strip(" \u3000")) <= 10
-            if not before or not (before in ADDRESS_UNITS or before == "〒" or before in DASHES or (before in "）)" and short_paren)
-                                  or (before in "：:" and time_like)):
-                continue
-        if lead and b <= lead:
-            after = text[b:b + 2]
-            date_like = bool(re.search(r"[年月][ \u3000]+[月日]", core)) or bool(re.search(r"時[ \u3000]+分", core))
-            unit_only = bool(UNIT_ONLY.fullmatch(core.strip(" \u3000")))
-            if not after[:1] or not (after[:1] in ADDRESS_UNITS or after[:1] in "（(" or
-                    any(text[b:].startswith(u) for u in LEAD_UNITS if u != "年") or
-                    (after[:1] in "年月日時" and date_like) or unit_only or (after[:1] in "：:" and time_like)):
-                continue
-        if kept and a < kept[-1][1]:
-            if b > kept[-1][1]:
-                kept[-1] = (kept[-1][0], b)
+    out: list[Blank] = []
+    for a, b, kind in _runs(text):
+        run = text[a:b]
+        if kind == "connector":
+            if b - a == 1 and underscore_in_word(text, a, b):
+                continue  # 英数字にはさまれた 1 つの「_」（名前・URL の「HWL_Spawn」「minji05_00589」）：名前の一部
+            out.append(Blank(a, b, not underscore_touches_word(text, a, b), "connector"))
             continue
-        kept.append((a, b))
-    return kept
-
-
-_OPTION_GROUP = re.compile(r"[^・／/（）()\s\u3000]{1,10}(?:[\s\u3000]*[・／/][\s\u3000]*[^・／/（）()\s\u3000]{1,10}){1,5}")
-# 区切りの字で並ぶ語（数・長さを決めない）：○で囲む選択肢の候補。選択肢らしくない所は、落とさずに理由を添えて示す
-_OPTION_LIST = re.compile(r"[^・／/（）()\s\u3000]+(?:[\s\u3000]*[・／/][\s\u3000]*[^・／/（）()\s\u3000]+)+")
+        if kind in ("leader", "dash"):
+            if not (_chars.dot_run(text, a, b) if kind == "leader" else b - a >= DASH_MIN):
+                continue
+            if len(run) == stripped and len(run) >= DECOR_MIN:
+                continue  # 点線・ダッシュだけの長い行（区切りの飾り）
+            out.append(Blank(a, b, False, kind))
+            continue
+        # 空白の並び
+        if a < core_a or b > core_b:
+            if not core:
+                continue  # 字のない行
+            if b <= core_a:
+                out.append(Blank(a, b, False, "lead"))
+            elif a >= core_b and keep_trail and not _sentence_end(core[-1]):
+                # 文の終わりの字（Unicode の Sentence_Terminal）で終わる行の後ろは、文の終わりの余白
+                out.append(Blank(a, b, False, "trail"))
+            continue
+        opener = text[a - 1] if a > 0 else ""
+        if opener and b < n and _chars.closing(opener) == text[b]:
+            out.append(Blank(a, b, True, "bracket"))  # 「（　　）」「[ ]」：かっこの組の中が空白だけ
+            continue
+        if b - a < GAP_MIN or heading or spaced_option(a):
+            continue
+        if text[b] in BOX_GLYPHS or text[b] in CHECKED_GLYPHS:
+            continue  # チェックの箱の字の前の空白（「☐ 新規　　☐ 変更」）は、箱の字の項目どうしの区切り
+        out.append(Blank(a, b, False, "gap"))
+    inner = [x for x in out if x.why not in ("lead", "trail")]
+    if room_l > 0 and room_r > 0 and not inner:
+        out = []  # 左右どちらにも空きがあり、行の中に空欄のない行（中央・途中にそろえた見出し）：前後の空きは、そろえ方の空き
+    return out
 
 
 MIN_WRITE = 6.0  # これより低い字の行の所は、小さな字の行として（書けるかは書き込みと同じ決め方で）示す
@@ -930,19 +1022,17 @@ def _vov_rect(r: tuple[float, float, float, float], c) -> float:
 
 
 def _cut_option(t: str) -> str:
-    """チェックの印の右の文字から、選択肢の名前だけを取る（大きな空き・※・● で切る）。"""
-    t = t.strip(" \u3000")
-    # 字間を均等に空けた選択肢（「重　　度　　訪　　問　　介　　護」）：1字ずつの並びで、空きの長さがそろうものは1つの語
-    m = re.match(r"\S(?:[ \u3000]+\S)+", t)
-    if m:
-        gaps = re.findall(r"[ \u3000]+", m[0])
-        toks = re.split(r"[ \u3000]+", m[0])
-        if len(toks) >= 3 and all(len(x) == 1 for x in toks) and max(map(len, gaps)) - min(map(len, gaps)) <= 1:
-            return "".join(toks)
-    m = re.search(r"[\u3000 ]{2,}|※|●|・・", t)
-    if m and m.start() > 0:
-        t = t[:m.start()]
-    return t.strip(" \u3000")
+    """チェックの印の右の文字から、選択肢の文字を取る：次の大きな空き（2 字以上の空白）か、次のチェックの箱の字まで（字の意味は見ない）。
+    字間を均等に空けた並び（「重　　度　　訪　　問」）は、1 つの並びとして空白を除く。"""
+    t = t.strip(" 　")
+    m = re.match(r"\S(?:[ 　]+\S)+", t)
+    if m and evenly_spaced(m[0]) and len(re.split(r"[ 　]+", m[0])) >= 3:
+        return re.sub(r"[ 　]+", "", m[0])
+    for a, b, kind in _runs(t):
+        if kind == "space" and b - a >= GAP_MIN and a > 0:
+            t = t[:a]
+            break
+    return t.strip(" 　")
 
 
 @dataclass
@@ -1128,6 +1218,8 @@ class PageLayout:
                     continue
                 if _SPACED.fullmatch(b.text.strip(" \u3000")) and re.search(r"[ \u3000]", b.text.strip(" \u3000")):
                     continue  # 字間を空けた見出し（「氏　名」）の上の小さな字は、ルビでなく見出し（「フリ　ガナ」）
+                if not any(_ruby_base(ch) for ch in b.text):
+                    continue  # ルビは漢字（注音は漢字の読み）につくもの：漢字のない行の上の小さな字（「(office use)」）は別の行のまま
                 gap = b.y0 - r.y1
                 if not (-0.15 * b.size <= gap <= 0.5 * b.size):
                     continue
@@ -1287,37 +1379,52 @@ class PageLayout:
         return out
 
     def _circled(self) -> None:
-        """○で囲む選択肢のうち、ページに描かれた楕円（線の曲線の外枠に内接する楕円）が、その字だけを囲んでいるもの：選んだ字。"""
-        from .circle import inside
+        """ページに描かれた○（線の曲線）が、1 つの行の続いた字だけを囲んでいる所：self.circled に (行, 始め, 終わり, id) を。
+        囲んでいるかは、○を書くとき・読み戻すときと同じ決め方（circle.encloses）。とどくが描いた○（印 TdkCircle）は、その形
+        （楕円・四角）と id で、ほかの曲線は、曲線の外枠に内接する楕円で比べる。どの選択肢を選んだか（字の意味）は決めない。"""
+        from .circle import drawn, encloses
 
-        ells = []
+        self.circled = []
+        shapes = []
+        if not any(stroke for *_r, stroke, _f in self.pc.curves):
+            return
+        try:
+            tdk = drawn(self.doc, self.number) if hasattr(self.doc, "page_content") else []
+        except Exception:  # noqa: BLE001  ○の印を読めないときも、ほかの曲線は比べる
+            tdk = []
+        for i, kind, g, _lw in tdk:
+            shapes.append((kind, g, i))
         for x0, y0, x1, y1, stroke, _fill in self.pc.curves:
             if not stroke:
                 continue
             r = self.view.rect(x0, y0, x1, y1)
-            if r[2] - r[0] > 0.5 and r[3] - r[1] > 0.5:
-                ells.append(((r[0] + r[2]) / 2, (r[1] + r[3]) / 2, (r[2] - r[0]) / 2, (r[3] - r[1]) / 2))
-        if not ells:
-            return
-
-        def glyphs(r):
-            # 選択肢の字の箱：選択肢の位置（行の高さの帯）の中に中心がある字の箱を合わせたもの。書くとき（circle.resolve）は
-            # 字の箱を囲むので、行の高さ（行のいちばん大きい字の高さ）で比べると、囲んだ○でも角がはみ出す
-            cs = [c for c in self.chars if not c.text.isspace() and r[0] <= c.cx <= r[2] and r[1] <= c.cy <= r[3]]
-            if not cs:
-                return r
-            return (min(c.x0 for c in cs), min(c.y0 for c in cs), max(c.x1 for c in cs), max(c.y1 for c in cs))
-
-        for sp in self.spots:
-            if sp.kind != "circle":
+            if r[2] - r[0] <= 0.5 or r[3] - r[1] <= 0.5:
                 continue
-            boxes = [(o, glyphs(r)) for o, r in sp.options]
-            for cx, cy, a, b in ells:
-                e = (cx, cy, a + 0.01, b + 0.01)  # 描いた座標の丸め（小数 3 桁）の分
-                inner = [o for o, r in boxes if inside(e, r)]
-                if len(inner) == 1:
-                    sp.chosen = inner[0]
-                    break
+            if any(abs(r[0] - (g[0] - g[2] if k == "ellipse" else g[0])) < 0.5 and abs(r[1] - (g[1] - g[3] if k == "ellipse" else g[1])) < 0.5
+                   for k, g, _i in shapes if _i):
+                continue  # とどくが描いた○（上で、形と id で比べた）
+            shapes.append(("ellipse", ((r[0] + r[2]) / 2, (r[1] + r[3]) / 2, (r[2] - r[0]) / 2, (r[3] - r[1]) / 2), ""))
+        if not shapes:
+            return
+        lines = [ln for ln in self.all_lines() if ln.text.strip()]
+        for kind, g, ident in shapes:
+            inner = {id(c) for c in self.chars if not c.text.isspace() and encloses(kind, g, c)}
+            if not inner:
+                continue
+            host = [ln for ln in lines if any(id(c) in inner for c in ln.chars)]
+            if len(host) != 1 or sum(1 for c in host[0].chars if id(c) in inner) != len(inner):
+                continue  # 2 つ以上の行にかかる（表の枠の角の丸みなど）：字を囲む○とは言えない
+            ln = host[0]
+            cs = [c for c in ln.chars if id(c) in inner]
+            if ln.vertical:
+                lo, hi = min(c.y0 for c in cs), max(c.y1 for c in cs)
+            else:
+                lo, hi = min(c.x0 for c in cs), max(c.x1 for c in cs)
+            if any(id(c) not in inner and not c.text.isspace() and lo < (c.cy if ln.vertical else c.cx) < hi for c in ln.chars):
+                continue  # 囲んだ字の間に、囲まれていない字がある
+            idx = [k for k, q in enumerate(ln.pos) if not ln.text[k].isspace() and lo - 0.01 <= (q[0] + q[1]) / 2 <= hi + 0.01]
+            if idx:
+                self.circled.append((ln, min(idx), max(idx) + 1, ident))
 
     def cell_fill(self, c: Cell):
         """マスを塗っている色（いちばん上に描かれたもの）。なければ None。"""
@@ -1454,13 +1561,17 @@ class PageLayout:
             self._rest_of_cell(c, typ)
         # 4) 下線
         self._underline_spots()
-        # ほかの欄と大きく重なる候補は、消さずに「同じ所の別の読み方」として残す（先に見つけたものを主にする）
+        # ほかの欄と大きく重なる候補は、消さずに「同じ所の別の読み方」として残す（先に見つけたものを主にする。ただし規則で
+        # 決めた欄と、規則では決められない所（？）が重なるときは、規則の欄を主にする）
         kept: list[Spot] = []
         for s in self.spots:
             if s.kind != "checkbox":
                 k = next((k for k in kept if k.kind != "checkbox" and _overlap(s.rect, k.rect) > 0.6), None)
             else:
                 k = next((k for k in kept if k.kind == "checkbox" and _overlap(s.rect, k.rect) > 0.7), None)  # 同じ □ を2重に
+            if k is not None and k.confidence == "agent" and s.confidence != "agent" and k.alternative_to is None:
+                kept[kept.index(k)] = s
+                s, k = k, s
             if k is not None:
                 s.alternative_to = k
                 _agent(s, gate="overlap")  # 重なる先は alternative_to で示す（窓の種類の欄にも出す）
@@ -1606,6 +1717,14 @@ class PageLayout:
                 beside = None if cell is None else next(
                     (k for k in primary if k.kind != "space" and k.rect[0] >= cell.x1 - 1.5 and k.rect[0] - cell.x1 < 6 and _vov_rect(k.rect, cell) >= 0.5),
                     None)
+                if beside is not None:
+                    # 行の終わりの後ろの空き（マスの縁まで）：すぐ右のマスに規則の欄がある。値はそちらに書くことが多い
+                    for k in self.spots:
+                        if k.host is ln and k.kind == "inline" and k.at == (len(text), len(text)) and k.alternative_to is None \
+                                and k.confidence == "agent":
+                            k.alternative_to = beside
+                            k.reason += "（すぐ右のマスの欄の別の候補）"
+                            k.gate = k.gate or "beside"
                 for a, b, why in agent_blanks(text, found, cell is not None):
                     gate = "small_line" if small else ""
                     if why == "placeholder":
@@ -1683,8 +1802,10 @@ class PageLayout:
             self.spots.append(Spot("text", (c.x0 + 1.5, c.y0 + 0.5, c.x1 - 1.5, top - 0.5), name,
                                    "マスの中の字の上の空き", cell=c, size=_fit_size(min(above, 2.5 * sz), typ), host=c))
         elif leftroom >= max(48, 5 * sz) and leftroom >= 0.4 * c.w and not any(
-                pdf_blanks("\u3000" * 3 + ln.text) for ln in hor) and not (
+                gap_blanks(ln.text) for ln in hor) and not (
                 all(getattr(ln, "rtl", False) for ln in hor) and self._empty_beside(c, "left")):
+            for ln in hor:
+                self._drop_room(ln, "lead")
             self.spots.append(Spot("text", (c.x0 + 1.5, c.y0 + 0.5, left - 1.5, c.y1 - 0.5), rl or name,
                                    "マスの中の字の左の空き", cell=c, size=_fit_size(c.h, typ), host=c))
         else:
@@ -1723,8 +1844,9 @@ class PageLayout:
             return
         t = ln.text.strip(" \u3000")
         right_ok = c.x1 - ln.x1 <= 3 * sz and room >= 0.45 * c.w
-        if right_ok and room >= max(48, 5 * sz) and len(t) <= 24 and not pdf_blanks(ln.text) \
+        if right_ok and room >= max(48, 5 * sz) and len(t) <= 24 and not gap_blanks(ln.text) \
                 and not any(b in ln.text for b in BOX_GLYPHS):
+            self._drop_room(ln, "trail")
             self.spots.append(Spot("text", (c.x0, band[0], ln.x0 - 1.5, band[1]), norm_label(t),
                                    "見出しと同じマスの左の空き（右から左へ書く見出し）", cell=c,
                                    size=_fit_size(band[1] - band[0], typ), host=ln, at=(len(ln.text), len(ln.text))))
@@ -1753,13 +1875,13 @@ class PageLayout:
         t = ln.text.strip(" 　")
         # 大きな空きで分けた最後のまとまり（「上記のとおり証明します。　　　　委託者　事　業　所　の　住　所」の「委託者…」）
         seg = re.split(r"[ 　]{3,}", t)[-1]
-        labelish = bool(_SPACED.fullmatch(seg) or re.search(r"(?:\S[ 　]){2,}\S$", seg)) or seg.endswith(("：", ":"))
+        labelish = bool(_SPACED.fullmatch(seg) or re.search(r"(?:\S[ 　]){2,}\S$", seg)) or bool(seg) and _chars.is_label_colon(seg[-1])
         left_ok = ln.x0 - c.x0 <= 3 * sz and room >= 0.45 * c.w
         rect = (ln.x1 + 1.5, band[0], c.x1, band[1])
         if not gate_fail and (left_ok or (labelish and len(hor) >= 2 and room >= max(80, 8 * sz))) and room >= max(48, 5 * sz) \
                 and len(seg if labelish else t) <= 16 + (8 if labelish else 0) \
-                and not pdf_blanks(ln.text) and not any(b in ln.text for b in BOX_GLYPHS) \
-                and not _OPTION_GROUP.search(ln.text):
+                and not gap_blanks(ln.text) and not any(b in ln.text for b in BOX_GLYPHS):
+            self._drop_room(ln, "trail")
             self.spots.append(Spot("text", rect, norm_label((seg if labelish else t)),
                                    "見出しと同じマスの右の空き", cell=c, size=_fit_size(band[1] - band[0], typ), host=ln,
                                    at=(len(ln.text), len(ln.text))))
@@ -1783,38 +1905,19 @@ class PageLayout:
                         x.group = grp
 
     def _free_line_spots(self, ln: Line) -> None:
-        """マスの外の行の、語を手がかりにした空き（規則では決められない所として示す）：
-        行の頭の空き（「　　知事　殿」）・行の終わりの空き（「〒」「市」の後ろ）・見出しの右の余白。"""
+        """マスの外の行の終わりの後ろの空き（規則では決められない所として示す。語は見ない）：ダッシュ（Unicode の Pd）で終わる行の
+        後ろ（「電話番号　　―　　―」）・見出しの右の余白・右から左へ書く見出しの左の余白。行の頭の前の空きは _line_spots で示す。"""
         if ln.vertical:
             return
         t = ln.text.strip(" 　")
         sz = ln.size
         if not t:
             return
-        # 同じ高さのほかの字（空白の字は、見えないので数えない）
-        same_row = [c for c in self.chars if abs(c.cy - (ln.y0 + ln.y1) / 2) < 0.6 * sz and not c.text.isspace()
-                    and c not in ln.chars]
-        # 行の頭の空き：左に何もなければ、4字ぶんまで（「知事」「市長」「年」などの語で始まる行）
-        if any(t.startswith(u) for u in LEAD_UNITS):
-            left_bound = max([c.x1 for c in same_row if c.x1 <= ln.x0 + 0.5] + [self.left])
-            for r in self.vs:
-                if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1 and left_bound < r.pos <= ln.x0:
-                    left_bound = r.pos
-            room = ln.x0 - left_bound
-            if room >= 1.3 * sz:
-                w = min(room - 0.5 * sz, 5 * sz)
-                why = "行の頭の空き（「" + next(u for u in LEAD_UNITS if t.startswith(u)) + f"」で始まる行。左の空き {room:.1f}pt）"
-                self.spots.append(_agent(Spot("inline", (ln.x0 - w, ln.y0, ln.x0 - 0.3 * sz, ln.y1),
-                                              norm_label("［　］" + t), why, line_text=ln.text, size=sz,
-                                              host=ln, at=(0, 0)), gate="" if room >= 2.5 * sz else "lead_room"))
-        right_bound = min([c.x0 for c in same_row if c.x0 >= ln.x1 - 0.5] + [self.right])
-        for r in self.vs:
-            if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1 and ln.x1 <= r.pos < right_bound:
-                right_bound = r.pos
+        left_bound, right_bound = self._free_bounds(ln)
         room = right_bound - ln.x1
-        # 行の終わりの空き：「住所　〒」「仙台市」「電話番号　　―　　―」の後ろ（同じ高さの次の字か、右の縁まで）
+        # 行の終わりの空き：ダッシュで終わる行（「電話番号　　―　　―」）の後ろ（同じ高さの次の字か、右の縁まで）
         last = t[-1:]
-        if last == "〒" or last in DASHES or (last in ADDRESS_UNITS and len(t) <= 12):
+        if _chars.is_dash(last):
             if room >= 3 * sz:
                 self.spots.append(_agent(Spot("inline", (ln.x1 + 0.3 * sz, ln.y0, right_bound - 1, ln.y1),
                                               norm_label(t + "［　］"), f"行の終わりの空き（「{last}」の後ろ。空き {room:.1f}pt）",
@@ -1822,11 +1925,7 @@ class PageLayout:
                 return
         if getattr(ln, "rtl", False):
             # 右から左へ書く見出し：見出しの左の余白（左に何もない）
-            if 1 <= len(t) <= 15 and not pdf_blanks(ln.text):
-                left_bound = max([c.x1 for c in same_row if c.x1 <= ln.x0 + 0.5] + [self.left])
-                for r in self.vs:
-                    if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1 and left_bound < r.pos <= ln.x0:
-                        left_bound = r.pos
+            if 1 <= len(t) <= 15 and not gap_blanks(ln.text):
                 if ln.x0 - left_bound >= max(80, 8 * sz) and left_bound <= self.left + 1:
                     self.spots.append(Spot("space", (left_bound, ln.y0 - 0.2 * sz, ln.x0 - sz, ln.y1 + 0.2 * sz),
                                            norm_label(t), "見出しの左の余白（右から左へ書く見出し。入力欄とは限らない）", size=sz,
@@ -1841,7 +1940,8 @@ class PageLayout:
         tight = not spaced and any(o is not ln and not o.vertical and abs(o.x0 - ln.x0) <= 1.0 and
                                    (0 <= o.y0 - ln.y1 < 0.6 * sz or 0 <= ln.y0 - o.y1 < 0.6 * sz) for o in self.free_lines)
         rect = (ln.x1 + sz, ln.y0 - 0.2 * sz, right_bound, ln.y1 + 0.2 * sz)
-        if 1 <= len(t) <= 15 and not t.endswith(("。", "殿", "様", "御中")) and not pdf_blanks(ln.text) \
+        # 文の終わりの字（Unicode の Sentence_Terminal）で終わる行は、文（見出しでない）
+        if 1 <= len(t) <= 15 and not _sentence_end(t[-1]) and not gap_blanks(ln.text) \
                 and room >= max(80, 8 * sz) and not centered and (right_bound >= self.right - 1 or spaced) and not tight:
             self.spots.append(Spot("space", rect, norm_label(t), "見出しの右の余白（入力欄とは限らない）", size=sz, host=ln,
                                    at=(len(ln.text), len(ln.text)), confidence="agent"))
@@ -1877,29 +1977,39 @@ class PageLayout:
             self.spots.append(_agent(sp, gate="checked_glyph"))
         if ln.vertical:
             return
-        # マスの中の行は、マスの縁（または同じ高さのほかの文字）までの空きも空白として扱う（「　　　都 道」「市 区　　　」）
-        lead = trail = 0
-        lb = rb = None
+        # 行の前後の空き：マスの中の行はマスの縁（または同じ高さのほかの行）まで、マスの外の行は同じ高さのほかの字・縦の罫線・
+        # ページの字の端まで。1.5 字ぶん以上あれば空白にして前後に足す（pdf_blanks が行の頭の前・行の終わりの後ろの空きとして示す）
+        sz = ln.size
         if cell is not None:
             lb, rb = cell.x0, cell.x1
             for o in cell.lines:
-                if o is ln or o.vertical or not (o.y0 < ln.y1 - 0.2 * ln.size and o.y1 > ln.y0 + 0.2 * ln.size):
+                if o is ln or o.vertical or not (o.y0 < ln.y1 - 0.2 * sz and o.y1 > ln.y0 + 0.2 * sz):
                     continue
                 if o.x1 <= ln.x0 + 0.5:
                     lb = max(lb, o.x1)
                 if o.x0 >= ln.x1 - 0.5:
                     rb = min(rb, o.x0)
-            # 縁までの空きが 1.5 字ぶん以上あれば空白にする（空欄にするかは pdf_blanks の強い手がかりで決める）
-            lead = max(2, int((ln.x0 - lb - 1.5) // ln.size)) if ln.x0 - lb >= 1.5 * ln.size else 0
-            trail = max(2, int((rb - ln.x1 - 1.5) // ln.size)) if rb - ln.x1 >= 1.5 * ln.size else 0
+        else:
+            lb, rb = self._free_bounds(ln)
+        # 右から左へ書く行は、読む順の行の頭が右：行の頭の前の空きは右の空き、行の終わりの後ろの空きは左の空き
+        rtl = bool(getattr(ln, "rtl", False))
+        left_room, right_room = ln.x0 - lb, rb - ln.x1
+        head_room, end_room = (right_room, left_room) if rtl else (left_room, right_room)
+        lead = max(2, int((head_room - 1.5) // sz)) if head_room >= 1.5 * sz else 0
+        trail = max(2, int((end_room - 1.5) // sz)) if end_room >= 1.5 * sz else 0
+        if lead and self._indented(ln, cell):
+            lead = 0  # 段落の字下げ（次の行が、この行より左から始まる）：行の頭の前の空きは、字下げの空き
+        left_span = (max(lb + 1.5, ln.x0 - 5 * sz) if cell is None else lb + 1.5, ln.x0 - 0.2 * sz)  # 行の左の空き
+        right_span = (ln.x1 + 0.2 * sz, min(rb - 1.5, ln.x1 + 5 * sz) if cell is None else rb - 1.5)  # 行の右の空き
         padded = "\u3000" * lead + text + "\u3000" * trail
-        for blank in pdf_blanks(padded, lead, trail):
+        # マスの外の行の終わりの後ろは、文の終わりの余白が多いので、ここでは示さない（見出しの右の余白として _free_line_spots で見る）
+        for blank in gap_blanks(padded, lead, trail, keep_trail=cell is not None):
             a, b = blank
             a0, b0 = a - lead, b - lead
             if a0 < 0 and b0 <= 0:
-                x0, x1 = lb + 1.5, ln.x0 - 0.2 * ln.size
+                x0, x1 = right_span if rtl else left_span  # 行の頭の前（マスの外は 5 字ぶんまで）
             elif a0 >= len(text):
-                x0, x1 = ln.x1 + 0.2 * ln.size, rb - 1.5
+                x0, x1 = left_span if rtl else right_span  # 行の終わりの後ろ
             else:
                 aa, bb = max(a0, 0), min(b0, len(text))
                 if bb <= aa:
@@ -1915,159 +2025,49 @@ class PageLayout:
             orig = text[at[0]:at[1]]
             shown = text[:at[0]] + (orig if orig.strip(" 　") else "") + "［　］" + text[at[1]:]
             sp = Spot("inline", (x0, ln.y0, x1, ln.y1), norm_label(shown), "文字の中の空欄", line_text=text,
-                      blank=at, cell=cell, size=ln.size, host=ln, at=at)
-            if not blank.structural and text[at[0]:at[1]] and all(ch in "_＿" for ch in text[at[0]:at[1]]):
+                      blank=at, cell=cell, size=sz, host=ln, at=at)
+            sp.room = blank.why in ("lead", "trail")  # 行の前後の空き（マスの縁まで）：見出しのマスかは、これでは変えない
+            if blank.why == "connector" and not blank.structural:
                 # 英数字に接した下線の字（「Name____」「_HVeg」）：書くための線か、名前の一部か、字の形だけでは決まらない
                 _agent(sp, "英数字に接した下線の字（" + _blank_hint(text, at) + "。名前の一部のこともある）")
             elif not blank.structural:
-                # 語（単位・年月日・住所の単位・「：」など）を手がかりにした空欄：規則では欄と決められない
-                _agent(sp, "語を手がかりにした文字の中の空欄（" + _blank_hint(text, at) + "）")
-            if x1 - x0 < 0.8 * ln.size:
-                _agent(sp, f"{sp.reason}（空きは幅 {x1 - x0:.1f}pt：字 1 字（{ln.size:.1f}pt）より狭い）", "narrow")
+                # 空き（空白の並び・測った空き・点線・ダッシュ）：字の意味は見ていない。幅と前後の字を添える
+                _agent(sp, f"{GAP_WHY.get(blank.why, '空き')}（幅 {x1 - x0:.1f}pt。{_blank_hint(text, at)}）", "gap")
+            if x1 - x0 < 0.8 * sz:
+                _agent(sp, f"{sp.reason}（空きは幅 {x1 - x0:.1f}pt：字 1 字（{sz:.1f}pt）より狭い）", "narrow")
             self.spots.append(sp)
-        self._era_choice(ln, cell)
-        self._option_choice(ln, cell)
 
-    def _option_choice(self, ln: Line, cell: Cell | None) -> None:
-        """○で囲んで選ぶ選択肢の候補（規則では決められない所として示す。どれも字の並びの形だけで見つける）：
-        - かっこの中を「・」「／」で区切った並び（「（父携帯・母携帯・自宅）」）。一つだけが句（かなの後ろに漢字の続く
-          「通勤を除く」）の並びは、注のかっこかもしれないが、落とさずに理由を添えて示す（エージェントが決める）
-        - 語が 7 個以上・11 字以上の語・句読点（、。：）のある語・数だけの語のある並びも、落とさずに理由を添えて示す
-        - 選択肢だけの行（「有　・　無」）：区切りの前後を空けて並べたもの、またはマスの中にその行だけがあり、同じ高さの左の
-          マスに字（見出し）があるもの
-        - 番号の付いた並び（「1.新規　2.更新」「１　自家　２　借家」）：続き番号が 2 つ以上
-        - 数だけの並び（「区分　１　２　３　４　５　６」）：空白で区切った続き番号が 3 つ以上
-        どの選択肢も、ほかの欄の候補（文字の中の空欄など）に重なるものは除く（「年　月　日交付・更新」の「年　月　日交付」）。"""
-        if ln.vertical:
-            return
-        text = ln.text
-        groups = []
-        for m in re.finditer(r"[（(]([^（）()]{2,60})[）)]", text):
-            groups.append((m.start(1), m.group(1), True))
-        whole = text.strip(" \u3000")
-        # 後ろの「その他（　　）」の書く所は選択肢に含めない
-        body = re.sub(r"[（(][ \u3000]*[）)]$", "", whole).rstrip(" \u3000")
-        spaced_sep = bool(re.search(r"[ \u3000]+[・／/][ \u3000]+", body))
-        if body and _OPTION_LIST.fullmatch(body) and (spaced_sep or self._alone_with_label(ln, cell)):
-            groups.append((text.index(body), body, False))
-        for start, inner, paren in groups:
-            parts = re.split(r"([・／/])", inner)
-            opts = []
-            pos = start
-            for k, part in enumerate(parts):
-                if k % 2 == 0:
-                    word = part.strip(" \u3000")
-                    if word:
-                        a = pos + part.index(word)
-                        opts.append((word, a, a + len(word)))
-                pos += len(part)
-            if len(opts) < 2:
-                continue  # 語が1つ：並びでない
-            doubt = []  # 選択肢らしくない所（落とさずに、？ の候補の理由にする）
-            if len(opts) > 6:
-                doubt.append(f"語が {len(opts)} 個並ぶ（文の中の並びかもしれない）")
-            if any(len(w) > 10 for w, _a, _b in opts):
-                doubt.append("11 字以上の語がある（文かもしれない）")
-            if any(re.search(r"[、。：:]", w) for w, _a, _b in opts):
-                doubt.append("句読点のある語がある（文かもしれない）")
-            if any(re.fullmatch(r"[\d０-９]+", w) for w, _a, _b in opts):
-                doubt.append("数だけの語がある（日付・番号の並びかもしれない）")
-            phrase = [bool(re.search(r"[\u3041-\u309f][\u3400-\u9fff]", w)) for w, _a, _b in opts]
-            if paren and any(phrase) and not all(phrase):
-                doubt.append("句が混ざる（注のかっこかもしれない）")  # 「（通学・通所・通勤を除く）」
-            head = text[:start].rstrip("（( \u3000")
-            why = "選択肢が「・」で並ぶ（どれかを○で囲む）"
-            if doubt:
-                why += "。ただし選択肢でないかもしれない：" + "・".join(doubt)
-            self._add_options(ln, cell, opts, head, why, gate="option-doubt" if doubt else "")
-        self._numbered_options(ln, cell)
-
-    def _alone_with_label(self, ln: Line, cell: Cell | None) -> bool:
-        """マスの中にその行だけがあり、同じ高さの左のマスに字がある（見出しの右の、選択肢だけのマス）。"""
-        if cell is None or len([x for x in cell.lines if not x.vertical]) != 1:
-            return False
-        for c in self.index.near(cell.x0 - 300, cell.y0, cell.x0, cell.y1):
-            if c is not cell and c.x1 <= cell.x0 + 1.5 and _vov(c, cell) >= 0.5 and c.visible():
+    def _indented(self, ln: Line, cell: Cell | None) -> bool:
+        """段落の 1 行目の字下げか：すぐ下の行（同じマス・マスの外の行）が、この行の頭より 1 字ぶん以上、読む順の前の側から始まる。"""
+        sz = ln.size
+        rtl = bool(getattr(ln, "rtl", False))
+        for o in (cell.lines if cell is not None else self.free_lines):
+            if o is ln or o.vertical or not (0 <= o.y0 - ln.y1 <= 1.0 * sz) or o.x1 < ln.x0 or o.x0 > ln.x1:
+                continue
+            if (o.x1 > ln.x1 + sz) if rtl else (o.x0 < ln.x0 - sz):
                 return True
         return False
 
-    def _numbered_options(self, ln: Line, cell: Cell | None) -> None:
-        text = ln.text
-        if any(b in text for b in BOX_GLYPHS):
-            return  # □ の付いた選択肢（チェックの印として示す）
+    def _free_bounds(self, ln: Line) -> tuple[float, float]:
+        """マスの外の行の左右の端：同じ高さのほかの字・縦の罫線・ページの字の端。"""
+        sz = ln.size
+        same_row = [c for c in self.chars if abs(c.cy - (ln.y0 + ln.y1) / 2) < 0.6 * sz and not c.text.isspace()
+                    and c not in ln.chars]
+        lb = max([c.x1 for c in same_row if c.x1 <= ln.x0 + 0.5] + [self.left])
+        rb = min([c.x0 for c in same_row if c.x0 >= ln.x1 - 0.5] + [self.right])
+        for r in self.vs:
+            if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1:
+                if lb < r.pos <= ln.x0:
+                    lb = r.pos
+                if ln.x1 <= r.pos < rb:
+                    rb = r.pos
+        return lb, rb
 
-        def num(t: str) -> int:
-            return int(t.translate(str.maketrans("０１２３４５６７８９", "0123456789")))
-
-        # 番号の付いた並び：番号（と「.」「．」「)」など）の後ろに語
-        # （番号の前は、行の頭・空白・かっこ・区切りの字だけ。「第８条」の８は番号でない。○は番号を囲む）
-        toks = [(num(m[1]), m.start(1), m.end(1), m[0].strip(" \u3000")) for m in re.finditer(
-            r"(?:^|(?<=[\s\u3000（(「・／/]))([1-9１-９])[ \u3000]?[.．、,，)）:：]?[ \u3000]?[^\s\u3000\d０-９・／/、。（）()]{1,8}", text)]
-        run = self._consecutive(toks)
-        if len(run) >= 2:
-            opts = [(t[3], t[1], t[2]) for t in run]
-            self._add_options(ln, cell, opts, text[:run[0][1]], "番号の付いた選択肢が並ぶ（番号を○で囲む）", numbered=True)
-            return
-        # 数だけの並び：空白で区切った続き番号
-        toks = [(num(m[0]), m.start(), m.end(), m[0]) for m in re.finditer(r"(?<![\d０-９\w])[\d０-９]{1,2}(?![\d０-９\w])", text)]
-        run = self._consecutive(toks)
-        if len(run) >= 3 and all(re.fullmatch(r"[ \u3000]+", text[a[2]:b[1]]) for a, b in zip(run, run[1:])):
-            opts = [(t[3], t[1], t[2]) for t in run]
-            self._add_options(ln, cell, opts, text[:run[0][1]], "数が空白で区切って並ぶ（どれかを○で囲む）")
-
-    @staticmethod
-    def _consecutive(toks: list) -> list:
-        """続き番号のいちばん長い並び（1つずつ増える）。"""
-        best: list = []
-        cur: list = []
-        for t in toks:
-            if cur and t[0] == cur[-1][0] + 1:
-                cur.append(t)
-            else:
-                cur = [t]
-            if len(cur) > len(best):
-                best = list(cur)
-        return best
-
-    def _add_options(self, ln: Line, cell: Cell | None, opts: list, head: str, why: str, numbered: bool = False,
-                     gate: str = "") -> None:
-        rects = [(w, ln.span_rect(a, b)) for w, a, b in opts]
-        for k in self.spots:
-            if k.kind == "circle" and k.host is ln and any(_overlap(r, o) > 0.3 for _w, r in rects for _t, o in k.options):
-                return  # 同じ字を、ほかの決め方でもう選択肢にした
-            if k.kind in ("inline", "text") and k.host is ln and any(_overlap(r, k.rect) > 0.05 for _w, r in rects):
-                return  # 選択肢が、ほかの欄の候補（文字の中の空欄）に重なる
-        label = norm_label(head.strip(" \u3000（(")[-30:])
-        if not label and cell is not None:
-            lab, rl, _cl = self._label_for(cell, cell)
-            label = norm_label(rl or lab)
-        label = label or "選択肢"
-        r = (min(x[1][0] for x in rects), min(x[1][1] for x in rects), max(x[1][2] for x in rects), max(x[1][3] for x in rects))
-        sp = Spot("circle", r, f"{label}（○で囲む）", why, cell=cell, host=ln, at=None, size=ln.size, confidence="agent")
-        sp.options = rects
-        sp.numbered = numbered  # 選択肢の名前は「番号と語」、○は番号を囲む
-        sp.gate = gate
-        self.spots.append(sp)
-
-    def _era_choice(self, ln: Line, cell: Cell | None) -> None:
-        """元号を○で囲んで選ぶ欄（「昭和／平成」を上下や左右に並べたもの）。マスの中の元号の字を集めて、1つの選ぶ欄にする。"""
-        if cell is None or getattr(cell, "_era_done", False):
-            return
-        eras = []
-        for o in cell.lines:
-            for m in re.finditer(r"明治|大正|昭和|平成|令和", o.text):
-                if o.vertical:
-                    continue
-                eras.append((m[0], o.span_rect(m.start(), m.end()), o))
-        names = [e[0] for e in eras]
-        if len(set(names)) < 2 or len(names) != len(set(names)):
-            return
-        cell._era_done = True
-        r = (min(e[1][0] for e in eras), min(e[1][1] for e in eras), max(e[1][2] for e in eras), max(e[1][3] for e in eras))
-        sp = Spot("circle", r, "元号（○で囲む）", "元号が並ぶ（どれかを○で囲む）", cell=cell, host=eras[0][2],
-                  at=None, size=ln.size, confidence="agent")
-        sp.options = [(n, rect) for n, rect, _ in eras]
-        self.spots.append(sp)
+    def _drop_room(self, ln: Line, side: str) -> None:
+        """行の頭の前（side "lead"）・行の終わりの後ろ（"trail"）の空きの候補を除く（同じ所に、規則の欄を置くとき）。"""
+        end = len(ln.text)
+        self.spots = [k for k in self.spots if not (k.host is ln and k.kind == "inline" and k.at is not None and (
+            (side == "lead" and k.at == (0, 0)) or (side == "trail" and k.at == (end, end))))]
 
     def _underline_spots(self) -> None:
         """下線：見出しの右に引かれた線で、上に文字のないもの。見出しが近くにない線・短い線も、
@@ -2154,7 +2154,8 @@ class PageLayout:
             left = right  # 右から左へ書く表：行の見出しは右のマス
         rl = norm_label(left.text()) if left else ""
         cl = norm_label(up.text()) if up else ""
-        if up is not None and any(sp.cell is up and sp.kind in ("inline", "text") for sp in self.spots):
+        if up is not None and any(sp.cell is up and sp.kind in ("inline", "text") and not getattr(sp, "room", False)
+                                  for sp in self.spots):
             cl = ""  # 上のマスは、それ自体が入力欄を含む（見出しではない）
         if rl and cl and rl != cl:
             # 左（右から左の表では右）がすぐ隣の見出しで、上の見出しが遠い（表の列の見出しでない）ときは、左だけ
@@ -2231,7 +2232,7 @@ def _holds_text(k: Spot) -> bool:
 
 
 _KIND_JA = {"text": "文字の欄", "comb": "1字ずつ書く欄", "inline": "文字の中の空欄", "checkbox": "チェックの印",
-            "space": "余白", "circle": "○で囲む選択肢"}
+            "space": "余白"}
 
 
 def _ja_kind(k: Spot) -> str:
@@ -2243,3 +2244,128 @@ def _blank_hint(text: str, at: tuple[int, int]) -> str:
     before = text[:at[0]].rstrip(" 　")[-4:]
     after = text[at[1]:].lstrip(" 　")[:4]
     return "・".join(x for x in ((f"前「{before}」" if before else ""), (f"後「{after}」" if after else "")) if x) or "行の空き"
+
+
+# ---- これまでの呼び出しのため（PDF の窓では使わない）：Word・ODF・テキスト・HWPX などの窓（docx/window.py の para_spans）と
+# Excel の窓（xlsx/window.py の agent_blanks）が使う、語（単位・年月日・住所の単位など）を手がかりにした空欄の決め方。
+# PDF の窓は gap_blanks（字の形と測った空きだけ）で決める。TODO：それらの窓が字の種類（todoku.chars）の決め方に移ったら消す
+ADDRESS_UNITS = set("市区町村郡都道府県")
+# 数の後ろに付く単位（その前の空きに数を書く）。「日／月」「時間／週」のような割合も
+UNIT_ONLY = re.compile(r"(?:時間|日間|週間|か月|ヶ月|カ月|千円|万円|年度|[日時分秒年月週回人名件号円台本枚個歳才種級％%])"
+                       r"(?:[／/](?:時間|[日時週月年回]))?")
+
+
+def _unit_at(text: str, i: int) -> bool:
+    """text の i 文字目から単位（「分」「日／月」「種」）があり、その後ろが字でない（「分類」「種類」は単位でない）。"""
+    m = UNIT_ONLY.match(text, i)
+    if not m:
+        return False
+    nxt = text[m.end():m.end() + 1]
+    return not nxt or not ("\u3040" <= nxt <= "\u30ff" or "\u3400" <= nxt <= "\u9fff" or nxt.isalpha())
+
+
+# 時刻の欄だけの行（「　　：　　～　　：　　」）、または時刻の範囲を含む行
+_TIME_SKELETON = re.compile(r"[：:～~（）() \u3000]*[：:][：:～~（）() \u3000]*")
+_TIME_RANGE = re.compile(r"[：:][ \u3000]{2,}[～~][ \u3000]{2,}[：:]")
+# 字間を空けた見出し（「事　業　所」「氏　　名」）
+_SPACED = re.compile(r"(?:\S[ \u3000]+)+\S")
+DASHES = "－-‐−―–—"
+LEAD_UNITS = ("年", "知事", "市長", "町長", "村長", "区長", "長　殿", "長殿")
+
+
+
+
+_BRACKETS = {"（": "）", "(": ")", "［": "］", "[": "]", "【": "】", "「": "」", "〔": "〕"}
+
+
+def _structural(text: str, a: int, b: int) -> bool:
+    """空欄 text[a:b] が、字の形だけで決まるもの：下線の字だけ、または かっこの組の中が空白だけ（「（　　）」）。
+    英数字・「/」「.」「-」にはさまれた下線の字の並び（URL・ファイルの名前の「__icsFiles」）は、名前の一部のこともあるので除く。"""
+    seg = text[a:b]
+    if seg and all(ch in "_＿" for ch in seg):
+        # 下線の字の並びが、英数字（「/」「.」「-」を含む）に接していない：書くための線（「氏名＿＿＿」「: ____」）。
+        # 片側でも接していれば（「Name____」「_HVeg」）、語の一部（名前の区切り）のこともあるので、規則では決めない
+        return not underscore_touches_word(text, a, b)
+    if not seg or seg.strip(" 　"):
+        return False
+    i, j = a, b
+    while i > 0 and text[i - 1] in " 　":
+        i -= 1
+    while j < len(text) and text[j] in " 　":
+        j += 1
+    return i > 0 and j < len(text) and _BRACKETS.get(text[i - 1]) == text[j]
+
+
+
+
+def pdf_blanks(text: str, lead: int = 0, trail: int = 0) -> list[Blank]:  # noqa: C901
+    """文字の中の空欄（Excel と同じ規則）に、PDF でよく見る形を足す。各要素は Blank（(始め, 終わり) と structural）。
+    lead・trail は、マスの縁までの空きを空白にして前後に足した数（作った空白なので、強い手がかりがあるときだけ空欄にする）。
+    - 住所の欄：「　　　市　区」「　　　町　村」の前の空き、「都 道」「府 県」の前の空き、「市 区」の後の空き
+    - 行の頭の空き（「　　　知事　殿」「　　　年　月　日」）、「（内線）」の前後の空き
+    - 「　　　－　　　」のようにハイフンでつながる空き
+    語（単位・年月日・「区長」・「：」・「－」など）を手がかりにしたものは structural が偽。"""
+    return [Blank(a, b, _structural(text, a, b)) for a, b in _blank_spans(text, lead, trail)]
+
+
+def _blank_spans(text: str, lead: int = 0, trail: int = 0) -> list[tuple[int, int]]:
+    """pdf_blanks の中身：空欄の (始め, 終わり)。"""
+    core = text[lead:len(text) - trail] if trail else text[lead:]
+    from ..xlsx.window import inline_blanks
+
+    out = set(inline_blanks(text))
+    time_like = bool(_TIME_SKELETON.fullmatch(core) or _TIME_RANGE.search(core))
+    spaced = bool(_SPACED.fullmatch(core.strip(" \u3000")))
+    for m in re.finditer(r"[ \u3000]{2,}", text):
+        a, b = m.start(), m.end()
+        after = text[b:b + 2]
+        before = text[a - 1:a] if a else ""
+        a1, b1 = after[:1], before  # どちらも空の文字列のことがある（"" はどの文字列にも含まれるので、確かめてから比べる）
+        if a1 and a1 in ADDRESS_UNITS and (len(after) < 2 or after[1] in ADDRESS_UNITS or after[1] in " \u3000・"):
+            out.add((a, b))
+        elif any(text[b:].startswith(u) for u in ("区長", "市長", "町長", "村長", "知事")):
+            out.add((a, b))  # 「名古屋市　　　区長」の区の名前、「　　県知事」の県の名前
+        elif a == 0 and any(text[b:].startswith(u) for u in LEAD_UNITS):
+            out.add((a, b))
+        elif a == 0 and a1 in ("（", "("):
+            out.add((a, b))
+        elif b == len(text) and b1 and (b1 in ADDRESS_UNITS or b1 == "〒"):
+            out.add((a, b))
+        elif a1 and a1 in DASHES and text[b + 1:b + 2] in (" ", "\u3000", ""):
+            out.add((a, b))
+        elif b1 and b1 in DASHES and (b < len(text) or a > 0):
+            out.add((a, b))  # 「〒　　　−　　　　」の「−」の後ろ
+        elif a1 and a1 in "：:" and time_like:
+            out.add((a, b))  # 時刻「　　：　　～　　：　　」の時（「：」の前）
+        elif b1 and b1 in "：:" and time_like:
+            out.add((a, b))  # 時刻の分（「：」の後ろ）
+        elif a1 and a1 in "～~" and a > 0:
+            out.add((a, b))  # 「　　～　　」の「～」の前
+        elif b1 and b1 in "～~" and b < len(text):
+            out.add((a, b))  # 「～」の後ろ
+        elif a > 0 and b1 and not b1.isspace() and _unit_at(text, b) and not spaced:
+            out.add((a, b))  # 「片道　　分」「手帳　　種　　級」「　　日／月」の単位の前（「氏　　名」のような見出しは除く）
+    kept: list[tuple[int, int]] = []
+    for a, b in sorted(out):
+        if trail and a >= len(text) - trail:
+            # 縁までの空き（後ろ）：住所の単位の後、または「（内線）」のように かっこだけの文字の後
+            before = text[a - 1:a]
+            short_paren = core.strip(" \u3000").startswith(("（", "(")) and len(core.strip(" \u3000")) <= 10
+            if not before or not (before in ADDRESS_UNITS or before == "〒" or before in DASHES or (before in "）)" and short_paren)
+                                  or (before in "：:" and time_like)):
+                continue
+        if lead and b <= lead:
+            after = text[b:b + 2]
+            date_like = bool(re.search(r"[年月][ \u3000]+[月日]", core)) or bool(re.search(r"時[ \u3000]+分", core))
+            unit_only = bool(UNIT_ONLY.fullmatch(core.strip(" \u3000")))
+            if not after[:1] or not (after[:1] in ADDRESS_UNITS or after[:1] in "（(" or
+                    any(text[b:].startswith(u) for u in LEAD_UNITS if u != "年") or
+                    (after[:1] in "年月日時" and date_like) or unit_only or (after[:1] in "：:" and time_like)):
+                continue
+        if kept and a < kept[-1][1]:
+            if b > kept[-1][1]:
+                kept[-1] = (kept[-1][0], b)
+            continue
+        kept.append((a, b))
+    return kept
+

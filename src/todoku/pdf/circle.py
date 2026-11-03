@@ -1,17 +1,23 @@
 """PDF：印刷された字（選択肢の「有」「2.更新」「昭和」など）を、○で囲む。
 
 指定（fill の値）：{"@c1": {"circle": 囲む字, "near": 近くの見出しの字, "page": ページ, "occurrence": 何番目か,
-"pad": 字と○のすき間（pt）, "box": [左, 上, 右, 下]（mm。○の外枠をエージェントが決めるとき）}}。
+"pad": 字と○のすき間（pt）, "box": [左, 上, 右, 下]（mm。○の外枠をエージェントが決めるとき）, "style": "ellipse"（既定）か "border"}}。
+窓は印刷された選択肢を欄として並べない（字の意味からは決めない）ので、エージェントが窓の字を読んで、囲む字を指定する。
 - 囲む字は、窓の字のとおりに（字の間の空白は、あってもなくてもよい）。同じ字がいくつもあるときは、near（いちばん近い所）か
   occurrence（読む順）で1つに決める。決まらなければ、候補を添えて断る
-- ○の形：字の箱（字の送りの幅 × 字の高さ）を、すき間（pad、既定は字の大きさの 0.12 倍）だけ広げた四角の 4 つの角を通る
-  楕円のうち、ほかの字に触れないもので、上下と左右のはみ出しがいちばん近いもの。ほかの字は、字の箱の縁から字の大きさの
-  1/12 だけ内側（字の面。和文の字は、字の箱いっぱいには描かれない）を、触れてはいけない所とする
-- どの楕円もほかの字に触れる・囲む字がページの外にかかるときは、書かずに理由を返す（pad を小さくするか、box で外枠を決める）
+- ○の形：囲む字の箱（字の送りの幅 × 字の高さ）を合わせた四角を、すき間（pad、既定は字の大きさの 0.12 倍）だけ広げた四角の
+  4 つの角を通る楕円のうち、ほかの字の面に触れないもので、上下と左右のはみ出しがいちばん近いもの。触れるときは、縦横の比を
+  細かく変え、すき間を 0（字の箱の角を通る）まで小さくしてためす。ほかの字は、字の箱の縁から字の大きさの 1/12 だけ内側（字の面。
+  和文の字は字の箱いっぱいには描かれない。全角の約物は JIS X 4051 の字の描かれる半分）を、触れてはいけない所とする
+  （ほかの字の箱の余白には、かかってよい）
+- style "border"：字の箱に沿った四角の囲み線（すき間は同じ決め方）。楕円がどれもほかの字に触れる、詰まった所のため
+- どの形もほかの字に触れる・囲む字がページの外にかかるときは、書かずに理由を返す（box で外枠を決めるか、本人に伝える）
+- 読み戻しは、書くときと同じ決め方（encloses・hits）：書いた後のファイルの○が、言った字の箱をすっかり囲み、ほかの字の面に触れないか
 
-書き方：ページの描画（/Contents）の前に「q」だけのストリームを、後ろに楕円を描くストリームを足す（増分の保存）。後ろの
+書き方：ページの描画（/Contents）の前に「q」だけのストリームを、後ろに○を描くストリームを足す（増分の保存）。後ろの
 ストリームは、元の描画の q の残り（閉じていない q）を Q で戻してから、ページの初めの座標で描く。元のストリームは1バイトも
-変えない。楕円は印（/Artifact、TdkCircle の名前つき）の中に描くので、証明（proof.py）と読み戻しで、どれを足したかが分かる。
+変えない。○は印（/Artifact、TdkCircle の名前つき）の中に描くので、証明（proof.py）と読み戻しで、どれを足したかが分かる。
+四角の囲み線も曲線（まっすぐな 3 次ベジエ曲線）で描くので、窓は罫線（マス）と読まない。
 """
 
 from __future__ import annotations
@@ -26,6 +32,8 @@ from .layout import PageLayout, View
 K = 0.5522847498  # 4 つの 3 次ベジエ曲線で楕円を描くときの、制御点の比
 FACE = 1 / 12  # 字の箱の縁から、字の面までの内側の幅（字の大きさに対する比）
 TAG = "TdkCircle"
+PAD = 0.12  # 字と○のすき間の既定（字の大きさに対する比）。詰まった所では 0 まで小さくする
+TOL = 0.05  # 囲んでいるかを比べるときの余裕（pt）：描いた座標の丸め（小数 3 桁）と、ベジエ曲線で楕円を描く近似の分
 
 
 def _lines(lay: PageLayout):
@@ -170,21 +178,22 @@ MIDDLE_DOTS = set("・：；")
 
 
 def face(c) -> tuple[float, float, float, float]:
-    """字の面：字の箱の縁から、字の大きさの 1/12 だけ内側。全角の約物（JIS X 4051 の括弧類・句読点・中点類）は、字の描かれる
-    半分の箱で（横書きの字のみ）。"""
+    """字の面：字の箱の縁から、字の大きさの 1/12 だけ内側。全角の約物（JIS X 4051 の括弧類・句読点）は、字の描かれる
+    半分の箱で、中点類は箱の中央の半分で（横書きの字のみ。半角の箱の約物は、箱がもう字の描かれる半分）。"""
     m = FACE * c.size
     bx0, bx1 = c.x0, c.x1
-    if len(c.text) == 1 and not c.vertical and bx1 - bx0 > 0.75 * c.size:
+    if len(c.text) == 1 and not c.vertical:
         half = (bx1 - bx0) / 2
-        if c.text in OPEN_BRACKETS:
-            bx0 = bx0 + half
-        elif c.text in CLOSE_BRACKETS or c.text in FULL_STOPS:
-            bx1 = bx1 - half
-        elif c.text in MIDDLE_DOTS:
+        if c.text in MIDDLE_DOTS:
             bx0, bx1 = bx0 + half / 2, bx1 - half / 2
+        elif bx1 - bx0 > 0.75 * c.size:
+            if c.text in OPEN_BRACKETS:
+                bx0 = bx0 + half
+            elif c.text in CLOSE_BRACKETS or c.text in FULL_STOPS:
+                bx1 = bx1 - half
     x0, y0, x1, y1 = bx0 + m, c.y0 + m, bx1 - m, c.y1 - m
     if x1 <= x0:
-        x0 = x1 = (c.x0 + c.x1) / 2
+        x0 = x1 = (bx0 + bx1) / 2
     if y1 <= y0:
         y0 = y1 = (c.y0 + c.y1) / 2
     return x0, y0, x1, y1
@@ -206,6 +215,38 @@ def inside(e, box) -> bool:
     return all(((x - cx) / a) ** 2 + ((y - cy) / b) ** 2 <= 1.0 + 1e-9 for x in (box[0], box[2]) for y in (box[1], box[3]))
 
 
+def _rect_meets(r, box) -> bool:
+    """四角どうしが重なるか（縁を含む）。"""
+    return r[0] <= box[2] and box[0] <= r[2] and r[1] <= box[3] and box[1] <= r[3]
+
+
+def encloses(kind: str, g, c) -> bool:
+    """囲みの形（kind "ellipse" は楕円 (cx, cy, a, b)、"border" は四角 (x0, y0, x1, y1)。見た目の座標）が、字 c の箱をすっかり
+    囲むか。書くとき（resolve）と読み戻し（read_back）・窓の「囲まれた字」で同じ決め方：描いた座標の丸め（小数 3 桁）とベジエ曲線の
+    近似の分（TOL）だけ広げて比べる。"""
+    box = (c.x0, c.y0, c.x1, c.y1)
+    if kind == "border":
+        return g[0] - TOL <= box[0] and g[1] - TOL <= box[1] and box[2] <= g[2] + TOL and box[3] <= g[3] + TOL
+    return inside((g[0], g[1], g[2] + TOL, g[3] + TOL), box)
+
+
+def _outer(kind: str, g, lw: float):
+    """囲みの線の外側の縁（線の太さの半分だけ外へ）。"""
+    h = lw / 2
+    if kind == "border":
+        return (g[0] - h, g[1] - h, g[2] + h, g[3] + h)
+    return (g[0], g[1], g[2] + h, g[3] + h)
+
+
+def hits(kind: str, g, c, lw: float = 0.0) -> bool:
+    """囲みの線（太さ lw）が、字 c の面（face）に触れるか（ほかの字に触れてはいけない所）。書くときと読み戻しで同じ決め方。"""
+    f = face(c)
+    o = _outer(kind, g, lw)
+    if kind == "border":
+        return _rect_meets(o, f)
+    return touches(o, f)
+
+
 def ellipses_meet(e1, e2) -> bool:
     """2 つの楕円が重なるか（片方の縁の点が、もう片方の内側にある）。"""
     for e, f in ((e1, e2), (e2, e1)):
@@ -218,36 +259,72 @@ def ellipses_meet(e1, e2) -> bool:
     return False
 
 
+def _as_ellipse(kind: str, g):
+    """重なりを比べるための楕円：四角は、その四角に外接する楕円（角を通る、縦横の比が四角と同じもの）。"""
+    if kind == "border":
+        return ((g[0] + g[2]) / 2, (g[1] + g[3]) / 2, (g[2] - g[0]) / 2 * math.sqrt(2), (g[3] - g[1]) / 2 * math.sqrt(2))
+    return g
+
+
+def _pads(size: float, pad: float | None) -> list[float]:
+    """ためすすき間（pt）：指定があればそれだけ、なければ字の大きさの 0.12 倍から、詰まった所では 0 まで小さくする。"""
+    if pad is not None:
+        return [pad]
+    return [PAD * size * k for k in (1.0, 2 / 3, 1 / 3)] + [0.0]
+
+
 def shape(rect, size: float, others: list, page: tuple[float, float] | None, pad: float | None = None):
-    """囲む字の四角 rect を囲む楕円 (cx, cy, a, b)：rect をすき間だけ広げた四角の角を通り、ほかの字の面に触れないもので、
-    左右と上下のはみ出しがいちばん近いもの。見つからなければ (None, 触れる字)。"""
-    m = (0.12 * size) if pad is None else pad
-    w, h = rect[2] - rect[0] + 2 * m, rect[3] - rect[1] + 2 * m
+    """囲む字の四角 rect（字の箱を合わせたもの）を囲む楕円 (cx, cy, a, b)：rect をすき間だけ広げた四角の角を通る楕円
+    （縦横の比を細かく変えて）のうち、ほかの字の面に触れないもの。すき間は大きいほうから、0（字の箱の角を通る）まで小さくし、
+    同じすき間では、左右と上下のはみ出しがいちばん近いものを選ぶ。見つからなければ (None, いちばん多く触れた字)。"""
     cx, cy = (rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2
-    best = None
     blockers: dict[int, list] = {}
-    for k in range(1, 200):
-        t = k / 200  # 角を通る楕円：(w/2a)^2 = t、(h/2b)^2 = 1 - t
-        a, b = (w / 2) / math.sqrt(t), (h / 2) / math.sqrt(1 - t)
-        if a - w / 2 > 1.5 * size or b - h / 2 > 1.5 * size:
-            continue  # はみ出しが字の大きさの 1.5 倍を超える楕円は、どこを囲んだか分かりにくい
-        e = (cx, cy, a, b)
-        if page is not None and (cx - a < 0 or cy - b < 0 or cx + a > page[0] or cy + b > page[1]):
-            continue
-        hit = next((o for o in others if touches(e, face(o))), None)
-        if hit is not None:
-            blockers.setdefault(id(hit), [hit, 0])[1] += 1
-            continue
-        score = abs((a - w / 2) - (b - h / 2))
-        if best is None or score < best[0]:
-            best = (score, e)
-    if best:
-        return best[1], None
+    near = [(o, face(o)) for o in others]
+    h_lw = line_width(size) / 2  # 線の太さの半分：線の外側の縁が、ほかの字の面に触れない
+    # 縦横の比：角を通る楕円 (w/2a)^2 = t、(h/2b)^2 = 1 - t。t が 0・1 に近い（細長い）所は細かく
+    ts = sorted({k / 200 for k in range(1, 200)} | {1 - 0.5 ** k for k in range(8, 15)} | {0.5 ** k for k in range(8, 15)})
+    for m in _pads(size, pad):
+        w, h = rect[2] - rect[0] + 2 * m, rect[3] - rect[1] + 2 * m
+        best = None
+        for t in ts:
+            a, b = (w / 2) / math.sqrt(t), (h / 2) / math.sqrt(1 - t)
+            if a - w / 2 > 1.5 * size or b - h / 2 > 1.5 * size:
+                continue  # はみ出しが字の大きさの 1.5 倍を超える楕円は、どこを囲んだか分かりにくい
+            e = (cx, cy, a, b)
+            if page is not None and (cx - a < 0 or cy - b < 0 or cx + a > page[0] or cy + b > page[1]):
+                continue
+            hit = next((o for o, f in near if touches((cx, cy, a + h_lw, b + h_lw), f)), None)
+            if hit is not None:
+                blockers.setdefault(id(hit), [hit, 0])[1] += 1
+                continue
+            score = abs((a - w / 2) - (b - h / 2))
+            if best is None or score < best[0]:
+                best = (score, e)
+        if best:
+            return best[1], None
     return None, max(blockers.values(), key=lambda x: x[1])[0] if blockers else None
 
 
+def border(rect, size: float, others: list, page: tuple[float, float] | None, pad: float | None = None):
+    """囲む字の四角 rect を、すき間だけ広げた四角の囲み線（style "border"）：ほかの字の面に触れない、いちばん大きなすき間のもの。"""
+    blocker = None
+    for m in _pads(size, pad):
+        r = (rect[0] - m, rect[1] - m, rect[2] + m, rect[3] + m)
+        if page is not None and (r[0] < 0 or r[1] < 0 or r[2] > page[0] or r[3] > page[1]):
+            continue
+        hit = next((o for o in others if hits("border", r, o, line_width(size))), None)
+        if hit is None:
+            return r, None
+        blocker = blocker or hit
+    return None, blocker
+
+
 def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None) -> dict:
-    """○で囲む所を決める（書き込みと証明で同じ決め方）。返す：{id, page, text, ellipse（見た目の座標）, label, context, size}。"""
+    """○で囲む所を決める（書き込みと証明で同じ決め方）。返す：{id, page, text, style, ellipse（楕円のとき。見た目の座標）,
+    border（四角の囲み線のとき）, label, context, size}。"""
+    style = spec.get("style", "ellipse")
+    if style not in ("ellipse", "border"):
+        raise AnchorError('style は "ellipse"（楕円の○。既定）か "border"（字を囲む四角の囲み線）です')
     n, cell, ln, a, b = find(doc, spec, layouts)
     lay = layout(doc, n, layouts)
     mine = target_chars(lay, ln, a, b)
@@ -269,31 +346,41 @@ def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None
         x0, y0, x1, y1 = (v * MM for v in box)
         if not (0 <= x0 < x1 <= page[0] + 0.01 and 0 <= y0 < y1 <= page[1] + 0.01):
             raise AnchorError("box がページの外か、左＜右・上＜下になっていません")
-        e = ((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2)
-        if not inside(e, rect):
+        g = (x0, y0, x1, y1) if style == "border" else ((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2)
+        if not all(encloses(style, g, c) for c in mine):
             raise AnchorError(f"box の○が、「{spec['circle']}」の字を囲みきれません（字の箱は 左 {rect[0] / MM:.1f}・上 "
                               f"{rect[1] / MM:.1f}・右 {rect[2] / MM:.1f}・下 {rect[3] / MM:.1f} mm）")
-        hit = next((o for o in others if touches(e, face(o))), None)
+        hit = next((o for o in others if hits(style, g, o, line_width(size))), None)
         if hit is not None:
             raise AnchorError(f"box の○が、ほかの字「{hit.text}」に触れます")
+    elif style == "border":
+        g, hit = border(rect, size, others, page, pad)
+        if g is None:
+            raise AnchorError(f"「{spec['circle']}」を四角で囲むと、ほかの字" + (f"「{hit.text}」" if hit is not None else "") +
+                              "に触れます（字の箱どうしが重なっています）。囲めないときは、本人に伝えてください")
     else:
-        e, hit = shape(rect, size, others, page, pad)
-        if e is None:
+        g, hit = shape(rect, size, others, page, pad)
+        if g is None:
             near_txt = hit.text if hit is not None else ""
-            raise AnchorError(f"「{spec['circle']}」を○で囲むと、ほかの字" + (f"「{near_txt}」" if near_txt else "") +
-                              "に触れます（字の間が詰まっています）。pad（字と○のすき間、pt）を小さくするか、box（○の外枠、mm）で"
-                              "決めてください。囲めないときは、本人に伝えてください")
-    for k_, e2 in used.get(n, []):
-        if ellipses_meet(e, e2):
+            raise AnchorError(f"「{spec['circle']}」を囲む楕円は、どれもほかの字" + (f"「{near_txt}」" if near_txt else "") +
+                              "に触れます（字の間が詰まっています。すき間を 0 まで小さくし、縦横の比を変えてもためしました）。"
+                              "\"style\": \"border\"（字の箱に沿った四角の囲み線）なら囲めることがあります（○でなくてよいかは"
+                              "本人に確かめる）。box（○の外枠、mm）で決めることもできます。囲めないときは、本人に伝えてください")
+    for k_, kind2, g2 in used.get(n, []):
+        if ellipses_meet(_as_ellipse(style, g), _as_ellipse(kind2, g2)):
             raise AnchorError(f"「{spec['circle']}」の○が、{n} ページのほかの○と重なります")
     taken_nums = {int(m[1]) for nm in (taken or set()) for m in [re.fullmatch(rf"p{n}\.c(\d+)", nm)] if m}
-    taken_nums |= {k_ for k_, _e in used.get(n, [])}
+    taken_nums |= {k_ for k_, _kd, _g in used.get(n, [])}
     k = next(x for x in range(1, 10 ** 6) if x not in taken_nums)
-    used.setdefault(n, []).append((k, e))
+    used.setdefault(n, []).append((k, style, g))
     context = re.sub(r"[ 　]+", " ", ln.text).strip()
     label = spec.get("near") or (re.sub(r"[ 　]+", " ", cell.text()).strip()[:30] if cell is not None else context[:30])
-    return {"id": f"p{n}.c{k}", "page": n, "text": "".join(c.text for c in mine), "ellipse": [round(v, 3) for v in e],
-            "label": label, "context": context[:60], "size": size, "rect": [round(v, 3) for v in rect]}
+    out = {"id": f"p{n}.c{k}", "page": n, "text": "".join(c.text for c in mine), "style": style,
+           "ellipse": [round(v, 3) for v in g] if style == "ellipse" else None,
+           "label": label, "context": context[:60], "size": size, "rect": [round(v, 3) for v in rect]}
+    if style == "border":
+        out["border"] = [round(v, 3) for v in g]
+    return out
 
 
 # ---------------------------------------------------------------------- 描く
@@ -314,14 +401,28 @@ def open_depth(data: bytes) -> int:
     return d
 
 
+def _seg(p, q) -> str:
+    """直線を 3 次ベジエ曲線で（制御点を線の 1/3・2/3 に置く）。四角の囲み線を曲線だけで描き、窓が罫線（マス）と読まないように。"""
+    (x0, y0), (x1, y1) = p, q
+    return (f"{x0 + (x1 - x0) / 3:.3f} {y0 + (y1 - y0) / 3:.3f} {x0 + 2 * (x1 - x0) / 3:.3f} {y0 + 2 * (y1 - y0) / 3:.3f} "
+            f"{x1:.3f} {y1:.3f} c\n")
+
+
 def ops(view: View, circles: list[dict], depth: int) -> bytes:
-    """後ろに足すストリーム：閉じていない q を戻し（前に足した q の分も）、ページの初めの座標で楕円を描く。"""
+    """後ろに足すストリーム：閉じていない q を戻し（前に足した q の分も）、ページの初めの座標で楕円（四角の囲み線）を描く。"""
     out = bytearray(b"Q\n" * (depth + 1))
     for sd in circles:
+        lw = line_width(sd["size"])
+        if sd.get("style") == "border":
+            x0, y0, x1, y1 = view.back_rect(*sd["border"])
+            pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
+            path = f"{x0:.3f} {y0:.3f} m\n" + "".join(_seg(p, q) for p, q in zip(pts, pts[1:]))
+            out += (f"q\n/Artifact <</Type /Layout /{TAG} ({sd['id']}) /TdkStyle /border>> BDC\n0 G {lw} w [] 0 d 0 J 0 j\n"
+                    f"{path}h S\nEMC\nQ\n").encode()
+            continue
         cx, cy, a, b = sd["ellipse"]
         px, py = view.back(cx, cy)
         ra, rb = (b, a) if view.rot in (90, 270) else (a, b)
-        lw = line_width(sd["size"])
         out += (f"q\n/Artifact <</Type /Layout /{TAG} ({sd['id']})>> BDC\n0 G {lw} w [] 0 d 0 J 0 j\n"
                 f"{px + ra:.3f} {py:.3f} m\n"
                 f"{px + ra:.3f} {py + K * rb:.3f} {px + K * ra:.3f} {py + rb:.3f} {px:.3f} {py + rb:.3f} c\n"
@@ -336,48 +437,65 @@ PREFIX = b"q\n"
 
 
 # ---------------------------------------------------------------------- 読み戻し
-def drawn(doc, page_no: int) -> list[tuple[str, tuple[float, float, float, float]]]:
-    """書いた後のファイルのページに描いてある、とどくの○：(id, 楕円（見た目の座標）)。描画を読み直して、印の中の曲線の外枠から。"""
+def drawn(doc, page_no: int) -> list[tuple[str, str, tuple[float, float, float, float], float]]:
+    """書いた後のファイルのページに描いてある、とどくの○：(id, 形（"ellipse"・"border"）, 楕円 (cx, cy, a, b) か四角
+    (x0, y0, x1, y1)（見た目の座標）, 線の太さ)。描画を読み直して、印の中の曲線の外枠と、線の太さ（w）から。"""
     pg = doc.pages()[page_no - 1]
     view = View(doc, pg)
     data = doc.page_content(pg)
     out = []
-    for m in re.finditer(rb"/" + TAG.encode() + rb"\s*\(([^)]*)\)>>\s*BDC(.*?)EMC", data, re.S):
+    for m in re.finditer(rb"/" + TAG.encode() + rb"\s*\(([^)]*)\)([^>]*)>>\s*BDC(.*?)EMC", data, re.S):
         pts, stack = [], []
-        for kind, val in tokens(m[2]):
+        lw = 0.0
+        for kind, val in tokens(m[3]):
             if kind == "n":
                 stack.append(float(val))
                 continue
-            if kind == "o" and val == "m" and len(stack) >= 2:
+            if kind == "o" and val == "w" and stack:
+                lw = stack[-1]
+            elif kind == "o" and val == "m" and len(stack) >= 2:
                 pts.append((stack[-2], stack[-1]))
             elif kind == "o" and val == "c" and len(stack) >= 6:
                 pts += [(stack[-6], stack[-5]), (stack[-4], stack[-3]), (stack[-2], stack[-1])]
             stack = []
         if len(pts) < 13:
-            continue  # 楕円（4 つの曲線）でない
+            continue  # 4 つの曲線（楕円・四角）でない
         xs = [view.pt(x, y)[0] for x, y in pts]
         ys = [view.pt(x, y)[1] for x, y in pts]
         x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
-        out.append((m[1].decode("latin-1"), ((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2)))
+        if b"/TdkStyle /border" in m[2]:
+            out.append((m[1].decode("latin-1"), "border", (x0, y0, x1, y1), lw))
+        else:
+            out.append((m[1].decode("latin-1"), "ellipse", ((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2), lw))
     return out
 
 
+def circled_text(lay, kind: str, g, lw: float = 0.0) -> tuple[list, list]:
+    """ページの字のうち、囲みの形が囲んでいる字と、囲まずに（太さ lw の線が）触れている字（書くときと同じ決め方：encloses・hits）。
+    書くときに ±TOL の丸めの分だけ縁の字に触れて見えないよう、線の太さは丸めの分（TOL）だけ細く見る。"""
+    inner = [ch for ch in lay.chars if not ch.text.isspace() and encloses(kind, g, ch)]
+    ids = {id(ch) for ch in inner}
+    w = max(0.0, lw - 2 * TOL)
+    touch = [ch for ch in lay.chars if not ch.text.isspace() and id(ch) not in ids and hits(kind, g, ch, w)]
+    return inner, touch
+
+
 def read_back(doc, circled: list[dict]) -> list[dict]:
-    """書いた後のファイルで、○がそれぞれ、言った字を囲み、ほかの字に触れていないか。違う所を返す。"""
+    """書いた後のファイルで、○がそれぞれ、言った字を囲み、ほかの字に触れていないか（書くときと同じ決め方で）。違う所を返す。"""
     out = []
     layouts: dict = {}
     by_page: dict[int, dict] = {}
     for c in circled:
         n = c["page"]
         if n not in by_page:
-            by_page[n] = dict(drawn(doc, n))
-        e = by_page[n].get(c["id"])
-        if e is None:
+            by_page[n] = {i: (k, g, w) for i, k, g, w in drawn(doc, n)}
+        hit = by_page[n].get(c["id"])
+        if hit is None:
             out.append({"id": c["id"], "written": f"○「{c['text']}」", "read_back": "書いた後のファイルのページに、この○が見つかりません"})
             continue
+        kind, g, lw = hit
         lay = layout(doc, n, layouts)
-        inner = [ch for ch in lay.chars if not ch.text.isspace() and inside(e, (ch.x0, ch.y0, ch.x1, ch.y1))]
-        touch = [ch for ch in lay.chars if not ch.text.isspace() and ch not in inner and touches(e, face(ch))]
+        inner, touch = circled_text(lay, kind, g, lw)
         got = "".join(ch.text for ch in sorted(inner, key=lambda ch: (ch.y0, ch.x0) if ch.vertical else (ch.x0, ch.y0)))
         want = re.sub(r"\s", "", c["text"])
         if re.sub(r"\s", "", got) != want or touch:

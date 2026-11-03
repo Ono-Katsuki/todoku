@@ -7,7 +7,7 @@ from todoku.docx.example import check as word_check
 from todoku.docx.fill import fill as docx_fill
 from todoku.docx.window import build as docx_build
 from todoku.pdf.example import check as pdf_check
-from todoku.pdf.layout import pdf_blanks
+from todoku.pdf.layout import gap_blanks
 from todoku.xlsx.window import inline_blanks
 
 from test_docx import SAMPLE_BODY, make_docx, p
@@ -78,7 +78,7 @@ def test_word_example_reports_text_outside_fields():
 def _blanks(text: str) -> int:
     lead = len(text) - len(text.lstrip("　"))
     trail = len(text) - len(text.rstrip("　"))
-    return len(pdf_blanks(text, lead, trail))
+    return len(gap_blanks(text, lead, trail))
 
 
 def test_time_fields():
@@ -91,7 +91,7 @@ def test_unit_fields_and_spaced_labels():
     assert _blanks("片道　　　　　分") == 1
     assert _blanks("氏　　名") == 0  # 字間を空けた見出しは欄でない
     assert _blanks("事　業　主　氏　名") == 0
-    assert _blanks("　　分類") == 0  # 「分類」の「分」は単位でない
+    assert _blanks("　　分類") == 1  # 字の前の空き（語は見ないので、「分」が単位かは決めない：？ の候補）
     assert len(inline_blanks("番　　号")) == 0 and len(inline_blanks("第　　号")) == 1
 
 
