@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from ..docx.document import iter_paras
 from ..docx.fill import FillError, _as_bool, _is_text_value
 from ..docx.proof import _expected_text
-from ..docx.window import Spots, WriteError, resolve_write
+from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from ..docx.xmlpos import escape, parse
 from ..zipraw import RawZip
 from .document import PptxDocument, PptxError
@@ -210,8 +210,8 @@ def fill(doc: PptxDocument, values: dict, *, force: bool = False) -> FillResult:
             elif kind == "checkbox":
                 on = _as_bool(value)
                 a, b = item["span"]
-                if on:
-                    w.replace_span(item, p, a, b, "☑" if p.text[a:b] == "☐" else "■")
+                if box_mark(p.text[a:b], on) != p.text[a:b]:
+                    w.replace_span(item, p, a, b, box_mark(p.text[a:b], on))
                 patches.append(Patch(key, "control", on, p.part, key=key, label=item.get("label", "")))
             elif kind == "inline":
                 text = _is_text_value(value)

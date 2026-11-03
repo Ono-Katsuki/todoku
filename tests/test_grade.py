@@ -49,7 +49,10 @@ def test_places_rules_cannot_decide_are_c_and_writable():
     assert g.grade == "C" and any(r.title == "規則では決められない所" for r in g.reasons), g.headline()
     win = build(DocxDocument(blob, "c.docx"))
     agent = {f["id"]: f for f in win["fields"] if f.get("agent")}
-    assert set(agent) == {"P1.a1", "P9.a1", "P10.a1", "P10.a2", "P11.a1"}, agent  # P1.a1：表題「申請書」の後ろ
+    # P1.a1：表題「申請書」の後ろ。P2.1〜P2.3・P9.1：「令和　年　月　日」の空き（単位の字からの推定なので、規則では決めない）。
+    # P3.a1：マスの見出し「氏名」の後ろ（すぐ右の空のマス T1.R1.C2 の代わりの所として、消さずに示す）
+    assert set(agent) == {"P1.a1", "P2.1", "P2.2", "P2.3", "P3.a1", "P9.1", "P9.a1", "P10.a1", "P10.a2", "P11.a1"}, agent
+    assert agent["P3.a1"]["alternative_to"] == "T1.R1.C2"
     assert agent["P10.a2"]["placeholder"] == "○○県○○市○○区……"
     res = fill(DocxDocument(blob, "c.docx"), {"P9.1": "8", "P9.a1": "4", "P10.a2": "東京都千代田区霞が関1-1", "P11.a1": "東京都"})
     pr = prove(blob, res.blob, {x.id: x.value for x in res.patches})

@@ -15,8 +15,8 @@ import datetime as dt
 import re
 from dataclasses import dataclass, field
 
-from .document import DocxDocument, Para, iter_paras
-from .window import MARK_PREFIX, Spots
+from .document import WINGDINGS, DocxDocument, Para, iter_paras
+from .window import CHECKED, MARK_PREFIX, Spots, box_mark
 from .xmlpos import Node, escape, prefix_of
 
 
@@ -247,6 +247,15 @@ class Filler:
                     sym = xml[kid.s:kid.e]
                     if value in ("■", "☑", "☒"):
                         sym = re.sub(rb'(char=")[0-9A-Fa-f]+(")', rb"\g<1>F0FE\g<2>", sym)
+                    elif value in ("□", "☐"):
+                        # チェックを外す：Wingdings などの記号の字（私用の領域）は Wingdings の空の箱、ふつうの字はその字に
+                        m_ = re.search(rb'char="([0-9A-Fa-f]+)"', sym)
+                        code = int(m_[1], 16) if m_ else 0
+                        pua = code >= 0xE000 or code < 0x100
+                        was = WINGDINGS.get(code if code >= 0xF000 else code + 0xF000) if pua else chr(code)
+                        if was in CHECKED:  # 印のない箱のチェックを外す（変えない）ときは、元の字のまま
+                            to = b"F0A8" if pua else f"{ord(value):04X}".encode()
+                            sym = re.sub(rb'(char=")[0-9A-Fa-f]+(")', rb"\g<1>" + to + rb"\g<2>", sym)
                     flush()
                     out.extend((bm[0] if bm else b"") + r_open + rpr_b + sym + r_close + (bm[1] if bm else b""))
                     continue
@@ -543,7 +552,7 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
                 p = item["para"]
                 a, b = item["span"]
                 orig = p.text[a:b]
-                mark = ("☑" if orig == "☐" else "■") if on else orig
+                mark = box_mark(orig, on)
                 f.replace_span(item, p, a, b, mark)
                 f.patches.append(Patch(key, "control", on, p.part))
             elif kind == "inline":

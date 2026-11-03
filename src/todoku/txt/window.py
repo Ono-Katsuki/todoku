@@ -29,7 +29,10 @@ def _shown(text: str, spans: list[tuple[int, int, str, bool]]) -> str:
 
 
 def mark(fid: str, kind: str, covered: str) -> str:
-    """空欄の印。kind：inline / checkbox / agent / placeholder（伏せ字の字は、＝のあとにそのまま出す）。"""
+    """空欄の印。kind：inline / checkbox / checked（チェック済みの印らしい字。元の字のまま「？」をつける）/ agent /
+    placeholder（伏せ字の字は、＝のあとにそのまま出す）。"""
+    if kind == "checked":
+        return f"{covered}［{fid}？］"
     if kind == "checkbox":
         return f"☐［{fid}］"
     if kind == "placeholder":
@@ -48,7 +51,7 @@ def build(doc: TxtDocument) -> dict:
         if p is None or "span" not in it:
             continue
         a, b = it["span"]
-        kind = it["kind"] if it["kind"] == "checkbox" else (
+        kind = ("checked" if it.get("provenance") == AGENT else "checkbox") if it["kind"] == "checkbox" else (
             ("placeholder" if it.get("placeholder") else "agent") if it.get("provenance") == AGENT else "inline")
         by_line.setdefault(p.number, []).append((a, b, it["id"], kind))
     lines = []
@@ -63,7 +66,8 @@ def build(doc: TxtDocument) -> dict:
     win["notation"] = {"12｜": "12行目", "［P12.1］": "12行目の中の空欄（1つ目）",
                        "［P12.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
                                       "書かなければ何も変わらない。［P12.a1？＝○○］は、伏せ字の○○を書き換える所）",
-                       "☐［P12.1］": "チェック（□）"}
+                       "［P12.1？］": "12行目の中の、字の並び（年・月・日などの字）から推定した空欄（エージェントが判断する）",
+                       "☐［P12.1］": "チェック（□）", "■［P12.1？］": "チェック済みの印らしい字（■ は箇条の印のこともある）"}
     win["format"] = doc.format_info()
     win["lines"] = lines
     for st in win["stories"]:
@@ -102,7 +106,7 @@ def _head(win: dict) -> list[str]:
         for f in win["fields"]:
             k = KIND_JA.get(f["kind"], f["kind"])
             if f.get("agent"):
-                k = f"規則では決められない：{f['why']}"
+                k = f"規則では決められない：{f['why']}" + (f"（{f['alternative_to']} の代わりの所かもしれません。書くのはどちらか一方）" if f.get("alternative_to") else "")
             v = f.get("value")
             vs = ("☑ あり" if v else "☐ なし") if f["kind"] == "checkbox" else ("" if v in (None, "") else str(v))
             out.append(f"| {_md(f['id'])} | {_md(f['label'])} | {_md(k)} | {_md(vs)} |")

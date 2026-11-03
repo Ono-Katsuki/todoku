@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from ..datafile.textenc import EncodingError
 from ..docx.fill import FillError, _as_bool, _is_text_value
 from ..docx.proof import _expected_text
-from ..docx.window import Spots, WriteError, resolve_write
+from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from .document import NEWLINE_JA, TxtDocument, TxtError
 
 
@@ -42,13 +42,12 @@ def written_of(patches) -> dict:
 
 
 def _edit_of(it: dict, value) -> tuple[int, int, str] | None:
-    """欄と書く値 → 行の中の (始め, 終わり, 置き換える字)。チェックを外す（False）ときは、何も変えない（None）。"""
+    """欄と書く値 → 行の中の (始め, 終わり, 置き換える字)。チェックの字が変わらないとき（□ のチェックを外すなど）は None。"""
     p = it["para"]
     a, b = it["span"]
     if it["kind"] == "checkbox":
-        if not _as_bool(value):
-            return None
-        return a, b, "☑" if p.text[a:b] == "☐" else "■"
+        new = box_mark(p.text[a:b], _as_bool(value))
+        return None if new == p.text[a:b] else (a, b, new)
     if it["kind"] != "inline":
         raise FillError(f"{it['id']}: この種類の欄（{it['kind']}）には書けません")
     return a, b, str(value)
