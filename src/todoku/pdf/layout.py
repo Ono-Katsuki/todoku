@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 from .. import chars as _chars  # 字の種類（空白・下線の字・ダッシュ・点線・かっこの組・チェックの箱の字）：Unicode の資料の表
 from ..xlsx.window import norm_label, wide_space
-from .content import Glyph, PageContent
+from .content import PageContent
 
 
 def _sentence_end(ch: str) -> bool:
@@ -30,7 +30,10 @@ def _sentence_end(ch: str) -> bool:
 
 
 BOX_GLYPHS = set(_chars.EMPTY_BOXES)
-CHECKED_GLYPHS = set(_chars.CHECKED_BOXES) | set(_chars.MAYBE_CHECKED)
+# 影のついた四角（U+274F〜U+2752 ❏❐❑❒）：チェックの箱にも箇条の印にも使う字。チェックの印の所にはするが、規則では決めない（？）
+BULLET_BOXES = set(getattr(_chars, "BULLET_BOXES", "❏❐❑❒"))
+# 記入済みの印。U+25A3 ▣（WHITE SQUARE CONTAINING BLACK SMALL SQUARE）は、とどくが ActiveX のどちらでもない箱に書く字
+CHECKED_GLYPHS = set(_chars.CHECKED_BOXES) | set(_chars.MAYBE_CHECKED) | {"▣"}
 
 
 # ====================================================================== 座標
@@ -816,7 +819,10 @@ DECOR_MIN = 8  # 行の字が、点線・ダッシュだけで、この字数以
 # 窓に示す、見つけた形の名前
 GAP_WHY = {"gap": "空白の並び（測った空き）", "lead": "行の頭の前の空き（マスの縁・左の字まで）",
            "trail": "行の終わりの後ろの空き（マスの縁・右の字まで）", "leader": "点線の並び", "dash": "ダッシュの 3 字以上の並び",
-           "connector": "下線の字の並び", "bracket": "かっこの組の中の空白"}
+           "connector": "下線の字の並び", "bracket": "かっこの組の中の空白",
+           "decor": "点線・ダッシュだけの長い行（区切りの飾り・切り取り線のことが多いが、書く線のこともある）",
+           "spaced": "1 字ずつを同じ空白でつないだ並びの字の間（字間を空けた見出し「氏　　名」のことが多いが、「第　　号」"
+                     "「年　　月　　日」のように書く所のこともある）"}
 
 
 def _char_kind(ch: str) -> str | None:
@@ -913,14 +919,15 @@ def gap_blanks(text: str, lead: int = 0, trail: int = 0, keep_trail: bool = True
     - かっこの組（BidiBrackets.txt の組）の中が空白だけのもの：規則の空欄（「（　　）」「[ ]」「( )」）
     - 1 字ぶん（1 em）以上の空白（Zs）の並び（wide_space）：字の間の空き（PDF の行の空白は測った空きから作る：1 em 以上の空きは
       全角の空白か 2 字以上の半角の空白、1 em に届かない語の間の空白は半角の空白 1 字）
-    - 点線（「……」「......」）・3 字以上のダッシュの並び（同じ字だけの長い行は、区切りの飾りなので除く）
+    - 点線（「……」「......」）・3 字以上のダッシュの並び（同じ字だけの長い行は、区切りの飾りのことが多いので decor の鍵）
     lead・trail：マスの縁（またはマスの外の、左右の字・縦の罫線）までの空きを空白にして前後に足した数（1.5 字ぶん以上のとき）。
     その空きも、行の頭の前・行の終わりの後ろの空きとして示す。ただし、左右どちらにも空きがあり、行の中に空欄のない行（中央・
     途中にそろえた見出し）の前後の空きは示さない（片側だけに空きのある行：左にそろえた見出しの後ろ・右にそろえた「　　年」の前は
     示す）。文の終わりの字（Sentence_Terminal）で終わる行の後ろも示さない。keep_trail が偽なら、行の終わりの後ろの空きは示さない
     （マスの外の行：文の終わりの余白が多いので、見出しの右の余白として別に見る）。
-    字間を空けた見出し（1 字ずつが同じ空白でつながる「氏　　名」）は、前に空きがない（行の頭がマスの縁・左の字に接する）か、
-    中央にそろえた 2 字のとき、字の間の空白を空欄にしない（前に空きのある並び「　　年　　月　　日」は、空欄の並び）。
+    字間を空けた見出しの形（1 字ずつが同じ空白でつながる「氏　　名」）で、前に空きがない（行の頭がマスの縁・左の字に接する）か、
+    中央にそろえた 2 字のもの・チェックの箱の字の後ろの字間を空けた選択肢の字は、字の間の空白を別の鍵（spaced）にする
+    （「第　　号」「年　　月　　日」と形が同じなので、落とさない。前に空きのある並び「　　年　　月　　日」は gap）。
     ここで決めたものは、どれも「？」の候補（規則の空欄の structural を除く）。"""
     n = len(text)
     core_a, core_b = lead, n - trail
@@ -962,9 +969,8 @@ def gap_blanks(text: str, lead: int = 0, trail: int = 0, keep_trail: bool = True
         if kind in ("leader", "dash"):
             if not (_chars.dot_run(text, a, b) if kind == "leader" else b - a >= DASH_MIN):
                 continue
-            if len(run) == stripped and len(run) >= DECOR_MIN:
-                continue  # 点線・ダッシュだけの長い行（区切りの飾り）
-            out.append(Blank(a, b, False, kind))
+            # 点線・ダッシュだけの長い行：区切りの飾り（切り取り線）のことも、書く線のこともある。落とさず「？」（decor）で示す
+            out.append(Blank(a, b, False, "decor" if len(run) == stripped and len(run) >= DECOR_MIN else kind))
             continue
         # 空白の並び
         if a < core_a or b > core_b:
@@ -980,15 +986,22 @@ def gap_blanks(text: str, lead: int = 0, trail: int = 0, keep_trail: bool = True
         if opener and b < n and _chars.closing(opener) == text[b]:
             out.append(Blank(a, b, True, "bracket"))  # 「（　　）」「[ ]」：かっこの組の中が空白だけ
             continue
-        if not wide_space(run) or heading or spaced_option(a):
+        if not wide_space(run):
             continue
         if text[b] in BOX_GLYPHS or text[b] in CHECKED_GLYPHS:
             continue  # チェックの箱の字の前の空白（「☐ 新規　　☐ 変更」）は、箱の字の項目どうしの区切り
-        out.append(Blank(a, b, False, "gap"))
-    inner = [x for x in out if x.why not in ("lead", "trail")]
+        # 字間を空けた見出しの形（「氏　　名」と「第　　号」「年　　月　　日」は形が同じ）は落とさず、別の鍵（spaced）の「？」で示す
+        out.append(Blank(a, b, False, "spaced" if heading or spaced_option(a) else "gap"))
+    inner = [x for x in out if x.why not in ("lead", "trail", "spaced")]
     if room_l > 0 and room_r > 0 and not inner:
-        out = []  # 左右どちらにも空きがあり、行の中に空欄のない行（中央・途中にそろえた見出し）：前後の空きは、そろえ方の空き
+        # 左右どちらにも空きがあり、行の中に空欄のない行（中央・途中にそろえた見出し）：前後の空きは、そろえ方の空き
+        out = [x for x in out if x.why == "spaced"]
     return out
+
+
+def _has_gaps(text: str) -> bool:
+    """行の中に空き（書く所の候補）があるか。見出しの形の字の間（spaced）・飾りの行（decor）は、行を見出しとして見るのを妨げない。"""
+    return any(x.why not in ("spaced", "decor") for x in gap_blanks(text))
 
 
 MIN_WRITE = 6.0  # これより低い字の行の所は、小さな字の行として（書けるかは書き込みと同じ決め方で）示す
@@ -1361,7 +1374,7 @@ class PageLayout:
     def _circled(self) -> None:
         """ページに描かれた○（線の曲線）が、1 つの行の続いた字だけを囲んでいる所：self.circled に (行, 始め, 終わり, id) を。
         囲んでいるかは、○を書くとき・読み戻すときと同じ決め方（circle.encloses）。とどくが描いた○（印 TdkCircle）は、その形
-        （楕円・四角）と id で、ほかの曲線は、曲線の外枠に内接する楕円で比べる。どの選択肢を選んだか（字の意味）は決めない。"""
+        （楕円・四角）と id で、ほかは曲線だけで閉じた図形（pc.ovals）を、その外枠に内接する楕円で比べる。どの選択肢を選んだか（字の意味）は決めない。"""
         from .circle import drawn, encloses
 
         self.circled = []
@@ -1374,7 +1387,9 @@ class PageLayout:
             tdk = []
         for i, kind, g, _lw in tdk:
             shapes.append((kind, g, i))
-        for x0, y0, x1, y1, stroke, _fill in self.pc.curves:
+        # ○と比べるのは、曲線だけで閉じた図形（○・楕円）。直線を含む曲線の図形（角の丸い四角・表の枠の角の丸み）は、字を囲む○とは
+        # 形から言えないので比べない
+        for x0, y0, x1, y1, stroke, _fill in getattr(self.pc, "ovals", []):
             if not stroke:
                 continue
             r = self.view.rect(x0, y0, x1, y1)
@@ -1705,7 +1720,7 @@ class PageLayout:
                             k.alternative_to = beside
                             k.reason += "（すぐ右のマスの欄の別の候補）"
                             k.gate = k.gate or "beside"
-                for a, b, why in agent_blanks(text, found, cell is not None):
+                for a, b, why in agent_blanks(text, found):
                     gate = "small_line" if small else ""
                     if why == "placeholder":
                         # PDF の字は消せない：伏せ字の上を白い下地の欄で覆って書く（元の字は残る）
@@ -1782,7 +1797,7 @@ class PageLayout:
             self.spots.append(Spot("text", (c.x0 + 1.5, c.y0 + 0.5, c.x1 - 1.5, top - 0.5), name,
                                    "マスの中の字の上の空き", cell=c, size=_fit_size(min(above, 2.5 * sz), typ), host=c))
         elif leftroom >= max(48, 5 * sz) and leftroom >= 0.4 * c.w and not any(
-                gap_blanks(ln.text) for ln in hor) and not (
+                _has_gaps(ln.text) for ln in hor) and not (
                 all(getattr(ln, "rtl", False) for ln in hor) and self._empty_beside(c, "left")):
             for ln in hor:
                 self._drop_room(ln, "lead")
@@ -1824,7 +1839,7 @@ class PageLayout:
             return
         t = ln.text.strip(" \u3000")
         right_ok = c.x1 - ln.x1 <= 3 * sz and room >= 0.45 * c.w
-        if right_ok and room >= max(48, 5 * sz) and len(t) <= 24 and not gap_blanks(ln.text) \
+        if right_ok and room >= max(48, 5 * sz) and len(t) <= 24 and not _has_gaps(ln.text) \
                 and not any(b in ln.text for b in BOX_GLYPHS):
             self._drop_room(ln, "trail")
             self.spots.append(Spot("text", (c.x0, band[0], ln.x0 - 1.5, band[1]), norm_label(t),
@@ -1860,7 +1875,7 @@ class PageLayout:
         rect = (ln.x1 + 1.5, band[0], c.x1, band[1])
         if not gate_fail and (left_ok or (labelish and len(hor) >= 2 and room >= max(80, 8 * sz))) and room >= max(48, 5 * sz) \
                 and len(seg if labelish else t) <= 16 + (8 if labelish else 0) \
-                and not gap_blanks(ln.text) and not any(b in ln.text for b in BOX_GLYPHS):
+                and not _has_gaps(ln.text) and not any(b in ln.text for b in BOX_GLYPHS):
             self._drop_room(ln, "trail")
             self.spots.append(Spot("text", rect, norm_label((seg if labelish else t)),
                                    "見出しと同じマスの右の空き", cell=c, size=_fit_size(band[1] - band[0], typ), host=ln,
@@ -1905,7 +1920,7 @@ class PageLayout:
                 return
         if getattr(ln, "rtl", False):
             # 右から左へ書く見出し：見出しの左の余白（左に何もない）
-            if 1 <= len(t) <= 15 and not gap_blanks(ln.text):
+            if 1 <= len(t) <= 15 and not _has_gaps(ln.text):
                 if ln.x0 - left_bound >= max(80, 8 * sz) and left_bound <= self.left + 1:
                     self.spots.append(Spot("space", (left_bound, ln.y0 - 0.2 * sz, ln.x0 - sz, ln.y1 + 0.2 * sz),
                                            norm_label(t), "見出しの左の余白（右から左へ書く見出し。入力欄とは限らない）", size=sz,
@@ -1921,7 +1936,7 @@ class PageLayout:
                                    (0 <= o.y0 - ln.y1 < 0.6 * sz or 0 <= ln.y0 - o.y1 < 0.6 * sz) for o in self.free_lines)
         rect = (ln.x1 + sz, ln.y0 - 0.2 * sz, right_bound, ln.y1 + 0.2 * sz)
         # 文の終わりの字（Unicode の Sentence_Terminal）で終わる行は、文（見出しでない）
-        if 1 <= len(t) <= 15 and not _sentence_end(t[-1]) and not gap_blanks(ln.text) \
+        if 1 <= len(t) <= 15 and not _sentence_end(t[-1]) and not _has_gaps(ln.text) \
                 and room >= max(80, 8 * sz) and not centered and (right_bound >= self.right - 1 or spaced) and not tight:
             self.spots.append(Spot("space", rect, norm_label(t), "見出しの右の余白（入力欄とは限らない）", size=sz, host=ln,
                                    at=(len(ln.text), len(ln.text)), confidence="agent"))
@@ -1941,8 +1956,12 @@ class PageLayout:
                 # □ の右に文字がない：左の文字（「申請時に □」）を見出しにする
                 opt = _cut_option(text[:i][::-1])[::-1] if i else ""
             x0, y0, x1, y1 = ln.span_rect(i, i + 1)
-            self.spots.append(Spot("checkbox", (x0, y0, x1, y1), norm_label(opt) or "（選択肢の文字なし）", "□ の字",
-                                   line_text=text, cell=cell, size=ln.size, host=ln, at=(i, i + 1)))
+            sp = Spot("checkbox", (x0, y0, x1, y1), norm_label(opt) or "（選択肢の文字なし）", "□ の字",
+                      line_text=text, cell=cell, size=ln.size, host=ln, at=(i, i + 1))
+            if text[i] in BULLET_BOXES:
+                # 影のついた四角（❏❐❑❒）：チェックの箱のことも、箇条の印のこともある（規則では決めず「？」）
+                _agent(sp, f"影のついた四角の字「{text[i]}」（チェックの箱か、箇条の印か）", "bullet_box")
+            self.spots.append(sp)
         # 記入済みの印（☑・■・✓ の字）：選んだ印のことも、箇条の印・説明の中の記号のこともある。PDF の字は消さないので
         # 書き換えられない所として、選んであるかもしれない印を示す
         for i, ch in enumerate(text):

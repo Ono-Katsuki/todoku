@@ -41,11 +41,15 @@ def test_gaps_by_geometry_in_any_language():
     assert gap_blanks("────────────────") == []  # 線の字だけの行（飾り）
 
 
-def test_spaced_headings_are_not_blanks():
+def test_spaced_headings_are_offered_with_their_own_key():
     assert evenly_spaced("氏　　名") and evenly_spaced("事　業　所") and not evenly_spaced("：　　～　　：")
-    assert gap_blanks("氏　　名") == [] and gap_blanks("事　業　所") == []
+    # 字間を空けた見出しの形（「氏　　名」と「第　　号」「年　　月　　日」は形が同じ）は落とさず、spaced の「？」
+    assert [x.why for x in gap_blanks("氏　　名")] == ["spaced"] and [x.why for x in gap_blanks("事　業　所")] == ["spaced"] * 2
+    assert [x.why for x in gap_blanks("　　　氏　　名　　　", 3, 3)] == ["spaced"]  # 中央にそろえた見出し：前後の空きは示さない
     # 前に空きのある並び（右にそろえた日付）は、字の間も空欄の並び
-    assert len(gap_blanks("　　　年　　月　　日", 3, 0)) == 3
+    assert [x.why for x in gap_blanks("　　　年　　月　　日", 3, 0)] == ["lead", "gap", "gap"]
+    # 点線・ダッシュだけの長い行も、落とさず decor の「？」
+    assert [x.why for x in gap_blanks("..............................")] == ["decor"]
     # 中央にそろえた見出し（左右の空きがほぼ同じで、行の中に空欄がない）：前後の空きは示さない
     assert gap_blanks("　　　申請書　　　", 3, 3) == []
     # 文の終わりの字で終わる行の後ろは、文の終わりの余白
@@ -104,6 +108,22 @@ def test_one_ideographic_space_between_units_is_a_place():
     # プロポーショナルな書体（U+3000 の送りが 0.66 em）：字の大きさに対して 1 em に届かないので、所にしない
     g = [("第", 300, 680), ("　", 312, 680), ("号", 319.92, 680)]
     assert not _gap_places(glyphs_pdf(g, {"　": 660}, extra="\n".join(lines)))
+
+
+def test_only_closed_curves_are_circles_and_shadowed_squares_are_left_to_the_agent():
+    # 曲線だけで閉じた図形（○）は字を囲む○。直線を含む曲線の図形（角の丸い四角）は○としない
+    k = 0.5523 * 10
+    oval = (f"306 690 m 306 {690 + k} {316 - k} 700 316 700 c {316 + k} 700 326 {690 + k} 326 690 c "
+            f"326 {690 - k} {316 + k} 680 316 680 c {316 - k} 680 306 {690 - k} 306 690 c S")
+    rounded = "306 682 m 306 698 l 306 699 307 700 308 700 c 324 700 l 325 700 326 699 326 698 c 326 682 l " \
+              "326 681 325 680 324 680 c 308 680 l 307 680 306 681 306 682 c S"
+    g = [("有", 310, 685), ("・", 322, 685), ("無", 334, 685)]
+    assert [c["text"] for c in window(glyphs_pdf(g, extra=oval))["pages"][0]["circled"]] == ["有"]
+    assert window(glyphs_pdf(g, extra=rounded))["pages"][0]["circled"] == []
+    # 影のついた四角（❏）はチェックの箱にも箇条の印にも使う：チェックの印の所だが「？」。□ は規則のチェックの印
+    pg = window(glyphs_pdf([("❏", 40, 700), ("A", 52, 700), ("□", 40, 680), ("B", 52, 680)]))["pages"][0]
+    boxes = {f["label"]: f for f in pg["fields"] if f["kind"] == "checkbox"}
+    assert boxes["A"].get("agent") and not boxes["B"].get("agent"), boxes
 
 
 def test_rtl_line_head_is_on_the_right():

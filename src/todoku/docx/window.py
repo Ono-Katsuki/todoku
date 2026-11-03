@@ -4,7 +4,7 @@
 - 旧来のフォームの欄（FORMTEXT・FORMCHECKBOX・FORMDROPDOWN）とコンテンツコントロール（名前は欄の名前・タグ）
 - 表の空のマス（左か上のマスの文字を見出しにする）：T{表}.R{行}.C{列}
 - 段落の中の空欄（下線を引いた空白、下線の字「＿＿＿」、かっこの中の空白「（　）」「[ ]」）とチェックの箱の字（☐ □ など）：P{段落}.{番号}
-- 字の形と並びだけで見つけた所（2つ以上の空白の並び・点線・ダッシュの並び）と、チェック済みの印らしい字（☑・■・✓）は、
+- 字の形と並びだけで見つけた所（1 字ぶん以上の空白の並び（wide_space）・点線・ダッシュの並び）と、チェック済みの印らしい字（☑・■・✓）は、
   同じ P{段落}.{番号} の並びで、規則では決めない所（「？」）として示す（字の意味は見ない。エージェントが前後の字から判断する）
 - 規則の型に合わない、書き込む所かもしれない所：P{段落}.a{番号}（「？」）。すぐ隣の欄の代わりの所は alternative_to で示す
 書き込んだ欄は、見えないしおり（_todoku_…）で囲み、書いた後も同じ名前で読めるようにする。
@@ -100,7 +100,7 @@ def _ident(ch: str) -> bool:
 def para_spans(p: Para, text: str | None = None) -> list[tuple[int, int, str | None]]:
     """段落の中の空欄：(始め, 終わり, 理由の鍵)。理由の鍵が None のものは、書類の作りで決まる空欄（規則の欄）：
     下線を引いた空白の並び（3字以上）・下線の字の並び・かっこの組の中が空白だけの所。ほかは字の形と並びだけで見つけた所
-    （2つ以上の空白の並び・点線・ダッシュの並び。xlsx.window.blank_places）で、理由の鍵（WORD_WHY）をつけてエージェントに示す。
+    （1 字ぶん以上の空白の並び（wide_space）・点線・ダッシュの並び。xlsx.window.blank_places）で、理由の鍵（WORD_WHY）をつけてエージェントに示す。
     英数字にはさまれた下線の字（URL・ファイルの名前の「__icsFiles」）は、名前の一部のこともあるので規則では決めない。
     重なる空欄は1つにまとめる（どれかが作りで決まるものなら、まとめた所も規則の欄）。text は p.text（呼ぶ側で作ってあれば渡す）。"""
     if text is None:
@@ -291,7 +291,7 @@ class Spots:
                         s_.text for s_ in p.segs if not s_.hidden and s_.kind in ("t", "sym", "tab")).strip(" \u3000\t"):
                     continue  # 図・埋め込みの印だけの段落（窓のために作った字だけ）
                 free_ka = (n for n in itertools.count(1) if n not in mark_ka)
-                found_agent = agent_blanks(text, [(x, y) for x, y, _k, _w in spans] + written, p.cell is not None)
+                found_agent = agent_blanks(text, [(x, y) for x, y, _k, _w in spans] + written)
                 # 見出しのあるマスの中の空の段落（「〒」の下の行に住所を書くなど）。マスのほかの字が長いもの（説明の文のこともある）も、
                 # 理由を分けて示す（字数では決めない）
                 c = p.cell

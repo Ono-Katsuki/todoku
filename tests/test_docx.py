@@ -129,9 +129,9 @@ def test_only_structural_blanks_are_rules_and_word_patterns_are_agent():
             + p("https://example.jp/__icsFiles/a.docx"))
     win = build(DocxDocument(make_docx(body), "b.docx"))
     by = {f["id"]: f for f in win["fields"]}
-    assert all(by[i].get("agent") and "2つ以上の空白" in by[i]["why"] for i in ("P1.1", "P1.2", "P1.3"))
+    assert all(by[i].get("agent") and "1 字ぶん以上の空白" in by[i]["why"] for i in ("P1.1", "P1.2", "P1.3"))
     assert not by["P2.1"].get("agent") and not by["P3.1"].get("agent")  # 「＿＿＿＿」・下線を引いた空白
-    assert by["P4.1"].get("agent") and "2つ以上の空白" in by["P4.1"]["why"]  # 段落の終わりの空白の並び：前は出さなかった
+    assert by["P4.1"].get("agent") and "1 字ぶん以上の空白" in by["P4.1"]["why"]  # 段落の終わりの空白の並び：前は出さなかった
     assert by["P5.1"].get("agent") and "下線を引いた短い空白" in by["P5.1"]["why"]  # 2字の下線：前は出さなかった
     assert by["P6.1"].get("agent") and "URL" in by["P6.1"]["why"]  # 英数字にはさまれた「__」は名前の一部のことも
     md = to_markdown(win)

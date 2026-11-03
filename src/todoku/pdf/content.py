@@ -109,6 +109,8 @@ class PageContent:
     boxes: list[Box] = field(default_factory=list)
     pictures: list[Picture] = field(default_factory=list)
     curves: list[tuple] = field(default_factory=list)  # 曲線を含む図形の外枠（丸など）
+    # 曲線だけで閉じた図形（○・楕円。直線を含む角の丸い四角などは入れない）の外枠：(x0, y0, x1, y1, 線, 塗り)
+    ovals: list[tuple] = field(default_factory=list)
     unmapped: int = 0
     problems: list[str] = field(default_factory=list)
 
@@ -353,6 +355,10 @@ class Interpreter:
                     xs = [p[0] for p in pts]
                     ys = [p[1] for p in pts]
                     out.curves.append((min(xs), min(ys), max(xs), max(ys), stroke, fill))
+                    w, h = max(xs) - min(xs), max(ys) - min(ys)
+                    ends = abs(pts[0][0] - pts[-1][0]) + abs(pts[0][1] - pts[-1][1])
+                    if not sub.get("lines") and (sub.get("closed") or ends <= 0.02 * max(w, h, 1e-6)):
+                        out.ovals.append((min(xs), min(ys), max(xs), max(ys), stroke, fill))  # 曲線だけで閉じた図形
                     if not sub.get("lines"):
                         continue
                 rect = _as_rect(pts, sub.get("closed"))
