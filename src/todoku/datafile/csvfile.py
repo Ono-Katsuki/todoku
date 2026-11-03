@@ -122,12 +122,12 @@ def _delimiter(text: str, kind: str) -> str:
 class CsvFile:
     """CSV・TSV のファイル。rows は値の表（1行目も含む。1行目を見出しとして扱うのは窓の側）。"""
 
-    def __init__(self, blob: bytes, filename: str = "", kind: str = "csv"):
+    def __init__(self, blob: bytes, filename: str = "", kind: str = "csv", encoding: str | None = None):
         self.blob = blob
         self.filename = filename
         self.kind = kind
         try:
-            self.dec: Decoded = decode(blob)
+            self.dec: Decoded = decode(blob, encoding)
         except UnicodeDecodeError as e:
             raise CsvError(f"文字コードを読めません（{e.reason}）") from None
         self.text = self.dec.text
@@ -142,6 +142,8 @@ class CsvFile:
         self.quote_all = bool(filled) and all(f.quoted for f in filled)  # 字のあるマスが、すべて引用符で囲まれている
         self.quote_empty = self.quote_all and bool(empty) and all(f.quoted for f in empty)
         self.width = max((len(r.fields) for r in self.records), default=0)
+        # 字のない行（改行だけの行。ファイルの終わりの空の行も）：RFC 4180 の文法では「空のマスが1つの行」として読む
+        self.empty_lines = [i for i, r in enumerate(self.records, 1) if r.a == r.b]
 
     # ------------------------------------------------------------------ 問い合わせ
     @property
@@ -160,7 +162,8 @@ class CsvFile:
         return {"encoding": self.dec.encoding, "encoding_ja": self.dec.label, "bom": bool(self.dec.bom),
                 "ascii_only": self.dec.ascii_only, "newline": NEWLINE_JA[self.newline], "mixed_newlines": self.mixed_newlines,
                 "ends_with_newline": self.ends_with_newline, "delimiter": self.delim,
-                "delimiter_ja": DELIM_JA.get(self.delim, repr(self.delim)), "quoting": q}
+                "delimiter_ja": DELIM_JA.get(self.delim, repr(self.delim)), "quoting": q, "empty_lines": self.empty_lines,
+                **self.dec.info(), "encoding_notes": self.dec.note_lines()}
 
     # ------------------------------------------------------------------ id
     def resolve(self, key: str) -> tuple[int, int]:
@@ -340,12 +343,14 @@ class CsvProof:
                 + ("" if not self.unexpected else f"（想定外の変更 {len(self.unexpected)} 件）"))
 
 
-def prove(original: bytes, new: bytes, written: dict[tuple[int, int], str], filename: str = "", kind: str = "csv") -> CsvProof:
-    """written：(行, 列) → 書いた値。書く前と後を、それぞれ読み直して比べる。"""
+def prove(original: bytes, new: bytes, written: dict[tuple[int, int], str], filename: str = "", kind: str = "csv",
+          encoding: str | None = None) -> CsvProof:
+    """written：(行, 列) → 書いた値。書く前と後を、それぞれ読み直して比べる（encoding：エージェントが選んだ文字コード。
+    前と後の両方を、その文字コードで読む）。"""
     pr = CsvProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest())
-    a = CsvFile(original, filename, kind)
+    a = CsvFile(original, filename, kind, encoding)
     try:
-        b = CsvFile(new, filename, kind)
+        b = CsvFile(new, filename, kind, encoding)
     except CsvError as e:
         pr.lint_errors.append(f"書いた後のファイルを読めません：{e}")
         return pr

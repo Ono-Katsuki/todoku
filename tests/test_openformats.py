@@ -168,7 +168,8 @@ def test_odt_window_fill_proof_and_stable_ids():
     blob = make_odt(ODT_BODY, ODT_AUTO, ODT_FORMS)
     win = build(OdtDocument(blob, "a.odt"))
     lines = [ln for st in win["stories"] for ln in st["reading"]]
-    assert "令和［P2.1］年［P2.2］月［P2.3］日" in lines and "氏名 ｜ ［T1.R1.C2］" in lines, lines
+    # 「令和　年　月　日」の空きは字の並びからの推定（？）。マスの見出し「氏名」の後ろも、右のマスの代わりの所として示す（消さない）
+    assert "令和［P2.1？］年［P2.2？］月［P2.3？］日" in lines and "氏名［P3.a1？］ ｜ ［T1.R1.C2］" in lines, lines
     by = {f["id"]: f for f in win["fields"]}
     assert by["同意"]["label"] == "する" and by["同意"]["kind"] == "checkbox"
     assert by["P9.a1"]["readonly"] and by["P9.a1"]["protected"]  # 保護された節の中
@@ -196,7 +197,8 @@ def test_odt_anchored_write_and_audit(tmp_path):
     src.write_bytes(blob)
     r = api.fill(str(src), {"@1": {"old": "申請書", "new": "申請書（新規）"}, "同意": True}, str(tmp_path / "b.odt"))
     assert r["proof_ok"] and r["read_back_ok"] and r["anchored"] == {"@1": "P1.w1"}, r
-    assert api.grade(str(src))["grade"] == "C"
+    g = api.grade(str(src))
+    assert g["grade"] == "A" and g["write"]["grade"] == "B"  # 規則では決められない所は、書く段階の B
 
 
 def test_odt_whitespace_rules():
@@ -255,7 +257,14 @@ def test_ods_window_fill_recalc_and_proof():
     assert fields["Sheet1!B4"]["kind"] == "date" and "D3" in fields["Sheet1!B3"]["write_as"]
     cell_d3 = next(c for c in doc["sheets"][0]["cells"] if c["cell"] == "D3")
     assert cell_d3["formula"] == "of:=[.B3]+[.C3]" and cell_d3["formula_excel"] == "=B3+C3"
-    assert grade_sheets(blob, "a.ods").grade == "A"
+    # 枠のある空欄は、罫線と近くの見出しから推定した欄なので、書く段階の B（印ではない）。見出しのない枠の空のマス
+    # （5〜7行目の B〜D）は、規則では欄と決められない所［B5？］として窓に出す（書く段階の B：エージェントが判断する）。
+    # 中身は規則で読めるので、読む段階は A
+    g = grade_sheets(blob, "a.ods")
+    titles = {r.title: r.grade for r in g.write_reasons}
+    assert g.grade == "A" and g.write == "B" and titles.get("枠・塗りから推定した入力欄") == "B" \
+        and titles.get("規則では決められない所") == "B", g.headline()
+    assert fields["Sheet1!B5"]["agent"] and fields["Sheet1!B5"]["evidence"]["borders"] == ["左", "右", "上", "下"]
     res = fill(OdsWorkbook(blob, "a.ods"), {"Sheet1!B1": "山田 太郎", "Sheet1!B2": "女", "Sheet1!B3": "1,000", "Sheet1!C3": 234,
                                              "Sheet1!B4": "2026/4/1", "Sheet1!C6": "x"})
     recalc = {(p.sheet, *parse_cell(p.address)): p.after for p in res.patches if p.kind == "formula"}
@@ -332,7 +341,8 @@ def test_rtf_window_fill_and_proof():
 
     win = build(RtfDocument(RTF, "a.rtf"))
     lines = [ln for st in win["stories"] for ln in st["reading"]]
-    assert "令和［P2.1］年［P2.2］月［P2.3］日" in lines and "氏名 ｜ ［T1.R1.C2］" in lines, lines
+    # 「令和　年　月　日」の空きは字の並びからの推定（？）。マスの見出し「氏名」の後ろも、右のマスの代わりの所として示す（消さない）
+    assert "令和［P2.1？］年［P2.2？］月［P2.3？］日" in lines and "氏名［P3.a1？］ ｜ ［T1.R1.C2］" in lines, lines
     by = {f["id"]: f for f in win["fields"]}
     assert by["Tel"]["value"] == "" and by["Agree"]["kind"] == "checkbox" and by["Agree"]["value"] is False
     vals = {"P2.1": "8", "T1.R1.C2": "山田 太郎", "Tel": "03-1234", "Agree": True, "P8.1": True}
@@ -362,7 +372,8 @@ def test_rtf_audit_and_api(tmp_path):
     src.write_bytes(RTF)
     r = api.fill(str(src), {"T1.R1.C2": "山田", "@1": {"old": "申請書", "new": "申請書（新規）"}}, str(tmp_path / "b.rtf"))
     assert r["proof_ok"] and r["read_back_ok"], r
-    assert api.grade(str(src))["grade"] == "C"
+    g = api.grade(str(src))
+    assert g["grade"] == "A" and g["write"]["grade"] == "B"
     assert api.summary(str(src))["kind_ja"] == "RTF（リッチテキスト）"
 
 
@@ -381,7 +392,13 @@ def test_corpus_data(path):
     blob = path.read_bytes()
     au = audit_runner(kind_of(blob, path.name))(blob, path.name)
     assert au.ok, [(c.name, c.items[:5]) for c in au.checks if not c.ok]
-    assert grade_blob(blob, path.name).grade == "S"
+    g = grade_blob(blob, path.name)
+    # データそのもの（S）。ただし、いくつもの文字コードで仕様どおりに読めるもの（Shift_JIS と GBK の両方で読めるものなど）は、
+    # 規則では文字コードを決められないので B（中身は窓にすべて出ていて、窓に候補を示し、エージェントが決める）
+    if g.grade == "B":
+        assert [r.title for r in g.reasons if r.grade == "B"] == ["文字コードを規則では決められない"], g.reasons
+    else:
+        assert g.grade == "S"
 
 
 @pytest.mark.parametrize("path", _corpus("wide_odf", (".odt", ".ods", ".ott", ".ots")), ids=lambda p: p.name)

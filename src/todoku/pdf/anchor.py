@@ -36,6 +36,8 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
     "where": "right"（既定。見出しの右）/ "before"（見出しの左。右から左へ書く字の見出し）/ "below"（見出しの下）, "occurrence": 何番目か（読む順。1 から）}、
     または {"cover": 覆う字（伏せ字の「○○」など）, "value": 書く字, …}：その字の上を白い下地の欄で覆って書く（元の字は消さない）。
     見つからない・いくつもあって決まらない・空いている所がないときは、理由（と候補）を添えて断る。"""
+    if spec.get("box") is not None:
+        return _resolve_box(doc, spec, used, layouts, taken_names)
     cover = spec.get("cover")
     after = cover if cover is not None else spec.get("after")
     value = spec.get("value")
@@ -133,20 +135,65 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
     if inside:
         side = {"right": "右", "before": "左", "below": "下"}[where]
         raise AnchorError(f"「{after}」の{side}の所に、ほかの字（「{''.join(c.text for c in inside[:6])}」）があります")
+    return _place(n, rect, used, taken_names, {"id": None, "page": n, "kind": "inline" if where == "cover" else "text",
+                                              "size": None, "anchored": dict(spec)}, where, after, sz)
+
+
+def _place(n, rect, used, taken_names, out, where, after, sz, prefix: str = "w", label: str | None = None) -> dict:
+    """書く所に名前（p ページ.w 番号。置いた画像は p ページ.s 番号）を付け、ほかの書き込みと重ならないことを確かめる。
+    番号は、字の書き込みと画像で通しにする（同じページの書き込みの重なりも、両方で確かめる）。"""
     used = used if used is not None else {}
-    taken = {int(m[1]) for nm in (taken_names or set()) for m in [re.fullmatch(rf"p{n}\.w(\d+)", nm)] if m}
+    taken = {int(m[1]) for nm in (taken_names or set()) for m in [re.fullmatch(rf"p{n}\.[ws](\d+)", nm)] if m}
     for k_, r_ in used.get(n, []):
         taken.add(k_)
         if rect[0] < r_[2] and r_[0] < rect[2] and rect[1] < r_[3] and r_[1] < rect[3]:
             raise AnchorError(f"{n} ページの、ほかの書き込みと重なります")
     k = next(x for x in itertools.count(1) if x not in taken)
     used.setdefault(n, []).append((k, rect))
-    size = min(sz if sz >= 6 else 10.5, (rect[3] - rect[1]) * 0.8) if where == "below" else sz
-    out = {"id": f"p{n}.w{k}", "page": n, "kind": "inline" if where == "cover" else "text", "rect": [round(v, 2) for v in rect],
-           "size": round(size, 2), "anchored": dict(spec),
-           "label": f"「{after}」を覆って" if where == "cover" else
-           f"{after}（の{ {'right': '右', 'before': '左', 'below': '下'}[where] }）"}
+    if where == "seal":
+        size = sz  # 置いた画像の名前（label）は、呼ぶ側が決める
+    elif where == "box":
+        size = sz
+        label = f"{n}ページの枠（左 {rect[0] / MM:.0f}・上 {rect[1] / MM:.0f} mm）"
+    else:
+        size = min(sz if sz >= 6 else 10.5, (rect[3] - rect[1]) * 0.8) if where == "below" else sz
+        label = f"「{after}」を覆って" if where == "cover" else f"{after}（の{ {'right': '右', 'before': '左', 'below': '下'}[where] }）"
+    out = {**out, "id": f"p{n}.{prefix}{k}", "rect": [round(v, 2) for v in rect], "size": round(size, 2), "label": label}
     if where == "cover":
         out["cover"] = True
         out["covered"] = after
     return out
+
+
+MM = 72 / 25.4  # 1 mm のポイント
+
+
+def _resolve_box(doc, spec: dict, used, layouts, taken_names) -> dict:
+    """{"page": ページ, "box": [左, 上, 右, 下]（ページの左上からの mm）, "value": 書く字}：エージェントがページの画像
+    （view_page）を見て決めた枠に書く。枠の中にページの字があれば断る（字は消せない）。"""
+    from .layout import View
+
+    pages = doc.pages()
+    n = spec.get("page")
+    box = spec.get("box")
+    if not (isinstance(n, int) and 1 <= n <= len(pages)):
+        raise AnchorError(f"枠で書くときは page（1〜{len(pages)}）を指定してください")
+    if not (isinstance(box, list) and len(box) == 4 and all(isinstance(v, (int, float)) for v in box)):
+        raise AnchorError("box は [左, 上, 右, 下]（ページの左上からの mm）で指定してください")
+    if spec.get("value") is None:
+        raise AnchorError('枠で書くときは {"page": …, "box": […], "value": 書く字} の形で指定してください')
+    view = View(doc, pages[n - 1])
+    x0, y0, x1, y1 = (v * MM for v in box)
+    if not (0 <= x0 < x1 <= view.width + 0.01 and 0 <= y0 < y1 <= view.height + 0.01):
+        raise AnchorError(f"box がページ（{view.width / MM:.0f}×{view.height / MM:.0f} mm）の外か、左＜右・上＜下になっていません")
+    rect = (x0, y0, x1, y1)
+    layouts = layouts if layouts is not None else {}
+    if n not in layouts:
+        layouts[n] = PageLayout(doc, pages[n - 1], page_content(doc, pages[n - 1]), n)
+    lay = layouts[n]
+    inside = [c for c in lay.chars if not c.text.isspace() and x0 < (c.x0 + c.x1) / 2 < x1 and y0 < (c.y0 + c.y1) / 2 < y1]
+    if inside:
+        raise AnchorError(f"枠の中に、ページの字（「{''.join(c.text for c in inside[:6])}」）があります")
+    sz = min(10.5, (y1 - y0) * 0.75)
+    return _place(n, rect, used, taken_names, {"id": None, "page": n, "kind": "text", "size": None, "anchored": dict(spec)},
+                  "box", "", sz)

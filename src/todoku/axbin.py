@@ -127,9 +127,10 @@ def xls_control(wb, sh, ob: dict, anchor):
                 ref.error = "部品の中身（contents）がありません"
     except (ax.AxError, KeyError, struct.error) as e:
         ref.error = str(e) or type(e).__name__
-    pos = (anchor["r1"], anchor["c1"]) if anchor else None
+    placed = anchor is not None and "r1" in anchor  # 位置（OfficeArt の 0xF010）のない図形もある（グループの中の子の図形など）
+    pos = (anchor["r1"], anchor["c1"]) if placed else None
     ctl = Control(kind="ActiveX " + (ref.kind or "Control"), name=name, shape_id=str(ob["id"]), anchor=pos,
-                  anchor_to=(anchor["r2"], anchor["c2"]) if anchor else None,
+                  anchor_to=(anchor["r2"], anchor["c2"]) if placed else None,
                   from_off=(anchor or {}).get("off1", 0.0), to_off=(anchor or {}).get("off2", 0.0))
     for key, attr in (("link", "link"), ("fill", "fmla_range")):
         if info.get(key):

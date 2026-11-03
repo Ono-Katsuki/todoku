@@ -1,16 +1,20 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>とどく 世界調査</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=BIZ+UDPMincho:wght@400;700&display=swap">
 <style>
-/* 冒頭は本人の言葉と論文の札。その下に、地図 → 国の一覧 → 壁の理由 → 書類を探す → 方法。様式の紙と青インクの色 */
+/* 冒頭は作者の言葉と論文の札。その下に、地図 → 国の一覧 → 壁の理由 → 書類を探す → 方法。様式の紙と青インクの色 */
 :root {
   --paper: #f4f6f8; --ink: #17202b; --muted: #5b6878; --line: #c9d2dc; --slip: #ffffff; --pen: #1f4fb8;
   --none: #e3e8ee;          /* 調べていない国 */
-  --hatch: #b7c0cb;         /* 目録に届かない国 */
+  --hatch: #b7c0cb;         /* 政府の書類が収集にない国 */
   /* 段階の色（意味の色。強調の青とは別） */
   --gS: #0b4f6c; --gA: #1d7aa8; --gB: #5fa8d3; --gC: #c9b26b; --gD: #d9854a; --gE: #c45a3c; --gF: #7d2e2e;
   --wA: #1d7aa8; --wB: #5fa8d3; --wC: #c9b26b; --wD: #c45a3c;
+  /* 地図：割合の5段（0–20・20–40・40–60・60–80・80–100%）。1色の明暗、色の見え方の検証を通したもの */
+  --q1: #f2cf48; --q2: #78b84a; --q3: #0f8f99; --q4: #2c5fb0; --q5: #3f2478;
   --display: "BIZ UDPMincho", "Hiragino Mincho ProN", "Yu Mincho", serif;
   --body: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
   color-scheme: light;
@@ -20,18 +24,21 @@
     --paper: #0f1620; --ink: #e6ecf3; --muted: #9aa8b8; --line: #2c3a4b; --slip: #162130; --pen: #8fb0ff;
     --none: #1c2836; --hatch: #3a4757;
     --gS: #7fc4e6; --gA: #4fa3d6; --gB: #2f78a8; --gC: #b59c55; --gD: #c9773f; --gE: #d0664a; --gF: #e08b8b;
-    --wA: #4fa3d6; --wB: #2f78a8; --wC: #b59c55; --wD: #d0664a; color-scheme: dark;
+    --wA: #4fa3d6; --wB: #2f78a8; --wC: #b59c55; --wD: #d0664a;
+    --q1: #6238ad; --q2: #2f74c8; --q3: #16a7a0; --q4: #7cc152; --q5: #f2d35a; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --paper: #0f1620; --ink: #e6ecf3; --muted: #9aa8b8; --line: #2c3a4b; --slip: #162130; --pen: #8fb0ff;
   --none: #1c2836; --hatch: #3a4757;
   --gS: #7fc4e6; --gA: #4fa3d6; --gB: #2f78a8; --gC: #b59c55; --gD: #c9773f; --gE: #d0664a; --gF: #e08b8b;
-  --wA: #4fa3d6; --wB: #2f78a8; --wC: #b59c55; --wD: #d0664a; color-scheme: dark;
+  --wA: #4fa3d6; --wB: #2f78a8; --wC: #b59c55; --wD: #d0664a;
+    --q1: #6238ad; --q2: #2f74c8; --q3: #16a7a0; --q4: #7cc152; --q5: #f2d35a; color-scheme: dark;
 }
 * { box-sizing: border-box; }
-body { background: var(--paper); color: var(--ink); font-family: var(--body); line-height: 1.7; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); line-height: 1.7; }
 .wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 72px; display: grid; gap: 64px; }
+.wrap > * { min-width: 0; }  /* 表の最小幅で、ほかの節まで横に広げない（表は表の箱の中で横に送る） */
 h2 { font-family: var(--display); font-size: 1.45rem; margin: 0 0 6px; text-wrap: balance; }
 .sub { color: var(--muted); font-size: .88rem; margin: 0 0 18px; max-width: 48em; }
 .kicker { font-size: .78rem; letter-spacing: .14em; color: var(--muted); margin: 0 0 20px; }
@@ -69,6 +76,7 @@ button, select, input { font: inherit; color: inherit; }
 .band div { display: grid; }
 .band b { font-size: 1.6rem; font-variant-numeric: tabular-nums; line-height: 1.2; }
 .band span { font-size: .8rem; color: var(--muted); }
+.band small { font-size: .74rem; color: var(--muted); max-width: 26em; }
 .band .live { color: var(--pen); }
 
 /* ---- 地図 ---- */
@@ -101,6 +109,7 @@ th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--lin
 th { font-weight: 700; font-size: .76rem; color: var(--muted); letter-spacing: .04em; white-space: nowrap; }
 th button { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font-weight: inherit; letter-spacing: inherit; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+#table tbody tr:not(.unr) td:first-child { white-space: nowrap; }
 td .ci { color: var(--muted); font-size: .72rem; }
 td .stack { min-width: 120px; }
 tr.unr td { color: var(--muted); }
@@ -135,9 +144,128 @@ tr.unr td { color: var(--muted); }
 /* ---- 方法 ---- */
 .method { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; font-size: .88rem; }
 .method h3 { font-size: .95rem; margin: 0 0 4px; }
+
+/* 1 通を書く負担の図：横の棒（同じ目盛り。とどくの棒は 3 分 ÷ 95 分） */
+.burden { margin: 0 0 26px; padding: 18px 20px; background: var(--slip); border: 1px solid var(--line); border-radius: 3px; display: grid; gap: 12px; max-width: 980px; }
+.burden figcaption { font-size: .84rem; color: var(--muted); line-height: 1.7; }
+.burden figcaption b { color: var(--ink); }
+.brow { display: grid; grid-template-columns: 8.5em minmax(0, 1fr) 11.5em; gap: 12px; align-items: center; }
+.blab { font-size: .82rem; color: var(--ink); line-height: 1.4; }
+.btrack { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bfill { display: block; height: 18px; width: var(--w); min-width: 6px; border-radius: 0 4px 4px 0; }
+.bfill.hand { background: var(--gE); }
+.bfill.todoku { background: var(--pen); }
+.bmore { grid-column: 2 / -1; font-size: .72rem; color: var(--muted); margin-top: -6px; }
+.bval { font-size: .8rem; color: var(--muted); }
+.bval b { font-size: 1.05rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.bnote { margin: 0; font-size: .78rem; color: var(--muted); line-height: 1.7; }
+.walls { margin: 0; padding: 0 0 0 12px; list-style: none; display: grid; gap: 4px; border-left: 3px solid var(--gE); }
+.walls li { font-size: .84rem; line-height: 1.7; color: var(--ink); }
+.why-me { color: var(--ink) !important; font-size: 1rem !important; }
+.bnote b { color: var(--ink); }
+@media (max-width: 640px) {
+  .brow { grid-template-columns: 1fr; gap: 4px; }
+  .bmore { grid-column: auto; margin-top: 0; }
+}
+
+/* とどくを使う：手順（順番に意味がある）とコマンド */
+.use { list-style: none; counter-reset: use; margin: 0; padding: 0; display: grid; gap: 22px 40px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); max-width: 1000px; }
+.use > li { counter-increment: use; display: grid; grid-template-columns: 2.2em minmax(0, 1fr); column-gap: 10px; align-content: start; min-width: 0; }
+.use > li::before { content: counter(use); grid-row: span 9; font-family: var(--display); font-size: 1.6rem; line-height: 1; color: var(--pen); }
+.use h3 { font-size: .98rem; margin: 2px 0 4px; }
+.use p { margin: 0 0 6px; font-size: .88rem; }
+.cmd { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 4px 0; padding: 6px 8px 6px 12px; background: var(--slip); border: 1px solid var(--line); border-radius: 3px; }
+.cmd code { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .8rem; color: var(--ink); }
+.copy { flex: none; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 3px; padding: 3px 10px; font-size: .74rem; cursor: pointer; }
+.copy:hover { border-color: var(--pen); }
+.say { margin: 0; padding-left: 1.1em; font-size: .86rem; color: var(--ink); display: grid; gap: 2px; }
+.other { margin-top: 18px; font-size: .86rem; max-width: 60em; }
+.other summary { cursor: pointer; color: var(--pen); }
+.other p { margin: 8px 0 4px; }
+/* とどくの5つの段階（順番に意味がある：開く→見つける→越える→書いて証明→伝える） */
+.how { list-style: none; counter-reset: step; margin: 0; padding: 0; display: grid; gap: 18px 32px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.how li { counter-increment: step; display: grid; grid-template-columns: 2.2em 1fr; column-gap: 10px; min-width: 0; align-content: start; }
+.how li::before { content: counter(step); grid-row: span 2; font-family: var(--display); font-size: 1.6rem; line-height: 1; color: var(--pen); }
+.how h3 { font-size: .98rem; margin: 2px 0 4px; text-wrap: balance; }
+.how p { margin: 0; font-size: .88rem; color: var(--ink); }
+.method.two { grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); max-width: 960px; }
 .method p { margin: 0; }
 .refs { font-size: .78rem; color: var(--muted); margin-top: 18px; display: grid; gap: 2px; }
 .refs a { word-break: break-all; }
+
+/* ---- 冒頭：墨の地に、作者の言葉が一点からにじみ出て輪郭を結ぶ。論文は箱なしの小さな白い字で、言葉のまわりに ----
+   単一の見た目（墨の黒と紙の白）。色の飾りはなく、強調は明暗だけ */
+@property --ink { syntax: "<percentage>"; inherits: false; initial-value: 140%; }
+.opening {
+  --sumi: #0c0b0a; --sumi-2: #171513; --shiro: #f3f2ee; --usuzumi: #a9a49b; --nibi: #6f6a62;
+  position: relative; background: radial-gradient(90% 70% at 50% 46%, var(--sumi-2) 0%, var(--sumi) 70%);
+  color: var(--shiro); color-scheme: dark; overflow: hidden; padding: clamp(56px, 9vh, 96px) 20px clamp(64px, 10vh, 104px);
+  min-height: min(100svh, 880px); display: grid; align-content: center;
+}
+.opening .kicker { position: absolute; top: 22px; left: 0; right: 0; text-align: center; margin: 0; color: var(--nibi);
+  font-size: .72rem; letter-spacing: .5em; }
+.opening .orbit { max-width: 1200px; margin: 0 auto; width: 100%; gap: 40px 56px; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.opening .voice { padding: 12px 0; }
+.opening .voice blockquote { color: color-mix(in srgb, var(--shiro) 78%, var(--sumi)); font-weight: 700; letter-spacing: .04em;
+  font-size: clamp(1.6rem, 1rem + 2.4vw, 2.6rem); line-height: 1.6; }
+.opening .voice blockquote em { color: var(--shiro); }
+.opening .voice .who { color: var(--usuzumi); margin: 30px auto 0; max-width: 31em; display: grid; gap: 6px; }
+.opening .voice .who p { margin: 0; text-wrap: balance; }
+.opening .voice .who .prop { font-family: var(--display); color: color-mix(in srgb, var(--shiro) 86%, var(--sumi)); font-size: .98rem; line-height: 1.85; }
+.opening .voice .who .orig { font-size: .7rem; line-height: 1.6; color: var(--nibi); font-style: italic; }
+.opening .voice .who figcaption { font-size: .68rem; letter-spacing: .06em; color: var(--nibi); margin-top: 4px; }
+.opening .voice .who figcaption span { display: inline-block; }
+/* 論文：箱なし。左の列は言葉の側へ寄せ、右の列は外へ流す */
+.opening .slip { background: none; border: 0; box-shadow: none; padding: 0; transform: none; animation: none; color: var(--usuzumi);
+  max-width: 26em; font-size: .78rem; line-height: 1.75; }
+.opening .s1, .opening .s4, .opening .s6 { justify-self: end; text-align: right; }
+.opening .s3, .opening .s5, .opening .s8 { justify-self: start; }
+.opening .s2, .opening .s7 { justify-self: center; text-align: center; }
+.opening .slip .src { display: block; margin-bottom: 4px; }
+.opening .slip .venue { color: var(--shiro); font-weight: 400; letter-spacing: .14em; font-size: .68rem; }
+.opening .slip .au { color: var(--nibi); font-size: .68rem; margin-left: .6em; }
+.opening .slip p { font-family: var(--display); color: color-mix(in srgb, var(--shiro) 82%, var(--sumi)); font-size: .9rem; line-height: 1.8; text-wrap: balance; word-break: auto-phrase; }
+.opening .slip p.so { font-family: var(--body); color: var(--usuzumi); font-size: .74rem; line-height: 1.7; margin: 2px 0 3px; }
+.opening .slip a { color: var(--nibi); text-decoration: none; font-size: .66rem; font-variant-numeric: tabular-nums; }
+.opening .slip a:hover { color: var(--usuzumi); }
+/* 墨のにじみ：一点から広がる円の中だけが見え、ぼけが引いて輪郭を結ぶ */
+.opening .ln, .opening .who, .opening .slip {
+  -webkit-mask-image: radial-gradient(circle at var(--ox, 50%) var(--oy, 50%), #000 calc(var(--ink) - 40%), transparent var(--ink));
+          mask-image: radial-gradient(circle at var(--ox, 50%) var(--oy, 50%), #000 calc(var(--ink) - 40%), transparent var(--ink));
+}
+.opening .ln { display: block; white-space: nowrap; --ink: 0%; animation: bleed 1.9s cubic-bezier(.3, .1, .2, 1) both; }
+.opening .ln:nth-child(1) { animation-delay: .35s; --ox: 18%; }
+.opening .ln:nth-child(2) { animation-delay: 1.05s; --ox: 72%; }
+.opening .ln:nth-child(3) { animation-delay: 1.75s; --ox: 40%; }
+.opening .who { --ink: 0%; animation: bleed 1.6s ease 2.7s both; }
+.opening .slip { --ink: 0%; animation: bleed 2.2s cubic-bezier(.3, .1, .2, 1) calc(3.1s + var(--i) * .22s) both; }
+@keyframes bleed {
+  0%   { --ink: 0%; filter: blur(9px); opacity: .2; }
+  55%  { filter: blur(1.5px); opacity: 1; }
+  100% { --ink: 140%; filter: blur(0); opacity: 1; }
+}
+.opening .cue { position: absolute; bottom: 22px; left: 0; right: 0; width: max-content; margin: 0 auto; color: var(--nibi);
+  text-decoration: none; font-size: .72rem; letter-spacing: .3em; animation: fadein 1s ease 5.4s both; }
+.opening .cue:hover { color: var(--shiro); }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+.stage-ctl { position: absolute; right: 18px; bottom: 18px; display: flex; gap: 14px; }
+.stage-ctl button { background: none; border: 0; padding: 4px 0; color: var(--nibi); font-size: .7rem; letter-spacing: .2em; cursor: pointer; }
+.stage-ctl button:hover { color: var(--shiro); }
+.stage-ctl button:focus-visible, .opening a:focus-visible { outline: 1px solid var(--usuzumi); outline-offset: 4px; }
+#op-replay { display: none; }
+.opening.done #op-skip { display: none; } .opening.done #op-replay { display: inline-block; }
+.opening.done .ln, .opening.done .who, .opening.done .slip, .opening.done .cue { animation: none; --ink: 140%; filter: none; opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .opening .ln, .opening .who, .opening .slip, .opening .cue { animation: none !important; --ink: 140%; filter: none; opacity: 1; }
+  .stage-ctl { display: none; }
+}
+@media (max-width: 860px) {
+  .opening { min-height: auto; }
+  .opening .orbit { gap: 26px; grid-template-columns: 1fr; }
+  .opening .ln { white-space: normal; }
+  .opening .slip { justify-self: stretch !important; text-align: left !important; max-width: none; }
+}
 
 @media (max-width: 860px) {
   .orbit { grid-template-columns: 1fr 1fr; grid-template-areas: "q q" "a b" "c d" "e f" "g h"; }
@@ -151,51 +279,126 @@ tr.unr td { color: var(--muted); }
 }
 </style>
 
+<section class="opening" id="opening" aria-label="冒頭：私の言葉と、まわりの研究">
+  <p class="kicker">とどく ／ 世界調査</p>
+  <div class="orbit">
+      <div class="voice">
+        <blockquote><span class="ln">エージェントが全て正確に</span><span class="ln">読み書きできないと、</span><span class="ln"><em>申請で困るのは私</em>だからね。</span></blockquote>
+        <figure class="who">
+          <p class="prop">多くの道具の画面を一つずつ使えるようにするのではなく、そのすべてに届く、ひとつの自然言語の入口を用意する。</p>
+          <p class="orig" lang="en">“rather than adapting many specialized interfaces, provide a single natural-language entry point through which the user can reach all of them.”</p>
+          <figcaption><span>小野克樹「Reconfiguration of Ability」ASSETS '26</span> <span>§5.7 デザインへの示唆（日本語訳）</span></figcaption>
+        </figure>
+      </div>
+      <aside class="slip s1" style="--i:0;--fx:-1;--fy:-1"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
+        <p>行政の手続きの重さは、調べる手間・書類をそろえて書く手間・気持ちの負担の3つに分けられる。</p><p class="so">とどくが軽くするのは、このうちの「書く」重さ。</p><a href="https://doi.org/10.1093/jopart/muu009">doi:10.1093/jopart/muu009</a></aside>
+      <aside class="slip s2" style="--i:1;--fx:0;--fy:-1"><div class="src"><span class="venue">2018</span><span class="au">Herd &amp; Moynihan</span></div>
+        <p>手続きの重さは偶然ではない。法律を変えなくても、書類を重くすれば、制度を使える人は減る。</p><p class="so">だから、書類そのものの重さを測る。</p><a href="https://doi.org/10.7758/9781610448789">doi:10.7758/9781610448789</a></aside>
+      <aside class="slip s3" style="--i:2;--fx:1;--fy:-1"><div class="src"><span class="venue">JITP 2011</span><span class="au">Goodwin ほか</span></div>
+        <p>192 か国の政府のサイトを、障害のある人が使えるかという基準で、国ごとに測った。</p><p class="so">この調査も、国ごとに比べる。</p><a href="https://doi.org/10.1080/19331681.2010.508011">doi:10.1080/19331681.2010.508011</a></aside>
+      <aside class="slip s4" style="--i:3;--fx:-1;--fy:0"><div class="src"><span class="venue">IMC 2020</span><span class="au">Singanamalla ほか</span></div>
+        <p>政府のサイト 135,408 件のうち、よく見られる上位の一覧に載るのは 1 割に満たない。目立つ所だけ調べても分からない。</p><p class="so">この調査は、政府のサイトの書類から無作為に選ぶ。</p><a href="https://doi.org/10.1145/3419394.3423645">doi:10.1145/3419394.3423645</a></aside>
+      <aside class="slip s5" style="--i:4;--fx:1;--fy:0"><div class="src"><span class="venue">ASSETS 2024</span><span class="au">Kumar &amp; Wang</span></div>
+        <p>約 2 万件の論文の PDF を層に分けて選び、支援技術で読めるかを調べた。</p><p class="so">この調査も、書類を層に分けて選ぶ。</p><a href="https://doi.org/10.1145/3663548.3675634">doi:10.1145/3663548.3675634</a></aside>
+      <aside class="slip s6" style="--i:5;--fx:-1;--fy:1"><div class="src"><span class="venue">Internet Research 2009</span><span class="au">Hackett &amp; Parmanto</span></div>
+        <p>入口のページだけを調べても、サイト全体が使えるかは分からない。</p><p class="so">この調査は、入口でなく書類そのものを開く。</p><a href="https://doi.org/10.1108/10662240910927830">doi:10.1108/10662240910927830</a></aside>
+      <aside class="slip s7" style="--i:6;--fx:0;--fy:1"><div class="src"><span class="venue">W4A 2013</span><span class="au">Vigo, Brown &amp; Conway</span></div>
+        <p>自動の検査ツールだけでは、見つかる問題はおよそ 10 のうち 4。</p><p class="so">とどくは検査で終わらず、実際に書いて、変わったのが書いた所だけかを証明する。</p><a href="https://doi.org/10.1145/2461121.2461124">doi:10.1145/2461121.2461124</a></aside>
+      <aside class="slip s8" style="--i:7;--fx:1;--fy:1"><div class="src"><span class="venue">CHI 2022</span><span class="au">Fok ほか</span></div>
+        <p>312 のアプリを 16 か月追い、画像に説明（代わりの字）がない問題を調べた。</p><p class="so">とどくは、説明のない画像を、段階とは別の注意として示す。</p><a href="https://doi.org/10.1145/3491102.3502143">doi:10.1145/3491102.3502143</a></aside>
+  </div>
+  <div class="stage-ctl"><button type="button" id="op-skip">スキップ</button><button type="button" id="op-replay">もう一度</button></div>
+  <a class="cue" href="#h-map">下へ ↓</a>
+</section>
+
 <div class="wrap">
   <header>
-    <p class="kicker">とどく ／ 世界調査</p>
-    <section class="orbit" aria-label="本人の言葉と、まわりの研究">
-      <div class="voice">
-        <blockquote>エージェントが全て正確に<br>読み書きできないと、<br><em>申請で困るのは私</em>だからね。</blockquote>
-        <p class="who">小野克樹。申請する本人。話すことも手を動かすこともできず、頭のスイッチ1つで Claude を使う<br>（Ono, ASSETS '26）</p>
-      </div>
-      <aside class="slip s1"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
-        <p>手続きの負担を、学ぶ・従う・心理の3つのコストに分けた。</p><a href="https://doi.org/10.1093/jopart/muu009">doi:10.1093/jopart/muu009</a></aside>
-      <aside class="slip s2"><div class="src"><span class="venue">2018</span><span class="au">Herd &amp; Moynihan</span></div>
-        <p>行政の負担は、法律を変えずに政策を動かす「別の手段」になる。</p><a href="https://doi.org/10.7758/9781610448789">doi:10.7758/9781610448789</a></aside>
-      <aside class="slip s3"><div class="src"><span class="venue">JITP 2011</span><span class="au">Goodwin ほか</span></div>
-        <p>国連加盟 192 か国の政府ポータルと省庁サイトのアクセシビリティを測った。</p><a href="https://doi.org/10.1080/19331681.2010.508011">doi:10.1080/19331681.2010.508011</a></aside>
-      <aside class="slip s4"><div class="src"><span class="venue">IMC 2020</span><span class="au">Singanamalla ほか</span></div>
-        <p>政府のホスト名 135,408 件を集めた。上位サイトの一覧に載るのは 1 割に満たない。</p><a href="https://doi.org/10.1145/3419394.3423645">doi:10.1145/3419394.3423645</a></aside>
-      <aside class="slip s5"><div class="src"><span class="venue">ASSETS 2024</span><span class="au">Kumar &amp; Wang</span></div>
-        <p>約 2 万件の学術 PDF を層別に選び、アクセシビリティを調べた。</p><a href="https://doi.org/10.1145/3663548.3675634">doi:10.1145/3663548.3675634</a></aside>
-      <aside class="slip s6"><div class="src"><span class="venue">Internet Research 2009</span><span class="au">Hackett &amp; Parmanto</span></div>
-        <p>トップページだけでは、サイト全体のアクセシビリティは分からない。</p><a href="https://doi.org/10.1108/10662240910927830">doi:10.1108/10662240910927830</a></aside>
-      <aside class="slip s7"><div class="src"><span class="venue">W4A 2013</span><span class="au">Vigo, Brown &amp; Conway</span></div>
-        <p>自動の検査ツールだけに頼ると、見つかる問題はおよそ 10 のうち 4。</p><a href="https://doi.org/10.1145/2461121.2461124">doi:10.1145/2461121.2461124</a></aside>
-      <aside class="slip s8"><div class="src"><span class="venue">CHI 2022</span><span class="au">Fok ほか</span></div>
-        <p>312 のアプリを 16 か月追い、画像のラベルの欠けを調べた。</p><a href="https://doi.org/10.1145/3491102.3502143">doi:10.1145/3491102.3502143</a></aside>
-    </section>
-    <p class="lead">行政の負担や、公的なページのアクセシビリティを外から測った研究はたくさんある。この調査は、申請する本人の言葉から始めて、政府の公開書類を AI エージェントが正確に読めるか、書けるかを、国ごとに測る。</p>
+    <p class="lead">行政の負担や、公的なページのアクセシビリティを外から測った研究はたくさんある。この調査は、申請する私の言葉から始めて、政府の公開書類を AI エージェントが正確に読めるか、書けるかを、国ごとに測る。</p>
   </header>
 
   <section aria-label="調査の規模">
     <div class="band" id="band">
-      <div><b class="num" id="b-countries">—</b><span>国と地域（目録に届いた所）</span></div>
+      <div><b class="num" id="b-countries">—</b><span>国と地域（政府の書類が収集にある所）</span></div>
       <div><b class="num" id="b-sampled">—</b><span>選んだ書類</span></div>
-      <div><b class="num" id="b-graded">—</b><span>取得して段階を付けた書類</span></div>
+      <div><b class="num" id="b-graded">—</b><span>取得して段階を付けた書類</span><small id="b-ungraded"></small></div>
       <div><b class="num live" id="b-progress">—</b><span id="b-progress-l">予定に対する進み</span></div>
     </div>
   </section>
 
+  <section aria-labelledby="h-how">
+    <h2 id="h-how">とどくで、どう届くようにしたか</h2>
+    <p class="sub why-me">私は、自分で申請する当事者で、障害福祉の事業所の代表で、とどくの開発者です。頭につけたスイッチ 1 つで、開発・研究・経営をしています。申請する側と支える側の両方にいたから、根っこが同じ壁（行政の書類を、AI が全部正確に読み書きできない）だと見えました。そして開発者だから、その壁を越える道を自分で作れました。</p>
+    <p class="sub">行政の書類に苦労するのは、寝たきりの人だけではありません。目が見えずに読み上げで使う人、手が不自由な人、高齢の人、日本語が母語でない人、読み書きに困難のある人、仕事や介護で窓口に行けない人、毎月の書類を扱う事業所の人。誰にとっても重い作業で、その重さは、余裕のない人ほど大きくのしかかります。下の図は、その一つの例として、私の場合を測ったものです。</p>
+    <p class="sub">壁は様式の側にあり、なくすことはできません。とどくは、書類を変えずに、AI エージェントが全てを正確に読み書きできる道をつくります。どの段階も AI を使わない決まった処理で、同じ書類からは必ず同じ結果が出ます。数は、この調査で段階を付けた書類のものです。</p>
+    <figure class="burden" aria-labelledby="burden-cap">
+      <figcaption id="burden-cap"><b>私が区に出す 1 通の申請書</b>　東京都中央区「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）。2 ページ・入力欄の候補 196 か所。架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合。</figcaption>
+      <ul class="walls">
+        <li><b>重いと、諦める。</b>良さそうな助成を見つけても、私も諦めることがあります。使える制度を、手続きの重さのために使わない人がいることは、行政の負担の研究でも繰り返し示されています（Currie 2006・Herd &amp; Moynihan 2018）。</li>
+        <li><b>探すだけで重い。</b>様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。</li>
+        <li><b>印刷して手で書く前提。</b>入力欄のない印刷用の PDF で、紙に書いて窓口か郵送で出します。ペンを持てない私には書けません。</li>
+        <li><b>そもそも、私が使う iPad では Office の書類も崩れて扱えません。</b>iPad の Excel は、マクロ（VBA）も動かせません。</li>
+        <li><b>署名は手書きの欄。</b>とどくは、私が同意すれば署名の画像を置けます。ただし、画像の署名を区が認めるかは様式しだいです。</li>
+      </ul>
+      <div class="brow">
+        <span class="blab">頭のスイッチで<br>字を入れたとしたら</span>
+        <span class="btrack"><span class="bfill hand" style="--w: 100%" title="158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）"></span></span>
+        <span class="bval"><b>9 分 30 秒</b>より長い</span>
+        <span class="bmore">＋ 196 か所から書く欄を探して移る操作（測れていないので含めていません）</span>
+      </div>
+      <div class="brow">
+        <span class="blab">とどく ＋<br>エージェント</span>
+        <span class="btrack"><span class="bfill todoku" style="--w: 26%" title="私が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）"></span></span>
+        <span class="bval"><b>2〜3 分</b>で頼む</span>
+      </div>
+      <p class="bnote">とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで <b>0.3 秒</b>。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
+    </figure>
+    <ol class="how">
+      <li><h3>制度と様式を探す</h3>
+        <p>「私が使える制度を探して、申請書を書いて」の一言から、エージェントが制度の案内・要綱と様式を探してきます（robots.txt を守り、間をあけて取得）。当たるかどうか分からない条件は、推測で決めずに伝えます。</p></li>
+      <li><h3>開いて、一字も変えずに読む</h3>
+        <p>PDF・Excel・Word・一太郎・CSV・ZIP など <b class="num" id="how-kinds">—</b> の形式の書類 <b class="num" id="how-docs">—</b> 件を、元の内容を一字も変えずに読める「窓」にしました。Office も外部のライブラリも使わず、公開された仕様書から実装しています。</p></li>
+      <li><h3>書く所を見つける。迷う所は「？」でエージェントに</h3>
+        <p>入力欄は、フォームの欄・入力規則・罫線・下線など、ファイルの構造から規則で見つけます。言葉の一致では決めません。規則で決められない所は、根拠を添えて「？」の印で示し、エージェントが判断します（<b class="num" id="how-agent">—</b> 件の書類）。</p></li>
+      <li><h3>紙のままの壁を越える</h3>
+        <p>文字の情報がないスキャンのページ（<b class="num" id="how-scan">—</b> 件の書類）は、ページを画像にしてエージェントが見て読み、目盛りの枠で書きます。ZIP は中のファイルを開き、押印・自署は、申請する人が同意したときだけ、その人の印影の画像を置きます。</p></li>
+      <li><h3>書いて、証明する</h3>
+        <p>書いたら、前と後のファイルを読み直して、変わったのが書いた所だけであることを機械で証明し、書いた値を読み戻します。部分標本 <b class="num" id="how-audited">—</b> 件で全ての欄に書き、<b class="num" id="how-auditok">—</b> 件で全てを正確に読み書きできました。残りは、とどくの直す所として数えています。</p></li>
+      <li><h3>対話で伝える</h3>
+        <p>私は、書類を Word や Acrobat で開きません。とどくは書類を開かずに読み書きするので、私は iPad から会話するだけです。書いた所の見出しと値・まだ空いている欄・私が決めることを、エージェントが会話でそのまま伝え、私が確かめます。</p></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="h-use">
+    <h2 id="h-use">とどくを使う</h2>
+    <p class="sub">とどくは、AI エージェントから使う道具（MCP サーバー）です。Claude Code にはプラグインとして入れると、どのフォルダからでも使えます。書類は手元のパソコンの中で扱い、外に送りません。</p>
+    <ol class="use">
+      <li><h3>用意する</h3>
+        <p><a href="https://code.claude.com/docs/ja/quickstart" rel="noopener noreferrer">Claude Code</a> と、Python の道具 <a href="https://docs.astral.sh/uv/" rel="noopener noreferrer">uv</a> を入れます。</p></li>
+      <li><h3>Claude Code に入れる</h3>
+        <p>Claude Code で、次の 2 行を順に打ちます。</p>
+        <div class="cmd"><code id="cmd1">/plugin marketplace add Ono-Katsuki/todoku</code><button type="button" class="copy" data-for="cmd1">コピー</button></div>
+        <div class="cmd"><code id="cmd2">/plugin install todoku@todoku</code><button type="button" class="copy" data-for="cmd2">コピー</button></div></li>
+      <li><h3>話しかける</h3>
+        <p>あとは、ふだんの言葉で頼むだけです。</p>
+        <ul class="say"><li>「住んでいる区で使える子育ての助成を探して、申請書を書いて」</li><li>「この様式に、去年と同じ事業所の情報を入れて」</li><li>「この Excel の計算のきまりを説明して。区分Ⅱにしたらいくら？」</li></ul></li>
+      <li><h3>iPad から使う</h3>
+        <p>Mac や PC の Claude Code に入れておき、iPad からはリモート操作で話しかけます。iPad で書類を開く必要はありません。</p></li>
+    </ol>
+    <details class="other">
+      <summary>ほかの MCP 対応のエージェントで使う</summary>
+      <p>リポジトリ（<a href="https://github.com/Ono-Katsuki/todoku" rel="noopener noreferrer">github.com/Ono-Katsuki/todoku</a>）を手元に置き、エージェントの MCP の設定に次を足します。</p>
+      <div class="cmd"><code id="cmd3">{ "mcpServers": { "todoku": { "command": "uv", "args": ["run", "--quiet", "--directory", "&lt;リポジトリの場所&gt;", "todoku-mcp"] } } }</code><button type="button" class="copy" data-for="cmd3">コピー</button></div>
+    </details>
+  </section>
+
   <section aria-labelledby="h-map">
     <h2 id="h-map">世界地図</h2>
-    <p class="sub">読む段階と書く段階は、別々に測っています。国の値は、形式の群（PDF・表計算・文書・CSV）ごとの割合を、目録の中の書類の数で重みを付けて合わせたものです。国を選ぶと、内訳が出ます。</p>
+    <p class="sub">各国の政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って<b>正確に扱える書類の割合</b>です。申請の様式だけの割合ではありません。色は、黄（少ない）から緑・青を経て紫（多い）へ、届く書類の割合を 5 段階で示します。上のボタンで、何を見るか（読める・書ける・様式に書ける・取得できる）を切り替えられます。国を選ぶと、右に内訳が出ます。</p>
     <div class="tabs" role="group" aria-label="地図に示す値">
-      <button type="button" id="t-read" data-m="read_ok" aria-pressed="true">読む：正確に読める</button>
-      <button type="button" id="t-write" data-m="write_a" aria-pressed="false">書く：そのまま書ける</button>
-      <button type="button" id="t-forms" data-m="forms_writable" aria-pressed="false">様式：エージェントが書ける</button>
-      <button type="button" id="t-reach" data-m="reach" aria-pressed="false">届く：取得できる</button>
+      <button type="button" id="t-read" data-m="read_ok" aria-pressed="true">正確に読める</button>
+      <button type="button" id="t-write" data-m="write_ok" aria-pressed="false">書ける</button>
+      <button type="button" id="t-forms" data-m="forms_writable" aria-pressed="false">申請の様式に書ける</button>
+      <button type="button" id="t-reach" data-m="reach" aria-pressed="false">取得できる</button>
     </div>
     <div class="mapgrid">
       <div class="mapbox">
@@ -217,16 +420,17 @@ tr.unr td { color: var(--muted); }
         <th class="num"><button type="button" data-k="reach">届く</button></th>
         <th class="num"><button type="button" data-k="read_ok">読む S〜B</button></th>
         <th>読む段階の内訳</th>
-        <th class="num"><button type="button" data-k="write_a">書く A</button></th>
+        <th class="num"><button type="button" data-k="write_ok">書ける</button></th>
         <th>書く段階の内訳</th>
         <th class="num"><button type="button" data-k="forms_writable">様式に書ける</button></th>
       </tr></thead><tbody></tbody>
     </table></div>
+    <button type="button" class="more" id="t-all" hidden></button>
   </section>
 
   <section aria-labelledby="h-why">
-    <h2 id="h-why">段階を下げた理由</h2>
-    <p class="sub">段階は、ファイルの構造の規則だけで決めています。キーワードでは決めません。規則で決められない所は、エージェントが確かめる所として数えます。</p>
+    <h2 id="h-why">スコアを下げた理由</h2>
+    <p class="sub">スコアは、ファイルの構造の規則だけで決めています。キーワードでは決めません。規則で決められない所は、エージェントが確かめる所として数えます。</p>
     <div class="reasons">
       <div><h3 style="font-size:.95rem;margin:0 0 8px">読む</h3><div class="bars" id="r-read"></div></div>
       <div><h3 style="font-size:.95rem;margin:0 0 8px">書く</h3><div class="bars" id="r-write"></div></div>
@@ -236,7 +440,7 @@ tr.unr td { color: var(--muted); }
 
   <section aria-labelledby="h-docs">
     <h2 id="h-docs">書類を探す</h2>
-    <p class="sub">選んだ書類のひとつひとつの結果です。書類そのものは置いていません。元の公開場所へのリンクだけです。</p>
+    <p class="sub">選んだ書類のひとつひとつの結果です。書類そのものは置いていません。元の公開場所へのリンクだけです（収集のあとで消えた書類もあります）。</p>
     <div class="filters">
       <label for="f-c">国<select id="f-c"><option value="">すべて</option></select></label>
       <label for="f-g">形式の群<select id="f-g"><option value="">すべて</option><option value="pdf">PDF</option><option value="sheet">表計算</option><option value="text">文書</option><option value="csv">CSV</option></select></label>
@@ -244,29 +448,47 @@ tr.unr td { color: var(--muted); }
       <label for="f-w">書く段階<select id="f-w"><option value="">すべて</option></select></label>
       <label for="f-fc">入力欄<select id="f-fc"><option value="">すべて</option><option value="marked">作り手の印がある様式</option><option value="inferred">推定の欄だけ</option><option value="none">欄なし</option></select></label>
       <label for="f-o">届いたか<select id="f-o"><option value="">すべて</option><option value="ok">取得できた</option><option value="no">取得できない</option></select></label>
-      <label for="f-q">題名・発行者・分類<input id="f-q" type="search" placeholder="例：障害、福祉、Statistik"></label>
+      <label for="f-q">ファイル名・サイト<input id="f-q" type="search" placeholder="例：form、申請、antrag"></label>
+      <label for="f-s">並び順<select id="f-s">
+        <option value="read-hi">読むスコアが高い順</option><option value="read-lo">読むスコアが低い順</option>
+        <option value="write-hi">書くスコアが高い順</option><option value="write-lo">書くスコアが低い順</option>
+        <option value="fields">欄の多い順</option><option value="country">国の順</option></select></label>
     </div>
     <p class="count" id="count"></p>
     <div class="docs" id="docs"></div>
-    <button type="button" class="more" id="more" hidden>さらに 50 件</button>
+    <button type="button" class="more" id="more" hidden>さらに 20 件</button>
   </section>
 
   <section aria-labelledby="h-method">
     <h2 id="h-method">方法と限界</h2>
     <div class="method">
-      <div><h3>母集団と標本</h3><p>各国の政府の公式のオープンデータ目録に登録された、PDF・表計算・文書・CSV の書類。国 × 形式の群を層にして、層ごとに 250 件を無作為に選びました（二段の抽出。選ばれる重みを記録）。目録の API が robots.txt で禁止されている国は、届かない国として示しています。</p></div>
-      <div><h3>分析の単位</h3><p>主の単位は書類（ファイル）です。段階がファイルごとに付くためです。書く段階の理由は入力欄ごとにも数えます。書類の数だけでなく、字数や欄の数でも偏りを確かめます。</p></div>
-      <div><h3>測ること</h3><p>届くか（robots.txt・HTTP・ログイン・ボット対策）、読む段階 S〜F、書く段階 A〜D、その理由。すべて決定的な処理です。10% の部分標本では、全欄に書いて、書いた所のほかはバイト一致することを証明しました。</p></div>
-      <div><h3>限界</h3><p>オープンデータの目録には統計の表や報告書が多く、申請の様式は少なめです。省庁の様式のページは枠に入っていません。段階の妥当性は、人の評価者 2 人による一致度（κ）で確かめる予定です。</p></div>
-      <div><h3>礼儀</h3><p>robots.txt を守り、同じ相手には 2 秒以上の間をあけました。ボット対策やログインは破らず、そう記録しました。書類は段階を付けたあとに消し、URL・SHA-256・結果だけを残しています。</p></div>
+      <div><h3>母集団と標本</h3><p>国連の加盟 193 か国の、政府のサイトにある PDF・表計算・文書・CSV の書類です。政府のサイトは、国のドメインの政府用の区分（gov.br・go.jp・lg.jp・gouv.fr・gob.mx など。Public Suffix List と各国の登録機関の規則が根拠）と、米国の .gov などの国の政府のドメイン、Wikidata にある省庁・政府の機関・自治体の公式のサイトで決めました。書類は、Common Crawl の 2026 年 10 月の収集（CC-MAIN-2026-43）の中から選びます。収集の索引を区切りごとに無作為に選び、その中の政府のサイトの書類を候補にして、国 × 形式の群の層ごとに 20 件を無作為に選びました（選ばれる確率を記録）。表計算・文書は数が少ないので、候補が 20 件に届くまで区切りを無作為に足して読みました（国ごとに 120 まで）。国は選び出さず、193 か国のすべての結果（測った・書類が収集にない・ドメインが見つからない）を地図に示しています。</p></div>
+      <div><h3>分析の単位</h3><p>主の単位は書類（ファイル）です。段階がファイルごとに付くためです。同じ中身の書類は 1 件に数えます。書く段階の理由は入力欄ごとにも数えます。書類の数だけでなく、字数や欄の数でも偏りを確かめます。</p></div>
+      <div><h3>測ること</h3><p>書類の全体を取得できたか、読む段階 S〜F、書く段階 A〜D、その理由。すべて決定的な処理です。Common Crawl は大きな書類を途中で切って保存するので、切れた書類は、そのままスコアを付けず、robots.txt が許すときだけ政府のサイトから取り直しました。10% の部分標本では、全欄に書いて、書いた所のほかはバイト一致することを証明しました。</p></div>
+      <div><h3>限界</h3><p>数字が表すのは「Common Crawl が集めた、政府のサイトの書類」です。Common Crawl は、リンクの多いページや HTML を先に集め、robots.txt で断られたサイトやログインの奥は集めません。Office の書類は PDF よりずっと少なく、標本の少ない国・形式は区間が広くなります。政府のドメインの一覧は、国のドメインに政府用の区分のない国（ドイツ・オランダなど）では Wikidata に頼るため、載っていない機関・自治体は入りません。切れた書類で取り直せなかったものは分母から除いているので、大きな書類が少なめに数えられます。段階の妥当性は、人の評価者 2 人による一致度（κ）で確かめる予定です。</p></div>
+      <div><h3>礼儀</h3><p>書類は政府のサーバーからでなく、Common Crawl の保存庫から、その記録だけを取りました（Common Crawl は集めるときに robots.txt を守っています）。保存庫への要求は一度に一つ、間をあけ、混んでいるときは待ちました。政府のサイトに行くのは、切れた書類を取り直すときだけで、robots.txt を RFC 9309 のとおりに読んで守り、同じサイトには 2 秒以上の間をあけました。ボット対策やログインは破りません。書類はスコアを付けたあとに消し、URL・SHA-256・結果だけを残しています。</p></div>
     </div>
     <div class="refs">
-      <span>Moynihan, Herd &amp; Harvey (2015) JPART · Herd &amp; Moynihan (2018) · Goodwin et al. (2011) JITP · Singanamalla et al. (2020) IMC · Kumar &amp; Wang (2024) ASSETS · Foppiano (2026) WAC · Fok et al. (2022) CHI · Hackett &amp; Parmanto (2009) · Vigo, Brown &amp; Conway (2013) W4A · Brown, Cai &amp; DasGupta (2001) · Cohen (1960) · Thelwall &amp; Stuart (2006) · Partridge &amp; Allman (2016) · Ono (2026) ASSETS</span>
+      <span>Moynihan, Herd &amp; Harvey (2015) JPART · Herd &amp; Moynihan (2018) · Currie (2006) · Goodwin et al. (2011) JITP · Singanamalla et al. (2020) IMC · Kumar &amp; Wang (2024) ASSETS · Foppiano (2026) WAC · Fok et al. (2022) CHI · Hackett &amp; Parmanto (2009) · Vigo, Brown &amp; Conway (2013) W4A · Brown, Cai &amp; DasGupta (2001) · Korn &amp; Graubard (1998) · Cohen (1960) · Thelwall &amp; Stuart (2006) · Partridge &amp; Allman (2016) · Ono (2026) ASSETS</span>
+      <span>書類：Common Crawl（CC-MAIN-2026-43）· 政府のドメイン：Public Suffix List · Wikidata（CC0）</span>
       <span>地図の国境：Natural Earth（world-atlas, ISC）</span>
     </div>
   </section>
 </div>
 
+<script>
+// 冒頭の上映：スキップ（すぐ完成した形に）と、もう一度
+(() => {
+  const op = document.getElementById("opening");
+  if (!op) return;
+  document.getElementById("op-skip").addEventListener("click", () => op.classList.add("done"));
+  document.getElementById("op-replay").addEventListener("click", () => {
+    op.classList.remove("done");
+    op.querySelectorAll("*").forEach(el => { el.style.animation = "none"; void el.offsetWidth; el.style.animation = ""; });
+  });
+  setTimeout(() => op.classList.add("done"), 6600);  // 上映が終わったら「もう一度」を出す
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
 <script>
@@ -277,13 +499,15 @@ tr.unr td { color: var(--muted); }
   const WRITE_JA = { A: "そのまま書ける", B: "解析して書く", C: "画面から入力", D: "書けない" };
   const FAM_JA = { pdf: "PDF", sheet: "表計算", text: "文書", csv: "CSV" };
   const OUT_JA = { ok: "取得できた", robots: "robots.txt で禁止", captcha: "ボット対策", login: "ログインが必要", html: "ウェブページが返った",
-    too_large: "25MB を超える", error: "接続できない", empty: "空のファイル", frame_empty: "目録に書類がない" };
+    too_large: "25MB を超える", error: "接続できない", empty: "空のファイル", truncated: "保存が途中で切れていて、取り直せない",
+    cc_error: "保存庫から取れない", digest_mismatch: "保存の中身が索引と合わない" };
+  const UNR_JA = { no_documents: "政府のサイトは収集にあるが書類がない", not_in_crawl: "政府のドメインが収集にない", no_domains: "政府のドメインが見つからない" };
   const outJa = o => OUT_JA[o] || (String(o).startsWith("http_") ? "HTTP " + String(o).slice(5) : String(o));
   const METRIC = {
-    read_ok: { label: "正確に読める（読む段階 S・A・B）の割合", note: "取得できた書類のうち、素のデータか、規則だけで、またはエージェントが読めば正確に読めるもの。" },
-    write_a: { label: "そのまま書ける（書く段階 A）の割合", note: "取得できた書類のうち、エージェントが解析なしにそのまま書けるもの。欄のない書類も含みます。" },
-    forms_writable: { label: "様式にエージェントが書ける（書く段階 A・B）の割合", note: "作り手が入力欄の印を付けた様式のうち、エージェントが書けるもの（画面からの入力や押印が要らない）。" },
-    reach: { label: "取得できた割合", note: "選んだ書類のうち、robots.txt・ログイン・ボット対策・リンク切れに止められずに取得できたもの。" },
+    read_ok: { label: "正確に読める書類の割合", note: "取りに行けた書類のうち、AI エージェントが中身を正確に読めるもの（読む段階 S・A・B）。" },
+    write_ok: { label: "書ける書類の割合", note: "取りに行けた書類のうち、エージェントがとどくで書けるもの（書く段階 A・B。B は、規則では欄と決められない所を、エージェントが窓を読んで決めて書くもの）。" },
+    forms_writable: { label: "申請の様式に書ける割合", note: "入力欄のある申請の様式のうち、エージェントが書けるもの（画面からの入力や手書き・押印が要らない。書く段階 A・B）。" },
+    reach: { label: "取得できる書類の割合", note: "選んだ書類のうち、全体を取得できたもの（Common Crawl の保存から。保存が途中で切れていたものは、robots.txt が許せば政府のサイトから取り直した）。" },
   };
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const pct = p => p == null ? "—" : (p * 100).toFixed(0) + "%";
@@ -303,10 +527,9 @@ tr.unr td { color: var(--muted); }
   }
 
   // ---------------------------------------------------------------- 地図
-  const color = p => {
-    const lo = d3.color(css("--none")), hi = d3.color(css("--pen"));
-    return d3.interpolateRgb(lo, hi)(Math.max(0.08, p));
-  };
+  // 割合を5段に分け、段ごとにはっきり違う明るさの色で塗る（なめらかな濃淡だと、近い値の国が見分けにくい）
+  const BINS = [[0, .2, "0–20%"], [.2, .4, "20–40%"], [.4, .6, "40–60%"], [.6, .8, "60–80%"], [.8, 1.01, "80–100%"]];
+  const color = p => css(`--q${BINS.findIndex(([a, b]) => p >= a && p < b) + 1 || 5}`);
   function drawMap() {
     const svg = d3.select("#map");
     svg.selectAll("*").remove();
@@ -328,7 +551,7 @@ tr.unr td { color: var(--muted); }
       .attr("fill", f => {
         const cc = byIso[f.id];
         if (cc) { const v = DATA.countries[cc][metric]; return v && v.p != null ? color(v.p) : css("--none"); }
-        if (unr[f.id]) return "url(#hatch)";
+        if (unr[f.id]) return DATA.unreached[unr[f.id]].outcome === "no_domains" ? css("--line") : "url(#hatch)";
         return css("--none");
       })
       .attr("tabindex", f => byIso[f.id] ? 0 : null)
@@ -348,11 +571,12 @@ tr.unr td { color: var(--muted); }
         return f.properties.name;
       });
     const lg = document.getElementById("legend");
-    const stops = [0, .25, .5, .75, 1].map(p => color(p)).join(",");
-    lg.innerHTML = `<span>0%</span><span class="ramp" style="background:linear-gradient(90deg,${stops})"></span><span>100%</span>` +
-      `<span><span class="sw" style="background:repeating-linear-gradient(45deg,${css("--hatch")} 0 2px,transparent 2px 5px);border:1px solid ${css("--line")}"></span>目録に届かない</span>` +
-      `<span><span class="sw" style="background:${css("--none")}"></span>調べていない</span>`;
-    document.getElementById("metric-note").textContent = METRIC[metric].label + "。" + METRIC[metric].note + "（マルタは地図の縮尺で見えないので、一覧で見てください。）";
+    lg.innerHTML = BINS.map(([a, , label], i) => `<span><span class="sw" style="background:var(--q${i + 1})"></span>${label}</span>`).join("") +
+      `<span><span class="sw" style="background:repeating-linear-gradient(45deg,${css("--hatch")} 0 2px,transparent 2px 5px);border:1px solid ${css("--line")}"></span>政府の書類が収集にない</span>` +
+      `<span><span class="sw" style="background:${css("--line")}"></span>政府のドメインが見つからない</span>` +
+      `<span><span class="sw" style="background:${css("--none")}"></span>まだ測っていない</span>`;
+    document.getElementById("metric-note").textContent = METRIC[metric].label + "：" + METRIC[metric].note +
+      "国の値は、PDF・表計算・文書・CSV の割合を、その国の政府のサイトにある数（収集の索引から推定）に合わせて足し合わせたものです（選んだ数の偏りを直すため）。マルタは地図では小さすぎるので、下の一覧で見てください。";
   }
 
   function select(cc) {
@@ -365,35 +589,52 @@ tr.unr td { color: var(--muted); }
        <dl>
          <dt>届く</dt><dd>${pct(c.reach.p)} <span class="ci">${ci(c.reach.ci)}</span></dd>
          <dt>読む S〜B</dt><dd>${pct(c.read_ok.p)} <span class="ci">${ci(c.read_ok.ci)}</span></dd>
-         <dt>書く A</dt><dd>${pct(c.write_a.p)} <span class="ci">${ci(c.write_a.ci)}</span></dd>
+         <dt>書ける</dt><dd>${pct(c.write_ok.p)} <span class="ci">${ci(c.write_ok.ci)}</span></dd>
          <dt>様式に書ける</dt><dd>${pct(c.forms_writable.p)} <span class="ci">${ci(c.forms_writable.ci)}</span>（様式 ${c.forms_writable.n} 件）</dd>
        </dl>
        <div style="font-size:.78rem;color:var(--muted)">読む段階</div>${stackHtml(c.read, READ, "g", READ_JA)}${stackLabels(c.read, READ, "g", READ_JA)}
        <div style="font-size:.78rem;color:var(--muted)">書く段階</div>${stackHtml(c.write, WRITE, "w", WRITE_JA)}${stackLabels(c.write, WRITE, "w", WRITE_JA)}
-       <div class="tablebox" style="margin-top:6px"><table style="min-width:0;font-size:.76rem"><thead><tr><th>群</th><th class="num">目録</th><th class="num">選んだ</th><th class="num">段階</th><th class="num">S〜B</th></tr></thead><tbody>${fams}</tbody></table></div>
+       <div class="tablebox" style="margin-top:6px"><table style="min-width:0;font-size:.76rem"><thead><tr><th>群</th><th class="num">枠（推定）</th><th class="num">選んだ</th><th class="num">段階</th><th class="num">S〜B</th></tr></thead><tbody>${fams}</tbody></table></div>
        <p style="margin:10px 0 0"><a href="#h-docs" id="see-docs">この国の書類を見る</a></p>`;
     document.getElementById("see-docs").addEventListener("click", () => { document.getElementById("f-c").value = cc; page = 1; renderDocs(); });
     drawMap();
   }
 
   // ---------------------------------------------------------------- 表
-  let sortKey = "n", sortDir = -1;
+  let sortKey = "read_ok", sortDir = -1, allCountries = false;
   function renderTable() {
-    const rows = Object.entries(DATA.countries).map(([cc, c]) => ({ cc, c, name: c.name, n: c.reach.n,
-      reach: c.reach.p ?? -1, read_ok: c.read_ok.p ?? -1, write_a: c.write_a.p ?? -1, forms_writable: c.forms_writable.p ?? -1 }));
+    const all = Object.entries(DATA.countries);
+    const pending = all.filter(([, c]) => !c.reach.n).map(([, c]) => c.name).sort((a, b) => a.localeCompare(b, "ja"));
+    const rows = all.filter(([, c]) => c.reach.n).map(([cc, c]) => ({ cc, c, name: c.name, n: c.reach.n,
+      reach: c.reach.p ?? -1, read_ok: c.read_ok.p ?? -1, write_ok: c.write_ok.p ?? -1, forms_writable: c.forms_writable.p ?? -1 }));
     rows.sort((a, b) => (typeof a[sortKey] === "string" ? a[sortKey].localeCompare(b[sortKey], "ja") : a[sortKey] - b[sortKey]) * sortDir);
     const tb = document.querySelector("#table tbody");
-    tb.innerHTML = rows.map(({ cc, c }) =>
+    const btn = document.getElementById("t-all");
+    btn.hidden = rows.length <= 10 && !pending.length;
+    btn.textContent = allCountries ? "先頭の 10 か国だけ表示" : `すべての国を表示（測った ${rows.length} か国と、まだの国・書類が収集にない国）`;
+    const visible = allCountries ? rows : rows.slice(0, 10);
+    tb.innerHTML = visible.map(({ cc, c }) =>
       `<tr><td><a href="#h-map" data-cc="${cc}">${esc(c.name)}</a></td><td class="num">${c.reach.n}</td>
        <td class="num">${pct(c.reach.p)}<br><span class="ci">${ci(c.reach.ci)}</span></td>
        <td class="num">${pct(c.read_ok.p)}<br><span class="ci">${ci(c.read_ok.ci)}</span></td>
        <td>${stackHtml(c.read, READ, "g", READ_JA)}</td>
-       <td class="num">${pct(c.write_a.p)}<br><span class="ci">${ci(c.write_a.ci)}</span></td>
+       <td class="num">${pct(c.write_ok.p)}<br><span class="ci">${ci(c.write_ok.ci)}</span></td>
        <td>${stackHtml(c.write, WRITE, "w", WRITE_JA)}</td>
        <td class="num">${pct(c.forms_writable.p)}<br><span class="ci">${c.forms_writable.n ? "様式 " + c.forms_writable.n : ""}</span></td></tr>`).join("") +
-      Object.values(DATA.unreached).map(u => `<tr class="unr"><td>${esc(u.name)}</td><td colspan="7">${esc(u.why)}</td></tr>`).join("");
+      (!allCountries ? "" : pending.length ? `<tr class="unr"><td>まだ測っていない ${pending.length} か国</td><td colspan="7">枠はあり、標本をまだ測っていません：${pending.map(esc).join("・")}</td></tr>` : "") +
+      Object.entries(Object.values(DATA.unreached).reduce((m, u) => ((m[u.outcome] ||= []).push(u.name), m), {}))
+        .filter(() => allCountries).map(([o, names]) => `<tr class="unr"><td>${esc(UNR_JA[o] || o)} ${names.length} か国</td><td colspan="7">${names.map(esc).join("・")}</td></tr>`).join("");
     tb.querySelectorAll("a[data-cc]").forEach(a => a.addEventListener("click", () => select(a.dataset.cc)));
   }
+  // コピーのボタン（使えないときは、字を選んだ状態にする）
+  document.querySelectorAll(".copy").forEach(b => b.addEventListener("click", () => {
+    const el = document.getElementById(b.dataset.for);
+    const text = el.textContent;
+    const done = () => { b.textContent = "コピーしました"; setTimeout(() => { b.textContent = "コピー"; }, 1600); };
+    const select = () => { const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); b.textContent = "選びました"; };
+    try { navigator.clipboard.writeText(text).then(done, select); } catch (e) { select(); }
+  }));
+  document.getElementById("t-all").addEventListener("click", () => { allCountries = !allCountries; renderTable(); });
   document.querySelectorAll("#table th button").forEach(b => b.addEventListener("click", () => {
     const k = b.dataset.k; sortDir = sortKey === k ? -sortDir : (k === "name" ? 1 : -1); sortKey = k; renderTable();
   }));
@@ -414,15 +655,28 @@ tr.unr td { color: var(--muted); }
       && (!o || (o === "ok" ? d.o === "ok" : d.o !== "ok"))
       && (!q || (d.t + " " + d.p + " " + d.th.join(" ")).toLowerCase().includes(q)));
   }
+  // スコアの順（S が最も良い。段階の付かなかった書類は、どの並びでも最後）
+  const RANK_R = "SABCDEF", RANK_W = "ABCD";
+  function sortDocs(list) {
+    const key = document.getElementById("f-s").value;
+    const r = d => d.r ? RANK_R.indexOf(d.r) : 99, w = d => d.w ? RANK_W.indexOf(d.w) : 99;
+    const cmp = {
+      "read-hi": (a, b) => r(a) - r(b), "read-lo": (a, b) => (r(b) === 99 ? -1 : r(a) === 99 ? 1 : r(b) - r(a)),
+      "write-hi": (a, b) => w(a) - w(b), "write-lo": (a, b) => (w(b) === 99 ? -1 : w(a) === 99 ? 1 : w(b) - w(a)),
+      "fields": (a, b) => (b.f || 0) - (a.f || 0),
+      "country": (a, b) => (DATA.countries[a.c]?.name || a.c).localeCompare(DATA.countries[b.c]?.name || b.c, "ja"),
+    }[key];
+    return cmp ? [...list].sort(cmp) : list;
+  }
   function renderDocs() {
-    const list = filtered();
+    const list = sortDocs(filtered());
     document.getElementById("count").textContent = `${list.length.toLocaleString()} 件`;
-    const shown = list.slice(0, page * 50);
+    const shown = list.slice(0, 10 + (page - 1) * 20);
     document.getElementById("docs").innerHTML = shown.map(d => {
       const chips = d.r ? `<span class="chip" style="background:var(--g${d.r})" title="読む ${d.r} ${esc(READ_JA[d.r])}"><span>${d.r}<br><small>読む</small></span></span>` +
         `<span class="chip" style="background:var(--w${d.w})" title="書く ${d.w} ${esc(WRITE_JA[d.w])}"><span>${d.w}<br><small>書く</small></span></span>`
         : `<span class="chip o">${esc(outJa(d.o))}${d.e ? "<br>" + esc(d.e) : ""}</span>`;
-      const kind = d.k ? (d.d && d.k.toUpperCase() !== d.d ? `目録では ${esc(d.d)}・中身は ${esc(d.k)}` : esc(d.k)) : esc(d.d);
+      const kind = (d.k ? esc(d.k) : esc(d.d)) + (d.s === "live" ? "・政府のサイトから取り直し" : "");
       const rs = d.rr.length || d.wr.length ? `<div class="rs">${d.rr.map(esc).join("・")}${d.wr.length ? " ／ 書く：" + d.wr.map(esc).join("・") : ""}</div>` : "";
       return `<div class="doc"><div class="chips">${chips}</div><div style="min-width:0">
         <div class="t">${esc(d.t || "（題名なし）")}</div>
@@ -432,7 +686,7 @@ tr.unr td { color: var(--muted); }
     document.getElementById("more").hidden = shown.length >= list.length;
   }
   document.getElementById("more").addEventListener("click", () => { page++; renderDocs(); });
-  ["f-c", "f-g", "f-r", "f-w", "f-fc", "f-o"].forEach(id => document.getElementById(id).addEventListener("change", () => { page = 1; renderDocs(); }));
+  ["f-c", "f-g", "f-r", "f-w", "f-fc", "f-o", "f-s"].forEach(id => document.getElementById(id).addEventListener("change", () => { page = 1; renderDocs(); }));
   document.getElementById("f-q").addEventListener("input", () => { page = 1; renderDocs(); });
 
   // ---------------------------------------------------------------- 地図の切り替え
@@ -450,6 +704,14 @@ tr.unr td { color: var(--muted); }
     document.getElementById("b-countries").textContent = T.countries;
     document.getElementById("b-sampled").textContent = T.sampled.toLocaleString();
     document.getElementById("b-graded").textContent = T.graded.toLocaleString();
+    const reason = (t) => ([...T.top_read_reasons, ...(T.top_write_reasons || [])].find(([k]) => k === t) || [, 0])[1];
+    const setN = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = Number(v || 0).toLocaleString(); };
+    setN("how-docs", T.graded); setN("how-kinds", Object.keys(T.kinds || {}).length || 10);
+    setN("how-agent", reason("規則では決められない所")); setN("how-scan", reason("画像だけのページ"));
+    setN("how-audited", T.audited); setN("how-auditok", T.audit_ok);
+    const ug = Object.entries(T.ungraded || {}).sort((a, b) => b[1] - a[1]);
+    if (ug.length) document.getElementById("b-ungraded").textContent =
+      `ほかに取得して段階を付けられなかった書類 ${ug.reduce((s, x) => s + x[1], 0).toLocaleString()} 件（${ug.map(([k, n]) => `${k} ${n}`).join("・")}）。割合の分母には入れていません`;
     const prog = T.sampled / T.planned;
     document.getElementById("b-progress").textContent = prog >= 0.999 ? "完了" : pct(prog);
     document.getElementById("b-progress-l").textContent = prog >= 0.999 ? `予定 ${T.planned.toLocaleString()} 件` : `予定 ${T.planned.toLocaleString()} 件に対する進み（集計中）`;
@@ -462,7 +724,7 @@ tr.unr td { color: var(--muted); }
     bars("r-write", T.top_write_reasons);
     bars("r-reach", Object.entries(T.outcomes).filter(([o]) => o !== "ok" && o !== "frame_empty").sort((a, b) => b[1] - a[1]).map(([o, n]) => [outJa(o), n]));
     renderTable(); renderDocs(); drawMap();
-    select(Object.keys(d.countries)[0]);
+    select(d.countries.JP?.read_ok.n ? "JP" : (Object.keys(d.countries).find(cc => d.countries[cc].read_ok.n) || Object.keys(d.countries)[0]));
   }).catch(e => {
     document.getElementById("panel").innerHTML = `<p>結果のデータを読み込めませんでした（${esc(e.message)}）。ページを開き直してください。</p>`;
   });

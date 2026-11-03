@@ -31,6 +31,8 @@ class Patch:
     page: int = 0
     anchor: dict | None = None  # 見出しの字を目印にした書き込み（{"after": …, "value": …}）。証明で、同じ決め方で位置を確かめる
     key: str = ""  # 指定したときの名前（「@1」など）
+    seal: dict | None = None  # 本人の印影・署名の画像を置いたとき：本人に伝える文・位置・画像の SHA-256
+    circle: dict | None = None  # 印刷された字を○で囲んだとき：囲んだ字・楕円（見た目の座標）・見出し（circle.resolve）
 
 
 @dataclass
@@ -45,7 +47,11 @@ class FillResult:
 class Update:
     def __init__(self, doc: PdfDocument):
         self.doc = doc
-        self.next = doc.max_num + 1
+        doc.verify_xref()  # 壊れた相互参照は、書く前に読み直す（足す相互参照に、すべての正しい位置を入れるため）
+        # 新しい番号は、相互参照にある番号と、ファイルに書いてあるオブジェクトの番号（相互参照が壊れていて、後で読み直す
+        # ことがある）の、どれとも重ならないようにする
+        scanned = max((int(m[1]) for m in re.finditer(rb"(?<![\d])(\d{1,10})\s+\d{1,5}\s+obj\b", doc.blob)), default=0)
+        self.next = max(doc.max_num, scanned) + 1
         self.objs: dict[int, tuple[int, object]] = {}  # 番号 → (世代, オブジェクト)
 
     def new(self, obj) -> Ref:
@@ -110,19 +116,37 @@ class Update:
         for k in ("Info", "ID", "Encrypt"):
             if k in tr:
                 trailer[k] = tr[k]
-        trailer["Prev"] = prev
-        if _uses_xref_stream(orig, prev):
-            xnum = self.next
+        packed: dict[int, tuple[int, int]] = {}
+        if self.doc.repaired:
+            # 元の相互参照が壊れていた（読むときに、ファイルを頭から読み直して位置を集めた）：足す相互参照に、元のすべての
+            # オブジェクトの正しい位置を入れ、壊れた表（Prev）をたどらなくても開けるようにする
+            for num, ent in self.doc.xref.items():
+                if num in offsets:
+                    continue
+                if ent[0] == "o":
+                    offsets[num] = (ent[1], ent[2])
+                elif ent[0] == "s":
+                    packed[num] = (ent[1], ent[2])
+            size = max(size, max(offsets, default=0) + 1, max(packed, default=0) + 1)
+            trailer["Size"] = size
+        else:
+            trailer["Prev"] = prev
+        if packed or _uses_xref_stream(orig, prev):
+            xnum = max(self.next, size)
             offsets[xnum] = (len(out), 0)
-            nums = sorted(offsets)
+            nums = sorted(set(offsets) | set(packed))
             index, rows = [], bytearray()
             for n in nums:
                 if index and index[-2] + index[-1] == n:
                     index[-1] += 1
                 else:
                     index += [n, 1]
-                off, gen = offsets[n]
-                rows += bytes([1]) + off.to_bytes(4, "big") + gen.to_bytes(2, "big")
+                if n in offsets:
+                    off, gen = offsets[n]
+                    rows += bytes([1]) + off.to_bytes(4, "big") + gen.to_bytes(2, "big")
+                else:
+                    stm, idx = packed[n]
+                    rows += bytes([2]) + stm.to_bytes(4, "big") + idx.to_bytes(2, "big")
             d = dict(trailer)
             d.update({"Type": Name("XRef"), "Size": max(size, xnum + 1), "Index": index, "W": [1, 4, 2], "Length": len(rows)})
             xref_pos = len(out)
@@ -130,6 +154,8 @@ class Update:
         else:
             xref_pos = len(out)
             out += b"xref\n"
+            if self.doc.repaired and 0 not in offsets:
+                out += b"0 1\n0000000000 65535 f\r\n"  # 元の表をたどらない、全部の表：0 番は空きの項目
             nums = sorted(offsets)
             i = 0
             while i < len(nums):
@@ -282,6 +308,20 @@ def wrap(text: str, size: float, width: float) -> list[str]:
     return lines
 
 
+def spot_fits(text: str, rect, size: float | None, kind: str) -> bool:
+    """配置から見つけた欄（窓の rect・size）に、add_widget と同じ決め方で text が入るか。"""
+    x0, y0, x1, y1 = rect
+    w, h = x1 - x0, y1 - y0
+    size = float(size or 10.5)
+    if w <= 0 or h <= 0:
+        return False
+    try:
+        layout_text(text, w, h, size, center=kind == "inline", multiline=h > 2.4 * min(size, 10.5))
+    except FillError:
+        return False
+    return True
+
+
 def layout_text(text: str, w: float, h: float, size: float, center: bool = False, multiline: bool = True):
     """枠に入るように、字の大きさと折り返しを決める。(行, 大きさ)。入らなければ FillError。"""
     s = size
@@ -404,6 +444,7 @@ class Filler:
         self.pages = doc.pages()
         self.patches: list[Patch] = []
         self.warnings: list[str] = []
+        self.circles: dict[int, list[dict]] = {}  # ページ → ○で囲む所（circle.resolve）
 
     # ------------------------------------------------------------------ 共通の資源
     def font(self, key: str) -> Ref:
@@ -623,9 +664,32 @@ class Filler:
             self.new_fields.append(ref)
 
     # ------------------------------------------------------------------ 仕上げ
+    def _draw_circles(self) -> None:
+        """○：ページの描画の前に「q」、後ろに楕円のストリームを足す（元のストリームは変えない）。"""
+        from . import circle as _circle
+
+        for page_no, circles in sorted(self.circles.items()):
+            page = self.pages[page_no - 1]
+            pref = page["_ref"]
+            depth = _circle.open_depth(self.doc.page_content(page))
+            data = _circle.ops(View(self.doc, page), circles, depth)
+            pre = self.up.new(Stream({}, _circle.PREFIX))
+            post = self.up.new(Stream({}, data))
+            pd = self.up.get(pref)
+            cur = self.doc.resolve(pd.get("Contents"))
+            if isinstance(cur, list):
+                old = list(cur)
+            elif pd.get("Contents") is None:
+                old = []
+            else:
+                old = [pd.get("Contents")]
+            pd["Contents"] = [pre] + old + [post]
+
     def finish(self) -> bytes:
         doc = self.doc
         up = self.up
+        if self.circles:
+            self._draw_circles()
         for page_no, refs in self.page_annots.items():
             pref = self.pages[page_no - 1]["_ref"]
             pd = up.get(pref)
@@ -696,6 +760,7 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
             spots[fd["id"]] = (pg["number"], fd)
     problems = []
     used: dict = {}
+    circ_used: dict = {}  # ○で囲んだ所（ページ → 番号と楕円）
     layouts: dict = {}
     xf = _xfa_form(doc)
     xfa_values = {k: v for k, v in values.items() if xf is not None and k in xf.by_id}
@@ -712,6 +777,27 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
 
                 if not isinstance(value, dict):
                     raise FillError(f'{key}: 欄のない所に書くときは {{"after": 見出しの字, "value": 書く字}} の形で指定してください')
+                from ..sealimage import SealError, seal_key
+
+                try:
+                    skey = seal_key(value)
+                except SealError as e:
+                    raise FillError(f"{key}: {e}") from None
+                if skey is not None:
+                    # 本人の印影・署名の画像を置く（本人が同意したときだけ）：スタンプの注釈
+                    _place_seal(f, key, value, skey, used, layouts, views)
+                    continue
+                if "circle" in value:
+                    # 印刷された字を○で囲む：ページの描画の後ろに、楕円を描くストリームを足す
+                    from . import circle as _circle
+
+                    try:
+                        sd = _circle.resolve(doc, value, layouts, circ_used)
+                    except AnchorError as e:
+                        raise FillError(f"{key}: {e}") from None
+                    f.circles.setdefault(sd["page"], []).append(sd)
+                    f.patches.append(Patch(sd["id"], "circle", sd["text"], sd["page"], anchor=dict(value), key=key, circle=sd))
+                    continue
                 try:
                     sd = resolve_write(doc, value, used, layouts, set(f.by_name))
                 except AnchorError as e:
@@ -732,11 +818,40 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
             if sd.get("source") == "acroform":
                 f.set_field(f.by_name[sd["name"]], value, force)
                 continue
+            if sd.get("kind") == "circle":
+                # 窓の「○で囲む選択肢」：選んだ字を、字を指した○と同じ書き方で囲む（ページに楕円を描く）
+                from . import circle as _circle
+                from .anchor import AnchorError
+
+                want = _as_text(value["circle"] if isinstance(value, dict) and "circle" in value else value)
+                opts = sd.get("option_rects") or []
+                # 番号の付いた選択肢（「1.新規」）は、番号・語・全体のどれで指してもよい（○は番号を囲む）
+                pick = [(o, r) for o, r in opts if o == want] or \
+                    [(o, r) for o, r in opts if want and re.sub(r"^[0-9０-９]+[ \u3000]?[.．、,，)）:：]?[ \u3000]?", "", o) in (want,)] or \
+                    [(o, r) for o, r in opts if want and re.match(r"[0-9０-９]+", o) and re.match(r"[0-9０-９]+", o)[0] == want]
+                if len(pick) != 1:
+                    raise FillError(f"{key}: 「{want}」は選択肢にありません。選べるのは " + "、".join(f"「{o}」" for o, _r in opts))
+                o_, r_ = pick[0]
+                word = re.match(r"[0-9０-９]+", o_)[0] if sd.get("numbered") else o_
+                spec = {"circle": word, "page": page_no, "within": list(r_)}
+                if isinstance(value, dict) and value.get("pad") is not None:
+                    spec["pad"] = value["pad"]
+                try:
+                    cd = _circle.resolve(doc, spec, layouts, circ_used)
+                except AnchorError as e:
+                    raise FillError(f"{key}: {e}") from None
+                cd["label"] = re.sub(r"（○で囲む）$", "", sd.get("label") or "") or cd["label"]
+                cd["option"] = o_  # 窓の選択肢の名前（読み戻しで、書いた後の窓の値と照らす）
+                f.circles.setdefault(cd["page"], []).append(cd)
+                f.patches.append(Patch(cd["id"], "circle", cd["text"], cd["page"], anchor=spec, key=key, circle=cd))
+                continue
             if page_no not in views:
                 views[page_no] = View(doc, f.pages[page_no - 1])
+            sd, value = as_kind(sd, value)
             f.add_widget(page_no, sd, value, views[page_no])
         except FillError as e:
             problems.append(str(e))
+    problems += alternative_conflicts([spots[k][1] for k in values if k in spots and spots[k][1].get("source") == "layout"])
     if xfa_values and not problems:
         try:
             _fill_xfa(f, xf, xfa_values, force)
@@ -748,6 +863,86 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
         _recalculate(f, values)
     blob = f.finish() if f.patches else doc.blob
     return FillResult(blob, f.patches, f.warnings)
+
+
+def as_kind(sd: dict, value):
+    """種類が形だけでは決まらない欄（kind_candidates のある欄）に、値からどの種類で書くかを決める。
+    - {"as": 種類, "value": 値}：その種類で書く（種類は kind_candidates のどれか）
+    - はい／いいえ（true / false）：チェックの印（候補に checkbox があるとき）
+    - 字：候補に text があり、既定の種類がチェックの印なら、文字の欄として書く（「1」「レ」などをマスに書く）。
+      既定が1字ずつ書く欄（comb）なら、1字ずつマスに書く（1つの欄として書くときは {"as": "text", …}）
+    返す値：(書く欄の情報, 書く値)。"""
+    cands = sd.get("kind_candidates") or []
+    if isinstance(value, dict) and "as" in value:
+        want = value.get("as")
+        if not cands or want not in cands:
+            raise FillError(f"{sd['id']}: 「{want}」としては書けません（書ける種類：{'・'.join(cands) or sd['kind']}）")
+        if "value" not in value:
+            raise FillError(f'{sd["id"]}: {{"as": 種類, "value": 書く値}} の形で指定してください')
+        return {**sd, "kind": want}, value["value"]
+    if not cands:
+        return sd, value
+    if isinstance(value, bool):
+        if "checkbox" in cands:
+            return {**sd, "kind": "checkbox"}, value
+        return sd, value
+    if sd["kind"] == "checkbox" and "text" in cands:
+        return {**sd, "kind": "text"}, value
+    return sd, value
+
+
+def alternative_conflicts(written: list[dict]) -> list[str]:
+    """同じ所の別の読み方（alternative_to でつながる候補）の両方に書こうとしたもの：どちらか1つにする（重なって書かれるので）。"""
+    out = []
+    ids = {d["id"] for d in written}
+    groups: dict[str, list[dict]] = {}
+    for d in written:
+        alt = d.get("alternative_to")
+        if not alt:
+            continue
+        if alt in ids:
+            out.append(f"{d['id']} と {alt} は、同じ所の別の読み方（重なる候補）です。どちらか1つにだけ書いてください")
+        groups.setdefault(alt, []).append(d)
+    for g in groups.values():
+        for i, a in enumerate(g):
+            for b in g[i + 1:]:
+                if conflicting(a, b):
+                    out.append(f"{a['id']} と {b['id']} は、同じ所の別の読み方（重なる候補）です。どちらか1つにだけ書いてください")
+    return out
+
+
+def conflicting(a: dict, b: dict) -> bool:
+    """2つの欄が、同じ所の別の読み方か：一方が他方の alternative_to か、同じ候補の別の読み方どうしで重なるもの。"""
+    if a.get("alternative_to") == b["id"] or b.get("alternative_to") == a["id"]:
+        return True
+    if a.get("alternative_to") and a.get("alternative_to") == b.get("alternative_to"):
+        r, s = a["rect"], b["rect"]
+        return r[0] < s[2] and s[0] < r[2] and r[1] < s[3] and s[1] < r[3]
+    return False
+
+
+def _place_seal(f: Filler, key: str, spec: dict, skey: str, used: dict, layouts: dict, views: dict) -> None:
+    from ..sealimage import SealError, load
+    from . import seal
+    from .anchor import AnchorError
+
+    try:
+        img = load(spec, skey)  # 同意がなければ、ここで断る
+        if not hasattr(f, "_stamp_names"):
+            f._stamp_names = seal.stamp_names(f.doc)
+        sd = seal.resolve(f.doc, spec, skey, img, used, layouts, set(f.by_name) | f._stamp_names)
+        page_no = sd["page"]
+        if page_no not in views:
+            views[page_no] = View(f.doc, f.pages[page_no - 1])
+        seal.write(f, page_no, sd, skey, img, views[page_no])
+    except (SealError, AnchorError) as e:
+        raise FillError(f"{key}: {e}") from None
+    p = Patch(sd["id"], "seal", f"本人の{sd['what']}の画像", page_no, anchor=dict(spec), key=key)
+    p.seal = {"told": seal.told(sd, skey), "rect": sd["rect"], "sha256": img.sha256, "what": sd["what"], "key": skey}
+    f.patches.append(p)
+    caution = seal.caution(sd["what"])
+    if caution not in f.warnings:
+        f.warnings.append(caution)
 
 
 def _xfa_form(doc):

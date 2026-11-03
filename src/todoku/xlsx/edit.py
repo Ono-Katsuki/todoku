@@ -632,7 +632,9 @@ class SheetPatcher:
             edits.append((at[0], at[1], r, 0, g["wrap"][0] + cells + g["wrap"][1]))
         out = bytearray()
         last = 0
-        for s_, e_, _r, _c, new in sorted(edits, key=lambda x: (x[0], x[2], x[3])):
+        # 同じ位置では、差し込み（start == end）を、そこから始まるセルの書き換えより先に置く（差し込むセルは、
+        # そのセルの前に入る。数式の計算結果の書き換えと、その前への新しいセルが重なることがある）
+        for s_, e_, _r, _c, new in sorted(edits, key=lambda x: (x[0], x[1] != x[0], x[2], x[3])):
             if s_ < last:
                 raise EditError("同じ位置に重なる書き換えがあります")
             out += self.xml[last:s_] + new
@@ -831,12 +833,12 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             raise EditError(f"{sheet}!{addr(r, c)} はシート保護でロックされたセルです（Excelでも書き込めません）")
         if isinstance(v, (list, tuple)):
             # 文字の中の空欄（「令和　　年　　月　　日」）に、順に値を入れる
-            from .window import fill_blanks
+            from .window import blank_spans, fill_blanks
 
             if cell is None or not isinstance(cell.value, str):
                 raise EditError(f"{sheet}!{addr(r, c)} は文字の中に空欄のあるセルではありません")
             try:
-                v = fill_blanks(cell.value, list(v))
+                v = fill_blanks(cell.value, list(v), blank_spans(wb, sheet, r, c))
             except ValueError as e:
                 raise EditError(f"{sheet}!{addr(r, c)}: {e}")
             targets[(sheet, r, c)] = v

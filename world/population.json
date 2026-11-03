@@ -1,0 +1,10465 @@
+{
+ "population": "国連の加盟 193 か国（参考：香港・台湾）",
+ "checked_on": "2026-11-03",
+ "crawl": "CC-MAIN-2026-43",
+ "outcomes": {
+  "reachable": "政府のサイトの書類が収集にあり、標本の枠を作れる",
+  "no_documents": "政府のサイトは収集にあるが、PDF・表計算・文書・CSV の書類が見つからない",
+  "not_in_crawl": "政府のドメインは分かるが、この収集に入っていない",
+  "no_domains": "出典（Public Suffix List・足したドメイン・Wikidata）に政府のドメインが見つからない"
+ },
+ "countries": [
+  {
+   "iso2": "AF",
+   "iso3": "AFG",
+   "num": "004",
+   "ja": "アフガニスタン",
+   "en": "Afghanistan",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.af"
+    ],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 489,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 489,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 8,
+      "edge": 2
+     },
+     "read": {
+      "core": 8,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "AL",
+   "iso3": "ALB",
+   "num": "008",
+   "ja": "アルバニア",
+   "en": "Albania",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.al"
+    ],
+    "wikidata_hosts": 9
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 4651,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 4651,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 20,
+      "edge": 2
+     },
+     "read": {
+      "core": 20,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 8
+     },
+     "read": {
+      "core": 0,
+      "edge": 8
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "DZ",
+   "iso3": "DZA",
+   "num": "012",
+   "ja": "アルジェリア",
+   "en": "Algeria",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.dz"
+    ],
+    "wikidata_hosts": 29
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1754,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1754,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 2,
+      "edge": 2
+     },
+     "read": {
+      "core": 2,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 4,
+      "edge": 23
+     },
+     "read": {
+      "core": 4,
+      "edge": 23
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "AD",
+   "iso3": "AND",
+   "num": "020",
+   "ja": "アンドラ",
+   "en": "Andorra",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 7
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 59,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 59,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 5
+     },
+     "read": {
+      "core": 0,
+      "edge": 5
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "AO",
+   "iso3": "AGO",
+   "num": "024",
+   "ja": "アンゴラ",
+   "en": "Angola",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ao",
+     "gv.ao"
+    ],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 169,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 169,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 2,
+      "edge": 2
+     },
+     "read": {
+      "core": 2,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "AG",
+   "iso3": "ATG",
+   "num": "028",
+   "ja": "アンティグア・バーブーダ",
+   "en": "Antigua and Barbuda",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 3
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 15,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 15,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "AR",
+   "iso3": "ARG",
+   "num": "032",
+   "ja": "アルゼンチン",
+   "en": "Argentina",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.ar",
+     "gov.ar"
+    ],
+    "wikidata_hosts": 40
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 25888,
+     "sheet": 152,
+     "text": 54,
+     "csv": 21
+    },
+    "pool": {
+     "pdf": 3839,
+     "sheet": 56,
+     "text": 20,
+     "csv": 3
+    },
+    "suffix": {
+     "blocks": {
+      "core": 201,
+      "edge": 4
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 39
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "AM",
+   "iso3": "ARM",
+   "num": "051",
+   "ja": "アルメニア",
+   "en": "Armenia",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 28
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2089,
+     "sheet": 6,
+     "text": 71,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2089,
+     "sheet": 6,
+     "text": 71,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 28
+     },
+     "read": {
+      "core": 1,
+      "edge": 28
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "AU",
+   "iso3": "AUS",
+   "num": "036",
+   "ja": "オーストラリア",
+   "en": "Australia",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.au"
+    ],
+    "wikidata_hosts": 73
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 52853,
+     "sheet": 112,
+     "text": 324,
+     "csv": 220
+    },
+    "pool": {
+     "pdf": 6433,
+     "sheet": 34,
+     "text": 82,
+     "csv": 30
+    },
+    "suffix": {
+     "blocks": {
+      "core": 347,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 13,
+      "edge": 80
+     },
+     "read": {
+      "core": 4,
+      "edge": 26
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "AT",
+   "iso3": "AUT",
+   "num": "040",
+   "ja": "オーストリア",
+   "en": "Austria",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gv.at"
+    ],
+    "wikidata_hosts": 1553
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 26366,
+     "sheet": 37,
+     "text": 145,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 4376,
+     "sheet": 22,
+     "text": 84,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 122,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 12,
+      "edge": 955
+     },
+     "read": {
+      "core": 1,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "AZ",
+   "iso3": "AZE",
+   "num": "031",
+   "ja": "アゼルバイジャン",
+   "en": "Azerbaijan",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.az"
+    ],
+    "wikidata_hosts": 24
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1337,
+     "sheet": 0,
+     "text": 0,
+     "csv": 3
+    },
+    "pool": {
+     "pdf": 1337,
+     "sheet": 0,
+     "text": 0,
+     "csv": 3
+    },
+    "suffix": {
+     "blocks": {
+      "core": 23,
+      "edge": 2
+     },
+     "read": {
+      "core": 23,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 25
+     },
+     "read": {
+      "core": 1,
+      "edge": 25
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BS",
+   "iso3": "BHS",
+   "num": "044",
+   "ja": "バハマ",
+   "en": "Bahamas",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.bs"
+    ],
+    "wikidata_hosts": 6
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 296,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 296,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BH",
+   "iso3": "BHR",
+   "num": "048",
+   "ja": "バーレーン",
+   "en": "Bahrain",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.bh"
+    ],
+    "wikidata_hosts": 7
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 15,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 15,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BD",
+   "iso3": "BGD",
+   "num": "050",
+   "ja": "バングラデシュ",
+   "en": "Bangladesh",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.bd"
+    ],
+    "wikidata_hosts": 8
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 6215,
+     "sheet": 5,
+     "text": 6,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 4839,
+     "sheet": 5,
+     "text": 6,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 36,
+      "edge": 2
+     },
+     "read": {
+      "core": 28,
+      "edge": 2
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BB",
+   "iso3": "BRB",
+   "num": "052",
+   "ja": "バルバドス",
+   "en": "Barbados",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.bb"
+    ],
+    "wikidata_hosts": 3
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 106,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 106,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BY",
+   "iso3": "BLR",
+   "num": "112",
+   "ja": "ベラルーシ",
+   "en": "Belarus",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.by"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 3525,
+     "sheet": 0,
+     "text": 18,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2609,
+     "sheet": 0,
+     "text": 18,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 38,
+      "edge": 2
+     },
+     "read": {
+      "core": 28,
+      "edge": 2
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BE",
+   "iso3": "BEL",
+   "num": "056",
+   "ja": "ベルギー",
+   "en": "Belgium",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "fgov.be",
+     "belgium.be"
+    ],
+    "wikidata_hosts": 681
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 11167,
+     "sheet": 51,
+     "text": 60,
+     "csv": 8
+    },
+    "pool": {
+     "pdf": 1996,
+     "sheet": 12,
+     "text": 17,
+     "csv": 8
+    },
+    "suffix": {
+     "blocks": {
+      "core": 19,
+      "edge": 4
+     },
+     "read": {
+      "core": 19,
+      "edge": 4
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 17,
+      "edge": 621
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "BZ",
+   "iso3": "BLZ",
+   "num": "084",
+   "ja": "ベリーズ",
+   "en": "Belize",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.bz"
+    ],
+    "wikidata_hosts": 6
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 9,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 9,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BJ",
+   "iso3": "BEN",
+   "num": "204",
+   "ja": "ベナン",
+   "en": "Benin",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 21
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 26,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 26,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 12
+     },
+     "read": {
+      "core": 0,
+      "edge": 12
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BT",
+   "iso3": "BTN",
+   "num": "064",
+   "ja": "ブータン",
+   "en": "Bhutan",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.bt"
+    ],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 611,
+     "sheet": 3,
+     "text": 1,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 611,
+     "sheet": 3,
+     "text": 1,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 3,
+      "edge": 2
+     },
+     "read": {
+      "core": 3,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BO",
+   "iso3": "BOL",
+   "num": "068",
+   "ja": "ボリビア",
+   "en": "Bolivia",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.bo"
+    ],
+    "wikidata_hosts": 7
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2942,
+     "sheet": 2,
+     "text": 0,
+     "csv": 265
+    },
+    "pool": {
+     "pdf": 2942,
+     "sheet": 2,
+     "text": 0,
+     "csv": 265
+    },
+    "suffix": {
+     "blocks": {
+      "core": 12,
+      "edge": 2
+     },
+     "read": {
+      "core": 12,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BA",
+   "iso3": "BIH",
+   "num": "070",
+   "ja": "ボスニア・ヘルツェゴビナ",
+   "en": "Bosnia and Herzegovina",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ba"
+    ],
+    "wikidata_hosts": 22
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 5536,
+     "sheet": 5,
+     "text": 65,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 5536,
+     "sheet": 5,
+     "text": 65,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 17,
+      "edge": 2
+     },
+     "read": {
+      "core": 17,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 23
+     },
+     "read": {
+      "core": 0,
+      "edge": 23
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BW",
+   "iso3": "BWA",
+   "num": "072",
+   "ja": "ボツワナ",
+   "en": "Botswana",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.bw"
+    ],
+    "wikidata_hosts": 12
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 405,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 405,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 9
+     },
+     "read": {
+      "core": 0,
+      "edge": 9
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BR",
+   "iso3": "BRA",
+   "num": "076",
+   "ja": "ブラジル",
+   "en": "Brazil",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.br"
+    ],
+    "wikidata_hosts": 245
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 167516,
+     "sheet": 540,
+     "text": 575,
+     "csv": 297
+    },
+    "pool": {
+     "pdf": 7615,
+     "sheet": 27,
+     "text": 64,
+     "csv": 11
+    },
+    "suffix": {
+     "blocks": {
+      "core": 809,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 69,
+      "edge": 190
+     },
+     "read": {
+      "core": 8,
+      "edge": 22
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "BN",
+   "iso3": "BRN",
+   "num": "096",
+   "ja": "ブルネイ",
+   "en": "Brunei Darussalam",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.bn"
+    ],
+    "wikidata_hosts": 0
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1428,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1428,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 4,
+      "edge": 2
+     },
+     "read": {
+      "core": 4,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BG",
+   "iso3": "BGR",
+   "num": "100",
+   "ja": "ブルガリア",
+   "en": "Bulgaria",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 16
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 6542,
+     "sheet": 1338,
+     "text": 423,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 5772,
+     "sheet": 1181,
+     "text": 373,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 17,
+      "edge": 17
+     },
+     "read": {
+      "core": 15,
+      "edge": 15
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "BF",
+   "iso3": "BFA",
+   "num": "854",
+   "ja": "ブルキナファソ",
+   "en": "Burkina Faso",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.bf"
+    ],
+    "wikidata_hosts": 11
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 131,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 131,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 10
+     },
+     "read": {
+      "core": 0,
+      "edge": 10
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "BI",
+   "iso3": "BDI",
+   "num": "108",
+   "ja": "ブルンジ",
+   "en": "Burundi",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 17
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 11,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 11,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "CV",
+   "iso3": "CPV",
+   "num": "132",
+   "ja": "カーボベルデ",
+   "en": "Cabo Verde",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 9
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 204,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 204,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "KH",
+   "iso3": "KHM",
+   "num": "116",
+   "ja": "カンボジア",
+   "en": "Cambodia",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.kh"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 830,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 830,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 10,
+      "edge": 2
+     },
+     "read": {
+      "core": 10,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "CM",
+   "iso3": "CMR",
+   "num": "120",
+   "ja": "カメルーン",
+   "en": "Cameroon",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.cm"
+    ],
+    "wikidata_hosts": 12
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 532,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 532,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 2,
+      "edge": 2
+     },
+     "read": {
+      "core": 2,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 11
+     },
+     "read": {
+      "core": 0,
+      "edge": 11
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "CA",
+   "iso3": "CAN",
+   "num": "124",
+   "ja": "カナダ",
+   "en": "Canada",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gc.ca",
+     "canada.ca"
+    ],
+    "wikidata_hosts": 979
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 27027,
+     "sheet": 130,
+     "text": 30,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2161,
+     "sheet": 41,
+     "text": 13,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 143,
+      "edge": 4
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 110,
+      "edge": 676
+     },
+     "read": {
+      "core": 4,
+      "edge": 26
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "CF",
+   "iso3": "CAF",
+   "num": "140",
+   "ja": "中央アフリカ",
+   "en": "Central African Republic",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "TD",
+   "iso3": "TCD",
+   "num": "148",
+   "ja": "チャド",
+   "en": "Chad",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 13
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "CL",
+   "iso3": "CHL",
+   "num": "152",
+   "ja": "チリ",
+   "en": "Chile",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.cl",
+     "gov.cl"
+    ],
+    "wikidata_hosts": 319
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 19843,
+     "sheet": 119,
+     "text": 167,
+     "csv": 2
+    },
+    "pool": {
+     "pdf": 8468,
+     "sheet": 59,
+     "text": 82,
+     "csv": 1
+    },
+    "suffix": {
+     "blocks": {
+      "core": 57,
+      "edge": 4
+     },
+     "read": {
+      "core": 28,
+      "edge": 2
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 4,
+      "edge": 185
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "CN",
+   "iso3": "CHN",
+   "num": "156",
+   "ja": "中国",
+   "en": "China",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.cn"
+    ],
+    "wikidata_hosts": 179
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 28409,
+     "sheet": 611,
+     "text": 785,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1725,
+     "sheet": 37,
+     "text": 50,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 508,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 3,
+      "edge": 174
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "CO",
+   "iso3": "COL",
+   "num": "170",
+   "ja": "コロンビア",
+   "en": "Colombia",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.co"
+    ],
+    "wikidata_hosts": 9
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 61302,
+     "sheet": 1760,
+     "text": 582,
+     "csv": 2768
+    },
+    "pool": {
+     "pdf": 9226,
+     "sheet": 261,
+     "text": 86,
+     "csv": 409
+    },
+    "suffix": {
+     "blocks": {
+      "core": 203,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 12
+     },
+     "read": {
+      "core": 1,
+      "edge": 12
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "KM",
+   "iso3": "COM",
+   "num": "174",
+   "ja": "コモロ",
+   "en": "Comoros",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.km",
+     "gouv.km"
+    ],
+    "wikidata_hosts": 0
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 18,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 18,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "CG",
+   "iso3": "COG",
+   "num": "178",
+   "ja": "コンゴ共和国",
+   "en": "Congo",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 9
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 112,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 112,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "CR",
+   "iso3": "CRI",
+   "num": "188",
+   "ja": "コスタリカ",
+   "en": "Costa Rica",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "go.cr"
+    ],
+    "wikidata_hosts": 3
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 3279,
+     "sheet": 84,
+     "text": 257,
+     "csv": 1
+    },
+    "pool": {
+     "pdf": 3279,
+     "sheet": 84,
+     "text": 257,
+     "csv": 1
+    },
+    "suffix": {
+     "blocks": {
+      "core": 25,
+      "edge": 2
+     },
+     "read": {
+      "core": 25,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "CI",
+   "iso3": "CIV",
+   "num": "384",
+   "ja": "コートジボワール",
+   "en": "Cote d'Ivoire",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gouv.ci"
+    ],
+    "wikidata_hosts": 15
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 259,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 259,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 4,
+      "edge": 2
+     },
+     "read": {
+      "core": 4,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 16
+     },
+     "read": {
+      "core": 0,
+      "edge": 16
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "HR",
+   "iso3": "HRV",
+   "num": "191",
+   "ja": "クロアチア",
+   "en": "Croatia",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 453
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 7767,
+     "sheet": 55,
+     "text": 189,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 774,
+     "sheet": 21,
+     "text": 72,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 5,
+      "edge": 291
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "CU",
+   "iso3": "CUB",
+   "num": "192",
+   "ja": "キューバ",
+   "en": "Cuba",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.cu"
+    ],
+    "wikidata_hosts": 19
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 390,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 390,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 7,
+      "edge": 2
+     },
+     "read": {
+      "core": 7,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 15
+     },
+     "read": {
+      "core": 1,
+      "edge": 15
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "CY",
+   "iso3": "CYP",
+   "num": "196",
+   "ja": "キプロス",
+   "en": "Cyprus",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.cy"
+    ],
+    "wikidata_hosts": 6
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 589,
+     "sheet": 0,
+     "text": 2,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 589,
+     "sheet": 0,
+     "text": 2,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 3,
+      "edge": 2
+     },
+     "read": {
+      "core": 3,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "CZ",
+   "iso3": "CZE",
+   "num": "203",
+   "ja": "チェコ",
+   "en": "Czechia",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.cz"
+    ],
+    "wikidata_hosts": 6268
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 74785,
+     "sheet": 506,
+     "text": 3315,
+     "csv": 127
+    },
+    "pool": {
+     "pdf": 6791,
+     "sheet": 103,
+     "text": 367,
+     "csv": 42
+    },
+    "suffix": {
+     "blocks": {
+      "core": 53,
+      "edge": 2
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 9,
+      "edge": 2286
+     },
+     "read": {
+      "core": 1,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "KP",
+   "iso3": "PRK",
+   "num": "408",
+   "ja": "北朝鮮",
+   "en": "Democratic People's Republic of Korea",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 6 を読んだ）",
+   "domains": {
+    "suffixes": [
+     "gov.kp"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "CD",
+   "iso3": "COD",
+   "num": "180",
+   "ja": "コンゴ民主共和国",
+   "en": "Democratic Republic of the Congo",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.cd"
+    ],
+    "wikidata_hosts": 7
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 25,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 25,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "DK",
+   "iso3": "DNK",
+   "num": "208",
+   "ja": "デンマーク",
+   "en": "Denmark",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 70
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 774,
+     "sheet": 16,
+     "text": 1,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 244,
+     "sheet": 16,
+     "text": 1,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 9,
+      "edge": 87
+     },
+     "read": {
+      "core": 3,
+      "edge": 27
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "DJ",
+   "iso3": "DJI",
+   "num": "262",
+   "ja": "ジブチ",
+   "en": "Djibouti",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 6
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 64,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 64,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "DM",
+   "iso3": "DMA",
+   "num": "212",
+   "ja": "ドミニカ国",
+   "en": "Dominica",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.dm"
+    ],
+    "wikidata_hosts": 0
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 159,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 159,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "DO",
+   "iso3": "DOM",
+   "num": "214",
+   "ja": "ドミニカ共和国",
+   "en": "Dominican Republic",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.do",
+     "gov.do"
+    ],
+    "wikidata_hosts": 3
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 6731,
+     "sheet": 312,
+     "text": 11,
+     "csv": 2
+    },
+    "pool": {
+     "pdf": 6731,
+     "sheet": 312,
+     "text": 11,
+     "csv": 2
+    },
+    "suffix": {
+     "blocks": {
+      "core": 20,
+      "edge": 3
+     },
+     "read": {
+      "core": 20,
+      "edge": 3
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "EC",
+   "iso3": "ECU",
+   "num": "218",
+   "ja": "エクアドル",
+   "en": "Ecuador",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.ec",
+     "gov.ec"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 25505,
+     "sheet": 381,
+     "text": 45,
+     "csv": 809
+    },
+    "pool": {
+     "pdf": 11395,
+     "sheet": 170,
+     "text": 20,
+     "csv": 361
+    },
+    "suffix": {
+     "blocks": {
+      "core": 65,
+      "edge": 2
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "EG",
+   "iso3": "EGY",
+   "num": "818",
+   "ja": "エジプト",
+   "en": "Egypt",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.eg"
+    ],
+    "wikidata_hosts": 36
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 656,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 656,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 15,
+      "edge": 2
+     },
+     "read": {
+      "core": 15,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 29
+     },
+     "read": {
+      "core": 0,
+      "edge": 29
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "SV",
+   "iso3": "SLV",
+   "num": "222",
+   "ja": "エルサルバドル",
+   "en": "El Salvador",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.sv"
+    ],
+    "wikidata_hosts": 0
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2282,
+     "sheet": 12,
+     "text": 7,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2282,
+     "sheet": 12,
+     "text": 7,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 8,
+      "edge": 2
+     },
+     "read": {
+      "core": 8,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "GQ",
+   "iso3": "GNQ",
+   "num": "226",
+   "ja": "赤道ギニア",
+   "en": "Equatorial Guinea",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "ER",
+   "iso3": "ERI",
+   "num": "232",
+   "ja": "エリトリア",
+   "en": "Eritrea",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "EE",
+   "iso3": "EST",
+   "num": "233",
+   "ja": "エストニア",
+   "en": "Estonia",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ee"
+    ],
+    "wikidata_hosts": 32
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1493,
+     "sheet": 2,
+     "text": 2,
+     "csv": 1
+    },
+    "pool": {
+     "pdf": 1111,
+     "sheet": 2,
+     "text": 2,
+     "csv": 1
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 39
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "SZ",
+   "iso3": "SWZ",
+   "num": "748",
+   "ja": "エスワティニ",
+   "en": "Eswatini",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "ET",
+   "iso3": "ETH",
+   "num": "231",
+   "ja": "エチオピア",
+   "en": "Ethiopia",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.et"
+    ],
+    "wikidata_hosts": 12
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 367,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 367,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 5,
+      "edge": 2
+     },
+     "read": {
+      "core": 5,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 10
+     },
+     "read": {
+      "core": 0,
+      "edge": 10
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "FJ",
+   "iso3": "FJI",
+   "num": "242",
+   "ja": "フィジー",
+   "en": "Fiji",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.fj"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 196,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 196,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 5
+     },
+     "read": {
+      "core": 0,
+      "edge": 5
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "FI",
+   "iso3": "FIN",
+   "num": "246",
+   "ja": "フィンランド",
+   "en": "Finland",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 373
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 14467,
+     "sheet": 0,
+     "text": 13,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1054,
+     "sheet": 0,
+     "text": 4,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 31,
+      "edge": 384
+     },
+     "read": {
+      "core": 2,
+      "edge": 28
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "FR",
+   "iso3": "FRA",
+   "num": "250",
+   "ja": "フランス",
+   "en": "France",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gouv.fr"
+    ],
+    "wikidata_hosts": 21910
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 197727,
+     "sheet": 441,
+     "text": 1134,
+     "csv": 6
+    },
+    "pool": {
+     "pdf": 2679,
+     "sheet": 76,
+     "text": 187,
+     "csv": 1
+    },
+    "suffix": {
+     "blocks": {
+      "core": 174,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 182,
+      "edge": 6791
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "GA",
+   "iso3": "GAB",
+   "num": "266",
+   "ja": "ガボン",
+   "en": "Gabon",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 4 を読んだ）",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 11
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "GM",
+   "iso3": "GMB",
+   "num": "270",
+   "ja": "ガンビア",
+   "en": "Gambia",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 43
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 198,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 198,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "GE",
+   "iso3": "GEO",
+   "num": "268",
+   "ja": "ジョージア",
+   "en": "Georgia",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ge"
+    ],
+    "wikidata_hosts": 14
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2303,
+     "sheet": 74,
+     "text": 210,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2303,
+     "sheet": 74,
+     "text": 210,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 16,
+      "edge": 2
+     },
+     "read": {
+      "core": 16,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 13
+     },
+     "read": {
+      "core": 0,
+      "edge": 13
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "DE",
+   "iso3": "DEU",
+   "num": "276",
+   "ja": "ドイツ",
+   "en": "Germany",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "bund.de"
+    ],
+    "wikidata_hosts": 361
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 70707,
+     "sheet": 257,
+     "text": 39,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 4498,
+     "sheet": 59,
+     "text": 8,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 16,
+      "edge": 3
+     },
+     "read": {
+      "core": 16,
+      "edge": 3
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 165,
+      "edge": 401
+     },
+     "read": {
+      "core": 9,
+      "edge": 21
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "GH",
+   "iso3": "GHA",
+   "num": "288",
+   "ja": "ガーナ",
+   "en": "Ghana",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.gh"
+    ],
+    "wikidata_hosts": 15
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1615,
+     "sheet": 1,
+     "text": 2,
+     "csv": 1
+    },
+    "pool": {
+     "pdf": 1615,
+     "sheet": 1,
+     "text": 2,
+     "csv": 1
+    },
+    "suffix": {
+     "blocks": {
+      "core": 12,
+      "edge": 2
+     },
+     "read": {
+      "core": 12,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 11,
+      "edge": 17
+     },
+     "read": {
+      "core": 11,
+      "edge": 17
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "GR",
+   "iso3": "GRC",
+   "num": "300",
+   "ja": "ギリシャ",
+   "en": "Greece",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.gr"
+    ],
+    "wikidata_hosts": 299
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 13532,
+     "sheet": 222,
+     "text": 222,
+     "csv": 179
+    },
+    "pool": {
+     "pdf": 4004,
+     "sheet": 75,
+     "text": 56,
+     "csv": 96
+    },
+    "suffix": {
+     "blocks": {
+      "core": 54,
+      "edge": 2
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 24,
+      "edge": 295
+     },
+     "read": {
+      "core": 2,
+      "edge": 28
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "GD",
+   "iso3": "GRD",
+   "num": "308",
+   "ja": "グレナダ",
+   "en": "Grenada",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.gd"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 19,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 19,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "GT",
+   "iso3": "GTM",
+   "num": "320",
+   "ja": "グアテマラ",
+   "en": "Guatemala",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.gt"
+    ],
+    "wikidata_hosts": 13
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 12498,
+     "sheet": 331,
+     "text": 73,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 12498,
+     "sheet": 331,
+     "text": 73,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 21,
+      "edge": 2
+     },
+     "read": {
+      "core": 21,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 13
+     },
+     "read": {
+      "core": 0,
+      "edge": 13
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "GN",
+   "iso3": "GIN",
+   "num": "324",
+   "ja": "ギニア",
+   "en": "Guinea",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.gn"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 210,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 210,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 2,
+      "edge": 2
+     },
+     "read": {
+      "core": 2,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "GW",
+   "iso3": "GNB",
+   "num": "624",
+   "ja": "ギニアビサウ",
+   "en": "Guinea-Bissau",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 2 を読んだ）",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "GY",
+   "iso3": "GUY",
+   "num": "328",
+   "ja": "ガイアナ",
+   "en": "Guyana",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.gy"
+    ],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 117,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 117,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "HT",
+   "iso3": "HTI",
+   "num": "332",
+   "ja": "ハイチ",
+   "en": "Haiti",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gouv.ht"
+    ],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 230,
+     "sheet": 0,
+     "text": 1,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 230,
+     "sheet": 0,
+     "text": 1,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "HN",
+   "iso3": "HND",
+   "num": "340",
+   "ja": "ホンジュラス",
+   "en": "Honduras",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.hn"
+    ],
+    "wikidata_hosts": 5
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 977,
+     "sheet": 2,
+     "text": 6,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 977,
+     "sheet": 2,
+     "text": 6,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 4,
+      "edge": 2
+     },
+     "read": {
+      "core": 4,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "HU",
+   "iso3": "HUN",
+   "num": "348",
+   "ja": "ハンガリー",
+   "en": "Hungary",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 38
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 4897,
+     "sheet": 431,
+     "text": 210,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2644,
+     "sheet": 234,
+     "text": 114,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 10,
+      "edge": 46
+     },
+     "read": {
+      "core": 5,
+      "edge": 25
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "IS",
+   "iso3": "ISL",
+   "num": "352",
+   "ja": "アイスランド",
+   "en": "Iceland",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 60
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 991,
+     "sheet": 0,
+     "text": 1,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 442,
+     "sheet": 0,
+     "text": 1,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 3,
+      "edge": 65
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "IN",
+   "iso3": "IND",
+   "num": "356",
+   "ja": "インド",
+   "en": "India",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.in",
+     "nic.in"
+    ],
+    "wikidata_hosts": 181
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 84424,
+     "sheet": 4,
+     "text": 4,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 10948,
+     "sheet": 2,
+     "text": 2,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 233,
+      "edge": 4
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 170
+     },
+     "read": {
+      "core": 1,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "ID",
+   "iso3": "IDN",
+   "num": "360",
+   "ja": "インドネシア",
+   "en": "Indonesia",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "go.id"
+    ],
+    "wikidata_hosts": 13
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 21085,
+     "sheet": 305,
+     "text": 24,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2557,
+     "sheet": 146,
+     "text": 12,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 251,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 12
+     },
+     "read": {
+      "core": 1,
+      "edge": 12
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "IR",
+   "iso3": "IRN",
+   "num": "364",
+   "ja": "イラン",
+   "en": "Iran",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ir"
+    ],
+    "wikidata_hosts": 31
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 243,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 210,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 10,
+      "edge": 36
+     },
+     "read": {
+      "core": 7,
+      "edge": 23
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "IQ",
+   "iso3": "IRQ",
+   "num": "368",
+   "ja": "イラク",
+   "en": "Iraq",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.iq"
+    ],
+    "wikidata_hosts": 14
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 254,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 254,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 3,
+      "edge": 2
+     },
+     "read": {
+      "core": 3,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 12
+     },
+     "read": {
+      "core": 0,
+      "edge": 12
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "IE",
+   "iso3": "IRL",
+   "num": "372",
+   "ja": "アイルランド",
+   "en": "Ireland",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ie"
+    ],
+    "wikidata_hosts": 82
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 6301,
+     "sheet": 6,
+     "text": 1,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2962,
+     "sheet": 6,
+     "text": 1,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 6,
+      "edge": 2
+     },
+     "read": {
+      "core": 6,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 93
+     },
+     "read": {
+      "core": 1,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "IL",
+   "iso3": "ISR",
+   "num": "376",
+   "ja": "イスラエル",
+   "en": "Israel",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.il"
+    ],
+    "wikidata_hosts": 99
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2008,
+     "sheet": 0,
+     "text": 2,
+     "csv": 3
+    },
+    "pool": {
+     "pdf": 1978,
+     "sheet": 0,
+     "text": 2,
+     "csv": 3
+    },
+    "suffix": {
+     "blocks": {
+      "core": 14,
+      "edge": 2
+     },
+     "read": {
+      "core": 14,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 52
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "IT",
+   "iso3": "ITA",
+   "num": "380",
+   "ja": "イタリア",
+   "en": "Italy",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.it"
+    ],
+    "wikidata_hosts": 7761
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 122941,
+     "sheet": 99,
+     "text": 506,
+     "csv": 18312
+    },
+    "pool": {
+     "pdf": 7370,
+     "sheet": 34,
+     "text": 77,
+     "csv": 481
+    },
+    "suffix": {
+     "blocks": {
+      "core": 62,
+      "edge": 2
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 170,
+      "edge": 1179
+     },
+     "read": {
+      "core": 4,
+      "edge": 26
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "JM",
+   "iso3": "JAM",
+   "num": "388",
+   "ja": "ジャマイカ",
+   "en": "Jamaica",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 62
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 398,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 398,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 26
+     },
+     "read": {
+      "core": 0,
+      "edge": 26
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "JP",
+   "iso3": "JPN",
+   "num": "392",
+   "ja": "日本",
+   "en": "Japan",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "go.jp",
+     "lg.jp"
+    ],
+    "wikidata_hosts": 56
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 356492,
+     "sheet": 296,
+     "text": 173,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 17631,
+     "sheet": 79,
+     "text": 40,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 829,
+      "edge": 5
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 30,
+      "edge": 79
+     },
+     "read": {
+      "core": 8,
+      "edge": 22
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "JO",
+   "iso3": "JOR",
+   "num": "400",
+   "ja": "ヨルダン",
+   "en": "Jordan",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.jo"
+    ],
+    "wikidata_hosts": 5
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2553,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2553,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 7,
+      "edge": 2
+     },
+     "read": {
+      "core": 7,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "KZ",
+   "iso3": "KAZ",
+   "num": "398",
+   "ja": "カザフスタン",
+   "en": "Kazakhstan",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.kz"
+    ],
+    "wikidata_hosts": 23
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2875,
+     "sheet": 900,
+     "text": 40,
+     "csv": 15
+    },
+    "pool": {
+     "pdf": 2875,
+     "sheet": 900,
+     "text": 40,
+     "csv": 15
+    },
+    "suffix": {
+     "blocks": {
+      "core": 6,
+      "edge": 2
+     },
+     "read": {
+      "core": 6,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 26
+     },
+     "read": {
+      "core": 1,
+      "edge": 26
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "KE",
+   "iso3": "KEN",
+   "num": "404",
+   "ja": "ケニア",
+   "en": "Kenya",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "go.ke"
+    ],
+    "wikidata_hosts": 12
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 6155,
+     "sheet": 1,
+     "text": 5,
+     "csv": 1
+    },
+    "pool": {
+     "pdf": 6155,
+     "sheet": 1,
+     "text": 5,
+     "csv": 1
+    },
+    "suffix": {
+     "blocks": {
+      "core": 23,
+      "edge": 2
+     },
+     "read": {
+      "core": 23,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 12
+     },
+     "read": {
+      "core": 1,
+      "edge": 12
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "KI",
+   "iso3": "KIR",
+   "num": "296",
+   "ja": "キリバス",
+   "en": "Kiribati",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ki"
+    ],
+    "wikidata_hosts": 0
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 159,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 159,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "KW",
+   "iso3": "KWT",
+   "num": "414",
+   "ja": "クウェート",
+   "en": "Kuwait",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.kw"
+    ],
+    "wikidata_hosts": 5
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 591,
+     "sheet": 13,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 591,
+     "sheet": 13,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 3,
+      "edge": 2
+     },
+     "read": {
+      "core": 3,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "KG",
+   "iso3": "KGZ",
+   "num": "417",
+   "ja": "キルギス",
+   "en": "Kyrgyzstan",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.kg"
+    ],
+    "wikidata_hosts": 13
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 663,
+     "sheet": 118,
+     "text": 4,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 663,
+     "sheet": 118,
+     "text": 4,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 28,
+      "edge": 2
+     },
+     "read": {
+      "core": 28,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 12
+     },
+     "read": {
+      "core": 0,
+      "edge": 12
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "LA",
+   "iso3": "LAO",
+   "num": "418",
+   "ja": "ラオス",
+   "en": "Lao People's Democratic Republic",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.la"
+    ],
+    "wikidata_hosts": 0
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 487,
+     "sheet": 2,
+     "text": 1,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 487,
+     "sheet": 2,
+     "text": 1,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 4,
+      "edge": 2
+     },
+     "read": {
+      "core": 4,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "LV",
+   "iso3": "LVA",
+   "num": "428",
+   "ja": "ラトビア",
+   "en": "Latvia",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.lv"
+    ],
+    "wikidata_hosts": 12
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 4223,
+     "sheet": 32,
+     "text": 121,
+     "csv": 1
+    },
+    "pool": {
+     "pdf": 4223,
+     "sheet": 32,
+     "text": 121,
+     "csv": 1
+    },
+    "suffix": {
+     "blocks": {
+      "core": 28,
+      "edge": 2
+     },
+     "read": {
+      "core": 28,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 14
+     },
+     "read": {
+      "core": 0,
+      "edge": 14
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "LB",
+   "iso3": "LBN",
+   "num": "422",
+   "ja": "レバノン",
+   "en": "Lebanon",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.lb"
+    ],
+    "wikidata_hosts": 3
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1090,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1090,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 5,
+      "edge": 2
+     },
+     "read": {
+      "core": 5,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "LS",
+   "iso3": "LSO",
+   "num": "426",
+   "ja": "レソト",
+   "en": "Lesotho",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ls"
+    ],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 30,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 30,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "LR",
+   "iso3": "LBR",
+   "num": "430",
+   "ja": "リベリア",
+   "en": "Liberia",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.lr"
+    ],
+    "wikidata_hosts": 0
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 215,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 215,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 2,
+      "edge": 2
+     },
+     "read": {
+      "core": 2,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "LY",
+   "iso3": "LBY",
+   "num": "434",
+   "ja": "リビア",
+   "en": "Libya",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ly"
+    ],
+    "wikidata_hosts": 7
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 197,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 197,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 3,
+      "edge": 2
+     },
+     "read": {
+      "core": 3,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 8
+     },
+     "read": {
+      "core": 0,
+      "edge": 8
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "LI",
+   "iso3": "LIE",
+   "num": "438",
+   "ja": "リヒテンシュタイン",
+   "en": "Liechtenstein",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 4,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 4,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "LT",
+   "iso3": "LTU",
+   "num": "440",
+   "ja": "リトアニア",
+   "en": "Lithuania",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.lt"
+    ],
+    "wikidata_hosts": 161
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1073,
+     "sheet": 1,
+     "text": 1,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 367,
+     "sheet": 1,
+     "text": 1,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 103
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "LU",
+   "iso3": "LUX",
+   "num": "442",
+   "ja": "ルクセンブルク",
+   "en": "Luxembourg",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 33
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1404,
+     "sheet": 7,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1269,
+     "sheet": 7,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 4,
+      "edge": 29
+     },
+     "read": {
+      "core": 4,
+      "edge": 26
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "MG",
+   "iso3": "MDG",
+   "num": "450",
+   "ja": "マダガスカル",
+   "en": "Madagascar",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.mg"
+    ],
+    "wikidata_hosts": 5
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 416,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 416,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 5
+     },
+     "read": {
+      "core": 0,
+      "edge": 5
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "MW",
+   "iso3": "MWI",
+   "num": "454",
+   "ja": "マラウイ",
+   "en": "Malawi",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.mw"
+    ],
+    "wikidata_hosts": 9
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 61,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 61,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "MY",
+   "iso3": "MYS",
+   "num": "458",
+   "ja": "マレーシア",
+   "en": "Malaysia",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.my"
+    ],
+    "wikidata_hosts": 19
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 11434,
+     "sheet": 138,
+     "text": 74,
+     "csv": 14
+    },
+    "pool": {
+     "pdf": 4151,
+     "sheet": 52,
+     "text": 33,
+     "csv": 5
+    },
+    "suffix": {
+     "blocks": {
+      "core": 82,
+      "edge": 2
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 21
+     },
+     "read": {
+      "core": 0,
+      "edge": 21
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "MV",
+   "iso3": "MDV",
+   "num": "462",
+   "ja": "モルディブ",
+   "en": "Maldives",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.mv"
+    ],
+    "wikidata_hosts": 0
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1037,
+     "sheet": 6,
+     "text": 10,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1037,
+     "sheet": 6,
+     "text": 10,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 6,
+      "edge": 2
+     },
+     "read": {
+      "core": 6,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "ML",
+   "iso3": "MLI",
+   "num": "466",
+   "ja": "マリ",
+   "en": "Mali",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gouv.ml",
+     "gov.ml"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 54,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 54,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "MT",
+   "iso3": "MLT",
+   "num": "470",
+   "ja": "マルタ",
+   "en": "Malta",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 35
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 23,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 23,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 19
+     },
+     "read": {
+      "core": 0,
+      "edge": 19
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "MH",
+   "iso3": "MHL",
+   "num": "584",
+   "ja": "マーシャル諸島",
+   "en": "Marshall Islands",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 3
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 458,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 458,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "MR",
+   "iso3": "MRT",
+   "num": "478",
+   "ja": "モーリタニア",
+   "en": "Mauritania",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.mr"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 140,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 140,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 5
+     },
+     "read": {
+      "core": 1,
+      "edge": 5
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "MU",
+   "iso3": "MUS",
+   "num": "480",
+   "ja": "モーリシャス",
+   "en": "Mauritius",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.mu"
+    ],
+    "wikidata_hosts": 14
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 72,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 72,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 9
+     },
+     "read": {
+      "core": 0,
+      "edge": 9
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "MX",
+   "iso3": "MEX",
+   "num": "484",
+   "ja": "メキシコ",
+   "en": "Mexico",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.mx"
+    ],
+    "wikidata_hosts": 24
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 120816,
+     "sheet": 151,
+     "text": 294,
+     "csv": 28
+    },
+    "pool": {
+     "pdf": 23106,
+     "sheet": 60,
+     "text": 58,
+     "csv": 5
+    },
+    "suffix": {
+     "blocks": {
+      "core": 167,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 2,
+      "edge": 29
+     },
+     "read": {
+      "core": 2,
+      "edge": 28
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "FM",
+   "iso3": "FSM",
+   "num": "583",
+   "ja": "ミクロネシア連邦",
+   "en": "Micronesia (Federated States of)",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 3 を読んだ）",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 3
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "MD",
+   "iso3": "MDA",
+   "num": "498",
+   "ja": "モルドバ",
+   "en": "Moldova",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 61
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 3510,
+     "sheet": 0,
+     "text": 48,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2336,
+     "sheet": 0,
+     "text": 48,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 4,
+      "edge": 41
+     },
+     "read": {
+      "core": 3,
+      "edge": 27
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "MC",
+   "iso3": "MCO",
+   "num": "492",
+   "ja": "モナコ",
+   "en": "Monaco",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 3
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 153,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 153,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 9,
+      "edge": 4
+     },
+     "read": {
+      "core": 9,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "MN",
+   "iso3": "MNG",
+   "num": "496",
+   "ja": "モンゴル",
+   "en": "Mongolia",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.mn"
+    ],
+    "wikidata_hosts": 9
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1562,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1562,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 15,
+      "edge": 2
+     },
+     "read": {
+      "core": 15,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 10
+     },
+     "read": {
+      "core": 0,
+      "edge": 10
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "ME",
+   "iso3": "MNE",
+   "num": "499",
+   "ja": "モンテネグロ",
+   "en": "Montenegro",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.me"
+    ],
+    "wikidata_hosts": 21
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2865,
+     "sheet": 27,
+     "text": 205,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2865,
+     "sheet": 27,
+     "text": 205,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 23
+     },
+     "read": {
+      "core": 0,
+      "edge": 23
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "MA",
+   "iso3": "MAR",
+   "num": "504",
+   "ja": "モロッコ",
+   "en": "Morocco",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ma"
+    ],
+    "wikidata_hosts": 37
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2176,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2157,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 3,
+      "edge": 2
+     },
+     "read": {
+      "core": 3,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 37
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "MZ",
+   "iso3": "MOZ",
+   "num": "508",
+   "ja": "モザンビーク",
+   "en": "Mozambique",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.mz"
+    ],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 360,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 360,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 4,
+      "edge": 2
+     },
+     "read": {
+      "core": 4,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "MM",
+   "iso3": "MMR",
+   "num": "104",
+   "ja": "ミャンマー",
+   "en": "Myanmar",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 11
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 5,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 5,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "NA",
+   "iso3": "NAM",
+   "num": "516",
+   "ja": "ナミビア",
+   "en": "Namibia",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.na"
+    ],
+    "wikidata_hosts": 19
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 162,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 162,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 14
+     },
+     "read": {
+      "core": 0,
+      "edge": 14
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "NR",
+   "iso3": "NRU",
+   "num": "520",
+   "ja": "ナウル",
+   "en": "Nauru",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.nr"
+    ],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 221,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 221,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "NP",
+   "iso3": "NPL",
+   "num": "524",
+   "ja": "ネパール",
+   "en": "Nepal",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 82
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1502,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 626,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 72
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "NL",
+   "iso3": "NLD",
+   "num": "528",
+   "ja": "オランダ",
+   "en": "Netherlands",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 554
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 3106,
+     "sheet": 10,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 157,
+     "sheet": 2,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 34,
+      "edge": 554
+     },
+     "read": {
+      "core": 2,
+      "edge": 28
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "NZ",
+   "iso3": "NZL",
+   "num": "554",
+   "ja": "ニュージーランド",
+   "en": "New Zealand",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "govt.nz"
+    ],
+    "wikidata_hosts": 16
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 22333,
+     "sheet": 15,
+     "text": 12,
+     "csv": 297
+    },
+    "pool": {
+     "pdf": 6818,
+     "sheet": 15,
+     "text": 12,
+     "csv": 88
+    },
+    "suffix": {
+     "blocks": {
+      "core": 98,
+      "edge": 2
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 17
+     },
+     "read": {
+      "core": 0,
+      "edge": 17
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "NI",
+   "iso3": "NIC",
+   "num": "558",
+   "ja": "ニカラグア",
+   "en": "Nicaragua",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.ni"
+    ],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 520,
+     "sheet": 0,
+     "text": 0,
+     "csv": 1
+    },
+    "pool": {
+     "pdf": 520,
+     "sheet": 0,
+     "text": 0,
+     "csv": 1
+    },
+    "suffix": {
+     "blocks": {
+      "core": 4,
+      "edge": 2
+     },
+     "read": {
+      "core": 4,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "NE",
+   "iso3": "NER",
+   "num": "562",
+   "ja": "ニジェール",
+   "en": "Niger",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 9
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 4,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 4,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "NG",
+   "iso3": "NGA",
+   "num": "566",
+   "ja": "ナイジェリア",
+   "en": "Nigeria",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ng"
+    ],
+    "wikidata_hosts": 48
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2223,
+     "sheet": 21,
+     "text": 7,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2223,
+     "sheet": 21,
+     "text": 7,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 25,
+      "edge": 2
+     },
+     "read": {
+      "core": 25,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 46
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "MK",
+   "iso3": "MKD",
+   "num": "807",
+   "ja": "北マケドニア",
+   "en": "North Macedonia",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.mk"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 3186,
+     "sheet": 5,
+     "text": 21,
+     "csv": 8
+    },
+    "pool": {
+     "pdf": 3186,
+     "sheet": 5,
+     "text": 21,
+     "csv": 8
+    },
+    "suffix": {
+     "blocks": {
+      "core": 17,
+      "edge": 2
+     },
+     "read": {
+      "core": 17,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 5
+     },
+     "read": {
+      "core": 0,
+      "edge": 5
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "NO",
+   "iso3": "NOR",
+   "num": "578",
+   "ja": "ノルウェー",
+   "en": "Norway",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 436
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 7502,
+     "sheet": 6,
+     "text": 29,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1513,
+     "sheet": 5,
+     "text": 24,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 29,
+      "edge": 119
+     },
+     "read": {
+      "core": 6,
+      "edge": 24
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "OM",
+   "iso3": "OMN",
+   "num": "512",
+   "ja": "オマーン",
+   "en": "Oman",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.om"
+    ],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 575,
+     "sheet": 4,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 575,
+     "sheet": 4,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 6,
+      "edge": 2
+     },
+     "read": {
+      "core": 6,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "PK",
+   "iso3": "PAK",
+   "num": "586",
+   "ja": "パキスタン",
+   "en": "Pakistan",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.pk",
+     "gok.pk",
+     "gop.pk",
+     "gos.pk",
+     "gov.pk"
+    ],
+    "wikidata_hosts": 36
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 3714,
+     "sheet": 37,
+     "text": 1,
+     "csv": 15
+    },
+    "pool": {
+     "pdf": 3714,
+     "sheet": 37,
+     "text": 1,
+     "csv": 15
+    },
+    "suffix": {
+     "blocks": {
+      "core": 8,
+      "edge": 7
+     },
+     "read": {
+      "core": 8,
+      "edge": 7
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 27
+     },
+     "read": {
+      "core": 0,
+      "edge": 27
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "PW",
+   "iso3": "PLW",
+   "num": "585",
+   "ja": "パラオ",
+   "en": "Palau",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.pw"
+    ],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 326,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 326,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "PA",
+   "iso3": "PAN",
+   "num": "591",
+   "ja": "パナマ",
+   "en": "Panama",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.pa"
+    ],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1569,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1569,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 10,
+      "edge": 2
+     },
+     "read": {
+      "core": 10,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "PG",
+   "iso3": "PNG",
+   "num": "598",
+   "ja": "パプアニューギニア",
+   "en": "Papua New Guinea",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 5
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "PY",
+   "iso3": "PRY",
+   "num": "600",
+   "ja": "パラグアイ",
+   "en": "Paraguay",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.py"
+    ],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 5019,
+     "sheet": 35,
+     "text": 60,
+     "csv": 5
+    },
+    "pool": {
+     "pdf": 5019,
+     "sheet": 35,
+     "text": 60,
+     "csv": 5
+    },
+    "suffix": {
+     "blocks": {
+      "core": 23,
+      "edge": 2
+     },
+     "read": {
+      "core": 23,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "PE",
+   "iso3": "PER",
+   "num": "604",
+   "ja": "ペルー",
+   "en": "Peru",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.pe"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 26441,
+     "sheet": 15,
+     "text": 5,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 9585,
+     "sheet": 15,
+     "text": 5,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 80,
+      "edge": 2
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "PH",
+   "iso3": "PHL",
+   "num": "608",
+   "ja": "フィリピン",
+   "en": "Philippines",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ph"
+    ],
+    "wikidata_hosts": 79
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 21960,
+     "sheet": 28,
+     "text": 33,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 8221,
+     "sheet": 24,
+     "text": 28,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 78,
+      "edge": 2
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 63
+     },
+     "read": {
+      "core": 1,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "PL",
+   "iso3": "POL",
+   "num": "616",
+   "ja": "ポーランド",
+   "en": "Poland",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.pl"
+    ],
+    "wikidata_hosts": 641
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 76267,
+     "sheet": 278,
+     "text": 2051,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 10159,
+     "sheet": 55,
+     "text": 391,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 135,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 101,
+      "edge": 750
+     },
+     "read": {
+      "core": 4,
+      "edge": 26
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "PT",
+   "iso3": "PRT",
+   "num": "620",
+   "ja": "ポルトガル",
+   "en": "Portugal",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.pt"
+    ],
+    "wikidata_hosts": 82
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 14291,
+     "sheet": 93,
+     "text": 15,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 6738,
+     "sheet": 93,
+     "text": 15,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 25,
+      "edge": 3
+     },
+     "read": {
+      "core": 25,
+      "edge": 3
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 13,
+      "edge": 92
+     },
+     "read": {
+      "core": 4,
+      "edge": 26
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "QA",
+   "iso3": "QAT",
+   "num": "634",
+   "ja": "カタール",
+   "en": "Qatar",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.qa"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 495,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 495,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 5
+     },
+     "read": {
+      "core": 0,
+      "edge": 5
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "KR",
+   "iso3": "KOR",
+   "num": "410",
+   "ja": "韓国",
+   "en": "Republic of Korea",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "go.kr",
+     "korea.kr"
+    ],
+    "wikidata_hosts": 77
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 20981,
+     "sheet": 211,
+     "text": 6,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2198,
+     "sheet": 78,
+     "text": 2,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 327,
+      "edge": 4
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 4,
+      "edge": 56
+     },
+     "read": {
+      "core": 2,
+      "edge": 28
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "RO",
+   "iso3": "ROU",
+   "num": "642",
+   "ja": "ルーマニア",
+   "en": "Romania",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 275
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 9889,
+     "sheet": 7,
+     "text": 5,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2206,
+     "sheet": 6,
+     "text": 4,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 5,
+      "edge": 130
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "RU",
+   "iso3": "RUS",
+   "num": "643",
+   "ja": "ロシア",
+   "en": "Russian Federation",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 116
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1249,
+     "sheet": 1,
+     "text": 220,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 279,
+     "sheet": 1,
+     "text": 189,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 13,
+      "edge": 124
+     },
+     "read": {
+      "core": 3,
+      "edge": 27
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "RW",
+   "iso3": "RWA",
+   "num": "646",
+   "ja": "ルワンダ",
+   "en": "Rwanda",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.rw"
+    ],
+    "wikidata_hosts": 12
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 288,
+     "sheet": 0,
+     "text": 6,
+     "csv": 2
+    },
+    "pool": {
+     "pdf": 288,
+     "sheet": 0,
+     "text": 6,
+     "csv": 2
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 11
+     },
+     "read": {
+      "core": 0,
+      "edge": 11
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "KN",
+   "iso3": "KNA",
+   "num": "659",
+   "ja": "セントクリストファー・ネービス",
+   "en": "Saint Kitts and Nevis",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.kn"
+    ],
+    "wikidata_hosts": 3
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 88,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 88,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 2,
+      "edge": 2
+     },
+     "read": {
+      "core": 2,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "LC",
+   "iso3": "LCA",
+   "num": "662",
+   "ja": "セントルシア",
+   "en": "Saint Lucia",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.lc"
+    ],
+    "wikidata_hosts": 3
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 13,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 13,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "VC",
+   "iso3": "VCT",
+   "num": "670",
+   "ja": "セントビンセント及びグレナディーン諸島",
+   "en": "Saint Vincent and the Grenadines",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.vc"
+    ],
+    "wikidata_hosts": 0
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 119,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 119,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "WS",
+   "iso3": "WSM",
+   "num": "882",
+   "ja": "サモア",
+   "en": "Samoa",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ws"
+    ],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 186,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 186,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "SM",
+   "iso3": "SMR",
+   "num": "674",
+   "ja": "サンマリノ",
+   "en": "San Marino",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 9
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 83,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 83,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 8
+     },
+     "read": {
+      "core": 0,
+      "edge": 8
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "ST",
+   "iso3": "STP",
+   "num": "678",
+   "ja": "サントメ・プリンシペ",
+   "en": "Sao Tome and Principe",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "SA",
+   "iso3": "SAU",
+   "num": "682",
+   "ja": "サウジアラビア",
+   "en": "Saudi Arabia",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.sa"
+    ],
+    "wikidata_hosts": 19
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1503,
+     "sheet": 8,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1458,
+     "sheet": 8,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 29,
+      "edge": 2
+     },
+     "read": {
+      "core": 28,
+      "edge": 2
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 17
+     },
+     "read": {
+      "core": 0,
+      "edge": 17
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "SN",
+   "iso3": "SEN",
+   "num": "686",
+   "ja": "セネガル",
+   "en": "Senegal",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gouv.sn"
+    ],
+    "wikidata_hosts": 22
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 290,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 290,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 22
+     },
+     "read": {
+      "core": 0,
+      "edge": 22
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "RS",
+   "iso3": "SRB",
+   "num": "688",
+   "ja": "セルビア",
+   "en": "Serbia",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.rs"
+    ],
+    "wikidata_hosts": 26
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 9697,
+     "sheet": 194,
+     "text": 78,
+     "csv": 100
+    },
+    "pool": {
+     "pdf": 7586,
+     "sheet": 144,
+     "text": 73,
+     "csv": 74
+    },
+    "suffix": {
+     "blocks": {
+      "core": 38,
+      "edge": 2
+     },
+     "read": {
+      "core": 28,
+      "edge": 2
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 32
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "SC",
+   "iso3": "SYC",
+   "num": "690",
+   "ja": "セーシェル",
+   "en": "Seychelles",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.sc"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 92,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 92,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "SL",
+   "iso3": "SLE",
+   "num": "694",
+   "ja": "シエラレオネ",
+   "en": "Sierra Leone",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.sl"
+    ],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 188,
+     "sheet": 0,
+     "text": 1,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 188,
+     "sheet": 0,
+     "text": 1,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 2,
+      "edge": 2
+     },
+     "read": {
+      "core": 2,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "SG",
+   "iso3": "SGP",
+   "num": "702",
+   "ja": "シンガポール",
+   "en": "Singapore",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.sg"
+    ],
+    "wikidata_hosts": 10
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1049,
+     "sheet": 0,
+     "text": 3,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1049,
+     "sheet": 0,
+     "text": 3,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 26,
+      "edge": 2
+     },
+     "read": {
+      "core": 26,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 11
+     },
+     "read": {
+      "core": 0,
+      "edge": 11
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "SK",
+   "iso3": "SVK",
+   "num": "703",
+   "ja": "スロバキア",
+   "en": "Slovakia",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 2819
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 30894,
+     "sheet": 100,
+     "text": 2319,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 867,
+     "sheet": 11,
+     "text": 256,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 11,
+      "edge": 1069
+     },
+     "read": {
+      "core": 1,
+      "edge": 30
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "SI",
+   "iso3": "SVN",
+   "num": "705",
+   "ja": "スロベニア",
+   "en": "Slovenia",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 85
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2195,
+     "sheet": 28,
+     "text": 244,
+     "csv": 2392
+    },
+    "pool": {
+     "pdf": 640,
+     "sheet": 20,
+     "text": 175,
+     "csv": 660
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 29,
+      "edge": 74
+     },
+     "read": {
+      "core": 8,
+      "edge": 22
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "SB",
+   "iso3": "SLB",
+   "num": "090",
+   "ja": "ソロモン諸島",
+   "en": "Solomon Islands",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.sb"
+    ],
+    "wikidata_hosts": 0
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 37,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 37,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "SO",
+   "iso3": "SOM",
+   "num": "706",
+   "ja": "ソマリア",
+   "en": "Somalia",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.so"
+    ],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 90,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 90,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "ZA",
+   "iso3": "ZAF",
+   "num": "710",
+   "ja": "南アフリカ",
+   "en": "South Africa",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.za"
+    ],
+    "wikidata_hosts": 30
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 19090,
+     "sheet": 31,
+     "text": 57,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 16319,
+     "sheet": 29,
+     "text": 54,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 33,
+      "edge": 2
+     },
+     "read": {
+      "core": 28,
+      "edge": 2
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 30
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "SS",
+   "iso3": "SSD",
+   "num": "728",
+   "ja": "南スーダン",
+   "en": "South Sudan",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ss"
+    ],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 55,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 55,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "ES",
+   "iso3": "ESP",
+   "num": "724",
+   "ja": "スペイン",
+   "en": "Spain",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.es"
+    ],
+    "wikidata_hosts": 4992
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 40951,
+     "sheet": 9083,
+     "text": 564,
+     "csv": 8
+    },
+    "pool": {
+     "pdf": 2059,
+     "sheet": 357,
+     "text": 28,
+     "csv": 3
+    },
+    "suffix": {
+     "blocks": {
+      "core": 74,
+      "edge": 2
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 270,
+      "edge": 2612
+     },
+     "read": {
+      "core": 3,
+      "edge": 27
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "LK",
+   "iso3": "LKA",
+   "num": "144",
+   "ja": "スリランカ",
+   "en": "Sri Lanka",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.lk"
+    ],
+    "wikidata_hosts": 13
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 5255,
+     "sheet": 18,
+     "text": 3,
+     "csv": 2
+    },
+    "pool": {
+     "pdf": 5255,
+     "sheet": 18,
+     "text": 3,
+     "csv": 2
+    },
+    "suffix": {
+     "blocks": {
+      "core": 19,
+      "edge": 2
+     },
+     "read": {
+      "core": 19,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 11
+     },
+     "read": {
+      "core": 0,
+      "edge": 11
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "SD",
+   "iso3": "SDN",
+   "num": "729",
+   "ja": "スーダン",
+   "en": "Sudan",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.sd"
+    ],
+    "wikidata_hosts": 3
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 254,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 254,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "SR",
+   "iso3": "SUR",
+   "num": "740",
+   "ja": "スリナム",
+   "en": "Suriname",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 20
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 46,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 46,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 15
+     },
+     "read": {
+      "core": 0,
+      "edge": 15
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "SE",
+   "iso3": "SWE",
+   "num": "752",
+   "ja": "スウェーデン",
+   "en": "Sweden",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 308
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 15257,
+     "sheet": 3,
+     "text": 3,
+     "csv": 360
+    },
+    "pool": {
+     "pdf": 1017,
+     "sheet": 1,
+     "text": 1,
+     "csv": 27
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 19,
+      "edge": 387
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "CH",
+   "iso3": "CHE",
+   "num": "756",
+   "ja": "スイス",
+   "en": "Switzerland",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "admin.ch"
+    ],
+    "wikidata_hosts": 56
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 12161,
+     "sheet": 115,
+     "text": 149,
+     "csv": 10
+    },
+    "pool": {
+     "pdf": 4387,
+     "sheet": 74,
+     "text": 99,
+     "csv": 4
+    },
+    "suffix": {
+     "blocks": {
+      "core": 71,
+      "edge": 2
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 65,
+      "edge": 70
+     },
+     "read": {
+      "core": 14,
+      "edge": 16
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "SY",
+   "iso3": "SYR",
+   "num": "760",
+   "ja": "シリア",
+   "en": "Syrian Arab Republic",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.sy"
+    ],
+    "wikidata_hosts": 16
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 301,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 301,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 2,
+      "edge": 2
+     },
+     "read": {
+      "core": 2,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 11
+     },
+     "read": {
+      "core": 1,
+      "edge": 11
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "TJ",
+   "iso3": "TJK",
+   "num": "762",
+   "ja": "タジキスタン",
+   "en": "Tajikistan",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.tj"
+    ],
+    "wikidata_hosts": 9
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 3,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 3,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 8
+     },
+     "read": {
+      "core": 0,
+      "edge": 8
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "TH",
+   "iso3": "THA",
+   "num": "764",
+   "ja": "タイ",
+   "en": "Thailand",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "go.th"
+    ],
+    "wikidata_hosts": 29
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 24306,
+     "sheet": 183,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 4311,
+     "sheet": 105,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 207,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 31
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "TL",
+   "iso3": "TLS",
+   "num": "626",
+   "ja": "東ティモール",
+   "en": "Timor-Leste",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.tl"
+    ],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 329,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 329,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 5,
+      "edge": 2
+     },
+     "read": {
+      "core": 5,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "TG",
+   "iso3": "TGO",
+   "num": "768",
+   "ja": "トーゴ",
+   "en": "Togo",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 19
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 13,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 13,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 9
+     },
+     "read": {
+      "core": 0,
+      "edge": 9
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "TO",
+   "iso3": "TON",
+   "num": "776",
+   "ja": "トンガ",
+   "en": "Tonga",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.to"
+    ],
+    "wikidata_hosts": 0
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 201,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 201,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "TT",
+   "iso3": "TTO",
+   "num": "780",
+   "ja": "トリニダード・トバゴ",
+   "en": "Trinidad and Tobago",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.tt"
+    ],
+    "wikidata_hosts": 4
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 781,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 781,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 4,
+      "edge": 2
+     },
+     "read": {
+      "core": 4,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "TN",
+   "iso3": "TUN",
+   "num": "788",
+   "ja": "チュニジア",
+   "en": "Tunisia",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.tn"
+    ],
+    "wikidata_hosts": 54
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2498,
+     "sheet": 7,
+     "text": 37,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2498,
+     "sheet": 7,
+     "text": 37,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 4,
+      "edge": 2
+     },
+     "read": {
+      "core": 4,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 30
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "TR",
+   "iso3": "TUR",
+   "num": "792",
+   "ja": "トルコ",
+   "en": "Turkiye",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.tr"
+    ],
+    "wikidata_hosts": 132
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 13047,
+     "sheet": 31,
+     "text": 30,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 3892,
+     "sheet": 30,
+     "text": 30,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 106,
+      "edge": 2
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 2,
+      "edge": 71
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "TM",
+   "iso3": "TKM",
+   "num": "795",
+   "ja": "トルクメニスタン",
+   "en": "Turkmenistan",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.tm"
+    ],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 123,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 123,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 8,
+      "edge": 2
+     },
+     "read": {
+      "core": 8,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "TV",
+   "iso3": "TUV",
+   "num": "798",
+   "ja": "ツバル",
+   "en": "Tuvalu",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "UG",
+   "iso3": "UGA",
+   "num": "800",
+   "ja": "ウガンダ",
+   "en": "Uganda",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "go.ug",
+     "gov.ug"
+    ],
+    "wikidata_hosts": 15
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1406,
+     "sheet": 4,
+     "text": 1,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1406,
+     "sheet": 4,
+     "text": 1,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 10,
+      "edge": 2
+     },
+     "read": {
+      "core": 10,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 9
+     },
+     "read": {
+      "core": 0,
+      "edge": 9
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "UA",
+   "iso3": "UKR",
+   "num": "804",
+   "ja": "ウクライナ",
+   "en": "Ukraine",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ua"
+    ],
+    "wikidata_hosts": 212
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 30401,
+     "sheet": 8823,
+     "text": 15022,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1983,
+     "sheet": 517,
+     "text": 883,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 512,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 11,
+      "edge": 106
+     },
+     "read": {
+      "core": 3,
+      "edge": 27
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "AE",
+   "iso3": "ARE",
+   "num": "784",
+   "ja": "アラブ首長国連邦",
+   "en": "United Arab Emirates",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ae"
+    ],
+    "wikidata_hosts": 25
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2079,
+     "sheet": 846,
+     "text": 11,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2078,
+     "sheet": 846,
+     "text": 11,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 12,
+      "edge": 2
+     },
+     "read": {
+      "core": 12,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 6,
+      "edge": 26
+     },
+     "read": {
+      "core": 6,
+      "edge": 24
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "GB",
+   "iso3": "GBR",
+   "num": "826",
+   "ja": "英国",
+   "en": "United Kingdom",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.uk"
+    ],
+    "wikidata_hosts": 173
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 158883,
+     "sheet": 30665,
+     "text": 2194,
+     "csv": 1561
+    },
+    "pool": {
+     "pdf": 9420,
+     "sheet": 1743,
+     "text": 229,
+     "csv": 88
+    },
+    "suffix": {
+     "blocks": {
+      "core": 532,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 183,
+      "edge": 162
+     },
+     "read": {
+      "core": 16,
+      "edge": 14
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "TZ",
+   "iso3": "TZA",
+   "num": "834",
+   "ja": "タンザニア",
+   "en": "United Republic of Tanzania",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "go.tz"
+    ],
+    "wikidata_hosts": 7
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 2972,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2972,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 17,
+      "edge": 2
+     },
+     "read": {
+      "core": 17,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "US",
+   "iso3": "USA",
+   "num": "840",
+   "ja": "米国",
+   "en": "United States of America",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov"
+    ],
+    "wikidata_hosts": 5615
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 857597,
+     "sheet": 1183,
+     "text": 3976,
+     "csv": 118
+    },
+    "pool": {
+     "pdf": 7426,
+     "sheet": 25,
+     "text": 87,
+     "csv": 1
+    },
+    "suffix": {
+     "blocks": {
+      "core": 3550,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 94,
+      "edge": 3492
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "UY",
+   "iso3": "URY",
+   "num": "858",
+   "ja": "ウルグアイ",
+   "en": "Uruguay",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gub.uy"
+    ],
+    "wikidata_hosts": 9
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 5644,
+     "sheet": 52,
+     "text": 34,
+     "csv": 60
+    },
+    "pool": {
+     "pdf": 4619,
+     "sheet": 50,
+     "text": 28,
+     "csv": 48
+    },
+    "suffix": {
+     "blocks": {
+      "core": 35,
+      "edge": 2
+     },
+     "read": {
+      "core": 28,
+      "edge": 2
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 5,
+      "edge": 10
+     },
+     "read": {
+      "core": 5,
+      "edge": 10
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "UZ",
+   "iso3": "UZB",
+   "num": "860",
+   "ja": "ウズベキスタン",
+   "en": "Uzbekistan",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 36
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 357,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 249,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 10,
+      "edge": 36
+     },
+     "read": {
+      "core": 7,
+      "edge": 23
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "VU",
+   "iso3": "VUT",
+   "num": "548",
+   "ja": "バヌアツ",
+   "en": "Vanuatu",
+   "region": "OC",
+   "un_member": true,
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
+   "domains": {
+    "suffixes": [],
+    "wikidata_hosts": 2
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "VE",
+   "iso3": "VEN",
+   "num": "862",
+   "ja": "ベネズエラ",
+   "en": "Venezuela",
+   "region": "AM",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gob.ve",
+     "gov.ve"
+    ],
+    "wikidata_hosts": 13
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 883,
+     "sheet": 0,
+     "text": 5,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 823,
+     "sheet": 0,
+     "text": 5,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 29,
+      "edge": 3
+     },
+     "read": {
+      "core": 27,
+      "edge": 3
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 12
+     },
+     "read": {
+      "core": 0,
+      "edge": 12
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "VN",
+   "iso3": "VNM",
+   "num": "704",
+   "ja": "ベトナム",
+   "en": "Viet Nam",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.vn"
+    ],
+    "wikidata_hosts": 51
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 13192,
+     "sheet": 233,
+     "text": 425,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2844,
+     "sheet": 50,
+     "text": 91,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 140,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 20,
+      "edge": 50
+     },
+     "read": {
+      "core": 9,
+      "edge": 21
+     },
+     "exact": false
+    }
+   }
+  },
+  {
+   "iso2": "YE",
+   "iso3": "YEM",
+   "num": "887",
+   "ja": "イエメン",
+   "en": "Yemen",
+   "region": "AS",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ye"
+    ],
+    "wikidata_hosts": 7
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 57,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 57,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 9
+     },
+     "read": {
+      "core": 0,
+      "edge": 9
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "ZM",
+   "iso3": "ZMB",
+   "num": "894",
+   "ja": "ザンビア",
+   "en": "Zambia",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.zm"
+    ],
+    "wikidata_hosts": 7
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 549,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 549,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 1,
+      "edge": 2
+     },
+     "read": {
+      "core": 1,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "ZW",
+   "iso3": "ZWE",
+   "num": "716",
+   "ja": "ジンバブエ",
+   "en": "Zimbabwe",
+   "region": "AF",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.zw"
+    ],
+    "wikidata_hosts": 20
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 22,
+     "sheet": 0,
+     "text": 1,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 22,
+     "sheet": 0,
+     "text": 1,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 13
+     },
+     "read": {
+      "core": 0,
+      "edge": 13
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "HK",
+   "iso3": "HKG",
+   "num": "344",
+   "ja": "香港",
+   "en": "Hong Kong (China SAR)",
+   "region": "AS",
+   "un_member": false,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.hk"
+    ],
+    "wikidata_hosts": 1
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 11672,
+     "sheet": 26,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 8433,
+     "sheet": 26,
+     "text": 0,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 40,
+      "edge": 2
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "TW",
+   "iso3": "TWN",
+   "num": "158",
+   "ja": "台湾",
+   "en": "Taiwan",
+   "region": "AS",
+   "un_member": false,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.tw"
+    ],
+    "wikidata_hosts": 38
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 64022,
+     "sheet": 2034,
+     "text": 6172,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 5997,
+     "sheet": 248,
+     "text": 731,
+     "csv": 0
+    },
+    "suffix": {
+     "blocks": {
+      "core": 228,
+      "edge": 2
+     },
+     "read": {
+      "core": 30,
+      "edge": 1
+     },
+     "exact": false
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 509,
+      "edge": 12
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    }
+   }
+  }
+ ]
+}

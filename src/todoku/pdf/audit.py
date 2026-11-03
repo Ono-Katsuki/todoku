@@ -118,15 +118,60 @@ def _count(texts) -> Counter:
     return c
 
 
+def overprints(glyphs) -> Counter:
+    """本当の重ね書き（同じ字を同じ所に重ねて描いたもの）の、余分な字の数（字ごと）。窓の作り方とは別に、ここで決める：
+    同じ字で、送りの向きにそった2つの字の送りの幅（フォントが決める幅）の重なりが、狭い方の幅の半分より多く、
+    直角のずれが字の大きさの 1/4 より小さく、大きさがほぼ同じもの。続けて並べた字（「ll」）は重ならないので数えない。"""
+    out: Counter = Counter()
+    kept: dict[str, list] = {}
+    for g in glyphs:
+        if not g.text or g.size < 0.5:
+            continue
+        n = (g.dx * g.dx + g.dy * g.dy) ** 0.5
+        ux, uy = (g.dx / n, g.dy / n) if n > 1e-9 else ((0.0, 1.0) if g.vertical else (1.0, 0.0))
+        w = g.adv if g.adv > 1e-9 else max(abs((g.x1 - g.x0) * ux) + abs((g.y1 - g.y0) * uy), 1e-6)
+        dup = False
+        for (x, y, vx, vy, w0, s0) in kept.get(g.text, ()):
+            px, py = g.ox - x, g.oy - y
+            t = px * vx + py * vy
+            if min(w0, t + w) - max(0.0, t) > 0.5 * min(w0, w) and abs(-px * vy + py * vx) < 0.25 * max(s0, g.size) \
+                    and abs(s0 - g.size) < 0.2 * max(s0, g.size):
+                dup = True
+                break
+        if dup:
+            out[g.text] += 1
+        else:
+            kept.setdefault(g.text, []).append((g.ox, g.oy, ux, uy, w, g.size))
+    return out
+
+
 def check_reading(doc: PdfDocument, win: dict) -> list[Check]:
-    missing, extra, notes = [], [], []
+    return [check_glyphs(doc, win)] + _check_unmapped_and_images(doc, win)
+
+
+def check_glyphs(doc: PdfDocument, win: dict) -> Check:
+    """読み落とし：ページの描画の命令を順に読んだ字（raw_chars）を、窓に実際に出た字（入力欄の印に置き換えた字は数えない）と
+    比べる。窓が1字にした字は、理由ごとに数えて差し引く：本当の重ね書き（overprints が、字の位置と送りの幅から別に決める）と、
+    0.5pt に満たない字・ページの何倍もある字。窓が、本当の重ね書きより多くの字を「重ね書き」として落としたら、読み落とし。"""
+    from .content import page_content
+
+    missing, extra = [], []
     dup_total = 0
     for pg, page in zip(win["pages"], doc.pages()):
         raw = _count(raw_chars(doc, page))
         shown = _count(pg["_plain"]) - _count(pg.get("_added") or [])  # 窓で足した字（ルビのかっこ）は除く
-        dropped = _count(t for _k, t in pg["_dropped"])
-        dup_total += sum(1 for k, _ in pg["_dropped"] if k == "dup")
-        want = raw - dropped
+        tiny = _count(t for k, t in pg["_dropped"] if k == "size")
+        merged = _count(t for k, t in pg["_dropped"] if k == "dup")
+        try:
+            real = _count(ch for t, n in overprints(page_content(doc, page).glyphs).items() for ch in [t] * n)
+        except Exception:  # noqa: BLE001
+            real = merged
+        dup_total += sum(real.values())
+        for ch, n in (merged - real).items():
+            missing.append(f"ページ {pg['number']}: 「{ch}」が {n} 字、重ね書きとして1字にされましたが、同じ所に重ねた字ではありません")
+        for ch, n in (real - merged).items():
+            extra.append(f"ページ {pg['number']}: 「{ch}」が {n} 字、同じ所に重ねて描いた字なのに、別の字として窓に出ています")
+        want = raw - tiny - real
         for ch, n in (want - shown).items():
             missing.append(f"ページ {pg['number']}: 「{ch}」が {n} 字、窓に出ていません")
         for ch, n in (shown - raw).items():
@@ -134,8 +179,14 @@ def check_reading(doc: PdfDocument, win: dict) -> list[Check]:
     total = sum(p["chars"] for p in win["pages"])
     out = [Check("読み落とし（ページの文字）", not missing and not extra,
                  f"ページの文字 {total:,} 字を、窓とは別の読み方（文字の命令を順に）で拾い、すべて窓に出ていることを確かめました"
-                 + (f"（同じ字を同じ位置に重ねた太字などの {dup_total:,} 字は1字として読んでいます）" if dup_total else ""),
+                 + (f"（同じ字を同じ所に重ねて描いた太字などの {dup_total:,} 字は、字の位置と送りの幅から重ね書きと確かめ、"
+                    "1字として読んでいます）" if dup_total else ""),
                  missing + extra)]
+    return out[0]
+
+
+def _check_unmapped_and_images(doc: PdfDocument, win: dict) -> list[Check]:
+    out = []
     unmapped = sum(p["unmapped"] for p in win["pages"])
     out.append(Check("文字に直せない字", unmapped == 0,
                      "すべての字を文字（Unicode）に直せました" if not unmapped else
@@ -149,10 +200,17 @@ def check_reading(doc: PdfDocument, win: dict) -> list[Check]:
                      f"窓の字をそのまま信用できない所が {len(flags)} 種類あります（窓のページの頭に、位置と確かめ方を書いています）",
                      hard + soft, agent=bool(soft) and not hard))
     img = [p["number"] for p in win["pages"] if p.get("image_only")]
-    out.append(Check("画像だけのページ", not img,
+    from .pageimage import unreadable_images
+
+    pages = doc.pages()
+    bad = {n: unreadable_images(doc, pages[n - 1]) for n in img}
+    bad = {n: v for n, v in bad.items() if v}
+    out.append(Check("画像だけのページ", not bad,
                      "すべてのページに文字の情報があります" if not img else
-                     f"{len(img)} ページは画像だけで、文字の情報がありません（画像を見て読む必要があります）",
-                     [f"ページ {n}" for n in img]))
+                     f"{len(img)} ページは画像だけで、文字の情報がありません。" +
+                     (f"{len(img) - len(bad)} ページは、エージェントがページの画像（view_page）を見て読み、枠（mm）で書きます。" if len(bad) < len(img) else "") +
+                     (f"{len(bad)} ページは画像の圧縮を開けません" if bad else ""),
+                     [f"ページ {n}" + (f"（開けない：{'・'.join(bad[n])}）" if n in bad else "") for n in img], agent=bool(img) and not bad))
     return out
 
 
@@ -197,13 +255,26 @@ def _sample(f: dict):
     if ml and ml < 3:
         return "1" * ml
     # 欄の大きさに入る値（小さな欄は1字。書く値が入りきらないときは、書き込みが「入りきりません」と断る）
-    x0, y0, x1, y1 = f.get("rect", (0, 0, 100, 20))
-    w = x1 - x0
+    rect = f.get("rect", (0, 0, 100, 20))
+    from .fill import spot_fits
+
+    if f.get("source") == "layout":
+        # 配置から見つけた欄：書き込み（add_widget）と同じ決め方で入る値
+        for cand in (("12", "1") if k == "inline" else ("テスト", "12", "1")):
+            if spot_fits(cand, rect, f.get("size"), k):
+                return cand
+        return "1"
+    cur = f.get("value")
+    if isinstance(cur, str) and cur.strip() and not ml:
+        # いま値のある欄（書いた後の書類の欄など）：その値を書き直す（その欄に入ることが分かっている値）
+        return cur
+    x0, y0, x1, y1 = rect
     from .fill import FillError, layout_text
 
     for cand in (("12", "1") if k == "inline" else ("テスト", "12", "1")):
         try:
-            layout_text(cand, w, y1 - y0, min(float(f.get("size") or 10.5), 10.5), multiline=(y1 - y0) > 25)
+            # 窓の矩形は 0.1pt に丸めてあるので、0.5pt 小さい枠で確かめる（書き込みは、欄の本当の大きさで決める）
+            layout_text(cand, x1 - x0 - 0.5, y1 - y0 - 0.5, min(float(f.get("size") or 10.5), 10.5), multiline=(y1 - y0) > 25)
             return cand
         except FillError:
             continue
@@ -218,8 +289,31 @@ def _all_fields(win: dict) -> list[dict]:
     return out
 
 
+def _circle_sample(doc: PdfDocument, f: dict, used: dict):
+    """○で囲む選択肢のうち、書き込みと同じ決め方で囲めるもの。どれも囲めなければ (None, 理由)。"""
+    from . import circle
+    from .anchor import AnchorError
+
+    layouts = used.setdefault("_layouts", {})
+    why = ""
+    import re
+
+    for o, r in f.get("option_rects") or []:
+        trial = {k: list(v) for k, v in used.items() if k != "_layouts"}
+        word = re.match(r"[0-9０-９]+", o)[0] if f.get("numbered") and re.match(r"[0-9０-９]+", o) else o
+        try:
+            circle.resolve(doc, {"circle": word, "page": f["page"], "within": list(r)}, layouts, trial)
+        except AnchorError as e:
+            why = why or str(e)
+            continue
+        used.update(trial)
+        return o
+    return None, f"どの選択肢も、ほかの字に触れずには○で囲めない：{why[:80]}"
+
+
 def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> list[Check]:
     targets: dict[str, object] = {}
+    circle_used: dict = {}
     skipped, not_writable = [], []
     for f in _all_fields(win):
         if f["id"] in targets:
@@ -236,39 +330,85 @@ def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> l
         if v is None:
             skipped.append(f"{f['id']}: 試しの値を決められませんでした")
             continue
+        if f["kind"] == "circle" and f.get("source") == "layout":
+            # ○で囲む選択肢：ほかの字に触れずに囲める選択肢を試す。どれも囲めなければ、書けない理由を添えて除く
+            # （エージェントが pad・box を決めて書く所。書き込みの誤りではない）
+            v = _circle_sample(doc, f, circle_used)
+            if isinstance(v, tuple):
+                not_writable.append(f"{f['id']}（{v[1]}）")
+                continue
         targets[f["id"]] = v
     n_fields = len(_all_fields(win))
-    try:
-        res = fill(doc, targets)
-    except FillError as e:
-        return [Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
-    pr = prove(doc.blob, res.blob, set(targets), password=password)
+    passes = _passes(targets, {f["id"]: f for f in _all_fields(win)})
     na = (f"（読み取り専用・電子署名・ボタン・データに結びつかない欄など {len(not_writable)} 欄は、書けない欄なので除外）"
           if not_writable else "")
-    out = [Check("全入力欄への書き込み", pr.ok and not skipped,
-                 f"入力欄 {n_fields:,} か所のうち {len(targets):,} に試しの値を書き込み{na}。{pr.headline()}",
-                 [*pr.unexpected, *pr.lint_errors, *skipped])]
-    after = PdfDocument(res.blob, doc.filename, password=password)
-    win2 = build(after)
-    got = {f["id"]: f.get("value") for f in _all_fields(win2)}
-    wrong = []
-    written = {p_.id: p_.value for p_ in res.patches}
+    many = (f"同じ所の別の読み方（重なる候補）は両方には書けないので、{len(passes)} 回に分けて書き込み、" if len(passes) > 1 else "")
+    unexpected, wrong, heads = [], [], []
     formatted = 0
-    for k, v in targets.items():
-        g = got.get(k)
-        w = written.get(k, v)
-        if not isinstance(v, bool) and str(w) != str(v):
-            formatted += 1  # 欄の書式（日付・数など）を通した値
-        v = w if not isinstance(v, bool) else v
-        if isinstance(v, bool):
-            ok = bool(g) == v
-        else:
-            ok = str(g) == str(v)
-        if not ok:
-            wrong.append(f"{k}: 書いた値 {v!r} → 窓では {g!r}")
+    ok_all = True
+    for part in passes:
+        try:
+            res = fill(doc, part)
+        except FillError as e:
+            return [Check("全入力欄への書き込み", False, f"{len(part)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
+        anchored = {p_.id: p_.anchor for p_ in res.patches if p_.anchor}  # ○で囲んだ選択肢（書き込みと同じ決め方で確かめる）
+        pr = prove(doc.blob, res.blob, set(part), anchored or None, password=password)
+        ok_all = ok_all and pr.ok
+        unexpected += [*pr.unexpected, *pr.lint_errors]
+        heads.append(pr.headline())
+        after = PdfDocument(res.blob, doc.filename, password=password)
+        win2 = build(after)
+        got = {f["id"]: f.get("value") for f in _all_fields(win2)}
+        written = {p_.id: p_.value for p_ in res.patches}
+        for k, v in part.items():
+            g = got.get(k)
+            w = written.get(k, v)
+            if not isinstance(v, bool) and str(w) != str(v):
+                formatted += 1  # 欄の書式（日付・数など）を通した値
+            v = w if not isinstance(v, bool) else v
+            if isinstance(v, bool):
+                ok = bool(g) == v
+            else:
+                ok = str(g) == str(v)
+            if not ok:
+                wrong.append(f"{k}: 書いた値 {v!r} → 窓では {g!r}")
+    head = heads[0] if len(set(heads)) == 1 else " / ".join(dict.fromkeys(heads))
+    out = [Check("全入力欄への書き込み", ok_all and not skipped,
+                 f"入力欄 {n_fields:,} か所のうち {len(targets):,} に試しの値を{many}書き込み{na}。{head}",
+                 [*unexpected, *skipped])]
     note = f"（うち {formatted} 欄は、欄の書式どおりの形にして書いた値）" if formatted else ""
     out.append(Check("読み戻し", not wrong, f"書いた {len(targets):,} 欄のうち {len(targets) - len(wrong):,} 欄が、書き込み後の窓にそのまま出ている{note}", wrong))
     return out
+
+
+def _passes(targets: dict, by_id: dict) -> list[dict]:
+    """書き込みの試しを、同じ所の別の読み方（fill.conflicting）が同じ回に入らないように分ける（たいていは1回）。"""
+    from .fill import conflicting
+
+    clash: dict[str, set] = {}
+    groups: dict[str, list[dict]] = {}
+    for k in targets:
+        f = by_id.get(k)
+        alt = f.get("alternative_to") if f is not None and f.get("source") == "layout" else None
+        if alt:
+            clash.setdefault(k, set()).add(alt)
+            clash.setdefault(alt, set()).add(k)
+            groups.setdefault(alt, []).append(f)
+    for g in groups.values():
+        for i, a in enumerate(g):
+            for b in g[i + 1:]:
+                if conflicting(a, b):
+                    clash[a["id"]].add(b["id"])
+                    clash[b["id"]].add(a["id"])
+    passes: list[dict] = []
+    for k, v in targets.items():
+        for part in passes:
+            if not clash.get(k, set()) & part.keys():
+                part[k] = v
+                break
+        else:
+            passes.append({k: v})
+    return passes or [{}]
 
 
 def anchored_check(blob: bytes, filename: str, password: str | None = None) -> Check:

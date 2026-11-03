@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from ..docx.document import iter_paras
 from ..docx.fill import FillError, _as_bool, _is_text_value, _width
 from ..docx.proof import _expected_text
-from ..docx.window import Spots, WriteError, resolve_write
+from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from .document import MARK_PREFIX, RtfDocument
 from .lexer import control_word_ends_at
 
@@ -276,8 +276,8 @@ def fill(doc: RtfDocument, values: dict, *, force: bool = False) -> FillResult:
                 on = _as_bool(value)
                 a, b = item["span"]
                 orig = p.text[a:b]
-                if on:
-                    w.replace_span(item, p, a, b, "☑" if orig == "☐" else "■")
+                if box_mark(orig, on) != orig:
+                    w.replace_span(item, p, a, b, box_mark(orig, on))
                 w.patches.append(Patch(key, "control", on))
             elif kind == "inline":
                 text = _is_text_value(value)

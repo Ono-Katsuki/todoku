@@ -44,6 +44,7 @@ class Glyph:
     mcid: int | None = None
     actual: bool = False  # ActualText で置き換えた文字
     legacy: bool = False  # Unicode でない符号の書体で描いた字（取り出した字は元の文字ではない）
+    adv: float = 0.0  # フォントの決める、この字の送りの幅（ページ上の長さ。字間・語間の調整は含まない）
 
     @property
     def cx(self) -> float:
@@ -86,6 +87,8 @@ class Picture:
     artifact: bool = False  # 飾り（Artifact）と印が付いている
     mc: tuple | None = None  # 内側の MCID：(持ち主, MCID)。持ち主は "page" か StructParents の番号
     objparent: int | None = None  # 画像（か、包むフォームの部品）の StructParent
+    ctm: tuple | None = None  # 画像を置いた行列（画像の単位の四角 → ページの座標）。ページの見た目を描くのに使う
+    image: object = None  # 画像の XObject（Stream）か、埋め込みの画像の (辞書, データ)
 
 
 @dataclass
@@ -297,6 +300,7 @@ class Interpreter:
                     ty = w * fs + gs.tc + (gs.tw if is_space else 0)
                     ox, oy = apply(trm, 0, 0)
                     nx, ny = apply(mul((1, 0, 0, 1, 0, ty), mul(tm, gs.ctm)), 0, 0)
+                    fx, fy = apply(mul((1, 0, 0, 1, 0, w * fs), mul(tm, gs.ctm)), 0, 0)
                     tm = mul((1, 0, 0, 1, 0, ty), tm)
                 else:
                     x0, x1 = 0.0, w if w > 0 else 0.5
@@ -304,6 +308,7 @@ class Interpreter:
                                apply(trm, x1, f.ascent)]
                     tx = (w * fs + gs.tc + (gs.tw if is_space else 0)) * th
                     ox, oy = apply(trm, 0, 0)
+                    fx, fy = apply(trm, w, 0)
                     tm = mul((1, 0, 0, 1, tx, 0), tm)
                     nx, ny = apply(mul((fs * th, 0, 0, fs, 0, gs.rise), mul(tm, gs.ctm)), 0, 0)
                 xs = [c[0] for c in corners]
@@ -312,7 +317,8 @@ class Interpreter:
                 size = (abs(a * d - b * c)) ** 0.5 if (a or b or c or d) else 0.0
                 out.glyphs.append(Glyph(text, min(xs), min(ys), max(xs), max(ys), size, ox, oy, nx - ox, ny - oy,
                                         f.vertical, gs.tr in (3, 7), gs.font, gs.fill, mcid,
-                                        legacy=legacy_text(f.legacy, text)))
+                                        legacy=legacy_text(f.legacy, text),
+                                        adv=((fx - ox) ** 2 + (fy - oy) ** 2) ** 0.5))
 
         def adjust(v):
             nonlocal tm
@@ -588,11 +594,13 @@ class Interpreter:
                             pts = [apply(gs.ctm, 0, 0), apply(gs.ctm, 1, 0), apply(gs.ctm, 0, 1), apply(gs.ctm, 1, 1)]
                             sp = doc.resolve(xo.dict.get("StructParent"))
                             pic = picture(pts, name, sp if isinstance(sp, int) else None)
+                            pic.ctm, pic.image = gs.ctm, xo
                             if not self._thin_image(pic, xo.dict, None, gs, xo):
                                 out.pictures.append(pic)
                 elif op == "EI":
                     pts = [apply(gs.ctm, 0, 0), apply(gs.ctm, 1, 0), apply(gs.ctm, 0, 1), apply(gs.ctm, 1, 1)]
                     pic = picture(pts, "inline")
+                    pic.ctm, pic.image = gs.ctm, inline_img
                     if not self._thin_image(pic, inline_img[0] if inline_img else {}, inline_img[1] if inline_img else b"", gs):
                         out.pictures.append(pic)
                     inline_img = None
@@ -640,7 +648,7 @@ class Interpreter:
                                 merged = Glyph(actual, min(g.x0 for g in gl), min(g.y0 for g in gl), max(g.x1 for g in gl),
                                                max(g.y1 for g in gl), g0.size, g0.ox, g0.oy, gl[-1].ox + gl[-1].dx - g0.ox,
                                                gl[-1].oy + gl[-1].dy - g0.oy, g0.vertical, g0.invisible, g0.font, g0.color,
-                                               mcid, True)
+                                               mcid, True, sum(g.adv for g in gl))
                                 del out.glyphs[first:]
                                 out.glyphs.append(merged)
             except (IndexError, ValueError, TypeError, ZeroDivisionError):

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from ..cfb import CFB
 from ..docx.document import WINGDINGS, iter_paras
-from ..docx.window import Spots, build, markdown_parts
+from ..docx.window import Spots, box_mark, build, markdown_parts
 from ..xlsx.audit import Audit, Check
 from .book import DocFile
 from .fill import SHIFT, FillError, fill
@@ -259,7 +259,7 @@ def _expected(p, items) -> str | None:
             a, b = it["span"]
             on = value is True
             orig = text[a:b]
-            edits.append((a, b, ("☑" if orig == "☐" else "■") if on else orig))
+            edits.append((a, b, box_mark(orig, on)))
         else:
             a, b = it["span"]
             edits.append((a, b, str(value)))
@@ -267,6 +267,19 @@ def _expected(p, items) -> str | None:
     for a, b, v in sorted(edits, reverse=True):
         out = out[:a] + v + out[b:]
     return out
+
+
+def check_reading(doc: DocFile, win: dict) -> Check:
+    """読み落とし：ピースの表から直接拾った字と、窓に出た字を照らす。"""
+    raw = _count(raw_chars(doc))
+    shown = Counter()
+    for st in win["stories"]:
+        shown += _count(st["_plain"])
+    missing = [f"「{ch}」が {n} 字、窓に出ていません" for ch, n in (raw - shown).items()]
+    extra = [f"「{ch}」が {n} 字、元にないのに窓に出ています" for ch, n in (shown - raw).items()]
+    return Check("読み落とし（文書の文字）", not missing and not extra,
+                 f"本文・表・ヘッダー/フッター・脚注・コメント・テキストボックスの字 {sum(raw.values()):,} 字を、"
+                 "窓とは別の読み方（ピースの表から直接）で拾い、すべて窓に出ていることを確かめました", missing + extra)
 
 
 def run(blob: bytes, filename: str = "") -> Audit:
@@ -279,15 +292,7 @@ def run(blob: bytes, filename: str = "") -> Audit:
     doc = DocFile(blob, filename)
     win = build(doc)
     au = Audit(filename)
-    raw = _count(raw_chars(doc))
-    shown = Counter()
-    for st in win["stories"]:
-        shown += _count(st["_plain"])
-    missing = [f"「{ch}」が {n} 字、窓に出ていません" for ch, n in (raw - shown).items()]
-    extra = [f"「{ch}」が {n} 字、元にないのに窓に出ています" for ch, n in (shown - raw).items()]
-    au.checks.append(Check("読み落とし（文書の文字）", not missing and not extra,
-                           f"本文・表・ヘッダー/フッター・脚注・コメント・テキストボックスの字 {sum(raw.values()):,} 字を、"
-                           "窓とは別の読み方（ピースの表から直接）で拾い、すべて窓に出ていることを確かめました", missing + extra))
+    au.checks.append(check_reading(doc, win))
     from ..axfile import reading_check
 
     axc = reading_check(getattr(doc, "ax_refs", []), win)  # ActiveX の部品の見出しと文字
@@ -296,10 +301,13 @@ def run(blob: bytes, filename: str = "") -> Audit:
     parts = markdown_parts(win)
     biggest = max(len(t) for _, t in parts)
     au.checks.append(Check("窓の大きさ", biggest <= 150_000, f"Markdown {sum(len(t) for _, t in parts):,} 文字（AIが1回で読める目安 15万文字以内）"))
-    from ..docx.audit import macro_check, _sample
+    from ..docx.audit import _sample, already_written, macro_check
 
     targets, protected = {}, []
+    done, bad_done = already_written(doc, win)
     for f in win["fields"]:
+        if f["id"] in done:
+            continue  # 前に書いた欄（書き直しは断る決まり）：窓に値が出ていることだけを確かめる
         if f.get("readonly") or f.get("options_unknown"):
             protected.append(f["id"])
             continue
@@ -312,8 +320,10 @@ def run(blob: bytes, filename: str = "") -> Audit:
         return au
     pr = prove(blob, res.blob, written_of(res.patches))
     note = f"（文書の保護で書けない欄 {len(protected)} か所は除外）" if protected else ""
-    au.checks.append(Check("全入力欄への書き込み", pr.ok, f"入力欄 {len(win['fields']):,} か所のうち {len(targets):,} に試しの値を書き込み{note}。{pr.headline()}",
-                           [*pr.unexpected, *pr.lint_errors]))
+    if done:
+        note += f"（前に書いた欄 {len(done)} か所は書き直さず、窓に値が出ていることを確かめた）"
+    au.checks.append(Check("全入力欄への書き込み", pr.ok and not bad_done, f"入力欄 {len(win['fields']):,} か所のうち {len(targets):,} に試しの値を書き込み{note}。{pr.headline()}",
+                           [*pr.unexpected, *pr.lint_errors, *bad_done]))
     after = build(DocFile(res.blob, filename))
     got = {f["id"]: f.get("value") for f in after["fields"]}
     written = {p.id: p.value for p in res.patches}
