@@ -152,7 +152,6 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                 continue
             if near is not None:
                 _flag_near_widget(sp, *near)
-        _flag_bullet_like_box(sp)
         spots.append(sp)
     for sp in spots:
         if sp.alternative_to is not None and id(sp.alternative_to) in hidden:
@@ -669,23 +668,6 @@ def _flag_near_widget(sp: Spot, f: FormField, how: str, gap: float) -> None:
             sp.reason = f"{sp.reason}。{why}" if sp.reason else why
             return
         why = f"{where}：その欄の続きか、その欄とは別に書く所か、規則では決められない（重ならない）"
-    sp.confidence = "agent"
-    sp.reason = f"{sp.reason}。{why}" if sp.reason else why
-
-
-def _flag_bullet_like_box(sp: Spot) -> None:
-    """箇条書きの印にもよく使う箱の字（chars.BULLET_LIKE_BOXES：❏❐❑❒◻◽）のチェックの所：規則のチェックの欄にせず「？」にする。"""
-    import unicodedata
-
-    from .. import chars
-
-    if sp.kind != "checkbox" or not isinstance(sp.host, Line) or not sp.at:
-        return
-    ch = sp.host.text[sp.at[0]:sp.at[1]]
-    if len(ch) != 1 or not chars.is_bullet_like_box(ch):
-        return
-    why = (f"「{ch}」（U+{ord(ch):04X} {unicodedata.name(ch, '')}）は箇条書きの印にもよく使う字：チェックの欄か、"
-           "箇条の印か、規則では決められない")
     sp.confidence = "agent"
     sp.reason = f"{sp.reason}。{why}" if sp.reason else why
 

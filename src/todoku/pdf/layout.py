@@ -30,7 +30,8 @@ def _sentence_end(ch: str) -> bool:
 
 
 BOX_GLYPHS = set(_chars.EMPTY_BOXES)
-# 影のついた四角（U+274F〜U+2752 ❏❐❑❒）：チェックの箱にも箇条の印にも使う字。チェックの印の所にはするが、規則では決めない（？）
+# 箇条書きの印にもよく使う箱の字（影のついた四角 U+274F〜U+2752 ❏❐❑❒・U+25FB ◻・U+25FD ◽）：チェックの箱にも箇条の印にも
+# 使う字。チェックの印の所にはするが、規則では決めない（？）
 BULLET_BOXES = set(_chars.BULLET_LIKE_BOXES)  # 箇条書きの印にもよく使う箱（チェックの欄とは決まらない：「？」）
 # 記入済みの印。U+25A3 ▣（WHITE SQUARE CONTAINING BLACK SMALL SQUARE）は、とどくが ActiveX のどちらでもない箱に書く字
 CHECKED_GLYPHS = set(_chars.CHECKED_BOXES) | set(_chars.MAYBE_CHECKED) | {"▣"}
@@ -1967,8 +1968,11 @@ class PageLayout:
             sp = Spot("checkbox", (x0, y0, x1, y1), norm_label(opt) or "（選択肢の文字なし）", "□ の字",
                       line_text=text, cell=cell, size=ln.size, host=ln, at=(i, i + 1))
             if text[i] in BULLET_BOXES:
-                # 影のついた四角（❏❐❑❒）：チェックの箱のことも、箇条の印のこともある（規則では決めず「？」）
-                _agent(sp, f"影のついた四角の字「{text[i]}」（チェックの箱か、箇条の印か）", "bullet_box")
+                # 箇条書きの印にもよく使う箱の字（❏❐❑❒◻◽）：チェックの箱のことも、箇条の印のこともある（規則では決めず「？」）。
+                # 理由はここで 1 度だけつける（窓では足さない）
+                ch = text[i]
+                _agent(sp, f"□ の字。「{ch}」（U+{ord(ch):04X} {unicodedata.name(ch, '')}）は箇条書きの印にもよく使う字："
+                           "チェックの欄か、箇条の印か、規則では決められない", "bullet_box")
             self.spots.append(sp)
         # 記入済みの印（☑・■・✓ の字）：選んだ印のことも、箇条の印・説明の中の記号のこともある。PDF の字は消さないので
         # 書き換えられない所として、選んであるかもしれない印を示す
