@@ -137,3 +137,7 @@ def test_ruby_is_attached_to_base():
 
     doc = PdfDocument(blob, "t.pdf")
     assert check_reading(doc, build(doc))[0].ok
+    # つないだ所は、読む B で位置を示して知らせる（エージェントが、ルビか注の字かを確かめる）
+    fl = {f["title"]: f for f in build(doc)["pages"][0]["read_flags"]}
+    r = fl["ルビとして基の字につないだ字"]
+    assert r["grade"] == "B" and len(r["where"]) == 1 and "かつしか" in r["where"][0] and "左 100" in r["where"][0]

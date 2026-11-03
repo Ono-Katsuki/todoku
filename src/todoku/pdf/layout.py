@@ -915,6 +915,8 @@ def _blank_spans(text: str, lead: int = 0, trail: int = 0) -> list[tuple[int, in
 
 
 _OPTION_GROUP = re.compile(r"[^・／/（）()\s\u3000]{1,10}(?:[\s\u3000]*[・／/][\s\u3000]*[^・／/（）()\s\u3000]{1,10}){1,5}")
+# 区切りの字で並ぶ語（数・長さを決めない）：○で囲む選択肢の候補。選択肢らしくない所は、落とさずに理由を添えて示す
+_OPTION_LIST = re.compile(r"[^・／/（）()\s\u3000]+(?:[\s\u3000]*[・／/][\s\u3000]*[^・／/（）()\s\u3000]+)+")
 
 
 MIN_WRITE = 6.0  # これより低い字の行の所は、小さな字の行として（書けるかは書き込みと同じ決め方で）示す
@@ -1021,6 +1023,7 @@ class PageLayout:
                 cell.chars.append(c)
         self.overprinted: list[list[Line]] = []  # 重ねて描かれ、分けた行の組
         self.added: list[str] = []  # 窓で足した字（ルビのかっこ）
+        self.ruby_merges: list[tuple] = []  # ルビとして基の行につないだ所：(基の行の字, ルビの字, ルビの行の位置)
         for cell in self.cells:
             cell.lines = self._ruby(make_lines(cell.chars, self.overprinted)) if cell.chars else []
         self.free_lines = self._ruby(make_lines(self.free, self.overprinted))
@@ -1153,6 +1156,7 @@ class PageLayout:
                 b.text = b.text[:at] + ins + b.text[at:]
                 b.pos = b.pos[:at] + [(q[1], q[1])] * len(ins) + b.pos[at:]
                 self.added += ["（", "）"]
+            self.ruby_merges.append((b.text, r.text.strip(" \u3000"), (r.x0, r.y0, r.x1, r.y1)))
             b.chars = sorted(b.chars + r.chars, key=lambda c: c.x0)
             b.y0 = min(b.y0, r.y0)
             b.ruby = getattr(b, "ruby", []) + [g[0] for g in groups]
@@ -1230,6 +1234,12 @@ class PageLayout:
                       [f"{self.number}ページ（左 {r[0]:.0f}・上 {r[1]:.0f}〜右 {r[2]:.0f}・下 {r[3]:.0f} pt、塗りの形 {n} 個"
                        + ("。中に字もある：飾りの形かもしれない" if mixed else "") + "）"
                        for r, n, mixed in self.drawn_text])
+        if self.ruby_merges:
+            # ルビ（振り仮名）とした小さな字の行：字の大きさと位置の決まり（JIS X 4051）でつないだが、小さな注の字のこともある
+            self.flag("B", "ルビとして基の字につないだ字",
+                      "すぐ上の小さな字の行を、ルビ（振り仮名）として基の字の後ろに「（）」でつなぎました（かっこは窓で足した字）。"
+                      "小さな注の字・別の見出しのこともあるので、その位置は窓の字と view_page の画像で、ルビかを確かめる",
+                      [self.where(r[0], r[1], f"{base.strip()[:16]} ← {ruby[:12]}") for base, ruby, r in self.ruby_merges])
         bad = [m for m in self.merges if m[1] <= 0.5]
         if bad:
             self.flag("C", "重ね書きとして1字にした字", "箱が重ならない字を、重ね書きとして1字にしました（読み落としのおそれ）",
@@ -1920,8 +1930,9 @@ class PageLayout:
 
     def _option_choice(self, ln: Line, cell: Cell | None) -> None:
         """○で囲んで選ぶ選択肢の候補（規則では決められない所として示す。どれも字の並びの形だけで見つける）：
-        - かっこの中を「・」「／」で区切った並び（「（父携帯・母携帯・自宅）」）。ただし、一つだけが句（かなの後ろに漢字の続く
-          「通勤を除く」）の並びは、注のかっこなので除く
+        - かっこの中を「・」「／」で区切った並び（「（父携帯・母携帯・自宅）」）。一つだけが句（かなの後ろに漢字の続く
+          「通勤を除く」）の並びは、注のかっこかもしれないが、落とさずに理由を添えて示す（エージェントが決める）
+        - 語が 7 個以上・11 字以上の語・句読点（、。：）のある語・数だけの語のある並びも、落とさずに理由を添えて示す
         - 選択肢だけの行（「有　・　無」）：区切りの前後を空けて並べたもの、またはマスの中にその行だけがあり、同じ高さの左の
           マスに字（見出し）があるもの
         - 番号の付いた並び（「1.新規　2.更新」「１　自家　２　借家」）：続き番号が 2 つ以上
@@ -1937,7 +1948,7 @@ class PageLayout:
         # 後ろの「その他（　　）」の書く所は選択肢に含めない
         body = re.sub(r"[（(][ \u3000]*[）)]$", "", whole).rstrip(" \u3000")
         spaced_sep = bool(re.search(r"[ \u3000]+[・／/][ \u3000]+", body))
-        if body and _OPTION_GROUP.fullmatch(body) and (spaced_sep or self._alone_with_label(ln, cell)):
+        if body and _OPTION_LIST.fullmatch(body) and (spaced_sep or self._alone_with_label(ln, cell)):
             groups.append((text.index(body), body, False))
         for start, inner, paren in groups:
             parts = re.split(r"([・／/])", inner)
@@ -1950,15 +1961,25 @@ class PageLayout:
                         a = pos + part.index(word)
                         opts.append((word, a, a + len(word)))
                 pos += len(part)
-            if not (2 <= len(opts) <= 6) or any(len(w) > 10 or re.search(r"[、。：:]", w) for w, _a, _b in opts):
-                continue
+            if len(opts) < 2:
+                continue  # 語が1つ：並びでない
+            doubt = []  # 選択肢らしくない所（落とさずに、？ の候補の理由にする）
+            if len(opts) > 6:
+                doubt.append(f"語が {len(opts)} 個並ぶ（文の中の並びかもしれない）")
+            if any(len(w) > 10 for w, _a, _b in opts):
+                doubt.append("11 字以上の語がある（文かもしれない）")
+            if any(re.search(r"[、。：:]", w) for w, _a, _b in opts):
+                doubt.append("句読点のある語がある（文かもしれない）")
             if any(re.fullmatch(r"[\d０-９]+", w) for w, _a, _b in opts):
-                continue
+                doubt.append("数だけの語がある（日付・番号の並びかもしれない）")
             phrase = [bool(re.search(r"[\u3041-\u309f][\u3400-\u9fff]", w)) for w, _a, _b in opts]
             if paren and any(phrase) and not all(phrase):
-                continue  # 注のかっこ（「（通学・通所・通勤を除く）」）：選択肢の並びでなく、句が混ざる
+                doubt.append("句が混ざる（注のかっこかもしれない）")  # 「（通学・通所・通勤を除く）」
             head = text[:start].rstrip("（( \u3000")
-            self._add_options(ln, cell, opts, head, "選択肢が「・」で並ぶ（どれかを○で囲む）")
+            why = "選択肢が「・」で並ぶ（どれかを○で囲む）"
+            if doubt:
+                why += "。ただし選択肢でないかもしれない：" + "・".join(doubt)
+            self._add_options(ln, cell, opts, head, why, gate="option-doubt" if doubt else "")
         self._numbered_options(ln, cell)
 
     def _alone_with_label(self, ln: Line, cell: Cell | None) -> bool:
@@ -2008,7 +2029,8 @@ class PageLayout:
                 best = list(cur)
         return best
 
-    def _add_options(self, ln: Line, cell: Cell | None, opts: list, head: str, why: str, numbered: bool = False) -> None:
+    def _add_options(self, ln: Line, cell: Cell | None, opts: list, head: str, why: str, numbered: bool = False,
+                     gate: str = "") -> None:
         rects = [(w, ln.span_rect(a, b)) for w, a, b in opts]
         for k in self.spots:
             if k.kind == "circle" and k.host is ln and any(_overlap(r, o) > 0.3 for _w, r in rects for _t, o in k.options):
@@ -2024,6 +2046,7 @@ class PageLayout:
         sp = Spot("circle", r, f"{label}（○で囲む）", why, cell=cell, host=ln, at=None, size=ln.size, confidence="agent")
         sp.options = rects
         sp.numbered = numbered  # 選択肢の名前は「番号と語」、○は番号を囲む
+        sp.gate = gate
         self.spots.append(sp)
 
     def _era_choice(self, ln: Line, cell: Cell | None) -> None:

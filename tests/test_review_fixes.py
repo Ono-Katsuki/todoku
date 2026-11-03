@@ -81,3 +81,14 @@ def test_actual_text_span_is_not_legacy():
     content = "/Span << /ActualText (Name) >> BDC BT /F1 12 Tf 40 800 Td <00010002> Tj ET EMC"
     blob = pdfmini.build(content, "<< /Font << /F1 2 0 R >> >>", [pdfmini.type0("TestFont", 3), tu])
     assert "字の符号が Unicode でない" not in flags(blob)
+
+
+@pytest.mark.parametrize("inner, why", [("甲・乙・丙・丁・戊・己・庚", "7 個"), ("1・2・3", "数だけの語"),
+                                         ("とても長い名前の選択肢です・短い", "11 字以上")])
+def test_unusual_option_lists_are_kept_as_agent_candidates_with_reason(inner, why):
+    from test_pdf_scripts import glyphs_pdf, window
+
+    text = "種別（" + inner + "）"
+    blob = glyphs_pdf([(ch, 40 + 12 * k, 700) for k, ch in enumerate(text)])
+    circ = [f for f in window(blob)["pages"][0]["fields"] if f["kind"] == "circle"]
+    assert circ and circ[0]["agent"] and why in circ[0]["why"], circ
