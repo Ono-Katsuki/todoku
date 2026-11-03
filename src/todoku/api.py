@@ -262,6 +262,7 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     blob, name, k, lock = _read(path, password)
     if k == "zip":
         raise ApiError("ZIP そのものには書けません。中のファイルを path に「" + path + "!/中の名前」で指定してください")
+    _seal_supported(k, values)
     result: dict = {"kind": k, "out_path": str(dst), "original_sha256": hashlib.sha256(src.read_bytes()).hexdigest()}
     readback_values = dict(values)  # 読み戻しで確かめる、欄の id → 書いた値
     told = None  # 本人に伝える、書いた所（ほかの形式は読み戻しの値と同じ）
@@ -311,7 +312,13 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             # 見出しの字を目印にした書き込み：書いた欄の id（読み直した窓では、その名前のフォームの欄）
             result["anchored"] = {p.key: p.id for p in res.patches if p.anchor}
             readback_values = {k_: v for k_, v in values.items() if not k_.startswith("@")}
-            readback_values.update({p.id: p.value for p in res.patches if p.anchor})
+            readback_values.update({p.id: p.value for p in res.patches if p.anchor and p.kind != "seal"})
+        placed = [p for p in res.patches if p.kind == "seal"]
+        if placed:
+            # 本人の印影・署名の画像（本人が同意したときだけ）：何を、どこに置いたか。読み戻しは、書いた後のファイルで下で確かめる
+            result["placed"] = [{"key": p.key, "id": p.id, "page": p.page, "what": p.seal["what"], "say": p.seal["told"],
+                                 "box_mm": [round(v / 72 * 25.4, 1) for v in p.seal["rect"]], "rect_pt": p.seal["rect"], "image_sha256": p.seal["sha256"]}
+                                for p in placed]
     elif k == "jtd" or (k == "doc" and _is_word6(blob)):
         # 一太郎・Word 6.0/95：同じ字数（バイト数）の上書きは、ファイル全体で変わったのがその字のバイトだけかを証明する。
         # 一太郎の字数を変える書き込み・圧縮した文書は、直すと決めた構造のほかが同じで、直した構造がそれぞれ思ったとおりかを証明する（jtd/proof.py）。
@@ -424,6 +431,8 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             ok = str(g) == str(v) or _num_equal(g, v)
         if not ok:
             mismatch.append({"id": key, "written": v, "read_back": g})
+    if result.get("placed"):
+        mismatch += _read_back_placed(k, written_plain, name, lock, values, result["placed"])
     if "jtd_read_back" in result:
         mismatch += [{"id": "段落", "written": "", "read_back": x} for x in result.pop("jtd_read_back", [])]
     result["read_back_ok"] = not mismatch
@@ -483,6 +492,51 @@ def _fill_member(path: str, values: dict, out_path: str, force: bool, password: 
                    "archive": "ZIP の中のファイルに書き、ZIP はそのファイルの部品だけを入れ替えました（ほかの部品は元とバイト一致）。"
                               f"書いたファイルは「{dst}{ziparc.SEP}{inner}」で開けます"})
     return result
+
+
+def _seal_supported(k: str, values: dict) -> None:
+    """本人の印影・署名の画像（seal・signature）を置けるのは、いまは PDF だけ。ほかの形式は、証明つきで置く方法を
+    作るまで、書かずに断る（証明のない書き込みはしない）。"""
+    from .sealimage import KINDS, SealError, seal_key
+
+    if k == "pdf":
+        return
+    for key, v in values.items():
+        try:
+            sk = seal_key(v)
+        except SealError as e:
+            raise ApiError(f"{key}: {e}") from None
+        if sk is not None:
+            raise ApiError(f"{key}: 本人の{KINDS[sk]}の画像を置けるのは、いまは PDF の書類だけです（{KIND_JA.get(k, k)}には、"
+                           "変わったのが置いた画像だけであることを証明して置く方法を、まだ作っていません）。"
+                           "書いていません。PDF の様式があればそれを使うか、このことを本人に伝えてください")
+
+
+def _read_back_placed(k: str, blob: bytes, name: str, lock, values: dict, placed: list[dict]) -> list[dict]:
+    """置いた画像の読み戻し：書いた後のファイルを開き直し、その名前の画像が、伝えた位置に、本人の画像のとおりにあるか。"""
+    from .sealimage import SealError, decode
+
+    out = []
+    if k != "pdf":
+        return out
+    from .pdf import seal
+
+    doc = _pdf(blob, name, lock)
+    for pl in placed:
+        spec = values.get(pl["key"]) or {}
+        key = "seal" if "seal" in spec else "signature"
+        try:
+            img = decode(Path(str(spec.get(key))).expanduser().read_bytes())
+        except (SealError, OSError) as e:
+            out.append({"id": pl["id"], "written": pl["what"], "read_back": f"画像を読み直せません：{e}"})
+            continue
+        # 位置は、置いたときに決めた矩形（見た目の座標、pt）。ファイルの注釈の位置と照らす
+        probs, _nums = seal.verify(doc, pl["page"], {"id": pl["id"], "rect": pl["rect_pt"]}, key, img)
+        if img.sha256 != pl["image_sha256"]:
+            probs.append("画像のファイルが、置いたときと変わっています")
+        if probs:
+            out.append({"id": pl["id"], "written": pl["what"], "read_back": "／".join(probs)[:300]})
+    return out
 
 
 def _prove_pdf(prove, original: bytes, new: bytes, allowed: set, anchored: dict, lock):
@@ -564,7 +618,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         lab = d.get("label") or ""
         return place(d) + re.sub(r"［[^］]*］", "［］", lab) if "［▶" in lab and lab.count("［") > 1 else None
 
-    lines = [f"記入した内容（{len(told)} か所。書いた後のファイルを読み直した値）："]
+    lines = [f"記入した内容（{len(told)} か所。書いた後のファイルを読み直した値）："] if told or not result.get("placed") else []
     group = None
     i = 0
     while i < len(told):
@@ -578,6 +632,8 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
             j += 1
         lines.append(f"- {joined(told[i:j]) if j - i > 1 else shown(d)}")
         i = j
+    for pl in result.get("placed") or []:
+        lines.append(pl["say"])  # 置いた画像（本人の印影・署名）：何を、どこに
     if empty:
         # 次に書くとよい欄：書いた所の続き（同じシート・ページで、書いた所より後ろの空欄）から順に
         order = {f["id"]: i for i, f in enumerate(after_list)}

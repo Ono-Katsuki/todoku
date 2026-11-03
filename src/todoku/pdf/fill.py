@@ -31,6 +31,7 @@ class Patch:
     page: int = 0
     anchor: dict | None = None  # 見出しの字を目印にした書き込み（{"after": …, "value": …}）。証明で、同じ決め方で位置を確かめる
     key: str = ""  # 指定したときの名前（「@1」など）
+    seal: dict | None = None  # 本人の印影・署名の画像を置いたとき：本人に伝える文・位置・画像の SHA-256
 
 
 @dataclass
@@ -712,6 +713,16 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
 
                 if not isinstance(value, dict):
                     raise FillError(f'{key}: 欄のない所に書くときは {{"after": 見出しの字, "value": 書く字}} の形で指定してください')
+                from ..sealimage import SealError, seal_key
+
+                try:
+                    skey = seal_key(value)
+                except SealError as e:
+                    raise FillError(f"{key}: {e}") from None
+                if skey is not None:
+                    # 本人の印影・署名の画像を置く（本人が同意したときだけ）：スタンプの注釈
+                    _place_seal(f, key, value, skey, used, layouts, views)
+                    continue
                 try:
                     sd = resolve_write(doc, value, used, layouts, set(f.by_name))
                 except AnchorError as e:
@@ -748,6 +759,30 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
         _recalculate(f, values)
     blob = f.finish() if f.patches else doc.blob
     return FillResult(blob, f.patches, f.warnings)
+
+
+def _place_seal(f: Filler, key: str, spec: dict, skey: str, used: dict, layouts: dict, views: dict) -> None:
+    from ..sealimage import SealError, load
+    from . import seal
+    from .anchor import AnchorError
+
+    try:
+        img = load(spec, skey)  # 同意がなければ、ここで断る
+        if not hasattr(f, "_stamp_names"):
+            f._stamp_names = seal.stamp_names(f.doc)
+        sd = seal.resolve(f.doc, spec, skey, img, used, layouts, set(f.by_name) | f._stamp_names)
+        page_no = sd["page"]
+        if page_no not in views:
+            views[page_no] = View(f.doc, f.pages[page_no - 1])
+        seal.write(f, page_no, sd, skey, img, views[page_no])
+    except (SealError, AnchorError) as e:
+        raise FillError(f"{key}: {e}") from None
+    p = Patch(sd["id"], "seal", f"本人の{sd['what']}の画像", page_no, anchor=dict(spec), key=key)
+    p.seal = {"told": seal.told(sd, skey), "rect": sd["rect"], "sha256": img.sha256, "what": sd["what"], "key": skey}
+    f.patches.append(p)
+    caution = seal.caution(sd["what"])
+    if caution not in f.warnings:
+        f.warnings.append(caution)
 
 
 def _xfa_form(doc):

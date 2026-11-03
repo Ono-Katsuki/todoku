@@ -45,14 +45,16 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int = 160
     canvas = bytearray(b"\xff" * (W * H))
     pc = page_content(doc, page)
     skipped = []
-    for pic in pc.pictures:
+    stamps = []
+    pics = list(pc.pictures) + _annot_pictures(doc, page, stamps)
+    for pic in pics:
         if pic.ctm is None or pic.image is None:
             continue
         inv = _inv(pic.ctm)
         if inv is None:
             continue
         try:
-            g = image_gray(doc, pic.image, max_pixels=max(4_000_000, W * H * 2))
+            g = _with_smask(doc, pic.image, image_gray(doc, pic.image, max_pixels=max(4_000_000, W * H * 2)))
         except (RasterError, ValueError, IndexError, KeyError, zlib.error) as e:
             skipped.append(f"{pic.name}：{e}")
             continue
@@ -62,7 +64,82 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int = 160
     rgb[1::3] = canvas
     rgb[2::3] = canvas
     return {"rgb": rgb, "w": W, "h": H, "scale": s, "origin_mm": (x0, y0), "page_mm": (pw, ph), "skipped": skipped,
-            "view": view}
+            "view": view, "stamps": stamps}
+
+
+def _annot_pictures(doc, page: dict, stamps: list) -> list:
+    """注釈の見た目（/AP の N）に描かれた画像：置いた印影・署名の画像（スタンプの注釈）など。
+    見た目のフォームを、仕様（ISO 32000-1 12.5.5）どおり、BBox を Matrix で写した四角を Rect に合わせる行列で描く。
+    隠した注釈（F の Hidden）と、印刷しない注釈は描かない。stamps には、画像のある注釈の名前と位置（mm）を入れる。"""
+    from .content import Interpreter, apply, mul
+    from .objects import PdfString, Stream, decode_text
+
+    out = []
+    view = View(doc, page)
+    for a in doc.resolve(page.get("Annots")) or []:
+        ad = doc.resolve(a)
+        if not isinstance(ad, dict) or getattr(ad.get("Subtype"), "name", "") in ("Popup", "Link"):
+            continue
+        flags = int(doc.resolve(ad.get("F")) or 0)
+        if flags & 2:
+            continue
+        apd = doc.resolve(ad.get("AP"))
+        n = doc.resolve(apd.get("N")) if isinstance(apd, dict) else None
+        if isinstance(n, dict) and not isinstance(n, Stream):
+            st = doc.resolve(ad.get("AS"))
+            n = doc.resolve(n.get(getattr(st, "name", "")))
+        if not isinstance(n, Stream):
+            continue
+        try:
+            rect = [float(doc.resolve(v)) for v in doc.resolve(ad.get("Rect"))]
+            bbox = [float(doc.resolve(v)) for v in doc.resolve(n.dict.get("BBox"))]
+            m = n.dict.get("Matrix")
+            m = tuple(float(doc.resolve(v)) for v in doc.resolve(m)) if m is not None else (1, 0, 0, 1, 0, 0)
+        except (TypeError, ValueError):
+            continue
+        if len(rect) != 4 or len(bbox) != 4 or len(m) != 6:
+            continue
+        pts = [apply(m, x, y) for x in (bbox[0], bbox[2]) for y in (bbox[1], bbox[3])]
+        bx0, by0 = min(p[0] for p in pts), min(p[1] for p in pts)
+        bx1, by1 = max(p[0] for p in pts), max(p[1] for p in pts)
+        if bx1 - bx0 < 1e-6 or by1 - by0 < 1e-6:
+            continue
+        rx0, ry0, rx1, ry1 = min(rect[0], rect[2]), min(rect[1], rect[3]), max(rect[0], rect[2]), max(rect[1], rect[3])
+        sx, sy = (rx1 - rx0) / (bx1 - bx0), (ry1 - ry0) / (by1 - by0)
+        fit = (sx, 0, 0, sy, rx0 - bx0 * sx, ry0 - by0 * sy)
+        try:
+            pc = Interpreter(doc).run_stream(doc.decode(n), doc.resolve(n.dict.get("Resources")) or {}, mul(m, fit))
+        except Exception:  # noqa: BLE001
+            continue
+        if pc.pictures:
+            out += pc.pictures
+            nm = ad.get("NM")
+            vx0, vy0, vx1, vy1 = view.rect(rx0, ry0, rx1, ry1)
+            stamps.append({"id": decode_text(nm) if isinstance(nm, (bytes, PdfString)) else "",
+                           "kind": getattr(ad.get("Subtype"), "name", ""),
+                           "box": [vx0 / MM, vy0 / MM, vx1 / MM, vy1 / MM]})
+    return out
+
+
+def _with_smask(doc, image, g: Gray) -> Gray:
+    """画像の透け（SMask）：白い紙の上に重ねた濃さにする（透ける所は白）。"""
+    from .objects import Stream
+
+    if not isinstance(image, Stream):
+        return g
+    sm = doc.resolve(image.dict.get("SMask"))
+    if not isinstance(sm, Stream):
+        return g
+    a = image_gray(doc, sm, max_pixels=max(4_000_000, g.w * g.h))
+    px = bytearray(g.px)
+    for y in range(g.h):
+        ay = min(a.h - 1, y * a.h // g.h)
+        for x in range(g.w):
+            al = a.px[ay * a.w + min(a.w - 1, x * a.w // g.w)]
+            if al != 255:
+                i = y * g.w + x
+                px[i] = 255 - (255 - px[i]) * al // 255
+    return Gray(g.w, g.h, bytes(px))
 
 
 def _draw(canvas: bytearray, W: int, H: int, s: float, x0: float, y0: float, view: View, inv, g: Gray) -> None:
@@ -199,6 +276,10 @@ def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | No
             "位置を目で確かめてください。この画像には、ページに置かれた画像だけを描いています（字や線のデータは窓で読みます）。")
     if r["skipped"]:
         text += " 描けなかった画像：" + "／".join(r["skipped"][:5])
+    if r.get("stamps"):
+        text += (" このページに置かれた画像（印影・署名などの注釈）も描いています："
+                 + "／".join(f"{m['id'] or m['kind']}（左 {m['box'][0]:.0f}・上 {m['box'][1]:.0f}・右 {m['box'][2]:.0f}・"
+                            f"下 {m['box'][3]:.0f} mm）" for m in r["stamps"]))
     if written:
         text += (" 青い枠は、値の入った入力欄です（この画像には字を描いていないので、値は次のとおり）："
                  + "／".join(f"{i}＝{m['id']}「{m['value']}」" for i, m in enumerate(written, 1)))
