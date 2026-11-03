@@ -32,6 +32,21 @@ class Stream:
     gen: int = 0
 
 
+class Real(float):
+    """小数で、書き直すと桁が変わるもの（595.303937007874 など）：元の字のまま書き戻すために、元の字を覚える。
+    増分更新で書き換えたオブジェクト（ページなど）の、書いていない数が1桁も変わらないように。"""
+
+    __slots__ = ("raw",)
+
+    def __new__(cls, raw: bytes):
+        o = super().__new__(cls, float(raw))
+        o.raw = bytes(raw)
+        return o
+
+    def __reduce__(self):
+        return (Real, (self.raw,))
+
+
 class PdfString(bytes):
     """文字列（バイト列）。hex で書かれていたかを覚える。"""
 
@@ -100,7 +115,11 @@ class Lexer:
         if m and (m.end() >= len(d) or d[m.end()] in WS or d[m.end()] in DELIM):
             self.pos = m.end()
             t = m[0]
-            return ("num", float(t) if b"." in t else int(t))
+            if b"." not in t:
+                return ("num", int(t))
+            if len(t) - t.index(b".") > 7:
+                return ("num", Real(t))  # 7 桁以上の小数：書き戻すと丸まるので、元の字を覚える
+            return ("num", float(t))
         j = self.pos
         while j < len(d) and d[j] not in WS and d[j] not in DELIM:
             j += 1
@@ -233,6 +252,8 @@ def dumps(o) -> bytes:
         return b"true" if o else b"false"
     if isinstance(o, int):
         return str(o).encode()
+    if isinstance(o, Real):
+        return o.raw
     if isinstance(o, float):
         s = f"{o:.6f}".rstrip("0").rstrip(".")
         return (s or "0").encode()

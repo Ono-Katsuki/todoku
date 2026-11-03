@@ -144,6 +144,10 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
                 pr.unexpected += rels_added_only(za.read(rp), zb.read(rp), added)
                 ax_parts.add(rp)
     # 部品ごとに、書いた段落を除いたバイト列を比べる
+    if "word/numbering.xml" in changed_parts and any(it.get("bullet") is not None for v in targets.values() for _f, it, _x in v):
+        if _numbering(a, b, pa, pb, targets, pr):
+            pass
+        changed_parts = [x for x in changed_parts if x != "word/numbering.xml"]
     for part in changed_parts:
         if part not in a.parts:
             if part not in ax_parts:
@@ -171,6 +175,20 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
         old_fmt = {_fmt(p_old, s, a) for s in p_old.segs if s.run is not None}
         old_fmt.add(_mark_fmt(p_old, a))
         old_fmt.add(b"")
+        # 書いたコンテンツコントロールの字の、プレースホルダーの文字のスタイル（w:rStyle）を外した書式：Word が値を入れるときと
+        # 同じ変更なので、書き込みの一部として認める（外してよいのは、そのスタイルの要素だけ）
+        from .fill import placeholder_style
+
+        for _fid, it, _v in items:
+            c = it.get("control")
+            if c is None or c.source != "sdt":
+                continue
+            for s in c.result_segs:
+                st = placeholder_style(a, s.run) if s.run is not None else None
+                if st is not None:
+                    rpr = s.run.find("rPr")
+                    xml = a.xml(p_old.part)
+                    old_fmt.add(re.sub(rb'\s+w:rsid\w*="[^"]*"', b"", xml[rpr.s:st.s] + xml[st.e:rpr.e]))
         for s in p_new.segs:
             if s.run is not None and _fmt(p_new, s, b) not in old_fmt:
                 pr.unexpected.append(f"段落 {i + 1}：元の段落にない文字の書式が使われています")
@@ -178,7 +196,63 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
     for i, (p_old, p_new) in enumerate(zip(pa, pb)):
         if i not in targets and p_old.text != p_new.text:
             pr.unexpected.append(f"書いていない段落 {i + 1} の文字が変わっています")
+    # 段落番号・箇条書きの印：書いた箇条書きの □ の段落だけが、チェックした印に変わる
+    bullets = {i for i, items in targets.items() for _f, it, v in items if it.get("bullet") is not None and v is True}
+    for i, (p_old, p_new) in enumerate(zip(pa, pb)):
+        if i in bullets:
+            if p_new.label not in ("■", "☑"):
+                pr.unexpected.append(f"段落 {i + 1}：箇条書きの印が「{p_old.label}」から「{p_new.label}」になっています（チェックした印でない）")
+        elif p_old.label != p_new.label:
+            pr.unexpected.append(f"書いていない段落 {i + 1} の段落番号・箇条書きの印が変わっています（「{p_old.label}」→「{p_new.label}」）")
     return pr
+
+
+def _numbering(a: DocxDocument, b: DocxDocument, pa: list, pb: list, targets: dict, pr: DocxProof) -> bool:
+    """numbering.xml の差が、書いた箇条書きの □ のための w:num（todoku.docx.bullet）を足しただけか。
+    足した w:num は、それぞれ書いた段落の1つだけが使い、元の段落の w:num と同じ抽象の定義を指し、段の定義は元の定義の
+    バイト列と、印の字（lvlText）のほかは同じ。"""
+    from .bullet import PART, BulletError, checked_lvl, level_of, _root
+
+    xa, xb = a.xml(PART), b.xml(PART)
+    try:
+        ta, tb = _root(xa), _root(xb)
+    except BulletError as e:
+        pr.unexpected.append(f"{PART}：{e}")
+        return False
+    old_ids = {n.get("numId") for n in ta.findall("num")}
+    added = [n for n in tb.findall("num") if n.get("numId") not in old_ids]
+    if not added or _cut(xb, [(n.s, n.e) for n in added]).replace(b"\x00", b"") != xa:
+        pr.unexpected.append(f"{PART}：足した段落番号の定義（w:num）のほかが変わっています")
+        return False
+    users: dict[str, list[int]] = {}
+    for i, p in enumerate(pb):
+        npr = p.node.find("pPr").find("numPr") if p.node is not None and p.node.find("pPr") is not None else None
+        ni = npr.find("numId") if npr is not None else None
+        if ni is not None and ni.get("val") not in old_ids:
+            users.setdefault(ni.get("val"), []).append(i)
+    ok = True
+    for n in added:
+        nid = n.get("numId")
+        who = users.get(nid, [])
+        bl = [it.get("bullet") for k in who for _f, it, _v in targets.get(k, []) if it.get("bullet") is not None]
+        if len(who) != 1 or len(bl) != 1:
+            pr.unexpected.append(f"{PART}：足した w:num {nid} を使うのが、書いた箇条書きの段落1つではありません")
+            ok = False
+            continue
+        try:
+            aid, lvl, num = level_of(xa, bl[0]["num"], bl[0]["ilvl"])
+            want_lvl = checked_lvl(xa, lvl)
+        except BulletError as e:
+            pr.unexpected.append(f"{PART}：{e}")
+            ok = False
+            continue
+        an = n.find("abstractNumId")
+        los = [lo for lo in n.findall("lvlOverride") if int(lo.get("ilvl", 0) or 0) == bl[0]["ilvl"]]
+        lvl_b = los[0].find("lvl") if len(los) == 1 else None
+        if an is None or an.get("val") != aid or lvl_b is None or xb[lvl_b.s:lvl_b.e] != want_lvl:
+            pr.unexpected.append(f"{PART}：足した w:num {nid} の定義が、元の段の定義の印の字だけを変えたものではありません")
+            ok = False
+    return ok
 
 
 def _matching_sdt(b: DocxDocument, part: str, n: int, spans_a, a: DocxDocument) -> list[tuple[int, int]]:
@@ -234,6 +308,8 @@ def _expected_text(p: Para, items) -> str | None:
         if it.get("control") is not None:
             return None  # 欄の結果の文字（書式を通した値など）は、読み戻しで確かめる
         kind = it["kind"]
+        if it.get("bullet") is not None:
+            continue  # 箇条書きの印：段落の字は変わらない（印は段落番号の定義。下で確かめる）
         if kind == "cell":
             if text.strip(" 　  "):
                 return None

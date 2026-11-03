@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import itertools
 import re
+import unicodedata
 
 from .content import page_content
 from .layout import PageLayout
@@ -26,6 +27,47 @@ def _lines(lay: PageLayout):
     for ln in lay.free_lines:
         if not ln.vertical:
             yield None, ln
+
+
+def _segments(text: str) -> list[tuple[int, int]]:
+    """字の並びを、基の字と、それに続く結合の字（濁点・アクセントなど）のまとまりに分ける：(始まり, 終わり)。"""
+    out: list[tuple[int, int]] = []
+    for k, ch in enumerate(text):
+        if out and unicodedata.combining(ch):
+            out[-1] = (out[-1][0], k + 1)
+        else:
+            out.append((k, k + 1))
+    return out
+
+
+def find_spans(text: str, needle: str) -> list[tuple[int, int]]:
+    """text の中の needle の位置（元の字の位置で (始まり, 終わり)）。字のとおりに見つからなければ、Unicode の正規化
+    （NFC、次に NFKC）をした形どうしで探す（PDF の字が分解された形「e + ̂」で、指定が合成済みの「ê」のときなど）。
+    正規化した字の位置は、まとまり（基の字と結合の字）ごとに、元の字の位置へ戻す。"""
+    out = [(m.start(), m.end()) for m in re.finditer(re.escape(needle), text)
+           if not (m.end() < len(text) and unicodedata.combining(text[m.end()]) and not unicodedata.combining(needle[-1]))]
+    if out or not needle:
+        return out
+    for form in ("NFC", "NFKC"):
+        segs = _segments(text)
+        norm, owner = [], []
+        for si, (a, b) in enumerate(segs):
+            t = unicodedata.normalize(form, text[a:b])
+            norm.append(t)
+            owner += [si] * len(t)
+        flat = "".join(norm)
+        want = unicodedata.normalize(form, needle)
+        for m in re.finditer(re.escape(want), flat):
+            if m.end() == m.start():
+                continue
+            s0, s1 = owner[m.start()], owner[m.end() - 1]
+            # まとまりの途中で始まる・終わる所は採らない（字の一部だけに合うのは、同じ字ではない）
+            if (m.start() and owner[m.start() - 1] == s0) or (m.end() < len(flat) and owner[m.end()] == s1):
+                continue
+            out.append((segs[s0][0], segs[s1][1]))
+        if out:
+            return out
+    return out
 
 
 def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | None = None,
@@ -59,11 +101,11 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
             layouts[n] = PageLayout(doc, pg, page_content(doc, pg), n)
         lay = layouts[n]
         for cell, ln in _lines(lay):
-            for m in re.finditer(re.escape(after), ln.text):
-                hits.append((n, round(ln.y0, 1), round(ln.x0, 1), m.start(), cell, ln, lay))
+            for a_, b_ in find_spans(ln.text, after):
+                hits.append((n, round(ln.y0, 1), round(ln.x0, 1), a_, cell, ln, lay, b_))
     hits.sort(key=lambda h: (h[0], h[1], h[2], h[3]))
     if not hits:
-        raise AnchorError(f"「{after}」が{f' {page_no} ページ' if page_no else ''}に見つかりません（窓の字のとおりに指定してください）")
+        raise AnchorError(f"「{after}」が{f' {page_no} ページに' if page_no else ''}見つかりません（窓の字のとおりに指定してください）")
     occ = spec.get("occurrence")
     if occ is not None:
         if not isinstance(occ, int) or not 1 <= occ <= len(hits):
@@ -72,10 +114,9 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
     if len(hits) > 1:
         listing = "／".join(f"{k}番目：{h[0]}ページ「{h[5].text.strip()[:30]}」" for k, h in enumerate(hits[:10], 1))
         raise AnchorError(f"「{after}」が {len(hits)} か所にあります。page か occurrence（何番目か）で1つに決めてください：{listing}")
-    n, _y, _x, i, cell, ln, lay = hits[0]
+    n, _y, _x, i, cell, ln, lay, j = hits[0]
     sz = ln.size
     text = ln.text
-    j = i + len(after)
     if where == "cover":
         x0, y0, x1, y1 = ln.span_rect(i, j)
         rect = (x0 - 0.3, y0 - 0.1 * sz, x1 + 0.3, y1 + 0.1 * sz)
@@ -168,6 +209,16 @@ def _place(n, rect, used, taken_names, out, where, after, sz, prefix: str = "w",
 MM = 72 / 25.4  # 1 mm のポイント
 
 
+A4_SHORT = 595.28  # A4 の短い辺（pt、ISO 216）
+
+
+def box_base_size(view) -> float:
+    """枠（mm）に書く字の、大きさの上限：A4 の文書の標準の 10.5pt を、紙の大きさ（A4 との短い辺の比、ISO 216 の紙は
+    √2 倍ずつ）に合わせる。A3 のスキャンでは 14.8pt。枠の高さが低ければ、その高さに合わせて小さくする（_resolve_box）。"""
+    short = min(view.width, view.height)
+    return round(10.5 * max(1.0, short / A4_SHORT), 2)
+
+
 def _resolve_box(doc, spec: dict, used, layouts, taken_names) -> dict:
     """{"page": ページ, "box": [左, 上, 右, 下]（ページの左上からの mm）, "value": 書く字}：エージェントがページの画像
     （view_page）を見て決めた枠に書く。枠の中にページの字があれば断る（字は消せない）。"""
@@ -194,6 +245,6 @@ def _resolve_box(doc, spec: dict, used, layouts, taken_names) -> dict:
     inside = [c for c in lay.chars if not c.text.isspace() and x0 < (c.x0 + c.x1) / 2 < x1 and y0 < (c.y0 + c.y1) / 2 < y1]
     if inside:
         raise AnchorError(f"枠の中に、ページの字（「{''.join(c.text for c in inside[:6])}」）があります")
-    sz = min(10.5, (y1 - y0) * 0.75)
+    sz = min(box_base_size(view), (y1 - y0) * 0.75)
     return _place(n, rect, used, taken_names, {"id": None, "page": n, "kind": "text", "size": None, "anchored": dict(spec)},
                   "box", "", sz)

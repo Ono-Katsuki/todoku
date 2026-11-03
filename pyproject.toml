@@ -1,6 +1,6 @@
 [project]
 name = "todoku"
-version = "0.1.0"
+version = "0.2.0"
 description = "書類を、内容を一字も変えずにAIと支援技術に届ける変換・診断ツール"
 readme = "README.md"
 requires-python = ">=3.11"

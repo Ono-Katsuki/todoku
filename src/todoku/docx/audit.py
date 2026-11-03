@@ -29,7 +29,7 @@ def raw_texts(doc: DocxDocument) -> list[str]:
         xml = doc.xml(part)
         xml = re.sub(rb"<mc:Fallback\b.*?</mc:Fallback>", b"", xml, flags=re.S)
         xml = re.sub(rb"<w:instrText\b[^>]*>.*?</w:instrText>", b"", xml, flags=re.S)
-        for m in re.finditer(rb"<(?:w|m):t(?:\s[^>]*)?>(.*?)</(?:w|m):t>|<w:sym\b([^>]*)/>", xml, re.S):
+        for m in re.finditer(rb"<(?:w|m):(?:t|delText)(?:\s[^>]*)?>(.*?)</(?:w|m):(?:t|delText)>|<w:sym\b([^>]*)/>", xml, re.S):
             if m[1] is not None:
                 t = m[1].decode("utf-8", "replace")
                 out.append(t.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&apos;", "'").replace("&amp;", "&"))

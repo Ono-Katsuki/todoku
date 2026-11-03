@@ -65,6 +65,13 @@ def _hits(lay: PageLayout, text: str):
             if m.end() == m.start():
                 continue
             out.append((cell, ln, m.start(), m.end()))
+    if not out:
+        # 字のとおりに見つからなければ、正規化（NFC・NFKC）した形どうしで（分解された「e + ̂」と「ê」など）
+        from .anchor import find_spans
+
+        for cell, ln in _lines(lay):
+            for a, b in find_spans(ln.text, "".join(ch for ch in text if not ch.isspace())):
+                out.append((cell, ln, a, b))
     return out
 
 
@@ -96,9 +103,9 @@ def find(doc, spec: dict, layouts: dict) -> tuple[int, object, object, int, int]
         if len(hits) != 1:
             raise AnchorError(f"選択肢「{target}」の字の所が、ページの字から1つに決まりません")
         return hits[0]
-    where = f" {page_no} ページ" if page_no else ""
+    where = f" {page_no} ページに" if page_no else ""
     if not hits:
-        raise AnchorError(f"「{target}」が{where}に見つかりません（窓の字のとおりに指定してください）")
+        raise AnchorError(f"「{target}」が{where}見つかりません（窓の字のとおりに指定してください）")
     occ = spec.get("occurrence")
     if occ is not None:
         if not isinstance(occ, int) or isinstance(occ, bool) or not 1 <= occ <= len(hits):
@@ -291,7 +298,8 @@ def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None
 
 # ---------------------------------------------------------------------- 描く
 def line_width(size: float) -> float:
-    return round(min(1.2, max(0.6, 0.07 * size)), 2)
+    """○の線の太さ：字の大きさに比例（A3 の大きな字でも、字の線と同じくらいの太さに）。細すぎないよう 0.6pt 以上。"""
+    return round(max(0.6, 0.07 * size), 2)
 
 
 def open_depth(data: bytes) -> int:

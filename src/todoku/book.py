@@ -23,6 +23,8 @@ def kind_of(blob: bytes, filename: str = "") -> str:
             return "docx"
         if any(n.startswith("ppt/") for n in names):
             return "pptx"
+        if _is_hwpx(blob, names):
+            return "hwpx"  # 韓国のワープロ（한글）の HWPX（OWPML、KS X 6101）：読めない形式として見分ける
         odf = _odf_kind(blob, names)  # OpenDocument（.odt・.ods）：mimetype の部品で見分ける
         if odf:
             return odf
@@ -44,6 +46,8 @@ def kind_of(blob: bytes, filename: str = "") -> str:
 
         if is_jtd(names):
             return "jtd"
+        if "fileheader" in names and _is_hwp5(blob):
+            return "hwp"  # 韓国のワープロ（한글）の HWP 5.0：FileHeader のストリームが「HWP Document File」で始まる
         return "cfb"
     if blob[:4] == b"%PDF":
         return "pdf"
@@ -61,6 +65,39 @@ _ODF_MIME = {"application/vnd.oasis.opendocument.text": "odt", "application/vnd.
              "application/vnd.oasis.opendocument.presentation": "odp", "application/vnd.oasis.opendocument.graphics": "odg"}
 _BY_NAME = {".csv": "csv", ".tsv": "tsv", ".tab": "tsv", ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl",
             ".txt": "txt"}
+
+
+# 見分けるが、まだ読めない形式（開くと「未対応の形式」と伝え、段階は F）
+UNSUPPORTED = {"hwp": "HWP（韓国のワープロ）", "hwpx": "HWPX（韓国のワープロ）"}
+
+
+def unsupported_message(kind: str) -> str:
+    return (f"未対応の形式：HWP/HWPX（韓国のワープロ）。このファイルは {UNSUPPORTED.get(kind, kind)} の文書で、"
+            "とどくはまだ読めません（中身を推測して読むことはしません）。PDF・Word などに書き出したものがあれば、そちらを開いてください")
+
+
+def _is_hwpx(blob: bytes, names: set) -> bool:
+    """HWPX（OWPML）のパッケージ：先頭の mimetype の部品が application/hwp+zip（ODF と同じ作りのパッケージ）。"""
+    if "mimetype" not in names:
+        return False
+    from .zipraw import RawZip
+
+    try:
+        return RawZip(blob).read("mimetype").decode("ascii", "replace").strip() == "application/hwp+zip"
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _is_hwp5(blob: bytes) -> bool:
+    """HWP 5.0（複合ファイル）：FileHeader のストリームの先頭 32 バイトが署名「HWP Document File」。"""
+    from .cfb import CFB
+
+    try:
+        c = CFB(blob)
+        name = next(n for n in c.streams() if n.lower() == "fileheader")
+        return c.read(name)[:17] == b"HWP Document File"
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _odf_kind(blob: bytes, names: set) -> str | None:
