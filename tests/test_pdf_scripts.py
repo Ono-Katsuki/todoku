@@ -200,3 +200,12 @@ def test_radio_names_not_utf8_are_shown_raw_and_flagged():
     assert name_text(raw) == "#82#CD#82#A210"
     assert name_text("Yes") == "Yes"
     assert name_text("はい".encode().decode("latin-1")) == "はい"
+
+
+def test_option_text_with_undefined_pdfdoc_bytes_is_unreadable():
+    from todoku.pdf.form import text_unreadable
+
+    assert text_unreadable(b"\x9f\x40")  # 0x9F は PDFDocEncoding で決まっていない
+    assert not text_unreadable(b"Yes")
+    assert not text_unreadable("\ufeffはい".encode("utf-16-be"))
+    assert text_unreadable(b"\xfe\xff\xd8\x00")  # 対のない代用符号

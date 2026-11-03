@@ -310,6 +310,11 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         if f.options:
             d["options"] = [o[1] or o[0] for o in f.options]
             d["export_values"] = [o[0] for o in f.options]
+            if getattr(f, "bad_opts", None):
+                lay.flag("C", "字の読めない選択肢の名前",
+                         "一覧から選ぶ欄の選択肢の字が、PDF の文字列の決まり（PDFDocEncoding・UTF-16BE）で読めません"
+                         "（Shift_JIS などで書いたもの）。字を推し量らず、元のバイト列を示しました。どれが何の選択肢かは view_page で確かめる",
+                         [f"{f.name}：" + "、".join("<" + b.hex().upper() + ">" for b in f.bad_opts[:6])])
         if f.kind == "radio":
             if f.options:
                 d["options"] = [o[1] or o[0] for o in f.options]
