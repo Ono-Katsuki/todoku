@@ -299,12 +299,14 @@ def test_ambiguous_kinds_and_alternatives_are_offered_not_decided():
     assert alt["agent"]
     with pytest.raises(FillError, match="どちらか1つ"):
         fill(PdfDocument(blob, "s.pdf"), {name["id"]: "とどく", alt["id"]: "とどく"})
-    # 1字ずつ（既定）と、1つの欄として（{"as": "text"}）
-    for value, want in (("1000001", "1000001"), ({"as": "text", "value": "100-0001"}, "100-0001")):
-        res = fill(PdfDocument(blob, "s.pdf"), {comb["id"]: value})
-        assert prove(blob, res.blob, {comb["id"]}).ok
-        got = {f["id"]: f["value"] for f in build(PdfDocument(res.blob, "s.pdf"))["pages"][0]["fields"]}
-        assert got[comb["id"]] == want
+    # 1字ずつ（既定）
+    res = fill(PdfDocument(blob, "s.pdf"), {comb["id"]: "1000001"})
+    assert prove(blob, res.blob, {comb["id"]}).ok
+    got = {f["id"]: f["value"] for f in build(PdfDocument(res.blob, "s.pdf"))["pages"][0]["fields"]}
+    assert got[comb["id"]] == "1000001"
+    # 1つの欄として（{"as": "text"}）：マスの仕切りの線が字を横切るので、書き出さない（placement）
+    with pytest.raises(FillError, match="罫線が横切ります"):
+        fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"as": "text", "value": "100-0001"}})
     with pytest.raises(FillError, match="としては書けません"):
         fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"as": "checkbox", "value": True}})
     # 日付の空欄は語（年・月・日）を手がかりにしたもの：規則では決められない所

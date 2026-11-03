@@ -356,10 +356,12 @@ def _view_box(rot: int, w: float, h: float) -> tuple[float, float]:
     return (h, w) if rot in (90, 270) else (w, h)
 
 
-def inline_align(spot: dict) -> str:
+def inline_align(spot: dict, text_w: float | None = None) -> str:
     """文字の中の空欄に書く字のそろえ方：空欄の前後の字で決める（見出しの字に寄せる）。
     前にだけ字がある（「〒［　］」「○○区［　］」）→ 左、後ろにだけ字がある（「［　］年」）→ 右（後ろの字の手前）、
-    前後に字がある（「令和［　］年」）→ 中央。覆って書く所（cover）は中央。"""
+    前後に字がある（「令和［　］年」）→ 中央。ただし、前後に字があっても、空欄が書く字（幅 text_w）よりずっと広い
+    （3 倍と字 2 つぶんを超える：「区長宛て［　　　　　　］年」）ときは、中央に置くと前後のどちらの字からも離れて読めない
+    ので、後ろの字の手前（右）にそろえる。覆って書く所（cover）は中央。"""
     if spot.get("cover"):
         return "center"
     lab = spot.get("label") or ""
@@ -373,6 +375,11 @@ def inline_align(spot: dict) -> str:
         return "left"
     if after and not before:
         return "right"
+    if before and after and text_w is not None and spot.get("rect"):
+        r = spot["rect"]
+        size = float(spot.get("size") or 10.5)
+        if (r[2] - r[0]) > 3 * text_w + 2 * size:
+            return "right"
     return "center"
 
 
@@ -458,6 +465,7 @@ class Filler:
         self.patches: list[Patch] = []
         self.warnings: list[str] = []
         self.circles: dict[int, list[dict]] = {}  # ページ → ○で囲む所（circle.resolve）
+        self.covers: set[str] = set()  # 覆って書いた所（cover）の名前：覆う字に重なってよい
         from .signatures import read as read_signatures
 
         self.sigs = read_signatures(doc)  # 電子署名：固定された欄・認証の署名が許す変更
@@ -904,10 +912,14 @@ class Filler:
                 comb.append((bx0 - vx0, by0 - vy0, bx1 - vx0, by1 - vy0))
         cover = bool(spot.get("cover"))
         unit = view.unit  # 知らせる字の大きさは、紙の上の pt（UserUnit のあるページも）
+        # そろえ方：文字の中の空欄と、見出しに空欄の印（［　］）のある欄は、前後の字に寄せる（inline_align）
+        marked = k == "inline" or "［" in (spot.get("label") or "")
+        align = inline_align(spot, text_width(text, min(size, (vy1 - vy0) * 0.8)) if text else None) if marked else "left"
         ap, s = text_appearance(self.up, w, h, text, size, self.fonts_for(fonts_used([text]) | {"Helv"}),
-                                align=inline_align(spot) if k == "inline" else "left", comb=comb, rot=rot,
+                                align=align, comb=comb, rot=rot,
                                 multiline=(vy1 - vy0) > 2.4 * min(size, 10.5 / unit), cover=cover, unit=unit)
         if cover:
+            self.covers.add(spot["id"])
             self.warnings.append(f"{spot['id']}: 元の字「{spot.get('covered', '')}」は、白い下地の欄で覆いました（元の字は消していません）")
         if text and s * unit < MIN_READABLE_PT:
             self.warnings.append(f"{spot['id']}: 欄に収めるため、字が {s * unit:.1f} pt になり、印刷すると読みにくい大きさです"
@@ -921,8 +933,8 @@ class Filler:
         if comb:
             d["Ff"] = FF_COMB
             d["MaxLen"] = len(comb)
-        if k == "inline":
-            d["Q"] = {"center": 1, "right": 2}.get(inline_align(spot), 0)
+        if marked:
+            d["Q"] = {"center": 1, "right": 2}.get(align, 0)
         if rot:
             d["MK"] = {"R": rot}
         if cover:
@@ -1183,7 +1195,7 @@ def list_appearance(update: Update, w: float, h: float, labels: list[str], selec
     return _ap(update, w, h, bytes(ops), keys, dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s, top, visible
 
 
-def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
+def fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: bool = True) -> FillResult:
     """欄の名前（窓の［］の中）→ 値。フォームの欄はその名前、配置から見つけた欄は p{ページ}.{番号}。
     漢字の字形は、書類の言語（Catalog の /Lang）の字形の集まりから先に選ぶ（glyphs.cjk_order）。"""
     from .objects import PdfString, decode_text
@@ -1191,10 +1203,10 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
     lang = doc.resolve(doc.root.get("Lang")) if hasattr(doc, "root") and isinstance(doc.root, dict) else None
     lang = decode_text(lang) if isinstance(lang, (bytes, PdfString)) else ""
     with glyphs.cjk_order(lang):
-        return _fill(doc, values, force=force)
+        return _fill(doc, values, force=force, placement=placement)
 
 
-def _fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
+def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: bool = True) -> FillResult:
     from .window import build as build_window
 
     f = Filler(doc)
@@ -1303,6 +1315,17 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
                           "（字の大きさ・折り返し・書体が変わることがあります）。書いた値（/V）は確かめたとおりです")
     denied = _permissions(f)
     blob = f.finish() if f.patches else doc.blob
+    if f.patches and placement:
+        # 書いた字・○が、印刷された字・罫線・同じ書き込みのほかの値に重ならないか（書いた後の文書の形で）。
+        # placement=False は、監査の試しの書き込み（欄の作りの確かめ）だけ
+        from . import placement as _placement
+
+        # とどくが置いた字の欄（チェックの印は、印刷された□の上に置くもの：(a)・(b) は見ない）
+        created = {p.id for p in f.patches if p.kind == "input" and p.id not in f.by_name}
+        probs, notes = _placement.check(doc, _placement.reopen(doc, blob), f.patches, created, f.covers)
+        if probs:
+            raise FillError("書いた所が、ほかの字や線に重なるので、書き出していません：\n" + "\n".join(probs[:12]))
+        f.warnings += [x for x in notes if x not in f.warnings]
     return FillResult(blob, f.patches, f.warnings, denied=denied)
 
 

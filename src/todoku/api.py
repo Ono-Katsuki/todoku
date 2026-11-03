@@ -506,6 +506,9 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             result["circled"] = [{"key": p.key, "id": p.id, "page": p.page, "text": p.circle["text"],
                                   "label": p.circle["label"], "context": p.circle["context"],
                                   "around": p.circle.get("around"),  # 囲んだ字の前後（【】が囲んだ字）
+                                  # occurrence で指した、字の並びの中の字：長い字の並びの一部を囲んだことを伝える
+                                  **({"inside_word": "長い字の並びの中の字を囲みました（occurrence で指定）"}
+                                     if p.circle.get("inside_word") else {}),
                                   "style": p.circle.get("style", "ellipse"),
                                   "how": ("ページに字を囲む四角の線を描いた" if p.circle.get("style") == "border"
                                           else "ページに楕円を描いた"),
@@ -1237,7 +1240,8 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         verb = "□で囲んだ（字の囲み線）" if c.get("style") == "border" else "○で囲んだ"
         lines.append(f"- {verb}：{where + '・' if where else ''}{lab + '：' if lab and lab != c['text'] else ''}「{c['text']}」"
                      + (f"（前後の字：「{c['around']}」）" if c.get("around") else "")
-                     + (f"（{c['uncertain']}）" if c.get("uncertain") else ""))
+                     + (f"（{c['uncertain']}）" if c.get("uncertain") else "")
+                     + (f"（{c['inside_word']}）" if c.get("inside_word") else ""))
     if empty:
         # 次に書くとよい欄：書いた所の続き（同じシート・ページで、書いた所より後ろの空欄）から順に
         order = {f["id"]: i for i, f in enumerate(after_list)}
