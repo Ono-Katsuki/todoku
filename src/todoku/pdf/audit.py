@@ -195,13 +195,21 @@ def _sample(f: dict):
     if ml and ml < 3:
         return "1" * ml
     # 欄の大きさに入る値（小さな欄は1字。書く値が入りきらないときは、書き込みが「入りきりません」と断る）
-    x0, y0, x1, y1 = f.get("rect", (0, 0, 100, 20))
-    w = x1 - x0
+    rect = f.get("rect", (0, 0, 100, 20))
+    from .fill import spot_fits
+
+    if f.get("source") == "layout":
+        # 配置から見つけた欄：書き込み（add_widget）と同じ決め方で入る値
+        for cand in (("12", "1") if k == "inline" else ("テスト", "12", "1")):
+            if spot_fits(cand, rect, f.get("size"), k):
+                return cand
+        return "1"
+    x0, y0, x1, y1 = rect
     from .fill import FillError, layout_text
 
     for cand in (("12", "1") if k == "inline" else ("テスト", "12", "1")):
         try:
-            layout_text(cand, w, y1 - y0, min(float(f.get("size") or 10.5), 10.5), multiline=(y1 - y0) > 25)
+            layout_text(cand, x1 - x0, y1 - y0, min(float(f.get("size") or 10.5), 10.5), multiline=(y1 - y0) > 25)
             return cand
         except FillError:
             continue
@@ -236,37 +244,75 @@ def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> l
             continue
         targets[f["id"]] = v
     n_fields = len(_all_fields(win))
-    try:
-        res = fill(doc, targets)
-    except FillError as e:
-        return [Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
-    pr = prove(doc.blob, res.blob, set(targets), password=password)
+    passes = _passes(targets, {f["id"]: f for f in _all_fields(win)})
     na = (f"（読み取り専用・電子署名・ボタン・データに結びつかない欄など {len(not_writable)} 欄は、書けない欄なので除外）"
           if not_writable else "")
-    out = [Check("全入力欄への書き込み", pr.ok and not skipped,
-                 f"入力欄 {n_fields:,} か所のうち {len(targets):,} に試しの値を書き込み{na}。{pr.headline()}",
-                 [*pr.unexpected, *pr.lint_errors, *skipped])]
-    after = PdfDocument(res.blob, doc.filename, password=password)
-    win2 = build(after)
-    got = {f["id"]: f.get("value") for f in _all_fields(win2)}
-    wrong = []
-    written = {p_.id: p_.value for p_ in res.patches}
+    many = (f"同じ所の別の読み方（重なる候補）は両方には書けないので、{len(passes)} 回に分けて書き込み、" if len(passes) > 1 else "")
+    unexpected, wrong, heads = [], [], []
     formatted = 0
-    for k, v in targets.items():
-        g = got.get(k)
-        w = written.get(k, v)
-        if not isinstance(v, bool) and str(w) != str(v):
-            formatted += 1  # 欄の書式（日付・数など）を通した値
-        v = w if not isinstance(v, bool) else v
-        if isinstance(v, bool):
-            ok = bool(g) == v
-        else:
-            ok = str(g) == str(v)
-        if not ok:
-            wrong.append(f"{k}: 書いた値 {v!r} → 窓では {g!r}")
+    ok_all = True
+    for part in passes:
+        try:
+            res = fill(doc, part)
+        except FillError as e:
+            return [Check("全入力欄への書き込み", False, f"{len(part)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
+        pr = prove(doc.blob, res.blob, set(part), password=password)
+        ok_all = ok_all and pr.ok
+        unexpected += [*pr.unexpected, *pr.lint_errors]
+        heads.append(pr.headline())
+        after = PdfDocument(res.blob, doc.filename, password=password)
+        win2 = build(after)
+        got = {f["id"]: f.get("value") for f in _all_fields(win2)}
+        written = {p_.id: p_.value for p_ in res.patches}
+        for k, v in part.items():
+            g = got.get(k)
+            w = written.get(k, v)
+            if not isinstance(v, bool) and str(w) != str(v):
+                formatted += 1  # 欄の書式（日付・数など）を通した値
+            v = w if not isinstance(v, bool) else v
+            if isinstance(v, bool):
+                ok = bool(g) == v
+            else:
+                ok = str(g) == str(v)
+            if not ok:
+                wrong.append(f"{k}: 書いた値 {v!r} → 窓では {g!r}")
+    head = heads[0] if len(set(heads)) == 1 else " / ".join(dict.fromkeys(heads))
+    out = [Check("全入力欄への書き込み", ok_all and not skipped,
+                 f"入力欄 {n_fields:,} か所のうち {len(targets):,} に試しの値を{many}書き込み{na}。{head}",
+                 [*unexpected, *skipped])]
     note = f"（うち {formatted} 欄は、欄の書式どおりの形にして書いた値）" if formatted else ""
     out.append(Check("読み戻し", not wrong, f"書いた {len(targets):,} 欄のうち {len(targets) - len(wrong):,} 欄が、書き込み後の窓にそのまま出ている{note}", wrong))
     return out
+
+
+def _passes(targets: dict, by_id: dict) -> list[dict]:
+    """書き込みの試しを、同じ所の別の読み方（fill.conflicting）が同じ回に入らないように分ける（たいていは1回）。"""
+    from .fill import conflicting
+
+    clash: dict[str, set] = {}
+    groups: dict[str, list[dict]] = {}
+    for k in targets:
+        f = by_id.get(k)
+        alt = f.get("alternative_to") if f is not None and f.get("source") == "layout" else None
+        if alt:
+            clash.setdefault(k, set()).add(alt)
+            clash.setdefault(alt, set()).add(k)
+            groups.setdefault(alt, []).append(f)
+    for g in groups.values():
+        for i, a in enumerate(g):
+            for b in g[i + 1:]:
+                if conflicting(a, b):
+                    clash[a["id"]].add(b["id"])
+                    clash[b["id"]].add(a["id"])
+    passes: list[dict] = []
+    for k, v in targets.items():
+        for part in passes:
+            if not clash.get(k, set()) & part.keys():
+                part[k] = v
+                break
+        else:
+            passes.append({k: v})
+    return passes or [{}]
 
 
 def anchored_check(blob: bytes, filename: str, password: str | None = None) -> Check:

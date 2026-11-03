@@ -181,7 +181,11 @@ def test_sample_form_fill_prove_readback():
     fields = win["pages"][0]["fields"]
     vals = {}
     for f in fields:
-        if f["kind"] == "comb":
+        if f.get("alternative_to") or f.get("readonly"):
+            continue  # 同じ所の別の読み方（両方には書けない）・書けない所
+        if f.get("agent") and f["kind"] in ("space", "inline", "text"):
+            vals[f["id"]] = "8"  # 規則では決められない所（狭い余白もある）：短い値
+        elif f["kind"] == "comb":
             vals[f["id"]] = "1234567"
         elif f["kind"] == "checkbox":
             vals[f["id"]] = f["label"] == "新規"
@@ -258,3 +262,67 @@ def test_cover_write_over_a_placeholder():
         assert pr.ok, pr.unexpected
     with pytest.raises(FillError, match="見つかりません"):
         fill(PdfDocument(blob, "c.pdf"), {"@1": {"cover": "△△", "value": "x"}})
+
+
+# ====================================================================== 規則では決められない所（エージェントが判断する）
+def test_pdf_blanks_tell_structural_from_keyword():
+    # 字の形だけで決まる空欄（下線の字・かっこの中の空白）と、語（年・月・市・区長）を手がかりにした空欄を分ける。
+    # 2つの数の組としてはこれまでどおり（Word の呼び出しはそのまま）
+    (a, b), = pdf_blanks("電話（　　　　）")
+    assert (a, b) == (3, 7) and pdf_blanks("電話（　　　　）")[0].structural
+    assert pdf_blanks("氏名＿＿＿＿")[0].structural
+    date = pdf_blanks("令和　　年　　月　　日")
+    assert len(date) == 3 and not any(x.structural for x in date)
+    assert set(date) == {(2, 4), (5, 7), (8, 10)}
+
+
+def test_ambiguous_kinds_and_alternatives_are_offered_not_decided():
+    # 7つの同じ大きさのマス：1字ずつ書く欄か1つの欄かは形の大きさでは決めない（候補の種類を示す）。
+    # 「氏名」の右の空き：すぐ右の空のマスと同じ値の書く所の別の候補（両方には書けない）
+    blob = sample_form()
+    doc = PdfDocument(blob, "s.pdf")
+    fields = build(doc)["pages"][0]["fields"]
+    comb = next(f for f in fields if f["kind"] == "comb")
+    assert comb["agent"] and comb["kind_candidates"] == ["comb", "text"] and "マスの幅" in comb["why"]
+    name = next(f for f in fields if f["label"] == "氏名" and not f.get("agent"))
+    alt = next(f for f in fields if f.get("alternative_to") == name["id"])
+    assert alt["agent"]
+    with pytest.raises(FillError, match="どちらか1つ"):
+        fill(PdfDocument(blob, "s.pdf"), {name["id"]: "とどく", alt["id"]: "とどく"})
+    # 1字ずつ（既定）と、1つの欄として（{"as": "text"}）
+    for value, want in (("1000001", "1000001"), ({"as": "text", "value": "100-0001"}, "100-0001")):
+        res = fill(PdfDocument(blob, "s.pdf"), {comb["id"]: value})
+        assert prove(blob, res.blob, {comb["id"]}).ok
+        got = {f["id"]: f["value"] for f in build(PdfDocument(res.blob, "s.pdf"))["pages"][0]["fields"]}
+        assert got[comb["id"]] == want
+    with pytest.raises(FillError, match="としては書けません"):
+        fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"as": "checkbox", "value": True}})
+    # 日付の空欄は語（年・月・日）を手がかりにしたもの：規則では決められない所
+    assert all(f.get("agent") for f in fields if f["kind"] == "inline")
+
+
+def test_small_square_cell_can_be_checked_or_written():
+    # 小さな正方形のマス（右に選択肢の字）：チェックの印か、1字を書く欄か。true/false は印、字は文字として書く
+    font, extra, codes = jp_font_objs("有無", 5)
+    c = b"0.5 w 60 700 m 72 700 l S 60 688 m 72 688 l S 60 700 m 60 688 l S 72 700 m 72 688 l S\n"
+    c += b"BT /F1 10 Tf 76 690 Td " + jp_text(codes, "有") + b" Tj ET\n"
+    blob = make_pdf(c, {"F1": font}, extra)
+    f = next(x for x in build(PdfDocument(blob, "b.pdf"))["pages"][0]["fields"] if x["kind"] == "checkbox")
+    assert f["agent"] and f["kind_candidates"] == ["checkbox", "text"] and f["label"] == "有"
+    for value, want in ((True, True), ("1", "1")):
+        res = fill(PdfDocument(blob, "b.pdf"), {f["id"]: value})
+        got = {x["id"]: x["value"] for x in build(PdfDocument(res.blob, "b.pdf"))["pages"][0]["fields"]}
+        assert got[f["id"]] == want
+    assert audit(blob, "b.pdf").ok
+
+
+def test_printed_checked_mark_is_shown_as_a_candidate():
+    # 印刷された記入済みの印（■）：選んだ印か箇条の印かは決めない。消せないので書けない所として、元の字のまま示す
+    font, extra, codes = jp_font_objs("■有", 5)
+    c = b"BT /F1 10 Tf 60 700 Td " + jp_text(codes, "■有") + b" Tj ET\n"
+    blob = make_pdf(c, {"F1": font}, extra)
+    pg = build(PdfDocument(blob, "m.pdf"))["pages"][0]
+    f = next(x for x in pg["fields"] if x["kind"] == "checkbox")
+    assert f["agent"] and f["readonly"] and f["value"] is True and "■" in f["why"]
+    assert any(f"■［{f['id']}？］有" in ln for ln in pg["reading"]), pg["reading"]
+    assert audit(blob, "m.pdf").ok

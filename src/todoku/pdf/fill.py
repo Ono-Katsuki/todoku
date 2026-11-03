@@ -283,6 +283,20 @@ def wrap(text: str, size: float, width: float) -> list[str]:
     return lines
 
 
+def spot_fits(text: str, rect, size: float | None, kind: str) -> bool:
+    """配置から見つけた欄（窓の rect・size）に、add_widget と同じ決め方で text が入るか。"""
+    x0, y0, x1, y1 = rect
+    w, h = x1 - x0, y1 - y0
+    size = float(size or 10.5)
+    if w <= 0 or h <= 0:
+        return False
+    try:
+        layout_text(text, w, h, size, center=kind == "inline", multiline=h > 2.4 * min(size, 10.5))
+    except FillError:
+        return False
+    return True
+
+
 def layout_text(text: str, w: float, h: float, size: float, center: bool = False, multiline: bool = True):
     """枠に入るように、字の大きさと折り返しを決める。(行, 大きさ)。入らなければ FillError。"""
     s = size
@@ -745,9 +759,11 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
                 continue
             if page_no not in views:
                 views[page_no] = View(doc, f.pages[page_no - 1])
+            sd, value = as_kind(sd, value)
             f.add_widget(page_no, sd, value, views[page_no])
         except FillError as e:
             problems.append(str(e))
+    problems += alternative_conflicts([spots[k][1] for k in values if k in spots and spots[k][1].get("source") == "layout"])
     if xfa_values and not problems:
         try:
             _fill_xfa(f, xf, xfa_values, force)
@@ -759,6 +775,62 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
         _recalculate(f, values)
     blob = f.finish() if f.patches else doc.blob
     return FillResult(blob, f.patches, f.warnings)
+
+
+def as_kind(sd: dict, value):
+    """種類が形だけでは決まらない欄（kind_candidates のある欄）に、値からどの種類で書くかを決める。
+    - {"as": 種類, "value": 値}：その種類で書く（種類は kind_candidates のどれか）
+    - はい／いいえ（true / false）：チェックの印（候補に checkbox があるとき）
+    - 字：候補に text があり、既定の種類がチェックの印なら、文字の欄として書く（「1」「レ」などをマスに書く）。
+      既定が1字ずつ書く欄（comb）なら、1字ずつマスに書く（1つの欄として書くときは {"as": "text", …}）
+    返す値：(書く欄の情報, 書く値)。"""
+    cands = sd.get("kind_candidates") or []
+    if isinstance(value, dict) and "as" in value:
+        want = value.get("as")
+        if not cands or want not in cands:
+            raise FillError(f"{sd['id']}: 「{want}」としては書けません（書ける種類：{'・'.join(cands) or sd['kind']}）")
+        if "value" not in value:
+            raise FillError(f'{sd["id"]}: {{"as": 種類, "value": 書く値}} の形で指定してください')
+        return {**sd, "kind": want}, value["value"]
+    if not cands:
+        return sd, value
+    if isinstance(value, bool):
+        if "checkbox" in cands:
+            return {**sd, "kind": "checkbox"}, value
+        return sd, value
+    if sd["kind"] == "checkbox" and "text" in cands:
+        return {**sd, "kind": "text"}, value
+    return sd, value
+
+
+def alternative_conflicts(written: list[dict]) -> list[str]:
+    """同じ所の別の読み方（alternative_to でつながる候補）の両方に書こうとしたもの：どちらか1つにする（重なって書かれるので）。"""
+    out = []
+    ids = {d["id"] for d in written}
+    groups: dict[str, list[dict]] = {}
+    for d in written:
+        alt = d.get("alternative_to")
+        if not alt:
+            continue
+        if alt in ids:
+            out.append(f"{d['id']} と {alt} は、同じ所の別の読み方（重なる候補）です。どちらか1つにだけ書いてください")
+        groups.setdefault(alt, []).append(d)
+    for g in groups.values():
+        for i, a in enumerate(g):
+            for b in g[i + 1:]:
+                if conflicting(a, b):
+                    out.append(f"{a['id']} と {b['id']} は、同じ所の別の読み方（重なる候補）です。どちらか1つにだけ書いてください")
+    return out
+
+
+def conflicting(a: dict, b: dict) -> bool:
+    """2つの欄が、同じ所の別の読み方か：一方が他方の alternative_to か、同じ候補の別の読み方どうしで重なるもの。"""
+    if a.get("alternative_to") == b["id"] or b.get("alternative_to") == a["id"]:
+        return True
+    if a.get("alternative_to") and a.get("alternative_to") == b.get("alternative_to"):
+        r, s = a["rect"], b["rect"]
+        return r[0] < s[2] and s[0] < r[2] and r[1] < s[3] and s[1] < r[3]
+    return False
 
 
 def _place_seal(f: Filler, key: str, spec: dict, skey: str, used: dict, layouts: dict, views: dict) -> None:
