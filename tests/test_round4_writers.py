@@ -221,7 +221,8 @@ def test_odt_written_text_does_not_inherit_strike_or_colour(tmp_path):
     assert 'style:text-line-through-style="none"' in xml and 'style:use-window-font-color="true"' in xml
     assert 'fo:background-color="transparent"' in xml
     # 字の大きさ（14pt の span）は、外の span のまま
-    assert '<text:span text:style-name="T1"><text:bookmark-start text:name="_todoku_P1.1"/><text:span text:style-name="todoku_w' in xml
+    # （空白だけの長い空きは、見出しにくっつかないよう、初めの 1 字を残して中に書く）
+    assert '<text:span text:style-name="T1">　<text:bookmark-start text:name="_todoku_P1.1"/><text:span text:style-name="todoku_w' in xml
 
 
 def test_odt_proof_catches_other_style_change(tmp_path):

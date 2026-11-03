@@ -1158,6 +1158,10 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
                 underlined = bool(blank_segs) and all(sg.underline for sg in blank_segs)
                 f.replace_span(item, p, a, b, text, keep_width=underlined and bool(text))
                 f.patches.append(Patch(key, "input", text, p.part))
+                lead, trail = item.get("kept_edges") or (False, False)
+                if text and (lead or trail):
+                    where = "・".join(x for x, on in (("前の見出し", lead), ("後ろの字", trail)) if on)
+                    f.warnings.append(f"{key}: 書いた字が{where}にくっつかないよう、空白の端の 1 字を残して、空白の中に書きました")
             else:
                 raise FillError(f"{key}: この種類の欄（{kind}）には書けません")
         except FillError as e:
