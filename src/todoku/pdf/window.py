@@ -438,8 +438,12 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         from .objects import decode_text
 
         txt = decode_text(doc.resolve(ad.get("Contents"))) if ad.get("Contents") is not None else ""
-        if txt or st in ("FreeText", "Stamp", "Text"):
-            annots.append({"kind": st, "text": txt})
+        drawn = _appearance_text(doc, ad)
+        if txt or drawn or st in ("FreeText", "Stamp", "Text"):
+            d_ = {"kind": st, "text": txt}
+            if drawn and drawn.split() != txt.split():
+                d_["drawn"] = drawn  # 注釈の見た目（/AP）に描かれた字：ページに見えるのはこの字
+            annots.append(d_)
     marks, inword = unmapped_places(lay)
     return {"number": number, "width": round(view.width, 1), "height": round(view.height, 1), "rotate": view.rot,
             "fields": out_fields, "reading": reading, "chars": chars, "unmapped": pc.unmapped, "images": images,
@@ -486,6 +490,25 @@ def unmapped_places(lay) -> tuple[list[dict], list[dict]]:
                 "near": near, "count": n}
         (marks if is_mark else inword).append(item)
     return marks, inword
+
+
+def _appearance_text(doc: PdfDocument, ad: dict) -> str:
+    """注釈の見た目（/AP の /N）に描かれた字を、描いた順に（スタンプ・FreeText の字は、ページの描画の命令の外にある）。"""
+    from .content import Interpreter
+    from .objects import Stream
+
+    ap = doc.resolve(ad.get("AP"))
+    n = doc.resolve(ap.get("N")) if isinstance(ap, dict) else None
+    if isinstance(n, dict) and not isinstance(n, Stream):
+        st = getattr(doc.resolve(ad.get("AS")), "name", None)
+        n = doc.resolve(n.get(st)) if st else None
+    if not isinstance(n, Stream):
+        return ""
+    try:
+        pc = Interpreter(doc).run_stream(doc.decode(n), doc.resolve(n.dict.get("Resources")) or {})
+    except Exception:  # noqa: BLE001
+        return ""
+    return "".join(g.text for g in pc.glyphs).strip()
 
 
 def _pictures(doc: PdfDocument, page: dict, number: int, pc, lay) -> list[dict]:
@@ -791,7 +814,8 @@ def _md_page(pg: dict) -> list[str]:
     if pg.get("annotations"):
         out += ["### 注釈（ページに貼られたメモなど）", ""]
         for a in pg["annotations"]:
-            out.append(f"- {a['kind']}: {_md(a['text']) or '（文字なし）'}")
+            out.append(f"- {a['kind']}: {_md(a['text']) or '（文字なし）'}"
+                       + (f"（見た目に描かれた字：{_md(a['drawn'])}）" if a.get("drawn") else ""))
         out.append("")
     return out
 

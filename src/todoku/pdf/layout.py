@@ -1040,7 +1040,13 @@ class PageLayout:
                            if not any(c.x0 <= ch.cx <= c.x1 and c.y0 <= ch.cy <= c.y1 for ch in self.chars)
                            and not any(o.x0 >= c.x0 - 0.5 and o.x1 <= c.x1 + 0.5 and o.y0 >= c.y0 - 0.5 and o.y1 <= c.y1 + 0.5
                                        for o in self.cells)]
+        self.drawn_text = self._drawn_text_regions()
         self._find_spots()
+        if self.drawn_text:
+            # 図形で描いた字の所：字の形の線や塗りからできたマス・空きは、書く所ではない
+            m = 0.5 * max(self.typical, 10)  # 字の形の線（下線に見える横の線など）は、字の形の外へ少し出る
+            self.spots = [k for k in self.spots if not any(
+                _overlap(k.rect, (r[0] - m, r[1] - m, r[2] + m, r[3] + m)) > 0 for r, _n in self.drawn_text)]
         self._circled()
         for k in self.spots:
             # 書き込みと同じ決め方で1字も入らない所も、消さずに示す（規則では決められない所・書けない所として）
@@ -1050,6 +1056,42 @@ class PageLayout:
                 k.readonly = f"小さい（幅 {x1 - x0:.1f}pt・高さ {y1 - y0:.1f}pt）ので、1字も入りません"
         self.flags: list[dict] = []  # 読む段階に関わる注意：{grade, title, detail, where}
         self._read_flags()
+
+    def _drawn_text_regions(self) -> list[tuple]:
+        """字を図形（曲線を含む塗りの形）にして描いた所：字の大きさほどの小さな塗りの形が 10 個以上、間を空けずに
+        並んでいて、その所に字（字の情報）がないもの。窓では字として読めないので、位置を示して知らせる。"""
+        shapes = []
+        for x0, y0, x1, y1, stroke, fill in self.pc.curves:
+            if not fill:
+                continue
+            r = self.view.rect(x0, y0, x1, y1)
+            w, h = r[2] - r[0], r[3] - r[1]
+            if 0.3 <= max(w, h) <= 3 * max(self.typical, 10):
+                shapes.append(r)
+        if len(shapes) < 10:
+            return []
+        gap = 1.2 * max(self.typical, 10)  # 行の間（字1字ぶんほど）も、同じ所のつながりとする
+        groups: list[list] = []
+        for r in sorted(shapes):
+            hit = [g for g in groups if g[0][0] - gap <= r[2] and r[0] <= g[0][2] + gap and g[0][1] - gap <= r[3] and r[1] <= g[0][3] + gap]
+            if hit:
+                g = hit[0]
+                for o in hit[1:]:
+                    g[0] = (min(g[0][0], o[0][0]), min(g[0][1], o[0][1]), max(g[0][2], o[0][2]), max(g[0][3], o[0][3]))
+                    g[1] += o[1]
+                    groups.remove(o)
+                g[0] = (min(g[0][0], r[0]), min(g[0][1], r[1]), max(g[0][2], r[2]), max(g[0][3], r[3]))
+                g[1] += 1
+            else:
+                groups.append([r, 1])
+        out = []
+        for box, n in groups:
+            if n < 10:
+                continue
+            if any(box[0] <= c.cx <= box[2] and box[1] <= c.cy <= box[3] for c in self.chars if not c.text.isspace()):
+                continue  # 字のある所（図形は飾り・表の模様など）
+            out.append((box, n))
+        return out
 
     # ------------------------------------------------------------------ ルビ
     def _ruby(self, lines: list[Line]) -> list[Line]:
@@ -1155,6 +1197,12 @@ class PageLayout:
             self.flag("C", "前の字のない結合の記号",
                       "母音の記号などの結合する記号が、基の字なしで行の頭や空白の後ろにあります。字の並びが正しくないおそれがあるので、"
                       "その位置は view_page で画像を見て確かめる", orphan)
+        if self.drawn_text:
+            self.flag("E", "図形で描いた字（字の情報がない）",
+                      "字の形を図形（線と塗り）にして描いた所があり、字の情報がないので、窓に字として出せません。注意書きなど大事な文の"
+                      "ことがあるので、その位置は view_page でページの画像を見て読み、中身を推測で埋めない",
+                      [f"{self.number}ページ（左 {r[0]:.0f}・上 {r[1]:.0f}〜右 {r[2]:.0f}・下 {r[3]:.0f} pt、字の形 {n} 個）"
+                       for r, n in self.drawn_text])
         bad = [m for m in self.merges if m[1] <= 0.5]
         if bad:
             self.flag("C", "重ね書きとして1字にした字", "箱が重ならない字を、重ね書きとして1字にしました（読み落としのおそれ）",
@@ -1216,11 +1264,28 @@ class PageLayout:
         for y, row in rows.items():
             row.sort(key=lambda c: c.x0)
             run: list[Cell] = []
-            for c in row + [None]:
+            skip: set[int] = set()
+            seq = row + [None]
+            for i, c in enumerate(seq):
+                if c is not None and id(c) in skip:
+                    continue
                 if c is not None and run and abs(c.x0 - run[-1].x1) <= 1.5 and abs(c.w - run[0].w) <= 1.5 \
                         and abs(c.h - run[0].h) <= 1.5 and abs(c.y1 - run[0].y1) <= 1.5 and c.w <= 2.2 * c.h:
                     run.append(c)
                     continue
+                wide_last = False
+                if len(run) >= 3 and c is not None and abs(c.x0 - run[-1].x1) <= 1.5 and abs(c.h - run[0].h) <= 1.5 \
+                        and abs(c.y1 - run[0].y1) <= 1.5 and run[0].w - 1.5 <= c.w <= 2 * run[0].w:
+                    # 並びの最後のマスだけ幅が違う（表の右の縁まで広げたマス）：その右に続く空のマスがなく、
+                    # 罫線の上でも同じ並びの続き（隣り合い、高さが同じ）なら、並びの最後の桁
+                    nxt = seq[i + 1] if i + 1 < len(seq) else None
+                    if nxt is None or abs(nxt.x0 - c.x1) > 1.5:
+                        run.append(c)
+                        skip.add(id(c))
+                        wide_last = True
+                        c = nxt
+                        if c is not None:
+                            skip.add(id(c))
                 if len(run) >= 3 and run[0].w <= 2.2 * run[0].h:
                     for x in run:
                         comb_cells.add(id(x))
@@ -1232,6 +1297,8 @@ class PageLayout:
                               [(x.x0, x.y0, x.x1, x.y1) for x in run], row_label=rl, column_label=cl,
                               size=min(run[0].h * 0.7, 14), host=run[0], cell=run[0], kind_candidates=["comb", "text"])
                     self.spots.append(_agent(sp, gate="kind"))
+                    if wide_last:
+                        sp.reason += f"（最後のマスは幅 {run[-1].w:.1f}pt）"
                     for x in run[1:]:
                         x.comb_of = run[0]
                 run = [c] if c is not None else []
@@ -1340,7 +1407,8 @@ class PageLayout:
         if sp.kind not in ("text", "inline", "space") or sp.cover:
             return True
         x0, y0, x1, y1 = sp.rect
-        inside = [c for c in self.chars if not c.text.isspace() and x0 < c.cx < x1 and y0 < c.cy < y1]
+        own = {id(c) for c in sp.host.chars} if isinstance(sp.host, Line) else set()  # 欄の行の字（下線の「＿」など）は欄の一部
+        inside = [c for c in self.chars if not c.text.isspace() and id(c) not in own and x0 < c.cx < x1 and y0 < c.cy < y1]
         if not inside:
             return True
         # 上下の空き（字の帯のあいだ）と、左右の空きのうち、いちばん広い所
@@ -2017,6 +2085,11 @@ def _vov(a: Cell, b: Cell) -> float:
 def _hov(a: Cell, first: Cell, last: Cell) -> float:
     inter = min(a.x1, last.x1) - max(a.x0, first.x0)
     return inter / max(1e-6, min(a.w, last.x1 - first.x0))
+
+
+def _inside(r, box) -> bool:
+    cx, cy = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
+    return box[0] <= cx <= box[2] and box[1] <= cy <= box[3]
 
 
 def _area(r) -> float:
