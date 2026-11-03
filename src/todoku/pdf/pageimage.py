@@ -1,38 +1,47 @@
-"""PDF のページを、エージェントが見る画像にする（スキャンした紙のページ）。
+"""PDF のページを、エージェントが見る画像にする（見る道具（ビューア）が描くとおりに）。
 
-ページに置かれた画像を、置いた行列（CTM）どおりに、見た目の向き（/Rotate を反映）でページの大きさの画像に描く。
+ページの描画の命令を、仕様（ISO 32000-1 8〜9 章）どおりに実行して描く（render/paint.py）：線・塗り・切り抜き・色・画像・
+フォームの部品・字（埋め込んだ書体の字の形。埋め込みのない書体は、このパソコンの書体で代わりに描く）・注釈の見た目（/AP、
+todoku が書いた欄の字も）。見た目の向き（/Rotate）・CropBox・UserUnit を反映する。
 端に、ページの左上からの mm の目盛りを付ける：エージェントは画像を見て、書く所を mm の枠で指定する。
 書く予定の枠（marks）を赤で描き込める：書く前に、枠の位置をエージェントが目で確かめるため。
-ページの字や線（ベクトル）は描かない（画像だけのページのための道具。字のあるページは窓で読む）。
-欄・注釈の見た目（/AP）の字（todoku が書いた欄の字など）は、見た目のフォームを仕様どおりの行列で置いた位置・大きさ・向きで、
-字ごとの四角（字の送りの幅 × 字の高さ）と、その字の基線（字の下の線）として描く：書いた字が欄に正しい向き・大きさで
-収まっているかを、エージェントが目で確かめられる（字の形そのものは描かない。字の値は説明の文に添える）。
+描けなかったもの（字の形の分からない字は灰色の四角で示す・開けない画像・近い形で描いたもの）は、説明の文で伝える。
 """
 
 from __future__ import annotations
 
 import base64
+import math
 import struct
 import zlib
 
 from .content import page_content
 from .layout import View
-from .raster import Gray, RasterError, image_gray
 
 MM = 72 / 25.4  # 1 mm のポイント
+DEFAULT_DPI = 100
+MAX_SIDE = 4000  # 画像の 1 辺の画素の上限
+MAX_PIXELS = 12_000_000
 
 
-def _inv(m):
-    a, b, c, d, e, f = m
-    det = a * d - b * c
-    if abs(det) < 1e-12:
-        return None
-    return (d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det)
+def _base_matrix(view: View, s: float, x0: float, y0: float):
+    """ページの座標 → 画像の画素（見た目の向き・切り取り・1 mm＝s 画素）。"""
+    o = view.pt(0.0, 0.0)
+    ex = view.pt(1.0, 0.0)
+    ey = view.pt(0.0, 1.0)
+    k = s / view.mm
+    return ((ex[0] - o[0]) * k, (ex[1] - o[1]) * k, (ey[0] - o[0]) * k, (ey[1] - o[1]) * k,
+            o[0] * k - x0 * s, o[1] * k - y0 * s)
 
 
-def render(doc, page_no: int, region_mm: list | None = None, max_side: int = 1600) -> dict:
+def render(doc, page_no: int, region_mm: list | None = None, max_side: int | None = None, dpi: float | None = None,
+           time_limit: float = 60.0) -> dict:
     """ページ（の範囲）の画像。region_mm：[左, 上, 右, 下]（ページの左上からの mm）。
-    返す：{rgb: 画素（RGB）, w, h, scale（1 mm の画素）, origin_mm（画像の左上の mm）, skipped（描けなかった画像）}。"""
+    大きさ：dpi を指定すればその解像度。なければ、max_side を指定すれば長い辺をその画素に、どちらもなければ、ページ全体は
+    100 dpi・範囲は長い辺 1600 画素（拡大して読む）。
+    返す：{rgb: 画素（RGB）, w, h, scale（1 mm の画素）, origin_mm（画像の左上の mm）, skipped（描けなかった画像）, ...}。"""
+    from .render.paint import render_page
+
     pages = doc.pages()
     if not 1 <= page_no <= len(pages):
         raise ValueError(f"page は 1〜{len(pages)} です")
@@ -43,35 +52,29 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int = 160
     x0, y0, x1, y1 = max(0.0, min(x0, x1)), max(0.0, min(y0, y1)), min(pw, max(x0, x1)), min(ph, max(y0, y1))
     if x1 - x0 < 1 or y1 - y0 < 1:
         raise ValueError(f"範囲が小さすぎるか、ページ（{pw:.0f}×{ph:.0f} mm）の外です")
-    s = max_side / max(x1 - x0, y1 - y0)  # 1 mm の画素
-    W, H = max(1, int((x1 - x0) * s)), max(1, int((y1 - y0) * s))
-    canvas = bytearray(b"\xff" * (W * H))
-    pc = page_content(doc, page)
-    skipped = []
-    stamps = []
+    if dpi:
+        s = float(dpi) / 25.4
+    elif max_side:
+        s = max_side / max(x1 - x0, y1 - y0)
+    elif region_mm:
+        s = 1600 / max(x1 - x0, y1 - y0)
+    else:
+        s = DEFAULT_DPI / 25.4
+    s = min(s, MAX_SIDE / max(x1 - x0, y1 - y0), (MAX_PIXELS / ((x1 - x0) * (y1 - y0))) ** 0.5)  # 1 mm の画素
+    W, H = max(1, math.ceil((x1 - x0) * s - 1e-6)), max(1, math.ceil((y1 - y0) * s - 1e-6))
+    cv, rr = render_page(doc, page, W, H, _base_matrix(view, s, x0, y0), time_limit)
+    stamps: list = []
     annot_failed: list[str] = []
     cells: list = []
-    pics = list(pc.pictures) + _annot_pictures(doc, page, stamps, annot_failed, cells)
-    for pic in pics:
-        if pic.ctm is None or pic.image is None:
-            continue
-        inv = _inv(pic.ctm)
-        if inv is None:
-            continue
-        try:
-            g = _with_smask(doc, pic.image, image_gray(doc, pic.image, max_pixels=max(4_000_000, W * H * 2)))
-        except (RasterError, ValueError, IndexError, KeyError, zlib.error) as e:
-            skipped.append(f"{pic.name}：{e}")
-            continue
-        _draw(canvas, W, H, s, x0, y0, view, inv, g)
-    for gl in cells:
-        _draw_glyph(canvas, W, H, s, x0, y0, view, gl)
-    rgb = bytearray(W * H * 3)
-    rgb[0::3] = canvas
-    rgb[1::3] = canvas
-    rgb[2::3] = canvas
-    return {"rgb": rgb, "w": W, "h": H, "scale": s, "origin_mm": (x0, y0), "page_mm": (pw, ph), "skipped": skipped,
-            "view": view, "stamps": stamps, "annot_failed": annot_failed, "glyphs": len(cells), "user_unit": view.unit}
+    _annot_pictures(doc, page, stamps, annot_failed, cells)
+    for f in getattr(rr, "annot_failed", []):
+        if not any(f.split("：")[0] in x for x in annot_failed):
+            annot_failed.append(f)
+    return {"rgb": cv.buf, "w": W, "h": H, "scale": s, "origin_mm": (x0, y0), "page_mm": (pw, ph),
+            "skipped": rr.image_failed, "view": view, "stamps": stamps, "annot_failed": annot_failed, "glyphs": len(cells),
+            "user_unit": view.unit, "dpi": s * 25.4, "stats": dict(rr.stats), "substituted": dict(rr.subst),
+            "missing_fonts": sorted(rr.missing_fonts), "approx": dict(rr.approx), "stopped": rr.stopped,
+            "problems": list(rr.problems)}
 
 
 def _annot_pictures(doc, page: dict, stamps: list, failed: list | None = None, glyphs: list | None = None) -> list:
@@ -138,91 +141,6 @@ def _annot_pictures(doc, page: dict, stamps: list, failed: list | None = None, g
                            "kind": getattr(ad.get("Subtype"), "name", ""),
                            "box": [vx0 / view.mm, vy0 / view.mm, vx1 / view.mm, vy1 / view.mm]})
     return out
-
-
-def _with_smask(doc, image, g: Gray) -> Gray:
-    """画像の透け（SMask）：白い紙の上に重ねた濃さにする（透ける所は白）。"""
-    from .objects import Stream
-
-    if not isinstance(image, Stream):
-        return g
-    sm = doc.resolve(image.dict.get("SMask"))
-    if not isinstance(sm, Stream):
-        return g
-    a = image_gray(doc, sm, max_pixels=max(4_000_000, g.w * g.h))
-    px = bytearray(g.px)
-    for y in range(g.h):
-        ay = min(a.h - 1, y * a.h // g.h)
-        for x in range(g.w):
-            al = a.px[ay * a.w + min(a.w - 1, x * a.w // g.w)]
-            if al != 255:
-                i = y * g.w + x
-                px[i] = 255 - (255 - px[i]) * al // 255
-    return Gray(g.w, g.h, bytes(px))
-
-
-def _draw(canvas: bytearray, W: int, H: int, s: float, x0: float, y0: float, view: View, inv, g: Gray) -> None:
-    """見た目の画素 (X, Y) → mm → 見た目の pt → ページの座標 → 画像の単位の四角 → 画像の画素。1行ずつ、一次の式で。"""
-    a, b, c, d, e, f = inv
-
-    def img_xy(X: float, Y: float) -> tuple[float, float]:
-        vx, vy = (x0 + X / s) * view.mm, (y0 + Y / s) * view.mm
-        px, py = view.back(vx, vy)
-        u, v = a * px + c * py + e, b * px + d * py + f
-        return u * g.w, (1 - v) * g.h
-
-    gw, gh, src = g.w, g.h, g.px
-    for Y in range(H):
-        ix0, iy0 = img_xy(0.5, Y + 0.5)
-        ix1, iy1 = img_xy(1.5, Y + 0.5)
-        dx, dy = ix1 - ix0, iy1 - iy0
-        row = canvas[Y * W:(Y + 1) * W]
-        changed = False
-        for X in range(W):
-            ix, iy = int(ix0 + X * dx), int(iy0 + X * dy)
-            if 0 <= ix < gw and 0 <= iy < gh:
-                v = src[iy * gw + ix]
-                if v < row[X]:  # 重ねて描くとき、暗い方（白い紙の上のインク）
-                    row[X] = v
-                    changed = True
-        if changed:
-            canvas[Y * W:(Y + 1) * W] = row
-
-
-def _draw_glyph(canvas: bytearray, W: int, H: int, s: float, x0: float, y0: float, view: View, gl) -> None:
-    """見た目の字 1 字：字の四角（薄い灰色、縁は濃い灰色）と、基線（原点から送りの向きへの黒い線）。座標はページの座標。"""
-    def px(x: float, y: float) -> tuple[float, float]:
-        vx, vy = view.pt(x, y)
-        return (vx / view.mm - x0) * s, (vy / view.mm - y0) * s
-
-    a, b = px(gl.x0, gl.y0), px(gl.x1, gl.y1)
-    X0, X1 = int(min(a[0], b[0])), int(max(a[0], b[0]))
-    Y0, Y1 = int(min(a[1], b[1])), int(max(a[1], b[1]))
-    X0, Y0, X1, Y1 = max(0, X0), max(0, Y0), min(W - 1, X1), min(H - 1, Y1)
-    if X1 < X0 or Y1 < Y0:
-        return
-    for Y in range(Y0, Y1 + 1):
-        row = Y * W
-        for X in range(X0, X1 + 1):
-            v = 90 if X in (X0, X1) or Y in (Y0, Y1) else 205
-            if v < canvas[row + X]:
-                canvas[row + X] = v
-    # 基線：字の原点から、字の送りの向きに、字の送りの幅だけ（向きが分かるように）
-    adv = gl.adv or ((gl.dx ** 2 + gl.dy ** 2) ** 0.5)
-    ln = (gl.dx ** 2 + gl.dy ** 2) ** 0.5
-    if ln <= 0 or adv <= 0:
-        return
-    ux, uy = gl.dx / ln * adv, gl.dy / ln * adv
-    p0, p1 = px(gl.ox, gl.oy), px(gl.ox + ux, gl.oy + uy)
-    steps = max(1, int(max(abs(p1[0] - p0[0]), abs(p1[1] - p0[1])) * 2))
-    for i in range(steps + 1):
-        t = i / steps
-        cx, cy = p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t
-        for ox in (0, 1):
-            for oy in (0, 1):
-                X, Y = int(cx) - ox, int(cy) - oy
-                if 0 <= X < W and 0 <= Y < H:
-                    canvas[Y * W + X] = 0
 
 
 # ---------------------------------------------------------------------- 目盛りと枠
@@ -316,26 +234,37 @@ def _png_rgb(img: bytes, w: int, h: int) -> bytes:
             + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
 
 
-def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | None = None, max_side: int = 1600,
-              written: list | None = None) -> dict:
-    """エージェントに見せるページの画像（PNG・base64）と、読み方の説明。written：値の入った欄（青い枠と番号で描く）。"""
-    r = render(doc, page_no, region_mm, max_side)
+def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | None = None, max_side: int | None = None,
+              written: list | None = None, dpi: float | None = None) -> dict:
+    """エージェントに見せるページの画像（PNG・base64）と、読み方の説明。written：値の入った欄（青い枠と番号で描く）。
+    dpi：解像度（なければ、ページ全体は 100 dpi、範囲は長い辺 1600 画素）。"""
+    r = render(doc, page_no, region_mm, max_side, dpi)
     png, w, h, notes = with_ruler(r, marks, written)
     ox, oy = r["origin_mm"]
     pw, ph = r["page_mm"]
+    st = r.get("stats", {})
     text = (f"{page_no} ページ（{pw:.0f}×{ph:.0f} mm）の、左 {ox:.0f}〜{ox + r['w'] / r['scale']:.0f} mm・"
-            f"上 {oy:.0f}〜{oy + r['h'] / r['scale']:.0f} mm の範囲（1 mm＝{r['scale']:.1f} 画素）。"
+            f"上 {oy:.0f}〜{oy + r['h'] / r['scale']:.0f} mm の範囲（1 mm＝{r['scale']:.1f} 画素・{r['dpi']:.0f} dpi）。"
             "上と左の帯の数は、ページの左上からの mm です。書く所は、fill_document に "
             '{"@1": {"page": ページ, "box": [左, 上, 右, 下]（mm）, "value": 書く字}} で指定します。'
             "小さな字は region（[左, 上, 右, 下] mm）で拡大して読み、書く前に marks（[{\"box\": [...]}]）で枠を描いて、"
-            "位置を目で確かめてください。この画像には、ページに置かれた画像だけを描いています（ページの字や線のデータは窓で読みます）。")
+            "位置を目で確かめてください。この画像は、ページを見る道具と同じように描いたものです（字・線・画像・欄と注釈の見た目。"
+            "書いた欄の字も、その書体の字の形で描いています）。")
     if r.get("user_unit", 1.0) != 1.0:
         text += (f" このページは、座標の 1 単位が {r['user_unit']:g}/72 インチ（UserUnit {r['user_unit']:g}）です。mm は紙の上の"
                  "長さに直してあります。")
-    if r.get("glyphs"):
-        text += (" 欄・注釈の見た目（書いた欄の字など）の字は、見た目のとおりの位置・大きさ・向きで、字ごとの灰色の四角として"
-                 "描いています（字の形そのものは描きません）。各字の黒い線は基線（字の下の線）で、字が正しい向きなら四角の下側に"
-                 "左から右へ並びます。四角が欄からはみ出す・つぶれる・横倒しなら、書いた見た目が正しくありません。")
+    if r.get("substituted"):
+        subs = r["substituted"]
+        text += (" 埋め込まれていない書体は、このパソコンの書体で代わりに描いています（字の形・幅が、作った人の画面と少し違う"
+                 "ことがあります）：" + "／".join(f"{k} → {v}" for k, v in list(subs.items())[:6]))
+    if st.get("glyphs_box"):
+        miss = r.get("missing_fonts") or []
+        text += (f" 字の形が分からない字 {st['glyphs_box']} 字は、字の位置に灰色の四角で示しています（字の形は描けていません。"
+                 "その字は窓で読みます）" + (f"。代わりの書体が見つからない書体：{'・'.join(miss[:5])}" if miss else "") + "。")
+    if r.get("approx"):
+        text += (" 仕様どおりには描けず、近い形で描いたもの：" + "・".join(f"{k} {v} か所" for k, v in r["approx"].items()) + "。")
+    if r.get("stopped"):
+        text += " 描くのに時間がかかりすぎるため、途中で止めました（描いていない所があります）。"
     if r["skipped"]:
         text += " 描けなかった画像：" + "／".join(r["skipped"][:5])
     if r.get("annot_failed"):
@@ -346,7 +275,7 @@ def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | No
                  + "／".join(f"{m['id'] or m['kind']}（左 {m['box'][0]:.0f}・上 {m['box'][1]:.0f}・右 {m['box'][2]:.0f}・"
                             f"下 {m['box'][3]:.0f} mm）" for m in r["stamps"]))
     if written:
-        text += (" 青い枠は、値の入った入力欄です（字の形は描いていないので、値は次のとおり）："
+        text += (" 青い枠は、値の入った入力欄です（値は次のとおり）："
                  + "／".join(f"{i}＝{m['id']}「{m['value']}」" for i, m in enumerate(written, 1)))
     if notes:
         text += " " + " ".join(notes)

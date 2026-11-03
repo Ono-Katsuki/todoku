@@ -311,8 +311,9 @@ def _extend(v: int, t: int) -> int:
     return v - (1 << t) + 1 if t and v < (1 << (t - 1)) else v
 
 
-def jpeg_gray(data: bytes, max_pixels: int = 4_000_000) -> Gray:
-    """JPEG の輝度（1成分のときはその成分）を濃さにする。大きな画像は 1/2・1/4・1/8 に縮めて開く。"""
+def jpeg_gray(data: bytes, max_pixels: int = 4_000_000, want_rgb: bool = False):
+    """JPEG の輝度（1成分のときはその成分）を濃さにする。大きな画像は 1/2・1/4・1/8 に縮めて開く。
+    want_rgb：色のまま開く（RGB を返す。YCbCr・RGB・CMYK・YCCK を T.81・Adobe の印どおりに RGB にする）。"""
     if data[:2] != b"\xff\xd8":
         raise RasterError("JPEG ではありません（SOI がない）")
     pos = 2
@@ -371,12 +372,12 @@ def jpeg_gray(data: bytes, max_pixels: int = 4_000_000) -> Gray:
         elif m == 0xDA:
             if frame is None:
                 raise RasterError("JPEG：フレームの前に走査があります")
-            return _scan(data, pos + ln, seg, frame, qt, hts, restart, adobe, max_pixels)
+            return _scan(data, pos + ln, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb)
         pos += ln
     raise RasterError("JPEG：画像のデータがありません")
 
 
-def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels) -> Gray:
+def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb=False):
     ww, hh, comps = frame
     ns = seg[0]
     sc = []
@@ -389,7 +390,7 @@ def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels) -> Gray:
     hmax = max(c["h"] for c in comps)
     vmax = max(c["v"] for c in comps)
     # 濃さに使う成分：1成分ならそれ、YCbCr（3成分・Adobe の変換 1 か、印がない）なら Y。RGB・CMYK は全部の成分から
-    use_y = len(comps) == 1 or (len(comps) == 3 and adobe != 0) or (len(comps) == 4 and adobe == 2)
+    use_y = (len(comps) == 1 or (len(comps) == 3 and adobe != 0) or (len(comps) == 4 and adobe == 2)) and not want_rgb
     n = 8
     while n > 1 and (ww * n // 8) * (hh * n // 8) > max_pixels:
         n //= 2
@@ -467,6 +468,8 @@ def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels) -> Gray:
                             _put_block(coef, mat, n, plane, stride, (mx * c["h"] + bx) * n, (my * c["v"] + by) * n)
     # 濃さにする（Y は成分の大きさをフレームの大きさに合わせる）
     W, H = ww * n // 8 or 1, hh * n // 8 or 1
+    if want_rgb:
+        return _jpeg_rgb(planes, hmax, vmax, W, H, adobe)
     if use_y:
         c, plane, stride = planes[0]
         fx, fy = hmax // c["h"], vmax // c["v"]
@@ -488,6 +491,68 @@ def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels) -> Gray:
             rows.append(bytes(max(0, min(255, (k if inv else 255 - k) - (255 - (cc if inv else 255 - cc)) // 3))
                               for cc, _m, _y, k in zip(*vals)))
     return Gray(W, H, b"".join(rows))
+
+
+@dataclass
+class RGB:
+    w: int
+    h: int
+    px: bytes  # w*h*3 バイト（R G B）
+
+
+def _jpeg_rgb(planes, hmax, vmax, W, H, adobe) -> RGB:
+    """JPEG の成分 → RGB（T.81 には色の決まりがないので、JFIF の YCbCr と Adobe の APP14 の変換の印に従う）。"""
+    full = []
+    for (c, plane, stride) in planes:
+        fx, fy = hmax // c["h"], vmax // c["v"]
+        if fx == 1 and fy == 1:
+            full.append(b"".join(bytes(plane[y * stride:y * stride + W]) for y in range(H)))
+        else:
+            cols = [x // fx for x in range(W)]
+            full.append(b"".join(bytes(map(plane.__getitem__, [(y // fy) * stride + c_ for c_ in cols])) for y in range(H)))
+    nc = len(full)
+    if nc == 1:
+        g = full[0]
+        out = bytearray(W * H * 3)
+        out[0::3] = g
+        out[1::3] = g
+        out[2::3] = g
+        return RGB(W, H, bytes(out))
+    ycc = (nc == 3 and adobe != 0) or (nc == 4 and adobe == 2)
+    out = bytearray(W * H * 3)
+    if ycc:
+        rcr = [int(1.402 * (v - 128)) for v in range(256)]
+        gcb = [int(-0.344136 * (v - 128) * 65536) for v in range(256)]
+        gcr = [int(-0.714136 * (v - 128) * 65536) for v in range(256)]
+        bcb = [int(1.772 * (v - 128)) for v in range(256)]
+        Y, Cb, Cr = full[0], full[1], full[2]
+
+        def cl(v):
+            return 0 if v < 0 else 255 if v > 255 else v
+        rr = bytes(cl(y + rcr[cr]) for y, cr in zip(Y, Cr))
+        gg = bytes(cl(y + ((gcb[cb] + gcr[cr]) >> 16)) for y, cb, cr in zip(Y, Cb, Cr))
+        bb = bytes(cl(y + bcb[cb]) for y, cb in zip(Y, Cb))
+        if nc == 3:
+            out[0::3], out[1::3], out[2::3] = rr, gg, bb
+            return RGB(W, H, bytes(out))
+        # YCCK：YCC は反転した C M Y（Adobe）
+        comps = [bytes(255 - v for v in rr), bytes(255 - v for v in gg), bytes(255 - v for v in bb), full[3]]
+        inv = True
+    else:
+        if nc == 3:
+            out[0::3], out[1::3], out[2::3] = full[0], full[1], full[2]
+            return RGB(W, H, bytes(out))
+        comps = full[:4]
+        inv = adobe is not None
+    # CMYK → RGB（Adobe の CMYK は、反転して保存される）
+    if inv:
+        cc, mm, yy, kk = (bytes(255 - v for v in p) for p in comps)
+    else:
+        cc, mm, yy, kk = comps
+    out[0::3] = bytes((255 - c) * (255 - k) // 255 for c, k in zip(cc, kk))
+    out[1::3] = bytes((255 - m) * (255 - k) // 255 for m, k in zip(mm, kk))
+    out[2::3] = bytes((255 - y) * (255 - k) // 255 for y, k in zip(yy, kk))
+    return RGB(W, H, bytes(out))
 
 
 def _put_block(coef, mat, n, plane, stride, ox, oy) -> None:
