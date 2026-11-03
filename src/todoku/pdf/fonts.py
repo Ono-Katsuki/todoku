@@ -490,6 +490,47 @@ def std14_width(base: str, code: int) -> float:
     return 556
 
 
+# ====================================================================== Unicode でない符号のフォント
+# インド系・ビルマ文字・シンハラ文字・クメール文字などの、Unicode 以前の書体：字の形を ASCII（またはほかの文字）の符号に
+# 割り当てているので、ToUnicode があっても、取り出した字は元の文字ではない（「Kruti Dev」の「d」は「क」）。
+# 書体の名前（BaseFont）で決める。出典：各書体の配布元の説明（Kruti Dev・DevLys・Chanakya・Walkman-Chanakya・Shusha・
+# APS-DV・Agra（デーヴァナーガリー）、Bamini・TAB・TAM・SunTommy・Kalaham（タミル）、SutonnyMJ ほか Bijoy の MJ 系（ベンガル）、
+# AnmolLipi・GurbaniAkhar・Joy（グルムキー）、Terafont・LMG-Arun（グジャラート）、Nudi・Baraha の旧版（カンナダ）、
+# ML-TT・FML（マラヤーラム）、FM-・DL-（シンハラ：FM Abhaya など）、Zawgyi・Win Innwa（ビルマ）、Limon（クメール））
+_LEGACY_FONTS = re.compile(
+    r"kruti\s*dev|devlys|chanakya|shusha|aps-?dv|\bagra\b|"
+    r"bamini|^tab[-_ ]|^tam[-_ ]|suntommy|kalaham|"
+    r"sutonnymj|[a-z]+mj$|bijoy|"
+    r"anmol\s*lipi|gurbani\s*akhar|^joy\b|"
+    r"terafont|lmg[-_ ]?arun|"
+    r"^nudi|baraha\s*(kan|devanagari)|"
+    r"^ml[-_]tt|^fml[-_]|"
+    r"^fm[-_ ]|^dl[-_ ]|"
+    r"zawgyi|win\s*innwa|"
+    r"^limon", re.I)
+
+
+def legacy_encoding(base: str) -> str:
+    """書体の名前から、Unicode でない符号の書体かを決める。
+    "ascii"：字の形を ASCII・Latin-1 の符号に割り当てた書体（取り出した字が ASCII などなら、元の文字ではない）、
+    "zawgyi"：ビルマ文字の符号を使うが、並びと字の割り当てが Unicode と違う書体（取り出した字はどれも信用できない）、
+    ""：それ以外。"""
+    name = (base or "").split("+")[-1].replace("#20", " ")
+    name = re.sub(r"[,-](bold|italic|regular|normal|oblique)+$", "", name, flags=re.I)
+    if not _LEGACY_FONTS.search(name):
+        return ""
+    return "zawgyi" if re.search(r"zawgyi", name, re.I) else "ascii"
+
+
+def legacy_text(kind: str, text: str) -> bool:
+    """Unicode でない符号の書体で描いた字のうち、元の文字として信用できないもの。"""
+    if not kind or not text or text.isspace():
+        return False
+    if kind == "zawgyi":
+        return True
+    return any(0x21 <= ord(ch) <= 0xFF for ch in text)
+
+
 # ====================================================================== フォント
 class PdfFont:
     def __init__(self, doc, fd: dict, key: str = ""):
@@ -508,6 +549,7 @@ class PdfFont:
                 self.tounicode = CMap.parse(doc.decode(tu))
             except Exception:  # noqa: BLE001
                 self.tounicode = None
+        self.legacy = legacy_encoding(self.base)
         self._cache: dict[bytes, list] = {}
         if self.composite:
             self._init_composite(fd)
@@ -751,6 +793,7 @@ class PdfFont:
             if 0 <= c < 256:
                 table[c] = glyph_to_unicode(n) or None
         self.table = table
+        self.has_diffs = bool(diffs)
         self.symbolic_tt = symbolic and self.subtype == "TrueType"
         self._desc = desc
         self.gid_uni = None
@@ -808,7 +851,9 @@ class PdfFont:
                 if text is None:
                     if b == 0x20:
                         text = " "
-                    elif 0x21 <= b <= 0x7E and not self.symbolic_tt:
+                    elif 0x21 <= b <= 0x7E and not self.symbolic_tt and not self.has_diffs and self.subtype != "Type3":
+                        # 符号の表もグリフの名前もない字：標準の符号（ASCII）とみなせるのは、
+                        # 独自のグリフ名（Differences）のない、Type 3 でないフォントだけ
                         text = chr(b)
                     else:
                         self.unmapped += 1
@@ -869,6 +914,9 @@ def visible_text(t: str) -> str:
         if 0x2F00 <= o <= 0x2FDF or 0x2E80 <= o <= 0x2EFF:
             n = unicodedata.normalize("NFKC", ch)
             out.append(n if len(n) == 1 else ch)
+        elif 0xFB50 <= o <= 0xFDFF or 0xFE70 <= o <= 0xFEFE:
+            # アラビア文字の表示形（語頭・語中・語末の形、合字）：基の字に戻す（Unicode の互換分解。合字は2字以上になる）
+            out.append(unicodedata.normalize("NFKC", ch))
         elif o in _VERT:
             out.append(_VERT[o])
         else:

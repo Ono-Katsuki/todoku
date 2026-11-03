@@ -139,6 +139,13 @@ def check_reading(doc: PdfDocument, win: dict) -> list[Check]:
                      "すべての字を文字（Unicode）に直せました" if not unmapped else
                      f"{unmapped} 字は、フォントに文字の対応がなく、文字に直せませんでした（窓では �）",
                      [f"ページ {p['number']}: {p['unmapped']} 字" for p in win["pages"] if p["unmapped"]]))
+    flags = [(p["number"], fl) for p in win["pages"] for fl in p.get("read_flags") or []]
+    hard = [f"{n} ページ：{fl['title']}（{'、'.join(fl['where'][:3])}）" for n, fl in flags if fl["grade"] in "CDEF"]
+    soft = [f"{n} ページ：{fl['title']}（{'、'.join(fl['where'][:3])}）" for n, fl in flags if fl["grade"] not in "CDEF"]
+    out.append(Check("窓の字を信用できない所", not hard,
+                     "窓の字をそのまま信用できない所はありません" if not flags else
+                     f"窓の字をそのまま信用できない所が {len(flags)} 種類あります（窓のページの頭に、位置と確かめ方を書いています）",
+                     hard + soft, agent=bool(soft) and not hard))
     img = [p["number"] for p in win["pages"] if p.get("image_only")]
     out.append(Check("画像だけのページ", not img,
                      "すべてのページに文字の情報があります" if not img else

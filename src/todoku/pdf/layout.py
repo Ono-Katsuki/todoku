@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import bisect
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
 from ..xlsx.window import inline_blanks, norm_label
@@ -91,6 +92,7 @@ class Ch:
     vertical: bool  # 上から下へ読む（縦書き、または90度回した字）
     base: float  # 行をそろえる位置（横書きは原点の y、縦書きは字の中心の x）
     invisible: bool
+    legacy: bool = False  # Unicode でない符号の書体の字
 
     @property
     def cx(self) -> float:
@@ -102,11 +104,39 @@ class Ch:
 
 
 def _is_cjk(ch: str) -> bool:
-    return bool(ch) and ord(ch[0]) >= 0x2E80
+    """和文・中文のように、語の間を空けずに書く全角の字か（Unicode の東アジアの幅が W・F のもの）。
+    ハングルは全角でも語の間を空白で区切るので含めない。アラビア文字の表示形など、幅の狭い字も含めない。"""
+    if not ch:
+        return False
+    o = ord(ch[0])
+    if o < 0x1100 or _is_hangul(o):
+        return False
+    if 0xFF61 <= o <= 0xFFDC or 0xE000 <= o <= 0xF8FF:
+        return True  # 半角のかな、外字（和文の書類の外字は全角の字）
+    return unicodedata.east_asian_width(ch[0]) in ("W", "F")
+
+
+def _is_hangul(o: int) -> bool:
+    return 0x1100 <= o <= 0x11FF or 0x3130 <= o <= 0x318F or 0xA960 <= o <= 0xA97F or 0xAC00 <= o <= 0xD7FF
+
+
+def _is_pua(ch: str) -> bool:
+    """私用の符号（外字）：U+E000〜F8FF、第15・16面。"""
+    return any(0xE000 <= ord(c) <= 0xF8FF or ord(c) >= 0xF0000 for c in ch)
 
 
 # ====================================================================== 文字
-def view_chars(pc: PageContent, view: View, dropped: list | None = None) -> list[Ch]:
+def _box_overlap(a: "Ch", b: "Ch") -> float:
+    """2つの字の箱の重なり：送りの向きの重なり（幅の狭いほうに対して）と、横切る向きの重なり（低いほうに対して）の小さいほう。"""
+    def frac(a0, a1, b0, b1):
+        inter = min(a1, b1) - max(a0, b0)
+        return inter / max(1e-6, min(a1 - a0, b1 - b0)) if inter > 0 else 0.0
+    along_x = frac(a.x0, a.x1, b.x0, b.x1)
+    along_y = frac(a.y0, a.y1, b.y0, b.y1)
+    return min(along_x, along_y)
+
+
+def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges: list | None = None) -> list[Ch]:
     out: list[Ch] = []
     seen: dict[tuple, list[Ch]] = {}
     for g in pc.glyphs:
@@ -124,21 +154,31 @@ def view_chars(pc: PageContent, view: View, dropped: list | None = None) -> list
             if dropped is not None:
                 dropped.append(("size", g.text))
             continue
-        c = Ch(g.text, x0, y0, x1, y1, max(g.size, 1.0), vertical, base, g.invisible)
-        # 同じ字を同じ位置に重ねたもの（太字に見せる重ね書き、色の層）は1字にする
-        key = (g.text, round(c.cx / 2), round(c.cy / 2))
-        dup = False
-        for k2 in (key, (g.text, round(c.cx / 2) + 1, round(c.cy / 2)), (g.text, round(c.cx / 2), round(c.cy / 2) + 1),
-                   (g.text, round(c.cx / 2) - 1, round(c.cy / 2)), (g.text, round(c.cx / 2), round(c.cy / 2) - 1)):
-            for o in seen.get(k2, ()):
-                if abs(o.cx - c.cx) < 0.25 * c.size and abs(o.cy - c.cy) < 0.25 * c.size and abs(o.size - c.size) < 0.2 * c.size:
-                    dup = True
+        c = Ch(g.text, x0, y0, x1, y1, max(g.size, 1.0), vertical, base, g.invisible, g.legacy)
+        # 同じ字を同じ位置に重ねたもの（太字に見せる重ね書き、色の層）は1字にする。
+        # 重ね書きかどうかは、字の箱（送り幅 × 字の高さ）の重なりだけで決める：送りの向きに、幅の狭いほうの字の半分より多く、
+        # 横切る向きにも半分より多く重なるもの。並べて書いた字（「ll」）の箱は接するだけで重ならない
+        key = (g.text, int(c.cx // 4), int(c.cy // 4))
+        dup = None
+        reach = range(-int(c.size // 4) - 1, int(c.size // 4) + 2)  # 半分より多く重なる字の中心は、字の大きさの半分より近い
+        for kx in reach:
+            for ky in reach:
+                for o in seen.get((g.text, key[1] + kx, key[2] + ky), ()):
+                    if abs(o.size - c.size) >= 0.2 * c.size or o.vertical != c.vertical:
+                        continue
+                    ov = _box_overlap(o, c)
+                    if ov > 0.5:
+                        dup = (o, ov)
+                        break
+                if dup:
                     break
             if dup:
                 break
         if dup:
             if dropped is not None:
                 dropped.append(("dup", g.text))
+            if merges is not None:
+                merges.append((g.text, dup[1], (c.x0, c.y0, c.x1, c.y1)))
             continue
         seen.setdefault(key, []).append(c)
         out.append(c)
@@ -627,7 +667,8 @@ class PageLayout:
         self.view = View(doc, page)
         self.pc = pc
         self.dropped: list = []
-        self.chars = view_chars(pc, self.view, self.dropped)
+        self.merges: list = []  # 重ね書きとして1字にした字：(字, 箱の重なり, 位置)
+        self.chars = view_chars(pc, self.view, self.dropped, self.merges)
         hs, vs = rulings(pc, self.view)
         self.hs, self.vs = hs, vs
         cells = cells_from(hs, vs)
@@ -658,6 +699,43 @@ class PageLayout:
         self.right = max(xe) if xe else self.view.width
         self.spots: list[Spot] = []
         self._find_spots()
+        self.flags: list[dict] = []  # 読む段階に関わる注意：{grade, title, detail, where}
+        self._read_flags()
+
+    # ------------------------------------------------------------------ 読む段階の注意
+    def all_lines(self) -> list[Line]:
+        return [ln for c in self.cells for ln in c.lines] + list(self.free_lines)
+
+    def where(self, x0: float, y0: float, text: str = "") -> str:
+        t = text.strip(" \u3000")
+        return f"{self.number}ページ（左 {x0:.0f}・上 {y0:.0f} pt）" + (f"「{t[:24]}」" if t else "")
+
+    def flag(self, grade: str, title: str, detail: str, where: list[str]) -> None:
+        for f in self.flags:
+            if f["title"] == title:
+                f["where"] += [w for w in where if w not in f["where"]]
+                return
+        self.flags.append({"grade": grade, "title": title, "detail": detail, "where": list(where)})
+
+    def _read_flags(self) -> None:
+        legacy, pua = [], []
+        for ln in self.all_lines():
+            if any(c.legacy for c in ln.chars):
+                legacy.append(self.where(ln.x0, ln.y0, ln.text))
+            if _is_pua(ln.text):
+                pua.append(self.where(ln.x0, ln.y0, ln.text))
+        if legacy:
+            self.flag("E", "字の符号が Unicode でない",
+                      "Unicode 以前の書体（字の形を ASCII などの符号に割り当てたもの）で描いた字があります。窓の字は元の文字ではありません。"
+                      "その位置の字は view_page で画像を見て読みます", legacy)
+        if pua:
+            self.flag("B", "外字（私用の符号の字）",
+                      "外字：中身は view_page で画像を見て確かめる（私用の符号 U+E000〜F8FF などは、書類ごとに字の形が決まり、"
+                      "字の意味は符号からは分かりません）", pua)
+        bad = [m for m in self.merges if m[1] <= 0.5]
+        if bad:
+            self.flag("C", "重ね書きとして1字にした字", "箱が重ならない字を、重ね書きとして1字にしました（読み落としのおそれ）",
+                      [self.where(r[0], r[1], t) for t, _ov, r in bad])
 
     def cell_fill(self, c: Cell):
         """マスを塗っている色（いちばん上に描かれたもの）。なければ None。"""

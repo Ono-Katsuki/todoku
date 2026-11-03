@@ -283,6 +283,16 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
     if unmapped:
         reasons.append(Reason("F", "文字に直せない字", "フォントに文字の対応がなく、文字に直せない字があります（窓では �）。"
                               "読めないものには、エージェントもアクセスできません", unmapped))
+    flagged: dict[str, Reason] = {}
+    for p in win["pages"]:
+        for fl in p.get("read_flags") or []:
+            r = flagged.get(fl["title"])
+            if r is None:
+                r = flagged[fl["title"]] = Reason(fl["grade"], fl["title"], fl["detail"], [])
+            r.where += fl["where"]
+    for r in flagged.values():
+        r.where = r.where[:12] + ([f"ほか {len(r.where) - 12} か所"] if len(r.where) > 12 else [])
+        reasons.append(r)
     img = [f"{p['number']}ページ" for p in win["pages"] if p.get("image_only")]
     if img:
         reasons.append(Reason("E", "画像だけのページ", f"{len(img)} ページは文字の情報がなく、画像（スキャン）です。読むには文字の認識が要ります", img))

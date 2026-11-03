@@ -354,7 +354,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     return {"number": number, "width": round(view.width, 1), "height": round(view.height, 1), "rotate": view.rot,
             "fields": out_fields, "reading": reading, "chars": chars, "unmapped": pc.unmapped, "images": images,
             "image_only": chars == 0 and images > 0, "pictures": pictures, "problems": pc.problems, "annotations": annots,
-            "_plain": plain, "_dropped": lay.dropped}
+            "read_flags": lay.flags, "_plain": plain, "_dropped": lay.dropped}
 
 
 def _pictures(doc: PdfDocument, page: dict, number: int, pc, lay) -> list[dict]:
@@ -403,7 +403,9 @@ def _join(texts: list[str]) -> str:
 
 
 def _cjk(ch: str) -> bool:
-    return ord(ch) >= 0x2E80 and ch not in "［］"
+    from .layout import _is_cjk
+
+    return _is_cjk(ch) and ch not in "［］"
 
 
 def _alias(sp: Spot, b: Spot) -> Spot:
@@ -575,6 +577,11 @@ def _md_page(pg: dict) -> list[str]:
         out += ["- **このページは画像だけです**（文字の情報がありません。画像を見て読む必要があります）", ""]
     if pg.get("unmapped"):
         out += [f"- 文字に直せない字が {pg['unmapped']} 字あります（�で示しています）", ""]
+    for fl in pg.get("read_flags") or []:
+        out.append(f"- **{fl['title']}**：{fl['detail']}。位置：" + "、".join(_md(w) for w in fl["where"][:12])
+                   + (f"（ほか {len(fl['where']) - 12} か所）" if len(fl["where"]) > 12 else ""))
+    if pg.get("read_flags"):
+        out.append("")
     fields = pg["fields"]
     if fields:
         out += [f"### 入力欄（{len(fields)} か所）", "", "| 欄 | 見出し | 種類 | いまの値 |", "|---|---|---|---|"]
