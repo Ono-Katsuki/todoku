@@ -94,6 +94,22 @@ TOOLS = [
          "answers": {"type": "array", "description": "MsgBox・InputBox の答え（順に。「はい」「いいえ」、入力する値）"},
          "files": {"type": "object", "description": "マクロが読むファイル：{マクロの中のパス: 手元のファイルのパス}"}},
          "required": ["path", "macro", "out_path"]}},
+    {"name": "explain_calculation",
+     "description": "Excel の様式を「データ」（入力欄）と「処理」（入力から結果を出す数式）に分けて返す。式は番地を見出しに置き換えて示す"
+                    "（例「＝「報酬総額」-「処遇改善加算の総額」」）。cell を指すと、そのセルの計算を入力欄までさかのぼって説明する。"
+                    "様式の計算のきまりを本人に説明するときや、どの入力が結果を左右するかを知るときに使う。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
+         "cell": {"type": "string", "description": "説明するセル（シート!番地）。省くと、結果のまとまりの一覧"}},
+         "required": ["path"]}},
+    {"name": "try_calculation",
+     "description": "Excel の様式で、値の組から結果を試算する（ファイルは書かない）。values は fill_document と同じ {欄の id: 値}。"
+                    "「区分Ⅱにしたらいくら？」のような問いに、書類を書き換えずに答えるため。入力規則に合わない値は断る。"
+                    "結果の say_to_user（変わる所の見出しと、前 → 後）を、会話で伝える。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
+         "values": {"type": "object", "description": "{欄の id: 値}"}},
+         "required": ["path", "values"]}},
     {"name": "view_page",
      "description": "PDF のページを画像で見る（スキャンした紙のように、字の情報がない画像だけのページを読むため）。"
                     "上と左の帯に、ページの左上からの mm の目盛りが付く。小さな字は region（[左, 上, 右, 下] mm）で拡大して読む。"
@@ -184,6 +200,12 @@ def call_tool(name: str, args: dict) -> dict:
         head = (f"マクロ {res['macro']} を動かしました。" + (f"{res.get('proof', '')}" if res.get("out_path") else res.get("note", ""))
                 + (f"　エラー：{res['error']}" if res.get("error") else ""))
         return {"content": [_text(head), _text(res)], "structuredContent": res, "isError": bool(res.get("error"))}
+    if name == "explain_calculation":
+        res = api.calc_model(args["path"], args.get("cell"), args.get("password"))
+        return {"content": [_text(res)], "structuredContent": res}
+    if name == "try_calculation":
+        res = api.calculate(args["path"], args.get("values") or {}, args.get("password"))
+        return {"content": [_text(res["say_to_user"]), _text(res)], "structuredContent": res}
     if name == "view_page":
         v = api.view_page(args["path"], args["page"], args.get("region"), args.get("marks"), args.get("password"))
         return {"content": [_text(v["text"]), {"type": "image", "data": v["png_base64"], "mimeType": "image/png"}],

@@ -704,6 +704,50 @@ def audit(path: str, password: str | None = None) -> dict:
     return d
 
 
+def calc_model(path: str, cell: str | None = None, password: str | None = None) -> dict:
+    """Excel の様式の「データ」（入力欄）と「処理」（入力につながる数式）。cell を指すと、その計算を入力欄までさかのぼる。
+    式は、番地を見出しに置き換えて示す（in_words）。"""
+    from .book import open_book
+    from .xlsx import model as xm
+
+    blob, name, k, lock = _read(path, password)
+    if k not in ("xlsx", "xls"):
+        raise ApiError("計算の取り出しは Excel の様式（.xlsx・.xlsm・.xls）です")
+    _k, doc, _ = window(path, password)
+    m = xm.model(open_book(blob, name), doc)
+    if cell:
+        try:
+            return {"explain": xm.explain(m, cell)}
+        except ValueError as e:
+            raise ApiError(str(e)) from None
+    return {"inputs": len(m["inputs"]), "steps": len(m["steps"]), "results": len(m["results"]),
+            "dynamic": m["dynamic"], "result_groups": xm.summary(m)}
+
+
+def calculate(path: str, values: dict, password: str | None = None) -> dict:
+    """値の組から、ファイルを書かずに結果を計算する（試算）。書き込みと同じ受け取り方・入力規則・計算エンジン。"""
+    from .book import open_book
+    from .xlsx import model as xm
+    from .xlsx.edit import EditError
+
+    blob, name, k, lock = _read(path, password)
+    if k not in ("xlsx", "xls"):
+        raise ApiError("試算は Excel の様式（.xlsx・.xlsm・.xls）です")
+    _k, doc, _ = window(path, password)
+    try:
+        r = xm.calculate(open_book(blob, name), doc, values)
+    except EditError as e:
+        raise ApiError(str(e)) from None
+    lines = [f"試算（ファイルは書いていません）：入れた値 {len(r['inputs'])} か所で、計算が変わる所 {len(r['changed'])} か所。"]
+    for c in r["changed"][:40]:
+        lines.append(f"- {c['label'] or c['cell']}：{c['before'] or '（空）'} → {c['after'] or '（空）'}")
+    if r["not_computed"]:
+        lines.append(f"計算し直せなかった所 {len(r['not_computed'])} か所（Excel で開いたときに計算されます）："
+                     + "、".join(x["cell"] for x in r["not_computed"][:10]))
+    r["say_to_user"] = "\n".join(lines)
+    return r
+
+
 def view_page(path: str, page: int, region: list | None = None, marks: list | None = None,
               password: str | None = None) -> dict:
     """PDF のページの画像（スキャンした紙のページを、エージェントが見て読み、書く所を mm の枠で決めるため）。
