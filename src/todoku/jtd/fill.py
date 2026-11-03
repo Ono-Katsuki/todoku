@@ -17,7 +17,7 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from ..docx.fill import FillError, Patch, _as_bool, _is_text_value
-from ..docx.window import Spots, WriteError, resolve_write
+from ..docx.window import BOX, CHECKED, Spots, WriteError, box_mark, resolve_write
 from . import edit as E
 from .book import JtdFile, para_units, tokens
 
@@ -67,7 +67,7 @@ def capacity(doc: JtdFile, it: dict) -> int:
     if b <= a or b > len(us) or any(u is None for u in us[a:b]):
         return 0
     if kind == "checkbox":
-        return 1 if p.text[a:b] in ("□", "☐") else 0
+        return 1 if p.text[a:b] in BOX | CHECKED else 0  # 空の箱（□・☐）と、チェック済みの印らしい字（☑・■ など）
     return b - a
 
 
@@ -183,10 +183,10 @@ def plan(doc: JtdFile, values: dict, *, force: bool = False):
                 if kind == "checkbox":
                     on = _as_bool(value)
                     a, b = it["span"]
-                    if p.text[a:b] not in ("□", "☐") or us[a] is None:
+                    if p.text[a:b] not in BOX | CHECKED or us[a] is None:
                         raise FillError(f"{key}: チェックの印（□）を書き換えられません")
-                    if on:
-                        edits_here = {us[a]: "■" if p.text[a] == "□" else "☑"}
+                    if box_mark(p.text[a], on) != p.text[a]:
+                        edits_here = {us[a]: box_mark(p.text[a], on)}
                     patches.append(Patch(fid, "control", on, "jtd", key=key))
                 else:
                     text = _is_text_value(value)

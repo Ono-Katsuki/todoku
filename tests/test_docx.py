@@ -119,6 +119,71 @@ def test_sample_audit():
     assert au.ok, [(c.name, c.detail, c.items[:3]) for c in au.checks if not c.ok]
 
 
+U = '<w:rPr><w:u w:val="single"/></w:rPr>'
+
+
+def test_only_structural_blanks_are_rules_and_word_patterns_are_agent():
+    # 書類の作りで決まる空欄（下線を引いた空白・「＿＿＿」）は規則の欄。年・月・日などの字の並びから推定した空欄は「？」（同じ番号の並び）
+    body = (p("令和　　年　　月　　日") + p("氏名＿＿＿＿") + p("住所　　　　", U)
+            + p("連絡先　　") + '<w:p><w:r><w:t>番号</w:t></w:r><w:r>' + U + '<w:t xml:space="preserve">  </w:t></w:r></w:p>'
+            + p("https://example.jp/__icsFiles/a.docx"))
+    win = build(DocxDocument(make_docx(body), "b.docx"))
+    by = {f["id"]: f for f in win["fields"]}
+    assert all(by[i].get("agent") and "年・月・日" in by[i]["why"] for i in ("P1.1", "P1.2", "P1.3"))
+    assert not by["P2.1"].get("agent") and not by["P3.1"].get("agent")  # 「＿＿＿＿」・下線を引いた空白
+    assert by["P4.1"].get("agent") and "段落の終わり" in by["P4.1"]["why"]  # 全角の空白が4つ未満：前は出さなかった
+    assert by["P5.1"].get("agent") and "下線を引いた短い空白" in by["P5.1"]["why"]  # 2字の下線：前は出さなかった
+    assert by["P6.1"].get("agent") and "URL" in by["P6.1"]["why"]  # 英数字にはさまれた「__」は名前の一部のことも
+    md = to_markdown(win)
+    assert "令和［P1.1？］年［P1.2？］月［P1.3？］日" in md and "氏名［P2.1］" in md
+    # 「？」の所も id で書け、証明と読み戻しが通る
+    blob = make_docx(body)
+    vals = {"P1.1": "8", "P1.2": "4", "P1.3": "1", "P2.1": "山田", "P4.1": "03", "P5.1": "12"}
+    res = fill(DocxDocument(blob, "b.docx"), vals)
+    assert prove(blob, res.blob, {x.id: x.value for x in res.patches}).ok
+    got = {f["id"]: f["value"] for f in build(DocxDocument(res.blob, "b.docx"))["fields"]}
+    assert all(got[k] == v for k, v in vals.items()), got
+
+
+def test_checked_marks_are_checkbox_candidates():
+    # ☑・■・✓ は、チェック済みのチェックボックスかもしれない（■ は箇条の印のことも）：「？」の候補で、値は True。外すと印のない箱にする
+    body = p("☑ 新規　　□ 変更") + p("■ 申請者の情報") + p("✓ 確認した")
+    blob = make_docx(body)
+    win = build(DocxDocument(blob, "m.docx"))
+    by = {f["id"]: f for f in win["fields"]}
+    assert by["P1.1"]["kind"] == "checkbox" and by["P1.1"].get("agent") and by["P1.1"]["value"] is True
+    assert by["P1.2"]["kind"] == "checkbox" and not by["P1.2"].get("agent") and by["P1.2"]["value"] is False
+    assert by["P2.1"].get("agent") and by["P3.1"].get("agent") and "箇条の印" in by["P2.1"]["why"]
+    md = to_markdown(win)
+    assert "☑［P1.1？］ 新規" in md and "■［P2.1？］ 申請者の情報" in md
+    res = fill(DocxDocument(blob, "m.docx"), {"P1.1": False, "P1.2": True, "P2.1": False, "P3.1": True})
+    assert prove(blob, res.blob, {x.id: x.value for x in res.patches}).ok
+    after = build(DocxDocument(res.blob, "m.docx"))
+    got = {f["id"]: f["value"] for f in after["fields"]}
+    assert got == {"P1.1": False, "P1.2": True, "P2.1": False, "P3.1": True}, got
+    text = "\n".join(ln for st in after["stories"] for ln in st["reading"])
+    assert "☐［P1.1］ 新規" in text and "☑［P1.2］ 変更" in text and "☐［P2.1］ 申請者の情報" in text
+
+
+def test_label_beside_ruled_cell_is_kept_as_alternative():
+    # マスの見出し「住所」の後ろは、すぐ右の空のマスがあっても消さない。代わりの所（alternative_to）として示し、どちらに書くかはエージェント
+    body = '<w:tbl><w:tr><w:tc>' + p("住所") + '</w:tc><w:tc><w:p/></w:tc></w:tr></w:tbl>'
+    win = build(DocxDocument(make_docx(body), "t.docx"))
+    by = {f["id"]: f for f in win["fields"]}
+    assert not by["T1.R1.C2"].get("agent")
+    assert by["P1.a1"].get("agent") and by["P1.a1"]["alternative_to"] == "T1.R1.C2"
+    assert "T1.R1.C2 の代わりの所" in to_markdown(win)
+
+
+def test_empty_paragraph_in_cell_with_long_text_is_a_candidate():
+    # 見出しのあるマスの中の空の段落：マスのほかの字が長くても（説明の文のこともある）、字数では消さず「？」で示す
+    long = "申請者の住所を記入してください（住民票の住所と同じ）"
+    body = '<w:tbl><w:tr><w:tc>' + p(long) + '<w:p/></w:tc><w:tc>' + p("備考") + '</w:tc></w:tr></w:tbl>'
+    win = build(DocxDocument(make_docx(body), "n.docx"))
+    cand = [f for f in win["fields"] if f.get("agent") and "マスのほかの字が長く" in f["why"]]
+    assert [f["id"] for f in cand] == ["P2.a1"], win["fields"]
+
+
 @pytest.mark.parametrize("name", ["11ninshintodoke.docx", "torisage-word.docx", "sanko15_kakunin_seiyakusy.docx", "jigyoukeikaku.docx"])
 def test_corpus_audit(name):
     path = next((x for x in CORPUS if Path(x).name == name), None)
