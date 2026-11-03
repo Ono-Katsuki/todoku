@@ -158,16 +158,19 @@ def test_seal_over_the_mark_on_a_text_page(tmp_path):
     # 窓（読み直し）にも、スタンプの注釈として出る
     win = api.window(str(out))[1]
     assert any(a["kind"] == "Stamp" and "印影" in a["text"] for a in win["pages"][0]["annotations"])
-    # ページの画像にも、置いた画像が描かれる（輪の上は暗く、輪の中は白い）
+    # ページの画像にも、置いた画像が描かれる（輪の上は赤い。輪の中は透けて、下の字「印」が見える）
     rr = render(doc, 1, max_side=600)
     box = r["placed"][0]["box_mm"]
     s = rr["scale"]
     cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
 
     def px(x_mm, y_mm):
-        return rr["rgb"][(int(y_mm * s) * rr["w"] + int(x_mm * s)) * 3]
+        i = (int(y_mm * s) * rr["w"] + int(x_mm * s)) * 3
+        return tuple(rr["rgb"][i:i + 3])
 
-    assert px(cx, cy) > 200 and px(cx + 12 * 0.42, cy) < 200
+    ring = px(cx + 12 * 0.42, cy)
+    assert ring[0] > 150 and ring[1] < 80 and ring[2] < 80, ring
+    assert px(cx + 12 * 0.3, cy) == (255, 255, 255)  # 輪と字の間は白い（透ける）
     v = api.view_page(str(out), 1)
     assert "p1.s1" in v["text"]
 
