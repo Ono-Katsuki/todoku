@@ -26,6 +26,7 @@ NS = {
 }
 M = "{%s}" % NS["m"]
 R = "{%s}" % NS["r"]
+A_NS = "{%s}" % NS["a"]
 
 
 # Strict Open XML（ISO/IEC 29500 Strict）の名前空間 → 通常（Transitional）の名前空間
@@ -527,6 +528,23 @@ class Workbook:
             if ph is not None:
                 self.phonetic[i] = ph
 
+    def _palette(self, styles_root: ET.Element) -> Palette:
+        """ブックの色の表：テーマの部品（ブックの関係 theme）の色と、styles.xml の色番号の表（<colors><indexedColors>）。"""
+        theme = None
+        for typ, target in self.rels(self.wb_path).values():
+            if typ == "theme" and self.zip.has(target):
+                try:
+                    theme = theme_colors(self.xml(target))
+                except Exception:  # noqa: BLE001  壊れたテーマ：標準のテーマの色
+                    theme = None
+        indexed = None
+        ic = styles_root.find(M + "colors/" + M + "indexedColors")
+        if ic is not None:
+            indexed = [(c.get("rgb") or "")[-6:].upper() for c in ic.findall(M + "rgbColor")]
+            indexed = [x if len(x) == 6 else _INDEXED[i] if i < len(_INDEXED) else "000000" for i, x in enumerate(indexed)]
+            indexed += _INDEXED[len(indexed):]
+        return Palette(theme, indexed)
+
     def _load_styles(self, path: str) -> None:
         from ..formula.numfmt import BUILTIN
 
@@ -535,10 +553,11 @@ class Workbook:
         nf = root.find(M + "numFmts")
         for f in nf if nf is not None else []:
             fmts[int(f.get("numFmtId"))] = f.get("formatCode")
-        fonts = [_color(f.find(M + "color")) for f in (root.find(M + "fonts") or [])]
+        pal = self.palette = self._palette(root)
+        fonts = [_color(f.find(M + "color"), pal) for f in (root.find(M + "fonts") or [])]
         strikes = [(f.find(M + "strike") is not None and f.find(M + "strike").get("val", "1") not in ("0", "false"))
                    for f in (root.find(M + "fonts") or [])]
-        fills = [_fill_color(f) for f in (root.find(M + "fills") or [])]
+        fills = [_fill_color(f, pal=pal) for f in (root.find(M + "fills") or [])]
         borders = []
         for bd in root.find(M + "borders") or []:
             bits = 0
@@ -565,8 +584,8 @@ class Workbook:
         for d in root.find(M + "dxfs") or []:
             font = d.find(M + "font")
             nf = d.find(M + "numFmt")
-            self.dxfs.append(Dxf(_color(font.find(M + "color")) if font is not None else None,
-                                 _fill_color(d.find(M + "fill"), dxf=True) if d.find(M + "fill") is not None else None,
+            self.dxfs.append(Dxf(_color(font.find(M + "color"), pal) if font is not None else None,
+                                 _fill_color(d.find(M + "fill"), dxf=True, pal=pal) if d.find(M + "fill") is not None else None,
                                  nf.get("formatCode") if nf is not None else None))
 
     def style(self, idx: int) -> Style:
@@ -1000,24 +1019,98 @@ _ACTIVEX = {
     "4C599241-6926-101B-9992-00000B65C6F9": "Image",
 }
 
-# 既定の色（Officeの標準テーマと、旧来の56色パレットのうち白黒）
-_THEME = {0: "FFFFFF", 1: "000000", 2: "E7E6E6", 3: "44546A"}
-_INDEXED = {8: "000000", 9: "FFFFFF", 64: "000000", 65: "FFFFFF"}
+# 色（ECMA-376 第 1 部）：
+# - rgb：ARGB の 16 進（§18.8.3 color の rgb）
+# - indexed：色番号（§18.8.27 indexedColors）。styles.xml の <colors><indexedColors> があればその表、なければ既定の 64 色
+#   （下の _INDEXED。0〜7 と 8〜63 は同じ色の並びを含む）。64 は字の既定の色（黒）、65 は背景の既定の色（白）
+# - theme：テーマの色の番号（§18.8.3 color の theme。テーマの部品 theme1.xml の a:clrScheme §20.1.6.2）。番号は
+#   lt1, dk1, lt2, dk2, accent1〜6, hlink, folHlink の順（SpreadsheetML の番号の並び。clrScheme の要素の順 dk1・lt1・dk2・lt2 の
+#   最初の 2 組を入れ替えたもの）。テーマの部品がなければ、Office の標準のテーマの色（_THEME）
+# - tint：明るさの補正（§18.8.3 color の tint、-1〜1）。HLS の L を、tint < 0 なら L×(1+tint)、tint > 0 なら L×(1−tint)+tint にする
+_INDEXED = ["000000", "FFFFFF", "FF0000", "00FF00", "0000FF", "FFFF00", "FF00FF", "00FFFF",
+            "000000", "FFFFFF", "FF0000", "00FF00", "0000FF", "FFFF00", "FF00FF", "00FFFF",
+            "800000", "008000", "000080", "808000", "800080", "008080", "C0C0C0", "808080",
+            "9999FF", "993366", "FFFFCC", "CCFFFF", "660066", "FF8080", "0066CC", "CCCCFF",
+            "000080", "FF00FF", "FFFF00", "00FFFF", "800080", "800000", "008080", "0000FF",
+            "00CCFF", "CCFFFF", "CCFFCC", "FFFF99", "99CCFF", "FF99CC", "CC99FF", "FFCC99",
+            "3366FF", "33CCCC", "99CC00", "FFCC00", "FF9900", "FF6600", "666699", "969696",
+            "003366", "339966", "003300", "333300", "993300", "993366", "333399", "333333",
+            "000000", "FFFFFF"]  # 64：字の既定の色・65：背景の既定の色
+# Office の標準のテーマ（Office 2013〜2022 の「Office」テーマ）の色。テーマの部品のないブックで使う
+_THEME = ["FFFFFF", "000000", "E7E6E6", "44546A", "4472C4", "ED7D31", "A5A5A5", "FFC000", "5B9BD5", "70AD47",
+          "0563C1", "954F72"]
+_SCHEME_ORDER = ("lt1", "dk1", "lt2", "dk2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
+                 "hlink", "folHlink")
 
 
-def _color(el: ET.Element | None) -> str | None:
+class Palette:
+    """ブックの色の表（テーマの色・色番号の表）。_color が色を RRGGBB の字にする。"""
+
+    def __init__(self, theme: list[str] | None = None, indexed: list[str] | None = None):
+        self.theme = theme or list(_THEME)
+        self.indexed = indexed or list(_INDEXED)
+
+
+_DEFAULT_PALETTE = Palette()
+
+
+def theme_colors(root: ET.Element | None) -> list[str] | None:
+    """テーマの部品（a:theme）の a:clrScheme の色を、SpreadsheetML の番号の順（_SCHEME_ORDER）に。読めなければ None。"""
+    if root is None:
+        return None
+    scheme = root.find(".//" + A_NS + "clrScheme")
+    if scheme is None:
+        return None
+    out = []
+    for name in _SCHEME_ORDER:
+        el = scheme.find(A_NS + name)
+        rgb = None
+        if el is not None:
+            srgb, sysc = el.find(A_NS + "srgbClr"), el.find(A_NS + "sysClr")
+            if srgb is not None:
+                rgb = srgb.get("val")
+            elif sysc is not None:
+                rgb = sysc.get("lastClr")
+        if not rgb:
+            return None
+        out.append(rgb.upper()[-6:])
+    return out
+
+
+def apply_tint(rgb: str, tint: float) -> str:
+    """ECMA-376 §18.8.3（color の tint）の明るさの補正：RGB を HLS にし、L を補正して戻す。"""
+    import colorsys
+
+    r, g, b = (int(rgb[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    h, l_, s = colorsys.rgb_to_hls(r, g, b)
+    l_ = l_ * (1 + tint) if tint < 0 else l_ * (1 - tint) + tint
+    r, g, b = colorsys.hls_to_rgb(h, min(max(l_, 0.0), 1.0), s)
+    return "".join(f"{round(x * 255):02X}" for x in (r, g, b))
+
+
+def _color(el: ET.Element | None, pal: Palette | None = None) -> str | None:
     if el is None:
         return None
+    pal = pal or _DEFAULT_PALETTE
+    rgb = None
     if el.get("rgb"):
-        return el.get("rgb")[-6:].upper()
-    if el.get("theme") is not None and el.get("tint") in (None, "0", "0.0"):
-        return _THEME.get(int(el.get("theme")))
-    if el.get("indexed") is not None:
-        return _INDEXED.get(int(el.get("indexed")))
-    return None
+        rgb = el.get("rgb")[-6:].upper()
+    elif el.get("theme") is not None:
+        k = int(el.get("theme"))
+        rgb = pal.theme[k] if 0 <= k < len(pal.theme) else None
+    elif el.get("indexed") is not None:
+        k = int(el.get("indexed"))
+        rgb = pal.indexed[k] if 0 <= k < len(pal.indexed) else _INDEXED[k] if 0 <= k < len(_INDEXED) else None
+    if rgb is None:
+        return None
+    try:
+        tint = float(el.get("tint") or 0)
+    except ValueError:
+        tint = 0.0
+    return apply_tint(rgb, tint) if tint else rgb
 
 
-def _fill_color(f: ET.Element | None, dxf: bool = False) -> str | None:
+def _fill_color(f: ET.Element | None, dxf: bool = False, pal: Palette | None = None) -> str | None:
     if f is None:
         return None
     pf = f.find(M + "patternFill")
@@ -1027,7 +1120,7 @@ def _fill_color(f: ET.Element | None, dxf: bool = False) -> str | None:
         return None
     # セルの塗りは fgColor、条件付き書式（dxf）の塗りは bgColor に書かれる
     col = pf.find(M + ("bgColor" if dxf else "fgColor"))
-    return _color(col)
+    return _color(col, pal)
 
 
 def _sqref(text: str) -> list[tuple[int, int, int, int]]:

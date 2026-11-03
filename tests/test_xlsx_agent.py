@@ -64,20 +64,31 @@ def test_bordered_blank_without_label_is_shown_as_agent_and_writable():
     assert Workbook(res.blob, "t.xlsx").sheet("S").cells[(5, 2)].value == "とどく"
 
 
-def test_labelled_box_stays_input_but_grades_b():
-    # 枠と近くの見出しから決めた欄は入力欄のまま。ただし印（入力規則・保護）ではないので、書く段階は B（A ではない）
+def test_labelled_box_is_an_agent_place_with_facts():
+    # 枠のある空のマスは、すぐ左に見出しがあっても、ファイルが入力欄と宣言していない（入力規則・保護の解除がない）ので、
+    # 規則では決められない所［B1？］。以前は「見出しが 4 列・3 行以内にある枠（3 辺以上）」を入力欄にしていた（字数・列数の目安）。
+    # 事実（罫線の辺・大きさ mm・近くの字とその離れ方）を evidence に出し、書く段階は B
     def build(wb):
         ws = wb.active
         ws.title = "S"
         ws["A1"] = "氏名"
         ws["B1"].border = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+        ws["A3"] = "住所"
+        ws["H3"].border = Border(bottom=THIN)  # 見出しから 6 列はなれた下線の欄：離れ方を事実として出す（列の数では落とさない）
 
     blob = blob_of(build)
     f = fields_of(doc_of(blob))
-    assert not f["S!B1"].get("agent") and f["S!B1"]["reason"] == ["枠のある空欄"]
+    b1 = f["S!B1"]
+    assert b1["agent"] and b1["reason_codes"] == ["blank_box"] and b1["label"] == "氏名"
+    ev = b1["evidence"]
+    assert ev["sides"] == {"left": True, "right": True, "top": True, "bottom": True}
+    assert ev["left"]["text"] == "氏名" and ev["left"]["cols"] == 0 and ev["left"]["mm"] == 0
+    assert ev["size_mm"]["w"] > 10 and ev["size_mm"]["h"] > 4  # 既定の列の幅・行の高さ（mm）
+    h3 = f["S!H3"]
+    assert h3["agent"] and h3["evidence"]["left"]["cols"] == 6 and h3["evidence"]["left"]["mm"] > 60
     g = grade_blob(blob, "t.xlsx")
     titles = {r.title: r.grade for r in g.write_reasons}
-    assert titles.get("枠・塗りから推定した入力欄") == "B" and "印のある入力欄" not in titles, g.headline()
+    assert titles.get("規則では決められない所") == "B" and "印のある入力欄" not in titles, g.headline()
     assert g.grade == "A" and g.write == "B"  # 入力欄の見つけ方は、読む段階を下げない
 
 
@@ -117,19 +128,22 @@ def test_text_cell_gaps_are_agent_and_structural_blanks_are_rules():
     assert not f["S!A4"].get("agent") and f["S!A4"]["spans"][0]["rule"]
     reading = {x.get("row"): x["text"] for x in doc["sheets"][0]["reading"]}
     # 「？」の所の印は、元の空白をそのまま中に入れる（空きの大きさを印から読める）
-    assert reading[1] == "〔A1〕議長　［？　　　］氏" and reading[2] == "〔A2〕令和［？　　］年［？　　］月［？　　］日"
+    # 空白だけの空き：前後の印刷された字の側に元の空白を 1 字ずつ残す（後ろの字の字数では決めない）
+    assert reading[1] == "〔A1〕議長　［？　　］　氏" and reading[2] == "〔A2〕令和［？　　］年［？　　］月［？　　］日"
     assert reading[3] == "〔A3〕電話（［　］）"
     # 書くのは、空欄ごとの値のリスト（書かない所は null）
     res = fill(Workbook(blob, "t.xlsx"), {"S!A1": ["山田"], "S!A2": ["8", "4", None]})
     sh = Workbook(res.blob, "t.xlsx").sheet("S")
-    assert sh.cells[(1, 1)].value == "議長　山田氏" and sh.cells[(2, 1)].value == "令和8年4月　　日"
+    assert sh.cells[(1, 1)].value == "議長　山田　氏" and sh.cells[(2, 1)].value == "令和8年4月　　日"
 
 
 def test_after_label_is_not_cut_by_length_or_other_blanks():
-    # 見出しの後ろの候補は、字数（2〜16 字）やほかの空きのあるなしでは落とさない。detail=True で、どれに当たるかを鍵で示す
+    # 見出しの後ろの候補は、字数やほかの空きのあるなしでは落とさない。鍵も字数では分けない（以前の after_label_long：
+    # 2〜16 字かどうか、はやめた）。段落の字数は事実（facts の body_len）として出す
     long = "令和八年度地域福祉活動推進事業補助金交付申請"
     assert window.agent_blanks(long) == [(len(long), len(long), "after_label")]
-    assert window.agent_blanks(long, detail=True)[0][2] == "after_label_long"
+    got = window.agent_blanks(long, detail=True)[0]
+    assert got[2] == "after_label" and got.facts["body_len"] == len(long) and got.facts["before"] == long[-40:]
     assert window.agent_blanks("氏名＿＿＿＿電話番号", found=[(2, 6)], detail=True)[-1][2] == "after_label_more"
     # 中に 1 字ぶん以上の空き（全角の空白 1 つ：wide_space）のある段落は、空きを別に示すので、段落の後ろは出さない
     # （「１　目的」の空きと後ろの両方を出さない。PDF・Word と同じ 1 em の決まり）
@@ -163,12 +177,15 @@ def test_image_only_sheet_is_decided_by_structure():
     assert image_only_sheets(wb) == ["絵"]
 
 
-@pytest.mark.parametrize("ch", list("❏❐❑❒◻◽"))
-def test_bullet_like_box_in_a_cell_is_agent_like_word_and_pdf(ch):
-    # 箇条書きの印にもよく使う箱の字は、マスの中でも規則のチェックの欄にしない（Word・PDF と同じ「？」：bullet_box）
-    assert window.cell_blanks(f"{ch}はい") == [(0, 1, "bullet_box")]
-    assert window.cell_blanks("□はい") == [(0, 1, None)] and window.cell_blanks("☑はい") == [(0, 1, None)]
-    assert "箇条書きの印" in window.AGENT_WHY["bullet_box"]
+@pytest.mark.parametrize("ch", list("☐□▢⬜❏❐❑❒◻◽"))
+def test_printed_box_in_a_cell_is_agent_like_word_and_pdf(ch):
+    # 印刷された箱の字は、記入の箱か箇条・見出しの印か字からは決まらないので、どの箱の字も規則のチェックの欄にしない
+    # （以前は ☐□▢⬜ だけを「記入の箱と決まる字」にしていた）。Word・PDF と同じ「？」：bullet_box。字の事実を facts に
+    got = window.cell_blanks(f"{ch}はい")
+    assert got == [(0, 1, "bullet_box")]
+    assert got[0].facts["glyph"]["code"] == f"U+{ord(ch):04X}" and got[0].facts["after"] == "はい"
+    assert window.cell_blanks("☑はい") == [(0, 1, "checked_box")]
+    assert "字からは決まらない" in window.AGENT_WHY["bullet_box"]
     assert window.blank_token(f"{ch}はい", 0, 1, "bullet_box") == f"{ch}［？］"
 
 

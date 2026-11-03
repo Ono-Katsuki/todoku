@@ -103,11 +103,15 @@ def test_spaced_and_decor_kinds():
     assert {k for _a, _b, k in blank_places("事　　業　　所")} == {"spaced"}
     assert {k for _a, _b, k in blank_places("□地　域　移　行")} == {"spaced"}
     assert {k for _a, _b, k in blank_places("　年　　月　　日")} == {"gap"}
-    assert [k for _a, _b, k in blank_places("－－－－－－－－")] == ["decor"] and "decor" in AGENT_WHY and "spaced" in AGENT_WHY
+    # 点線・ダッシュだけの行：鍵は長さでは分けない（以前の decor：8 字以上）。段落の字のすべてかは facts の whole_line
+    got = blank_places("－－－－－－－－")
+    assert [k for _a, _b, k in got] == ["dash"] and got[0].facts["whole_line"] and got[0].facts["len"] == 8
+    assert "spaced" in AGENT_WHY
 
 
 def test_fill_blanks_keeps_the_rest_of_the_text():
     assert fill_blanks("令和　　年　　月　　日", ["8", "4", "1"]) == "令和8年4月1日"
     # 番号のついた字間を空けた見出し（「１．廃　業　年　月　日」）の全角の空白 1 つも 1 字ぶんの空き（？）：書かない所は None
+    # 空白だけの空きに書くときは、前後の印刷された字の側に元の空白を 1 字ずつ残す（後ろの字の字数では決めない）
     assert fill_blanks("１．廃　業　年　月　日　　　　年　　月　　日", [None] * 4 + ["2026", "11", "2"]) \
-        == "１．廃　業　年　月　日　2026年11月2日"
+        == "１．廃　業　年　月　日　2026　年11月2日"
