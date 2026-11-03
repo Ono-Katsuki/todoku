@@ -327,8 +327,12 @@ class Spots:
                     if has_field and any(fmask[a:max(a + 1, b)]):
                         continue
                     fid = f"P{pi}.a{next(free_ka)}"
+                    label = self._label(p, a, b)
+                    if why in ("first_line", "next_line", "next_line_long") and c is not None and c.table is not None:
+                        # マスの中の空の段落：段落の字は空欄だけ（「［　］」）なので、ほかのマスの欄と同じく、表の行・列の見出し
+                        label = _cell_label(c.table, c, self.written_cells)[0] or label
                     it = {"id": fid, "kind": "inline", "source": "layout", "para": p, "span": (a, b),
-                          "label": self._label(p, a, b), "provenance": AGENT, "why": WORD_WHY[why], "why_key": why}
+                          "label": label, "provenance": AGENT, "why": WORD_WHY[why], "why_key": why}
                     if why == "placeholder":
                         it["placeholder"] = text[a:b]
                     alt = self._beside_cell_field(p, why)

@@ -1213,7 +1213,16 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
             if key in f.by_name or (key in spots and spots[key][1].get("source") == "acroform"):
                 fld = f.by_name.get(key) or f.by_name[spots[key][1]["name"]]
                 val, allow_hidden = _field_value(key, value)
+                sd_ = spots.get(fld.name, (None, {}))[1]
+                opts, olabs = sd_.get("options") or [], sd_.get("options_labels") or []
+                if isinstance(val, str) and val not in opts and olabs.count(val) == 1:
+                    val = opts[olabs.index(val)]  # 選択肢の隣に印刷された字で選んだ（「Female」→ 選択肢の名前 F）
+                n_ = len(f.patches)
                 f.set_field(fld, val, force, allow_hidden=allow_hidden)
+                if olabs and len(f.patches) > n_ and f.patches[-1].kind == "control" and f.patches[-1].value in opts:
+                    # 読み戻しと本人に伝える値は、窓の値と同じ、選んだ選択肢の隣に印刷された字（/V と /AS は expect で照らす）
+                    f.patches[-1].export = f.patches[-1].value  # 計算のスクリプトに渡す値は、選択肢の名前のまま
+                    f.patches[-1].value = olabs[opts.index(f.patches[-1].value)]
                 continue
             if key not in spots:
                 raise FillError(f"{key}: そのような欄はありません")
@@ -1526,7 +1535,7 @@ def _recalculate(f: Filler, values: dict) -> None:
         return
     current = {fld.name: fld.value_text() for fld in f.fields}
     for p in f.patches:
-        current[p.id] = p.value
+        current[p.id] = getattr(p, "export", p.value)
     for _i, fld, js in sorted(calc, key=lambda x: x[0]):
         r = acrojs.simple_calculate(js["C"], lambda n: current.get(n))
         if r is None:

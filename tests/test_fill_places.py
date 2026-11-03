@@ -139,3 +139,17 @@ def test_pdf_circle_occurrence_counts_among_near_candidates(tmp_path):
     assert "通院頻度 【月】・週" in r["circled"][0]["around"], r["circled"]
     with pytest.raises(api.ApiError, match="near"):
         api.fill(str(src), {"@c1": {"circle": "月", "near": "通院頻度", "occurrence": 2}}, str(tmp_path / "p.pdf"))
+
+
+def test_docx_first_empty_paragraph_takes_the_cell_label(tmp_path):
+    from test_docx import make_docx, p
+
+    from todoku import api
+
+    body = '<w:tbl><w:tr><w:tc>' + p("氏名") + '</w:tc><w:tc><w:p/>' + p("個人番号") + '</w:tc></w:tr></w:tbl>'
+    src = tmp_path / "a.docx"
+    src.write_bytes(make_docx(body))
+    first = next(f for f in api.fields(str(src)) if "初めの空の段落" in (f.get("why") or ""))
+    assert first["label"] == "氏名"  # 行の見出し（印刷された字のまま）。「［　］」だけにしない
+    r = api.fill(str(src), {first["id"]: "山田　花子"}, str(tmp_path / "b.docx"), overwrite=True)
+    assert "- 氏名：山田　花子" in r["say_to_user"], r["say_to_user"]
