@@ -165,6 +165,22 @@ def test_value_beside_stacked_lines_without_circle_avoids_the_lines(tmp_path):
     assert any("行の高さにかからない" in w or "続けて読めることがあります" in w for w in r["warnings"]), r["warnings"]
 
 
+# ---------------------------------------------------------------- PDF：一続きのマスの字の大きさをそろえる
+def test_adjacent_cells_in_one_fill_get_one_font_size():
+    from todoku.pdf.doc import PdfDocument
+    from todoku.pdf.fill import Filler, _uniform_sizes
+
+    doc = PdfDocument(_pdf([(70, 700, 10, "口座名義")]))
+    f = Filler(doc)
+    spots = {"p1.1": (1, {"id": "p1.1", "kind": "text", "rect": [100, 600, 128, 628], "size": 10.5}),
+             "p1.2": (1, {"id": "p1.2", "kind": "text", "rect": [128, 600, 156, 628], "size": 10.5}),
+             "p1.3": (1, {"id": "p1.3", "kind": "text", "rect": [156, 600, 167, 628], "size": 10.5})}
+    _uniform_sizes(f, doc, {"p1.1": "ヤ", "p1.2": "マ", "p1.3": "コ"}, spots)
+    assert f.size_override.get("p1.1") and f.size_override["p1.1"] == f.size_override["p1.2"] < 10.5
+    assert "p1.3" not in f.size_override  # いちばん小さい欄は、もとの大きさのまま
+    assert any("そろえました" in w for w in f.warnings)
+
+
 # ---------------------------------------------------------------- ○：near の字の中の囲む字（circlepick）
 def _two_rows_pdf() -> bytes:
     return _pdf([(70, 700, 10, "生年月日　大・昭・平・令　　年"), (70, 660, 10, "交付日　大・昭・平・令　　年"),

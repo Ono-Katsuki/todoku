@@ -489,6 +489,7 @@ class Filler:
         self.warnings: list[str] = []
         self.circles: dict[int, list[dict]] = {}  # ページ → ○で囲む所（circle.resolve）
         self.covers: set[str] = set()  # 覆って書いた所（cover）の名前：覆う字に重なってよい
+        self.size_override: dict[str, float] = {}  # 一続きのマスにそろえた字の大きさ（_uniform_sizes）
         from .signatures import read as read_signatures
 
         self.sigs = read_signatures(doc)  # 電子署名：固定された欄・認証の署名が許す変更
@@ -925,7 +926,7 @@ class Filler:
             raise FillError(f"{spot['id']}: この所には 1 つの値（字か数）を書きます。リストや {{…}} の形の値は書けません"
                             f"（受け取った値：{value!r}）。空きが並ぶ所は、それぞれの id に 1 つずつ書いてください")
         text = _as_text(value)
-        size = float(spot.get("size") or 10.5 / view.unit)
+        size = float(self.size_override.get(spot["id"]) or spot.get("size") or 10.5 / view.unit)
         comb = None
         if k == "comb":
             boxes = spot.get("box_rects") or []
@@ -1246,6 +1247,7 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
     circ_used: dict = {}  # ○で囲んだ所（ページ → 番号と楕円）
     layouts: dict = {}
     circled_spans = None  # 同じ書き込みで○で囲む字の所（ページ → [(上, 下)]）：字の行が縦に並ぶマスの欄の高さを決める
+    _uniform_sizes(f, doc, values, spots)
     xf = _xfa_form(doc)
     xfa_values = {k: v for k, v in values.items() if xf is not None and k in xf.by_id}
     for key, value in values.items():
@@ -1354,6 +1356,70 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
             raise FillError("書いた所が、ほかの字や線に重なるので、書き出していません：\n" + "\n".join(probs[:12]))
         f.warnings += [x for x in notes if x not in f.warnings]
     return FillResult(blob, f.patches, f.warnings, denied=denied)
+
+
+def _natural_size(spot: dict, text: str, unit: float) -> float | None:
+    """窓の欄に text を書くときの字の大きさ（add_widget・text_appearance と同じ決め方）。入らなければ None。"""
+    x0, y0, x1, y1 = spot["rect"]
+    w, h = x1 - x0, y1 - y0
+    size = float(spot.get("size") or 10.5 / unit)
+    if spot.get("kind") == "comb":
+        boxes = spot.get("box_rects") or []
+        return min(size, min(b[3] - b[1] for b in boxes) * 0.7) if boxes else None
+    try:
+        return layout_text(text, w, h, size, False, h > 2.4 * min(size, 10.5 / unit), unit)[1]
+    except FillError:
+        return None
+
+
+def _uniform_sizes(f: Filler, doc, values: dict, spots: dict) -> None:
+    """同じ行に隙間なく並ぶマス（一続きの欄：口座名義の 1 字ずつのマス）に、同じ書き込みで字を書くとき、字の大きさを
+    そろえる。マスの大きさが違うと、欄ごとに字の大きさが変わり、小さい字が小書きの字（「ヤ」が「ャ」）に読めるので、
+    いちばん小さい欄の大きさ（読める大きさより小さくはしない）に合わせ、そろえたことを伝える。"""
+    items = []
+    for k, v in values.items():
+        if k not in spots or k in f.by_name or isinstance(v, (dict, list, tuple, bool)) or v is None:
+            continue
+        n, sd = spots[k]
+        if sd.get("source") == "acroform" or sd.get("kind") not in ("text", "comb") or not sd.get("rect"):
+            continue
+        t = _as_text(v)
+        if not t or "\n" in t:
+            continue
+        items.append((n, sd, t))
+    if len(items) < 2:
+        return
+    items.sort(key=lambda x: (x[0], round(x[1]["rect"][1]), x[1]["rect"][0]))
+    groups, cur = [], []
+    for it in items:
+        if cur:
+            pn, ps, _pt_ = cur[-1]
+            r0, r1 = ps["rect"], it[1]["rect"]
+            same_row = it[0] == pn and abs(r0[1] - r1[1]) <= 1.0 and abs(r0[3] - r1[3]) <= 1.0
+            if same_row and -1.0 <= r1[0] - r0[2] <= 2.0:
+                cur.append(it)
+                continue
+            groups.append(cur)
+        cur = [it]
+    groups.append(cur)
+    for g in groups:
+        if len(g) < 2:
+            continue
+        unit = View(doc, f.pages[g[0][0] - 1]).unit
+        sizes = [(sd["id"], _natural_size(sd, t, unit)) for _n, sd, t in g]
+        known = [s for _i, s in sizes if s]
+        if len(known) < 2 or max(known) - min(known) <= 0.5:
+            continue
+        target = max(min(known), MIN_READABLE_PT / unit)
+        for fid, s in sizes:
+            if s and s > target:
+                f.size_override[fid] = target
+        small = [fid for fid, s in sizes if s and s < target - 0.05]
+        f.warnings.append("・".join(fid for fid, _s in sizes) + ": 同じ行に並ぶマスに書いた字の大きさを、"
+                          f"{_pt(target * unit)} pt にそろえました（マスの大きさが違い、欄ごとに字の大きさが変わると、小さい字が"
+                          "小書きの字（「ヤ」が「ャ」）に読めることがあるため）"
+                          + (f"。{'・'.join(small)} は、読める大きさ（{MIN_READABLE_PT:g} pt）でも入らないので小さいままです。"
+                             "本人に確かめてください" if small else ""))
 
 
 def _circled_spans(doc, values: dict, layouts: dict) -> dict:
