@@ -137,8 +137,9 @@ def choose(hits: list, near: str | None, occ, anchors_of, rank_of, where_of, tar
     1) near の字そのものの中にある候補：near が選択肢の並び（「大・昭・平・令」）でその項目なら、その所を選ぶ。そうでなければ
        （見出し「…の有無」の「無」）選ばず、ほかの候補が near と同じ行（段落・表の行）になければ断る（circlepick）
     2) 前後が区切りではさまれた候補（「有・無」の「無」）だけを選ぶ。字の並びに埋まった候補（「生年月日」の「月」）しかなければ断る
-    3) near があれば、near といちばん近い関係（同じ段落・同じ行・同じ列…）の候補に絞る。occurrence は、その絞った候補の中の
-       何番目か（読む順。断るときの一覧の番号と同じ）。occurrence がなければ、いちばん近い1つ。同じくらい近い候補が残れば断る
+    3) near があれば、near といちばん近い関係（同じ段落・同じ行・同じ列…）の候補に絞る。occurrence は、その絞った候補（字の並びの
+       中の字も）の中の何番目か（読む順。断るときの一覧の番号と同じ）で、番号で指した字は字の並びの中でも囲む。occurrence が
+       なければ、区切りではさまれた候補のうちいちばん近い1つ。同じくらい近い候補が残れば断る
     4) near がなければ、occurrence は文書のすべての候補の中の何番目か。なくて候補が2つ以上なら断る
     断るときは、候補の前後の字（【】が囲む字）を示す。
     hits：[(場所, 始め, 終わり, …)]。anchors_of(near) → [(場所, 始め, 終わり, …)]。rank_of(hit, anchors) → 近さ（小さいほど近い。
@@ -180,28 +181,37 @@ def choose(hits: list, near: str | None, occ, anchors_of, rank_of, where_of, tar
                 return inside[occ - 1][0]
             raise CircleError(f"「{target}」は、near の「{near}」の字の中にしか見つかりません（区切られた選択肢の項目では"
                               f"ありません）。その字を囲むなら occurrence で指定してください：{listing([h for h, _a in inside])}")
-        free = [h for h in hits if bounded(*where_of(h))]
-        if not free and not inside:
-            raise CircleError(f"「{target}」は、どれもほかの字の並びの中にあります（区切りの字ではさまれた所がありません）。"
-                              f"選択肢の字か確かめてください：{listing(hits)}")
-        ranks = [rank_of(h, anchors) for h in free]
-        best = min(ranks) if ranks else None
-        scope = [h for h, r in zip(free, ranks) if r[0] == best[0]] + [h for h, _a in inside]  # near といちばん近い関係の候補（読む順）
+        # occurrence の番号：near といちばん近い関係の候補（字の並びの中の字も。PDF と同じ）を読む順に、その後ろに near の字の中の候補
+        ranks_all = [rank_of(h, anchors) for h in hits]
+        kind = min(r[0] for r in ranks_all)
+        scope = [h for h, r in zip(hits, ranks_all) if r[0] == kind] + [h for h, _a in inside]
+
+        def numbered(hs) -> str:
+            out = []
+            for h in hs[:10]:
+                k = next((i for i, o in enumerate(scope, 1) if o is h), None)
+                head = f"{k}番目" if k else "（この指定では選べない所）"
+                out.append(f"{head}：「{around(*where_of(h))}」" + ("" if bounded(*where_of(h)) else "（字の並びの中）"))
+            return "／".join(out) + ("ほか" if len(hs) > 10 else "")
+
         if occ is not None:
             if not occ_ok(len(scope)):
-                raise CircleError(f"near の「{near}」に近い「{target}」は {len(scope)} か所です（{listing(scope)}）。"
+                raise CircleError(f"near の「{near}」に近い「{target}」は {len(scope)} か所です（{numbered(scope)}）。"
                                   f"occurrence は、その中の何番目か（1〜{len(scope)}）で指定してください")
-            return scope[occ - 1]
+            return scope[occ - 1]  # 番号で指した字は、字の並びの中の字でも囲む
+        free = [h for h in hits if bounded(*where_of(h))]
         if not free:
-            raise CircleError(f"「{target}」は、near の「{near}」の字の中のほかは、どれもほかの字の並びの中にあります。"
-                              f"occurrence で1つに決めてください：{listing(scope)}")
+            raise CircleError(f"「{target}」は、どれもほかの字の並びの中にあります（区切りの字ではさまれた所がありません）。"
+                              f"選択肢の字か確かめて、囲むなら occurrence で指定してください：{numbered(scope)}")
+        ranks = [rank_of(h, anchors) for h in free]
+        best = min(ranks)
         top = [h for h, r in zip(free, ranks) if r == best]
         if len(top) > 1:
             raise CircleError(f"「{near}」に同じくらい近い「{target}」が {len(top)} か所あります。occurrence（near に近い候補の中の"
-                              f"何番目か）で1つに決めてください：{listing(scope)}")
+                              f"何番目か）で1つに決めてください：{numbered(top)}")
         if inside and not any(rank_of(top[0], [an])[0] in line_kinds for _h, an in inside):
             # 囲む字は near の字の中にもある（「都道府県」の「都」）。いちばん近いほかの候補は別の行：黙って移らずに断る
-            raise CircleError(inside_message(target, near, listing(scope)))
+            raise CircleError(inside_message(target, near, numbered(scope)))
         return top[0]
     if occ is not None:
         if not isinstance(occ, int) or isinstance(occ, bool) or not 1 <= occ <= len(hits):
@@ -561,18 +571,33 @@ def read_back(blob: bytes, name: str, circled: list[dict]) -> list[dict]:
     """書いた後の文書を開き直し、○の図形（または囲み線）が、言った字の直前（その字だけ）に付いているかを確かめる。"""
     doc = DocxDocument(blob, name)
     out = []
+    used_spans: set = set()  # 囲み線：もう読み戻しに使った (段落, 始め)。同じ見出しの段落（「有・無」が二つ）を取り違えない
     for c in circled:
-        found = None
+        found = seen = None
         for p in _paras(doc):
             xml = doc.xml(p.part)
             seg_text = p.text
             if c.get("style") == "border":
+                if c["context"] != re.sub(r"\s+", " ", p.text).strip()[:60]:
+                    continue
                 pos = p.positions()
                 runs = [k for k in range(len(seg_text)) if p.segs[pos[k][0]].run is not None and
                         (lambda r: r is not None and r.find("rPr") is not None and r.find("rPr").find("bdr") is not None)(p.segs[pos[k][0]].run)]
-                if runs and c["context"] == re.sub(r"\s+", " ", p.text).strip()[:60]:
-                    found = "".join(seg_text[k] for k in runs)
+                # 囲み線のついた字の続き（一つの○）ごとに、前後の字（around）で、言った所の○かを確かめる
+                spans = []
+                for k in runs:
+                    if spans and spans[-1][1] == k:
+                        spans[-1][1] = k + 1
+                    else:
+                        spans.append([k, k + 1])
+                hit = next(((a, b) for a, b in spans if (id(p.node), a) not in used_spans
+                            and around(seg_text, a, b) == c.get("around", around(seg_text, a, b))), None)
+                if hit is not None:
+                    used_spans.add((id(p.node), hit[0]))
+                    found = seg_text[hit[0]:hit[1]]
                     break
+                if runs and seen is None:
+                    seen = "".join(seg_text[k] for k in runs)  # 見出しの合う段落の、ほかの囲み線の字（違ったと伝えるため）
                 continue
             for d in p.node.iter("docPr"):
                 if d.get("name") == f"{TAG} {c['id']}":
@@ -594,6 +619,8 @@ def read_back(blob: bytes, name: str, circled: list[dict]) -> list[dict]:
                     break
             if found is not None:
                 break
+        if found is None:
+            found = seen
         if found != c["text"]:
             out.append({"id": c["id"], "written": f"○「{c['text']}」",
                         "read_back": f"○の後ろの字「{found}」" if found is not None else "書いた後の文書に、この○が見つかりません"})

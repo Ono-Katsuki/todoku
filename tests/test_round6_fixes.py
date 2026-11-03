@@ -109,6 +109,33 @@ def test_pdf_target_inside_near_word_does_not_jump_to_another_line(tmp_path):
         _write(tmp_path, _two_rows_pdf(), "t.pdf", {"@c1": {"circle": "都", "near": "都県市"}})
 
 
+def test_word_near_with_occurrence_circles_inside_a_word(tmp_path):
+    # 「(３)市町村民税…」の「(３)」：後ろが字なので区切られていないが、番号で指せば囲む（PDF と同じ）
+    body = wp("(２)非課税世帯で８０万円以下") + wp("(３)市町村民税非課税世帯で（２）以外のもの")
+    r, _ = _write(tmp_path, make_docx(body), "t.docx",
+                  {"@c1": {"circle": "(３)", "near": "（２）以外のもの", "occurrence": 1, "style": "border"}})
+    assert r["proof_ok"] and r["read_back_ok"]
+    assert "【(３)】市町村" in r["circled"][0]["around"]
+
+
+def test_word_two_borders_with_the_same_heading_read_back(tmp_path):
+    body = (wp("認定　有・無") + wp("認定　有・無"))
+    r, _ = _write(tmp_path, make_docx(body), "t.docx",
+                  {"@c1": {"circle": "有", "occurrence": 1, "style": "border"},
+                   "@c2": {"circle": "無", "occurrence": 2, "style": "border"}})
+    assert r["proof_ok"] and r["read_back_ok"], r["read_back_differences"]
+
+
+def test_word_deletion_edit_is_not_an_audit_failure(tmp_path):
+    body = wp("銀行　信金　　　　　　（支店コード）")
+    r, out = _write(tmp_path, make_docx(body), "t.docx",
+                    {"@1": {"old": "銀行", "new": "架空　銀行"}, "@2": {"old": "　　　　　　（支店", "new": "　　　（支店"}})
+    assert r["proof_ok"] and r["read_back_ok"]
+    a = api.audit(out)
+    bad = [c for c in a["checks"] if not c["ok"] and "しおり" in str(c.get("items", ""))]
+    assert not bad, bad
+
+
 def test_word_option_list_near(tmp_path):
     body = wp("生年月日　S・H　年　月　日生") + wp("H　S　T")
     r, _ = _write(tmp_path, make_docx(body), "t.docx", {"@c1": {"circle": "S", "near": "S・H"}})
