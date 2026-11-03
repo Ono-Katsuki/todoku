@@ -46,7 +46,11 @@ class FillResult:
 class Update:
     def __init__(self, doc: PdfDocument):
         self.doc = doc
-        self.next = doc.max_num + 1
+        doc.verify_xref()  # 壊れた相互参照は、書く前に読み直す（足す相互参照に、すべての正しい位置を入れるため）
+        # 新しい番号は、相互参照にある番号と、ファイルに書いてあるオブジェクトの番号（相互参照が壊れていて、後で読み直す
+        # ことがある）の、どれとも重ならないようにする
+        scanned = max((int(m[1]) for m in re.finditer(rb"(?<![\d])(\d{1,10})\s+\d{1,5}\s+obj\b", doc.blob)), default=0)
+        self.next = max(doc.max_num, scanned) + 1
         self.objs: dict[int, tuple[int, object]] = {}  # 番号 → (世代, オブジェクト)
 
     def new(self, obj) -> Ref:
@@ -111,19 +115,37 @@ class Update:
         for k in ("Info", "ID", "Encrypt"):
             if k in tr:
                 trailer[k] = tr[k]
-        trailer["Prev"] = prev
-        if _uses_xref_stream(orig, prev):
-            xnum = self.next
+        packed: dict[int, tuple[int, int]] = {}
+        if self.doc.repaired:
+            # 元の相互参照が壊れていた（読むときに、ファイルを頭から読み直して位置を集めた）：足す相互参照に、元のすべての
+            # オブジェクトの正しい位置を入れ、壊れた表（Prev）をたどらなくても開けるようにする
+            for num, ent in self.doc.xref.items():
+                if num in offsets:
+                    continue
+                if ent[0] == "o":
+                    offsets[num] = (ent[1], ent[2])
+                elif ent[0] == "s":
+                    packed[num] = (ent[1], ent[2])
+            size = max(size, max(offsets, default=0) + 1, max(packed, default=0) + 1)
+            trailer["Size"] = size
+        else:
+            trailer["Prev"] = prev
+        if packed or _uses_xref_stream(orig, prev):
+            xnum = max(self.next, size)
             offsets[xnum] = (len(out), 0)
-            nums = sorted(offsets)
+            nums = sorted(set(offsets) | set(packed))
             index, rows = [], bytearray()
             for n in nums:
                 if index and index[-2] + index[-1] == n:
                     index[-1] += 1
                 else:
                     index += [n, 1]
-                off, gen = offsets[n]
-                rows += bytes([1]) + off.to_bytes(4, "big") + gen.to_bytes(2, "big")
+                if n in offsets:
+                    off, gen = offsets[n]
+                    rows += bytes([1]) + off.to_bytes(4, "big") + gen.to_bytes(2, "big")
+                else:
+                    stm, idx = packed[n]
+                    rows += bytes([2]) + stm.to_bytes(4, "big") + idx.to_bytes(2, "big")
             d = dict(trailer)
             d.update({"Type": Name("XRef"), "Size": max(size, xnum + 1), "Index": index, "W": [1, 4, 2], "Length": len(rows)})
             xref_pos = len(out)
@@ -131,6 +153,8 @@ class Update:
         else:
             xref_pos = len(out)
             out += b"xref\n"
+            if self.doc.repaired and 0 not in offsets:
+                out += b"0 1\n0000000000 65535 f\r\n"  # 元の表をたどらない、全部の表：0 番は空きの項目
             nums = sorted(offsets)
             i = 0
             while i < len(nums):

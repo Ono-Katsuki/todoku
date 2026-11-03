@@ -89,7 +89,10 @@ def test_txt_audit_and_grade(tmp_path):
     names = {c["name"] for c in au["checks"]}
     assert {"読み落とし（行の字）", "全入力欄への書き込み", "読み戻し", "字を目印にした書き込み"} <= names
     g = api.grade(str(p))
-    assert g["grade"] == "C" and g["write"]["grade"] == "B"  # 「？」の所があるので C、推定の欄なので B
+    # 推定の欄・「？」の所は書く段階の B。この字の並びは Shift_JIS としても GBK としても仕様どおりに読めるので、
+    # 文字コードは規則では決められない（C：窓に候補を示し、エージェントが字を読んで決める）
+    assert g["grade"] == "C" and g["write"]["grade"] == "B"
+    assert [r["title"] for r in g["reasons"] if r["grade"] == "C"] == ["文字コードを規則では決められない"]
     plain = tmp_path / "b.txt"
     plain.write_bytes("ただの文です。\n二行目です。\n".encode())
     g = api.grade(str(plain))

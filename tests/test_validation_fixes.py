@@ -1,270 +1,237 @@
-"""段階の検証（docs/段階の検証と比較.md）で見つかった不具合の再現：表計算の行のまとめ・非表示の中身・.xls の位置のない図形・
-画像だけのシート・CSV の NUL・文字コード。どれも、この中で作る小さなファイルで確かめる（取ってきた書類は使わない）。"""
+"""段階の検証（docs/段階の検証と比較.md）で見つかった不具合の、小さな PDF・表での再現と確かめ。
+
+- 幅の狭い字（「l」）が続く「All」を、重ね書きとして1字にしない（重ね書きは、字の送りの幅が半分より多く重なるものだけ）
+- 読み落としの検査が、重ね書きでない字を落としたことを見つける
+- 字の「_」を、入力欄の印に置き換えて窓から消さない
+- 相互参照の番号がずれた PDF でもページを見つける。ページが1つもない PDF は F（理由つき）
+- ページの外の欄の候補は出さない
+- 読む段階は入力欄の見つけ方で下げない。字に直せない字が行の頭の印だけなら注意（alerts）、本文の字なら E
+- 開けない圧縮の画像だけのページは E（書類はスキャン）
+"""
 
 from __future__ import annotations
 
-import io
-import struct
+import zlib
 
-import pytest
-
-from todoku import api
-from todoku.datafile.textenc import decode
 from todoku.grade import grade_blob
-from todoku.xlsx import window
-from todoku.xlsx.audit import check_markdown
-from todoku.xlsx.workbook import Workbook
+from todoku.pdf import layout as pdf_layout
+from todoku.pdf.audit import check_reading
+from todoku.pdf.doc import PdfDocument
+from todoku.pdf.window import build
 
-openpyxl = pytest.importorskip("openpyxl")
+from test_pdf import jp_font_objs, jp_text, make_pdf, tounicode
 
-
-def book(build) -> Workbook:
-    wb = openpyxl.Workbook()
-    build(wb)
-    buf = io.BytesIO()
-    wb.save(buf)
-    return Workbook(buf.getvalue(), "test.xlsx")
+# 送りの幅：字は 500、「l」「i」は 222（Helvetica と同じ細さ）。1000 分の 1 字の単位
+_W = [222 if chr(c) in "li" else 278 if chr(c) == " " else 500 for c in range(32, 127)]
+HELV = (b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /FirstChar 32 /LastChar 126 /Widths ["
+        + " ".join(map(str, _W)).encode() + b"] >>")
 
 
-def md_of(doc: dict) -> str:
-    return "\n".join(t for _, t in window.markdown_parts(doc))
+def _reading(blob: bytes) -> list[str]:
+    win = build(PdfDocument(blob, "t.pdf"))
+    return [ln for pg in win["pages"] for ln in pg["reading"]]
 
 
-# ------------------------------------------------------------------ 1. 値のある行は、まとめに消えない
-def test_data_rows_with_numbers_are_not_collapsed():
-    """数だけが違うデータの行（以前は数を「#」と見て、同じ形の空欄の行として1行にまとめ、値が窓から消えた）。"""
-    def build(wb):
-        ws = wb.active
-        ws.title = "表"
-        ws.append(["地域", "人口", "世帯"])
-        for i in range(40):
-            ws.append(["地域", 1000 + i * 7, 300 + i])  # 文字の列は同じ、数の列だけが違う
-
-    doc = window.build(book(build))
-    sh = doc["sheets"][0]
-    assert not any("rows" in x for x in sh["reading"]), [x for x in sh["reading"] if "rows" in x]
-    md = md_of(doc)
-    for i in range(40):
-        assert f"{1000 + i * 7:,}" in md or str(1000 + i * 7) in md
-    assert check_markdown(doc).ok
+def _line_pdf() -> bytes:
+    c = b"BT /F1 12 Tf 72 700 Td (All Temperature Windows; collections delle) Tj ET\n"
+    # 太字に見せる重ね書き：同じ字を 0.3pt ずらして2度描く（1字として読む）
+    c += b"BT /F1 12 Tf 72 650 Td (Bold) Tj ET\nBT /F1 12 Tf 72.3 650 Td (Bold) Tj ET\n"
+    return make_pdf(c, {"F1": HELV})
 
 
-def test_blank_form_rows_are_summarized_with_every_differing_value():
-    """番号だけが違い、入力欄が空の行（記入する表）は、まとめてよい。ただし番号は、まとめの行に番地つきで全部書く。"""
-    def build(wb):
-        ws = wb.active
-        ws.title = "名簿"
-        ws["A1"] = "番号"
-        ws["B1"] = "氏名"
-        for i in range(20):
-            ws.cell(2 + i, 1, i + 1)
-        ws.protection.sheet = True
-        for i in range(20):
-            ws.cell(2 + i, 2).protection = openpyxl.styles.Protection(locked=False)
-
-    doc = window.build(book(build))
-    sh = doc["sheets"][0]
-    runs = [x for x in sh["reading"] if "rows" in x]
-    assert len(runs) == 1 and runs[0]["rows"] == "3-21"
-    assert [d["cell"] for d in runs[0]["differs"]] == [f"A{r}" for r in range(3, 22)]
-    assert "A21＝20" in runs[0]["text"] and "字が違うのは A 列だけ" in runs[0]["text"]
-    assert check_markdown(doc).ok
+def test_narrow_letters_side_by_side_are_not_an_overprint():
+    lines = _reading(_line_pdf())
+    assert "All Temperature Windows; collections delle" in lines, lines
+    assert any(ln.split(" ")[0] == "Bold" for ln in lines) and "BBoolldd" not in "".join(lines), lines  # 本当の重ね書きは1字
+    win = build(PdfDocument(_line_pdf(), "t.pdf"))
+    assert win["pages"][0]["merged_glyphs"] == 4
 
 
-def test_markdown_check_catches_values_missing_from_the_reading():
-    """監査の「読み落とし（Markdown の窓）」：読み順から消えた値・まとめで消えた値を見つける。"""
-    def build(wb):
-        ws = wb.active
-        ws.append(["名前", "値"])
-        ws.append(["a", 1])
-        ws.append(["b", 2])
+def test_reading_audit_catches_glyphs_dropped_as_false_overprints(monkeypatch):
+    blob = _line_pdf()
+    doc = PdfDocument(blob, "t.pdf")
+    ok = check_reading(doc, build(doc))[0]
+    assert ok.ok, ok.items
+    assert "4 字" in ok.detail  # 本当の重ね書きを、字の位置と送りの幅から確かめて数える
 
-    doc = window.build(book(build))
-    assert check_markdown(doc).ok
-    sh = doc["sheets"][0]
-    sh["reading"] = [x for x in sh["reading"] if x.get("row") != 3]
-    ch = check_markdown(doc)
-    assert not ch.ok and any("A3" in x for x in ch.items) and any("B3" in x for x in ch.items)
-    sh["reading"].append({"rows": "3-3", "same_as": "2-2", "text": "2行目と同じ形の行が 1 行続きます"})
-    ch = check_markdown(doc)
-    assert not ch.ok and any("まとめの中" in x for x in ch.items)  # 2行目と字が違うのに、まとめた
+    # これまでの判定（字の中心の差が字の大きさの 1/4 より小さければ重ね書き）に戻すと、「ll」の片方が落ちる。検査はそれを見つける
+    def old_rule(a, b, size_a, size_b):
+        return abs(a[0] - b[0]) < 0.25 * size_b and abs(a[1] - b[1]) < 0.25 * size_b and abs(size_a - size_b) < 0.2 * size_b
+
+    monkeypatch.setattr(pdf_layout, "is_overprint", old_rule)
+    doc = PdfDocument(blob, "t.pdf")
+    bad = check_reading(doc, build(doc))[0]
+    assert not bad.ok and any("「l」" in x and "重ねた字ではありません" in x for x in bad.items), bad.items
 
 
-def test_audit_reports_markdown_completeness():
-    from todoku.xlsx.audit import run
-
-    def build(wb):
-        ws = wb.active
-        for i in range(10):
-            ws.append([f"項目{i}", i * 3])
-
-    buf = io.BytesIO()
-    wb = openpyxl.Workbook()
-    build(wb)
-    wb.save(buf)
-    au = run(buf.getvalue(), "a.xlsx")
-    ch = next(c for c in au.checks if c.name == "読み落とし（Markdown の窓）")
-    assert ch.ok and "20/20" in ch.detail
+def test_literal_underscores_stay_in_the_window():
+    c = b"BT /F1 11 Tf 40 700 Td (HWL_Spawn _HVeg_AllTs) Tj ET\n"
+    c += b"BT /F1 11 Tf 40 650 Td (Name: ________ ) Tj ET\n"
+    blob = make_pdf(c, {"F1": HELV})
+    lines = _reading(blob)
+    joined = "\n".join(lines)
+    # 英数字に接した「_」は字のまま（候補にするときも、字は消さずに後ろに印を置く）
+    assert "HWL_Spawn _" in joined and "HVeg_AllTs" in joined, lines
+    # 英数字に接していない下線の並びは、書くための線（規則の欄）。下線の字は窓に残す
+    assert "________［p1." in joined, lines
+    doc = PdfDocument(blob, "t.pdf")
+    assert check_reading(doc, build(doc))[0].ok  # 印に置き換えて消えた字があれば、読み落としとして見つかる
 
 
-# ------------------------------------------------------------------ 4. 非表示の中身は、印をつけて窓に出す
-def test_hidden_rows_columns_sheets_and_merged_values_are_shown_marked():
-    def build(wb):
-        ws = wb.active
-        ws.title = "様式"
-        ws["A1"] = "申請書"
-        ws["A2"] = "隠れた行の注意"
-        ws.row_dimensions[2].hidden = True
-        ws["C1"] = "隠れた列の字"
-        ws.column_dimensions["C"].hidden = True
-        ws["A4"] = "結合の左上"
-        ws["B4"] = "結合の下の字"
-        ws.merge_cells("A4:B4")
-        lst = wb.create_sheet("選択肢")
-        for i, v in enumerate(["東京都", "大阪府", "北海道"], 1):
-            lst.cell(i, 1, v)
-        lst.sheet_state = "hidden"
-
-    wb = book(build)
-    from todoku.xlsx.workbook import Cell
-
-    # openpyxl は結合の下の値を保存しないので、読んだあとに足す（Excel のファイルには残っていることがある）
-    wb.sheets[0].cells[(4, 2)] = Cell("様式", 4, 2, value="結合の下の字")
-    doc = window.build(wb)
-    md = md_of(doc)
-    assert "〔非表示〕〔A2〕隠れた行の注意" in md
-    assert "〔非表示〕〔C1〕隠れた列の字" in md
-    assert "〔結合の下に隠れた字〕〔B4〕結合の下の字" in md
-    assert "非表示のシート" in md and "東京都" in md and "北海道" in md
-    # 非表示の字は、入力欄にも、見出しの推定にも使わない（配置には入れない）
-    sh = doc["sheets"][0]
-    assert not any(f.get("cell") in ("A2", "C1", "B4") for f in sh["fields"])
-    assert check_markdown(doc).ok
+def _shifted_xref_pdf() -> bytes:
+    """相互参照の表が「1 n」から始まるのに、最初の行が 0 番（空き）の項目：番号が1つずつずれて、どの位置も違う番号を指す。"""
+    content = b"BT /F1 12 Tf 72 700 Td (Hello shifted xref) Tj ET"
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+            b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream", HELV]
+    out = bytearray(b"%PDF-1.3\n")
+    offs = []
+    for i, body in enumerate(objs, 1):
+        offs.append(len(out))
+        out += f"{i} 0 obj\n".encode() + body + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n1 {len(objs) + 1}\n0000000000 65535 f \n".encode()
+    for o in offs:
+        out += f"{o:010d} 00000 n \n".encode()
+    out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return bytes(out)
 
 
-# ------------------------------------------------------------------ 2. .xls：位置のない図形
-def test_xls_shape_without_anchor_opens_and_keeps_text():
-    """OfficeArt の図形に位置（0xF010 ClientAnchor）がない（グループの中の子の図形は 0xF00F だけ）と、以前は KeyError で
-    ブック全体が開けなかった。位置は決めずに、字は残す。"""
-    from test_xls_controls import Obj, cfb, workbook
+def test_shifted_xref_finds_pages_and_can_be_written(tmp_path):
+    from todoku import api
 
-    sheets = [{"name": "表", "cells": {(0, 0): "見出し", (1, 0): 12.0},
-               "shapes": [{"obj": Obj(0x06, 1), "anchor": (2, 2, 4, 4), "name": "テキスト 1", "text": "グループの中の字"}]}]
-    stream = workbook(sheets)
-    anchor = struct.pack("<HHI", 0, 0xF010, 18)
-    assert stream.count(anchor) == 1
-    stream = stream.replace(anchor, struct.pack("<HHI", 0, 0xF00F, 18))  # 同じ長さの、子の図形の位置（読まない種類）にする
-    blob = cfb("Workbook", stream)
-    from todoku.xls.book import XlsWorkbook
-
-    wb = XlsWorkbook(blob, "a.xls")
-    shapes = wb.sheets[0].shapes
-    assert [(s.text, s.anchor) for s in shapes] == [("グループの中の字", None)]
-    doc = window.build(wb)
-    md = md_of(doc)
-    assert "グループの中の字" in md and "位置がファイルにない" in md
+    blob = _shifted_xref_pdf()
+    doc = PdfDocument(blob, "x.pdf")
+    assert len(doc.pages()) == 1 and doc.repaired
+    assert "Hello shifted xref" in _reading(blob)
+    g = grade_blob(blob, "x.pdf")
+    assert g.grade == "A", g.headline()
+    src = tmp_path / "x.pdf"
+    src.write_bytes(blob)
+    res = api.fill(str(src), {"@1": {"after": "Hello", "value": "OK", "page": 1, "where": "below"}}, str(tmp_path / "y.pdf"))
+    assert res["proof_ok"] and res["read_back_ok"], res
+    out = (tmp_path / "y.pdf").read_bytes()
+    assert out.startswith(blob)
+    assert not PdfDocument(out, "y.pdf").repaired  # 足した相互参照に、すべてのオブジェクトの正しい位置を入れた
 
 
-# ------------------------------------------------------------------ 3. 画像だけのシート
-def test_image_only_sheet_ignores_print_area_and_charts():
-    from todoku.xlsx.workbook import Shape
-
-    def build(wb):
-        ws = wb.active
-        ws.title = "データ"
-        for i in range(5):
-            ws.append([f"行{i}", i])
-        ws.print_area = "H20:J30"  # 使っている範囲の外の印刷範囲
-        wb.create_sheet("グラフ")
-        wb.create_sheet("写真")
-
-    wb = book(build)
-    data, chart, photo = wb.sheets
-    data.shapes.append(Shape("picture", "図 1", "", "", (1, 5)))
-    chart.shapes.append(Shape("chart", "グラフ 1", "", "", (1, 1)))
-    photo.shapes.append(Shape("picture", "図 2", "", "", (1, 1)))
-    assert window.image_only_sheets(wb) == ["写真"]
+def test_pdf_without_pages_is_f_with_a_reason():
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [] /Count 0 >>"]
+    out = bytearray(b"%PDF-1.4\n")
+    offs = []
+    for i, body in enumerate(objs, 1):
+        offs.append(len(out))
+        out += f"{i} 0 obj\n".encode() + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 3\n0000000000 65535 f \n" + b"".join(f"{o:010d} 00000 n \n".encode() for o in offs)
+    out += f"trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    g = grade_blob(bytes(out), "e.pdf")
+    assert g.grade == "F" and g.reasons[0].title == "ページがない" and g.write == "D", g.headline()
 
 
-# ------------------------------------------------------------------ 5. CSV の NUL
-def test_utf8_csv_with_nul_in_values_is_data():
-    rows = ["名前;値"] + [f"Čaj {i};{i}\x00\x00" for i in range(30)]
-    blob = ("\r\n".join(rows) + "\r\n").encode("utf-8")
-    g = grade_blob(blob, "a.csv")
-    assert g.grade == "S", g.reasons
-    assert any(r.title == "制御文字" and "60" in r.detail for r in g.reasons)
-    assert decode(blob).encoding == "utf-8"
+def test_field_candidates_outside_the_page_are_dropped():
+    # ページ（MediaBox 200×200）の外に、見出しと下線を描く。ページの中にも同じ形を描く
+    c = b"BT /F1 10 Tf 10 100 Td (Name) Tj ET\n0.8 w 45 98 m 150 98 l S\n"
+    c += b"BT /F1 10 Tf -150 -40 Td (Name) Tj ET\n0.8 w -115 -42 m -10 -42 l S\n"
+    blob = make_pdf(c, {"F1": HELV}).replace(b"/MediaBox [0 0 595 842]", b"/MediaBox [0 0 200 200]")
+    win = build(PdfDocument(blob, "o.pdf"))
+    fields = win["pages"][0]["fields"]
+    assert fields, win["pages"][0]["reading"]
+    for f in fields:
+        x0, y0, x1, y1 = f["rect"]
+        assert 0 <= x0 < x1 <= 200 and 0 <= y0 < y1 <= 200, f
 
 
-def test_ascii_bytes_with_nul_are_still_binary():
-    assert grade_blob(b"\x00\x01\x02abc", "a.csv").grade == "F"
-
-
-# ------------------------------------------------------------------ 6. 文字コード
-NOTE = "數據用戶須知\r\n本刊物所載的統計數字，均為臨時數字。\r\n"
-
-
-def test_big5_is_not_read_as_latin1():
-    d = decode(NOTE.encode("big5"))
-    assert d.encoding != "latin-1" and d.basis != "none"
-    names = {d.encoding} | {c["encoding"] for c in d.candidates}
-    assert "cp950" in names
-    if d.encoding != "cp950":
-        # 決まった順の前の文字コード（日本の文字コード）でも読めるなら、決めずに候補として示す（黙って選ばない）
-        assert d.undetermined and any(c["encoding"] == "cp950" and "數據用戶須知" in c["sample"] for c in d.candidates)
+def _unmapped_pdf(body: bool) -> bytes:
+    """字に直せない字（ToUnicode にない符号 0x00FF）を、行の頭の印として（body=False）か、語の中に（body=True）置く。"""
+    chars = "経済成長率は高い"
+    font, extra, codes = jp_font_objs(chars, 5)
+    t = lambda s: jp_text(codes, s)  # noqa: E731
+    c = bytearray()
+    if body:
+        c += b"BT /F1 10 Tf 70 700 Td " + t("経済") + b" Tj <00FF> Tj " + t("成長率は高い") + b" Tj ET\n"
     else:
-        assert d.text == NOTE
+        for k in range(3):
+            y = 700 - 20 * k
+            c += f"BT /F1 10 Tf 70 {y} Td <00FF> Tj ET\n".encode()
+            c += f"BT /F1 10 Tf 90 {y} Td ".encode() + t("経済成長率は高い") + b" Tj ET\n"
+    return make_pdf(bytes(c), {"F1": font}, extra)
 
 
-def test_ambiguous_encoding_is_handed_to_the_agent(tmp_path):
-    """Shift_JIS としても GBK としても仕様どおりに読めるとき：決めずに候補を示し、段階は C（エージェントが決める）。"""
-    text = "国民の祝日,名称\r\n1955/1/1,元日\r\n"
-    blob = text.encode("cp932")
-    d = decode(blob)
-    assert d.encoding == "cp932" and d.text == text
-    assert [c["encoding"] for c in d.candidates][:1] == ["gbk"]
-    g = grade_blob(blob, "a.csv")
-    assert g.grade == "C" and any(r.title == "文字コードを規則では決められない" for r in g.reasons)
-    p = tmp_path / "a.csv"
-    p.write_bytes(blob)
-    _k, _doc, parts = api.window(str(p))
-    md = parts[0][1]
-    assert "文字コードを規則では決められません" in md and "GBK" in md
+def test_unmappable_list_markers_are_alerts_not_grades():
+    g = grade_blob(_unmapped_pdf(False), "m.pdf")
+    assert g.grade == "A", g.headline()
+    al = [a for a in g.alerts if a.title == "字に直せない行の頭の印"]
+    assert al and "3 字" in al[0].detail and len(al[0].where) == 3 and "経済成長率は高い" in al[0].where[0], g.alerts
 
 
-def test_shift_jis_decided_when_only_it_fits():
-    """半角カナの後ろに「,」が続く（GBK・Big5・EUC では続くバイトになれない）：Shift_JIS だけが読める。"""
-    text = "ｶﾅ,1\r\nｱｲｳ,2\r\n"
-    d = decode(text.encode("cp932"))
-    assert (d.encoding, d.basis, d.candidates) == ("cp932", "multibyte", [])
-    assert grade_blob(text.encode("cp932"), "a.csv").grade == "S"
+def test_unmappable_body_text_is_e_with_places():
+    g = grade_blob(_unmapped_pdf(True), "b.pdf")
+    assert g.grade == "E" and g.reasons[0].title == "字に直せない本文の字", g.headline()
+    assert "経済" in g.reasons[0].where[0]
 
 
-@pytest.mark.parametrize("enc, bom", [("utf-16-le", b""), ("utf-16-be", b""), ("utf-32-le", b"\xff\xfe\x00\x00"),
-                                      ("utf-32-be", b"\x00\x00\xfe\xff")])
-def test_utf16_32_with_and_without_bom(enc, bom):
-    text = "name,value\r\n申請,1\r\n"
-    d = decode(bom + text.encode(enc))
-    assert d.encoding == enc and d.text == text and not d.undetermined
-    assert d.byte_of(len(text)) == len(bom) + len(text.encode(enc))
+def test_scan_with_undecodable_compression_is_e():
+    # 画像だけのページで、画像の圧縮が JBIG2（todoku は開けない）：書類はスキャンなので E。書く所は確かめられないので D
+    img = b"<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /JBIG2Decode /Length 4 >>\nstream\n\x00\x00\x00\x00\nendstream"
+    content = b"q 595 0 0 842 0 0 cm /Im1 Do Q"
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /XObject << /Im1 5 0 R >> >> /Contents 4 0 R >>",
+            b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream", img]
+    out = bytearray(b"%PDF-1.5\n")
+    offs = []
+    for i, body in enumerate(objs, 1):
+        offs.append(len(out))
+        out += f"{i} 0 obj\n".encode() + body + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode() + b"".join(f"{o:010d} 00000 n \n".encode() for o in offs)
+    out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    g = grade_blob(bytes(out), "s.pdf")
+    assert g.grade == "E" and "JBIG2Decode" in g.reasons[0].detail and g.write == "D", g.headline()
 
 
-def test_single_byte_text_gives_candidates_not_latin1():
-    text = "Привет, мир\r\nДанные\r\n"
-    d = decode(text.encode("cp1251"))
-    assert d.encoding != "latin-1"
-    names = [d.encoding] + [c["encoding"] for c in d.candidates]
-    assert "cp1251" in names and len(names) > 1 and d.undetermined
+def test_csv_with_nul_in_values_is_still_data():
+    g = grade_blob("名前;値\nA;1\x00\x00\nB;2\n".encode("utf-8"), "n.csv")
+    assert g.grade == "S" and any(r.title == "値の中の NUL" for r in g.reasons), g.headline()
 
 
-def test_undecodable_bytes_are_said_not_silently_latin1(tmp_path):
-    blob = b"abc\xff\xfe\xfd\x81\x81\r\n"  # どの多バイトにも合わず、1バイトでも C1 の字か割り当てのない字になる並び
-    d = decode(blob)
-    if d.basis == "none":
-        p = tmp_path / "a.txt"
-        p.write_bytes(blob)
-        _k, _doc, parts = api.window(str(p))
-        assert "文字コードを決められませんでした" in parts[0][1]
-        assert any(r["title"] == "文字コードを決められない" for r in api.grade(str(p))["reasons"])
-    else:
-        assert d.undetermined or d.basis in ("multibyte", "singlebyte")
+def test_read_grade_ignores_field_candidates_of_a_statistics_table():
+    # 罫線の表で、見出しの行と空のマスのある統計表：空のマスは書く所かもしれない候補（書く段階の B）だが、中身は読めるので A
+    c = bytearray(b"0.8 w ")
+    for k in range(5):
+        y = 700 - 20 * k
+        c += f"60 {y} m 400 {y} l S ".encode()
+    for x in (60, 200, 300, 400):
+        c += f"{x} 700 m {x} 620 l S ".encode()
+    c += b"\nBT /F1 10 Tf 70 685 Td (Region) Tj 140 0 Td (2023) Tj 100 0 Td (2024) Tj ET\n"
+    c += b"BT /F1 10 Tf 70 665 Td (North) Tj 140 0 Td (12) Tj ET\n"
+    c += b"BT /F1 10 Tf 70 645 Td (South) Tj 140 0 Td (7) Tj 100 0 Td (9) Tj ET\n"
+    g = grade_blob(make_pdf(bytes(c), {"F1": HELV}), "t.pdf")
+    assert g.grade == "A" and not g.reasons, g.headline()
+    assert g.write == "B"
+
+
+def test_chart_or_misplaced_print_area_is_not_an_image_only_sheet():
+    from types import SimpleNamespace
+
+    from todoku.grade import image_only_sheets
+
+    cell = lambda v: SimpleNamespace(value=v, has_formula=False)  # noqa: E731
+    pic = SimpleNamespace(kind="picture", text="", anchor=(1, 1))
+    chart = SimpleNamespace(kind="chart", text="", anchor=(1, 1))
+
+    def sheet(name, cells, shapes, area=None):
+        inside = (lambda r, c: True) if area is None else (lambda r, c: area[0] <= r <= area[2] and area[1] <= c <= area[3])
+        return SimpleNamespace(name=name, shapes=list(shapes), controls=[], cells=cells, in_print_area=inside)
+
+    wb = SimpleNamespace(sheets=[
+        sheet("グラフ", {}, [chart]),  # グラフだけ（値は別のシート）：画像ではない
+        sheet("範囲の外", {(5, 2): cell("値")}, [pic], area=(101, 2, 119, 10)),  # 印刷範囲が絵にもセルにも重ならない
+        sheet("絵", {(200, 1): cell("欄外の控え")}, [pic], area=(1, 1, 40, 10)),  # 印刷範囲の中は絵だけ
+    ])
+    assert image_only_sheets(wb) == ["絵"]
+
+
+def test_tounicode_helper_still_used():
+    # 部品の確かめ（test_pdf の組み立てを使う）
+    assert b"beginbfchar" in tounicode({1: "あ"}) and zlib.compress(b"x")

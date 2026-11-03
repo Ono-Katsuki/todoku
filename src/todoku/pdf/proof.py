@@ -114,6 +114,7 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
         return pr
     pr.lint_errors = [e for e in lint(new, password) if e not in lint(original, password)]
     a = PdfDocument(original, password=password)
+    a.verify_xref()  # 元の相互参照が壊れていれば、頭から読み直した位置で比べる（書き込みも同じ位置を使う）
     b = PdfDocument(new, password=password)
     if a.decryptor is not None or b.decryptor is not None:
         _check_encryption(a, b, pr)

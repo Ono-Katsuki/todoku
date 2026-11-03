@@ -197,7 +197,8 @@ def test_odt_anchored_write_and_audit(tmp_path):
     src.write_bytes(blob)
     r = api.fill(str(src), {"@1": {"old": "申請書", "new": "申請書（新規）"}, "同意": True}, str(tmp_path / "b.odt"))
     assert r["proof_ok"] and r["read_back_ok"] and r["anchored"] == {"@1": "P1.w1"}, r
-    assert api.grade(str(src))["grade"] == "C"
+    g = api.grade(str(src))
+    assert g["grade"] == "A" and g["write"]["grade"] == "B"  # 規則では決められない所は、書く段階の B
 
 
 def test_odt_whitespace_rules():
@@ -256,11 +257,13 @@ def test_ods_window_fill_recalc_and_proof():
     assert fields["Sheet1!B4"]["kind"] == "date" and "D3" in fields["Sheet1!B3"]["write_as"]
     cell_d3 = next(c for c in doc["sheets"][0]["cells"] if c["cell"] == "D3")
     assert cell_d3["formula"] == "of:=[.B3]+[.C3]" and cell_d3["formula_excel"] == "=B3+C3"
-    # 枠のある空欄は、罫線と近くの見出しから推定した欄なので B（印ではない）。見出しのない枠の空のマス（5〜7行目の B〜D）は、
-    # 規則では欄と決められない所［B5？］として窓に出すので C（エージェントが判断する）
+    # 枠のある空欄は、罫線と近くの見出しから推定した欄なので、書く段階の B（印ではない）。見出しのない枠の空のマス
+    # （5〜7行目の B〜D）は、規則では欄と決められない所［B5？］として窓に出す（書く段階の B：エージェントが判断する）。
+    # 中身は規則で読めるので、読む段階は A
     g = grade_sheets(blob, "a.ods")
-    titles = {r.title: r.grade for r in g.reasons}
-    assert g.grade == "C" and titles.get("枠・塗りから推定した入力欄") == "B" and titles.get("規則では決められない所") == "C", g.headline()
+    titles = {r.title: r.grade for r in g.write_reasons}
+    assert g.grade == "A" and g.write == "B" and titles.get("枠・塗りから推定した入力欄") == "B" \
+        and titles.get("規則では決められない所") == "B", g.headline()
     assert fields["Sheet1!B5"]["agent"] and fields["Sheet1!B5"]["evidence"]["borders"] == ["左", "右", "上", "下"]
     res = fill(OdsWorkbook(blob, "a.ods"), {"Sheet1!B1": "山田 太郎", "Sheet1!B2": "女", "Sheet1!B3": "1,000", "Sheet1!C3": 234,
                                              "Sheet1!B4": "2026/4/1", "Sheet1!C6": "x"})
@@ -369,7 +372,8 @@ def test_rtf_audit_and_api(tmp_path):
     src.write_bytes(RTF)
     r = api.fill(str(src), {"T1.R1.C2": "山田", "@1": {"old": "申請書", "new": "申請書（新規）"}}, str(tmp_path / "b.rtf"))
     assert r["proof_ok"] and r["read_back_ok"], r
-    assert api.grade(str(src))["grade"] == "C"
+    g = api.grade(str(src))
+    assert g["grade"] == "A" and g["write"]["grade"] == "B"
     assert api.summary(str(src))["kind_ja"] == "RTF（リッチテキスト）"
 
 

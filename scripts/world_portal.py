@@ -17,14 +17,9 @@ ROOT = Path(__file__).resolve().parent.parent
 W = ROOT / "world"
 Z = 1.959964
 
-ISO_NUM = {
-    "JP": "392", "GB": "826", "CA": "124", "NL": "528", "GR": "300", "UA": "804", "HR": "191", "LV": "428", "IL": "376",
-    "DE": "276", "AT": "040", "IT": "380", "BE": "056", "PT": "620", "FR": "250", "SI": "705", "CH": "756", "ES": "724",
-    "IE": "372", "PL": "616", "SK": "703", "MD": "498", "SE": "752", "FI": "246", "RO": "642", "HU": "348", "EE": "233",
-    "DK": "208", "ME": "499", "MT": "470", "NO": "578", "LT": "440", "CZ": "203", "AL": "008", "IS": "352",
-    "AU": "036", "NZ": "554", "TW": "158", "SG": "702", "TH": "764", "MX": "484", "BR": "076", "AR": "032", "CL": "152",
-    "UY": "858", "EC": "218", "BG": "100",
-}
+# 国の番号（地図の ISO 3166-1 の数字）は、母集団の記録（world/population.json）から取る
+POP = json.loads((W / "population.json").read_text(encoding="utf-8"))["countries"]
+ISO_NUM = {c["iso2"]: c["num"] for c in POP}
 READ_OK = set("SAB")  # 正確に読める（素のデータ・規則だけで・エージェントが読めば）
 # 様式の見分け（構造の印だけで決める）：作り手が入力欄の印を付けた書類（PDF・XFA のフォームの欄、Word のコンテンツコントロール、
 # Excel の入力の印・フォームの部品など）。配置や空白から推定した欄だけの書類は「推定の欄」として別に数える
@@ -60,13 +55,28 @@ def stratified(cells: list[tuple[int, int, int]]) -> dict:
         return {"p": None, "ci": [None, None], "n": 0}
     p = sum(N / tot * k / n for N, n, k in cells)
     var = sum((N / tot) ** 2 * (k / n) * (1 - k / n) / max(n - 1, 1) for N, n, k in cells)
-    h = Z * math.sqrt(var)
-    return {"p": round(p, 4), "ci": [round(max(0, p - h), 4), round(min(1, p + h), 4)], "n": sum(c[1] for c in cells)}
+    # 区間は、層別の分散から有効な標本の大きさを出して、その大きさのウィルソン区間にする（Korn & Graubard 1998）。
+    # 正規近似のままだと、どの層も 0% か 100% のとき分散が 0 になり、区間の幅が 0 になる
+    n_all = sum(c[1] for c in cells)
+    n_eff = p * (1 - p) / var if var > 0 else n_all
+    n_eff = min(n_eff, n_all)
+    d = 1 + Z * Z / n_eff
+    c = (p + Z * Z / (2 * n_eff)) / d
+    h = Z * math.sqrt(p * (1 - p) / n_eff + Z * Z / (4 * n_eff * n_eff)) / d
+    return {"p": round(p, 4), "ci": [round(max(0, c - h), 4), round(min(1, c + h), 4)], "n": n_all}
+
+
+def _ungraded_why(r: dict) -> str:
+    e, k = r.get("error") or "", r.get("kind") or ""
+    if e == "unknown_kind":
+        return {"zip": "ZIP（Office の書類でない）"}.get(k, "対応していない形式")
+    return {"password": "パスワード", "encrypted": "暗号化", "timeout": "時間切れ", "crash": "処理の失敗"}.get(e, e or "その他")
 
 
 def main() -> int:
     frames = json.loads((W / "frames.json").read_text(encoding="utf-8"))
-    unreached = json.loads((W / "unreached.json").read_text(encoding="utf-8"))
+    # 枠のない国：目録はあるが使えない（理由）・公式の国の目録が見つからない。母集団の全部の国を地図に載せる
+    unreached = {c["iso2"]: (c["ja"], c["reason"] or "枠をまだ作っていない", c["outcome"]) for c in POP if c["iso2"] not in frames}
     recs = [json.loads(x) for x in (W / "results.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     by_cell = defaultdict(list)
     for r in recs:
@@ -119,6 +129,9 @@ def main() -> int:
         "sampled": sum(1 for r in recs if r.get("reach") != "frame_empty"),
         "reached": sum(1 for r in recs if r.get("reach") == "ok"),
         "graded": sum(1 for r in recs if r.get("read")),
+        # 届いたが段階を付けられなかった書類（対応していない形式・パスワード・時間切れなど）：分母から除くので、数と理由を出す
+        "ungraded": dict(Counter(_ungraded_why(r) for r in recs if r.get("reach") == "ok" and not r.get("read"))),
+        "regrade_kept": sum(1 for r in recs if r.get("regrade")),
         "planned": sum(min(250, sum(c for _, c in v)) for x in frames.values() for v in x["strata"].values()),
         "countries": len(frames),
         "outcomes": dict(Counter(r.get("reach") for r in recs)),
@@ -127,9 +140,12 @@ def main() -> int:
         "top_read_reasons": reasons.most_common(12), "top_write_reasons": wreasons.most_common(8),
         "form_classes": dict(Counter(form_class(r) for r in recs if r.get("read"))),
         "audited": sum(1 for r in recs if "audit_ok" in r), "audit_ok": sum(1 for r in recs if r.get("audit_ok")),
+        "kinds": dict(Counter(r.get("kind") for r in recs if r.get("read"))),
     }
     out = {"total": total, "countries": countries,
-           "unreached": {cc: {"name": v[0], "why": v[1], "iso": ISO_NUM.get(cc)} for cc, v in unreached.items()},
+           "unreached": {cc: {"name": v[0], "why": v[1], "outcome": v[2], "iso": ISO_NUM.get(cc)} for cc, v in unreached.items()},
+           "population": {"size": sum(1 for c in POP if c["un_member"]),
+                          "outcomes": dict(Counter(("reachable" if c["iso2"] in frames else c["outcome"]) for c in POP if c["un_member"]))},
            "docs": docs}
     (W / "portal").mkdir(exist_ok=True)
     (W / "portal" / "data.json").write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")

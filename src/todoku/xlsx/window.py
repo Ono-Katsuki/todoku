@@ -1995,29 +1995,6 @@ def _md_sheet(sh: dict) -> list[str]:
     return out + sheet_markdown(sh)
 
 
-def image_only_sheets(wb) -> list[str]:
-    """画像だけのシート（ファイルの作りで決まる）：絵（picture）があり、シートのどこにも値・数式のあるセルがなく、
-    字のある図形・部品もない。
-
-    - 印刷範囲は見ない：印刷範囲の外にあるセルも、ファイルにある字で、窓に出す（印刷範囲が使っている範囲から外れていても、
-      セルの字は読める）。
-    - グラフ（chart）は絵に数えない：グラフはセルの値から描くもので、その値（系列・見出し）は窓の「グラフ」に出す。
-      グラフだけのシートは、字の情報のあるシートで、画像ではない。
-    （grade.py の段階の「画像だけのシート」は、これを使う。.xlsx・.xls・.ods のブックで同じ）"""
-    out = []
-    for sh in wb.sheets:
-        shapes = getattr(sh, "shapes", [])
-        if not any(s.kind == "picture" for s in shapes):
-            continue
-        if any(c.has_formula or c.value not in (None, "") for c in sh.cells.values()):
-            continue
-        if any((getattr(s, "text", "") or "").strip() for s in shapes) or \
-                any((getattr(c, "text", "") or "").strip() for c in getattr(sh, "controls", [])):
-            continue
-        out.append(sh.name)
-    return out
-
-
 def _md_reading(sh: dict) -> list[str]:
     out = []
     for line in sh.get("reading", []):

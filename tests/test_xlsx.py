@@ -38,8 +38,11 @@ def corpus_files():
     if not CORPUS.exists():
         return []
     # world_tmp は世界調査の一時の置き場（調査が書いては消す）なので、試験の対象にしない
+    # 名前が .xlsx でも中身が Excel でないもの（目録が形式を取り違えた ZIP など）は、中身で除く
+    from todoku.book import kind_of
+
     return [p for p in sorted(CORPUS.rglob("*")) if p.is_file() and p.suffix.lower() in (".xlsx", ".xlsm")
-            and "world_tmp" not in p.parts and p.read_bytes()[:2] == b"PK"]
+            and "world_tmp" not in p.parts and kind_of(p.read_bytes(), p.name) == "xlsx"]
 
 
 # ------------------------------------------------------------------ 往復
