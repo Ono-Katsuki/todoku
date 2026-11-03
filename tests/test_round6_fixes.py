@@ -10,6 +10,8 @@ import io
 import re
 import zipfile
 
+import pytest
+
 from todoku import api
 from test_round5_office import _xlsx
 
@@ -54,3 +56,26 @@ def test_readback_rejects_cell_with_two_values():
     wb = Workbook(_xlsx('<row r="1"><c r="A1"><v>2</v><v>1</v></c></row>'))
     assert wb.sheet("S").cells[(1, 1)].schema_error
     assert check(wb, {"S!A1": 2})["S!A1"][0] is False
+
+
+# ---------------------------------------------------------------- Excel：幅に入らない数は「####」
+def test_number_in_narrow_wrap_cell_predicts_hashes_not_wrap(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    from openpyxl.styles import Alignment
+
+    wb_ = openpyxl.Workbook()
+    ws = wb_.active
+    ws.title = "S"
+    ws["A1"] = "年齢"
+    ws["B1"].alignment = Alignment(wrap_text=True)
+    ws.column_dimensions["B"].width = 1.2
+    p = tmp_path / "n.xlsx"
+    wb_.save(p)
+    r = api.fill(str(p), {"S!B1": 30}, str(tmp_path / "o.xlsx"))
+    assert any("####" in w and "S!B1" in w for w in r["warnings"]), r["warnings"]
+    assert not any("折り返す見込み" in w for w in r["warnings"])
+    # 「標準」の形式の小数は、桁を減らして入るので「####」にならない
+    ws.column_dimensions["B"].width = 3
+    wb_.save(p)
+    r = api.fill(str(p), {"S!B1": 3.14159}, str(tmp_path / "o2.xlsx"))
+    assert not any("####" in w for w in r["warnings"]), r["warnings"]
