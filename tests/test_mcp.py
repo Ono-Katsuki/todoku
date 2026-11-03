@@ -23,7 +23,8 @@ def _session(msgs: list[dict]) -> list[dict]:
 
 def test_mcp_protocol_and_fill(tmp_path):
     src = tmp_path / "s.docx"
-    src.write_bytes(make_docx(SAMPLE_BODY))
+    orig = make_docx(SAMPLE_BODY)  # zip の時刻が入るので、作り直さずに比べる
+    src.write_bytes(orig)
     dst = tmp_path / "out.docx"
     replies = _session([
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}}},
@@ -42,7 +43,7 @@ def test_mcp_protocol_and_fill(tmp_path):
     res = by[4]["result"]["structuredContent"]
     assert res["proof_ok"] and res["read_back_ok"] and dst.exists()
     assert by[5]["result"]["isError"]  # 元のファイルは上書きしない
-    assert src.read_bytes() == make_docx(SAMPLE_BODY)
+    assert src.read_bytes() == orig
 
 
 def test_api_all_formats(tmp_path):
@@ -61,7 +62,8 @@ def test_api_all_formats(tmp_path):
 
 def test_mcp_grade_document_combines_agent_findings(tmp_path):
     src = tmp_path / "s.docx"
-    src.write_bytes(make_docx(SAMPLE_BODY))
+    orig = make_docx(SAMPLE_BODY)  # zip の時刻が入るので、作り直さずに比べる
+    src.write_bytes(orig)
     replies = _session([
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}}},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "grade_document", "arguments": {"path": str(src)}}},
@@ -85,7 +87,8 @@ def test_fill_result_can_be_told_in_dialogue(tmp_path):
     from todoku import api
 
     src = tmp_path / "s.docx"
-    src.write_bytes(make_docx(SAMPLE_BODY))
+    orig = make_docx(SAMPLE_BODY)  # zip の時刻が入るので、作り直さずに比べる
+    src.write_bytes(orig)
     r = api.fill(str(src), {"T1.R1.C2": "とどく花子", "P2.1": "8"}, str(tmp_path / "out.docx"))
     assert r["proof_ok"] and r["read_back_ok"]
     assert {d["id"]: d["value"] for d in r["written"]} == {"T1.R1.C2": "とどく花子", "P2.1": "8"}
