@@ -31,7 +31,7 @@ def _sentence_end(ch: str) -> bool:
 
 BOX_GLYPHS = set(_chars.EMPTY_BOXES)
 # 影のついた四角（U+274F〜U+2752 ❏❐❑❒）：チェックの箱にも箇条の印にも使う字。チェックの印の所にはするが、規則では決めない（？）
-BULLET_BOXES = set(getattr(_chars, "BULLET_BOXES", "❏❐❑❒"))
+BULLET_BOXES = set(_chars.BULLET_LIKE_BOXES)  # 箇条書きの印にもよく使う箱（チェックの欄とは決まらない：「？」）
 # 記入済みの印。U+25A3 ▣（WHITE SQUARE CONTAINING BLACK SMALL SQUARE）は、とどくが ActiveX のどちらでもない箱に書く字
 CHECKED_GLYPHS = set(_chars.CHECKED_BOXES) | set(_chars.MAYBE_CHECKED) | {"▣"}
 
