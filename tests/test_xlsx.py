@@ -37,8 +37,9 @@ def corpus_files():
     """コーパスの Excel のブック（.xlsx・.xlsm）。PK で始まっても Word の文書（記入例の組・暗号の試験の中身）は除く。"""
     if not CORPUS.exists():
         return []
+    # world_tmp は世界調査の一時の置き場（調査が書いては消す）なので、試験の対象にしない
     return [p for p in sorted(CORPUS.rglob("*")) if p.is_file() and p.suffix.lower() in (".xlsx", ".xlsm")
-            and p.read_bytes()[:2] == b"PK"]
+            and "world_tmp" not in p.parts and p.read_bytes()[:2] == b"PK"]
 
 
 # ------------------------------------------------------------------ 往復
