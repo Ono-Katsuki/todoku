@@ -333,7 +333,8 @@ def _field(f: dict, **where) -> dict:
     d = {"id": f["id"], "label": f.get("label", ""), "kind": f.get("kind", ""), "value": f.get("value")}
     for key in ("options", "maxlen", "format", "readonly", "protected", "confidence", "context", "boxes", "write_as",
                 "options_depend_on", "unit", "rules", "agent", "why", "placeholder", "cover", "kind_candidates",
-                "alternative_to", "group", "why_not", "label_printed", "text_before"):
+                "alternative_to", "group", "why_not", "label_printed", "text_before", "options_labels", "export_value",
+                "hidden", "hidden_why", "not_printed", "not_printed_why"):
         if f.get(key) not in (None, "", [], False):
             d[key] = f[key]
     d.update({k: v for k, v in where.items() if v is not None})

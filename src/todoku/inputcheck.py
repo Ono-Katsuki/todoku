@@ -23,6 +23,8 @@ class InputError(ValueError):
 
 def _bad(ch: str) -> str | None:
     o = ord(ch)
+    if o in (0x0B, 0x0C, 0x1C, 0x1D, 0x1E):
+        return f"改行の働きをする制御文字 U+{o:04X}（改行は \\n で書いてください）"
     if (o < 0x20 and ch not in ALLOWED_C0) or o == 0x7F:
         return f"制御文字 U+{o:04X}"
     if 0xD800 <= o <= 0xDFFF:
