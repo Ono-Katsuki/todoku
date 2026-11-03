@@ -30,14 +30,19 @@ READ_OK = set("SAB")  # 正確に読める（素のデータ・規則だけで�
 # Excel の入力の印・フォームの部品など）。配置や空白から推定した欄だけの書類は「推定の欄」として別に数える
 MARKED = {"XFA のフォームの欄", "フォームの欄", "印のある入力欄", "作り手の印のある入力欄", "データに結びつかない XFA の欄",
           "状態の読めないフォームの欄"}
-INFERRED = {"配置から推定した入力欄", "文字の中の空欄", "印のない入力欄", "解析して決める入力欄", "入力欄か決められないセル"}
+# 推定の欄：いまの grade.py の書く段階の理由の名前（配置・枠や塗り・文字の中の空欄・数式の入力から推定した欄、規則では決められない所
+# （窓の「？」）、重なった入力規則）。古い記録の名前（「解析して決める入力欄」は上の推定の名前に分かれ、「入力欄か決められないセル」は
+# 「規則では決められない所」になった）も、取り直す前の記録を読むために残す
+INFERRED = {"配置から推定した入力欄", "枠・塗りから推定した入力欄", "文字の中の空欄", "印のない入力欄", "規則では決められない所",
+            "重なった入力規則"}
+INFERRED_OLD = {"解析して決める入力欄", "入力欄か決められないセル"}
 
 
 def form_class(r: dict) -> str:
     titles = {t for _g, t in (r.get("read_reasons") or []) + (r.get("write_reasons") or [])}
     if titles & MARKED:
         return "marked"
-    if titles & INFERRED or (r.get("fields") or 0) > 0:
+    if titles & (INFERRED | INFERRED_OLD) or (r.get("fields") or 0) > 0:
         return "inferred"
     return "none"
 

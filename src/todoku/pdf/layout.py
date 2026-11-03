@@ -106,18 +106,52 @@ def _is_cjk(ch: str) -> bool:
 
 
 # ====================================================================== 文字
+def glyph_frame(g, view: "View | None" = None) -> tuple[float, float, float, float, float]:
+    """字の原点 (x, y)・送りの向き (ux, uy)（長さ 1）・フォントの決める送りの幅。view があれば見た目の座標で。
+    送りの幅が 0 の字（結合の記号など）は、字の箱の幅にする（content.py が 0.5 字ぶんの箱を置く）。"""
+    if view is not None:
+        ox, oy = view.pt(g.ox, g.oy)
+        ex, ey = view.pt(g.ox + g.dx, g.oy + g.dy)
+    else:
+        ox, oy, ex, ey = g.ox, g.oy, g.ox + g.dx, g.oy + g.dy
+    dx, dy = ex - ox, ey - oy
+    n = (dx * dx + dy * dy) ** 0.5
+    if n > 1e-9:
+        ux, uy = dx / n, dy / n
+    else:
+        ux, uy = (0.0, 1.0) if g.vertical else (1.0, 0.0)
+    w = g.adv
+    if not w > 1e-9:
+        w = max(abs((g.x1 - g.x0) * ux) + abs((g.y1 - g.y0) * uy), 1e-6)
+    return ox, oy, ux, uy, w
+
+
+def is_overprint(a: tuple, b: tuple, size_a: float, size_b: float) -> bool:
+    """同じ字の重ね書き（太字に見せる重ね書き・色の層）か。a・b は glyph_frame。
+    重ね書き＝同じ字を、ほぼ同じ所に描いたもの：2つの字の送りの幅（フォントが決める、その字の幅）が、狭い方の半分より多く
+    重なる。続けて並べた字は、後の字が前の字の送りの終わりから始まり、重なりがない（か、詰めの分だけ）ので、重ね書きに
+    ならない（幅の狭い「l」が続く「All」も、2つの字）。送りの向きに直角なずれは、字の大きさの 1/4 まで。"""
+    ox, oy, ux, uy, w = a
+    px, py = b[0] - ox, b[1] - oy
+    along = px * ux + py * uy
+    across = -px * uy + py * ux
+    overlap = min(w, along + b[4]) - max(0.0, along)
+    return (overlap > 0.5 * min(w, b[4]) and abs(across) < 0.25 * max(size_a, size_b)
+            and abs(size_a - size_b) < 0.2 * max(size_a, size_b))
+
+
 def view_chars(pc: PageContent, view: View, dropped: list | None = None) -> list[Ch]:
     out: list[Ch] = []
-    seen: dict[tuple, list[Ch]] = {}
+    seen: dict[tuple, list[tuple]] = {}
+    cell = 8.0  # 探す範囲の区切り（重ね書きかは is_overprint が字の幅で決める。区切りは探す手間を減らすだけ）
     for g in pc.glyphs:
         if not g.text:
             continue
         x0, y0, x1, y1 = view.rect(g.x0, g.y0, g.x1, g.y1)
-        ox, oy = view.pt(g.ox, g.oy)
-        ex, ey = view.pt(g.ox + g.dx, g.oy + g.dy)
-        dx, dy = ex - ox, ey - oy
-        vertical = abs(dy) > abs(dx) * 1.5
-        if vertical and dy < 0:
+        fr = glyph_frame(g, view)
+        ox, oy, ux, uy, _w = fr
+        vertical = abs(uy) > abs(ux) * 1.5
+        if vertical and uy < 0:
             vertical = False  # 下から上へ進む字（左へ90度回した字）も、行としては横に扱わない
         base = (x0 + x1) / 2 if vertical else oy
         if g.size < 0.5 or x1 - x0 > view.width * 2 or y1 - y0 > view.height * 2:
@@ -126,13 +160,15 @@ def view_chars(pc: PageContent, view: View, dropped: list | None = None) -> list
             continue
         c = Ch(g.text, x0, y0, x1, y1, max(g.size, 1.0), vertical, base, g.invisible)
         # 同じ字を同じ位置に重ねたもの（太字に見せる重ね書き、色の層）は1字にする
-        key = (g.text, round(c.cx / 2), round(c.cy / 2))
+        kx, ky = int(ox // cell), int(oy // cell)
         dup = False
-        for k2 in (key, (g.text, round(c.cx / 2) + 1, round(c.cy / 2)), (g.text, round(c.cx / 2), round(c.cy / 2) + 1),
-                   (g.text, round(c.cx / 2) - 1, round(c.cy / 2)), (g.text, round(c.cx / 2), round(c.cy / 2) - 1)):
-            for o in seen.get(k2, ()):
-                if abs(o.cx - c.cx) < 0.25 * c.size and abs(o.cy - c.cy) < 0.25 * c.size and abs(o.size - c.size) < 0.2 * c.size:
-                    dup = True
+        for ix in (kx - 1, kx, kx + 1):
+            for iy in (ky - 1, ky, ky + 1):
+                for ofr, osize in seen.get((g.text, ix, iy), ()):
+                    if is_overprint(ofr, fr, osize, g.size):
+                        dup = True
+                        break
+                if dup:
                     break
             if dup:
                 break
@@ -140,7 +176,7 @@ def view_chars(pc: PageContent, view: View, dropped: list | None = None) -> list
             if dropped is not None:
                 dropped.append(("dup", g.text))
             continue
-        seen.setdefault(key, []).append(c)
+        seen.setdefault((g.text, kx, ky), []).append((fr, g.size))
         out.append(c)
     return out
 
@@ -533,7 +569,9 @@ def _structural(text: str, a: int, b: int) -> bool:
     英数字・「/」「.」「-」にはさまれた下線の字の並び（URL・ファイルの名前の「__icsFiles」）は、名前の一部のこともあるので除く。"""
     seg = text[a:b]
     if seg and all(ch in "_＿" for ch in seg):
-        return not underscore_in_word(text, a, b)
+        # 下線の字の並びが、英数字（「/」「.」「-」を含む）に接していない：書くための線（「氏名＿＿＿」「: ____」）。
+        # 片側でも接していれば（「Name____」「_HVeg」）、語の一部（名前の区切り）のこともあるので、規則では決めない
+        return not underscore_touches_word(text, a, b)
     if not seg or seg.strip(" 　"):
         return False
     i, j = a, b
@@ -542,6 +580,19 @@ def _structural(text: str, a: int, b: int) -> bool:
     while j < len(text) and text[j] in " 　":
         j += 1
     return i > 0 and j < len(text) and _BRACKETS.get(text[i - 1]) == text[j]
+
+
+def underscore_touches_word(text: str, a: int, b: int) -> bool:
+    """下線の字の並び（text[a:b] を含む、続いた並び全体）の前か後ろが、英数字・「/」「.」「-」か。"""
+    def ident(ch: str) -> bool:
+        return ch.isascii() and (ch.isalnum() or ch in ".-/")
+
+    x, y = a, b
+    while x > 0 and text[x - 1] in "_＿":
+        x -= 1
+    while y < len(text) and text[y] in "_＿":
+        y += 1
+    return (0 < x and ident(text[x - 1])) or (y < len(text) and ident(text[y]))
 
 
 def underscore_in_word(text: str, a: int, b: int) -> bool:
@@ -876,6 +927,40 @@ class PageLayout:
             kept.append(s)
         # 5) 規則では決められない所（窓に「？」をつけて示し、エージェントが読んで判断する）
         self._agent_spots(cells, undecided)
+        # 6) ページの外：見えるのはページの枠（CropBox を MediaBox に切り詰めたもの）の中だけ。欄の四角を枠に切り詰め、
+        #    枠の外にしかないもの（ページの外に描いた線・字から見つけたもの）は欄にしない
+        self._clip_to_page()
+
+    def _clip_to_page(self) -> None:
+        W, H = self.view.width, self.view.height
+
+        def clip(r):
+            x0, y0, x1, y1 = max(r[0], 0.0), max(r[1], 0.0), min(r[2], W), min(r[3], H)
+            return (x0, y0, x1, y1) if x1 > x0 and y1 > y0 else None
+
+        kept: list[Spot] = []
+        for s in self.spots:
+            r = clip(s.rect)
+            if r is None:
+                continue
+            s.rect = r
+            if s.boxes:
+                s.boxes = [b2 for b2 in (clip(b) for b in s.boxes) if b2 is not None]
+                if not s.boxes:
+                    continue
+            if getattr(s, "options", None):
+                s.options = [(o, r2) for o, r2 in ((o, clip(r0)) for o, r0 in s.options) if r2 is not None]
+                if not s.options:
+                    continue
+            kept.append(s)
+        gone = {id(s) for s in self.spots} - {id(s) for s in kept}
+        if gone:
+            for s in kept:
+                if s.alternative_to is not None and id(s.alternative_to) in gone:
+                    s.alternative_to = None
+                if s.group:
+                    s.group = [x for x in s.group if id(x) not in gone]
+        self.spots = kept
 
     def _agent_spots(self, cells: list[Cell], undecided: list[tuple[Cell, str, str]]) -> None:  # noqa: C901
         """規則の型に合わないが、書き込む所かもしれない所：行の中の空き・見出しの後ろ・単位だけのマスなど
@@ -1188,10 +1273,14 @@ class PageLayout:
             if x1 <= x0:
                 continue  # 空きがまったくない（縁や次の字に接している）
             at = (max(a0, 0), max(0, min(b0, len(text))))
-            shown = text[:at[0]] + "［　］" + text[at[1]:]
+            orig = text[at[0]:at[1]]
+            shown = text[:at[0]] + (orig if orig.strip(" 　") else "") + "［　］" + text[at[1]:]
             sp = Spot("inline", (x0, ln.y0, x1, ln.y1), norm_label(shown), "文字の中の空欄", line_text=text,
                       blank=at, cell=cell, size=ln.size, host=ln, at=at)
-            if not blank.structural:
+            if not blank.structural and text[at[0]:at[1]] and all(ch in "_＿" for ch in text[at[0]:at[1]]):
+                # 英数字に接した下線の字（「Name____」「_HVeg」）：書くための線か、名前の一部か、字の形だけでは決まらない
+                _agent(sp, "英数字に接した下線の字（" + _blank_hint(text, at) + "。名前の一部のこともある）")
+            elif not blank.structural:
                 # 語（単位・年月日・住所の単位・「：」など）を手がかりにした空欄：規則では欄と決められない
                 _agent(sp, "語を手がかりにした文字の中の空欄（" + _blank_hint(text, at) + "）")
             if x1 - x0 < 0.8 * ln.size:

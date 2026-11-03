@@ -141,11 +141,36 @@ class PdfDocument:
         return int(d["Prev"]) if "Prev" in d else None
 
     def _repair(self) -> None:
-        """相互参照が壊れているとき：ファイルを頭から読み、「n g obj」の位置を集め直す。"""
+        """相互参照が壊れているとき：ファイルを頭から読み、「n g obj」の位置を集め直す（同じ番号は後ろのもの＝追記で
+        書き直したものを使う）。オブジェクトのストリーム（ObjStm）に入ったオブジェクトも、ストリームの中の番号の表から集める
+        （ストリームより後ろに、同じ番号のオブジェクトがじかに書いてあれば、そちらを使う）。"""
         self.repaired = True
         self.xref = {}
+        self.cache = {}
+        self.objstm_cache = {}
+        where: dict[int, int] = {}
         for m in re.finditer(rb"(?<![\d])(\d{1,10})\s+(\d{1,5})\s+obj\b", self.blob):
             self.xref[int(m[1])] = ("o", m.start(), int(m[2]))
+            where[int(m[1])] = m.start()
+        for num, ent in sorted(self.xref.items(), key=lambda kv: kv[1][1]):
+            if ent[0] != "o":
+                continue
+            try:
+                st = self._parse_at(ent[1], num)
+                if not (isinstance(st, Stream) and getattr(st.dict.get("Type"), "name", "") == "ObjStm"):
+                    continue
+                data = self.decode(st, decrypt=self.decryptor is not None)
+                lx = Lexer(data, 0)
+                for idx in range(int(st.dict.get("N", 0))):
+                    k1, onum = lx.token()
+                    k2, _off = lx.token()
+                    if k1 != "num" or k2 != "num":
+                        break
+                    if onum != num and where.get(onum, -1) < ent[1]:
+                        self.xref[onum] = ("s", num, idx)
+                        where[onum] = ent[1]
+            except Exception:  # noqa: BLE001
+                continue
         for m in re.finditer(rb"trailer\s*<<", self.blob):
             try:
                 tr = parse_object(Lexer(self.blob, m.end() - 2))
@@ -159,14 +184,30 @@ class PdfDocument:
                     self.trailer["Root"] = Ref(num, 0)
                     break
 
+    def verify_xref(self) -> None:
+        """相互参照のすべての位置が、その番号のオブジェクトを指しているかを確かめ、1つでも違えば頭から読み直す
+        （読むときは、読んだオブジェクトから順に確かめる。書き込み・証明では、はじめに全部を確かめる）。"""
+        if self.repaired:
+            return
+        for num, ent in list(self.xref.items()):
+            if ent[0] != "o":
+                continue
+            m = re.match(rb"\s*(\d+)\s+(\d+)\s+obj\b", self.blob[ent[1]:ent[1] + 40])
+            if not m or int(m[1]) != num:
+                self._repair()
+                return
+
     # ------------------------------------------------------------------ オブジェクト
-    def _parse_at(self, pos: int):
+    def _parse_at(self, pos: int, expect: int | None = None):
+        """pos のオブジェクトを読む。expect があれば、そこにあるのがその番号のオブジェクトか確かめる（違えば PdfError）。"""
         lx = Lexer(self.blob, pos)
         k1, num = lx.token()
         k2, gen = lx.token()
         k3, kw = lx.token()
         if (k1, k2, k3, kw) != ("num", "num", "kw", "obj"):
             raise PdfError(f"位置 {pos} にオブジェクトがありません")
+        if expect is not None and num != expect:
+            raise PdfError(f"位置 {pos} にあるのは、オブジェクト {expect} でなく {num} です")
         obj = parse_object(lx)
         lx.skip()
         if isinstance(obj, dict) and self.blob.startswith(b"stream", lx.pos):
@@ -199,9 +240,14 @@ class PdfDocument:
             obj = None
         elif ent[0] == "o":
             try:
-                obj = self._parse_at(ent[1])
+                obj = self._parse_at(ent[1], num)
             except Exception:  # noqa: BLE001
                 obj = None
+                if not self.repaired:
+                    # 相互参照の位置が、そのオブジェクトを指していない（番号のずれた xref 表・壊れた追記など）：表を信じず、
+                    # ファイルを頭から読み直して位置を集め、読み直す
+                    self._repair()
+                    return self.get(num)
             if obj is not None and self.decryptor is not None and num != getattr(self.encrypt_ref, "num", -1):
                 obj = self._decrypt_strings(obj, num, ent[2])
         else:
@@ -344,6 +390,10 @@ class PdfDocument:
                 out.append(page)
 
         walk(self.root.get("Pages"), {})
+        if not out and not self.repaired and self.xref:
+            # 入口（Root）からページの木をたどれない：相互参照が古い・壊れていることがある。頭から読み直して、もう一度たどる
+            self._repair()
+            walk(self.root.get("Pages"), {})
         return out
 
     def page_content(self, page: dict) -> bytes:

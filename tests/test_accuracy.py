@@ -197,7 +197,9 @@ def test_conditional_format_hides_warning_when_satisfied():
     assert "AQ18" in hid_ex  # 記入例では要件を満たすので、警告文は灰色の地に灰色で見えない
     assert "AQ18" not in hid_bl
     line18 = next(x["text"] for x in next(s for s in ex["sheets"] if s["name"] == name)["reading"] if x.get("row") == 18)
-    assert "下回っています" not in line18
+    # いまは見えない警告文は、見える字としては読まない。ファイルにある字なので、印をつけて番地つきで出す
+    shown, _, faded = line18.partition("〔条件付き書式でいまは見えない〕")
+    assert "下回っています" not in shown and "〔AQ18〕" in faded and "下回っています" in faded
 
 
 def test_values_hidden_by_merge_are_listed():
@@ -209,7 +211,11 @@ def test_values_hidden_by_merge_are_listed():
 
 def test_window_fits_in_context():
     doc = window.build(Workbook(form("wakayama_r8keikaku").read_bytes()))
-    assert len(window.to_markdown(doc)) < 60_000  # 3,000か所を超える入力欄があっても、AIが一度に読める大きさ
+    # 3,000か所を超える入力欄があっても、見えるシートは AI が一度に読める大きさ。非表示のシート（市町村の一覧など）の中身も
+    # 窓に出す（印をつけて）ので、全体は、分けた部分のどれもが目安の大きさに収まること
+    visible = sum(len("\n".join(window._md_sheet(sh))) for sh in doc["sheets"] if sh["state"] == "visible")
+    assert visible < 60_000
+    assert all(len(t) <= window.BUDGET for _, t in window.markdown_parts(doc))
 
 
 # ------------------------------------------------------------------ 監査（読み落とし・全欄への書き込み・読み戻し）

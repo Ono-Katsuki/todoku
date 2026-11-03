@@ -331,6 +331,7 @@ tr.unr td { color: var(--muted); }
     <figure class="burden" aria-labelledby="burden-cap">
       <figcaption id="burden-cap"><b>私が区に出す 1 通の申請書</b>　東京都中央区「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）。2 ページ・入力欄の候補 196 か所。架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合。</figcaption>
       <ul class="walls">
+        <li><b>重いと、諦める。</b>良さそうな助成を見つけても、私も諦めることがあります。使える制度を、手続きの重さのために使わない人がいることは、行政の負担の研究でも繰り返し示されています（Currie 2006・Herd &amp; Moynihan 2018）。</li>
         <li><b>探すだけで重い。</b>様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。</li>
         <li><b>印刷して手で書く前提。</b>入力欄のない印刷用の PDF で、紙に書いて窓口か郵送で出します。ペンを持てない私には書けません。</li>
         <li><b>そもそも、私が使う iPad では Office の書類も崩れて扱えません。</b>iPad の Excel は、マクロ（VBA）も動かせません。</li>
@@ -466,7 +467,7 @@ tr.unr td { color: var(--muted); }
       <div><h3>礼儀</h3><p>書類は政府のサーバーからでなく、Common Crawl の保存庫から、その記録だけを取りました（Common Crawl は集めるときに robots.txt を守っています）。保存庫への要求は一度に一つ、間をあけ、混んでいるときは待ちました。政府のサイトに行くのは、切れた書類を取り直すときだけで、robots.txt を RFC 9309 のとおりに読んで守り、同じサイトには 2 秒以上の間をあけました。ボット対策やログインは破りません。書類はスコアを付けたあとに消し、URL・SHA-256・結果だけを残しています。</p></div>
     </div>
     <div class="refs">
-      <span>Moynihan, Herd &amp; Harvey (2015) JPART · Herd &amp; Moynihan (2018) · Goodwin et al. (2011) JITP · Singanamalla et al. (2020) IMC · Kumar &amp; Wang (2024) ASSETS · Foppiano (2026) WAC · Fok et al. (2022) CHI · Hackett &amp; Parmanto (2009) · Vigo, Brown &amp; Conway (2013) W4A · Brown, Cai &amp; DasGupta (2001) · Korn &amp; Graubard (1998) · Cohen (1960) · Thelwall &amp; Stuart (2006) · Partridge &amp; Allman (2016) · Ono (2026) ASSETS</span>
+      <span>Moynihan, Herd &amp; Harvey (2015) JPART · Herd &amp; Moynihan (2018) · Currie (2006) · Goodwin et al. (2011) JITP · Singanamalla et al. (2020) IMC · Kumar &amp; Wang (2024) ASSETS · Foppiano (2026) WAC · Fok et al. (2022) CHI · Hackett &amp; Parmanto (2009) · Vigo, Brown &amp; Conway (2013) W4A · Brown, Cai &amp; DasGupta (2001) · Korn &amp; Graubard (1998) · Cohen (1960) · Thelwall &amp; Stuart (2006) · Partridge &amp; Allman (2016) · Ono (2026) ASSETS</span>
       <span>書類：Common Crawl（CC-MAIN-2026-43）· 政府のドメイン：Public Suffix List · Wikidata（CC0）</span>
       <span>地図の国境：Natural Earth（world-atlas, ISC）</span>
     </div>
@@ -701,7 +702,7 @@ tr.unr td { color: var(--muted); }
     document.getElementById("b-countries").textContent = T.countries;
     document.getElementById("b-sampled").textContent = T.sampled.toLocaleString();
     document.getElementById("b-graded").textContent = T.graded.toLocaleString();
-    const reason = (t) => (T.top_read_reasons.find(([k]) => k === t) || [, 0])[1];
+    const reason = (t) => ([...T.top_read_reasons, ...(T.top_write_reasons || [])].find(([k]) => k === t) || [, 0])[1];
     const setN = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = Number(v || 0).toLocaleString(); };
     setN("how-docs", T.graded); setN("how-kinds", Object.keys(T.kinds || {}).length || 10);
     setN("how-agent", reason("規則では決められない所")); setN("how-scan", reason("画像だけのページ"));

@@ -90,14 +90,14 @@ def _writable(doc: TxtDocument, value, ascii_value: str):
         return ascii_value
 
 
-def check_writing(blob: bytes, filename: str, win: dict) -> list[Check]:
-    doc = TxtDocument(blob, filename)
+def check_writing(blob: bytes, filename: str, win: dict, encoding: str | None = None) -> list[Check]:
+    doc = TxtDocument(blob, filename, encoding)
     targets = {f["id"]: _writable(doc, _sample(f), "12") for f in win["fields"]}
     try:
-        res = fill(TxtDocument(blob, filename), targets)
+        res = fill(TxtDocument(blob, filename, encoding), targets)
     except FillError as e:
         return [Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
-    pr = prove(blob, res.blob, written_of(res.patches))
+    pr = prove(blob, res.blob, written_of(res.patches), encoding)
     out = [Check("全入力欄への書き込み", not pr.unexpected and not pr.lint_errors,
                  f"入力欄 {len(targets):,} か所すべてに試しの値を書き込みました。{pr.headline()}", [*pr.unexpected, *pr.lint_errors])]
     out.append(Check("読み戻し", not pr.readback,
@@ -107,9 +107,9 @@ def check_writing(blob: bytes, filename: str, win: dict) -> list[Check]:
     return out
 
 
-def anchored_check(blob: bytes, filename: str) -> Check:
+def anchored_check(blob: bytes, filename: str, encoding: str | None = None) -> Check:
     """字を目印にした書き込み：ファイルの中に1つしかない4字の後ろに試しの字を書き、証明と読み戻し（その行の字）を確かめる。"""
-    doc = TxtDocument(blob, filename)
+    doc = TxtDocument(blob, filename, encoding)
     full = "\n".join(ln.text for ln in doc.lines)
     probe = _writable(doc, "（試し）", "(test)")
     tried, last = 0, ""
@@ -121,13 +121,13 @@ def anchored_check(blob: bytes, filename: str) -> Check:
                 continue
             tried += 1
             try:
-                res = fill(TxtDocument(blob, filename), {"@1": {"old": frag, "new": frag + probe}})
+                res = fill(TxtDocument(blob, filename, encoding), {"@1": {"old": frag, "new": frag + probe}})
             except FillError as e:
                 last = str(e)
                 if tried >= 5:
                     break
                 continue
-            pr = prove(blob, res.blob, written_of(res.patches))
+            pr = prove(blob, res.blob, written_of(res.patches), encoding)
             return Check("字を目印にした書き込み", pr.ok,
                          f"規則で示していない所への書き込み（{ln.number} 行目の「{frag}」の後ろに「{probe}」）を {res.patches[0].id} として書き、"
                          f"{pr.headline()}。読み戻し：{'その行の字が思っていたとおり' if not pr.readback else '思っていた字と違う'}",
@@ -139,10 +139,10 @@ def anchored_check(blob: bytes, filename: str) -> Check:
     return Check("字を目印にした書き込み", False, f"字を目印にした書き込みを {tried} か所で試し、書けませんでした", [last])
 
 
-def run(blob: bytes, filename: str = "") -> Audit:
+def run(blob: bytes, filename: str = "", encoding: str | None = None) -> Audit:
     au = Audit(filename)
     try:
-        doc = TxtDocument(blob, filename)
+        doc = TxtDocument(blob, filename, encoding)
     except TxtError as e:
         au.checks.append(Check("開く", False, f"文字のファイルとして読めません：{e}"))
         return au
@@ -154,9 +154,9 @@ def run(blob: bytes, filename: str = "") -> Audit:
     au.checks.append(Check("窓の大きさ", biggest <= 150_000,
                            f"Markdown {sum(len(t) for _, t in parts):,} 文字" + (f"を {len(parts)} 部分に分け、いちばん大きい部分も {biggest:,} 文字"
                                                                              if len(parts) > 1 else "") + "（AIが1回で読める目安 15万文字以内）"))
-    au.checks += check_writing(blob, filename, win)
+    au.checks += check_writing(blob, filename, win, encoding)
     ap = agent_places_check(win["fields"])
     if ap is not None:
         au.checks.append(ap)
-    au.checks.append(anchored_check(blob, filename))
+    au.checks.append(anchored_check(blob, filename, encoding))
     return au

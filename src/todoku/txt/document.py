@@ -1,6 +1,7 @@
 """文字だけのファイル（.txt）を読む。外部のライブラリは使わない。
 
-- 文字コード：CSV と同じ決め方（datafile/textenc.py：BOM・UTF-8・Shift_JIS（CP932）・EUC-JP の順。どれでも読めなければ Latin-1）
+- 文字コード：CSV と同じ決め方（datafile/textenc.py：BOM・UTF・多バイト・1バイトの順に、仕様の形で決める。決められないときは
+  候補を窓に示し、どれでも読めなければ「決められない」と書いて Latin-1 の字で出す）
 - 行：改行（CRLF・LF・CR）で区切る。行の終わりの改行は行ごとに覚える（書いても、改行の字は変えない）
 - 読んだ結果は、Word（.docx）と同じ形（1行を1段落）にして、窓・入力欄の推定（「令和　年　月　日」・「？」の所）・
   字を目印にした書き込みを共通にする。入力欄の id の「P12.1」は、12行目の1つ目の空欄
@@ -64,16 +65,16 @@ class TxtDocument:
 
     kind = "txt"
 
-    def __init__(self, blob: bytes, filename: str = ""):
+    def __init__(self, blob: bytes, filename: str = "", encoding: str | None = None):
         self.blob = blob
         self.filename = filename
         try:
-            self.dec: Decoded = decode(blob)
+            self.dec: Decoded = decode(blob, encoding)
         except UnicodeDecodeError as e:
             raise TxtError(f"文字コードを読めません（{e.reason}）") from None
         self.text = self.dec.text
-        if "\x00" in self.text and self.dec.encoding not in ("utf-16-le", "utf-16-be"):
-            raise TxtError("文字のファイルではありません（バイナリのデータが入っています）")
+        if self.dec.binary:
+            raise TxtError("文字のファイルではありません（どの文字コードとしても読めず、NUL のバイトがあります）")
         self.lines: list[Line] = []
         for k, (a, b, term) in enumerate(split_lines(self.text), 1):
             self.lines.append(Line(None, "txt", _segs(self.text[a:b], a), a=a, b=b, terminator=term, number=k))
@@ -101,7 +102,8 @@ class TxtDocument:
     def format_info(self) -> dict:
         return {"encoding": self.dec.encoding, "encoding_ja": self.dec.label, "bom": bool(self.dec.bom),
                 "ascii_only": self.dec.ascii_only, "newline": NEWLINE_JA[self.newline], "mixed_newlines": self.mixed_newlines,
-                "ends_with_newline": self.ends_with_newline, "lines": len(self.lines)}
+                "ends_with_newline": self.ends_with_newline, "lines": len(self.lines),
+                **self.dec.info(), "encoding_notes": self.dec.note_lines()}
 
     def line_bytes(self, ln: Line) -> tuple[int, int, int]:
         """(行の中身の始め, 終わり, 改行の終わり) のバイトの位置。"""

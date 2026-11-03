@@ -65,7 +65,7 @@ def test_bordered_blank_without_label_is_shown_as_agent_and_writable():
 
 
 def test_labelled_box_stays_input_but_grades_b():
-    # 枠と近くの見出しから決めた欄は入力欄のまま。ただし印（入力規則・保護）ではないので、段階は B（A ではない）
+    # 枠と近くの見出しから決めた欄は入力欄のまま。ただし印（入力規則・保護）ではないので、書く段階は B（A ではない）
     def build(wb):
         ws = wb.active
         ws.title = "S"
@@ -76,8 +76,9 @@ def test_labelled_box_stays_input_but_grades_b():
     f = fields_of(doc_of(blob))
     assert not f["S!B1"].get("agent") and f["S!B1"]["reason"] == ["枠のある空欄"]
     g = grade_blob(blob, "t.xlsx")
-    titles = {r.title: r.grade for r in g.reasons}
+    titles = {r.title: r.grade for r in g.write_reasons}
     assert titles.get("枠・塗りから推定した入力欄") == "B" and "印のある入力欄" not in titles, g.headline()
+    assert g.grade == "A" and g.write == "B"  # 入力欄の見つけ方は、読む段階を下げない
 
 
 def test_whole_column_validation_and_wide_formula_refs_are_clipped_not_skipped():

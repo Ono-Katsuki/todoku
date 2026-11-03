@@ -656,6 +656,9 @@ class Box:
     blanks: list = field(default_factory=list)  # 文字の中の空欄（書き込む場所）：(始め, 終わり, None＝規則／AGENT_WHY の鍵)
     why: list = field(default_factory=list)  # kind "agent"（規則では欄と決められない空のマス）：AGENT_WHY の鍵
     evidence: dict = field(default_factory=dict)  # kind "agent"：判断の材料（罫線・塗り・結合・近くの字）
+    # 画面に出ないマスの字："row" は非表示の行・列、"format" は条件付き書式でいまは見えない字。配置（rows）には入れず、
+    # 読み順にだけ印をつけて出す（ファイルにある字で、エージェントは、あることを知っていなければならない）
+    hidden: str = ""
 
     @property
     def ref(self) -> str:
@@ -760,10 +763,18 @@ class Layout:
         # 規則では欄と決められない空のマス（kind "agent"）。見出しを決める配置（rows）には入れず、読み順と欄の一覧にだけ出す
         # （入れると、ほかの欄の見出しの探し方が変わる）
         self.agent: dict[int, list[Box]] = {}
+        # 非表示の行・列にある字：画面には出ないが、ファイルにある（エージェントは、あることを知っていなければならない）。
+        # 見出しを決める配置（rows）には入れず、読み順に「非表示」の印をつけて出す
+        self.hidden_boxes: dict[int, list[Box]] = {}
         shown_sheet = sh.state not in ("hidden", "veryHidden")  # 非表示のシート（選択肢の元の表など）は、記入する所ではない
         for r, items in anchors(sh).items():
             for a in items:
                 if sh.is_hidden(a.r, a.c1):
+                    cell = a.cell
+                    if cell is not None and (cell.has_formula or (cell.value is not None and cell.value != "")):
+                        self.hidden_boxes.setdefault(a.r, []).append(
+                            Box(a.r, a.c1, a.r2, a.c2, "formula" if cell.has_formula else "text", cell, display(wb, cell),
+                                outside=not sh.in_print_area(a.r, a.c1), hidden="row"))
                     continue
                 cell = a.cell
                 outside = not sh.in_print_area(a.r, a.c1)
@@ -800,6 +811,16 @@ class Layout:
                 continue
             b = Box(r, c, r, c, "input", None, "", outside=not sh.in_print_area(r, c))
             self.rows.setdefault(r, []).append(b)
+        # 結合セルの左上でないマスに残っている字（Excel の画面には出ないが、ファイルにある）：読み順に印をつけて出す
+        if sh.merges:
+            for (r, c), cell in sh.cells.items():
+                if (r, c) in anchored or not (cell.has_formula or (cell.value is not None and cell.value != "")):
+                    continue
+                m = sh.merged_at(r, c)
+                if m and (r, c) != (m[0], m[1]):
+                    self.hidden_boxes.setdefault(r, []).append(
+                        Box(r, c, r, c, "formula" if cell.has_formula else "text", cell, display(wb, cell),
+                            outside=not sh.in_print_area(r, c), hidden="merge"))
         under = set()
         from .controls import CHOICE_KINDS, VALUE_KINDS
 
@@ -851,6 +872,8 @@ class Layout:
                         if lk.hidden and b.kind != "input" and b.text:
                             # 条件付き書式で、いまは背景と同じ色などになって見えない文字
                             self.hidden_by_format.append((b.r, b.c1))
+                            b.hidden = "format"
+                            self.hidden_boxes.setdefault(b.r, []).append(b)
                             continue
                     keep.append(b)
                 self.rows[r] = keep
@@ -1327,7 +1350,30 @@ class Layout:
         s = " ｜ ".join(p for p in parts + inside if p)
         if outside:
             s += ("　" if s else "") + "〔印刷範囲外〕" + " ｜ ".join(outside)
+        for how, mark in (("row", "〔非表示〕"), ("merge", "〔結合の下に隠れた字〕"), ("format", "〔条件付き書式でいまは見えない〕")):
+            hidden = [self.hidden_token(b) for b in sorted(self.hidden_boxes.get(r, []), key=lambda b: b.c1) if b.hidden == how]
+            hidden = [t for t in hidden if t]
+            if hidden:
+                s += ("　" if s else "") + mark + " ｜ ".join(hidden)
         return s
+
+    def hidden_token(self, b: Box) -> str:
+        """非表示の行・列のマスの字：番地をつけて示す（画面には出ないので、どこの字かが分かるように）。"""
+        t = b.text.replace("\n", " ").strip()
+        if b.kind == "formula":
+            return f"〈{b.cell_ref}＝{t}〉"
+        return f"〔{b.cell_ref}〕{t}" if t else ""
+
+    def content_key(self, r: int) -> tuple[tuple, list[Box]]:
+        """行の中身：(マスの並び（位置・種類・印刷範囲・非表示・チェックの状態と、上から続く見出しの字）, 並びの順のマス)。
+        読み順で行をまとめるときは、並びが同じで、字の違うマスを1つ残らず示せる行だけをまとめる（reading）。
+        signature は数を「#」にまとめるので、それだけで比べると値の違う行も同じとみなし、その値が窓から消える。"""
+        row = sorted(list(self.boxes(r)) + self.agent.get(r, []) + self.hidden_boxes.get(r, []),
+                     key=lambda b: (b.c1, b.kind, b.hidden))
+        struct = tuple((b.kind, b.c1, b.c2, b.outside, b.hidden,
+                        bool(b.control is not None and b.control.is_checked) if b.kind == "check" else None) for b in row)
+        carried = tuple(sorted((b.c1, b.c2, b.text) for b in self.cover.get(r, []) if b.kind == "text"))
+        return (struct, carried), row
 
 
 # ====================================================================== 入力欄
@@ -1601,7 +1647,10 @@ def build(wb: Workbook) -> dict:
                      "〈AF35＝値〉": "計算結果（数式）",
                      "☐［BA116］ / ☑［BA116］": "チェックボックス（［］はつながっているセル）",
                      "（法人名）": "上の行から続く、縦に結合された見出し", "［▶…］": "いま説明している欄",
-                     "〔印刷範囲外〕": "画面には出るが印刷されない"},
+                     "〔印刷範囲外〕": "画面には出るが印刷されない",
+                     "〔非表示〕〔C5〕値": "非表示の行・列にある字（画面には出ないが、ファイルにある）",
+                     "〔結合の下に隠れた字〕〔C5〕値": "結合セルの左上でないマスに残っている字（画面には出ないが、ファイルにある）",
+                     "〔条件付き書式でいまは見えない〕〔C5〕値": "条件付き書式で、いまは見えない色などになっている字"},
         "macros": _macros(wb),
         "names": [
             {"name": d.name, "refers_to": d.text, "scope": d.sheet_scope, "provenance": DET}
@@ -1750,47 +1799,94 @@ def _tables(wb: Workbook, sh: Sheet) -> list[dict]:
 
 
 def reading(lay: Layout) -> list[dict]:
-    """見える行を上から。同じ形の空欄の行（または2〜4行で1組の行）が続くところは1行にまとめる。"""
+    """行を上から（非表示の行・列の字は印をつけて）。同じ形の空欄の行（または2〜4行で1組の行）が続くところは1行にまとめる。
+
+    まとめてよいのは、欄のある行で、何も落とさずにまとめられる所だけ：マスの並び（位置・種類・印刷範囲・非表示）が同じで、
+    入力欄はすべて空欄、上の組と字が違うマスは1つの列だけ（番号の列など）。その列の字は、まとめの行に番地つきで全部書く。
+    字の違う列が2つ以上ある行（データの表など）・欄のない行（注記・データ）は、まとめずに1行ずつ出す。"""
     out: list[dict] = []
-    rows = sorted(set(lay.rows) | set(lay.agent))
+    rows = sorted(set(lay.rows) | set(lay.agent) | set(lay.hidden_boxes))
     texts = {r: lay.line(r) for r in rows}
+    keys = {}
+
+    def key(x):
+        k = keys.get(x)
+        if k is None:
+            k = keys[x] = lay.content_key(x)
+        return k
+
+    def differ(tmpl: int, x: int) -> list[Box] | None:
+        """行 x の、組の行 tmpl と字の違うマス（並びが違えば None）。違ってよいのは、文字と計算結果のマスだけ。"""
+        (s1, c1), b1 = key(tmpl)
+        (s2, c2), b2 = key(x)
+        if s1 != s2 or c1 != c2:
+            return None
+        out_ = []
+        for p, q in zip(b1, b2):
+            if p.text != q.text:
+                if q.kind not in ("text", "formula"):
+                    return None
+                out_.append(q)
+        return out_
+
     i = 0
     while i < len(rows):
         r = rows[i]
         if not texts[r]:
             i += 1
             continue
-        best = None  # (組の行数, 続く組の数)
+        best = None  # (組の行数, 続く組の数, 字の違うマス)
         for per in (1, 2, 3, 4):
             group = rows[i:i + per]
             if len(group) < per or group[-1] - group[0] != per - 1:
                 break
-            sigs = [lay.signature(x) for x in group]
-            n = 0
+            # まとめるのは、欄（入力欄・規則では決められない所・チェックボックス）のある行の組だけ。字だけの行（注記・データ）は
+            # 1行ずつ出す
+            if not any(b.kind in ("input", "agent", "check") for x in group for b in key(x)[1]):
+                continue
+            n, cols, diffs = 0, set(), []
             j = i + per
             while j + per <= len(rows):
                 nxt = rows[j:j + per]
                 # 上の組から続く結合セル（縦に長い見出しなど）がかかる行は、まとめない
                 if (nxt[0] != rows[j - 1] + 1 or nxt[-1] - nxt[0] != per - 1
-                        or [lay.signature(x) for x in nxt] != sigs
                         or not all(lay.is_blank_row(x) and all(b.r >= nxt[0] for b in lay.cover.get(x, []))
                                    for x in nxt)):
                     break
+                got = [differ(t, x) for t, x in zip(group, nxt)]
+                if any(d is None for d in got):
+                    break
+                new_cols = cols | {b.c1 for d in got for b in d}
+                if len(new_cols) > 1:
+                    break  # 字の違う列が2つ以上：まとめると読みにくい（データの表）。1行ずつ出す
+                cols = new_cols
+                diffs += [b for d in got for b in d]
                 n += 1
                 j += per
             if n >= (2 if per == 1 else 1) and (best is None or n * per > best[1] * best[0]):
-                best = (per, n)
+                best = (per, n, diffs)
         if best is None:
             out.append({"row": r, "text": texts[r]})
             i += 1
             continue
-        per, n = best
+        per, n, diffs = best
         for x in rows[i:i + per]:
             if texts[x]:
                 out.append({"row": x, "text": texts[x]})
         a, b = rows[i + per], rows[i + per * (n + 1) - 1]
         what = f"{r}行目と同じ形の行" if per == 1 else f"{r}〜{rows[i + per - 1]}行目と同じ形の{per}行1組"
-        out.append({"rows": f"{a}-{b}", "text": f"{what}が {n} {'行' if per == 1 else '組'}続きます（入力欄はすべて空欄）"})
+        item = {"rows": f"{a}-{b}", "same_as": f"{r}-{rows[i + per - 1]}"}
+        if diffs:
+            from ..formula.parser import num_to_col
+
+            col = num_to_col(diffs[0].c1)
+            vals = "、".join(f"{d.cell_ref}＝{d.text.replace(chr(10), ' ').strip()}" for d in diffs)
+            item["differs"] = [{"cell": d.cell_ref, "text": d.text} for d in diffs]
+            item["text"] = (f"{what}が {n} {'行' if per == 1 else '組'}続きます（入力欄はすべて空欄。"
+                            f"字が違うのは {col} 列だけで、ほかの字は同じ：{vals}）")
+        else:
+            item["text"] = f"{what}が {n} {'行' if per == 1 else '組'}続きます（字もすべて同じで、入力欄はすべて空欄）"
+        out.append(item)
         i += per * (n + 1)
     return out
 
@@ -1828,10 +1924,15 @@ def _md_sheet(sh: dict) -> list[str]:
         what = "グラフのシート" if sh.get("charts") else "セルのないシート"
         return [f"## シート「{sh['name']}」（{what}）", ""] + sheet_markdown(sh)
     if state != "visible":
-        n = len(sh["cells"])
-        return [f"## シート「{sh['name']}」（非表示）", "",
-                f"画面に出ない計算用のシートです（値のあるセル {n:,} 個）。"
-                "ここから作られる選択肢は、各入力欄の「選択肢」に展開してあります。すべてのセルはJSONの窓にあります。", ""] + sheet_markdown(sh)
+        # 非表示のシート：画面には出ないが、中身は窓に出す（選択肢の元の表・計算用の値・注意書きがあることを、エージェントが
+        # 知っていなければならない）。記入する所ではないので、入力欄の一覧は出さない
+        n = sum(1 for c in sh["cells"] if c.get("value") is not None)
+        out = [f"## シート「{sh['name']}」（非表示のシート{'（VBA からだけ表示できる）' if state == 'veryHidden' else ''}）", "",
+               f"画面に出ないシートです（値のあるセル {n:,} 個）。記入する所ではありません。"
+               "ここから作られる選択肢は、各入力欄の「選択肢」に展開してあります。中身は次のとおりです。", ""]
+        if sh.get("reading"):
+            out += ["### 読み順（上から。非表示のシート）", ""] + _md_reading(sh) + [""]
+        return out + sheet_markdown(sh)
     out = [f"## シート「{sh['name']}」", ""]
     info = []
     if sh.get("print_area"):
@@ -1840,10 +1941,13 @@ def _md_sheet(sh: dict) -> list[str]:
         info.append("非表示の列 " + "、".join(sh["hidden_cols"]))
     if sh.get("hidden_rows"):
         info.append("非表示の行 " + "、".join(sh["hidden_rows"]))
+    if sh.get("hidden_cols") or sh.get("hidden_rows"):
+        info.append("非表示の行・列の字は、読み順の行の〔非表示〕のあとに番地つきで出しています")
     if sh.get("protected"):
         info.append("シート保護あり（入力欄だけ編集できます）")
     if sh.get("hidden_by_format"):
-        info.append(f"条件付き書式でいまは見えない文字 {len(sh['hidden_by_format'])} か所（読み順には出していません）")
+        info.append(f"条件付き書式でいまは見えない文字 {len(sh['hidden_by_format'])} か所（読み順の行の"
+                    "〔条件付き書式でいまは見えない〕のあとに番地つきで出しています）")
     if info:
         out += ["- " + "／".join(info), ""]
     fields = sh.get("fields", [])
@@ -1872,10 +1976,7 @@ def _md_sheet(sh: dict) -> list[str]:
     if extra:
         cells = [f["cell"] for f in extra if f.get("cell")]
         out += [f"- 見出しの見つからない編集できるセル {len(extra)} か所（空欄のままでよい補助のセルのことが多い）: " + _compact(cells), ""]
-    out += ["### 読み順（上から）", ""]
-    for line in sh.get("reading", []):
-        head = f"{line['row']}" if "row" in line else line["rows"].replace("-", "〜")
-        out.append(f"- {head}: {line['text']}")
+    out += ["### 読み順（上から）", ""] + _md_reading(sh)
     out.append("")
     notes = sh.get("notes", [])
     shapes = [s for s in sh.get("shapes", []) if s["text"] or s["alt"] or s["kind"] == "picture"]
@@ -1884,13 +1985,22 @@ def _md_sheet(sh: dict) -> list[str]:
         for s in shapes:
             desc = s["text"] or s["alt"] or ("（飾り）" if s.get("decorative") else
                                               "**説明（代わりの字）がありません**" if s["kind"] == "picture" else "（文字も代替テキストもありません）")
-            out.append(f"- {s['kind']}（{s['anchor'] or '位置不明'}付近）: {_md(desc)}")
+            where = f"{s['anchor']}付近" if s["anchor"] else "位置がファイルにない（グループの中の図形など）"
+            out.append(f"- {s['kind']}（{where}）: {_md(desc)}")
         for n in notes:
             out.append(f"- メモ（{n['cell']}）: {_md(n['text'])}")
         for h in sh.get("header_footer", []):
             out.append(f"- ヘッダー・フッター: {_md(h)}")
         out.append("")
     return out + sheet_markdown(sh)
+
+
+def _md_reading(sh: dict) -> list[str]:
+    out = []
+    for line in sh.get("reading", []):
+        head = f"{line['row']}" if "row" in line else line["rows"].replace("-", "〜")
+        out.append(f"- {head}: {line['text']}")
+    return out
 
 
 def to_markdown(doc: dict) -> str:

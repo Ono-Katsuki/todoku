@@ -29,12 +29,16 @@ def _err(e: Exception) -> OpenFormatError:
 
 
 # ====================================================================== 窓
-def window(k: str, blob: bytes, name: str) -> tuple[dict, list[tuple[str, str]]]:
+TEXT_FILES = DATA | {"txt"}  # 文字だけのファイル：文字コードを textenc で決める（encoding を渡せる）
+
+
+def window(k: str, blob: bytes, name: str, encoding: str | None = None) -> tuple[dict, list[tuple[str, str]]]:
+    """encoding：文字だけのファイル（TEXT_FILES）の文字コードを、エージェントが選んで指定したとき（ほかの形式では使わない）。"""
     try:
         if k in DATA:
             from .datafile import window as dw
 
-            doc = dw.build(blob, name, k)
+            doc = dw.build(blob, name, k, encoding)
             return doc, dw.markdown_parts(doc)
         if k in TEXT_DOCS:
             from .odf.text import OdtDocument
@@ -57,7 +61,7 @@ def window(k: str, blob: bytes, name: str) -> tuple[dict, list[tuple[str, str]]]
             from .txt.document import TxtDocument
             from .txt.window import build, markdown_parts
 
-            win = build(TxtDocument(blob, name))
+            win = build(TxtDocument(blob, name, encoding))
             return win, markdown_parts(win)
         if k == "pptx":
             from .pptx.document import PptxDocument
@@ -102,12 +106,12 @@ def summary(k: str, doc: dict) -> dict:
 
 
 # ====================================================================== 書き込み
-def fill(k: str, blob: bytes, name: str, values: dict, force: bool = False) -> dict:
+def fill(k: str, blob: bytes, name: str, values: dict, force: bool = False, encoding: str | None = None) -> dict:
     """{"blob": 書いた中身, "result": api の結果に足すもの, "readback": 読み戻しで照らす id → 値, "labels": id → 見出し}。"""
     if k in ("csv", "tsv"):
-        return _fill_csv(k, blob, name, values)
+        return _fill_csv(k, blob, name, values, encoding)
     if k in ("json", "jsonl"):
-        return _fill_json(k, blob, name, values)
+        return _fill_json(k, blob, name, values, encoding)
     if k in TEXT_DOCS:
         return _fill_odt(blob, name, values, force)
     if k in SHEETS:
@@ -121,7 +125,7 @@ def fill(k: str, blob: bytes, name: str, values: dict, force: bool = False) -> d
     if k == "txt":
         from .txt.fill import api_fill
 
-        return api_fill(blob, name, values, force)
+        return api_fill(blob, name, values, force, encoding)
     if k == "pptx":
         from .pptx.fill import api_fill
 
@@ -129,16 +133,16 @@ def fill(k: str, blob: bytes, name: str, values: dict, force: bool = False) -> d
     raise OpenFormatError(f"この形式（{k}）には書けません")
 
 
-def _fill_csv(k: str, blob: bytes, name: str, values: dict) -> dict:
+def _fill_csv(k: str, blob: bytes, name: str, values: dict, encoding: str | None = None) -> dict:
     from .datafile.csvfile import CsvError, CsvFile, fill, prove
 
-    f = CsvFile(blob, name, k)
+    f = CsvFile(blob, name, k, encoding)
     try:
         res = fill(f, values)
     except CsvError as e:
         raise _err(e) from None
     written = {(p.row, p.col): p.value for p in res.patches}
-    pr = prove(blob, res.blob, written, name, k)
+    pr = prove(blob, res.blob, written, name, k, encoding)
     head = f.header
     labels = {}
     for p in res.patches:
@@ -152,15 +156,15 @@ def _fill_csv(k: str, blob: bytes, name: str, values: dict) -> dict:
     return {"blob": res.blob, "result": result, "readback": {p.key: p.value for p in res.patches}, "labels": labels}
 
 
-def _fill_json(k: str, blob: bytes, name: str, values: dict) -> dict:
+def _fill_json(k: str, blob: bytes, name: str, values: dict, encoding: str | None = None) -> dict:
     from .datafile.jsonfile import JsonError, JsonFile, fill, prove
 
-    f = JsonFile(blob, name, k)
+    f = JsonFile(blob, name, k, encoding)
     try:
         res = fill(f, values)
     except JsonError as e:
         raise _err(e) from None
-    pr = prove(blob, res.blob, {p.id: p.value for p in res.patches}, name, k)
+    pr = prove(blob, res.blob, {p.id: p.value for p in res.patches}, name, k, encoding)
     result = {"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings), "unexpected": pr.unexpected[:20],
               "structure_errors": pr.lint_errors[:20], "written_as": {p.key: p.text for p in res.patches}}
     added = {p.key: p.id for p in res.patches if p.added}
@@ -192,14 +196,14 @@ def _fill_odt(blob: bytes, name: str, values: dict, force: bool) -> dict:
     return {"blob": res.blob, "result": result, "readback": readback, "labels": {}}
 
 
-def read_back(k: str, blob: bytes, name: str, keys: dict) -> dict:
+def read_back(k: str, blob: bytes, name: str, keys: dict, encoding: str | None = None) -> dict:
     """書いた後のファイルから、書いた所（keys の id）の値を読む（欄の一覧に出ないマス・値のため）。"""
     out: dict = {}
     try:
         if k in ("csv", "tsv"):
             from .datafile.csvfile import CsvFile
 
-            f = CsvFile(blob, name, k)
+            f = CsvFile(blob, name, k, encoding)
             for key in keys:
                 try:
                     r, c = f.resolve(key)
@@ -209,7 +213,7 @@ def read_back(k: str, blob: bytes, name: str, keys: dict) -> dict:
         elif k in ("json", "jsonl"):
             from .datafile.jsonfile import JsonFile, _plain
 
-            f = JsonFile(blob, name, k)
+            f = JsonFile(blob, name, k, encoding)
             for key in keys:
                 try:
                     node, _parent, _last, _d = f.find(key)
@@ -228,11 +232,11 @@ def read_back(k: str, blob: bytes, name: str, keys: dict) -> dict:
 
 
 # ====================================================================== 検査・段階
-def audit_runner(k: str):
+def audit_runner(k: str, encoding: str | None = None):
     if k in DATA:
         from .datafile.audit import run
 
-        return lambda blob, name: run(blob, name, k)
+        return lambda blob, name: run(blob, name, k, encoding)
     if k in TEXT_DOCS:
         from .odf.textaudit import run
 
@@ -248,7 +252,7 @@ def audit_runner(k: str):
     if k == "txt":
         from .txt.audit import run
 
-        return run
+        return lambda blob, name: run(blob, name, encoding)
     if k == "pptx":
         from .pptx.audit import run
 
@@ -256,12 +260,12 @@ def audit_runner(k: str):
     raise OpenFormatError(f"この形式（{k}）は検査できません")
 
 
-def grade(k: str, blob: bytes, name: str):
+def grade(k: str, blob: bytes, name: str, encoding: str | None = None):
     from .grade import _locked
 
     try:
         if k in DATA:
-            return _grade_data(k, blob, name)
+            return _grade_data(k, blob, name, encoding)
         if k in TEXT_DOCS:
             from .odf.text import OdtDocument
             from .odf.textwindow import build
@@ -277,12 +281,19 @@ def grade(k: str, blob: bytes, name: str):
 
             return _grade_textdoc(build(RtfDocument(blob, name)), "RTF", "フォームの欄")
         if k == "txt":
-            return _grade_txt(blob, name)
+            return _grade_txt(blob, name, encoding)
         if k == "pptx":
             from .pptx.document import PptxDocument
             from .pptx.window import build
 
-            return _grade_textdoc(build(PptxDocument(blob, name)), "PowerPoint", "作り手の印のある欄")
+            from .grade import content_image_reasons
+
+            doc = PptxDocument(blob, name)
+            win = build(doc)
+            # スライドの画像は、スライドの中身（スライドの型の絵は数えない）。見出しは、タイトルのプレースホルダーの段落
+            slides = [b for sl in doc.slides for b in sl["blocks"]]
+            extra = content_image_reasons(doc, win, slides, lambda p: p.style == "Title", "スライド")
+            return _grade_textdoc(win, "PowerPoint", "作り手の印のある欄", extra)
     except Exception as e:  # noqa: BLE001
         from .odf.package import OdfEncrypted
 
@@ -292,72 +303,119 @@ def grade(k: str, blob: bytes, name: str):
     return _locked("対応していない形式", f"この形式（{k}）は、まだ読めません", "読めないので、書けません")
 
 
-def _grade_data(k: str, blob: bytes, name: str):
-    from .grade import Grade, Reason, _locked
+def encoding_reason(dec, base: str = "S"):
+    """文字コードの、読む段階と書く段階の理由：(読む, 書く)。規則で決まっていれば (None, None)。
+    - どの文字コードとしても読めない（Latin-1 で1字ずつ読んだ）：読む C（窓の字を信じられない。エージェントが確かめる）
+    - いくつもの文字コードで、仕様どおりにきれいに読める：読む B（中身はすべて窓に出ていて、候補ごとの読み方の見本も窓に
+      並べた。どれが正しいかを、窓に示した根拠でエージェントが決める）・書く B（文字コードを決めてから書く）
+    - エージェントが候補から選んで encoding で指定した：その文字コードで厳密に読めることを確かめたので、段階は下げない
+      （base：S か A）。理由に、選んだ文字コードと、選んだのがエージェントであることを残す（出どころ agent_choice）"""
+    from .datafile.textenc import NAME_JA
+    from .grade import Reason
+
+    name = NAME_JA.get(dec.encoding, dec.encoding)
+    if dec.basis == "given":
+        r = Reason(base, "エージェントが選んだ文字コード",
+                   f"文字コードは、エージェントが選んで指定した {name}（encoding: \"{dec.encoding}\"）で読みました。"
+                   "このファイルが、その文字コードとして厳密に読めることを確かめました（どれが正しいかは、規則ではなくエージェントの判断）",
+                   [dec.encoding], by="agent_choice")
+        w = Reason("A", "エージェントが選んだ文字コード",
+                   f"書く値は、選んだ文字コード（{name}）のバイトにして、書いた所だけを置き換えます（ほかのバイトは元のまま）",
+                   [dec.encoding], by="agent_choice")
+        return r, w
+    if dec.basis == "none":
+        return (Reason("C", "文字コードを決められない",
+                       "BOM がなく、UTF-8・UTF-16・多バイト（Shift_JIS・EUC-JP・Big5・GBK・EUC-KR）・1バイトの文字コードのどれとしても"
+                       "きれいに読めないので、バイトを1字ずつ Latin-1 の字にして読みました。窓の字は正しいとは限らないので、"
+                       "エージェントが確かめます（正しい文字コードが分かれば encoding で指定します）"),
+                Reason("B", "文字コードを決められない", "書く値の文字コードは、エージェントが正しい文字コードを決めてから書きます"))
+    if dec.candidates:
+        names = [name] + [c["label"] for c in dec.candidates]
+        codes = [dec.encoding] + [c["encoding"] for c in dec.candidates]
+        return (Reason("B", "文字コードを規則では決められない",
+                       f"{len(names)} つの文字コード（{'・'.join(names)}）のどれとしても、仕様どおりにきれいに読めます"
+                       "（BOM・ファイルの中の宣言もありません）。"
+                       f"窓は {names[0]} で読み、ほかの読み方の見本（字の違う最初の行）を窓に並べました。"
+                       "どれが正しいかは、エージェントが字を読んで決め、その名前を encoding で渡します"
+                       f"（{'・'.join(codes)}）", codes),
+                Reason("B", "文字コードを規則では決められない",
+                       "書く値の文字コードは、エージェントが字を読んで正しい文字コードを決め、encoding で指定してから書きます", codes))
+    return None, None
+
+
+def _grade_data(k: str, blob: bytes, name: str, encoding: str | None = None):
+    from .grade import Grade, Reason, _final, _locked
 
     direct = [Reason("A", "データそのもの", "行と列（か、名前と値）のデータに、そのまま書けます")]
     if k in ("csv", "tsv"):
         from .datafile.csvfile import CsvFile
 
-        f = CsvFile(blob, name, k)
-        if "\x00" in f.text:
-            return _locked("読めない", "文字のファイルではありません（バイナリのデータが入っています）", "読めないので、書けません")
+        f = CsvFile(blob, name, k, encoding)
+        nul = f.text.count("\x00")
+        if f.dec.binary:
+            # NUL があり、文字のファイルである手がかり（BOM・UTF-16/32 の形・UTF-8 の多バイトの並び）がない
+            return _locked("読めない", "文字のファイルではありません（どの文字コードとしても読めず、NUL のバイトがあります）",
+                           "読めないので、書けません")
         reasons = [Reason("S", "データそのもの", f"表のデータ（{KIND_JA[k]}・{f.dec.label}・{len(f.records):,} 行）で、変換しなくても機械が読めます")]
+        if nul:
+            # 文字コードとして正しく読めたファイルの中の NUL（U+0000）：値の中の制御文字。中身は読めるので、段階は変えない
+            rows = [str(i) for i, ln in enumerate(f.text.split("\n"), 1) if "\x00" in ln][:12]
+            reasons.append(Reason("S", "値の中の NUL", f"値の中に NUL（U+0000、制御文字）が {nul:,} 個あります（{f.dec.label}として読めるファイル）。"
+                                  "表のデータとしては読めます。NUL を値の一部とするかは、使う側で決めます", [f"{r}行目" for r in rows]))
         if f.problems:
             reasons.append(Reason("S", "書き方の問題", "RFC 4180 に合わない書き方があります（どう読んだかは窓に書いてあります）", f.problems[:5]))
+        enc, wenc = encoding_reason(f.dec)
+        if enc is not None:
+            return _final(reasons + [enc], [wenc] + direct, base="S")
         return Grade("S", reasons, write="A", write_reasons=direct)
     from .datafile.jsonfile import JsonFile
 
-    f = JsonFile(blob, name, k)
+    f = JsonFile(blob, name, k, encoding)
     reasons = [Reason("S", "データそのもの", f"構造のあるデータ（{KIND_JA[k]}・{f.dec.label}）で、変換しなくても機械が読めます")]
     if f.duplicates:
         reasons.append(Reason("C", "同じ名前が2つ以上ある", "オブジェクトに同じ名前が2つ以上あり、どの値を使うかは読むソフトによって違います。"
                               "JSON Pointer では1つに決まらないので、エージェントが読んで判断します", f.duplicates[:12]))
         return Grade("C", reasons, write="B", write_reasons=[Reason("B", "同じ名前が2つ以上ある",
                                                                   "どの値に書くかを、エージェントが読んで決めます", f.duplicates[:12])])
+    enc, wenc = encoding_reason(f.dec)
+    if enc is not None:
+        return _final(reasons + [enc], [wenc] + direct, base="S")
     return Grade("S", reasons, write="A", write_reasons=direct)
 
 
-def _grade_txt(blob: bytes, name: str):
-    """文字だけのファイル：RTF と同じ決め方（作り手の印の欄はないので、欄があれば推定の B・規則で決められない所は C）。
-    文字コードを決められない（Latin-1 として読んだ）ときは、字が正しいかをエージェントが確かめる（C）。"""
+def _grade_txt(blob: bytes, name: str, encoding: str | None = None):
+    """文字だけのファイル：RTF と同じ決め方（作り手の印の欄はないので、欄があれば推定の B・規則で決められない所は書く B）。
+    文字コードは encoding_reason のとおり（候補がいくつもあれば読む B、どれでも読めなければ読む C）。"""
     from .grade import Reason, _final, _locked
     from .txt.document import TxtDocument, TxtError
     from .txt.window import build
 
     try:
-        doc = TxtDocument(blob, name)
+        doc = TxtDocument(blob, name, encoding)
     except TxtError as e:
         return _locked("読めない", str(e), "読めないので、書けません")
     g = _grade_textdoc(build(doc), "テキスト", "入力欄の印")
-    if doc.dec.encoding != "latin-1":
+    enc, wenc = encoding_reason(doc.dec, "A")
+    if enc is None:
         return g
-    enc = Reason("C", "文字コードを決められない", "UTF-8・Shift_JIS・EUC-JP のどれとしても読めないので、Latin-1 として読みました。"
-                 "字が正しく読めているかは、エージェントが窓を読んで判断します")
-    out = _final(g.reasons + [enc], g.write_reasons)
+    out = _final(g.reasons + [enc], g.write_reasons + [wenc])
     out.alerts = g.alerts
     return out
 
 
-def _grade_textdoc(win: dict, kind_ja: str, explicit: str):
-    """Word と同じ決め方：規則では決められない所は C、配置から推定した欄は B、作り手の印（部品・入力の欄）だけなら A。"""
-    from .grade import Reason, _agent_reason, _final, _macro_reasons, _write_fields, _write_macros
+def _grade_textdoc(win: dict, kind_ja: str, explicit: str, extra: list | None = None):
+    """Word と同じ決め方：入力欄（作り手の印・配置からの推定・規則では決められない所）は書く段階で決め、読む段階は
+    中身が読めるか（マクロ・読めない部分）だけで決める。"""
+    from .grade import Reason, _final, _macro_reasons, _write_fields, _write_macros
 
     reasons: list = []
     agent = [f for f in win["fields"] if f.get("agent")]
     fields = [f for f in win["fields"] if not f.get("agent")]
     layout = [f for f in fields if f.get("source") == "layout"]
-    if agent:
-        reasons.append(_agent_reason(agent))
-    if layout:
-        reasons.append(Reason("B", "配置から推定した入力欄",
-                              f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、{explicit}ではなく、空のマスや空白・下線から推定しました",
-                              [f["id"] for f in layout[:12]]))
-    elif fields:
-        reasons.append(Reason("A", "作り手の印のある入力欄", f"入力欄 {len(fields)} か所は、すべて{kind_ja}の{explicit}です"))
     reasons += _macro_reasons(win.get("macros"))
     for e in win.get("unread") or []:
         reasons.append(Reason("F", "読めない部分", e))
+    reasons += extra or []
     write = _write_fields(fields, layout, agent, f"{kind_ja}の{explicit}", "欄のない所は、前後の字を指定して書き換えます")
     write += _write_macros(win.get("macros"))
     from .grade import picture_alerts

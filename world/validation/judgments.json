@@ -1,0 +1,1127 @@
+{
+ "LV-csv-0221": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "データの表（xlsx/xls）。欄なし",
+  "bug": null
+ },
+ "UA-csv-0133": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "データの表（xlsx/xls）。欄なし",
+  "bug": null
+ },
+ "LV-csv-0049": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "",
+  "note": "データの説明の表。調査の理由「印のある入力欄」は枠のある空欄を作り手の印とみなしたもの（実際は様式ではない）。段階 A は合う",
+  "bug": null
+ },
+ "GB-csv-0190": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "データの表。見出しの中の改行・FAX の「-  -  -」を文字の中の空欄とした",
+  "bug": null
+ },
+ "MA-csv-0006": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "データの表。見出しの中の改行・FAX の「-  -  -」を文字の中の空欄とした",
+  "bug": null
+ },
+ "LV-csv-0145": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "HR-csv-0035": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "LV-csv-0245": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "UA-csv-0127": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "HR-csv-0173": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "IT-csv-0060": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "CA-csv-0041": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "HK-csv-0217": {
+  "read": "F",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": false,
+  "cause": "中の 數據用戶須知.txt（Big5）を「文字コードを決められない」として Latin-1 で読み、窓は文字化け。段階は C だが、その部分はエージェントにも読めない（F）",
+  "note": "同じ内容の英語の注記はある。CSV は正確",
+  "bug": "テキストの文字コードの候補が UTF-8・Shift_JIS・EUC-JP だけで、Big5 などは Latin-1 に落ちる（注意は窓に出る）"
+ },
+ "RS-csv-0022": {
+  "read": "S",
+  "write": "A",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "区切り「;」の UTF-8 の CSV（29,790 行）。値に NUL バイト（53,085 個）があるので「文字のファイルではない（バイナリ）」として F。窓には中身がすべて出ている",
+  "note": "",
+  "bug": "CSV の中の NUL バイトだけで「読めない（F）」にする"
+ },
+ "FR-csv-0018": {
+  "read": "F",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "CSV と宣言されているが 7z の書庫。参照（Latin-1 で読む）のほうが誤り",
+  "bug": null
+ },
+ "JP-csv-0136": {
+  "read": "S",
+  "write": "A",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "",
+  "bug": null
+ },
+ "RS-csv-0212": {
+  "read": "S",
+  "write": "A",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "",
+  "bug": null
+ },
+ "GB-csv-0109": {
+  "read": "S",
+  "write": "A",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "",
+  "bug": null
+ },
+ "CO-csv-0177": {
+  "read": "S",
+  "write": "A",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "",
+  "bug": null
+ },
+ "CO-csv-0154": {
+  "read": "S",
+  "write": "A",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "",
+  "bug": null
+ },
+ "CO-csv-0073": {
+  "read": "S",
+  "write": "A",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "",
+  "bug": null
+ },
+ "TG-csv-0060": {
+  "read": "S",
+  "write": "A",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "",
+  "bug": null
+ },
+ "RS-csv-0199": {
+  "read": "S",
+  "write": "A",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "",
+  "bug": null
+ },
+ "JP-pdf-0139": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の PDF。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "JP-pdf-0083": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の PDF。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "JP-pdf-0021": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の PDF。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "UA-pdf-0087": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の PDF。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "JP-pdf-0197": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の PDF。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "JP-pdf-0213": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の PDF。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "JP-pdf-0165": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "統計表（xls）。調査の理由は枠のある空欄を印とみなしたもの",
+  "bug": null
+ },
+ "UA-pdf-0118": {
+  "read": "E",
+  "write": "D",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "4 ページの画像だけの PDF（スキャン）を、todoku は 0 ページと読み、理由なしで A にした。pypdf は 4 ページを読む",
+  "note": "",
+  "bug": "ページを1つも見つけられない PDF（todoku・pdfminer は 0 ページ、pypdf は 4 ページ）で、窓が空のまま、理由なしの A になる（0 ページを段階の理由にしない）"
+ },
+ "UA-pdf-0007": {
+  "read": "B",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "予算の報告の様式（форма N 2д、xlsx）。記入済みだが様式の欄がある",
+  "bug": null
+ },
+ "UA-pdf-0019": {
+  "read": "B",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "予算の報告の様式（форма N 2д、xlsx）。記入済みだが様式の欄がある",
+  "bug": null
+ },
+ "HR-pdf-0006": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "JP-pdf-0067": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "JP-pdf-0144": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "JP-pdf-0017": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "CA-pdf-0143": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "CA-pdf-0075": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "窓で「AllTs」が「Al Ts」、「(All …)」が「(Al …)」、下線「_」が欄の印に置き換わる（ページの絵で確かめた）",
+  "bug": "PDF の窓で「ll」の片方が落ちる（細い字が続くと、同じ字の重ね書きとみなして1字にする：layout.py の重なりの判定が字の大きさの 1/4 で、幅の狭い字の隣どうしを重ねとみなす）"
+ },
+ "IT-pdf-0032": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "窓で「delle」→「del e」、「collections」→「col ections」など",
+  "bug": "PDF の窓で「ll」の片方が落ちる（細い字が続くと、同じ字の重ね書きとみなして1字にする：layout.py の重なりの判定が字の大きさの 1/4 で、幅の狭い字の隣どうしを重ねとみなす）"
+ },
+ "GB-pdf-0038": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "窓で「delle」→「del e」、「collections」→「col ections」など",
+  "bug": "PDF の窓で「ll」の片方が落ちる（細い字が続くと、同じ字の重ね書きとみなして1字にする：layout.py の重なりの判定が字の大きさの 1/4 で、幅の狭い字の隣どうしを重ねとみなす）"
+ },
+ "PK-pdf-0019": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "「ll」の欠け 1 か所",
+  "bug": "PDF の窓で「ll」の片方が落ちる（細い字が続くと、同じ字の重ね書きとみなして1字にする：layout.py の重なりの判定が字の大きさの 1/4 で、幅の狭い字の隣どうしを重ねとみなす）"
+ },
+ "PK-pdf-0048": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "統計表・報告。表の読み順は todoku の方がマスごとに分かれていて読みやすい（pdfplumber は列をまたいで1行にする）",
+  "bug": null
+ },
+ "LU-pdf-0096": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "統計表・報告。表の読み順は todoku の方がマスごとに分かれていて読みやすい（pdfplumber は列をまたいで1行にする）",
+  "bug": null
+ },
+ "HR-pdf-0145": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "統計表・報告。表の読み順は todoku の方がマスごとに分かれていて読みやすい（pdfplumber は列をまたいで1行にする）",
+  "bug": null
+ },
+ "JP-pdf-0189": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "統計表・報告。表の読み順は todoku の方がマスごとに分かれていて読みやすい（pdfplumber は列をまたいで1行にする）",
+  "bug": null
+ },
+ "CA-pdf-0242": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "統計表・報告。表の読み順は todoku の方がマスごとに分かれていて読みやすい（pdfplumber は列をまたいで1行にする）",
+  "bug": null
+ },
+ "GB-pdf-0000": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "参照でも全ページに字がなく画像がある（スキャン）。書く段階は D が定義どおり（調査は B）",
+  "bug": null
+ },
+ "UA-pdf-0124": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "参照でも全ページに字がなく画像がある（スキャン）。書く段階は D が定義どおり（調査は B）",
+  "bug": null
+ },
+ "TG-pdf-0001": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "参照でも全ページに字がなく画像がある（スキャン）。書く段階は D が定義どおり（調査は B）",
+  "bug": null
+ },
+ "PK-pdf-0098": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "参照でも全ページに字がなく画像がある（スキャン）。書く段階は D が定義どおり（調査は B）",
+  "bug": null
+ },
+ "HR-pdf-0153": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "参照でも全ページに字がなく画像がある（スキャン）。書く段階は D が定義どおり（調査は B）",
+  "bug": null
+ },
+ "LV-pdf-0001": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "参照でも全ページに字がなく画像がある（スキャン）。書く段階は D が定義どおり（調査は B）",
+  "bug": null
+ },
+ "JP-pdf-0246": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "参照でも全ページに字がなく画像がある（スキャン）。書く段階は D が定義どおり（調査は B）",
+  "bug": null
+ },
+ "HR-pdf-0023": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "参照でも全ページに字がなく画像がある（スキャン）。書く段階は D が定義どおり（調査は B）",
+  "bug": null
+ },
+ "UA-pdf-0211": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "スキャンの PDF。画像の圧縮（JBIG2・JPX）を todoku が開けないことを、書類の段階 F（アクセスできない）にした。書類の性質は E",
+  "note": "理由の事実（todoku が開けない）は正しい",
+  "bug": null
+ },
+ "UA-pdf-0177": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "スキャンの PDF。画像の圧縮（JBIG2・JPX）を todoku が開けないことを、書類の段階 F（アクセスできない）にした。書類の性質は E",
+  "note": "理由の事実（todoku が開けない）は正しい",
+  "bug": null
+ },
+ "UA-pdf-0165": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "スキャンの PDF。画像の圧縮（JBIG2・JPX）を todoku が開けないことを、書類の段階 F（アクセスできない）にした。書類の性質は E",
+  "note": "理由の事実（todoku が開けない）は正しい",
+  "bug": null
+ },
+ "HR-pdf-0248": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "96 ページのうち 1 ページ（p66）だけが JPX の画像のページ。todoku が開けないことで、書類全体を F にした",
+  "note": "",
+  "bug": null
+ },
+ "JP-pdf-0045": {
+  "read": "F",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "本文の字が字に直せない（todoku 2,229・72,983 字／pdfplumber の (cid:) 1,884・72,983 字）",
+  "bug": null
+ },
+ "JP-pdf-0198": {
+  "read": "F",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "本文の字が字に直せない（todoku 2,229・72,983 字／pdfplumber の (cid:) 1,884・72,983 字）",
+  "bug": null
+ },
+ "JP-pdf-0170": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "字に直せない字は箇条の記号（Wingdings など）の 9〜12 字だけで、本文は読める。F は厳しすぎる",
+  "note": "理由の事実は正しい（todoku と pdfplumber の数がほぼ一致）",
+  "bug": null
+ },
+ "GB-pdf-0202": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "字に直せない字は箇条の記号（Wingdings など）の 9〜12 字だけで、本文は読める。F は厳しすぎる",
+  "note": "理由の事実は正しい（todoku と pdfplumber の数がほぼ一致）",
+  "bug": null
+ },
+ "IT-sheet-0040": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "データの表",
+  "bug": null
+ },
+ "RS-sheet-0202": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "データの表",
+  "bug": null
+ },
+ "FR-sheet-0060": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "データの表",
+  "bug": null
+ },
+ "LV-sheet-0233": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "データの表",
+  "bug": null
+ },
+ "RS-sheet-0166": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "データの表",
+  "bug": null
+ },
+ "HR-sheet-0124": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "データの表",
+  "bug": null
+ },
+ "JP-sheet-0149": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "データの表",
+  "bug": null
+ },
+ "CA-sheet-0138": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": false,
+  "cause": "",
+  "note": "段階 A は合うが、窓の 707 行のうち 699 行（値のあるセル 20,271 個）が「6行目と同じ形の行が続きます（入力欄はすべて空欄）」にまとめられ、Markdown の窓に出ない。openpyxl はこのファイルを開けない（共有文字列を読めない）ので、参照は XML を直に読んだ",
+  "bug": "表計算の窓の「○行目と同じ形の行が続きます（入力欄はすべて空欄）」のまとめで、値のある行が消える"
+ },
+ "PK-sheet-0101": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "データの表",
+  "bug": null
+ },
+ "GB-sheet-0154": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "データの表",
+  "bug": null
+ },
+ "JP-sheet-0161": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "データの表",
+  "bug": null
+ },
+ "RS-sheet-0235": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "データの表",
+  "bug": null
+ },
+ "GB-sheet-0095": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "データの表",
+  "bug": null
+ },
+ "MA-sheet-0200": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "データの表",
+  "bug": null
+ },
+ "JP-sheet-0015": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "データの表",
+  "bug": null
+ },
+ "RS-sheet-0234": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "データの表",
+  "bug": null
+ },
+ "LU-sheet-0188": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "LV-sheet-0214": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "HR-sheet-0140": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "MA-sheet-0187": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "MA-sheet-0121": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "HK-sheet-0144": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "MA-sheet-0000": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "MA-sheet-0222": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "まとめで値のあるセル 247 個が窓に出ない",
+  "bug": "表計算の窓の「○行目と同じ形の行が続きます（入力欄はすべて空欄）」のまとめで、値のある行が消える"
+ },
+ "GB-sheet-0226": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": false,
+  "cause": "",
+  "note": "地図の絵だけのシートがある（E は正しい）。まとめで値のあるセル 557 個が窓に出ない",
+  "bug": "表計算の窓の「○行目と同じ形の行が続きます（入力欄はすべて空欄）」のまとめで、値のある行が消える"
+ },
+ "JP-sheet-0104": {
+  "read": "E",
+  "write": "D",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "発育曲線の絵（画像）だけのシートがある",
+  "bug": null
+ },
+ "GB-sheet-0190": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "グラフだけのシートを「画像だけのシート」とした。グラフの値はセルにあり、todoku の窓もグラフの値の表を出している",
+  "note": "",
+  "bug": "画像だけのシートの規則が、グラフ（値から描くもの）も絵と同じに数える"
+ },
+ "PK-sheet-0186": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "グラフだけのシートを「画像だけのシート」とした。グラフの値はセルにあり、todoku の窓もグラフの値の表を出している",
+  "note": "",
+  "bug": "画像だけのシートの規則が、グラフ（値から描くもの）も絵と同じに数える"
+ },
+ "MA-sheet-0218": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "グラフだけのシートを「画像だけのシート」とした。グラフの値はセルにあり、todoku の窓もグラフの値の表を出している",
+  "note": "",
+  "bug": "画像だけのシートの規則が、グラフ（値から描くもの）も絵と同じに数える"
+ },
+ "JP-sheet-0147": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "グラフだけのシートを「画像だけのシート」とした",
+  "note": "身長!B48〜B52 の注記の文（「…たっている。」など）が「47行目と同じ形の行が 5 行続きます（入力欄はすべて空欄）」にまとめられて窓から消える",
+  "bug": "表計算の窓の「○行目と同じ形の行が続きます（入力欄はすべて空欄）」のまとめで、値のある行が消える"
+ },
+ "HR-sheet-0087": {
+  "read": "C",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "「画像だけのシート」は誤り：シート 4_7 にはセルが 1,316 個あるが、印刷範囲（B101:J119）が使っている範囲（77 行）の外なので、範囲の中が空になった。C の理由「保存された値と合わない数式」は本当（=#REF! の数式に保存された値 0）",
+  "note": "まとめで値のあるセル 3,238 個が窓に出ない。非表示の行（1:261）の中身も Markdown の窓には出ない（JSON にはある、と窓に書いてある）",
+  "bug": "印刷範囲が使っている範囲の外にあるシートを、画像だけのシートとする；表計算の窓の「○行目と同じ形の行が続きます（入力欄はすべて空欄）」のまとめで、値のある行が消える"
+ },
+ "JP-sheet-0239": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした",
+  "note": "",
+  "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+ },
+ "JP-sheet-0168": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした",
+  "note": "",
+  "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+ },
+ "JP-sheet-0127": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした",
+  "note": "",
+  "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+ },
+ "JP-sheet-0215": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした",
+  "note": "",
+  "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+ },
+ "JP-sheet-0086": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした",
+  "note": "",
+  "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+ },
+ "JP-sheet-0217": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした",
+  "note": "",
+  "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+ },
+ "JP-sheet-0074": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": false,
+  "cause": "e-Stat の .xls（BIFF8）。xlrd は開けるが、todoku は図形の位置の読み（xls/book.py の _drawing_anchors）で KeyError: 'r1' になり、書類全体を「開けない（F）」にした",
+  "note": "",
+  "bug": "OfficeArt の図形に位置（0xF010）がない（グループの中の子の図形など）と KeyError: 'r1' で、.xls 全体が開けない"
+ },
+ "CA-sheet-0123": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "ZIP の中の metadata の .html・.xml を todoku が扱えないことを F にした。中身は字なので、エージェントは読める（中の .txt のデータは正確）",
+  "note": "",
+  "bug": null
+ },
+ "PK-sheet-0136": {
+  "read": "S",
+  "write": "A",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "CSV を6つまとめた ZIP",
+  "bug": null
+ },
+ "GB-text-0155": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の文書。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "UA-text-0107": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の文書。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "GB-text-0169": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の文書。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "UA-text-0127": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の文書。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "GB-text-0213": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の文書。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "GB-text-0017": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の文書。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "GB-text-0105": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の文書。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "GB-text-0231": {
+  "read": "A",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "文章の文書。調査の段階 A は合う（いまのコードでは見出しを「規則では決められない所」として C になる）",
+  "bug": null
+ },
+ "UA-text-0064": {
+  "read": "B",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "承認欄の「［　］2006 року」など、本当の空欄がある",
+  "bug": null
+ },
+ "CA-text-0071": {
+  "read": "B",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "チェックリストの様式（「Title of Employee:」など）",
+  "bug": null
+ },
+ "GB-text-0144": {
+  "read": "E",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "中身が説明のない画像 16 枚（グラフ・図）と空の表だけの Word。B（配置から推定した入力欄）としたが、中身は字として読めない（E）。Word には画像だけの規則がない",
+  "note": "",
+  "bug": null
+ },
+ "UA-text-0104": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "UA-text-0034": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "GB-text-0118": {
+  "read": "B",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "規則では決められない所を C にしたが、定義（B：一部の欄が配置からの推定か、規則では決められない）では B",
+  "note": "計画のひな形で、空の表の行がある",
+  "bug": null
+ },
+ "GB-text-0084": {
+  "read": "B",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "規則では決められない所を C にしたが、定義（B：一部の欄が配置からの推定か、規則では決められない）では B",
+  "note": "計画のひな形で、空の表の行がある",
+  "bug": null
+ },
+ "UA-text-0076": {
+  "read": "B",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "規則では決められない所を C にしたが、定義では B",
+  "note": "承認欄の「«［　］» ［　］2020 р.」",
+  "bug": null
+ },
+ "UA-text-0241": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "LV-text-0007": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "CA-text-0007": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "UA-text-0124": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "UA-text-0125": {
+  "read": "A",
+  "write": "B",
+  "claim_true": false,
+  "window_faithful": true,
+  "cause": "非様式の書類（統計表・データ・報告・お知らせ）で、見出しの後ろや空のマス・字の間の空白を入力欄（配置からの推定／規則では決められない所）として数え、段階を下げた。中身は正確に読め、書き込む所はない",
+  "note": "",
+  "bug": null
+ },
+ "LU-text-0009": {
+  "read": "F",
+  "write": "B",
+  "claim_true": true,
+  "window_faithful": true,
+  "cause": "",
+  "note": "本文の行ごと字に直せない所がある（4,277 字）",
+  "bug": null
+ }
+}

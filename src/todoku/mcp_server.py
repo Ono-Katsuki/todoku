@@ -36,6 +36,8 @@ INSTRUCTIONS = (
     "ただし手順の決まりではありません。本人が会話しながら一緒に埋めたいときは、その流れに合わせ、言われた所から書いてかまいません。"
     "パスワードで保護された書類は「パスワードが要る」と返るので、本人にパスワードを聞いて、どの道具にも password で渡してください"
     "（パスワードは結果にも記録にも残しません。書き出したファイルも、元と同じパスワードで保護されたままです）。"
+    "文字だけのファイル（CSV・.txt など）で、窓に「文字コードを規則では決められません」と候補が並んだときは、字を読んで意味の通る方を"
+    "選び、その名前を、そのファイルのどの道具にも encoding で渡してください。"
     "窓の「画像」の節で「説明（代わりの字）がありません」とある画像は、中身を字として読めません。申請に関わりそうな位置なら、"
     "その位置（ページ・上下左右・近くの字）を本人に伝え、中身を推測で埋めないでください。段階の alerts（アクセシビリティの注意）は、"
     "段階とは別に伝えてください。"
@@ -89,8 +91,10 @@ TOOLS = [
          "required": ["path", "out_path", "values"]}},
     {"name": "audit_document",
      "description": "この書類を、エージェントが全て正確に読み書きできるかを確かめる（窓とは別の読み方で読み落としがないか、全入力欄に書けるか、書いた値が読み戻せるか）。"
-                    "読む段階（S 素で問題ない／A 規則だけで正確に読める／B エージェントが読めば正確／C エージェントが工夫して変換できる／"
-                    "D エージェントの解釈が必要／E エージェントが得意でない形式／F アクセスできない）と、"
+                    "読む段階（中身を読むことだけで決める。S 素で問題ない／A 規則だけで正確に読める／B エージェントが読めば正確"
+                    "（中身は窓にすべて出ていて、決まらない所は窓の根拠でエージェントが決める：文字コードの候補・説明のない本文の画像など）／"
+                    "C エージェントが工夫して変換できる（マクロ・確かめられない数式・窓の読み落とし）／"
+                    "D エージェントの解釈が必要／E エージェントが得意でない形式（スキャン・中身が画像）／F アクセスできない）と、"
                     "書く段階（A エージェントがそのまま書ける／B 解析しないと書けない／C 画面（UI）から入力する／D 書けない（アクセスできない・手書き））、"
                     "その理由も返す。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"}}, "required": ["path"]}},
@@ -181,6 +185,17 @@ for _t in TOOLS:
                               "今ある行の次の行に書くと、行を足す）、JSON は JSON Pointer（/applicant/name。ない名前は足し、配列の終わりは /items/-）、"
                               "JSON Lines は「L行/名前」。")
 
+# 文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）の文字コード：規則で決められず、窓に候補が並んだとき、エージェントが選んだもの
+_ENCODING = {"type": "string",
+             "description": "文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）で、窓に「文字コードを規則では決められません」と"
+                            "候補が並んだとき、字を読んで選んだ文字コード（候補の encoding の値。例 \"cp932\"・\"gbk\"）。"
+                            "その文字コードで厳密に読めることを確かめて、窓・欄・書き込み・段階をその文字コードで読み直す"
+                            "（書き込みは、書いた所だけをその文字コードのバイトにする）。同じファイルには、どの道具にも同じ値を渡す"}
+for _t in TOOLS:
+    if _t["name"] in ("open_document", "read_window", "list_fields", "fill_document", "audit_document", "grade_document"):
+        _t["inputSchema"]["properties"]["encoding"] = _ENCODING
+
+
 def _text(obj) -> dict:
     return {"type": "text", "text": obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False, indent=1, default=str)}
 
@@ -193,25 +208,26 @@ def call_tool(name: str, args: dict) -> dict:
     if name == "open_document":
         path = args["path"]
         pw = args.get("password")
-        s = api.summary(path, pw)
-        _k, _doc, parts = api.window(path, pw)
+        enc = args.get("encoding")
+        s = api.summary(path, pw, enc)
+        _k, _doc, parts = api.window(path, pw, enc)
         head = (f"{s['kind_ja']}・入力欄 {s['fields']} か所（書ける欄 {s['writable_fields']}）・窓は {s['window_parts']} 部分"
                 + ("（read_window で part を指定して続きを読めます）" if s["window_parts"] > 1 else ""))
         return {"content": [_text(head), _text(parts[0][1])], "structuredContent": s}
     if name == "read_window":
-        _k, _doc, parts = api.window(args["path"], args.get("password"))
+        _k, _doc, parts = api.window(args["path"], args.get("password"), args.get("encoding"))
         n = int(args.get("part", 1))
         if not 1 <= n <= len(parts):
             raise api.ApiError(f"part は 1〜{len(parts)} です")
         return {"content": [_text(f"部分 {n}/{len(parts)}：{parts[n - 1][0]}"), _text(parts[n - 1][1])]}
     if name == "list_fields":
-        fl = api.fields(args["path"], args.get("password"))
+        fl = api.fields(args["path"], args.get("password"), args.get("encoding"))
         if args.get("only_empty"):
             fl = [f for f in fl if f.get("value") in (None, "", False)]
         return {"content": [_text(fl)], "structuredContent": {"fields": fl}}
     if name == "fill_document":
         res = api.fill(args["path"], args.get("values") or {}, args["out_path"], bool(args.get("force", False)),
-                       password=args.get("password"))
+                       password=args.get("password"), encoding=args.get("encoding"))
         ok = res.get("proof_ok") and res.get("read_back_ok")
         head = ("書き込みました。" if ok else "書き込みましたが、確認が必要な点があります。") + f"{res.get('proof', '')}"
         # 本人は書類を開いて確かめないので、say_to_user（書いた所の見出しと値・まだ空いている欄・本人に伝えること）を、対話で伝える
@@ -247,14 +263,16 @@ def call_tool(name: str, args: dict) -> dict:
         return {"content": [_text(v["text"]), {"type": "image", "data": v["png_base64"], "mimeType": "image/png"}],
                 "structuredContent": {"text": v["text"], "width": v["width"], "height": v["height"]}}
     if name == "grade_document":
-        g = api.grade(args["path"], args.get("findings") or [], args.get("answered") or [], password=args.get("password"))
-        mark = lambda r: "（エージェントの判断）" if r.get("by") == "agent" else ""  # noqa: E731
+        g = api.grade(args["path"], args.get("findings") or [], args.get("answered") or [], password=args.get("password"),
+                      encoding=args.get("encoding"))
+        mark = lambda r: ("（エージェントの判断）" if r.get("by") == "agent" else  # noqa: E731
+                          "（エージェントの選択を規則で確かめた）" if r.get("by") == "agent_choice" else "")
         lines = [g["headline"]] + [f"  - 読む[{r['grade']}]{mark(r)} {r['title']}: {r['detail']}" for r in g["reasons"]]
         lines += [f"  - 書く[{r['grade']}]{mark(r)} {r['title']}: {r['detail']}" for r in g["write"]["reasons"]]
         lines += [f"  - ？（あれば{_score(c)} {c['grade']}）{c['question']}" for c in g.get("agent_checks", [])]
         return {"content": [_text("\n".join(lines)), _text(g)], "structuredContent": g}
     if name == "audit_document":
-        au = api.audit(args["path"], args.get("password"))
+        au = api.audit(args["path"], args.get("password"), args.get("encoding"))
         lines = [("[OK] " if c["ok"] else "[要確認] ") + f"{c['name']}: {c['detail']}" for c in au["checks"]]
         lines.append("結論: " + ("全て正確に読み書きできます" if au["ok"] else "読み書きに確認が必要な点があります"))
         g = au.get("grade")

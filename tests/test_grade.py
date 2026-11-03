@@ -22,20 +22,23 @@ def test_excel_with_marked_inputs_only_is_a():
     assert g.grade == "A", g.headline()
 
 
-def test_unmarked_table_columns_are_c():
-    # 入力欄の印のない表の空のセル：規則では決められない（エージェントが判断して、番地で書く）ので C
+def test_unmarked_table_columns_are_write_b_not_read():
+    # 入力欄の印のない表の空のセル：規則では決められない（エージェントが判断して、番地で書く）。書く所の見つけ方なので、
+    # 書く段階の B。中身は規則で正確に読めるので、読む段階は A のまま
     g = grade_blob(make_xlsx({"Budget": (HEAD, VALS)}), "b.xlsx")
     # （表の行の空のマスは、ほかの「規則では決められない所」と同じく［B5？］として窓に出し、まとめて数える）
-    assert g.grade == "C" and any(r.title == "規則では決められない所" and r.grade == "C" for r in g.reasons), g.headline()
+    assert g.grade == "A" and not any(r.title == "規則では決められない所" for r in g.reasons), g.headline()
+    assert g.write == "B" and any(r.title == "規則では決められない所" and r.grade == "B" for r in g.write_reasons), g.headline()
 
 
-def test_layout_fields_in_pdf_and_word_are_b_and_margins_are_c():
-    # 配置から見つけた欄は B。表題「申請書」の右の余白・見出しの後ろのような、書く所かもしれない所は、規則では決めず C
+def test_layout_fields_in_pdf_and_word_are_write_b_and_read_a():
+    # 配置から見つけた欄・書く所かもしれない所（表題「申請書」の右の余白・見出しの後ろ）は、書く段階の B（解析して書く）。
+    # 読む段階は中身が読めるかで決めるので、字が正確に読める様式は A
     for blob, name in ((sample_form(), "s.pdf"), (make_docx(SAMPLE_BODY), "s.docx")):
         g = grade_blob(blob, name)
-        titles = {r.title: r.grade for r in g.reasons}
-        assert titles.get("配置から推定した入力欄") == "B" and titles.get("規則では決められない所") == "C", g.headline()
-        assert g.grade == "C"
+        titles = {r.title: r.grade for r in g.write_reasons}
+        assert titles.get("配置から推定した入力欄") == "B" and titles.get("規則では決められない所") == "B", g.headline()
+        assert g.grade == "A" and g.write == "B" and not g.reasons, g.headline()
 
 
 def test_places_rules_cannot_decide_are_c_and_writable():
@@ -47,7 +50,7 @@ def test_places_rules_cannot_decide_are_c_and_writable():
 
     blob = make_docx(SAMPLE_BODY + p("令和 年　月") + p("〒　○○○－…　○○県○○市○○区……") + p("住所："))
     g = grade_blob(blob, "c.docx")
-    assert g.grade == "C" and any(r.title == "規則では決められない所" for r in g.reasons), g.headline()
+    assert g.grade == "A" and g.write == "B" and any(r.title == "規則では決められない所" for r in g.write_reasons), g.headline()
     win = build(DocxDocument(blob, "c.docx"))
     agent = {f["id"]: f for f in win["fields"] if f.get("agent")}
     # P1.a1：表題「申請書」の後ろ。P2.1〜P2.3・P9.1：「令和　年　月　日」の空き（単位の字からの推定なので、規則では決めない）。
@@ -66,11 +69,11 @@ def test_places_rules_cannot_decide_are_c_and_writable():
 
 
 def test_meaning_is_left_to_the_agent_not_to_word_matching():
-    # 押印・書く値のぼかしは、言葉の一致では決めない（規則の段階は B のまま）。エージェントが確かめる問いとして返す
-    # 「代表者氏名　　　　　　　印」の氏名の空きは、語と語の間の空白（規則では決められない所：C）。言葉では F・D にしない
+    # 押印・書く値のぼかしは、言葉の一致では決めない（規則の段階は変えない）。エージェントが確かめる問いとして返す
+    # 「代表者氏名　　　　　　　印」の氏名の空きは、語と語の間の空白（規則では決められない所：書く段階の B）。言葉では F・D にしない
     g = grade_blob(make_docx(SAMPLE_BODY + p("代表者氏名　　　　　　　印") + p("利用者数　約　　　　人")), "f.docx")
-    assert g.grade == "C" and {r.grade for r in g.reasons} <= {"B", "C"}, g.headline()
-    assert any(r.title == "規則では決められない所" for r in g.reasons)
+    assert g.grade == "A" and not g.reasons, g.headline()
+    assert any(r.title == "規則では決められない所" for r in g.write_reasons)
     assert [c["id"] for c in g.agent_checks] == ["cannot_do", "ui_only", "vague_value"]
     assert g.write == "B"  # 書く所を、配置から推定するかエージェントが決める
 
@@ -80,7 +83,7 @@ def test_agent_findings_are_combined_with_provenance():
     # 押印は、書く段階の D（エージェントにはできない記入）。読む段階は変えない
     g = combine(rule, [{"check": "cannot_do", "title": "押印", "detail": "代表者の印", "where": "P9"}],
                 answered=["ui_only", "vague_value"])
-    assert g.grade == rule.grade == "C" and g.write == "D" and g.without_barriers == "B" and not g.agent_checks
+    assert g.grade == rule.grade == "A" and g.write == "D" and g.without_barriers == "B" and not g.agent_checks
     assert [r.by for r in g.write_reasons if r.grade == "D"] == ["agent"] and g.barriers
     assert "押印：エージェントの判断" in g.headline() and "それがなければ書く段階 B" in g.headline()
     d = combine(rule, [{"grade": "D", "title": "書く値をぼかす書き方", "where": ["P12.1"]}])

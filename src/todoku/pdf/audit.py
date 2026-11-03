@@ -116,15 +116,60 @@ def _count(texts) -> Counter:
     return c
 
 
+def overprints(glyphs) -> Counter:
+    """本当の重ね書き（同じ字を同じ所に重ねて描いたもの）の、余分な字の数（字ごと）。窓の作り方とは別に、ここで決める：
+    同じ字で、送りの向きにそった2つの字の送りの幅（フォントが決める幅）の重なりが、狭い方の幅の半分より多く、
+    直角のずれが字の大きさの 1/4 より小さく、大きさがほぼ同じもの。続けて並べた字（「ll」）は重ならないので数えない。"""
+    out: Counter = Counter()
+    kept: dict[str, list] = {}
+    for g in glyphs:
+        if not g.text or g.size < 0.5:
+            continue
+        n = (g.dx * g.dx + g.dy * g.dy) ** 0.5
+        ux, uy = (g.dx / n, g.dy / n) if n > 1e-9 else ((0.0, 1.0) if g.vertical else (1.0, 0.0))
+        w = g.adv if g.adv > 1e-9 else max(abs((g.x1 - g.x0) * ux) + abs((g.y1 - g.y0) * uy), 1e-6)
+        dup = False
+        for (x, y, vx, vy, w0, s0) in kept.get(g.text, ()):
+            px, py = g.ox - x, g.oy - y
+            t = px * vx + py * vy
+            if min(w0, t + w) - max(0.0, t) > 0.5 * min(w0, w) and abs(-px * vy + py * vx) < 0.25 * max(s0, g.size) \
+                    and abs(s0 - g.size) < 0.2 * max(s0, g.size):
+                dup = True
+                break
+        if dup:
+            out[g.text] += 1
+        else:
+            kept.setdefault(g.text, []).append((g.ox, g.oy, ux, uy, w, g.size))
+    return out
+
+
 def check_reading(doc: PdfDocument, win: dict) -> list[Check]:
-    missing, extra, notes = [], [], []
+    return [check_glyphs(doc, win)] + _check_unmapped_and_images(doc, win)
+
+
+def check_glyphs(doc: PdfDocument, win: dict) -> Check:
+    """読み落とし：ページの描画の命令を順に読んだ字（raw_chars）を、窓に実際に出た字（入力欄の印に置き換えた字は数えない）と
+    比べる。窓が1字にした字は、理由ごとに数えて差し引く：本当の重ね書き（overprints が、字の位置と送りの幅から別に決める）と、
+    0.5pt に満たない字・ページの何倍もある字。窓が、本当の重ね書きより多くの字を「重ね書き」として落としたら、読み落とし。"""
+    from .content import page_content
+
+    missing, extra = [], []
     dup_total = 0
     for pg, page in zip(win["pages"], doc.pages()):
         raw = _count(raw_chars(doc, page))
         shown = _count(pg["_plain"])
-        dropped = _count(t for _k, t in pg["_dropped"])
-        dup_total += sum(1 for k, _ in pg["_dropped"] if k == "dup")
-        want = raw - dropped
+        tiny = _count(t for k, t in pg["_dropped"] if k == "size")
+        merged = _count(t for k, t in pg["_dropped"] if k == "dup")
+        try:
+            real = _count(ch for t, n in overprints(page_content(doc, page).glyphs).items() for ch in [t] * n)
+        except Exception:  # noqa: BLE001
+            real = merged
+        dup_total += sum(real.values())
+        for ch, n in (merged - real).items():
+            missing.append(f"ページ {pg['number']}: 「{ch}」が {n} 字、重ね書きとして1字にされましたが、同じ所に重ねた字ではありません")
+        for ch, n in (real - merged).items():
+            extra.append(f"ページ {pg['number']}: 「{ch}」が {n} 字、同じ所に重ねて描いた字なのに、別の字として窓に出ています")
+        want = raw - tiny - real
         for ch, n in (want - shown).items():
             missing.append(f"ページ {pg['number']}: 「{ch}」が {n} 字、窓に出ていません")
         for ch, n in (shown - raw).items():
@@ -132,8 +177,14 @@ def check_reading(doc: PdfDocument, win: dict) -> list[Check]:
     total = sum(p["chars"] for p in win["pages"])
     out = [Check("読み落とし（ページの文字）", not missing and not extra,
                  f"ページの文字 {total:,} 字を、窓とは別の読み方（文字の命令を順に）で拾い、すべて窓に出ていることを確かめました"
-                 + (f"（同じ字を同じ位置に重ねた太字などの {dup_total:,} 字は1字として読んでいます）" if dup_total else ""),
+                 + (f"（同じ字を同じ所に重ねて描いた太字などの {dup_total:,} 字は、字の位置と送りの幅から重ね書きと確かめ、"
+                    "1字として読んでいます）" if dup_total else ""),
                  missing + extra)]
+    return out[0]
+
+
+def _check_unmapped_and_images(doc: PdfDocument, win: dict) -> list[Check]:
+    out = []
     unmapped = sum(p["unmapped"] for p in win["pages"])
     out.append(Check("文字に直せない字", unmapped == 0,
                      "すべての字を文字（Unicode）に直せました" if not unmapped else
