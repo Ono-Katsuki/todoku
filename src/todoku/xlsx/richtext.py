@@ -119,7 +119,7 @@ def cell_rst(wb, sheet: str, r: int, c: int) -> Rst | None:
         im = re.search(rb"<" + p + rb"is\b[^>]*?(?:/>|>(.*?)</" + p + rb"is>)", m[1], re.S)
         return parse_rst(im[1] or b"", prefix) if im else None
     if t == b"s":
-        vm = re.search(rb"<" + p + rb"v>\s*(\d+)\s*</" + p + rb"v>", m[1])
+        vm = re.search(rb"<" + p + rb"v\b[^>]*>\s*(\d+)\s*</" + p + rb"v>", m[1])
         path = getattr(wb, "sst_path", None)
         if vm is None or not path or not wb.zip.has(path):
             return None

@@ -701,6 +701,26 @@ def _input_cell_xml(prefix: bytes, existing: bytes | None, a: str, value, style:
     return _open_tag(prefix, b"c", attrs) + b">" + inner + b"</" + prefix + b"c>"
 
 
+def _cell_children(prefix: bytes, body: bytes) -> tuple[list[tuple[bytes, bytes]], bytes]:
+    """<c> の開きタグの後ろ（body）を、子の要素 [(名前, XML)] と閉じタグ（</c>）に分ける。子は f・v・is・extLst
+    （CT_Cell）で、同じ名前の要素は入れ子にならないので、名前ごとに閉じタグまでを一つの子とする。子のあいだの空白は
+    捨てない（後ろの子にまとめる）。分けられない形（知らない子・閉じていない子）なら EditError。"""
+    p = re.escape(prefix)
+    kids: list[tuple[bytes, bytes]] = []
+    pos = 0
+    child = re.compile(rb"\s*<" + p + rb"(f|v|is|extLst)\b[^>]*?(?:/>|>.*?</" + p + rb"\1\s*>)\s*", re.S)
+    while True:
+        m = child.match(body, pos)
+        if not m:
+            break
+        kids.append((m[1], m[0]))
+        pos = m.end()
+    tail = body[pos:]
+    if not re.fullmatch(rb"\s*</" + p + rb"c\s*>", tail):
+        raise EditError("数式セルの形式が想定外です（セルの中に、読めない要素があります）")
+    return kids, tail
+
+
 def _formula_cell_xml(prefix: bytes, existing: bytes, value) -> bytes:
     """数式は残したまま、計算結果 <v> だけを差し替える。"""
     m = re.match(rb"(<[\w:]*c\b[^>]*?)(/?>)", existing)
@@ -709,7 +729,9 @@ def _formula_cell_xml(prefix: bytes, existing: bytes, value) -> bytes:
         from .richtext import escape_text
 
         t = b"str"
-        vxml = b"<" + prefix + b"v>" + escape_text(value) + b"</" + prefix + b"v>"
+        ev = escape_text(value)
+        sp = b' xml:space="preserve"' if ev != ev.strip() or b"\n" in ev else b""
+        vxml = b"<" + prefix + b"v" + sp + b">" + ev + b"</" + prefix + b"v>"
     else:
         t, vxml = _value_xml(prefix, value)
     body = existing[m.end():]
@@ -718,12 +740,26 @@ def _formula_cell_xml(prefix: bytes, existing: bytes, value) -> bytes:
         if b"<" + prefix + b"f" in existing:
             raise EditError("数式セルの形式が想定外です")
         body = b"</" + prefix + b"c>"
-    body = re.sub(rb"<" + re.escape(prefix) + rb"v>.*?</" + re.escape(prefix) + rb"v>|<" + re.escape(prefix) + rb"v\s*/>", b"", body, count=1, flags=re.S)
-    fm = re.search(rb"<" + re.escape(prefix) + rb"f\b[^>]*?(?:/>|>.*?</" + re.escape(prefix) + rb"f>)", body, re.S)
-    if fm:
-        body = body[:fm.end()] + vxml + body[fm.end():]
-    else:
-        body = vxml + body
+    kids, tail = _cell_children(prefix, body)
+    if [k for k, _ in kids].count(b"f") > 1:
+        raise EditError("数式セルの形式が想定外です（数式 <f> が二つあります）")
+    # 前の計算結果（<v>・<is>：属性つきの <v xml:space="preserve"> も）はすべて除き、<f> の直後に新しい <v> を一つだけ置く
+    # （CT_Cell の子の順：f, v, is, extLst。ECMA-376 18.3.1.4）
+    out = b""
+    placed = False
+    for name, xml in kids:
+        if name in (b"v", b"is"):
+            continue
+        if name == b"extLst" and not placed:
+            out += vxml
+            placed = True
+        out += xml
+        if name == b"f" and not placed:
+            out += vxml
+            placed = True
+    if not placed:
+        out = vxml + out
+    body = out + tail
     return _open_tag(prefix, b"c", _with_t(attrs, t)) + b">" + body
 
 
