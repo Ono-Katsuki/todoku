@@ -169,7 +169,10 @@ def test_labels_distinguish_same_words():
     s21 = fields_of(doc, "別紙様式2-1")
     assert s21["E131"]["label"] == "令和［▶］年［　］月［　］日"
     assert s21["H131"]["label"] == "令和［　］年［▶］月［　］日"
-    assert s21["E70"]["label"].startswith("入職促進に向けた取組／③他産業からの転職者")
+    # ○を付ける選択肢（入力規則の選択肢が短い）でも、右の字を見出しにする決め方はやめた（選択肢の数・字数による判断）。
+    # 右の項目の字は、近くの字（near.right）としてそのまま出る
+    assert s21["E70"]["label"].startswith("入職促進に向けた取組")
+    assert s21["E70"]["near"]["right"]["text"].startswith("③他産業からの転職者") and s21["E70"]["near"]["right"]["cols"] == 0
     assert s21["BA116"]["kind"] == "checkbox" and s21["BA116"]["label"].startswith("・処遇改善加算として給付される額は")
     assert s21["Q18"]["label"].startswith("②令和８年度の賃金改善の見込額 （①の額以上")  # 番号も文字も変えない
     s22 = fields_of(doc, "別紙様式2-2")

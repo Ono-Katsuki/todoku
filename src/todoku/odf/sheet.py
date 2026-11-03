@@ -407,6 +407,10 @@ class OdsWorkbook:
                     s_ = self.style(self.style_index(ce.get("table:style-name")))
                     styled = styled or bool(s_.borders or s_.fill_color or not s_.locked)
             expand = n if (n <= BIG or meaningful or (styled and n <= 2000)) else 0
+            if styled and not meaningful and n > 2000:
+                # 枠・塗り・保護の解除のある、中身のない行の長い繰り返し：広げない（窓の大きさを抑える）。広げなかったことは伝える
+                self.unexpanded.append(f"{name}：{r}行目から {n:,} 行（枠・塗りなどの書式だけの、中身のない行の繰り返し。"
+                                       "空の欄の候補として広げていません）")
             if meaningful and n > 10000:
                 self.unexpanded.append(f"{name}：{r}行目から {n:,} 行（同じ中身を繰り返す行。最初の 10,000 行だけ読みました）")
                 expand = 10000
@@ -414,7 +418,7 @@ class OdsWorkbook:
                 rr = r + k
                 if hidden:
                     sh.hidden_rows.add(rr)
-                if height:
+                if height and _pt(height) is not None:
                     sh.row_heights[rr] = _pt(height)
                 if dcs and dcs != "Default":
                     sh.row_styles[rr] = self.style_index(dcs)
@@ -747,10 +751,12 @@ def _rects(cells: list[tuple[int, int]]) -> list[tuple[int, int, int, int]]:
     return out
 
 
-def _pt(length: str) -> float:
-    m = re.fullmatch(r"([\d.]+)(cm|mm|in|pt|pc|px)?", length.strip())
+def _pt(length: str) -> float | None:
+    """ODF の長さ（数＋単位。ODF 1.2 第 1 部 18.3.18 length：cm・mm・in・pt・pc・px）の pt。読めなければ None
+    （値を作らない。呼び手は、その長さのない所として扱う）。"""
+    m = re.fullmatch(r"([\d.]+)(cm|mm|in|pt|pc|px)?", (length or "").strip())
     if not m:
-        return 15.0
+        return None
     v = float(m[1])
     return {"cm": v * 28.3465, "mm": v * 2.83465, "in": v * 72, "pt": v, "pc": v * 12, "px": v * 0.75}.get(m[2] or "pt", v)
 

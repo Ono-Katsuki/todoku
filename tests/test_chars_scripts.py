@@ -30,15 +30,17 @@ def test_script_of(ch, script):
     assert chars.script_of(ch) == script
 
 
-def test_script_table_is_sorted_and_from_the_same_ucd():
-    assert chars.UCD_VERSION == unicodedata.unidata_version
+def test_script_table_is_sorted_and_covers_the_running_ucd():
+    # 表（Scripts.txt）の版は Python の unicodedata の版と結びつけない。表の版がこの Python の版より新しければ、
+    # この Python が字を割り当てている符号位置は、どれも表にある
     prev = -1
     for a, b, i in chars._SCRIPTS:
         assert prev < a <= b and 0 <= i < len(chars.SCRIPT_NAMES)
         prev = b
     # 字の割り当てのある符号位置（未割り当て Cn・私用 Co・サロゲート Cs 以外）は、どれも表にある（Unknown にならない）
+    newer = tuple(map(int, chars.TABLES_UCD_VERSION.split("."))) >= tuple(map(int, unicodedata.unidata_version.split(".")))
     for c in range(0, 0x30000, 7):
-        if unicodedata.category(chr(c)) not in ("Cn", "Co", "Cs"):
+        if newer and unicodedata.category(chr(c)) not in ("Cn", "Co", "Cs"):
             assert chars.script_of(chr(c)) != "Unknown", hex(c)
 
 
