@@ -770,6 +770,49 @@ def audit(path: str, password: str | None = None) -> dict:
     return d
 
 
+def read_table(path: str, header: str, sheet: str | None = None, header_rows: int | None = None,
+               out_path: str | None = None, password: str | None = None) -> dict:
+    """Excel の表を、見出しの列で行ごとに取り出す（結合セルは画面どおりに範囲へ広げ、値ごとに元のセルを添える）。
+    sheet を省くと、header のあるすべてのシートから。out_path（.csv か .json）を指すと、すべての行を書き出す。"""
+    import csv
+    import io
+    import json
+
+    from .book import open_book
+    from .xlsx.tables import TableError
+    from .xlsx.tables import read as tread
+
+    blob, name, k, lock = _read(path, password)
+    if k not in ("xlsx", "xls"):
+        raise ApiError("表の取り出しは Excel（.xlsx・.xlsm・.xls）です（ほかの形式は窓で読めます）")
+    try:
+        t = tread(open_book(blob, name), header, sheet, header_rows)
+    except TableError as e:
+        raise ApiError(str(e)) from None
+    out = {"columns": t["columns"], "rows": len(t["rows"]), "sheets": t["sheets"][:50], "sheet_count": len(t["sheets"]),
+           "first_rows": t["rows"][:20]}
+    if out_path:
+        dst = Path(out_path).expanduser().resolve()
+        src = Path(_member(path)[0] if _member(path) else path).expanduser().resolve()
+        if dst == src:
+            raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.suffix.lower() == ".json":
+            dst.write_text(json.dumps(t, ensure_ascii=False, indent=1), encoding="utf-8")
+        else:
+            buf = io.StringIO()
+            w = csv.writer(buf, lineterminator="\n")
+            head = ["シート", "行"] + t["columns"]
+            w.writerow(head)
+            for r in t["rows"]:
+                w.writerow([r["_sheet"], r["_row"]] + [r.get(c, "") for c in t["columns"]])
+            dst.write_text(buf.getvalue(), encoding="utf-8")
+        out["out_path"] = str(dst)
+    else:
+        out["all_rows"] = t["rows"]
+    return out
+
+
 def calc_model(path: str, cell: str | None = None, password: str | None = None) -> dict:
     """Excel の様式の「データ」（入力欄）と「処理」（入力につながる数式）。cell を指すと、その計算を入力欄までさかのぼる。
     式は、番地を見出しに置き換えて示す（in_words）。"""

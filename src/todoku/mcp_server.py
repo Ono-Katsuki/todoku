@@ -102,6 +102,19 @@ TOOLS = [
          "answers": {"type": "array", "description": "MsgBox・InputBox の答え（順に。「はい」「いいえ」、入力する値）"},
          "files": {"type": "object", "description": "マクロが読むファイル：{マクロの中のパス: 手元のファイルのパス}"}},
          "required": ["path", "macro", "out_path"]}},
+    {"name": "read_table",
+     "description": "Excel の表を、見出しの列で行ごとに取り出す（エージェントが表を読む処理を書かなくてよいように）。"
+                    "header は表の見出しにある字（例「合成」「サービスコード」）。その行から下の、数の入っていない行までを見出しとし、"
+                    "列の名前は見出しを上から「／」でつなぐ。結合セルは画面どおりに範囲へ広げ、値は表示形式どおりの字、値ごとに元のセルを添える。"
+                    "sheet を省くと、その見出しのあるすべてのシートから。行が多いときは out_path（.csv か .json）に書き出す"
+                    "（結果には列の名前・行数・はじめの 20 行）。表の後ろの注の行もそのまま返すので、どこまでが表かは読んで決める。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
+         "header": {"type": "string", "description": "表の見出しにある字"},
+         "sheet": {"type": "string", "description": "シートの名前（省くと、見出しのあるすべてのシート）"},
+         "header_rows": {"type": "integer", "minimum": 1, "description": "見出しの行数（省くと自動）"},
+         "out_path": {"type": "string", "description": "すべての行を書き出すファイル（.csv か .json）"}},
+         "required": ["path", "header"]}},
     {"name": "explain_calculation",
      "description": "Excel の様式を「データ」（入力欄）と「処理」（入力から結果を出す数式）に分けて返す。式は番地を見出しに置き換えて示す"
                     "（例「＝「報酬総額」-「処遇改善加算の総額」」）。cell を指すと、そのセルの計算を入力欄までさかのぼって説明する。"
@@ -211,6 +224,14 @@ def call_tool(name: str, args: dict) -> dict:
         head = (f"マクロ {res['macro']} を動かしました。" + (f"{res.get('proof', '')}" if res.get("out_path") else res.get("note", ""))
                 + (f"　エラー：{res['error']}" if res.get("error") else ""))
         return {"content": [_text(head), _text(res)], "structuredContent": res, "isError": bool(res.get("error"))}
+    if name == "read_table":
+        res = api.read_table(args["path"], args["header"], args.get("sheet"), args.get("header_rows"), args.get("out_path"),
+                             args.get("password"))
+        res.pop("all_rows", None) if args.get("out_path") else None
+        if not args.get("out_path") and res["rows"] > 200:
+            res.pop("all_rows", None)
+            res["note"] = f"行が {res['rows']} 行あります。すべての行は out_path（.csv か .json）に書き出して読んでください"
+        return {"content": [_text(res)], "structuredContent": res}
     if name == "explain_calculation":
         res = api.calc_model(args["path"], args.get("cell"), args.get("password"))
         return {"content": [_text(res)], "structuredContent": res}
