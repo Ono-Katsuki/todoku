@@ -354,22 +354,53 @@ print(json.dumps(out, ensure_ascii=False, default=str))
 _graders: threading.Semaphore | None = None
 
 
+MEM_LIMIT_MB = 4096  # 段階付けの1本が使ってよいメモリ。超えたら、その書類だけ止める（パソコン全体を巻き込まない）
+
+
+def _rss_mb(pid: int) -> float:
+    """その処理が使っている実メモリ（MB）。ps の RSS（KB）から。"""
+    try:
+        out = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout.strip()
+        return int(out) / 1024 if out else 0.0
+    except (ValueError, subprocess.SubprocessError):
+        return 0.0
+
+
 def grade_file(path: Path, do_audit: bool, timeout: int = 300) -> dict:
     assert _graders is not None
     with _graders:
         t = time.time()
-        try:
-            r = subprocess.run([sys.executable, "-c", GRADE_CODE, str(path), "1" if do_audit else "0"],
-                               capture_output=True, timeout=timeout * (3 if do_audit else 1), cwd=ROOT)
-            lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
-            out = json.loads(lines[-1]) if lines else {"error": "crash", "stderr": r.stderr.decode("utf-8", "replace")[-400:]}
-        except subprocess.TimeoutExpired:
-            out = {"error": "timeout"}
-        except json.JSONDecodeError:
-            out = {"error": "crash"}
+        limit = timeout * (3 if do_audit else 1)
+        # 優先度を下げて動かし、メモリと時間を見張る
+        proc = subprocess.Popen(["nice", "-n", "10", sys.executable, "-c", GRADE_CODE, str(path), "1" if do_audit else "0"],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=ROOT)
+        why = None
+        peak = 0.0
+        out_b, err_b = b"", b""
+        while True:
+            try:
+                out_b, err_b = proc.communicate(timeout=1)
+                break
+            except subprocess.TimeoutExpired:
+                peak = max(peak, _rss_mb(proc.pid))
+                if peak > MEM_LIMIT_MB:
+                    why = "memory"
+                elif time.time() - t > limit:
+                    why = "timeout"
+                if why:
+                    proc.kill()
+                    proc.communicate()
+                    break
+        if why:
+            out = {"error": why, **({"peak_mb": round(peak)} if why == "memory" else {})}
+        else:
+            lines = out_b.decode("utf-8", "replace").strip().splitlines()
+            try:
+                out = json.loads(lines[-1]) if lines else {"error": "crash", "stderr": err_b.decode("utf-8", "replace")[-400:]}
+            except json.JSONDecodeError:
+                out = {"error": "crash"}
         out["seconds"] = round(time.time() - t, 2)
         return out
-
 
 EXT = {"PDF": ".pdf", "XLSX": ".xlsx", "XLS": ".xls", "ODS": ".ods", "DOCX": ".docx", "DOC": ".doc", "ODT": ".odt",
        "RTF": ".rtf", "CSV": ".csv"}
