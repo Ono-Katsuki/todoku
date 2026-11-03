@@ -1,4 +1,5 @@
-"""形式を問わない入口（api・grade）から呼ぶ、追加の形式：CSV・TSV・JSON・JSON Lines・RTF・OpenDocument（.odt・.ods）。
+"""形式を問わない入口（api・grade）から呼ぶ、追加の形式：CSV・TSV・JSON・JSON Lines・RTF・OpenDocument（.odt・.ods）・
+文字だけのファイル（.txt）・PowerPoint（.pptx）。
 
 api.py と grade.py には、この部品を呼ぶ短い区切りだけを足す（ほかの形式の処理には手を加えない）。
 - 窓：window（窓の JSON と Markdown の部分）
@@ -11,7 +12,8 @@ from __future__ import annotations
 
 KIND_JA = {"csv": "CSV", "tsv": "TSV（タブ区切り）", "json": "JSON", "jsonl": "JSON Lines", "rtf": "RTF（リッチテキスト）",
            "odt": "OpenDocument の文書（.odt）", "ods": "OpenDocument の表計算（.ods）",
-           "fodt": "OpenDocument の文書（.fodt・1つの XML）", "fods": "OpenDocument の表計算（.fods・1つの XML）"}
+           "fodt": "OpenDocument の文書（.fodt・1つの XML）", "fods": "OpenDocument の表計算（.fods・1つの XML）",
+           "txt": "テキスト（.txt）", "pptx": "PowerPoint（.pptx）"}
 KINDS = frozenset(KIND_JA)
 DATA = frozenset({"csv", "tsv", "json", "jsonl"})
 TEXT_DOCS = frozenset({"odt", "fodt"})
@@ -51,6 +53,18 @@ def window(k: str, blob: bytes, name: str) -> tuple[dict, list[tuple[str, str]]]
 
             win = build(RtfDocument(blob, name))
             return win, markdown_parts(win)
+        if k == "txt":
+            from .txt.document import TxtDocument
+            from .txt.window import build, markdown_parts
+
+            win = build(TxtDocument(blob, name))
+            return win, markdown_parts(win)
+        if k == "pptx":
+            from .pptx.document import PptxDocument
+            from .pptx.window import build, markdown_parts
+
+            win = build(PptxDocument(blob, name))
+            return win, markdown_parts(win)
     except (ValueError, KeyError) as e:
         raise _err(e) from None
     raise OpenFormatError(f"この形式（{k}）は扱えません")
@@ -78,6 +92,10 @@ def summary(k: str, doc: dict) -> dict:
         if k in ("csv", "tsv"):
             d["rows"] = doc.get("row_count")
             d["columns"] = doc.get("width")
+    elif k == "txt":
+        d["format"] = doc.get("format")
+    elif k == "pptx":
+        d["slides"] = len(doc.get("slides") or [])
     else:
         d["protection"] = doc.get("protection")
     return d
@@ -98,6 +116,14 @@ def fill(k: str, blob: bytes, name: str, values: dict, force: bool = False) -> d
         return api_fill(blob, name, values, force)
     if k == "rtf":
         from .rtf.fill import api_fill
+
+        return api_fill(blob, name, values, force)
+    if k == "txt":
+        from .txt.fill import api_fill
+
+        return api_fill(blob, name, values, force)
+    if k == "pptx":
+        from .pptx.fill import api_fill
 
         return api_fill(blob, name, values, force)
     raise OpenFormatError(f"この形式（{k}）には書けません")
@@ -219,6 +245,14 @@ def audit_runner(k: str):
         from .rtf.audit import run
 
         return run
+    if k == "txt":
+        from .txt.audit import run
+
+        return run
+    if k == "pptx":
+        from .pptx.audit import run
+
+        return run
     raise OpenFormatError(f"この形式（{k}）は検査できません")
 
 
@@ -242,6 +276,13 @@ def grade(k: str, blob: bytes, name: str):
             from .rtf.window import build
 
             return _grade_textdoc(build(RtfDocument(blob, name)), "RTF", "フォームの欄")
+        if k == "txt":
+            return _grade_txt(blob, name)
+        if k == "pptx":
+            from .pptx.document import PptxDocument
+            from .pptx.window import build
+
+            return _grade_textdoc(build(PptxDocument(blob, name)), "PowerPoint", "作り手の印のある欄")
     except Exception as e:  # noqa: BLE001
         from .odf.package import OdfEncrypted
 
@@ -275,6 +316,27 @@ def _grade_data(k: str, blob: bytes, name: str):
         return Grade("C", reasons, write="B", write_reasons=[Reason("B", "同じ名前が2つ以上ある",
                                                                   "どの値に書くかを、エージェントが読んで決めます", f.duplicates[:12])])
     return Grade("S", reasons, write="A", write_reasons=direct)
+
+
+def _grade_txt(blob: bytes, name: str):
+    """文字だけのファイル：RTF と同じ決め方（作り手の印の欄はないので、欄があれば推定の B・規則で決められない所は C）。
+    文字コードを決められない（Latin-1 として読んだ）ときは、字が正しいかをエージェントが確かめる（C）。"""
+    from .grade import Reason, _final, _locked
+    from .txt.document import TxtDocument, TxtError
+    from .txt.window import build
+
+    try:
+        doc = TxtDocument(blob, name)
+    except TxtError as e:
+        return _locked("読めない", str(e), "読めないので、書けません")
+    g = _grade_textdoc(build(doc), "テキスト", "入力欄の印")
+    if doc.dec.encoding != "latin-1":
+        return g
+    enc = Reason("C", "文字コードを決められない", "UTF-8・Shift_JIS・EUC-JP のどれとしても読めないので、Latin-1 として読みました。"
+                 "字が正しく読めているかは、エージェントが窓を読んで判断します")
+    out = _final(g.reasons + [enc], g.write_reasons)
+    out.alerts = g.alerts
+    return out
 
 
 def _grade_textdoc(win: dict, kind_ja: str, explicit: str):

@@ -265,6 +265,7 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     result: dict = {"kind": k, "out_path": str(dst), "original_sha256": hashlib.sha256(src.read_bytes()).hexdigest()}
     readback_values = dict(values)  # 読み戻しで確かめる、欄の id → 書いた値
     told = None  # 本人に伝える、書いた所（ほかの形式は読み戻しの値と同じ）
+    rest_fields = None  # まだ空いている欄を数える、欄の一覧（なければ、書いた後のファイルの欄）
     try:
         labels = {f["id"]: f.get("label", "") for f in fields(path, password)}  # 白紙のときの見出し（対話で伝える一覧に使う）
     except ApiError:
@@ -350,6 +351,10 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         result.update(res_["result"])
         readback_values = res_["readback"]
         labels.update(res_.get("labels") or {})
+        if res_.get("told") is not None:
+            # 書いた所の印を置けない形式（.txt・PowerPoint）：本人に伝えるのは、証明で読み直した書いた値と、元のファイルの残りの欄
+            told = res_["told"]
+            rest_fields = res_.get("rest")
     else:
         from .docx.fill import FillError
 
@@ -426,11 +431,16 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             mismatch.append({"id": key, "written": v, "read_back": g})
     if "jtd_read_back" in result:
         mismatch += [{"id": "段落", "written": "", "read_back": x} for x in result.pop("jtd_read_back", [])]
+    if "text_read_back" in result:  # .txt：証明の中で、書いた後のファイルを読み直した行
+        mismatch += [{"id": "行", "written": "", "read_back": x} for x in result.pop("text_read_back", [])]
+    if "para_read_back" in result:  # PowerPoint：証明の中で、書いた後のファイルを読み直した段落
+        mismatch += [{"id": "段落", "written": "", "read_back": x} for x in result.pop("para_read_back", [])]
     result["read_back_ok"] = not mismatch
     result["read_back_differences"] = mismatch[:30]
     if told is not None:
         # 一太郎：書いた所の印がないので、読み直した窓の同じ id（残りの空白）ではなく、証明で確かめた書いた値を伝える
-        result.update(_to_tell([f for f in after_list if f["id"] not in told], told, result, labels))
+        rest = rest_fields if rest_fields is not None else [f for f in after_list if f["id"] not in told]
+        result.update(_to_tell(rest, told, result, labels))
     else:
         result.update(_to_tell(after_list, readback_values, result, labels))
     return result

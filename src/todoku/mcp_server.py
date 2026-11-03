@@ -114,13 +114,16 @@ TOOLS = [
 ]
 
 
-# ---------------------------------------------------------------------- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument）
-_MORE = ("（ほかに CSV・TSV・JSON・JSON Lines・RTF・OpenDocument の文書 .odt と表計算 .ods も開けます）")
+# ---------------------------------------------------------------------- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument・.txt・PowerPoint）
+_MORE = ("（ほかに CSV・TSV・JSON・JSON Lines・RTF・OpenDocument の文書 .odt と表計算 .ods・文字だけのファイル .txt・"
+         "PowerPoint .pptx も開けます）")
 for _t in TOOLS:
     if _t["name"] == "open_document":
         _t["description"] += _MORE
     elif _t["name"] == "fill_document":
-        _t["description"] += (" RTF と OpenDocument の文書（.odt）は Word と同じ書き方（［P12.1］・字を目印にした {\"@1\": {\"old\": …, \"new\": …}}）、"
+        _t["description"] += (" RTF・OpenDocument の文書（.odt）・文字だけのファイル（.txt。P12 は 12 行目）・PowerPoint（.pptx。表の空のマス T1.R2.C3）は"
+                              "Word と同じ書き方（［P12.1］・字を目印にした {\"@1\": {\"old\": …, \"new\": …}}）。.txt と .pptx には書いた所の印を"
+                              "置けないので、書いた後のファイルでは残りの空欄の番号が詰まる（続けて書くときは、開き直して id を確かめる）。"
                               "OpenDocument の表計算（.ods）は Excel と同じ書き方（シート!B3）。CSV・TSV は「R行.C列」（R3.C2・R3.氏名。"
                               "今ある行の次の行に書くと、行を足す）、JSON は JSON Pointer（/applicant/name。ない名前は足し、配列の終わりは /items/-）、"
                               "JSON Lines は「L行/名前」。")
