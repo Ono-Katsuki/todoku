@@ -21,7 +21,9 @@ from . import api
 
 PROTOCOL = "2025-06-18"
 INSTRUCTIONS = (
-    "とどく（todoku）は、Excel・PDF・Word の申請書類を、内容を一字も変えずに読める「窓」にし、入力欄に証明つきで書き込む道具です。"
+    "とどく（todoku）は、申請書類（Excel .xlsx/.xlsm/.xls・Word .docx/.docm/.doc・PDF・一太郎 .jtd・OpenDocument .odt/.ods・"
+    "RTF・PowerPoint .pptx・文字だけのファイル .txt/.csv/.tsv/.json・それらをまとめた ZIP）を、内容を一字も変えずに読める「窓」にし、"
+    "入力欄に証明つきで書き込む道具です。韓国のワープロの HWP・HWPX は、まだ読めません（「未対応の形式」と返します）。"
     "まず open_document で書類を開き、read_window で窓を読み、list_fields で入力欄の名前を確かめてから、"
     "fill_document で書き込んでください。書き込みは元のファイルを変えず、別の名前で書き出します。"
     "窓の［T1.R2.C3］［p1.5］［シート!B3］などが入力欄の名前です。推定した見出しは context（その行）と合わせて確かめてください。"
@@ -41,11 +43,14 @@ INSTRUCTIONS = (
     "窓の「画像」の節で「説明（代わりの字）がありません」とある画像は、中身を字として読めません。申請に関わりそうな位置なら、"
     "その位置（ページ・上下左右・近くの字）を本人に伝え、中身を推測で埋めないでください。段階の alerts（アクセシビリティの注意）は、"
     "段階とは別に伝えてください。"
+    "fill_document の結果の read_back_ok が false のときは、ファイルはもう書き出されていますが、書いた後のファイルを読み直した値が"
+    "書いた値と違う欄があります（read_back_differences）。確かめずに本人に渡さず、違いを読んで直すか、そのことを本人に伝えてください。"
 )
 
 TOOLS = [
     {"name": "open_document",
-     "description": "書類（Excel .xlsx/.xlsm/.xls・PDF・Word .docx/.doc）を開き、形式・入力欄の数・窓の分け方と、窓（Markdown）の最初の部分を返す。"
+     "description": "書類（Excel .xlsx/.xlsm/.xls・PDF・Word .docx/.docm/.doc・一太郎 .jtd）を開き、形式・入力欄の数・窓の分け方と、"
+                    "窓（Markdown）の最初の部分を返す。HWP・HWPX（韓国のワープロ）は見分けるが、まだ読めない（「未対応の形式」と返す）。"
                     "ZIP は中のファイルの一覧を返す。中のファイルは、どの道具でも path に「a.zip!/中の名前」と指定して開く・書く"
                     "（書き出す out_path は ZIP。書いたファイルの部品だけを入れ替える）。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "書類のファイルのパス"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"}},
@@ -66,6 +71,8 @@ TOOLS = [
                     "Word で、窓に欄として示していない所に書くときは、{\"@1\": {\"old\": 段落の中の元の字, \"new\": 書き換えた後の字}} の形で、"
                     "字を目印にして書ける（old が文書に1つしかないときはそのまま。いくつもあるときは near に近くの欄の id か、"
                     "occurrence に何番目か を足す）。old と new の違う所だけが変わり、書いた所は id「P段落.w番号」になる。"
+                    "差し込み（MERGEFIELD）・日付などのフィールドの結果の字は、Word が更新すると元に戻るので、目印にしても断る。"
+                    "Word の箇条書きの印の □（窓の ☐［P段落.b］）は、チェックの欄として true で書く（その段落の印だけが ■・☑ になる）。"
                     "PDF で、窓に欄として示していない所に書くときは、{\"@1\": {\"after\": 見出しの字, \"value\": 書く字, \"page\": ページ}} の形で、"
                     "見出しの右（\"where\": \"below\" なら下）の空いている所に書ける（書いた所は id「pページ.w番号」）。"
                     "PDF の伏せ字（「○○」）の上には {\"@1\": {\"cover\": \"○○\", \"value\": 書く字}}（白い下地の欄で覆って書く。元の字は消さない）。"

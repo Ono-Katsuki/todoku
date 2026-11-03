@@ -193,6 +193,12 @@ def _fill_odt(blob: bytes, name: str, values: dict, force: bool) -> dict:
     if anchored:
         result["anchored"] = anchored
         readback.update({p.id: p.value for p in res.patches if p.anchor})
+    # 欄の書式で書いた値（日付の欄の書式「yyyy年M月d日」など）：読み戻しは、書式を通した字で比べる
+    shaped = {p.id: p.value for p in res.patches if not p.anchor and p.kind == "input" and p.id in values
+              and not isinstance(values[p.id], bool) and str(p.value) != str(values[p.id])}
+    if shaped:
+        result["written_as"] = shaped
+        readback.update(shaped)
     return {"blob": res.blob, "result": result, "readback": readback, "labels": {}}
 
 
@@ -418,7 +424,11 @@ def _grade_textdoc(win: dict, kind_ja: str, explicit: str, extra: list | None = 
     reasons += extra or []
     write = _write_fields(fields, layout, agent, f"{kind_ja}の{explicit}", "欄のない所は、前後の字を指定して書き換えます")
     write += _write_macros(win.get("macros"))
-    from .grade import picture_alerts
+    from .grade import picture_alerts, word_reasons
+
+    wr, ww = word_reasons(win)  # 変更履歴で削除された字（読む B）・書けない入力欄（書く D）
+    reasons += wr
+    write += ww
 
     g = _final(reasons, write)
     g.alerts = picture_alerts(win.get("pictures") or [])
