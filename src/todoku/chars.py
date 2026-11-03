@@ -8,8 +8,8 @@
 - ダッシュ：一般カテゴリ Pd（dash punctuation：- ‐ – — ― － など）
 - 点線（リーダー）：下の LEADERS（名前に DOT LEADER・ELLIPSIS・MIDDLE DOT を含む句読点と FULL STOP）
 - かっこの組：BidiBrackets.txt（Bidi_Paired_Bracket）
-- チェックの箱の字：Ballot Box（U+2610〜U+2612）・Geometric Shapes の白い四角（U+25A1・U+25A2・U+25FB・U+25FD）・
-  Dingbats の影つきの四角（U+274F〜U+2752）・U+2B1C
+- チェックの箱の字：Ballot Box（U+2610〜U+2612）・Geometric Shapes の白い四角（U+25A1・U+25A2）・U+2B1C は記入の箱。
+  Dingbats の影つきの四角（U+274F〜U+2752）・U+25FB・U+25FD は箇条書きの印にもよく使う字（BULLET_LIKE_BOXES：「？」にする）
 - 文の終わりの字：PropList.txt の Sentence_Terminal（。 . ! ? । ۔ ؟ ። ։ など）
 - 見出しのコロン：一般カテゴリ Po で、名前に語 COLON を含む字（: ： ﹕ ︓ ፥ ᠄ ܃ など）。
   U+061B ؛（ARABIC SEMICOLON）はセミコロン、U+0589 ։（ARMENIAN FULL STOP）は文の終わりの字で、どちらもコロンではない
@@ -49,15 +49,32 @@ LEADERS = frozenset(".．·․‥…⋯⸱・･᠁︙︰")
 # 1 字で 2 つ以上の点を表す字（「…」「‥」）。1 字だけでも点の並び（2 字以上の点線と同じ）として数える
 MULTI_DOT = frozenset("‥…⋯᠁︙︰")
 
-# チェックの箱の字（印のないもの）：U+2610 BALLOT BOX・U+25A1 WHITE SQUARE・U+25A2 WHITE SQUARE WITH ROUNDED CORNERS・
-# U+25FB WHITE MEDIUM SQUARE・U+25FD WHITE MEDIUM SMALL SQUARE・U+274F〜U+2752（影つきの白い四角）・
-# U+2B1C WHITE LARGE SQUARE
-EMPTY_BOXES = frozenset("☐□▢◻◽❏❐❑❒⬜")
+# 印のないチェックの箱の字は、2 つに分ける（字の名前・ブロックは Unicode の名前の表 NamesList.txt・Blocks.txt）：
+# - CERTAIN_EMPTY_BOXES：記入の箱として使う字。U+2610 BALLOT BOX（Miscellaneous Symbols の Ballot Box：記入の箱として
+#   決めた字）・U+25A1 WHITE SQUARE・U+25A2 WHITE SQUARE WITH ROUNDED CORNERS（Geometric Shapes）・
+#   U+2B1C WHITE LARGE SQUARE（Miscellaneous Symbols and Arrows）
+# - BULLET_LIKE_BOXES：箇条書きの印にもよく使う字（チェックの箱とは決まらない）。U+274F LOWER RIGHT DROP-SHADOWED WHITE
+#   SQUARE・U+2750 UPPER RIGHT DROP-SHADOWED WHITE SQUARE・U+2751 LOWER RIGHT SHADOWED WHITE SQUARE・U+2752 UPPER RIGHT
+#   SHADOWED WHITE SQUARE（Dingbats ブロック：飾りの字。Word の箇条書きの印の Wingdings の影つきの四角も、この字に当たる）・
+#   U+25FB WHITE MEDIUM SQUARE・U+25FD WHITE MEDIUM SMALL SQUARE（Geometric Shapes。emoji-data.txt で Emoji でもあり、
+#   絵文字・箇条の印として使うことも、記入の箱として使うこともある）
+# 読む側は、BULLET_LIKE_BOXES の字を規則のチェックの欄にせず「？」（規則では決められない所）にする
+CERTAIN_EMPTY_BOXES = frozenset("☐□▢⬜")
+BULLET_LIKE_BOXES = frozenset("❏❐❑❒◻◽")
+# 印のないチェックの箱の字のすべて（決まる字と、箇条の印かもしれない字。どちらも、窓では ☐ にして示す）
+EMPTY_BOXES = CERTAIN_EMPTY_BOXES | BULLET_LIKE_BOXES
 # 印のついた箱：U+2611 BALLOT BOX WITH CHECK・U+2612 BALLOT BOX WITH X（Ballot Box の残りの 2 字。チェック済みと決まる字）
 CHECKED_BOXES = frozenset("☑☒")
 BOXES = EMPTY_BOXES | CHECKED_BOXES
-# 印のついた箱かもしれない字（U+25A0 BLACK SQUARE は箇条の印・飾りのことも、U+2713/U+2714 CHECK MARK は本文の印のこともある）
-MAYBE_CHECKED = frozenset("■✓✔")
+# 印のついた箱かもしれない字：U+25A0 BLACK SQUARE は箇条の印・飾りのことも、U+2713/U+2714 CHECK MARK は本文の印のことも、
+# U+25A3 WHITE SQUARE CONTAINING BLACK SMALL SQUARE は記入済みの箱のことも（日本・韓国の様式）、箇条の印・見出しの印の
+# ことも（韓国の公文書の「▣」など）ある。どれも、元の字のまま示す
+MAYBE_CHECKED = frozenset("■✓✔▣")
+
+
+def is_bullet_like_box(ch: str) -> bool:
+    """箇条書きの印にもよく使う、印のない箱の字か（BULLET_LIKE_BOXES）：規則のチェックの欄にせず「？」にする字。"""
+    return ch in BULLET_LIKE_BOXES
 
 
 def is_wide(ch: str) -> bool:

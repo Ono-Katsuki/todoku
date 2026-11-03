@@ -12,6 +12,7 @@ import re
 import unicodedata
 from collections import Counter
 
+from .. import chars
 from ..xlsx.audit import Audit, Check
 from .content import tokens
 from .doc import PdfDocument
@@ -22,7 +23,7 @@ from .objects import Name, PdfString, Stream, decode_text
 from .proof import prove
 from .window import build, markdown_parts
 
-BOXES = set("□☐☑☒◻▢❏❐❑❒⬜")
+BOXES = set(chars.BOXES)  # 窓で ☐・☑ にして示す箱の字（chars.py：決まる箱と、箇条の印かもしれない箱）
 
 
 def raw_chars(doc: PdfDocument, page: dict) -> list[str]:
