@@ -338,3 +338,57 @@ def test_hwpx_click_here_with_tab_replaced(tmp_path):
     assert r["proof_ok"] and r["read_back_ok"], r["unexpected"]
     x = zipfile.ZipFile(r["out_path"]).read("Contents/section0.xml").decode()
     assert "부산시" in x and "중구" not in x and "<hp:tab/>" not in x
+
+
+# ---------------------------------------------------------------- 第5回の実際の書類での見直し（Word・.doc・Excel の段落とマス）
+def _para_doc(*texts: str) -> bytes:
+    return _docx("".join(f'<w:p><w:r><w:t xml:space="preserve">{t}</w:t></w:r></w:p>' for t in texts))
+
+
+def test_long_gap_keeps_space_after_heading(tmp_path):
+    p = tmp_path / "g.docx"
+    p.write_bytes(_para_doc("氏　名　　　　　　　　", "通院先：　　　　　　　　　通院頻度："))
+    ids = {f["label"]: f["id"] for f in api.fields(str(p))}
+    name_id = next(i for l_, i in ids.items() if l_.startswith("氏名［"))
+    clinic_id = next(i for l_, i in ids.items() if l_.startswith("通院先：［"))
+    r = api.fill(str(p), {name_id: "山田　花子", clinic_id: "架空医院"}, str(tmp_path / "o.docx"))
+    assert r["proof_ok"] and r["read_back_ok"], r["unexpected"]
+    from todoku.docx.document import DocxDocument, iter_paras
+
+    doc = DocxDocument(open(r["out_path"], "rb").read())
+    texts = [q.text for _k, _p, bl in doc.all_blocks() for q in iter_paras(bl)]
+    assert any(t.startswith("氏　名　山田　花子") for t in texts), texts
+    assert any(t.startswith("通院先：　架空医院") and t.endswith("　通院頻度：") for t in texts), texts
+    assert any("くっつかない" in w for w in r["warnings"])
+
+
+def test_spaced_two_char_heading_offers_place_after():
+    from todoku.docx.document import DocxDocument
+    from todoku.docx.window import Spots
+
+    sp = Spots(DocxDocument(_para_doc("住　所", "電　話")))
+    after = [it for it in sp.items.values() if it.get("why_key") == "after_label"]
+    assert len(after) == 2 and all(it["span"][0] == 3 for it in after)
+
+
+def test_word_circle_is_resolved_on_the_original_text(tmp_path):
+    """○の所は、書く前の字で決める：同じ書き込みで「5月」と書いても、occurrence 1 の「月」は元の文書の 1 つ目の月のまま。"""
+    p = tmp_path / "c.docx"
+    p.write_bytes(_para_doc("受診日：　　　　　　", "頻度：回／週・月"))
+    gap = next(f["id"] for f in api.fields(str(p)) if (f.get("label") or "").startswith("受診日"))
+    alone = api.fill(str(p), {"@c": {"circle": "月", "occurrence": 1}}, str(tmp_path / "a.docx"))
+    both = api.fill(str(p), {gap: "5月1日", "@c": {"circle": "月", "occurrence": 1}}, str(tmp_path / "b.docx"))
+    assert alone["proof_ok"] and both["proof_ok"], both["unexpected"]
+    assert alone["circled"][0]["around"] == both["circled"][0]["around"] and "週・【月】" in alone["circled"][0]["around"]
+
+
+def test_word_border_is_placed_in_schema_order():
+    from todoku.docx import circle as dc
+    from todoku.docx.document import DocxDocument
+
+    doc = DocxDocument(_docx('<w:p><w:r><w:rPr><w:rFonts w:hint="eastAsia"/><w:lang w:eastAsia="ja-JP"/></w:rPr>'
+                             '<w:t>都道府県</w:t></w:r></w:p>'))
+    sd = dc.resolve(doc, {"circle": "都", "style": "border", "occurrence": 1}, {})
+    out = dc.apply(doc, [sd])
+    x = zipfile.ZipFile(io.BytesIO(out)).read("word/document.xml").decode()
+    assert re.search(r'<w:rFonts w:hint="eastAsia"/><w:bdr [^>]*/><w:lang ', x), x

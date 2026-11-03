@@ -234,12 +234,36 @@ def _glyphs(doc: DocxDocument, p: Para) -> list[_G]:
     return out
 
 
-def resolve(doc: DocxDocument, spec: dict, used: dict) -> dict:
-    """○の所：{id, part, para（段落）, start, end, text, style, ellipse（囲む字の左上からの pt：中心と半径）, size, label}。"""
+def find_in_filled(original: DocxDocument, filled: DocxDocument, spec: dict):
+    """○の所を、書く前の文書の字で決め（同じ書き込みのほかの値に左右されない）、書いた後の文書の同じ所にする：
+    (段落, 始め, 終わり, 段落の番号)。書いた後の段落の、書いた所の印（しおり）の外の同じ字のうち、元の段落と同じ順番のもの。"""
+    from .window import _bookmarks
+
+    po, ao, bo, io = find(original, spec)
+    paras_o, paras_f = list(_paras(original)), list(_paras(filled))
+    if len(paras_o) != len(paras_f):
+        raise CircleError("書いた後の文書の段落の数が、元と違います（○の所を決められません）")
+    pf = paras_f[io]
+    if pf.text == po.text:
+        return pf, ao, bo, io
+    pat = _pattern(spec["circle"])
+    occ_o = [(m.start(), m.end()) for m in pat.finditer(po.text) if m.end() > m.start()]
+    written = [(x, y) for _n, (q, x, y) in _bookmarks(filled).items() if q is pf]
+    occ_f = [(m.start(), m.end()) for m in pat.finditer(pf.text) if m.end() > m.start()
+             and not any(m.start() < y and x < m.end() for x, y in written)]
+    if (ao, bo) not in occ_o or len(occ_o) != len(occ_f):
+        raise CircleError(f"「{spec['circle']}」の所を、書いた後の段落で決められません（書いた値と重なるか、字の並びが変わりました）")
+    a, b = occ_f[occ_o.index((ao, bo))]
+    return pf, a, b, io
+
+
+def resolve(doc: DocxDocument, spec: dict, used: dict, original: DocxDocument | None = None) -> dict:
+    """○の所：{id, part, para（段落）, start, end, text, style, ellipse（囲む字の左上からの pt：中心と半径）, size, label}。
+    original：同じ書き込みで値を書く前の文書（あれば、○の所はその字で決める。書いた値で、近い・何番目かが変わらないように）。"""
     style = spec.get("style", "ellipse")
     if style not in ("ellipse", "border"):
         raise CircleError('style は "ellipse"（楕円の図形）か "border"（字の囲み線）です')
-    p, a, b, _i = find(doc, spec)
+    p, a, b, _i = find_in_filled(original, doc, spec) if original is not None else find(doc, spec)
     pos = p.positions()
     for k in range(a, b):
         sg = p.segs[pos[k][0]]
@@ -273,6 +297,8 @@ def resolve(doc: DocxDocument, spec: dict, used: dict) -> dict:
     near = p.text[max(0, a - 6):b + 6]
     notes = (["幅の変わる字（ラテン文字・キリル文字・アラビア文字など、書体で字ごとに幅が違う字）を含む（字の幅は見積もり）"]
              if any(not fixed_width(ch, wide) for ch in near if not ch.isspace()) else [])
+    if style == "border" and _exact_line(p):
+        notes.append("行の高さが固定（w:spacing の lineRule=exact）の段落なので、囲み線の上か下が、行の高さで切れて見えることがあります")
     if style == "ellipse" and _indented(doc, p):
         notes.append("ぶら下げ・1行目の字下げ（w:ind の hanging・firstLine）のある段落で、○の位置がずれることがあります"
                      "（Word と LibreOffice で、字に結び付けた図形の位置の基準が違う）。ずれていたら、○でなくてよいかを本人に確かめて "
@@ -280,6 +306,12 @@ def resolve(doc: DocxDocument, spec: dict, used: dict) -> dict:
     return {"id": f"○{k}", "part": p.part, "para": p, "start": a, "end": b, "text": p.text[a:b], "style": style,
             "ellipse": [round(v, 3) for v in e] if e else None, "size": size, "label": label,
             "context": re.sub(r"\s+", " ", p.text).strip()[:60], "notes": notes, "around": around(p.text, a, b)}
+
+
+def _exact_line(p: Para) -> bool:
+    ppr = p.node.find("pPr") if p.node is not None else None
+    sp = ppr.find("spacing") if ppr is not None else None
+    return sp is not None and sp.get("lineRule") == "exact"
 
 
 def _indented(doc: DocxDocument, p: Para) -> bool:
@@ -357,6 +389,8 @@ def drawing_run(pre: str, sd: dict, shape_id: int) -> bytes:
 
 
 BORDER = '<{p}:bdr {p}:val="single" {p}:sz="6" {p}:space="0" {p}:color="000000"/>'
+# w:rPr の子のうち、w:bdr より後ろに置くもの（ECMA-376 第1部 17.3.2.28 CT_RPr の順）
+_AFTER_BDR = ("shd", "fitText", "vertAlign", "rtl", "cs", "em", "lang", "eastAsianLayout", "specVanish", "oMath", "rPrChange")
 
 
 def plan(doc: DocxDocument, circles: list[dict]) -> dict[str, list[tuple[int, int, bytes]]]:
@@ -384,7 +418,14 @@ def plan(doc: DocxDocument, circles: list[dict]) -> dict[str, list[tuple[int, in
         r_open = xml[run.s:run.se] if run.se != run.e else f"<{pre}:r>".encode()
         r_close = f"</{pre}:r>".encode()
         border = BORDER.format(p=pre).encode()
-        if rpr is not None and rpr.se != rpr.e:
+        after = [k for k in (rpr.kids if rpr is not None else []) if k.local in _AFTER_BDR]
+        if rpr is not None and rpr.find("bdr") is not None:
+            old = rpr.find("bdr")  # 元の囲み線は、囲む線に置き換える（2つ置かない）
+            rpr_bd = xml[rpr.s:old.s] + border + xml[old.e:rpr.e]
+        elif after:
+            # w:rPr の子の順（ECMA-376 CT_RPr）：bdr は shd・fitText・vertAlign・lang などより前
+            rpr_bd = xml[rpr.s:after[0].s] + border + xml[after[0].s:rpr.e]
+        elif rpr is not None and rpr.se != rpr.e:
             rpr_bd = xml[rpr.s:rpr.se] + xml[rpr.se:rpr.es] + border + xml[rpr.es:rpr.e]
         elif rpr is not None:
             rpr_bd = xml[rpr.s:rpr.e][:-2].rstrip() + b">" + border + f"</{pre}:rPr>".encode()
@@ -448,17 +489,19 @@ def apply(doc: DocxDocument, circles: list[dict]) -> bytes:
 
 
 # ---------------------------------------------------------------------- 証明と読み戻し
-def prove(before: bytes, after: bytes, name: str, specs: list[tuple[str, dict]]) -> list[str]:
-    """元の文書で○を決め直し、変わった部品が、決め直した書き換え（文字の要素を分けて○を入れる）だけかを確かめる。"""
+def prove(before: bytes, after: bytes, name: str, specs: list[tuple[str, dict]], original: bytes | None = None) -> list[str]:
+    """元の文書で○を決め直し、変わった部品が、決め直した書き換え（文字の要素を分けて○を入れる）だけかを確かめる。
+    original：値を書く前の文書（○の所をその字で決めたとき。書き込みと同じ決め方で決め直す）。"""
     from ..zipraw import RawZip
 
     doc = DocxDocument(before, name)
+    orig = DocxDocument(original, name) if original is not None and original != before else None
     used: dict = {}
     circles = []
     out = []
     for fid, spec in specs:
         try:
-            sd = resolve(doc, spec, used)
+            sd = resolve(doc, spec, used, original=orig)
         except CircleError as e:
             return [f"○ {fid} の所が、元の文書で決まりません：{e}"]
         if sd["id"] != fid:

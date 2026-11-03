@@ -610,7 +610,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             result["written_as"] = shaped
             readback_values.update(shaped)
         if circ:
-            new_blob = _circle_word(new_blob, name, circ, result)
+            new_blob = _circle_word(new_blob, name, circ, result, original=blob)
     from . import pkgsig
 
     sig = pkgsig.find(blob)
@@ -971,23 +971,25 @@ def _both_circled(wb, sds: list[dict]) -> list[str]:
     return out
 
 
-def _circle_word(blob: bytes, name: str, circ: dict, result: dict) -> bytes:
-    """Word（.docx）：本文の字を○で囲む（字に結び付けた楕円の図形、または字の囲み線）。足しただけであることを証明する。"""
+def _circle_word(blob: bytes, name: str, circ: dict, result: dict, original: bytes | None = None) -> bytes:
+    """Word（.docx）：本文の字を○で囲む（字に結び付けた楕円の図形、または字の囲み線）。足しただけであることを証明する。
+    original：同じ書き込みで値を書く前の文書。○の所はその字で決める（ほかの値を書いたかで、囲む字が変わらないように）。"""
     from .docx import circle as dc
     from .docx.document import DocxDocument
 
     doc = DocxDocument(blob, name)
+    orig = DocxDocument(original, name) if original is not None and original != blob else None
     used: dict = {}
     sds, problems = [], []
     for key, spec in circ.items():
         try:
-            sds.append((key, dc.resolve(doc, spec, used)))
+            sds.append((key, dc.resolve(doc, spec, used, original=orig)))
         except dc.CircleError as e:
             problems.append(f"{key}: {e}")
     if problems:
         raise ApiError("\n".join(problems))
     out = dc.apply(doc, [sd for _k, sd in sds])
-    bad = dc.prove(blob, out, name, [(sd["id"], circ[key_]) for key_, sd in sds])
+    bad = dc.prove(blob, out, name, [(sd["id"], circ[key_]) for key_, sd in sds], original=original)
     result["unexpected"] = list(result.get("unexpected") or []) + bad
     result["proof_ok"] = bool(result.get("proof_ok", True)) and not bad
     result["proof"] = (result.get("proof") or "") + (f"○ {len(sds)} つは、字の前に図形（または字の囲み線）を足しただけです"
