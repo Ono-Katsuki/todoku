@@ -171,14 +171,17 @@ tr.unr td { color: var(--muted); }
   100% { color: var(--st-pen); text-shadow: 0 0 14px rgba(143, 180, 255, .35); } }
 .opening .voice .who { color: var(--st-muted); animation: fadein 1.4s ease 4.6s both; }
 @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
-.opening .slip { background: var(--st-slip); border-color: var(--st-line); color: var(--st-ink); backdrop-filter: blur(2px);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
-  animation: fly 1.5s cubic-bezier(.16, .8, .2, 1) calc(5.3s + var(--i) * .32s) both,
-             drift 9s ease-in-out calc(7s + var(--i) * .32s) infinite alternate; }
-@keyframes fly { from { opacity: 0; filter: blur(8px); scale: .72; translate: calc(var(--fx) * 26vw) calc(var(--fy) * 22vh); }
-  60% { opacity: 1; filter: blur(0); } to { opacity: 1; filter: blur(0); scale: 1; translate: 0 0; } }
+.opening .slip { background: none; border: 0; box-shadow: none; padding: 6px 8px; color: #f3f6fa;
+  animation: inkin 2.6s cubic-bezier(.16, .8, .2, 1) calc(5.3s + var(--i) * .32s) both,
+             drift 11s ease-in-out calc(7.6s + var(--i) * .32s) infinite alternate; }
+.opening .slip p { font-family: var(--display); font-size: .95rem; line-height: 1.75; letter-spacing: .02em; }
+@keyframes inkin {
+  from { opacity: 0; scale: 1.08; text-shadow: 0 0 22px rgba(255, 255, 255, .85), 0 0 4px rgba(255, 255, 255, .9); color: rgba(255, 255, 255, .05); }
+  35%  { opacity: 1; }
+  to   { opacity: 1; scale: 1; text-shadow: 0 0 10px rgba(143, 180, 255, .12); color: #f3f6fa; } }
 .opening .slip .venue { color: var(--st-pen); }
 .opening .slip .au, .opening .slip a { color: var(--st-muted); }
+.opening .slip .venue { letter-spacing: .08em; font-size: .74rem; }
 .opening .slip a { text-decoration-color: var(--st-line); }
 .opening .bars i { position: absolute; left: 0; right: 0; height: 13vh; background: #000; z-index: 4;
   animation: bars 1.6s cubic-bezier(.6, 0, .2, 1) 8.2s both; }
@@ -191,16 +194,18 @@ tr.unr td { color: var(--muted); }
 .stage-ctl button { background: transparent; border: 1px solid var(--st-line); color: var(--st-muted); border-radius: 999px;
   padding: 4px 12px; font-size: .74rem; cursor: pointer; }
 .stage-ctl button:hover { color: var(--st-ink); border-color: var(--st-muted); }
+.inkdefs { position: absolute; width: 0; height: 0; overflow: hidden; }
 #op-replay { display: none; }
 .opening.done #op-skip { display: none; } .opening.done #op-replay { display: inline-block; }
 /* スキップ・動きを減らす設定：最初から完成した形 */
 .opening.done *, .opening.done::after { animation-delay: 0s !important; animation-duration: .01s !important; }
-.opening.done .slip { animation: drift 9s ease-in-out infinite alternate !important; }
+.opening.done .slip { animation: drift 11s ease-in-out infinite alternate !important; }
 .opening.done .bars, .opening.done .cue { animation: none !important; }
 .opening.done .bars { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .opening *, .opening::after { animation: none !important; }
   .opening .bars, .stage-ctl { display: none; }
+  .opening .slip { filter: none !important; }
   .opening .voice blockquote em { color: var(--st-pen); }
 }
 @media (max-width: 860px) {
@@ -224,27 +229,95 @@ tr.unr td { color: var(--muted); }
 
 <section class="opening" id="opening" aria-label="冒頭：本人の言葉と、まわりの研究">
   <div class="bars" aria-hidden="true"><i></i><i></i></div>
+  <svg class="inkdefs" id="inkdefs" width="0" height="0" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id="ink0" x="-20%" y="-40%" width="140%" height="180%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.04" numOctaves="2" seed="3" result="n">
+        <animate attributeName="baseFrequency" values="0.012 0.04;0.016 0.05;0.012 0.04" dur="11s" repeatCount="indefinite"/>
+      </feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="70" xChannelSelector="R" yChannelSelector="G">
+        <animate attributeName="scale" values="70;1.2" begin="5.30s" dur="2.4s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".15 .7 .2 1"/>
+      </feDisplacementMap>
+    </filter>
+    <filter id="ink1" x="-20%" y="-40%" width="140%" height="180%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.04" numOctaves="2" seed="10" result="n">
+        <animate attributeName="baseFrequency" values="0.012 0.04;0.016 0.05;0.012 0.04" dur="12s" repeatCount="indefinite"/>
+      </feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="70" xChannelSelector="R" yChannelSelector="G">
+        <animate attributeName="scale" values="70;1.2" begin="5.62s" dur="2.4s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".15 .7 .2 1"/>
+      </feDisplacementMap>
+    </filter>
+    <filter id="ink2" x="-20%" y="-40%" width="140%" height="180%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.04" numOctaves="2" seed="17" result="n">
+        <animate attributeName="baseFrequency" values="0.012 0.04;0.016 0.05;0.012 0.04" dur="13s" repeatCount="indefinite"/>
+      </feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="70" xChannelSelector="R" yChannelSelector="G">
+        <animate attributeName="scale" values="70;1.2" begin="5.94s" dur="2.4s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".15 .7 .2 1"/>
+      </feDisplacementMap>
+    </filter>
+    <filter id="ink3" x="-20%" y="-40%" width="140%" height="180%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.04" numOctaves="2" seed="24" result="n">
+        <animate attributeName="baseFrequency" values="0.012 0.04;0.016 0.05;0.012 0.04" dur="14s" repeatCount="indefinite"/>
+      </feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="70" xChannelSelector="R" yChannelSelector="G">
+        <animate attributeName="scale" values="70;1.2" begin="6.26s" dur="2.4s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".15 .7 .2 1"/>
+      </feDisplacementMap>
+    </filter>
+    <filter id="ink4" x="-20%" y="-40%" width="140%" height="180%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.04" numOctaves="2" seed="31" result="n">
+        <animate attributeName="baseFrequency" values="0.012 0.04;0.016 0.05;0.012 0.04" dur="15s" repeatCount="indefinite"/>
+      </feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="70" xChannelSelector="R" yChannelSelector="G">
+        <animate attributeName="scale" values="70;1.2" begin="6.58s" dur="2.4s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".15 .7 .2 1"/>
+      </feDisplacementMap>
+    </filter>
+    <filter id="ink5" x="-20%" y="-40%" width="140%" height="180%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.04" numOctaves="2" seed="38" result="n">
+        <animate attributeName="baseFrequency" values="0.012 0.04;0.016 0.05;0.012 0.04" dur="16s" repeatCount="indefinite"/>
+      </feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="70" xChannelSelector="R" yChannelSelector="G">
+        <animate attributeName="scale" values="70;1.2" begin="6.90s" dur="2.4s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".15 .7 .2 1"/>
+      </feDisplacementMap>
+    </filter>
+    <filter id="ink6" x="-20%" y="-40%" width="140%" height="180%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.04" numOctaves="2" seed="45" result="n">
+        <animate attributeName="baseFrequency" values="0.012 0.04;0.016 0.05;0.012 0.04" dur="17s" repeatCount="indefinite"/>
+      </feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="70" xChannelSelector="R" yChannelSelector="G">
+        <animate attributeName="scale" values="70;1.2" begin="7.22s" dur="2.4s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".15 .7 .2 1"/>
+      </feDisplacementMap>
+    </filter>
+    <filter id="ink7" x="-20%" y="-40%" width="140%" height="180%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.04" numOctaves="2" seed="52" result="n">
+        <animate attributeName="baseFrequency" values="0.012 0.04;0.016 0.05;0.012 0.04" dur="18s" repeatCount="indefinite"/>
+      </feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="70" xChannelSelector="R" yChannelSelector="G">
+        <animate attributeName="scale" values="70;1.2" begin="7.54s" dur="2.4s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".15 .7 .2 1"/>
+      </feDisplacementMap>
+    </filter>
+  </defs>
+  </svg>
   <p class="kicker">とどく ／ 世界調査</p>
   <div class="orbit">
       <div class="voice">
         <blockquote><span class="ln">エージェントが全て正確に</span><span class="ln">読み書きできないと、</span><span class="ln"><em>申請で困るのは私</em>だからね。</span></blockquote>
         <p class="who">小野克樹。申請する本人。話すことも手を動かすこともできず、頭のスイッチ1つで Claude を使う<br>（Ono, ASSETS '26）</p>
       </div>
-      <aside class="slip s1" style="--i:0;--fx:-1;--fy:-1"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
+      <aside class="slip s1" style="filter:url(#ink0);--i:0;--fx:-1;--fy:-1"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
         <p>手続きの負担を、学ぶ・従う・心理の3つのコストに分けた。</p><a href="https://doi.org/10.1093/jopart/muu009">doi:10.1093/jopart/muu009</a></aside>
-      <aside class="slip s2" style="--i:1;--fx:0;--fy:-1"><div class="src"><span class="venue">2018</span><span class="au">Herd &amp; Moynihan</span></div>
+      <aside class="slip s2" style="filter:url(#ink1);--i:1;--fx:0;--fy:-1"><div class="src"><span class="venue">2018</span><span class="au">Herd &amp; Moynihan</span></div>
         <p>行政の負担は、法律を変えずに政策を動かす「別の手段」になる。</p><a href="https://doi.org/10.7758/9781610448789">doi:10.7758/9781610448789</a></aside>
-      <aside class="slip s3" style="--i:2;--fx:1;--fy:-1"><div class="src"><span class="venue">JITP 2011</span><span class="au">Goodwin ほか</span></div>
+      <aside class="slip s3" style="filter:url(#ink2);--i:2;--fx:1;--fy:-1"><div class="src"><span class="venue">JITP 2011</span><span class="au">Goodwin ほか</span></div>
         <p>国連加盟 192 か国の政府ポータルと省庁サイトのアクセシビリティを測った。</p><a href="https://doi.org/10.1080/19331681.2010.508011">doi:10.1080/19331681.2010.508011</a></aside>
-      <aside class="slip s4" style="--i:3;--fx:-1;--fy:0"><div class="src"><span class="venue">IMC 2020</span><span class="au">Singanamalla ほか</span></div>
+      <aside class="slip s4" style="filter:url(#ink3);--i:3;--fx:-1;--fy:0"><div class="src"><span class="venue">IMC 2020</span><span class="au">Singanamalla ほか</span></div>
         <p>政府のホスト名 135,408 件を集めた。上位サイトの一覧に載るのは 1 割に満たない。</p><a href="https://doi.org/10.1145/3419394.3423645">doi:10.1145/3419394.3423645</a></aside>
-      <aside class="slip s5" style="--i:4;--fx:1;--fy:0"><div class="src"><span class="venue">ASSETS 2024</span><span class="au">Kumar &amp; Wang</span></div>
+      <aside class="slip s5" style="filter:url(#ink4);--i:4;--fx:1;--fy:0"><div class="src"><span class="venue">ASSETS 2024</span><span class="au">Kumar &amp; Wang</span></div>
         <p>約 2 万件の学術 PDF を層別に選び、アクセシビリティを調べた。</p><a href="https://doi.org/10.1145/3663548.3675634">doi:10.1145/3663548.3675634</a></aside>
-      <aside class="slip s6" style="--i:5;--fx:-1;--fy:1"><div class="src"><span class="venue">Internet Research 2009</span><span class="au">Hackett &amp; Parmanto</span></div>
+      <aside class="slip s6" style="filter:url(#ink5);--i:5;--fx:-1;--fy:1"><div class="src"><span class="venue">Internet Research 2009</span><span class="au">Hackett &amp; Parmanto</span></div>
         <p>トップページだけでは、サイト全体のアクセシビリティは分からない。</p><a href="https://doi.org/10.1108/10662240910927830">doi:10.1108/10662240910927830</a></aside>
-      <aside class="slip s7" style="--i:6;--fx:0;--fy:1"><div class="src"><span class="venue">W4A 2013</span><span class="au">Vigo, Brown &amp; Conway</span></div>
+      <aside class="slip s7" style="filter:url(#ink6);--i:6;--fx:0;--fy:1"><div class="src"><span class="venue">W4A 2013</span><span class="au">Vigo, Brown &amp; Conway</span></div>
         <p>自動の検査ツールだけに頼ると、見つかる問題はおよそ 10 のうち 4。</p><a href="https://doi.org/10.1145/2461121.2461124">doi:10.1145/2461121.2461124</a></aside>
-      <aside class="slip s8" style="--i:7;--fx:1;--fy:1"><div class="src"><span class="venue">CHI 2022</span><span class="au">Fok ほか</span></div>
+      <aside class="slip s8" style="filter:url(#ink7);--i:7;--fx:1;--fy:1"><div class="src"><span class="venue">CHI 2022</span><span class="au">Fok ほか</span></div>
         <p>312 のアプリを 16 か月追い、画像のラベルの欠けを調べた。</p><a href="https://doi.org/10.1145/3491102.3502143">doi:10.1145/3491102.3502143</a></aside>
   </div>
   <div class="stage-ctl"><button type="button" id="op-skip">スキップ</button><button type="button" id="op-replay">もう一度</button></div>
@@ -349,10 +422,13 @@ tr.unr td { color: var(--muted); }
 (() => {
   const op = document.getElementById("opening");
   if (!op) return;
-  document.getElementById("op-skip").addEventListener("click", () => op.classList.add("done"));
+  const ink = document.getElementById("inkdefs");
+  const inkAt = (t) => { try { ink.setCurrentTime(t); } catch (e) {} };
+  document.getElementById("op-skip").addEventListener("click", () => { op.classList.add("done"); inkAt(30); });
   document.getElementById("op-replay").addEventListener("click", () => {
     op.classList.remove("done");
     op.querySelectorAll("*").forEach(el => { el.style.animation = "none"; void el.offsetWidth; el.style.animation = ""; });
+    inkAt(0);
   });
   setTimeout(() => op.classList.add("done"), 10500);  // 上映が終わったら「もう一度」を出す
 })();
