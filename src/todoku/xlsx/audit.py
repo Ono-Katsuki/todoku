@@ -586,7 +586,21 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     try:
         res = fill(wb, targets)
     except EditError as e:
-        return [Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
+        # 書いた値で条件付き書式がかかり、字が見えなくなる欄（テーマの色・明るさの補正で、字と塗りが同じ色になる書式など）：
+        # 書き込みは断る決まり（cellcheck）なので、試しの値を書く欄から除いて、もう一度だけ書く
+        import re as _re
+
+        cond = [m[1] for m in (_re.match(r"^(.+?): 書いた値で条件付き書式がかかり", ln) for ln in str(e).splitlines()) if m]
+        cond = [k for k in cond if k in targets]
+        if not cond:
+            return [Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
+        for k in cond:
+            targets.pop(k)
+            hidden_fmt.append(f"{k}（書いた値で条件付き書式がかかり、字が見えなくなる）")
+        try:
+            res = fill(wb, targets)
+        except EditError as e2:
+            return [Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e2).splitlines()[:30])]
     allowed = res.allowed_inputs
     allowed_c = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"}  # 部品 → 書いた状態
     pr = prove(wb.zip.original, res.blob, allowed, allowed_c, {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
