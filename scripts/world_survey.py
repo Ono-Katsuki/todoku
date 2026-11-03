@@ -617,6 +617,24 @@ def grade_file(path: Path, do_audit: bool, timeout: int = 300) -> dict:
 
 EXT = {"PDF": ".pdf", "XLSX": ".xlsx", "XLS": ".xls", "ODS": ".ods", "DOCX": ".docx", "DOC": ".doc", "ODT": ".odt",
        "RTF": ".rtf", "CSV": ".csv"}
+# 書類の名前の拡張子：目録の宣言（declared）がないか中身と違うことがあるので、URL の拡張子・Content-Type も見る
+# （とどくは CSV・TSV・JSON・.txt を中身だけでは決めず、名前で見分けるため）
+KNOWN_SUFFIX = {".pdf", ".xlsx", ".xlsm", ".xls", ".ods", ".docx", ".doc", ".odt", ".rtf", ".csv", ".tsv", ".txt",
+                ".json", ".jsonl", ".pptx", ".zip", ".jtd"}
+CTYPE_SUFFIX = {"text/csv": ".csv", "text/tab-separated-values": ".tsv", "text/plain": ".txt", "application/json": ".json",
+                "application/pdf": ".pdf", "application/zip": ".zip"}
+
+
+def suffix_for(s: dict, url: str, content_type: str | None) -> str:
+    from urllib.parse import unquote, urlsplit
+
+    ext = Path(unquote(urlsplit(url).path)).suffix.lower()
+    if ext in KNOWN_SUFFIX:
+        return ext
+    ct = (content_type or "").split(";")[0].strip().lower()
+    if ct in CTYPE_SUFFIX:
+        return CTYPE_SUFFIX[ct]
+    return EXT.get(s.get("declared", ""), "")
 
 
 def _rate(h: str, salt: str) -> float:
@@ -647,7 +665,7 @@ def run_sample(s: dict, tmp: Path) -> dict:
     h = hashlib.sha256(body).hexdigest()
     rec.update(sha256=h, bytes=len(body))
     # 標本ごとの名前（同じ書類が別の標本で同時に選ばれても、ほかの標本の段階付けの途中で消さない）
-    path = tmp / f"{h[:20]}-{s['id']}{EXT.get(s.get('declared', ''), '')}"
+    path = tmp / f"{h[:20]}-{s['id']}{suffix_for(s, rec['url'], rec.get('content_type'))}"
     path.write_bytes(body)
     try:
         rec.update(grade_file(path, _rate(h, "audit") < AUDIT_RATE))

@@ -55,8 +55,15 @@ def stratified(cells: list[tuple[int, int, int]]) -> dict:
         return {"p": None, "ci": [None, None], "n": 0}
     p = sum(N / tot * k / n for N, n, k in cells)
     var = sum((N / tot) ** 2 * (k / n) * (1 - k / n) / max(n - 1, 1) for N, n, k in cells)
-    h = Z * math.sqrt(var)
-    return {"p": round(p, 4), "ci": [round(max(0, p - h), 4), round(min(1, p + h), 4)], "n": sum(c[1] for c in cells)}
+    # 区間は、層別の分散から有効な標本の大きさを出して、その大きさのウィルソン区間にする（Korn & Graubard 1998）。
+    # 正規近似のままだと、どの層も 0% か 100% のとき分散が 0 になり、区間の幅が 0 になる
+    n_all = sum(c[1] for c in cells)
+    n_eff = p * (1 - p) / var if var > 0 else n_all
+    n_eff = min(n_eff, n_all)
+    d = 1 + Z * Z / n_eff
+    c = (p + Z * Z / (2 * n_eff)) / d
+    h = Z * math.sqrt(p * (1 - p) / n_eff + Z * Z / (4 * n_eff * n_eff)) / d
+    return {"p": round(p, 4), "ci": [round(max(0, c - h), 4), round(min(1, c + h), 4)], "n": n_all}
 
 
 def _ungraded_why(r: dict) -> str:
