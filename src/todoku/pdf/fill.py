@@ -41,6 +41,7 @@ class Patch:
     shown: str | None = None  # 見た目に描いた字（値と違うとき：選択肢の見せる字・書式で整えた数など）。読み戻しで見た目と照らす
     ap_text: str | None = None  # 見た目に描いた字の全体（リスト：見える行の選択肢を並べたもの）。なければ shown と照らす
     expect: dict | None = None  # 書いた状態：チェック・ラジオは {"V": 名前, "AS": [(部品の番号, 状態)]}、リストは {"I": 番号}
+    rect_mm: dict | None = None  # とどくが置いた字の枠：{page, x, y, w, h（mm）, size_pt, align}
 
 
 @dataclass
@@ -356,37 +357,37 @@ def _view_box(rot: int, w: float, h: float) -> tuple[float, float]:
     return (h, w) if rot in (90, 270) else (w, h)
 
 
-def inline_align(spot: dict, text_w: float | None = None) -> str:
-    """文字の中の空欄に書く字のそろえ方：空欄の前後の字で決める（見出しの字に寄せる）。
-    前にだけ字がある（「〒［　］」「○○区［　］」）→ 左、後ろにだけ字がある（「［　］年」）→ 右（後ろの字の手前）、
-    前後に字がある（「令和［　］年」）→ 中央。ただし、前後に字があっても、空欄が書く字（幅 text_w）よりずっと広い
-    （3 倍と字 2 つぶんを超える：「区長宛て［　　　　　　］年」）ときは、中央に置くと前後のどちらの字からも離れて読めない
-    ので、後ろの字の手前（右）にそろえる。覆って書く所（cover）は中央。"""
-    if spot.get("cover"):
-        return "center"
-    lab = spot.get("label") or ""
-    marks = list(re.finditer(r"［[^］]*］", lab))
-    m = next((x for x in marks if "▶" in x.group()), marks[0] if len(marks) == 1 else None)
-    if m is None:
-        return "center"
-    before = re.sub(r"［[^］]*］", "", lab[:m.start()]).strip(" 　")
-    after = re.sub(r"［[^］]*］", "", lab[m.end():]).strip(" 　")
-    if before and not after:
-        return "left"
-    if after and not before:
-        return "right"
-    if before and after and text_w is not None and spot.get("rect"):
-        r = spot["rect"]
-        size = float(spot.get("size") or 10.5)
-        if (r[2] - r[0]) > 3 * text_w + 2 * size:
-            return "right"
-    return "center"
+ALIGNS = ("left", "center", "right")
+
+
+def layout_options(key: str, value) -> tuple[dict, object]:
+    """書く値の、置き方の指定：{"value": 値, "align": "left"|"center"|"right", "pad_mm": 余白（mm）}（"as" と一緒でもよい）。
+    返す：({"align", "pad_mm"} のうち指定のあったもの, 値（"as" があれば {"as", "value"} のまま））。指定がなければ ({}, 値)。"""
+    if not (isinstance(value, dict) and ("align" in value or "pad_mm" in value)):
+        return {}, value
+    if set(value) - {"value", "align", "pad_mm", "as"} or "value" not in value:
+        raise FillError(f'{key}: 置き方を決めて書くときは {{"value": 値, "align": "left"|"center"|"right", "pad_mm": 余白}} の形で'
+                        "指定してください")
+    opts = {k: value[k] for k in ("align", "pad_mm") if k in value}
+    check_layout_options(key, opts)
+    rest = {k: v for k, v in value.items() if k in ("as", "value")}
+    return opts, (rest if "as" in rest else rest["value"])
+
+
+def check_layout_options(key: str, opts: dict) -> None:
+    al, pad = opts.get("align"), opts.get("pad_mm")
+    if al is not None and al not in ALIGNS:
+        raise FillError(f'{key}: align は "left"（既定）・"center"・"right" のどれかです')
+    if pad is not None and not (isinstance(pad, (int, float)) and not isinstance(pad, bool) and 0 <= pad <= 20):
+        raise FillError(f"{key}: pad_mm は、枠の端と字のあいだの余白（mm、0〜20）です")
 
 
 def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, size: float, dr_fonts: dict, *,
                     center: bool = False, comb: list | None = None, rot: int = 0, multiline: bool = True,
-                    cover: bool = False, align: str = "left", unit: float = 1.0) -> tuple[Ref, float]:
-    """cover：欄の下地を白く塗ってから書く（伏せ字の「○○」の上に書くときに、下の字を覆う。元の字は消さない）。
+                    cover: bool = False, align: str = "left", unit: float = 1.0,
+                    pad: float | None = None) -> tuple[Ref, float]:
+    """align：枠の中の左右のそろえ方（既定は左）。pad：枠の端と字のあいだの余白（pt。既定は 1.5pt か幅の 1/10 の小さいほう）。
+    cover：欄の下地を白く塗ってから書く（伏せ字の「○○」の上に書くときに、下の字を覆う。元の字は消さない）。
     rot：欄の回転（/MK の R）。描く向きの座標（vw×vh）で字を並べ、BBox も同じ大きさにして、Matrix で Rect の向きに回す。"""
     vw, vh = _view_box(rot, rect_w, rect_h)
     bg = f"q\n1 g\n0 0 {vw:.2f} {vh:.2f} re\nf\nQ\n".encode() if cover else b""
@@ -412,9 +413,10 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
     leading = s * 1.15
     block = leading * (len(lines) - 1) + s
     y = (vh + block) / 2 - s * 0.8
-    pad = min(1.5, 0.1 * vw)
+    pad = min(1.5, 0.1 * vw) if pad is None else min(pad, 0.45 * vw)
     align = "center" if center else align
-    ops = bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, (vw - 2 * pad) if align in ("center", "right") else None,
+    aw = vw - 2 * pad
+    ops = bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, aw if align in ("center", "right") else None,
                                           align) + b"Q\nEMC\n"
     return _ap(update, vw, vh, ops, fonts_used(lines), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
 
@@ -466,6 +468,7 @@ class Filler:
         self.warnings: list[str] = []
         self.circles: dict[int, list[dict]] = {}  # ページ → ○で囲む所（circle.resolve）
         self.covers: set[str] = set()  # 覆って書いた所（cover）の名前：覆う字に重なってよい
+        self.size_override: dict[str, float] = {}  # 一続きのマスにそろえた字の大きさ（_uniform_sizes）
         from .signatures import read as read_signatures
 
         self.sigs = read_signatures(doc)  # 電子署名：固定された欄・認証の署名が許す変更
@@ -902,7 +905,7 @@ class Filler:
             raise FillError(f"{spot['id']}: この所には 1 つの値（字か数）を書きます。リストや {{…}} の形の値は書けません"
                             f"（受け取った値：{value!r}）。空きが並ぶ所は、それぞれの id に 1 つずつ書いてください")
         text = _as_text(value)
-        size = float(spot.get("size") or 10.5 / view.unit)
+        size = float(self.size_override.get(spot["id"]) or spot.get("size") or 10.5 / view.unit)
         comb = None
         if k == "comb":
             boxes = spot.get("box_rects") or []
@@ -912,12 +915,13 @@ class Filler:
                 comb.append((bx0 - vx0, by0 - vy0, bx1 - vx0, by1 - vy0))
         cover = bool(spot.get("cover"))
         unit = view.unit  # 知らせる字の大きさは、紙の上の pt（UserUnit のあるページも）
-        # そろえ方：文字の中の空欄と、見出しに空欄の印（［　］）のある欄は、前後の字に寄せる（inline_align）
-        marked = k == "inline" or "［" in (spot.get("label") or "")
-        align = inline_align(spot, text_width(text, min(size, (vy1 - vy0) * 0.8)) if text else None) if marked else "left"
+        # そろえ方：エージェントが決める（align）。既定は左（枠の左の端から、小さな決まった余白）。字の意味からは決めない
+        align = spot.get("align") or "left"
+        pad = spot.get("pad_mm")
+        pad_pt = pad * view.mm if pad is not None else None
         ap, s = text_appearance(self.up, w, h, text, size, self.fonts_for(fonts_used([text]) | {"Helv"}),
                                 align=align, comb=comb, rot=rot,
-                                multiline=(vy1 - vy0) > 2.4 * min(size, 10.5 / unit), cover=cover, unit=unit)
+                                multiline=(vy1 - vy0) > 2.4 * min(size, 10.5 / unit), cover=cover, unit=unit, pad=pad_pt)
         if cover:
             self.covers.add(spot["id"])
             self.warnings.append(f"{spot['id']}: 元の字「{spot.get('covered', '')}」は、白い下地の欄で覆いました（元の字は消していません）")
@@ -933,15 +937,21 @@ class Filler:
         if comb:
             d["Ff"] = FF_COMB
             d["MaxLen"] = len(comb)
-        if marked:
-            d["Q"] = {"center": 1, "right": 2}.get(align, 0)
+        if align != "left":
+            d["Q"] = {"center": 1, "right": 2}[align]  # 見た目を作り直すソフトも、同じそろえ方で
         if rot:
             d["MK"] = {"R": rot}
         if cover:
             d.setdefault("MK", {})["BG"] = [1]  # 見た目を作り直すソフトでも、下地は白
         ref = self.up.new(d)
         self._attach(page_no, ref)
-        self.patches.append(Patch(spot["id"], "input", text, page_no, shown=text))
+        p_ = Patch(spot["id"], "input", text, page_no, shown=text)
+        # 書いた枠（ページの左上からの mm）・字の大きさ・そろえ方：エージェントが view_page で見て確かめ、違えば box・align で書き直す
+        p_.rect_mm = {"page": page_no, "x": round(vx0 / view.mm, 1), "y": round(vy0 / view.mm, 1),
+                      "w": round((vx1 - vx0) / view.mm, 1), "h": round((vy1 - vy0) / view.mm, 1),
+                      "size_pt": round(s * unit, 1), "align": "comb" if comb else align,
+                      "box_mm": [round(v / view.mm, 1) for v in (vx0, vy0, vx1, vy1)]}  # view_page の marks にそのまま渡せる
+        self.patches.append(p_)
 
     def _attach(self, page_no: int, ref: Ref, field: bool = True) -> None:
         self.page_annots.setdefault(page_no, []).append(ref)
@@ -1222,6 +1232,7 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
     used: dict = {}
     circ_used: dict = {}  # ○で囲んだ所（ページ → 番号と楕円）
     layouts: dict = {}
+    _uniform_sizes(f, doc, values, spots)
     xf = _xfa_form(doc)
     xfa_values = {k: v for k, v in values.items() if xf is not None and k in xf.by_id}
     for key, value in values.items():
@@ -1257,6 +1268,8 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
                     except AnchorError as e:
                         raise FillError(f"{key}: {e}") from None
                     f.circles.setdefault(sd["page"], []).append(sd)
+                    if sd.get("note"):
+                        f.warnings.append(sd["note"])
                     f.patches.append(Patch(sd["id"], "circle", sd["text"], sd["page"], anchor=dict(value), key=key, circle=sd))
                     continue
                 try:
@@ -1266,7 +1279,11 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
                 page_no = sd["page"]
                 if page_no not in views:
                     views[page_no] = View(doc, f.pages[page_no - 1])
-                f.add_widget(page_no, sd, value["value"], views[page_no])
+                opts = {k: value[k] for k in ("align", "pad_mm") if k in value}
+                check_layout_options(key, opts)
+                f.add_widget(page_no, {**sd, **opts}, value["value"], views[page_no])
+                if sd.get("note"):
+                    f.warnings.append(f"{sd['id']}: {sd['note']}")
                 f.patches[-1].anchor = dict(value)
                 f.patches[-1].key = key
                 continue
@@ -1289,7 +1306,9 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
             page_no, sd = spots[key]
             if page_no not in views:
                 views[page_no] = View(doc, f.pages[page_no - 1])
-            sd, value = as_kind(sd, value)
+            opts, value = layout_options(key, value)
+            sd, value = as_kind({**sd, **opts}, value)
+            _stacked_note(f, doc, page_no, sd, value, layouts)
             f.add_widget(page_no, sd, value, views[page_no])
         except FillError as e:
             msg = str(e)
@@ -1327,6 +1346,110 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
             raise FillError("書いた所が、ほかの字や線に重なるので、書き出していません：\n" + "\n".join(probs[:12]))
         f.warnings += [x for x in notes if x not in f.warnings]
     return FillResult(blob, f.patches, f.warnings, denied=denied)
+
+
+def _natural_size(spot: dict, text: str, unit: float) -> float | None:
+    """窓の欄に text を書くときの字の大きさ（add_widget・text_appearance と同じ決め方）。入らなければ None。"""
+    x0, y0, x1, y1 = spot["rect"]
+    w, h = x1 - x0, y1 - y0
+    size = float(spot.get("size") or 10.5 / unit)
+    if spot.get("kind") == "comb":
+        boxes = spot.get("box_rects") or []
+        return min(size, min(b[3] - b[1] for b in boxes) * 0.7) if boxes else None
+    try:
+        return layout_text(text, w, h, size, False, h > 2.4 * min(size, 10.5 / unit), unit)[1]
+    except FillError:
+        return None
+
+
+def _uniform_sizes(f: Filler, doc, values: dict, spots: dict) -> None:
+    """同じ行に隙間なく並ぶマス（一続きの欄：口座名義の 1 字ずつのマス）に、同じ書き込みで字を書くとき、字の大きさを
+    そろえる。マスの大きさが違うと、欄ごとに字の大きさが変わり、小さい字が小書きの字（「ヤ」が「ャ」）に読めるので、
+    いちばん小さい欄の大きさ（読める大きさより小さくはしない）に合わせ、そろえたことを伝える。"""
+    items = []
+    for k, v in values.items():
+        if k not in spots or k in f.by_name or isinstance(v, (dict, list, tuple, bool)) or v is None:
+            continue
+        n, sd = spots[k]
+        if sd.get("source") == "acroform" or sd.get("kind") not in ("text", "comb") or not sd.get("rect"):
+            continue
+        t = _as_text(v)
+        if not t or "\n" in t:
+            continue
+        items.append((n, sd, t))
+    if len(items) < 2:
+        return
+    items.sort(key=lambda x: (x[0], round(x[1]["rect"][1]), x[1]["rect"][0]))
+    groups, cur = [], []
+    for it in items:
+        if cur:
+            pn, ps, _pt_ = cur[-1]
+            r0, r1 = ps["rect"], it[1]["rect"]
+            same_row = it[0] == pn and abs(r0[1] - r1[1]) <= 1.0 and abs(r0[3] - r1[3]) <= 1.0
+            if same_row and -1.0 <= r1[0] - r0[2] <= 2.0:
+                cur.append(it)
+                continue
+            groups.append(cur)
+        cur = [it]
+    groups.append(cur)
+    for g in groups:
+        if len(g) < 2:
+            continue
+        unit = View(doc, f.pages[g[0][0] - 1]).unit
+        sizes = [(sd["id"], _natural_size(sd, t, unit)) for _n, sd, t in g]
+        known = [s for _i, s in sizes if s]
+        if len(known) < 2 or max(known) - min(known) <= 0.5:
+            continue
+        target = max(min(known), MIN_READABLE_PT / unit)
+        for fid, s in sizes:
+            if s and s > target:
+                f.size_override[fid] = target
+        small = [fid for fid, s in sizes if s and s < target - 0.05]
+        f.warnings.append("・".join(fid for fid, _s in sizes) + ": 同じ行に並ぶマスに書いた字の大きさを、"
+                          f"{_pt(target * unit)} pt にそろえました（マスの大きさが違い、欄ごとに字の大きさが変わると、小さい字が"
+                          "小書きの字（「ヤ」が「ャ」）に読めることがあるため）"
+                          + (f"。{'・'.join(small)} は、読める大きさ（{MIN_READABLE_PT:g} pt）でも入らないので小さいままです。"
+                             "本人に確かめてください" if small else ""))
+
+
+def _stacked_note(f: Filler, doc, page_no: int, sd: dict, value, layouts: dict) -> None:
+    """窓の欄（字の欄）のすぐ右か左に、印刷された字の行が縦に 2 つ以上並ぶ（「銀行／信用金庫／信用組合／農協」）とき：
+    書いた字がどの行の高さに来るかで、どの行に続けて読めるかが変わる。置く所は決めずに（エージェントが決める）、
+    行が並ぶことと、書いた字の高さ（mm）を知らせる。別の行に合わせるなら、box で枠を決めて書く。"""
+    if sd.get("kind") != "text" or sd.get("source") == "acroform" or not sd.get("rect") or "\n" in str(value):
+        return
+    from . import circle as _circle
+
+    lay = _circle.layout(doc, page_no, layouts)
+    x0, y0, x1, y1 = sd["rect"]
+    size = float(sd.get("size") or 10.5)
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    home = next((c for c in lay.cells if c.x0 <= cx <= c.x1 and c.y0 <= cy <= c.y1), None)  # 欄のあるマス（同じマスの行だけ）
+    rows = []
+    for cell_, ln in _circle._lines(lay):
+        if ln.vertical or not ln.text.strip() or ln.y0 < y0 - 0.5 or ln.y1 > y1 + 0.5:
+            continue
+        if home is not None and cell_ is not home:
+            continue
+        if (ln.x0 >= x1 - 1 and ln.x0 - x1 <= 3 * size) or (ln.x1 <= x0 + 1 and x0 - ln.x1 <= 3 * size):
+            rows.append(ln)
+    rows.sort(key=lambda ln: ln.y0)
+    distinct = []
+    for ln in rows:
+        if not distinct or ln.y0 >= distinct[-1].y1 - 0.2 * ln.size:
+            distinct.append(ln)
+    if len(distinct) < 2:
+        return
+
+    def short(ln) -> str:
+        return re.sub(r"\s+", "", ln.text)[:8]
+
+    mm = lay.view.mm
+    names = "／".join(short(ln) for ln in distinct[:6])
+    level = next((ln for ln in distinct if ln.y0 <= cy <= ln.y1), None)
+    f.warnings.append(f"{sd['id']}: 横に字の行が {len(distinct)} 行並ぶマス（{names}）です。書いた字は、欄の縦の中ほど（上 "
+                      f"{cy / mm:.1f} mm" + (f"・「{short(level)}」の行の高さ" if level else "")
+                      + "）に置きました。view_page で見て、別の行に合わせるなら box（mm）で枠を決めて書き直してください")
 
 
 def _permissions(f: Filler) -> list[dict]:

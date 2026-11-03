@@ -99,8 +99,10 @@ def _ink_mm(r: dict) -> tuple[float, float, float, float] | None:
 # ====================================================================== 1a 回した欄の見た目
 @pytest.mark.parametrize("rot", [90, 180, 270])
 def test_rotated_acroform_field_appearance_fits_rect(rot):
+    # ページの字は置かない（ページの画像は字も描くので、欄の字だけの外枠を見る）
     blob = _pdf(rot, "/FT /Tx /T (name) /Rect [100 542 130 742] /DA (/Helv 10 Tf 0 g) /MK << /R %d >>" % rot
-                if rot != 180 else "/FT /Tx /T (name) /Rect [100 542 300 572] /DA (/Helv 10 Tf 0 g) /MK << /R 180 >>")
+                if rot != 180 else "/FT /Tx /T (name) /Rect [100 542 300 572] /DA (/Helv 10 Tf 0 g) /MK << /R 180 >>",
+                text=b"")
     res = fill(PdfDocument(blob), {"name": "ABC Yamada"})
     doc = PdfDocument(res.blob)
     rect, box, m = _mapped(doc, _widget(doc, "name"))

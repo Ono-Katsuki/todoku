@@ -69,9 +69,9 @@ def test_pdf_circle_by_anchor_is_proved_and_read_back(tmp_path):
 
 
 def test_pdf_circle_refuses_when_it_would_touch_other_text(tmp_path):
-    # 上下左右に字が詰まっている（行の間も字の間も空きがない）：どの楕円もほかの字の面に触れるので断り、四角の囲み線を勧める
+    # 上下左右に字が詰まっている（行の間も字の間も空きがない）：どの楕円もほかの字の墨を切るので断り、描ける四角の囲み線を勧める
     data = _pdf([(70, 710, 10, "有無無"), (70, 700, 10, "有無無"), (70, 690, 10, "有無無")])
-    with pytest.raises(api.ApiError, match="触れます.*border"):
+    with pytest.raises(api.ApiError, match="墨を切ります.*border"):
         _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "無", "occurrence": 3}})
     # 四角の囲み線は、字の箱に沿うので、ほかの字の面（箱の縁から 1/12 字の内側）に触れない
     r, out = _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "無", "occurrence": 3, "style": "border"}})
@@ -85,8 +85,9 @@ def test_pdf_circle_between_tight_neighbours_does_not_cut_the_glyphs(tmp_path):
     囲む字の箱にかからず（字の箱の角まで字が描かれることがある）、外側の縁がほかの字の面に触れない楕円はないので、楕円では
     断って四角の囲み線を勧める。四角の囲み線（字の箱の外に線の内側の縁）は囲める。読み戻しも同じ決め方。"""
     data = _pdf([(70, 700, 10, "補装具費（購入・借受け・修理）支給申請書")])
-    with pytest.raises(api.ApiError, match="触れます.*border"):
-        _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "購入"}})
+    r, _ = _write(tmp_path, data, "t0.pdf", {"@c1": {"circle": "購入"}})  # 楕円は「（」の縁に触れる：描いて知らせる
+    assert r["proof_ok"] and r["read_back_ok"], (r["unexpected"], r["read_back_differences"])
+    assert any("縁に触れます" in w for w in r["warnings"]), r["warnings"]
     r, out = _write(tmp_path, data, "t.pdf", {"@c1": {"circle": "購入", "style": "border"}})
     assert r["proof_ok"] and r["read_back_ok"], (r["unexpected"], r["read_back_differences"])
     c = r["circled"][0]

@@ -68,6 +68,7 @@ class Cell:
     parse_error: str | None = None
     array_master: tuple[int, int] | None = None  # 配列数式の一部なら親セル
     dynamic: bool = False  # 動的配列の数式（結果の大きさで、こぼれる範囲が変わる）
+    schema_error: str | None = None  # 子の形が CT_Cell（ECMA-376 18.3.1.4）に合わない：<f>・<v>・<is> が二つ以上など
 
     _shared_from: tuple | None = None  # 共有数式の子：(親の構文木, 行のずれ, 列のずれ)
 
@@ -93,7 +94,7 @@ class Cell:
         return self._formula is not None or self._shared_from is not None or self.array_master is not None
 
 
-TAG_C, TAG_V, TAG_F = M + "c", M + "v", M + "f"
+TAG_C, TAG_V, TAG_F, TAG_IS = M + "c", M + "v", M + "f", M + "is"
 
 
 def _covers(rule, r: int, c: int) -> bool:
@@ -637,13 +638,23 @@ class Workbook:
                 st = c.get("s")
                 cell = Cell(sh_name, r, col, t=c.get("t"), style=int(st) if st is not None else 0)
                 v = f = None
+                nv = nf = ni = 0
                 for ch in c:  # 値（v）と数式（f）：それぞれ最初のもの（find と同じ）を、子を一度たどって拾う
                     tg = ch.tag
                     if tg == TAG_V:
+                        nv += 1
                         if v is None:
                             v = ch
-                    elif tg == TAG_F and f is None:
-                        f = ch
+                    elif tg == TAG_F:
+                        nf += 1
+                        if f is None:
+                            f = ch
+                    elif tg == TAG_IS:
+                        ni += 1
+                if nv > 1 or nf > 1 or ni > 1:
+                    # CT_Cell は f・v・is をそれぞれ高々一つしか持てない。二つあると、どれを見せるかはアプリで違う
+                    # （Excel は壊れたファイルとして直す・LibreOffice は後ろを見せる）ので、値は決まらない
+                    cell.schema_error = (f"<v> が {nv} 個" if nv > 1 else f"<f> が {nf} 個" if nf > 1 else f"<is> が {ni} 個")
                 self._last_sst = None
                 cell.value = self._cell_value(cell.t, v, c)
                 if self._last_sst is not None:

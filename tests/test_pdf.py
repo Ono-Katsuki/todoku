@@ -304,9 +304,9 @@ def test_ambiguous_kinds_and_alternatives_are_offered_not_decided():
     assert prove(blob, res.blob, {comb["id"]}).ok
     got = {f["id"]: f["value"] for f in build(PdfDocument(res.blob, "s.pdf"))["pages"][0]["fields"]}
     assert got[comb["id"]] == "1000001"
-    # 1つの欄として（{"as": "text"}）：マスの仕切りの線が字を横切るので、書き出さない（placement）
-    with pytest.raises(FillError, match="罫線が横切ります"):
-        fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"as": "text", "value": "100-0001"}})
+    # 1つの欄として（{"as": "text"}）：マスの仕切りの線が字にかかるので、位置を添えて知らせる（placement。断らない）
+    res = fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"as": "text", "value": "100-0001"}})
+    assert any("罫線がかかる見込み" in w for w in res.warnings), res.warnings
     with pytest.raises(FillError, match="としては書けません"):
         fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"as": "checkbox", "value": True}})
     # 日付の空欄は語（年・月・日）を手がかりにしたもの：規則では決められない所

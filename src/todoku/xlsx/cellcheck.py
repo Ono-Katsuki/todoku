@@ -231,6 +231,21 @@ def _wrap_by_write(wb, sh, rng: tuple, before: str, after: str, size: float) -> 
     return say("{place}" + merged, after, got[0], got[1], f"列の幅 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイント", got[2])
 
 
+def _hashes(v, shown: str, num_fmt: str | None, scale: float, avail: float) -> bool:
+    """幅に入らない数が「####」になるか。「標準」以外の形式は、そのまま「####」。「標準」は、小数の桁を減らして入れようと
+    するので、整数の部分（符号を含む）も入らないときだけ。"""
+    from ..textwidth import text_cells
+
+    if (num_fmt or "General").strip().lower() not in ("general", ""):
+        return True
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return True
+    whole = str(int(round(f))) if abs(f) < 1e11 else shown
+    return text_cells(whole) * scale > avail
+
+
 def fit_issues(wb, plan) -> list[dict]:
     """書いた字がセルに収まらず、切れて見える・「####」になる見込みの所：[{id, cell, message}]。"""
     from ..formula.numfmt import format_value
@@ -270,6 +285,14 @@ def fit_issues(wb, plan) -> list[dict]:
         widths = [text_cells(ln) * scale for ln in lines]
         need = max(widths) if widths else 0.0
         name = key if not key.startswith("@") else where
+        if not isinstance(v, str) and not cf.shrink:
+            # 数は折り返さない（折り返して表示するセルでも）。幅に入らない数を、Excel は「####」と表示する。
+            # 「標準」の形式では小数の桁を減らして入れようとするので、整数の部分（と符号）が入らないときだけ
+            if need > avail and _hashes(v, shown, st.num_fmt, scale, avail):
+                out.append({"id": name, "cell": where, "message":
+                            f"{where}: 数「{shown}」はセルの幅（約 {avail:.1f} 字分）に入らず、Excel では「####」と表示される"
+                            "見込みです（数は折り返しません。列の幅からの見積もり。本人に確かめてください）"})
+            continue
         if cf.wrap:
             n = sum(max(1, math.ceil(w / avail)) for w in widths)
             height = sum(_row_h(sh, r) for r in range(r1, r2 + 1))
@@ -297,11 +320,6 @@ def fit_issues(wb, plan) -> list[dict]:
             out.append({"id": name, "cell": where, "message":
                         f"{where}: セルの幅に合わせて字が縮んで表示されます（元の大きさの約 {int(100 * avail / need)}%。小さすぎて"
                         "読みにくくならないか、本人に確かめてください）"})
-            continue
-        if not isinstance(v, str):
-            if (st.num_fmt or "General").strip().lower() not in ("general", ""):
-                out.append({"id": name, "cell": where, "message":
-                            f"{where}: 「{shown}」はセルの幅に入らず、Excel では「####」と表示される見込みです（列の幅からの見積もり）"})
             continue
         if m:
             out.append({"id": name, "cell": where, "message":
