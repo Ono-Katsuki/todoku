@@ -186,7 +186,7 @@ def check_writing(blob: bytes, filename: str, win: dict) -> list[Check]:
     targets = {}
     protected = []
     for f in win["fields"]:
-        if f.get("readonly"):
+        if f.get("readonly") or f.get("filled"):  # 書き込み済みの欄（todoku が書いた所）は除く
             protected.append(f["id"])
             continue
         targets[f["id"]] = _sample(f)
@@ -195,7 +195,7 @@ def check_writing(blob: bytes, filename: str, win: dict) -> list[Check]:
     except FillError as e:
         return [Check("全入力欄への書き込み", False, f"{len(targets)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
     pr = prove(blob, res.blob, written_of(res.patches))
-    note = f"（保護で書けない欄 {len(protected)} か所は除外）" if protected else ""
+    note = f"（保護で書けない・書けない作りの欄 {len(protected)} か所は除外）" if protected else ""
     out = [Check("全入力欄への書き込み", pr.ok, f"入力欄 {len(win['fields']):,} か所のうち {len(targets):,} に試しの値を書き込み{note}。{pr.headline()}",
                  [*pr.unexpected, *pr.lint_errors])]
     after = build(RtfDocument(res.blob, filename))

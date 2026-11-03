@@ -91,11 +91,48 @@ class FormField:
 
 
 def name_text(n: str) -> str:
-    """名前（バイト列を latin-1 で読んだもの）を、UTF-8 として読めるならその文字にする。"""
+    """名前（バイト列を latin-1 で読んだもの）を、UTF-8 として読めるならその文字にする。
+    UTF-8 として読めない名前（Shift_JIS で作った名前など）は、字を推し量らず、PDF の名前の書き方（#82#CD）でバイト列のまま示す
+    （name_unreadable で確かめられる。書き込みでは、この形の名前で選べる）。"""
     try:
         return n.encode("latin-1").decode("utf-8")
-    except (UnicodeEncodeError, UnicodeDecodeError):
+    except UnicodeEncodeError:
         return n
+    except UnicodeDecodeError:
+        return "".join(ch if 0x21 <= ord(ch) <= 0x7E and ch != "#" else f"#{ord(ch):02X}" for ch in n)
+
+
+# PDFDocEncoding で決まっていない符号（PDF 2.0 の附属書 D）
+_PDFDOC_UNDEFINED = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x18)) | {0x7F, 0x9F, 0xAD}
+
+
+def text_unreadable(b: bytes) -> bool:
+    """PDF の「テキスト文字列」として読めないバイト列か：UTF-16BE（印つき）なら偶数の長さで正しい UTF-16、
+    UTF-8（印つき）なら正しい UTF-8、それ以外は PDFDocEncoding で決まっていない符号を含まないこと。"""
+    if b[:2] == b"\xfe\xff":
+        try:
+            b[2:].decode("utf-16-be")
+            return False
+        except UnicodeDecodeError:
+            return True
+    if b[:3] == b"\xef\xbb\xbf":
+        try:
+            b[3:].decode("utf-8")
+            return False
+        except UnicodeDecodeError:
+            return True
+    return any(c in _PDFDOC_UNDEFINED for c in b)
+
+
+def name_unreadable(n: str) -> bool:
+    """UTF-8 として読めない名前か。"""
+    try:
+        n.encode("latin-1").decode("utf-8")
+        return False
+    except UnicodeEncodeError:
+        return False
+    except UnicodeDecodeError:
+        return True
 
 
 def _txt(doc, v) -> str:
@@ -144,16 +181,21 @@ def read_fields(doc) -> list[FormField]:
             return
         ft = getattr(h.get("FT"), "name", "")
         opts = []
+        bad_opts = []
         for o in doc.resolve(h.get("Opt")) or []:
             o = doc.resolve(o)
             if isinstance(o, list) and len(o) >= 2:
                 opts.append((_txt(doc, o[0]), _txt(doc, o[1])))
+                raws = [doc.resolve(o[0]), doc.resolve(o[1])]
             else:
                 opts.append((_txt(doc, o), _txt(doc, o)))
+                raws = [o]
+            bad_opts += [bytes(r) for r in raws if isinstance(r, (bytes, PdfString)) and text_unreadable(bytes(r))]
         ml = h.get("MaxLen")
         f = FormField(name or f"（名前のない欄 {getattr(ref, 'num', '')}）", ft, int(h.get("Ff") or 0), h.get("V"),
                       _txt(doc, node.get("TU")), opts, int(ml) if isinstance(ml, (int, float)) else None,
                       ref=ref if isinstance(ref, Ref) else None, da=_txt(doc, h.get("DA")), q=int(h.get("Q") or 0))
+        f.bad_opts = bad_opts  # 文字列の決まり（PDFDocEncoding・UTF-16BE）で読めない選択肢（元のバイト列）
         widgets = kids if kids else [ref]
         for w in widgets:
             wd = doc.resolve(w)

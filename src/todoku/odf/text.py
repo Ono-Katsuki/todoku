@@ -27,6 +27,10 @@ _TABLE = "{" + NS["table"] + "}"
 _OFFICE = "{" + NS["office"] + "}"
 _FORM = "{" + NS["form"] + "}"
 _FIELDNS = "urn:openoffice:names:experimental:ooo-ms-interop:xmlns:field:1.0"
+_LOEXT = "{" + NS["loext"] + "}"
+# LibreOffice のコンテンツコントロール（loext:content-control、Word の w:sdt を LibreOffice が読み書きする形）の種類
+CC_KINDS = (("checkbox", "checkbox"), ("dropdown", "dropdown"), ("combobox", "combo"), ("date", "date"), ("picture", "picture"),
+            ("plain-text", "text"))
 
 # 印だけの要素（空白の決まりでは無いものとみなす。6.1.2 の 2a）
 MARKS = {_T + x for x in ("bookmark", "bookmark-start", "bookmark-end", "reference-mark", "reference-mark-start",
@@ -310,6 +314,12 @@ class OdtDocument:
         atoms: list = []
         self._inline(el, p, part, ctx, atoms)
         self._collapse(p, part, atoms)
+        for sg in p.segs:  # コンテンツコントロールの中の字（空白の決まりを通した後の片）
+            c = sg.field
+            if c is not None and c.source == "odf-cc" and c.para is p:
+                if not getattr(c, "_segs_done", False):
+                    c.result_segs, c._segs_done = [], True
+                c.result_segs.append(sg)
         if p.heading and not p.label:
             p.label = self._outline_label(el)
         return p
@@ -396,6 +406,8 @@ class OdtDocument:
                 atoms.append(("seg", self._control_segs(ctl, ch, p, part, ctx)))
             elif t in (_T + "placeholder", _T + "text-input", _T + "drop-down"):
                 atoms.append(("seg", self._input_field(ch, p, part, ctx)))
+            elif t == _LOEXT + "content-control":
+                self._content_control(ch, p, part, ctx, atoms)
             elif t.startswith("{" + _FIELDNS + "}"):
                 self._fieldmark(ch, p, part, ctx, atoms)
             elif t.startswith(_T) or t.startswith(_OFFICE):
@@ -561,11 +573,33 @@ class OdtDocument:
         ctl.result_segs = [sg]
         return [sg]
 
+    def _content_control(self, el: El, p: Para, part: str, ctx: _Ctx, atoms: list) -> None:
+        """LibreOffice のコンテンツコントロール（loext:content-control）：文字・チェック・ドロップダウン・コンボ・日付・画像。
+        名前は loext:alias（なければ loext:tag）、選択肢は loext:list-item の loext:display-text、日付の書式は loext:date-format、
+        プレースホルダーを表示しているかは loext:showing-place-holder。中の字は、書式（text:span）のまま段落の字として読む。"""
+        def g(k: str) -> str:
+            return el.get("loext:" + k) or ""
+
+        kind = next((kk for attr, kk in CC_KINDS if g(attr) == "true"), "richtext")
+        opts = [li.get("loext:display-text") or li.get("loext:value") or "" for li in el.findall("loext:list-item")]
+        ctl = Control(kind, "odf-cc", g("alias") or g("tag"), el, part, p, options=opts, checked=g("checked") == "true",
+                      date_format=g("date-format"), placeholder=g("showing-place-holder") == "true",
+                      lock="contentLocked" if g("lock") in ("contentLocked", "sdtContentLocked") else "")
+        ctl.values = [li.get("loext:value") or "" for li in el.findall("loext:list-item")]
+        self._add_control(ctl)
+        n0 = len(atoms)
+        self._inline(el, p, part, _Ctx(ctx.underline, ctx.hidden, ctl, ctx.run), atoms)
+        if not any(a[0] in ("ch", "s", "tab", "br", "seg") for a in atoms[n0:]):
+            # 中が空：書く所は、要素の終わりのタグの前
+            at = el.es if el.es != el.e else el.e
+            atoms.append(("seg", [Seg("", "field", Src("ctl", part, at, at, el=el), ctx.run, ctx.hidden, False, ctl)]))
+
     def _fieldmark(self, el: El, p: Para, part: str, ctx: _Ctx, atoms: list) -> None:
         """Word の旧来のフォームの欄を、LibreOffice が書いた形（field:fieldmark）：チェック・ドロップダウンは1つの印、
         文字の欄は field:fieldmark-start と field:fieldmark-end のあいだの字。"""
         typ = el.get("{" + _FIELDNS + "}type", "") or ""
-        name = el.get("{" + _FIELDNS + "}name", "") or ""
+        # 欄の名前：LibreOffice は text:name に書く（古い形は field:name）
+        name = el.get("text:name", "") or el.get("{" + _FIELDNS + "}name", "") or ""
         params = {}
         for prm in el.els():
             if prm.local == "param":

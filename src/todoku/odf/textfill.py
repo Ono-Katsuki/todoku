@@ -250,7 +250,63 @@ class OdtWriter:
         if src in ("odf-form", "odf-radio"):
             self.form(item, c, value, part, data)
             return
+        if src == "odf-cc":
+            self.content_control(item, c, value, part, data, tp)
+            return
         raise FillError(f"{item['id']}: この部品（{src}）には書けません")
+
+    def content_control(self, item: dict, c, value, part: str, data: bytes, tp: str) -> None:
+        """LibreOffice のコンテンツコントロール（loext:content-control）：中の字を値にし、プレースホルダーの印
+        （loext:showing-place-holder）を外す。チェックは loext:checked と印の字（loext:checked-state・unchecked-state）、
+        日付は loext:date-format を通した字と loext:current-date。"""
+        el = c.node
+        lp = top(self.doc.pkg.tree(part)).prefix_of(NS["loext"]) or "loext"
+        tag = data[el.s:el.se]
+        new_tag = set_attr(tag, f"{lp}:showing-place-holder", None) if c.placeholder else tag
+        if c.kind == "picture":
+            raise FillError(f"{item['id']}: 画像の欄には書けません")
+        if c.kind == "checkbox":
+            on = _as_bool(value)
+            new_tag = set_attr(new_tag, f"{lp}:checked", "true" if on else "false")
+            glyph = (el.get("loext:checked-state") or "☒") if on else (el.get("loext:unchecked-state") or "☐")
+            self._cc_text(item, c, part, glyph.encode("utf-8") if glyph else b"", tp)
+            if new_tag != tag:
+                self.put(part, el.s, el.se, new_tag)
+            self.patches.append(Patch(item["id"], "control", on, part))
+            return
+        text = _is_text_value(value)
+        if c.kind == "dropdown" and text not in c.options:
+            raise FillError(f"{item['id']}: 「{text}」は選択肢にありません。選べるのは " + "、".join(f"「{x}」" for x in c.options))
+        if c.kind == "date":
+            from ..docx.fill import _parse_any_date, format_word_date
+
+            d = _parse_any_date(text)
+            fmt = c.date_format or "YYYY-MM-DD"
+            # LibreOffice の数の書式の日付（YYYY・MM・DD は大文字でも小文字でも同じ）を、Word の書式の字で読む
+            text = format_word_date(d, fmt.replace("Y", "y").replace("D", "d"))
+            new_tag = set_attr(new_tag, f"{lp}:current-date", d.strftime("%Y-%m-%dT00:00:00Z"))
+        self._cc_text(item, c, part, inline_xml(text, tp), tp)
+        if new_tag != tag:
+            self.put(part, el.s, el.se, new_tag)
+        self.patches.append(Patch(item["id"], "input", text, part))
+
+    def _cc_text(self, item: dict, c, part: str, body: bytes, tp: str) -> None:
+        """コンテンツコントロールの中の字を body にする：最初の字の片をすべて body に、ほかの字の片は消す（text:span などの
+        書式の要素はそのまま）。中が空なら、終わりのタグの前に入れる。"""
+        segs = [s for s in c.result_segs if s.node is not None]
+        firsts = [s for s in segs if s.node.kind in ("txt", "s", "tab", "br")]
+        if not firsts and c.node.se == c.node.e:
+            raise FillError(f"{item['id']}: 中身を入れる所のない形（空の要素）のコンテンツコントロールです")
+        if not firsts:
+            at = segs[0].node.s if segs else c.node.es
+            self.put(part, at, at, body)
+            return
+        done = False
+        for s in firsts:
+            src = s.node
+            a, z = (src.starts[0], src.ends[-1]) if src.kind == "txt" else (src.s, src.e)
+            self.put(part, a, z, b"" if done else body)
+            done = True
 
     def _content(self, part: str, el, body: bytes, data: bytes) -> None:
         if el.se == el.e:

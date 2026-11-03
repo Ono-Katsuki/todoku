@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import Counter
 
 from ..xlsx.audit import Audit, Check
@@ -117,9 +118,10 @@ def raw_chars(doc: PdfDocument, page: dict) -> list[str]:
 
 
 def _count(texts) -> Counter:
+    """字を数える（正準分解して数える：窓で分けて描いた母音を1字にした「ো」は、元の「ে」「া」と同じに数える）。"""
     c = Counter()
     for t in texts:
-        for ch in t:
+        for ch in unicodedata.normalize("NFD", t):
             if not ch.isspace() and ch not in BOXES:
                 c[ch] += 1
     return c
@@ -166,7 +168,7 @@ def check_glyphs(doc: PdfDocument, win: dict) -> Check:
     dup_total = 0
     for pg, page in zip(win["pages"], doc.pages()):
         raw = _count(raw_chars(doc, page))
-        shown = _count(pg["_plain"])
+        shown = _count(pg["_plain"]) - _count(pg.get("_added") or [])  # 窓で足した字（ルビのかっこ）は除く
         tiny = _count(t for k, t in pg["_dropped"] if k == "size")
         merged = _count(t for k, t in pg["_dropped"] if k == "dup")
         try:
@@ -199,6 +201,13 @@ def _check_unmapped_and_images(doc: PdfDocument, win: dict) -> list[Check]:
                      "すべての字を文字（Unicode）に直せました" if not unmapped else
                      f"{unmapped} 字は、フォントに文字の対応がなく、文字に直せませんでした（窓では �）",
                      [f"ページ {p['number']}: {p['unmapped']} 字" for p in win["pages"] if p["unmapped"]]))
+    flags = [(p["number"], fl) for p in win["pages"] for fl in p.get("read_flags") or []]
+    hard = [f"{n} ページ：{fl['title']}（{'、'.join(fl['where'][:3])}）" for n, fl in flags if fl["grade"] in "CDEF"]
+    soft = [f"{n} ページ：{fl['title']}（{'、'.join(fl['where'][:3])}）" for n, fl in flags if fl["grade"] not in "CDEF"]
+    out.append(Check("窓の字を信用できない所", not hard,
+                     "窓の字をそのまま信用できない所はありません" if not flags else
+                     f"窓の字をそのまま信用できない所が {len(flags)} 種類あります（窓のページの頭に、位置と確かめ方を書いています）",
+                     hard + soft, agent=bool(soft) and not hard))
     img = [p["number"] for p in win["pages"] if p.get("image_only")]
     from .pageimage import unreadable_images
 

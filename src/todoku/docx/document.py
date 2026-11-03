@@ -23,6 +23,10 @@ WINGDINGS = {0xF06F: "□", 0xF0A8: "□", 0xF071: "❑", 0xF072: "❒", 0xF06E:
 SYMBOL_FONT = {0xF0B7: "•", 0xF0A7: "§", 0xF0D7: "×", 0xF0B4: "×", 0xF0AE: "→", 0xF0AC: "←", 0xF0B0: "°", 0xF0B1: "±"}
 
 
+# 箇条書きの印のうち、チェックの欄（□）とみなすもの。チェックした印は、同じフォントで ■（☐ は ☑。Wingdings は ☑ の字）
+BULLET_BOXES = frozenset("□☐❑❒")
+
+
 class DocxError(ValueError):
     pass
 
@@ -56,7 +60,11 @@ class Para:
 
     def raw_text(self) -> str:
         """XML の文字の要素から来た字だけ（非表示の字も含む。窓の読み落としの検査に使う）。"""
-        return "".join(s.text for s in self.segs if s.kind in ("t", "sym", "math", "ruby"))
+        return "".join(s.text for s in self.segs if s.kind in ("t", "sym", "math", "ruby", "del"))
+
+    def deleted_text(self) -> str:
+        """変更履歴で削除された字（w:del の w:delText、RTF の \\deleted）。窓では本文に入れず、印をつけて示す。"""
+        return "".join(s.text for s in self.segs if s.kind == "del")
 
     def hidden_text(self) -> str:
         return "".join(s.text for s in self.segs if s.hidden and s.kind in ("t", "sym"))
@@ -175,6 +183,15 @@ class Numbering:
         if "start" in d:
             d["start"] = int(d["start"] or 1)
         return d
+
+    def fmt(self, num_id: str, ilvl: int) -> str:
+        """段落番号の書式（decimal・bullet など）。上書き（lvlOverride の lvl）があれば、そちら。"""
+        if num_id not in self.nums:
+            return ""
+        aid, over = self.nums[num_id]
+        lv = dict(self.abstract.get(aid, {}).get(ilvl, {}))
+        lv.update({k: v for k, v in over.get(ilvl, {}).items() if k != "start"})
+        return lv.get("numFmt") or "decimal"
 
     def label(self, num_id: str, ilvl: int) -> str:
         if num_id not in self.nums or num_id == "0":
@@ -483,6 +500,9 @@ class DocxDocument:
                 seen += 1
         if num is not None and num[0]:
             p.label = self.numbering.label(num[0], num[1])
+            if p.label in BULLET_BOXES and self.numbering.fmt(num[0], num[1]) == "bullet":
+                # 箇条書きの印が □ の段落（「□ Ⅰ 負担上限月額に関する認定」）：チェックの欄にできる（印は段落番号の定義の字）
+                p.bullet = {"num": num[0], "ilvl": num[1], "direct": ppr is not None and ppr.find("numPr") is not None}
         self._inline(node, p, part, {"stack": []})
         return p
 
@@ -492,9 +512,10 @@ class DocxDocument:
             if loc == "r":
                 self._run(ch, p, part, st, deleted)
             elif loc in ("hyperlink", "smartTag", "customXml", "ins", "moveTo", "fldSimple", "bdo", "dir"):
-                if loc == "fldSimple":
-                    st["simple"] = ch.get("instr", "")
+                n0 = len(p.segs)
                 self._inline(ch, p, part, st, deleted)
+                if loc == "fldSimple":
+                    _mark_result(p.segs[n0:], ch.get("instr", ""), ch, part, p, ch.get("fldLock", "") in ("1", "true", "on"))
             elif loc in ("del", "moveFrom"):
                 self._inline(ch, p, part, st, True)
             elif loc == "sdt":
@@ -549,6 +570,10 @@ class DocxDocument:
                         f["ctl"] = self._form_field(f, part, p)
                         f["n0"] = len(p.segs)
                     ctl = f.get("ctl")
+                    if ctl is None and f["phase"] == "result":
+                        # 差し込み・計算などのフィールドの結果（MERGEFIELD・DATE・REF・= など）：Word が更新すると作り直す字
+                        _mark_result(p.segs[f.get("n0", len(p.segs)):], f["instr"], f["begin"], part, p,
+                                     f["begin"].get("fldLock", "") in ("1", "true", "on"))
                     if ctl is not None:
                         ctl.end = ch
                         ctl.result_segs = p.segs[f.get("n0", len(p.segs)):]
@@ -569,7 +594,7 @@ class DocxDocument:
             if loc == "t":
                 p.segs.append(Seg(ch.text, "t", ch, r, hidden, underline))
             elif loc == "delText":
-                continue
+                p.segs.append(Seg(ch.text, "del", ch, r, True))  # 変更履歴で削除された字（窓では印をつけて示す）
             elif loc == "tab" or loc == "ptab":
                 p.segs.append(Seg("\t", "tab", ch, r, hidden, underline))
             elif loc in ("br", "cr"):
@@ -829,6 +854,21 @@ class DocxDocument:
         yield "body", self.main, self.body
         for kind, part, blocks in self.stories:
             yield kind, part, blocks
+
+
+def _mark_result(segs: list, instr: str, node: Node, part: str, p: Para, locked: bool) -> None:
+    """フィールドの結果の字（フォームの欄でないもの）に、そのフィールドの印（kind "field" の Control。文書の入力欄の一覧には
+    入れない）を付ける。結果の字は、Word がフィールドを更新すると作り直す（ECMA-376 第1部 17.16）ので、入力欄の推定・
+    字を目印にした書き込みの対象にしない（固定した（fldLock）フィールドは、そのことを添える）。"""
+    instr = " ".join(str(instr).split())
+    if not instr:
+        return
+    fc = Control("field", "field-result", instr.split()[0].upper(), node, part, p)
+    fc.instr = instr
+    fc.locked = locked
+    for s in segs:
+        if s.field is None:
+            s.field = fc
 
 
 def _ancestors(n: Node, stop: Node):

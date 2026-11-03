@@ -57,8 +57,13 @@ def sheet_markdown(sh: dict) -> list[str]:
 
 
 def sheet_contents(wb, sh) -> tuple[list[Chart], list[dict]]:
-    if getattr(wb, "kind", "xlsx") == "xls":
+    kind = getattr(wb, "kind", "xlsx")
+    if kind == "xls":
         return _xls(wb, sh)
+    if kind == "ods":
+        # OpenDocument の表計算：OOXML の部品（drawing・oleObject）はない。シートの図形・グラフ（draw:frame）は、
+        # odf/sheet.py がシートの shapes として読んで窓に出す
+        return [], []
     return _xlsx(wb, sh)
 
 
