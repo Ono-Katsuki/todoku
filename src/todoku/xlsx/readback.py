@@ -39,6 +39,8 @@ def check(wb_after, written: dict) -> dict[str, tuple[bool, str]]:
         except Exception:  # noqa: BLE001
             continue
         ok = values_equal(expected, got) if not (expected is None and got is None) else True
+        if cell is not None and cell.schema_error:
+            ok = False  # 値が一つに決まらない（<v> が二つなど）。どの値を読んでも、見える値の保証にならない
         fmt = wb_after.style(cell.style).num_fmt if cell is not None else "General"
         if ok and isinstance(v, str) and is_number(got) and not isinstance(got, bool) and is_date_format(fmt):
             # 日付は、セルの値をブックの数え方で日付に戻して、書いた日付と同じかを別に確かめる

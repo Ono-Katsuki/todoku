@@ -96,10 +96,17 @@ def already_written(doc, win: dict) -> tuple[set, list[str]]:
     返す：(その欄の id, 窓に値が出ていない欄)。"""
     from .window import Spots
 
-    marks = set(Spots(doc).marks)
+    marks = Spots(doc).marks
     done = {f["id"] for f in win["fields"] if f["id"] in marks}
+
+    def emptied(fid: str) -> bool:
+        # しおりの中が空の所（字を目印にした書き込みで、字を消しただけのもの：old「　　　（支店」→ new「（支店」）は、
+        # 書いた字がない。窓に値が出ないのが正しいので、値が出ていない欄としない
+        m = marks[fid]
+        return isinstance(m, tuple) and len(m) >= 3 and m[1] == m[2]
+
     bad = [f"{f['id']}: 書いた所のしおりがあるのに、窓に値が出ていません" for f in win["fields"]
-           if f["id"] in done and f.get("kind") != "checkbox" and f.get("value") in (None, "")]
+           if f["id"] in done and f.get("kind") != "checkbox" and f.get("value") in (None, "") and not emptied(f["id"])]
     return done, bad
 
 

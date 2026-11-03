@@ -8,12 +8,13 @@
   書く字が、下線に触れたとしないため）。字の送りの幅の両端は、字の大きさの 0.06 倍だけ内側
 - ○の形：楕円（中心と半径）か四角の囲み線（circle.resolve の決めたもの）と、その線の太さ
 
-確かめること（どれかに当たれば、書き出さずに断る。エージェントは、書く所・形を変えて書き直す）：
-(a) とどくが置いた字（窓の推定した欄・字を目印にした書き込み・枠）が、印刷された字の面（circle.face）に重なる
-    （覆って書く所（cover）は、覆う字に重なってよい）
-(b) とどくが置いた字・○が、ページの罫線（線の描画から組み立てた横線・縦線）を横切る
-(c) 同じ書き込みで書いた値・○どうしが重なる（作り手の決めたフォームの欄も含む）
-画像（スキャン）に重なる所は、画像に描かれた罫線・字を確かめられないので、断らずに知らせる（warnings）。
+断るのは、はっきり重なるときだけ（いまのエージェントは書く所を正しく決め、書いた後のページを view_page で見て確かめるので、
+きわどい所は、所と位置（mm）を添えて知らせ、エージェントが見て決める）：
+- 断る：(a) とどくが置いた字の墨が、印刷された字の墨（circle.INK）に大きく重なる（小さいほうの面の 1/4 以上）
+        (c) 同じ書き込みで書いた値どうしが大きく重なる・○の線が、書いた値の墨を髪の毛の太さより深く切る
+- 知らせる（warnings）：字の面（circle.face）に少しかかる・罫線に触れる／横切る（○の線も）・曲線（「見本」の印など）に
+  かかる・画像（スキャン）に重なる（画像に描かれた罫線・字は確かめられない）・書いた値どうしが少しかかる
+（覆って書く所（cover）は、覆う字に重なってよい）
 作り手の決めたフォームの欄（AcroForm）の中の字は、欄の位置を作り手が決めたので、(a)・(b) は見ない。
 """
 
@@ -27,6 +28,31 @@ from .layout import View
 INK_UP = 0.7  # 基線から上の墨の高さ（字の大きさに対する比：和文の字面・欧文の大文字の高さの目安）
 INK_SIDE = 0.06  # 字の送りの幅の両端から、内側に入れる幅（字の大きさに対する比：字の左右の余白）
 EPS = 0.15  # 重なりとみなす、食い込みの下限（pt）：座標の丸めの分
+CLEAR = 0.25  # はっきり重なるとみなす、重なりの面積の比（小さいほうの面に対して）
+HAIR = 0.3  # 髪の毛の太さ（pt）：○の線がこれより深く書いた値の墨を切るときは断る
+
+
+def _area(r) -> float:
+    return max(0.0, r[2] - r[0]) * max(0.0, r[3] - r[1])
+
+
+def _ovl_ratio(r, s) -> float:
+    """二つの四角の重なりの面積の、小さいほうの面積に対する比。"""
+    w, h = min(r[2], s[2]) - max(r[0], s[0]), min(r[3], s[3]) - max(r[1], s[1])
+    if w <= 0 or h <= 0:
+        return 0.0
+    small = min(_area(r), _area(s))
+    return (w * h) / small if small > 0 else 1.0
+
+
+def _curve_hits(pts: list, box) -> bool:
+    """曲線（制御点を結んだ折れ線で近づけたもの）が、四角の中を通るか。"""
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        for k in range(9):
+            x, y = x0 + (x1 - x0) * k / 8, y0 + (y1 - y0) * k / 8
+            if box[0] + EPS < x < box[2] - EPS and box[1] + EPS < y < box[3] - EPS:
+                return True
+    return False
 
 
 def reopen(doc, blob: bytes):
@@ -155,6 +181,16 @@ def _shape_meets_box(kind: str, g, lw: float, box) -> bool:
     return touches((g[0], g[1], g[2] + h, g[3] + h), box)
 
 
+def _shape_holds_box(kind: str, g, lw: float, box) -> bool:
+    """書いた字の墨の四角が、○の線の内側にすっかり入るか（○の中に書いた字は、線を切らない）。"""
+    from .circle import inside
+
+    h = lw / 2
+    if kind == "border":
+        return g[0] + h <= box[0] and g[1] + h <= box[1] and box[2] <= g[2] - h and box[3] <= g[3] - h
+    return g[2] > h and g[3] > h and inside((g[0], g[1], g[2] - h, g[3] - h), box)
+
+
 def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tuple[list[str], list[str]]:
     """返す：(断る理由, 知らせること)。orig：書く前の文書（印刷された字・罫線）、new：書いた後の文書（書いた字の形）。
     created：とどくが置いた欄の名前（窓の推定した欄・目印・枠）。covers：覆って書く所の名前。"""
@@ -221,21 +257,37 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
             placed = it[1] != "text" or it[3]  # とどくが置いたもの（作り手の欄の中の字は、(a)・(b) を見ない）
             if placed:
                 if it[1] == "text" and name not in covers:
-                    hit = next(((c, b) for b in it[2] for c in lay.chars if not c.text.isspace()
-                                and _overlap(b, _circle.face(c))), None)
-                    if hit is not None:
-                        problems.append(f"{name}：書いた字が、印刷された字「{hit[0].text}」に重なります（{where(hit[1])}）")
+                    clear = next(((c, b) for b in it[2] for c in lay.chars if not c.text.isspace()
+                                  and _ovl_ratio(b, _circle.face(c, _circle.INK)) >= CLEAR), None)
+                    if clear is not None:
+                        problems.append(f"{name}：書いた字が、印刷された字「{clear[0].text}」の上に重なります（{where(clear[1])}）")
+                    else:
+                        hit = next(((c, b) for b in it[2] for c in lay.chars if not c.text.isspace()
+                                    and _overlap(b, _circle.face(c))), None)
+                        if hit is not None:
+                            notes.append(f"{name}：書いた字が、印刷された字「{hit[0].text}」の縁に少しかかる見込みです"
+                                         f"（{where(hit[1])}）。view_page で見て確かめてください")
                 rules = [(r, True) for r in lay.hs] + [(r, False) for r in lay.vs]
                 if it[1] == "text":
                     cross = next(((r, hz, b) for b in it[2] for r, hz in rules if _rule_crosses_box(r, hz, b)), None)
                     if cross is not None:
-                        problems.append(f"{name}：書いた字を、ページの{'横' if cross[1] else '縦'}の罫線が横切ります"
-                                        f"（{where(cross[2])}）。線のあいだの空いた所に書いてください（box で枠を決めて書けます）")
+                        notes.append(f"{name}：書いた字に、ページの{'横' if cross[1] else '縦'}の罫線がかかる見込みです"
+                                     f"（{where(cross[2])}）。view_page で見て、字が線に重なっていれば、線のあいだの空いた所に"
+                                     "書き直してください（box で枠を決めて書けます）")
                 else:
                     cross = next(((r, hz) for r, hz in rules if _rule_crosses_shape(r, hz, it[1], it[2], it[3])), None)
                     if cross is not None:
-                        problems.append(f"{name}：○の線が、ページの{'横' if cross[1] else '縦'}の罫線を横切ります（{where(ob)}）。"
-                                        "\"style\": \"border\"（字に沿った四角）か、box（○の外枠、mm）で、線の内側に収めてください")
+                        alt = "box（○の外枠、mm）" if it[1] == "border" else "\"style\": \"border\"（字に沿った四角）か box（○の外枠、mm）"
+                        notes.append(f"{name}：{'四角' if it[1] == 'border' else '○'}の線が、ページの{'横' if cross[1] else '縦'}の罫線に"
+                                     f"かかる見込みです（線のあいだに収まる形はありませんでした。{where(ob)}）。view_page で見て、"
+                                     f"どの字を囲んだか分かりにくければ、{alt}で書き直してください")
+                curves = getattr(lay.pc, "curve_paths", [])
+                boxes_ = it[2] if it[1] == "text" else [ob]
+                if it[1] == "text":
+                    cv = next((b for b in boxes_ for pts in curves if _curve_hits([lay.view.pt(x, y) for x, y in pts], b)), None)
+                    if cv is not None:
+                        notes.append(f"{name}：書いた字に、ページの曲線（印・図など）がかかる見込みです（{where(cv)}）。"
+                                     "view_page で見て確かめてください")
                 if any(_overlap(ob, pr, 0.5) for pr in pics):
                     notes.append(f"{name}：書いた所は、ページの画像（スキャン）に重なります。画像に描かれた罫線や字に重なって"
                                  f"いないかは確かめられないので、view_page で見て確かめてください（{where(ob)}）")
@@ -245,10 +297,18 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
                 if a[1] != "text" and b[1] != "text":
                     continue  # ○どうしは circle.resolve が確かめる
                 if a[1] == "text" and b[1] == "text":
-                    hit = next((x for x in a[2] for y in b[2] if _overlap(x, y)), None)
+                    clear = next((x for x in a[2] for y in b[2] if _ovl_ratio(x, y) >= CLEAR), None)
+                    hit = clear or next((x for x in a[2] for y in b[2] if _overlap(x, y)), None)
                 else:
-                    t, s = (a, b) if a[1] == "text" else (b, a)
-                    hit = next((x for x in t[2] if _shape_meets_box(s[1], s[2], s[3], x)), None)
-                if hit is not None:
-                    problems.append(f"{a[0]} と {b[0]}：同じ書き込みで書いたものどうしが重なります（{where(hit)}）")
+                    t, s_ = (a, b) if a[1] == "text" else (b, a)
+                    clear = next((x for x in t[2] if x[2] - x[0] > 2 * HAIR and x[3] - x[1] > 2 * HAIR and
+                                  _shape_meets_box(s_[1], s_[2], s_[3], (x[0] + HAIR, x[1] + HAIR, x[2] - HAIR, x[3] - HAIR))
+                                  and not _shape_holds_box(s_[1], s_[2], s_[3], x)), None)
+                    hit = clear or next((x for x in t[2] if _shape_meets_box(s_[1], s_[2], s_[3], x)
+                                         and not _shape_holds_box(s_[1], s_[2], s_[3], x)), None)
+                if clear is not None:
+                    problems.append(f"{a[0]} と {b[0]}：同じ書き込みで書いたものどうしが重なります（{where(clear)}）")
+                elif hit is not None:
+                    notes.append(f"{a[0]} と {b[0]}：同じ書き込みで書いたものどうしが少しかかる見込みです（{where(hit)}）。"
+                                 "view_page で見て確かめてください")
     return problems, notes

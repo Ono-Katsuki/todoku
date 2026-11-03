@@ -37,6 +37,7 @@ from ..formula.parser import addr, parse_cell
 from ..textwidth import cells, east_asian_context
 from ..pdf.circle import _pattern, shape, touches, face, inside
 from ..pdf.circle import around as _around
+from ..pdf.circle import INK as _INK
 from ..pdf.circle import border as _border
 from ..pdf.circle import encloses as _encloses
 from ..pdf.circle import hits as _hits
@@ -489,8 +490,12 @@ def resolve(wb, spec: dict, used: dict) -> dict:
     style = spec.get("style", "ellipse")
     if style not in ("ellipse", "border"):
         raise CircleError('style は "ellipse"（楕円の○。既定）か "border"（字を囲む四角の図形。○でなくてよいと本人が確かめたとき）です')
+    loose = None
     if style == "border":
         g, hit = _border(rect, size, others, None, pad)
+        if g is None:
+            g, _h = _border(rect, size, others, None, pad, loose=True)
+            loose = hit if g is not None else None
         if g is None:
             raise CircleError(f"「{spec['circle']}」を四角で囲むと、同じセルのほかの字" + (f"「{hit.text}」" if hit else "") +
                               "に触れます（字の間が詰まっています）")
@@ -498,6 +503,9 @@ def resolve(wb, spec: dict, used: dict) -> dict:
         e = ((g[0] + g[2]) / 2, (g[1] + g[3]) / 2, (g[2] - g[0]) / 2, (g[3] - g[1]) / 2)
     else:
         e, hit = shape(rect, size, others, None, pad)
+        if e is None:
+            e, _h = shape(rect, size, others, None, pad, loose=True)
+            loose = hit if e is not None else None
         if e is None:
             raise CircleError(f"「{spec['circle']}」を○で囲むと、同じセルのほかの字" + (f"「{hit.text}」" if hit else "") +
                               "に触れます。pad（字と○のすき間、pt）を小さくするか、○でなくてよいと本人が確かめたら"
@@ -513,6 +521,8 @@ def resolve(wb, spec: dict, used: dict) -> dict:
                           + (f"（{'・'.join(why)}）" if why else "") + "。囲みがほかの字にずれるおそれがあるので、描いていません。"
                           "字の前に「○」を足す書き方（old/new。本人に確かめてから）を使ってください"
                           + ("（style \"border\" も同じ見積もりで置くので、変わりません）" if style == "ellipse" else ""))
+    if loose is not None:
+        notes.append(f"囲みの線が、同じセルの字「{loose.text}」の縁に触れる見込み（字の間が詰まっている。字の墨は切らない）")
     notes.append(f"位置の見積もりの誤差 約 {max(ex, ey) * mm:.1f} mm 以内（目安）")
     if lay.hal in ("center", "right"):
         # 中央・右揃えの字の位置はセルの幅で決まる。列の幅の測り方が Excel と違うソフト（LibreOffice で 1 割半ほど狭く
@@ -806,10 +816,10 @@ def read_back(blob: bytes, name: str, circled: list[dict]) -> list[dict]:
         if rect_shape:
             box = (x, y, x + w, y + h)
             inner = "".join(x_.text for x_ in gl if not x_.text.isspace() and _encloses("border", box, x_))
-            touch = [x_ for x_ in gl if not x_.text.isspace() and not _encloses("border", box, x_) and _hits("border", box, x_)]
+            touch = [x_ for x_ in gl if not x_.text.isspace() and not _encloses("border", box, x_) and _hits("border", box, x_, 0.0, True)]
         else:
             inner = "".join(x_.text for x_ in gl if not x_.text.isspace() and inside(e, (x_.x0, x_.y0, x_.x1, x_.y1)))
-            touch = [x_ for x_ in gl if not x_.text.isspace() and not inside(e, (x_.x0, x_.y0, x_.x1, x_.y1)) and touches(e, face(x_))]
+            touch = [x_ for x_ in gl if not x_.text.isspace() and not inside(e, (x_.x0, x_.y0, x_.x1, x_.y1)) and touches(e, face(x_, _INK))]
         if inner != re.sub(r"\s", "", c["text"]) or touch:
             out.append({"id": c["id"], "written": f"○「{c['text']}」",
                         "read_back": f"囲んでいる字「{inner}」" + (f"・触れている字「{''.join(t.text for t in touch)}」" if touch else "")})
