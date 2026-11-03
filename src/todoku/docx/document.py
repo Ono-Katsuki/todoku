@@ -137,6 +137,7 @@ class Control:
     lock: str = ""
     help: str = ""
     ax: object = None  # ActiveX の部品（source が activex のとき、axfile.AxRef）
+    multiline: bool = True  # 書式なしテキストのコントロール（w:text）：w:multiLine（既定は「いいえ」。ECMA-376 第1部 17.5.2.44）
 
 
 Block = Para | Table
@@ -1053,10 +1054,12 @@ class DocxDocument:
         options: list[str] = []
         date_fmt = date_lid = date_cal = ""
         checked = False
+        multiline = True
         for k in pr.kids:
             loc = k.local
             if loc == "text":
                 kind = "text"
+                multiline = (k.get("multiLine") or "").lower() in ("1", "true", "on")
             elif loc == "date":
                 kind = "date"
                 df = k.find("dateFormat")
@@ -1081,7 +1084,7 @@ class DocxDocument:
         ctl = Control(kind, "sdt", (alias.get("val") if alias is not None else "") or (tag.get("val") if tag is not None else ""),
                       sdt, part, p, options=options, checked=checked, date_format=date_fmt,
                       placeholder=pr.find("showingPlcHdr") is not None, lock=lock.get("val", "") if lock is not None else "",
-                      date_lid=date_lid, date_calendar=date_cal)
+                      date_lid=date_lid, date_calendar=date_cal, multiline=multiline)
         self.controls.append(ctl)
         return ctl
 

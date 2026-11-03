@@ -388,6 +388,17 @@ class Spots:
         out.append(text[at:hi])
         return norm_label("".join(out))
 
+    def bound(self, c) -> "tuple | None":
+        """結び付けた XML の値（w:dataBinding）：(Word が表示する値, たどれないときの理由, 値の所)。結び付けがなければ None。"""
+        if getattr(c, "source", "") != "sdt" or not hasattr(self.doc, "zip"):
+            return None
+        memo = self.__dict__.setdefault("_bound", {})
+        if id(c) not in memo:
+            from .databind import binding_of, bound_value
+
+            memo[id(c)] = bound_value(self.doc, c) if binding_of(c) is not None else None
+        return memo[id(c)]
+
     def value(self, item: dict):
         """いまの値（書き込み済みなら、その値）。"""
         name = item["id"]
@@ -405,6 +416,11 @@ class Spots:
                 from ..axfile import value_of
 
                 return value_of(c.ax)  # ActiveX の部品：部品の中に保存された値
+            b = self.bound(c)
+            if b is not None and b[1] is None:
+                # 文書の中の XML のデータに結び付いた欄（w:dataBinding）：Word は開くとき、その XML の値で表示し直す
+                v = b[0]
+                return None if v in ("", None) and c.placeholder and c.kind != "checkbox" else v
             if c.kind == "checkbox":
                 return c.checked
             if c.placeholder:
@@ -759,6 +775,14 @@ def build(doc: DocxDocument) -> dict:
             d["maxlen"] = c.maxlen
         if c is not None and c.kind == "date" and c.date_format:
             d["format"] = c.date_format
+        bnd = sp.bound(c) if c is not None else None
+        if bnd is not None:
+            # 文書の中の XML のデータに結び付いた欄：窓の値は、Word が開くときに表示する、その XML の値
+            from .databind import binding_of
+
+            d["bound_to"] = f"{bnd[2].part} {binding_of(c).xpath}" if bnd[2] is not None else binding_of(c).xpath
+            if bnd[1]:
+                d["bound_problem"] = bnd[1]
         if it.get("provenance") == AGENT:
             d["agent"] = True
             d["why"] = it["why"]

@@ -232,6 +232,25 @@ class CsvFillResult:
     patches: list[CsvPatch] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     appended_rows: int = 0
+    formula_like: list[dict] = field(default_factory=list)  # 表計算で数式として読まれうる値（formula_like を見る）
+
+
+# 表計算（Excel・LibreOffice）が、CSV のマスを数式として読む先頭の字（OWASP の CSV Injection）：= + - @ タブ CR
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+_PLAIN_NEGATIVE = __import__("re").compile(r"-\d+(?:[.,]\d+)?")
+
+
+def formula_like(text: str) -> bool:
+    """値が、表計算で開くと数式として読まれうる形か（先頭が FORMULA_START の字。ただの負の数「-5」は除く）。"""
+    return text[:1] in FORMULA_START and not _PLAIN_NEGATIVE.fullmatch(text)
+
+
+def formula_note(key: str, text: str) -> str:
+    shown = text.replace("\t", "（タブ）").replace("\r", "（CR）")
+    head = {"\t": "タブ", "\r": "CR"}.get(text[:1], text[:1])
+    return (f"{key}: 「{shown}」は「{head}」で始まるので、Excel・LibreOffice で開くと"
+            f"数式として計算されることがあります（CSV インジェクション）。値は変えずに、そのまま書きました。字のまま見せるなら、先頭に"
+            f"「'」を付けた「'{shown}」で書き直せます（読み込む仕組みによっては「'」も字として残るので、どちらにするか本人に確かめてください）")
 
 
 def fill(f: CsvFile, values: dict) -> CsvFillResult:
@@ -318,7 +337,9 @@ def fill(f: CsvFile, values: dict) -> CsvFillResult:
         at = y
     out += f.blob[at:]
     patches.sort(key=lambda p: (p.row, p.col))
-    return CsvFillResult(bytes(out), patches, warnings, len(new_rows))
+    risky = [{"id": p.key, "value": p.value, "safe_form": "'" + p.value} for p in patches if formula_like(p.value)]
+    warnings += [formula_note(x["id"], x["value"]) for x in risky]
+    return CsvFillResult(bytes(out), patches, warnings, len(new_rows), risky)
 
 
 # ====================================================================== 証明

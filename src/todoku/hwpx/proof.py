@@ -97,7 +97,14 @@ def prove(original: bytes, new: bytes, written: dict) -> HwpxProof:
     except Exception as e:  # noqa: BLE001
         pr.lint_errors.append(f"書き込み後の文書を読めません: {e}")
         return pr
-    changed = package_check(pr, original, new, set(a.parts))
+    from .fill import HEADER
+
+    changed = package_check(pr, original, new, set(a.parts) | {HEADER})
+    added_cp: set[bytes] = set()
+    if HEADER in changed:
+        # 書いた字の文字の形（取り消し線・字の色・網かけを除いた写し）を、hh:charProperties の終わりに足しただけであること
+        added_cp = _header_check(a, b, pr)
+        changed = [x for x in changed if x != HEADER]
     for part in changed:
         if part in b.parts:
             err = well_formed(b.pkg.xml(part))
@@ -173,7 +180,7 @@ def prove(original: bytes, new: bytes, written: dict) -> HwpxProof:
             pr.unexpected.append(f"段落 {i + 1}：しおりが、書き込みの印（_todoku_…）のほかに変わっています")
         ca = set(re.findall(rb'charPrIDRef="([^"]*)"', xa[p_old.el.s:p_old.el.e]))
         cb = set(re.findall(rb'charPrIDRef="([^"]*)"', xb[p_new.el.s:p_new.el.e]))
-        if not cb <= (ca or {b"0"}):
+        if not cb <= ((ca or {b"0"}) | added_cp):
             pr.unexpected.append(f"段落 {i + 1}：元の段落にない文字の形（{', '.join(x.decode() for x in cb - ca)}）が使われています")
         fa = [_strip_value(xa[x.s:x.se], ["dirty"]) for x in p_old.el.iter() if L(x) == "fieldBegin"]
         fb = [_strip_value(xb[x.s:x.se], ["dirty"]) for x in p_new.el.iter() if L(x) == "fieldBegin"]
@@ -189,6 +196,34 @@ def prove(original: bytes, new: bytes, written: dict) -> HwpxProof:
         if i not in targets and _plain(x) != _plain(y):
             pr.unexpected.append(f"書いていない段落 {i + 1} の字が変わっています（「{x.text[:30]}」→「{y.text[:30]}」）")
     return pr
+
+
+def _header_check(a: HwpxDocument, b: HwpxDocument, pr: HwpxProof) -> set[bytes]:
+    """header.xml の差が、元の文字の形の写し（fill.clean_charpr）を hh:charProperties の終わりに足し、itemCnt を直しただけか。
+    足した文字の形の id を返す。"""
+    from .fill import HEADER, add_charprs, clean_charpr
+
+    xa, xb = a.pkg.xml(HEADER), b.pkg.xml(HEADER)
+    ra, rb_ = a.pkg.tree(HEADER), b.pkg.tree(HEADER)
+    ca = {el.attrs.get("id", ""): el for el in ra.iter() if L(el) == "charPr"}
+    added = [el for el in rb_.iter() if L(el) == "charPr" and el.attrs.get("id", "") not in ca]
+    mapping: dict[str, str] = {}
+    for el in added:
+        nid = el.attrs.get("id", "")
+        got = xb[el.s:el.e]
+        src = next((cp for cp, x in ca.items() if clean_charpr(xa[x.s:x.e], nid) == got), None)
+        if src is None:
+            pr.unexpected.append(f"{HEADER}：足した文字の形 {nid} が、元の文字の形から取り消し線・字の色・網かけを除いた写しではありません")
+            continue
+        mapping[src] = nid
+    try:
+        again = add_charprs(xa, ra, mapping) if mapping else xa
+    except Exception as e:  # noqa: BLE001
+        pr.unexpected.append(f"{HEADER}：足した文字の形を確かめられません（{e}）")
+        return set()
+    if again != xb:
+        pr.unexpected.append(f"{HEADER}：文字の形を足したほかに変わっています")
+    return {v.encode() for v in mapping.values()}
 
 
 def _plain_no_forms(p) -> str:

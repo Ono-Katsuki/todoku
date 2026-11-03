@@ -30,6 +30,9 @@ SPECIAL = {"emdash": "—", "endash": "–", "emspace": "\u2003", "enspace": "\u
            "lquote": "‘", "rquote": "’", "ldblquote": "“", "rdblquote": "”"}
 INVISIBLE = {"zwj", "zwnj", "ltrmark", "rtlmark", "zwbo", "zwnbo", "softline", "softcol", "softpage"}
 # 中の字を出さない宛先（書式・情報・絵・フィールドの命令など）
+# 書いた字に引き継がない文字の書式の制御語（RTF 1.9.1）：取り消し線（\\strike・二重の \\striked）・非表示（\\v）・
+# 字の色（\\cf）・蛍光ペン（\\highlight）・背景の色（\\cb・\\chcbpat）
+LOOK_WORDS = ("strike", "striked", "cf", "highlight", "cb", "chcbpat")
 SKIP = {"fonttbl", "colortbl", "stylesheet", "info", "pict", "listtable", "listoverridetable", "revtbl", "rsidtbl",
         "generator", "xmlnstbl", "latentstyles", "datastore", "themedata", "colorschememapping", "objdata", "nonshppict",
         "shprslt", "pnseclvl", "pn", "ftnsep", "ftnsepc", "aftnsep", "aftnsepc", "ftncn", "aftncn", "pgdsctbl", "mmathPr",
@@ -60,6 +63,7 @@ class RSrc:
     starts: list[int] | None = None
     ends: list[int] | None = None
     uc: int = 1  # この字を読んだときの \\uc（書き足す字の、代わりの字の数）
+    look: dict | None = None  # この字の書式のうち、取り消し線・非表示・字の色・蛍光ペン・背景の色（LOOK_WORDS → 値）
 
 
 @dataclass
@@ -77,6 +81,7 @@ class _St:
     first: bool = True  # グループの最初の字句か（宛先の制御語を見分ける）
     star: bool = False  # \* のあと
     deleted: bool = False  # 変更履歴で削除された字（\deleted）
+    look: dict = field(default_factory=dict)  # LOOK_WORDS の制御語 → 値（グループの中で変えるときは、写してから変える）
 
 
 @dataclass
@@ -365,6 +370,7 @@ class RtfDocument:
             hid = st.hidden or kind == "del"
             if kind in ("t", "del") and segs and segs[-1].kind == kind and segs[-1].node is not None and segs[-1].node.kind == "txt" \
                     and segs[-1].hidden == hid and segs[-1].underline == st.ul and segs[-1].field is fctl \
+                    and segs[-1].node.look == st.look \
                     and getattr(segs[-1], "_open", False) and segs[-1].node.e == s_join[0]:
                 sg = segs[-1]
                 sg.text += ch
@@ -374,7 +380,7 @@ class RtfDocument:
             else:
                 if segs and getattr(segs[-1], "_open", False):
                     segs[-1]._open = False
-                sg = Seg(ch, kind, RSrc("txt", s, e, [s], [e], st.uc), None, hid, st.ul, fctl)
+                sg = Seg(ch, kind, RSrc("txt", s, e, [s], [e], st.uc, st.look), None, hid, st.ul, fctl)
                 sg._open = True
                 segs.append(sg)
             s_join[0] = e
@@ -394,6 +400,7 @@ class RtfDocument:
                 p.mark = (tok.s, tok.e) if tok is not None else None
                 p.end = tok.e if tok is not None else (p.segs[-1].node.e if p.segs and p.segs[-1].node else p.start)
                 p.uc = st.uc
+                p.mark_look = st.look  # 段落の終わりの印の所の書式（空の段落・空のマスに足す字の書式）
                 story.last_end = p.end
                 story.para = None
             level = st.itap if st.itap > 0 else (1 if st.intbl else 0)
@@ -430,7 +437,7 @@ class RtfDocument:
             if k == "open":
                 flush_bytes()
                 stack.append(st)
-                st = _St(st.dest, st.skip, st.uc, st.font, st.hidden, st.ul, st.intbl, st.itap, True, False, st.deleted)
+                st = _St(st.dest, st.skip, st.uc, st.font, st.hidden, st.ul, st.intbl, st.itap, True, False, st.deleted, st.look)
                 depth += 1
                 s_join[0] = -1
                 continue
@@ -589,10 +596,14 @@ class RtfDocument:
                 st.font = t.param
             elif w == "plain":
                 st.font, st.hidden, st.ul, st.deleted = self.deff, False, False, False
+                st.look = {}
             elif w == "deleted":
                 st.deleted = t.param != 0  # 変更履歴で削除された字（RTF 1.9.1 の Revision Marks）
             elif w == "v":
                 st.hidden = t.param != 0
+                st.look = {**st.look, "v": 0 if t.param == 0 else 1}
+            elif w in LOOK_WORDS:
+                st.look = {**st.look, w: 1 if t.param is None else t.param}
             elif w.startswith("ul") and w not in ("ulc",):
                 st.ul = not (w == "ulnone" or t.param == 0)
             elif w == "pard":
@@ -612,9 +623,9 @@ class RtfDocument:
             elif w in ("cellx", "clvmgf", "clvmrg", "clmgf", "clmrg", "clcbpat"):
                 self._row_def(story, st, w, t.param)
             elif w == "tab":
-                para().segs.append(Seg("\t", "tab", RSrc("tab", t.s, t.e), None, st.hidden, st.ul, None))
+                para().segs.append(Seg("\t", "tab", RSrc("tab", t.s, t.e, look=st.look), None, st.hidden, st.ul, None))
             elif w in ("line", "page", "column"):
-                para().segs.append(Seg("\n", "br", RSrc("br", t.s, t.e), None, st.hidden, False, None))
+                para().segs.append(Seg("\n", "br", RSrc("br", t.s, t.e, look=st.look), None, st.hidden, False, None))
             elif w in SPECIAL:
                 add_char(SPECIAL[w], t.s, t.e)
             elif w == "chftn":

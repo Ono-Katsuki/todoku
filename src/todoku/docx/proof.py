@@ -88,6 +88,9 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
         pr.unexpected.append(f"段落の数が変わっています（{len(pa)} → {len(pb)}）")
         return pr
     sp = Spots(a)
+    # 結び付けた XML の部品（w:dataBinding の customXml/itemN.xml）：書いた値の所だけが変わり、その値が書いた値として表示されること
+    bound = _bound_parts(a, b, za, zb, sp, written, pr)
+    changed_parts = [p for p in changed_parts if p not in bound]
     targets: dict[int, list] = {}
     index = {id(p): i for i, p in enumerate(pa)}
     sdt_spans: dict[str, list[tuple[int, int]]] = {}
@@ -209,6 +212,58 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
         elif p_old.label != p_new.label:
             pr.unexpected.append(f"書いていない段落 {i + 1} の段落番号・箇条書きの印が変わっています（「{p_old.label}」→「{p_new.label}」）")
     return pr
+
+
+def _bound_parts(a: DocxDocument, b: DocxDocument, za: RawZip, zb: RawZip, sp: Spots, written: dict, pr: DocxProof) -> set[str]:
+    """書いたコンテンツコントロールの、結び付けた XML の部品を確かめる：元の部品の値の所（元の文書で XPath をたどり直した所）を、
+    書いた後の部品で読んだ値に置き換えたものが、書いた後の部品とバイト一致し、その値を Word が表示する字が書いた値であること。
+    確かめた部品の名前を返す（ほかの部品の比べ方から外す）。"""
+    from .databind import BindError, binding_of, edit, locate, shown_value
+
+    todo: dict[str, dict] = {}
+    for fid, value in written.items():
+        if isinstance(value, dict):
+            continue
+        it = sp.items.get(fid)
+        c = it.get("control") if it else None
+        if c is None or c.source != "sdt" or binding_of(c) is None:
+            continue
+        try:
+            ta = locate(a, c)
+        except BindError as e:
+            pr.unexpected.append(f"{fid}: 結び付けた XML の値の所が、元の文書でたどれません（{e}）")
+            continue
+        todo.setdefault(ta.part, {}).setdefault((ta.s, ta.e), (ta, []))[1].append((fid, value))
+    if not todo:
+        return set()
+    spb = Spots(b)
+    allowed = set()
+    for part, spots in todo.items():
+        exp = za.read(part)
+        for (_s, _e), (ta, ws) in sorted(spots.items(), key=lambda x: -x[0][0]):
+            got = None
+            for fid, value in ws:
+                cb = (spb.items.get(fid) or {}).get("control")
+                try:
+                    tb = locate(b, cb) if cb is not None else None
+                    if tb is None or tb.part != part:
+                        raise BindError("書いた後の文書に、同じ結び付けがありません")
+                    shown = shown_value(cb, tb.value, binding_of(cb))
+                except Exception as e:  # noqa: BLE001
+                    pr.unexpected.append(f"{fid}: 書いた後の文書で、結び付けた XML の値を読めません（{e}）")
+                    exp = None
+                    break
+                same = (bool(shown) == bool(value)) if isinstance(value, bool) else str(shown) == str(value)
+                if not same:
+                    pr.unexpected.append(f"{fid}: 結び付けた XML の値「{tb.value}」は、Word で「{shown}」と表示され、書いた「{value}」と違います")
+                got = tb.value
+            if exp is None:
+                break
+            exp = edit(exp, ta, got)
+        if exp is not None and exp != zb.read(part):
+            pr.unexpected.append(f"{part}：結び付けた XML の部品の、書いた値の所のほかが変わっています")
+        allowed.add(part)
+    return allowed
 
 
 def _numbering(a: DocxDocument, b: DocxDocument, pa: list, pb: list, targets: dict, pr: DocxProof) -> bool:
