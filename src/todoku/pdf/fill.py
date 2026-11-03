@@ -442,6 +442,8 @@ class Filler:
                 self.dr_fonts[key] = self.up.new(font)
             elif key == "ZaDb":
                 self.dr_fonts[key] = self.up.new(dict(ZADB))
+            elif key == "TdkE":
+                self.dr_fonts[key] = self.up.new({})  # 埋め込む書体：使った字形が決まってから、仕上げで中身を書く（_embed_font）
             else:
                 ros = next(r for r, v in CJK.items() if v[0] == key)
                 self.dr_fonts[key] = self.up.new(cjk_font(ros))
@@ -740,9 +742,38 @@ class Filler:
                 old = [pd.get("Contents")]
             pd["Contents"] = [pre] + old + [post]
 
+    def _embed_font(self) -> None:
+        """TdkE：書いた見た目が使う字形（GID）だけを、このパソコンの TrueType の書体から埋め込む。"""
+        from .embedfont import compress, font_objects, system_font
+
+        font = system_font()
+        ref = self.dr_fonts["TdkE"]
+        inv: dict[int, str] = {}
+        for u, g in sorted(font.cmap.items()):
+            inv.setdefault(g, chr(u))
+        used: dict[int, str] = {}
+        for _num, (_gen, o) in self.up.objs.items():
+            if isinstance(o, Stream) and b"/TdkE " in o.raw:
+                for m in re.finditer(rb"/TdkE [\d.]+ Tf <([0-9A-F]+)> Tj", o.raw):
+                    h = m[1].decode()
+                    for i in range(0, len(h), 4):
+                        g = int(h[i:i + 4], 16)
+                        used[g] = inv.get(g, "")
+        t0, cid, desc, data, tu = font_objects(font, used)
+        desc["FontFile2"] = self.up.new(Stream({"Length1": len(data), "Filter": Name("FlateDecode")}, compress(data)))
+        cid["FontDescriptor"] = self.up.new(desc)
+        t0["DescendantFonts"] = [self.up.new(cid)]
+        t0["ToUnicode"] = self.up.new(Stream({}, tu))
+        self.up.put(ref, t0)
+        names = "".join(sorted(ch for ch in used.values() if ch))
+        self.warnings.append(f"「{names[:40]}」の字は、標準の書体に字形がないので、このパソコンの書体 {font.name}（{font.path}）から、"
+                             "書いた字の字形だけを PDF に埋め込みました")
+
     def finish(self) -> bytes:
         doc = self.doc
         up = self.up
+        if "TdkE" in self.dr_fonts:
+            self._embed_font()
         if self.circles:
             self._draw_circles()
         for page_no, refs in self.page_annots.items():
@@ -794,7 +825,7 @@ class Filler:
 
 def _da_key(keys: set[str]) -> str:
     """欄の書体の指定（/DA）にする書体：見た目を作り直すソフトが使うので、日本語などの書体を先に（欧文の拡張の TdkL は最後）。"""
-    for k in ("TdkJ", "TdkK", "TdkG", "TdkC", "TdkL"):
+    for k in ("TdkJ", "TdkK", "TdkG", "TdkC", "TdkE", "TdkL"):
         if k in keys:
             return k
     return "Helv"

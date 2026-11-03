@@ -332,6 +332,8 @@ def _kind(o) -> str | None:
         return "xref"
     if isinstance(o, Stream):
         st = getattr(o.dict.get("Subtype"), "name", "")
+        if "Length1" in o.dict:
+            return "font"  # 埋め込んだ書体の中身（FontFile2）
         if not st and "Type" not in o.dict:
             return "content"  # ページの描画のストリーム（○を描いたとき。中身は○の確かめで照らす）
         return "appearance" if st == "Form" else "image" if st == "Image" else None

@@ -210,18 +210,44 @@ def choose(ch: str) -> tuple[str, bytes, float]:
             return "Helv", bytes([c]), helv_width(ch)
         if ch in EXT_CODE:
             return "TdkL", bytes([EXT_CODE[ch]]), helv_width(ch)
-    why = []
-    for ros in ORDER:
-        cid, reason = cjk_cid(ros, ch)
-        if cid is not None:
-            return CJK[ros][0], ch.encode("utf-16-be"), cid_width(ros, cid, ch)
-        why.append(reason)
     if ch in ("\n", "\r", "\t"):
         raise GlyphError(f"制御の字（U+{ord(ch):04X}）は描けません")
+    wide = unicodedata.east_asian_width(ch) in ("W", "F", "H")
+    emb = _embedded(ch)
+    if emb is not None and not wide and unicodedata.category(ch).startswith("L"):
+        return emb  # ギリシャ文字・キリル文字など、東アジアでない文字：埋め込んだ書体の比例幅の字形で（全角の字形より自然）
+    for ros in ORDER:
+        cid, _reason = cjk_cid(ros, ch)
+        if cid is not None:
+            return CJK[ros][0], ch.encode("utf-16-be"), cid_width(ros, cid, ch)
+    if emb is not None:
+        return emb
     name = unicodedata.name(ch, "")
+    from .embedfont import system_font, usable
+
+    tail = ""
+    if system_font() is None:
+        tail = "。このパソコンに、字形を埋め込める書体（Arial・DejaVu Sans など）も見つかりません"
+    elif not usable(ch):
+        tail = "。結合の字・右から左に書く字は、字の並べ替え・組み合わせ（シェーピング）が要るので、埋め込みでも描けません"
+    else:
+        tail = f"。このパソコンの書体（{system_font().name}）にも字形がありません"
     raise GlyphError(f"「{ch}」（U+{ord(ch):04X}{' ' + name if name else ''}）は、この PDF に描けません："
                      "埋め込まない書体（Helvetica・平成角ゴシックなど）の、仕様で決まった字形にない字です"
-                     "（書くと、その字が白く抜けます）")
+                     f"（書くと、その字が白く抜けます）{tail}")
+
+
+def _embedded(ch: str):
+    """埋め込む書体（TdkE）で描けるなら (TdkE, GID の 2 バイト, 幅)。"""
+    from .embedfont import system_font, usable
+
+    font = system_font()
+    if font is None or not usable(ch):
+        return None
+    g = font.gid(ch)
+    if g is None:
+        return None
+    return "TdkE", g.to_bytes(2, "big"), font.width(g)
 
 
 def runs(text: str) -> list[tuple[str, str]]:
@@ -332,6 +358,9 @@ class _FontInfo:
             enc = doc.resolve(fd.get("Encoding"))
             df = doc.resolve(fd.get("DescendantFonts"))
             cf = doc.resolve(df[0]) if isinstance(df, list) and df else None
+            if getattr(enc, "name", "") == "Identity-H" and isinstance(cf, dict) and self._embedded(doc, cf):
+                self._init_embedded(doc, fd, cf)
+                return
             if not isinstance(enc, Name) or enc.name not in CMAP_ROS or not isinstance(cf, dict) or self._embedded(doc, cf):
                 self.problem = f"書体 {base} の CMap・埋め込みを、ここでは確かめられません"
                 return
@@ -347,6 +376,25 @@ class _FontInfo:
             self.kind = "cid"
             return
         self.problem = f"書体 {base}（{st}）を、ここでは確かめられません"
+
+    def _init_embedded(self, doc, fd, cf) -> None:
+        """埋め込んだ TrueType（CIDFontType2・Identity-H・CIDToGIDMap /Identity）：字形の番号が書体にあり、中身があるか。"""
+        from .embedfont import TrueType
+        from .fonts import CMap
+
+        desc = doc.resolve(cf.get("FontDescriptor"))
+        ff = doc.resolve(desc.get("FontFile2")) if isinstance(desc, dict) else None
+        if getattr(doc.resolve(cf.get("Subtype")), "name", "") != "CIDFontType2" or ff is None                 or getattr(doc.resolve(cf.get("CIDToGIDMap")), "name", "") != "Identity":
+            self.problem = f"書体 {self.name} の埋め込みの形を、ここでは確かめられません"
+            return
+        try:
+            self.tt = TrueType("", doc.decode(ff))
+        except Exception as e:  # noqa: BLE001
+            self.problem = f"埋め込んだ書体 {self.name} を読めません（{e}）"
+            return
+        tu = doc.resolve(fd.get("ToUnicode"))
+        self.tu = CMap.parse(doc.decode(tu)) if tu is not None and hasattr(tu, "raw") else None
+        self.kind = "embedded"
 
     @staticmethod
     def _embedded(doc, fd) -> bool:
@@ -366,6 +414,18 @@ class _FontInfo:
                     out.append("�")
                 else:
                     out.append(u)
+            return "".join(out), probs
+        if self.kind == "embedded":
+            for i in range(0, len(s) - 1, 2):
+                g = int.from_bytes(s[i:i + 2], "big")
+                ch = (self.tu.to_unicode(s[i:i + 2]) if self.tu is not None else None) or "�"
+                if g == 0 or g >= self.tt.num:
+                    probs.append(f"「{ch}」の字形の番号 {g} が、埋め込んだ書体 {self.name} にありません")
+                elif not self.tt.glyph(g) and not ch.isspace():
+                    probs.append(f"「{ch}」の字形（番号 {g}）の中身が、埋め込んだ書体 {self.name} にありません")
+                if ch == "�":
+                    probs.append(f"字形の番号 {g} の字が、ToUnicode で決まりません")
+                out.append(ch)
             return "".join(out), probs
         if self.kind == "cid":
             m = uni2cid(self.cmap)

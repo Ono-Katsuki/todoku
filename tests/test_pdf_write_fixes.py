@@ -53,7 +53,13 @@ def test_libreoffice_floats_are_kept_byte_exact(tmp_path):
 
 
 # ====================================================================== 2. 描けない字
-def test_glyph_choice_by_spec():
+@pytest.fixture
+def no_embed(monkeypatch):
+    """このパソコンの書体を埋め込まない（標準の書体だけで描く）。"""
+    monkeypatch.setenv("TODOKU_PDF_FONT", "")
+
+
+def test_glyph_choice_by_spec(no_embed):
     assert glyphs.choose("ş")[0] == "TdkL" and glyphs.choose("ł")[0] == "TdkL"  # Core14 の字形（/Differences）
     assert glyphs.choose("é")[0] == "Helv"
     assert glyphs.choose("Ж")[0] == "TdkJ" and glyphs.choose("Ж")[2] == 1000  # Adobe-Japan1 の全角の字形（補遺 0）
@@ -82,7 +88,7 @@ def test_latin_extended_written_and_appearance_read_back(tmp_path):
     assert probs == [] and text.replace("\n", "") == "Şükrü Öğüt İzmir Łódź Čapek"
 
 
-def test_undrawable_text_is_refused_with_reason(tmp_path):
+def test_undrawable_text_is_refused_with_reason(tmp_path, no_embed):
     src = _write(tmp_path, build_all())
     with pytest.raises(api.ApiError, match=r"family: 「ό」.*描けません"):
         api.fill(src, {"family": "Παπαδόπουλος"}, str(tmp_path / "o.pdf"))
@@ -97,6 +103,28 @@ def test_proof_catches_a_glyph_outside_the_supplement(tmp_path):
     assert not pr.ok and any("描けません" in u or "ありません" in u for u in pr.unexpected), pr.unexpected
     diffs = appearance_readback(PdfDocument(bad), res.patches)
     assert diffs and diffs[0]["id"] == "family"
+
+
+def test_embedded_truetype_subset_for_greek_and_vietnamese(tmp_path):
+    from todoku.pdf.embedfont import system_font
+
+    if system_font() is None:
+        pytest.skip("このパソコンに、埋め込める TrueType の書体がない")
+    src = _write(tmp_path, build_all())
+    value = "Παπαδόπουλος Nguyễn Đức"
+    r = api.fill(src, {"family": value}, str(tmp_path / "o.pdf"))
+    assert r["proof_ok"] and r["read_back_ok"], (r["unexpected"], r["read_back_differences"])
+    assert any("埋め込みました" in w for w in r["warnings"])
+    new = (tmp_path / "o.pdf").read_bytes()
+    assert len(new) - len(build_all()) < 200_000  # 使った字形だけ
+    doc = PdfDocument(new)
+    from todoku.pdf.form import read_fields
+
+    f = next(x for x in read_fields(doc) if x.name == "family")
+    text, probs = appearance_text(doc, glyphs.widget_appearance(doc, doc.resolve(f.ref)))
+    assert probs == [] and text.replace(chr(10), "") == value
+    with pytest.raises(glyphs.GlyphError, match="シェーピング"):
+        glyphs.choose(chr(0x301))  # 結合の字は、埋め込みでも描かない
 
 
 # ====================================================================== 3. 電子署名
