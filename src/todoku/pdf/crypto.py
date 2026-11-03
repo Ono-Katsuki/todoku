@@ -270,21 +270,52 @@ class Decryptor:
 
     # ------------------------------------------------------------------ パスワード
     def _authenticate(self, password) -> tuple[bytes, str]:
+        """返す：(文書の鍵, どう開いたか)。どう開いたか：empty（開くためのパスワードがない）・user（開くためのパスワード）・
+        owner（権限のパスワード）。self.owner_ok：渡したパスワードが権限のパスワードに合う（権限の制限（P）を受けない。
+        ISO 32000-1 7.6.3.2。開くためのパスワードと同じときや、開くためのパスワードのない PDF に渡したときも）。"""
+        given = password is not None and password not in ("", b"")
+        self.owner_ok = False
         key = self._user(b"")
         if key is not None:
+            self.owner_ok = given and any(self._owner(pw) is not None for pw in _candidates(password, self.r))
             return key, "empty"
-        if password is None or password in ("", b""):
+        if not given:
             raise NeedsPassword()
         cands = _candidates(password, self.r)
         for pw in cands:
             key = self._user(pw)
             if key is not None:
+                self.owner_ok = self._owner(pw) is not None
                 return key, "user"
         for pw in cands:
             key = self._owner(pw)
             if key is not None:
+                self.owner_ok = True
                 return key, "owner"
         raise WrongPassword()
+
+    # ------------------------------------------------------------------ 権限（P）
+    def restrictions(self) -> list[tuple[str, str]]:
+        """作り手が権限の設定（暗号の辞書の P、ISO 32000-1 7.6.3.2 表 22）で許していない、とどくの書き込みに関わる操作：
+        [(操作の名前, 説明)]。操作の名前：fill（いまある欄への記入：ビット 6 も、R 3 以上でビット 9 もない）・annotate（注釈を
+        足す：ビット 6 がない。置いた画像のスタンプ）・create（欄を足す：ビット 4 と 6 の両方が要る）・modify（ページの描画を
+        変える：ビット 4 がない。○）。権限のパスワードで開いたときは、制限を受けないので空。"""
+        if self.auth == "owner" or getattr(self, "owner_ok", False):
+            return []
+
+        def bit(n: int) -> bool:
+            return bool(self.p & (1 << (n - 1)))
+
+        out = []
+        if not (bit(6) or (self.r >= 3 and bit(9))):
+            out.append(("fill", "フォームの欄への記入"))
+        if not bit(6):
+            out.append(("annotate", "注釈の追加（印影・署名の画像のスタンプなど）"))
+        if not (bit(4) and bit(6)):
+            out.append(("create", "フォームの欄の追加（窓の推定した欄・字を目印にした書き込み・枠への書き込み）"))
+        if not bit(4):
+            out.append(("modify", "文書の内容の変更（ページの描画に○を足すなど）"))
+        return out
 
     def _user(self, pw: bytes) -> bytes | None:
         """開くためのパスワードを確かめる（R2〜4 は Algorithm 6、R5・6 は 2.A の e・f）。合えば文書の鍵。"""

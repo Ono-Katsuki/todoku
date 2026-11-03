@@ -6,6 +6,8 @@
 - 囲む字は、窓の字のとおりに（字の間の空白は、あってもなくてもよい）。同じ字がいくつもあるときは、near（いちばん近い所）か
   occurrence（読む順）で1つに決める。near があれば、occurrence は near といちばん近い関係の候補の中の何番目か（Word・Excel と
   同じ）。near がなければ、ページ（page がなければ文書）のすべての候補の中の何番目か。決まらなければ、候補を添えて断る
+  （一覧の番号は、そのときの指定で occurrence に渡す番号）。occurrence で指した字は、字の並びの中の字でも囲む（結果に添える）。
+  near の字が何か所にもあり、それぞれに近い候補が違えば、occurrence のないときは断る
 - ○の形：囲む字の箱（字の送りの幅 × 字の高さ）を合わせた四角を、すき間（pad、既定は字の大きさの 0.12 倍）だけ広げた四角の
   4 つの角を通る楕円のうち、ほかの字の面に触れないもので、上下と左右のはみ出しがいちばん近いもの。触れるときは、縦横の比を
   細かく変え、すき間を 0（字の箱の角を通る）まで小さくしてためす。ほかの字は、字の箱の縁から字の大きさの 1/12 だけ内側（字の面。
@@ -27,7 +29,7 @@ import math
 import re
 import unicodedata
 
-from .anchor import MM, AnchorError
+from .anchor import AnchorError
 from .content import page_content, tokens
 from .layout import PageLayout, View
 
@@ -110,13 +112,21 @@ def around(text: str, a: int, b: int, n: int = 10) -> str:
     return t
 
 
-def _listing(all_hits, show) -> str:
-    """候補の一覧：番号は occurrence に渡す番号（ページのすべての候補の読む順）。前後の字と、字の並びの中かを添える。"""
+def _listing(order, show, all_hits=None, where=None) -> str:
+    """候補の一覧。番号は、いまの指定（near のあり・なし）で occurrence に渡す番号（order の中の何番目か）。order にない候補
+    （near からは選べない所）は、near を外したときの occurrence の番号（all_hits の中の何番目か）を添える。前後の字と、
+    字の並びの中か、位置（where があれば：ページの左上からの mm）を添える。"""
     items = []
-    for k, h in enumerate(all_hits, 1):
-        if any(h is s for s in show):
-            items.append(f"{k}番目：{h[0]}ページ「{around(h[2].text, h[3], h[4])}」"
-                         + ("" if bounded(h[2].text, h[3], h[4]) else "（字の並びの中）"))
+    for h in show:
+        k = next((i for i, o in enumerate(order, 1) if o is h), None)
+        if k is not None:
+            head = f"{k}番目"
+        else:
+            g = next((i for i, o in enumerate(all_hits or [], 1) if o is h), None)
+            head = f"（near を外して occurrence {g}）" if g else "（この指定では選べない所）"
+        pos = f"・{where(h)}" if where is not None else ""
+        items.append(f"{head}：{h[0]}ページ{pos}「{around(h[2].text, h[3], h[4])}」"
+                     + ("" if bounded(h[2].text, h[3], h[4]) else "（字の並びの中）"))
     return "／".join(items[:10])
 
 
@@ -156,15 +166,19 @@ def find(doc, spec: dict, layouts: dict) -> tuple[int, object, object, int, int]
     has_near = isinstance(near, str) and bool(near.strip())
     if occ is not None and (not isinstance(occ, int) or isinstance(occ, bool) or occ < 1):
         raise AnchorError("occurrence は 1 以上の整数で指定してください")
-    if occ is not None and not has_near:
-        # near がなければ、occurrence はページ（page がなければ文書）のすべての候補の中の何番目か（読む順）
-        if occ > len(hits):
-            raise AnchorError(f"occurrence は 1〜{len(hits)} で指定してください（「{target}」は{where} {len(hits)} か所）")
-        return hits[occ - 1]
+
+    def where_mm(h) -> str:
+        lay_ = layout(doc, h[0], layouts)
+        r = h[2].span_rect(h[3], h[4])
+        return f"左 {r[0] / lay_.view.mm:.0f}・上 {r[1] / lay_.view.mm:.0f} mm"
+
     # 選ぶ候補は、字の形だけで決める（字の意味は見ない）：
     # 1) near の字そのものの中にある所（見出し「…の有無」の「無」）は、けっして選ばない
-    # 2) 前後が区切り（空白・区切りの記号 Z*・P*・行の端）ではさまれた所（「有・無」の「無」）を、字の並びの中に埋まった所
-    #    （見出し「有無」の「無」・「変更後振込口座」の「振込口座」）より先にする。埋まった所しかなければ、選ばずに断る
+    # 2) occurrence があれば、その番号の候補（字の並びの中の字でもよい：エージェントが番号で指したもの。結果にそう添える）。
+    #    番号は、near がなければページ（page がなければ文書）のすべての候補の読む順、near があれば near といちばん近い関係
+    #    （同じマス・同じ行…：_rank の初めの数）の候補の読む順。断るときの一覧も、同じ番号で示す
+    # 3) occurrence がなければ、前後が区切り（空白・区切りの記号 Z*・P*・行の端）ではさまれた所（「有・無」の「無」）を、字の
+    #    並びの中に埋まった所（見出し「有無」の「無」）より先にする。埋まった所しかなければ、選ばずに断る
     anchors = []
     if has_near:
         for n in sorted({h[0] for h in hits}):
@@ -176,7 +190,12 @@ def find(doc, spec: dict, layouts: dict) -> tuple[int, object, object, int, int]
                 anchors.append((n, r, cell, ln, a, b))
         if not anchors:
             raise AnchorError(f"near の「{near}」が、「{target}」のあるページに見つかりません")
-    all_hits = hits  # occurrence の番号は、この読む順
+    all_hits = hits  # near のないときの occurrence の番号は、この読む順
+    order = hits
+
+    def rank(h, ans):
+        return min((_rank(h[2].span_rect(h[3], h[4]), an[1]) for an in ans if an[0] == h[0]), default=(9, float("inf")))
+
     if anchors:
         def in_near(h) -> bool:
             return any(an[0] == h[0] and an[3] is h[2] and an[4] <= h[3] and h[4] <= an[5] for an in anchors)
@@ -185,45 +204,53 @@ def find(doc, spec: dict, layouts: dict) -> tuple[int, object, object, int, int]
         if not hits:
             raise AnchorError(f"「{target}」は、near の「{near}」の字の中にしか見つかりません（見出しの字は囲みません）。"
                               "囲む選択肢の字を、窓の字のとおりに指定してください")
+        ranks = [rank(h, anchors) for h in hits]
+        best_kind = min(r[0] for r in ranks)
+        order = [h for h, r in zip(hits, ranks) if r[0] == best_kind]
+    if occ is not None:
+        if occ > len(order):
+            if anchors:
+                raise AnchorError(f"near の「{near}」に近い「{target}」は {len(order)} か所です（{_listing(order, order, all_hits, where_mm)}）。"
+                                  f"occurrence は、その中の何番目か（1〜{len(order)}）で指定してください")
+            raise AnchorError(f"occurrence は 1〜{len(order)} で指定してください（「{target}」は{where} {len(order)} か所）")
+        return order[occ - 1]
+    if len(anchors) > 1:
+        # near の字が何か所にもある（「浴」が「入浴」にも「浴槽」にもある）：それぞれのいちばん近い候補が違えば、どの near か
+        # 決まらないので断る（黙って片方を選ばない）
+        picks: dict = {}
+        for an in anchors:
+            cand = [h for h in hits if h[0] == an[0] and bounded(h[2].text, h[3], h[4])] or [h for h in hits if h[0] == an[0]]
+            if cand:
+                best_h = min(cand, key=lambda h: rank(h, [an]))
+                picks.setdefault(id(best_h), (an, best_h))
+        if len(picks) > 1:
+            places = "／".join(f"{an[0]}ページ「{around(an[3].text, an[4], an[5])}」" for an, _h in list(picks.values())[:6])
+            raise AnchorError(f"near の「{near}」が {len(anchors)} か所（{places}）にあり、それぞれに近い「{target}」が違うので、"
+                              "どれを囲むか決まりません。near を、ほかの所にない字（見出しの全体など）にするか、occurrence で"
+                              f"指定してください：{_listing(order, [h for _a, h in picks.values()], all_hits, where_mm)}")
     free = [h for h in hits if bounded(h[2].text, h[3], h[4])]
     if not free:
         raise AnchorError(f"「{target}」は、どれもほかの字の並びの中にあります（区切りの字ではさまれた所がありません）。"
-                          f"選択肢の字か確かめて、occurrence（何番目か）で1つに決めてください：{_listing(all_hits, hits)}")
-    if anchors and occ is not None:
-        # near があれば、occurrence は near といちばん近い関係（同じマス・同じ行…：_rank の初めの数）の候補の中の何番目か
-        # （読む順。Word・Excel の docx.circle.choose と同じ）
-        ranks = [min((_rank(h[2].span_rect(h[3], h[4]), an[1]) for an in anchors if an[0] == h[0]), default=(9, float("inf")))
-                 for h in free]
-        best_kind = min(r[0] for r in ranks)
-        scope = [h for h, r in zip(free, ranks) if r[0] == best_kind]
-        if occ > len(scope):
-            raise AnchorError(f"near の「{near}」に近い「{target}」は {len(scope)} か所です（{_listing(scope, scope)}）。"
-                              f"occurrence は、その中の何番目か（1〜{len(scope)}）で指定してください")
-        return scope[occ - 1]
+                          f"選択肢の字か確かめて、囲むなら occurrence（何番目か）で指定してください：{_listing(order, hits, all_hits, where_mm)}")
     if anchors and len(free) > 1:
-        scored = []
-        for h in free:
-            r = h[2].span_rect(h[3], h[4])
-            d = min((_rank(r, an[1]) for an in anchors if an[0] == h[0]), default=(9, float("inf")))
-            scored.append((d, h))
-        scored.sort(key=lambda x: x[0])
+        scored = sorted(((rank(h, anchors), h) for h in free), key=lambda x: x[0])
         best = scored[0]
         tol = 0.25 * best[1][2].size
         tied = [h for d, h in scored if d[0] == best[0][0] and d[1] - best[0][1] <= tol]
         if len(tied) > 1:
             raise AnchorError(f"「{near}」に同じくらい近い「{target}」が、2 か所以上あります。occurrence で1つに決めてください："
-                              f"{_listing(all_hits, tied)}")
+                              f"{_listing(order, tied, all_hits, where_mm)}")
         listed = [h for h in free if not _alone(h)]
         if _alone(best[1]) and listed:
             # いちばん近いのが、行にその字しかない所（見出し「変更後 振込口座」のことがある）で、ほかに、行の中に区切って
             # 並んだ所（選択肢の並び「３ 送付先　４ 振込口座」）がある：どちらを囲むかは形からは決めず、断る
             raise AnchorError(f"いちばん近い「{target}」は、行にその字だけがある所（見出しのことがある）で、ほかに、行の中に"
                               f"区切って並んだ「{target}」もあります。どれを囲むか、occurrence で1つに決めてください："
-                              f"{_listing(all_hits, free)}")
+                              f"{_listing(order, free, all_hits, where_mm)}")
         return best[1]
     if len(free) > 1:
         raise AnchorError(f"「{target}」が {len(free)} か所にあります。near（近くの見出しの字）か occurrence（何番目か）で"
-                          f"1つに決めてください：{_listing(all_hits, free)}")
+                          f"1つに決めてください：{_listing(order, free, all_hits, where_mm)}")
     return free[0]
 
 
@@ -445,16 +472,18 @@ def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None
     if box is not None:
         if not (isinstance(box, list) and len(box) == 4 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in box)):
             raise AnchorError("box は [左, 上, 右, 下]（ページの左上からの mm。○の外枠）で指定してください")
-        x0, y0, x1, y1 = (v * MM for v in box)
+        x0, y0, x1, y1 = (v * lay.view.mm for v in box)  # mm → ページの座標（UserUnit も反映）
         if not (0 <= x0 < x1 <= page[0] + 0.01 and 0 <= y0 < y1 <= page[1] + 0.01):
             raise AnchorError("box がページの外か、左＜右・上＜下になっていません")
         g = (x0, y0, x1, y1) if style == "border" else ((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2)
         if not all(encloses(style, g, c, line_width(size)) for c in mine):
-            raise AnchorError(f"box の○（線の内側の縁）が、「{spec['circle']}」の字を囲みきれません（字の箱は 左 {rect[0] / MM:.1f}・上 "
-                              f"{rect[1] / MM:.1f}・右 {rect[2] / MM:.1f}・下 {rect[3] / MM:.1f} mm）")
+            raise AnchorError(f"box の○（線の内側の縁）が、「{spec['circle']}」の字を囲みきれません（字の箱は 左 {rect[0] / lay.view.mm:.1f}・上 "
+                              f"{rect[1] / lay.view.mm:.1f}・右 {rect[2] / lay.view.mm:.1f}・下 {rect[3] / lay.view.mm:.1f} mm）")
         hit = next((o for o in others if hits(style, g, o, line_width(size))), None)
         if hit is not None:
-            raise AnchorError(f"box の○が、ほかの字「{hit.text}」に触れます")
+            mm = lay.view.mm
+            raise AnchorError(f"box の○が、ほかの字「{hit.text}」（左 {hit.x0 / mm:.1f}・上 {hit.y0 / mm:.1f}・右 {hit.x1 / mm:.1f}・"
+                              f"下 {hit.y1 / mm:.1f} mm）に触れます")
     elif style == "border":
         g, hit = border(rect, size, others, page, pad)
         if g is None:
@@ -481,6 +510,8 @@ def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None
            "ellipse": [round(v, 3) for v in g] if style == "ellipse" else None,
            "label": label, "context": context[:60], "size": size, "rect": [round(v, 3) for v in rect],
            "around": around(ln.text, a, b)}  # 囲んだ字の前後の字（どの「無」を囲んだかを伝える）
+    if not bounded(ln.text, a, b):
+        out["inside_word"] = True  # occurrence で指した、字の並びの中の字（「【都】道府県」）
     if style == "border":
         out["border"] = [round(v, 3) for v in g]
     return out
@@ -501,7 +532,7 @@ def _resolve_unread_box(doc, spec: dict, layouts: dict, used: dict, taken: set |
         raise AnchorError("box は [左, 上, 右, 下]（ページの左上からの mm。○の外枠）で指定してください")
     lay = layout(doc, n, layouts)
     page = (lay.view.width, lay.view.height)
-    x0, y0, x1, y1 = (v * MM for v in box)
+    x0, y0, x1, y1 = (v * lay.view.mm for v in box)  # mm → ページの座標（UserUnit も反映）
     if not (0 <= x0 < x1 <= page[0] + 0.01 and 0 <= y0 < y1 <= page[1] + 0.01):
         raise AnchorError("box がページの外か、左＜右・上＜下になっていません")
     size = min(y1 - y0, 10.5)

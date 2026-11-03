@@ -439,7 +439,8 @@ def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> l
     ok_all = True
     for part in passes:
         try:
-            res = fill(doc, part)
+            # 試しの値をすべての欄に書けるか（欄の作りの確かめ）：書いた字の重なり（placement）は、本当に書くときに確かめる
+            res = fill(doc, part, placement=False)
         except FillError as e:
             return [Check("全入力欄への書き込み", False, f"{len(part)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
         anchored = {p_.id: p_.anchor for p_ in res.patches if p_.anchor}
@@ -540,7 +541,7 @@ def anchored_check(blob: bytes, filename: str, password: str | None = None) -> C
                 continue  # 試しの字「（試し）」（4字）が、ふつうの大きさで入る空きを選ぶ
             tried += 1
             try:
-                res = fill(PdfDocument(blob, filename, password=password), {"@1": spec})
+                res = fill(PdfDocument(blob, filename, password=password), {"@1": spec}, placement=False)
             except FillError as e:
                 return Check("字を目印にした書き込み", False, f"{n} ページの「{m[0]}」の右に書けませんでした", [str(e)])
             pr = prove(blob, res.blob, {sd["id"]}, {sd["id"]: spec}, password=password)

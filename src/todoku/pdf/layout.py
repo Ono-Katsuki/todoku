@@ -38,6 +38,18 @@ CHECKED_GLYPHS = set(_chars.CHECKED_BOXES) | set(_chars.MAYBE_CHECKED) | {"▣"}
 
 
 # ====================================================================== 座標
+MM_PT = 72 / 25.4  # 1 mm のポイント（1 pt = 1/72 インチ）
+
+
+def user_unit(doc, page: dict) -> float:
+    """ページの UserUnit（ページの座標の 1 単位が何ポイントか。省いたときは 1。ISO 32000-1 14.11.1 表 30、PDF 1.6〜）。
+    正の数でなければ 1 とみなす。"""
+    v = doc.resolve(page.get("UserUnit")) if isinstance(page, dict) else None
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not v > 0 or v != v or v == float("inf"):
+        return 1.0
+    return float(v)
+
+
 class View:
     """ページの座標 → 見た目の座標（左上が原点、y は下向き、回転を反映）。"""
 
@@ -59,6 +71,13 @@ class View:
         self.rot = rot - rot % 90
         w, h = self.x1 - self.x0, self.y1 - self.y0
         self.width, self.height = (h, w) if self.rot in (90, 270) else (w, h)
+        self.unit = user_unit(doc, page)
+
+    @property
+    def mm(self) -> float:
+        """1 mm の長さ（ページの座標の単位）。ふつうは 72/25.4（1 単位 = 1/72 インチ）。UserUnit のあるページは、1 単位が
+        UserUnit/72 インチなので、その分だけ短くする（ISO 32000-1 14.11.1 表 30）。"""
+        return MM_PT / self.unit
 
     def pt(self, x: float, y: float) -> tuple[float, float]:
         r = self.rot

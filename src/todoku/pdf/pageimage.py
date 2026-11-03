@@ -3,7 +3,10 @@
 ページに置かれた画像を、置いた行列（CTM）どおりに、見た目の向き（/Rotate を反映）でページの大きさの画像に描く。
 端に、ページの左上からの mm の目盛りを付ける：エージェントは画像を見て、書く所を mm の枠で指定する。
 書く予定の枠（marks）を赤で描き込める：書く前に、枠の位置をエージェントが目で確かめるため。
-字や線（ベクトル）は描かない（画像だけのページのための道具。字のあるページは窓で読む）。
+ページの字や線（ベクトル）は描かない（画像だけのページのための道具。字のあるページは窓で読む）。
+欄・注釈の見た目（/AP）の字（todoku が書いた欄の字など）は、見た目のフォームを仕様どおりの行列で置いた位置・大きさ・向きで、
+字ごとの四角（字の送りの幅 × 字の高さ）と、その字の基線（字の下の線）として描く：書いた字が欄に正しい向き・大きさで
+収まっているかを、エージェントが目で確かめられる（字の形そのものは描かない。字の値は説明の文に添える）。
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int = 160
         raise ValueError(f"page は 1〜{len(pages)} です")
     page = pages[page_no - 1]
     view = View(doc, page)
-    pw, ph = view.width / MM, view.height / MM  # mm
+    pw, ph = view.width / view.mm, view.height / view.mm  # mm（UserUnit のあるページも、紙の上の mm）
     x0, y0, x1, y1 = region_mm or [0, 0, pw, ph]
     x0, y0, x1, y1 = max(0.0, min(x0, x1)), max(0.0, min(y0, y1)), min(pw, max(x0, x1)), min(ph, max(y0, y1))
     if x1 - x0 < 1 or y1 - y0 < 1:
@@ -47,7 +50,8 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int = 160
     skipped = []
     stamps = []
     annot_failed: list[str] = []
-    pics = list(pc.pictures) + _annot_pictures(doc, page, stamps, annot_failed)
+    cells: list = []
+    pics = list(pc.pictures) + _annot_pictures(doc, page, stamps, annot_failed, cells)
     for pic in pics:
         if pic.ctm is None or pic.image is None:
             continue
@@ -60,19 +64,22 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int = 160
             skipped.append(f"{pic.name}：{e}")
             continue
         _draw(canvas, W, H, s, x0, y0, view, inv, g)
+    for gl in cells:
+        _draw_glyph(canvas, W, H, s, x0, y0, view, gl)
     rgb = bytearray(W * H * 3)
     rgb[0::3] = canvas
     rgb[1::3] = canvas
     rgb[2::3] = canvas
     return {"rgb": rgb, "w": W, "h": H, "scale": s, "origin_mm": (x0, y0), "page_mm": (pw, ph), "skipped": skipped,
-            "view": view, "stamps": stamps, "annot_failed": annot_failed}
+            "view": view, "stamps": stamps, "annot_failed": annot_failed, "glyphs": len(cells), "user_unit": view.unit}
 
 
-def _annot_pictures(doc, page: dict, stamps: list, failed: list | None = None) -> list:
+def _annot_pictures(doc, page: dict, stamps: list, failed: list | None = None, glyphs: list | None = None) -> list:
     """注釈の見た目（/AP の N）に描かれた画像：置いた印影・署名の画像（スタンプの注釈）など。
     見た目のフォームを、仕様（ISO 32000-1 12.5.5）どおり、BBox を Matrix で写した四角を Rect に合わせる行列で描く。
     隠した注釈（F の Hidden）と、印刷しない注釈は描かない。stamps には、画像のある注釈の名前と位置（mm）を入れる。
-    failed には、見た目を描けなかった注釈（名前と理由）を入れる（黙って描かないままにしない）。"""
+    failed には、見た目を描けなかった注釈（名前と理由）を入れる（黙って描かないままにしない）。
+    glyphs には、見た目に描かれた字（content.Glyph：ページの座標。同じ行列で置いたもの）を入れる。"""
     from .content import Interpreter, apply, mul
     from .objects import PdfString, Stream, decode_text
 
@@ -118,16 +125,18 @@ def _annot_pictures(doc, page: dict, stamps: list, failed: list | None = None) -
         except Exception as e:  # noqa: BLE001
             if failed is not None:
                 vx0, vy0, vx1, vy1 = view.rect(rx0, ry0, rx1, ry1)
-                failed.append(f"{getattr(ad.get('Subtype'), 'name', '注釈')}（左 {vx0 / MM:.0f}・上 {vy0 / MM:.0f}・右 {vx1 / MM:.0f}・"
-                              f"下 {vy1 / MM:.0f} mm）：{type(e).__name__}")
+                failed.append(f"{getattr(ad.get('Subtype'), 'name', '注釈')}（左 {vx0 / view.mm:.0f}・上 {vy0 / view.mm:.0f}・右 {vx1 / view.mm:.0f}・"
+                              f"下 {vy1 / view.mm:.0f} mm）：{type(e).__name__}")
             continue
+        if glyphs is not None:
+            glyphs += [g for g in pc.glyphs if not g.invisible and g.text.strip()]
         if pc.pictures:
             out += pc.pictures
             nm = ad.get("NM")
             vx0, vy0, vx1, vy1 = view.rect(rx0, ry0, rx1, ry1)
             stamps.append({"id": decode_text(nm) if isinstance(nm, (bytes, PdfString)) else "",
                            "kind": getattr(ad.get("Subtype"), "name", ""),
-                           "box": [vx0 / MM, vy0 / MM, vx1 / MM, vy1 / MM]})
+                           "box": [vx0 / view.mm, vy0 / view.mm, vx1 / view.mm, vy1 / view.mm]})
     return out
 
 
@@ -157,7 +166,7 @@ def _draw(canvas: bytearray, W: int, H: int, s: float, x0: float, y0: float, vie
     a, b, c, d, e, f = inv
 
     def img_xy(X: float, Y: float) -> tuple[float, float]:
-        vx, vy = (x0 + X / s) * MM, (y0 + Y / s) * MM
+        vx, vy = (x0 + X / s) * view.mm, (y0 + Y / s) * view.mm
         px, py = view.back(vx, vy)
         u, v = a * px + c * py + e, b * px + d * py + f
         return u * g.w, (1 - v) * g.h
@@ -178,6 +187,42 @@ def _draw(canvas: bytearray, W: int, H: int, s: float, x0: float, y0: float, vie
                     changed = True
         if changed:
             canvas[Y * W:(Y + 1) * W] = row
+
+
+def _draw_glyph(canvas: bytearray, W: int, H: int, s: float, x0: float, y0: float, view: View, gl) -> None:
+    """見た目の字 1 字：字の四角（薄い灰色、縁は濃い灰色）と、基線（原点から送りの向きへの黒い線）。座標はページの座標。"""
+    def px(x: float, y: float) -> tuple[float, float]:
+        vx, vy = view.pt(x, y)
+        return (vx / view.mm - x0) * s, (vy / view.mm - y0) * s
+
+    a, b = px(gl.x0, gl.y0), px(gl.x1, gl.y1)
+    X0, X1 = int(min(a[0], b[0])), int(max(a[0], b[0]))
+    Y0, Y1 = int(min(a[1], b[1])), int(max(a[1], b[1]))
+    X0, Y0, X1, Y1 = max(0, X0), max(0, Y0), min(W - 1, X1), min(H - 1, Y1)
+    if X1 < X0 or Y1 < Y0:
+        return
+    for Y in range(Y0, Y1 + 1):
+        row = Y * W
+        for X in range(X0, X1 + 1):
+            v = 90 if X in (X0, X1) or Y in (Y0, Y1) else 205
+            if v < canvas[row + X]:
+                canvas[row + X] = v
+    # 基線：字の原点から、字の送りの向きに、字の送りの幅だけ（向きが分かるように）
+    adv = gl.adv or ((gl.dx ** 2 + gl.dy ** 2) ** 0.5)
+    ln = (gl.dx ** 2 + gl.dy ** 2) ** 0.5
+    if ln <= 0 or adv <= 0:
+        return
+    ux, uy = gl.dx / ln * adv, gl.dy / ln * adv
+    p0, p1 = px(gl.ox, gl.oy), px(gl.ox + ux, gl.oy + uy)
+    steps = max(1, int(max(abs(p1[0] - p0[0]), abs(p1[1] - p0[1])) * 2))
+    for i in range(steps + 1):
+        t = i / steps
+        cx, cy = p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t
+        for ox in (0, 1):
+            for oy in (0, 1):
+                X, Y = int(cx) - ox, int(cy) - oy
+                if 0 <= X < W and 0 <= Y < H:
+                    canvas[Y * W + X] = 0
 
 
 # ---------------------------------------------------------------------- 目盛りと枠
@@ -283,7 +328,14 @@ def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | No
             "上と左の帯の数は、ページの左上からの mm です。書く所は、fill_document に "
             '{"@1": {"page": ページ, "box": [左, 上, 右, 下]（mm）, "value": 書く字}} で指定します。'
             "小さな字は region（[左, 上, 右, 下] mm）で拡大して読み、書く前に marks（[{\"box\": [...]}]）で枠を描いて、"
-            "位置を目で確かめてください。この画像には、ページに置かれた画像だけを描いています（字や線のデータは窓で読みます）。")
+            "位置を目で確かめてください。この画像には、ページに置かれた画像だけを描いています（ページの字や線のデータは窓で読みます）。")
+    if r.get("user_unit", 1.0) != 1.0:
+        text += (f" このページは、座標の 1 単位が {r['user_unit']:g}/72 インチ（UserUnit {r['user_unit']:g}）です。mm は紙の上の"
+                 "長さに直してあります。")
+    if r.get("glyphs"):
+        text += (" 欄・注釈の見た目（書いた欄の字など）の字は、見た目のとおりの位置・大きさ・向きで、字ごとの灰色の四角として"
+                 "描いています（字の形そのものは描きません）。各字の黒い線は基線（字の下の線）で、字が正しい向きなら四角の下側に"
+                 "左から右へ並びます。四角が欄からはみ出す・つぶれる・横倒しなら、書いた見た目が正しくありません。")
     if r["skipped"]:
         text += " 描けなかった画像：" + "／".join(r["skipped"][:5])
     if r.get("annot_failed"):
@@ -294,7 +346,7 @@ def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | No
                  + "／".join(f"{m['id'] or m['kind']}（左 {m['box'][0]:.0f}・上 {m['box'][1]:.0f}・右 {m['box'][2]:.0f}・"
                             f"下 {m['box'][3]:.0f} mm）" for m in r["stamps"]))
     if written:
-        text += (" 青い枠は、値の入った入力欄です（この画像には字を描いていないので、値は次のとおり）："
+        text += (" 青い枠は、値の入った入力欄です（字の形は描いていないので、値は次のとおり）："
                  + "／".join(f"{i}＝{m['id']}「{m['value']}」" for i, m in enumerate(written, 1)))
     if notes:
         text += " " + " ".join(notes)

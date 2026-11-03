@@ -70,6 +70,26 @@ def find_spans(text: str, needle: str) -> list[tuple[int, int]]:
     return out
 
 
+def _empty_cell_right(lay, cell, ln):
+    """見出しのマス cell の右の縁に接し（1.5pt 以内）、見出しの行の高さ（行の中ほど）を含む、字のないマス（いちばん左のもの）。"""
+    cy = (ln.y0 + ln.y1) / 2
+    cand = [c for c in lay.cells if c is not cell and abs(c.x0 - cell.x1) <= 1.5 and c.y0 - 0.5 <= cy <= c.y1 + 0.5
+            and not any(not ch.text.isspace() for ch in c.chars)]
+    if cand:
+        return min(cand, key=lambda c: (c.x0, c.y0))
+    # 右のマスが閉じていない（下の罫線が見出しのマスの下にしか引かれていない）：見出しのマスの右の縁から、次の縦の罫線
+    # （見出しのマスの高さにわたるもの）までの、見出しのマスと同じ高さの所。中に字がなければ、そこを空のマスとみなす
+    from .layout import Cell
+
+    xs = [r.pos for r in lay.vs if r.pos > cell.x1 + 1.5 * ln.size and r.a - 1 <= cell.y0 and r.b + 1 >= cell.y1]
+    if not xs:
+        return None
+    box = Cell(cell.x1, cell.y0, min(xs), cell.y1)
+    if any(not ch.text.isspace() and box.x0 < ch.cx < box.x1 and box.y0 < ch.cy < box.y1 for ch in lay.chars):
+        return None
+    return box
+
+
 def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | None = None,
                   taken_names: set | None = None) -> dict:
     """見出しの字で指した書き込み → 書く所（窓の欄と同じ形の辞書：id「p ページ.w 番号」・ページ・矩形・字の大きさ）。
@@ -138,6 +158,12 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
             if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1 and x0 <= r.pos < rb:
                 rb = r.pos
         rect = (x0, ln.y0 - 0.1 * sz, rb - 1.5, ln.y1 + 0.1 * sz)
+        if rect[2] - rect[0] < 1.5 * sz and cell is not None and not rest:
+            # 見出しのマスに空きがない：すぐ右の、同じ行の高さにある空のマス（見出しのマスの右の縁に接する）に書く
+            nxt = _empty_cell_right(lay, cell, ln)
+            if nxt is not None:
+                # 高さは見出しの行の高さ（マスが何行ぶんもあるとき、ほかの行の見出しの高さに書かない）
+                rect = (nxt.x0 + 1.5, max(nxt.y0 + 0.5, ln.y0 - 0.15 * sz), nxt.x1 - 1.5, min(nxt.y1 - 0.5, ln.y1 + 0.15 * sz))
         if rect[2] - rect[0] < 1.5 * sz:
             raise AnchorError(f"「{after}」の右に、書く空きがありません（where を \"below\" にすると、見出しの下に書けます）")
     elif where == "before":
@@ -177,10 +203,12 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
         side = {"right": "右", "before": "左", "below": "下"}[where]
         raise AnchorError(f"「{after}」の{side}の所に、ほかの字（「{''.join(c.text for c in inside[:6])}」）があります")
     return _place(n, rect, used, taken_names, {"id": None, "page": n, "kind": "inline" if where == "cover" else "text",
-                                              "size": None, "anchored": dict(spec)}, where, after, sz)
+                                              "size": None, "anchored": dict(spec)}, where, after, sz,
+                  unit=lay.view.unit)
 
 
-def _place(n, rect, used, taken_names, out, where, after, sz, prefix: str = "w", label: str | None = None) -> dict:
+def _place(n, rect, used, taken_names, out, where, after, sz, prefix: str = "w", label: str | None = None,
+           unit: float = 1.0) -> dict:
     """書く所に名前（p ページ.w 番号。置いた画像は p ページ.s 番号）を付け、ほかの書き込みと重ならないことを確かめる。
     番号は、字の書き込みと画像で通しにする（同じページの書き込みの重なりも、両方で確かめる）。"""
     used = used if used is not None else {}
@@ -195,9 +223,10 @@ def _place(n, rect, used, taken_names, out, where, after, sz, prefix: str = "w",
         size = sz  # 置いた画像の名前（label）は、呼ぶ側が決める
     elif where == "box":
         size = sz
-        label = f"{n}ページの枠（左 {rect[0] / MM:.0f}・上 {rect[1] / MM:.0f} mm）"
+        label = f"{n}ページの枠（左 {rect[0] * unit / MM:.0f}・上 {rect[1] * unit / MM:.0f} mm）"
     else:
-        size = min(sz if sz >= 6 else 10.5, (rect[3] - rect[1]) * 0.8) if where == "below" else sz
+        # 6pt・10.5pt は紙の上の大きさ：UserUnit のあるページでは、ページの座標の単位に直す
+        size = min(sz if sz * unit >= 6 else 10.5 / unit, (rect[3] - rect[1]) * 0.8) if where == "below" else sz
         label = f"「{after}」を覆って" if where == "cover" else f"{after}（の{ {'right': '右', 'before': '左', 'below': '下'}[where] }）"
     out = {**out, "id": f"p{n}.{prefix}{k}", "rect": [round(v, 2) for v in rect], "size": round(size, 2), "label": label}
     if where == "cover":
@@ -215,8 +244,9 @@ A4_SHORT = 595.28  # A4 の短い辺（pt、ISO 216）
 def box_base_size(view) -> float:
     """枠（mm）に書く字の、大きさの上限：A4 の文書の標準の 10.5pt を、紙の大きさ（A4 との短い辺の比、ISO 216 の紙は
     √2 倍ずつ）に合わせる。A3 のスキャンでは 14.8pt。枠の高さが低ければ、その高さに合わせて小さくする（_resolve_box）。"""
-    short = min(view.width, view.height)
-    return round(10.5 * max(1.0, short / A4_SHORT), 2)
+    unit = getattr(view, "unit", 1.0)  # UserUnit（ページの座標の 1 単位が何ポイントか）
+    short = min(view.width, view.height) * unit  # 紙の上の長さ（pt）
+    return round(10.5 * max(1.0, short / A4_SHORT) / unit, 2)  # ページの座標の単位で
 
 
 def _resolve_box(doc, spec: dict, used, layouts, taken_names) -> dict:
@@ -234,9 +264,9 @@ def _resolve_box(doc, spec: dict, used, layouts, taken_names) -> dict:
     if spec.get("value") is None:
         raise AnchorError('枠で書くときは {"page": …, "box": […], "value": 書く字} の形で指定してください')
     view = View(doc, pages[n - 1])
-    x0, y0, x1, y1 = (v * MM for v in box)
+    x0, y0, x1, y1 = (v * view.mm for v in box)  # mm → ページの座標（UserUnit も反映）
     if not (0 <= x0 < x1 <= view.width + 0.01 and 0 <= y0 < y1 <= view.height + 0.01):
-        raise AnchorError(f"box がページ（{view.width / MM:.0f}×{view.height / MM:.0f} mm）の外か、左＜右・上＜下になっていません")
+        raise AnchorError(f"box がページ（{view.width / view.mm:.0f}×{view.height / view.mm:.0f} mm）の外か、左＜右・上＜下になっていません")
     rect = (x0, y0, x1, y1)
     layouts = layouts if layouts is not None else {}
     if n not in layouts:
@@ -247,4 +277,4 @@ def _resolve_box(doc, spec: dict, used, layouts, taken_names) -> dict:
         raise AnchorError(f"枠の中に、ページの字（「{''.join(c.text for c in inside[:6])}」）があります")
     sz = min(box_base_size(view), (y1 - y0) * 0.75)
     return _place(n, rect, used, taken_names, {"id": None, "page": n, "kind": "text", "size": None, "anchored": dict(spec)},
-                  "box", "", sz)
+                  "box", "", sz, unit=view.unit)

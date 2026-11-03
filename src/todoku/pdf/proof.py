@@ -150,6 +150,7 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
             pr.changed_fields.append(what)
         _collect(b, cur, reach, set(added))
     _check_states(b, set(changed) | set(added), pr)
+    _check_ap_geometry(b, set(changed) | set(added), set(added), pr)
     # 足したオブジェクト：書き換えたものからたどれて、欄・見た目・書体だけ（置いた画像は、下で1つずつ確かめる）
     seal_objs = set()
     # 足した書体の、字の対応（ToUnicode の CMap）のストリーム
@@ -224,6 +225,94 @@ def _check_states(b: PdfDocument, touched: set[int], pr: PdfProof) -> None:
             vals = vals if isinstance(vals, list) else ([] if vals in (None, "") else [vals])
             if [f.options[i][0] for i in idx] != [str(x) for x in vals]:
                 pr.unexpected.append(f"欄 {f.name}：選んだ番号（/I）{idx} の選択肢と、値（/V）{vals} が合いません")
+
+
+def _check_ap_geometry(b: PdfDocument, touched: set[int], added: set[int], pr: PdfProof) -> None:
+    """書いた・足した欄と注釈の、足した見た目（/AP の N）が、欄の四角（/Rect）にそのままの大きさ・決まった向きで描かれるか。
+
+    ビューアーは見た目のフォームを、BBox を Matrix で写した四角が Rect に重なるように、縦と横を別々の倍率で伸び縮みさせて描く
+    （ISO 32000-1 12.5.5 Algorithm 8.1）。BBox を Matrix で写した四角の大きさが Rect と違えば、字がつぶれたり点になったりする
+    ので、想定外とする。Matrix の回す向きは、欄なら /MK の R（反時計回りの角度、表 189）、スタンプ（置いた画像）ならページの
+    /Rotate を打ち消す向き（見た目の向きで描く）と同じであること（ほかの向きでは、字や画像が横倒し・逆さに見える）。"""
+    import math
+
+    from .fill import norm_rot
+
+    page_rot = {}
+    for pg in b.pages():
+        if pg.get("_ref") is not None:
+            page_rot[pg["_ref"].num] = norm_rot(b.resolve(pg.get("Rotate")) or 0)
+
+    def nums_of(v):
+        try:
+            return [float(b.resolve(x)) for x in b.resolve(v)]
+        except (TypeError, ValueError):
+            return None
+
+    for num in sorted(touched):
+        o = b.get(num)
+        if not isinstance(o, dict) or "Rect" not in o:
+            continue
+        apd = b.resolve(o.get("AP"))
+        n = apd.get("N") if isinstance(apd, dict) else None
+        refs = []
+        if isinstance(n, Ref):
+            nd = b.resolve(n)
+            if isinstance(nd, Stream):
+                refs = [("", n)]
+            elif isinstance(nd, dict):
+                n = nd
+        if isinstance(n, dict) and not isinstance(n, Stream):
+            refs = [(k, v) for k, v in n.items() if isinstance(v, Ref)]
+        refs = [(k, r) for k, r in refs if r.num in added]
+        if not refs:
+            continue
+        sub = getattr(o.get("Subtype"), "name", "")
+        if sub == "Stamp":
+            p = o.get("P")
+            want = page_rot.get(p.num, 0) if isinstance(p, Ref) else 0
+            what = f"置いた画像（オブジェクト {num}）"
+        else:
+            mk = b.resolve(o.get("MK"))
+            want = norm_rot(b.resolve(mk.get("R"))) if isinstance(mk, dict) else 0
+            from .objects import decode_text
+
+            t = o.get("T")
+            what = f"欄 {decode_text(t)}" if isinstance(t, (bytes, PdfString)) else f"欄（オブジェクト {num}）"
+        rect = nums_of(o.get("Rect"))
+        if not rect or len(rect) != 4:
+            pr.unexpected.append(f"{what}：位置（/Rect）を読めません")
+            continue
+        rw, rh = abs(rect[2] - rect[0]), abs(rect[3] - rect[1])
+        for state, ref in refs:
+            st = b.resolve(ref)
+            label = f"{what}の見た目（オブジェクト {ref.num}{'・状態 ' + state if state else ''}）"
+            if not isinstance(st, Stream):
+                pr.unexpected.append(f"{label}が、フォームのストリームではありません")
+                continue
+            bbox = nums_of(st.dict.get("BBox"))
+            m = nums_of(st.dict.get("Matrix")) if st.dict.get("Matrix") is not None else [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+            if not bbox or len(bbox) != 4 or not m or len(m) != 6:
+                pr.unexpected.append(f"{label}：BBox か Matrix を読めません")
+                continue
+            a_, b_, c_, d_ = m[:4]
+            ang = math.radians(want)
+            co, si = round(math.cos(ang)), round(math.sin(ang))
+            if max(abs(a_ - co), abs(b_ - si), abs(c_ + si), abs(d_ - co)) > 1e-6:
+                pr.unexpected.append(f"{label}：Matrix {[round(x, 3) for x in m[:4]]} が、{want} 度回す向き"
+                                     f"（{'/MK の R' if sub != 'Stamp' else 'ページの /Rotate を打ち消す向き'}）ではありません"
+                                     "（字や画像が横倒し・逆さ・ゆがんで見えます）")
+                continue
+            pts = [(a_ * x + c_ * y + m[4], b_ * x + d_ * y + m[5]) for x in (bbox[0], bbox[2]) for y in (bbox[1], bbox[3])]
+            tw = max(p[0] for p in pts) - min(p[0] for p in pts)
+            th = max(p[1] for p in pts) - min(p[1] for p in pts)
+            tol_w, tol_h = 0.01 + 1e-4 * rw, 0.01 + 1e-4 * rh
+            if tw <= 0 or th <= 0 or abs(tw - rw) > tol_w or abs(th - rh) > tol_h:
+                sx = rw / tw if tw > 0 else float("inf")
+                sy = rh / th if th > 0 else float("inf")
+                pr.unexpected.append(f"{label}：BBox を Matrix で写した大きさ {tw:.2f}×{th:.2f} が、欄の大きさ {rw:.2f}×{rh:.2f} と"
+                                     f"違います。ビューアーは横 {sx:.2f} 倍・縦 {sy:.2f} 倍に伸び縮みさせて描くので、字がつぶれて"
+                                     "見えます（ISO 32000-1 12.5.5 Algorithm 8.1）")
 
 
 def _check_glyphs(b: PdfDocument, num: int, o: Stream, pr: PdfProof) -> None:
