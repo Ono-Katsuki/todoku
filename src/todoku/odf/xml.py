@@ -126,6 +126,26 @@ class El:
 
 
 _TOK = re.compile(rb'<!--.*?-->|<!\[CDATA\[.*?\]\]>|<\?.*?\?>|<!DOCTYPE[^>]*>|<(?:[^>"\']|"[^"]*"|\'[^\']*\')*>', re.S)
+_ENDS = ((b"<!--", b"-->", "注釈（<!--）"), (b"<![CDATA[", b"]]>", "CDATA"), (b"<?", b"?>", "処理命令（<?）"))
+
+
+def _tokens(data: bytes):
+    """タグ・注釈などを順に（「<」から次の「<」へ飛ぶ。1 つの「<」ごとに 1 度だけ照らすので、ファイルの長さに比例する時間で読む）。
+    閉じていない「<」・「<!--」は、整っていない XML として XmlError（字として読み飛ばして、終わりまで探し直すことをしない）。"""
+    find, match = data.find, _TOK.match
+    i = find(b"<")
+    while i >= 0:
+        m = match(data, i)
+        if m is None:
+            raise XmlError(f"閉じていない「<」があります（{i} バイト目）")
+        tok = m[0]
+        for head, tail, what in _ENDS:
+            if tok.startswith(head) and not tok.endswith(tail):
+                raise XmlError(f"閉じていない{what}があります（{i} バイト目）")
+        yield m
+        i = find(b"<", m.end())
+
+
 _NAME = re.compile(rb"</?\s*([^\s/>]+)")
 _ATTR = re.compile(rb'([^\s=/<>]+)\s*=\s*(?:"([^"]*)"|\'([^\']*)\')')
 _ENT = re.compile(r"&(#x[0-9a-fA-F]+|#[0-9]+|lt|gt|amp|quot|apos);")
@@ -187,7 +207,7 @@ def parse(data: bytes) -> El:
     stack = [root]
     names = [b""]
     at = 0
-    for m in _TOK.finditer(data):
+    for m in _tokens(data):
         if m.start() > at:
             cur = stack[-1]
             if cur is not root:

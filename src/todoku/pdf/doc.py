@@ -102,8 +102,10 @@ class PdfDocument:
             tr = parse_object(lx)
             for k, v in tr.items():
                 self.trailer.setdefault(k, v)
-            if "XRefStm" in tr:
-                self._xref_section(int(tr["XRefStm"]))
+            xs = tr.get("XRefStm")
+            if isinstance(xs, int) and xs != pos and xs not in self.__dict__.setdefault("_xrefstm_seen", set()):
+                self._xrefstm_seen.add(xs)  # 自分や、読んだ xref ストリームを指す XRefStm は、もう読まない
+                self._xref_section(xs)
             return int(tr["Prev"]) if "Prev" in tr else None
         # xref ストリーム
         obj = self._parse_at(pos)
@@ -259,6 +261,17 @@ class PdfDocument:
     def _objstm(self, num: int) -> list:
         if num in self.objstm_cache:
             return self.objstm_cache[num]
+        opening = self.__dict__.setdefault("_objstm_opening", set())
+        if num in opening:
+            # オブジェクトストリームが、自分自身（か、自分を読むのに要るストリーム）の中にあると相互参照が言う：読めない
+            raise PdfError(f"オブジェクトストリーム {num} が、自分自身の中にあることになっています（相互参照が壊れています）")
+        opening.add(num)
+        try:
+            return self._objstm_read(num)
+        finally:
+            opening.discard(num)
+
+    def _objstm_read(self, num: int) -> list:
         st = self.get(num)
         out = []
         if isinstance(st, Stream):
@@ -370,8 +383,13 @@ class PdfDocument:
 
     def pages(self) -> list[dict]:
         out: list[dict] = []
+        seen: set[int] = set()  # たどったページの木の節（オブジェクトの番号）：輪や、同じ節を 2 度指す木を 1 度だけたどる
 
         def walk(node_ref, inherited, depth=0):
+            if isinstance(node_ref, Ref):
+                if node_ref.num in seen:
+                    return
+                seen.add(node_ref.num)
             node = self.resolve(node_ref)
             if not isinstance(node, dict) or depth > 64:
                 return
@@ -393,6 +411,7 @@ class PdfDocument:
         if not out and not self.repaired and self.xref:
             # 入口（Root）からページの木をたどれない：相互参照が古い・壊れていることがある。頭から読み直して、もう一度たどる
             self._repair()
+            seen.clear()
             walk(self.root.get("Pages"), {})
         return out
 
@@ -415,23 +434,14 @@ class PdfDocument:
 
 
 def _inflate(data: bytes) -> bytes:
-    try:
-        return zlib.decompress(data)
-    except zlib.error:
-        # 末尾が壊れている圧縮データ：読めるところまで読む
-        d = zlib.decompressobj()
-        out = bytearray()
-        try:
-            for i in range(0, len(data), 1024):
-                out += d.decompress(data[i:i + 1024])
-        except zlib.error:
-            pass
-        if not out:
-            try:
-                return zlib.decompress(data, -15)
-            except zlib.error:
-                return bytes(out)
-        return bytes(out)
+    """FlateDecode：出てくるバイトを数えながら展開する（上限：limits）。末尾が壊れている圧縮データは、読めるところまで読む
+    （zlib の頭のないもの＝deflate だけのものも読む）。"""
+    from ..limits import inflate
+
+    out = inflate(data, 15, what="PDF のストリーム", tolerant=True)
+    if not out:
+        out = inflate(data, -15, what="PDF のストリーム", tolerant=True)
+    return out
 
 
 def _predict(data: bytes, prm) -> bytes:
@@ -516,6 +526,10 @@ def _a85(data: bytes) -> bytes:
 
 
 def _lzw(data: bytes) -> bytes:
+    from ..limits import budget
+
+    b = budget()
+    cap = b.room()
     out = bytearray()
     table = [bytes([i]) for i in range(256)] + [b"", b""]
     bits = 9
@@ -534,6 +548,7 @@ def _lzw(data: bytes) -> bytes:
                 prev = None
                 continue
             if code == 257:
+                b.charge(len(out))
                 return bytes(out)
             if prev is None:
                 entry = table[code]
@@ -545,15 +560,24 @@ def _lzw(data: bytes) -> bytes:
                 table.append(entry)
             out += entry
             prev = entry
+            if len(out) > cap:
+                raise b.exceeded(cap, None, "PDF のストリーム（LZW）")
             if len(table) + 1 >= (1 << bits) and bits < 12:
                 bits += 1
+    b.charge(len(out))
     return bytes(out)
 
 
 def _rle(data: bytes) -> bytes:
+    from ..limits import budget
+
+    b = budget()
+    cap = b.room()
     out = bytearray()
     i = 0
     while i < len(data):
+        if len(out) > cap:
+            raise b.exceeded(cap, None, "PDF のストリーム（RunLength）")
         n = data[i]
         if n == 128:
             break
@@ -563,4 +587,5 @@ def _rle(data: bytes) -> bytes:
         else:
             out += data[i + 1:i + 2] * (257 - n)
             i += 2
+    b.charge(len(out))
     return bytes(out)

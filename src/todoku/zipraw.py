@@ -25,6 +25,15 @@ class ZipFormatError(ValueError):
     pass
 
 
+class AmbiguousZip(ZipFormatError):
+    """ZIP の中身が二通りに読める（同じ名前・大文字小文字だけ違う名前の部品、中央ディレクトリとローカルヘッダで違う名前、
+    重なった部品）。読む道具によって違う中身が出てくるので、読まない・書かない（証明できない）。"""
+
+    def __init__(self, detail: str):
+        super().__init__(f"ZIP の中身が二通りに読めます（{detail}）。読む道具によって違う中身になるので、読み書きしません")
+        self.detail = detail
+
+
 @dataclass
 class Entry:
     name: str
@@ -62,7 +71,10 @@ class Entry:
         if self.method == 0:
             raw = self.data
         elif self.method == 8:
-            raw = zlib.decompress(self.data, -15)
+            # 宣言された大きさは信じず、出てくるバイトを数えながら展開する（上限：limits）
+            from .limits import inflate
+
+            raw = inflate(self.data, -15, what=self.name)
         else:
             raise ZipFormatError(f"{self.name}: 未対応の圧縮方式 {self.method}")
         if zlib.crc32(raw) & 0xFFFFFFFF != self.crc:
@@ -123,6 +135,7 @@ class RawZip:
             centrals.append((name, blob[p:p + rec_len], local_off, csize))
             p += rec_len
 
+        _no_two_readings(blob, centrals, cd_offset)
         # ローカルヘッダの順に並べる（中央ディレクトリの順とは限らない）
         order = sorted(range(len(centrals)), key=lambda i: centrals[i][2])
         self._cd_order = order  # 中央ディレクトリの順番→エントリ番号
@@ -164,13 +177,23 @@ class RawZip:
         return [e.name for e in self._entries_cd_order]
 
     def get(self, name: str) -> Entry:
-        for e in self.entries:
-            if e.name == name:
-                return e
-        raise KeyError(name)
+        # 名前の重なる ZIP は読まない（AmbiguousZip）ので、名前 → エントリの表で引ける（部品が多くても 1 回で）
+        idx = getattr(self, "_by_name", None)
+        if idx is None or len(idx) != len(self.entries):
+            idx = self._by_name = {}
+            for e in self.entries:
+                idx.setdefault(e.name, e)
+        e = idx.get(name)
+        if e is None:
+            raise KeyError(name)
+        return e
 
     def has(self, name: str) -> bool:
-        return any(e.name == name for e in self.entries)
+        try:
+            self.get(name)
+        except KeyError:
+            return False
+        return True
 
     def read(self, name: str) -> bytes:
         return self.get(name).read()
@@ -212,6 +235,7 @@ class RawZip:
         """add で足したエントリを取り除く（元のエントリだけに戻す）。"""
         gone = set(getattr(self, "added", []))
         self.entries = [e for e in self.entries if e.name not in gone]
+        self._by_name = None
         self._entries_cd_order = [e for e in self._entries_cd_order if e.name not in gone]
         self.added = []
 
@@ -270,6 +294,36 @@ class RawZip:
         struct.pack_into("<III", central, 16, crc, len(data), len(raw))
         struct.pack_into("<I", central, 42, offset)
         return bytes(local), data, desc, bytes(central)
+
+
+def _no_two_readings(blob: bytes, centrals: list[tuple[str, bytes, int, int]], cd_offset: int) -> None:
+    """中央ディレクトリとローカルヘッダが、ただ一通りの中身を指すか（そうでなければ AmbiguousZip）：
+    名前が重ならない（大文字小文字を除いても。OOXML の部品の名前は大文字小文字を区別しない：ECMA-376 第2部 6.2.2.3）、
+    ローカルヘッダの名前が中央ディレクトリの名前と同じ、部品のバイトの範囲が重ならず、中央ディレクトリより前にある。"""
+    seen: dict[str, str] = {}
+    spans = []
+    for name, central, off, csize in centrals:
+        key = name.casefold()
+        if key in seen:
+            what = "同じ名前" if seen[key] == name else "大文字・小文字だけが違う名前"
+            raise AmbiguousZip(f"{what}の部品が 2 つあります：{seen[key]!r}・{name!r}")
+        seen[key] = name
+        if blob[off:off + 4] != LOCAL_SIG or off + 30 > len(blob):
+            raise ZipFormatError(f"{name}: ローカルヘッダが見つかりません")
+        nlen, xlen = struct.unpack_from("<HH", blob, off + 26)
+        cn = struct.unpack_from("<H", central, 28)[0]
+        if blob[off + 30:off + 30 + nlen] != central[46:46 + cn]:
+            raise AmbiguousZip(f"部品 {name!r} の名前が、中央ディレクトリとローカルヘッダで違います")
+        end = off + 30 + nlen + xlen + csize
+        if struct.unpack_from("<H", blob, off + 6)[0] & 0x8:
+            end += 12  # データ記述子（少なくとも 12 バイト）
+        spans.append((off, end, name))
+    spans.sort()
+    for (a0, a1, an), (b0, _b1, bn) in zip(spans, spans[1:]):
+        if b0 < a1:
+            raise AmbiguousZip(f"部品 {an!r} と {bn!r} のバイトが重なっています")
+    if spans and spans[-1][1] > cd_offset:
+        raise AmbiguousZip(f"部品 {spans[-1][2]!r} のバイトが、中央ディレクトリに重なっています")
 
 
 def _set_u32(b: bytes, pos: int, value: int) -> bytes:

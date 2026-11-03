@@ -106,6 +106,9 @@ def _read_c(bits: _Bits, pt: _Huff) -> _Huff:
 
 def unlh5(data: bytes, size: int) -> bytes:
     """-lh5- で縮めたデータ → 元のバイト列（size バイト）。"""
+    from ..limits import check_output
+
+    check_output(size, "-lh5- で縮めたデータ")  # 解く大きさ（見出しの値）は、上限まで（out は size + 256 バイトまでにしかならない）
     bits = _Bits(data)
     out = bytearray()
     left = 0
@@ -168,7 +171,11 @@ def unpack_jscomp(stream: bytes) -> bytes:
         pos += nxt
         nxt = struct.unpack_from("<H", h, pos - 2)[0]
     body = h[pos:pos + packed - ext_total]
+    from ..limits import budget, check_output
+
+    check_output(original, "圧縮した一太郎の文書")  # 見出しの元の大きさ（展開の前に、上限と比べる）
     out = unlh5(body, original)
+    budget().charge(len(out), "圧縮した一太郎の文書")
     if len(out) != original or crc16(out) != crc:
         raise JtdError("圧縮した一太郎の文書を解いた結果が、見出しの長さ・CRC と合いません")
     if out[:8] != b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":

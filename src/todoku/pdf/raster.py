@@ -137,6 +137,10 @@ def ccitt(data: bytes, parms: dict) -> Gray:
     rows = int(parms.get("Rows", 0))
     align = bool(parms.get("EncodedByteAlign", False))
     black1 = bool(parms.get("BlackIs1", False))
+    from ..limits import MAX_PIXELS
+
+    if cols <= 0 or rows < 0 or cols * max(rows, 1) > MAX_PIXELS:
+        raise RasterError(f"CCITT：画像が大きすぎます（{cols:,} × {rows:,}。開ける大きさは {MAX_PIXELS:,} 画素まで）")
     bits = _Bits(data)
     out = bytearray()
     ref = [cols, cols]  # 上の行の変わり目（白の行）
@@ -165,6 +169,8 @@ def ccitt(data: bytes, parms: dict) -> Gray:
             if bits.peek(24) == 0x001001:  # EOFB（EOL を2つ）：終わり
                 break
             cur = _g4_line(bits, ref, cols)
+        if (y + 1) * cols > MAX_PIXELS:
+            raise RasterError(f"CCITT：画像が大きすぎます（{cols:,} 列で {y + 1:,} 行を超える。開ける大きさは {MAX_PIXELS:,} 画素まで）")
         row = bytearray(b"\xff" * cols)  # 白
         for i in range(0, len(cur) - 1, 2):
             a, b = min(cur[i], cols), min(cur[i + 1], cols)
@@ -390,6 +396,12 @@ def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels) -> Gray:
     mat = _idct_matrix(n)
     mcux = (ww + 8 * hmax - 1) // (8 * hmax)
     mcuy = (hh + 8 * vmax - 1) // (8 * vmax)
+    from ..limits import MAX_PIXELS
+
+    blocks = mcux * mcuy * sum(c["h"] * c["v"] for c in comps)
+    if (ww * n // 8) * (hh * n // 8) > MAX_PIXELS or blocks * 2 > (len(data) - start) * 8:
+        # 1 つのブロックは少なくとも 2 ビット（DC の差の符号と、AC の終わりの符号）：データの足りない大きさは、書き換えた見出し
+        raise RasterError(f"JPEG：画像の大きさ（{ww:,} × {hh:,}）に対して、データが足りないか、大きすぎます")
     planes = []
     for c in comps:
         bw, bh = mcux * c["h"], mcuy * c["v"]
@@ -547,7 +559,7 @@ def image_gray(doc, image, max_pixels: int = 4_000_000) -> Gray:
         return _decode_array(g, d, 1)
     if "DCTDecode" in names:
         return jpeg_gray(data, max_pixels)
-    return _raw_gray(doc, data, d, w, h)
+    return _raw_gray(doc, data, d, w, h, max_pixels)
 
 
 def _decode_array(g: Gray, d: dict, bpc: int) -> Gray:
@@ -589,7 +601,10 @@ def _colorspace(doc, cs) -> tuple[str, int, object]:
     return "DeviceGray", 1, None
 
 
-def _raw_gray(doc, data: bytes, d: dict, w: int, h: int) -> Gray:
+def _raw_gray(doc, data: bytes, d: dict, w: int, h: int, max_pixels: int = 4_000_000) -> Gray:
+    """圧縮していない（Flate などで開いた後の）画素の並び → 濃さ。幅 × 高さが max_pixels を超える画像は、
+    行と列を同じ間隔で間引いて開く（画素の並びの大きさを作る前に決める：データより大きな幅・高さを書いた画像でも、
+    幅 × 高さのメモリを使わない）。足りないデータは 0 とみなす。"""
     bpc = int(d.get("BitsPerComponent") or 1)
     if d.get("ImageMask") is True:
         kind, nc, idx = "DeviceGray", 1, None
@@ -598,37 +613,53 @@ def _raw_gray(doc, data: bytes, d: dict, w: int, h: int) -> Gray:
         kind, nc, idx = _colorspace(doc, d.get("ColorSpace"))
     if not (w and h and nc):
         raise RasterError("画像の大きさか色空間が分かりません")
+    if w < 0 or h < 0:
+        raise RasterError("画像の大きさが負です")
+    import math
+
+    step = max(1, math.isqrt(w * h // max(1, max_pixels)))
+    while (-(-w // step)) * (-(-h // step)) > max_pixels:
+        step += 1
     stride = (w * nc * bpc + 7) // 8
-    if len(data) < stride * h:
-        data = data + b"\0" * (stride * h - len(data))
     out = bytearray()
     maxv = (1 << bpc) - 1
-    for y in range(h):
-        row = data[y * stride:(y + 1) * stride]
+    ow, oh = -(-w // step), -(-h // step)
+    # 使う成分の番号（間引かなければ全部）
+    comps = range(w * nc) if step == 1 else [x * nc + c for x in range(0, w, step) for c in range(nc)]
+
+    def line(row: bytes) -> bytes:
         if bpc == 8:
-            vals = row
+            vals = row if step == 1 else bytes(row[i] for i in comps)
         elif bpc == 16:
-            vals = row[0::2]
+            vals = row[0::2] if step == 1 else bytes(row[2 * i] for i in comps)
         else:
-            n = w * nc
             vals = bytes((((row[(i * bpc) >> 3] >> (8 - bpc - (i * bpc) % 8)) & maxv) * 255 // maxv) if idx is None
-                         else ((row[(i * bpc) >> 3] >> (8 - bpc - (i * bpc) % 8)) & maxv) for i in range(n))
+                         else ((row[(i * bpc) >> 3] >> (8 - bpc - (i * bpc) % 8)) & maxv) for i in comps)
         if idx is not None:
             base, nb, lut = idx
-            if bpc == 8:
-                vals = bytes(vals)
             g = bytearray()
-            for v in vals[:w]:
+            for v in vals[:ow]:
                 c = lut[v * nb:(v + 1) * nb] or b"\0" * nb
                 g.append(_to_gray(base, c))
-            out += g
-        elif nc == 1:
-            out += bytes(vals[:w])
-        else:
-            out += bytes(_to_gray(kind, vals[i * nc:(i + 1) * nc]) for i in range(w))
-    g = Gray(w, h, bytes(out))
+            return bytes(g)
+        if nc == 1:
+            return bytes(vals[:ow])
+        return bytes(_to_gray(kind, vals[i * nc:(i + 1) * nc]) for i in range(ow))
+
+    blank = None  # データのない行（0 とみなす）は、1 度だけ作る
+    for y in range(0, h, step):
+        if y * stride >= len(data):
+            if blank is None:
+                blank = line(bytes(stride))
+            out += blank
+            continue
+        row = data[y * stride:(y + 1) * stride]
+        if len(row) < stride:
+            row = row + b"\0" * (stride - len(row))
+        out += line(row)
+    g = Gray(ow, oh, bytes(out))
     if kind == "Separation":  # 色の濃さ（1＝インクいっぱい）
-        g = Gray(w, h, g.px.translate(bytes(255 - i for i in range(256))))
+        g = Gray(ow, oh, g.px.translate(bytes(255 - i for i in range(256))))
     return _decode_array(g, d, bpc)
 
 

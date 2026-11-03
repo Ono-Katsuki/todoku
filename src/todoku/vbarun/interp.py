@@ -81,6 +81,15 @@ class VArray:
     ubounds: list[int]
     data: dict = field(default_factory=dict)  # 添字のタプル → 値
 
+    def __post_init__(self):
+        from ..limits import MAX_VBA_ARRAY
+
+        n = 1
+        for lo, hi in zip(self.lbounds, self.ubounds):
+            n *= max(0, hi - lo + 1)
+            if n > MAX_VBA_ARRAY:
+                raise Unsupported(f"とても大きな配列（要素が {MAX_VBA_ARRAY:,} 個を超える）")
+
     def check(self, idx: tuple) -> tuple:
         if len(idx) != len(self.lbounds):
             raise VbaError(9)
@@ -364,6 +373,7 @@ class Runtime:
         self.open_files: dict[int, dict] = {}
         self.steps = 0
         self.max_steps = 5_000_000
+        self.big_chars = 0  # この実行で作った大きな文字列（1 MB 以上）の字の数の合計（limits.MAX_VBA_BYTES まで）
         self.frames: list[Frame] = []
         for m in modules:
             vars_ = {}
@@ -509,6 +519,18 @@ class Runtime:
                     i = labels[r.label]
                 else:
                     i = (fr.resume_at - 1) if fr.resume_at is not None else i
+
+    def make_string(self, n: int, what: str = "文字列") -> None:
+        """長さ n の文字列を作る前に：1 つの文字列の長さ（limits.MAX_VBA_STRING）と、この実行で作る大きな文字列の合計
+        （limits.MAX_VBA_BYTES）の上限を確かめる（超えれば Unsupported：Excel でもメモリが足りなくなる大きさ）。"""
+        from ..limits import MAX_VBA_BYTES, MAX_VBA_STRING
+
+        if n > MAX_VBA_STRING:
+            raise Unsupported(f"とても長い{what}（{n:,} 字。{MAX_VBA_STRING:,} 字まで再現します）")
+        if n >= 1 << 20:
+            self.big_chars += n
+            if self.big_chars > MAX_VBA_BYTES:
+                raise Unsupported(f"大きな文字列をたくさん作るマクロ（合計 {MAX_VBA_BYTES:,} 字まで再現します）")
 
     def exec_stmt(self, st: P.Stmt, fr: Frame) -> None:
         self.steps += 1
@@ -827,7 +849,9 @@ class Runtime:
         if op == "&":
             if a is NULL and b is NULL:
                 return NULL
-            return (to_str(a) if a is not NULL else "") + (to_str(b) if b is not NULL else "")
+            sa, sb = (to_str(a) if a is not NULL else ""), (to_str(b) if b is not NULL else "")
+            self.make_string(len(sa) + len(sb))
+            return sa + sb
         if a is NULL or b is NULL:
             return NULL
         text = self._text_compare(fr)
