@@ -93,6 +93,7 @@ class Ch:
     base: float  # 行をそろえる位置（横書きは原点の y、縦書きは字の中心の x）
     invisible: bool
     legacy: bool = False  # Unicode でない符号の書体の字
+    seq: int = -1  # 描いた順（ページの描画の命令の中の何番目の字か）
 
     @property
     def cx(self) -> float:
@@ -139,7 +140,7 @@ def _box_overlap(a: "Ch", b: "Ch") -> float:
 def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges: list | None = None) -> list[Ch]:
     out: list[Ch] = []
     seen: dict[tuple, list[Ch]] = {}
-    for g in pc.glyphs:
+    for seq, g in enumerate(pc.glyphs):
         if not g.text:
             continue
         x0, y0, x1, y1 = view.rect(g.x0, g.y0, g.x1, g.y1)
@@ -154,7 +155,7 @@ def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges:
             if dropped is not None:
                 dropped.append(("size", g.text))
             continue
-        c = Ch(g.text, x0, y0, x1, y1, max(g.size, 1.0), vertical, base, g.invisible, g.legacy)
+        c = Ch(g.text, x0, y0, x1, y1, max(g.size, 1.0), vertical, base, g.invisible, g.legacy, seq)
         # 同じ字を同じ位置に重ねたもの（太字に見せる重ね書き、色の層）は1字にする。
         # 重ね書きかどうかは、字の箱（送り幅 × 字の高さ）の重なりだけで決める：送りの向きに、幅の狭いほうの字の半分より多く、
         # 横切る向きにも半分より多く重なるもの。並べて書いた字（「ll」）の箱は接するだけで重ならない
@@ -396,7 +397,8 @@ class Line:
         return (self.pos[a][0], self.y0, self.pos[b - 1][1], self.y1)
 
 
-def make_lines(chars: list[Ch]) -> list[Line]:
+def make_lines(chars: list[Ch], overlaps: list | None = None) -> list[Line]:
+    """overlaps：違う字が重なって描かれた行（2つの行を重ねて印刷したもの）を、分けた行の組で受け取る。"""
     out: list[Line] = []
     hor = [c for c in chars if not c.vertical]
     ver = [c for c in chars if c.vertical]
@@ -416,12 +418,45 @@ def make_lines(chars: list[Ch]) -> list[Line]:
             rows.append([c])
         for row in rows:
             row.sort(key=lambda c: c.y0 if vertical else c.x0)
-            # 字が大きく重なる（同じ行の二重の書き込み）ときは、並びを保ったまま扱う
+            parts = _split_overprinted(row)
+            if len(parts) > 1:
+                made = [_line(sorted(p, key=lambda c: c.y0 if vertical else c.x0), vertical) for p in parts]
+                for ln in made:
+                    ln.overprint = id(made)  # 重ねて描かれた行の組（窓では「／」で区切る）
+                if overlaps is not None:
+                    overlaps.append(made)
+                out += made
+                continue
             out.append(_line(row, vertical))
     out = _vertical_stacks(out)
     # 横書きの行は上から、縦書きの列は右から
     out.sort(key=lambda ln: (ln.y0, ln.x0))
     return out
+
+
+def _split_overprinted(row: list[Ch]) -> list[list[Ch]]:
+    """同じ行の帯に、違う字が重なって描かれているとき（2つの行を重ねて印刷した様式）、描いた順で行を分ける。
+    描いた順に字をたどり、前の字より戻った所（重なる所）で切り、互いに重ならないまとまりどうしをつなぐ。"""
+    if len(row) < 2:
+        return [row]
+    ink = [c for c in row if not c.text.isspace()]
+    if not any(a.text != b.text and _box_overlap(a, b) > 0.5 for a, b in zip(ink, ink[1:])):
+        return [row]
+    segs: list[list[Ch]] = []
+    for c in sorted(row, key=lambda c: c.seq):
+        if segs and not any(_box_overlap(c, o) > 0.5 for o in segs[-1] if not o.text.isspace()):
+            segs[-1].append(c)
+        else:
+            segs.append([c])
+    groups: list[list[Ch]] = []
+    for sg in segs:
+        for g in groups:
+            if not any(_box_overlap(a, b) > 0.5 for a in sg for b in g if not a.text.isspace() and not b.text.isspace()):
+                g += sg
+                break
+        else:
+            groups.append(list(sg))
+    return groups
 
 
 def _vertical_stacks(lines: list[Line]) -> list[Line]:
@@ -628,6 +663,13 @@ def _vov_rect(r: tuple[float, float, float, float], c) -> float:
 def _cut_option(t: str) -> str:
     """チェックの印の右の文字から、選択肢の名前だけを取る（大きな空き・※・● で切る）。"""
     t = t.strip(" \u3000")
+    # 字間を均等に空けた選択肢（「重　　度　　訪　　問　　介　　護」）：1字ずつの並びで、空きの長さがそろうものは1つの語
+    m = re.match(r"\S(?:[ \u3000]+\S)+", t)
+    if m:
+        gaps = re.findall(r"[ \u3000]+", m[0])
+        toks = re.split(r"[ \u3000]+", m[0])
+        if len(toks) >= 3 and all(len(x) == 1 for x in toks) and max(map(len, gaps)) - min(map(len, gaps)) <= 1:
+            return "".join(toks)
     m = re.search(r"[\u3000 ]{2,}|※|●|・・", t)
     if m and m.start() > 0:
         t = t[:m.start()]
@@ -671,6 +713,14 @@ class PageLayout:
         self.chars = view_chars(pc, self.view, self.dropped, self.merges)
         hs, vs = rulings(pc, self.view)
         self.hs, self.vs = hs, vs
+        # 斜めの線（マスを斜線で消す印）
+        self.diagonals = []
+        for sg in pc.segs:
+            if all(c > 0.93 for c in sg.color[:3]):
+                continue
+            a, b = self.view.pt(sg.x0, sg.y0), self.view.pt(sg.x1, sg.y1)
+            if abs(a[0] - b[0]) > 0.8 and abs(a[1] - b[1]) > 0.8:
+                self.diagonals.append((a, b))
         cells = cells_from(hs, vs)
         # ページ全体を囲むだけの大きなマスは、マスとして扱わない（文字の行を分けないため）
         pw, ph = self.view.width, self.view.height
@@ -683,9 +733,10 @@ class PageLayout:
                 self.free.append(c)
             else:
                 cell.chars.append(c)
+        self.overprinted: list[list[Line]] = []  # 重ねて描かれ、分けた行の組
         for cell in self.cells:
-            cell.lines = make_lines(cell.chars) if cell.chars else []
-        self.free_lines = make_lines(self.free)
+            cell.lines = make_lines(cell.chars, self.overprinted) if cell.chars else []
+        self.free_lines = make_lines(self.free, self.overprinted)
         self.typical = _typical_size(self.chars)
         self.widgets = widgets or []
         self.fills: list[tuple] = []
@@ -732,6 +783,23 @@ class PageLayout:
             self.flag("B", "外字（私用の符号の字）",
                       "外字：中身は view_page で画像を見て確かめる（私用の符号 U+E000〜F8FF などは、書類ごとに字の形が決まり、"
                       "字の意味は符号からは分かりません）", pua)
+        if self.overprinted:
+            many = [grp for grp in self.overprinted if len(grp) > 2]
+            self.flag("C" if many else "B", "重なって描かれた行",
+                      "違う字の行が同じ所に重ねて描かれています（人が見ても字が重なっています）。窓では、描いた順で別々の行に分けました"
+                      + ("。3つ以上が重なる所は、分け方が正しいかを view_page で確かめる" if many else
+                         "。どちらの行が生きているか（消した字か）は view_page で確かめる"),
+                      [self.where(min(ln.x0 for ln in grp), min(ln.y0 for ln in grp), " ／ ".join(ln.text.strip() for ln in grp))
+                       for grp in self.overprinted])
+        ocr = [c for c in self.chars if c.invisible and not c.text.isspace()]
+        if ocr:
+            pics = [self.view.rect(p.x0, p.y0, p.x1, p.y1) for p in self.pc.pictures]
+            on = [c for c in ocr if any(r[0] - 1 <= c.cx <= r[2] + 1 and r[1] - 1 <= c.cy <= r[3] + 1 for r in pics)]
+            if on:
+                self.flag("B", "OCR の字（画像の上の見えない字）",
+                          "OCR の字はエージェントが画像と照らして確かめる（スキャンの画像の上に、文字の認識で作った見えない字が"
+                          "重ねてあります。認識の誤りがあっても、字の情報からは分かりません）",
+                          [f"{self.number}ページ（見えない字 {len(on)} 字）"])
         bad = [m for m in self.merges if m[1] <= 0.5]
         if bad:
             self.flag("C", "重ね書きとして1字にした字", "箱が重ならない字を、重ね書きとして1字にしました（読み落としのおそれ）",
@@ -845,6 +913,53 @@ class PageLayout:
         self.spots = kept
         # 5) 規則では決められない所（窓に「？」をつけて示し、エージェントが読んで判断する）
         self._agent_spots(cells, undecided)
+        # 6) 斜線で消したマスは欄にしない。印刷された字を含む欄は、字のない所に縮める（縮めると書けない大きさになるものは、欄にしない）
+        self.spots = [sp for sp in self.spots if not self._struck(sp.rect) and self._clear_of_print(sp)]
+
+    def _struck(self, r) -> bool:
+        """向かい合う角と角を結ぶ斜めの線がある（斜線で消した）マス。"""
+        if not self.diagonals:
+            return False
+        x0, y0, x1, y1 = r
+        tol = max(2.0, 0.12 * min(x1 - x0, y1 - y0))
+        pairs = (((x0, y0), (x1, y1)), ((x1, y0), (x0, y1)))
+
+        def near(p, q):
+            return abs(p[0] - q[0]) <= tol and abs(p[1] - q[1]) <= tol
+
+        for a, b in self.diagonals:
+            for p, q in pairs:
+                if (near(a, p) and near(b, q)) or (near(a, q) and near(b, p)):
+                    return True
+        return False
+
+    def _clear_of_print(self, sp: Spot) -> bool:
+        if sp.kind not in ("text", "inline", "space") or sp.cover:
+            return True
+        x0, y0, x1, y1 = sp.rect
+        inside = [c for c in self.chars if not c.text.isspace() and x0 < c.cx < x1 and y0 < c.cy < y1]
+        if not inside:
+            return True
+        # 上下の空き（字の帯のあいだ）と、左右の空きのうち、いちばん広い所
+        need = max(MIN_WRITE, 0.9 * sp.size)
+        best = None
+        ys = sorted((c.y0, c.y1) for c in inside)
+        edge = y0
+        for a, b in ys + [(y1, y1)]:
+            if a - edge >= need and (best is None or (a - edge) * (x1 - x0) > _area(best)):
+                best = (x0, edge + 0.3, x1, a - 0.3)
+            edge = max(edge, b)
+        xs = sorted((c.x0, c.x1) for c in inside)
+        edge = x0
+        for a, b in xs + [(x1, x1)]:
+            if a - edge >= max(need, 2 * sp.size) and y1 - y0 >= need and (best is None or (a - edge) * (y1 - y0) > _area(best)):
+                best = (edge + 0.3, y0, a - 0.3, y1)
+            edge = max(edge, b)
+        if best is None:
+            return False
+        sp.rect = best
+        sp.reason += "（印刷された字のない所に縮めた）"
+        return True
 
     def _agent_spots(self, cells: list[Cell], undecided: list[tuple[Cell, str]]) -> None:  # noqa: C901
         """規則の型に合わないが、書き込む所かもしれない所：行の中の空き・見出しの後ろ・単位だけのマスなど
@@ -1282,6 +1397,10 @@ def _vov(a: Cell, b: Cell) -> float:
 def _hov(a: Cell, first: Cell, last: Cell) -> float:
     inter = min(a.x1, last.x1) - max(a.x0, first.x0)
     return inter / max(1e-6, min(a.w, last.x1 - first.x0))
+
+
+def _area(r) -> float:
+    return max(0.0, r[2] - r[0]) * max(0.0, r[3] - r[1])
 
 
 def _overlap(r1, r2) -> float:

@@ -228,8 +228,15 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                         pieces.append(("☑" if sp.checked else "☐") + f"［{name(sp)}］")
                     else:
                         pieces.append(f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
-                rendered = [_render_line(ln, line_spots.get(id(ln), []), name) for ln in c.lines]
-                pieces.append(_join(rendered))
+                rendered = []
+                for ln in c.lines:
+                    r_ = _render_line(ln, line_spots.get(id(ln), []), name)
+                    grp = getattr(ln, "overprint", None)
+                    if grp is not None and rendered and rendered[-1][1] == grp:
+                        rendered[-1] = (rendered[-1][0] + " ／ " + r_, grp)  # 重ねて描かれた行
+                    else:
+                        rendered.append((r_, grp))
+                pieces.append(_join([r_ for r_, _g in rendered]))
                 for sp in circles:
                     nm = name(sp)
                     chosen = next((f.value_text() for f, _ in (sp.widget or []) if f.name == nm), None)
@@ -304,9 +311,15 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             if f.options:
                 d["options"] = [o[1] or o[0] for o in f.options]
             else:
-                from .form import name_text
+                from .form import name_text, name_unreadable
 
                 d["options"] = [name_text(x.on) for x in f.widgets if x.on]
+                bad = [x.on for x in f.widgets if x.on and name_unreadable(x.on)]
+                if bad:
+                    lay.flag("C", "字の読めない選択肢の名前",
+                             "ひとつ選ぶ欄の選択肢の名前が、PDF の名前の決まり（UTF-8）で読めません（Shift_JIS などで作った名前）。"
+                             "字を推し量らず、バイト列のまま（#82#CD のように）示しました。どれが何の選択肢かは view_page で確かめ、"
+                             "書くときはこの形の名前で選びます", [f"{f.name}：" + "、".join(name_text(b) for b in bad[:6])])
         if f.maxlen:
             d["maxlen"] = f.maxlen
         if f.readonly:

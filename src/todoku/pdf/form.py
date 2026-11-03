@@ -91,11 +91,26 @@ class FormField:
 
 
 def name_text(n: str) -> str:
-    """名前（バイト列を latin-1 で読んだもの）を、UTF-8 として読めるならその文字にする。"""
+    """名前（バイト列を latin-1 で読んだもの）を、UTF-8 として読めるならその文字にする。
+    UTF-8 として読めない名前（Shift_JIS で作った名前など）は、字を推し量らず、PDF の名前の書き方（#82#CD）でバイト列のまま示す
+    （name_unreadable で確かめられる。書き込みでは、この形の名前で選べる）。"""
     try:
         return n.encode("latin-1").decode("utf-8")
-    except (UnicodeEncodeError, UnicodeDecodeError):
+    except UnicodeEncodeError:
         return n
+    except UnicodeDecodeError:
+        return "".join(ch if 0x21 <= ord(ch) <= 0x7E and ch != "#" else f"#{ord(ch):02X}" for ch in n)
+
+
+def name_unreadable(n: str) -> bool:
+    """UTF-8 として読めない名前か。"""
+    try:
+        n.encode("latin-1").decode("utf-8")
+        return False
+    except UnicodeEncodeError:
+        return False
+    except UnicodeDecodeError:
+        return True
 
 
 def _txt(doc, v) -> str:
