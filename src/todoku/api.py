@@ -302,18 +302,40 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         from .xlsx.edit import fill as xfill
         from .xlsx.proof import prove
 
+        circ = {k_: v for k_, v in values.items() if _is_circle(v)}
+        cell_values = {k_: v for k_, v in values.items() if k_ not in circ}
+        readback_values = {k_: v for k_, v in readback_values.items() if k_ not in circ}
         wb = open_book(blob, name)
-        try:
-            res = xfill(wb, values, force=force)
-        except EditError as e:
-            raise ApiError(str(e)) from None
-        allowed = res.allowed_inputs
-        allowed_c = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"}  # 部品 → 書いた状態
-        pr = prove(blob, res.blob, allowed, allowed_c, {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
-        new_blob = res.blob
-        result.update({"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
-                       "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
-                       "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"}})
+        if cell_values or not circ:
+            try:
+                res = xfill(wb, cell_values, force=force)
+            except EditError as e:
+                raise ApiError(str(e)) from None
+            allowed = res.allowed_inputs
+            allowed_c = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"}  # 部品 → 書いた状態
+            pr = prove(blob, res.blob, allowed, allowed_c, {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
+            new_blob = res.blob
+            result.update({"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
+                           "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
+                           "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"}})
+            # 文字の中の空き（セルの中の［　］）に値の並び（リスト）で書いたセル：読み戻しと本人に伝える値は、書いたセルの字
+            from .formula.parser import addr as _addr
+            from .xlsx.edit import resolve_target
+
+            after_of = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "input"}
+            for key_, v_ in cell_values.items():
+                if isinstance(v_, (list, tuple)):
+                    try:
+                        sn_, r_, c_ = resolve_target(wb, key_)
+                    except EditError:
+                        continue
+                    if (sn_, _addr(r_, c_)) in after_of:
+                        readback_values[key_] = after_of[(sn_, _addr(r_, c_))]
+        else:
+            new_blob = blob
+            result.update({"proof_ok": True, "proof": "", "warnings": [], "unexpected": [], "structure_errors": [], "recalculated": {}})
+        if circ:
+            new_blob = _circle_excel(new_blob, name, k, circ, result)
     elif k == "pdf":
         from .pdf.fill import FillError
         from .pdf.fill import fill as pfill
@@ -338,7 +360,16 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             # 見出しの字を目印にした書き込み：書いた欄の id（読み直した窓では、その名前のフォームの欄）
             result["anchored"] = {p.key: p.id for p in res.patches if p.anchor}
             readback_values = {k_: v for k_, v in values.items() if not k_.startswith("@")}
-            readback_values.update({p.id: p.value for p in res.patches if p.anchor and p.kind != "seal"})
+            readback_values.update({p.id: p.value for p in res.patches if p.anchor and p.kind not in ("seal", "circle")})
+        circled = [p for p in res.patches if p.kind == "circle"]
+        for p in circled:
+            if not p.key.startswith("@") and p.circle.get("option"):
+                readback_values[p.key] = p.circle["option"]  # 窓の選択肢に書いた所：書いた後の窓では、選んだ選択肢の名前
+        if circled:
+            # 印刷された字を○で囲んだ所：読み戻しは、書いた後のファイルのページを読み直して、下で確かめる
+            result["circled"] = [{"key": p.key, "id": p.id, "page": p.page, "text": p.circle["text"],
+                                  "label": p.circle["label"], "context": p.circle["context"], "how": "ページに楕円を描いた",
+                                  "ellipse_pt": p.circle["ellipse"]} for p in circled]
         placed = [p for p in res.patches if p.kind == "seal"]
         if placed:
             # 本人の印影・署名の画像（本人が同意したときだけ）：何を、どこに置いたか。読み戻しは、書いた後のファイルで下で確かめる
@@ -390,28 +421,42 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     else:
         from .docx.fill import FillError
 
-        try:
-            if k == "doc":
-                from .doc.audit import prove
-                from .doc.fill import fill as wfill
-            else:
-                from .docx.fill import fill as wfill
-                from .docx.proof import prove
-            res = wfill(_word(blob, name, k), values, force=force)
-        except FillError as e:
-            raise ApiError(str(e)) from None
-        from .docx.fill import written_of
+        circ = {k_: v for k_, v in values.items() if _is_circle(v)}
+        if circ and k == "doc":
+            raise ApiError("古い Word（.doc）には、○の図形を足す書き方をまだ作っていません（図形を足したことを証明できないため）。"
+                           "代わりに、字の前に「○」を足す（例：「○有・無」）か、選ばない字を消して書き直す書き方があります。"
+                           "どちらにするか本人に確かめてから、字を目印にした書き込み（old・new）で書いてください")
+        values = {k_: v for k_, v in values.items() if k_ not in circ}
+        readback_values = {k_: v for k_, v in readback_values.items() if k_ not in circ}
+        if values or not circ:
+            try:
+                if k == "doc":
+                    from .doc.audit import prove
+                    from .doc.fill import fill as wfill
+                else:
+                    from .docx.fill import fill as wfill
+                    from .docx.proof import prove
+                res = wfill(_word(blob, name, k), values, force=force)
+            except FillError as e:
+                raise ApiError(str(e)) from None
+            from .docx.fill import written_of
 
-        pr = prove(blob, res.blob, written_of(res.patches))
-        new_blob = res.blob
-        result.update({"proof_ok": pr.ok, "proof": pr.headline(), "unexpected": pr.unexpected[:20],
-                       "structure_errors": pr.lint_errors[:20]})
-        anchored = {p.key: p.id for p in res.patches if getattr(p, "anchor", None)}
+            pr = prove(blob, res.blob, written_of(res.patches))
+            new_blob = res.blob
+            result.update({"proof_ok": pr.ok, "proof": pr.headline(), "unexpected": pr.unexpected[:20],
+                           "structure_errors": pr.lint_errors[:20]})
+            anchored = {p.key: p.id for p in res.patches if getattr(p, "anchor", None)}
+        else:
+            new_blob = blob
+            anchored = {}
+            result.update({"proof_ok": True, "proof": "", "unexpected": [], "structure_errors": []})
         if anchored:
             # 字を目印にした書き込み：書いた所の id（読み直した窓では［P段落.w番号＝値］）
             result["anchored"] = anchored
             readback_values = {k: v for k, v in values.items() if not k.startswith("@")}
             readback_values.update({p.id: p.value for p in res.patches if getattr(p, "anchor", None)})
+        if circ:
+            new_blob = _circle_word(new_blob, name, circ, result)
     written_plain = new_blob  # 書いた中身（保護し直す前）
     if lock is not None:
         # 元と同じパスワードで保護し直し、それを同じパスワードで解いて、書いた中身とバイト一致かを確かめてから書き出す
@@ -463,6 +508,8 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             mismatch.append({"id": key, "written": v, "read_back": g})
     if result.get("placed"):
         mismatch += _read_back_placed(k, written_plain, name, lock, values, result["placed"])
+    if result.get("circled"):
+        mismatch += _read_back_circled(k, written_plain, name, lock, result["circled"])
     if "jtd_read_back" in result:
         mismatch += [{"id": "段落", "written": "", "read_back": x} for x in result.pop("jtd_read_back", [])]
     if "text_read_back" in result:  # .txt：証明の中で、書いた後のファイルを読み直した行
@@ -528,6 +575,105 @@ def _fill_member(path: str, values: dict, out_path: str, force: bool, password: 
                    "archive": "ZIP の中のファイルに書き、ZIP はそのファイルの部品だけを入れ替えました（ほかの部品は元とバイト一致）。"
                               f"書いたファイルは「{dst}{ziparc.SEP}{inner}」で開けます"})
     return result
+
+
+def _is_circle(v) -> bool:
+    """○で囲む指定（{"circle": 囲む字, …}）か。"""
+    return isinstance(v, dict) and "circle" in v
+
+
+def _circle_excel(blob: bytes, name: str, k: str, circ: dict, result: dict) -> bytes:
+    """Excel：セルの字を○の図形で囲む。書いた後のブックで○を決め、図形を足し、足しただけであることを証明する。"""
+    from .book import open_book
+    from .xlsx import circle as xc
+
+    if k == "xls":
+        raise ApiError("古い Excel（.xls）には、○の図形を足す書き方をまだ作っていません（図形を足したことを証明できないため）。"
+                       "代わりに、字の前に「○」を足す（例：「○有・無」）か、選ばない字を消して書き直す書き方があります。"
+                       "どちらにするか本人に確かめてから、そのセルに字として書いてください")
+    wb = open_book(blob, name)
+    used: dict = {}
+    sds = []
+    problems = []
+    for key, spec in circ.items():
+        try:
+            sds.append((key, xc.resolve(wb, spec, used)))
+        except xc.CircleError as e:
+            problems.append(f"{key}: {e}")
+    if problems:
+        raise ApiError("\n".join(problems) + "\n（代わりに、字の前に「○」を足す・選ばない字を消して書き直す書き方があります。"
+                       "本人に確かめてから、そのセルに字として書いてください）")
+    try:
+        out = xc.apply(open_book(blob, name), [sd for _k, sd in sds])
+    except xc.CircleError as e:
+        raise ApiError(str(e)) from None
+    bad = xc.prove(blob, out, name, [(sd["id"], circ[key_]) for key_, sd in sds])
+    result["unexpected"] = list(result.get("unexpected") or []) + bad
+    result["proof_ok"] = bool(result.get("proof_ok", True)) and not bad
+    result["proof"] = (result.get("proof") or "") + (f"○ {len(sds)} つは、シートの図形に楕円を足しただけです（ほかの部品はバイト一致）"
+                                                     if not bad else f"○の書き込みで想定外の変更 {len(bad)} 件")
+    result["circled"] = [{"key": key_, "id": sd["id"], "sheet": sd["sheet"], "cell": sd["cell"], "text": sd["text"],
+                          "label": sd["label"], "context": sd["context"], "how": "シートの図形に楕円を足した",
+                          "uncertain": "位置は見積もり。印刷か画面で確かめが要る" + (f"：{'・'.join(sd['notes'])}" if sd["notes"] else "")}
+                         for key_, sd in sds]
+    w = list(result.get("warnings") or [])
+    if xc.UNCERTAIN not in w:
+        w.append(xc.UNCERTAIN)
+    result["warnings"] = w
+    result["anchored"] = {**(result.get("anchored") or {}), **{key_: sd["id"] for key_, sd in sds}}
+    return out
+
+
+def _circle_word(blob: bytes, name: str, circ: dict, result: dict) -> bytes:
+    """Word（.docx）：本文の字を○で囲む（字に結び付けた楕円の図形、または字の囲み線）。足しただけであることを証明する。"""
+    from .docx import circle as dc
+    from .docx.document import DocxDocument
+
+    doc = DocxDocument(blob, name)
+    used: dict = {}
+    sds, problems = [], []
+    for key, spec in circ.items():
+        try:
+            sds.append((key, dc.resolve(doc, spec, used)))
+        except dc.CircleError as e:
+            problems.append(f"{key}: {e}")
+    if problems:
+        raise ApiError("\n".join(problems))
+    out = dc.apply(doc, [sd for _k, sd in sds])
+    bad = dc.prove(blob, out, name, [(sd["id"], circ[key_]) for key_, sd in sds])
+    result["unexpected"] = list(result.get("unexpected") or []) + bad
+    result["proof_ok"] = bool(result.get("proof_ok", True)) and not bad
+    result["proof"] = (result.get("proof") or "") + (f"○ {len(sds)} つは、字の前に図形（または字の囲み線）を足しただけです"
+                                                     "（ほかの部品はバイト一致）" if not bad else f"○の書き込みで想定外の変更 {len(bad)} 件")
+    result["circled"] = [{"key": key_, "id": sd["id"], "text": sd["text"], "label": sd["label"], "context": sd["context"],
+                          "style": sd["style"], "size": sd["size"],
+                          "how": "字に結び付けた楕円の図形を足した" if sd["style"] == "ellipse" else "字に四角い囲み線を付けた（○ではなく□）",
+                          "uncertain": "位置は見積もり。印刷か画面で確かめが要る" if sd["style"] == "ellipse" else ""}
+                         for key_, sd in sds]
+    if any(sd["style"] == "ellipse" for _k, sd in sds):
+        w = list(result.get("warnings") or [])
+        if dc.UNCERTAIN not in w:
+            w.append(dc.UNCERTAIN)
+        result["warnings"] = w
+    result["anchored"] = {**(result.get("anchored") or {}), **{key_: sd["id"] for key_, sd in sds}}
+    return out
+
+
+def _read_back_circled(k: str, blob: bytes, name: str, lock, circled: list[dict]) -> list[dict]:
+    """○で囲んだ所の読み戻し：書いた後のファイルを開き直し、○がその字だけを囲んでいるか（ほかの字に触れていないか）。"""
+    if k == "pdf":
+        from .pdf import circle
+
+        return circle.read_back(_pdf(blob, name, lock), circled)
+    if k in ("xlsx", "xls"):
+        from .xlsx import circle as xcircle
+
+        return xcircle.read_back(blob, name, circled)
+    if k in ("docx",):
+        from .docx import circle as dcircle
+
+        return dcircle.read_back(blob, name, circled)
+    return []
 
 
 def _seal_supported(k: str, values: dict) -> None:
@@ -654,7 +800,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         lab = d.get("label") or ""
         return place(d) + re.sub(r"［[^］]*］", "［］", lab) if "［▶" in lab and lab.count("［") > 1 else None
 
-    lines = [f"記入した内容（{len(told)} か所。書いた後のファイルを読み直した値）："] if told or not result.get("placed") else []
+    lines = [f"記入した内容（{len(told)} か所。書いた後のファイルを読み直した値）："] if told or not (result.get("placed") or result.get("circled")) else []
     group = None
     i = 0
     while i < len(told):
@@ -670,6 +816,15 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         i = j
     for pl in result.get("placed") or []:
         lines.append(pl["say"])  # 置いた画像（本人の印影・署名）：何を、どこに
+    told_ids = {d["id"] for d in told}
+    for c in result.get("circled") or []:
+        if c.get("key") in told_ids:
+            continue  # 窓の「○で囲む選択肢」に書いた所：上の一覧に、選んだ字として出ている
+        where = c.get("sheet") or (f"{c['page']}ページ" if c.get("page") else "")
+        lab = c.get("label") or ""
+        verb = "□で囲んだ（字の囲み線）" if c.get("style") == "border" else "○で囲んだ"
+        lines.append(f"- {verb}：{where + '・' if where else ''}{lab + '：' if lab and lab != c['text'] else ''}「{c['text']}」"
+                     + (f"（{c['uncertain']}）" if c.get("uncertain") else ""))
     if empty:
         # 次に書くとよい欄：書いた所の続き（同じシート・ページで、書いた所より後ろの空欄）から順に
         order = {f["id"]: i for i, f in enumerate(after_list)}

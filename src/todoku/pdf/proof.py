@@ -34,6 +34,8 @@ class PdfProof:
     xfa: dict = field(default_factory=dict)  # XFA の確かめの結果（バイト一致の部品の数・データの変わった所の数）
     xfa_keys: set = field(default_factory=set)  # XFA の確かめで認めた、AcroForm の辞書の変化（datasets を足した /XFA）
     stamps: list = field(default_factory=list)  # 確かめた、置いた画像（印影・署名）の名前
+    page_contents: dict = field(default_factory=dict)  # ○を描いたページ → (前に足したストリーム, 後ろに足したストリーム) の番号
+    circles: list = field(default_factory=list)  # 確かめた○の名前
 
     @property
     def ok(self) -> bool:
@@ -48,7 +50,7 @@ class PdfProof:
                    f"datasets で変わったのは {self.xfa.get('data_changes', 0)} か所。")
         return xfa + (f"元のファイル {self.original_bytes:,} バイトは先頭からバイト一致のまま、後ろに {self.new_bytes - self.original_bytes:,} バイトを足しました"
                 f"（足したオブジェクト {self.objects_added}・書き換えたオブジェクト {self.objects_changed}）。"
-                + (("変わったのは書いた欄とその見た目" + ("、置いた画像（本人の画像と一致）" if self.stamps else "") + "だけです")
+                + (("変わったのは書いた欄とその見た目" + ("、置いた画像（本人の画像と一致）" if self.stamps else "") + (f"、○ {len(self.circles)} つ（ページの描画の後ろに足した楕円）" if self.circles else "") + "だけです")
                    if not self.unexpected else f"想定外の変更 {len(self.unexpected)} 件"))
 
     # 書き込みの証明を、ほかの形式と同じ形で使えるように
@@ -156,7 +158,7 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
         kind = "xfa" if num in xfa_done else _kind(o)
         if kind is None:
             pr.unexpected.append(f"足したオブジェクト {num} が、欄・見た目・書体のどれでもありません")
-        if kind in ("stamp", "image"):
+        if kind in ("stamp", "image", "content"):
             seal_objs.add(num)
         if kind == "field":
             t = o.get("T")
@@ -171,8 +173,11 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
     verified: set[int] = set()
     if anchored:
         verified = _check_anchored(a, b, anchored, pr)
+    if pr.page_contents and not anchored:
+        verified = _check_circles(a, b, [], pr)
     for num in sorted(seal_objs - verified):
-        pr.unexpected.append(f"足したオブジェクト {num}（スタンプの注釈か画像）は、置くと言った画像として確かめられません")
+        what = "ページの描画" if _kind(b.get(num)) == "content" else "スタンプの注釈か画像"
+        pr.unexpected.append(f"足したオブジェクト {num}（{what}）は、置くと言った画像・○として確かめられません")
     return pr
 
 
@@ -190,7 +195,11 @@ def _check_anchored(a: PdfDocument, b: PdfDocument, anchored: dict[str, dict], p
     layouts: dict = {}
     verified: set[int] = set()
     stamp_names = None
+    circles = []
     for fid, spec in anchored.items():
+        if isinstance(spec, dict) and "circle" in spec:
+            circles.append((fid, spec))
+            continue
         try:
             skey = seal_key(spec)
         except SealError as e:
@@ -237,6 +246,52 @@ def _check_anchored(a: PdfDocument, b: PdfDocument, anchored: dict[str, dict], p
         got = [round(float(v), 3) for v in ws[0].rect]
         if any(abs(x - y) > 0.01 for x, y in zip(sorted(want[0::2]) + sorted(want[1::2]), sorted(got[0::2]) + sorted(got[1::2]))):
             pr.unexpected.append(f"書いた所 {fid} の位置 {got} が、目印から決まる位置 {want} と違います")
+    if circles or pr.page_contents:
+        verified |= _check_circles(a, b, circles, pr, layouts)
+    return verified
+
+
+def _check_circles(a: PdfDocument, b: PdfDocument, circles: list, pr: PdfProof, layouts: dict | None = None) -> set[int]:
+    """○：元の文書で、同じ決め方で囲む所を決め直し、足したストリームの中身が、そこから描くものとバイト一致かを確かめる。"""
+    from . import circle
+    from .anchor import AnchorError
+    from .layout import View
+
+    layouts = layouts if layouts is not None else {}
+    used: dict = {}
+    by_page: dict[int, list] = {}
+    for fid, spec in circles:
+        try:
+            sd = circle.resolve(a, spec, layouts, used)
+        except AnchorError as e:
+            pr.unexpected.append(f"○ {fid} の所が、元の文書で決まりません：{e}")
+            continue
+        if sd["id"] != fid:
+            pr.unexpected.append(f"○ {fid} が、決め直した所（{sd['id']}）と違います")
+            continue
+        by_page.setdefault(sd["page"], []).append(sd)
+    verified: set[int] = set()
+    pages = a.pages()
+    nums = {pg["_ref"].num: n for n, pg in enumerate(pages, 1) if pg.get("_ref") is not None}
+    for pnum, (pre, post) in pr.page_contents.items():
+        n = nums.get(pnum)
+        want = by_page.pop(n, None) if n is not None else None
+        if not want:
+            pr.unexpected.append(f"ページ（オブジェクト {pnum}）の描画が変わっていますが、○を描くと言っていません")
+            continue
+        page = pages[n - 1]
+        expect = circle.ops(View(a, page), want, circle.open_depth(a.page_content(page)))
+        got_pre, got_post = b.get(pre), b.get(post)
+        if not (isinstance(got_pre, Stream) and b.decode(got_pre) == circle.PREFIX):
+            pr.unexpected.append(f"{n} ページの描画の前に足したストリームが、「q」だけではありません")
+            continue
+        if not (isinstance(got_post, Stream) and b.decode(got_post) == expect):
+            pr.unexpected.append(f"{n} ページの描画の後ろに足したストリームが、決め直した○の描き方と違います")
+            continue
+        verified |= {pre, post}
+        pr.circles += [sd["id"] for sd in want]
+    for n in by_page:
+        pr.unexpected.append(f"{n} ページに○を描くと言いましたが、描画が変わっていません")
     return verified
 
 
@@ -262,6 +317,8 @@ def _kind(o) -> str | None:
         return "xref"
     if isinstance(o, Stream):
         st = getattr(o.dict.get("Subtype"), "name", "")
+        if not st and "Type" not in o.dict:
+            return "content"  # ページの描画のストリーム（○を描いたとき。中身は○の確かめで照らす）
         return "appearance" if st == "Form" else "image" if st == "Image" else None
     if isinstance(o, dict):
         t = getattr(o.get("Type"), "name", "")
@@ -313,9 +370,24 @@ def _check_change(a, b, num, old, cur, pr: PdfProof) -> str | None:
     diff = {k for k in keys if _norm(old.get(k)) != _norm(cur.get(k))}
     t = getattr(old.get("Type"), "name", "")
     if t == "Page" or ("Contents" in old and "MediaBox" in old) or (t == "" and "Annots" in diff and "Contents" in old):
-        bad = diff - {"Annots"}
+        bad = diff - {"Annots", "Contents"}
         if bad:
             pr.unexpected.append(f"ページ（オブジェクト {num}）の {sorted(bad)} が変わっています")
+        if "Contents" in diff:
+            # ○を描いたページ：元の描画の前に1つ、後ろに1つのストリームを足しただけ（中身は、○の確かめで照らす）
+            oc = old.get("Contents")
+            if isinstance(oc, list):
+                items = oc
+            elif isinstance(oc, Ref) and isinstance(a.resolve(oc), list):
+                items = a.resolve(oc)
+            else:
+                items = [] if oc is None else [oc]
+            cc = cur.get("Contents")
+            if not (isinstance(cc, list) and len(cc) == len(items) + 2 and _norm(cc[1:-1]) == _norm(items)
+                    and isinstance(cc[0], Ref) and isinstance(cc[-1], Ref)):
+                pr.unexpected.append(f"ページ（オブジェクト {num}）の描画の一覧で、元の描画が変わっています（前後に足すだけのはず）")
+            else:
+                pr.page_contents[num] = (cc[0].num, cc[-1].num)
         if "Annots" in diff:
             oa, ca = old.get("Annots"), cur.get("Annots")
             if isinstance(oa, list) and (not isinstance(ca, list) or _norm(ca[:len(oa)]) != _norm(oa)):

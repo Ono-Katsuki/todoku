@@ -301,10 +301,13 @@ def run(blob: bytes, filename: str = "") -> Audit:
     parts = markdown_parts(win)
     biggest = max(len(t) for _, t in parts)
     au.checks.append(Check("窓の大きさ", biggest <= 150_000, f"Markdown {sum(len(t) for _, t in parts):,} 文字（AIが1回で読める目安 15万文字以内）"))
-    from ..docx.audit import macro_check, _sample
+    from ..docx.audit import _sample, already_written, macro_check
 
     targets, protected = {}, []
+    done, bad_done = already_written(doc, win)
     for f in win["fields"]:
+        if f["id"] in done:
+            continue  # 前に書いた欄（書き直しは断る決まり）：窓に値が出ていることだけを確かめる
         if f.get("readonly") or f.get("options_unknown"):
             protected.append(f["id"])
             continue
@@ -317,8 +320,10 @@ def run(blob: bytes, filename: str = "") -> Audit:
         return au
     pr = prove(blob, res.blob, written_of(res.patches))
     note = f"（文書の保護で書けない欄 {len(protected)} か所は除外）" if protected else ""
-    au.checks.append(Check("全入力欄への書き込み", pr.ok, f"入力欄 {len(win['fields']):,} か所のうち {len(targets):,} に試しの値を書き込み{note}。{pr.headline()}",
-                           [*pr.unexpected, *pr.lint_errors]))
+    if done:
+        note += f"（前に書いた欄 {len(done)} か所は書き直さず、窓に値が出ていることを確かめた）"
+    au.checks.append(Check("全入力欄への書き込み", pr.ok and not bad_done, f"入力欄 {len(win['fields']):,} か所のうち {len(targets):,} に試しの値を書き込み{note}。{pr.headline()}",
+                           [*pr.unexpected, *pr.lint_errors, *bad_done]))
     after = build(DocFile(res.blob, filename))
     got = {f["id"]: f.get("value") for f in after["fields"]}
     written = {p.id: p.value for p in res.patches}

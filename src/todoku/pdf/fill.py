@@ -32,6 +32,7 @@ class Patch:
     anchor: dict | None = None  # 見出しの字を目印にした書き込み（{"after": …, "value": …}）。証明で、同じ決め方で位置を確かめる
     key: str = ""  # 指定したときの名前（「@1」など）
     seal: dict | None = None  # 本人の印影・署名の画像を置いたとき：本人に伝える文・位置・画像の SHA-256
+    circle: dict | None = None  # 印刷された字を○で囲んだとき：囲んだ字・楕円（見た目の座標）・見出し（circle.resolve）
 
 
 @dataclass
@@ -443,6 +444,7 @@ class Filler:
         self.pages = doc.pages()
         self.patches: list[Patch] = []
         self.warnings: list[str] = []
+        self.circles: dict[int, list[dict]] = {}  # ページ → ○で囲む所（circle.resolve）
 
     # ------------------------------------------------------------------ 共通の資源
     def font(self, key: str) -> Ref:
@@ -662,9 +664,32 @@ class Filler:
             self.new_fields.append(ref)
 
     # ------------------------------------------------------------------ 仕上げ
+    def _draw_circles(self) -> None:
+        """○：ページの描画の前に「q」、後ろに楕円のストリームを足す（元のストリームは変えない）。"""
+        from . import circle as _circle
+
+        for page_no, circles in sorted(self.circles.items()):
+            page = self.pages[page_no - 1]
+            pref = page["_ref"]
+            depth = _circle.open_depth(self.doc.page_content(page))
+            data = _circle.ops(View(self.doc, page), circles, depth)
+            pre = self.up.new(Stream({}, _circle.PREFIX))
+            post = self.up.new(Stream({}, data))
+            pd = self.up.get(pref)
+            cur = self.doc.resolve(pd.get("Contents"))
+            if isinstance(cur, list):
+                old = list(cur)
+            elif pd.get("Contents") is None:
+                old = []
+            else:
+                old = [pd.get("Contents")]
+            pd["Contents"] = [pre] + old + [post]
+
     def finish(self) -> bytes:
         doc = self.doc
         up = self.up
+        if self.circles:
+            self._draw_circles()
         for page_no, refs in self.page_annots.items():
             pref = self.pages[page_no - 1]["_ref"]
             pd = up.get(pref)
@@ -735,6 +760,7 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
             spots[fd["id"]] = (pg["number"], fd)
     problems = []
     used: dict = {}
+    circ_used: dict = {}  # ○で囲んだ所（ページ → 番号と楕円）
     layouts: dict = {}
     xf = _xfa_form(doc)
     xfa_values = {k: v for k, v in values.items() if xf is not None and k in xf.by_id}
@@ -761,6 +787,17 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
                     # 本人の印影・署名の画像を置く（本人が同意したときだけ）：スタンプの注釈
                     _place_seal(f, key, value, skey, used, layouts, views)
                     continue
+                if "circle" in value:
+                    # 印刷された字を○で囲む：ページの描画の後ろに、楕円を描くストリームを足す
+                    from . import circle as _circle
+
+                    try:
+                        sd = _circle.resolve(doc, value, layouts, circ_used)
+                    except AnchorError as e:
+                        raise FillError(f"{key}: {e}") from None
+                    f.circles.setdefault(sd["page"], []).append(sd)
+                    f.patches.append(Patch(sd["id"], "circle", sd["text"], sd["page"], anchor=dict(value), key=key, circle=sd))
+                    continue
                 try:
                     sd = resolve_write(doc, value, used, layouts, set(f.by_name))
                 except AnchorError as e:
@@ -780,6 +817,33 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
             page_no, sd = spots[key]
             if sd.get("source") == "acroform":
                 f.set_field(f.by_name[sd["name"]], value, force)
+                continue
+            if sd.get("kind") == "circle":
+                # 窓の「○で囲む選択肢」：選んだ字を、字を指した○と同じ書き方で囲む（ページに楕円を描く）
+                from . import circle as _circle
+                from .anchor import AnchorError
+
+                want = _as_text(value["circle"] if isinstance(value, dict) and "circle" in value else value)
+                opts = sd.get("option_rects") or []
+                # 番号の付いた選択肢（「1.新規」）は、番号・語・全体のどれで指してもよい（○は番号を囲む）
+                pick = [(o, r) for o, r in opts if o == want] or \
+                    [(o, r) for o, r in opts if want and re.sub(r"^[0-9０-９]+[ \u3000]?[.．、,，)）:：]?[ \u3000]?", "", o) in (want,)] or \
+                    [(o, r) for o, r in opts if want and re.match(r"[0-9０-９]+", o) and re.match(r"[0-9０-９]+", o)[0] == want]
+                if len(pick) != 1:
+                    raise FillError(f"{key}: 「{want}」は選択肢にありません。選べるのは " + "、".join(f"「{o}」" for o, _r in opts))
+                o_, r_ = pick[0]
+                word = re.match(r"[0-9０-９]+", o_)[0] if sd.get("numbered") else o_
+                spec = {"circle": word, "page": page_no, "within": list(r_)}
+                if isinstance(value, dict) and value.get("pad") is not None:
+                    spec["pad"] = value["pad"]
+                try:
+                    cd = _circle.resolve(doc, spec, layouts, circ_used)
+                except AnchorError as e:
+                    raise FillError(f"{key}: {e}") from None
+                cd["label"] = re.sub(r"（○で囲む）$", "", sd.get("label") or "") or cd["label"]
+                cd["option"] = o_  # 窓の選択肢の名前（読み戻しで、書いた後の窓の値と照らす）
+                f.circles.setdefault(cd["page"], []).append(cd)
+                f.patches.append(Patch(cd["id"], "circle", cd["text"], cd["page"], anchor=spec, key=key, circle=cd))
                 continue
             if page_no not in views:
                 views[page_no] = View(doc, f.pages[page_no - 1])

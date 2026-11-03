@@ -91,10 +91,25 @@ def _sample(f: dict):
     return "テスト"
 
 
+def already_written(doc, win: dict) -> tuple[set, list[str]]:
+    """前に とどく で書いた欄（書いた所のしおりのある欄）：書き直さずに、窓に値が出ていることを確かめる。
+    返す：(その欄の id, 窓に値が出ていない欄)。"""
+    from .window import Spots
+
+    marks = set(Spots(doc).marks)
+    done = {f["id"] for f in win["fields"] if f["id"] in marks}
+    bad = [f"{f['id']}: 書いた所のしおりがあるのに、窓に値が出ていません" for f in win["fields"]
+           if f["id"] in done and f.get("kind") != "checkbox" and f.get("value") in (None, "")]
+    return done, bad
+
+
 def check_writing(doc: DocxDocument, win: dict) -> list[Check]:
     targets = {}
     protected, skipped = [], []
+    done, bad_done = already_written(doc, win)
     for f in win["fields"]:
+        if f["id"] in done:
+            continue  # 前に書いた欄（書き直しは断る決まり）：窓に値が出ていることだけを確かめる
         if f.get("readonly") or f.get("options_unknown"):
             protected.append(f["id"])
             continue
@@ -110,9 +125,11 @@ def check_writing(doc: DocxDocument, win: dict) -> list[Check]:
 
     pr = prove(doc.blob, res.blob, written_of(res.patches))
     note = f"（文書の保護で書けない・変えられない欄 {len(protected)} か所は除外）" if protected else ""
-    out = [Check("全入力欄への書き込み", pr.ok and not skipped,
+    if done:
+        note += f"（前に書いた欄 {len(done)} か所は書き直さず、窓に値が出ていることを確かめた）"
+    out = [Check("全入力欄への書き込み", pr.ok and not skipped and not bad_done,
                  f"入力欄 {len(win['fields']):,} か所のうち {len(targets):,} に試しの値を書き込み{note}。{pr.headline()}",
-                 [*pr.unexpected, *pr.lint_errors, *skipped])]
+                 [*pr.unexpected, *pr.lint_errors, *skipped, *bad_done])]
     after = build(DocxDocument(res.blob, doc.filename))
     got = {f["id"]: f.get("value") for f in after["fields"]}
     written = {p.id: p.value for p in res.patches}

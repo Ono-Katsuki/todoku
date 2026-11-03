@@ -255,12 +255,17 @@ def _sample(f: dict):
             if spot_fits(cand, rect, f.get("size"), k):
                 return cand
         return "1"
+    cur = f.get("value")
+    if isinstance(cur, str) and cur.strip() and not ml:
+        # いま値のある欄（書いた後の書類の欄など）：その値を書き直す（その欄に入ることが分かっている値）
+        return cur
     x0, y0, x1, y1 = rect
     from .fill import FillError, layout_text
 
     for cand in (("12", "1") if k == "inline" else ("テスト", "12", "1")):
         try:
-            layout_text(cand, x1 - x0, y1 - y0, min(float(f.get("size") or 10.5), 10.5), multiline=(y1 - y0) > 25)
+            # 窓の矩形は 0.1pt に丸めてあるので、0.5pt 小さい枠で確かめる（書き込みは、欄の本当の大きさで決める）
+            layout_text(cand, x1 - x0 - 0.5, y1 - y0 - 0.5, min(float(f.get("size") or 10.5), 10.5), multiline=(y1 - y0) > 25)
             return cand
         except FillError:
             continue
@@ -275,8 +280,31 @@ def _all_fields(win: dict) -> list[dict]:
     return out
 
 
+def _circle_sample(doc: PdfDocument, f: dict, used: dict):
+    """○で囲む選択肢のうち、書き込みと同じ決め方で囲めるもの。どれも囲めなければ (None, 理由)。"""
+    from . import circle
+    from .anchor import AnchorError
+
+    layouts = used.setdefault("_layouts", {})
+    why = ""
+    import re
+
+    for o, r in f.get("option_rects") or []:
+        trial = {k: list(v) for k, v in used.items() if k != "_layouts"}
+        word = re.match(r"[0-9０-９]+", o)[0] if f.get("numbered") and re.match(r"[0-9０-９]+", o) else o
+        try:
+            circle.resolve(doc, {"circle": word, "page": f["page"], "within": list(r)}, layouts, trial)
+        except AnchorError as e:
+            why = why or str(e)
+            continue
+        used.update(trial)
+        return o
+    return None, f"どの選択肢も、ほかの字に触れずには○で囲めない：{why[:80]}"
+
+
 def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> list[Check]:
     targets: dict[str, object] = {}
+    circle_used: dict = {}
     skipped, not_writable = [], []
     for f in _all_fields(win):
         if f["id"] in targets:
@@ -293,6 +321,13 @@ def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> l
         if v is None:
             skipped.append(f"{f['id']}: 試しの値を決められませんでした")
             continue
+        if f["kind"] == "circle" and f.get("source") == "layout":
+            # ○で囲む選択肢：ほかの字に触れずに囲める選択肢を試す。どれも囲めなければ、書けない理由を添えて除く
+            # （エージェントが pad・box を決めて書く所。書き込みの誤りではない）
+            v = _circle_sample(doc, f, circle_used)
+            if isinstance(v, tuple):
+                not_writable.append(f"{f['id']}（{v[1]}）")
+                continue
         targets[f["id"]] = v
     n_fields = len(_all_fields(win))
     passes = _passes(targets, {f["id"]: f for f in _all_fields(win)})
@@ -307,7 +342,8 @@ def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> l
             res = fill(doc, part)
         except FillError as e:
             return [Check("全入力欄への書き込み", False, f"{len(part)} 欄に書き込めませんでした", str(e).splitlines()[:30])]
-        pr = prove(doc.blob, res.blob, set(part), password=password)
+        anchored = {p_.id: p_.anchor for p_ in res.patches if p_.anchor}  # ○で囲んだ選択肢（書き込みと同じ決め方で確かめる）
+        pr = prove(doc.blob, res.blob, set(part), anchored or None, password=password)
         ok_all = ok_all and pr.ok
         unexpected += [*pr.unexpected, *pr.lint_errors]
         heads.append(pr.headline())

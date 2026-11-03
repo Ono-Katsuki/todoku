@@ -47,7 +47,8 @@ def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None) ->
         if sp.kind == "circle":
             # 選択肢の並びの後ろに「［p1.5：○で囲む］」の印
             last = max(ln.text.index(o) + len(o) if o in ln.text else 0 for o, _r in sp.options)
-            chosen = next((f.value_text() for f, _w in (getattr(sp, "widget", None) or []) if f.name == name(sp)), None)
+            chosen = next((f.value_text() for f, _w in (getattr(sp, "widget", None) or []) if f.name == name(sp)), None) \
+                or getattr(sp, "chosen", None)
             edits.append((last, last, f"［{name(sp)}{'＝' + chosen if chosen else ''}：○で囲む］"))
             continue
         a, b = sp.at
@@ -225,12 +226,18 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         # 規則では決められない所は、別の番号（p1.a1）：規則の欄の番号（p1.1）は、そのまま変わらない
         k = id(getattr(sp, "alias_of", sp))
         if k not in names:
-            if getattr(sp, "confidence", "high") == "agent":
-                counter_a[0] += 1
-                names[k] = f"p{number}.a{counter_a[0]}"
-            else:
-                counter[0] += 1
-                names[k] = f"p{number}.{counter[0]}"
+            # すでにある、この欄のものでないフォームの欄と同じ名前は使わない（前に書いた書類で、欄の番号がずれていたとき）
+            own_names = {f.name for f, _w in (getattr(getattr(sp, "alias_of", sp), "widget", None) or [])}
+            while True:
+                if getattr(sp, "confidence", "high") == "agent":
+                    counter_a[0] += 1
+                    cand = f"p{number}.a{counter_a[0]}"
+                else:
+                    counter[0] += 1
+                    cand = f"p{number}.{counter[0]}"
+                if cand not in by_name or cand in own_names:
+                    break
+            names[k] = cand
         return names[k]
 
     # 欄にしていない空き（規則の型に合わない、行の右・マスの中の字の下などの空き）：行の後ろに「［→余白 n pt］」と出す。
@@ -316,7 +323,11 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             d["boxes"] = len(sp.boxes)
             d["box_rects"] = [[round(v, 2) for v in b] for b in sp.boxes]
         if sp.kind == "circle":
+            if getattr(sp, "chosen", None) is not None:
+                d["value"] = sp.chosen  # ページに描かれた○が囲んでいる選択肢
             d["options"] = [o for o, _ in sp.options]
+            if getattr(sp, "numbered", False):
+                d["numbered"] = True  # 番号の付いた選択肢：○は番号を囲む（値は番号・語・全体のどれでもよい）
             d["option_rects"] = [[o, [round(v, 2) for v in r]] for o, r in sp.options]
         if sp.row_label:
             d["row_label"] = sp.row_label
@@ -339,7 +350,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             d["covered"] = sp.cover
             d["placeholder"] = sp.cover
         if sp.kind != "checkbox":
-            d["value"] = None
+            d["value"] = getattr(sp, "chosen", None) if sp.kind == "circle" else None
         if filled is not None:
             d["value"] = filled.checked if filled.kind == "checkbox" else filled.value_text()
         out_fields.append(d)

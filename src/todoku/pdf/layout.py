@@ -789,12 +789,35 @@ class PageLayout:
                            and not any(o.x0 >= c.x0 - 0.5 and o.x1 <= c.x1 + 0.5 and o.y0 >= c.y0 - 0.5 and o.y1 <= c.y1 + 0.5
                                        for o in self.cells)]
         self._find_spots()
+        self._circled()
         for k in self.spots:
             # 書き込みと同じ決め方で1字も入らない所も、消さずに示す（規則では決められない所・書けない所として）
             if not _holds_text(k):
                 x0, y0, x1, y1 = k.rect
                 _agent(k, f"{k.reason}（小さい：幅 {x1 - x0:.1f}pt・高さ {y1 - y0:.1f}pt。1字も入らない）", "size")
                 k.readonly = f"小さい（幅 {x1 - x0:.1f}pt・高さ {y1 - y0:.1f}pt）ので、1字も入りません"
+
+    def _circled(self) -> None:
+        """○で囲む選択肢のうち、ページに描かれた楕円（線の曲線の外枠に内接する楕円）が、その字だけを囲んでいるもの：選んだ字。"""
+        from .circle import inside
+
+        ells = []
+        for x0, y0, x1, y1, stroke, _fill in self.pc.curves:
+            if not stroke:
+                continue
+            r = self.view.rect(x0, y0, x1, y1)
+            if r[2] - r[0] > 0.5 and r[3] - r[1] > 0.5:
+                ells.append(((r[0] + r[2]) / 2, (r[1] + r[3]) / 2, (r[2] - r[0]) / 2, (r[3] - r[1]) / 2))
+        if not ells:
+            return
+        for sp in self.spots:
+            if sp.kind != "circle":
+                continue
+            for e in ells:
+                inner = [o for o, r in sp.options if inside(e, r)]
+                if len(inner) == 1:
+                    sp.chosen = inner[0]
+                    break
 
     def cell_fill(self, c: Cell):
         """マスを塗っている色（いちばん上に描かれたもの）。なければ None。"""
@@ -910,7 +933,6 @@ class PageLayout:
             for ln in hor:
                 self._right_room(c, ln, hor, typ)
             self._rest_of_cell(c, typ)
-            self._stacked_options(c)
         # 4) 下線
         self._underline_spots()
         # ほかの欄と大きく重なる候補は、消さずに「同じ所の別の読み方」として残す（先に見つけたものを主にする）
@@ -1290,8 +1312,14 @@ class PageLayout:
         self._option_choice(ln, cell)
 
     def _option_choice(self, ln: Line, cell: Cell | None) -> None:
-        """○で囲んで選ぶ選択肢：「（父携帯・母携帯・自宅）」のようにかっこの中を「・」で区切ったもの、
-        または「有　・　無」のように選択肢だけの行（ページに「○で囲む」などの指示があるか、区切りの前後を空けて並べたもの）。"""
+        """○で囲んで選ぶ選択肢の候補（規則では決められない所として示す。どれも字の並びの形だけで見つける）：
+        - かっこの中を「・」「／」で区切った並び（「（父携帯・母携帯・自宅）」）。ただし、一つだけが句（かなの後ろに漢字の続く
+          「通勤を除く」）の並びは、注のかっこなので除く
+        - 選択肢だけの行（「有　・　無」）：区切りの前後を空けて並べたもの、またはマスの中にその行だけがあり、同じ高さの左の
+          マスに字（見出し）があるもの
+        - 番号の付いた並び（「1.新規　2.更新」「１　自家　２　借家」）：続き番号が 2 つ以上
+        - 数だけの並び（「区分　１　２　３　４　５　６」）：空白で区切った続き番号が 3 つ以上
+        どの選択肢も、ほかの欄の候補（文字の中の空欄など）に重なるものは除く（「年　月　日交付・更新」の「年　月　日交付」）。"""
         if ln.vertical:
             return
         text = ln.text
@@ -1302,7 +1330,7 @@ class PageLayout:
         # 後ろの「その他（　　）」の書く所は選択肢に含めない
         body = re.sub(r"[（(][ \u3000]*[）)]$", "", whole).rstrip(" \u3000")
         spaced_sep = bool(re.search(r"[ \u3000]+[・／/][ \u3000]+", body))
-        if body and _OPTION_GROUP.fullmatch(body) and (self._circle_instruction() or spaced_sep):
+        if body and _OPTION_GROUP.fullmatch(body) and (spaced_sep or self._alone_with_label(ln, cell)):
             groups.append((text.index(body), body, False))
         for start, inner, paren in groups:
             parts = re.split(r"([・／/])", inner)
@@ -1319,41 +1347,77 @@ class PageLayout:
                 continue
             if any(re.fullmatch(r"[\d０-９]+", w) for w, _a, _b in opts):
                 continue
-            rects = [(w, ln.span_rect(a, b)) for w, a, b in opts]
+            phrase = [bool(re.search(r"[\u3041-\u309f][\u3400-\u9fff]", w)) for w, _a, _b in opts]
+            if paren and any(phrase) and not all(phrase):
+                continue  # 注のかっこ（「（通学・通所・通勤を除く）」）：選択肢の並びでなく、句が混ざる
             head = text[:start].rstrip("（( \u3000")
-            label = norm_label((head.strip() or (cell.text() if cell is not None else ""))[-30:]) or "選択肢"
-            r = (min(x[1][0] for x in rects), min(x[1][1] for x in rects), max(x[1][2] for x in rects), max(x[1][3] for x in rects))
-            sp = Spot("circle", r, f"{label}（○で囲む）", "選択肢が「・」で並ぶ（どれかを○で囲む）", cell=cell, host=ln,
-                      at=None, size=ln.size, confidence="agent")
-            sp.options = rects
-            self.spots.append(sp)
+            self._add_options(ln, cell, opts, head, "選択肢が「・」で並ぶ（どれかを○で囲む）")
+        self._numbered_options(ln, cell)
 
-    def _stacked_options(self, c: Cell) -> None:
-        """マスの中に、短い語が縦に並んだもの（「父」「母」「その他」）を、○で囲んで選ぶ欄にする（ページに指示があるとき）。"""
-        hor = [x for x in c.lines if not x.vertical]
-        if len(hor) < 2 or not self._circle_instruction():
+    def _alone_with_label(self, ln: Line, cell: Cell | None) -> bool:
+        """マスの中にその行だけがあり、同じ高さの左のマスに字がある（見出しの右の、選択肢だけのマス）。"""
+        if cell is None or len([x for x in cell.lines if not x.vertical]) != 1:
+            return False
+        for c in self.index.near(cell.x0 - 300, cell.y0, cell.x0, cell.y1):
+            if c is not cell and c.x1 <= cell.x0 + 1.5 and _vov(c, cell) >= 0.5 and c.visible():
+                return True
+        return False
+
+    def _numbered_options(self, ln: Line, cell: Cell | None) -> None:
+        text = ln.text
+        if any(b in text for b in BOX_GLYPHS):
+            return  # □ の付いた選択肢（チェックの印として示す）
+
+        def num(t: str) -> int:
+            return int(t.translate(str.maketrans("０１２３４５６７８９", "0123456789")))
+
+        # 番号の付いた並び：番号（と「.」「．」「)」など）の後ろに語
+        # （番号の前は、行の頭・空白・かっこ・区切りの字だけ。「第８条」の８は番号でない。○は番号を囲む）
+        toks = [(num(m[1]), m.start(1), m.end(1), m[0].strip(" \u3000")) for m in re.finditer(
+            r"(?:^|(?<=[\s\u3000（(「・／/]))([1-9１-９])[ \u3000]?[.．、,，)）:：]?[ \u3000]?[^\s\u3000\d０-９・／/、。（）()]{1,8}", text)]
+        run = self._consecutive(toks)
+        if len(run) >= 2:
+            opts = [(t[3], t[1], t[2]) for t in run]
+            self._add_options(ln, cell, opts, text[:run[0][1]], "番号の付いた選択肢が並ぶ（番号を○で囲む）", numbered=True)
             return
-        words = []
-        for ln in hor:
-            for m in re.finditer(r"[^\s\u3000・／/（）()]{1,6}", ln.text):
-                words.append((m.group(0), ln.span_rect(m.start(), m.end())))
-        if not (2 <= len(words) <= 8) or any(re.fullmatch(r"[\d０-９]+", w) for w, _r in words):
-            return
-        if any(sp.cell is c for sp in self.spots):
-            return
-        label, rl, cl = self._label_for(c, c)
-        r = (min(x[1][0] for x in words), min(x[1][1] for x in words), max(x[1][2] for x in words), max(x[1][3] for x in words))
-        # 行でもマスでもない（マスの頭に「（○で囲む［欄］: 父・母・その他）」と出す）
-        sp = Spot("circle", r, f"{label or '選択肢'}（○で囲む）", "マスの中に選択肢が並ぶ（どれかを○で囲む）", cell=c,
-                  host=None, size=max(x.size for x in hor), confidence="agent")
-        sp.options = words
+        # 数だけの並び：空白で区切った続き番号
+        toks = [(num(m[0]), m.start(), m.end(), m[0]) for m in re.finditer(r"(?<![\d０-９\w])[\d０-９]{1,2}(?![\d０-９\w])", text)]
+        run = self._consecutive(toks)
+        if len(run) >= 3 and all(re.fullmatch(r"[ \u3000]+", text[a[2]:b[1]]) for a, b in zip(run, run[1:])):
+            opts = [(t[3], t[1], t[2]) for t in run]
+            self._add_options(ln, cell, opts, text[:run[0][1]], "数が空白で区切って並ぶ（どれかを○で囲む）")
+
+    @staticmethod
+    def _consecutive(toks: list) -> list:
+        """続き番号のいちばん長い並び（1つずつ増える）。"""
+        best: list = []
+        cur: list = []
+        for t in toks:
+            if cur and t[0] == cur[-1][0] + 1:
+                cur.append(t)
+            else:
+                cur = [t]
+            if len(cur) > len(best):
+                best = list(cur)
+        return best
+
+    def _add_options(self, ln: Line, cell: Cell | None, opts: list, head: str, why: str, numbered: bool = False) -> None:
+        rects = [(w, ln.span_rect(a, b)) for w, a, b in opts]
+        for k in self.spots:
+            if k.kind == "circle" and k.host is ln and any(_overlap(r, o) > 0.3 for _w, r in rects for _t, o in k.options):
+                return  # 同じ字を、ほかの決め方でもう選択肢にした
+            if k.kind in ("inline", "text") and k.host is ln and any(_overlap(r, k.rect) > 0.05 for _w, r in rects):
+                return  # 選択肢が、ほかの欄の候補（文字の中の空欄）に重なる
+        label = norm_label(head.strip(" \u3000（(")[-30:])
+        if not label and cell is not None:
+            lab, rl, _cl = self._label_for(cell, cell)
+            label = norm_label(rl or lab)
+        label = label or "選択肢"
+        r = (min(x[1][0] for x in rects), min(x[1][1] for x in rects), max(x[1][2] for x in rects), max(x[1][3] for x in rects))
+        sp = Spot("circle", r, f"{label}（○で囲む）", why, cell=cell, host=ln, at=None, size=ln.size, confidence="agent")
+        sp.options = rects
+        sp.numbered = numbered  # 選択肢の名前は「番号と語」、○は番号を囲む
         self.spots.append(sp)
-
-    def _circle_instruction(self) -> bool:
-        if not hasattr(self, "_circ"):
-            t = "".join(c.text for c in self.chars)
-            self._circ = bool(re.search(r"[○〇]\s*で\s*囲|[○〇]\s*を\s*(付|つけ)|[○〇]\s*印|該当する(もの|番号|項目)|いずれかに", t))
-        return self._circ
 
     def _era_choice(self, ln: Line, cell: Cell | None) -> None:
         """元号を○で囲んで選ぶ欄（「昭和／平成」を上下や左右に並べたもの）。マスの中の元号の字を集めて、1つの選ぶ欄にする。"""
