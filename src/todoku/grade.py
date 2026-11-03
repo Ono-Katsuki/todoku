@@ -241,6 +241,15 @@ def _macro_reasons(info) -> list[Reason]:
     return [Reason("C", "マクロの処理", detail, [m["name"] for m in busy][:12])]
 
 
+def unsupported_grade(kind: str) -> Grade:
+    """見分けたが、まだ読めない形式（HWP・HWPX）：読む F・書く D。"""
+    from .book import UNSUPPORTED
+
+    return _locked("未対応の形式：HWP/HWPX（韓国のワープロ）",
+                   f"とどくはまだ読めません（{UNSUPPORTED.get(kind, kind)} の文書。中身を推測して読むことはしません）",
+                   "読めないので、書けません")
+
+
 # ====================================================================== 形式ごと
 def grade_blob(blob: bytes, filename: str = "", password: str | None = None, encoding: str | None = None) -> Grade:
     """password：パスワードで保護された PDF を開くとき（Office の書類は、api で解いた中身を渡す）。
@@ -262,6 +271,8 @@ def grade_blob(blob: bytes, filename: str = "", password: str | None = None, enc
         k = kind_of(blob)
     except Exception as e:  # noqa: BLE001
         return _locked("開けない", f"ファイルの形式を判別できませんでした（{type(e).__name__}）", "開けないので、書けません")
+    if k in ("hwp", "hwpx"):
+        return unsupported_grade(k)
     if k == "zip":
         return _grade_zip(blob, password)
     locked = k == "encrypted"

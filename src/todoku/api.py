@@ -10,7 +10,7 @@ import hashlib
 import re
 from pathlib import Path
 
-from .book import FormatError, kind_of
+from .book import UNSUPPORTED, FormatError, kind_of, unsupported_message
 
 KIND_JA = {"xlsx": "Excel", "xls": "古い Excel（.xls）", "pdf": "PDF", "docx": "Word", "doc": "古い Word（.doc）"}
 # 一太郎（.jtd）：読む・書く（同じ字数の上書きと、本文の字数を変える書き込み。圧縮した文書は縮め直す）
@@ -27,6 +27,14 @@ KIND_JA["zip"] = "ZIP（ファイルをまとめたもの）"
 
 class ApiError(ValueError):
     pass
+
+
+class Unsupported(ApiError):
+    """見分けたが、まだ読めない形式（HWP・HWPX）。段階は F（grade は、この形式でも段階を返す）。"""
+
+    def __init__(self, message: str, kind: str):
+        super().__init__(message)
+        self.kind = kind
 
 
 class PasswordNeeded(ApiError):
@@ -56,6 +64,8 @@ def _read(path: str, password: str | None = None):
     except WrongPassword as e:
         raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
     k = kind_of(plain, p.name)  # 名前は、中身だけでは決まらない形式（CSV・JSON など）を見分けるのに使う
+    if k in UNSUPPORTED:
+        raise Unsupported(unsupported_message(k), k)  # 見分けたが、まだ読めない形式（HWP・HWPX）
     if k not in KIND_JA:
         raise ApiError(f"この形式（{k}）は扱えません。Excel・PDF・Word のファイルを指定してください")
     return plain, p.name, k, lock
@@ -99,6 +109,8 @@ def _read_member(path: str, password: str | None):
     except WrongPassword as e:
         raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
     k = kind_of(plain, name)
+    if k in UNSUPPORTED:
+        raise Unsupported(f"ZIP の中の「{name}」：" + unsupported_message(k), k)
     if k not in KIND_JA:
         raise ApiError(f"ZIP の中の「{name}」の形式（{k}）は扱えません")
     return plain, name, k, lock
@@ -1110,10 +1122,14 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
     """段階（S〜F）：誰が扱えば正確に読んで入れられるか。規則で決めた段階と、エージェントが確かめること。
     findings（エージェントが窓を読んで見つけたこと：{grade, title, detail, where}）を渡すと、段階に合わせる。
     パスワードで保護された書類は、本人に聞いたパスワードで解いた中身で決める（パスワードがなければ PasswordNeeded）。"""
-    from .grade import combine, grade_blob
+    from .grade import combine, grade_blob, unsupported_grade
     from .unlock import pdf_password
 
-    blob, name, k, lock = _read(path, password)
+    try:
+        blob, name, k, lock = _read(path, password)
+    except Unsupported as e:
+        g = unsupported_grade(e.kind)  # まだ読めない形式：段階 F と、その理由
+        return (combine(g, findings or [], answered) if findings or answered else g).to_dict()
     encoding = _encoding(blob, k, encoding)
     g = grade_blob(blob, name, password=pdf_password(lock), encoding=encoding)
     if findings or answered:

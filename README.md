@@ -36,19 +36,34 @@ with Severe Physical Disability*, ASSETS '26）
 
 どの AI エージェントからも使えるように、MCP（Model Context Protocol）のサーバーになっています。
 
-**Claude Code では、プラグインとして入れると、どのフォルダからでも使えます**（[uv](https://docs.astral.sh/uv/) が要ります）。
+**Claude Code では、プラグインとして入れると、どのフォルダからでも使えます。**
 MCP サーバーと、申請書を探して記入するときの進め方（スキル `shinsei`）が一緒に入ります。
 
-```
-/plugin marketplace add Ono-Katsuki/todoku
-/plugin install todoku@todoku
-```
+1. Python の道具 [uv](https://docs.astral.sh/uv/) を入れます（とどくを動かすのに使います。とどくは Python の標準の機能だけで動きます）。
+
+   ```
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+   （Homebrew を使っていれば `brew install uv`。Windows は PowerShell で `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`）
+2. Claude Code の中で、プラグインを入れます。
+
+   ```
+   /plugin marketplace add Ono-Katsuki/todoku
+   /plugin install todoku@todoku
+   ```
+
+**iPad・スマートフォンから使う**：とどくはパソコンの上で動きます（書類もパソコンから出しません）。Claude Code の
+[Remote Control](https://code.claude.com/docs/en/remote-control) で、パソコンの Claude Code を iPad から操作できます。
+パソコンで `claude remote-control`（または開いている Claude Code の会話で `/remote-control`）を実行し、iPad の Claude アプリか、
+ブラウザーの [claude.ai/code](https://claude.ai/code) から、そのセッションにつなぎます。パソコンの MCP サーバー（とどく）とファイルは
+そのまま使えます。パソコンは付けたままにしておきます（Pro・Max・Team・Enterprise などのプランで使えます。API キーでは使えません）。
 
 あとは「寝たきりの私が使える助成を探して、申請書を書いて」「この様式に事業所の情報を入れて」のように話しかけるだけです。
 このリポジトリの中で開いたときは、`.mcp.json` からも使えます。ほかの MCP 対応のエージェントでは、次のように設定します。
 
 ```json
-{ "mcpServers": { "todoku": { "command": "uv", "args": ["run", "--quiet", "--directory", "<このリポジトリの場所>", "todoku-mcp"] } } }
+{ "mcpServers": { "todoku": { "command": "uv", "args": ["run", "--quiet", "--no-dev", "--directory", "<このリポジトリの場所>", "todoku-mcp"] } } }
 ```
 
 | 道具 | すること |
@@ -87,6 +102,8 @@ MCP サーバーと、申請書を探して記入するときの進め方（ス�
 | テキスト（.txt） | 文字コード（CSV と同じ決め方）・すべての行（空の行・行の頭の空白もそのまま、「行番号｜字」） | 空欄・□・字を目印にした書き込み（Word と同じ欄の決め方。改行は書かない） | 書いた所の字のバイトのほかは、文字コード・BOM・改行まで1バイトも変えない |
 | スキャンした紙（画像だけの PDF のページ） | 画像（CCITT G3・G4、JPEG、Flate など）を自前で開き、ページの見た目どおりの画像をエージェントに見せる（`view_page`） | エージェントが画像を見て決めた枠（mm）に書く。書く前に枠を描いて確かめる | 元のファイルのバイト列は1つも変えない |
 | ZIP | 中のファイルを「a.zip!/中の名前」で、その形式のまま読む | 中のファイルに書き、ZIP はその部品だけを入れ替える | 書いた部品のほかはバイト一致 |
+
+韓国のワープロの **HWP・HWPX** は、形式を見分けて「未対応の形式」と返します（読む段階 F。中身を推測して読むことはしません）。
 
 **パスワードで保護された書類**（Office の暗号・古い .xls/.doc の暗号・PDF の暗号）も、本人に聞いたパスワードで開き、
 書いた後は元と同じパスワードで保護し直します。**パスワードは結果にも記録にも残しません。**
