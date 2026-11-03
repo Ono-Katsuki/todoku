@@ -100,6 +100,38 @@ def test_after_label_moves_to_the_value_cell_when_the_heading_cell_is_too_small(
     assert not any("読みにくい" in w for w in r["warnings"]), r["warnings"]
 
 
+# ---------------------------------------------------------------- PDF：後ろの字にくっつけるのは単位のような字だけ
+def test_right_alignment_only_glues_to_unit_like_text():
+    from todoku.pdf.fill import inline_align, unit_like
+
+    assert unit_like("年") and unit_like("月　日") and unit_like("級") and unit_like("号")
+    assert not unit_like("信用金庫") and not unit_like("（続柄）") and not unit_like("")
+    assert inline_align({"label": "［ ］年"}) == "right"
+    assert inline_align({"label": "［ ］信用金庫 支店"}) == "right_gap"
+    assert inline_align({"label": "氏 名［ ］（続柄）", "rect": [0, 0, 200, 12], "size": 10}, 40) == "right_gap"
+
+
+def test_right_gap_keeps_one_em_before_the_following_text(tmp_path):
+    rules = b"0.8 w 60 700 m 400 700 l S 60 680 m 400 680 l S\n"
+    data = _pdf([(300, 686, 10, "信用金庫")], rules)
+    from todoku.pdf.doc import PdfDocument
+    from todoku.pdf.window import build
+
+    win = build(PdfDocument(data))
+    spot = next(f for pg in win["pages"] for f in pg["fields"] if "信用金庫" in (f.get("label") or ""))
+    r, out = _write(tmp_path, data, "t.pdf", {spot["id"]: "架空"})
+    assert r["proof_ok"] and r["read_back_ok"]
+    doc = PdfDocument(open(out, "rb").read())
+    blob = open(out, "rb").read()
+    m = re.findall(rb"1 0 0 1 ([\d.]+) ([\d.]+) Tm", blob)
+    assert m
+    x = float(m[-1][0])
+    w = spot["rect"][2] - spot["rect"][0]
+    # 字の右の端（x + 2 字）と、欄の右の端（＝「信用金庫」の手前）のあいだに、1 字ぶん（10pt 近く）の空き
+    assert w - (x + 2 * float(spot.get("size") or 10)) >= 8, (x, w)
+    assert doc is not None
+
+
 # ---------------------------------------------------------------- ○：near の字の中の囲む字（circlepick）
 def _two_rows_pdf() -> bytes:
     return _pdf([(70, 700, 10, "生年月日　大・昭・平・令　　年"), (70, 660, 10, "交付日　大・昭・平・令　　年"),

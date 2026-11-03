@@ -371,16 +371,31 @@ def inline_align(spot: dict, text_w: float | None = None) -> str:
         return "center"
     before = re.sub(r"［[^］]*］", "", lab[:m.start()]).strip(" 　")
     after = re.sub(r"［[^］]*］", "", lab[m.end():]).strip(" 　")
+    # 後ろの字にくっつけてよいのは、後ろの字が単位のような短い字（区切りの前に 1〜2 字：「年」「月」「級」「円」「号」）の
+    # ときだけ。ほかの字（「信用金庫」「（続柄）」）にくっつけると、書いた字がその語の一部に読める（「架空信用金庫」）ので、
+    # 後ろの字との間を 1 字ぶん空ける（right_gap）
+    right = "right" if unit_like(after) else "right_gap"
     if before and not after:
         return "left"
     if after and not before:
-        return "right"
+        return right
     if before and after and text_w is not None and spot.get("rect"):
         r = spot["rect"]
         size = float(spot.get("size") or 10.5)
         if (r[2] - r[0]) > 3 * text_w + 2 * size:
-            return "right"
+            return right
     return "center"
+
+
+def unit_like(after: str) -> bool:
+    """空欄の後ろの字が、単位のような短い字か：初めの区切り（空白・記号・行の端）までの字が 1〜2 字（「年」「月 日」
+    「級」「円」「号」）。区切りの字で始まる（「（続柄）」）・3 字以上の語（「信用金庫」）は違う。"""
+    from ..circlepick import sep
+
+    k = 0
+    while k < len(after) and not sep(after[k]):
+        k += 1
+    return 1 <= k <= 2
 
 
 def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, size: float, dr_fonts: dict, *,
@@ -414,7 +429,15 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
     y = (vh + block) / 2 - s * 0.8
     pad = min(1.5, 0.1 * vw)
     align = "center" if center else align
-    ops = bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, (vw - 2 * pad) if align in ("center", "right") else None,
+    aw = vw - 2 * pad
+    if align == "right_gap":
+        # 後ろの字との間を 1 字ぶん空けて右にそろえる。空ける幅がなければ中央
+        widest = max((text_width(ln_, s) for ln_ in lines), default=0.0)
+        if widest + s <= aw:
+            aw, align = aw - s, "right"
+        else:
+            align = "center"
+    ops = bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, aw if align in ("center", "right") else None,
                                           align) + b"Q\nEMC\n"
     return _ap(update, vw, vh, ops, fonts_used(lines), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
 
@@ -934,7 +957,7 @@ class Filler:
             d["Ff"] = FF_COMB
             d["MaxLen"] = len(comb)
         if marked:
-            d["Q"] = {"center": 1, "right": 2}.get(align, 0)
+            d["Q"] = {"center": 1, "right": 2, "right_gap": 1}.get(align, 0)  # 作り直すソフトでは、くっつけない中央
         if rot:
             d["MK"] = {"R": rot}
         if cover:
