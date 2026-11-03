@@ -85,6 +85,11 @@ def md_csv_head(doc: dict) -> list[str]:
            f"新しい行は R{n + 1}.C1 のように、今ある {n} 行の次から足せます。",
            "- 記号: " + "、".join(f"{k} は{v}" for k, v in doc["notation"].items() if k != "R3.C2"),
            "- 1行目を列の見出しとして、入力欄の見出しに使いました（1行目が見出しでないときは、列の番号で指してください）。"]
+    if fm.get("empty_lines"):
+        rs = fm["empty_lines"]
+        out.append("- 字のない行（改行だけの行）：" + "、".join(f"R{r}" for r in rs[:20]) + ("ほか" if len(rs) > 20 else "")
+                   + f"（{len(rs)} 行）。RFC 4180 の決まりどおり、空のマスが1つの行として読みました"
+                   "（書けば、その行に字が入ります。行を足すときは、その後ろに足します）。")
     if fm.get("ascii_only"):
         out.append("- このファイルは ASCII の字だけなので、文字コードは決まりません（日本語を書くと UTF-8 で書きます）。")
     for p in doc.get("problems") or []:

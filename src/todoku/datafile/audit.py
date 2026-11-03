@@ -33,11 +33,24 @@ def _chars(texts) -> Counter:
 
 
 # ====================================================================== CSV・TSV
+def independent_rows(text: str, delim: str) -> list[list[str]]:
+    """Python の csv モジュールで読んだ行。csv モジュールは字のない行（改行だけの行）を [] にするが、RFC 4180 の文法
+    （record = field *(COMMA field)、field は空でもよい）では、字のない行は「空のマスが1つの行」なので、[""] として比べる。
+    csv モジュールが [] を返すのは字のない行だけ（「""」だけの行は [""]、空白だけの行は [" "]）なので、読み落としは隠れない。"""
+    rows = list(csv.reader(io.StringIO(text, newline=""), delimiter=delim, quotechar='"', strict=False))
+    return [r if r else [""] for r in rows]
+
+
 def csv_reading(f: CsvFile, doc: dict, md: str) -> Check:
     """Python の csv モジュール（RFC 4180 の別の実装）で読み、マスごとに値を照らし、窓の表の行がそのまま出ているかを見る。"""
-    other = list(csv.reader(io.StringIO(f.text, newline=""), delimiter=f.delim, quotechar='"', strict=False))
+    raw = list(csv.reader(io.StringIO(f.text, newline=""), delimiter=f.delim, quotechar='"', strict=False))
+    other = independent_rows(f.text, f.delim)
     mine = f.rows
     problems = []
+    # 別の読み方で字のない行は、窓の読み方でも字のない行（行の中身の範囲が空）であること
+    for r, (x, rec) in enumerate(zip(raw, f.records), 1):
+        if not x and rec.b != rec.a:
+            problems.append(f"R{r}：別の読み方では字のない行ですが、窓では字のある行として読みました")
     if len(other) != len(mine):
         problems.append(f"行の数が違います（窓 {len(mine)}・別の読み方 {len(other)}）")
     for r, (x, y) in enumerate(zip(mine, other), 1):
@@ -84,8 +97,8 @@ def csv_writing(blob: bytes, filename: str, kind: str, doc: dict) -> list[Check]
                  [*pr.unexpected, *pr.lint_errors])]
     g = CsvFile(res.blob, filename, kind)
     wrong = [f"R{r}.C{c}: 書いた値 {v!r} → 読み直すと {g.value(r, c)!r}" for (r, c), v in written.items() if g.value(r, c) != v]
-    other = list(csv.reader(io.StringIO(g.text, newline=""), delimiter=g.delim, quotechar='"', strict=False))
-    wrong += [f"R{r}.C{c}: 別の読み方では {(other[r - 1][c - 1] if r <= len(other) and c <= len(other[r - 1]) else None)!r}"
+    other = independent_rows(g.text, g.delim)
+    wrong +=[f"R{r}.C{c}: 別の読み方では {(other[r - 1][c - 1] if r <= len(other) and c <= len(other[r - 1]) else None)!r}"
               for (r, c), v in written.items()
               if not (r <= len(other) and c <= len(other[r - 1]) and other[r - 1][c - 1] == v)]
     out.append(Check("読み戻し", not wrong, f"書いた {len(written):,} マスのうち {len(written) - len(set(w.split(':')[0] for w in wrong)):,} マスが、"

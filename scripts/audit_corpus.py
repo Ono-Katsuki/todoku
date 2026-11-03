@@ -17,7 +17,7 @@ import traceback
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OPEN_EXT = (".csv", ".tsv", ".json", ".jsonl", ".ndjson", ".rtf", ".odt", ".ott", ".ods", ".ots", ".fodt", ".fods")
+OPEN_EXT = (".csv", ".tsv", ".json", ".jsonl", ".ndjson", ".rtf", ".odt", ".ott", ".ods", ".ots", ".fodt", ".fods", ".pptx", ".pptm")
 
 
 def one(path: str) -> dict:

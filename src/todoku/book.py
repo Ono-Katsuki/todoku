@@ -47,7 +47,7 @@ def kind_of(blob: bytes, filename: str = "") -> str:
         return "cfb"
     if blob[:4] == b"%PDF":
         return "pdf"
-    text = _text_kind(blob, filename)  # RTF（中身で）・CSV・TSV・JSON・JSON Lines（名前で）
+    text = _text_kind(blob, filename)  # RTF（中身で）・CSV・TSV・JSON・JSON Lines・文字だけのファイル（.txt）（名前で）
     if text:
         return text
     return "unknown"
@@ -59,7 +59,8 @@ _ODF_MIME = {"application/vnd.oasis.opendocument.text": "odt", "application/vnd.
              "application/vnd.oasis.opendocument.spreadsheet": "ods",
              "application/vnd.oasis.opendocument.spreadsheet-template": "ods",
              "application/vnd.oasis.opendocument.presentation": "odp", "application/vnd.oasis.opendocument.graphics": "odg"}
-_BY_NAME = {".csv": "csv", ".tsv": "tsv", ".tab": "tsv", ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl"}
+_BY_NAME = {".csv": "csv", ".tsv": "tsv", ".tab": "tsv", ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl",
+            ".txt": "txt"}
 
 
 def _odf_kind(blob: bytes, names: set) -> str | None:
