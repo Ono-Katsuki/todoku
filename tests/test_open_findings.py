@@ -177,12 +177,13 @@ def _cfb(streams: dict[str, bytes]) -> bytes:
 
 
 @pytest.mark.parametrize("kind", ["hwpx", "hwp"])
-def test_hwp_is_detected_and_refused_clearly(tmp_path, kind):
+def test_hwp_is_detected_and_broken_one_refused_clearly(tmp_path, kind):
+    """HWP・HWPX は見分けて hwpx/ で読む（tests/test_hwpx.py）。中身の壊れたものは、推測で読まずに理由を返し、段階は F。"""
     blob = _hwpx() if kind == "hwpx" else _cfb({"FileHeader": b"HWP Document File" + b"\0" * 15, "BodyText": b"x"})
     assert kind_of(blob) == kind
     path = tmp_path / f"a.{kind}"
     path.write_bytes(blob)
-    with pytest.raises(api.ApiError, match="未対応の形式：HWP/HWPX（韓国のワープロ）"):
+    with pytest.raises(api.ApiError, match="本文の節"):
         api.window(str(path))
     g = api.grade(str(path))
-    assert g["grade"] == "F" and "とどくはまだ読めません" in g["reasons"][0]["detail"]
+    assert g["grade"] == "F" and "読めませんでした" in g["reasons"][0]["detail"]

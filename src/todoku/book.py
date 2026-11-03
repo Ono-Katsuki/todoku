@@ -14,9 +14,11 @@ def kind_of(blob: bytes, filename: str = "") -> str:
         if len(blob) < 64:
             return "xlsx"
         try:
-            from .zipraw import RawZip
+            from .zipraw import AmbiguousZip, RawZip
 
             names = set(RawZip(blob).names())
+        except AmbiguousZip:
+            return "zip"  # 中身が二通りに読める ZIP：どの部品で形式を決めるかも決まらない（開くと、その理由を返す）
         except Exception:  # noqa: BLE001
             return "xlsx"
         if "word/document.xml" in names or any(n.startswith("word/") and n.endswith("document.xml") for n in names):
@@ -24,7 +26,7 @@ def kind_of(blob: bytes, filename: str = "") -> str:
         if any(n.startswith("ppt/") for n in names):
             return "pptx"
         if _is_hwpx(blob, names):
-            return "hwpx"  # 韓国のワープロ（한글）の HWPX（OWPML、KS X 6101）：読めない形式として見分ける
+            return "hwpx"  # 韓国のワープロ（한글）の HWPX（OWPML、KS X 6101）：読む・書く（hwpx/）
         odf = _odf_kind(blob, names)  # OpenDocument（.odt・.ods）：mimetype の部品で見分ける
         if odf:
             return odf
@@ -47,7 +49,7 @@ def kind_of(blob: bytes, filename: str = "") -> str:
         if is_jtd(names):
             return "jtd"
         if "fileheader" in names and _is_hwp5(blob):
-            return "hwp"  # 韓国のワープロ（한글）の HWP 5.0：FileHeader のストリームが「HWP Document File」で始まる
+            return "hwp"  # 韓国のワープロ（한글）の HWP 5.0：FileHeader のストリームが「HWP Document File」で始まる（読むだけ。hwpx/hwp5.py）
         return "cfb"
     if blob[:4] == b"%PDF":
         return "pdf"
@@ -67,8 +69,9 @@ _BY_NAME = {".csv": "csv", ".tsv": "tsv", ".tab": "tsv", ".json": "json", ".json
             ".txt": "txt"}
 
 
-# 見分けるが、まだ読めない形式（開くと「未対応の形式」と伝え、段階は F）
-UNSUPPORTED = {"hwp": "HWP（韓国のワープロ）", "hwpx": "HWPX（韓国のワープロ）"}
+# 見分けるが、まだ読めない形式（開くと「未対応の形式」と伝え、段階は F）。
+# HWP・HWPX は hwpx/ で読める（HWPX は書ける・HWP 5 は読むだけ）ようになったので、いまはない
+UNSUPPORTED: dict[str, str] = {}
 
 
 def unsupported_message(kind: str) -> str:

@@ -27,7 +27,10 @@ BOXES = set("□☐☑☒◻▢❏❐❑❒⬜")
 
 def raw_chars(doc: PdfDocument, page: dict) -> list[str]:
     """ページの文字の命令を、並べずに順に読む（窓とは別の読み方）。ActualText の範囲は、その文字にする。"""
+    from ..limits import LimitExceeded
+
     out: list[str] = []
+    drawing: set = set()
 
     def run(data: bytes, res: dict, depth: int):
         if depth > 12:
@@ -81,11 +84,17 @@ def raw_chars(doc: PdfDocument, page: dict) -> list[str]:
                 strings = [x for x in stack[-1] if isinstance(x, (bytes, PdfString))]
             elif op == "Do" and stack and isinstance(stack[-1], Name):
                 xo = doc.resolve(xobjs.get(stack[-1].name)) if isinstance(xobjs, dict) else None
-                if isinstance(xo, Stream) and getattr(xo.dict.get("Subtype"), "name", "") == "Form":
+                if isinstance(xo, Stream) and getattr(xo.dict.get("Subtype"), "name", "") == "Form" \
+                        and (xo.num or id(xo)) not in drawing:  # 自分を描く部品は、描いている途中にもう一度描かない
+                    drawing.add(xo.num or id(xo))
                     try:
                         run(doc.decode(xo), doc.resolve(xo.dict.get("Resources")) or res, depth + 1)
+                    except LimitExceeded:
+                        raise
                     except Exception:  # noqa: BLE001
                         pass
+                    finally:
+                        drawing.discard(xo.num or id(xo))
             elif op in ("BDC", "BMC"):
                 p = stack[-1] if op == "BDC" and stack else None
                 if isinstance(p, Name):

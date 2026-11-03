@@ -24,8 +24,8 @@ description: 申請書・届出・様式（Excel・Word・PDF・一太郎など�
 ## 道具
 
 - `open_document` → `read_window`：書類を開いて窓を読む。扱える形式は Excel（.xlsx・.xlsm・.xls）・Word（.docx・.docm・.doc）・PDF・
-  一太郎（.jtd）・OpenDocument（.odt・.ods）・RTF・PowerPoint（.pptx）・.txt・CSV・TSV・JSON・ZIP。HWP・HWPX（韓国のワープロ）は
-  「未対応の形式」と返る（中身を推測しない。PDF などに書き出したものを求める）。
+  一太郎（.jtd）・OpenDocument（.odt・.ods）・RTF・PowerPoint（.pptx）・.txt・CSV・TSV・JSON・ZIP・한글の HWPX（.hwpx。読む・書く）。
+  한글の HWP 5（.hwp）は読むだけ（書くときは、本人に HWPX で保存し直したファイルを頼む）。配布用・パスワードの HWP は読めない。
 - `list_fields`：入力欄の id・見出し・種類・選択肢・いまの値・書けるか（`readonly`・`why`）。書く前に id を確かめる。
   見出しは書類に印刷された字。「？」のついた欄（`agent`）は、窓を読んで書く所か判断する。
 - `fill_document`：まとめて書く。結果で確かめること：

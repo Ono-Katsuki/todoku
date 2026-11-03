@@ -13,11 +13,13 @@ from __future__ import annotations
 KIND_JA = {"csv": "CSV", "tsv": "TSV（タブ区切り）", "json": "JSON", "jsonl": "JSON Lines", "rtf": "RTF（リッチテキスト）",
            "odt": "OpenDocument の文書（.odt）", "ods": "OpenDocument の表計算（.ods）",
            "fodt": "OpenDocument の文書（.fodt・1つの XML）", "fods": "OpenDocument の表計算（.fods・1つの XML）",
-           "txt": "テキスト（.txt）", "pptx": "PowerPoint（.pptx）"}
+           "txt": "テキスト（.txt）", "pptx": "PowerPoint（.pptx）",
+           "hwpx": "한글の文書（.hwpx）", "hwp": "한글の文書（.hwp・HWP 5）"}
 KINDS = frozenset(KIND_JA)
 DATA = frozenset({"csv", "tsv", "json", "jsonl"})
 TEXT_DOCS = frozenset({"odt", "fodt"})
 SHEETS = frozenset({"ods", "fods"})
+HANGUL = frozenset({"hwpx", "hwp"})  # 한글：HWPX は読む・書く、HWP 5 は読むだけ（hwpx/）
 
 
 class OpenFormatError(ValueError):
@@ -68,6 +70,18 @@ def window(k: str, blob: bytes, name: str, encoding: str | None = None) -> tuple
             from .pptx.window import build, markdown_parts
 
             win = build(PptxDocument(blob, name))
+            return win, markdown_parts(win)
+        if k == "hwpx":
+            from .hwpx.document import HwpxDocument
+            from .hwpx.window import build, markdown_parts
+
+            win = build(HwpxDocument(blob, name))
+            return win, markdown_parts(win)
+        if k == "hwp":
+            from .hwpx.hwp5 import Hwp5Document
+            from .hwpx.window import build5, markdown_parts
+
+            win = build5(Hwp5Document(blob, name))
             return win, markdown_parts(win)
     except (ValueError, KeyError) as e:
         raise _err(e) from None
@@ -130,6 +144,11 @@ def fill(k: str, blob: bytes, name: str, values: dict, force: bool = False, enco
         from .pptx.fill import api_fill
 
         return api_fill(blob, name, values, force)
+    if k == "hwpx":
+        return _fill_hwpx(blob, name, values, force)
+    if k == "hwp":
+        raise OpenFormatError("HWP 5（.hwp）には書けません。HWPX で保存し直せば書ける（한글の「다른 이름으로 저장」で .hwpx を選ぶ。"
+                              "本人に、HWPX で保存し直したファイルを頼んでください）")
     raise OpenFormatError(f"この形式（{k}）には書けません")
 
 
@@ -202,6 +221,53 @@ def _fill_odt(blob: bytes, name: str, values: dict, force: bool) -> dict:
     return {"blob": res.blob, "result": result, "readback": readback, "labels": {}}
 
 
+def _fill_hwpx(blob: bytes, name: str, values: dict, force: bool) -> dict:
+    from .docx.fill import FillError
+    from .hwpx.document import HwpxDocument
+    from .hwpx.fill import fill, written_of
+    from .hwpx.proof import prove
+
+    circ = {k: v for k, v in values.items() if isinstance(v, dict) and "circle" in v}  # 字を囲む（字の囲み線）
+    plain = {k: v for k, v in values.items() if k not in circ}
+    try:
+        res = fill(HwpxDocument(blob, name), plain, force=force)
+    except FillError as e:
+        raise _err(e) from None
+    pr = prove(blob, res.blob, written_of(res.patches))
+    result = {"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings), "unexpected": pr.unexpected[:20],
+              "structure_errors": pr.lint_errors[:20],
+              "relayout": "字を変えた段落は、한글の行の配置の控え（hp:linesegarray）を除きました。한글が開くときに、その段落の行を配置し直します"}
+    readback = {key: v for key, v in plain.items() if not key.startswith("@")}
+    anchored = {p.key: p.id for p in res.patches if p.anchor}
+    if anchored:
+        result["anchored"] = anchored
+        readback.update({p.id: p.value for p in res.patches if p.anchor})
+    out = res.blob
+    if circ:
+        from .docx.circle import CircleError
+        from .hwpx import circle as hc
+
+        doc = HwpxDocument(out, name)
+        used: dict = {}
+        try:
+            sds = [(k, hc.resolve(doc, spec, used)) for k, spec in circ.items()]
+            boxed = hc.apply(doc, [sd for _k, sd in sds])
+        except CircleError as e:
+            raise _err(e) from None
+        bad = hc.prove(out, boxed, name, [sd for _k, sd in sds], list(circ.values()))
+        out = boxed
+        result["unexpected"] = result["unexpected"] + bad
+        result["proof_ok"] = result["proof_ok"] and not bad
+        result["proof"] += (f"。囲み {len(sds)} つは、字を字の並びに分けて囲み線の形（header.xml に足した charPr・borderFill）を"
+                            "付けただけ（段落の字は同じ）" if not bad else f"。囲みで想定外の変更 {len(bad)} 件")
+        result["circled"] = [{"key": k, "id": sd["id"], "text": sd["text"], "label": sd["label"], "context": sd["context"],
+                              "style": "border", "how": "字に四角い囲み線を付けた（○ではなく□）", "uncertain": hc.UNCERTAIN}
+                             for k, sd in sds]
+        result["warnings"] = result["warnings"] + [hc.UNCERTAIN]
+        result["anchored"] = {**result.get("anchored", {}), **{k: sd["id"] for k, sd in sds}}
+    return {"blob": out, "result": result, "readback": readback, "labels": {}}
+
+
 def read_back(k: str, blob: bytes, name: str, keys: dict, encoding: str | None = None) -> dict:
     """書いた後のファイルから、書いた所（keys の id）の値を読む（欄の一覧に出ないマス・値のため）。"""
     out: dict = {}
@@ -263,6 +329,14 @@ def audit_runner(k: str, encoding: str | None = None):
         from .pptx.audit import run
 
         return run
+    if k == "hwpx":
+        from .hwpx.audit import run
+
+        return run
+    if k == "hwp":
+        from .hwpx.audit import run5
+
+        return run5
     raise OpenFormatError(f"この形式（{k}）は検査できません")
 
 
@@ -300,9 +374,16 @@ def grade(k: str, blob: bytes, name: str, encoding: str | None = None):
             slides = [b for sl in doc.slides for b in sl["blocks"]]
             extra = content_image_reasons(doc, win, slides, lambda p: p.style == "Title", "スライド")
             return _grade_textdoc(win, "PowerPoint", "作り手の印のある欄", extra)
+        if k in HANGUL:
+            from .hwpx.grade import grade as hgrade
+
+            return hgrade(k, blob, name, _grade_textdoc)
     except Exception as e:  # noqa: BLE001
+        from .hwpx.package import HwpxEncrypted
         from .odf.package import OdfEncrypted
 
+        if isinstance(e, HwpxEncrypted):
+            return _locked("暗号化", str(e), "暗号化された部品は読めないので、書けません")
         if isinstance(e, OdfEncrypted):
             return _locked("パスワード", str(e), "パスワードがなければ、書けません")
         return _locked("開けない", f"ファイルを読めませんでした（{type(e).__name__}: {str(e)[:80]}）", "読めないので、書けません")

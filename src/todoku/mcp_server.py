@@ -14,6 +14,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
 import traceback
 
@@ -23,7 +25,8 @@ PROTOCOL = "2025-06-18"
 INSTRUCTIONS = (
     "とどく（todoku）は、申請書類（Excel .xlsx/.xlsm/.xls・Word .docx/.docm/.doc・PDF・一太郎 .jtd・OpenDocument .odt/.ods・"
     "RTF・PowerPoint .pptx・文字だけのファイル .txt/.csv/.tsv/.json・それらをまとめた ZIP）を、内容を一字も変えずに読める「窓」にし、"
-    "入力欄に証明つきで書き込む道具です。韓国のワープロの HWP・HWPX は、まだ読めません（「未対応の形式」と返します）。"
+    "入力欄に証明つきで書き込む道具です。韓国のワープロ（한글）の HWPX（.hwpx）も読んで書け、HWP 5（.hwp）は読むだけです"
+    "（HWP 5 に書くときは、本人に HWPX で保存し直したファイルを頼みます）。"
     "まず open_document で書類を開き、read_window で窓を読み、list_fields で入力欄の名前を確かめてから、"
     "fill_document で書き込んでください。書き込みは元のファイルを変えず、別の名前で書き出します。"
     "窓の［T1.R2.C3］［p1.5］［シート!B3］などが入力欄の名前です。推定した見出しは context（その行）と合わせて確かめてください。"
@@ -47,10 +50,16 @@ INSTRUCTIONS = (
     "書いた値と違う欄があります（read_back_differences）。確かめずに本人に渡さず、違いを読んで直すか、そのことを本人に伝えてください。"
 )
 
+_OVERWRITE = {"type": "boolean", "default": False,
+              "description": "out_path にすでに別の中身のファイルがあるとき、置き換える（本人が了承したときだけ。元のファイルは決して置き換えない）。"
+                             "書き込みを証明か読み戻しで確かめられなかったときは、out_path でなく「名前.unverified.拡張子」に書き出す"
+                             "（そのファイルは提出しない）"}
+
 TOOLS = [
     {"name": "open_document",
      "description": "書類（Excel .xlsx/.xlsm/.xls・PDF・Word .docx/.docm/.doc・一太郎 .jtd）を開き、形式・入力欄の数・窓の分け方と、"
-                    "窓（Markdown）の最初の部分を返す。HWP・HWPX（韓国のワープロ）は見分けるが、まだ読めない（「未対応の形式」と返す）。"
+                    "窓（Markdown）の最初の部分を返す。한글の HWPX（.hwpx）は読む・書く、HWP 5（.hwp）は読むだけ"
+                    "（配布用・パスワードの HWP は読めない）。"
                     "ZIP は中のファイルの一覧を返す。中のファイルは、どの道具でも path に「a.zip!/中の名前」と指定して開く・書く"
                     "（書き出す out_path は ZIP。書いたファイルの部品だけを入れ替える）。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "書類のファイルのパス"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"}},
@@ -104,7 +113,8 @@ TOOLS = [
                                                       "PDF で欄のない所は {\"@1\": {\"after\": …, \"value\": …}}、"
                                                       "本人が同意した印影・署名の画像は {\"@1\": {\"seal\": 画像のパス, \"consent\": true, …}}、"
                                                       "印刷された字を○で囲むときは {\"@c1\": {\"circle\": 囲む字, \"near\": 近くの見出し}}"},
-         "force": {"type": "boolean", "default": False, "description": "保護された欄にも書く（本人が了承したときだけ）"}},
+         "force": {"type": "boolean", "default": False, "description": "保護された欄にも書く（本人が了承したときだけ）"},
+         "overwrite": _OVERWRITE},
          "required": ["path", "out_path", "values"]}},
     {"name": "audit_document",
      "description": "この書類を、エージェントが全て正確に読み書きできるかを確かめる（窓とは別の読み方で読み落としがないか、全入力欄に書けるか、書いた値が読み戻せるか）。"
@@ -122,7 +132,7 @@ TOOLS = [
                     "本人に確かめてから answers・files に入れて、もう一度呼ぶ。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"}, "macro": {"type": "string", "description": "動かすマクロ（モジュール名.手続き名）"},
-         "out_path": {"type": "string"},
+         "out_path": {"type": "string"}, "overwrite": _OVERWRITE,
          "answers": {"type": "array", "description": "MsgBox・InputBox の答え（順に。「はい」「いいえ」、入力する値）"},
          "files": {"type": "object", "description": "マクロが読むファイル：{マクロの中のパス: 手元のファイルのパス}"}},
          "required": ["path", "macro", "out_path"]}},
@@ -190,7 +200,7 @@ TOOLS = [
 
 # ---------------------------------------------------------------------- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument・.txt・PowerPoint）
 _MORE = ("（ほかに CSV・TSV・JSON・JSON Lines・RTF・OpenDocument の文書 .odt と表計算 .ods・文字だけのファイル .txt・"
-         "PowerPoint .pptx も開けます）")
+         "PowerPoint .pptx・한글 .hwpx（読む・書く）と .hwp（HWP 5。読むだけ）も開けます）")
 for _t in TOOLS:
     if _t["name"] == "open_document":
         _t["description"] += _MORE
@@ -200,7 +210,10 @@ for _t in TOOLS:
                               "置けないので、書いた後のファイルでは残りの空欄の番号が詰まる（続けて書くときは、開き直して id を確かめる）。"
                               "OpenDocument の表計算（.ods）は Excel と同じ書き方（シート!B3）。CSV・TSV は「R行.C列」（R3.C2・R3.氏名。"
                               "今ある行の次の行に書くと、行を足す）、JSON は JSON Pointer（/applicant/name。ない名前は足し、配列の終わりは /items/-）、"
-                              "JSON Lines は「L行/名前」。")
+                              "JSON Lines は「L行/名前」。"
+                              "한글（.hwpx）は Word と同じ書き方で、누름틀（クリックして書く欄）とフォームの部品は、その名前（名前のない 누름틀は ctl番号）で書く。"
+                              "placeholder は値のないときに한글が表示する案内の字で、値ではない。HWP 5（.hwp）には書けない"
+                              "（本人に HWPX で保存し直したファイルを頼む）。")
 
 # 文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）の文字コード：規則で決められず、窓に候補が並んだとき、エージェントが選んだもの
 _ENCODING = {"type": "string",
@@ -244,15 +257,17 @@ def call_tool(name: str, args: dict) -> dict:
         return {"content": [_text(fl)], "structuredContent": {"fields": fl}}
     if name == "fill_document":
         res = api.fill(args["path"], args.get("values") or {}, args["out_path"], bool(args.get("force", False)),
-                       password=args.get("password"), encoding=args.get("encoding"))
+                       password=args.get("password"), encoding=args.get("encoding"), overwrite=bool(args.get("overwrite")))
         ok = res.get("proof_ok") and res.get("read_back_ok")
-        head = ("書き込みました。" if ok else "書き込みましたが、確認が必要な点があります。") + f"{res.get('proof', '')}"
+        head = ("書き込みました。" if ok else "書き込みましたが、確認が必要な点があります。"
+                + (f"確かめられなかったので「{res['out_path']}」に書き出しました（提出しないでください）。" if res.get("unverified") else "")
+                ) + f"{res.get('proof', '')}"
         # 本人は書類を開いて確かめないので、say_to_user（書いた所の見出しと値・まだ空いている欄・本人に伝えること）を、対話で伝える
         return {"content": [_text(head), _text(res.get("say_to_user", "")), _text(res)], "structuredContent": res,
                 "isError": not ok}
     if name == "run_macro":
         res = api.run_macro(args["path"], args["macro"], args["out_path"], args.get("answers") or [], args.get("files") or {},
-                            password=args.get("password"))
+                            password=args.get("password"), overwrite=bool(args.get("overwrite")))
         if not res.get("done"):
             head = res.get("note", "")
             if res.get("prompt"):
@@ -304,6 +319,53 @@ def call_tool(name: str, args: dict) -> dict:
     raise api.ApiError(f"そのような道具はありません: {name}")
 
 
+_PATH = re.compile(r"(?:[A-Za-z]:\\|/)[^\s'\"（）()「」、。,:;]*[/\\][^\s'\"（）()「」、。,:;]+")
+
+
+def _clean(msg: str, args: dict, limit: int = 1500) -> str:
+    """結果に出す字：エージェントが渡したパスのほかの絶対パス（とどくの置き場所・一時フォルダなど）は、ファイルの名前だけにする。"""
+    given = [str(v) for v in args.values() if isinstance(v, str) and v]
+
+    def keep(m):
+        t = m.group(0)
+        for g in given:
+            gp = os.path.expanduser(g)
+            if t in g or t in gp or t.startswith(os.path.dirname(gp) + os.sep):
+                return t  # エージェントが渡したパス（と、その隣のファイル：書き出したファイルなど）
+        return "…/" + os.path.basename(t.replace("\\", "/").rstrip("/"))
+
+    out = _PATH.sub(keep, str(msg))
+    return out if len(out) <= limit else out[:limit] + "…"
+
+
+def tool_result(name: str, args: dict) -> dict:
+    """1 回の道具の呼び出しの結果（MCP の result）。例外は、短い言葉と例外の種類にする（トレースバック・絶対パスは出さない。
+    トレースバックは標準エラーの記録にだけ書く）。"""
+    from .limits import STOPPED, LimitExceeded, call_budget
+
+    try:
+        with call_budget():
+            return call_tool(name, args)
+    except (api.PasswordNeeded, api.PasswordWrong) as e:
+        return {"content": [_text(str(e))], "isError": False,
+                "structuredContent": {"needs_password": True, "wrong_password": isinstance(e, api.PasswordWrong)}}
+    except LimitExceeded as e:
+        return {"content": [_text(_clean(str(e), args))], "isError": True, "structuredContent": {"stopped": True}}
+    except RecursionError:
+        return {"content": [_text(f"{STOPPED}：入れ子や参照が深すぎて、読み終われません（RecursionError）")], "isError": True,
+                "structuredContent": {"stopped": True}}
+    except MemoryError:
+        return {"content": [_text(f"{STOPPED}：メモリが足りなくなりました（MemoryError）")], "isError": True,
+                "structuredContent": {"stopped": True}}
+    except (api.ApiError, KeyError, ValueError) as e:
+        kind = "" if isinstance(e, api.ApiError) else f"（{type(e).__name__}）"
+        return {"content": [_text(f"できませんでした{kind}：{_clean(str(e), args)}")], "isError": True}
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc(file=sys.stderr)  # 記録（標準エラー）にだけ。結果には短く
+        return {"content": [_text(f"処理の途中で問題が起きました（{type(e).__name__}）：{_clean(str(e), args, 300)}")],
+                "isError": True}
+
+
 def handle(msg: dict) -> dict | None:
     mid = msg.get("id")
     method = msg.get("method")
@@ -322,16 +384,10 @@ def handle(msg: dict) -> dict | None:
     if method == "tools/call":
         name = params.get("name", "")
         args = params.get("arguments") or {}
-        try:
-            result = call_tool(name, args)
-        except (api.PasswordNeeded, api.PasswordWrong) as e:
-            result = {"content": [_text(str(e))], "isError": False,
-                      "structuredContent": {"needs_password": True, "wrong_password": isinstance(e, api.PasswordWrong)}}
-        except (api.ApiError, KeyError, ValueError) as e:
-            result = {"content": [_text(f"できませんでした：{e}")], "isError": True}
-        except Exception as e:  # noqa: BLE001
-            result = {"content": [_text(f"処理の途中で問題が起きました：{type(e).__name__}: {e}\n{traceback.format_exc()[-1500:]}")],
-                      "isError": True}
+        from . import isolate
+
+        # 別のプロセス（働き手）で、時間とメモリの上限をつけて動かす（壊れた書類でサーバーごと止まらないように）
+        result = isolate.worker().call(name, args) if isolate.enabled() else tool_result(name, args)
         return {"jsonrpc": "2.0", "id": mid, "result": result}
     if mid is None:
         return None
@@ -339,6 +395,10 @@ def handle(msg: dict) -> dict | None:
 
 
 def main() -> int:
+    from . import isolate
+
+    if isolate.enabled():
+        isolate.worker().start()  # 働き手を先に立ち上げておく（はじめの呼び出しを待たせない）
     stdin = sys.stdin.buffer
     out = sys.stdout
     for raw in stdin:

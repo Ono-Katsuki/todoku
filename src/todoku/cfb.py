@@ -98,13 +98,37 @@ class CFB:
             s = self.fat[s]
         return out
 
+    def mini_chain(self, start: int):
+        """ミニ FAT のつながりを順に（使う所まで読めばよいので、少しずつ）：輪になっていれば CfbError（どのミニセクタも 1 度まで）。"""
+        s, seen = start, set()
+        while s not in (ENDOFCHAIN, FREESECT) and s < len(self.minifat):
+            if s in seen:
+                raise CfbError("ミニセクタのつながりが循環しています")
+            seen.add(s)
+            yield s
+            s = self.minifat[s]
+
+    def _mini_bytes(self, start: int, size: int) -> bytearray:
+        out = bytearray()
+        for s in self.mini_chain(start):
+            if len(out) >= size:
+                break
+            piece = self.ministream[s * self.msize:(s + 1) * self.msize]
+            if not piece:  # ミニストリームの外を指す：ここまで
+                break
+            out += piece
+        return out[:size]
+
     def _chain_bytes(self, start: int) -> bytes:
         return b"".join(self.blob[self._off(s):self._off(s) + self.ssize] for s in self.chain(start))
 
     def _paths(self) -> None:
+        seen: set[int] = set()  # たどった記録：左・右・子が輪になった木（壊れた・悪意のあるファイル）も、1 度ずつだけたどる
+
         def walk(idx: int, prefix: str, depth: int = 0):
-            if idx == NOSTREAM or idx >= len(self.entries) or depth > 512:
+            if idx == NOSTREAM or idx >= len(self.entries) or depth > 512 or idx in seen:
                 return
+            seen.add(idx)
             e = self.entries[idx]
             walk(e.left, prefix, depth + 1)
             e.path = prefix + e.name
@@ -133,12 +157,7 @@ class CFB:
         if e is None:
             raise KeyError(path)
         if e.size < self.cutoff:
-            out = bytearray()
-            s = e.start
-            while s not in (ENDOFCHAIN, FREESECT) and s < len(self.minifat) and len(out) < e.size:
-                out += self.ministream[s * self.msize:(s + 1) * self.msize]
-                s = self.minifat[s]
-            return bytes(out[: e.size])
+            return bytes(self._mini_bytes(e.start, e.size))
         return self._chain_bytes(e.start)[: e.size]
 
     # ------------------------------------------------------------------ 書く
@@ -191,7 +210,7 @@ class CFB:
             # もとはミニストリームにあった：ミニのセクタを空きにして、ふつうのセクタに移す
             s_ = e.start
             seen = 0
-            while s_ not in (ENDOFCHAIN, FREESECT) and s_ < len(self.minifat) and seen < 1 << 20:
+            while s_ not in (ENDOFCHAIN, FREESECT) and s_ < len(self.minifat) and seen <= len(self.minifat):
                 nxt = self.minifat[s_]
                 self.minifat[s_] = FREESECT
                 freed_mini.append(s_)
@@ -278,12 +297,11 @@ class CFB:
 
     def _replace_mini(self, e: DirEntry, data: bytes) -> bytes:
         ms = bytearray(self.ministream)
-        s, i = e.start, 0
-        while s not in (ENDOFCHAIN, FREESECT) and i * self.msize < len(data):
+        for i, s in enumerate(self.mini_chain(e.start)):
+            if i * self.msize >= len(data):
+                break
             chunk = data[i * self.msize:(i + 1) * self.msize]
             ms[s * self.msize:s * self.msize + len(chunk)] = chunk  # 最後のミニセクタの、データより後ろは元のまま
-            s = self.minifat[s]
-            i += 1
         root = self.entries[0]
         out = bytearray(self.blob)
         for k, sec in enumerate(self.chain(root.start)):
@@ -474,9 +492,12 @@ class CfbEditor:
         return out
 
     def _parent_of(self, idx: int) -> int:
-        todo = [0]
+        todo, done = [0], set()
         while todo:
             p = todo.pop()
+            if p in done:  # 輪になった木
+                continue
+            done.add(p)
             sib = self._siblings(self._child_of(p))
             if idx in sib:
                 return p

@@ -55,7 +55,7 @@ def _read(path: str, password: str | None = None):
         return _read_member(path, password)
     if not p.is_file():
         raise ApiError(f"ファイルが見つかりません: {path}")
-    blob = p.read_bytes()
+    blob = _read_file(p)
     try:
         plain, lock = unlock(blob, password)
     except NeedsPassword as e:
@@ -69,6 +69,31 @@ def _read(path: str, password: str | None = None):
     if k not in KIND_JA:
         raise ApiError(f"この形式（{k}）は扱えません。Excel・PDF・Word のファイルを指定してください")
     return plain, p.name, k, lock
+
+
+def _read_file(p: Path) -> bytes:
+    """ファイルを読む。limits.MAX_FILE より大きなファイルは読まない（申請書類は、ふつう数 MB まで）。"""
+    from .limits import MAX_FILE
+
+    size = p.stat().st_size
+    if size > MAX_FILE:
+        raise ApiError(f"ファイルが大きすぎるので開きません（{size / 1048576:,.0f} MB。開ける大きさは {MAX_FILE / 1048576:,.0f} MB まで。"
+                       "環境変数 TODOKU_MAX_FILE_MB で変えられます）")
+    return p.read_bytes()
+
+
+def _budgeted(fn):
+    """1 回の呼び出しに、展開・描画の予算を 1 つ置く（limits.call_budget。呼び出しの中で api を呼び直しても同じ予算）。"""
+    import functools
+
+    @functools.wraps(fn)
+    def run(*a, **k):
+        from .limits import call_budget
+
+        with call_budget():
+            return fn(*a, **k)
+
+    return run
 
 
 def _member(path: str) -> tuple[str, list[str]] | None:
@@ -86,7 +111,7 @@ def _member_blob(path: str) -> tuple[bytes, str]:
     from . import ziparc
 
     outer, chain = _member(path)
-    blob = Path(outer).expanduser().read_bytes()
+    blob = _read_file(Path(outer).expanduser())
     for m in chain:
         if kind_of(blob) != "zip":
             raise ApiError(f"「{m}」の外側のファイルは ZIP ではありません")
@@ -143,9 +168,11 @@ def _pdf(blob: bytes, name: str, lock):
 # 窓の控え：対話では、同じファイルを開いてから書く（open_document → fill_document）ので、中身が同じなら作り直さない。
 # 鍵はファイルの中身のハッシュと名前だけ（パスワードで保護された書類は控えない。パスワードは控えにも残さない）
 _WINDOWS: "dict[tuple, tuple[str, bytes]]" = {}
-_WINDOWS_MAX = 8
+_WINDOWS_MAX = 8  # 控える書類の数
+# 控えの大きさ（窓を写したバイトの合計）の上限：limits.WINDOW_CACHE。大きな書類の窓をいくつも控えて、メモリを使い切らない
 
 
+@_budgeted
 def window(path: str, password: str | None = None, encoding: str | None = None) -> tuple[str, dict, list[tuple[str, str]]]:
     """(形式, 窓の JSON, Markdown の部分)。encoding：文字だけのファイルの文字コードを、エージェントが候補から選んだとき。"""
     import hashlib
@@ -159,12 +186,16 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
         return pickle.loads(_WINDOWS[key][1])  # 呼んだ側が変えても控えは変わらないよう、写しを返す
     out = _window(blob, name, k, lock, encoding)
     if key is not None:
+        from .limits import WINDOW_CACHE
+
         try:
-            _WINDOWS[key] = (k, pickle.dumps(out, protocol=pickle.HIGHEST_PROTOCOL))
+            snap = pickle.dumps(out, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception:  # noqa: BLE001  写せないものが入っていれば、控えない
             return out
-        while len(_WINDOWS) > _WINDOWS_MAX:
-            _WINDOWS.pop(next(iter(_WINDOWS)))
+        if len(snap) <= WINDOW_CACHE:
+            _WINDOWS[key] = (k, snap)
+        while len(_WINDOWS) > _WINDOWS_MAX or sum(len(v[1]) for v in _WINDOWS.values()) > WINDOW_CACHE:
+            _WINDOWS.pop(next(iter(_WINDOWS)))  # いちばん前に使ったものから
     return out
 
 
@@ -239,6 +270,7 @@ def _word(blob: bytes, name: str, k: str):
     return DocxDocument(blob, name)
 
 
+@_budgeted
 def fields(path: str, password: str | None = None, encoding: str | None = None) -> list[dict]:
     """入力欄の一覧（名前・見出し・種類・選択肢・いまの値・書けるか・その行の文脈）。"""
     k, doc, _ = window(path, password, encoding)
@@ -280,18 +312,29 @@ def _field(f: dict, **where) -> dict:
     return d
 
 
+@_budgeted
 def fill(path: str, values: dict, out_path: str, force: bool = False, password: str | None = None,
-         encoding: str | None = None) -> dict:
+         encoding: str | None = None, overwrite: bool = False) -> dict:
+    """書き込み、証明し、書き込み後のファイルを読み直して確かめる（_fill）。読み戻しに使った一時ファイルは、必ず消す。"""
+    temps: list[Path] = []
+    try:
+        return _fill(path, values, out_path, force, password, encoding, overwrite, temps)
+    finally:
+        for t in temps:
+            t.unlink(missing_ok=True)
+
+
+def _fill(path: str, values: dict, out_path: str, force: bool, password: str | None, encoding: str | None,
+          overwrite: bool, _temps: list) -> dict:
     """書き込み、証明し、書き込み後のファイルを読み直して、書いた値がそのまま出ているかを確かめる。
     パスワードで保護された書類は、解いた中身に書いて証明し、元と同じパスワードで保護し直して書き出す。
     encoding：文字だけのファイルの文字コードを、エージェントが候補から選んだとき（その文字コードで読み、書いた所だけを
     その文字コードのバイトにして置き換える。ほかのバイトは元のまま）。"""
     if _member(path) is not None:
-        return _fill_member(path, values, out_path, force, password, encoding)
+        return _fill_member(path, values, out_path, force, password, encoding, overwrite)
     src = Path(path).expanduser().resolve()
     dst = Path(out_path).expanduser().resolve()
-    if src == dst:
-        raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
+    _not_source(src, dst)
     blob, name, k, lock = _read(path, password)
     encoding = _encoding(blob, k, encoding)
     if k == "zip":
@@ -497,14 +540,28 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
                 raise ApiError("保護し直したファイルを同じパスワードで解くと、書いた中身と一致しません（書き出していません）")
         new_blob = sealed
         result["password_protected"] = f"元と同じパスワードで保護したまま書き出しました（{lock.label}）"
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_bytes(new_blob)
     result["new_sha256"] = hashlib.sha256(new_blob).hexdigest()
+    # 書き出す前に、同じフォルダの一時ファイルに書いて読み戻す（確かめてから、名前を付け替える：_publish）
+    tmp = _temp_beside(dst, new_blob)
+    _temps.append(tmp)  # 途中で止まっても、fill が消す
     # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか
-    after_list = fields(str(dst), password, encoding)
+    after_list = fields(str(tmp), password, encoding)
     after = {f["id"]: f.get("value") for f in after_list}
+    xl_back: dict = {}  # Excel：書いた所の (読み戻しが合うか, 見えている字)。日付・数は、ブックの数え方と表示形式でそろえて比べる
     if k in _open.KINDS:  # 追加の形式：欄の一覧に出ないマス・値も、書いた後のファイルを読み直して照らす
         after.update(_open.read_back(k, written_plain, name, readback_values, encoding))
+    if k in _open.SHEETS:
+        # OpenDocument の表計算：Excel と同じく、日付・数をそろえて比べ、見えている字（ファイルに保存された字）で伝える
+        try:
+            from .odf.sheet import OdsWorkbook
+            from .xlsx import readback as _xrb
+
+            ods_before, ods_after = OdsWorkbook(blob, name), OdsWorkbook(written_plain, name)
+            xl_back = _xrb.check(ods_after, readback_values)
+            result["recalculated_cells"] = _xrb.recalculated(
+                ods_before, ods_after, [(i.rsplit("!", 1)[0], i.rsplit("!", 1)[1], v) for i, v in (result.get("recalculated") or {}).items()])
+        except Exception:  # noqa: BLE001
+            xl_back = {}
     if k in ("xlsx", "xls"):
         # 欄の一覧に出ないセル（番地で書いたセル）も、書いた後のブックのセルの値を直接読んで照らす
         from .book import open_book
@@ -521,6 +578,12 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
                     continue  # 部品の名前など、セルでない指定
                 cell = wb_after.sheet(sh_).cells.get((r_, c_))
                 after[key] = cell.value if cell is not None else None
+            from .xlsx import readback as _xrb
+
+            xl_back = _xrb.check(wb_after, readback_values)
+            if cell_values or not circ:
+                result["recalculated_cells"] = _xrb.recalculated(
+                    wb, wb_after, [(p.sheet, p.address, p.after) for p in res.patches if p.kind == "formula"])
         except Exception:  # noqa: BLE001
             pass
     if k == "pdf":
@@ -530,7 +593,10 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         g = after.get(key)
         if key not in after:
             continue
-        if isinstance(v, bool) or isinstance(g, bool):
+        if key in xl_back:
+            ok = xl_back[key][0]
+            g = xl_back[key][1]
+        elif isinstance(v, bool) or isinstance(g, bool):
             ok = bool(g) == (v if isinstance(v, bool) else str(v).lower() in ("true", "1", "yes", "はい", "あり"))
         else:
             ok = str(g) == str(v) or _num_equal(g, v)
@@ -557,13 +623,70 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         # 一太郎：書いた所の印がないので、読み直した窓の同じ id（残りの空白）ではなく、証明で確かめた書いた値を伝える
         rest = rest_fields if rest_fields is not None else [f for f in after_list if f["id"] not in told]
         result.update(_to_tell(rest, told, result, labels, printed))
+    elif xl_back:
+        # Excel：本人に伝える値は、セルの表示形式を通した見えている字（日付は「2026/11/3」、数は「3」）
+        shown_list = [dict(f, value=xl_back[f["id"]][1]) if f["id"] in xl_back else f for f in after_list]
+        result.update(_to_tell(shown_list, {k_: xl_back[k_][1] if k_ in xl_back else v for k_, v in readback_values.items()},
+                               result, labels, printed))
     else:
         result.update(_to_tell(after_list, readback_values, result, labels, printed))
+    _publish(tmp, dst, src, overwrite, result)
     return result
 
 
+def _not_source(src: Path, dst: Path) -> None:
+    """書き出す先が、元のファイル（そのものか、同じ中身を指すハードリンク・シンボリックリンク）でないこと。"""
+    import os
+
+    if src == dst or (dst.exists() and src.exists() and os.path.samefile(src, dst)):
+        raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
+
+
+def unverified_path(dst: Path) -> Path:
+    """証明か読み戻しで確かめられなかった書き込みを置く名前：「名前.unverified.拡張子」。"""
+    return dst.with_name(f"{dst.stem}.unverified{dst.suffix}")
+
+
+def _temp_beside(dst: Path, blob: bytes) -> Path:
+    """dst と同じフォルダの一時ファイル（拡張子は dst と同じ：中身で決まらない形式も、名前で見分けられる）に書く。"""
+    import os
+    import tempfile
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=f".{dst.stem}.", suffix=f".todoku-tmp{dst.suffix}", dir=dst.parent)
+    with os.fdopen(fd, "wb") as f:
+        f.write(blob)
+        f.flush()
+        os.fsync(f.fileno())
+    return Path(name)
+
+
+def _publish(tmp: Path, dst: Path, src: Path, overwrite: bool, result: dict, ok: bool | None = None) -> Path:
+    """確かめた一時ファイルを、書き出す名前に付け替える（os.replace：途中で止まっても、半分だけ書いたファイルは残らない）。
+    証明か読み戻しで確かめられなかったときは、dst ではなく「名前.unverified.拡張子」に置き、提出してはいけないことを伝える。
+    dst にすでに別の中身のファイルがあれば、overwrite のときだけ置き換える（元のファイルとそのリンクは、決して置き換えない）。"""
+    import os
+
+    if ok is None:
+        ok = bool(result.get("proof_ok")) and bool(result.get("read_back_ok"))
+    final = dst if ok else unverified_path(dst)
+    _not_source(src, final)
+    if ok and final.exists() and not overwrite and final.read_bytes() != tmp.read_bytes():
+        raise ApiError(f"書き出す先「{final.name}」には、すでに別のファイルがあります（書き出していません）。"
+                       "置き換えてよいと本人が言ったときだけ overwrite に true を入れるか、別の名前（out_path）を指定してください")
+    os.replace(tmp, final)
+    result["out_path"] = str(final)
+    result["verified"] = ok
+    if not ok:
+        note = (f"この書き込みは、証明か読み戻しで確かめられなかったので、「{final.name}」という名前で書き出しました"
+                f"（「{dst.name}」には書いていません）。このファイルは提出しないでください。確認が必要な点を直して、もう一度書き込んでください。")
+        result["unverified"] = note
+        result["say_to_user"] = note + ("\n" + result["say_to_user"] if result.get("say_to_user") else "")
+    return final
+
+
 def _fill_member(path: str, values: dict, out_path: str, force: bool, password: str | None,
-                 encoding: str | None = None) -> dict:
+                 encoding: str | None = None, overwrite: bool = False) -> dict:
     """ZIP の中のファイルに書く：取り出したファイルに書いて証明し、ZIP はそのファイルの部品だけを入れ替えて書き出す。
     書き出した ZIP から取り出し直したファイルが、証明した書き込み後のファイルとバイト一致し、ほかの部品が元とバイト一致するかを確かめる。"""
     import tempfile
@@ -573,9 +696,8 @@ def _fill_member(path: str, values: dict, out_path: str, force: bool, password: 
     outer, chain = _member(path)
     src = Path(outer).expanduser().resolve()
     dst = Path(out_path).expanduser().resolve()
-    if src == dst:
-        raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
-    original = src.read_bytes()
+    _not_source(src, dst)
+    original = _read_file(src)
     layers = [original]  # 外側から順の ZIP
     try:
         for m in chain[:-1]:
@@ -583,13 +705,16 @@ def _fill_member(path: str, values: dict, out_path: str, force: bool, password: 
     except ziparc.ArchiveError as e:
         raise ApiError(str(e)) from None
     member_blob, name = _member_blob(path)
+    name = name.replace("\\", "_")
+    if name.strip(".") == "":  # 「..」「.」だけの名前：一時フォルダの中のファイルの名前にできない
+        name = "member"
     with tempfile.TemporaryDirectory() as d:
         a, b = Path(d) / "a" / name, Path(d) / "b" / name
         a.parent.mkdir()
         b.parent.mkdir()
         a.write_bytes(member_blob)
         result = fill(str(a), values, str(b), force, password, encoding)
-        written = b.read_bytes()
+        written = Path(result["out_path"]).read_bytes()  # 確かめられなければ「名前.unverified.拡張子」
     # 内側から順に、書いた部品だけを入れ替える
     new = written
     for zblob, m in reversed(list(zip(layers, chain))):
@@ -598,13 +723,18 @@ def _fill_member(path: str, values: dict, out_path: str, force: bool, password: 
         if problems:
             raise ApiError("ZIP に入れ直すと、書いたファイルのほかの部品も変わります（書き出していません）：" + "、".join(problems[:5]))
         new = replaced
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_bytes(new)
     inner = ziparc.SEP.join(chain)
-    back, _n = _member_blob(str(dst) + ziparc.SEP + inner)
-    if back != written:
-        dst.unlink(missing_ok=True)
-        raise ApiError("書き出した ZIP から取り出したファイルが、書き込んで証明したファイルと一致しません（書き出していません）")
+    tmp = _temp_beside(dst, new)
+    try:
+        back, _n = _member_blob(str(tmp) + ziparc.SEP + inner)
+        if back != written:
+            raise ApiError("書き出した ZIP から取り出したファイルが、書き込んで証明したファイルと一致しません（書き出していません）")
+        if result.get("unverified"):  # 中のファイル（一時フォルダ）の名前でなく、ZIP の名前で伝え直す（_publish）
+            note = result.pop("unverified")
+            result["say_to_user"] = (result.get("say_to_user") or "").replace(note + "\n", "").replace(note, "")
+        dst = _publish(tmp, dst, src, overwrite, result)
+    finally:
+        tmp.unlink(missing_ok=True)
     result.update({"out_path": str(dst), "original_sha256": hashlib.sha256(original).hexdigest(),
                    "new_sha256": hashlib.sha256(new).hexdigest(), "member": inner,
                    "archive": "ZIP の中のファイルに書き、ZIP はそのファイルの部品だけを入れ替えました（ほかの部品は元とバイト一致）。"
@@ -768,6 +898,15 @@ def _prove_pdf(prove, original: bytes, new: bytes, allowed: set, anchored: dict,
     return prove(original, new, allowed, anchored)
 
 
+def _say_value(v) -> str:
+    """本人に伝える値：数は Excel の標準の表示と同じ字（3.0 ではなく 3）。"""
+    if isinstance(v, float):
+        from .formula.values import number_to_text
+
+        return number_to_text(v)
+    return str(v)
+
+
 def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict | None = None,
              printed: set | None = None) -> dict:
     """本人が Word などで開いて確かめなくても、エージェントが対話で伝えられるように：書いた所（見出しと、書いた後の
@@ -816,7 +955,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         return f"{base}（{k}つ目の欄）" if k and len(slots) > 1 else base
 
     def shown(d: dict) -> str:
-        v = "☑" if d["value"] is True else "☐" if d["value"] is False else str(d["value"])
+        v = "☑" if d["value"] is True else "☐" if d["value"] is False else _say_value(d["value"])
         lab = d["label"] or ""
         m = re.search(r"［▶[^］]*］", lab) or re.search(r"［[ 　]*］", lab)
         if lab and m:
@@ -834,7 +973,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         vals: dict[int, str] = {}
         for d in run:
             k = next((n for n, m in enumerate(re.finditer(r"［[^］]*］", d["label"])) if "▶" in m.group()), None)
-            vals[k] = "☑" if d["value"] is True else "☐" if d["value"] is False else str(d["value"])
+            vals[k] = "☑" if d["value"] is True else "☐" if d["value"] is False else _say_value(d["value"])
         it = iter(range(10 ** 6))
         return re.sub(r"［[^］]*］", lambda m: f"［{vals.get(next(it), ' ')}］", lab)
 
@@ -882,6 +1021,10 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         same = len({place(f) for f in nxt[:10]}) == 1
         head = f"続きの空欄（{place(nxt[0]).rstrip('・')}）：" if same and place(nxt[0]) else "続きの空欄："
         lines.append(head + "、".join(name(f) if same else f"{place(f)}{name(f)}" for f in nxt[:10]) + ("ほか" if len(nxt) > 10 else ""))
+    if result.get("recalculated_cells"):
+        from .xlsx.readback import say as _recalc_say
+
+        lines.append(_recalc_say(result["recalculated_cells"]))  # 書いた値から計算し直して変わったセル（金額・合計など）
     if notes:
         lines.append("本人に伝えること：" + "／".join(notes[:10]))
     return {"written": told, "still_empty": [{"id": f["id"], "label": f.get("label", ""), **({"sheet": f["sheet"]} if "sheet" in f else {}),
@@ -889,8 +1032,9 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
             "still_empty_count": len(empty), "say_to_user": "\n".join(lines)}
 
 
+@_budgeted
 def run_macro(path: str, macro: str, out_path: str, answers: list | None = None, files: dict | None = None,
-              password: str | None = None) -> dict:
+              password: str | None = None, overwrite: bool = False) -> dict:
     """マクロ（ボタンの処理など）を動かし、マクロが変えたセルを証明つきで out_path に書く。
     answers：MsgBox・InputBox の答え（順に）。files：マクロが読むファイル（マクロの中のパス → 手元のファイル）。
     人の答えやファイルが要るときは、勝手に決めずに、その問いを返す。"""
@@ -905,8 +1049,7 @@ def run_macro(path: str, macro: str, out_path: str, answers: list | None = None,
 
     src = Path(path).expanduser().resolve()
     dst = Path(out_path).expanduser().resolve()
-    if src == dst:
-        raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
+    _not_source(src, dst)
     blob, name, k, lock = _read(path, password)
     if k not in ("xlsx", "xls"):
         raise ApiError("マクロを動かせるのは、いまは Excel の書類です")
@@ -950,10 +1093,14 @@ def run_macro(path: str, macro: str, out_path: str, answers: list | None = None,
         if unlock(out_blob, password)[0] != res.blob:
             raise ApiError("保護し直したファイルを同じパスワードで解くと、書いた中身と一致しません（書き出していません）")
         out["password_protected"] = f"元と同じパスワードで保護したまま書き出しました（{lock.label}）"
-    dst.write_bytes(out_blob)
     out.update({"out_path": str(dst), "proof_ok": pr.ok, "proof": pr.headline(), "unexpected": pr.unexpected[:20],
                 "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"},
                 "warnings": res.warnings})
+    tmp = _temp_beside(dst, out_blob)
+    try:
+        _publish(tmp, dst, src, overwrite, out, ok=pr.ok)
+    finally:
+        tmp.unlink(missing_ok=True)
     return out
 
 
@@ -964,6 +1111,7 @@ def _num_equal(a, b) -> bool:
         return False
 
 
+@_budgeted
 def audit(path: str, password: str | None = None, encoding: str | None = None) -> dict:
     import inspect
 
@@ -994,6 +1142,7 @@ def audit(path: str, password: str | None = None, encoding: str | None = None) -
     return d
 
 
+@_budgeted
 def read_table(path: str, header: str, sheet: str | None = None, header_rows: int | None = None,
                out_path: str | None = None, password: str | None = None) -> dict:
     """Excel の表を、見出しの列で行ごとに取り出す（結合セルは画面どおりに範囲へ広げ、値ごとに元のセルを添える）。
@@ -1037,6 +1186,7 @@ def read_table(path: str, header: str, sheet: str | None = None, header_rows: in
     return out
 
 
+@_budgeted
 def calc_model(path: str, cell: str | None = None, password: str | None = None) -> dict:
     """Excel の様式の「データ」（入力欄）と「処理」（入力につながる数式）。cell を指すと、その計算を入力欄までさかのぼる。
     式は、番地を見出しに置き換えて示す（in_words）。"""
@@ -1057,6 +1207,7 @@ def calc_model(path: str, cell: str | None = None, password: str | None = None) 
             "dynamic": m["dynamic"], "result_groups": xm.summary(m)}
 
 
+@_budgeted
 def calculate(path: str, values: dict, password: str | None = None) -> dict:
     """値の組から、ファイルを書かずに結果を計算する（試算）。書き込みと同じ受け取り方・入力規則・計算エンジン。"""
     from .book import open_book
@@ -1081,6 +1232,7 @@ def calculate(path: str, values: dict, password: str | None = None) -> dict:
     return r
 
 
+@_budgeted
 def view_page(path: str, page: int, region: list | None = None, marks: list | None = None,
               password: str | None = None) -> dict:
     """PDF のページの画像（スキャンした紙のページを、エージェントが見て読み、書く所を mm の枠で決めるため）。
@@ -1131,6 +1283,7 @@ def _audit_zip(path: str, blob: bytes, password: str | None) -> dict:
             "checks": checks, "grade": grade(path, password=password)}
 
 
+@_budgeted
 def grade(path: str, findings: list[dict] | None = None, answered: list[str] | None = None,
           password: str | None = None, encoding: str | None = None) -> dict:
     """段階（S〜F）：誰が扱えば正確に読んで入れられるか。規則で決めた段階と、エージェントが確かめること。
@@ -1151,6 +1304,7 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
     return g.to_dict()
 
 
+@_budgeted
 def summary(path: str, password: str | None = None, encoding: str | None = None) -> dict:
     k, doc, parts = window(path, password, encoding)
     fl = fields(path, password, encoding)

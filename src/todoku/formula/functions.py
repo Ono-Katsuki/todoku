@@ -11,7 +11,7 @@ import re
 from decimal import ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_UP, Decimal
 from typing import Callable
 
-from .dates import date_to_serial, serial_parts, serial_to_date
+from .dates import date_to_serial, serial_parts, serial_to_date, weekday_sun0
 from .parser import Func, Missing, Node, iter_funcs
 from .values import (
     DIV0,
@@ -1556,9 +1556,9 @@ def f_time(ev, h, m, s):
 def f_weekday(ev, x, kind=None):
     v = int(_serial(ev, x))
     k = int(num(ev, kind)) if kind is not None else 1
-    # シリアル1 = 1900/1/1 は（Excel上）日曜
-    # 1900/2/29（シリアル60）が存在する扱いなので、曜日は通しで7日周期になる
-    sun0 = (serial_to_date(v).weekday() + 1) % 7 if v >= 61 else (v - 1) % 7
+    # 1900 年の数え方：シリアル1 = 1900/1/1 は（Excel上）日曜。1900/2/29（シリアル60）が存在する扱いなので、曜日は通しで7日周期になる
+    # 1904 年の数え方：実際の日付の曜日
+    sun0 = weekday_sun0(v)
     if k in (1, 17):
         return float(sun0 + 1)
     if k in (2, 11):
