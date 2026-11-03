@@ -24,6 +24,7 @@ class MacroRun:
     printed: list[str] = field(default_factory=list)  # 印刷したシート
     volatile: bool = False  # 今の日付・時刻を使った（動かすたびに結果が変わる）
     error: str | None = None  # Excel でも出る実行時エラー（マクロはそこで止まる。止まるまでに変えたセルは changed）
+    notes: list[str] = field(default_factory=list)  # 結果について伝えること（地域で見え方が変わる字をマクロに渡した、など）
 
 
 def load(wb, overrides: dict | None = None, answers=None, inputs=None, now=None):
@@ -44,7 +45,7 @@ def load(wb, overrides: dict | None = None, answers=None, inputs=None, now=None)
 
 def _result(rt, host) -> MacroRun:
     return MacroRun(dict(host.changed), list(rt.messages), {k: bytes(v) for k, v in rt.files_out.items()},
-                    list(host.printed), host.volatile)
+                    list(host.printed), host.volatile, notes=list(host.notes))
 
 
 def run_macro(wb, name: str, answers=None, inputs=None, now=None, overrides: dict | None = None) -> MacroRun:

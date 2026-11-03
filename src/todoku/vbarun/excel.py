@@ -39,6 +39,7 @@ class Host:
         self.calculation = -4105
         self.status_bar = False
         self.printed: list[str] = []
+        self.notes: list[str] = []  # 動かした結果について伝えること（地域で見え方が変わる字を渡した、など）
         self.protected: dict[str, bool] = {sh.name: bool(sh.protected) for sh in wb.sheets}
         visible = [sh for sh in wb.sheets if sh.state == "visible" and not sh.state.startswith("non-")]
         self.active = (visible or wb.sheets)[0].name
@@ -49,6 +50,10 @@ class Host:
         self.find_state: dict = {"lookin": -4123, "lookat": 2, "searchorder": 1, "matchcase": False}
         self.app = Application(self)
         self.book = Workbook(self)
+
+    def note(self, text: str) -> None:
+        if text not in self.notes:
+            self.notes.append(text)
 
     # ---------------------------------------------------------------- セル
     def calc(self):
@@ -332,15 +337,19 @@ class Range:
         return self.get_value()
 
     def text(self) -> str:
-        from ..formula.numfmt import format_value
-        from ..xlsx.window import display
+        from ..formula.numfmt import LocaleDependent, format_value
+        from ..xlsx.window import shown_text
 
         v = self.host.get(self.sheet, self.r1, self.c1)
         sh = self.host.sheet(self.sheet)
         cell = sh.cells.get((self.r1, self.c1))
         key = (sh.name, self.r1, self.c1)
+        where = f"{sh.name}!{addr(self.r1, self.c1)}"
         if key not in self.host.over and cell is not None and not cell.has_formula:
-            return display(self.host.wb, cell, flag=False)
+            t, why = shown_text(self.host.wb, cell, flag=False)
+            if why:
+                self.host.note(f"{where} の Text：{why}。マクロには {t} を渡しました（Excel で動かすと字が違うことがあります）")
+            return t
         fmt = self.host.wb.style(sh.style_of(self.r1, self.c1)).num_fmt
         raw = float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else (None if v is EMPTY else v)
         if raw is None:
@@ -351,7 +360,12 @@ class Range:
             return "TRUE" if raw else "FALSE"
         if isinstance(v, VDate) and self.host.wb.date1904:
             raw -= 1462  # VBA の日付（1900 年の数え方）を、ブックの数え方のシリアル値に
-        return format_value(raw, fmt, self.host.wb.date1904)
+        try:
+            return format_value(raw, fmt, self.host.wb.date1904)
+        except LocaleDependent as e:
+            # 開く PC の地域で見え方が変わる組み込みの表示形式：地域によらない書き方（ISO 8601）を渡し、そう伝える
+            self.host.note(f"{where} の Text：{e}。マクロには {e.shown} を渡しました（Excel で動かすと字が違うことがあります）")
+            return e.shown
 
     # ---------------------------------------------------------------- メンバー
     def vba_get(self, name: str, args: list, named: dict):

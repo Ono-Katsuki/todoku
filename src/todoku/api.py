@@ -1086,6 +1086,8 @@ def run_macro(path: str, macro: str, out_path: str, answers: list | None = None,
         return {"done": False, "unsupported": str(e), "note": "この命令は、規則では再現できません。ソースを読んで判断してください"}
     out: dict = {"done": True, "macro": macro, "messages": r.messages, "printed": r.printed, "error": r.error,
                  "volatile": r.volatile, "changed": {f"{s_}!{addr(rr, cc)}": v for (s_, rr, cc), v in r.changed.items()}}
+    if r.notes:
+        out["notes"] = list(r.notes)
     if r.files:
         fdir = dst.parent / f"{dst.stem}_マクロのファイル"
         fdir.mkdir(parents=True, exist_ok=True)

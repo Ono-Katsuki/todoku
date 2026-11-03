@@ -121,18 +121,22 @@ def _parse(xml: bytes) -> ET.Element:
 
 # ====================================================================== 値の控え
 def number_text(v: str, code: str | None, date1904: bool = False) -> str:
-    """控えの数値（文字で書かれた値）を、表示形式で見えている字にする。形式を再現できなければ、書かれたまま。"""
+    """控えの数値（文字で書かれた値）を、表示形式で見えている字にする。形式を再現できなければ、書かれたまま。
+    地域で見え方が変わる組み込みの表示形式（日付）は、地域によらない書き方（ISO 8601）。"""
     try:
         x = float(v)
     except (TypeError, ValueError):
         return v or ""
     code = code or "General"
-    try:
-        from ..formula.numfmt import is_date_format
+    from ..formula.numfmt import LocaleDependent, is_date_format
 
+    try:
         if date1904 and is_date_format(code):
             x += 1462  # 1904 年の日付の数え方（ECMA-376 第1部 21.2.2.38 date1904）
         return format_value(x, code)
+    except LocaleDependent as e:
+        # 開く PC の地域で見え方が変わる組み込みの表示形式：シリアル値でなく、地域によらない書き方（ISO 8601）
+        return e.shown
     except Exception:  # noqa: BLE001
         return v
 

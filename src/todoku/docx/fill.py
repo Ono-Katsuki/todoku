@@ -434,7 +434,11 @@ class Filler:
                 return
             text = _is_text_value(value)
             if c.kind == "date" and c.date_format:
-                text = format_word_date(_parse_any_date(text), c.date_format, c.date_lid, c.date_calendar)
+                day = _parse_any_date(text)
+                text = format_word_date(day, c.date_format, c.date_lid, c.date_calendar)
+                if c.date_lid_from == "文書の設定 w:themeFontLang" and not _same_without_lang(day, c, text):
+                    self.warnings.append(f"{item['id']}: 日付の欄の字に言語の指定がないので、文書の設定（w:themeFontLang）の言語"
+                                         f" {c.date_lid} で「{text}」と書きました。Word で開く PC の言語で見え方が変わることがあります")
             if c.maxlen and len(text) > c.maxlen:
                 raise FillError(f"{item['id']}: 「{text}」は {len(text)} 字です（この欄は {c.maxlen} 字まで）")
             self._replace_result(item, c, text)
@@ -565,6 +569,14 @@ def date_lang(lid: str | None) -> str | None:
 _GREG_NUM = {"", "gregorian", "gregorianUs", "gregorianXlitEnglish", "gregorianXlitFrench", "gregorianMeFrench",
              "gregorianArabic", "none"}
 _GREG_NAMES = {"", "gregorian", "gregorianUs", "none"}
+
+
+def _same_without_lang(d: dt.date, c, text: str) -> bool:
+    """言語を決めなくても同じ字になるか（数だけの書式）。言語で変わる書式（名前・元号）なら False。"""
+    try:
+        return format_word_date(d, c.date_format, None, c.date_calendar) == text
+    except FillError:
+        return False
 
 
 def format_word_date(d: dt.date, fmt: str, lid: str | None = None, calendar: str | None = None) -> str:

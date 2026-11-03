@@ -129,7 +129,8 @@ class Control:
     placeholder: bool = False
     maxlen: int | None = None
     date_format: str = ""
-    date_lid: str = ""  # 日付の言語（コンテンツコントロールの w:date/w:lid。旧来の欄は、欄の字の要素の w:lang）
+    date_lid: str = ""  # 日付の言語（コンテンツコントロールの w:date/w:lid。旧来の欄は、欄の字の言語：_run_lang）
+    date_lid_from: str = ""  # 旧来の欄の言語が決まった所（字の要素・スタイル・文書の既定・themeFontLang）
     date_calendar: str = ""  # 日付の暦（w:date/w:calendar：gregorian・japan・taiwan・thai・korea・hijri・hebrew・saka など）
     result_segs: list[Seg] = field(default_factory=list)
     end: Node | None = None
@@ -437,17 +438,62 @@ def number_text(n: int, fmt: str) -> str:
     return got if got is not None else number_unshown(n, fmt)
 
 
-def _run_lang(begin, fmt: str) -> str:
-    """旧来の日付の欄の言語：欄の始まりの字の要素の w:rPr/w:lang（ECMA-376 第1部 17.3.2.20）。元号の記号（g・e）のある書式は
-    東アジアの言語（w:eastAsia）、ほかは w:val。なければ ""（言語の指定なし：名前・元号は書けない）。"""
+def _lang_attr(fmt: str) -> str:
+    """日付の書式に元号の記号（g・e）があれば東アジアの言語（w:lang の w:eastAsia）、なければ w:val（ECMA-376 第1部 17.3.2.20）。"""
+    return "eastAsia" if re.search(r"[ge]", re.sub(r"'[^']*'", "", fmt or "")) else "val"
+
+
+def _lang_of(rpr, attr: str) -> str:
+    lang = rpr.find("lang") if rpr is not None else None
+    return (lang.get(attr) or "") if lang is not None else ""
+
+
+def _run_lang(doc, begin, fmt: str) -> tuple[str, str]:
+    """旧来の日付の欄の言語と、どこで決まったか：(言語, 決まった所)。
+
+    字の要素の言語は、スタイルの階層（ECMA-376 第1部 17.7.2）の順に決まる：字の要素の w:rPr/w:lang → 字のスタイル（w:rStyle と
+    その basedOn）→ 段落のスタイル（w:pStyle、なければ既定の段落スタイル。basedOn も）→ 文書の既定（w:docDefaults/w:rPrDefault）。
+    どこにもなければ、文書の設定 w:themeFontLang（17.15.1.88。Word が書類を作った PC の言語を書く。決まった所として伝える）。
+    それもなければ ""（言語の指定なし：数だけの書式は書け、名前・元号の書式は書かない）。"""
+    attr = _lang_attr(fmt)
     run = getattr(begin, "parent", None)
     rpr = run.find("rPr") if run is not None and hasattr(run, "find") else None
-    lang = rpr.find("lang") if rpr is not None else None
-    if lang is None:
+    got = _lang_of(rpr, attr)
+    if got:
+        return got, "字の要素の w:lang"
+    st = doc.lang_styles() if doc is not None else {}
+
+    def chain(sid: str) -> str:
+        seen = set()
+        while sid and sid not in seen:
+            seen.add(sid)
+            v = st.get("langs", {}).get(sid, {}).get(attr, "")
+            if v:
+                return v
+            sid = st.get("based", {}).get(sid, "")
         return ""
-    if re.search(r"[ge]", re.sub(r"'[^']*'", "", fmt or "")):
-        return lang.get("eastAsia") or ""
-    return lang.get("val") or ""
+
+    rs = rpr.find("rStyle") if rpr is not None else None
+    rsid = (rs.get("val") or "") if rs is not None else ""
+    got = chain(rsid)
+    if got:
+        return got, f"字のスタイル「{rsid}」の w:lang"
+    p = run
+    while p is not None and getattr(p, "local", "") != "p":
+        p = getattr(p, "parent", None)
+    ppr = p.find("pPr") if p is not None else None
+    ps = ppr.find("pStyle") if ppr is not None else None
+    psid = ((ps.get("val") or "") if ps is not None else "") or st.get("para_default", "")
+    got = chain(psid)
+    if got:
+        return got, f"段落のスタイル「{psid}」の w:lang"
+    got = st.get("default", {}).get(attr, "")
+    if got:
+        return got, "文書の既定（w:docDefaults）の w:lang"
+    got = st.get("theme", {}).get(attr, "")
+    if got:
+        return got, "文書の設定 w:themeFontLang"
+    return "", ""
 
 
 class DocxDocument:
@@ -556,6 +602,38 @@ class DocxDocument:
 
     def xml(self, part: str) -> bytes:
         return self.parts[part][0]
+
+    def lang_styles(self) -> dict:
+        """字の言語（w:lang）の決まり方の材料：スタイルごとの w:lang・basedOn・既定の段落スタイル・文書の既定・themeFontLang。"""
+        memo = getattr(self, "_lang_styles", None)
+        if memo is not None:
+            return memo
+
+        def attrs(el) -> dict:
+            return {a: el.get(a) for a in ("val", "eastAsia", "bidi") if el is not None and el.get(a)}
+
+        out: dict = {"langs": {}, "based": {}, "para_default": "", "default": {}, "theme": {}}
+        root = self._load("word/styles.xml")
+        top = root.kids[0] if root is not None and root.kids else None
+        if top is not None:
+            dd = top.find("docDefaults")
+            rd = dd.find("rPrDefault") if dd is not None else None
+            rpr = rd.find("rPr") if rd is not None else None
+            out["default"] = attrs(rpr.find("lang") if rpr is not None else None)
+            for st in top.findall("style"):
+                sid = st.get("styleId") or ""
+                b = st.find("basedOn")
+                if b is not None:
+                    out["based"][sid] = b.get("val") or ""
+                rp = st.find("rPr")
+                out["langs"][sid] = attrs(rp.find("lang") if rp is not None else None)
+                if st.get("type") == "paragraph" and st.get("default") in ("1", "true", "on"):
+                    out["para_default"] = sid
+        settings = self._load("word/settings.xml")
+        if settings is not None and settings.kids:
+            out["theme"] = attrs(settings.kids[0].find("themeFontLang"))
+        self._lang_styles = out
+        return out
 
     # ------------------------------------------------------------------ 本文
     def _story(self, part: str) -> list:
@@ -962,7 +1040,7 @@ class DocxDocument:
                 if fmt is not None:
                     ctl.date_format = fmt.get("val", "")
                 if ctl.kind == "date":
-                    ctl.date_lid = _run_lang(f["begin"], ctl.date_format)
+                    ctl.date_lid, ctl.date_lid_from = _run_lang(self, f["begin"], ctl.date_format)
         ctl.name = name
         self.controls.append(ctl)
         return ctl

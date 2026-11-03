@@ -739,6 +739,7 @@ def _run_change_macros(wb, targets: dict, warnings: list, answers, inputs) -> tu
     if run.error:
         warnings.append(f"セルの値を変えたときに動くマクロが、Excel でも止まります：{run.error}")
     warnings += [f"マクロのメッセージ：{m}" for m in run.messages]
+    warnings += [f"マクロ：{n}" for n in run.notes]
     return written, {"ran": procs, "reproduced": True, "cells": len(written), "messages": run.messages,
                      "files": {k: len(v) for k, v in run.files.items()}, "error": run.error, "volatile": run.volatile}
 

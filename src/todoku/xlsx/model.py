@@ -11,9 +11,9 @@ from __future__ import annotations
 import bisect
 from collections import defaultdict
 
-from ..formula.numfmt import format_value
+from ..formula.numfmt import LocaleDependent, format_value
 from ..formula.parser import NameNode, RefNode, StructRef, addr, iter_funcs, iter_refs, parse, parse_cell, tokenize
-from ..formula.values import ExcelError, is_number
+from ..formula.values import ExcelError, Unsupported, is_number
 from .calc import _run_deep, recalc
 from .workbook import Workbook
 
@@ -131,7 +131,7 @@ def model(wb: Workbook, doc: dict) -> dict:
         used_by_steps |= uses.get(k, set())
         steps.append({"cell": _key(*k), "label": labels.get(k) or None, "formula": "=" + cell.formula,
                       "in_words": "＝" + _in_words(wb, cell.formula, k[0], idx, name_of),
-                      "value": _show(wb, cell, cell.value),
+                      **_value_and_note(wb, cell),
                       "from_inputs": sorted(_key(*i) for i in uses.get(k, set()) if i in inputs),
                       "from_steps": sorted(_key(*i) for i in uses.get(k, set()) if i in formulas and i in seen),
                       **({"dynamic": "参照先が計算で決まる関数（INDIRECT・OFFSET）を含む。依存は静的にはたどれない"} if k in dynamic else {})})
@@ -161,15 +161,31 @@ def _in_words(wb: Workbook, formula: str, sheet: str, idx: _Index, name_of) -> s
     return "".join(out)
 
 
-def _show(wb: Workbook, cell, v):
+def _shown(wb: Workbook, cell, v) -> tuple:
+    """(見えている字か値, 見え方について伝えること)。地域で見え方が変わる組み込みの表示形式（LocaleDependent）は、
+    地域によらない書き方（ISO 8601）と、そう示す字。再現できない表示形式は、元の値と、再現できない理由。"""
     if isinstance(v, ExcelError):
-        return v.code
+        return v.code, None
     if is_number(v):
+        fmt = wb.style(cell.style).num_fmt if cell is not None else "General"
         try:
-            return format_value(v, wb.style(cell.style).num_fmt, wb.date1904)
-        except Exception:  # noqa: BLE001
-            return v
-    return v
+            return format_value(v, fmt, wb.date1904), None
+        except LocaleDependent as e:
+            return e.shown, str(e)
+        except Unsupported as e:
+            return v, f"表示形式「{fmt}」は再現できません（{e}）。元の値を示します"
+        except Exception as e:  # noqa: BLE001  壊れた表示形式
+            return v, f"表示形式「{fmt}」を読めません（{type(e).__name__}）。元の値を示します"
+    return v, None
+
+
+def _show(wb: Workbook, cell, v):
+    return _shown(wb, cell, v)[0]
+
+
+def _value_and_note(wb: Workbook, cell) -> dict:
+    v, note = _shown(wb, cell, cell.value)
+    return {"value": v, **({"value_note": note} if note else {})}
 
 
 def calculate(wb: Workbook, doc: dict, values: dict) -> dict:
@@ -196,8 +212,11 @@ def calculate(wb: Workbook, doc: dict, values: dict) -> dict:
     for (s, r, c), after in sorted(changed.items()):
         cell = wb.sheet(s).cells.get((r, c))
         k = _key(s, r, c)
-        out.append({"cell": k, "label": lab.get(k), "before": _show(wb, cell, cell.value), "after": _show(wb, cell, after),
-                    "result": k in res_cells})
+        before, n1 = _shown(wb, cell, cell.value)
+        shown_after, n2 = _shown(wb, cell, after)
+        notes = list(dict.fromkeys(n for n in (n1, n2) if n))
+        out.append({"cell": k, "label": lab.get(k), "before": before, "after": shown_after,
+                    "result": k in res_cells, **({"note": "／".join(notes)} if notes else {})})
     return {"inputs": {_key(*k): v for k, v in targets.items()}, "changed": out,
             "not_computed": [{"cell": _key(*k), "why": w} for k, w in problems.items()],
             "warnings": list(plan_.warnings) + [i.message for i in issues if not i.blocking]}
@@ -232,6 +251,8 @@ def explain(m: dict, cell: str, depth: int = 6) -> dict:
             return {"cell": k, "input": True, "label": i.get("label") if i else None, "value": i.get("value") if i else None}
         node = {"cell": k, "label": s["label"], "in_words": s["in_words"], "formula": s["formula"], "value": s["value"],
                 "inputs": s["from_inputs"]}
+        if s.get("value_note"):
+            node["value_note"] = s["value_note"]
         if s.get("dynamic"):
             node["dynamic"] = s["dynamic"]
         if d > 0 and k not in seen:
