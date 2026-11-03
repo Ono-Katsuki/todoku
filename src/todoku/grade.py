@@ -8,8 +8,8 @@ S 素で問題ない（表のデータそのもの：CSV・JSON など）
 A 規則だけで正確に読める（中身の字・並び・表示の値がファイルの作りから決まり、数式もすべて確かめられる）
 B エージェントが読めば正確（中身は窓にすべて出ているが、一部の値の読み方が規則では決まらず、窓に示した根拠で
   エージェントが決める：Excel 以外のアプリが保存した計算結果、いくつもの文字コードで仕様どおりに読める文字のファイル
-  （候補と見本を窓に並べる。エージェントが選んで encoding で渡せば、その文字コードで読み直し、段階は下げない）、
-  本文の中身である説明のない画像（字の中身はあるが、画像の所はエージェントが見て確かめる。タグ付きの PDF の Alt のない図も）など）
+  （候補と見本を窓に並べる。エージェントが選んで encoding で渡せば、その文字コードで読み直し、段階は下げない）など）
+  ※本文の字のある書類の、説明（代わりの字）のない画像は、段階を変えず、アクセシビリティの注意（alerts）に位置を示す
 C エージェントが工夫して変換できる（マクロ・確かめられない数式・自動で動くスクリプトなど、規則では再現しない処理がある。
   どの文字コードとしても読めない。窓の読み落とし：窓とは別の読み方で拾った中身が窓に出ていない（Excel の Markdown の窓・
   PDF のページの字・Word の文字）ので、エージェントは窓だけを信じてはいけない。落ちた所を where に示す）
@@ -405,7 +405,6 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
             write.append(Reason("D", "開けない画像だけのページ", f"{len(bad)} ページは、画像の圧縮（{codecs}）を todoku が開けず、"
                                 "ページの画像で書く所を確かめられないので、書けません", list(bad)))
     reasons += _pdf_lost(doc, win)
-    reasons += _pdf_figures(win)
     if win["form"]["xfa"]:
         xr, xw_ = _xfa_reasons(win.get("xfa"))
         reasons += xr
@@ -434,21 +433,6 @@ def _pdf_lost(doc, win: dict) -> list[Reason]:
     except Exception as e:  # noqa: BLE001  確かめられないものは、通ったことにしない
         c = Check("読み落とし（確かめられない）", False, f"窓の読み落としを確かめられませんでした（{type(e).__name__}: {str(e)[:80]}）")
     return lost_reason([c], "ページ")
-
-
-def _pdf_figures(win: dict) -> list[Reason]:
-    """タグ付きの PDF の、字のあるページの、説明（Alt）のない図（構造の木の要素に結びつき、Artifact でない画像）：中身の図
-    （PDF/UA 7.3）なので、エージェントがページを見て確かめる（読む B。where に位置）。画像だけのページは E（別の理由）。
-    タグのない PDF の画像は、中身の図か飾りかがファイルの作りから決まらない（大きさの目安で決めることはしない）ので、
-    段階は変えず、注意（alerts）に位置と大きさを示す。"""
-    figs = [f"{p['id']}（{p['where']}・{p['size_mm'][0]}×{p['size_mm'][1]} mm" + (f"・近くの字「{p['near']}」" if p.get("near") else "") + "）"
-            for pg in win["pages"] if not pg.get("image_only")
-            for p in pg.get("pictures", []) if p.get("tagged") and not p.get("alt") and not p.get("decorative")]
-    if not figs:
-        return []
-    return [Reason("B", "説明のない図（タグ付きの PDF）",
-                   f"字のあるページの図 {len(figs)} 個は、構造の木（タグ）で中身の図とされていますが、説明（Alt）がなく、中身を字として"
-                   "読めません。図の所は、エージェントがページを見て読み（PDF を描ける道具で）、中身を推測で埋めないでください", figs[:12])]
 
 
 def _unmapped(pages: list[dict]) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
@@ -490,7 +474,17 @@ def picture_alerts(pictures: list[dict]) -> list[Reason]:
     return [Reason("F", "説明のない画像",
                    f"画像 {len(bare)} 個に、説明（代わりの字）がありません。画面の読み上げを使う人には中身が届かず、"
                    "エージェントも画像の中身は字として読めません（WCAG 1.1.1）。段階は変えません",
-                   [f"{p['id']}（{p.get('where', '')}）" for p in bare[:12]])]
+                   [_picture_where(p) for p in bare[:12]])]
+
+
+def _picture_where(p: dict) -> str:
+    """注意の where：画像の id と位置（PDF は大きさ・近くの字も）。"""
+    extra = [p.get("where", "")]
+    if p.get("size_mm"):
+        extra.append(f"{p['size_mm'][0]}×{p['size_mm'][1]} mm")
+    if p.get("near"):
+        extra.append(f"近くの字「{p['near']}」")
+    return f"{p['id']}（" + "・".join(x for x in extra if x) + "）"
 
 
 def _write_fields(fields: list[dict], layout: list[dict], agent: list[dict], marked: str, free: str,
@@ -671,7 +665,8 @@ def content_image_reasons(doc, win: dict, body_blocks, heading, body_ja: str) ->
     本文の中身か（ヘッダー・フッターの飾りでないか）は、画像のある段落が本文の段落か（表のマス・テキストボックスの中も含む）で、
     飾りかは作り手の印（decorative）で決める（ファイルの作り。大きさや字の数の目安は使わない）。
     - 本文に、見出し・図表番号・空の段落のほかに字のある段落が1つもない：読む E（中身は画像。画像を見て読む）
-    - ほかに本文の字がある：読む B（字の中身は窓にあるが、画像の所はエージェントが見て確かめる。where に位置）"""
+    - ほかに本文の字がある：段階は変えない（説明のない画像は、アクセシビリティの注意 picture_alerts に位置を示す。
+      段階はエージェントが読めるかだけで決め、説明（代わりの字）の有無は注意に分ける）"""
     from .docx.document import iter_paras
 
     paras = list(iter_paras(body_blocks))
@@ -692,8 +687,8 @@ def content_image_reasons(doc, win: dict, body_blocks, heading, body_ja: str) ->
         return [Reason("E", "中身が画像の文書",
                        f"{body_ja}には、見出し・図表番号のほかに字の段落がなく、中身は説明（代わりの字）のない画像 {len(bare)} 個です。{see}",
                        where[:12])]
-    return [Reason("B", "説明のない本文の画像",
-                   f"{body_ja}の画像 {len(bare)} 個に説明（代わりの字）がなく、中身を字として読めません。{see}", where[:12])]
+    # ほかに本文の字がある：説明のない画像は、段階とは別のアクセシビリティの注意（picture_alerts）に位置を示す。段階は変えない
+    return []
 
 
 def _word_lost(doc, win: dict, kind: str) -> list[Reason]:

@@ -240,13 +240,13 @@ def test_word_document_of_a_title_and_images_is_e():
     assert [a.title for a in g.alerts] == ["説明のない画像"]  # 注意（alerts）も別に残す
 
 
-def test_word_body_text_and_images_is_b():
+def test_word_body_text_and_images_is_alert_only():
     # 見出しの型を基にした本文の型（outlineLvl 9）：本文の段落として数える
     blob = _docx(_sp("a1", "申請の手引き") + _sp("a4", "下の図のとおりに記入してください。") + _pic(1) + _pic(2))
     g = grade_blob(blob, "a.docx")
-    assert g.grade == "B", g.reasons
-    r = next(r for r in g.reasons if r.grade == "B" and r.title == "説明のない本文の画像")
-    assert len(r.where) == 2 and "画像の中身は" in r.detail
+    # 本文に字がある：説明のない画像は段階を変えず、アクセシビリティの注意に位置を示す
+    assert g.grade == "A", g.reasons
+    assert [a.title for a in g.alerts] == ["説明のない画像"] and len(g.alerts[0].where) == 2
 
 
 def test_word_header_or_decorative_images_do_not_lower_the_read_grade():
@@ -268,12 +268,12 @@ def test_pptx_slide_images():
     assert g.grade == "E" and any(r.title == "中身が画像の文書" for r in g.reasons), g.reasons
     some = make([sp(para("事業の概要"), "タイトル", ph="title") + sp(para("対象は区内の事業所です"), "本文", sid=3) + pic(None, 9)])
     g = grade_blob(some, "a.pptx")
-    assert g.grade == "B" and any(r.title == "説明のない本文の画像" and "スライド 1" in r.where[0] for r in g.reasons), g.reasons
+    assert g.grade == "A" and not any(r.title == "説明のない本文の画像" for r in g.reasons), g.reasons
     ok = make([sp(para("事業の概要"), "タイトル", ph="title") + pic("事業所の地図", 9) + pic(None, 10, decorative=True)])
     assert grade_blob(ok, "a.pptx").grade == "A"
 
 
-def test_pdf_tagged_figure_without_alt_on_a_text_page_is_b_untagged_is_alert_only(monkeypatch):
+def test_pdf_figure_without_alt_on_a_text_page_is_alert_only(monkeypatch):
     from test_pdf_alt import IMG, make
 
     from todoku.pdf import window as pw
@@ -288,8 +288,9 @@ def test_pdf_tagged_figure_without_alt_on_a_text_page_is_b_untagged_is_alert_onl
 
     monkeypatch.setattr(pw, "build", with_text)
     g = grade_blob(make(b"/Zu <</MCID 0>> BDC " + IMG + b" EMC", None, tagged=True), "t.pdf")
-    r = next(r for r in g.reasons if r.title == "説明のない図（タグ付きの PDF）")
-    assert r.grade == "B" and r.where[0].startswith("p1.i1（"), r
+    # 字のあるページの、Alt のない図：段階は変えず、注意に位置（と大きさ）を示す
+    assert not any(r.title.startswith("説明のない図") for r in g.reasons), g.reasons
+    assert [a.title for a in g.alerts] == ["説明のない画像"] and g.alerts[0].where[0].startswith("p1.i1（"), g.alerts
     g = grade_blob(make(IMG), "t.pdf")  # タグのない PDF：中身の図か飾りかが作りから決まらない。注意だけ
     assert not any(r.title.startswith("説明のない図") for r in g.reasons)
     assert [a.title for a in g.alerts] == ["説明のない画像"]
