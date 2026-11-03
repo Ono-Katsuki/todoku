@@ -530,17 +530,25 @@ def wrap_warnings(wb: OdsWorkbook, patches) -> list[str]:
         if c2 > len(ws) or any(w is None for w in ws[c1 - 1:c2]):
             continue
         pad = st.prop(part, "table-cell", name, "style:table-cell-properties", "fo:padding")
-        pad_pt = _pt(pad) if pad else _ODS_PAD
+        pad_pt = _pt(pad) if pad else None
+        assumed = []
+        if pad_pt is None:
+            pad_pt = _ODS_PAD
+            assumed.append("左右の余白は LibreOffice の既定 0.035cm と仮定")
         avail = sum(ws[c1 - 1:c2]) - 2 * pad_pt
         size_v = st.prop(part, "table-cell", name, "style:text-properties", "fo:font-size")
-        size = _pt(size_v) if size_v and not size_v.endswith("%") else 10.0
+        size = _pt(size_v) if size_v and not size_v.endswith("%") else None
+        if size is None:
+            size = 10.0
+            assumed.append("字の大きさは LibreOffice の既定 10pt と仮定")
         before = wb.shown.get((p.sheet, r, c)) or ("" if p.before is None else str(p.before))
         got = wraps(before, p.after, avail, size, size)
         if got is None:
             continue
         merged = f"（結合したセル {addr(r1, c1)}:{addr(r2, c2)}）" if m else ""
         out.append(say(f"{p.sheet}!{p.address}{merged}", p.after, got[0], got[1],
-                       f"列の幅 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイント", got[2]))
+                       f"列の幅 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイント"
+                       + (f"（{'・'.join(assumed)}）" if assumed else ""), got[2]))
     return out
 
 

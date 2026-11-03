@@ -209,10 +209,29 @@ uv run pytest          # 2,300 件以上のテスト
 uv run python scripts/audit_corpus.py corpus/wide   # 集めた様式の一括検査（様式は fetch で取得）
 ```
 
-**Python の版**：Python 3.11 に固定しています（`requires-python = ">=3.11,<3.12"`。uv が 3.11 を用意します）。
-字の種類の表（`chars.py`：コロン・かっこ・空白など）は、動かす Python の `unicodedata` と同じ Unicode の版（3.11 は 14.0.0。
-3.12 以降は 15.0 以降）で作ってあり、版が違うと字の種類が食い違うためです。Python の版を上げるときは、その版で
-`scripts/make_chars.py` を動かして表を作り直し、`requires-python` を変えます（試験 `test_char_tables_cite_unicode` が確かめます）。
+**Python の版**：Python 3.11 以降で動きます（`requires-python = ">=3.11"`）。字の種類（`chars.py`）のうち、
+一般カテゴリ・東アジアの字の幅・字の名前（コロン・空白・下線の字・ダッシュなど）は、動かす Python の `unicodedata` から
+その場で読みます（版は `chars.UCD_VERSION`）。`unicodedata` にない資料（かっこの組 BidiBrackets.txt・文の終わりの字
+PropList.txt・字の文字の種類 Scripts.txt）だけを、版つきの小さな表（`chars.TABLES_UCD_VERSION`）で持ち、
+`scripts/make_chars.py` で作り直せます。
+
+### テストの動かし方
+
+- **どのパソコンでも動くテスト**：書類はテストの中で組み立てるか、コミットした架空の書類（`tests/fixtures/public/`）を使います。
+  `tests/fixtures/public/` は `scripts/fixtures/make_public.py` が作ったもので（CC0。個人情報なし・書体のデータを埋め込まない）、
+  PDF（AcroForm・欄のない紙・スキャン・回転・暗号・縦書き・右から左・デーヴァナーガリー）、xlsx・xls・ods（結合・入力規則・数式・
+  リッチテキスト・1904 年の日付）、docx・doc・odt・rtf（内容のコントロール・古いフォームの欄・テキストボックス・変更履歴）、
+  pptx・HWPX・一太郎・txt・csv（UTF-8・Shift_JIS）・json・ZIP を、ファイルから開く道筋（窓・欄・書き込み・検査・段階）で通します
+  （`tests/test_public_fixtures.py`。正解は作った側が入れた字で、`MANIFEST.json` にあります）。
+- **印 `corpus`**：集めた公開の様式・仕様書（`corpus/`、再配布しないので git にない）を使うテスト。`corpus/` がなければ
+  まとめて飛ばし、最後に「飛ばした corpus N」と数を出します。`corpus/` のあるパソコンで CI と同じ条件を試すときは
+  `TODOKU_NO_CORPUS=1 uv run pytest`、corpus のテストだけなら `uv run pytest -m corpus`。
+- **印 `fonts`**：パソコンの書体（字の組み立て・埋め込み）や `hb-shape`（HarfBuzz）を使うテスト。なければ理由をつけて飛ばします。
+  Linux では `fonts-noto-core`・`fonts-dejavu-core`・`libharfbuzz-bin` を入れると動きます（書体は `TODOKU_PDF_FONT`・
+  `TODOKU_PDF_FONT_ARABIC` などでも指せます）。
+- **CI**（`.github/workflows/tests.yml`）：Linux・macOS・Windows × Python 3.11（3.12・3.13 は `requires-python` が許せば動く）で
+  `uv run pytest -q` を動かし、MCP サーバーが `.mcp.json` とプラグインの起動のしかたで立ち上がって `initialize`・`tools/list` に
+  答えるかを確かめます（`.github/scripts/mcp_smoke.py`）。数の内訳はジョブの Summary に出ます。
 
 ## 書類と仕様書の出どころ
 
@@ -255,8 +274,12 @@ src/todoku/
   embed.py embeds/      埋め込んだ表への書き込み、グラフ・SmartArt・埋め込みの読み取り
   cfb.py zipraw.py      複合ファイルと ZIP のバイト単位の読み書き
   officecrypto.py bincrypto.py unlock.py   パスワードで保護された書類
-scripts/          様式の取得・一括検査・出どころの書き出し
+scripts/          様式の取得・一括検査・出どころの書き出し（fixtures/ はテスト用の架空の書類を作る）
 sources/          集めた書類と仕様書の出どころ
+tests/fixtures/public/   コミットした架空の書類（1 件 100 KB 未満）と MANIFEST.json
+world/            世界調査のデータ（scripts/world_*.py が作る・読む。ポータルと再現に要るのでコミットする。
+                  sample.jsonl 約 11 MB・results.jsonl 約 10 MB・domains.json 約 2 MB・ほか合わせて約 2 MB。
+                  .gitattributes で diff を出さない）
 ```
 
 ## ライセンス

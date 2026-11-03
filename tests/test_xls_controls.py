@@ -361,7 +361,8 @@ def _sheet(sh: dict, strings: list[str]) -> list[tuple[int, bytes]]:
             rec(0x0225, struct.pack("<HH", 0, 255)), rec(0x0081, struct.pack("<H", 0x04C1)), rec(0x0014), rec(0x0015),
             rec(0x0083, bytes(2)), rec(0x0084, bytes(2)),
             rec(0x00A1, struct.pack("<HHHHHHHHddH", 9, 100, 1, 1, 1, 0x0044, 600, 600, 0.5, 0.5, 1)),
-            rec(0x0055, struct.pack("<H", 8))]
+            rec(0x0055, struct.pack("<H", sh.get("defcolwidth", 8)))]
+    out += sh.get("records", [])  # 足すレコード（STANDARDWIDTH・COLINFO など。DIMENSIONS の前）
     cols = [c for _, c in cells]
     out.append(rec(0x0200, struct.pack("<IIHHH", rows[0], rows[-1] + 1, min(cols), max(cols) + 1, 0)))
     for block in sorted({r // 32 for r in rows}):

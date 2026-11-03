@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from todoku.pdf import glyphs
 from todoku.pdf.doc import PdfDocument
 from todoku.pdf.fill import wrap
@@ -189,7 +191,8 @@ def test_ruby_needs_han_and_thai_joins_without_space():
     assert no_word_space("ก") and no_word_space("漢") and not no_word_space("a") and not no_word_space("한")
 
 
-def test_wrap_breaks_cyrillic_at_spaces():
+@pytest.mark.fonts
+def test_wrap_breaks_cyrillic_at_spaces(embedding_font):
     lines = wrap("Иванов Пётр Сергеевич", 10, 80)
     assert all(not ln.endswith(("-",)) for ln in lines)
     assert all(w in ("Иванов", "Пётр", "Сергеевич") for ln in lines for w in ln.split()), lines

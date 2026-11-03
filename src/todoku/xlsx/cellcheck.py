@@ -6,7 +6,11 @@
 - fit_issues：列の幅・行の高さ・字の大きさ（sheetpic が読む書式）と、字の幅（textwidth：全角は 2、ほかは 1）から、書いた字が
   セルに収まるかを見積もる。隣のセルの字で切れる・結合したセルからはみ出して切れる・折り返した行が行の高さに入らない・数が「####」
   になる所を伝える（見積もりなので、言い方は「見込み」）
-- both_controls_checked：同じ行にちょうど2つあるチェックボックスの両方に印をつけた（どちらか1つを選ぶ欄のことが多い）
+- both_controls_checked：書いたあと、同じ行のチェックボックスのすべてに印がついている（事実だけを伝える。どれを選ぶ欄かは決めない）
+
+列の幅は ECMA-376 §18.3.1.13（col の width：既定の書体の数字の幅 × 字の数 ＋ 左右の余白 5 ピクセル）でピクセルにし、字の幅
+（textwidth：全角は 2、ほかは 1。数字の幅を 1 とした数）と比べる。幅のない列は defaultColWidth、それもなければ baseColWidth
+（§18.3.1.81）。行の高さの既定は sheetFormatPr の defaultRowHeight。
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ import math
 
 from ..formula.parser import addr
 
-_MARGIN = 0.5  # セルの左右の余白（字の数。Excel の列の幅の 5 ピクセル分の余白の見積もり）
+_PAD_PX = 5  # 列の幅の左右の余白（ECMA-376 §18.3.1.13 の「5 pixel padding」：左右 2 ピクセルずつと格子の線 1 ピクセル）
 
 
 def _rgb(c: str | None, default: str) -> str:
@@ -127,7 +131,8 @@ def _xls_font_props(wb, ifnt) -> list[str]:
 
 
 def both_controls_checked(wb, controls: dict) -> list[str]:
-    """同じシートの同じ行に、チェックボックスがちょうど2つあり、書いた後に両方に印がつく（今回1つ以上に印をつけた）。"""
+    """同じシートの同じ行に、チェックボックスが 2 つ以上あり、書いた後にそのすべてに印がつく（今回 1 つ以上に印をつけた）：その事実。
+    どれか 1 つを選ぶ欄かどうかは決めない（伝えるだけ）。"""
     out = []
     by_row: dict = {}
     for (sheet, _sid), (_s, ctl, b) in controls.items():
@@ -136,14 +141,15 @@ def both_controls_checked(wb, controls: dict) -> list[str]:
     for (sheet, row), mine in by_row.items():
         sh = wb.sheet(sheet)
         row_boxes = [c for c in sh.controls if c.kind == "CheckBox" and getattr(c, "anchor", None) and c.anchor[0] == row]
-        if len(row_boxes) != 2:
+        if len(row_boxes) < 2:
             continue
         on = {c.shape_id for c in mine} | {c.shape_id for c in row_boxes if c.is_checked}
         off = {sid for (s_, sid), (_s, _c, b) in controls.items() if s_ == sheet and not b}
         if {c.shape_id for c in row_boxes} <= (on - off):
-            names = "」と「".join((c.text or c.name) if getattr(c, "text", None) else c.name for c in row_boxes)
-            out.append(f"{sheet}: 同じ行の2つのチェックボックス「{names}」の両方に印がつきます。どちらか1つを選ぶ欄なら、本人に確かめて"
-                       "1つだけにしてください")
+            names = "」「".join((c.text or c.name) if getattr(c, "text", None) else c.name for c in row_boxes)
+            n = len(row_boxes)
+            out.append(f"{sheet}: 同じ行（{row} 行目）の {n} つのチェックボックス「{names}」の{'両方' if n == 2 else 'すべて'}に印がつきます"
+                       "（書いたあとの状態）")
     return out
 
 
@@ -153,13 +159,27 @@ def _formats(wb):
     return (_xls_formats(wb) if getattr(wb, "kind", "xlsx") == "xls" else _xlsx_formats(wb))[0]
 
 
-def _col_w(sh, c: int) -> float:
+def _mdw(wb) -> int:
+    """既定の書体（書式の 0 番）の数字の幅（ピクセル）。"""
+    from .circle import mdw_for
+
+    got = getattr(wb, "_cellcheck_mdw", None)
+    if got is None:
+        fmts = _formats(wb)
+        base = fmts[0].font if fmts and fmts[0].font else None
+        got = mdw_for(base.face if base else "", base.size if base else 11.0)[0]
+        wb._cellcheck_mdw = got
+    return got
+
+
+def _col_w(sh, c: int, mdw: int = 7) -> float:
+    """列の、字を書ける幅（数字の幅を 1 とした字の数。左右の余白 _PAD_PX を除く）。"""
+    from .circle import width_px
+
     if c in sh.hidden_cols:
         return 0.0
-    w = sh.col_widths.get(c)
-    if w is None:
-        w = sh.default_col_width if getattr(sh, "default_col_width", None) else 8.43
-    return float(w)
+    px = width_px(sh.col_widths.get(c, sh.default_col_width), mdw, getattr(sh, "base_col_width", 8) or 8)
+    return px / mdw
 
 
 def _row_h(sh, r: int) -> float:
@@ -211,6 +231,21 @@ def _wrap_by_write(wb, sh, rng: tuple, before: str, after: str, size: float) -> 
     return say("{place}" + merged, after, got[0], got[1], f"列の幅 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイント", got[2])
 
 
+def _hashes(v, shown: str, num_fmt: str | None, scale: float, avail: float) -> bool:
+    """幅に入らない数が「####」になるか。「標準」以外の形式は、そのまま「####」。「標準」は、小数の桁を減らして入れようと
+    するので、整数の部分（符号を含む）も入らないときだけ。"""
+    from ..textwidth import text_cells
+
+    if (num_fmt or "General").strip().lower() not in ("general", ""):
+        return True
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return True
+    whole = str(int(round(f))) if abs(f) < 1e11 else shown
+    return text_cells(whole) * scale > avail
+
+
 def fit_issues(wb, plan) -> list[dict]:
     """書いた字がセルに収まらず、切れて見える・「####」になる見込みの所：[{id, cell, message}]。"""
     from ..formula.numfmt import format_value
@@ -221,6 +256,7 @@ def fit_issues(wb, plan) -> list[dict]:
         return out
     fmts = _formats(wb)
     base = fmts[0].font.size if fmts and fmts[0].font else 11.0
+    mdw = _mdw(wb)
     for cell_, key in plan.direct.items():
         v = plan.targets.get(cell_)
         if v is None or v == "" or isinstance(v, bool):
@@ -243,12 +279,20 @@ def fit_issues(wb, plan) -> list[dict]:
         scale = size / base if base else 1.0
         m = sh.merged_at(r_, c_)
         r1, c1, r2, c2 = m if m else (r_, c_, r_, c_)
-        width = sum(_col_w(sh, c) for c in range(c1, c2 + 1))
-        avail = max(width - _MARGIN, 0.5)
+        width = sum(_col_w(sh, c, mdw) for c in range(c1, c2 + 1))
+        avail = max(width - _PAD_PX / mdw, 0.5)
         lines = shown.split("\n")
         widths = [text_cells(ln) * scale for ln in lines]
         need = max(widths) if widths else 0.0
         name = key if not key.startswith("@") else where
+        if not isinstance(v, str) and not cf.shrink:
+            # 数は折り返さない（折り返して表示するセルでも）。幅に入らない数を、Excel は「####」と表示する。
+            # 「標準」の形式では小数の桁を減らして入れようとするので、整数の部分（と符号）が入らないときだけ
+            if need > avail and _hashes(v, shown, st.num_fmt, scale, avail):
+                out.append({"id": name, "cell": where, "message":
+                            f"{where}: 数「{shown}」はセルの幅（約 {avail:.1f} 字分）に入らず、Excel では「####」と表示される"
+                            "見込みです（数は折り返しません。列の幅からの見積もり。本人に確かめてください）"})
+            continue
         if cf.wrap:
             n = sum(max(1, math.ceil(w / avail)) for w in widths)
             height = sum(_row_h(sh, r) for r in range(r1, r2 + 1))
@@ -277,11 +321,6 @@ def fit_issues(wb, plan) -> list[dict]:
                         f"{where}: セルの幅に合わせて字が縮んで表示されます（元の大きさの約 {int(100 * avail / need)}%。小さすぎて"
                         "読みにくくならないか、本人に確かめてください）"})
             continue
-        if not isinstance(v, str):
-            if (st.num_fmt or "General").strip().lower() not in ("general", ""):
-                out.append({"id": name, "cell": where, "message":
-                            f"{where}: 「{shown}」はセルの幅に入らず、Excel では「####」と表示される見込みです（列の幅からの見積もり）"})
-            continue
         if m:
             out.append({"id": name, "cell": where, "message":
                         f"{where}: 書いた字「{shown[:20]}{'…' if len(shown) > 20 else ''}」は、結合したセルの幅に収まらず、はみ出す所が"
@@ -299,7 +338,7 @@ def fit_issues(wb, plan) -> list[dict]:
                 if not _empty(sh, r_, c, plan.targets):
                     blocked = addr(r_, c)
                     break
-                room += _col_w(sh, c)
+                room += _col_w(sh, c, mdw)
                 c += d
             if blocked:
                 break

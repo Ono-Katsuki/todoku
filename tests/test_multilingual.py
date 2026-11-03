@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import io
+import re
 import unicodedata
 
 import pytest
@@ -27,9 +28,9 @@ openpyxl = pytest.importorskip("openpyxl")
 
 # ====================================================================== 字の集まり
 def test_char_tables_cite_unicode():
-    # 字の表は、動かす Python の unicodedata と同じ版でなければならない（pyproject の requires-python で 3.11 に固定）。
-    # Python の版を上げるときは、その版で scripts/make_chars.py を動かして chars.py の表を作り直す
-    assert chars.UCD_VERSION == unicodedata.unidata_version,         f"chars.py は Unicode {chars.UCD_VERSION}、この Python は {unicodedata.unidata_version}：scripts/make_chars.py で作り直す"
+    # unicodedata にある性質は、動いている Python から読む（版は決めない）。unicodedata にない資料の表は、版を持つ
+    assert chars.UCD_VERSION == unicodedata.unidata_version
+    assert re.fullmatch(r"\d+\.\d+\.\d+", chars.TABLES_UCD_VERSION)
     # かっこの組（BidiBrackets.txt）：ASCII・全角・CJK のかっこ
     for o, c in ("()", "[]", "{}", "（）", "［］", "【】", "「」", "〔〕", "《》"):
         assert chars.closing(o) == c
@@ -86,12 +87,14 @@ def test_excel_places_in_other_languages():
     assert f["S!A2"]["blanks"] == 3 and f["S!A3"]["blanks"] == 3
     for a in ("A4", "A5", "A6"):  # 点線：規則では決めない所（「？」）
         assert f[f"S!{a}"]["blanks"] == 1 and f[f"S!{a}"]["agent"], f[f"S!{a}"]
-    for a in ("A7", "A8", "A9"):  # かっこの中の空白・チェックの箱の字：規則の所
+    for a in ("A7", "A9"):  # かっこの中の空白：規則の所
         assert f[f"S!{a}"]["blanks"] == 2 and not f[f"S!{a}"].get("agent"), f[f"S!{a}"]
+    # 印刷された箱の字：記入の箱か箇条の印かは字からは決まらない（「？」）
+    assert f["S!A8"]["blanks"] == 2 and f["S!A8"]["agent"] and [s["why_key"] for s in f["S!A8"]["spans"]] == ["bullet_box"] * 2
     reading = {x.get("row"): x["text"] for x in doc["sheets"][0]["reading"]}
     assert reading[1] == "〔A1〕中華民國［？　　］年［？　　］月［？　　］日"  # 「？」の所の印に、元の空白をそのまま入れる
     assert reading[7] == "〔A7〕[［　］] Yes [［　］] No"
-    assert reading[8] == "〔A8〕☐［　］ Male ☐［　］ Female"  # 箱の字は消さずに示す
+    assert reading[8] == "〔A8〕☐［？］ Male ☐［？］ Female"  # 箱の字は消さずに示す
     res = xlsx_fill(Workbook(blob, "t.xlsx"), {"S!A1": ["115", "11", "3"], "S!A8": ["☑", None], "S!A4": [" Lee"]})
     sh = Workbook(res.blob, "t.xlsx").sheet("S")
     assert sh.cells[(1, 1)].value == "中華民國115年11月3日"

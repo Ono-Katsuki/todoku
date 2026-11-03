@@ -74,8 +74,16 @@ def test_xlsx_head_of_date_chain_and_spaced_heading():
         ws["B3"] = "事　業　所　の　住　所"
 
     f = _xlsx(build)
-    assert f["S!B2"]["blanks"] == 3 and "初めの字の前" in f["S!B2"]["why"], f["S!B2"]
-    assert "S!B3" not in f
+    # 字の間の空き（「？」）だけ。初めの字の前（以前の chain_head：後ろに所が 2 つ以上あるときだけ足していた）は所にしない。
+    # 1 字ずつ同じ空白で並ぶ形は、事実（facts の chain：字数と字）として出す
+    b2 = f["S!B2"]
+    assert b2["blanks"] == 2 and b2["agent"], b2
+    assert b2["spans"][0]["facts"]["chain"] == {"len": 3, "text": "年　　月　　日"}
+    # 1 字ずつ同じ空白でつないだ 6 字の並び：以前は「字間を空けた見出し」として隠していた（4 字以上）。いまは字の間を
+    # 「？」（spaced）として出し、並びの字数を事実にする（見出しか書く所かはエージェントが判断する）
+    b3 = f["S!B3"]
+    assert b3["blanks"] == 5 and {s["why_key"] for s in b3["spans"]} == {"spaced"}
+    assert b3["spans"][0]["facts"]["chain"]["len"] == 6
 
 
 def _pdf_win(lines, rules: bytes = b""):

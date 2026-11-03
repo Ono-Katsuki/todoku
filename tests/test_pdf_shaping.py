@@ -103,6 +103,7 @@ def test_indic_syllables():
 
 
 # ====================================================================== 組み立て
+@pytest.mark.fonts
 def test_arabic_joining_and_lam_alef():
     sf = _font("Arabic")
     cm = sf.tt.cmap
@@ -114,6 +115,7 @@ def test_arabic_joining_and_lam_alef():
     assert len(gl) == 1 and gl[0][0] not in (cm[0x0644], cm[0x0627])  # ラーム・アリフの合字
 
 
+@pytest.mark.fonts
 def test_arabic_marks_positioned_on_base():
     sf = _font("Arabic")
     gl, _w = shape.shape_run(sf, "بَ", True)
@@ -122,6 +124,7 @@ def test_arabic_marks_positioned_on_base():
     assert mark[2] != 0 or mark[1] != base[1] + base[3]  # 記号は基の字の上に動かしてある
 
 
+@pytest.mark.fonts
 def test_devanagari_reph_and_pre_base_matra():
     sf = _font("Devanagari")
     cm = sf.tt.cmap
@@ -131,6 +134,7 @@ def test_devanagari_reph_and_pre_base_matra():
     assert gl[1][0] == cm[0x0915] and gl[0][1] < gl[1][1]  # ि は前に
 
 
+@pytest.mark.fonts
 def test_tamil_two_part_vowel():
     sf = _font("Tamil")
     cm = sf.tt.cmap
@@ -138,6 +142,7 @@ def test_tamil_two_part_vowel():
     assert [g[0] for g in gl] == [cm[0x0BC6], cm[0x0B95], cm[0x0BBE]]  # ொ = ெ（前）+ ா（後ろ）
 
 
+@pytest.mark.fonts
 def test_thai_sara_am():
     sf = _font("Thai")
     gl, _w = shape.shape_run(sf, "ทำ", False)
@@ -161,6 +166,7 @@ _HB_SCRIPT = {"Arabic": "arab", "Hebrew": "hebr", "Devanagari": "deva", "Bengali
               "Gujarati": "gujr", "Oriya": "orya", "Tamil": "taml", "Telugu": "telu", "Kannada": "knda", "Thai": "thai"}
 
 
+@pytest.mark.fonts
 @pytest.mark.parametrize("script", sorted(HB_WORDS))
 def test_same_glyphs_and_positions_as_harfbuzz(script, tmp_path):
     """HarfBuzz（hb-shape）と、字形の番号・位置（字形の単位で ±1）・幅が同じ。書体は、morx・kerx を除いた写し
@@ -204,6 +210,7 @@ FORM_WORDS = {
 }
 
 
+@pytest.mark.fonts
 @pytest.mark.parametrize("script", sorted(FORM_WORDS))
 def test_fill_shaped_text_with_proof_and_read_back(script, tmp_path):
     _font(script)
@@ -226,6 +233,7 @@ def test_fill_shaped_text_with_proof_and_read_back(script, tmp_path):
     assert b"/ToUnicode" in new and b"/FontFile2" in new
 
 
+@pytest.mark.fonts
 def test_mixed_direction_line_and_wrap(tmp_path):
     _font("Arabic")
     _font("Devanagari")
@@ -244,6 +252,7 @@ def test_mixed_direction_line_and_wrap(tmp_path):
     assert " ".join(lines).split() == long.split()
 
 
+@pytest.mark.fonts
 def test_read_back_catches_a_changed_glyph(tmp_path):
     sf = _font("Devanagari")
     doc = PdfDocument(build_all())
@@ -265,6 +274,7 @@ def test_read_back_catches_a_changed_glyph(tmp_path):
     assert text == "र्क" and any("組み立てた字形と違います" in p for p in probs)
 
 
+@pytest.mark.fonts
 def test_read_back_catches_dotted_circle():
     sf = _font("Bengali")
     dot = sf.gid(0x25CC)
@@ -279,6 +289,7 @@ def test_read_back_catches_dotted_circle():
 
 
 # ====================================================================== 断る
+@pytest.mark.fonts
 def test_refuses_broken_cluster(tmp_path):
     _font("Bengali")
     src = _write(tmp_path, build_all())
@@ -301,6 +312,7 @@ def test_refuses_without_a_shaping_font(tmp_path, monkeypatch):
         api.fill(src, {"family": "محمد"}, str(tmp_path / "o.pdf"))
 
 
+@pytest.mark.fonts
 def test_refuses_a_missing_joining_form(monkeypatch):
     """書体に語末形のない字（Tahoma のウルドゥー語の ہ）は、つながらない形で描かずに断る。"""
     import os
@@ -313,6 +325,7 @@ def test_refuses_a_missing_joining_form(monkeypatch):
         shape.line("پتہ")
 
 
+@pytest.mark.fonts
 def test_falls_back_to_the_next_font_for_a_missing_form():
     import os
 
@@ -323,6 +336,7 @@ def test_falls_back_to_the_next_font_for_a_missing_form():
     assert ln.segs[0].font.name == "NotoNastaliqUrdu"
 
 
+@pytest.mark.fonts
 def test_refuses_comb_field_and_bidi_controls(tmp_path):
     _font("Arabic")
     src = _write(tmp_path, wide_form(1, comb=True))
@@ -333,7 +347,8 @@ def test_refuses_comb_field_and_bidi_controls(tmp_path):
         api.fill(src, {"family": "محمد‮abc"}, str(tmp_path / "o2.pdf"))
 
 
-def test_latin_combining_marks_still_refused():
+@pytest.mark.fonts
+def test_latin_combining_marks_still_refused(embedding_font):
     with pytest.raises(glyphs.GlyphError, match="シェーピング"):
         glyphs.choose(chr(0x301))
 

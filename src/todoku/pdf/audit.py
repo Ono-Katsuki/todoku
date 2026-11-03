@@ -373,7 +373,7 @@ def check_circles(doc: PdfDocument) -> Check | None:
         raw = raw_circles(doc, pg)
         for ident, kind, g, lw in shapes:
             n_all += 1
-            inner, touch = circle.circled_text(lay, kind, g, lw)
+            inner, touch = circle.circled_text(lay, kind, g, lw, True)  # 字の墨を切るものだけ（縁に触れるだけは知らせて描く）
             if not inner or ident not in shown:
                 bad.append(f"{ident}：囲んでいる字「{''.join(c.text for c in inner)}」・窓に囲んだ字として出ていない"
                            "（2 つの行にかかる・囲んだ字の間に囲まれていない字がある）")

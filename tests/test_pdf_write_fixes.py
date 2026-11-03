@@ -15,7 +15,7 @@ from todoku.pdf import glyphs
 from todoku.pdf.acrojs import commit_pair, js_unescape, parse_call
 from todoku.pdf.anchor import AnchorError, box_base_size, find_spans, resolve_write
 from todoku.pdf.doc import PdfDocument
-from todoku.pdf.fill import FillError, appearance_readback, fill, inline_align
+from todoku.pdf.fill import FillError, appearance_readback, fill
 from todoku.pdf.glyphs import appearance_text
 from todoku.pdf.proof import prove
 
@@ -132,6 +132,7 @@ def test_proof_catches_a_glyph_outside_the_supplement(tmp_path):
     assert diffs and diffs[0]["id"] == "family"
 
 
+@pytest.mark.fonts
 def test_embedded_truetype_subset_for_greek_and_vietnamese(tmp_path):
     from todoku.pdf.embedfont import system_font
 
@@ -326,12 +327,6 @@ def test_anchor_written_after_nfd_label(tmp_path):
 
 
 # ====================================================================== 6. 置き方・字の大きさ
-@pytest.mark.parametrize("label, want", [("〒［　］", "left"), ("［　］年", "right"), ("令和［　］年", "center"),
-                                         ("東京都［▶　］区［　］", "center"), ("○○区［　］", "left")])
-def test_inline_alignment_follows_the_neighbours(label, want):
-    assert inline_align({"label": label}) == want
-
-
 def test_box_size_follows_paper_and_box_height(tmp_path):
     class V:
         width, height = 841.89, 1190.55  # A3

@@ -35,6 +35,9 @@ from .layout import PageLayout, View
 
 K = 0.5522847498  # 4 つの 3 次ベジエ曲線で楕円を描くときの、制御点の比
 FACE = 1 / 12  # 字の箱の縁から、字の面までの内側の幅（字の大きさに対する比）
+# 字の墨（はっきり字を切る所）：字の箱の縁から、字の大きさの 0.2 倍だけ内側。字の面（FACE）には触れても、ここに触れなければ、
+# ○の線は字の余白の縁をかすめるだけ（断らずに、位置を添えて知らせる。いまのエージェントは書いた後のページを見て確かめる）
+INK = 0.2
 TAG = "TdkCircle"
 PAD = 0.12  # 字と○のすき間の既定（字の大きさに対する比）。詰まった所では 0 まで小さくする
 TOL = 0.05  # 囲んでいるかを比べるときの余裕（pt）：描いた座標の丸め（小数 3 桁）と、ベジエ曲線で楕円を描く近似の分
@@ -196,17 +199,36 @@ def find(doc, spec: dict, layouts: dict) -> tuple[int, object, object, int, int]
     def rank(h, ans):
         return min((_rank(h[2].span_rect(h[3], h[4]), an[1]) for an in ans if an[0] == h[0]), default=(9, float("inf")))
 
+    inside: list = []  # near の字の中にある候補（選択肢の項目でないもの）と、その near の所
     if anchors:
-        def in_near(h) -> bool:
-            return any(an[0] == h[0] and an[3] is h[2] and an[4] <= h[3] and h[4] <= an[5] for an in anchors)
+        from ..circlepick import inside_message, items_message, option_item
 
-        hits = [h for h in hits if not in_near(h)]
+        def near_of(h):
+            return next((an for an in anchors if an[0] == h[0] and an[3] is h[2] and an[4] <= h[3] and h[4] <= an[5]), None)
+
+        selfs = [(h, near_of(h)) for h in hits]
+        items = [h for h, an in selfs if an is not None and option_item(h[2].text, h[3], h[4], an[4], an[5])]
+        if items:
+            # near が選択肢の並び（「大・昭・平・令」）で、囲む字がその項目：その所を囲む
+            if occ is not None:
+                if occ > len(items):
+                    raise AnchorError(f"near の「{near}」の中の「{target}」は {len(items)} か所です"
+                                      f"（{_listing(items, items, all_hits, where_mm)}）。occurrence は 1〜{len(items)} で指定してください")
+                return items[occ - 1]
+            if len(items) == 1:
+                return items[0]
+            raise AnchorError(items_message(target, near, len(items), _listing(items, items, all_hits, where_mm)))
+        inside = [(h, an) for h, an in selfs if an is not None]
+        hits = [h for h, an in selfs if an is None]
         if not hits:
-            raise AnchorError(f"「{target}」は、near の「{near}」の字の中にしか見つかりません（見出しの字は囲みません）。"
-                              "囲む選択肢の字を、窓の字のとおりに指定してください")
+            if inside and occ is not None and occ <= len(inside):
+                return inside[occ - 1][0]
+            raise AnchorError(f"「{target}」は、near の「{near}」の字の中にしか見つかりません（区切られた選択肢の項目では"
+                              "ありません）。その字を囲むなら occurrence で指定してください："
+                              f"{_listing([h for h, _a in inside], [h for h, _a in inside], all_hits, where_mm)}")
         ranks = [rank(h, anchors) for h in hits]
         best_kind = min(r[0] for r in ranks)
-        order = [h for h, r in zip(hits, ranks) if r[0] == best_kind]
+        order = [h for h, r in zip(hits, ranks) if r[0] == best_kind] + [h for h, _a in inside]
     if occ is not None:
         if occ > len(order):
             if anchors:
@@ -214,6 +236,23 @@ def find(doc, spec: dict, layouts: dict) -> tuple[int, object, object, int, int]
                                   f"occurrence は、その中の何番目か（1〜{len(order)}）で指定してください")
             raise AnchorError(f"occurrence は 1〜{len(order)} で指定してください（「{target}」は{where} {len(order)} か所）")
         return order[occ - 1]
+    got = _pick_free(hits, anchors, order, all_hits, where_mm, rank, near, target)
+    if inside:
+        def same_line(h, an) -> bool:
+            if an[0] != h[0]:
+                return False
+            if h[2] is an[3]:
+                return True
+            r, s_ = h[2].span_rect(h[3], h[4]), an[3].span_rect(an[4], an[5])
+            return min(r[3], s_[3]) - max(r[1], s_[1]) > 0
+        if not any(same_line(got, an) for _h, an in inside):
+            # 囲む字は near の字の中にもある（「都県市」の「都」）。いちばん近いほかの候補は別の行：黙って移らずに断る
+            raise AnchorError(inside_message(target, near, _listing(order, order, all_hits, where_mm)))
+    return got
+
+
+def _pick_free(hits, anchors, order, all_hits, where_mm, rank, near, target):
+    """occurrence のないときの選び方（near の字の中の候補は、hits から除いてある）。"""
     if len(anchors) > 1:
         # near の字が何か所にもある（「浴」が「入浴」にも「浴槽」にもある）：それぞれのいちばん近い候補が違えば、どの near か
         # 決まらないので断る（黙って片方を選ばない）
@@ -231,7 +270,8 @@ def find(doc, spec: dict, layouts: dict) -> tuple[int, object, object, int, int]
     free = [h for h in hits if bounded(h[2].text, h[3], h[4])]
     if not free:
         raise AnchorError(f"「{target}」は、どれもほかの字の並びの中にあります（区切りの字ではさまれた所がありません）。"
-                          f"選択肢の字か確かめて、囲むなら occurrence（何番目か）で指定してください：{_listing(order, hits, all_hits, where_mm)}")
+                          f"選択肢の字か確かめて、囲むなら occurrence（何番目か）で指定してください："
+                          f"{_listing(order, hits + [h for h in order if not any(h is x for x in hits)], all_hits, where_mm)}")
     if anchors and len(free) > 1:
         scored = sorted(((rank(h, anchors), h) for h in free), key=lambda x: x[0])
         best = scored[0]
@@ -284,10 +324,10 @@ FULL_STOPS = set("。．、，")
 MIDDLE_DOTS = set("・：；")
 
 
-def face(c) -> tuple[float, float, float, float]:
-    """字の面：字の箱の縁から、字の大きさの 1/12 だけ内側。全角の約物（JIS X 4051 の括弧類・句読点）は、字の描かれる
+def face(c, inset: float = FACE) -> tuple[float, float, float, float]:
+    """字の面：字の箱の縁から、字の大きさの 1/12（inset）だけ内側。全角の約物（JIS X 4051 の括弧類・句読点）は、字の描かれる
     半分の箱で、中点類は箱の中央の半分で（横書きの字のみ。半角の箱の約物は、箱がもう字の描かれる半分）。"""
-    m = FACE * c.size
+    m = inset * c.size
     bx0, bx1 = c.x0, c.x1
     if len(c.text) == 1 and not c.vertical:
         half = (bx1 - bx0) / 2
@@ -350,9 +390,10 @@ def _outer(kind: str, g, lw: float):
     return (g[0], g[1], g[2] + h, g[3] + h)
 
 
-def hits(kind: str, g, c, lw: float = 0.0) -> bool:
-    """囲みの線（太さ lw）が、字 c の面（face）に触れるか（ほかの字に触れてはいけない所）。書くときと読み戻しで同じ決め方。"""
-    f = face(c)
+def hits(kind: str, g, c, lw: float = 0.0, loose: bool = False) -> bool:
+    """囲みの線（太さ lw）が、字 c の面（face）に触れるか（ほかの字に触れてはいけない所）。書くときと読み戻しで同じ決め方。
+    loose：字の墨（INK）に触れるか（字の面をかすめるだけの○を、知らせて描いたもの）。"""
+    f = face(c, INK if loose else FACE)
     o = _outer(kind, g, lw)
     if kind == "border":
         return _rect_meets(o, f)
@@ -391,13 +432,13 @@ def _pads(size: float, pad: float | None) -> list[float]:
 
 
 def shape(rect, size: float, others: list, page: tuple[float, float] | None, pad: float | None = None,
-          targets: list | None = None):
+          targets: list | None = None, loose: bool = False, avoid=None):
     """囲む字の四角 rect（字の箱を合わせたもの）を囲む楕円 (cx, cy, a, b)：rect をすき間だけ広げた四角の角を通る楕円
     （縦横の比を細かく変えて）のうち、ほかの字の面に触れないもの。すき間は大きいほうから、0（字の箱の角を通る）まで小さくし、
     同じすき間では、左右と上下のはみ出しがいちばん近いものを選ぶ。見つからなければ (None, いちばん多く触れた字)。"""
     cx, cy = (rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2
     blockers: dict[int, list] = {}
-    near = [(o, face(o)) for o in others]
+    near = [(o, face(o, INK if loose else FACE)) for o in others]
     h_lw = line_width(size) / 2  # 線の太さの半分：線の外側の縁が、ほかの字の面に触れない
     # 縦横の比：角を通る楕円 (w/2a)^2 = t、(h/2b)^2 = 1 - t。t が 0・1 に近い（細長い）所は細かく
     ts = sorted({k / 200 for k in range(1, 200)} | {1 - 0.5 ** k for k in range(8, 15)} | {0.5 ** k for k in range(8, 15)})
@@ -414,6 +455,8 @@ def shape(rect, size: float, others: list, page: tuple[float, float] | None, pad
                 continue
             if targets and not all(encloses("ellipse", e, c, 2 * h_lw) for c in targets):
                 continue  # 線が、囲む字の箱にかかる（字を切って見える）
+            if avoid is not None and avoid("ellipse", e):
+                continue  # ページの罫線を横切る（線のあいだに収まる、平たい・小さい楕円を先にためす）
             hit = next((o for o, f in near if touches((cx, cy, a + h_lw, b + h_lw), f)), None)
             if hit is not None:
                 blockers.setdefault(id(hit), [hit, 0])[1] += 1
@@ -426,7 +469,8 @@ def shape(rect, size: float, others: list, page: tuple[float, float] | None, pad
     return None, max(blockers.values(), key=lambda x: x[1])[0] if blockers else None
 
 
-def border(rect, size: float, others: list, page: tuple[float, float] | None, pad: float | None = None):
+def border(rect, size: float, others: list, page: tuple[float, float] | None, pad: float | None = None,
+           loose: bool = False, avoid=None):
     """囲む字の四角 rect を、すき間だけ広げた四角の囲み線（style "border"）：ほかの字の面に触れない、いちばん大きなすき間のもの。"""
     blocker = None
     h_lw = line_width(size) / 2  # 線の内側の縁が、囲む字の箱にかからないよう、すき間に線の太さの半分を足す
@@ -434,7 +478,9 @@ def border(rect, size: float, others: list, page: tuple[float, float] | None, pa
         r = (rect[0] - m - h_lw, rect[1] - m - h_lw, rect[2] + m + h_lw, rect[3] + m + h_lw)
         if page is not None and (r[0] < 0 or r[1] < 0 or r[2] > page[0] or r[3] > page[1]):
             continue
-        hit = next((o for o in others if hits("border", r, o, line_width(size))), None)
+        if avoid is not None and avoid("border", r):
+            continue
+        hit = next((o for o in others if hits("border", r, o, line_width(size), loose)), None)
         if hit is None:
             return r, None
         blocker = blocker or hit
@@ -479,24 +525,43 @@ def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None
         if not all(encloses(style, g, c, line_width(size)) for c in mine):
             raise AnchorError(f"box の○（線の内側の縁）が、「{spec['circle']}」の字を囲みきれません（字の箱は 左 {rect[0] / lay.view.mm:.1f}・上 "
                               f"{rect[1] / lay.view.mm:.1f}・右 {rect[2] / lay.view.mm:.1f}・下 {rect[3] / lay.view.mm:.1f} mm）")
-        hit = next((o for o in others if hits(style, g, o, line_width(size))), None)
-        if hit is not None:
-            mm = lay.view.mm
-            raise AnchorError(f"box の○が、ほかの字「{hit.text}」（左 {hit.x0 / mm:.1f}・上 {hit.y0 / mm:.1f}・右 {hit.x1 / mm:.1f}・"
-                              f"下 {hit.y1 / mm:.1f} mm）に触れます")
-    elif style == "border":
-        g, hit = border(rect, size, others, page, pad)
-        if g is None:
-            raise AnchorError(f"「{spec['circle']}」を四角で囲むと、ほかの字" + (f"「{hit.text}」" if hit is not None else "") +
-                              "に触れます（字の箱どうしが重なっています）。囲めないときは、本人に伝えてください")
+        loose = None
+        if any(hits(style, g, o, line_width(size)) for o in others):
+            hit = next((o for o in others if hits(style, g, o, line_width(size), True)), None)
+            if hit is not None:
+                mm = lay.view.mm
+                raise AnchorError(f"box の○が、ほかの字「{hit.text}」（左 {hit.x0 / mm:.1f}・上 {hit.y0 / mm:.1f}・右 {hit.x1 / mm:.1f}・"
+                                  f"下 {hit.y1 / mm:.1f} mm）の字の墨を切ります")
+            loose = True
     else:
-        g, hit = shape(rect, size, others, page, pad, mine)
+        fit = border if style == "border" else (lambda *a_, **k_: shape(*a_, targets=mine, **k_))
+        from .placement import _rule_crosses_shape
+
+        rules = [(r_, True) for r_ in lay.hs] + [(r_, False) for r_ in lay.vs]
+
+        def avoid(kind, g_):
+            return any(_rule_crosses_shape(r_, hz, kind, g_, line_width(size)) for r_, hz in rules)
+
+        # 罫線を横切らないものを先に。なければ罫線にかかるもの（描いて、位置を知らせる：placement）
+        g, hit = fit(rect, size, others, page, pad, avoid=avoid)
         if g is None:
-            near_txt = hit.text if hit is not None else ""
-            raise AnchorError(f"「{spec['circle']}」を囲む楕円は、どれもほかの字" + (f"「{near_txt}」" if near_txt else "") +
-                              "に触れます（字の間が詰まっています。すき間を 0 まで小さくし、縦横の比を変えてもためしました）。"
-                              "\"style\": \"border\"（字の箱に沿った四角の囲み線）なら囲めることがあります（○でなくてよいかは"
-                              "本人に確かめる）。box（○の外枠、mm）で決めることもできます。囲めないときは、本人に伝えてください")
+            g, hit = fit(rect, size, others, page, pad)
+        loose = None
+        if g is None:
+            # 字の面には触れる所しかない：字の墨（INK）を切らないものなら描き、触れる字と位置を知らせる
+            g, hit2 = fit(rect, size, others, page, pad, loose=True)
+            loose = True
+            if g is None:
+                other = "ellipse" if style == "border" else "border"
+                ofit = border if other == "border" else (lambda *a_, **k_: shape(*a_, targets=mine, **k_))
+                alt = ofit(rect, size, others, page, pad, loose=True)[0] is not None
+                what = "四角で囲む" if style == "border" else "楕円で囲む"
+                blk = hit2 or hit
+                raise AnchorError(f"「{spec['circle']}」を{what}と、どの大きさ・縦横の比でも、ほかの字" + (f"「{blk.text}」" if blk is not None else "") +
+                                  "の字の墨を切ります（字の箱どうしが重なっています）。"
+                                  + (f"\"style\": \"{other}\" なら描けます。" if alt else
+                                     "楕円・四角のどちらでも切るので、○は描けません。box（○の外枠、mm）で自分で決めるか、"
+                                     "○の代わりに選んだ字の近くの空きに「○」の字を書く（after / box）か、本人に伝えてください"))
     for k_, kind2, g2 in used.get(n, []):
         if shapes_meet(style, g, kind2, g2, line_width(size)):
             raise AnchorError(f"「{spec['circle']}」の○が、{n} ページのほかの○と重なります")
@@ -510,6 +575,18 @@ def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None
            "ellipse": [round(v, 3) for v in g] if style == "ellipse" else None,
            "label": label, "context": context[:60], "size": size, "rect": [round(v, 3) for v in rect],
            "around": around(ln.text, a, b)}  # 囲んだ字の前後の字（どの「無」を囲んだかを伝える）
+    ob_ = _outer(style, g, line_width(size))
+    ob_ = ob_ if style == "border" else (ob_[0] - ob_[2], ob_[1] - ob_[3], ob_[0] + ob_[2], ob_[1] + ob_[3])
+    out["box_mm"] = [round(v / lay.view.mm, 1) for v in ob_]  # ○の外枠（ページの左上からの mm。view_page で確かめる）
+    if loose:
+        mm = lay.view.mm
+        near_c = [o for o in others if hits(style, g, o, line_width(size))]
+        ob = _outer(style, g, line_width(size))
+        ob = ob if style == "border" else (ob[0] - ob[2], ob[1] - ob[3], ob[0] + ob[2], ob[1] + ob[3])
+        out["loose"] = True
+        out["note"] = (f"{out['id']}：「{out['text']}」の{'四角' if style == 'border' else '○'}の線が、ほかの字"
+                       f"「{''.join(o.text for o in near_c[:6])}」の縁に触れます（字の墨は切りません。{n}ページ・左 {ob[0] / mm:.1f}・"
+                       f"上 {ob[1] / mm:.1f}・右 {ob[2] / mm:.1f}・下 {ob[3] / mm:.1f} mm）。view_page で見て確かめてください")
     if not bounded(ln.text, a, b):
         out["inside_word"] = True  # occurrence で指した、字の並びの中の字（「【都】道府県」）
     if style == "border":
@@ -644,14 +721,14 @@ def drawn(doc, page_no: int) -> list[tuple[str, str, tuple[float, float, float, 
     return out
 
 
-def circled_text(lay, kind: str, g, lw: float = 0.0) -> tuple[list, list]:
+def circled_text(lay, kind: str, g, lw: float = 0.0, loose: bool = False) -> tuple[list, list]:
     """ページの字のうち、囲みの形が囲んでいる字と、囲まずに（太さ lw の線が）触れている字（書くときと同じ決め方：encloses・hits）。
     書くときに ±TOL の丸めの分だけ縁の字に触れて見えないよう、線の太さは丸めの分（TOL）だけ細く見る。"""
     w = max(0.0, lw - 2 * TOL)
     # 囲んでいる字：線の内側の縁（太さ w）が字の箱をすっかり囲むもの（線が字の箱を切る○は、囲んだとしない）
     inner = [ch for ch in lay.chars if not ch.text.isspace() and encloses(kind, g, ch, w)]
     ids = {id(ch) for ch in inner}
-    touch = [ch for ch in lay.chars if not ch.text.isspace() and id(ch) not in ids and hits(kind, g, ch, w)]
+    touch = [ch for ch in lay.chars if not ch.text.isspace() and id(ch) not in ids and hits(kind, g, ch, w, loose)]
     return inner, touch
 
 
@@ -670,7 +747,7 @@ def read_back(doc, circled: list[dict]) -> list[dict]:
             continue
         kind, g, lw = hit
         lay = layout(doc, n, layouts)
-        inner, touch = circled_text(lay, kind, g, lw)
+        inner, touch = circled_text(lay, kind, g, lw, bool(c.get("loose")))
         got = "".join(ch.text for ch in sorted(inner, key=lambda ch: (ch.y0, ch.x0) if ch.vertical else (ch.x0, ch.y0)))
         want = re.sub(r"\s", "", c["text"])
         if c.get("unread"):

@@ -29,6 +29,7 @@ def need():
         pytest.skip("古いExcelの様式がありません（scripts/collect_forms.py --ext xls --out corpus/wide_xls）")
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("path", XLS, ids=lambda p: Path(p).name)
 def test_xls_formulas_match_excel_and_rebuild_is_identical(path):
     blob = Path(path).read_bytes()
@@ -38,6 +39,7 @@ def test_xls_formulas_match_excel_and_rebuild_is_identical(path):
     assert XlsEditor(wb).build() == wb.data  # 書き込まずに組み立て直すと、ストリームはバイト一致
 
 
+@pytest.mark.corpus
 def test_xls_write_and_prove():
     need()
     path = next((p for p in XLS if Path(p).name == "saigai-yousiki1.xls"), XLS[0])
@@ -58,6 +60,7 @@ def test_xls_write_and_prove():
     assert pr.entries_identical == pr.entries_total - 1  # ブック以外のストリームはバイト一致
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("name", ["saigai-yousiki1.xls", "731981.xls", "taiseijoukyouitiranhyou.xls"])
 def test_xls_audit(name):
     need()
@@ -103,11 +106,15 @@ def test_spaced_and_decor_kinds():
     assert {k for _a, _b, k in blank_places("事　　業　　所")} == {"spaced"}
     assert {k for _a, _b, k in blank_places("□地　域　移　行")} == {"spaced"}
     assert {k for _a, _b, k in blank_places("　年　　月　　日")} == {"gap"}
-    assert [k for _a, _b, k in blank_places("－－－－－－－－")] == ["decor"] and "decor" in AGENT_WHY and "spaced" in AGENT_WHY
+    # 点線・ダッシュだけの行：鍵は長さでは分けない（以前の decor：8 字以上）。段落の字のすべてかは facts の whole_line
+    got = blank_places("－－－－－－－－")
+    assert [k for _a, _b, k in got] == ["dash"] and got[0].facts["whole_line"] and got[0].facts["len"] == 8
+    assert "spaced" in AGENT_WHY
 
 
 def test_fill_blanks_keeps_the_rest_of_the_text():
     assert fill_blanks("令和　　年　　月　　日", ["8", "4", "1"]) == "令和8年4月1日"
     # 番号のついた字間を空けた見出し（「１．廃　業　年　月　日」）の全角の空白 1 つも 1 字ぶんの空き（？）：書かない所は None
+    # 空白だけの空きに書くときは、前後の印刷された字の側に元の空白を 1 字ずつ残す（後ろの字の字数では決めない）
     assert fill_blanks("１．廃　業　年　月　日　　　　年　　月　　日", [None] * 4 + ["2026", "11", "2"]) \
-        == "１．廃　業　年　月　日　2026年11月2日"
+        == "１．廃　業　年　月　日　2026　年11月2日"

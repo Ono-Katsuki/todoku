@@ -441,6 +441,7 @@ def _info(doc: PdfDocument) -> dict:
     return out
 
 
+@pytest.mark.corpus
 @needs_fix
 @pytest.mark.parametrize("name", list(PYPDF))
 def test_pypdf_fixtures(name):
@@ -460,6 +461,7 @@ def test_pypdf_fixtures(name):
             PdfDocument(blob, name, password="asdfzxcV")
 
 
+@pytest.mark.corpus
 @needs_fix
 def test_pypdf_aes128_without_key_length():
     # 暗号の辞書に Length がない AES-128：鍵の長さは暗号フィルターから決まる（128 ビット）
@@ -469,6 +471,7 @@ def test_pypdf_aes128_without_key_length():
     assert build(doc)["pages"] == plain
 
 
+@pytest.mark.corpus
 @needs_fix
 @pytest.mark.parametrize("name, pw", [("r2-owner-password.pdf", b"asdfzxcv"), ("r4-owner-password.pdf", b"asdfzxcv"),
                                       ("r5-owner-password.pdf", b"asdfzxcv"), ("r6-owner-password.pdf", b"asdfzxcv"),
@@ -481,6 +484,7 @@ def test_pypdf_owner_password_algorithm(name, pw):
     assert doc.decryptor._owner(pw) == doc.decryptor.key
 
 
+@pytest.mark.corpus
 @needs_fix
 def test_pypdf_both_passwords_and_cleartext_metadata():
     for name in ("r6-both-passwords.pdf", "r6-cleartext-metadata.pdf"):
@@ -507,6 +511,7 @@ PDFJS = {
 }
 
 
+@pytest.mark.corpus
 @needs_fix
 @pytest.mark.parametrize("name", list(PDFJS))
 def test_pdfjs_fixtures(name):
@@ -519,6 +524,7 @@ def test_pdfjs_fixtures(name):
         PdfDocument(blob, name)
 
 
+@pytest.mark.corpus
 @needs_fix
 def test_pdfjs_saslprep_is_needed():
     # 正規化していない UTF-8 のバイト列そのものでは開けない（SASLprep で「SaSLprep」にしたものだけが合う）
@@ -528,6 +534,7 @@ def test_pdfjs_saslprep_is_needed():
     assert PdfDocument(blob, password=b"SaSLprep").decryptor.auth == "user"
 
 
+@pytest.mark.corpus
 @needs_fix
 def test_pdfjs_aes128_scans_and_identity_strings():
     # Acrobat で暗号化した AES-128 のスキャン：メタデータの XML と、JPEG 2000 の画像の署名が、復号して出てくる
@@ -542,6 +549,7 @@ def test_pdfjs_aes128_scans_and_identity_strings():
     assert b"/OC /Layer0 BDC" in doc.page_content(doc.pages()[0])
 
 
+@pytest.mark.corpus
 @needs_fix
 @pytest.mark.parametrize("name, pw", [("r2-user-password.pdf", "asdfzxcv"), ("r4-user-password.pdf", "asdfzxcv"),
                                       ("r4-aes-user-password.pdf", "asdfzxcv"), ("r6-user-password.pdf", "asdfzxcv"),

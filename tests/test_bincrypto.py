@@ -46,6 +46,7 @@ def streams(blob: bytes) -> dict[str, bytes]:
 
 
 # ====================================================================== Office のファイル（正解つき）
+@pytest.mark.corpus
 def test_xls_rc4_cryptoapi_matches_known_output():
     enc, ref = pair("rc4cryptoapi_password.xls")
     assert is_encrypted_xls(enc) and is_encrypted_binary(enc) and not is_encrypted_doc(enc)
@@ -59,6 +60,7 @@ def test_xls_rc4_cryptoapi_matches_known_output():
     assert all(got[p] == orig[p] for p in got if p not in ENCRYPTED)
 
 
+@pytest.mark.corpus
 def test_doc_rc4_cryptoapi_matches_known_output():
     enc, ref = pair("rc4cryptoapi_password.doc")
     assert is_encrypted_doc(enc) and not is_encrypted_xls(enc)
@@ -75,6 +77,7 @@ def test_doc_rc4_cryptoapi_matches_known_output():
     assert all(got[p] == orig[p] for p in got if p not in ENCRYPTED)
 
 
+@pytest.mark.corpus
 def test_xls_xor_matches_known_output():
     # 正解のファイルは保存し直したもの（ストリームの長さも違う）なので、セルの値で比べる
     enc, ref = pair("xor_password_123456789012345.xls")
@@ -90,6 +93,7 @@ def test_xls_xor_matches_known_output():
     assert all(v == streams(enc)[p] for p, v in streams(plain).items() if p not in ENCRYPTED)
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("name, password", CASES)
 def test_wrong_or_missing_password(name, password):
     enc, _ref = pair(name)
@@ -100,6 +104,7 @@ def test_wrong_or_missing_password(name, password):
         decrypt_binary(enc)
 
 
+@pytest.mark.corpus
 def test_readers_open_the_decrypted_files():
     enc, _ = pair("rc4cryptoapi_password.xls")
     wb = XlsWorkbook(decrypt_binary(enc, "Password1234_")[0])
@@ -111,6 +116,7 @@ def test_readers_open_the_decrypted_files():
     assert [p.text for _k, _p, blocks in doc.all_blocks() for p in blocks] == ["lorem ipsum"]
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("name, password", CASES)
 def test_reencrypting_unedited_file_reproduces_original(name, password):
     enc, _ = pair(name)
@@ -124,6 +130,7 @@ def test_reencrypting_unedited_file_reproduces_original(name, password):
         encrypt_binary(key, enc)  # 二重に暗号化しない
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("name, password, sheet", [("rc4cryptoapi_password.xls", "Password1234_", "Sheet1"),
                                                    ("xor_password_123456789012345.xls", "123456789012345", "420")])
 def test_xls_edit_survives_reencryption(name, password, sheet):
@@ -144,6 +151,7 @@ def test_xls_edit_survives_reencryption(name, password, sheet):
     assert all(b[p] == v for p, v in a.items() if p != "Workbook")
 
 
+@pytest.mark.corpus
 def test_doc_edit_survives_reencryption():
     enc, _ = pair("rc4cryptoapi_password.doc")
     plain, key = decrypt_binary(enc, "Password1234_")
@@ -161,6 +169,7 @@ def test_doc_edit_survives_reencryption():
     assert streams(out)["1Table"][:198] == streams(enc)["1Table"][:198]  # 暗号の情報は元のまま
 
 
+@pytest.mark.corpus
 def test_new_key_reproduces_office_headers():
     # 同じ salt・同じ検証の値から作った暗号の情報が、Office の書いたものとバイト一致する
     for name, field in (("rc4cryptoapi_password.xls", 2), ("rc4cryptoapi_password.doc", 0)):
@@ -176,6 +185,7 @@ def test_new_key_reproduces_office_headers():
 
 
 # ====================================================================== 仕様の表と手順
+@pytest.mark.corpus
 def test_xor_tables_match_the_spec_text():
     spec = CORPUS / "specs" / "MS-OFFCRYPTO.txt"
     if not spec.exists():

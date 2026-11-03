@@ -463,6 +463,9 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
                     unexpected.append(f"{sa.name}!{addr(*k)}: 数式が変わりました")
             if sty_a != sty_b:
                 unexpected.append(f"{sa.name}!{addr(*k)}: 書式が変わりました")
+            if cb is not None and cb.schema_error and not (ca is not None and ca.schema_error == cb.schema_error):
+                # 値が一つに決まらないセル（<v> が二つなど）：Excel と LibreOffice で見える値が違うので、書き込みとして通さない
+                unexpected.append(f"{sa.name}!{addr(*k)}: セルの形が規格（CT_Cell）に合いません（{cb.schema_error}）")
             same = values_equal(va, vb) and type(va) is type(vb)
             if not same or (fa != fb and fb is None):
                 kind = "formula" if (fa is not None and fb is not None) or (ca and ca.array_master) else "input"

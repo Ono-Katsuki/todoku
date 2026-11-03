@@ -3,7 +3,7 @@ name = "todoku"
 version = "0.2.0"
 description = "書類を、内容を一字も変えずにAIと支援技術に届ける変換・診断ツール"
 readme = "README.md"
-requires-python = ">=3.11,<3.12"  # 字の表（chars.py）は Python 3.11 の unicodedata（Unicode 14.0.0）で作った。README の「Python の版」
+requires-python = ">=3.11"  # 字の性質は動いている Python の unicodedata から読む（chars.py）。README の「Python の版」
 dependencies = []
 
 [project.scripts]
