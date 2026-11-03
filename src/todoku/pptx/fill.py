@@ -75,6 +75,48 @@ def t_chars(xml: bytes, node) -> list[tuple[int, int]]:
     return out
 
 
+# ====================================================================== 書いた字の書式
+# 書いた字に引き継がない文字の書式（a:rPr・a:endParaRPr。ECMA-376 第1部 21.1.2.3.9 CT_TextCharacterProperties）：
+# 取り消し線（strike）・字の塗り（黒でない色・塗りなし：赤・白・背景と同じ色など）・蛍光ペン（a:highlight）。
+# 字の大きさ（sz）・書体（a:latin・a:ea など）はそのまま残す（Word の docx.fill.clean_rpr と同じ考え方）
+_STRIKE = re.compile(rb'(\sstrike\s*=\s*")(sngStrike|dblStrike)(")')
+_FILL = re.compile(rb"<(?:[\w.-]+:)?(solidFill|gradFill|pattFill|blipFill|grpFill|noFill)\b[^>]*?(?:/>|>.*?</(?:[\w.-]+:)?\1>)", re.S)
+_HIGHLIGHT = re.compile(rb"<(?:[\w.-]+:)?highlight\b[^>]*?(?:/>|>.*?</(?:[\w.-]+:)?highlight>)", re.S)
+_BLACK = re.compile(rb'^<(?:[\w.-]+:)?solidFill>\s*<(?:[\w.-]+:)?(?:srgbClr\s+val="000000"|schemeClr\s+val="(?:tx1|dk1)"|'
+                    rb'sysClr\s+val="windowText"[^>]*?)\s*/>\s*</(?:[\w.-]+:)?solidFill>$')
+_FILL_NAMES = {"strike": "取り消し線", "fill": "字の色（黒でない色・塗りなし）", "highlight": "蛍光ペン"}
+
+
+def clean_rpr(rpr: bytes) -> tuple[bytes, list[str]]:
+    """書いた字に付ける字の書式：取り消し線は「なし」（noStrike）に、黒でない字の塗り・蛍光ペンは除いたもの（図形・段落の既定の
+    色になる）と、除いた書式の名前。証明（prove）も同じ関数で、認める書式を作る。"""
+    names: list[str] = []
+    if not rpr:
+        return rpr, names
+    m = re.match(rb"<[^>]*>", rpr)
+    head, body = m[0], rpr[m.end():]
+    if _STRIKE.search(head):
+        head = _STRIKE.sub(rb"\g<1>noStrike\g<3>", head)
+        names.append(_FILL_NAMES["strike"])
+
+    def fill(mm: re.Match) -> bytes:
+        if _BLACK.match(mm[0]):
+            return mm[0]
+        names.append(_FILL_NAMES["fill"])
+        return b""
+
+    body = _FILL.sub(fill, body)
+    if _HIGHLIGHT.search(body):
+        body = _HIGHLIGHT.sub(b"", body)
+        names.append(_FILL_NAMES["highlight"])
+    return head + body, list(dict.fromkeys(names))
+
+
+def bad_rpr(rpr: bytes) -> list[str]:
+    """字の書式に、消したように・目立って見える（clean_rpr が除く）ものがあれば、その名前。"""
+    return clean_rpr(rpr)[1]
+
+
 def _prefix(xml: bytes, node) -> bytes:
     m = re.match(rb"<([\w.-]+:)?p\b", xml[node.s:node.se])
     return m[1] or b"" if m else b""
@@ -84,6 +126,38 @@ class PptxWriter:
     def __init__(self, doc: PptxDocument):
         self.doc = doc
         self.edits: dict[str, list[tuple[int, int, bytes]]] = {}
+        self.warnings: list[str] = []
+
+    def note(self, fid: str, names: list[str]) -> None:
+        self.warnings.append(f"{fid}: 書く所に残っていた書式（{'・'.join(names)}）は、書いた字に引き継がず、図形・段落の既定の"
+                             "書式（字の大きさ・書体はそのまま）で書きました")
+
+    def put_value(self, item: dict, part: str, xml: bytes, sg, s: int, e: int, value: str) -> None:
+        """字の要素（sg の a:t）の字 [s, e) を値にする。その字の要素の書式に取り消し線・目立つ色などがあれば、字の要素を分けて、
+        その書式を除いた字の要素で書く（前後の字は元の書式のまま。前・後ろに字が残らなければ、その側は分けない）。"""
+        body = self.enc(value)
+        t = sg.node
+        r = t.parent
+        rpr = r.find("rPr") if r is not None and r.local == "r" else None
+        if rpr is None or not body:
+            self.put(part, s, e, body)
+            return
+        old = xml[rpr.s:rpr.e]
+        new, names = clean_rpr(old)
+        if not names:
+            self.put(part, s, e, body)
+            return
+        self.note(item["id"], names)
+        pre = re.match(rb"<([\w.-]+:)?r\b", xml[r.s:r.se])[1] or b""
+        r_open, t_open = xml[r.s:r.se], xml[t.s:t.se]
+        close = b"</" + pre + b"t></" + pre + b"r>"
+        mid = r_open + new + t_open + body + close
+        head_empty = t.se == t.e or s <= t.se
+        tail_empty = t.se == t.e or e >= t.es
+        if t.se == t.e:
+            raise FillError(f"{item['id']}: 中身のない字の要素（<a:t/>）には書けません")
+        lo, hi = (r.s if head_empty else s), (r.e if tail_empty else e)
+        self.put(part, lo, hi, (b"" if head_empty else close) + mid + (b"" if tail_empty else r_open + old + t_open))
 
     def put(self, part: str, s: int, e: int, b: bytes) -> None:
         for a, z, _x in self.edits.get(part, []):
@@ -112,7 +186,7 @@ class PptxWriter:
                 raise FillError(f"{item['id']}: 書き足す位置が、字の要素でない所（{sg.kind}）にあります")
             cm = t_chars(xml, sg.node)
             at = cm[off][1] if a > 0 else cm[off][0]
-            self.put(p.part, at, at, self.enc(value))
+            self.put_value(item, p.part, xml, sg, at, at, value)
             return
         if b > len(pos):
             raise FillError(f"{item['id']}: 空欄の位置が見つかりません")
@@ -133,7 +207,10 @@ class PptxWriter:
                 raise FillError(f"{item['id']}: 空欄が、PowerPoint が作る字（スライド番号・日付など）にかかっています")
             cm = t_chars(xml, sg.node)
             k0, k1 = min(ranges[i]), max(ranges[i]) + 1
-            self.put(p.part, cm[k0][0], cm[k1 - 1][1], self.enc(value) if first else b"")
+            if first:
+                self.put_value(item, p.part, xml, sg, cm[k0][0], cm[k1 - 1][1], value)
+            else:
+                self.put(p.part, cm[k0][0], cm[k1 - 1][1], b"")
             first = False
 
     def para_end(self, item: dict, p, value: str) -> None:
@@ -149,6 +226,9 @@ class PptxWriter:
             rpr = re.sub(rb"</" + re.escape(pre) + rb"endParaRPr>$", b"</" + pre + b"rPr>", rpr)
             if rpr == raw:
                 raise FillError(f"{item['id']}: 段落の終わりの印の書式を写せません")
+            rpr, names = clean_rpr(rpr)  # 空のマスに残った取り消し線・目立つ色などは引き継がない
+            if names:
+                self.note(item["id"], names)
         run = b"<" + pre + b"r>" + rpr + b"<" + pre + b"t>" + self.enc(value) + b"</" + pre + b"t></" + pre + b"r>"
         if node.se == node.e:  # <a:p/>
             self.put(p.part, node.s, node.e, xml[node.s:node.e][:-2].rstrip() + b">" + run + b"</" + pre + b"p>")
@@ -224,7 +304,7 @@ def fill(doc: PptxDocument, values: dict, *, force: bool = False) -> FillResult:
             problems.append(str(e))
     if problems:
         raise FillError("\n".join(problems))
-    return FillResult(w.build(), patches)
+    return FillResult(w.build(), patches, w.warnings)
 
 
 # ====================================================================== 証明
@@ -263,7 +343,10 @@ def _cut(xml: bytes, spans: list[tuple[int, int]]) -> bytes:
 
 
 def _skeleton(xml: bytes, p) -> bytes:
-    """段落の XML から、字の要素（a:r）を除いたもの（段落の書式・行の区切り・終わりの印）。"""
+    """段落の XML から、字の要素（a:r）を除いたもの（段落の書式・行の区切り・終わりの印）。中身のない段落（<a:p/>）は、
+    書き込みで字の要素を足すときと同じ形（<a:p></a:p>）にそろえる（字の要素を足しただけの段落を、変わったとしない）。"""
+    if p.node.se == p.node.e:
+        return xml[p.node.s:p.node.e][:-2].rstrip() + b"></" + _prefix(xml, p.node) + b"p>"
     return _cut(xml[p.node.s:p.node.e], [(k.s - p.node.s, k.e - p.node.s) for k in p.node.kids if k.local == "r"])
 
 
@@ -350,6 +433,7 @@ def prove(original: bytes, new: bytes, written: dict) -> PptxProof:
             raw = xa[end.s:end.e]
             raw = re.sub(rb"^<" + re.escape(pre) + rb"endParaRPr\b", b"<" + pre + b"rPr", raw)
             fmts.add(re.sub(rb"</" + re.escape(pre) + rb"endParaRPr>$", b"</" + pre + b"rPr>", raw))
+        fmts |= {clean_rpr(f)[0] for f in fmts}  # 書いた字には、取り消し線・目立つ色を引き継がない（clean_rpr）
         if not _formats(xb, y) <= fmts:
             pr.unexpected.append(f"段落 {i + 1}：元の段落にない字の書式が使われています")
         want = _expected_text(x, items)
@@ -359,6 +443,53 @@ def prove(original: bytes, new: bytes, written: dict) -> PptxProof:
         if i not in targets and x.text != y.text:
             pr.unexpected.append(f"書いていない段落 {i + 1} の字が変わっています（「{x.text[:30]}」→「{y.text[:30]}」）")
     return pr
+
+
+def written_formatting(original: bytes, new: bytes, written: dict) -> list[dict]:
+    """書いた後のファイルを読み直し、書いた字（元の文書で書く所を決め直し、書いた後の段落でのその字の位置）の字の書式に、
+    取り消し線・目立つ色・蛍光ペンがあれば [{id, formatting}]（読み戻しで伝える）。"""
+    a, b = PptxDocument(original), PptxDocument(new)
+    pa, pb = _paras(a), _paras(b)
+    sp = Spots(a)
+    index = {id(p): i for i, p in enumerate(pa)}
+    used: dict = {}
+    per: dict[int, list] = {}
+    for fid, value in written.items():
+        if isinstance(value, dict) and "@" in value:
+            it = resolve_write(sp, value["@"], used)
+            value = value["value"]
+        else:
+            it = sp.items.get(fid)
+        p = it["para"]
+        if it["kind"] == "cell":
+            span, text = ((0, len(p.text)) if p.text else (0, 0)), str(value)
+        elif it["kind"] == "checkbox":
+            x, y = it["span"]
+            on = value is True or str(value).lower() in ("true", "1", "yes", "はい", "あり", "☑", "■")
+            span, text = (x, y), box_mark(p.text[x:y], on)
+        else:
+            span, text = it["span"], str(value)
+        per.setdefault(index[id(p)], []).append((span, text, fid))
+    out = []
+    for i, ws in per.items():
+        y = pb[i]
+        xml = b.xml(y.part)
+        pos = y.positions()
+        delta = 0
+        for (s0, e0), text, fid in sorted(ws):
+            ns = s0 + delta
+            delta += len(text) - (e0 - s0)
+            found: list[str] = []
+            for k in range(ns, min(ns + len(text), len(pos))):
+                sg = y.segs[pos[k][0]]
+                r = sg.node.parent if sg.node is not None else None
+                rpr = r.find("rPr") if r is not None else None
+                for n in (bad_rpr(xml[rpr.s:rpr.e]) if rpr is not None else []):
+                    if n not in found:
+                        found.append(n)
+            if found:
+                out.append({"id": fid, "formatting": found})
+    return out
 
 
 # ====================================================================== api から
@@ -378,6 +509,9 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
               "ids_after_writing": "PowerPoint には書いた所の印を置けません。書いた後のファイルでは、書いた段落の残りの空欄の id の番号が"
                                    "前に詰まり、書いたマスは欄の一覧から消えます。続けて書くときは、書いた後のファイルを開き直して id を"
                                    "確かめるか、元のファイルに、まとめて書いてください"}
+    from ..openkinds import _formatting
+
+    _formatting(result, lambda: written_formatting(blob, res.blob, written_of(res.patches)))
     anchored = {p.key: p.id for p in res.patches if p.anchor}
     if anchored:
         result["anchored"] = anchored

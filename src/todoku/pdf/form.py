@@ -23,6 +23,11 @@ FF_MULTISELECT = 1 << 21
 FF_COMB = 1 << 24
 FF_RADIOSINUNISON = 1 << 25
 
+# 注釈の印（/F、ISO 32000-1 12.5.3 表 165）
+ANNOT_HIDDEN = 1 << 1
+ANNOT_PRINT = 1 << 2
+ANNOT_NOVIEW = 1 << 5
+
 
 @dataclass
 class Widget:
@@ -33,6 +38,30 @@ class Widget:
     state: str | None  # いまの見た目の状態（/AS）
     hidden: bool = False
     mk_caption: str = ""
+    flags: int = 0  # 注釈の印（/F）：1 Invisible・2 Hidden・4 Print・32 NoView（ISO 32000-1 12.5.3）
+    states: tuple = ()  # 見た目（/AP /N）にある「入」の状態の名前（Off を除く。チェック・ラジオ）
+
+    @property
+    def on_screen(self) -> bool:
+        """画面に出る部品か：ページにあり、隠す印（Hidden）も画面に出さない印（NoView）もない。"""
+        return self.page >= 0 and not self.flags & (ANNOT_HIDDEN | ANNOT_NOVIEW)
+
+    @property
+    def printed(self) -> bool:
+        """紙に印刷される部品か：ページにあり、隠す印（Hidden）がなく、印刷する印（Print）がある（/F がなければ印刷されない）。"""
+        return self.page >= 0 and not self.flags & ANNOT_HIDDEN and bool(self.flags & ANNOT_PRINT)
+
+    def why_unseen(self) -> str:
+        why = []
+        if self.page < 0:
+            why.append("どのページにもありません")
+        if self.flags & ANNOT_HIDDEN:
+            why.append("隠す印（/F の Hidden）があります")
+        if self.flags & ANNOT_NOVIEW:
+            why.append("画面に出さない印（/F の NoView）があります")
+        if not self.flags & ANNOT_PRINT:
+            why.append("印刷する印（/F の Print）がありません")
+        return "・".join(why)
 
 
 @dataclass
@@ -54,7 +83,7 @@ class FormField:
         if self.ftype == "Btn":
             if self.flags & FF_PUSH:
                 return "button"
-            if self.flags & FF_RADIO:
+            if self.flags & FF_RADIO or self.radio_like:
                 return "radio"
             return "checkbox"
         if self.ftype == "Ch":
@@ -62,6 +91,28 @@ class FormField:
         if self.ftype == "Sig":
             return "signature"
         return "text"
+
+    @property
+    def radio_like(self) -> bool:
+        """チェックの欄（Radio の印なし）で、部品ごとに「入」の状態の名前が違うもの（/M と /F など）：値（/V）と同じ名前の
+        部品だけが入になる（ISO 32000-1 12.7.4.2.3）ので、ひとつ選ぶ欄として扱う。"""
+        if self.ftype != "Btn" or self.flags & (FF_RADIO | FF_PUSH) or len(self.widgets) < 2:
+            return False
+        names = {w.on for w in self.widgets if w.on}
+        return len(names) > 1
+
+    def visibility(self, widgets=None) -> tuple[str | None, str | None]:
+        """(画面にも紙にも出ない理由, 画面には出るが紙に印刷されない理由)。どちらも、出る部品が 1 つでもあれば None。
+        widgets：値を見せる部品（ひとつ選ぶ欄では、選んだ部品）。省けば、欄のすべての部品。"""
+        ws = self.widgets if widgets is None else list(widgets)
+        if not ws:
+            return "欄の部品（ウィジェット）がありません", None
+        why = "／".join(dict.fromkeys(w.why_unseen() for w in ws if w.why_unseen()))
+        if not any(w.on_screen or w.printed for w in ws):
+            return why, None
+        if not any(w.printed for w in ws):
+            return None, why
+        return None, None
 
     @property
     def readonly(self) -> bool:
@@ -208,6 +259,7 @@ def read_fields(doc) -> list[FormField]:
             ap = doc.resolve(wd.get("AP")) or {}
             n = doc.resolve(ap.get("N")) if isinstance(ap, dict) else None
             on = None
+            states = []
             if isinstance(n, dict):
                 states = [k for k in n if k != "Off"]
                 on = states[0] if states else None
@@ -217,7 +269,7 @@ def read_fields(doc) -> list[FormField]:
             f.widgets.append(Widget(w if isinstance(w, Ref) else None, page,
                                     (min(rect[0], rect[2]), min(rect[1], rect[3]), max(rect[0], rect[2]), max(rect[1], rect[3])),
                                     on, st.name if isinstance(st, Name) else None, bool(flags & 2),
-                                    _txt(doc, mk.get("CA")) if isinstance(mk, dict) else ""))
+                                    _txt(doc, mk.get("CA")) if isinstance(mk, dict) else "", flags, tuple(states)))
         out.append(f)
 
     for r in doc.resolve(af.get("Fields")) or []:

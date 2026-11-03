@@ -4,7 +4,8 @@
 "pad": 字と○のすき間（pt）, "box": [左, 上, 右, 下]（mm。○の外枠をエージェントが決めるとき）, "style": "ellipse"（既定）か "border"}}。
 窓は印刷された選択肢を欄として並べない（字の意味からは決めない）ので、エージェントが窓の字を読んで、囲む字を指定する。
 - 囲む字は、窓の字のとおりに（字の間の空白は、あってもなくてもよい）。同じ字がいくつもあるときは、near（いちばん近い所）か
-  occurrence（読む順）で1つに決める。決まらなければ、候補を添えて断る
+  occurrence（読む順）で1つに決める。near があれば、occurrence は near といちばん近い関係の候補の中の何番目か（Word・Excel と
+  同じ）。near がなければ、ページ（page がなければ文書）のすべての候補の中の何番目か。決まらなければ、候補を添えて断る
 - ○の形：囲む字の箱（字の送りの幅 × 字の高さ）を合わせた四角を、すき間（pad、既定は字の大きさの 0.12 倍）だけ広げた四角の
   4 つの角を通る楕円のうち、ほかの字の面に触れないもので、上下と左右のはみ出しがいちばん近いもの。触れるときは、縦横の比を
   細かく変え、すき間を 0（字の箱の角を通る）まで小さくしてためす。ほかの字は、字の箱の縁から字の大きさの 1/12 だけ内側（字の面。
@@ -151,17 +152,21 @@ def find(doc, spec: dict, layouts: dict) -> tuple[int, object, object, int, int]
     if not hits:
         raise AnchorError(f"「{target}」が{where}見つかりません（窓の字のとおりに指定してください）")
     occ = spec.get("occurrence")
-    if occ is not None:
-        if not isinstance(occ, int) or isinstance(occ, bool) or not 1 <= occ <= len(hits):
+    near = spec.get("near")
+    has_near = isinstance(near, str) and bool(near.strip())
+    if occ is not None and (not isinstance(occ, int) or isinstance(occ, bool) or occ < 1):
+        raise AnchorError("occurrence は 1 以上の整数で指定してください")
+    if occ is not None and not has_near:
+        # near がなければ、occurrence はページ（page がなければ文書）のすべての候補の中の何番目か（読む順）
+        if occ > len(hits):
             raise AnchorError(f"occurrence は 1〜{len(hits)} で指定してください（「{target}」は{where} {len(hits)} か所）")
         return hits[occ - 1]
     # 選ぶ候補は、字の形だけで決める（字の意味は見ない）：
     # 1) near の字そのものの中にある所（見出し「…の有無」の「無」）は、けっして選ばない
     # 2) 前後が区切り（空白・区切りの記号 Z*・P*・行の端）ではさまれた所（「有・無」の「無」）を、字の並びの中に埋まった所
     #    （見出し「有無」の「無」・「変更後振込口座」の「振込口座」）より先にする。埋まった所しかなければ、選ばずに断る
-    near = spec.get("near")
     anchors = []
-    if isinstance(near, str) and near.strip():
+    if has_near:
         for n in sorted({h[0] for h in hits}):
             lay = layout(doc, n, layouts)
             for cell, ln, a, b in _hits(lay, near):
@@ -184,6 +189,17 @@ def find(doc, spec: dict, layouts: dict) -> tuple[int, object, object, int, int]
     if not free:
         raise AnchorError(f"「{target}」は、どれもほかの字の並びの中にあります（区切りの字ではさまれた所がありません）。"
                           f"選択肢の字か確かめて、occurrence（何番目か）で1つに決めてください：{_listing(all_hits, hits)}")
+    if anchors and occ is not None:
+        # near があれば、occurrence は near といちばん近い関係（同じマス・同じ行…：_rank の初めの数）の候補の中の何番目か
+        # （読む順。Word・Excel の docx.circle.choose と同じ）
+        ranks = [min((_rank(h[2].span_rect(h[3], h[4]), an[1]) for an in anchors if an[0] == h[0]), default=(9, float("inf")))
+                 for h in free]
+        best_kind = min(r[0] for r in ranks)
+        scope = [h for h, r in zip(free, ranks) if r[0] == best_kind]
+        if occ > len(scope):
+            raise AnchorError(f"near の「{near}」に近い「{target}」は {len(scope)} か所です（{_listing(scope, scope)}）。"
+                              f"occurrence は、その中の何番目か（1〜{len(scope)}）で指定してください")
+        return scope[occ - 1]
     if anchors and len(free) > 1:
         scored = []
         for h in free:

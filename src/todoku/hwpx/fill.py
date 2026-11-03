@@ -61,6 +61,45 @@ def t_xml(pre: str, value: str) -> bytes:
     return f"<{pre}:t>{inner}</{pre}:t>".encode("utf-8")
 
 
+# ====================================================================== 書いた字の書式
+HEADER = "Contents/header.xml"
+# 書いた字に引き継がない文字の形（hh:charPr。KS X 6101）：取り消し線（hh:strikeout の shape）・字の色（textColor が黒でない）・
+# 網かけ（shadeColor）。字の大きさ（height）・書体（hh:fontRef）はそのまま（Word の docx.fill.clean_rpr と同じ考え方）
+CHAR_NAMES = {"strike": "取り消し線", "color": "字の色", "shade": "網かけ"}
+
+
+def charpr_bad(el) -> list[str]:
+    """文字の形（hh:charPr）のうち、消したように・目立って見えるもの（CHAR_NAMES）。"""
+    out = []
+    so = kid(el, "strikeout")
+    if so is not None and (so.attrs.get("shape") or "NONE").upper() not in ("NONE", ""):
+        out.append("strike")
+    if (el.attrs.get("textColor") or "#000000").upper() not in ("#000000", "NONE"):
+        out.append("color")
+    if (el.attrs.get("shadeColor") or "none").upper() not in ("NONE", "#FFFFFF", ""):
+        out.append("shade")
+    return out
+
+
+def clean_charpr(xml: bytes, new_id: str) -> bytes:
+    """文字の形（hh:charPr のバイト列）の写し：id を new_id に、取り消し線を「なし」、字の色を黒、網かけを「なし」にしたもの。
+    ほかのバイトは同じ。証明（hwpx/proof.py）も同じ関数で、足してよい形を作る。"""
+    m = re.match(rb"<[^>]*>", xml)
+    head, body = m[0], xml[m.end():]
+    head = re.sub(rb'(\bid=")[^"]*"', lambda x: x[1] + new_id.encode() + b'"', head, count=1)
+    head = re.sub(rb'(\btextColor=")[^"]*"', rb'\g<1>#000000"', head, count=1)
+    head = re.sub(rb'(\bshadeColor=")[^"]*"', rb'\g<1>none"', head, count=1)
+    body = re.sub(rb'(<(?:[\w.-]+:)?strikeout\b[^>]*?\bshape=")[^"]*"', rb'\g<1>NONE"', body, count=1)
+    return head + body
+
+
+def _run_of(el):
+    cur = el
+    while cur is not None and L(cur) != "run":
+        cur = cur.parent
+    return cur
+
+
 def _place(el: El):
     """要素が hp:t の中か（("t", hp:t)）、hp:run の直下の部品か（("run", その部品)）。"""
     cur = el
@@ -84,6 +123,36 @@ class HwpxWriter:
         self.warnings: list[str] = []
         self.marks_used = set(doc.marks())
         self.relaid: set[int] = set()
+        self.clean_ids: dict[str, str] = {}  # 元の文字の形の id → 書いた字の形（取り消し線などを除いた写し）の id
+        self._charprs = None
+
+    def charprs(self) -> dict:
+        if self._charprs is None:
+            self._charprs = {}
+            if self.doc.pkg.has(HEADER):
+                for el in self.doc.pkg.tree(HEADER).iter():
+                    if L(el) == "charPr":
+                        self._charprs[el.attrs.get("id", "")] = el
+        return self._charprs
+
+    def value_xml(self, item: dict, run, pre: str, value: str, inside_t: bool) -> bytes:
+        """書く値の hp:t。その字の並び（hp:run）の文字の形に取り消し線・字の色・網かけがあれば、それを除いた文字の形の字の並びに
+        分けて書く（inside_t：hp:t を閉じた所に入れるか。どちらでも、hp:run の直下に置く）。"""
+        body = t_xml(pre, value)
+        cp = run.attrs.get("charPrIDRef", "0") if run is not None else None
+        el = self.charprs().get(cp) if cp is not None else None
+        bad = charpr_bad(el) if el is not None else []
+        if not bad or not body:
+            return body
+        if cp not in self.clean_ids:
+            nums = [int(k) for k in self.charprs() if k.isdigit()] + [int(v) for v in self.clean_ids.values()]
+            self.clean_ids[cp] = str(max(nums, default=-1) + 1)
+        self.warnings.append(f"{item['id']}: 書く所に残っていた書式（{'・'.join(CHAR_NAMES[x] for x in bad)}）は、書いた字に引き継がず、"
+                             "それを除いた文字の形（字の大きさ・書体はそのまま）で書きました")
+        data = self.doc.pkg.xml(self.part_of_run)
+        tag = data[run.s:run.se]
+        r_open = tag[:-2].rstrip() + b">" if run.se == run.e else tag
+        return (f"</{pre}:run><{pre}:run charPrIDRef=\"{self.clean_ids[cp]}\">".encode() + body + f"</{pre}:run>".encode() + r_open)
 
     def put(self, part: str, s: int, e: int, b: bytes) -> None:
         for a, z, _x in self.edits.get(part, []):
@@ -124,14 +193,18 @@ class HwpxWriter:
         if keep_width and a < b:
             room = _width(p.text[a:b]) - _width(value)
             pad = " " * room if room > 0 else ""
-        body = bm[0] + t_xml(pre, value) + bm[1] + t_xml(pre, pad)
+        self.part_of_run = part
+
+        def body_at(el) -> bytes:
+            return bm[0] + self.value_xml(item, _run_of(el), pre, value, True) + bm[1] + t_xml(pre, pad)
+
         pos = p.positions()
         if a == b:
             if not pos:
                 self.para_end(item, p, value)
                 return
             i, off = pos[a - 1] if a > 0 else pos[0]
-            self._insert(p.segs[i].node, off, a > 0, body, pre, data, part, item)
+            self._insert(p.segs[i].node, off, a > 0, body_at, pre, data, part, item)
             self.relayout(p)
             return
         if b > len(pos):
@@ -158,26 +231,26 @@ class HwpxWriter:
             else:
                 raise FillError(f"{item['id']}: 空欄が、書き換えられない部分（{src.kind}）にかかっています")
             if first:
-                self.put(part, s, e, f"</{pre}:t>".encode() + body + data[t_el.s:t_el.se])
+                self.put(part, s, e, f"</{pre}:t>".encode() + body_at(t_el) + data[t_el.s:t_el.se])
             else:
                 self.put(part, s, e, b"")
             first = False
         self.relayout(p)
 
-    def _insert(self, src, off: int, after: bool, body: bytes, pre: str, data: bytes, part: str, item: dict) -> None:
+    def _insert(self, src, off: int, after: bool, body_at, pre: str, data: bytes, part: str, item: dict) -> None:
         if src is None:
             raise FillError(f"{item['id']}: 書き足す位置が見つかりません")
         if src.kind == "txt":
             at = src.ends[off] if after else src.starts[off]
-            self.put(part, at, at, f"</{pre}:t>".encode() + body + data[src.el.s:src.el.se])
+            self.put(part, at, at, f"</{pre}:t>".encode() + body_at(src.el) + data[src.el.s:src.el.se])
             return
         where, el = _place(src.el) if src.el is not None else (None, None)
         if where == "t":
             at = src.e if after else src.s
-            self.put(part, at, at, f"</{pre}:t>".encode() + body + data[el.s:el.se])
+            self.put(part, at, at, f"</{pre}:t>".encode() + body_at(el) + data[el.s:el.se])
         elif where == "run":
             at = el.e if after else el.s
-            self.put(part, at, at, body)
+            self.put(part, at, at, body_at(el))
         else:
             raise FillError(f"{item['id']}: 書き足す位置が、書き換えられない部分にあります")
 
@@ -188,8 +261,9 @@ class HwpxWriter:
         pre = _prefix(p.el)
         data = self.doc.pkg.xml(part)
         bm = self.bookmark(pre, item["id"])
-        body = bm[0] + t_xml(pre, value) + bm[1]
+        self.part_of_run = part
         runs = kids(p.el, "run")
+        body = bm[0] + (self.value_xml(item, runs[-1], pre, value, False) if runs else t_xml(pre, value)) + bm[1]
         if runs:
             r = runs[-1]
             if r.se == r.e:
@@ -201,6 +275,10 @@ class HwpxWriter:
         else:
             ls = kid(p.el, "linesegarray")
             at = ls.s if ls is not None else p.el.es
+            cp0 = self.charprs().get("0")
+            if cp0 is not None and charpr_bad(cp0):
+                raise FillError(f"{item['id']}: 字の並びのない段落に、既定の文字の形（0）で書くと、"
+                                f"{'・'.join(CHAR_NAMES[x] for x in charpr_bad(cp0))}が付きます（書きません）")
             self.put(part, at, at, f'<{pre}:run charPrIDRef="0">'.encode() + body + f"</{pre}:run>".encode())
         self.relayout(p)
 
@@ -311,9 +389,15 @@ class HwpxWriter:
             return
         raise FillError(f"{item['id']}: この部品（{kind}）には書けません")
 
+    def header(self) -> bytes:
+        """header.xml：書いた字の文字の形（clean_charpr）を、hh:charProperties の終わりに足し、itemCnt を直す。"""
+        return add_charprs(self.doc.pkg.xml(HEADER), self.doc.pkg.tree(HEADER), self.clean_ids)
+
     # ------------------------------------------------------------------ できあがり
     def build(self) -> bytes:
         changed = {}
+        if self.clean_ids:
+            changed[HEADER] = self.header()
         for part, eds in self.edits.items():
             data = self.doc.pkg.xml(part)
             out = bytearray()
@@ -390,3 +474,45 @@ def fill(doc: HwpxDocument, values: dict, *, force: bool = False) -> FillResult:
     if problems:
         raise FillError("\n".join(problems))
     return FillResult(w.build(), w.patches, w.warnings)
+
+
+def add_charprs(data: bytes, root, mapping: dict[str, str]) -> bytes:
+    """header.xml に、元の文字の形の写し（clean_charpr。mapping：元の id → 新しい id）を足したバイト列。"""
+    chars = next((x for x in root.iter() if L(x) == "charProperties"), None)
+    if chars is None or chars.se == chars.e:
+        raise FillError("文字の形の一覧（hh:charProperties）がないので、取り消し線などを除いた文字の形を足せません")
+    by_cp = {x.attrs.get("id"): x for x in kids(chars, "charPr")}
+    new = b"".join(clean_charpr(data[by_cp[cp].s:by_cp[cp].e], nid) for cp, nid in mapping.items())
+    edits = [(chars.es, chars.es, new)]
+    tag = data[chars.s:chars.se]
+    m = re.search(rb'\bitemCnt="(\d+)"', tag)
+    if m:
+        edits.append((chars.s, chars.se, tag[:m.start(1)] + str(int(m[1]) + len(mapping)).encode() + tag[m.end(1):]))
+    out = bytearray()
+    at = 0
+    for s_, e_, b_ in sorted(edits, key=lambda x: (x[0], x[1])):
+        out += data[at:s_] + b_
+        at = e_
+    out += data[at:]
+    return bytes(out)
+
+
+def written_formatting(blob: bytes, name: str = "") -> list[dict]:
+    """書いた後の文書を読み直し、書いた所（しおり _todoku_…）の字の文字の形に、取り消し線・字の色・網かけがあれば
+    [{id, formatting}]（読み戻しで伝える）。"""
+    doc = HwpxDocument(blob, name)
+    cps = {el.attrs.get("id", ""): el for el in doc.pkg.tree(HEADER).iter() if L(el) == "charPr"} if doc.pkg.has(HEADER) else {}
+    out = []
+    for fid, (p, a, b) in doc.marks().items():
+        pos = p.positions()
+        found: list[str] = []
+        for k in range(a, min(b, len(pos))):
+            sg = p.segs[pos[k][0]]
+            run = sg.run if getattr(sg, "run", None) is not None else (_run_of(sg.node.el) if sg.node is not None and sg.node.el is not None else None)
+            el = cps.get(run.attrs.get("charPrIDRef", "0")) if run is not None else None
+            for x in (charpr_bad(el) if el is not None else []):
+                if CHAR_NAMES[x] not in found:
+                    found.append(CHAR_NAMES[x])
+        if found:
+            out.append({"id": fid, "formatting": found})
+    return out

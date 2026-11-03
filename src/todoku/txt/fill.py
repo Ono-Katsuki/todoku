@@ -14,7 +14,7 @@ import hashlib
 from dataclasses import dataclass, field
 
 from ..datafile.textenc import EncodingError
-from ..docx.fill import FillError, _as_bool, _is_text_value
+from ..docx.fill import LINE_BREAKS, FillError, _as_bool, _is_text_value
 from ..docx.proof import _expected_text
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from .document import NEWLINE_JA, TxtDocument, TxtError
@@ -81,8 +81,9 @@ def plan(doc: TxtDocument, values: dict) -> tuple[list[tuple[int, int, str, int]
                 else:
                     text = _is_text_value(value)
                     patch = Patch(key, "input", text, key=key, label=it.get("label", ""))
-            if isinstance(text, str) and any(ch in text for ch in "\r\n"):
-                raise FillError(f"{key}: 改行は書けません（文字だけのファイルでは、行が増えて、ほかの行の id が変わります）。"
+            if isinstance(text, str) and any(ch in text for ch in LINE_BREAKS):  # str.splitlines が行を分ける字すべて
+                raise FillError(f"{key}: 改行・行を分ける字（CR・LF・U+2028・U+0085・改ページの字など）は書けません（文字だけのファイルでは、"
+                                "読み手によって行が増えて、ほかの行の id が変わります）。"
                                 "1行ずつ、それぞれの行の欄に書いてください")
             e = _edit_of(it, text)
             if e is not None:

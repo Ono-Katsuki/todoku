@@ -60,6 +60,101 @@ def inline_xml(value: str, tp: str) -> bytes:
     return "".join(out).encode("utf-8")
 
 
+# ====================================================================== 書いた字の書式
+# 書いた字に引き継がない文字の書式（Word の docx.fill.clean_rpr と同じもの）：消したように見える（取り消し線・非表示）・
+# 目立つ（字の色・背景の色）。字の大きさ・書体は、囲む text:span のまま引き継ぐ
+_LOOK_ATTRS = {"strike": "style:text-line-through-style", "display": "text:display", "color": "fo:color",
+               "auto": "style:use-window-font-color", "bg": "fo:background-color"}
+LOOK_NAMES = {"strike": "取り消し線", "display": "非表示", "color": "字の色", "bg": "背景の色（網かけ・蛍光ペン）"}
+# 打ち消す書式（足す自動スタイルの style:text-properties の属性と値）。証明は、この形だけを認める
+LOOK_RESET = {"strike": (("style:text-line-through-style", "none"), ("style:text-line-through-type", "none")),
+              "display": (("text:display", "true"),),
+              "color": (("style:use-window-font-color", "true"),),
+              "bg": (("fo:background-color", "transparent"),)}
+STYLE_PREFIX = "todoku_w"
+
+
+def _style_props(el) -> dict:
+    """スタイルの字の性質。字の色は、自動の色（style:use-window-font-color）と fo:color を合わせて「color」1つにする
+    （近いスタイルの決めたほうが効く。同じスタイルに両方あれば自動）。"""
+    out = {}
+    for pe in el.kids:
+        if getattr(pe, "tag", None) == "{" + NS["style"] + "}text-properties":
+            for k, attr in _LOOK_ATTRS.items():
+                v = pe.get(attr)
+                if v is not None:
+                    out[k] = v
+    if out.pop("auto", None) == "true":
+        out["color"] = "auto"
+    return out
+
+
+def looks(doc: OdtDocument, part: str, el) -> dict:
+    """el（字を囲む要素）の字の、効いている書式（_LOOK_ATTRS）：近い要素（text:span・段落）のスタイルが先。"""
+    from .text import INLINE
+
+    got: dict = {}
+    node = el
+    while node is not None and getattr(node, "tag", None):
+        loc = node.local
+        para = loc in ("p", "h") and node.tag.startswith("{" + NS["text"] + "}")
+        fam = "paragraph" if para else ("text" if node.tag in INLINE else None)
+        st = node.get("text:style-name") if fam else None
+        if st:
+            for sel in doc.styles.chain(part, fam, st):
+                for k, v in _style_props(sel).items():
+                    got.setdefault(k, v)
+        if para:
+            d = doc.styles.defaults.get("paragraph")
+            if d is not None:
+                for k, v in _style_props(d).items():
+                    got.setdefault(k, v)
+            break
+        node = node.parent
+    return got
+
+
+def bad_looks(lk: dict) -> list[str]:
+    """消したように・目立って見える書式（_LOOK_ATTRS のうち「なし」でない値）の種類。"""
+    out = []
+    if lk.get("strike") not in (None, "none"):
+        out.append("strike")
+    if lk.get("display") in ("none", "condition"):
+        out.append("display")
+    if (lk.get("color") or "auto").lower() not in ("auto", "#000000"):
+        out.append("color")
+    if (lk.get("bg") or "transparent").lower() not in ("transparent", "#ffffff"):
+        out.append("bg")
+    return out
+
+
+def _container(src) -> object:
+    """字の片（Src）を囲む要素。"""
+    if src is None or src.el is None:
+        return None
+    return src.el if src.kind == "txt" else src.el.parent
+
+
+def written_formatting(doc: OdtDocument) -> list[dict]:
+    """書いた後の文書を読み直し、書いた所（しおり _todoku_…）の字に、消したように・目立って見える書式があれば
+    [{id, formatting}]（読み戻しで伝える）。"""
+    out = []
+    for fid, (p, a, b) in doc.marks().items():
+        pos = p.positions()
+        found: list[str] = []
+        for k in range(a, min(b, len(pos))):
+            sg = p.segs[pos[k][0]]
+            el = _container(sg.node) if sg.node is not None else None
+            if el is None:
+                continue
+            for x in bad_looks(looks(doc, p.part, el)):
+                if LOOK_NAMES[x] not in found:
+                    found.append(LOOK_NAMES[x])
+        if found:
+            out.append({"id": fid, "formatting": found})
+    return out
+
+
 def s_xml(n: int, tp: str) -> bytes:
     if n <= 0:
         return b""
@@ -75,6 +170,8 @@ class OdtWriter:
         self.patches: list[Patch] = []
         self.warnings: list[str] = []
         self.marks_used = set(doc.marks())
+        self.styles_added: dict[str, tuple[int, list[bytes]]] = {}
+        self.reset: dict = {}
 
     def tp(self, part: str) -> str:
         root = self.doc.pkg.tree(part)
@@ -87,6 +184,50 @@ class OdtWriter:
             if s == e and a < s < z:
                 raise FillError("同じ所に2つの書き込みが重なりました")
         self.edits.setdefault(part, []).append((s, e, b))
+
+    def clean(self, part: str, el, body: bytes, fid: str) -> bytes:
+        """書く所（el の中）の字の書式に、取り消し線・非表示・字の色・背景の色があれば、それを打ち消す自動スタイルの
+        text:span で値を囲む（字の大きさ・書体は、囲む span のまま）。打ち消した書式は警告で伝える。"""
+        if el is None or not body:
+            return body
+        bad = bad_looks(looks(self.doc, part, el))
+        if not bad:
+            return body
+        name = self.reset_style(part, tuple(bad))
+        tp = self.tp(part)
+        self.warnings.append(f"{fid}: 書く所に残っていた書式（{'・'.join(LOOK_NAMES[x] for x in bad)}）は、書いた字に引き継がず、"
+                             "打ち消す書式で書きました（字の大きさ・書体はそのまま）")
+        return f'<{tp}:span {tp}:style-name="{esc_attr(name)}">'.encode() + body + f"</{tp}:span>".encode()
+
+    def reset_style(self, part: str, bad: tuple) -> str:
+        """打ち消す書式の自動スタイル（office:automatic-styles の終わりに足す）の名前。"""
+        if (part, bad) in self.reset:
+            return self.reset[(part, bad)]
+        doc_el = top(self.doc.pkg.tree(part))
+        auto = doc_el.find("office:automatic-styles")
+        if auto is None or auto.se == auto.e:
+            raise FillError("書く所の字の書式（取り消し線・字の色など）を打ち消すスタイルを置く所（office:automatic-styles）がありません")
+        taken = {n for (_f, n) in self.doc.styles.auto.get(self.doc.styles._part(part), {})} | {n for (_f, n) in self.doc.styles.common}
+        k = 1
+        while f"{STYLE_PREFIX}{k}" in taken or f"{STYLE_PREFIX}{k}" in self.reset.values():
+            k += 1
+        name = f"{STYLE_PREFIX}{k}"
+        sp = doc_el.prefix_of(NS["style"]) or "style"
+        decl = {}
+        attrs = []
+        for x in bad:
+            for qn, v in LOOK_RESET[x]:
+                pre, local = qn.split(":")
+                have = doc_el.prefix_of(NS[pre])
+                if have is None:
+                    decl[pre] = f' xmlns:{pre}="{NS[pre]}"'
+                    have = pre
+                attrs.append(f'{have}:{local}="{v}"')
+        el = (f'<{sp}:style {sp}:name="{name}" {sp}:family="text"><{sp}:text-properties{"".join(decl.values())} '
+              + " ".join(attrs) + f"/></{sp}:style>").encode()
+        self.styles_added.setdefault(part, (auto.es, []))[1].append(el)  # 部品ごとに、まとめて1か所に足す（build）
+        self.reset[(part, bad)] = name
+        return name
 
     def bookmark(self, part: str, fid: str) -> tuple[bytes, bytes]:
         tp = self.tp(part)
@@ -121,17 +262,17 @@ class OdtWriter:
             after = a > 0
             if src.kind == "txt":
                 at = src.ends[off] if after else src.starts[off]
-                self.put(part, at, at, bm[0] + inline_xml(value, tp) + bm[1])
+                self.put(part, at, at, bm[0] + self.clean(part, _container(src), inline_xml(value, tp), item["id"]) + bm[1])
             elif src.kind == "s":
                 k = off + 1 if after else off
                 if 0 < k < src.count:
-                    self.put(part, src.s, src.e, s_xml(k, tp) + bm[0] + inline_xml(value, tp) + bm[1] + s_xml(src.count - k, tp))
+                    self.put(part, src.s, src.e, s_xml(k, tp) + bm[0] + self.clean(part, _container(src), inline_xml(value, tp), item["id"]) + bm[1] + s_xml(src.count - k, tp))
                 else:
                     at = src.e if k >= src.count else src.s
-                    self.put(part, at, at, bm[0] + inline_xml(value, tp) + bm[1])
+                    self.put(part, at, at, bm[0] + self.clean(part, _container(src), inline_xml(value, tp), item["id"]) + bm[1])
             elif src.kind in ("tab", "br", "el", "ctl", "field", "text"):
                 at = src.e if after else src.s
-                self.put(part, at, at, bm[0] + inline_xml(value, tp) + bm[1])
+                self.put(part, at, at, bm[0] + self.clean(part, _container(src), inline_xml(value, tp), item["id"]) + bm[1])
             else:
                 raise FillError(f"{item['id']}: 書き足す位置が、書き換えられない部分にあります")
             return
@@ -154,7 +295,7 @@ class OdtWriter:
             sg = p.segs[i]
             src = sg.node
             k0, k1 = min(ranges[i]), max(ranges[i]) + 1
-            new = (bm[0] + inline_xml(value, tp) + bm[1] + inline_xml(pad, tp)) if first else b""
+            new = (bm[0] + self.clean(part, _container(src), inline_xml(value, tp), item["id"]) + bm[1] + inline_xml(pad, tp)) if first else b""
             if src is None or sg.field is not None and sg.field.kind != "field":
                 raise FillError(f"{item['id']}: 空欄が、入力の欄の中にかかっています")
             if src.kind == "txt":
@@ -175,7 +316,7 @@ class OdtWriter:
         el = p.el
         data = self.doc.pkg.xml(part)
         bm = self.bookmark(part, item["id"])
-        body = bm[0] + inline_xml(value, tp) + bm[1]
+        body = bm[0] + self.clean(part, el, inline_xml(value, tp), item["id"]) + bm[1]
         if el.se == el.e:
             tag = data[el.s:el.e]
             qname = re.match(rb"<([^\s/>]+)", tag)[1]
@@ -383,6 +524,8 @@ class OdtWriter:
     # ------------------------------------------------------------------ できあがり
     def build(self) -> bytes:
         changed = {}
+        for part, (at, els) in self.styles_added.items():
+            self.put(part, at, at, b"".join(els))
         for part, eds in self.edits.items():
             data = self.doc.pkg.xml(part)
             out = bytearray()

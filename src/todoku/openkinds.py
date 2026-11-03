@@ -184,6 +184,9 @@ def _fill_csv(k: str, blob: bytes, name: str, values: dict, encoding: str | None
               "cells": {p.key: p.id for p in res.patches if p.key != p.id}}
     if res.appended_rows:
         result["appended_rows"] = res.appended_rows
+    if res.formula_like:
+        # 表計算で数式として読まれうる値（= + - @ などで始まる）：値は変えずに書き、字のまま見せる形（先頭に「'」）を添える
+        result["formula_like"] = res.formula_like
     return {"blob": res.blob, "result": result, "readback": {p.key: p.value for p in res.patches}, "labels": labels}
 
 
@@ -206,10 +209,24 @@ def _fill_json(k: str, blob: bytes, name: str, values: dict, encoding: str | Non
             "ids": {p.key: p.id for p in res.patches}}
 
 
+def _formatting(result: dict, read) -> None:
+    """書いた字の書式（読み戻し）：書いた後のファイルを読み直し、書いた字に取り消し線・非表示・目立つ字の色などがあれば、
+    written_formatting と警告で伝える（Word の api._written_formatting と同じ形）。読み直せなければ、そのことを伝える。"""
+    try:
+        found = read()
+    except Exception as e:  # noqa: BLE001  確かめられなかったことを、黙らずに伝える
+        found = [{"id": "書いた所", "formatting": [f"書いた字の書式を読み直せませんでした（{type(e).__name__}）"]}]
+    if found:
+        result["written_formatting"] = found
+        result["warnings"] = list(result.get("warnings") or []) + [
+            f"{x['id']}: 書いた字の書式に「{'・'.join(x['formatting'])}」があります" for x in found]
+
+
 def _fill_odt(blob: bytes, name: str, values: dict, force: bool) -> dict:
     from .docx.fill import FillError
     from .odf.text import OdtDocument
     from .odf.textfill import fill, written_of
+    from .odf.textfill import written_formatting as odt_formatting
     from .odf.textproof import prove
 
     try:
@@ -219,6 +236,7 @@ def _fill_odt(blob: bytes, name: str, values: dict, force: bool) -> dict:
     pr = prove(blob, res.blob, written_of(res.patches))
     result = {"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings), "unexpected": pr.unexpected[:20],
               "structure_errors": pr.lint_errors[:20]}
+    _formatting(result, lambda: odt_formatting(OdtDocument(res.blob, name)))
     readback = {key: v for key, v in values.items() if not key.startswith("@")}
     anchored = {p.key: p.id for p in res.patches if p.anchor}
     if anchored:
@@ -249,6 +267,9 @@ def _fill_hwpx(blob: bytes, name: str, values: dict, force: bool) -> dict:
     result = {"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings), "unexpected": pr.unexpected[:20],
               "structure_errors": pr.lint_errors[:20],
               "relayout": "字を変えた段落は、한글の行の配置の控え（hp:linesegarray）を除きました。한글が開くときに、その段落の行を配置し直します"}
+    from .hwpx.fill import written_formatting as hwpx_formatting
+
+    _formatting(result, lambda: hwpx_formatting(res.blob, name))
     readback = {key: v for key, v in plain.items() if not key.startswith("@")}
     anchored = {p.key: p.id for p in res.patches if p.anchor}
     if anchored:

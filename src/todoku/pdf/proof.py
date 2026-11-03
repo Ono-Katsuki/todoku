@@ -63,7 +63,7 @@ class PdfProof:
         return 1 if self.prefix_ok else 0
 
 
-ALLOWED_FIELD_KEYS = {"V", "AS", "AP", "DA"}
+ALLOWED_FIELD_KEYS = {"V", "AS", "AP", "DA", "I", "TI"}  # I・TI：リストの選んだ番号・一番上に見せる行
 
 
 def _norm(o):
@@ -149,6 +149,7 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
         if what:
             pr.changed_fields.append(what)
         _collect(b, cur, reach, set(added))
+    _check_states(b, set(changed) | set(added), pr)
     # 足したオブジェクト：書き換えたものからたどれて、欄・見た目・書体だけ（置いた画像は、下で1つずつ確かめる）
     seal_objs = set()
     # 足した書体の、字の対応（ToUnicode の CMap）のストリーム
@@ -185,6 +186,44 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
         what = "ページの描画" if _kind(b.get(num)) == "content" else "スタンプの注釈か画像"
         pr.unexpected.append(f"足したオブジェクト {num}（{what}）は、置くと言った画像・○として確かめられません")
     return pr
+
+
+def _check_states(b: PdfDocument, touched: set[int], pr: PdfProof) -> None:
+    """書き換えた・足した欄の、値と見た目の状態がつじつまが合うか（書いた後の文書だけで決まること）：
+    - チェック・ラジオ：入（/AS が Off でない）の部品の状態は、どれも値（/V）と同じ名前。値と同じ「入」の名前を持つ部品は入
+      （ISO 32000-1 12.7.4.2.3・12.7.4.2.4）
+    - リスト：選んだ番号（/I）があれば、小さい順で、その選択肢の書き出しの値が値（/V）と同じ（12.7.4.4）"""
+    from .form import read_fields
+    from .objects import decode_text
+
+    for f in read_fields(b):
+        nums = {w.ref.num for w in f.widgets if w.ref is not None} | ({f.ref.num} if f.ref is not None else set())
+        if not nums & touched:
+            continue
+        if f.ftype == "Btn" and f.kind in ("checkbox", "radio"):
+            v = f.value
+            v = v.name if isinstance(v, Name) else (decode_text(v) if isinstance(v, (bytes, PdfString)) else None)
+            v = v or "Off"
+            for w in f.widgets:
+                st = w.state or "Off"
+                if st != "Off" and st != v:
+                    pr.unexpected.append(f"欄 {f.name}：値（/V）は {v} なのに、部品の見た目の状態（/AS）が {st} の入になっています")
+                elif st == "Off" and v != "Off" and v in w.states:
+                    pr.unexpected.append(f"欄 {f.name}：値（/V）は {v} なのに、その状態の部品が切（Off）のままです")
+        if f.ftype == "Ch" and f.ref is not None:
+            node = b.resolve(f.ref)
+            idx = b.resolve(node.get("I")) if isinstance(node, dict) else None
+            if idx is None:
+                continue
+            idx = [b.resolve(x) for x in idx] if isinstance(idx, list) else idx
+            if not isinstance(idx, list) or not all(isinstance(i, int) and 0 <= i < len(f.options) for i in idx) \
+                    or idx != sorted(set(idx)):
+                pr.unexpected.append(f"欄 {f.name}：選んだ番号（/I）{idx} が、選択肢の番号の小さい順の並びではありません")
+                continue
+            vals = f.value_text()
+            vals = vals if isinstance(vals, list) else ([] if vals in (None, "") else [vals])
+            if [f.options[i][0] for i in idx] != [str(x) for x in vals]:
+                pr.unexpected.append(f"欄 {f.name}：選んだ番号（/I）{idx} の選択肢と、値（/V）{vals} が合いません")
 
 
 def _check_glyphs(b: PdfDocument, num: int, o: Stream, pr: PdfProof) -> None:

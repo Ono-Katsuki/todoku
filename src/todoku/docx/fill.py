@@ -191,6 +191,8 @@ class Filler:
         self.warnings: list[str] = []
         self.next_bm = 1 + max([int(m) for part in doc.parts for m in re.findall(rb'bookmark(?:Start|End)\b[^>]*?\bw?:?id="(\d+)"', doc.xml(part))] + [0])
         self.run_ops: dict[tuple[str, int], tuple[Node, list]] = {}
+        self.bm_ids: dict[int, str] = {}
+        self.bound: dict[tuple[str, int, int], tuple[str, str, object]] = {}  # 結び付けた XML の値の所 → (欄, 書く値, 所)
         self._perm_ranges()
 
     def ed(self, part: str) -> Editor:
@@ -232,6 +234,7 @@ class Filler:
         bid = self.next_bm
         self.next_bm += 1
         bm = MARK_PREFIX + name.replace(".", "_").replace("#", "_")
+        self.bm_ids[bid] = name  # 警告では、しおりの名前（T1_R2_C2）でなく欄の名前（T1.R2.C2）で伝える
         return (f'<{pre}:bookmarkStart {pre}:id="{bid}" {pre}:name="{bm}"/>'.encode(),
                 f'<{pre}:bookmarkEnd {pre}:id="{bid}"/>'.encode())
 
@@ -307,8 +310,8 @@ class Filler:
             out = bytearray()
             buf = bytearray()
             if dropped and any(op[3] is not None for op in ops):
-                self.note_dropped([m_[1].decode() for op in ops if op[3] is not None and op[4]
-                                   for m_ in [re.search(rb'name="' + MARK_PREFIX.encode() + rb'([^"]*)"', op[4][0])] if m_], dropped)
+                self.note_dropped([self.bm_ids.get(int(m_[1]), "") for op in ops if op[3] is not None and op[4]
+                                   for m_ in [re.search(rb'\bw?:?id="(\d+)"', op[4][0])] if m_], dropped)
 
             def flush():
                 nonlocal buf
@@ -549,9 +552,15 @@ class Filler:
             if segs:
                 n0 = segs[0].node
                 ed.put(n0.se, n0.es, escape(ch))
+            self.bind(item, c, value)
             self.patches.append(Patch(item["id"], "control", on, part))
             return
         text = _is_text_value(value)
+        if any(ch_ in text for ch_ in LINE_BREAKS) and (c.kind in ("date", "dropdown", "combo")
+                                                        or (c.kind == "text" and not c.multiline)):
+            raise FillError(f"{item['id']}: この欄は1行の欄なので（"
+                            + ("w:text の w:multiLine が「はい」でない" if c.kind == "text" else "選択肢・日付の欄")
+                            + "）、改行を書けません。改行を除くか、1行にして書いてください")
         if c.kind == "dropdown" and text not in c.options:
             raise FillError(f"{item['id']}: 「{text}」は選択肢にありません。選べるのは " + "、".join(f"「{x}」" for x in c.options))
         if c.kind == "date":
@@ -566,11 +575,53 @@ class Filler:
                 else:
                     tag = tag[:-1].rstrip(b"/") + f' {pre}:fullDate="'.encode() + full + b'"' + (b"/>" if dnode.se == dnode.e else b">")
                 ed.put(dnode.s, dnode.se, tag)
+        self.bind(item, c, value)
         ph = pr.find("showingPlcHdr")
         if ph is not None:
             ed.put(ph.s, ph.e, b"")
         self._replace_result(item, c, text)
         self.patches.append(Patch(item["id"], "input", text, part))
+
+    def bind(self, item: dict, c, value) -> None:
+        """結び付けた XML の値（w:dataBinding）も書く予定を立てる（Word は開くとき、その値で欄を表示し直すため）。"""
+        got = bound_store(self.doc, c, value, item["id"])
+        if got is None:
+            return
+        t, stored = got
+        key = (t.part, t.s, t.e)
+        prev = self.bound.get(key)
+        if prev is not None and prev[1] != stored:
+            raise FillError(f"{item['id']}: {prev[0]} と同じ XML のデータに結び付いた欄に、違う値を書こうとしています"
+                            f"（Word では、結び付いた欄はいつも同じ値になります）")
+        self.bound[key] = (item["id"], stored, t)
+
+    def finish_bound(self) -> dict[str, bytes]:
+        """結び付けた XML の部品の、書いた値の所だけを変えたバイト列。同じデータに結び付いたほかの欄は、警告で伝える。"""
+        from .databind import edit, locate
+
+        out: dict[str, bytes] = {}
+        by_part: dict[str, list] = {}
+        for (part, _s, _e), (fid, stored, t) in self.bound.items():
+            by_part.setdefault(part, []).append((t, stored))
+        for part, todo in by_part.items():
+            xml = self.doc.zip.read(part)
+            for t, stored in sorted(todo, key=lambda x: -x[0].s):
+                xml = edit(xml, t, stored)
+            out[part] = xml
+        if self.bound:
+            written = {fid for fid, _v, _t in self.bound.values()}
+            for name, it in self.sp.items.items():
+                c = it.get("control")
+                if c is None or name in written or c.source != "sdt":
+                    continue
+                try:
+                    t = locate(self.doc, c)
+                except Exception:  # noqa: BLE001
+                    continue
+                if t is not None and (t.part, t.s, t.e) in self.bound:
+                    other = self.bound[(t.part, t.s, t.e)][0]
+                    self.warnings.append(f"{name}: {other} と同じ XML のデータに結び付いた欄なので、Word で開くと {other} と同じ値になります")
+        return out
 
     def _replace_result(self, item: dict, c, text: str) -> None:
         ed = self.ed(c.part)
@@ -580,7 +631,8 @@ class Filler:
         if ts:
             first = ts[0]
             n0 = first.node
-            ed.put(n0.s, n0.e, f'<{pre}:t xml:space="preserve">'.encode() + escape(text) + f"</{pre}:t>".encode())
+            # 改行は改行の要素（w:br）に（w:t の中の改行の字は、Word では空白に見える）
+            ed.put(n0.s, n0.e, _t(pre, text) if text else f'<{pre}:t xml:space="preserve"></{pre}:t>'.encode())
             for s in ts[1:]:
                 ed.put(s.node.s, s.node.e, f'<{pre}:t xml:space="preserve"></{pre}:t>'.encode())
             # 「ここをクリックして入力」の書式（プレースホルダーの文字のスタイル）は外す（Word が値を入れるときと同じ）
@@ -604,6 +656,34 @@ class Filler:
                 ed.put(content.se, content.se, f"<{pre}:r>".encode() + _t(pre, text) + f"</{pre}:r>".encode())
             return
         raise FillError(f"{item['id']}: 値を書く場所がありません")
+
+
+# 行の区切りの字（str.splitlines が区切る字）：1行の欄には書かない
+LINE_BREAKS = ("\n", "\r", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+
+
+def bound_store(doc, c, value, fid: str = "") -> "tuple | None":
+    """コンテンツコントロールが XML のデータに結び付いていれば (値の所, 書く値)。結び付いていなければ None。
+    たどれない・書く値の形が決まらないときは、書かずに FillError（書いた値が、Word で開くと消えるため）。"""
+    from .databind import BindError, binding_of, locate, stored_value
+
+    b = binding_of(c)
+    if b is None:
+        return None
+    try:
+        t = locate(doc, c)
+        disp = ""
+        if c.kind == "checkbox":
+            shown = _as_bool(value)
+        elif c.kind == "date":
+            shown = _parse_any_date(_is_text_value(value))
+            disp = format_word_date(shown, c.date_format or "yyyy/MM/dd", c.date_lid, c.date_calendar)
+        else:
+            shown = _is_text_value(value)
+        return t, stored_value(c, shown, b, t.value, disp)
+    except BindError as e:
+        raise FillError(f"{fid}: この欄は文書の中の XML のデータ（w:dataBinding「{b.xpath}」）に結び付いていて、Word は開くときに"
+                        f"その値で表示し直します。その値を書けないので、書きませんでした（{e}）") from None
 
 
 def placeholder_style(doc, run) -> "Node | None":
@@ -919,6 +999,7 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
         raise FillError("\n".join(problems))
     f.finish_bullets()
     f.finish_runs()
+    bound_parts = f.finish_bound()
     z = doc.zip
     from ..zipraw import RawZip
 
@@ -928,10 +1009,12 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
             z2.replace(part, ed.build())
     for part, data in embed_parts.items():
         z2.replace(part, data)
+    for part, data in bound_parts.items():
+        z2.replace(part, data)  # 結び付けた XML の部品（customXml/itemN.xml）：書いた値の所だけ
     for part, data in getattr(f, "ax_parts", {}).items():
         z2.replace(part, data)  # ActiveX の部品の中身と控えの絵
     for part, (data, like) in getattr(f, "ax_added", {}).items():
         z2.add(part, data, like)  # 共有していた控えの絵から分けた、その部品だけの絵
-    blob = z2.build() if f.editors or embed_parts or getattr(f, "ax_parts", None) else doc.blob
+    blob = z2.build() if f.editors or embed_parts or bound_parts or getattr(f, "ax_parts", None) else doc.blob
     del z
     return FillResult(blob, f.patches, f.warnings)

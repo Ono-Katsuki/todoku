@@ -21,7 +21,7 @@ import re
 
 from .. import chars
 from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, label_tail, norm_label, shown_gap, wide_space
-from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, one_wide_space
+from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, SPACED_MARK, SPACED_NOTE, chain_head, heading_gap, one_wide_space, weak_line, weak_space
 from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 
 DET = "deterministic"
@@ -53,6 +53,7 @@ WORD_WHY = {
     "checked_mark": "印のついたチェックの印らしい字（☑・☒・■・✓。いまはチェック済みとして読む。■ は箇条の印・飾りのこともある）",
     "underscore_in_word": "英数字にはさまれた下線の字（「＿＿」。URL・ファイルの名前の一部のこともある）",
     "next_line_long": "見出しのあるマスの中の、空の段落（マスのほかの字が長く、見出しではなく説明の文のこともある）",
+    "first_line": "字のあるマスの、初めの空の段落（後ろの段落にだけ字がある。その字は見出しのことも、別の欄の見出しのこともある）",
 }
 
 
@@ -167,6 +168,7 @@ class Spots:
         self.items: dict[str, dict] = {}
         self.para_index: dict[int, int] = {}
         self.ranges: dict = {}
+        self.spaced_marks: dict[int, set] = {}  # 字間を空けた見出しの並びの終わり（id(段落) → 位置）：窓に「〔字間〕」
         self._texts: dict[int, str] = {}  # 段落の字（id(段落) → 字）。見出しを作るたびに Para.text を作り直さない
         self.marks =doc.marks() if hasattr(doc, "marks") else _bookmarks(doc)
         # todoku が書いたマス（しおりのあるマス）：ほかの欄の見出しにしない
@@ -251,6 +253,12 @@ class Spots:
                 for a, b, why in para_spans(p, text):
                     if has_field and any(fmask[a:b]):
                         continue
+                    hg = heading_gap(text, a, b) if why == "spaced" else None
+                    if hg is not None:
+                        # 1 字ずつを同じ空白でつないだ 4 字以上の並び（字間を空けた見出しの形）の字の間：所（id）にはせず、
+                        # 元の空白のまま窓に出し、並びの後ろに「〔字間〕」の印を付ける（書くなら old/new で書ける）
+                        self.spaced_marks.setdefault(id(p), set()).add(hg[1])
+                        continue
                     if why in ("gap", "short_underline") and has_field and _touches_field(p, a, b):
                         continue  # フォームの欄にすぐ接する空白は、欄の字の飾り（欄はその id で書く）
                     spans.append((a, b, "inline", why))
@@ -283,6 +291,10 @@ class Spots:
                         it.update(provenance=AGENT, why=WORD_WHY[why], why_key=why)
                         if one_wide_space(text[a:b]):
                             it["why"] += f"。{ONE_WIDE_SPACE_WHY}"  # いちばん狭い空き：エージェントが順を決める目安
+                            if weak_space(text, a, b):
+                                it["weak"] = "one_space"  # 弱い候補（消さずに順を下げる）
+                        if why == "decor":
+                            it["weak"] = "decor"
                         if why == "checked_mark":
                             it["checked"] = True
                     self.items[fid] = it
@@ -302,6 +314,15 @@ class Spots:
                     before = [q for q in c.paras()[:c.paras().index(p)] if q.text.strip(" \u3000")] if p in c.paras() else []
                     if others and before:
                         found_agent = [(0, len(text), "next_line" if all(len(o) <= 16 for o in others) else "next_line_long")]
+                    elif others:
+                        # マスの初めの空の段落（後ろの段落にだけ字がある：「（空）／個人番号」の空の 1 行目に氏名を書くなど）
+                        found_agent = [(0, len(text), "first_line")]
+                head = chain_head(text)
+                if head is not None and sum(1 for a, _b, _k, w in spans if a >= head[1] and w is not None) >= 2 \
+                        and not any(a < head[1] or a == b == 0 for a, b, _k, _w in spans) and not written \
+                        and not any(a < head[1] for a, _b, _w in found_agent):
+                    # 「年　　月　　日」で始まる段落：初めの字の前（後ろに「？」の所が 2 つ以上あるときだけ：「氏　名」の 1 つの空きでは出さない）
+                    found_agent = sorted(found_agent + [(head[0], head[1], "chain_head")])
                 for a, b, why in found_agent:
                     if has_field and any(fmask[a:max(a + 1, b)]):
                         continue
@@ -388,6 +409,17 @@ class Spots:
         out.append(text[at:hi])
         return norm_label("".join(out))
 
+    def bound(self, c) -> "tuple | None":
+        """結び付けた XML の値（w:dataBinding）：(Word が表示する値, たどれないときの理由, 値の所)。結び付けがなければ None。"""
+        if getattr(c, "source", "") != "sdt" or not hasattr(self.doc, "zip"):
+            return None
+        memo = self.__dict__.setdefault("_bound", {})
+        if id(c) not in memo:
+            from .databind import binding_of, bound_value
+
+            memo[id(c)] = bound_value(self.doc, c) if binding_of(c) is not None else None
+        return memo[id(c)]
+
     def value(self, item: dict):
         """いまの値（書き込み済みなら、その値）。"""
         name = item["id"]
@@ -405,6 +437,11 @@ class Spots:
                 from ..axfile import value_of
 
                 return value_of(c.ax)  # ActiveX の部品：部品の中に保存された値
+            b = self.bound(c)
+            if b is not None and b[1] is None:
+                # 文書の中の XML のデータに結び付いた欄（w:dataBinding）：Word は開くとき、その XML の値で表示し直す
+                v = b[0]
+                return None if v in ("", None) and c.placeholder and c.kind != "checkbox" else v
             if c.kind == "checkbox":
                 return c.checked
             if c.placeholder:
@@ -703,7 +740,7 @@ def build(doc: DocxDocument) -> dict:
                      "［P12.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
                                     "書かなければ何も変わらない。［P12.a1？＝○○］は、伏せ字の○○を書き換える所）",
                      "［P12.1？］": "段落の中の、字の並び（年・月・日などの字）から推定した空欄。規則では決めないので、エージェントが判断する",
-                     "［P12.1？　］": GAP_TOKEN_NOTE,
+                     "［P12.1？　］": GAP_TOKEN_NOTE, SPACED_MARK: SPACED_NOTE,
                      "■［P12.1？］": "チェック済みの印らしい字（☑・■・✓ など。■ は箇条の印のこともある）。チェックの欄なら True / False で書く",
                      "［名前＝値］": "入力欄といまの値", "☐［…］ / ☑": "チェック", " ｜ ": "表のマスの区切り"},
         "protection": {"edit": doc.protection, "enforced": doc.protection_enforced},
@@ -759,6 +796,14 @@ def build(doc: DocxDocument) -> dict:
             d["maxlen"] = c.maxlen
         if c is not None and c.kind == "date" and c.date_format:
             d["format"] = c.date_format
+        bnd = sp.bound(c) if c is not None else None
+        if bnd is not None:
+            # 文書の中の XML のデータに結び付いた欄：窓の値は、Word が開くときに表示する、その XML の値
+            from .databind import binding_of
+
+            d["bound_to"] = f"{bnd[2].part} {binding_of(c).xpath}" if bnd[2] is not None else binding_of(c).xpath
+            if bnd[1]:
+                d["bound_problem"] = bnd[1]
         if it.get("provenance") == AGENT:
             d["agent"] = True
             d["why"] = it["why"]
@@ -766,6 +811,8 @@ def build(doc: DocxDocument) -> dict:
                 d["placeholder"] = it["placeholder"]
             if it.get("alternative_to"):
                 d["alternative_to"] = it["alternative_to"]  # 同じ値を書く、代わりの欄（どちらか一方に書く）
+            if it.get("weak") or it.get("why_key") == "decor":
+                d["weak"] = it.get("weak") or "decor"
         if it.get("filled") or (it["id"] in sp.marks and c is None):
             d["filled"] = True  # todoku が書き込んだ所（書き直すには元の様式に書く）
         if it.get("row_label"):
@@ -1003,6 +1050,8 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
                 edits.append((a, b, ("☑" if v else "☐") + f"［{name}］"))
             else:
                 edits.append((a, b, f"［{name}＝{v}］" if v not in (None, "") else f"［{name}］"))
+    for e in sorted(getattr(sp, "spaced_marks", {}).get(id(p), ())):  # 埋め込みの読み方（欄なし）には印もない
+        edits.append((e, e, SPACED_MARK))  # 字間を空けた見出しの並びの後ろ（字の間の空白は、元のまま）
     edits.sort()
     out, at = [], 0
     for a, b, rep in edits:
@@ -1079,7 +1128,8 @@ def to_markdown(doc: dict) -> str:
     out.append("")
     if doc["fields"]:
         out += [f"## 入力欄（{len(doc['fields'])} か所）", "", "| 欄 | 見出し | 種類 | いまの値 |", "|---|---|---|---|"]
-        for f in doc["fields"]:
+        weak = [f for f in doc["fields"] if f.get("weak") and f.get("value") in (None, "", False) and not f.get("filled")]
+        for f in [f for f in doc["fields"] if not any(f is w for w in weak)]:
             k = KIND_JA.get(f["kind"], f["kind"])
             if f.get("options"):
                 k += ": " + "／".join(map(str, f["options"][:15]))
@@ -1097,6 +1147,8 @@ def to_markdown(doc: dict) -> str:
             vs = ("☑ あり" if v else "☐ なし") if f["kind"] == "checkbox" else ("" if v in (None, "") else str(v))
             out.append(f"| {_md(f['id'])} | {_md(f['label'])} | {_md(k)} | {_md(vs)} |")
         out.append("")
+        if weak:
+            out += [weak_line(weak), ""]
     for st in doc["stories"]:
         out += [f"## {STORY_JA.get(st['kind'], st['kind'])}（{st['part']}）", ""]
         for line in st["reading"]:

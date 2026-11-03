@@ -81,10 +81,52 @@ def rtf_text(value: str, uc: int, cp: str) -> bytes:
     return bytes(out)
 
 
+# ====================================================================== 書いた字の書式
+LOOK_NAMES = {"strike": "取り消し線", "striked": "二重取り消し線", "v": "非表示", "cf": "字の色", "highlight": "蛍光ペン",
+              "cb": "背景の色", "chcbpat": "背景の色（網かけ）"}
+
+
+def color_table(blob: bytes) -> list:
+    """色の表（{\\colortbl …}）：番号 → (赤, 緑, 青)。中身のない項目（自動の色）は None。"""
+    import re
+
+    m = re.search(rb"\{\\colortbl\b(.*?)\}", blob, re.S)
+    if not m:
+        return []
+    out = []
+    for ent in m[1].split(b";")[:-1]:
+        rgb = {k.decode(): int(v) for k, v in re.findall(rb"\\(red|green|blue)(\d+)", ent)}
+        out.append((rgb.get("red", 0), rgb.get("green", 0), rgb.get("blue", 0)) if rgb else None)
+    return out
+
+
+def bad_looks(look: dict | None, colors: list) -> list[str]:
+    """消したように・目立って見える書式の制御語（LOOK_NAMES）。"""
+    look = look or {}
+    out = []
+    for w in ("strike", "striked", "v"):
+        if look.get(w, 0):
+            out.append(w)
+
+    def color(i):
+        return colors[i] if isinstance(i, int) and 0 <= i < len(colors) else None
+
+    c = color(look.get("cf", 0))
+    if c is not None and c != (0, 0, 0):
+        out.append("cf")
+    for w in ("highlight", "cb", "chcbpat"):
+        i = look.get(w, 0)
+        c = color(i)
+        if i and (c is not None and c != (255, 255, 255)):
+            out.append(w)
+    return out
+
+
 class RtfWriter:
     def __init__(self, doc: RtfDocument, force: bool = False):
         self.doc = doc
         self.blob = doc.blob
+        self.colors = color_table(doc.blob)
         self.force = force
         self.sp = Spots(doc)
         self.edits: list[tuple[int, int, bytes]] = []
@@ -116,6 +158,28 @@ class RtfWriter:
     def enc(self, value: str, uc: int) -> bytes:
         return rtf_text(value, uc, self.doc.ansicpg)
 
+    def clean(self, look: dict | None, body: bytes, fid: str) -> bytes:
+        """書く所の字の書式に、取り消し線・非表示・字の色・蛍光ペン・背景の色があれば、それを打ち消す制御語のグループで値を
+        囲む（字の大きさ・書体は、その所のまま）。打ち消した書式は警告で伝える。"""
+        bad = bad_looks(look, self.colors)
+        if not bad or not body:
+            return body
+        words = b""
+        for w in bad:
+            if w in ("strike", "striked", "v", "highlight"):
+                words += B + w.encode() + b"0"
+            else:
+                want = (0, 0, 0) if w == "cf" else (255, 255, 255)
+                idx = 0 if not self.colors or self.colors[0] is None else (
+                    self.colors.index(want) if want in self.colors else None)
+                if idx is None:
+                    raise FillError(f"{fid}: 書く所の字の{LOOK_NAMES[w]}を打ち消す色が、色の表（\\colortbl）にありません")
+                words += B + w.encode() + str(idx).encode()
+        names = list(dict.fromkeys(LOOK_NAMES[w] for w in bad))
+        self.warnings.append(f"{fid}: 書く所に残っていた書式（{'・'.join(names)}）は、書いた字に引き継がず、打ち消す書式で"
+                             "書きました（字の大きさ・書体はそのまま）")
+        return b"{" + words + b" " + body + b"}"
+
     # ------------------------------------------------------------------ 段落の字
     def replace_span(self, item: dict, p, a: int, b: int, value: str, keep_width: bool = False) -> None:
         self.check(item)
@@ -133,7 +197,7 @@ class RtfWriter:
                 at = src.ends[off] if a > 0 else src.starts[off]
             else:
                 at = src.e if a > 0 else src.s
-            self.put(at, at, bm[0] + self.enc(value, getattr(src, "uc", 1)) + bm[1])
+            self.put(at, at, bm[0] + self.clean(src.look, self.enc(value, getattr(src, "uc", 1)), item["id"]) + bm[1])
             return
         if b > len(pos):
             raise FillError(f"{item['id']}: 空欄の位置が見つかりません")
@@ -155,7 +219,8 @@ class RtfWriter:
             src = sg.node
             if src is not None and src.kind == "tab":
                 # 空欄の中のタブ：取り除く（空欄の初めなら、そこに値を書く）
-                self.put(src.s, src.e, (bm[0] + self.enc(value, 1) + bm[1] + self.enc(pad, 1)) if first else b"")
+                self.put(src.s, src.e, (bm[0] + self.clean(src.look, self.enc(value, 1), item["id"]) + bm[1] + self.enc(pad, 1))
+                         if first else b"")
                 first = False
                 continue
             if src is None or src.kind != "txt" or (sg.field is not None and sg.field.kind != "field"):
@@ -163,7 +228,7 @@ class RtfWriter:
             if sg.field is not None:
                 raise FillError(f"{item['id']}: 空欄が、フィールド（日付・ページ番号など）の結果にかかっています")
             k0, k1 = min(ranges[i]), max(ranges[i]) + 1
-            new = (bm[0] + self.enc(value, src.uc) + bm[1] + self.enc(pad, src.uc)) if first else b""
+            new = (bm[0] + self.clean(src.look, self.enc(value, src.uc), item["id"]) + bm[1] + self.enc(pad, src.uc)) if first else b""
             self.put(src.starts[k0], src.ends[k1 - 1], new)
             first = False
 
@@ -172,7 +237,7 @@ class RtfWriter:
         self.check(item)
         bm = self.bookmark(item["id"])
         at = p.mark[0] if p.mark else p.end
-        self.put(at, at, bm[0] + self.enc(value, getattr(p, "uc", 1)) + bm[1])
+        self.put(at, at, bm[0] + self.clean(getattr(p, "mark_look", None), self.enc(value, getattr(p, "uc", 1)), item["id"]) + bm[1])
 
     # ------------------------------------------------------------------ フォームの欄
     def control(self, item: dict, value) -> None:
@@ -428,9 +493,31 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
     pr = prove(blob, res.blob, written_of(res.patches))
     result = {"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings), "unexpected": pr.unexpected[:20],
               "structure_errors": pr.lint_errors[:20]}
+    from ..openkinds import _formatting
+
+    _formatting(result, lambda: written_formatting(res.blob, name))
     readback = {key: v for key, v in values.items() if not key.startswith("@")}
     anchored = {p.key: p.id for p in res.patches if p.anchor}
     if anchored:
         result["anchored"] = anchored
         readback.update({p.id: p.value for p in res.patches if p.anchor})
     return {"blob": res.blob, "result": result, "readback": readback, "labels": {}}
+
+
+def written_formatting(blob: bytes, name: str = "") -> list[dict]:
+    """書いた後の文書を読み直し、書いた所（しおり _todoku_…）の字に、消したように・目立って見える書式があれば
+    [{id, formatting}]（読み戻しで伝える）。"""
+    doc = RtfDocument(blob, name)
+    colors = color_table(blob)
+    out = []
+    for fid, (p, a, b) in doc.marks().items():
+        pos = p.positions()
+        found: list[str] = []
+        for k in range(a, min(b, len(pos))):
+            src = p.segs[pos[k][0]].node
+            for w in bad_looks(getattr(src, "look", None), colors):
+                if LOOK_NAMES[w] not in found:
+                    found.append(LOOK_NAMES[w])
+        if found:
+            out.append({"id": fid, "formatting": found})
+    return out

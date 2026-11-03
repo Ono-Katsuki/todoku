@@ -120,10 +120,19 @@ def prove(original: bytes, new: bytes, written: dict) -> OdfProof:
             continue
         targets.setdefault(index[id(p)], []).append((fid, it, value))
     # 部品ごとに、書いた段落と部品の定義を除いたバイト列を比べる
+    added_styles: set[str] = set()
     for part in changed:
         xa, xb = a.pkg.xml(part), b.pkg.xml(part)
         sa = [(p.el.s, p.el.e) for i, p in enumerate(pa) if p.part == part and i in targets and getattr(p, "el", None) is not None]
         sb = [(p.el.s, p.el.e) for i, p in enumerate(pb) if p.part == part and i in targets and getattr(p, "el", None) is not None]
+        # 書いた字の書式を打ち消す自動スタイル（textfill.reset_style）：office:automatic-styles の終わりに足しただけで、
+        # 打ち消す書式（LOOK_RESET）のほかを持たないこと
+        st = _added_styles(a, b, part, pr)
+        if st:
+            span_b = (st[0][1], st[-1][2])
+            sa.append((span_b[0], span_b[0]))
+            sb.append(span_b)
+            added_styles |= {n for n, _s, _e in st}
         if form_a and part == a.part:
             fa = _form_elements(a)
             fb = _form_elements(b)
@@ -144,12 +153,53 @@ def prove(original: bytes, new: bytes, written: dict) -> OdfProof:
             pr.unexpected.append(f"段落 {i + 1}：書いた後の字が「{p_new.text[:60]}」で、思っていた「{want[:60]}」と違います")
         st_a = set(re.findall(rb':style-name="([^"]*)"', a.pkg.xml(p_old.part)[p_old.el.s:p_old.el.e]))
         st_b = set(re.findall(rb':style-name="([^"]*)"', b.pkg.xml(p_new.part)[p_new.el.s:p_new.el.e]))
+        st_a |= {n.encode() for n in added_styles}
         if not st_b <= st_a:
             pr.unexpected.append(f"段落 {i + 1}：元の段落にない書式（{', '.join(x.decode('utf-8', 'replace') for x in st_b - st_a)}）が使われています")
     for i, (x, y) in enumerate(zip(pa, pb)):
         if i not in targets and _plain(x) != _plain(y):
             pr.unexpected.append(f"書いていない段落 {i + 1} の字が変わっています（「{x.text[:30]}」→「{y.text[:30]}」）")
     return pr
+
+
+def _added_styles(a: OdtDocument, b: OdtDocument, part: str, pr: OdfProof) -> list[tuple[str, int, int]]:
+    """書いた後の部品の office:automatic-styles に足された style:style（名前・始まり・終わり）。足されたものは、続けて
+    終わりに置かれ、名前が todoku_w…、字の書式を打ち消す属性（LOOK_RESET）だけを持つこと。"""
+    from .textfill import LOOK_RESET, STYLE_PREFIX
+    from .xml import NS, top
+
+    def autos(doc):
+        try:
+            sec = top(doc.pkg.tree(part)).find("office:automatic-styles")
+        except Exception:  # noqa: BLE001
+            return None, []
+        return sec, ([el for el in sec.els()] if sec is not None else [])
+
+    sa, ea = autos(a)
+    sb, eb = autos(b)
+    if sb is None or sa is None or len(eb) <= len(ea):
+        return []
+    added = eb[len(ea):]
+    ok = {(qn, v) for resets in LOOK_RESET.values() for qn, v in resets}
+    out = []
+    for el in added:
+        name = el.get("style:name") or ""
+        kids = el.els()
+        props = kids[0] if len(kids) == 1 and kids[0].tag == "{" + NS["style"] + "}text-properties" else None
+        bad = (el.tag != "{" + NS["style"] + "}style" or not name.startswith(STYLE_PREFIX) or el.get("style:family") != "text"
+               or props is None or props.els() or len(el.attrs) != 2 or not props.attrs)
+        if not bad:
+            for k, v in props.attrs.items():
+                ns, local = k[1:].split("}", 1)
+                pre = next((p for p, u in NS.items() if u == ns), None)
+                if (f"{pre}:{local}", v) not in ok:
+                    bad = True
+        if bad:
+            pr.unexpected.append(f"{part}：足したスタイル「{name}」が、書いた字の書式を打ち消すだけのものではありません")
+        out.append((name, el.s, el.e))
+    if [x.s for x in eb[:len(ea)]] != [x.s for x in ea] or added[-1].e != sb.es:
+        pr.unexpected.append(f"{part}：スタイルが、自動スタイルの終わりに足したのでない形で変わっています")
+    return out
 
 
 def _plain(p) -> str:
