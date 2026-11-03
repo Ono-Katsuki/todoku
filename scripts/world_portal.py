@@ -137,6 +137,7 @@ def main() -> int:
         "top_read_reasons": reasons.most_common(12), "top_write_reasons": wreasons.most_common(8),
         "form_classes": dict(Counter(form_class(r) for r in recs if r.get("read"))),
         "audited": sum(1 for r in recs if "audit_ok" in r), "audit_ok": sum(1 for r in recs if r.get("audit_ok")),
+        "kinds": dict(Counter(r.get("kind") for r in recs if r.get("read"))),
     }
     out = {"total": total, "countries": countries,
            "unreached": {cc: {"name": v[0], "why": v[1], "iso": ISO_NUM.get(cc)} for cc, v in unreached.items()},

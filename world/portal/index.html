@@ -144,6 +144,13 @@ tr.unr td { color: var(--muted); }
 /* ---- 方法 ---- */
 .method { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; font-size: .88rem; }
 .method h3 { font-size: .95rem; margin: 0 0 4px; }
+/* とどくの5つの段階（順番に意味がある：開く→見つける→越える→書いて証明→伝える） */
+.how { list-style: none; counter-reset: step; margin: 0; padding: 0; display: grid; gap: 18px 32px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.how li { counter-increment: step; display: grid; grid-template-columns: 2.2em 1fr; column-gap: 10px; min-width: 0; align-content: start; }
+.how li::before { content: counter(step); grid-row: span 2; font-family: var(--display); font-size: 1.6rem; line-height: 1; color: var(--pen); }
+.how h3 { font-size: .98rem; margin: 2px 0 4px; text-wrap: balance; }
+.how p { margin: 0; font-size: .88rem; color: var(--ink); }
 .method.two { grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); max-width: 960px; }
 .method p { margin: 0; }
 .refs { font-size: .78rem; color: var(--muted); margin-top: 18px; display: grid; gap: 2px; }
@@ -278,6 +285,23 @@ tr.unr td { color: var(--muted); }
       <div><b class="num" id="b-graded">—</b><span>取得して段階を付けた書類</span><small id="b-ungraded"></small></div>
       <div><b class="num live" id="b-progress">—</b><span id="b-progress-l">予定に対する進み</span></div>
     </div>
+  </section>
+
+  <section aria-labelledby="h-how">
+    <h2 id="h-how">とどくで、どう届くようにしたか</h2>
+    <p class="sub">壁は様式の側にあり、なくすことはできません。とどくは、書類を変えずに、AI エージェントが全てを正確に読み書きできる道をつくります。どの段階も AI を使わない決まった処理で、同じ書類からは必ず同じ結果が出ます。数は、この調査で段階を付けた書類のものです。</p>
+    <ol class="how">
+      <li><h3>開いて、一字も変えずに読む</h3>
+        <p>PDF・Excel・Word・一太郎・CSV・ZIP など <b class="num" id="how-kinds">—</b> の形式の書類 <b class="num" id="how-docs">—</b> 件を、元の内容を一字も変えずに読める「窓」にしました。Office も外部のライブラリも使わず、公開された仕様書から実装しています。</p></li>
+      <li><h3>書く所を見つける。迷う所は「？」でエージェントに</h3>
+        <p>入力欄は、フォームの欄・入力規則・罫線・下線など、ファイルの構造から規則で見つけます。言葉の一致では決めません。規則で決められない所は、根拠を添えて「？」の印で示し、エージェントが判断します（<b class="num" id="how-agent">—</b> 件の書類）。</p></li>
+      <li><h3>紙のままの壁を越える</h3>
+        <p>文字の情報がないスキャンのページ（<b class="num" id="how-scan">—</b> 件の書類）は、ページを画像にしてエージェントが見て読み、目盛りの枠で書きます。ZIP は中のファイルを開き、押印・自署は本人が同意したときだけ本人の印影の画像を置きます。</p></li>
+      <li><h3>書いて、証明する</h3>
+        <p>書いたら、前と後のファイルを読み直して、変わったのが書いた所だけであることを機械で証明し、書いた値を読み戻します。部分標本 <b class="num" id="how-audited">—</b> 件で全ての欄に書き、<b class="num" id="how-auditok">—</b> 件で全てを正確に読み書きできました。残りは、とどくの直す所として数えています。</p></li>
+      <li><h3>対話で伝える</h3>
+        <p>申請する本人は、書類を Word や Acrobat で開きません。書いた所の見出しと値・まだ空いている欄・本人が決めることを、エージェントが会話でそのまま伝え、本人が確かめます。</p></li>
+    </ol>
   </section>
 
   <section aria-labelledby="h-map">
@@ -557,6 +581,11 @@ tr.unr td { color: var(--muted); }
     document.getElementById("b-countries").textContent = T.countries;
     document.getElementById("b-sampled").textContent = T.sampled.toLocaleString();
     document.getElementById("b-graded").textContent = T.graded.toLocaleString();
+    const reason = (t) => (T.top_read_reasons.find(([k]) => k === t) || [, 0])[1];
+    const setN = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = Number(v || 0).toLocaleString(); };
+    setN("how-docs", T.graded); setN("how-kinds", Object.keys(T.kinds || {}).length || 10);
+    setN("how-agent", reason("規則では決められない所")); setN("how-scan", reason("画像だけのページ"));
+    setN("how-audited", T.audited); setN("how-auditok", T.audit_ok);
     const ug = Object.entries(T.ungraded || {}).sort((a, b) => b[1] - a[1]);
     if (ug.length) document.getElementById("b-ungraded").textContent =
       `ほかに取得して段階を付けられなかった書類 ${ug.reduce((s, x) => s + x[1], 0).toLocaleString()} 件（${ug.map(([k, n]) => `${k} ${n}`).join("・")}）。割合の分母には入れていません`;
