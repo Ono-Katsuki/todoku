@@ -218,6 +218,68 @@ def splice(rst: Rst, new_text: str) -> tuple[bytes, list[bytes | None], list[str
     return bytes(out), after_props, dropped, [rst.runs[n][1] for n in sorted(written_runs) if n < len(rst.runs)]
 
 
+def splice_props(old: str, props: list, new_text: str) -> tuple[list, list]:
+    """字ごとの書式の並び props（元の字 old の1字ごと）を、字を new_text にしたときの並びにする（splice と同じ決め方）。
+    (書いた後の字ごとの書式, 書き足した字の書式)。書式の違う字の境目への書き足しは ValueError。"""
+    out: list = []
+    written: list = []
+    for op, i1, i2, j1, j2 in _alignment(old, new_text):
+        if op == "equal":
+            out += props[i1:i2]
+            continue
+        if op == "delete":
+            continue
+        if i2 > i1:
+            src = props[i1]
+        else:
+            before = props[i1 - 1] if i1 > 0 else None
+            after = props[i1] if i1 < len(old) else None
+            if 0 < i1 < len(old) and before != after:
+                raise ValueError(f"書き足した字「{new_text[j1:j2]}」が、書式の違う字の境目（「{old[max(0, i1 - 6):i1]}｜"
+                                 f"{old[i1:i1 + 6]}」）に入るので、どちらの書式（取り消し線・色など）にするか決められません")
+            src = before if i1 > 0 else after
+        out += [src] * (j2 - j1)
+        if src not in written:
+            written.append(src)
+    return out, written
+
+
+def xls_runs(text: str, runs: list) -> list:
+    """.xls の字ごとの書式 [(ich, ifnt)] を、1字ごとの字体の番号（最初の書式より前の字は None＝セルの書式の字体）にする。"""
+    props: list = [None] * len(text)
+    for n, (ich, ifnt) in enumerate(sorted(runs)):
+        end = sorted(runs)[n + 1][0] if n + 1 < len(runs) else len(text)
+        for k in range(ich, min(end, len(text))):
+            props[k] = ifnt
+    return props
+
+
+def xls_runs_of(props: list) -> tuple:
+    """1字ごとの字体の番号から、.xls の字ごとの書式 ((ich, ifnt), …)。"""
+    out = []
+    prev = None
+    for i, p in enumerate(props):
+        if p != prev:
+            if p is None:
+                raise ValueError("書式のない字が、書式のある字の後ろに来ます")
+            out.append((i, p))
+            prev = p
+    return tuple(out)
+
+
+def props_kept(a: str, pa: list, b: str, pb: list) -> list[str]:
+    """書き換えなかった字の書式が、書いた後も同じか（kept_problems の、字ごとの書式の並びでの形）。"""
+    out = []
+    for op, i1, i2, j1, _j2 in _alignment(a, b):
+        if op != "equal":
+            continue
+        for k in range(i2 - i1):
+            if pa[i1 + k] != pb[j1 + k]:
+                out.append(f"書き換えなかった字「{a[i1 + k]}」（{i1 + k + 1} 文字目）の書式が変わりました")
+                return out
+    return out
+
+
 def _t(pre: bytes, s: str) -> bytes:
     body = escape_text(s)
     sp = b' xml:space="preserve"' if s != s.strip() or "\n" in s or not s else b""

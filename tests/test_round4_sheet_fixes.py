@@ -83,9 +83,24 @@ def test_phonetic_kept_and_shifted():
     assert dropped == []
 
 
-def test_xls_partial_write_on_rich_cell_is_refused(tmp_path):
-    with pytest.raises(api.ApiError, match="字ごとに書式"):
-        api.fill(str(FIX / "r4_rich.xls"), {"S!A5": [None, "東京"]}, str(tmp_path / "o.xls"))
+def test_xls_partial_write_keeps_format_runs(tmp_path):
+    from todoku.xls.book import XlsWorkbook
+
+    r = api.fill(str(FIX / "r4_rich.xls"), {"S!A5": [None, "東京"]}, str(tmp_path / "o.xls"))
+    assert r["verified"] and not r.get("written_formatting")  # 書いた字は、取り消し線のない字体の所に入る
+    w = XlsWorkbook((tmp_path / "o.xls").read_bytes())
+    i = w.rich_cells[("S", 5, 1)]
+    assert w.shared_strings[i] == "旧住所　新住所：東京" and w.sst_runs[i] == [(0, 5), (3, 0)]
+    with pytest.raises(api.ApiError, match="境目"):
+        api.fill(str(FIX / "r4_rich.xls"), {"@1": {"old": "旧住所", "new": "旧住所X", "cell": "S!A5"}}, str(tmp_path / "o2.xls"))
+
+
+def test_xls_rich_proof_catches_lost_runs(tmp_path):
+    from todoku.xlsx.proof import _xls_rich_problems
+
+    blob = (FIX / "r4_rich.xls").read_bytes()
+    r = api.fill(str(FIX / "r4_rich.xls"), {"S!A5": {"value": "旧住所　新住所：東京", "overwrite_text": True}}, str(tmp_path / "o.xls"))
+    assert _xls_rich_problems(blob, (tmp_path / "o.xls").read_bytes(), {("S", "A5")})  # ただの字で書き直すと書式が消える
 
 
 # ====================================================================== A3 書いたセルの書式

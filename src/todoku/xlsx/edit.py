@@ -1251,9 +1251,24 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             continue
         s_, r_, c_ = cell_
         if getattr(wb, "kind", "xlsx") == "xls":
-            if cell_ in getattr(wb, "rich_cells", set()):
-                raise EditError(f"{key_}: {s_}!{addr(r_, c_)} は、字ごとに書式（取り消し線・字の色など）の違う字のセルです。古い Excel"
-                                "（.xls）では、字の一部を書き換えると、その書式が消える（消した字の取り消し線が消えるなど）ので、書いていません")
+            rc = getattr(wb, "rich_cells", {})
+            if cell_ not in rc:
+                continue
+            isst = rc[cell_]
+            if isst is None or getattr(wb, "biff", 8) == 5 or getattr(wb, "dual_format", False):
+                raise EditError(f"{key_}: {s_}!{addr(r_, c_)} は、字ごとに書式（取り消し線・字の色など）の違う字のセルです。この形の"
+                                "古い Excel（.xls）のセルでは、字の一部を書き換えると、その書式が消える（消した字の取り消し線が消えるなど）ので、"
+                                "書いていません")
+            from .richtext import splice_props, xls_runs, xls_runs_of
+
+            old_text = wb.shared_strings[isst]
+            try:
+                new_props, written_props = splice_props(old_text, xls_runs(old_text, wb.sst_runs[isst]), targets[cell_])
+                runs_ = xls_runs_of(new_props)
+            except ValueError as e:
+                raise EditError(f"{key_}: {s_}!{addr(r_, c_)}: {e}。書き足す所を、書式の同じ字の間にする"
+                                "（old・new で、書き足す字の両側が同じ書式の字になるようにする）か、本人に確かめてください") from None
+            rich[cell_] = ("xls", runs_, [], written_props)
             continue
         if not hasattr(wb, "zip") or not hasattr(wb.sheet(s_), "path"):
             continue
@@ -1268,8 +1283,8 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
         try:
             rich[cell_] = splice(rst, targets[cell_])
         except ValueError as e:
-            raise EditError(f"{key_}: {s_}!{addr(r_, c_)}: {e}。字を目印にした書き込み（old・new）で、書き足す字の前後の字も"
-                            "含めて指定してください") from None
+            raise EditError(f"{key_}: {s_}!{addr(r_, c_)}: {e}。書き足す所を、書式の同じ字の間にする"
+                            "（old・new で、書き足す字の両側が同じ書式の字になるようにする）か、本人に確かめてください") from None
         if rich[cell_][2]:
             warnings.append(f"{s_}!{addr(r_, c_)}: 書き換えた字に付いていたふりがな（{'・'.join(rich[cell_][2])} の読み）を外しました")
     direct = {c_: k_ for c_, (k_, _a) in claimed.items() if c_ not in linked_cells}
@@ -1336,7 +1351,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
     changed, problems = recalc(wb, targets)
     if getattr(wb, "kind", "xlsx") == "xls":
         res = _fill_xls(wb, targets, changed, problems, controls, warnings, set(by_macro or ()) | macro_written, writes,
-                        ax_writes=ax_writes)
+                        ax_writes=ax_writes, rich=plan_.rich)
         res.macro = macro_info
         for k_, v_ in text_extra.items():
             setattr(res, k_, v_)
@@ -1445,7 +1460,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
 
 
 def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set | None = None,
-              writes: list | None = None, ax_writes: list | None = None) -> EditResult:
+              writes: list | None = None, ax_writes: list | None = None, rich: dict | None = None) -> EditResult:
     """古いExcel（.xls）への書き込み：ブックのストリームのレコードを差し替え、複合ファイルのほかの部分は変えない。
 
     Excel 5.0/95（BIFF5）のブックにも書く。Excel 97 と 95 の両方の形（Workbook と Book）を持つブックは、両方に同じ値を書き、
@@ -1469,7 +1484,9 @@ def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set 
             before = cell.value if cell else None
             if (cell is not None and values_equal(before, val) and type(before) is type(val)) or (cell is None and val is None):
                 continue
-            ed.set_cell(sheet, r, c, val, wb.sheet(sheet).style_of(r, c) or None)
+            rich_ = (rich or {}).get((sheet, r, c))
+            ed.set_cell(sheet, r, c, val, wb.sheet(sheet).style_of(r, c) or None,
+                        runs=rich_[1] if rich_ is not None and isinstance(val, str) else None)
             patches.append(Patch(wb.stream_name, sheet, addr(r, c), "macro" if (sheet, r, c) in (by_macro or set()) else "input",
                                  before, val))
         for (sheet, r, c), val in sorted(changed.items()):
@@ -1534,7 +1551,7 @@ def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set 
 
         blob = write_streams(blob, ax_streams)
     res = EditResult(blob=blob, patches=patches, warnings=warnings, unverified=unverified,
-                     full_calc_on_load=bool(unverified))
+                     full_calc_on_load=bool(unverified), rich_cells={(s_, addr(r_, c_)) for (s_, r_, c_) in (rich or {})})
     res.original_sha256 = hashlib.sha256(wb.zip.original).hexdigest()
     res.sha256 = hashlib.sha256(blob).hexdigest()
     res.changed_parts = changed_parts + sorted(ax_streams)

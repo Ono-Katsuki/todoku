@@ -87,8 +87,10 @@ class XlsEditor:
             used = sum(4 + len(r.b) for r in self.recs[:end + 1])
             self.tail = wb.data[used:]
             del self.recs[end + 1:]
-        self.sst_new: list[str] = []
-        self.sst_index = {s: i for i, s in enumerate(wb.shared_strings) if s not in ()}
+        self.sst_new: list = []  # 足す共有文字列：字か (字, 字ごとの書式 ((ich, ifnt), …))
+        # 字ごとの書式のある共有文字列は、ただの字として使い回さない（使い回すと、書いた字に取り消し線などが付く）
+        runs_ = getattr(wb, "sst_runs", {})
+        self.sst_index = {s: i for i, s in enumerate(wb.shared_strings) if i not in runs_}
         self.n_sst = len(wb.shared_strings)
         self.changed = False
         self._sheet_ranges()
@@ -146,15 +148,16 @@ class XlsEditor:
         return None
 
     # ------------------------------------------------------------------ 書き込み
-    def _sst_of(self, s: str) -> int:
-        if s in self.sst_index:
-            return self.sst_index[s]
+    def _sst_of(self, s: str, runs: tuple | None = None) -> int:
+        key = (s, tuple(runs)) if runs else s
+        if key in self.sst_index:
+            return self.sst_index[key]
         idx = self.n_sst + len(self.sst_new)
-        self.sst_new.append(s)
-        self.sst_index[s] = idx
+        self.sst_new.append(key)
+        self.sst_index[key] = idx
         return idx
 
-    def _cell_rec(self, r0: int, c0: int, xf: int, value) -> Rec:
+    def _cell_rec(self, r0: int, c0: int, xf: int, value, runs: tuple | None = None) -> Rec:
         if value is None:
             return Rec(T_BLANK, struct.pack("<HHH", r0, c0, xf), False)
         if isinstance(value, bool):
@@ -165,20 +168,23 @@ class XlsEditor:
             return Rec(T_NUMBER, struct.pack("<HHHd", r0, c0, xf, float(value)), False)
         if self.biff == 5:
             return Rec(T_LABEL, struct.pack("<HHH", r0, c0, xf) + _bstr16(str(value), self.enc), False)
-        return Rec(T_LABELSST, struct.pack("<HHHI", r0, c0, xf, self._sst_of(str(value))), False)
+        if runs and self.biff == 5:
+            raise XlsWriteError("Excel 5.0/95 の形のブックに、字ごとの書式のある字は書けません")
+        return Rec(T_LABELSST, struct.pack("<HHHI", r0, c0, xf, self._sst_of(str(value), runs)), False)
 
-    def set_cell(self, sheet: str, r: int, c: int, value, xf: int | None = None) -> None:
+    def set_cell(self, sheet: str, r: int, c: int, value, xf: int | None = None, runs: tuple | None = None) -> None:
+        """runs：字ごとの書式 ((字の位置 ich, 字体の番号 ifnt), …)（字の一部を書き換えたときに、元の書式を残す）。"""
         r0, c0 = r - 1, c - 1
         hit = self._find(sheet, r0, c0)
         self.changed = True
         if hit is None:
-            self._insert(sheet, r0, c0, self._cell_rec(r0, c0, xf or 15, value))
+            self._insert(sheet, r0, c0, self._cell_rec(r0, c0, xf or 15, value, runs))
             return
         j, k = hit
         rec = self.recs[j]
         if k is None:
             old_xf = struct.unpack_from("<H", rec.b, 4)[0]
-            new = self._cell_rec(r0, c0, old_xf, value)
+            new = self._cell_rec(r0, c0, old_xf, value, runs)
             # 数式だったセル（上書きを許したとき）は、続く STRING も取り除く
             if rec.t == T_FORMULA:
                 k = j + 1
@@ -208,7 +214,7 @@ class XlsEditor:
                     out.append(Rec(T_BLANK, struct.pack("<HHH", r, start, struct.unpack("<H", part[0])[0]), False))
             else:
                 out.append(Rec(rec.t, struct.pack("<HH", r, start) + b"".join(part) + struct.pack("<H", start + len(part) - 1), False))
-        repl = [x for x in (out[0], self._cell_rec(r0, c0, xf_here, value), out[1]) if x is not None]
+        repl = [x for x in (out[0], self._cell_rec(r0, c0, xf_here, value, runs), out[1]) if x is not None]
         self.recs[j:j + 1] = repl
         self._shift(sheet, len(repl) - 1)  # レコードの数が変わったので、後ろのシートの位置をずらす
 
@@ -478,12 +484,13 @@ class XlsEditor:
         parts = [bytearray(recs[k].b) for k in range(i, j)]
         total, unique = struct.unpack_from("<II", parts[0], 0)
         struct.pack_into("<II", parts[0], 0, total + len(self.sst_new), unique + len(self.sst_new))
-        for s in self.sst_new:
+        for item in self.sst_new:
+            s, runs = (item, ()) if isinstance(item, str) else item
             try:
                 raw, high = s.encode("latin-1"), 0
             except UnicodeEncodeError:
                 raw, high = s.encode("utf-16-le"), 1
-            head = struct.pack("<HB", len(s), high)
+            head = struct.pack("<HBH", len(s), high | 0x08, len(runs)) if runs else struct.pack("<HB", len(s), high)
             if len(parts[-1]) + len(head) + (2 if high else 1) > MAXREC:
                 parts.append(bytearray())
             parts[-1] += head
@@ -496,6 +503,11 @@ class XlsEditor:
                     continue
                 parts[-1] += data[:room]
                 data = data[room:]
+            # 字ごとの書式（FormatRun：4 バイトずつ）。レコードをまたぐときは、FormatRun の境で分ける
+            for ich, ifnt in runs:
+                if len(parts[-1]) + 4 > MAXREC:
+                    parts.append(bytearray())
+                parts[-1] += struct.pack("<HH", ich, ifnt)
         self.sst_parts = parts
         new = [Rec(T_SST, bytes(parts[0]), False)] + [Rec(T_CONTINUE, bytes(p), False) for p in parts[1:]]
         # 元の SST/CONTINUE と同じ中身の部分は「元のまま」として扱う

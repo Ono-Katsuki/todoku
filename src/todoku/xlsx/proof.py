@@ -234,6 +234,32 @@ def _linked_controls_agree(b) -> list[str]:
     return out
 
 
+def _xls_rich_problems(original: bytes, new: bytes, rich) -> list[str]:
+    """.xls の、字ごとの書式を残して書いたセル：書き換えなかった字の字体（FormatRun）が、書いた後も同じか。"""
+    from ..xls.book import XlsWorkbook
+    from .richtext import props_kept, xls_runs
+
+    a, b = XlsWorkbook(original), XlsWorkbook(new)
+    out = []
+    for sn, cell in sorted(rich):
+        k = (sn, *_rc_(cell))
+        ia, ib = a.rich_cells.get(k), b.rich_cells.get(k)
+        if ia is None:
+            out.append(f"{sn}!{cell}: 元のセルの字ごとの書式を読み直せません")
+            continue
+        ta = a.shared_strings[ia]
+        pa = xls_runs(ta, a.sst_runs[ia])
+        if ib is None:
+            cb = b.sheet(sn).cells.get(k[1:])
+            tb = cb.value if cb is not None and isinstance(cb.value, str) else ""
+            pb = [None] * len(tb)
+        else:
+            tb = b.shared_strings[ib]
+            pb = xls_runs(tb, b.sst_runs[ib])
+        out += [f"{sn}!{cell}: {x}" for x in props_kept(ta, pa, tb, pb)]
+    return out
+
+
 def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | None = None,
           allowed_controls: set[tuple[str, str]] | None = None, overwrite: set[tuple[str, str]] | None = None,
           rich: set[tuple[str, str]] | None = None) -> Proof:
@@ -245,7 +271,10 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
     if original[:4] == b"\xd0\xcf\x11\xe0":
         from ..xls.proof import prove as prove_xls
 
-        return prove_xls(original, new, allowed_inputs, allowed_controls)
+        pr = prove_xls(original, new, allowed_inputs, allowed_controls)
+        if rich:
+            pr.unexpected += _xls_rich_problems(original, new, rich)
+        return pr
     from ..zipraw import RawZip
 
     za, zb = RawZip(original), RawZip(new)

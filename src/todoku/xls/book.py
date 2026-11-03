@@ -204,8 +204,9 @@ class XlsWorkbook:
         self._vba = None
         self.wb_path = name
         self._fonts: list[int] = []  # 色番号
-        self.sst_runs: set[int] = set()  # 字ごとの書式（rgRun）のある共有文字列の番号
-        self.rich_cells: set[tuple[str, int, int]] = set()  # 字ごとの書式のある字のセル（LABELSST・RSTRING）
+        self.sst_runs: dict[int, list[tuple[int, int]]] = {}  # 字ごとの書式（rgRun）のある共有文字列の番号 → [(ich, ifnt)]
+        # 字ごとの書式のある字のセル → 共有文字列の番号（LABELSST）か None（RSTRING）
+        self.rich_cells: dict[tuple[str, int, int], int | None] = {}
         self._font_strike: list[bool] = []  # 取り消し線（FONT の grbit の fStrikeOut）
         self._formats: dict[int, str] = dict(BUILTIN)
         self._palette = list(_PALETTE)
@@ -515,8 +516,8 @@ class XlsWorkbook:
             ext = r.u32() if flags & 0x04 else 0
             s = r.chars(cch, bool(flags & 0x01))
             if runs:
-                r.read(4 * runs)
-                self.sst_runs.add(i)
+                rb = r.read(4 * runs)
+                self.sst_runs[i] = [struct.unpack_from("<HH", rb, 4 * k) for k in range(runs)]
             if ext:
                 ph = _phonetic(s, r.read(ext))
                 if ph is not None:
@@ -575,12 +576,12 @@ class XlsWorkbook:
                 if isst in self.phonetic:
                     self.cell_sst[(sh.name, r + 1, c + 1)] = isst
                 if isst in self.sst_runs:
-                    self.rich_cells.add((sh.name, r + 1, c + 1))
+                    self.rich_cells[(sh.name, r + 1, c + 1)] = isst
             elif t in (0x0204, 0x00D6):  # LABEL / RSTRING
                 r, c, x = struct.unpack_from("<HHH", b, 0)
                 self._put(sh, r, c, x, xlstring(b, 6)[0])
                 if t == 0x00D6:
-                    self.rich_cells.add((sh.name, r + 1, c + 1))
+                    self.rich_cells[(sh.name, r + 1, c + 1)] = None
             elif t == 0x0201:  # BLANK
                 r, c, x = struct.unpack_from("<HHH", b, 0)
                 self._put(sh, r, c, x, None)

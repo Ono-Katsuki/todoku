@@ -550,6 +550,7 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     targets: dict[str, object] = {}
     skipped: list[str] = []
     not_applicable: list[str] = []  # いまの状態では選べるものがない欄（選択肢がほかの欄で決まる・選択肢が空）
+    hidden_fmt: list[str] = []  # 書式で字が見えないセル（書き込みは断る）
     later = []
     for sheet, f in fields:
         if f.get("locked"):
@@ -565,6 +566,19 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
         if v is None:
             skipped.append(f"{f['id']}: 試しの値を決められませんでした")
             continue
+        if f["kind"] not in ("checkbox", "radio", "select", "multiselect", "spin"):
+            # 書式で字が見えないセル（白い字に塗りなし・表示形式「;;;」）：書いても印刷されないので、書き込みは断る決まり（cellcheck）
+            from .cellcheck import hidden_by_style
+            from .edit import interpret_input, resolve_target
+
+            try:
+                s_, r_, c_ = resolve_target(wb, f["id"])
+                why = hidden_by_style(wb, s_, r_, c_, interpret_input(wb, s_, r_, c_, v)[0])
+            except Exception:  # noqa: BLE001  セルでない欄（部品の名前など）は、ここでは見ない
+                why = None
+            if why:
+                hidden_fmt.append(f"{f['id']}（{why}）")
+                continue
         targets[f["id"]] = v
     if later:
         _pick_choices(wb, later, targets, not_applicable)
@@ -579,6 +593,9 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     n_ctl = sum(1 for _, f in fields if f["kind"] in ("checkbox", "radio", "select", "multiselect", "spin"))
     na = (f"（選択肢が空の欄 {len(not_applicable):,} か所は、いまの状態ではExcelでも選べないので除外。"
           "ほかの欄の値で選択肢が決まるものや、選択肢の参照先が壊れているもの）" if not_applicable else "")
+    if hidden_fmt:
+        na += (f"（書式で字が見えないセル {len(hidden_fmt):,} か所は、書いても印刷されないので書き込みを断る決まりのため除外："
+               + "、".join(hidden_fmt[:5]) + ("ほか" if len(hidden_fmt) > 5 else "") + "）")
     out.append(Check("全入力欄への書き込み", pr.ok and not res.unverified and not skipped,
                      f"入力欄 {len(fields) - n_ctl:,} か所とフォームの部品 {n_ctl} 個のうち {len(targets):,} に試しの値を書き込み{na}。"
                      f"{pr.headline()}",

@@ -22,6 +22,25 @@ def _rgb(c: str | None, default: str) -> str:
     return (c or default).upper()[-6:]
 
 
+def hidden_by_style(wb, sheet: str, r: int, c: int, value) -> str | None:
+    """セルの書式（表示形式・字の色と塗りの色）だけで、value が見えない字になるなら、その説明（字ごとの書式・条件付き書式は見ない）。"""
+    from ..formula.numfmt import format_value
+
+    if value is None or value == "":
+        return None
+    st = wb.style(wb.sheet(sheet).style_of(r, c))
+    fmt = st.num_fmt or "General"
+    try:
+        if not isinstance(value, bool) and format_value(value, fmt, getattr(wb, "date1904", False)) == "":
+            return f"表示形式「{fmt}」で見えない"
+    except Exception:  # noqa: BLE001
+        pass
+    font, fill = _rgb(st.font_color, "000000"), _rgb(st.fill_color, "FFFFFF")
+    if font == fill:
+        return f"字の色と塗りの色が同じ（#{font}）"
+    return None
+
+
 def written_format(wb, plan) -> tuple[list[dict], list[str]]:
     """(伝える書式 [{id, formatting}], 見えない字になるセルの説明)。部品につながったセル（書式で隠すのが決まり）は見ない。"""
     from ..formula.numfmt import format_value
@@ -49,17 +68,19 @@ def written_format(wb, plan) -> tuple[list[dict], list[str]]:
             invisible.append(f"{where}: 表示形式「{fmt}」では、書いた値「{v}」が表示されません")
             items.append(f"表示形式「{fmt}」で見えない")
         font, fill = _rgb(st.font_color, "000000"), _rgb(st.fill_color, "FFFFFF")
-        if font == fill:
+        rich = plan.rich.get(cell_)
+        # 字ごとの書式のあるセル：書いた字が入る書式（<rPr>・字体の番号）が、その字の書式。書式のない所の字だけがセルの字体
+        cell_font = rich is None or any(p in (None, b"") for p in rich[3]) or not rich[3]
+        if cell_font and font == fill:
             invisible.append(f"{where}: 字の色と塗りの色が同じ（#{font}）で、書いた字が見えません")
             items.append(f"字の色と塗りの色が同じ（#{font}）")
-        elif font == "FFFFFF":
+        elif cell_font and font == "FFFFFF":
             items.append("白い字")
-        if getattr(st, "font_strike", False):
+        if cell_font and getattr(st, "font_strike", False):
             items.append("取り消し線")
-        rich = plan.rich.get(cell_)
         if rich is not None:
             for rpr in rich[3]:
-                d = describe_props(rpr)
+                d = _xls_font_props(wb, rpr) if rich[0] == "xls" else describe_props(rpr)
                 if "白い字" in d and fill == "FFFFFF":
                     invisible.append(f"{where}: 書いた字が入る所の字（字ごとの書式）が白い字で、見えません")
                 items += [f"書いた字の書式：{x}" for x in d]
@@ -84,6 +105,25 @@ def written_format(wb, plan) -> tuple[list[dict], list[str]]:
         if items:
             found.append({"id": key if not key.startswith("@") else where, "cell": where, "formatting": list(dict.fromkeys(items))})
     return found, invisible
+
+
+def _xls_font_props(wb, ifnt) -> list[str]:
+    """.xls の字体の番号（字ごとの書式。None はセルの書式の字体）の、取り消し線・字の色。"""
+    if ifnt is None:
+        return []
+    fnt = ifnt - 1 if ifnt >= 4 else ifnt  # 字体の4番は欠番
+    out = []
+    strikes = getattr(wb, "_font_strike", [])
+    if 0 <= fnt < len(strikes) and strikes[fnt]:
+        out.append("取り消し線")
+    fonts = getattr(wb, "_fonts", [])
+    if 0 <= fnt < len(fonts):
+        rgb = wb._color(fonts[fnt])
+        if rgb == "FFFFFF":
+            out.append("白い字")
+        elif rgb not in (None, "000000"):
+            out.append(f"字の色（#{rgb}）")
+    return out
 
 
 def both_controls_checked(wb, controls: dict) -> list[str]:
