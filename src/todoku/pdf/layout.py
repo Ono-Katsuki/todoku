@@ -1198,7 +1198,9 @@ class PageLayout:
                       "母音の記号などの結合する記号が、基の字なしで行の頭や空白の後ろにあります。字の並びが正しくないおそれがあるので、"
                       "その位置は view_page で画像を見て確かめる", orphan)
         if self.drawn_text:
-            self.flag("E", "図形で描いた字（字の情報がない）",
+            # ページのほかに字があれば、窓はその所を除いて読める（外字と同じ B）。字がそれだけのページは、画像を見るほかない（E）
+            has_text = any(not c.text.isspace() and not c.invisible for c in self.chars)
+            self.flag("B" if has_text else "E", "図形で描いた字（字の情報がない）",
                       "字の形を図形（線と塗り）にして描いた所があり、字の情報がないので、窓に字として出せません。注意書きなど大事な文の"
                       "ことがあるので、その位置は view_page でページの画像を見て読み、中身を推測で埋めない",
                       [f"{self.number}ページ（左 {r[0]:.0f}・上 {r[1]:.0f}〜右 {r[2]:.0f}・下 {r[3]:.0f} pt、字の形 {n} 個）"
