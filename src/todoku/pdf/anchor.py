@@ -70,6 +70,26 @@ def find_spans(text: str, needle: str) -> list[tuple[int, int]]:
     return out
 
 
+def _empty_cell_right(lay, cell, ln):
+    """見出しのマス cell の右の縁に接し（1.5pt 以内）、見出しの行の高さ（行の中ほど）を含む、字のないマス（いちばん左のもの）。"""
+    cy = (ln.y0 + ln.y1) / 2
+    cand = [c for c in lay.cells if c is not cell and abs(c.x0 - cell.x1) <= 1.5 and c.y0 - 0.5 <= cy <= c.y1 + 0.5
+            and not any(not ch.text.isspace() for ch in c.chars)]
+    if cand:
+        return min(cand, key=lambda c: (c.x0, c.y0))
+    # 右のマスが閉じていない（下の罫線が見出しのマスの下にしか引かれていない）：見出しのマスの右の縁から、次の縦の罫線
+    # （見出しのマスの高さにわたるもの）までの、見出しのマスと同じ高さの所。中に字がなければ、そこを空のマスとみなす
+    from .layout import Cell
+
+    xs = [r.pos for r in lay.vs if r.pos > cell.x1 + 1.5 * ln.size and r.a - 1 <= cell.y0 and r.b + 1 >= cell.y1]
+    if not xs:
+        return None
+    box = Cell(cell.x1, cell.y0, min(xs), cell.y1)
+    if any(not ch.text.isspace() and box.x0 < ch.cx < box.x1 and box.y0 < ch.cy < box.y1 for ch in lay.chars):
+        return None
+    return box
+
+
 def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | None = None,
                   taken_names: set | None = None) -> dict:
     """見出しの字で指した書き込み → 書く所（窓の欄と同じ形の辞書：id「p ページ.w 番号」・ページ・矩形・字の大きさ）。
@@ -138,6 +158,12 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
             if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1 and x0 <= r.pos < rb:
                 rb = r.pos
         rect = (x0, ln.y0 - 0.1 * sz, rb - 1.5, ln.y1 + 0.1 * sz)
+        if rect[2] - rect[0] < 1.5 * sz and cell is not None and not rest:
+            # 見出しのマスに空きがない：すぐ右の、同じ行の高さにある空のマス（見出しのマスの右の縁に接する）に書く
+            nxt = _empty_cell_right(lay, cell, ln)
+            if nxt is not None:
+                # 高さは見出しの行の高さ（マスが何行ぶんもあるとき、ほかの行の見出しの高さに書かない）
+                rect = (nxt.x0 + 1.5, max(nxt.y0 + 0.5, ln.y0 - 0.15 * sz), nxt.x1 - 1.5, min(nxt.y1 - 0.5, ln.y1 + 0.15 * sz))
         if rect[2] - rect[0] < 1.5 * sz:
             raise AnchorError(f"「{after}」の右に、書く空きがありません（where を \"below\" にすると、見出しの下に書けます）")
     elif where == "before":

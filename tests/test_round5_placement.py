@@ -101,3 +101,20 @@ def test_explicit_occurrence_circles_a_character_inside_a_word(tmp_path):
     assert r["proof_ok"] and r["read_back_ok"]
     assert r["circled"][0]["around"].startswith("【都】") and r["circled"][0]["inside_word"]
     assert "長い字の並びの中" in r["say_to_user"]
+
+
+# ====================================================================== 見出しのマスの右の空のマス
+@pytest.mark.parametrize("closed", [True, False])
+def test_after_label_uses_the_empty_cell_to_the_right(tmp_path, closed):
+    # 見出し「氏名」のマス（幅いっぱいに字）の右に、空のマス。closed=False は、右のマスの下の罫線がない（見出しのマスの下だけ）
+    rules = (b"0.8 w 60 720 m 300 720 l S 60 700 m " + (b"300" if closed else b"94") + b" 700 l S "
+             b"60 720 m 60 700 l S 94 720 m 94 700 l S 300 720 m 300 700 l S\n")
+    data = _pdf([(70, 706, 10, "氏名")], rules)
+    r, out = _write(tmp_path, data, "t.pdf", {"@1": {"after": "氏名", "value": "山田 花子"}})
+    assert r["proof_ok"] and r["read_back_ok"], r
+    from todoku.pdf.doc import PdfDocument
+
+    doc = PdfDocument(open(out, "rb").read())
+    w = next(doc.resolve(a) for a in doc.resolve(doc.pages()[0]["Annots"]))
+    x0, y0, x1, y1 = (float(v) for v in w["Rect"])
+    assert 94 < x0 < 97 and 297 < x1 < 300 and 700 <= y0 and y1 <= 720
