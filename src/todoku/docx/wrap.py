@@ -2,7 +2,9 @@
 
 書いた段落（書いた所の印のしおりのある段落）ごとに、書く前と書いた後の字を、同じ幅で並べて行の数を比べる。幅は：
 - 表のマスの段落：表の列の幅（w:tblGrid の w:gridCol を、マスの w:gridSpan の分だけ足す。なければ w:tcW）から、マスの左右の
-  余白（w:tcMar → 表の w:tblCellMar → Word の既定 108 twip）と段落の字下げを引いた幅
+  余白（w:tcMar → 表の w:tblCellMar → 表のスタイル（w:tblStyle と、その w:basedOn）の w:tblCellMar → 既定の表のスタイル
+  （w:type="table" w:default="1"）の w:tblCellMar → どこにもなければ 108 twip と仮に置き、見積もりの元に「仮に」と書く。
+  ECMA-376 第1部 17.4.42・17.7.6）と段落の字下げを引いた幅
 - ほかの段落：その段落の区切りの w:sectPr のページの幅（w:pgSz）から左右の余白（w:pgMar）・段組みの分・段落の字下げを引いた幅
 字の大きさは文字の要素の書式とスタイル（circle.run_size）。文書のグリッドで字を並べる設定（w:docGrid の linesAndChars・
 snapToChars）は、全角の字の送りを、グリッドの字の送り（既定の字の大きさ + w:charSpace / 4096 pt）にそろえる。
@@ -14,7 +16,59 @@ from __future__ import annotations
 from ..wrapcheck import say, wraps
 from .circle import _paras, _styles, run_size
 
-_DEFAULT_MAR = 108  # 表のマスの左右の余白の既定（twip）
+_DEFAULT_MAR = 108  # 表のマスの左右の余白が、どこにも書かれていないときに仮に置く値（twip。Word の既定の表のスタイルの値）
+
+
+def _table_styles(doc) -> dict:
+    """styles.xml の表のスタイル：{"based": id → basedOn, "mar": id → {辺: twip}, "default": 既定の表のスタイルの id}。"""
+    memo = getattr(doc, "_wrap_table_styles", None)
+    if memo is not None:
+        return memo
+    out: dict = {"based": {}, "mar": {}, "default": ""}
+    root = doc._load("word/styles.xml") if hasattr(doc, "_load") else None
+    top = root.kids[0] if root is not None and root.kids else None
+    for st in (top.findall("style") if top is not None else []):
+        if st.get("type") != "table":
+            continue
+        sid = st.get("styleId") or ""
+        b = st.find("basedOn")
+        if b is not None:
+            out["based"][sid] = b.get("val")
+        if st.get("default") in ("1", "true", "on"):
+            out["default"] = sid
+        tp = st.find("tblPr")
+        cm = tp.find("tblCellMar") if tp is not None else None
+        if cm is not None:
+            sides = {}
+            for k in cm.kids:
+                if k.get("type") in (None, "dxa") and k.get("w") not in (None, ""):
+                    sides[{"start": "left", "end": "right"}.get(k.local, k.local)] = _tw(k.get("w"))
+            out["mar"][sid] = sides
+    try:
+        doc._wrap_table_styles = out
+    except AttributeError:
+        pass
+    return out
+
+
+def _style_margin(doc, tbl, side: str) -> tuple[float | None, str]:
+    """表のスタイルの階層から、マスの余白（twip）と、どこで決まったか。"""
+    if doc is None:
+        return None, ""
+    ts = _table_styles(doc)
+    tp = tbl.find("tblPr") if tbl is not None else None
+    sref = tp.find("tblStyle") if tp is not None else None
+    chain, sid, seen = [], (sref.get("val") if sref is not None else None), 0
+    while sid and seen < 20:
+        chain.append(sid)
+        sid, seen = ts["based"].get(sid), seen + 1
+    if ts["default"] and ts["default"] not in chain:
+        chain.append(ts["default"])
+    for sid in chain:
+        v = ts["mar"].get(sid, {}).get(side)
+        if v is not None:
+            return v, f"表のスタイル「{sid}」"
+    return None, ""
 
 
 def _tw(v) -> float:
@@ -58,7 +112,7 @@ def _ind(p, size: float) -> tuple[float, float, float]:
     return left, right, first
 
 
-def _cell_width(p) -> tuple[float | None, str]:
+def _cell_width(p, doc=None) -> tuple[float | None, str]:
     """表のマスの、字を置ける幅（pt。字下げは引く前）と、その元の説明。"""
     tc = p.cell.node if p.cell is not None else None
     if tc is None:
@@ -103,8 +157,21 @@ def _cell_width(p) -> tuple[float | None, str]:
         return None
 
     ml, mr = margin("left"), margin("right")
+    notes = []
+    if ml is None:
+        ml, where = _style_margin(doc, tbl, "left")
+        notes += [where] if where else []
+    if mr is None:
+        mr, where = _style_margin(doc, tbl, "right")
+        notes += [where] if where else []
+    assumed = ml is None or mr is None
     w = width - (_DEFAULT_MAR if ml is None else ml) - (_DEFAULT_MAR if mr is None else mr)
-    return w / 20, "表のマスの幅"
+    basis = "表のマスの幅"
+    if notes:
+        basis += f"（余白は{'・'.join(dict.fromkeys(notes))}）"
+    if assumed:
+        basis += f"（余白の書かれていない辺は、仮に {_DEFAULT_MAR / 20:g} ポイント）"
+    return w / 20, basis
 
 
 def _page_width(p) -> tuple[float | None, str, object]:
@@ -163,7 +230,7 @@ def wrap_warnings(before, after, rename: dict | None = None) -> list[str]:
         sizes_b = _sizes(before, b)
         size = max(sizes_a) if sizes_a else 10.5
         left, right, first = _ind(a, size)
-        width, basis = _cell_width(a)
+        width, basis = _cell_width(a, after)
         sp = None
         if width is None:
             width, basis, sp = _page_width(a)

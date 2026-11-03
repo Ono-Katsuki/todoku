@@ -3,9 +3,9 @@
 書いた段落（書いた所の印のしおりのある段落）ごとに、書く前と書いた後の字を同じ幅で並べて、行の数を比べる（docx.wrap と同じ）。
 幅（MS-DOC の書式の命令から）：
 - 表のマスの段落：その行の終わりの段落の sprmTDefTable の列の境（rgdxaCenter）の差から、マスの左右の余白（sprmTDxaGapHalf の
-  2 倍。なければ 108 twip ずつ）と段落の字下げを引いた幅
+  2 倍。なければ仮に 108 twip ずつと置き、見積もりの元に「仮に」と書く）と段落の字下げを引いた幅
 - ほかの段落：段落のある区切り（PlcfSed の SEPX）の sprmSXaPage・sprmSDxaLeft・sprmSDxaRight（なければ Word の既定
-  12240・1800・1800 twip）と段組み（sprmSCcolumns）から、段落の字下げ（sprmPDxaLeft・sprmPDxaRight・sprmPDxaLeft1）を引いた幅
+  12240・1800・1800 twip）と段組み（sprmSCcolumns と、段の間 sprmSDxaColumns。なければ MS-DOC の既定 720 twip）から、段落の字下げ（sprmPDxaLeft・sprmPDxaRight・sprmPDxaLeft1）を引いた幅
 字の大きさは、字の書式の sprmCHps、なければ字のスタイル（sprmCIstd）・段落のスタイル（STSH の UPX の sprmCHps を
 istdBase でたどる）、どれもなければ 10 pt（MS-DOC の既定）。
 """
@@ -151,8 +151,8 @@ def _papx(doc, cp: int) -> bytes:
     return doc._lookup(doc.papx, fc) if fc >= 0 else b""
 
 
-def _cell_width(doc, p) -> float | None:
-    """表のマスの、字を置ける幅（pt。段落の字下げは引く前）。"""
+def _cell_width(doc, p, facts: dict | None = None) -> float | None:
+    """表のマスの、字を置ける幅（pt。段落の字下げは引く前）。facts に、余白を仮に置いたか（gap_assumed）を入れる。"""
     if p.cell is None:
         return None
     text = doc.text
@@ -174,13 +174,15 @@ def _cell_width(doc, p) -> float | None:
         if centers is None or col + 1 >= len(centers):
             return None
         w = centers[col + 1] - centers[col] - 2 * (_DEFAULT_GAP if gap is None else gap)
+        if facts is not None:
+            facts["gap_assumed"] = gap is None
         return w / 20
     return None
 
 
-def _section(doc, cp: int) -> tuple[float, float, float, int]:
-    """(ページの幅, 左の余白, 右の余白, 段の数)（twip）。"""
-    xa, left, right, cols = 12240, 1800, 1800, 1
+def _section(doc, cp: int) -> tuple[float, float, float, int, float]:
+    """(ページの幅, 左の余白, 右の余白, 段の数, 段の間)（twip）。"""
+    xa, left, right, cols, space = 12240, 1800, 1800, 1, 720
     fc, lcb = doc.fc.get("PlcfSed", (0, 0))
     if lcb:
         n = (lcb - 4) // 16
@@ -201,8 +203,10 @@ def _section(doc, cp: int) -> tuple[float, float, float, int]:
                             right = _u16(op)
                         elif sp == 0x500B:
                             cols = _u16(op) + 1
+                        elif sp == 0x900C:  # sprmSDxaColumns：段の間の幅（MS-DOC 2.6.4）
+                            space = _u16(op)
                 break
-    return xa, left, right, cols
+    return xa, left, right, cols, space
 
 
 def _ind(doc, p, size: float) -> tuple[float, float, float]:
@@ -241,13 +245,14 @@ def wrap_warnings(before, after, rename: dict | None = None) -> list[str]:
         sa, sb = _sizes(after, a), _sizes(before, b)
         size = max(sa) if sa else 10.0
         left, right, first = _ind(after, a, size)
-        width = _cell_width(after, a)
-        basis = "表のマスの幅"
+        facts: dict = {}
+        width = _cell_width(after, a, facts)
+        basis = "表のマスの幅" + (f"（マスの余白は書かれていないので、仮に {_DEFAULT_GAP / 20:g} ポイント）" if facts.get("gap_assumed") else "")
         if width is None:
             if a.cell is not None:
                 continue  # 表のマスの幅が読めない
-            xa, ml, mr, cols = _section(after, a.cp0)
-            width = ((xa - ml - mr) - 720 * (cols - 1)) / cols / 20
+            xa, ml, mr, cols, space = _section(after, a.cp0)
+            width = ((xa - ml - mr) - space * (cols - 1)) / cols / 20
             basis = "ページの幅（余白を引いた幅）"
         avail = width - left - right
         got = wraps(b.text, a.text, avail, lambda k, s=sb: s[k] if k < len(s) else size,

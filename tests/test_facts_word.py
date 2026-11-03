@@ -143,6 +143,43 @@ def test_libreoffice_doc_form_fields_and_small_streams(tmp_path):
     assert got["Tel"] == "03-0000-0000" and got["ctl1"] == "変更" and got["Mail"] is True
 
 
+def _with_table_style(blob: bytes, left: int, right: int) -> bytes:
+    import io
+    import zipfile
+
+    W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    styles = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles {W}>'
+              '<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:tblPr><w:tblCellMar>'
+              f'<w:left w:w="{left}" w:type="dxa"/><w:right w:w="{right}" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style></w:styles>')
+    src = zipfile.ZipFile(io.BytesIO(blob))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for n in src.namelist():
+            z.writestr(n, src.read(n))
+        z.writestr("word/styles.xml", styles)
+    return out.getvalue()
+
+
+@pytest.mark.parametrize("styled", [False, True])
+def test_wrap_estimate_reads_table_style_cell_margins(tmp_path, styled):
+    """表のマスの余白：マス・表になければ、表のスタイル（既定の表のスタイル）の w:tblCellMar を読む（ECMA-376 17.7.6）。
+    どこにも書かれていなければ 108 twip と仮に置き、見積もりの元にそう書く。"""
+    from test_wrap_grid_circle import MSG, _docx_cell
+
+    from todoku import api
+
+    blob = _docx_cell("１　・　２　種", 2000)
+    src = tmp_path / "t.docx"
+    src.write_bytes(_with_table_style(blob, 0, 0) if styled else blob)
+    r = api.fill(str(src), {"@1": {"old": "１　・　２　種", "new": "○１　・　２　種"}}, str(tmp_path / "o.docx"))
+    hit = [w for w in r["warnings"] if MSG in w]
+    assert hit, r["warnings"]
+    if styled:
+        assert "表のスタイル「TableNormal」" in hit[0] and "約 100 ポイント" in hit[0] and "仮に" not in hit[0]
+    else:
+        assert "仮に" in hit[0] and "約 89 ポイント" in hit[0]
+
+
 def test_say_to_user_counts_unchosen_choices_and_question_places(tmp_path):
     """まだ空いている欄の伝え方：選んでいない選択肢の組と、残っている「？」の所も、数で伝える（一つずつは並べない）。"""
     from todoku import api
