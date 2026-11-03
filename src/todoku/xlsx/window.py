@@ -692,6 +692,39 @@ def _lead_marker(body: str) -> str:
     return body[k:]
 
 
+GAP_EDGE_MIN = 4  # 空白だけの空きのうち、両端の 1 字を残して中に書く長さ（それより短い空きは「年　　月」の数の所のことが多い）
+
+
+def gap_interior(text: str, a: int, b: int) -> tuple[int, int, tuple[bool, bool]]:
+    """空白だけの空き text[a:b] に書くとき、書いた字が前の見出し・後ろの見出しにくっつかないよう（「氏　名山田　花子」
+    「…医師通院頻度：」）、端の 1 字を残した中の範囲：(始め, 終わり, (前を残したか, 後ろを残したか))。
+    - 空きが GAP_EDGE_MIN 字以上で、前に字（かっこの開きでない）があれば、初めの 1 字を残す
+    - そのうえで 2 字以上残り、後ろの字の塊が 2 字以上（見出しの語。1 字の「年」「月」などの単位の前には残さない）か
+      コロンで終われば、終わりの 1 字も残す
+    字の形と並びだけで決める（語は見ない）。空白でない空き（下線の字・点線）・短い空きは、そのまま返す。"""
+    seg = text[a:b]
+    if b - a < GAP_EDGE_MIN or not seg or not all(chars.is_space(ch) for ch in seg):
+        return a, b, (False, False)
+    lead = a > 0 and not chars.is_space(text[a - 1]) and unicodedata.category(text[a - 1]) not in ("Ps", "Pi")
+    a2 = a + 1 if lead else a
+    trail = False
+    if b < len(text) and b - a2 >= 2 and unicodedata.category(text[b]) not in ("Pe", "Pf"):
+        j = b
+        while j < len(text) and not chars.is_space(text[j]):
+            j += 1
+        tok = text[b:j]
+        trail = len(tok) >= 2 or chars.is_label_colon(tok[-1:] or " ")
+    b2 = b - 1 if trail else b
+    return a2, b2, (lead, trail)
+
+
+def _spaced_pair(core: str, a: int, b: int) -> bool:
+    """core 全体が、2 字を空白でつないだだけの見出し（「住　所」「氏　名」「電　話」）で、core[a:b] がその字の間か。
+    字間を空けた 2 字の見出しの後ろは、見出しだけの段落と同じく、値を書き足す所のことがある。"""
+    cnt, s_, e_ = spaced_chain(core, a, b)
+    return cnt == 2 and s_ == 0 and e_ == len(core)
+
+
 def agent_blanks(text: str, found=(), detail: bool = False) -> list[tuple[int, int, str]]:
     """規則では決められない、書き込む所かもしれない所（blank_places の空き・点線のほか）：(始め, 終わり, 何か（AGENT_WHY の鍵）)。
     found は先に見つけた所（重なる所・すぐ隣の所は出さない）。
@@ -740,7 +773,8 @@ def agent_blanks(text: str, found=(), detail: bool = False) -> list[tuple[int, i
     body = _lead_marker(core)
     if (body and not any(chars.is_terminal_punctuation(ch) for ch in body)
             and any(unicodedata.category(ch)[0] in ("L", "N") for ch in body)
-            and not any(k == "space" and wide_space(core[a:b]) for a, b, k in chars.char_runs(core))):  # 番号の後ろの空きも数える
+            and not any(k == "space" and wide_space(core[a:b]) and not _spaced_pair(core, a, b)
+                        for a, b, k in chars.char_runs(core))):  # 番号の後ろの空きも数える
         key = "after_label"
         if detail:
             key = "after_label_more" if (found or out) else "after_label" if 2 <= len(body) <= 16 else "after_label_long"
@@ -774,6 +808,8 @@ def cell_blanks(text: str) -> list[tuple[int, int, str | None]]:
     if head is not None and sum(1 for a, _b, k in out if a >= head[1] and k is not None) >= 2 \
             and not any(a < head[1] or (a == b == 0) for a, b, _k in out):
         out.append((head[0], head[1], "chain_head"))  # 「年　月　日」の初めの字の前（後ろに「？」の所が 2 つ以上あるときだけ）
+    # 空白だけの長い空き：書いた字が見出しにくっつかないよう、端の 1 字を残した中を所にする（Word の段落と同じ。gap_interior）
+    out = [(lambda g: (g[0], g[1], k))(gap_interior(text, a, b)) for a, b, k in out]
     return sorted(out)
 
 

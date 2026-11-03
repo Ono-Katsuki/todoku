@@ -117,12 +117,12 @@ def test_text_cell_gaps_are_agent_and_structural_blanks_are_rules():
     assert not f["S!A4"].get("agent") and f["S!A4"]["spans"][0]["rule"]
     reading = {x.get("row"): x["text"] for x in doc["sheets"][0]["reading"]}
     # 「？」の所の印は、元の空白をそのまま中に入れる（空きの大きさを印から読める）
-    assert reading[1] == "〔A1〕議長［？　　　　］氏" and reading[2] == "〔A2〕令和［？　　］年［？　　］月［？　　］日"
+    assert reading[1] == "〔A1〕議長　［？　　　］氏" and reading[2] == "〔A2〕令和［？　　］年［？　　］月［？　　］日"
     assert reading[3] == "〔A3〕電話（［　］）"
     # 書くのは、空欄ごとの値のリスト（書かない所は null）
     res = fill(Workbook(blob, "t.xlsx"), {"S!A1": ["山田"], "S!A2": ["8", "4", None]})
     sh = Workbook(res.blob, "t.xlsx").sheet("S")
-    assert sh.cells[(1, 1)].value == "議長山田氏" and sh.cells[(2, 1)].value == "令和8年4月　　日"
+    assert sh.cells[(1, 1)].value == "議長　山田氏" and sh.cells[(2, 1)].value == "令和8年4月　　日"
 
 
 def test_after_label_is_not_cut_by_length_or_other_blanks():

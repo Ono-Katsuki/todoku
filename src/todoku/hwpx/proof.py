@@ -29,6 +29,8 @@ from .package import L
 
 ADD_OK = {"t", "lineBreak", "ctrl", "bookmark", "run", "text"}
 DROP_OK = {"t", "linesegarray", "lineseg", "fwSpace", "nbSpace", "lineBreak"}
+# 누름틀の中身を書き換えるときに、元の中身と一緒に除いてよい字の中の要素（hp:t の子）
+FIELD_INLINE = {"t", "tab", "lineBreak", "fwSpace", "nbSpace", "hyphen"}
 FORM_TAGS = {"checkBtn", "radioBtn", "comboBox", "listBox", "edit"}
 
 
@@ -169,7 +171,15 @@ def prove(original: bytes, new: bytes, written: dict) -> HwpxProof:
                 pr.unexpected.append(f"段落 {i + 1}：書いた後の字が「{p_new.text[:60]}」で、思っていた「{want[:60]}」と違います")
         ta, tb = _tags(p_old.el), _tags(p_new.el)
         added = {k for k, n in (tb - ta).items()}
-        dropped = {k for k, n in (ta - tb).items()}
+        # 書いた누름틀の中（fieldBegin と fieldEnd のあいだ）の字の中の要素（タブ・改行など）：元の中身を除くのが、書き込みそのもの
+        in_field = Counter()
+        for _fid, it, _v in items:
+            c = it.get("control")
+            if c is not None and c.source == "hwpx-clickhere" and c.end_ctrl is not None:
+                lo, hi = c.begin_ctrl.e, c.end_ctrl.s
+                in_field += Counter(L(x) or x.tag for x in p_old.el.iter()
+                                    if x is not p_old.el and lo <= x.s and x.e <= hi and L(x) in FIELD_INLINE)
+        dropped = {k for k, n in (ta - tb - in_field).items()}
         if not added <= ADD_OK:
             pr.unexpected.append(f"段落 {i + 1}：元にない要素（{', '.join(sorted(added - ADD_OK))}）が足されています")
         if not dropped <= DROP_OK:

@@ -314,6 +314,12 @@ class HwpxWriter:
                     continue
                 loc = L(ch)
                 if loc == "t":
+                    # 字の中の要素（タブ・改行・空白の印など）も、元の中身として一緒に除く。対になる印（蛍光ペンの始まり・
+                    # 終わりなど）は、片方だけ除くと対が崩れるので書かない
+                    other = [L(x) for x in ch.els() if L(x) not in ("tab", "lineBreak", "fwSpace", "nbSpace", "hyphen")]
+                    if other:
+                        raise FillError(f"{item['id']}: 누름틀の中の字に、除けない印（{'・'.join(sorted(set(other)))}）があります"
+                                        "（書き換えると対が崩れるので、書きません）")
                     self.put(part, ch.s, ch.e, b"")
                 elif loc != "ctrl":
                     raise FillError(f"{item['id']}: 누름틀の中に、字でないもの（{loc or ch.tag}）があります（書き換えると消えるので、書きません）")

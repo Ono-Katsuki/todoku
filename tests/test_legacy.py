@@ -1114,7 +1114,7 @@ def test_word6_overwrites_in_place_with_proof():
     a, b = CFB(blob).read("WordDocument"), CFB(res.blob).read("WordDocument")
     assert len(a) == len(b) and sum(x != y for x, y in zip(a, b)) <= len("東京都山田太郎■".encode("cp932"))
     texts = [p.text for _k, _p, bl in DocFile(res.blob).all_blocks() for p in iter_paras(bl)]
-    assert "氏名山田太郎　　様" in texts and "東京都　　　" in texts and "■同意する" in texts, texts
+    assert "氏名　山田太郎　様" in texts and "東京都　　　" in texts and "■同意する" in texts, texts
     # 証明は、書き込み処理とは別に確かめる：書いていない字を変えたファイルを見つける
     wd = bytearray(b)
     k = wd.find("申請書".encode("cp932"))

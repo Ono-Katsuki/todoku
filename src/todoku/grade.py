@@ -26,7 +26,8 @@ B 解析しないと書けない（書く所を、罫線・空き・空のセル
   エージェントが窓を読んで決める。スキャンのページ（PDF）は、エージェントがページの画像（view_page）を見て枠で書く。
   PDF の権限の設定（暗号の辞書の P）が記入・変更を許していない：とどくは書くが、受け取る側が拒むことがあるので、
   エージェントが本人に伝えて提出先に確かめる）
-C 画面（UI）から入力する（ボタンで動くマクロ、または書類が電子申請などの画面からの入力を求めている）
+C 画面（UI）から入力する（ボタンで動くマクロ、または書類が電子申請などの画面からの入力を求めている。パッケージの電子署名：
+  書くと署名が無効になり、本人が Office などの画面で署名し直す）
 D 書けない（アクセスできない・字の情報がなく、ページの画像も作れない紙・署名・印・拇印・公証など、手で行う所）
   ※様式が認める所には、本人が同意したときだけ、本人の印影・署名の画像を置ける（fill の seal・signature）。
     それで書けるかは書類の決まり（意味）によるので、段階は変えず、問い（cannot_do）でエージェントが確かめる
@@ -257,6 +258,29 @@ def unsupported_grade(kind: str) -> Grade:
 
 # ====================================================================== 形式ごと
 def grade_blob(blob: bytes, filename: str = "", password: str | None = None, encoding: str | None = None) -> Grade:
+    """形式ごとに段階を決め（_grade_blob）、パッケージの電子署名があれば、書く段階の理由を足す。"""
+    g = _grade_blob(blob, filename, password, encoding)
+    if g.grade != "F":
+        g = _signature_reason(blob, g)
+    return g
+
+
+def _signature_reason(blob: bytes, g: Grade) -> Grade:
+    """パッケージの電子署名（Office・OpenDocument・OCF）：書くと署名が無効になり、署名し直しが要る。署名し直しは、本人が
+    Office などの画面（UI）で行う（とどくは署名しない）ので、書く C。読む段階は変えない。"""
+    from .pkgsig import find
+
+    sig = find(blob)
+    if sig is None:
+        return g
+    r = Reason("C", "電子署名", sig.message, list(sig.parts))
+    write = sorted(list(g.write_reasons) + [r], key=lambda x: -WRITE_ORDER.index(x.grade))
+    g.write_reasons = write
+    g.write = _worst(WRITE_ORDER, g.write, [r])
+    return g
+
+
+def _grade_blob(blob: bytes, filename: str = "", password: str | None = None, encoding: str | None = None) -> Grade:
     """password：パスワードで保護された PDF を開くとき（Office の書類は、api で解いた中身を渡す）。
     encoding：文字だけのファイル（CSV・TSV・JSON・.txt）の文字コードを、エージェントが候補から選んで指定したとき。"""
     from .book import kind_of

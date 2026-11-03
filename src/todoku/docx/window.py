@@ -22,6 +22,7 @@ import re
 from .. import chars
 from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, label_tail, norm_label, shown_gap, wide_space
 from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, SPACED_MARK, SPACED_NOTE, chain_head, heading_gap, one_wide_space, weak_line, weak_space
+from ..xlsx.window import gap_interior
 from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 
 DET = "deterministic"
@@ -286,7 +287,13 @@ class Spots:
                         label = norm_label(opt)[:40] or norm_label(text[max(0, a - 200):a])[-30:]
                     else:
                         label = self._label(p, a, b)
+                    edges = (False, False)
+                    if kind == "inline":
+                        # 空白だけの長い空き：書いた字が見出しにくっつかないよう、端の 1 字を残した中に書く（窓の所も中だけ）
+                        a, b, edges = gap_interior(text, a, b)
                     it = {"id": fid, "kind": kind, "source": "layout", "para": p, "span": (a, b), "label": label, "provenance": LAYOUT}
+                    if any(edges):
+                        it["kept_edges"] = edges
                     if why is not None:
                         it.update(provenance=AGENT, why=WORD_WHY[why], why_key=why)
                         if one_wide_space(text[a:b]):
