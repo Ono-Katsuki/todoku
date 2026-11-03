@@ -1,0 +1,1877 @@
+{
+ "JP": {
+  "name": "日本",
+  "source": "https://data.e-gov.go.jp/data",
+  "strata": {
+   "sheet": [
+    [
+     "XLSX",
+     1839
+    ],
+    [
+     "XLS",
+     4727
+    ],
+    [
+     ".XLSX",
+     2
+    ],
+    [
+     ".XLS",
+     1
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     9471
+    ]
+   ],
+   "text": [
+    [
+     "ODT",
+     1
+    ],
+    [
+     "DOCX",
+     22
+    ],
+    [
+     "DOC",
+     26
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     1157
+    ],
+    [
+     ".CSV",
+     2
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "GB": {
+  "name": "英国",
+  "source": "https://data.gov.uk",
+  "strata": {
+   "sheet": [
+    [
+     "xlsx",
+     12
+    ],
+    [
+     "xls",
+     42
+    ],
+    [
+     "ods",
+     33
+    ],
+    [
+     "XLSX ",
+     1
+    ],
+    [
+     "XLSX",
+     3094
+    ],
+    [
+     "XLS ",
+     2
+    ],
+    [
+     "XLS",
+     2386
+    ],
+    [
+     "ODS",
+     393
+    ],
+    [
+     ".xlsx",
+     162
+    ],
+    [
+     ".xls",
+     84
+    ],
+    [
+     ".ods",
+     22
+    ],
+    [
+     ".XLSX",
+     1
+    ],
+    [
+     ".XLS",
+     1
+    ]
+   ],
+   "text": [
+    [
+     "text/rtf",
+     1
+    ],
+    [
+     "rtf",
+     2
+    ],
+    [
+     "odt",
+     3
+    ],
+    [
+     "docx",
+     2
+    ],
+    [
+     "doc",
+     12
+    ],
+    [
+     "RTF",
+     9
+    ],
+    [
+     "ODT",
+     53
+    ],
+    [
+     "DOCX",
+     165
+    ],
+    [
+     "DOC",
+     49
+    ],
+    [
+     ".docx",
+     1
+    ]
+   ],
+   "pdf": [
+    [
+     "text/PDF",
+     1
+    ],
+    [
+     "pdf ",
+     1
+    ],
+    [
+     "pdf",
+     31
+    ],
+    [
+     "Word/PDF",
+     1
+    ],
+    [
+     "Pdf",
+     1
+    ],
+    [
+     "PDF ",
+     2
+    ],
+    [
+     "PDF",
+     2278
+    ],
+    [
+     ".pdf",
+     105
+    ]
+   ],
+   "csv": [
+    [
+     "https://www.iana.org/assignments/media-types/text/csv",
+     389
+    ],
+    [
+     "csv  ",
+     2
+    ],
+    [
+     "csv \t",
+     1
+    ],
+    [
+     "csv ",
+     4
+    ],
+    [
+     "csv",
+     93
+    ],
+    [
+     "CSv",
+     1
+    ],
+    [
+     "CSV ",
+     12
+    ],
+    [
+     "CSV",
+     12447
+    ],
+    [
+     ".csv",
+     331
+    ],
+    [
+     ".CSV",
+     2
+    ],
+    [
+     " CSV",
+     1
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "CA": {
+  "name": "カナダ",
+  "source": "https://open.canada.ca/data/en",
+  "strata": {
+   "sheet": [
+    [
+     "XLSX",
+     2250
+    ],
+    [
+     "XLS",
+     1012
+    ],
+    [
+     "ODS",
+     20
+    ]
+   ],
+   "text": [
+    [
+     "RTF",
+     21
+    ],
+    [
+     "ODT",
+     7
+    ],
+    [
+     "DOCX",
+     494
+    ],
+    [
+     "DOC",
+     69
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     8448
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     15853
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "NL": {
+  "name": "オランダ",
+  "source": "https://data.overheid.nl/data",
+  "strata": {
+   "sheet": [
+    [
+     "http://publications.europa.eu/resource/authority/file-type/XLSX",
+     530
+    ],
+    [
+     "http://publications.europa.eu/resource/authority/file-type/XLS",
+     203
+    ],
+    [
+     "http://publications.europa.eu/resource/authority/file-type/ODS",
+     133
+    ]
+   ],
+   "pdf": [
+    [
+     "http://publications.europa.eu/resource/authority/file-type/PDF",
+     535
+    ]
+   ],
+   "text": [
+    [
+     "http://publications.europa.eu/resource/authority/file-type/ODT",
+     1
+    ],
+    [
+     "http://publications.europa.eu/resource/authority/file-type/DOCX",
+     2
+    ]
+   ],
+   "csv": [
+    [
+     "http://publications.europa.eu/resource/authority/file-type/CSV",
+     2569
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "GR": {
+  "name": "ギリシャ",
+  "source": "https://data.gov.gr",
+  "strata": {
+   "sheet": [
+    [
+     "XLSX",
+     2423
+    ],
+    [
+     "XLS",
+     2781
+    ],
+    [
+     "ODS",
+     47
+    ],
+    [
+     ".xlsx",
+     11
+    ]
+   ],
+   "text": [
+    [
+     "RTF",
+     10
+    ],
+    [
+     "ODT",
+     2
+    ],
+    [
+     "DOCX",
+     135
+    ],
+    [
+     "DOC",
+     196
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     1268
+    ],
+    [
+     ".pdf",
+     6
+    ],
+    [
+     ".PDF",
+     1
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     5662
+    ],
+    [
+     ".csv",
+     37
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "UA": {
+  "name": "ウクライナ",
+  "source": "https://data.gov.ua",
+  "strata": {
+   "sheet": [
+    [
+     "хlsх",
+     1
+    ],
+    [
+     "хlsx",
+     1098
+    ],
+    [
+     "хls",
+     442
+    ],
+    [
+     "ХLSX",
+     3
+    ],
+    [
+     "ХLS",
+     2
+    ],
+    [
+     "ZIP/XLS",
+     2
+    ],
+    [
+     "XLSX",
+     15086
+    ],
+    [
+     "XLS",
+     6295
+    ],
+    [
+     "ODS",
+     474
+    ],
+    [
+     ".хlsx",
+     13
+    ],
+    [
+     ".хls",
+     1
+    ],
+    [
+     ".xlsx",
+     1429
+    ],
+    [
+     ".xls",
+     565
+    ],
+    [
+     ".ods",
+     42
+    ],
+    [
+     ".XLSX",
+     1
+    ],
+    [
+     ".XLS",
+     4
+    ],
+    [
+     ".ODS",
+     2
+    ]
+   ],
+   "text": [
+    [
+     "rtf",
+     169
+    ],
+    [
+     "application/rtf",
+     218
+    ],
+    [
+     "RTF",
+     21
+    ],
+    [
+     "ODT",
+     173
+    ],
+    [
+     "DOCX",
+     2005
+    ],
+    [
+     "DOC",
+     1818
+    ],
+    [
+     ".rtf",
+     46
+    ],
+    [
+     ".odt",
+     22
+    ],
+    [
+     ".docx",
+     174
+    ],
+    [
+     ".doc",
+     172
+    ],
+    [
+     ".RTF",
+     2
+    ],
+    [
+     ".ODT",
+     1
+    ],
+    [
+     ".DOCX",
+     1
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     1537
+    ],
+    [
+     ".pdf",
+     178
+    ],
+    [
+     ".PDF",
+     1
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     10358
+    ],
+    [
+     ".csv",
+     460
+    ],
+    [
+     ".CSV",
+     18
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "HR": {
+  "name": "クロアチア",
+  "source": "https://data.gov.hr/ckan",
+  "strata": {
+   "sheet": [
+    [
+     "xlsx ",
+     19
+    ],
+    [
+     "XLSX",
+     1017
+    ],
+    [
+     "XLS",
+     479
+    ],
+    [
+     "ODS",
+     3
+    ]
+   ],
+   "text": [
+    [
+     "rtf",
+     10
+    ],
+    [
+     "ODT",
+     3
+    ],
+    [
+     "DOCX",
+     229
+    ],
+    [
+     "DOC",
+     79
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     959
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     821
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "LV": {
+  "name": "ラトビア",
+  "source": "https://data.gov.lv/dati",
+  "strata": {
+   "sheet": [
+    [
+     "XLSX",
+     313
+    ],
+    [
+     "XLS",
+     49
+    ],
+    [
+     "ODS",
+     3
+    ],
+    [
+     ".xlsx",
+     50
+    ],
+    [
+     ".XLSX",
+     1
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     19
+    ]
+   ],
+   "text": [
+    [
+     "DOCX",
+     23
+    ],
+    [
+     "DOC",
+     3
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     572
+    ],
+    [
+     ".csv",
+     3
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "IL": {
+  "name": "イスラエル",
+  "source": "https://data.gov.il",
+  "strata": {
+   "sheet": [
+    [
+     "XLSX",
+     443
+    ],
+    [
+     "XLS",
+     112
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     183
+    ]
+   ],
+   "text": [
+    [
+     "DOCX",
+     15
+    ],
+    [
+     "DOC",
+     1
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     632
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "DE": {
+  "name": "ドイツ",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     68119
+    ],
+    [
+     ".csv",
+     37
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     49529
+    ],
+    [
+     "pdf ",
+     2
+    ]
+   ],
+   "sheet": [
+    [
+     "XLS",
+     15725
+    ],
+    [
+     "XLSX",
+     10041
+    ],
+    [
+     "ODS",
+     60
+    ],
+    [
+     ".xlsx",
+     2
+    ]
+   ],
+   "text": [
+    [
+     "DOC",
+     25
+    ],
+    [
+     "DOCX",
+     17
+    ],
+    [
+     "RTF",
+     9
+    ],
+    [
+     "ODT",
+     7
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "AT": {
+  "name": "オーストリア",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     56613
+    ],
+    [
+     ".csv",
+     3
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     11442
+    ],
+    [
+     ".pdf",
+     33
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     125
+    ],
+    [
+     "XLS",
+     41
+    ],
+    [
+     "ODS",
+     8
+    ]
+   ],
+   "text": [
+    [
+     "DOCX",
+     20
+    ],
+    [
+     "DOC",
+     12
+    ],
+    [
+     "RTF",
+     8
+    ],
+    [
+     "ODT",
+     4
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "IT": {
+  "name": "イタリア",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     45603
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     6543
+    ]
+   ],
+   "sheet": [
+    [
+     "XLS",
+     3881
+    ],
+    [
+     "XLSX",
+     2160
+    ],
+    [
+     "ODS",
+     866
+    ]
+   ],
+   "text": [
+    [
+     "DOC",
+     287
+    ],
+    [
+     "RTF",
+     12
+    ],
+    [
+     "ODT",
+     8
+    ],
+    [
+     "DOCX",
+     2
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "BE": {
+  "name": "ベルギー",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "pdf": [
+    [
+     "PDF",
+     3867
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     3183
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     2405
+    ],
+    [
+     "XLS",
+     185
+    ],
+    [
+     "ODS",
+     3
+    ]
+   ],
+   "text": [
+    [
+     "DOCX",
+     31
+    ],
+    [
+     "DOC",
+     11
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "PT": {
+  "name": "ポルトガル",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "pdf": [
+    [
+     "PDF",
+     3756
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     803
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     327
+    ],
+    [
+     "ODS",
+     206
+    ],
+    [
+     "XLS",
+     40
+    ]
+   ],
+   "text": [
+    [
+     "DOCX",
+     1
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "FR": {
+  "name": "フランス",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     27305
+    ],
+    [
+     "file:///srv/udata/ftype/csv",
+     71
+    ],
+    [
+     "www:download:text/csv",
+     63
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     3716
+    ],
+    [
+     "www:download:application/pdf",
+     38
+    ]
+   ],
+   "sheet": [
+    [
+     "XLS",
+     2522
+    ],
+    [
+     "XLSX",
+     2374
+    ],
+    [
+     "ODS",
+     541
+    ],
+    [
+     "file:///srv/udata/ftype/xlsx",
+     13
+    ],
+    [
+     ".xlsx",
+     9
+    ]
+   ],
+   "text": [
+    [
+     "DOC",
+     180
+    ],
+    [
+     "DOCX",
+     134
+    ],
+    [
+     "ODT",
+     50
+    ],
+    [
+     "RTF",
+     23
+    ],
+    [
+     "www:download:application/rtf",
+     8
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "SI": {
+  "name": "スロベニア",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     932
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     881
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     298
+    ],
+    [
+     "XLS",
+     138
+    ]
+   ],
+   "text": [
+    [
+     "DOC",
+     102
+    ],
+    [
+     "RTF",
+     97
+    ],
+    [
+     "DOCX",
+     75
+    ],
+    [
+     "ODT",
+     1
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "CH": {
+  "name": "スイス",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     4993
+    ]
+   ],
+   "sheet": [
+    [
+     "XLS",
+     3194
+    ],
+    [
+     "ODS",
+     261
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     723
+    ]
+   ],
+   "text": [
+    [
+     "RTF",
+     1
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "ES": {
+  "name": "スペイン",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     1870
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     898
+    ],
+    [
+     "ODS",
+     306
+    ],
+    [
+     "XLS",
+     113
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     526
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "IE": {
+  "name": "アイルランド",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     20462
+    ],
+    [
+     ".CSV",
+     8
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     14441
+    ],
+    [
+     ".XLSX",
+     82
+    ],
+    [
+     "XLS",
+     73
+    ],
+    [
+     "ODS",
+     15
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     423
+    ]
+   ],
+   "text": [
+    [
+     "DOCX",
+     9
+    ],
+    [
+     "DOC",
+     6
+    ],
+    [
+     "ODT",
+     5
+    ],
+    [
+     ".DOC",
+     1
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "PL": {
+  "name": "ポーランド",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     4442
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     3983
+    ],
+    [
+     "XLS",
+     326
+    ],
+    [
+     "ODS",
+     54
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     400
+    ]
+   ],
+   "text": [
+    [
+     "DOCX",
+     73
+    ],
+    [
+     "DOC",
+     24
+    ],
+    [
+     "ODT",
+     6
+    ],
+    [
+     "RTF",
+     2
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "SK": {
+  "name": "スロバキア",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     7069
+    ]
+   ],
+   "sheet": [
+    [
+     "ODS",
+     2010
+    ],
+    [
+     "XLSX",
+     1332
+    ],
+    [
+     "XLS",
+     280
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     302
+    ]
+   ],
+   "text": [
+    [
+     "DOCX",
+     4
+    ],
+    [
+     "DOC",
+     2
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "MD": {
+  "name": "モルドバ",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "sheet": [
+    [
+     "XLS",
+     496
+    ],
+    [
+     "XLSX",
+     462
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     195
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     146
+    ]
+   ],
+   "text": [
+    [
+     "DOCX",
+     121
+    ],
+    [
+     "DOC",
+     62
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "SE": {
+  "name": "スウェーデン",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     1210
+    ],
+    [
+     "text/csv",
+     1
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     606
+    ],
+    [
+     "XLS",
+     69
+    ],
+    [
+     "ODS",
+     2
+    ],
+    [
+     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+     1
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     174
+    ],
+    [
+     "application/pdf",
+     2
+    ]
+   ],
+   "text": [
+    [
+     "DOCX",
+     1
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "FI": {
+  "name": "フィンランド",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "sheet": [
+    [
+     "XLSX",
+     329
+    ],
+    [
+     "XLS",
+     56
+    ],
+    [
+     ".XLSX",
+     5
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     231
+    ],
+    [
+     ".CSV",
+     17
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     76
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "RO": {
+  "name": "ルーマニア",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "sheet": [
+    [
+     "XLSX",
+     2084
+    ],
+    [
+     "XLS",
+     1815
+    ],
+    [
+     ".xlsx",
+     347
+    ],
+    [
+     "ODS",
+     49
+    ],
+    [
+     ".xls",
+     45
+    ],
+    [
+     "xlsx ",
+     1
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     369
+    ],
+    [
+     ".csv",
+     231
+    ]
+   ],
+   "text": [
+    [
+     "ODT",
+     71
+    ],
+    [
+     "DOC",
+     52
+    ],
+    [
+     ".odt",
+     32
+    ],
+    [
+     "DOCX",
+     20
+    ],
+    [
+     ".doc",
+     4
+    ],
+    [
+     ".docx",
+     3
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     66
+    ],
+    [
+     ".pdf",
+     33
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "HU": {
+  "name": "ハンガリー",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     1178
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     1016
+    ],
+    [
+     "XLS",
+     43
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     55
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "EE": {
+  "name": "エストニア",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "sheet": [
+    [
+     "XLSX",
+     67
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     48
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     46
+    ]
+   ],
+   "text": [
+    [
+     "DOCX",
+     3
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "DK": {
+  "name": "デンマーク",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     3108
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     2764
+    ],
+    [
+     "XLS",
+     4
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     47
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "ME": {
+  "name": "モンテネグロ",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "sheet": [
+    [
+     "XLSX",
+     671
+    ],
+    [
+     "XLS",
+     123
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     66
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     34
+    ]
+   ],
+   "text": [
+    [
+     "DOCX",
+     8
+    ],
+    [
+     "DOC",
+     3
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "MT": {
+  "name": "マルタ",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "pdf": [
+    [
+     "PDF",
+     31
+    ]
+   ],
+   "sheet": [
+    [
+     "XLS",
+     1
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "NO": {
+  "name": "ノルウェー",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     472
+    ],
+    [
+     "text/csv",
+     1
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     30
+    ],
+    [
+     "application/x-gtar , application/pdf",
+     27
+    ],
+    [
+     "application/zip , application/pdf",
+     11
+    ],
+    [
+     "application/zip , text/plain , application/pdf",
+     4
+    ],
+    [
+     "application/x-gtar , application/zip , application/pdf",
+     3
+    ],
+    [
+     "application/gzip , application/json , text/markdown , application/pdf",
+     2
+    ],
+    [
+     "application/tar , application/pdf",
+     2
+    ],
+    [
+     "application/x-gtar , text/plain , application/pdf",
+     2
+    ],
+    [
+     "application/x-gtar , application/x-rar-compressed , application/zip , application/pdf",
+     1
+    ],
+    [
+     "application/x-gtar , text/markdown , application/pdf",
+     1
+    ],
+    [
+     "application/zip , application/tar , application/pdf",
+     1
+    ],
+    [
+     "text/csv , application/pdf",
+     1
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     4
+    ],
+    [
+     "XLS",
+     2
+    ],
+    [
+     "ODS",
+     1
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "LT": {
+  "name": "リトアニア",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     1527
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     44
+    ],
+    [
+     "XLS",
+     3
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     27
+    ]
+   ],
+   "text": [
+    [
+     "DOC",
+     6
+    ],
+    [
+     "DOCX",
+     5
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "CZ": {
+  "name": "チェコ",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     5387
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     577
+    ],
+    [
+     "XLS",
+     101
+    ],
+    [
+     "ODS",
+     5
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     16
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "AL": {
+  "name": "アルバニア",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "sheet": [
+    [
+     "XLSX",
+     101
+    ],
+    [
+     "XLS",
+     17
+    ]
+   ],
+   "csv": [
+    [
+     "CSV",
+     100
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     4
+    ]
+   ],
+   "text": [
+    [
+     "DOC",
+     1
+    ],
+    [
+     "DOCX",
+     1
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ },
+ "IS": {
+  "name": "アイスランド",
+  "source": "https://data.europa.eu/api/hub/search/search",
+  "strata": {
+   "csv": [
+    [
+     "CSV",
+     17
+    ]
+   ],
+   "pdf": [
+    [
+     "PDF",
+     1
+    ]
+   ],
+   "sheet": [
+    [
+     "XLSX",
+     1
+    ]
+   ]
+  },
+  "built": "2026-11-03"
+ }
+}
