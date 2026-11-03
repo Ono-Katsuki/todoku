@@ -407,7 +407,7 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
         n = sum(k for _w, k in body)
         reasons.append(Reason("E", "字に直せない本文の字",
                               f"{n} 字は、フォントに文字の対応がなく、字に直せません（窓では �）。その所の中身は、ページを画像として"
-                              "見て読みます（todoku の view_page は画像だけを描き、字は描かないので、PDF を描ける別の道具で見ます）。"
+                              "見て読みます（view_page で描いたページを見る。字に直せない字は、埋め込みのフォントの字形のまま描くので、見た形から読む）。"
                               "中身を推測で埋めないでください", [w for w, _k in body][:12]))
     flagged: dict[str, Reason] = {}
     for p in win["pages"]:
@@ -453,8 +453,8 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
         # 字を組み立てて（シェーピング）描く文字：書けるが、証明はとどく自身の組み立てと照らすだけで、見た目そのものは確かめない
         write.append(Reason("B", "字を組み立てて書く文字（見た目は画像で確かめる）",
                             "この書類の文字（アラビア文字・インド系の文字など）は、字を組み立てて（シェーピング）描きます。"
-                            "字の並びは、とどくの字の組み立てで確かめますが、見た目そのものは確かめていません。書いた欄は view_page で"
-                            "ページの画像を見て確かめます", sh[:12]))
+                            "字の並びは、とどくの字の組み立てで確かめますが、見た目そのものは証明していません。書いた欄は view_page で"
+                            "描いたページ（書いた字も字形で描く）を見て、字の形とつながりが正しいかを確かめます", sh[:12]))
     from .pdf.signatures import write_reasons as _sig_reasons
 
     write += _sig_reasons(doc)  # 変更を許さない電子署名（DocMDP P=1）は書けない

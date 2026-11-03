@@ -198,12 +198,17 @@ TOOLS = [
                     "上と左の帯に、ページの左上からの mm の目盛りが付く。小さな字は region（[左, 上, 右, 下] mm）で拡大して読む。"
                     "書く所は、画像を見て決めた枠を fill_document に {\"@1\": {\"page\": ページ, \"box\": [左, 上, 右, 下]（mm）, \"value\": 書く字}} で渡す。"
                     "書く前に marks（[{\"box\": [...], \"label\": \"1\"}]）を渡すと、その枠を赤で描くので、位置が合っているかを目で確かめる。"
-                    "書いた後のファイルを見ると、値の入った欄が青い枠で描かれ、欄の見た目の字は、見た目のとおりの位置・大きさ・向きの字ごとの灰色の四角（黒い線は字の下の線）で描かれ、値は文で返る（字が欄からはみ出す・つぶれる・横倒しなら、書いた見た目が正しくない）。置いた印影・署名の画像も、その位置に描く。画像の中の字は推測で埋めず、読めない所は本人に伝える。",
+                    "ページは、字（埋め込みのフォントの字形）・線・画像・欄の見た目（/AP）を描く。書いた後のファイルを見ると、値の入った欄が青い枠で描かれ、値は文で返る。"
+                    "書いた字が欄からはみ出す・つぶれる・横倒し・印刷された字に重なるなら、書いた見た目が正しくないので、書き直す（書いた後は、いつも見て確かめる）。"
+                    "フォントが埋め込まれていない字は代わりのフォントで描き（結果の substituted）、使える字形がない字は灰色の四角になる。"
+                    "JBIG2・JPEG 2000 の画像は描けない（結果に書く）ので、その所は描けたと思わず、本人に伝える。置いた印影・署名の画像も、その位置に描く。画像の中の字は推測で埋めず、読めない所は本人に伝える。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
          "page": {"type": "integer", "minimum": 1},
          "region": {"type": "array", "items": {"type": "number"}, "description": "[左, 上, 右, 下]（mm）。省くとページ全体"},
-         "marks": {"type": "array", "items": {"type": "object"}, "description": "赤で描く枠：[{box: [左, 上, 右, 下]（mm）, label: 番号}]"}},
+         "marks": {"type": "array", "items": {"type": "object"}, "description": "赤で描く枠：[{box: [左, 上, 右, 下]（mm）, label: 番号}]"},
+         "dpi": {"type": "number", "minimum": 10, "maximum": 1200,
+                 "description": "解像度。省くとページ全体は 100 dpi、region は長い辺 1600 画素。画像の画素の数には上限があり、超えるときは小さくする"}},
          "required": ["path", "page"]}},
     {"name": "grade_document",
      "description": "書類の段階を返す：読む段階（S〜F）と書く段階（A〜D：そのまま書ける／解析しないと書けない／画面から入力する／書けない）。"
@@ -322,7 +327,7 @@ def call_tool(name: str, args: dict) -> dict:
         res = api.calculate(args["path"], args.get("values") or {}, args.get("password"))
         return {"content": [_text(res["say_to_user"]), _text(res)], "structuredContent": res}
     if name == "view_page":
-        v = api.view_page(args["path"], args["page"], args.get("region"), args.get("marks"), args.get("password"))
+        v = api.view_page(args["path"], args["page"], args.get("region"), args.get("marks"), args.get("password"), args.get("dpi"))
         return {"content": [_text(v["text"]), {"type": "image", "data": v["png_base64"], "mimeType": "image/png"}],
                 "structuredContent": {"text": v["text"], "width": v["width"], "height": v["height"]}}
     if name == "grade_document":

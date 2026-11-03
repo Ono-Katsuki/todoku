@@ -1537,10 +1537,10 @@ def calculate(path: str, values: dict, password: str | None = None) -> dict:
 
 @_budgeted
 def view_page(path: str, page: int, region: list | None = None, marks: list | None = None,
-              password: str | None = None) -> dict:
+              password: str | None = None, dpi: float | None = None) -> dict:
     """PDF のページの画像（スキャンした紙のページを、エージェントが見て読み、書く所を mm の枠で決めるため）。
     todoku が書き込んだ欄（p ページ.w 番号など）は、青い枠で描き、id と値を添える。欄・注釈の見た目（/AP）の字は、見た目の
-    とおりの位置・大きさ・向きで、字ごとの四角と基線として描く（pdf/pageimage.py）。"""
+    とおりの位置・大きさ・向きで描く（pdf/pageimage.py）。dpi：解像度（省くとページ全体は 100 dpi。画素の数の上限は pageimage のとおり）。"""
     from .pdf.pageimage import view_page as pview
 
     blob, name, k, lock = _read(path, password)
@@ -1548,7 +1548,9 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
         raise ApiError("view_page は PDF のページの画像です（ほかの形式は窓で読めます）")
     doc = _pdf(blob, name, lock)
     try:
-        return pview(doc, int(page), region, marks, written=_written_boxes(path, password, int(page)))
+        if dpi is not None and (isinstance(dpi, bool) or not isinstance(dpi, (int, float)) or not 10 <= dpi <= 1200):
+            raise ApiError("dpi は 10〜1200 の数で指定してください（省くとページ全体は 100 dpi）")
+        return pview(doc, int(page), region, marks, written=_written_boxes(path, password, int(page)), dpi=dpi)
     except ValueError as e:
         raise ApiError(str(e)) from None
 
