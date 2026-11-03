@@ -166,6 +166,21 @@ tr.unr td { color: var(--muted); }
   .brow { grid-template-columns: 1fr; gap: 4px; }
   .bmore { grid-column: auto; margin-top: 0; }
 }
+
+/* とどくを使う：手順（順番に意味がある）とコマンド */
+.use { list-style: none; counter-reset: use; margin: 0; padding: 0; display: grid; gap: 22px 40px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); max-width: 1000px; }
+.use > li { counter-increment: use; display: grid; grid-template-columns: 2.2em minmax(0, 1fr); column-gap: 10px; align-content: start; min-width: 0; }
+.use > li::before { content: counter(use); grid-row: span 9; font-family: var(--display); font-size: 1.6rem; line-height: 1; color: var(--pen); }
+.use h3 { font-size: .98rem; margin: 2px 0 4px; }
+.use p { margin: 0 0 6px; font-size: .88rem; }
+.cmd { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 4px 0; padding: 6px 8px 6px 12px; background: var(--slip); border: 1px solid var(--line); border-radius: 3px; }
+.cmd code { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .8rem; color: var(--ink); }
+.copy { flex: none; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 3px; padding: 3px 10px; font-size: .74rem; cursor: pointer; }
+.copy:hover { border-color: var(--pen); }
+.say { margin: 0; padding-left: 1.1em; font-size: .86rem; color: var(--ink); display: grid; gap: 2px; }
+.other { margin-top: 18px; font-size: .86rem; max-width: 60em; }
+.other summary { cursor: pointer; color: var(--pen); }
+.other p { margin: 8px 0 4px; }
 /* とどくの5つの段階（順番に意味がある：開く→見つける→越える→書いて証明→伝える） */
 .how { list-style: none; counter-reset: step; margin: 0; padding: 0; display: grid; gap: 18px 32px;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
@@ -347,6 +362,29 @@ tr.unr td { color: var(--muted); }
       <li><h3>対話で伝える</h3>
         <p>私は、書類を Word や Acrobat で開きません。とどくは書類を開かずに読み書きするので、私は iPad から会話するだけです。書いた所の見出しと値・まだ空いている欄・私が決めることを、エージェントが会話でそのまま伝え、私が確かめます。</p></li>
     </ol>
+  </section>
+
+  <section aria-labelledby="h-use">
+    <h2 id="h-use">とどくを使う</h2>
+    <p class="sub">とどくは、AI エージェントから使う道具（MCP サーバー）です。Claude Code にはプラグインとして入れると、どのフォルダからでも使えます。書類は手元のパソコンの中で扱い、外に送りません。</p>
+    <ol class="use">
+      <li><h3>用意する</h3>
+        <p><a href="https://code.claude.com/docs/ja/quickstart" rel="noopener noreferrer">Claude Code</a> と、Python の道具 <a href="https://docs.astral.sh/uv/" rel="noopener noreferrer">uv</a> を入れます。</p></li>
+      <li><h3>Claude Code に入れる</h3>
+        <p>Claude Code で、次の 2 行を順に打ちます。</p>
+        <div class="cmd"><code id="cmd1">/plugin marketplace add Ono-Katsuki/todoku</code><button type="button" class="copy" data-for="cmd1">コピー</button></div>
+        <div class="cmd"><code id="cmd2">/plugin install todoku@todoku</code><button type="button" class="copy" data-for="cmd2">コピー</button></div></li>
+      <li><h3>話しかける</h3>
+        <p>あとは、ふだんの言葉で頼むだけです。</p>
+        <ul class="say"><li>「寝たきりの私が使える助成を探して、申請書を書いて」</li><li>「この様式に、去年と同じ事業所の情報を入れて」</li><li>「この Excel の計算のきまりを説明して。区分Ⅱにしたらいくら？」</li></ul></li>
+      <li><h3>iPad から使う</h3>
+        <p>Mac や PC の Claude Code に入れておき、iPad からはリモート操作で話しかけます。iPad で書類を開く必要はありません。</p></li>
+    </ol>
+    <details class="other">
+      <summary>ほかの MCP 対応のエージェントで使う</summary>
+      <p>リポジトリ（<a href="https://github.com/Ono-Katsuki/todoku" rel="noopener noreferrer">github.com/Ono-Katsuki/todoku</a>）を手元に置き、エージェントの MCP の設定に次を足します。</p>
+      <div class="cmd"><code id="cmd3">{ "mcpServers": { "todoku": { "command": "uv", "args": ["run", "--quiet", "--directory", "&lt;リポジトリの場所&gt;", "todoku-mcp"] } } }</code><button type="button" class="copy" data-for="cmd3">コピー</button></div>
+    </details>
   </section>
 
   <section aria-labelledby="h-map">
@@ -580,6 +618,14 @@ tr.unr td { color: var(--muted); }
         .filter(() => allCountries).map(([why, names]) => `<tr class="unr"><td>目録に届かない ${names.length} か国</td><td colspan="7">${esc(why)}：${names.map(esc).join("・")}</td></tr>`).join("");
     tb.querySelectorAll("a[data-cc]").forEach(a => a.addEventListener("click", () => select(a.dataset.cc)));
   }
+  // コピーのボタン（使えないときは、字を選んだ状態にする）
+  document.querySelectorAll(".copy").forEach(b => b.addEventListener("click", () => {
+    const el = document.getElementById(b.dataset.for);
+    const text = el.textContent;
+    const done = () => { b.textContent = "コピーしました"; setTimeout(() => { b.textContent = "コピー"; }, 1600); };
+    const select = () => { const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); b.textContent = "選びました"; };
+    try { navigator.clipboard.writeText(text).then(done, select); } catch (e) { select(); }
+  }));
   document.getElementById("t-all").addEventListener("click", () => { allCountries = !allCountries; renderTable(); });
   document.querySelectorAll("#table th button").forEach(b => b.addEventListener("click", () => {
     const k = b.dataset.k; sortDir = sortKey === k ? -sortDir : (k === "name" ? 1 : -1); sortKey = k; renderTable();
