@@ -40,6 +40,54 @@ def test_phrase_label_does_not_take_other_cells_text_as_prefix():
     assert "なし・あり" in (f["S!E4"].get("section") or "")
 
 
+def _pdf_win(lines, rules: bytes = b""):
+    from test_circle import _pdf
+    from todoku.pdf.doc import PdfDocument
+    from todoku.pdf.window import build, to_markdown
+
+    win = build(PdfDocument(_pdf(lines, rules)))
+    pg = win["pages"][0]
+    return pg["fields"], "\n".join(pg["reading"]), to_markdown(win)
+
+
+def test_pdf_spaced_heading_is_a_mark_not_places_but_two_letter_gap_stays():
+    fields, reading, md = _pdf_win([(60, 700, 10, "重　度　訪　問　介　護"), (60, 660, 10, "第　　　号"),
+                                    (60, 620, 10, "年　　月　　日"), (400, 580, 10, "備考")])
+    # 4 字以上を同じ空白でつないだ並び：字の間は所（id）にせず、元の空白のまま「〔字間〕」の印
+    assert "重　度　訪　問　介　護〔字間〕" in reading, reading
+    assert "〔字間〕" in md and "字間を空けた見出しの形" in md
+    # 2 字・3 字の並び（「第　　号」「年　　月　　日」）は、これまでどおり「？」の所
+    assert any(f.get("agent") and f["label"].startswith("第") for f in fields), fields
+    assert sum(1 for f in fields if f.get("agent") and "年" in f["label"] and "月" in f["label"]) >= 2
+
+
+def test_pdf_band_below_top_line_and_free_line_room_are_offered():
+    rules = b"0.8 w 60 640 m 400 640 l S 60 600 m 400 600 l S 60 640 m 60 600 l S 400 640 m 400 600 l S\n"
+    # 葛飾区の様式：上の行「〒　…　電話番号」、右下に「(日中連絡先)」。住所は〒の行の下の、左の空きに書く
+    fields, reading, _md = _pdf_win([(62, 628, 10, "〒"), (300, 628, 10, "電話番号"), (300, 603, 10, "(日中連絡先)"),
+                                     (60, 500, 10, "申請者　　住　　所"), (500, 460, 10, "以上")], rules)
+    band = [f for f in fields if "上の行" in (f.get("why") or "")]
+    assert band and band[0]["rect"][0] < 70 and band[0]["rect"][2] < 300, fields
+    room = [f for f in fields if "行の右の余白" in (f.get("why") or "")]
+    assert room and room[0]["rect"][0] > 150, fields
+
+
+def test_pdf_lead_room_before_year_is_not_taken_for_an_indent():
+    # マスの中：上の行「年　　月　　日」は右に寄せてあり、下の行「申請日…」が左から始まる（3 字ぶん以上の差：字下げではない）
+    rules = b"0.8 w 60 640 m 260 640 l S 60 600 m 260 600 l S 60 640 m 60 600 l S 260 640 m 260 600 l S\n"
+    fields, reading, _md = _pdf_win([(110, 625, 10, "年　　月　　日"), (62, 605, 10, "申請日　　年　月　日")], rules)
+    lead = [f for f in fields if "行の頭の前" in (f.get("why") or "") and f["rect"][2] <= 110]
+    assert lead, fields
+
+
+def test_pdf_weak_candidates_keep_ids_and_are_listed_compactly():
+    fields, reading, md = _pdf_win([(60, 700, 10, "区分　１　２　３　４　５"), (400, 660, 10, "備考")])
+    weak = [f for f in fields if f.get("weak")]
+    assert weak and all(f.get("agent") for f in weak)
+    assert all(f"［{f['id']}？" in reading for f in weak)  # 読み順には、ほかの所と同じ印で出ている
+    assert "弱い候補" in md
+
+
 def test_pdf_circle_occurrence_counts_among_near_candidates(tmp_path):
     from todoku import api
     from test_circle import _pdf

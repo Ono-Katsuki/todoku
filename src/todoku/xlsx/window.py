@@ -440,6 +440,93 @@ def _spaced_option(text: str, a: int) -> bool:
     return _spaced_heading(seg[i:j])
 
 
+HEADING_CHAIN = 4  # 字間を空けた見出しの印にする、1 字ずつ同じ空白でつないだ並びの字数（3 つ以上の同じ空き）
+
+
+def spaced_chain(text: str, a: int, b: int) -> tuple[int, int, int]:
+    """空白の並び text[a:b] を含む、1 字ずつ（箱の字 ☐ などは数えない）を同じ長さの空白（違いは 1 字まで）でつないだ並び：
+    (字数, 始め, 終わり)。空白の前か後ろが 1 字でなければ (0, a, b)。字の意味は見ない。"""
+    toks = []  # (始め, 終わり)：空白で区切った字の塊
+    i, n = 0, len(text)
+    while i < n:
+        if chars.is_space(text[i]):
+            i += 1
+            continue
+        j = i
+        while j < n and not chars.is_space(text[j]):
+            j += 1
+        toks.append((i, j))
+        i = j
+
+    def single(k: int) -> bool:
+        x, y = toks[k]
+        return sum(1 for ch in text[x:y] if ch not in chars.BOXES and ch not in chars.MAYBE_CHECKED) == 1
+
+    k = next((k for k in range(len(toks) - 1) if toks[k][1] == a and toks[k + 1][0] == b), None)
+    if k is None or not (single(k) and single(k + 1)):
+        return 0, a, b
+    sep = b - a
+    lo, hi = k, k + 1
+    while lo > 0 and single(lo - 1) and abs((toks[lo][0] - toks[lo - 1][1]) - sep) <= 1 \
+            and not any(ch in chars.BOXES for ch in text[toks[lo][0]:toks[lo][1]]):
+        lo -= 1
+    while hi + 1 < len(toks) and single(hi + 1) and abs((toks[hi + 1][0] - toks[hi][1]) - sep) <= 1 \
+            and not any(ch in chars.BOXES for ch in text[toks[hi + 1][0]:toks[hi + 1][1]]):
+        hi += 1
+    return hi - lo + 1, toks[lo][0], toks[hi][1]
+
+
+def heading_gap(text: str, a: int, b: int) -> tuple[int, int] | None:
+    """空白の並び text[a:b] が、1 字ずつを同じ空白でつないだ HEADING_CHAIN 字以上の並び（3 つ以上の同じ空き：字間を空けた
+    見出し「就　労　定　着　支　援」の形）の中の空きなら、その並びの (始め, 終わり)。そうでなければ None。
+    書く所の並び（「第　　号」「年　　月　　日」）は、字が 2・3 字（空きが 1・2 つ）なので、ここには入らない。"""
+    cnt, s, e = spaced_chain(text, a, b)
+    return (s, e) if cnt >= HEADING_CHAIN else None
+
+
+SPACED_MARK = "〔字間〕"  # 窓で、字間を空けた見出しの並びの後ろに付ける印（字の間の空白は、所の id にしない）
+WEAK_WHY = {"narrow": "字 1 字より狭い空き", "decor": "点線・ダッシュ・同じ記号だけの長い行",
+            "one_space": "全角の空白 1 つちょうどの空き"}
+
+
+def weak_space(text: str, a: int, b: int) -> bool:
+    """text[a:b] が全角の空白 1 つちょうどの空き（語の区切りのこともある、いちばん狭い空き）で、1 字ずつの 2・3 字の並び
+    （「年　月　日」「種　級」：書く所の並びと同じ形）の字の間でないか。弱い候補の印にする（消さない）。"""
+    return one_wide_space(text[a:b]) and spaced_chain(text, a, b)[0] not in (2, 3)
+
+
+def weak_line(fields: list[dict]) -> str:
+    """窓の欄の一覧の、弱い候補（消さずに順を下げた「？」の所）をまとめた 1 行。読み順の中には、ほかの所と同じ印で出ている。"""
+    groups: dict[str, list[str]] = {}
+    for f in fields:
+        alt = f.get("alternative_to")
+        groups.setdefault(f.get("weak") or "", []).append(f["id"] + (f"（{alt} の代わりの所）" if alt else ""))
+    body = "／".join(f"{WEAK_WHY.get(k, k)}：" + "・".join(ids) for k, ids in groups.items())
+    return (f"- 弱い候補 {len(fields)} か所（規則では決められない所のうち、形と大きさから書く所の見込みが低いもの。消してはいない："
+            f"読み順の中に同じ印で出ていて、書くならほかの所と同じように id で書く）：{body}")
+
+
+def spaced_ends(text: str) -> set[int]:
+    """字間を空けた見出しの形の並び（heading_gap）の終わりの位置：窓で、そこに「〔字間〕」の印を付ける。"""
+    return {hg[1] for a, b, k in blank_places(text) if k == "spaced" for hg in [heading_gap(text, a, b)] if hg}
+
+
+def with_spaced_marks(text: str, ends: set[int] | None = None) -> str:
+    """text の、字間を空けた見出しの並びの後ろに「〔字間〕」を入れた字（字の間の空白は元のまま）。"""
+    ends = spaced_ends(text) if ends is None else ends
+    if not ends:
+        return text
+    out, at = [], 0
+    for e in sorted(ends):
+        out.append(text[at:e] + SPACED_MARK)
+        at = e
+    return "".join(out) + text[at:]
+
+
+SPACED_NOTE = ("直前の字の並びは、1 字ずつを同じ空白でつないだ 4 字以上の並び（字間を空けた見出しの形）。字の間の空白は元のまま"
+               "出し、書く所の id にはしていない（書く所と判断したら、字を目印にして書ける）")
+
+
 def blank_places(text: str) -> list[tuple[int, int, str]]:
     """文字の中の、書き込む所（の候補）：(始め, 終わり, 種類)。種類は BLANK_KINDS の鍵。
     "underscore"・"bracket" は規則の空欄、ほかは規則では決めない所（エージェントが前後の字を読んで判断する）。"""
@@ -649,7 +736,8 @@ def cell_blanks(text: str) -> list[tuple[int, int, str | None]]:
     - 規則では決められない：1 字ぶん以上の空白の並び（wide_space）・点線・ダッシュの並び（blank_places）と、agent_blanks の見つけ方
       （同じ記号の並び・コロンで終わる字の後ろ）、箇条書きの印にもよく使う箱の字（chars.BULLET_LIKE_BOXES の ❏❐❑❒◻◽：
       bullet_box。Word・PDF と同じ）"""
-    found = blank_places(text)
+    # 字間を空けた見出しの形（1 字ずつを同じ空白でつないだ 4 字以上の並び）の字の間は、所にしない（窓では並びの後ろに「〔字間〕」）
+    found = [x for x in blank_places(text) if not (x[2] == "spaced" and heading_gap(text, x[0], x[1]))]
     out: list[tuple[int, int, str | None]] = [(a, b, None if k in BLANK_RULE_KINDS else k) for a, b, k in found]
     for i, ch in enumerate(text):
         if ch in chars.CERTAIN_EMPTY_BOXES or ch in chars.CHECKED_BOXES:
@@ -1493,13 +1581,16 @@ class Layout:
         if b.blanks:
             # 文字の中の空欄は［　］で示し、どのセルの文字かを添える。規則では決められない所は［？］
             t = b.cell.value
+            ends = spaced_ends(t)
             parts, at = [], 0
             for a, z, k in b.blanks:
-                parts.append(t[at:a])
+                parts.append(with_spaced_marks(t[at:a], {e - at for e in ends if at < e <= a}))
                 parts.append(blank_token(t, a, z, k, mark))
                 at = z
-            parts.append(t[at:])
+            parts.append(with_spaced_marks(t[at:], {e - at for e in ends if e > at}))
             return f"〔{b.cell_ref}〕" + "".join(parts).replace("\n", " ").strip()
+        if b.cell is not None and isinstance(b.cell.value, str) and b.text == b.cell.value:
+            return with_spaced_marks(b.text).replace("\n", " ").strip()
         return b.text.replace("\n", " ").strip()
 
     def line(self, r: int, mark_box: Box | None = None, include_outside: bool = True) -> str:
@@ -1680,6 +1771,10 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
                     f["agent"] = True
                     f["why"] = "・".join(dict.fromkeys(AGENT_WHY[k] for k in whys))
                     f["provenance"] = AGENT
+                    kinds = {"decor" if k == "decor" else "one_space" if k is not None and weak_space(t, x, y) else ""
+                             for x, y, k in b.blanks}
+                    if "" not in kinds:
+                        f["weak"] = sorted(kinds)[0]  # どの所も弱い候補（消さずに順を下げる）
                 out.append(f)
                 continue
             if b.kind == "locked":
@@ -1825,7 +1920,7 @@ def build(wb: Workbook) -> dict:
                               LAYOUT: "配置から決定的に推定した見出し。推定なので、context（その行の並び）と合わせて読む",
                               AGENT: "規則では欄と決められない所。欄かどうかは、エージェントが窓（evidence・context）を読んで判断する",
                               "ai": "AIの判断で補った"},
-        "notation": {"［L15］": "入力欄", "［L15＝値］": "記入済みの入力欄", "［B5？］": AGENT_CELLS_RULE, "［？　］": GAP_TOKEN_NOTE,
+        "notation": {"［L15］": "入力欄", "［L15＝値］": "記入済みの入力欄", "［B5？］": AGENT_CELLS_RULE, "［？　］": GAP_TOKEN_NOTE, SPACED_MARK: SPACED_NOTE,
                      "〔B3〕令和［？］年": "文字の中の、規則では決められない空き（語の並びから推定した所など）。"
                                       "書くなら、空欄ごとの値のリストで（書かない所は null）",
                      "〈AF35＝値〉": "計算結果（数式）",
@@ -2162,7 +2257,10 @@ def _md_sheet(sh: dict) -> list[str]:
                 "ファイルの作りに印のある空のマス（罫線で囲まれたもの［左右か上下の両方・下線］・塗り・結合のあるもの、入力欄のある表の行の空のマス）と、文字の中の空きだけです。"
                 "書く所かは、根拠とその行（読み順）を読んで判断し、書くなら入力欄と同じく番地で書きます。"
                 "近くの字・推定した見出しは、JSON の窓の fields（evidence・label）にあります。", ""]
-        texts = [f for f in agent if f["kind"] == "inline"]
+        weak = [dict(f, id=f["cell"]) for f in agent if f["kind"] == "inline" and f.get("weak")]
+        texts = [f for f in agent if f["kind"] == "inline" and not f.get("weak")]
+        if weak:
+            out += [weak_line(weak), ""]
         if texts:
             out += ["文字の中の［？］は、空欄ごとの値のリストで書きます（［　］も［？］も数え、書かない所は null）。", "",
                     "| 欄 | 文字（［　］は規則の空欄・［？］は規則では決められない所） | 何か | いまの値 |", "|---|---|---|---|"]
