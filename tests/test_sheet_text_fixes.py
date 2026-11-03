@@ -247,3 +247,32 @@ def test_undecodable_bytes_are_said_not_silently_latin1(tmp_path):
         assert any(r["title"] == "文字コードを決められない" for r in api.grade(str(p))["reasons"])
     else:
         assert d.undetermined or d.basis in ("multibyte", "singlebyte")
+
+
+# ------------------------------------------------------------------ 配列として計算する ROW・COLUMN
+def test_row_and_column_of_a_range_are_arrays_in_array_formulas():
+    """配列数式の中の ROW(A2:A5) は {2;3;4;5}（以前は 2 だけで、SMALL(IF(…,ROW(…)),k) が k によらず最初の行になった）。
+    ふつうの数式では最初の行・列の番号のまま。"""
+    from openpyxl.worksheet.formula import ArrayFormula
+
+    from todoku.xlsx.calc import Calc
+
+    def build(wb):
+        ws = wb.active
+        ws.title = "S"
+        ws["A1"] = "見出し"
+        for r, v in ((2, "x"), (4, "y"), (5, "z")):
+            ws.cell(r, 1, v)
+        for r in range(2, 6):
+            ws.cell(r, 5).value = ArrayFormula(
+                f"E{r}", f'=IF(ROWS(E$2:E{r})>COUNTA($A$2:$A$5),"",'
+                         f'INDEX($A$2:$A$5,SMALL(IF($A$2:$A$5<>"",ROW($A$2:$A$5)-ROW($A$2)+1),ROWS(E$2:E{r}))))')
+        ws["F1"] = "=ROW(A2:A5)"
+        ws["F2"] = "=COLUMN(B1:D1)"
+        ws["F3"] = "=SUMPRODUCT(ROW(A1:A3))"
+        ws["F4"] = "=SUMPRODUCT(COLUMN(B1:D1))"
+        ws["F5"] = ArrayFormula("F5", "=SUM(COLUMN(B1:D2))")
+
+    c = Calc(book(build))
+    assert [c.cell_value("S", r, 5) for r in range(2, 6)] == ["x", "y", "z", ""]
+    assert [c.cell_value("S", r, 6) for r in range(1, 6)] == [2, 2, 6, 9, 9]
