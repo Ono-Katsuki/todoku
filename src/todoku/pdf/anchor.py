@@ -122,23 +122,26 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
                                               "size": None, "anchored": dict(spec)}, where, after, sz)
 
 
-def _place(n, rect, used, taken_names, out, where, after, sz) -> dict:
-    """書く所に名前（p ページ.w 番号）を付け、ほかの書き込みと重ならないことを確かめる。"""
+def _place(n, rect, used, taken_names, out, where, after, sz, prefix: str = "w", label: str | None = None) -> dict:
+    """書く所に名前（p ページ.w 番号。置いた画像は p ページ.s 番号）を付け、ほかの書き込みと重ならないことを確かめる。
+    番号は、字の書き込みと画像で通しにする（同じページの書き込みの重なりも、両方で確かめる）。"""
     used = used if used is not None else {}
-    taken = {int(m[1]) for nm in (taken_names or set()) for m in [re.fullmatch(rf"p{n}\.w(\d+)", nm)] if m}
+    taken = {int(m[1]) for nm in (taken_names or set()) for m in [re.fullmatch(rf"p{n}\.[ws](\d+)", nm)] if m}
     for k_, r_ in used.get(n, []):
         taken.add(k_)
         if rect[0] < r_[2] and r_[0] < rect[2] and rect[1] < r_[3] and r_[1] < rect[3]:
             raise AnchorError(f"{n} ページの、ほかの書き込みと重なります")
     k = next(x for x in itertools.count(1) if x not in taken)
     used.setdefault(n, []).append((k, rect))
-    if where == "box":
+    if where == "seal":
+        size = sz  # 置いた画像の名前（label）は、呼ぶ側が決める
+    elif where == "box":
         size = sz
         label = f"{n}ページの枠（左 {rect[0] / MM:.0f}・上 {rect[1] / MM:.0f} mm）"
     else:
         size = min(sz if sz >= 6 else 10.5, (rect[3] - rect[1]) * 0.8) if where == "below" else sz
         label = f"「{after}」を覆って" if where == "cover" else f"{after}（の{'右' if where == 'right' else '下'}）"
-    out = {**out, "id": f"p{n}.w{k}", "rect": [round(v, 2) for v in rect], "size": round(size, 2), "label": label}
+    out = {**out, "id": f"p{n}.{prefix}{k}", "rect": [round(v, 2) for v in rect], "size": round(size, 2), "label": label}
     if where == "cover":
         out["cover"] = True
         out["covered"] = after
