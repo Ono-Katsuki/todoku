@@ -344,6 +344,13 @@ def _field(f: dict, **where) -> dict:
 def fill(path: str, values: dict, out_path: str, force: bool = False, password: str | None = None,
          encoding: str | None = None, overwrite: bool = False) -> dict:
     """書き込み、証明し、書き込み後のファイルを読み直して確かめる（_fill）。読み戻しに使った一時ファイルは、必ず消す。"""
+    from .inputcheck import InputError, normalize_values
+
+    try:
+        # どの形式にも共通の字の確かめ（制御文字・対になっていないサロゲートは書かない。改行は \n にそろえる）
+        values = normalize_values(values)
+    except InputError as e:
+        raise ApiError(str(e)) from None
     temps: list[Path] = []
     try:
         return _fill(path, values, out_path, force, password, encoding, overwrite, temps)
@@ -399,7 +406,8 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                 raise ApiError(str(e)) from None
             allowed = res.allowed_inputs
             allowed_c = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"}  # 部品 → 書いた状態
-            pr = prove(blob, res.blob, allowed, allowed_c, {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
+            pr = prove(blob, res.blob, allowed, allowed_c, {(p.sheet, p.address) for p in res.patches if p.kind == "macro"},
+                       rich=set(res.rich_cells))
             new_blob = res.blob
             result.update({"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
                            "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
@@ -414,6 +422,24 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                 readback_values[id_] = text_
             if res.anchored:
                 result["anchored"] = dict(res.anchored)
+            if res.unverified:
+                # 書いた値に連動するのに、todoku が計算し直せない数式（BAHTTEXT・動的配列など）：保存された結果は古いまま
+                result["stale_formulas"] = list(res.unverified)
+                result["warnings"].append(
+                    "書いた値に連動する数式のうち、" + "、".join(res.unverified[:10]) + ("ほか" if len(res.unverified) > 10 else "")
+                    + " は todoku では計算し直せません。Excel で開いたときに計算し直されます（開いたときに計算し直す印を付けました）。"
+                    "いまファイルに保存されている値は古い（書いた値を反映していない）ので、その値を本人に伝えないでください")
+            if res.written_formatting:
+                # 書いたセルの書式（取り消し線・白い字・字と塗りが同じ色など）：書いた字が消したように・見えなく印刷される
+                result["written_formatting"] = list(res.written_formatting)
+                result["warnings"] += [f"{x['id']}: 書いたセルの書式に「{'・'.join(x['formatting'])}」があります"
+                                       for x in res.written_formatting]
+            if res.fit:
+                # 書いた字が、セルの幅・高さに収まらず切れて見える見込み（列の幅・行の高さ・隣のセルの字から見積もった）
+                result["fit"] = list(res.fit)
+                result["warnings"] += [x["message"] for x in res.fit]
+            if res.exclusive:
+                result["warnings"] += list(res.exclusive)
             if res.replaced_text:
                 # 印刷された字を、明示（overwrite_text・old/new）なしに置き換えた：証明の想定外の変更として示す（提出させない）
                 result["proof_ok"] = False
@@ -663,7 +689,9 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             ok = xl_back[key][0]
             g = xl_back[key][1]
         elif isinstance(v, bool) or isinstance(g, bool):
-            ok = bool(g) == (v if isinstance(v, bool) else str(v).lower() in ("true", "1", "yes", "はい", "あり"))
+            # 書いた値の「はい／いいえ」は、その形式の書き手と同じ読み方で（有・☑・ON・レ・○ など）
+            want = _writer_bool(k, v)
+            ok = want is not None and bool(g) == want
         else:
             ok = str(g) == str(v) or _num_equal(g, v)
         if not ok:
@@ -716,6 +744,24 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         result.update(_to_tell(after_list, readback_values, result, labels, printed, rects))
     _publish(tmp, dst, src, overwrite, result)
     return result
+
+
+def _writer_bool(k: str, v) -> bool | None:
+    """読み戻しで、書いた値を「はい／いいえ」として読む：その形式の書き手が使うのと同じ読み方（読めなければ None）。"""
+    if isinstance(v, bool):
+        return v
+    try:
+        if k in ("xlsx", "xls") or k in _open.SHEETS:
+            from .xlsx.edit import as_bool
+
+            return as_bool(v)
+        if k == "pdf":
+            from .pdf.fill import _as_bool
+        else:
+            from .docx.fill import _as_bool
+        return _as_bool(v)
+    except Exception:  # noqa: BLE001  書き手が「はい／いいえ」と読まない値
+        return None
 
 
 def _written_formatting(k: str, blob: bytes, name: str, patches) -> list[dict]:
@@ -883,10 +929,37 @@ def _circle_excel(blob: bytes, name: str, k: str, circ: dict, result: dict) -> b
                           "uncertain": "位置は見積もり。印刷か画面で確かめが要る" + (f"：{'・'.join(sd['notes'])}" if sd["notes"] else "")}
                          for key_, sd in sds]
     w = list(result.get("warnings") or [])
+    w += _both_circled(wb, [sd for _k, sd in sds])
     if xc.UNCERTAIN not in w:
         w.append(xc.UNCERTAIN)
     result["warnings"] = w
     result["anchored"] = {**(result.get("anchored") or {}), **{key_: sd["id"] for key_, sd in sds}}
+    return out
+
+
+def _both_circled(wb, sds: list[dict]) -> list[str]:
+    """同じセルの字の、選択肢の全部（セルの字から囲んだ字を除くと、区切りの記号と空白だけが残る：「有・無」「男　女」）を○で
+    囲んだ：どちらか1つを選ぶ欄のことが多いので、警告の言葉（書くのは止めない）。"""
+    import unicodedata
+
+    by_cell: dict = {}
+    for sd in sds:
+        by_cell.setdefault((sd["sheet"], sd["row"], sd["col"]), []).append(sd["text"])
+    out = []
+    for (sheet, r, c), texts in by_cell.items():
+        if len(set(texts)) < 2:
+            continue
+        cell = wb.sheet(sheet).cells.get((r, c))
+        rest = cell.value if cell is not None and isinstance(cell.value, str) else None
+        if rest is None:
+            continue
+        for t in set(texts):
+            rest = rest.replace(t, "", 1)
+        if all(unicodedata.category(ch)[0] in "PZS" for ch in rest):
+            from .formula.parser import addr as _addr
+
+            out.append(f"{sheet}!{_addr(r, c)}: 「{cell.value.strip()}」の選択肢の全部（{'・'.join(dict.fromkeys(texts))}）を○で囲みました。"
+                       "どちらか1つを選ぶ欄なら、本人に確かめて1つだけにしてください")
     return out
 
 

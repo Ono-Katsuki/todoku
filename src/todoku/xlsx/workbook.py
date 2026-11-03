@@ -344,6 +344,7 @@ class Style:
     font_color: str | None = None  # "RRGGBB"（不明なら None＝自動の黒）
     fill_color: str | None = None  # 塗りつぶしの色（なければ None＝白）
     borders: int = 0  # 罫線：1 左・2 右・4 上・8 下
+    font_strike: bool = False  # 字の取り消し線
 
 
 @dataclass
@@ -382,6 +383,7 @@ class Workbook:
         self.sheets: list[Sheet] = []
         self.names: list[DefinedName] = []
         self.shared_strings: list[str] = []
+        self.sst_path: str | None = None  # 共有文字列の部品（字ごとの書式を読み直すのに使う：xlsx/richtext）
         self.phonetic: dict[int, str] = {}  # 共有文字列の番号 → ふりがなを当てた読み（PHONETIC 関数の値）
         self._last_sst: int | None = None
         self.cell_sst: dict[tuple[str, int, int], int] = {}  # 共有文字列を使うセル → 番号
@@ -514,6 +516,7 @@ class Workbook:
                 d.error = f"構文エラー: {e}"
 
     def _load_shared_strings(self, path: str) -> None:
+        self.sst_path = path
         root = self.xml(path)
         for i, si in enumerate(root.findall(M + "si")):
             self.shared_strings.append(_rich_text(si))
@@ -530,6 +533,8 @@ class Workbook:
         for f in nf if nf is not None else []:
             fmts[int(f.get("numFmtId"))] = f.get("formatCode")
         fonts = [_color(f.find(M + "color")) for f in (root.find(M + "fonts") or [])]
+        strikes = [(f.find(M + "strike") is not None and f.find(M + "strike").get("val", "1") not in ("0", "false"))
+                   for f in (root.find(M + "fonts") or [])]
         fills = [_fill_color(f) for f in (root.find(M + "fills") or [])]
         borders = []
         for bd in root.find(M + "borders") or []:
@@ -553,7 +558,7 @@ class Workbook:
             bo = int(xf.get("borderId", "0"))
             self.styles.append(Style(fmts.get(fid, "General"), locked, hidden,
                                      fonts[fo] if fo < len(fonts) else None, fills[fi] if fi < len(fills) else None,
-                                     borders[bo] if bo < len(borders) else 0))
+                                     borders[bo] if bo < len(borders) else 0, strikes[fo] if fo < len(strikes) else False))
         for d in root.find(M + "dxfs") or []:
             font = d.find(M + "font")
             nf = d.find(M + "numFmt")
@@ -845,7 +850,9 @@ class Workbook:
             return text in ("1", "true")
         if t == "e":
             return ExcelError(text)
-        if t in ("str", "d"):
+        if t == "str":
+            return _unxml(text)
+        if t == "d":
             return text
         try:
             return float(text)
@@ -959,16 +966,16 @@ def _phonetic_text(el: ET.Element) -> str | None:
 
 
 def _rich_text(el: ET.Element) -> str:
-    # ふりがな（rPh）は除く
+    # ふりがな（rPh）は除く。「_x0041_」の形の字は、その字に戻す（ECMA-376 22.9.2.19 ST_Xstring。「_x005F_」は「_」）
     out = []
     for child in el:
         tag = child.tag.split("}")[-1]
         if tag == "t":
-            out.append(child.text or "")
+            out.append(_unxml(child.text or ""))
         elif tag == "r":
             t = child.find(M + "t")
             if t is not None:
-                out.append(t.text or "")
+                out.append(_unxml(t.text or ""))
     return "".join(out)
 
 

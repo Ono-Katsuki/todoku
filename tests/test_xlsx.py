@@ -199,8 +199,11 @@ def test_fill_refuses_formula_cells():
         fill(load(str(KAMI)), {"明細書!S14": 1})
 
 
-def test_fill_merged_cell_goes_to_anchor():
-    res = fill(load(str(KAMI)), {"明細書!K9": 22})  # I9:N9 の結合の途中
+def test_fill_merged_cell_inside_is_refused_with_anchor_hint():
+    # I9:N9 の結合の途中（隠れたセル）：左上に黙って寄せず、どのセルのつもりかを確かめてもらう（第4回 C1）
+    with pytest.raises(EditError, match="明細書!I9 に書いてください"):
+        fill(load(str(KAMI)), {"明細書!K9": 22})
+    res = fill(load(str(KAMI)), {"明細書!I9": 22})
     assert any(p.address == "I9" for p in res.patches)
 
 

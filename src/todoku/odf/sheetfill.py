@@ -279,12 +279,19 @@ def fill(wb: OdsWorkbook, values: dict, *, force: bool = False) -> OdsFillResult
     keys: dict[tuple[str, int, int], str] = {}
     warnings: list[str] = []
     problems: list[str] = []
+    claimed: dict[tuple[str, int, int], str] = {}
     for k, v in values.items():
         try:
-            sheet, r, c = resolve_target(wb, k)
+            sheet, r, c = resolve_target(wb, k, inner_merge=False)
         except EditError as e:
             problems.append(str(e))
             continue
+        if (sheet, r, c) in keys or (sheet, r, c) in claimed:
+            # 同じセルを2つの指示で書かない（B9 と B9:D9、b1 と B1）：後の指示が前の指示を黙って消す
+            problems.append(f"「{claimed.get((sheet, r, c), keys.get((sheet, r, c)))}」と「{k}」は、同じセル {sheet}!{addr(r, c)} を"
+                            "指しています。後の指示が前の指示を消してしまうので、書いていません。1つのセルには1つの指示で書いてください")
+            continue
+        claimed[(sheet, r, c)] = str(k)
         sh = wb.sheet(sheet)
         cell = sh.cells.get((r, c))
         if cell is not None and cell.has_formula and not force:

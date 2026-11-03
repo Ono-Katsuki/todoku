@@ -235,8 +235,11 @@ def _linked_controls_agree(b) -> list[str]:
 
 
 def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | None = None,
-          allowed_controls: set[tuple[str, str]] | None = None, overwrite: set[tuple[str, str]] | None = None) -> Proof:
+          allowed_controls: set[tuple[str, str]] | None = None, overwrite: set[tuple[str, str]] | None = None,
+          rich: set[tuple[str, str]] | None = None) -> Proof:
     """overwrite：数式が値に置き換わってよいセル（セルの値を変えたときに動くマクロが、数式のセルに値を書いたもの）。
+    rich：字ごとの書式（取り消し線・色）を残して字の一部を書き換えたセル {(シート, 番地)}。書き換えなかった字の書式が、
+    書いた後も同じかを字ごとに確かめる（xlsx/richtext.kept_problems）。
     allowed_controls：書き込みを指示した部品 {(シート, 部品の名前)}。{(シート, 部品の名前): 書いた状態} でもよく、
     古いExcel（.xls）では、部品がその状態になっているかも確かめる。"""
     if original[:4] == b"\xd0\xcf\x11\xe0":
@@ -395,6 +398,22 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
         ax_changes, ax_bad, _ax_parts = prove_excel(a, b, changed, allowed_controls, added)
         control_changes += ax_changes
         unexpected += ax_bad
+    if rich:
+        # 字ごとの書式を残したセル：元の書式（<rPr>）が、書き換えなかった字に残っているか
+        from .richtext import cell_rst, kept_problems
+
+        fa, fb = Workbook(original), Workbook(new)
+        for sn, cell in sorted(rich):
+            r_, c_ = _rc_(cell)
+            try:
+                before_r, after_r = cell_rst(fa, sn, r_, c_), cell_rst(fb, sn, r_, c_)
+            except (ValueError, KeyError) as e:
+                unexpected.append(f"{sn}!{cell}: 字ごとの書式を読み直せません（{e}）")
+                continue
+            if before_r is None:
+                unexpected.append(f"{sn}!{cell}: 元のセルの字ごとの書式を読み直せません")
+                continue
+            unexpected += [f"{sn}!{cell}: {x}" for x in kept_problems(before_r, after_r)]
     before_bad = set(_linked_controls_agree(a))
     unexpected += [x for x in _linked_controls_agree(b) if x not in before_bad]  # 書き込みで新しく生じた食い違いだけ
     if [d.text for d in a.names] != [d.text for d in b.names]:

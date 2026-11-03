@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
@@ -17,6 +18,8 @@ from ..formula.numfmt import is_date_format
 from ..formula.parser import addr, parse, parse_cell
 from ..formula.values import ExcelError, Unsupported, compare, is_number, number_to_text, parse_number, to_text
 from .calc import Calc, _run_deep, recalc, values_equal
+from .cellcheck import both_controls_checked as _both_controls_checked
+from .cellcheck import fit_issues, written_format
 from .workbook import Control, Workbook
 
 
@@ -51,6 +54,10 @@ class EditResult:
     text_written: dict = field(default_factory=dict)  # 指示の鍵 → (セルの id, 書いた後のセルの字)：字のセルの一部を書き換えた所
     replaced_text: list = field(default_factory=list)  # 印刷された字を、明示なしに置き換えたセル（証明で想定外の変更として示す）
     anchored: dict = field(default_factory=dict)  # 字を目印にした指示の鍵（@…）→ 書いたセルの id
+    written_formatting: list = field(default_factory=list)  # 書いたセルの書式（取り消し線・見えない字など）：[{id, formatting}]
+    fit: list = field(default_factory=list)  # 書いた字がセルに収まらず切れて見える見込み：[{id, message}]
+    exclusive: list = field(default_factory=list)  # 2つのうち1つを選ぶ所の両方に印をつけた（警告の言葉）
+    rich_cells: set = field(default_factory=set)  # 字ごとの書式を残して書いたセル (シート, 番地)（証明で、書式が残ったかを確かめる）
 
     @property
     def allowed_inputs(self) -> set[tuple[str, str]]:
@@ -74,8 +81,10 @@ class EditResult:
 
 
 # ---------------------------------------------------------------- 入力値の解釈
-def resolve_target(wb: Workbook, target: str) -> tuple[str, int, int]:
-    """'シート!B5' や 'B5'（先頭シート）を、結合セルの左上に寄せて返す。"""
+def resolve_target(wb: Workbook, target: str, *, inner_merge: bool = True) -> tuple[str, int, int]:
+    """'シート!B5' や 'B5'（先頭シート）を、結合セルの左上に寄せて返す。
+    inner_merge=False（書き込みの指示）：結合したセルの左上でないセル（B9:D9 の C9）は、左上に寄せずに EditError にする
+    （Excel でも、結合の中の隠れたセルには入力できない。どのセルのつもりかを確かめてもらう）。"""
     if "!" in target:
         sheet, a = target.rsplit("!", 1)
         sheet = sheet.strip("'")
@@ -101,6 +110,10 @@ def resolve_target(wb: Workbook, target: str) -> tuple[str, int, int]:
     except ValueError:
         raise EditError(f"「{target}」はセルの番地ではありません")
     m = sh.merged_at(r, c)
+    if m is not None and (r, c) != (m[0], m[1]) and not inner_merge:
+        rng = f"{addr(m[0], m[1])}:{addr(m[2], m[3])}"
+        raise EditError(f"{sh.name}!{addr(r, c)} は結合したセル {rng} の中の、隠れたセルです（Excel でも入力できません）。"
+                        f"結合したセルに書くなら {sh.name}!{addr(m[0], m[1])} に書いてください")
     if m is not None and (r, c) != (m[0], m[1]):
         anchor = sh.cells.get((m[0], m[1]))
         if anchor is not None and isinstance(anchor.value, str) and anchor.value.strip() and not anchor.has_formula:
@@ -227,6 +240,12 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value, *, refuse_a
         return value, notes
     if isinstance(value, (int, float)):
         x = float(value)
+        if not math.isfinite(x):
+            raise EditError(f"{where}: 値 {value!r} は数ではありません（無限大・NaN は書けません）")
+        if _general(fmt) and x == int(x) and "E" in _general_shown(x):
+            # 12 桁以上の整数（個人番号など）：標準の表示形式では「1.23457E+11」と表示され、番号が読めない
+            digits = str(int(value)) if isinstance(value, int) else number_to_text(x)
+            return _shown_differs(wb, sheet, r, c, where, digits, x, _general_shown(x), notes)
         if _is_percent(fmt) and abs(x) >= 1:
             notes.append(f"{where}: パーセントの書式のセルに {number_to_text(x)} を書き込みました（{number_to_text(x * 100)}% と表示されます。"
                          f"{number_to_text(x)}% のつもりなら {number_to_text(x / 100)} か「{number_to_text(x)}%」と指定してください）")
@@ -263,11 +282,26 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value, *, refuse_a
         if len(digits.lstrip("0")) > 15:
             notes.append(f"{where}: 15桁を超える数字はExcelでは末尾が0に変わるため、「{s}」を文字として書き込みました")
             return s, notes
-        x = float(m[2].replace(",", "")) * (10 ** int(m[3]) if m[3] else 1)
+        try:
+            x = float(m[2].replace(",", "") + (f"e{m[3]}" if m[3] else ""))
+        except (OverflowError, ValueError):
+            x = math.inf
+        if not math.isfinite(x) or (x == 0 and digits.strip("0")):
+            # 1e400 など：Excel で扱える数（±9.99E+307 まで）の外。Excel でも字として受け取る
+            notes.append(f"{where}: 「{s}」は Excel で扱える数の大きさ（およそ ±1E+308 から ±1E-307 まで）の外なので、"
+                         "文字として書き込みました")
+            return s, notes
         if m[1] == "-":
             x = -x
         if m[4]:
             x /= 100
+        if _general(fmt) and (m[4] or "¥" in t or "$" in t or "," in m[2]):
+            # 「¥1,000」「$100」「50%」「1,000」：Excel は手で入力すると表示形式を通貨・パーセント・桁区切りに変える。
+            # todoku はセルの書式を変えないので、標準の表示形式のままでは「1000」「0.5」と、入力した字と違って見える
+            return _shown_differs(wb, sheet, r, c, where, s, x, _general_shown(x), notes)
+        if _general(fmt) and not m[3] and "E" in _general_shown(x):
+            # 12 桁以上の数字（個人番号など）：標準の表示形式では「1.23457E+11」と表示され、番号が読めない
+            return _shown_differs(wb, sheet, r, c, where, s, x, _general_shown(x), notes)
         elif _is_percent(fmt):
             # Excelの「パーセント形式での自動入力」：1以上の数は % として受け取る
             if abs(x) >= 1:
@@ -279,6 +313,100 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value, *, refuse_a
         notes.append(f"{where}: このセルの表示形式は日付・時刻ですが、「{s}」は日付として読めないので、文字として書き込みました"
                      "（日付なら ISO の形 2026-11-03 で指定してください）")
     return s, notes
+
+
+MAX_CELL_TEXT = 32767  # Excel のセルに入る字の数の上限
+
+
+def _general(fmt: str) -> bool:
+    return (fmt or "General").strip().lower() in ("general", "")
+
+
+def _general_shown(x: float) -> str:
+    from ..formula.numfmt import format_value
+
+    try:
+        return format_value(x, "General")
+    except Exception:  # noqa: BLE001
+        return number_to_text(x)
+
+
+def _shown_differs(wb, sheet: str, r: int, c: int, where: str, typed: str, x: float, shown: str, notes: list):
+    """標準の表示形式のセルに書く数が、書いた字と違う字で表示される（「¥1,000」が「1000」、12 桁の番号が「1.23457E+11」）。
+    数式が参照するセル（か、参照するかが決められないとき）と、数の入力規則のあるセルは、計算に使う数として書き、見え方を伝える。
+    ほかは、書いた字のまま見えるように字として書き、そのことを伝える（どちらも黙って見え方を変えない）。"""
+    if _numeric_use(wb, sheet, r, c):
+        notes.append(f"{where}: 「{typed}」を数 {number_to_text(x)} として書き込みました（このセルは数式から参照される・数の入力規則の"
+                     f"あるセルなので、数にしました）。セルの表示形式が標準なので「{shown}」と表示されます（Excel で手で入力すると"
+                     "表示形式も変わりますが、todoku はセルの書式を変えません）。本人に、印刷される字が「" + shown + "」になることを伝えてください")
+        return x, notes
+    notes.append(f"{where}: 「{typed}」は、数として書くと標準の表示形式で「{shown}」と表示され、書いた字と違って見えるので、"
+                 "書いたとおりの字として書き込みました（計算には使われていないセルです。数として書くなら "
+                 f"{number_to_text(x)} と指定してください）")
+    return typed, notes
+
+
+def _numeric_use(wb, sheet: str, r: int, c: int) -> bool:
+    """セルの値を、数式（名前・テーブルの参照を含む）か数の入力規則が使うか。決められない（INDIRECT・OFFSET・読めない数式が
+    ある）ときも、使うものとする。"""
+    sh = wb.sheet(sheet)
+    if any(v.covers(r, c) and v.type in ("whole", "decimal", "date", "time") for v in getattr(sh, "validations", ())):
+        return True
+    refs = _formula_refs(wb)
+    if refs is None:
+        return True
+    return any(s_.lower() == sh.name.lower() and r1 <= r <= r2 and c1 <= c <= c2 for s_, r1, c1, r2, c2 in refs)
+
+
+def _formula_refs(wb):
+    """ブックの数式が参照する範囲 [(シート, r1, c1, r2, c2)]。参照が決められない数式があれば None。ブックごとに一度だけ求める。"""
+    cache = getattr(wb, "_todoku_formula_refs", False)
+    if cache is not False:
+        return cache
+    from ..formula.parser import NameNode, RefNode, StructRef, iter_funcs, iter_refs
+    from .calc import formula_cells
+
+    out: list = []
+
+    def walk(ast, here: str, dr: int, dc: int, depth: int = 0) -> bool:
+        if depth > 8:
+            return False
+        if any(str(f).upper() in ("INDIRECT", "OFFSET") for f in iter_funcs(ast)):
+            return False
+        for ref in iter_refs(ast):
+            if isinstance(ref, RefNode):
+                rr = ref.shifted(dr, dc)
+                out.append((rr.sheet or here, min(rr.r1, rr.r2), min(rr.c1, rr.c2), max(rr.r1, rr.r2), max(rr.c1, rr.c2)))
+            elif isinstance(ref, NameNode):
+                d = wb.defined_name(ref.name, ref.sheet or here) if hasattr(wb, "defined_name") else None
+                if d is None:
+                    continue  # 名前のない参照（#NAME?）
+                if d.ast is None or not walk(d.ast, d.sheet_scope or here, 0, 0, depth + 1):
+                    return False
+            elif isinstance(ref, StructRef):
+                tables = list(getattr(wb, "tables", {}).values())
+                hit = [x for x in tables if (x.name.lower() == ref.table.lower() if ref.table else x.sheet == here)]
+                if not hit:
+                    return False
+                out.extend((t.sheet, t.r1, t.c1, t.r2, t.c2) for t in hit)
+        return True
+
+    ok = True
+    try:
+        for cell in formula_cells(wb):
+            if cell.array_master is not None:
+                continue
+            if cell.ast is None or not walk(cell.ast, cell.sheet, cell.dr, cell.dc):
+                ok = False
+                break
+    except Exception:  # noqa: BLE001  確かめられない：使うものとする
+        ok = False
+    res = out if ok else None
+    try:
+        wb._todoku_formula_refs = res
+    except Exception:  # noqa: BLE001
+        pass
+    return res
 
 
 def coerce_input(wb: Workbook, sheet: str, r: int, c: int, value):
@@ -486,7 +614,9 @@ def _value_xml(prefix: bytes, value) -> tuple[bytes | None, bytes]:
         return b"e", b"<" + p + b"v>" + escape(value.code).encode() + b"</" + p + b"v>"
     if is_number(value):
         return None, b"<" + p + b"v>" + _num_text(float(value)).encode() + b"</" + p + b"v>"
-    s = escape(str(value)).encode()
+    from .richtext import escape_text
+
+    s = escape_text(str(value))  # 「_x0041_」の形の字は「_x005F_x0041_」にして、字のまま残す（ECMA-376 22.9.2.19）
     sp = b' xml:space="preserve"' if s != s.strip() or b"\n" in s else b""
     return b"inlineStr", b"<" + p + b"is><" + p + b"t" + sp + b">" + s + b"</" + p + b"t></" + p + b"is>"
 
@@ -500,13 +630,17 @@ def _with_t(attrs, t: bytes | None):
     return out
 
 
-def _input_cell_xml(prefix: bytes, existing: bytes | None, a: str, value, style: int = 0) -> bytes:
+def _input_cell_xml(prefix: bytes, existing: bytes | None, a: str, value, style: int = 0, rich: bytes | None = None) -> bytes:
     if existing is not None:
         head = re.match(rb"<[\w:]*c\b[^>]*?(?=/?>)", existing)[0]
         attrs = _attrs(head)
     else:
         attrs = [(b"r", a.encode())] + ([(b"s", str(style).encode())] if style else [])
-    t, inner = _value_xml(prefix, value)
+    if rich is not None:
+        # 字ごとの書式・ふりがなを残した字（xlsx/richtext.splice の <is> の中身）
+        t, inner = b"inlineStr", b"<" + prefix + b"is>" + rich + b"</" + prefix + b"is>"
+    else:
+        t, inner = _value_xml(prefix, value)
     attrs = _with_t(attrs, t)
     if not inner:
         return _open_tag(prefix, b"c", attrs) + b"/>"
@@ -518,8 +652,10 @@ def _formula_cell_xml(prefix: bytes, existing: bytes, value) -> bytes:
     m = re.match(rb"(<[\w:]*c\b[^>]*?)(/?>)", existing)
     attrs = _attrs(m[1])
     if isinstance(value, str):
+        from .richtext import escape_text
+
         t = b"str"
-        vxml = b"<" + prefix + b"v>" + escape(value).encode() + b"</" + prefix + b"v>"
+        vxml = b"<" + prefix + b"v>" + escape_text(value) + b"</" + prefix + b"v>"
     else:
         t, vxml = _value_xml(prefix, value)
     body = existing[m.end():]
@@ -610,11 +746,11 @@ class SheetPatcher:
             self._index = {m[1].decode(): (m.start(), m.end()) for m in pat.finditer(self.xml)}
         return self._index.get(addr(r, c))
 
-    def set_input(self, r: int, c: int, value, style: int = 0) -> tuple[int, int, int]:
+    def set_input(self, r: int, c: int, value, style: int = 0, rich: bytes | None = None) -> tuple[int, int, int]:
         a = addr(r, c)
         span = self.find_cell(r, c)
         if span:
-            new = _input_cell_xml(self.prefix, self.xml[span[0]:span[1]], a, value)
+            new = _input_cell_xml(self.prefix, self.xml[span[0]:span[1]], a, value, rich=rich)
             self.edits.append((span[0], span[1], new))
             return span[0], span[1], len(new)
         # セル要素がないセルは、Excelと同じく行か列の書式を引き継いで作る
@@ -840,10 +976,14 @@ def keeps_printed(old: str, new) -> bool:
     return True
 
 
-def anchor_text(wb: Workbook, key: str, spec, *, force: bool = False, allow_formula_overwrite: bool = False):
+def anchor_text(wb: Workbook, key: str, spec, *, force: bool = False, allow_formula_overwrite: bool = False,
+                pending: dict | None = None):
     """字を目印にした書き込み {"old": 元の字, "new": 書き換えた後の字, "cell"・"sheet"・"occurrence"（任意）}：
     文字のセルの old の字（ちょうど同じ字の並び）を、1か所だけ new にする。(シート, 行, 列, 書き換えた後のセルの字)。
-    old が見つからない・いくつもあって決められないときは書かない（EditError。見つかった所を示す）。"""
+    old が見つからない・いくつもあって決められないときは書かない（EditError。見つかった所を示す）。
+    pending：同じ指示の中で、すでに字を書き換えたセルの字（(シート, 行, 列) → 字）。同じセルへの2つ目の old/new は、
+    1つ目を書き換えた後の字の上で探す（2つの書き換えが両方残る）。"""
+    pending = pending or {}
     if not isinstance(spec, dict) or not isinstance(spec.get("old"), str) or not isinstance(spec.get("new"), str):
         raise EditError(f"{key}: Excel で字を目印にして書くときは {{\"old\": 元の字, \"new\": 書き換えた後の字}} の形で指定してください"
                         "（同じ字がいくつもあれば \"cell\": \"シート!B3\" か \"occurrence\": 何番目か）")
@@ -854,20 +994,28 @@ def anchor_text(wb: Workbook, key: str, spec, *, force: bool = False, allow_form
     if old == "":
         raise EditError(f"{key}: old が空です（目印にする元の字を指定してください）")
     if spec.get("cell"):
-        sheet, r, c = resolve_target(wb, str(spec["cell"]))
+        sheet, r, c = resolve_target(wb, str(spec["cell"]), inner_merge=False)
         cells = [(sheet, r, c)]
     else:
         sheets = [wb.sheet(str(spec["sheet"]))] if spec.get("sheet") else list(wb.sheets)
         cells = [(sh.name, r, c) for sh in sheets for (r, c) in sorted(sh.cells)]
     hits = []
-    for sheet, r, c in cells:
+
+    def text_of(sheet, r, c):
         cell = wb.sheet(sheet).cells.get((r, c))
         if cell is None or not isinstance(cell.value, str) or cell.has_formula:
+            return None
+        t_ = pending.get((sheet, r, c), cell.value)
+        return t_ if isinstance(t_, str) else None
+
+    for sheet, r, c in cells:
+        tx = text_of(sheet, r, c)
+        if tx is None:
             continue
-        i = cell.value.find(old)
+        i = tx.find(old)
         while i >= 0:
             hits.append((sheet, r, c, i))
-            i = cell.value.find(old, i + 1)
+            i = tx.find(old, i + 1)
     if not hits:
         where = f"{spec['cell']} の字" if spec.get("cell") else "文字のセル（数式でないもの）"
         raise EditError(f"{key}: 「{old}」が{where}に見つかりません（字はセルの字のとおり、空白も含めて指定してください）")
@@ -877,7 +1025,7 @@ def anchor_text(wb: Workbook, key: str, spec, *, force: bool = False, allow_form
             raise EditError(f"{key}: occurrence は 1〜{len(hits)} の数で指定してください（「{old}」は {len(hits)} か所）")
         hit = hits[occ - 1]
     elif len(hits) > 1:
-        ctx = "／".join(f"{s}!{addr(r, c)}「{wb.sheet(s).cells[(r, c)].value[max(0, i - 6):i + len(old) + 6].strip()}」"
+        ctx = "／".join(f"{s}!{addr(r, c)}「{text_of(s, r, c)[max(0, i - 6):i + len(old) + 6].strip()}」"
                        for s, r, c, i in hits[:10])
         raise EditError(f"{key}: 「{old}」が {len(hits)} か所にあり、どれか決められないので書いていません（{ctx}"
                         f"{'ほか' if len(hits) > 10 else ''}）。\"cell\" でセルを、同じセルの中なら \"occurrence\" で何番目かを指定してください")
@@ -887,7 +1035,7 @@ def anchor_text(wb: Workbook, key: str, spec, *, force: bool = False, allow_form
     sh = wb.sheet(sheet)
     if sh.protected and wb.style(sh.style_of(r, c)).locked and not force:
         raise EditError(f"{key}: {sheet}!{addr(r, c)} はシート保護でロックされたセルです（Excelでも書き込めません）")
-    text = sh.cells[(r, c)].value
+    text = text_of(sheet, r, c)
     return sheet, r, c, text[:i] + new + text[i + len(old):]
 
 
@@ -903,6 +1051,9 @@ class InputPlan:
     text_written: dict = field(default_factory=dict)  # 指示の鍵 → (シート, 行, 列)：文字のセルの一部を書き換えたもの（箱の字・字を目印・空欄）
     replaced_text: list = field(default_factory=list)  # 印刷された字を、明示（overwrite_text・old/new）なしに置き換えたセル
     anchored: dict = field(default_factory=dict)  # 字を目印にした指示の鍵（@…）→ 書いたセルの id
+    rich: dict = field(default_factory=dict)  # (シート, 行, 列) → (<is> の中身, 書いた後の字ごとの書式, 外したふりがな)：字ごとの書式を残す
+    direct: dict = field(default_factory=dict)  # (シート, 行, 列) → 指示の鍵：セルの番地・字を目印に書いたセル
+    exclusive: list = field(default_factory=list)  # 2つのうち1つを選ぶ箱の両方に印をつけた所（警告）
 
 
 def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bool = False,
@@ -945,11 +1096,26 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
     replaced_text: list = []
     anchored: dict = {}
     explicit: set = set()  # 字の置き換えを明示したセル（overwrite_text: true・old/new）
+    claimed: dict = {}  # (シート, 行, 列) → (指示の鍵, 字を目印にした書き込みか)
+    linked_cells: set = set()  # チェックボックスにつながったセル（字の書式の確かめから外す）
+    exclusive: list = []
+
+    def claim(cell_: tuple, key_: str, anchor_: bool = False) -> None:
+        """同じセルを2つの指示で書かない（B9 と B9:D9、b1 と B1 など）：後の指示が前の指示を黙って消すので、書かない。
+        字を目印にした書き込み（old/new）どうしは、同じセルでも、1つ目を書き換えた後の字の上で続けて書き換える。"""
+        if cell_ in claimed:
+            prev, prev_anchor = claimed[cell_]
+            if not (anchor_ and prev_anchor):
+                raise EditError(f"「{prev}」と「{key_}」は、同じセル {cell_[0]}!{addr(cell_[1], cell_[2])} を指しています。"
+                                "後の指示が前の指示を消してしまうので、書いていません。1つのセルには1つの指示で書いてください")
+        claimed[cell_] = (key_, anchor_)
 
     for k, v in values.items():
         if k.startswith("@"):
             # 字を目印にした書き込み（Word と同じ {"old": 元の字, "new": 書き換えた後の字}）：文字のセルの、old の字を1か所だけ new にする
-            sheet, r, c, new_text = anchor_text(wb, k, v, force=force, allow_formula_overwrite=allow_formula_overwrite)
+            sheet, r, c, new_text = anchor_text(wb, k, v, force=force, allow_formula_overwrite=allow_formula_overwrite,
+                                                pending={c_: t_ for c_, t_ in targets.items() if c_ in explicit})
+            claim((sheet, r, c), k, True)
             targets[(sheet, r, c)] = new_text
             text_written[k] = (sheet, r, c)
             anchored[k] = f"{sheet}!{addr(r, c)}"
@@ -983,17 +1149,22 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             controls[(sheet, ctl.shape_id)] = (sheet, ctl, b)
             if ctl.link_cell and wb.has_sheet(ctl.link_cell[0]):
                 ls = wb.sheet(ctl.link_cell[0]).name
+                claim((ls, ctl.link_cell[1], ctl.link_cell[2]), k)
+                linked_cells.add((ls, ctl.link_cell[1], ctl.link_cell[2]))
                 targets[(ls, ctl.link_cell[1], ctl.link_cell[2])] = b
                 for sh2, other in links.get((ls, ctl.link_cell[1], ctl.link_cell[2]), []):
                     controls[(sh2, other.shape_id)] = (sh2, other, b)
             continue
-        sheet, r, c = resolve_target(wb, k)
+        sheet, r, c = resolve_target(wb, k, inner_merge=False)
+        claim((sheet, r, c), k)
         sh = wb.sheet(sheet)
         cell = sh.cells.get((r, c))
         if cell is not None and cell.has_formula and not allow_formula_overwrite:
             raise EditError(f"{sheet}!{addr(r, c)} は数式のセルです（計算で決まるので、直接は書き込みません）")
         linked = links.get((sheet, r, c))
         other = others.get((sheet, r, c))
+        if linked or other is not None or (sheet, r, c) in ax_links:
+            linked_cells.add((sheet, r, c))
         if (sheet, r, c) in ax_links:
             # ActiveX の部品につながったセル：部品の値として受け取り、部品とセルを合わせる
             take_ax(*ax_links[(sheet, r, c)], v, f"{sheet}!{addr(r, c)}")
@@ -1030,12 +1201,14 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
                 raise EditError(f"{sheet}!{addr(r, c)}: {e}")
             targets[(sheet, r, c)] = v
             text_written[k] = (sheet, r, c)
+            exclusive += _both_boxes_marked(cell.value, v, f"{sheet}!{addr(r, c)}")
             continue
         printed_text = (cell is not None and isinstance(cell.value, str) and cell.value.strip() != "" and not cell.has_formula
                         and not linked)
         if isinstance(v, bool) and printed_text and not overwrite_text:
             # 字のあるセルに true/false：セルの字の中のチェックの箱の字（□ など）に印をつける（外す）。字は消さない
             new_text, note = check_box_in_text(cell.value, v, f"{sheet}!{addr(r, c)}")
+            exclusive += _both_boxes_marked(cell.value, new_text, f"{sheet}!{addr(r, c)}")
             targets[(sheet, r, c)] = new_text
             text_written[k] = (sheet, r, c)
             warnings.append(note)
@@ -1066,7 +1239,55 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             warnings += notes
         targets[(sheet, r, c)] = val
 
-    return InputPlan(targets, controls, writes, ax_writes, warnings, text_written, replaced_text, anchored)
+    # Excel のセルに入る字は 32,767 字まで（それより長い字は、Excel で開くと切られる）
+    for (s_, r_, c_), v_ in targets.items():
+        if isinstance(v_, str) and len(v_) > MAX_CELL_TEXT:
+            raise EditError(f"{s_}!{addr(r_, c_)}: 字が {len(v_):,} 字あります。Excel のセルに入るのは {MAX_CELL_TEXT:,} 字までなので、"
+                            "書いていません（分けて書く欄があるか、書類で確かめてください）")
+    # 字の一部を書き換えたセル（空欄・箱の字・old/new）：字ごとの書式（取り消し線・色）とふりがなを残す
+    rich: dict = {}
+    for key_, cell_ in text_written.items():
+        if cell_ in rich or not isinstance(targets.get(cell_), str):
+            continue
+        s_, r_, c_ = cell_
+        if getattr(wb, "kind", "xlsx") == "xls":
+            if cell_ in getattr(wb, "rich_cells", set()):
+                raise EditError(f"{key_}: {s_}!{addr(r_, c_)} は、字ごとに書式（取り消し線・字の色など）の違う字のセルです。古い Excel"
+                                "（.xls）では、字の一部を書き換えると、その書式が消える（消した字の取り消し線が消えるなど）ので、書いていません")
+            continue
+        if not hasattr(wb, "zip") or not hasattr(wb.sheet(s_), "path"):
+            continue
+        from .richtext import cell_rst, splice
+
+        try:
+            rst = cell_rst(wb, s_, r_, c_)
+        except (ValueError, KeyError):
+            rst = None
+        if rst is None or not rst.rich:
+            continue
+        try:
+            rich[cell_] = splice(rst, targets[cell_])
+        except ValueError as e:
+            raise EditError(f"{key_}: {s_}!{addr(r_, c_)}: {e}。字を目印にした書き込み（old・new）で、書き足す字の前後の字も"
+                            "含めて指定してください") from None
+        if rich[cell_][2]:
+            warnings.append(f"{s_}!{addr(r_, c_)}: 書き換えた字に付いていたふりがな（{'・'.join(rich[cell_][2])} の読み）を外しました")
+    direct = {c_: k_ for c_, (k_, _a) in claimed.items() if c_ not in linked_cells}
+    return InputPlan(targets, controls, writes, ax_writes, warnings, text_written, replaced_text, anchored, rich, direct, exclusive)
+
+
+def _both_boxes_marked(old: str, new: str, where: str) -> list[str]:
+    """字の中に箱の字がちょうど2つ（「□有　□無」「□はい　□いいえ」）で、書いた後に両方に印がついたら、警告の言葉。
+    2つの箱は、どちらか1つを選ぶ欄のことが多い（両方に印をつけると、どちらを選んだか分からない）。"""
+    from .. import chars
+
+    marked = chars.CHECKED_BOXES | chars.MAYBE_CHECKED
+    a = [ch for ch in old if _is_box(ch)]
+    b = [ch for ch in new if _is_box(ch)]
+    if len(a) != 2 or len(b) != 2 or not all(ch in marked for ch in b) or all(ch in marked for ch in a):
+        return []
+    return [f"{where}: 2つの箱の字の両方に印をつけました（「{new.strip()[:40]}」）。どちらか1つを選ぶ欄なら、本人に確かめて"
+            "1つだけにしてください"]
 
 
 def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bool = False,
@@ -1096,6 +1317,17 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
     if blocking and not force:
         raise EditError("入力規則に合いません（Excelでも受け付けない値です）:\n" + "\n".join(i.message for i in blocking))
     warnings += [i.message for i in issues]
+    # 書いたセルの書式：見えない字（;;;・字と塗りが同じ色・条件付き書式で隠れる）は書かない。取り消し線などは伝える
+    fmt_found, invisible = _run_deep(lambda: written_format(wb, plan_))
+    if invisible and not force:
+        raise EditError("書いた字が見えなくなるセルです（印刷しても見えません）。書いていません：\n" + "\n".join(invisible)
+                        + "\n（書式で隠した、計算や部品のためのセルのことが多いので、書く欄か窓で確かめてください）")
+    text_extra["written_formatting"] = fmt_found
+    text_extra["exclusive"] = list(plan_.exclusive) + _both_controls_checked(wb, controls)
+    try:
+        text_extra["fit"] = fit_issues(wb, plan_)
+    except Exception as e:  # noqa: BLE001  見積もれなかったことを黙らない
+        text_extra["fit"] = [{"id": "", "message": f"書いた字がセルに収まるかを見積もれませんでした（{type(e).__name__}）"}]
 
     # セルの値を変えたときに動くマクロ（Worksheet_Change など）：人が入力したときと同じ順に動かし、マクロが書いたセルも書く
     macro_written, macro_info = (_run_change_macros(wb, targets, warnings, macro_answers, macro_inputs) if run_macros
@@ -1124,7 +1356,9 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
         if (cell is not None and values_equal(before, val) and type(before) is type(val) and not cell.has_formula) or \
                 (cell is None and val is None):
             continue
-        s, e, n = patcher(sheet).set_input(r, c, val, wb.sheet(sheet).style_of(r, c))
+        rich_ = plan_.rich.get((sheet, r, c))
+        s, e, n = patcher(sheet).set_input(r, c, val, wb.sheet(sheet).style_of(r, c),
+                                           rich=rich_[0] if rich_ is not None and isinstance(val, str) else None)
         kind = "macro" if (sheet, r, c) in by_macro else "input"
         patches.append(Patch(wb.sheet(sheet).path, sheet, addr(r, c), kind, before, val, (s, e), n))
     for (sheet, r, c), val in sorted(changed.items()):
@@ -1196,7 +1430,8 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
 
     blob = wb.zip.build()
     res = EditResult(blob=blob, patches=patches, warnings=warnings, unverified=unverified,
-                     full_calc_on_load=full_calc, macro=macro_info, **text_extra)
+                     full_calc_on_load=full_calc, macro=macro_info, **text_extra,
+                     rich_cells={(s_, addr(r_, c_)) for (s_, r_, c_) in plan_.rich})
     res.original_sha256 = hashlib.sha256(wb.zip.original).hexdigest()
     res.sha256 = hashlib.sha256(blob).hexdigest()
     res.changed_parts = wb.zip.modified_names()

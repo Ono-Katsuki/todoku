@@ -204,6 +204,9 @@ class XlsWorkbook:
         self._vba = None
         self.wb_path = name
         self._fonts: list[int] = []  # 色番号
+        self.sst_runs: set[int] = set()  # 字ごとの書式（rgRun）のある共有文字列の番号
+        self.rich_cells: set[tuple[str, int, int]] = set()  # 字ごとの書式のある字のセル（LABELSST・RSTRING）
+        self._font_strike: list[bool] = []  # 取り消し線（FONT の grbit の fStrikeOut）
         self._formats: dict[int, str] = dict(BUILTIN)
         self._palette = list(_PALETTE)
         self._supbooks: list[_Supbook] = []
@@ -335,6 +338,7 @@ class XlsWorkbook:
                 self.date1904 = bool(struct.unpack_from("<H", b, 0)[0])
             elif t == 0x0031:  # FONT
                 self._fonts.append(struct.unpack_from("<H", b, 4)[0])
+                self._font_strike.append(bool(struct.unpack_from("<H", b, 2)[0] & 0x08))
             elif t == 0x041E:  # FORMAT
                 ifmt = struct.unpack_from("<H", b, 0)[0]
                 self._formats[ifmt] = xlstring(b, 2)[0]
@@ -429,7 +433,8 @@ class XlsWorkbook:
         fill = self._color(icv_fore) if fls == 1 else None
         lines = struct.unpack_from("<I", b, 10)[0]
         bits = sum(k for k, sh in ((1, 0), (2, 4), (4, 8), (8, 12)) if (lines >> sh) & 0x0F)
-        self.styles.append(Style(self._formats.get(ifmt, "General"), locked, hidden, fc, fill, bits))
+        strike = self._font_strike[fnt] if 0 <= fnt < len(self._font_strike) else False
+        self.styles.append(Style(self._formats.get(ifmt, "General"), locked, hidden, fc, fill, bits, strike))
 
     def _color(self, icv: int) -> str | None:
         if icv in (0x7FFF, 0x40, 0x51):
@@ -511,6 +516,7 @@ class XlsWorkbook:
             s = r.chars(cch, bool(flags & 0x01))
             if runs:
                 r.read(4 * runs)
+                self.sst_runs.add(i)
             if ext:
                 ph = _phonetic(s, r.read(ext))
                 if ph is not None:
@@ -568,9 +574,13 @@ class XlsWorkbook:
                 self._put(sh, r, c, x, s)
                 if isst in self.phonetic:
                     self.cell_sst[(sh.name, r + 1, c + 1)] = isst
+                if isst in self.sst_runs:
+                    self.rich_cells.add((sh.name, r + 1, c + 1))
             elif t in (0x0204, 0x00D6):  # LABEL / RSTRING
                 r, c, x = struct.unpack_from("<HHH", b, 0)
                 self._put(sh, r, c, x, xlstring(b, 6)[0])
+                if t == 0x00D6:
+                    self.rich_cells.add((sh.name, r + 1, c + 1))
             elif t == 0x0201:  # BLANK
                 r, c, x = struct.unpack_from("<HHH", b, 0)
                 self._put(sh, r, c, x, None)
