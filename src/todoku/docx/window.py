@@ -27,6 +27,10 @@ DET = "deterministic"
 LAYOUT = "layout"
 AGENT = "agent"  # 規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する）
 BOX = chars.EMPTY_BOXES  # 空のチェックの箱の字（規則のチェックボックス。chars.py：Ballot Box・白い四角など）
+# 影つきの白い四角（U+274F〜U+2752 ❏❐❑❒）は Word の箇条書きの印（Wingdings の q・r など）に多く、本文に並んでいても
+# チェックの箱とは決められない：規則の欄にせず「？」（理由 bullet_box）で示す。
+# TODO：chars.py が「チェックの箱」と「箇条の印にもなる箱」を分けたら、その分け方を使う
+BULLET_LIKE_BOXES = frozenset("❏❐❑❒") & BOX
 # 印のついたチェックの印らしい字：☑・☒（Ballot Box）はチェック済みの箱、■ は箇条の印・飾りのこともあり、✓ は本文の印のこともある。
 # 規則では決めず、チェック済み（checked）のチェックボックスの候補として「？」をつけて示す（エージェントが判断する）
 CHECKED = chars.CHECKED_BOXES | chars.MAYBE_CHECKED
@@ -46,6 +50,7 @@ KIND_JA = {"text": "文字", "inline": "文字の中の空欄", "checkbox": "チ
 WORD_WHY = {
     **AGENT_WHY,
     "short_underline": "下線を引いた短い空白（1〜2字。下線の空欄は3字以上のことが多い）",
+    "bullet_box": "影つきの白い四角（❏・❐・❑・❒。箇条書きの印に多く、チェックの箱とは決められない）",
     "checked_mark": "印のついたチェックの印らしい字（☑・☒・■・✓。いまはチェック済みとして読む。■ は箇条の印・飾りのこともある）",
     "underscore_in_word": "英数字にはさまれた下線の字（「＿＿」。URL・ファイルの名前の一部のこともある）",
     "next_line_long": "見出しのあるマスの中の、空の段落（マスのほかの字が長く、見出しではなく説明の文のこともある）",
@@ -245,7 +250,7 @@ class Spots:
                 spans = []  # (始め, 終わり, 種類, 理由の鍵（None は規則の欄）)
                 for i, ch in enumerate(text):
                     if ch in BOX and not (has_field and fmask[i]):
-                        spans.append((i, i + 1, "checkbox", None))
+                        spans.append((i, i + 1, "checkbox", "bullet_box" if ch in BULLET_LIKE_BOXES else None))
                     elif ch in CHECKED and not (has_field and fmask[i]):
                         spans.append((i, i + 1, "checkbox", "checked_mark"))  # チェック済みの欄かもしれない（■ は箇条の印のことも）
                 for a, b, why in para_spans(p, text):

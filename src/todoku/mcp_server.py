@@ -410,11 +410,25 @@ def handle(msg: dict) -> dict | None:
     return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"知らない命令です: {method}"}}
 
 
+def _utf8_stdio() -> None:
+    """MCP の stdio は UTF-8 の JSON の行（改行は \\n）。Windows の標準出力は ANSI のコードページで、改行を \\r\\n に変えるので、
+    UTF-8・\\n に設定し直す（設定し直せない流れ（テストの置き換えなど）は、そのまま）。"""
+    for stream, kw in ((sys.stdout, {"encoding": "utf-8", "newline": "\n"}), (sys.stdin, {"encoding": "utf-8"})):
+        reconf = getattr(stream, "reconfigure", None)
+        if reconf is not None:
+            try:
+                reconf(**kw)
+            except (ValueError, OSError):
+                pass
+
+
 def main() -> int:
     from . import isolate
 
     if isolate.enabled():
+        isolate.probe_ps()  # 外からのメモリの見張り（ps）が使えるかを、立ち上げの時に確かめる（説明 instructions に書くため）
         isolate.worker().start()  # 働き手を先に立ち上げておく（はじめの呼び出しを待たせない）
+    _utf8_stdio()
     stdin = sys.stdin.buffer
     out = sys.stdout
     for raw in stdin:

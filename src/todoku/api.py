@@ -1018,10 +1018,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         i = j
     for pl in result.get("placed") or []:
         lines.append(pl["say"])  # 置いた画像（本人の印影・署名）：何を、どこに
-    told_ids = {d["id"] for d in told}
-    for c in result.get("circled") or []:
-        if c.get("key") in told_ids:
-            continue  # 窓の「○で囲む選択肢」に書いた所：上の一覧に、選んだ字として出ている
+    for c in result.get("circled") or []:  # 囲んだ所は、いつも伝える（どの字を囲んだかは、上の一覧の値からは分からない）
         where = c.get("sheet") or (f"{c['page']}ページ" if c.get("page") else "")
         lab = c.get("label") or ""
         verb = "□で囲んだ（字の囲み線）" if c.get("style") == "border" else "○で囲んだ"

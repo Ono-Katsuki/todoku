@@ -141,3 +141,70 @@ def test_unknown_language_numeric_format_is_written_and_era_is_refused():
     # ECMA-376 第1部 17.16.4.1 の日付の記号に g・e はない：元号の記号だけで和暦とは決めない
     with pytest.raises(FillError):
         _fill_date(_date_field_docx("ggge年M月d日"))
+
+
+
+# ====================================================================== Word の影つきの白い四角
+def test_docx_shadowed_squares_are_question_not_rule_checkboxes():
+    from test_docx import make_docx, p
+    from todoku.docx.document import DocxDocument
+    from todoku.docx.window import AGENT, LAYOUT, Spots
+
+    sp = Spots(DocxDocument(make_docx(p("❑はい　　❑いいえ") + p("□新規　　□変更"))))
+    boxes = [it for it in sp.items.values() if it["kind"] == "checkbox"]
+    shadow = [it for it in boxes if it["label"] in ("はい", "いいえ")]
+    plain = [it for it in boxes if it["label"] in ("新規", "変更")]
+    assert len(shadow) == 2 and all(it["provenance"] == AGENT and it["why_key"] == "bullet_box" for it in shadow)
+    assert len(plain) == 2 and all(it["provenance"] == LAYOUT for it in plain)
+
+
+# ====================================================================== 囲んだ所は、いつも伝える
+def test_circles_are_always_told_even_when_the_key_was_written():
+    from todoku.api import _to_tell
+
+    written = {"S!B1": "有"}
+    result = {"circled": [{"key": "S!B1", "sheet": "S", "label": "外出の有無", "text": "有"}]}
+    say = _to_tell([{"id": "S!B1", "sheet": "S", "label": "外出の有無", "value": "有　・　無"}], written, result)["say_to_user"]
+    assert "○で囲んだ：S・外出の有無：「有」" in say
+
+
+# ====================================================================== サーバーの立ち上げ：ps の確かめ・UTF-8 の標準出力
+def test_missing_ps_is_in_the_instructions_from_the_start(monkeypatch):
+    import os
+    import subprocess
+
+    from todoku import isolate, mcp_server
+
+    if os.name == "nt":
+        pytest.skip("Windows では働き手を分けない")
+    monkeypatch.setenv("TODOKU_ISOLATE", "1")
+    monkeypatch.setattr(isolate, "_PS_OK", None)
+    monkeypatch.setattr(isolate, "_TOLD", set())
+
+    def no_ps(*a, **k):
+        raise FileNotFoundError("ps")
+
+    monkeypatch.setattr(subprocess, "run", no_ps)
+    text = mcp_server._instructions()  # まだ一度も道具を呼んでいない
+    assert "ps が使えないので" in text
+
+
+def test_server_writes_utf8_lines(monkeypatch):
+    import io
+    import json
+    import sys
+
+    from todoku import mcp_server
+
+    raw = io.BytesIO()
+    out = io.TextIOWrapper(raw, encoding="cp1252", newline="\r\n")  # Windows の ANSI のコードページの標準出力
+    req = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).encode() + b"\n"
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(req), encoding="cp1252"))
+    monkeypatch.setenv("TODOKU_ISOLATE", "0")
+    mcp_server.main()
+    out.flush()
+    data = raw.getvalue()
+    assert data.endswith(b"\n") and not data.endswith(b"\r\n")
+    body = data.decode("utf-8")  # cp1252 では書けない日本語の説明も、UTF-8 で出ている
+    assert json.loads(body)["result"]["tools"] and "書類" in body

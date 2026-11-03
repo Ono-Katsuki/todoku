@@ -35,6 +35,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from . import otl
+from .embedfont import windows_fonts_dir
 from .glyphs import GlyphError
 
 
@@ -100,7 +101,7 @@ class ScriptInfo:
 _MAC = "/System/Library/Fonts/"
 _SUP = "/System/Library/Fonts/Supplemental/"
 _NOTO = ("/usr/share/fonts/truetype/noto/", "/usr/share/fonts/noto/", "/usr/share/fonts/google-noto/")
-_WIN = "C:\\Windows\\Fonts\\"
+_WIN = windows_fonts_dir()  # %WINDIR%\Fonts
 
 
 def _noto(name: str) -> tuple[tuple[str, str], ...]:

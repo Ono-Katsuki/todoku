@@ -19,11 +19,17 @@ import unicodedata
 import zlib
 from functools import lru_cache
 
+def windows_fonts_dir() -> str:
+    """Windows の書体のフォルダ（%WINDIR%\\Fonts。Windows が C: 以外にあっても）。末尾に区切りの字をつける。"""
+    root = os.environ.get("WINDIR") or os.environ.get("SystemRoot") or "C:\\Windows"
+    return root.rstrip("\\/") + "\\Fonts\\"
+
+
 CANDIDATES = [
     "/System/Library/Fonts/Supplemental/Arial.ttf", "/Library/Fonts/Arial.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    "C:\\Windows\\Fonts\\arial.ttf",
+    windows_fonts_dir() + "arial.ttf",
 ]
 
 

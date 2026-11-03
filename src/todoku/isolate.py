@@ -11,7 +11,8 @@
 - TODOKU_ISOLATE=0 なら、別のプロセスにせず、サーバーの中で動かす（上限は、展開・描画の予算だけになる）。
 - Windows（os.name == "nt"）では、パイプの受け渡し（pass_fds）・パイプの select・resource が使えないので、別のプロセスに
   せず、サーバーの中で動かす（標準エラーに一度知らせ、サーバーの説明 notice() にも書く）。
-- ps が使えないとき（外からのメモリの見張りができない）も、標準エラーに一度知らせ、notice() に書く（黙って見張りを止めない）。
+- ps が使えないとき（外からのメモリの見張りができない）も、サーバーの立ち上げで一度確かめて（probe_ps）、標準エラーに一度
+  知らせ、notice() に書く（黙って見張りを止めない）。
 """
 
 from __future__ import annotations
@@ -55,11 +56,28 @@ def enabled() -> bool:
     return True
 
 
+_PS_OK: bool | None = None  # ps で働き手のメモリを読めるか（サーバーの立ち上げで一度だけ確かめる）
+
+
+def probe_ps() -> bool:
+    """ps でプロセスの常駐メモリを読めるかを、このプロセス自身で一度だけ確かめる（読めなければ標準エラーに知らせる）。
+    呼び出しの途中で初めて分かるのでなく、サーバーの説明（notice）に立ち上げの時から書けるように。"""
+    global _PS_OK
+    if _PS_OK is None:
+        _PS_OK = _rss_kb(os.getpid()) > 0
+        if not _PS_OK:
+            _tell_once("ps", _NO_PS)
+    return _PS_OK
+
+
 def notice() -> str:
     """サーバーの説明に足す、上限が効かないことの知らせ（なければ空）。"""
     out = []
-    if os.name == "nt" and os.environ.get("TODOKU_ISOLATE", "1") not in ("0", "false", "no", ""):
+    on = os.environ.get("TODOKU_ISOLATE", "1") not in ("0", "false", "no", "")
+    if os.name == "nt" and on:
         out.append(_NO_ISOLATE_NT + "。")
+    if on and os.name != "nt":
+        probe_ps()  # 働き手を外から見張る道具（ps）が使えるか：立ち上げの時に確かめる
     if "ps" in _TOLD:
         out.append(_NO_PS + "。")
     return "".join(out)
