@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import Counter
 
 from ..xlsx.audit import Audit, Check
@@ -108,9 +109,10 @@ def raw_chars(doc: PdfDocument, page: dict) -> list[str]:
 
 
 def _count(texts) -> Counter:
+    """字を数える（正準分解して数える：窓で分けて描いた母音を1字にした「ো」は、元の「ে」「া」と同じに数える）。"""
     c = Counter()
     for t in texts:
-        for ch in t:
+        for ch in unicodedata.normalize("NFD", t):
             if not ch.isspace() and ch not in BOXES:
                 c[ch] += 1
     return c
@@ -121,7 +123,7 @@ def check_reading(doc: PdfDocument, win: dict) -> list[Check]:
     dup_total = 0
     for pg, page in zip(win["pages"], doc.pages()):
         raw = _count(raw_chars(doc, page))
-        shown = _count(pg["_plain"])
+        shown = _count(pg["_plain"]) - _count(pg.get("_added") or [])  # 窓で足した字（ルビのかっこ）は除く
         dropped = _count(t for _k, t in pg["_dropped"])
         dup_total += sum(1 for k, _ in pg["_dropped"] if k == "dup")
         want = raw - dropped

@@ -204,7 +204,10 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     reading = []
     plain: list[str] = []
     for row in rows:
-        row.sort(key=lambda it: it.x0)
+        if all(_is_vertical(it) for it in row) or _rtl_row(row):
+            row.sort(key=lambda it: -it.x1)  # 縦書きの列・右から左へ書く表の行は、右から読む
+        else:
+            row.sort(key=lambda it: it.x0)
         parts = []
         for it in row:
             if it.line is not None:
@@ -367,7 +370,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     return {"number": number, "width": round(view.width, 1), "height": round(view.height, 1), "rotate": view.rot,
             "fields": out_fields, "reading": reading, "chars": chars, "unmapped": pc.unmapped, "images": images,
             "image_only": chars == 0 and images > 0, "pictures": pictures, "problems": pc.problems, "annotations": annots,
-            "read_flags": lay.flags, "_plain": plain, "_dropped": lay.dropped}
+            "read_flags": lay.flags, "_plain": plain, "_dropped": lay.dropped, "_added": lay.added}
 
 
 def _pictures(doc: PdfDocument, page: dict, number: int, pc, lay) -> list[dict]:
@@ -425,6 +428,26 @@ def _alias(sp: Spot, b: Spot) -> Spot:
     a = Spot(sp.kind, sp.rect, sp.label, host=b.host, at=b.at, checked=sp.checked)
     a.alias_of = sp
     return a
+
+
+def _rtl_row(row: list[_Item]) -> bool:
+    """行の字が、すべて右から左へ書く字の行か。"""
+    lines = []
+    for it in row:
+        if it.line is not None:
+            lines.append(it.line)
+        elif it.cell is not None:
+            lines += it.cell.lines
+    lines = [ln for ln in lines if not ln.vertical and ln.text.strip()]
+    return bool(lines) and all(getattr(ln, "rtl", False) for ln in lines)
+
+
+def _is_vertical(it: _Item) -> bool:
+    if it.line is not None:
+        return it.line.vertical
+    if it.cell is not None and it.cell.lines:
+        return all(ln.vertical for ln in it.cell.lines)
+    return False
 
 
 def _hint(it: _Item) -> float:
@@ -563,7 +586,7 @@ def _md_head(doc: dict) -> list[str]:
     out.append("- この文書は読むための窓です。書き込みは `todoku fill` で元のファイルの後ろに足します（元の部分は変えません）。")
     out.append("- 欄として示していない所に書くときは、見出しの字を目印にして、その右（または下）の空いている所に書けます："
                "`{\"@1\": {\"after\": \"見出しの字\", \"value\": \"書く字\", \"page\": 1}}`（下に書くときは "
-               "`\"where\": \"below\"`。同じ字がいくつもあるときは `occurrence` で何番目かを指定する）。"
+               "`\"where\": \"below\"`、右から左へ書く字の見出しの左に書くときは `\"where\": \"before\"`。同じ字がいくつもあるときは `occurrence` で何番目かを指定する）。"
                "伏せ字（「○○」）の上に書くときは `{\"@1\": {\"cover\": \"○○\", \"value\": \"書く字\"}}`"
                "（白い下地の欄で覆って書く。元の字は消さない）。")
     out.append("- 記号: " + "、".join(f"{k} は{v}" for k, v in doc["notation"].items()))

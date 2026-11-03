@@ -314,9 +314,11 @@ def _objects_check(pairs: list[tuple[dict, object]], n_raw: int) -> Check:
 
 
 def _count(texts) -> Counter:
+    import unicodedata
+
     c = Counter()
     for t in texts:
-        for ch in t:
+        for ch in unicodedata.normalize("NFD", t):  # 窓で1字にまとめた母音（ে + া → ো）も、元と同じに数える
             if not ch.isspace() and ch not in "□☐☑☒■":
                 c[ch] += 1
     return c

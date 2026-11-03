@@ -183,7 +183,36 @@ def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges:
             continue
         seen.setdefault(key, []).append(c)
         out.append(c)
+    _vertical_runs(out)
     return out
+
+
+def _vertical_runs(chars: list[Ch]) -> None:
+    """横書きの書体の字を、1字ずつ下へ積んで描いた縦書き（LibreOffice・Word の縦書きを PDF にしたもの）：
+    描いた順に続く字が、同じ横の位置で、1字ぶん（字の大きさの 0.8〜1.5 倍）ずつ下へ進むものを、縦の行の字にする。
+    3字以上続くものだけ（表の縦の見出しも同じ）。チェックの印（□）や、空白は含めない。"""
+    run: list[Ch] = []
+
+    def flush():
+        if len(run) >= 3:
+            for c in run:
+                c.vertical = True
+                c.base = c.cx
+        run.clear()
+
+    for c in chars:
+        if c.vertical or c.text.isspace() or c.text in BOX_GLYPHS or len(c.text) > 2:
+            flush()
+            continue
+        if run:
+            p = run[-1]
+            sz = max(p.size, c.size)
+            if abs(c.cx - p.cx) <= 0.15 * sz and 0.8 * sz <= c.cy - p.cy <= 1.5 * sz and abs(c.size - p.size) < 0.2 * sz:
+                run.append(c)
+                continue
+            flush()
+        run.append(c)
+    flush()
 
 
 # ====================================================================== 罫線とマス
@@ -391,10 +420,12 @@ class Line:
     size: float
 
     def span_rect(self, a: int, b: int) -> tuple[float, float, float, float]:
-        """text[a:b] の位置。"""
+        """text[a:b] の位置（右から左の字は、読む順と見た目の順が逆なので、範囲の字の両端で決める）。"""
+        ps = self.pos[a:b] or [self.pos[min(a, len(self.pos) - 1)]]
+        lo, hi = min(p[0] for p in ps), max(p[1] for p in ps)
         if self.vertical:
-            return (self.x0, self.pos[a][0], self.x1, self.pos[b - 1][1])
-        return (self.pos[a][0], self.y0, self.pos[b - 1][1], self.y1)
+            return (self.x0, lo, self.x1, hi)
+        return (lo, self.y0, hi, self.y1)
 
 
 def make_lines(chars: list[Ch], overlaps: list | None = None) -> list[Line]:
@@ -429,29 +460,50 @@ def make_lines(chars: list[Ch], overlaps: list | None = None) -> list[Line]:
                 continue
             out.append(_line(row, vertical))
     out = _vertical_stacks(out)
-    # 横書きの行は上から、縦書きの列は右から
-    out.sort(key=lambda ln: (ln.y0, ln.x0))
-    return out
+    # 横書きの行は上から。縦書きの列は、右の列から（横書きの行と混ざるときは、縦書きの列のまとまりを、いちばん上の列の位置に置く）
+    hor_l = sorted((ln for ln in out if not ln.vertical), key=lambda ln: (ln.y0, ln.x0))
+    ver_l = sorted((ln for ln in out if ln.vertical), key=lambda ln: (-ln.x1, ln.y0))
+    if not ver_l:
+        return hor_l
+    top = min(ln.y0 for ln in ver_l)
+    k = next((i for i, ln in enumerate(hor_l) if ln.y0 > top), len(hor_l))
+    return hor_l[:k] + ver_l + hor_l[k:]
+
+
+def _clash(a: Ch, b: Ch) -> bool:
+    """違う字の箱が大きく重なる（結合する記号は、基の字に重ねて描くものなので数えない）。"""
+    if a.text == b.text or a.text.isspace() or b.text.isspace():
+        return False
+    if all(_is_mark(ch) for ch in a.text) or all(_is_mark(ch) for ch in b.text):
+        return False
+    return _box_overlap(a, b) > 0.5
 
 
 def _split_overprinted(row: list[Ch]) -> list[list[Ch]]:
     """同じ行の帯に、違う字が重なって描かれているとき（2つの行を重ねて印刷した様式）、描いた順で行を分ける。
-    描いた順に字をたどり、前の字より戻った所（重なる所）で切り、互いに重ならないまとまりどうしをつなぐ。"""
+    描いた順に字をたどり、前の字と重なる所で切り、互いに重ならないまとまりどうしをつなぐ。"""
     if len(row) < 2:
         return [row]
     ink = [c for c in row if not c.text.isspace()]
-    if not any(a.text != b.text and _box_overlap(a, b) > 0.5 for a, b in zip(ink, ink[1:])):
+    if not any(_clash(a, b) for a, b in zip(ink, ink[1:])) and not any(_clash(a, b) for a, b in zip(ink, ink[2:])):
         return [row]
+    # 描いた順の続き：前の字より左へ戻った所（次の行を描き始めた所）で切る。約物を詰めた字（「・」「（」の箱が次の字と重なる）は、
+    # 描いた順では左から右へ進み続けるので、切れない
     segs: list[list[Ch]] = []
     for c in sorted(row, key=lambda c: c.seq):
-        if segs and not any(_box_overlap(c, o) > 0.5 for o in segs[-1] if not o.text.isspace()):
-            segs[-1].append(c)
-        else:
-            segs.append([c])
+        if segs:
+            p = segs[-1][-1]
+            back = c.x0 < p.x0 - 0.1 * max(c.size, p.size) if not c.vertical else c.y0 < p.y0 - 0.1 * max(c.size, p.size)
+            if not (back and any(_clash(c, o) for o in segs[-1])):
+                segs[-1].append(c)
+                continue
+        segs.append([c])
+    if len(segs) < 2:
+        return [row]
     groups: list[list[Ch]] = []
     for sg in segs:
         for g in groups:
-            if not any(_box_overlap(a, b) > 0.5 for a in sg for b in g if not a.text.isspace() and not b.text.isspace()):
+            if not any(_clash(x, y) for x in sg for y in g):
                 g += sg
                 break
         else:
@@ -525,8 +577,7 @@ def _spaces(parts: list, pos: list, a1: float, gap: float, sz: float, cjk: bool,
 
 
 def _line(row: list[Ch], vertical: bool, stacked: bool = False) -> Line:
-    parts: list[str] = []
-    pos: list[tuple[float, float]] = []
+    units: list[list] = []  # [字, [(位置)...], 字の Ch]（グリフごと。空白は1字ずつ）
     prev: Ch | None = None
     spaces = [c for c in row if c.text.isspace()]
     ink = [c for c in row if not c.text.isspace()] or row[:1]
@@ -542,21 +593,137 @@ def _line(row: list[Ch], vertical: bool, stacked: bool = False) -> Line:
             if stacked:
                 gap = gap - 0.8 * sz if gap > 1.5 * sz else 0.0
             if gap > 0 or had_space:
-                _spaces(parts, pos, a1, max(gap, 0.0), sz, cjk, had_space)
+                sp_parts: list[str] = []
+                sp_pos: list[tuple[float, float]] = []
+                _spaces(sp_parts, sp_pos, a1, max(gap, 0.0), sz, cjk, had_space)
+                units += [[t, [q], None] for t, q in zip(sp_parts, sp_pos)]
         t = c.text
         lo, hi = (c.y0, c.y1) if vertical else (c.x0, c.x1)
-        if len(t) == 1:
-            parts.append(t)
-            pos.append((lo, hi))
-        else:
-            step = (hi - lo) / len(t)
-            for k, ch in enumerate(t):
-                parts.append(ch)
-                pos.append((lo + k * step, lo + (k + 1) * step))
+        step = (hi - lo) / max(1, len(t))
+        units.append([t, [(lo + k * step, lo + (k + 1) * step) for k in range(len(t))] if len(t) > 1 else [(lo, hi)], c])
         prev = c
-    text = "".join(parts)
-    return Line(row, text, pos, min(c.x0 for c in row), min(c.y0 for c in row), max(c.x1 for c in row),
-                max(c.y1 for c in row), vertical, max(c.size for c in row))
+    rtl = False
+    orphans: list[int] = []
+    if not vertical and not stacked:
+        units, rtl, orphans = _logical_order(units)
+    text = "".join(u[0] for u in units)
+    pos = [q for u in units for q in u[1]]
+    ln = Line(row, text, pos, min(c.x0 for c in row), min(c.y0 for c in row), max(c.x1 for c in row),
+              max(c.y1 for c in row), vertical, max(c.size for c in row))
+    ln.rtl = rtl
+    ln.orphans = orphans
+    return ln
+
+
+# Unicode の IndicPositionalCategory.txt（Unicode 15.1）で「Left」の字：子音の前（左）に描くが、読む順では子音の後ろの母音の記号。
+# タイ文字・ラーオ文字の前に書く母音（Visual_Order_Left）は、Unicode でも見た目の順に並べるので含めない。
+PRE_BASE = set(map(chr, [
+    0x093F, 0x094E,  # デーヴァナーガリー ि ॎ
+    0x09BF, 0x09C7, 0x09C8,  # ベンガル ি ে ৈ
+    0x0A3F,  # グルムキー ਿ
+    0x0ABF,  # グジャラート િ
+    0x0B47,  # オリヤー େ
+    0x0BC6, 0x0BC7, 0x0BC8,  # タミル ெ ே ை
+    0x0D46, 0x0D47, 0x0D48,  # マラヤーラム െ േ ൈ
+    0x0DD9, 0x0DDB,  # シンハラ ෙ ෛ
+    0x1031, 0x1084,  # ビルマ ေ ႄ
+    0x17C1, 0x17C2, 0x17C3,  # クメール េ ែ ៃ
+    0x1A55, 0x1A6E, 0x1A6F, 0x1A70, 0x1A71, 0x1A72,  # タイ・タム
+    0x1B3E, 0x1B3F,  # バリ
+    0x1BA6,  # スンダ
+    0xA9BA, 0xA9BB,  # ジャワ
+    0xAA2F, 0xAA30, 0xAA34,  # チャム
+]))
+
+
+def _is_mark(ch: str) -> bool:
+    return unicodedata.category(ch) in ("Mn", "Mc", "Me")
+
+
+def _virama(ch: str) -> bool:
+    return unicodedata.combining(ch) == 9  # 正準結合クラス 9（Virama）
+
+
+def _logical_order(units: list[list]) -> tuple[list[list], bool, list[int]]:
+    """見た目の順（左から右）のグリフ → 読む順。
+    - 右から左の字（アラビア文字・ヘブライ文字）を含む行：UAX #9 のレベルで並べ替える（数は左から右のまま。グリフごとに動かす）
+    - インド系の文字の、子音の前に描く母音の記号：子音（の結合）の後ろへ動かし、分けて描いた母音（ে…া）は NFC で1字にする
+    戻り値：(並べた単位, 右から左の段落か, 前の字のない結合の記号の位置（字の番号）)。"""
+    from .bidi import has_rtl, visual_to_logical
+
+    texts = [u[0] for u in units]
+    rtl = False
+    if has_rtl(texts):
+        units = _attach_marks(units)
+        order, rtl = visual_to_logical([u[0] for u in units])
+        units = [units[i] for i in order]
+    elif any(ch in PRE_BASE for t in texts for ch in t):
+        units = _move_pre_base(units)
+    orphans = []
+    at = 0
+    for k, u in enumerate(units):
+        t = u[0]
+        if t and _is_mark(t[0]) and not t.isspace():
+            before = units[k - 1][0] if k else ""
+            if not before or before.isspace():
+                orphans.append(at)
+        at += len(t)
+    return units, rtl, orphans
+
+
+def _attach_marks(units: list[list]) -> list[list]:
+    """結合する記号だけのグリフ（アラビア文字の母音の記号など）を、重なる基の字のグリフにつける（読む順で、基の字の後ろ）。"""
+    out: list[list] = []
+    for k, u in enumerate(units):
+        t = u[0]
+        if t and all(_is_mark(ch) for ch in t) and u[2] is not None:
+            c = (u[1][0][0] + u[1][-1][1]) / 2
+            cand = [v for v in (out[-1] if out else None, units[k + 1] if k + 1 < len(units) else None)
+                    if v is not None and v[2] is not None and not v[0].isspace()]
+            host = next((v for v in cand if v[1][0][0] - 0.5 <= c <= v[1][-1][1] + 0.5), cand[0] if cand else None)
+            if host is not None:
+                host[0] += t
+                host[1] = host[1] + [host[1][-1]] * len(t)
+                continue
+        out.append(u)
+    return out
+
+
+def _move_pre_base(units: list[list]) -> list[list]:
+    units = [list(u) for u in units]
+    out: list[list] = []
+    k = 0
+    while k < len(units):
+        u = units[k]
+        if u[0] and u[0][0] in PRE_BASE and all(_is_mark(ch) for ch in u[0]) and k + 1 < len(units) \
+                and units[k + 1][0] and not _is_mark(units[k + 1][0][0]) and not units[k + 1][0].isspace():
+            # 子音の結合：次のグリフ（子音）と、Virama で終わる間は、その次の子音も
+            j = k + 1
+            cluster = [units[j]]
+            while cluster[-1][0] and _virama(cluster[-1][0][-1]) and j + 1 < len(units) and units[j + 1][0] \
+                    and not units[j + 1][0].isspace():
+                j += 1
+                cluster.append(units[j])
+            # 子音につく記号（ヌクタなど、正準結合クラスが 0 でない Mn）も子音の側
+            while j + 1 < len(units) and units[j + 1][0] and all(_is_mark(ch) and unicodedata.combining(ch) for ch in units[j + 1][0]):
+                j += 1
+                cluster.append(units[j])
+            sign = u
+            # 分けて描いた母音：前の記号と、子音の後ろの記号が、正準の合成で1字になる（ে + া → ো）
+            if j + 1 < len(units) and units[j + 1][0] and _is_mark(units[j + 1][0][0]):
+                comp = unicodedata.normalize("NFC", sign[0] + units[j + 1][0])
+                if len(comp) < len(sign[0]) + len(units[j + 1][0]):
+                    nxt = units[j + 1]
+                    span = (min(sign[1][0][0], nxt[1][0][0]), max(sign[1][-1][1], nxt[1][-1][1]))
+                    sign = [comp, [span] * len(comp), sign[2]]
+                    j += 1
+            out += cluster
+            out.append(sign)
+            k = j + 1
+            continue
+        out.append(u)
+        k += 1
+    return out
 
 
 # ====================================================================== 入力欄
@@ -734,9 +901,10 @@ class PageLayout:
             else:
                 cell.chars.append(c)
         self.overprinted: list[list[Line]] = []  # 重ねて描かれ、分けた行の組
+        self.added: list[str] = []  # 窓で足した字（ルビのかっこ）
         for cell in self.cells:
-            cell.lines = make_lines(cell.chars, self.overprinted) if cell.chars else []
-        self.free_lines = make_lines(self.free, self.overprinted)
+            cell.lines = self._ruby(make_lines(cell.chars, self.overprinted)) if cell.chars else []
+        self.free_lines = self._ruby(make_lines(self.free, self.overprinted))
         self.typical = _typical_size(self.chars)
         self.widgets = widgets or []
         self.fills: list[tuple] = []
@@ -752,6 +920,58 @@ class PageLayout:
         self._find_spots()
         self.flags: list[dict] = []  # 読む段階に関わる注意：{grade, title, detail, where}
         self._read_flags()
+
+    # ------------------------------------------------------------------ ルビ
+    def _ruby(self, lines: list[Line]) -> list[Line]:
+        """ルビ（振り仮名）：すぐ上にある、字の大きさが基の字の半分以下の横書きの行で、横の範囲が基の行の中に収まるもの
+        （ルビの字は基の字の半分の大きさが決まり：JIS X 4051）。基の字の後ろに「（かつしか）」の形でつける（Word の窓と同じ）。
+        ルビの行は、行としては出さない（見出しにも使わない）。"""
+        hor = [ln for ln in lines if not ln.vertical and ln.text.strip()]
+        if len(hor) < 2:
+            return lines
+        used: set[int] = set()
+        for r in sorted(hor, key=lambda ln: ln.size):
+            if id(r) in used:
+                continue
+            best = None
+            for b in hor:
+                if b is r or id(b) in used or r.size > 0.5 * b.size * 1.05:
+                    continue
+                if _SPACED.fullmatch(b.text.strip(" \u3000")) and re.search(r"[ \u3000]", b.text.strip(" \u3000")):
+                    continue  # 字間を空けた見出し（「氏　名」）の上の小さな字は、ルビでなく見出し（「フリ　ガナ」）
+                gap = b.y0 - r.y1
+                if not (-0.15 * b.size <= gap <= 0.5 * b.size):
+                    continue
+                if not (b.x0 - 0.25 * b.size <= r.x0 and r.x1 <= b.x1 + 0.25 * b.size):
+                    continue
+                if best is None or gap < best[0]:
+                    best = (gap, b)
+            if best is None:
+                continue
+            b = best[1]
+            # ルビの行の、空白で分かれたまとまりごとに（「やまだ　はなこ」→「山田」「花子」）、横の範囲に中心のある基の字の後ろへ
+            groups = []
+            for m in re.finditer(r"[^ \u3000]+", r.text):
+                gx0, _gy0, gx1, _gy1 = r.span_rect(m.start(), m.end())
+                groups.append((m[0], gx0, gx1))
+            plan = []
+            for ruby, gx0, gx1 in groups:
+                idx = [k for k, q in enumerate(b.pos) if gx0 - 0.5 <= (q[0] + q[1]) / 2 <= gx1 + 0.5 and not b.text[k].isspace()]
+                if not idx:
+                    rc = (gx0 + gx1) / 2
+                    idx = [min(range(len(b.pos)), key=lambda k: abs((b.pos[k][0] + b.pos[k][1]) / 2 - rc))]
+                plan.append((max(idx) + 1, ruby))
+            for at, ruby in sorted(plan, reverse=True):
+                ins = "（" + ruby + "）"
+                q = b.pos[at - 1]
+                b.text = b.text[:at] + ins + b.text[at:]
+                b.pos = b.pos[:at] + [(q[1], q[1])] * len(ins) + b.pos[at:]
+                self.added += ["（", "）"]
+            b.chars = sorted(b.chars + r.chars, key=lambda c: c.x0)
+            b.y0 = min(b.y0, r.y0)
+            b.ruby = getattr(b, "ruby", []) + [g[0] for g in groups]
+            used.add(id(r))
+        return [ln for ln in lines if id(ln) not in used]
 
     # ------------------------------------------------------------------ 読む段階の注意
     def all_lines(self) -> list[Line]:
@@ -800,6 +1020,11 @@ class PageLayout:
                           "OCR の字はエージェントが画像と照らして確かめる（スキャンの画像の上に、文字の認識で作った見えない字が"
                           "重ねてあります。認識の誤りがあっても、字の情報からは分かりません）",
                           [f"{self.number}ページ（見えない字 {len(on)} 字）"])
+        orphan = [self.where(ln.x0, ln.y0, ln.text) for ln in self.all_lines() if getattr(ln, "orphans", None)]
+        if orphan:
+            self.flag("C", "前の字のない結合の記号",
+                      "母音の記号などの結合する記号が、基の字なしで行の頭や空白の後ろにあります。字の並びが正しくないおそれがあるので、"
+                      "その位置は view_page で画像を見て確かめる", orphan)
         bad = [m for m in self.merges if m[1] <= 0.5]
         if bad:
             self.flag("C", "重ね書きとして1字にした字", "箱が重ならない字を、重ね書きとして1字にしました（読み落としのおそれ）",
@@ -1061,11 +1286,48 @@ class PageLayout:
             self.spots.append(Spot("text", (c.x0 + 1.5, c.y0 + 0.5, c.x1 - 1.5, top - 0.5), name,
                                    "マスの中の字の上の空き", cell=c, size=_fit_size(min(above, 2.5 * sz), typ), host=c))
         elif leftroom >= max(48, 5 * sz) and leftroom >= 0.4 * c.w and not any(
-                pdf_blanks("\u3000" * 3 + ln.text) for ln in hor):
+                pdf_blanks("\u3000" * 3 + ln.text) for ln in hor) and not (
+                all(getattr(ln, "rtl", False) for ln in hor) and self._empty_beside(c, "left")):
             self.spots.append(Spot("text", (c.x0 + 1.5, c.y0 + 0.5, left - 1.5, c.y1 - 0.5), rl or name,
                                    "マスの中の字の左の空き", cell=c, size=_fit_size(c.h, typ), host=c))
 
+    def _empty_beside(self, c: Cell, side: str) -> bool:
+        """マスのすぐ左（または右）に、空のマスがあるか。"""
+        if side == "left":
+            return any(abs(o.x1 - c.x0) <= 1.5 and _vov(o, c) >= 0.5 and not o.visible()
+                       for o in self.index.near(c.x0 - 5, c.y0, c.x0, c.y1))
+        return any(abs(o.x0 - c.x1) <= 1.5 and _vov(o, c) >= 0.5 and not o.visible()
+                   for o in self.index.near(c.x1, c.y0, c.x1 + 5, c.y1))
+
+    def _left_room(self, c: Cell, ln: Line, hor: list, typ: float) -> None:
+        """右から左へ書く見出し（アラビア文字など）：見出しと同じマスの、見出しの左の空き（_right_room を左右に映したもの）。"""
+        sz = ln.size
+        others = [o for o in hor if o is not ln]
+        if any(o.y0 < ln.y1 - 0.2 * sz and o.y1 > ln.y0 + 0.2 * sz and o.x1 <= ln.x0 for o in others):
+            return
+        if len(hor) == 1:
+            band = (c.y0, c.y1)
+            ref = max(sz, 0.75 * typ)
+            if c.h > 3.2 * ref or c.h < 1.1 * sz:
+                return
+        else:
+            above = [o.y1 for o in others if o.y1 <= ln.y0 + 0.2 * sz]
+            below = [o.y0 for o in others if o.y0 >= ln.y1 - 0.2 * sz]
+            band = (max(above + [c.y0]), min(below + [c.y1]))
+        room = ln.x0 - c.x0
+        if self._empty_beside(c, "left"):
+            return
+        t = ln.text.strip(" \u3000")
+        right_ok = c.x1 - ln.x1 <= 3 * sz and room >= 0.45 * c.w
+        if right_ok and room >= max(48, 5 * sz) and len(t) <= 24 and not pdf_blanks(ln.text) \
+                and not any(b in ln.text for b in BOX_GLYPHS):
+            self.spots.append(Spot("text", (c.x0, band[0], ln.x0 - 1.5, band[1]), norm_label(t),
+                                   "見出しと同じマスの左の空き（右から左へ書く見出し）", cell=c,
+                                   size=_fit_size(band[1] - band[0], typ), host=ln, at=(len(ln.text), len(ln.text))))
+
     def _right_room(self, c: Cell, ln: Line, hor: list, typ: float) -> None:
+        if getattr(ln, "rtl", False):
+            return self._left_room(c, ln, hor, typ)
         sz = ln.size
         others = [o for o in hor if o is not ln]
         if any(o.y0 < ln.y1 - 0.2 * sz and o.y1 > ln.y0 + 0.2 * sz and o.x0 >= ln.x1 for o in others):
@@ -1148,6 +1410,18 @@ class PageLayout:
                                        norm_label(t + "［　］"), "行の終わりの空き", line_text=ln.text, size=sz,
                                        host=ln, at=(len(ln.text), len(ln.text))))
                 return
+        if getattr(ln, "rtl", False):
+            # 右から左へ書く見出し：見出しの左の余白（左に何もない）
+            if 1 <= len(t) <= 15 and not pdf_blanks(ln.text):
+                left_bound = max([c.x1 for c in same_row if c.x1 <= ln.x0 + 0.5] + [self.left])
+                for r in self.vs:
+                    if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1 and left_bound < r.pos <= ln.x0:
+                        left_bound = r.pos
+                if ln.x0 - left_bound >= max(80, 8 * sz) and left_bound <= self.left + 1:
+                    self.spots.append(Spot("space", (left_bound, ln.y0 - 0.2 * sz, ln.x0 - sz, ln.y1 + 0.2 * sz),
+                                           norm_label(t), "見出しの左の余白（右から左へ書く見出し。入力欄とは限らない）", size=sz,
+                                           host=ln, at=(len(ln.text), len(ln.text)), confidence="agent"))
+            return
         # 見出しの右の余白（短い見出しで、右に何もない）
         if 1 <= len(t) <= 15 and not t.endswith(("。", "殿", "様", "御中")) and not pdf_blanks(ln.text):
             right_bound = min([c.x0 for c in same_row if c.x0 >= ln.x1 - 0.5] + [self.right])
@@ -1367,16 +1641,28 @@ class PageLayout:
                     and len(c.text()) <= 40:
                 if up is None or c.y1 > up.y1:
                     up = c
+        right = None
+        for c in self.index.near(last.x1, first.y0, last.x1 + 400, first.y1):
+            if c.x0 >= last.x1 - 1.5 and c.visible() and _vov(c, first) >= 0.5:
+                if right is None or c.x0 < right.x0:
+                    right = c
+        if right is not None and _rtl_cell(right) and (left is None or not _rtl_cell(left)):
+            left = right  # 右から左へ書く表：行の見出しは右のマス
         rl = norm_label(left.text()) if left else ""
         cl = norm_label(up.text()) if up else ""
         if up is not None and any(sp.cell is up and sp.kind in ("inline", "text") for sp in self.spots):
             cl = ""  # 上のマスは、それ自体が入力欄を含む（見出しではない）
         if rl and cl and rl != cl:
-            # 左がすぐ隣の見出しで、上の見出しが遠い（表の列の見出しでない）ときは、左だけ
-            if first.x0 - left.x1 <= 1.5 and first.y0 - up.y1 > 3 * max(self.typical, 8):
+            # 左（右から左の表では右）がすぐ隣の見出しで、上の見出しが遠い（表の列の見出しでない）ときは、左だけ
+            if min(abs(first.x0 - left.x1), abs(left.x0 - last.x1)) <= 1.5 and first.y0 - up.y1 > 3 * max(self.typical, 8):
                 return rl, rl, cl
             return f"{rl}／{cl}", rl, cl
         return rl or cl, rl, cl
+
+
+def _rtl_cell(c: Cell) -> bool:
+    lines = [ln for ln in c.lines if not ln.vertical and ln.text.strip()]
+    return bool(lines) and all(getattr(ln, "rtl", False) for ln in lines)
 
 
 def _own_edges(c: Cell, slack: float = 2.5) -> bool:
