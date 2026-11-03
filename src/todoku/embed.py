@@ -896,7 +896,7 @@ def window_info(doc, e: dict, xdoc: dict) -> dict:
     fields = []
     for sh in xdoc.get("sheets", []):
         for f in sh.get("fields", []):
-            if not f.get("cell") or f.get("kind") == "checkbox":
+            if not f.get("cell") or f.get("kind") == "checkbox" or f.get("locked"):
                 continue
             fields.append({"id": f"E{e['n']}!{f['id']}", "sheet": sh["name"], "cell": f["cell"], "kind": f.get("kind"),
                            "label": f.get("label", ""), "value": f.get("value")})

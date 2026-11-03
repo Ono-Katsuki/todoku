@@ -551,6 +551,9 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     not_applicable: list[str] = []  # いまの状態では選べるものがない欄（選択肢がほかの欄で決まる・選択肢が空）
     later = []
     for sheet, f in fields:
+        if f.get("locked"):
+            not_applicable.append(f["id"])  # 保護でロックされた見出しの欄（窓の［B5：保護されたセル］）：Excel でも書けない
+            continue
         if f["kind"] == "choice":
             later.append((sheet, f))  # 選択肢はほかの欄の内容で決まることがあるので、ほかを入れてから選ぶ
             continue

@@ -258,7 +258,7 @@ def _num(x: float) -> str:
 
 def _serial_date(wb: OdsWorkbook, x: float) -> str:
     if wb.null_date == dt.date(1899, 12, 30):
-        d = serial_to_date(x)
+        d = serial_to_date(x, False)
     else:
         d = wb.null_date + dt.timedelta(days=int(x))
     frac = x - int(x)
