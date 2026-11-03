@@ -159,7 +159,8 @@ tr.unr td { color: var(--muted); }
 .bval { font-size: .8rem; color: var(--muted); }
 .bval b { font-size: 1.05rem; color: var(--ink); font-variant-numeric: tabular-nums; }
 .bnote { margin: 0; font-size: .78rem; color: var(--muted); line-height: 1.7; }
-.bwall { margin: 0; font-size: .84rem; line-height: 1.7; color: var(--ink); padding-left: 10px; border-left: 3px solid var(--gE); }
+.walls { margin: 0; padding: 0 0 0 12px; list-style: none; display: grid; gap: 4px; border-left: 3px solid var(--gE); }
+.walls li { font-size: .84rem; line-height: 1.7; color: var(--ink); }
 .bnote b { color: var(--ink); }
 @media (max-width: 640px) {
   .brow { grid-template-columns: 1fr; gap: 4px; }
@@ -312,22 +313,29 @@ tr.unr td { color: var(--muted); }
     <h2 id="h-how">とどくで、どう届くようにしたか</h2>
     <p class="sub">壁は様式の側にあり、なくすことはできません。とどくは、書類を変えずに、AI エージェントが全てを正確に読み書きできる道をつくります。どの段階も AI を使わない決まった処理で、同じ書類からは必ず同じ結果が出ます。数は、この調査で段階を付けた書類のものです。</p>
     <figure class="burden" aria-labelledby="burden-cap">
-      <figcaption id="burden-cap"><b>1 通の計画書を書くとき</b>　和歌山県 処遇改善加算の計画書（白紙と記入例が公開されている様式）。入力欄 3,322 か所（4 シート）のうち、記入例で書かれていたのは 233 か所・1,584 字。</figcaption>
+      <figcaption id="burden-cap"><b>私が区に出す 1 通の申請書</b>　東京都中央区「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）。2 ページ・入力欄の候補 196 か所。架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合。</figcaption>
+      <ul class="walls">
+        <li><b>探すだけで重い。</b>様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。</li>
+        <li><b>印刷して手で書く前提。</b>入力欄のない印刷用の PDF で、紙に書いて窓口か郵送で出します。ペンを持てない私には書けません。</li>
+        <li><b>そもそも、私が使う iPad では Office の書類も崩れて扱えません。</b>iPad の Excel は、マクロ（VBA）も動かせません。</li>
+        <li><b>署名は手書きの欄。</b>とどくは、本人が同意すれば署名の画像を置けます。ただし、画像の署名を区が認めるかは様式しだいです。</li>
+      </ul>
       <div class="brow">
-        <span class="blab">頭のスイッチで<br>字を入れる</span>
-        <span class="btrack"><span class="bfill hand" style="--w: 100%" title="1,584 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）"></span></span>
-        <span class="bval"><b>1 時間 35 分</b>より長い</span>
-        <span class="bmore">＋ 3,322 か所から書く欄を探して移る操作（測れていないので含めていません）</span>
+        <span class="blab">頭のスイッチで<br>字を入れたとしたら</span>
+        <span class="btrack"><span class="bfill hand" style="--w: 100%" title="158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）"></span></span>
+        <span class="bval"><b>9 分 30 秒</b>より長い</span>
+        <span class="bmore">＋ 196 か所から書く欄を探して移る操作（測れていないので含めていません）</span>
       </div>
       <div class="brow">
         <span class="blab">とどく ＋<br>エージェント</span>
-        <span class="btrack"><span class="bfill todoku" style="--w: 3.2%" title="私が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）"></span></span>
+        <span class="btrack"><span class="bfill todoku" style="--w: 26%" title="私が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）"></span></span>
         <span class="bval"><b>2〜3 分</b>で頼む</span>
       </div>
-      <p class="bwall"><b>そもそも、私が使う iPad では書けない。</b>Office の書類は iPad では表示が崩れて扱えず、iPad の Excel はマクロ（VBA）も動かせない。上の時間は、書類が正しく開けたとしたときの下限です。</p>
-      <p class="bnote">とどくが 233 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで <b>2.5 秒</b>。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
+      <p class="bnote">とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで <b>0.3 秒</b>。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
     </figure>
     <ol class="how">
+      <li><h3>制度と様式を探す</h3>
+        <p>「私が使える制度を探して、申請書を書いて」の一言から、エージェントが制度の案内・要綱と様式を探してきます（robots.txt を守り、間をあけて取得）。当たるかどうか分からない条件は、推測で決めずに伝えます。</p></li>
       <li><h3>開いて、一字も変えずに読む</h3>
         <p>PDF・Excel・Word・一太郎・CSV・ZIP など <b class="num" id="how-kinds">—</b> の形式の書類 <b class="num" id="how-docs">—</b> 件を、元の内容を一字も変えずに読める「窓」にしました。Office も外部のライブラリも使わず、公開された仕様書から実装しています。</p></li>
       <li><h3>書く所を見つける。迷う所は「？」でエージェントに</h3>
