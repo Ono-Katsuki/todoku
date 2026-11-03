@@ -128,6 +128,16 @@ def _widget_mark(f: FormField, w: Widget) -> str:
     return f"［{f.name}＝{v}］" if v not in (None, "") else f"［{f.name}］"
 
 
+def _unseen_mark(f: FormField, w: Widget) -> str:
+    """画面にも紙にも出ない部品・紙に印刷されない部品：窓の欄の印のすぐ後ろに「［name：画面にも紙にも出ない］」と出す。"""
+    gone, unprinted = f.visibility([w])
+    if gone:
+        return f"［{f.name}：画面にも紙にも出ない］"
+    if unprinted:
+        return f"［{f.name}：紙に印刷されない］"
+    return ""
+
+
 def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormField], layout: bool = True) -> dict:
     """layout：配置から入力欄を見つけるか（XFA のフォームでは見つけない：XFA の欄だけが、Adobe で表示される欄）。"""
     pc = page_content(doc, page)
@@ -310,7 +320,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             for _, f, w in sorted(it.marks, key=lambda m: m[0]):
                 if f.name in names.values():
                     continue  # 配置から見つけた欄として、値つきで出した
-                t = (t + " " if t else "") + _widget_mark(f, w)
+                t = (t + " " if t else "") + _widget_mark(f, w) + _unseen_mark(f, w)
             if t.strip():
                 parts.append(t.strip())
         if parts:
@@ -393,6 +403,13 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                          "一覧から選ぶ欄の選択肢の字が、PDF の文字列の決まり（PDFDocEncoding・UTF-16BE）で読めません"
                          "（Shift_JIS などで書いたもの）。字を推し量らず、元のバイト列を示しました。どれが何の選択肢かは view_page で確かめる",
                          [f"{f.name}：" + "、".join("<" + b.hex().upper() + ">" for b in f.bad_opts[:6])])
+        gone, unprinted = f.visibility()
+        if gone:
+            d["hidden"] = True  # 画面にも紙にも出ない欄（書くときは allow_hidden）
+            d["hidden_why"] = gone
+        elif unprinted:
+            d["not_printed"] = True  # 画面には出るが、紙に印刷されない欄
+            d["not_printed_why"] = unprinted
         if f.kind == "radio":
             if f.options:
                 d["options"] = [o[1] or o[0] for o in f.options]
@@ -406,6 +423,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                              "ひとつ選ぶ欄の選択肢の名前が、PDF の名前の決まり（UTF-8）で読めません（Shift_JIS などで作った名前）。"
                              "字を推し量らず、バイト列のまま（#82#CD のように）示しました。どれが何の選択肢かは view_page で確かめ、"
                              "書くときはこの形の名前で選びます", [f"{f.name}：" + "、".join(name_text(b) for b in bad[:6])])
+            _label_choices(lay, f, d, ws)
         if f.maxlen:
             d["maxlen"] = f.maxlen
         if f.readonly:
@@ -749,6 +767,151 @@ def _label_within_line(lay: PageLayout, r) -> str:
     return norm_label(best[1]) if best is not None else ""
 
 
+def _widget_line(lay: PageLayout, r):
+    """フォームの部品と同じ高さ（字の高さの半分以上が部品と重なる）の横書きの行のうち、部品にいちばん近いもの（200pt の内）。"""
+    best = None
+    for ln in list(lay.free_lines) + [x for c in lay.cells for x in c.lines]:
+        if ln.vertical or getattr(ln, "rtl", False) or not ln.text.strip():
+            continue
+        h = ln.y1 - ln.y0
+        if h <= 0 or min(ln.y1, r[3]) - max(ln.y0, r[1]) < 0.5 * h:
+            continue
+        gap = max(ln.x0 - r[2], r[0] - ln.x1, 0)
+        if gap <= 200 and (best is None or gap < best[0]):
+            best = (gap, ln)
+    return best[1] if best is not None else None
+
+
+def _run(ln: Line, idx: list[int], toward_right: bool, far: float) -> str:
+    """行の字（idx：見た目の順の番号）を、部品の側から外へたどった字の並び。
+    字と字の空きが far 以上の所で止める（別の欄・別の段の字）。"""
+    seq = idx if toward_right else list(reversed(idx))
+    got: list[int] = []
+    last = None
+    for i in seq:
+        if ln.text[i].isspace():
+            continue
+        p = ln.pos[i]
+        if last is not None and ((p[0] - last[1]) if toward_right else (last[0] - p[1])) >= far:
+            break
+        got.append(i)
+        last = p
+    return ln.text[min(got):max(got) + 1].strip() if got else ""
+
+
+def _choice_labels(lay: PageLayout, items: list[tuple[str, tuple]]) -> tuple[str, list[str]] | None:
+    """ひとつ選ぶ欄の部品（選択肢の名前, 部品の位置）の並びから、(組の見出し, 選択肢ごとの字)。
+    選択肢の字は、同じ行の部品のすぐ隣の字（部品と部品の間の字）。字が部品の左か右かは、行の部品のすべてに字のある側のうち、
+    部品と字の空きの合計が小さい側。組の見出しは、最初の選択肢より前の字（同じ行）。なければ、マスの行の見出しか上の行。
+    どれかの選択肢の字が決まらないときは None（いままでどおり、最初の部品の近くの字を見出しにする）。"""
+    lines = []
+    for _o, r in items:
+        ln = _widget_line(lay, r)
+        if ln is None:
+            return None
+        lines.append(ln)
+    gaps: dict[str, list] = {"before": [], "after": []}
+    regions = []
+    for k, ((_o, r), ln) in enumerate(zip(items, lines)):
+        same = [items[j][1] for j in range(len(items)) if j != k and lines[j] is ln]
+        lo = max([x[2] for x in same if x[2] <= r[0] + 1] or [float("-inf")])
+        hi = min([x[0] for x in same if x[0] >= r[2] - 1] or [float("inf")])
+        order = sorted(range(len(ln.pos)), key=lambda i: ln.pos[i][0])
+        left = [i for i in order if ln.pos[i][1] <= r[0] + 1 and ln.pos[i][0] >= lo - 1]
+        right = [i for i in order if ln.pos[i][0] >= r[2] - 1 and ln.pos[i][1] <= hi + 1]
+        regions.append((left, right, lo > float("-inf"), hi < float("inf")))
+        for side, idx, toward in (("before", left, False), ("after", right, True)):
+            ink = [i for i in idx if not ln.text[i].isspace()]
+            if not ink:
+                gaps[side].append(None)
+            else:
+                gaps[side].append((r[0] - max(ln.pos[i][1] for i in ink)) if not toward else (min(ln.pos[i][0] for i in ink) - r[2]))
+    sides = [s for s in ("before", "after") if all(g is not None for g in gaps[s])]
+    if not sides:
+        return None
+    side = min(sides, key=lambda s: sum(gaps[s]))
+    labels = []
+    group = ""
+    for k, (ln, (left, right, bounded_l, bounded_r)) in enumerate(zip(lines, regions)):
+        far = 1.5 * ln.size
+        if side == "after":
+            t = ln.text[min(right):max(right) + 1].strip() if bounded_r else _run(ln, right, True, far)
+            if k == 0 and not bounded_l:
+                group = _run(ln, left, False, 3 * ln.size)
+        elif bounded_l:
+            t = ln.text[min(left):max(left) + 1].strip()
+        else:
+            whole = _run(ln, left, False, 3 * ln.size)
+            # 最初の選択肢の字の前に、組の見出しが同じ行にあるとき（「Gender: Male □」）：見出しの終わりの「：」か、
+            # 空白で分ける（部品にいちばん近い語が選択肢の字）
+            m = re.match(r"(.*[：:])\s*(\S.*)$", whole) or re.match(r"(.*\S)\s+(\S+)$", whole)
+            t = m[2] if m else whole
+            if k == 0 and m:
+                group = m[1]
+        labels.append(norm_label(t))
+    if not all(labels) or len(set(labels)) < len(labels):
+        return None
+    if not group:
+        r0 = items[0][1]
+        c = lay.index.at((r0[0] + r0[2]) / 2, (r0[1] + r0[3]) / 2)
+        if c is not None:
+            group = lay._label_for(c, c)[0]  # マスの中の選択肢：行の見出し（なければ列の見出し）
+        else:
+            top = min(r[1] for _o, r in items)
+            x0, x1 = min(r[0] for _o, r in items), max(r[2] for _o, r in items)
+            above = None
+            for ln in lay.free_lines:
+                if ln.y1 <= top + 1 and top - ln.y1 < 30 and ln.x0 < x1 and ln.x1 > x0 - 20 and ln not in lines:
+                    if above is None or ln.y1 > above.y1:
+                        above = ln
+            group = above.text if above is not None else ""
+    return norm_label(group), labels
+
+
+def _option_name(f: FormField, w: Widget) -> str | None:
+    """ひとつ選ぶ欄の部品の選択肢の名前（窓の options と同じ字）。"""
+    from .form import name_text
+
+    if not w.on:
+        return None
+    opt = name_text(w.on)
+    if f.options and opt.isdigit() and int(opt) < len(f.options):
+        opt = f.options[int(opt)][1] or f.options[int(opt)][0]
+    return opt
+
+
+def _label_choices(lay: PageLayout, f: FormField, d: dict, ws: list) -> None:
+    """ひとつ選ぶ欄（部品が 2 つ以上）：見出しを組の見出しに、選択肢ごとの字を options_labels に、いまの値を選んだ選択肢の字に。
+    最初の部品の隣の字（「Male」）を、欄全体の見出しにしないように。"""
+    mine = [(w, r) for f2, w, r in ws if f2 is f]
+    if len(mine) < 2 or len(mine) != len(f.widgets):
+        return  # ほかのページにも部品がある欄：このページだけでは選択肢の字をそろえられない
+    names = [_option_name(f, w) for w, _r in mine]
+    if None in names:
+        return
+    got = _choice_labels(lay, [(n, r) for n, (_w, r) in zip(names, mine)])
+    if got is None:
+        return
+    group, labels = got
+    by_name: dict[str, str] = {}
+    for n, lab in zip(names, labels):
+        if by_name.setdefault(n, lab) != lab:
+            return  # 同じ選択肢の部品に、違う字（どちらが選択肢の字か決まらない）
+    opts = d.get("options") or []
+    if not opts or any(o not in by_name for o in opts):
+        return
+    d["options_labels"] = [by_name[o] for o in opts]
+    if not f.tu:
+        d["label"] = group or f.name.split(".")[-1]
+    d.pop("nearby_text", None)
+    if group and group != d["label"]:
+        d["nearby_text"] = group
+    v = d.get("value")
+    if isinstance(v, str) and v in by_name and by_name[v] != v:
+        d["export_value"] = v  # 書類に記録される選択肢の名前（/V）
+        d["value"] = by_name[v]  # 本人に伝える値：選んだ選択肢の隣に印刷された字
+
+
 def _near_label(lay: PageLayout, r) -> str:
     """フォームの欄のそばの文字（同じマスの文字、欄が字の間に置かれた同じ行の前の字、左の行、上の行）。"""
     cx, cy = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
@@ -858,11 +1021,18 @@ def _kind_text(f: dict) -> str:
         k += f"（{f['boxes']} 字）"
     if f.get("options"):
         opts = [str(o) for o in f["options"]]
+        if f.get("options_labels"):
+            # 選択肢の名前と、その隣に印刷された字が違うとき：「Male（M）」
+            opts = [o if lab == o else f"{lab}（{o}）" for o, lab in zip(opts, map(str, f["options_labels"]))]
         k += ": " + "／".join(opts[:15]) + (f"（ほか{len(opts) - 15}件）" if len(opts) > 15 else "")
     if f.get("maxlen"):
         k += f"（{f['maxlen']} 字まで）"
     if f.get("readonly"):
         k += "（読み取り専用）"
+    if f.get("hidden"):
+        k += f"（画面にも紙にも出ない欄：{f.get('hidden_why', '')}）"
+    elif f.get("not_printed"):
+        k += f"（画面には出るが、紙に印刷されない欄：{f.get('not_printed_why', '')}）"
     if f.get("required"):
         k += "（必須）"
     if f.get("agent"):
