@@ -1313,6 +1313,31 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         same = len({place(f) for f in nxt[:10]}) == 1
         head = f"続きの空欄（{place(nxt[0]).rstrip('・')}）：" if same and place(nxt[0]) else "続きの空欄："
         lines.append(head + "、".join(name(f) if same else f"{place(f)}{name(f)}" for f in nxt[:10]) + ("ほか" if len(nxt) > 10 else ""))
+    # 選んでいない選択肢（チェックボックス・ラジオボタン）と、残っている「？」の所：数と、どこにあるか（一つずつは並べない）
+    groups: dict = {}
+    for f in after_list:
+        if f.get("kind") not in ("checkbox", "radio") or f.get("readonly") or f.get("filled"):
+            continue
+        key = (place(f), f.get("group") or f.get("context") or f["id"])  # 同じ組（ラジオの組・同じ行の選択肢）
+        on = f.get("value") not in (None, "", False) or f["id"] in written_ids or f.get("alternative_to") in written_ids
+        groups[key] = groups.get(key, False) or on
+    unchosen = [k_ for k_, on in groups.items() if not on]
+    agent_left = [f for f in after_list if f.get("agent") and f.get("value") in (None, "") and not f.get("readonly")
+                  and f.get("kind") not in ("checkbox", "radio") and not covered(f)]
+
+    def by_where(keys: list[str]) -> str:
+        cnt: dict = {}
+        for w in keys:
+            cnt[w] = cnt.get(w, 0) + 1
+        named = [(w, n) for w, n in cnt.items() if w]
+        return "（" + "、".join(f"{w} {n}" for w, n in named[:6]) + ("ほか" if len(named) > 6 else "") + "）" if len(named) > 1 else ""
+
+    if unchosen:
+        lines.append(f"選んでいない選択肢（チェックボックス・ラジオボタン）：{len(unchosen)} 組"
+                     + by_where([w.rstrip("・") for w, _g in unchosen]))
+    if agent_left:
+        lines.append(f"規則では決められない「？」の所：{len(agent_left)} か所"
+                     + by_where([place(f).rstrip("・") for f in agent_left]) + "（書く所かは、窓を読んで判断する）")
     if result.get("recalculated_cells"):
         from .xlsx.readback import say as _recalc_say
 
@@ -1321,7 +1346,8 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         lines.append("本人に伝えること：" + "／".join(notes[:10]))
     return {"written": told, "still_empty": [{"id": f["id"], "label": f.get("label", ""), **({"sheet": f["sheet"]} if "sheet" in f else {}),
                                               **({"page": f["page"]} if "page" in f else {})} for f in empty[:50]],
-            "still_empty_count": len(empty), "say_to_user": "\n".join(lines)}
+            "still_empty_count": len(empty), "unchosen_choice_groups": len(unchosen), "agent_places_left": len(agent_left),
+            "say_to_user": "\n".join(lines)}
 
 
 @_budgeted

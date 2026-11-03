@@ -141,3 +141,17 @@ def test_libreoffice_doc_form_fields_and_small_streams(tmp_path):
     assert r["proof_ok"] and r["read_back_ok"], r
     got = {x["id"]: x["value"] for x in api.fields(str(tmp_path / "o.doc"))}
     assert got["Tel"] == "03-0000-0000" and got["ctl1"] == "変更" and got["Mail"] is True
+
+
+def test_say_to_user_counts_unchosen_choices_and_question_places(tmp_path):
+    """まだ空いている欄の伝え方：選んでいない選択肢の組と、残っている「？」の所も、数で伝える（一つずつは並べない）。"""
+    from todoku import api
+
+    src = tmp_path / "a.docx"
+    src.write_bytes(make_docx(p("氏名＿＿＿＿") + p("☐ 新規　☐ 変更") + p("☐ 同意する") + p("令和　　年　　月　　日")))
+    r = api.fill(str(src), {"P1.c2": "山田"}, str(tmp_path / "o.docx"))
+    assert r["unchosen_choice_groups"] == 2 and r["agent_places_left"] >= 3, r
+    assert "選んでいない選択肢（チェックボックス・ラジオボタン）：2 組" in r["say_to_user"]
+    assert "「？」の所" in r["say_to_user"]
+    r = api.fill(str(src), {"P1.c2": "山田", "P2.c0": True}, str(tmp_path / "o2.docx"))
+    assert r["unchosen_choice_groups"] == 1, r
