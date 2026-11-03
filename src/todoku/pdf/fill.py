@@ -659,6 +659,10 @@ class Filler:
             self._attach(page_no, ref)
             self.patches.append(Patch(spot["id"], "control", on, page_no))
             return
+        if isinstance(value, (list, tuple, dict, set)):
+            # PDF の配置の所は、どれも 1 つの空き（1 つの値）：リストの字（「['本人']」）をそのまま書かない
+            raise FillError(f"{spot['id']}: この所には 1 つの値（字か数）を書きます。リストや {{…}} の形の値は書けません"
+                            f"（受け取った値：{value!r}）。空きが並ぶ所は、それぞれの id に 1 つずつ書いてください")
         text = _as_text(value)
         size = float(spot.get("size") or 10.5)
         comb = None

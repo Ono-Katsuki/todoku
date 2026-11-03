@@ -125,6 +125,19 @@ def test_writing_both_the_widget_and_its_alternative_is_refused():
     assert fill(PdfDocument(blob, "a.pdf"), {"name": "山田", "tel": "03", paren: "1234"}).patches
 
 
+def test_list_value_on_a_layout_spot_is_refused():
+    import pytest
+
+    from todoku.pdf.fill import FillError, fill
+
+    blob = _form_pdf(_GAP_ROWS, _GAP_WIDGETS)
+    paren = next(f["id"] for f in _gap_page()["fields"] if "電話番号" in f["label"] and f["source"] == "layout")
+    for bad in (["本人"], {"x": 1}):
+        with pytest.raises(FillError) as e:
+            fill(PdfDocument(blob, "a.pdf"), {paren: bad})
+        assert "1 つの値" in str(e.value), str(e.value)
+
+
 def test_say_to_user_names_the_widget_by_its_own_line(tmp_path):
     from todoku import api
 
