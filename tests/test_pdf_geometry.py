@@ -140,20 +140,28 @@ def test_rtl_line_head_is_on_the_right():
     assert not heads, heads  # 行の頭（右）はマスの縁に接している
 
 
-def test_places_next_to_real_form_fields_are_not_offered():
-    # 本物のフォームの欄（AcroForm）のすぐ右の見出し「Family name」の後ろの空きは、その欄に書くので別の所にしない
+def test_places_next_to_real_form_fields_are_kept_as_agent_places():
+    # 本物のフォームの欄（AcroForm）に重なる・すぐ隣の所（見出し「Family name」の後ろの空き）は、消さずに「？」にして、
+    # その欄の名前を添える（同じ種類なら alternative_to：どちらか一方に書く。種類が違えば理由に欄の名前）
     win = build(PdfDocument(build_all(), "a.pdf"))
     pg = win["pages"][0]
-    real = [f for f in pg["fields"] if f["source"] == "acroform"]
+    real = {f["id"]: f for f in pg["fields"] if f["source"] == "acroform"}
     layout = [f for f in pg["fields"] if f["source"] == "layout"]
     assert real
     for f in layout:
-        for r in real:
+        for r in real.values():
             h = min(f["rect"][3] - f["rect"][1], r["rect"][3] - r["rect"][1])
             vov = min(f["rect"][3], r["rect"][3]) - max(f["rect"][1], r["rect"][1])
             gap = max(f["rect"][0] - r["rect"][2], r["rect"][0] - f["rect"][2])
-            assert not (vov >= 0.5 * h and gap <= r["rect"][3] - r["rect"][1]), (f, r)
-    assert not any("Family name" in f.get("label", "") for f in layout)
+            if vov >= 0.5 * h and gap <= r["rect"][3] - r["rect"][1]:
+                assert f.get("agent"), (f, r)
+                assert f.get("alternative_to") in real or "フォームの欄 " in f["why"], f
+    fam = [f for f in layout if f.get("label") == "Family name"]
+    assert fam and fam[0]["alternative_to"] == "family" and fam[0]["agent"], fam
+    agree = [f for f in layout if "フォームの欄 agree" in f.get("why", "")]
+    assert agree and not agree[0].get("alternative_to"), agree  # 余白とチェックの欄：種類が違うので、別の読み方にはしない
+    text = "\n".join(pg["reading"])
+    assert f"［{fam[0]['id']}？］" in text
 
 
 def test_ruby_needs_han_and_thai_joins_without_space():

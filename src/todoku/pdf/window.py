@@ -134,19 +134,25 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             if w.page == number - 1:
                 ws.append((f, w, view.rect(*w.rect)))
     by_name = {f.name: f for f, _, _ in ws}
-    # 配置から見つけた欄のうち、フォームの欄と重なるものは、フォームの欄を使う
+    # 配置から見つけた欄のうち、元からあるフォームの欄の中に収まるものは、フォームの欄を使う。重なる・すぐ隣のものは、
+    # 消さずに「？」（規則では決められない）にして、その欄の名前を添える（_near_widget・_flag_near_widget）
     spots = []
     tdk = re.compile(rf"p{number}\.[a-z]?\d+")  # とどくが書き込んだ欄の名前（配置の欄・字を目印にした所・印影）
-    real = [r for f, w, r in ws if not tdk.fullmatch(f.name)]
     hidden: set[int] = set()
+    real_ws = [(f, w, r) for f, w, r in ws if not tdk.fullmatch(f.name)]
     for sp in (lay.spots if layout else []):
-        # 配置から見つけた欄に重なるフォームの欄（書き込んだ後の欄、または元からある欄）
-        hits = [(f, w) for f, w, r in ws if _overlap(sp.rect, r) > 0.5]
+        # 配置から見つけた欄に重なる、とどくが書き込んだフォームの欄（その欄の値を、この所の印として出す）
+        hits = [(f, w) for f, w, r in ws if tdk.fullmatch(f.name) and _overlap(sp.rect, r) > 0.5]
         sp.widget = hits or None
-        if not hits and any(_beside_widget(sp.rect, r) for r in real):
-            # 本物のフォームの欄（元からある欄）に重なる・すぐ隣に接する所：書く所はその欄なので、別の所として示さない
-            hidden.add(id(sp))
-            continue
+        if not hits:
+            near = _near_widget(sp, real_ws)
+            if near == "inside":
+                # 本物のフォームの欄（元からある欄）の中に収まる所（欄の外に 1 字も入らない）：書く所はその欄そのもの
+                hidden.add(id(sp))
+                continue
+            if near is not None:
+                _flag_near_widget(sp, *near)
+        _flag_bullet_like_box(sp)
         spots.append(sp)
     for sp in spots:
         if sp.alternative_to is not None and id(sp.alternative_to) in hidden:
@@ -336,6 +342,11 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             d["kind_candidates"] = list(sp.kind_candidates)  # 種類が形だけでは決まらない：書き方は fill の as_kind
         if sp.alternative_to is not None:
             d["alternative_to"] = name(sp.alternative_to)  # 同じ所の別の読み方（両方には書けない）
+        if getattr(sp, "alt_widget", None):
+            if sp.alternative_to is not None:
+                # 別の候補とフォームの欄の両方が、同じ所の別の読み方：フォームの欄を先に（もう一方の候補は理由に残す）
+                d["why"] = f"{d['why']}（{d['alternative_to']} とも同じ所の別の読み方）"
+            d["alternative_to"] = sp.alt_widget  # 元からあるフォームの欄（同じ所の別の読み方）
         if sp.group:
             d["group"] = [name(x) for x in sp.group]  # 縦に並ぶ同じ形の空欄（1つの欄かもしれない組）
         if sp.readonly:
@@ -577,6 +588,73 @@ def _beside_widget(rect, r) -> bool:
         return False
     gap = max(rect[0] - r[2], r[0] - rect[2])  # 左右の離れ（負なら重なる）
     return gap <= (r[3] - r[1])
+
+
+def _inside_widget(sp: Spot, r) -> bool:
+    """配置の所が、フォームの欄 r の中に収まるか：欄からはみ出す幅が、どの辺でもその所の字 1 字に足りない
+    （欄の周りに描いた枠の線・余白だけで、欄の外に書く所がない）。"""
+    one = max(sp.size, 1.0)
+    x0, y0, x1, y1 = sp.rect
+    return r[0] - x0 < one and r[1] - y0 < one and x1 - r[2] < one and y1 - r[3] < one
+
+
+_CHECK_WIDGETS = ("checkbox", "radio")
+
+
+def _near_widget(sp: Spot, real_ws: list):
+    """配置の所と、元からあるフォームの欄との関係："inside"（欄の中に収まる：その欄そのもの）、
+    (欄, "overlap" か "beside", 離れ pt)（重なる・同じ行ですぐ隣：規則では決められない）、None（関係なし）。"""
+    best = None
+    for f, _w, r in real_ws:
+        if _inside_widget(sp, r):
+            return "inside"
+        ov = _overlap(sp.rect, r)
+        if ov > 0:
+            key = (0, -ov)
+            cand = (f, "overlap", 0.0)
+        elif _beside_widget(sp.rect, r):
+            gap = max(sp.rect[0] - r[2], r[0] - sp.rect[2], 0.0)
+            key = (1, gap)
+            cand = (f, "beside", gap)
+        else:
+            continue
+        if best is None or key < best[0]:
+            best = (key, cand)
+    return best[1] if best is not None else None
+
+
+def _flag_near_widget(sp: Spot, f: FormField, how: str, gap: float) -> None:
+    """元からあるフォームの欄に重なる・すぐ隣の所：消さずに「？」（規則では決められない）にして、その欄の名前を理由に添える。
+    同じ種類の読み方（字の所と字の欄・チェックの所とチェックの欄）なら、同じ所の別の読み方（alternative_to：どちらか一方に書く）。
+    種類が違えば（「□ その他（欄）」の □ と字の欄など）、両方に書くこともあるので alternative_to にはしない。"""
+    same = (sp.kind == "checkbox") == (f.kind in _CHECK_WIDGETS)
+    where = (f"フォームの欄 {f.name} に重なる" if how == "overlap"
+             else f"フォームの欄 {f.name} と同じ行の、すぐ隣（{gap:.0f}pt）")
+    if same:
+        why = f"{where}：その欄と同じ所の別の読み方かもしれない（書くならどちらか一方）"
+        sp.alt_widget = f.name
+    else:
+        why = (f"{where}：種類が違う（この所は{KIND_JA.get(sp.kind, sp.kind)}、欄は{KIND_JA.get(f.kind, f.kind)}）。"
+               "その欄とは別に書く所か、規則では決められない")
+    sp.confidence = "agent"
+    sp.reason = f"{sp.reason}。{why}" if sp.reason else why
+
+
+def _flag_bullet_like_box(sp: Spot) -> None:
+    """箇条書きの印にもよく使う箱の字（chars.BULLET_LIKE_BOXES：❏❐❑❒◻◽）のチェックの所：規則のチェックの欄にせず「？」にする。"""
+    import unicodedata
+
+    from .. import chars
+
+    if sp.kind != "checkbox" or not isinstance(sp.host, Line) or not sp.at:
+        return
+    ch = sp.host.text[sp.at[0]:sp.at[1]]
+    if len(ch) != 1 or not chars.is_bullet_like_box(ch):
+        return
+    why = (f"「{ch}」（U+{ord(ch):04X} {unicodedata.name(ch, '')}）は箇条書きの印にもよく使う字：チェックの欄か、"
+           "箇条の印か、規則では決められない")
+    sp.confidence = "agent"
+    sp.reason = f"{sp.reason}。{why}" if sp.reason else why
 
 
 def _rtl_row(row: list[_Item]) -> bool:

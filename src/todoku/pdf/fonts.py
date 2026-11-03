@@ -551,19 +551,22 @@ LANG_SCRIPT = {
     "uk": "CYRILLIC", "bg": "CYRILLIC", "sr": "CYRILLIC", "mk": "CYRILLIC", "be": "CYRILLIC", "mn": "CYRILLIC",
     "kk": "CYRILLIC", "ky": "CYRILLIC", "tg": "CYRILLIC", "dv": "THAANA",
 }
-EAST_ASIAN = ("CJK", "HIRAGANA", "KATAKANA", "HANGUL", "BOPOMOFO", "HALFWIDTH", "FULLWIDTH", "IDEOGRAPHIC")
+# 東アジアの文字（Scripts.txt の Han・Hiragana・Katakana・Hangul・Bopomofo。全角・半角の形の字も、それぞれの文字の種類）
+EAST_ASIAN = ("HAN", "HIRAGANA", "KATAKANA", "HANGUL", "BOPOMOFO")
 
 
 def letter_script(ch: str) -> str:
-    """字の文字の種類（Unicode の字の名前の頭の語：「DEVANAGARI」「LATIN」など）。字・結合の記号でなければ ""。"""
+    """字の文字の種類（Unicode の Scripts.txt の Script の値を大文字にしたもの：「DEVANAGARI」「LATIN」「HAN」など。
+    chars.script_of）。字・結合の記号でないもの、どの文字の種類にも決まらない字（Common：µ・ʼ など、Inherited：結合の
+    記号 U+0301 など、Unknown）は ""。字の名前の頭の語では決めない（º MASCULINE ORDINAL INDICATOR・ª FEMININE … は Latin）。"""
     import unicodedata
+
+    from ..chars import NEUTRAL_SCRIPTS, script_of
 
     if not unicodedata.category(ch).startswith(("L", "M")):
         return ""
-    try:
-        return unicodedata.name(ch).split(" ", 1)[0]
-    except ValueError:
-        return ""
+    sc = script_of(ch)
+    return "" if sc in NEUTRAL_SCRIPTS else sc.upper()
 
 
 def legacy_text(kind: str, text: str) -> bool:
