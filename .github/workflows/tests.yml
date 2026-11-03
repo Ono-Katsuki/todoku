@@ -1,0 +1,91 @@
+# テスト：Linux・macOS・Windows × Python の版。
+# corpus/（集めた公開の様式。再配布しないので git にない）を使うテストは、印 corpus で飛ばし、その数を報告する。
+# Linux では Noto の書体と hb-shape（HarfBuzz）を入れて、字の組み立て・埋め込みのテストも動かす。
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        # pyproject.toml の requires-python が許さない版は、下の「版の確かめ」で飛ばす（制限を緩めれば、そのまま動く）
+        python: ["3.11", "3.12", "3.13"]
+    defaults:
+      run:
+        shell: bash
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: 版の確かめ（requires-python）
+        id: pin
+        run: |
+          uv run --no-project --python 3.11 python .github/scripts/python_allowed.py "${{ matrix.python }}" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      - name: 飛ばした理由
+        if: steps.pin.outputs.allowed != 'true'
+        run: |
+          echo "Python ${{ matrix.python }} は pyproject.toml の requires-python の外なので、飛ばしました。" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 書体と hb-shape（Linux）
+        if: steps.pin.outputs.allowed == 'true' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends fonts-noto-core fonts-dejavu-core libharfbuzz-bin
+          hb-shape --version | head -1
+          ls /usr/share/fonts/truetype/noto | wc -l
+
+      - name: hb-shape（macOS）
+        if: steps.pin.outputs.allowed == 'true' && runner.os == 'macOS'
+        continue-on-error: true
+        run: brew install harfbuzz && hb-shape --version | head -1
+
+      - name: 依存を入れる
+        if: steps.pin.outputs.allowed == 'true'
+        run: uv sync --locked
+
+      - name: テスト
+        if: steps.pin.outputs.allowed == 'true'
+        run: uv run pytest -q -rfE --junitxml=junit.xml
+
+      - name: MCP サーバーが立ち上がるか（.mcp.json の起動のしかた）
+        if: steps.pin.outputs.allowed == 'true'
+        run: uv run python .github/scripts/mcp_smoke.py
+
+      - name: MCP サーバーが立ち上がるか（プラグインの起動のしかた）
+        if: steps.pin.outputs.allowed == 'true'
+        run: uv run python .github/scripts/mcp_smoke.py --plugin
+
+      - name: 結果を残す
+        if: always() && steps.pin.outputs.allowed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.os }}-py${{ matrix.python }}
+          path: junit.xml
+          if-no-files-found: ignore
+          retention-days: 14

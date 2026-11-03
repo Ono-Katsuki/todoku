@@ -132,6 +132,7 @@ def test_proof_catches_a_glyph_outside_the_supplement(tmp_path):
     assert diffs and diffs[0]["id"] == "family"
 
 
+@pytest.mark.fonts
 def test_embedded_truetype_subset_for_greek_and_vietnamese(tmp_path):
     from todoku.pdf.embedfont import system_font
 

@@ -120,6 +120,7 @@ def test_wrap_line_counts():
 DOC = Path(__file__).resolve().parent.parent / "corpus" / "pairs" / "www.city.kitakyushu.lg.jp" / "2adce6eea3a7_blank.doc"
 
 
+@pytest.mark.corpus
 def test_doc_write_that_wraps_in_a_table_cell_is_reported(tmp_path):
     if not DOC.exists():
         pytest.skip("corpus なし")

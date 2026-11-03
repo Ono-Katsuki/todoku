@@ -29,6 +29,7 @@ def need():
         pytest.skip("古いExcelの様式がありません（scripts/collect_forms.py --ext xls --out corpus/wide_xls）")
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("path", XLS, ids=lambda p: Path(p).name)
 def test_xls_formulas_match_excel_and_rebuild_is_identical(path):
     blob = Path(path).read_bytes()
@@ -38,6 +39,7 @@ def test_xls_formulas_match_excel_and_rebuild_is_identical(path):
     assert XlsEditor(wb).build() == wb.data  # 書き込まずに組み立て直すと、ストリームはバイト一致
 
 
+@pytest.mark.corpus
 def test_xls_write_and_prove():
     need()
     path = next((p for p in XLS if Path(p).name == "saigai-yousiki1.xls"), XLS[0])
@@ -58,6 +60,7 @@ def test_xls_write_and_prove():
     assert pr.entries_identical == pr.entries_total - 1  # ブック以外のストリームはバイト一致
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("name", ["saigai-yousiki1.xls", "731981.xls", "taiseijoukyouitiranhyou.xls"])
 def test_xls_audit(name):
     need()
