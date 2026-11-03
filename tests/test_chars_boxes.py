@@ -38,6 +38,7 @@ def test_bullet_like_box_is_an_agent_place(ch):
     boxes, text = _boxes(f"{ch}はい")
     assert boxes and boxes[0].get("agent"), boxes
     assert "箇条書きの印にもよく使う字" in boxes[0]["why"] and f"U+{ord(ch):04X}" in boxes[0]["why"]
+    assert boxes[0]["why"].count("箇条書きの印") == 1, boxes[0]["why"]  # 理由は 1 度だけ（重ねてつけない）
     assert f"［{boxes[0]['id']}？］" in text
 
 

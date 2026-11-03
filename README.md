@@ -46,6 +46,9 @@ MCP サーバーと、申請書を探して記入するときの進め方（ス�
    ```
 
    （Homebrew を使っていれば `brew install uv`。Windows は PowerShell で `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`）
+
+   初めて動かすとき、uv が Python 3.11（約 30 MB）をダウンロードします。インターネットにつながらない所で使うときは、
+   つながる所で先に `uv python install 3.11` を実行しておきます。
 2. Claude Code の中で、プラグインを入れます。
 
    ```
@@ -94,6 +97,7 @@ MCP サーバーと、申請書を探して記入するときの進め方（ス�
 Windows では、この分け方（パイプの受け渡し）が使えないので、サーバーの中で動かし、上限は展開・描画の予算だけになります。
 長い呼び出しは、働き手のメモリを `ps` で外からも見張ります（macOS はメモリの上限 RLIMIT_AS を守らないため）。`ps` が使えるかは
 サーバーを立ち上げるときに一度確かめ、使えない環境では、その見張りが効かない（働き手の中の見張りだけになる）ことを知らせます。
+Linux では、`ps` が使えなくてもメモリの上限 RLIMIT_AS は効きます（止まるのは外からの常駐メモリの見張りだけです）。
 どちらのときも、標準エラーとサーバーの説明（instructions）でそう知らせます。
 
 ## 扱える形式
@@ -201,7 +205,7 @@ PDF・Word・Excel・PowerPoint・OpenDocument・RTF の画像ごとに、説明
 
 ```sh
 uv sync
-uv run pytest          # 1,710 件のテスト
+uv run pytest          # 2,300 件以上のテスト
 uv run python scripts/audit_corpus.py corpus/wide   # 集めた様式の一括検査（様式は fetch で取得）
 ```
 

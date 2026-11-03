@@ -20,7 +20,8 @@ import itertools
 import re
 
 from .. import chars
-from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, norm_label, wide_space
+from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, label_tail, norm_label, shown_gap, wide_space
+from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, one_wide_space
 from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 
 DET = "deterministic"
@@ -49,7 +50,6 @@ KIND_JA = {"text": "文字", "inline": "文字の中の空欄", "checkbox": "チ
 WORD_WHY = {
     **AGENT_WHY,
     "short_underline": "下線を引いた短い空白（1〜2字。下線の空欄は3字以上のことが多い）",
-    "bullet_box": "箇条書きの印にもよく使う箱の字（❏・❐・❑・❒・◻・◽。チェックの箱とは決められない）",
     "checked_mark": "印のついたチェックの印らしい字（☑・☒・■・✓。いまはチェック済みとして読む。■ は箇条の印・飾りのこともある）",
     "underscore_in_word": "英数字にはさまれた下線の字（「＿＿」。URL・ファイルの名前の一部のこともある）",
     "next_line_long": "見出しのあるマスの中の、空の段落（マスのほかの字が長く、見出しではなく説明の文のこともある）",
@@ -235,7 +235,7 @@ class Spots:
                 bm = self.marks.get(bullet_id)
                 if getattr(p, "bullet", None) is not None or (bm is not None and bm[0] is p):
                     # 箇条書きの印の □（段落番号の定義の字）：チェックの欄。書くと、この段落の印だけを ■・☑ にする。
-                    # 見出しは、次の箱の字か 2 つ以上の空白の並びまでの字（そのまま）
+                    # 見出しは、次の箱の字か 1 字ぶん以上の空白の並び（wide_space）までの字（そのまま）
                     end = stops[0] if stops and stops[0] > 0 else len(text)
                     opt = norm_label(text[:end])[:40]
                     self.items[bullet_id] = {"id": bullet_id, "kind": "checkbox", "source": "layout", "para": p,
@@ -272,7 +272,7 @@ class Spots:
                     k = next(free_k)
                     fid = f"P{pi}.{k}"
                     if kind == "checkbox":
-                        # 見出しは、箱の字の後ろから、次の箱の字か 2 つ以上の空白の並びまでの字（そのまま。字の意味では切らない）。
+                        # 見出しは、箱の字の後ろから、次の箱の字か 1 字ぶん以上の空白の並び（wide_space）までの字（そのまま。字の意味では切らない）。
                         # 後ろに字がなければ、前の字
                         opt = text[b:min(_option_end(text, b, stops), b + 200)]
                         label = norm_label(opt)[:40] or norm_label(text[max(0, a - 200):a])[-30:]
@@ -281,6 +281,8 @@ class Spots:
                     it = {"id": fid, "kind": kind, "source": "layout", "para": p, "span": (a, b), "label": label, "provenance": LAYOUT}
                     if why is not None:
                         it.update(provenance=AGENT, why=WORD_WHY[why], why_key=why)
+                        if one_wide_space(text[a:b]):
+                            it["why"] += f"。{ONE_WIDE_SPACE_WHY}"  # いちばん狭い空き：エージェントが順を決める目安
                         if why == "checked_mark":
                             it["checked"] = True
                     self.items[fid] = it
@@ -701,6 +703,7 @@ def build(doc: DocxDocument) -> dict:
                      "［P12.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
                                     "書かなければ何も変わらない。［P12.a1？＝○○］は、伏せ字の○○を書き換える所）",
                      "［P12.1？］": "段落の中の、字の並び（年・月・日などの字）から推定した空欄。規則では決めないので、エージェントが判断する",
+                     "［P12.1？　］": GAP_TOKEN_NOTE,
                      "■［P12.1？］": "チェック済みの印らしい字（☑・■・✓ など。■ は箇条の印のこともある）。チェックの欄なら True / False で書く",
                      "［名前＝値］": "入力欄といまの値", "☐［…］ / ☑": "チェック", " ｜ ": "表のマスの区切り"},
         "protection": {"edit": doc.protection, "enforced": doc.protection_enforced},
@@ -726,7 +729,7 @@ def build(doc: DocxDocument) -> dict:
     contexts = {}
     for st in out["stories"]:
         for line in st["reading"]:
-            for m in re.finditer(r"［([^］＝？]+)？?(?:＝[^］]*)?］", line):
+            for m in re.finditer(r"［([^］＝？]+)？?[ 　]*(?:＝[^］]*)?］", line):  # 「？」の所の印は、元の空白を中に入れる
                 contexts.setdefault(m[1], line)
     for it in sp.items.values():
         c = it.get("control")
@@ -867,7 +870,7 @@ def _embeds(doc) -> list[dict]:
 
 def printed_label(sp: "Spots", it: dict) -> str:
     """入力欄（フォームの欄・コンテンツコントロール）の見出し：同じ段落の、欄の前に印刷される字（ほかの欄の値・todoku が
-    書いた所は除く。区切り（タブ・2つ以上の空白・表のマスの区切り）より前は含めない）。段落の頭にある欄で、表のマスの中なら、
+    書いた所は除く。区切り（タブ・1 字ぶん以上の空白の並び（wide_space）・表のマスの区切り）より前は含めない）。段落の頭にある欄で、表のマスの中なら、
     同じ行の左のマス（か上のマス）の字。どれもなければ ""。"""
     c: Control = it["control"]
     p = c.para
@@ -888,7 +891,9 @@ def printed_label(sp: "Spots", it: dict) -> str:
             for k, ch in enumerate(s.text[:max(0, a - pos)]):
                 out.append("\x00" if any(x <= pos + k < y for x, y in cuts) else ch)
         pos += n
-    head = re.split(r"\x00|\t|[ 　]{2,}|\n", "".join(out))[-1]
+    # 区切り：ほかの欄・タブ・改行と、1 字ぶん以上の空白の並び（wide_space：窓の空きと同じ 1 em の決まり。欄の直前の空きは
+    # 除いて、その前の塊。字間を空けた見出し「氏　名」はまとめる：label_tail）
+    head = label_tail(re.split(r"\x00|\t|\n", "".join(out))[-1])
     trim = "".join(ch for ch in set(head) if chars.is_space(ch) or chars.is_label_colon(ch))
     head = norm_label(head.strip(" 　")).rstrip(trim)  # 見出しのあとのコロン（: ： ﹕ など）と空白を除く
     if len(head) > 30:
@@ -979,7 +984,8 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
             elif it["kind"] == "checkbox":
                 edits.append((a, b, f"☐［{name}］"))
             elif it.get("provenance") == AGENT:
-                edits.append((a, b, f"［{name}？＝{text[a:b]}］" if it.get("placeholder") else f"［{name}？］"))
+                # 空白だけの所は、元の空白をそのまま印の中に入れる（「［P1.1？　］」：全角の空白 1 つの空き。shown_gap）
+                edits.append((a, b, f"［{name}？＝{text[a:b]}］" if it.get("placeholder") else f"［{name}？{shown_gap(text[a:b])}］"))
             else:
                 edits.append((a, b, f"［{name}］"))
             continue

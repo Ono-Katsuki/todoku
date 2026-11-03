@@ -12,7 +12,7 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 
-from ..xlsx.window import norm_label
+from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, norm_label, one_wide_space, shown_gap
 from .content import page_content
 from .doc import PdfDocument
 from .form import FormField, Widget, has_xfa, read_fields
@@ -40,11 +40,11 @@ class _Item:
 def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, circled: list | None = None) -> str:
     """行の文字に、入力欄の印（［p1.3］）を入れる。kept があれば、窓に出した元の字（印に置き換えて消えた字を除いたもの）を足す
     （読み落としの検査が、窓に実際に出た字で数えるため）。circled：ページに描かれた○が囲む字 (始め, 終わり, id)：その字の後ろに
-    「［○］」（とどくが描いた○は「［p1.c1：○］」）。"""
+    「［○］」（とどくが描いた○は「［p1.c1：○］」）。4 つ目が真のもの（角の丸い四角など、○かもしれない囲み）は「［○？］」。"""
     text = ln.text
     edits = []
-    for a, b, ident in circled or []:
-        edits.append((b, b, f"［{ident}：○］" if ident else "［○］"))
+    for a, b, ident, *maybe in circled or []:
+        edits.append((b, b, "［○？］" if maybe and maybe[0] else f"［{ident}：○］" if ident else "［○］"))
     for sp in sorted(spots, key=lambda x: x.at or (0, 0)):
         a, b = sp.at
         mark = _filled_mark(sp, name)
@@ -62,7 +62,9 @@ def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, ci
         else:
             # 空欄の字（下線の字「＿＿＿」など）は消さずに残し、その後ろに印を置く（空白だけの空欄は印に置き換える）
             keep = text[a:b] if text[a:b].strip(" \u3000") else ""
-            edits.append((a, b, f"{keep}［{name(sp)}{q}］"))
+            # 「？」の所で空白だけのものは、行の空白（測った空きから作った字）をそのまま印の中に入れる（「［p1.a1？　］」）
+            gap = shown_gap(text[a:b]) if q else ""
+            edits.append((a, b, f"{keep}［{name(sp)}{q}{gap}］"))
     edits.sort(key=lambda e: (e[0], e[1]))
     out, at = [], 0
     shown = []
@@ -152,7 +154,6 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                 continue
             if near is not None:
                 _flag_near_widget(sp, *near)
-        _flag_bullet_like_box(sp)
         spots.append(sp)
     for sp in spots:
         if sp.alternative_to is not None and id(sp.alternative_to) in hidden:
@@ -262,6 +263,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     circ: dict[int, list] = {}  # 行 → ページに描かれた○が囲む字 (始め, 終わり, id)
     for ln_, a_, b_, ident in getattr(lay, "circled", []):
         circ.setdefault(id(ln_), []).append((a_, b_, ident))
+    for ln_, a_, b_, ident in getattr(lay, "maybe_circled", []):
+        circ.setdefault(id(ln_), []).append((a_, b_, ident, True))
     reading = []
     plain: list[str] = []
     for row in rows:
@@ -312,7 +315,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     out_fields = []
     context_of = {}
     for line in reading:
-        for m in re.finditer(r"［(p\d+\.a?\d+)？?[］＝]", line):
+        for m in re.finditer(r"［(p\d+\.a?\d+)？?[ 　]*[］＝]", line):  # 「？」の所の印は、元の空白を中に入れる
             context_of.setdefault(m[1], line)
     emitted: set[str] = set()
     for sp in spots:
@@ -338,6 +341,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         if sp.confidence == "agent":
             d["agent"] = True  # 規則では決められない所（エージェントが読んで判断する）
             d["why"] = sp.reason
+            if isinstance(sp.host, Line) and sp.at and one_wide_space(sp.host.text[sp.at[0]:sp.at[1]]):
+                d["why"] += f"。{ONE_WIDE_SPACE_WHY}"  # いちばん狭い空き（エージェントが順を決める目安）
         if sp.kind_candidates:
             d["kind_candidates"] = list(sp.kind_candidates)  # 種類が形だけでは決まらない：書き方は fill の as_kind
         if sp.alternative_to is not None:
@@ -456,8 +461,13 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     marks, inword = unmapped_places(lay)
     circled = [{"text": ln_.text[a_:b_], "id": ident or None, "context": re.sub(r"[ 　]+", " ", ln_.text).strip()[:60],
                 "rect": [round(v, 1) for v in ln_.span_rect(a_, b_)]} for ln_, a_, b_, ident in getattr(lay, "circled", [])]
+    # 角の丸い四角など（曲線と長さのある直線で閉じた図形）が囲む字：○で選んだ印か、ただの枠か、規則では決められない
+    maybe_circled = [{"text": ln_.text[a_:b_], "context": re.sub(r"[ 　]+", " ", ln_.text).strip()[:60],
+                      "rect": [round(v, 1) for v in ln_.span_rect(a_, b_)], "agent": True,
+                      "why": "曲線と直線で閉じた図形（角の丸い四角など）が囲む字：○で選んだ印か、ただの枠か、規則では決められない"}
+                     for ln_, a_, b_, _ident in getattr(lay, "maybe_circled", [])]
     return {"number": number, "width": round(view.width, 1), "height": round(view.height, 1), "rotate": view.rot,
-            "fields": out_fields, "reading": reading, "circled": circled, "chars": chars, "unmapped": pc.unmapped, "images": images,
+            "fields": out_fields, "reading": reading, "circled": circled, "maybe_circled": maybe_circled, "chars": chars, "unmapped": pc.unmapped, "images": images,
             # 字に直せない字の、行の中での役割（字の並びの形で決める）：行の頭の印（箇条の印）と、それ以外（本文の字）
             "unmapped_marks": marks, "unmapped_text": inword,
             "image_only": chars == 0 and images > 0, "pictures": pictures, "problems": pc.problems, "annotations": annots,
@@ -601,18 +611,34 @@ def _inside_widget(sp: Spot, r) -> bool:
 _CHECK_WIDGETS = ("checkbox", "radio")
 
 
+def _em_overlap(sp: Spot, r) -> float:
+    """配置の所と、フォームの欄が、行の向きに重なる長さを、1 字ぶん（1 em）を 1 として測った数（重ならなければ 0）。
+    1 em は、その所の字の大きさ。ただし所か欄が 1 字より狭いとき（小さなチェックの箱など）は、狭いほうの幅を 1 とする。
+    行と直角の向きには、狭いほうの高さの半分以上が重なるときだけ重なると見る（上下の行にかかるだけの欄は重ならない）。"""
+    vertical = isinstance(sp.host, Line) and sp.host.vertical
+    a0, a1, b0, b1 = (1, 3, 0, 2) if vertical else (0, 2, 1, 3)  # 行の向き・直角の向き
+    along = min(sp.rect[a1], r[a1]) - max(sp.rect[a0], r[a0])
+    across = min(sp.rect[b1], r[b1]) - max(sp.rect[b0], r[b0])
+    if along <= 0 or across < 0.5 * min(sp.rect[b1] - sp.rect[b0], r[b1] - r[b0]):
+        return 0.0
+    em = min(max(sp.size, 1.0), sp.rect[a1] - sp.rect[a0], r[a1] - r[a0])
+    return along / max(em, 1e-6)
+
+
 def _near_widget(sp: Spot, real_ws: list):
     """配置の所と、元からあるフォームの欄との関係："inside"（欄の中に収まる：その欄そのもの）、
-    (欄, "overlap" か "beside", 離れ pt)（重なる・同じ行ですぐ隣：規則では決められない）、None（関係なし）。"""
+    (欄, "overlap" か "beside", 離れ pt)（1 字ぶん以上重なる・同じ行ですぐ隣か 1 字に足りないだけ重なる）、None（関係なし）。
+    1 字ぶん以上重なる所だけを、欄と同じ所の別の読み方の候補にする（両方に書くと字が重なる）。接する・わずかに重なるだけの所は、
+    欄の隣に別に書く所（「電話番号［欄］（　　）」のかっこの中）のことがあるので、重なりとしない。"""
     best = None
     for f, _w, r in real_ws:
         if _inside_widget(sp, r):
             return "inside"
-        ov = _overlap(sp.rect, r)
-        if ov > 0:
-            key = (0, -ov)
+        em = _em_overlap(sp, r)
+        if em >= 1.0:
+            key = (0, -em)
             cand = (f, "overlap", 0.0)
-        elif _beside_widget(sp.rect, r):
+        elif _overlap(sp.rect, r) > 0 or _beside_widget(sp.rect, r):
             gap = max(sp.rect[0] - r[2], r[0] - sp.rect[2], 0.0)
             key = (1, gap)
             cand = (f, "beside", gap)
@@ -624,35 +650,28 @@ def _near_widget(sp: Spot, real_ws: list):
 
 
 def _flag_near_widget(sp: Spot, f: FormField, how: str, gap: float) -> None:
-    """元からあるフォームの欄に重なる・すぐ隣の所：消さずに「？」（規則では決められない）にして、その欄の名前を理由に添える。
-    同じ種類の読み方（字の所と字の欄・チェックの所とチェックの欄）なら、同じ所の別の読み方（alternative_to：どちらか一方に書く）。
-    種類が違えば（「□ その他（欄）」の □ と字の欄など）、両方に書くこともあるので alternative_to にはしない。"""
+    """元からあるフォームの欄に重なる・すぐ隣の所：消さずに、その欄の名前を理由に添える。
+    - 1 字ぶん以上重なる所（how="overlap"）：「？」（規則では決められない）。同じ種類の読み方（字の所と字の欄・チェックの所と
+      チェックの欄）なら、同じ所の別の読み方（alternative_to：どちらか一方に書く。fill は両方に書くと断る）。種類が違えば
+      （「□ その他（欄）」の □ と字の欄など）、両方に書くこともあるので alternative_to にはしない。
+    - すぐ隣の所（how="beside"）：重ならないので alternative_to にはしない。字の形だけで決まる規則の空欄（かっこの中・下線）は、
+      欄の隣にあっても規則の空欄のまま（理由に欄の名前を添えるだけ）。それ以外は「？」（理由に欄の名前）。"""
     same = (sp.kind == "checkbox") == (f.kind in _CHECK_WIDGETS)
-    where = (f"フォームの欄 {f.name} に重なる" if how == "overlap"
-             else f"フォームの欄 {f.name} と同じ行の、すぐ隣（{gap:.0f}pt）")
-    if same:
-        why = f"{where}：その欄と同じ所の別の読み方かもしれない（書くならどちらか一方）"
-        sp.alt_widget = f.name
+    if how == "overlap":
+        where = f"フォームの欄 {f.name} に重なる"
+        if same:
+            why = f"{where}：その欄と同じ所の別の読み方かもしれない（書くならどちらか一方）"
+            sp.alt_widget = f.name
+        else:
+            why = (f"{where}：種類が違う（この所は{KIND_JA.get(sp.kind, sp.kind)}、欄は{KIND_JA.get(f.kind, f.kind)}）。"
+                   "その欄とは別に書く所か、規則では決められない")
     else:
-        why = (f"{where}：種類が違う（この所は{KIND_JA.get(sp.kind, sp.kind)}、欄は{KIND_JA.get(f.kind, f.kind)}）。"
-               "その欄とは別に書く所か、規則では決められない")
-    sp.confidence = "agent"
-    sp.reason = f"{sp.reason}。{why}" if sp.reason else why
-
-
-def _flag_bullet_like_box(sp: Spot) -> None:
-    """箇条書きの印にもよく使う箱の字（chars.BULLET_LIKE_BOXES：❏❐❑❒◻◽）のチェックの所：規則のチェックの欄にせず「？」にする。"""
-    import unicodedata
-
-    from .. import chars
-
-    if sp.kind != "checkbox" or not isinstance(sp.host, Line) or not sp.at:
-        return
-    ch = sp.host.text[sp.at[0]:sp.at[1]]
-    if len(ch) != 1 or not chars.is_bullet_like_box(ch):
-        return
-    why = (f"「{ch}」（U+{ord(ch):04X} {unicodedata.name(ch, '')}）は箇条書きの印にもよく使う字：チェックの欄か、"
-           "箇条の印か、規則では決められない")
+        where = f"フォームの欄 {f.name} と同じ行の、すぐ隣（{gap:.0f}pt）"
+        if sp.kind == "inline" and sp.confidence != "agent":
+            why = f"{where}。重ならず、字の形で決まる空欄なので、その欄とは別の所"
+            sp.reason = f"{sp.reason}。{why}" if sp.reason else why
+            return
+        why = f"{where}：その欄の続きか、その欄とは別に書く所か、規則では決められない（重ならない）"
     sp.confidence = "agent"
     sp.reason = f"{sp.reason}。{why}" if sp.reason else why
 
@@ -685,8 +704,45 @@ def _hint(it: _Item) -> float:
     return max(6.0, (it.y1 - it.y0) / 3)
 
 
+def _label_within_line(lay: PageLayout, r) -> str:
+    """フォームの欄が、同じ高さ（字の高さの半分以上が欄と重なる）の行の、字と字の間の空きに置かれているとき：
+    その行の、欄より前の字（左から右へ書く行は欄の左、右から左へ書く行は欄の右）。
+    「氏名［欄］年　月　日」の欄は「氏名」の欄で、上の行の見出しではない。欄の前で終わる行（「見出し　［欄］」）も同じ。
+    同じ高さに、欄の前の字（200pt の内）がなければ ""。"""
+    best = None
+    for ln in lay.free_lines:
+        if ln.vertical or not ln.text.strip():
+            continue
+        h = ln.y1 - ln.y0
+        if h <= 0 or min(ln.y1, r[3]) - max(ln.y0, r[1]) < 0.5 * h:
+            continue
+        rtl = bool(getattr(ln, "rtl", False))
+        # 見た目の順（左から右へ書く行は左から、右から左へ書く行は右から）に、欄より前で始まる字を取る。欄にかかって
+        # 続く語の字（見出しの終わりが欄の下にはみ出した「Given name (…given)」）は、空白か 1 字の半分以上の空きまで足す
+        order = sorted(range(len(ln.pos)), key=lambda i: -ln.pos[i][1] if rtl else ln.pos[i][0])
+        idx: list[int] = []
+        for i in order:
+            p = ln.pos[i]
+            if (p[1] > r[2]) if rtl else (p[0] < r[0]):
+                idx.append(i)
+                continue
+            q = ln.pos[idx[-1]] if idx else None
+            if q is None or ln.text[i].isspace() or ((q[0] - p[1]) if rtl else (p[0] - q[1])) >= 0.5 * ln.size:
+                break
+            idx.append(i)
+        head = "".join(ln.text[i] for i in sorted(idx)).strip()
+        if not head:
+            continue
+        gap = (min(ln.pos[i][0] for i in idx) - r[2]) if rtl else (r[0] - max(ln.pos[i][1] for i in idx))
+        if gap > 200:
+            continue
+        if best is None or gap < best[0]:
+            best = (gap, head)
+    return norm_label(best[1]) if best is not None else ""
+
+
 def _near_label(lay: PageLayout, r) -> str:
-    """フォームの欄のそばの文字（同じマスの文字、左のマス、左の行、上の行）。"""
+    """フォームの欄のそばの文字（同じマスの文字、欄が字の間に置かれた同じ行の前の字、左の行、上の行）。"""
     cx, cy = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
     c = lay.index.at(cx, cy)
     if c is not None:
@@ -695,6 +751,9 @@ def _near_label(lay: PageLayout, r) -> str:
         label, _rl, _cl = lay._label_for(c, c)
         if label:
             return label
+    within = _label_within_line(lay, r)
+    if within:
+        return within
     best = None
     for ln in lay.free_lines:
         if ln.vertical:
@@ -725,11 +784,14 @@ def build(doc: PdfDocument) -> dict:
         "notation": {"［p1.3］": "入力欄（1ページ目の3番目）",
                      "［p1.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
                                     "書かなければ何も変わらない）",
+                     "［p1.a1？　］": GAP_TOKEN_NOTE + "（PDF の行の空白は、測った空きから作った字：全角の空白 1 つでおよそ 1 字ぶん）",
                      "［→余白 12pt］": "欄にしていない、行の右の空き（↓ はマスの中の字の下、↑ は上、← は左。12pt はその幅か高さ）。"
                                       "書く所と判断したら、字を目印にして {\"@1\": {\"after\": 見出しの字, \"value\": 書く字, "
                                       "\"page\": ページ}}（下なら \"where\": \"below\"。上・左は {\"page\": …, \"box\": [左, 上, 右, 下]（mm）, "
                                       "\"value\": …}）で書く",
                      "［○］": "直前の字を、ページに描かれた○（線の曲線）が囲んでいる（とどくが描いた○は［p1.c1：○］）",
+                     "［○？］": "直前の字を、曲線と直線で閉じた図形（角の丸い四角など）が囲んでいる：○で選んだ印か、ただの枠か、"
+                               "規則では決められない（view_page で見て確かめる）",
                      "［名前＝値］": "フォームの欄といまの値", "☐［p1.5］ / ☑": "チェックの印",
                      "○［欄＝選択肢］ / ◉": "ひとつ選ぶ欄の選択肢", " ｜ ": "表のマスの区切り"},
         "form": {"acroform_fields": len(fields), "xfa": has_xfa(doc), "encrypted": doc.decryptor is not None},

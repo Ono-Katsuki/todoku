@@ -116,7 +116,8 @@ def test_text_cell_gaps_are_agent_and_structural_blanks_are_rules():
     assert not f["S!A3"].get("agent") and f["S!A3"]["provenance"] == "layout"
     assert not f["S!A4"].get("agent") and f["S!A4"]["spans"][0]["rule"]
     reading = {x.get("row"): x["text"] for x in doc["sheets"][0]["reading"]}
-    assert reading[1] == "〔A1〕議長［？］氏" and reading[2] == "〔A2〕令和［？］年［？］月［？］日"
+    # 「？」の所の印は、元の空白をそのまま中に入れる（空きの大きさを印から読める）
+    assert reading[1] == "〔A1〕議長［？　　　　］氏" and reading[2] == "〔A2〕令和［？　　］年［？　　］月［？　　］日"
     assert reading[3] == "〔A3〕電話（［　］）"
     # 書くのは、空欄ごとの値のリスト（書かない所は null）
     res = fill(Workbook(blob, "t.xlsx"), {"S!A1": ["山田"], "S!A2": ["8", "4", None]})
@@ -129,7 +130,12 @@ def test_after_label_is_not_cut_by_length_or_other_blanks():
     long = "令和八年度地域福祉活動推進事業補助金交付申請"
     assert window.agent_blanks(long) == [(len(long), len(long), "after_label")]
     assert window.agent_blanks(long, detail=True)[0][2] == "after_label_long"
-    assert window.agent_blanks("氏名＿＿＿＿　電話番号", found=[(2, 6)], detail=True)[-1][2] == "after_label_more"
+    assert window.agent_blanks("氏名＿＿＿＿電話番号", found=[(2, 6)], detail=True)[-1][2] == "after_label_more"
+    # 中に 1 字ぶん以上の空き（全角の空白 1 つ：wide_space）のある段落は、空きを別に示すので、段落の後ろは出さない
+    # （「１　目的」の空きと後ろの両方を出さない。PDF・Word と同じ 1 em の決まり）
+    assert window.agent_blanks("氏名＿＿＿＿　電話番号", found=[(2, 6)], detail=True) == []
+    assert window.agent_blanks("１　目的") == [] and window.agent_blanks("1  Purpose") == []
+    assert window.agent_blanks("1 Purpose") == [(9, 9, "after_label")]  # 半角の空白 1 つは語の区切り
     assert window.agent_blanks("住所", detail=True) == [(2, 2, "after_label")]
     assert window.agent_blanks("上記のとおり申請します。") == []  # 文の区切りのある段落は、見出しではない
 
@@ -155,3 +161,42 @@ def test_image_only_sheet_is_decided_by_structure():
     many_empty = {(r, c): cell(None) for r in range(1, 30) for c in range(1, 10)}  # 書式だけの空のセルが多くても画像だけ
     wb = SimpleNamespace(sheets=[sheet("絵", many_empty), sheet("字", {(1, 1): cell("申請書")}), sheet("なし", {}, ())])
     assert image_only_sheets(wb) == ["絵"]
+
+
+@pytest.mark.parametrize("ch", list("❏❐❑❒◻◽"))
+def test_bullet_like_box_in_a_cell_is_agent_like_word_and_pdf(ch):
+    # 箇条書きの印にもよく使う箱の字は、マスの中でも規則のチェックの欄にしない（Word・PDF と同じ「？」：bullet_box）
+    assert window.cell_blanks(f"{ch}はい") == [(0, 1, "bullet_box")]
+    assert window.cell_blanks("□はい") == [(0, 1, None)] and window.cell_blanks("☑はい") == [(0, 1, None)]
+    assert "箇条書きの印" in window.AGENT_WHY["bullet_box"]
+    assert window.blank_token(f"{ch}はい", 0, 1, "bullet_box") == f"{ch}［？］"
+
+
+def test_gap_token_keeps_the_spaces_and_labels_use_the_one_em_rule():
+    # 「？」の所の印は、元の空白をそのまま中に入れる（全角の空白 1 つの空きと、もっと広い空きを、印から見分けられる）
+    assert window.blank_token("第　号", 1, 2, "gap") == "［？　］"
+    assert window.blank_token("A  B", 1, 3, "gap") == "［？  ］"
+    assert window.blank_token("A……B", 1, 3, "leader") == "［？］"  # 空白でない所は、字を入れない
+    assert window.blank_token("（　）", 1, 2, None) == "［　］"
+    # 見出しの切り方も、窓の空きと同じ 1 em の決まり（全角の空白 1 つ・半角の空白 2 つ）。字間を空けた見出しはまとめる
+    assert window.label_tail("１　目的") == "目的" and window.label_tail("Name  Date") == "Date"
+    assert window.label_tail("住所　　氏　名") == "氏　名" and window.label_tail("東京都 港区") == "東京都 港区"
+    assert window.label_head("１　目的") == "１" and window.label_head("事　業　所") == "事　業　所"
+
+
+def test_word_label_is_cut_at_one_wide_space():
+    # Word のフォームの欄の見出しも、1 字ぶんの空き（全角の空白 1 つ）で切る（以前は 2 つ以上の空白だけで切っていた）
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_docx import make_docx
+
+    from todoku.docx.document import DocxDocument
+    from todoku.docx.window import build
+
+    sdt = ('<w:p><w:r><w:t xml:space="preserve">番号　氏名</w:t></w:r><w:sdt><w:sdtPr><w:alias w:val=""/><w:tag w:val="nm"/>'
+           '<w:text/></w:sdtPr><w:sdtContent><w:r><w:t></w:t></w:r></w:sdtContent></w:sdt></w:p>')
+    win = build(DocxDocument(make_docx(sdt), "a.docx"))
+    f = [x for x in win["fields"] if x.get("source") != "layout"]
+    assert f and f[0]["label"] == "氏名", f

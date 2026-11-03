@@ -333,7 +333,7 @@ def _field(f: dict, **where) -> dict:
     d = {"id": f["id"], "label": f.get("label", ""), "kind": f.get("kind", ""), "value": f.get("value")}
     for key in ("options", "maxlen", "format", "readonly", "protected", "confidence", "context", "boxes", "write_as",
                 "options_depend_on", "unit", "rules", "agent", "why", "placeholder", "cover", "kind_candidates",
-                "alternative_to", "group", "why_not", "label_printed"):
+                "alternative_to", "group", "why_not", "label_printed", "text_before"):
         if f.get(key) not in (None, "", [], False):
             d[key] = f[key]
     d.update({k: v for k, v in where.items() if v is not None})
@@ -472,11 +472,16 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             # 印刷された字を○で囲んだ所：読み戻しは、書いた後のファイルのページを読み直して、下で確かめる
             result["circled"] = [{"key": p.key, "id": p.id, "page": p.page, "text": p.circle["text"],
                                   "label": p.circle["label"], "context": p.circle["context"],
+                                  "around": p.circle.get("around"),  # 囲んだ字の前後（【】が囲んだ字）
                                   "style": p.circle.get("style", "ellipse"),
-                                  "how": ("ページに四角い囲み線を描いた（○ではなく□）" if p.circle.get("style") == "border"
+                                  "how": ("ページに字を囲む四角の線を描いた" if p.circle.get("style") == "border"
                                           else "ページに楕円を描いた"),
-                                  **({"border_pt": p.circle.get("border")} if p.circle.get("style") == "border"
-                                     else {"ellipse_pt": p.circle["ellipse"]})} for p in circled]
+                                  "ellipse_pt": p.circle["ellipse"],
+                                  **({"border_pt": p.circle["border"]} if p.circle.get("border") else {}),
+                                  # 字の読めない所に枠で描いた○：囲んだ字は確かめていない（本人に伝える）
+                                  **({"unread": p.circle["unread"], "uncertain": p.circle["unread"]}
+                                     if p.circle.get("unread") else {})}
+                                 for p in circled]
         placed = [p for p in res.patches if p.kind == "seal"]
         if placed:
             # 本人の印影・署名の画像（本人が同意したときだけ）：何を、どこに置いたか。読み戻しは、書いた後のファイルで下で確かめる
@@ -1151,6 +1156,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         lab = c.get("label") or ""
         verb = "□で囲んだ（字の囲み線）" if c.get("style") == "border" else "○で囲んだ"
         lines.append(f"- {verb}：{where + '・' if where else ''}{lab + '：' if lab and lab != c['text'] else ''}「{c['text']}」"
+                     + (f"（前後の字：「{c['around']}」）" if c.get("around") else "")
                      + (f"（{c['uncertain']}）" if c.get("uncertain") else ""))
     if empty:
         # 次に書くとよい欄：書いた所の続き（同じシート・ページで、書いた所より後ろの空欄）から順に

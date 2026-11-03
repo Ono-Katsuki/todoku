@@ -20,7 +20,7 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from .. import chars as _chars  # 字の種類（空白・下線の字・ダッシュ・点線・かっこの組・チェックの箱の字）：Unicode の資料の表
-from ..xlsx.window import norm_label, wide_space
+from ..xlsx.window import label_head, norm_label, wide_space
 from .content import PageContent
 
 
@@ -30,7 +30,8 @@ def _sentence_end(ch: str) -> bool:
 
 
 BOX_GLYPHS = set(_chars.EMPTY_BOXES)
-# 影のついた四角（U+274F〜U+2752 ❏❐❑❒）：チェックの箱にも箇条の印にも使う字。チェックの印の所にはするが、規則では決めない（？）
+# 箇条書きの印にもよく使う箱の字（影のついた四角 U+274F〜U+2752 ❏❐❑❒・U+25FB ◻・U+25FD ◽）：チェックの箱にも箇条の印にも
+# 使う字。チェックの印の所にはするが、規則では決めない（？）
 BULLET_BOXES = set(_chars.BULLET_LIKE_BOXES)  # 箇条書きの印にもよく使う箱（チェックの欄とは決まらない：「？」）
 # 記入済みの印。U+25A3 ▣（WHITE SQUARE CONTAINING BLACK SMALL SQUARE）は、とどくが ActiveX のどちらでもない箱に書く字
 CHECKED_GLYPHS = set(_chars.CHECKED_BOXES) | set(_chars.MAYBE_CHECKED) | {"▣"}
@@ -1374,10 +1375,12 @@ class PageLayout:
     def _circled(self) -> None:
         """ページに描かれた○（線の曲線）が、1 つの行の続いた字だけを囲んでいる所：self.circled に (行, 始め, 終わり, id) を。
         囲んでいるかは、○を書くとき・読み戻すときと同じ決め方（circle.encloses）。とどくが描いた○（印 TdkCircle）は、その形
-        （楕円・四角）と id で、ほかは曲線だけで閉じた図形（pc.ovals）を、その外枠に内接する楕円で比べる。どの選択肢を選んだか（字の意味）は決めない。"""
+        （楕円・四角）と id で、ほかは曲線だけで閉じた図形（pc.ovals）を、その外枠に内接する楕円で比べる。どの選択肢を選んだか（字の意味）は決めない。
+        曲線と長さのある直線で閉じた図形（角の丸い四角：pc.maybe_ovals）が囲む字は、self.maybe_circled（○かもしれない：「？」）。"""
         from .circle import drawn, encloses
 
         self.circled = []
+        self.maybe_circled = []
         shapes = []
         if not any(stroke for *_r, stroke, _f in self.pc.curves):
             return
@@ -1387,22 +1390,28 @@ class PageLayout:
             tdk = []
         for i, kind, g, _lw in tdk:
             shapes.append((kind, g, i))
-        # ○と比べるのは、曲線だけで閉じた図形（○・楕円）。直線を含む曲線の図形（角の丸い四角・表の枠の角の丸み）は、字を囲む○とは
-        # 形から言えないので比べない
-        for x0, y0, x1, y1, stroke, _fill in getattr(self.pc, "ovals", []):
-            if not stroke:
-                continue
-            r = self.view.rect(x0, y0, x1, y1)
-            if r[2] - r[0] <= 0.5 or r[3] - r[1] <= 0.5:
-                continue
-            if any(abs(r[0] - (g[0] - g[2] if k == "ellipse" else g[0])) < 0.5 and abs(r[1] - (g[1] - g[3] if k == "ellipse" else g[1])) < 0.5
-                   for k, g, _i in shapes if _i):
-                continue  # とどくが描いた○（上で、形と id で比べた）
-            shapes.append(("ellipse", ((r[0] + r[2]) / 2, (r[1] + r[3]) / 2, (r[2] - r[0]) / 2, (r[3] - r[1]) / 2), ""))
+        # ○と比べるのは、曲線だけで閉じた図形（○・楕円：pc.ovals）。長さのある直線を含む曲線の閉じた図形（角の丸い四角：
+        # pc.maybe_ovals）は、字を囲む○か枠か、形から言えないので、囲む字を self.maybe_circled（窓の「［○？］」）に分けて示す
+        maybe: set[int] = set()  # shapes の番号
+        for src, guess in ((getattr(self.pc, "ovals", []), False), (getattr(self.pc, "maybe_ovals", []), True)):
+            for x0, y0, x1, y1, stroke, _fill in src:
+                if not stroke:
+                    continue
+                r = self.view.rect(x0, y0, x1, y1)
+                if r[2] - r[0] <= 0.5 or r[3] - r[1] <= 0.5:
+                    continue
+                if any(abs(r[0] - (g[0] - g[2] if k == "ellipse" else g[0])) < 0.5 and abs(r[1] - (g[1] - g[3] if k == "ellipse" else g[1])) < 0.5
+                       for k, g, _i in shapes if _i):
+                    continue  # とどくが描いた○（上で、形と id で比べた）
+                if guess:
+                    maybe.add(len(shapes))
+                    shapes.append(("border", r, ""))  # 角の丸い四角：外枠の四角で比べる
+                else:
+                    shapes.append(("ellipse", ((r[0] + r[2]) / 2, (r[1] + r[3]) / 2, (r[2] - r[0]) / 2, (r[3] - r[1]) / 2), ""))
         if not shapes:
             return
         lines = [ln for ln in self.all_lines() if ln.text.strip()]
-        for kind, g, ident in shapes:
+        for n, (kind, g, ident) in enumerate(shapes):
             inner = {id(c) for c in self.chars if not c.text.isspace() and encloses(kind, g, c)}
             if not inner:
                 continue
@@ -1419,7 +1428,7 @@ class PageLayout:
                 continue  # 囲んだ字の間に、囲まれていない字がある
             idx = [k for k, q in enumerate(ln.pos) if not ln.text[k].isspace() and lo - 0.01 <= (q[0] + q[1]) / 2 <= hi + 0.01]
             if idx:
-                self.circled.append((ln, min(idx), max(idx) + 1, ident))
+                (self.maybe_circled if n in maybe else self.circled).append((ln, min(idx), max(idx) + 1, ident))
 
     def cell_fill(self, c: Cell):
         """マスを塗っている色（いちばん上に描かれたもの）。なければ None。"""
@@ -1959,8 +1968,11 @@ class PageLayout:
             sp = Spot("checkbox", (x0, y0, x1, y1), norm_label(opt) or "（選択肢の文字なし）", "□ の字",
                       line_text=text, cell=cell, size=ln.size, host=ln, at=(i, i + 1))
             if text[i] in BULLET_BOXES:
-                # 影のついた四角（❏❐❑❒）：チェックの箱のことも、箇条の印のこともある（規則では決めず「？」）
-                _agent(sp, f"影のついた四角の字「{text[i]}」（チェックの箱か、箇条の印か）", "bullet_box")
+                # 箇条書きの印にもよく使う箱の字（❏❐❑❒◻◽）：チェックの箱のことも、箇条の印のこともある（規則では決めず「？」）。
+                # 理由はここで 1 度だけつける（窓では足さない）
+                ch = text[i]
+                _agent(sp, f"□ の字。「{ch}」（U+{ord(ch):04X} {unicodedata.name(ch, '')}）は箇条書きの印にもよく使う字："
+                           "チェックの欄か、箇条の印か、規則では決められない", "bullet_box")
             self.spots.append(sp)
         # 記入済みの印（☑・■・✓ の字）：選んだ印のことも、箇条の印・説明の中の記号のこともある。PDF の字は消さないので
         # 書き換えられない所として、選んであるかもしれない印を示す
@@ -2125,9 +2137,9 @@ class PageLayout:
                     best = ln
         if best is None:
             return ""
-        t = best.text.strip()
-        m = re.search(r"[　 ]{2,}", t)
-        return norm_label(t[:m.start()] if m else t)
+        # 初めの、1 字ぶん以上の空白の並び（wide_space：窓の空きと同じ 1 em の決まり。PDF の行の空白は測った空きから作る）
+        # までの字（字間を空けた見出し「氏　名」はまとめる：label_head）
+        return norm_label(label_head(best.text))
 
     def _label_for(self, first: Cell, last: Cell) -> tuple[str, str, str]:
         """空のマスの見出し：左の文字のあるマス（行の見出し）と、上の文字のあるマス（列の見出し）。"""

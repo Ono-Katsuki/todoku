@@ -111,6 +111,8 @@ class PageContent:
     curves: list[tuple] = field(default_factory=list)  # 曲線を含む図形の外枠（丸など）
     # 曲線だけで閉じた図形（○・楕円。直線を含む角の丸い四角などは入れない）の外枠：(x0, y0, x1, y1, 線, 塗り)
     ovals: list[tuple] = field(default_factory=list)
+    # 曲線と、長さのある直線とで閉じた図形（角の丸い四角など）の外枠：○かもしれない（字を囲む印にも枠にも使う）。窓で「？」にする
+    maybe_ovals: list[tuple] = field(default_factory=list)
     unmapped: int = 0
     problems: list[str] = field(default_factory=list)
 
@@ -357,9 +359,20 @@ class Interpreter:
                     out.curves.append((min(xs), min(ys), max(xs), max(ys), stroke, fill))
                     w, h = max(xs) - min(xs), max(ys) - min(ys)
                     ends = abs(pts[0][0] - pts[-1][0]) + abs(pts[0][1] - pts[-1][1])
-                    if not sub.get("lines") and (sub.get("closed") or ends <= 0.02 * max(w, h, 1e-6)):
+                    # 直線のうち、図形の外枠の対角線の 1% に足りないもの（長さ 0 の「x0 y0 l」で閉じる・曲線のつなぎ目の
+                    # わずかな直線）は、形を変えないので数えない。作る道具が○の終わりに長さ 0 の直線を足すことがあり、
+                    # それを直線と見ると、手で描いた○を読み落とす（1% は線の太さ・丸めの誤差より大きく、角の丸い四角の
+                    # 辺よりずっと短い）
+                    diag = (w * w + h * h) ** 0.5
+                    lines = [s for s in sub.get("lines") or []
+                             if ((s[2] - s[0]) ** 2 + (s[3] - s[1]) ** 2) ** 0.5 >= 0.01 * diag]
+                    closed = sub.get("closed") or ends <= 0.02 * max(w, h, 1e-6)
+                    if not lines and closed:
                         out.ovals.append((min(xs), min(ys), max(xs), max(ys), stroke, fill))  # 曲線だけで閉じた図形
-                    if not sub.get("lines"):
+                    elif closed:
+                        # 曲線と長さのある直線とで閉じた図形（角の丸い四角など）：○かもしれない（落とさずに「？」で示す）
+                        out.maybe_ovals.append((min(xs), min(ys), max(xs), max(ys), stroke, fill))
+                    if not lines:
                         continue
                 rect = _as_rect(pts, sub.get("closed"))
                 if fill and rect is not None:

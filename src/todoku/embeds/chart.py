@@ -120,9 +120,10 @@ def _parse(xml: bytes) -> ET.Element:
 
 
 # ====================================================================== 値の控え
-def number_text(v: str, code: str | None, date1904: bool = False) -> str:
+def number_text(v: str, code: str | None, date1904: bool = False, notes: list | None = None) -> str:
     """控えの数値（文字で書かれた値）を、表示形式で見えている字にする。形式を再現できなければ、書かれたまま。
-    地域で見え方が変わる組み込みの表示形式（日付）は、地域によらない書き方（ISO 8601）。"""
+    地域で見え方が変わる組み込みの表示形式（日付）は、地域によらない書き方（ISO 8601）にして、notes（系列・グラフの注）に
+    そう書いたことを足す（同じ注は 1 度だけ）。"""
     try:
         x = float(v)
     except (TypeError, ValueError):
@@ -135,14 +136,19 @@ def number_text(v: str, code: str | None, date1904: bool = False) -> str:
             x += 1462  # 1904 年の日付の数え方（ECMA-376 第1部 21.2.2.38 date1904）
         return format_value(x, code)
     except LocaleDependent as e:
-        # 開く PC の地域で見え方が変わる組み込みの表示形式：シリアル値でなく、地域によらない書き方（ISO 8601）
+        # 開く PC の地域で見え方が変わる組み込みの表示形式：シリアル値でなく、地域によらない書き方（ISO 8601）。そう伝える
+        if notes is not None:
+            note = (f"組み込みの表示形式（番号 {e.fmt_id}）の値は、開く PC の地域の設定で見え方が変わるので、"
+                    "地域によらない書き方（ISO 8601）で示しました")
+            if note not in notes:
+                notes.append(note)
         return e.shown
     except Exception:  # noqa: BLE001
         return v
 
 
-def _cache(el: ET.Element | None, date1904: bool) -> tuple[dict[int, str], int, str | None]:
-    """データの元（c:tx・c:cat・c:val など）から、控えの値：(点の番号 → 見えている字, 点の数, 参照)。"""
+def _cache(el: ET.Element | None, date1904: bool, notes: list | None = None) -> tuple[dict[int, str], int, str | None]:
+    """データの元（c:tx・c:cat・c:val など）から、控えの値：(点の番号 → 見えている字, 点の数, 参照)。notes：number_text の注。"""
     if el is None:
         return {}, 0, None
     for kind in ("strRef", "numRef", "multiLvlStrRef"):
@@ -150,12 +156,12 @@ def _cache(el: ET.Element | None, date1904: bool) -> tuple[dict[int, str], int, 
         if ref is not None:
             f = _kid(ref, "f")
             cache = _kid(ref, {"strRef": "strCache", "numRef": "numCache", "multiLvlStrRef": "multiLvlStrCache"}[kind])
-            vals, n = _cache_values(cache, kind == "numRef", date1904)
+            vals, n = _cache_values(cache, kind == "numRef", date1904, notes)
             return vals, n, (f.text or "") if f is not None else ""
     for kind in ("strLit", "numLit"):
         lit = _kid(el, kind)
         if lit is not None:
-            vals, n = _cache_values(lit, kind == "numLit", date1904)
+            vals, n = _cache_values(lit, kind == "numLit", date1904, notes)
             return vals, n, None
     v = _kid(el, "v")  # 系列の名前を直接書いたもの（c:tx/c:v）
     if v is not None:
@@ -163,7 +169,8 @@ def _cache(el: ET.Element | None, date1904: bool) -> tuple[dict[int, str], int, 
     return {}, 0, None
 
 
-def _cache_values(cache: ET.Element | None, numeric: bool, date1904: bool) -> tuple[dict[int, str], int]:
+def _cache_values(cache: ET.Element | None, numeric: bool, date1904: bool,
+                  notes: list | None = None) -> tuple[dict[int, str], int]:
     if cache is None:
         return {}, 0
     n = int(_val(cache, "ptCount", "0") or 0)
@@ -197,7 +204,7 @@ def _cache_values(cache: ET.Element | None, numeric: bool, date1904: bool) -> tu
     for p in _kids(cache, "pt"):
         idx = int(_attr(p, "idx") or 0)
         raw = _text(_kid(p, "v"))
-        out[idx] = number_text(raw, _attr(p, "formatCode") or code, date1904) if numeric else raw
+        out[idx] = number_text(raw, _attr(p, "formatCode") or code, date1904, notes) if numeric else raw
     return out, max(n, (max(out) + 1) if out else 0)
 
 
@@ -206,9 +213,11 @@ def _text(el: ET.Element | None) -> str:
 
 
 # ====================================================================== DrawingML のグラフ（c:chartSpace）
-def read_chart(xml: bytes, part: str = "", package=None, resolve=None) -> Chart:
+def read_chart(xml: bytes, part: str = "", package=None, resolve=None, date1904: bool | None = None) -> Chart:
     """グラフの部品を読む。package は部品を読むもの（.has・.read。グラフの中の図形の部品を読むのに使う）、
-    resolve は控えがないときに参照（「Sheet1!$B$2:$B$5」）を見えている字の並びにするもの（なければ None）。"""
+    resolve は控えがないときに参照（「Sheet1!$B$2:$B$5」）を見えている字の並びにするもの（なければ None）。
+    date1904：ブックの日付の数え方。いつものグラフ（c:chartSpace）は部品の c:date1904 を使い（なければこれ）、新しい種類の
+    グラフ（cx:chartSpace：部品に日付の数え方がない）はこれを使う（None は 1900 年の数え方）。"""
     ch = Chart(part=part)
     try:
         root = _parse(xml)
@@ -216,8 +225,8 @@ def read_chart(xml: bytes, part: str = "", package=None, resolve=None) -> Chart:
         ch.error = f"グラフの部品を XML として読めません（{e}）"
         return ch
     if _ln(root.tag) == "chartSpace" and root.tag.startswith("{http://schemas.microsoft.com/office/drawing/2014/chartex"):
-        return _read_chartex(root, ch)
-    date1904 = _val(root, "date1904", "0") in ("1", "true")
+        return _read_chartex(root, ch, bool(date1904))
+    date1904 = _val(root, "date1904", "1" if date1904 else "0") in ("1", "true")  # 部品になければブックの設定
     chart = _kid(root, "chart")
     if chart is None:
         ch.error = "グラフの部品に、グラフ（c:chart）がありません"
@@ -313,7 +322,7 @@ def _title_text(title: ET.Element | None, date1904: bool) -> str:
 
 def _series(s: ET.Element, kind: str, xy: bool, date1904: bool, resolve) -> Series:
     ser = Series("", kind=kind, xy=xy)
-    names, _n, ref = _cache(_kid(s, "tx"), date1904)
+    names, _n, ref = _cache(_kid(s, "tx"), date1904, ser.notes)
     ser.name = " ".join(v for _i, v in sorted(names.items()) if v)
     if not ser.name:  # 名前の参照先がフィルターで隠れているときの、控えの名前（c15:filteredSeriesTitle）
         ft = next((e for e in s.iter() if _ln(e.tag) == "filteredSeriesTitle"), None)
@@ -327,7 +336,7 @@ def _series(s: ET.Element, kind: str, xy: bool, date1904: bool, resolve) -> Seri
         el = next((_kid(s, t) for t in tags if _kid(s, t) is not None), None)
         if el is None:
             continue
-        vals, n, ref = _cache(el, date1904)
+        vals, n, ref = _cache(el, date1904, ser.notes)
         if ref:
             ser.refs[{"cats": "cat", "vals": "val", "sizes": "size"}[key]] = ref
             has_cache = any(_ln(x.tag) in ("strCache", "numCache", "multiLvlStrCache") for r_ in el for x in r_)
@@ -439,7 +448,8 @@ def rel_types(package, part: str) -> dict[str, tuple[str, str]]:
 
 
 # ====================================================================== 新しい種類のグラフ（cx:chartSpace）
-def _read_chartex(root: ET.Element, ch: Chart) -> Chart:
+def _read_chartex(root: ET.Element, ch: Chart, date1904: bool = False) -> Chart:
+    """date1904：ブックの日付の数え方（新しい種類のグラフの部品には c:date1904 がないので、ブックの設定を受け取る）。"""
     data: dict[str, dict[str, tuple[dict[int, str], str]]] = {}
     cd = _kid(root, "chartData")
     for d in _kids(cd, "data"):
@@ -462,7 +472,7 @@ def _read_chartex(root: ET.Element, ch: Chart) -> Chart:
                 for i in range(n):
                     parts = [x.get(i, "") for x in reversed(per)]
                     if _ln(dim.tag) == "numDim":
-                        vals[i] = number_text(per[0].get(i, ""), code) if i in per[0] else ""
+                        vals[i] = number_text(per[0].get(i, ""), code, date1904, ch.notes) if i in per[0] else ""
                     else:
                         vals[i] = " ／ ".join(p for p in parts if p)
             dims[typ] = (vals, (f.text or "") if f is not None else "")

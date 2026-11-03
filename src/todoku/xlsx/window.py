@@ -368,9 +368,44 @@ def wide_space(run: str) -> bool:
       （第 6 章 6.2 の空白の字の表「the width of ideographic (CJK) characters」）と JIS X 4051（全角の空白は 1 字ぶん）で 1 em
       （「第　号」「平成　年　月　日」「郡　市」）
     - 半角の空白などの幅の狭い空白が GAP_MIN 字以上並ぶ（1 つは語の間の空白：欧文で 0.25〜0.33 em。空きにしない）
-    PDF の窓の行の空白は、測った空きから作る（1 em 以上の空きだけが、全角の空白か 2 つ以上の半角の空白になる）ので、同じ決め方になる。
+    字の書類（Excel・Word・テキストなど）では、空白の幅を測れないので、1 em を字で近づける（半角の空白 2 つか、全角の空白 1 つ）。
+    PDF の窓の行の空白は、測った空きから作る（1 em 以上の空きだけが、全角の空白か 2 つ以上の半角の空白になる）。PDF は幅を測り、
+    字の書類は字で近づけるので、同じ 1 em の決まりだが、まったく同じ結果になるとは限らない（半角の空白 2 つは、書体によっては
+    1 em に足りない）。
     段落の頭・終わりの全角の空白 1 つ（字下げ・行末の空白）は、字と字の間の空きではないので、blank_places は空きにしない。"""
     return len(run) >= GAP_MIN or any(chars.is_wide(ch) for ch in run)
+
+
+def _wide_split(s: str) -> tuple[list[str], list[str]]:
+    """s を、1 字ぶん以上の空白の並び（wide_space）で切った字の塊と、その間の空白の並び。"""
+    toks, seps, at = [], [], 0
+    for a, b, k in chars.char_runs(s):
+        if k == "space" and wide_space(s[a:b]):
+            toks.append(s[at:a])
+            seps.append(s[a:b])
+            at = b
+    toks.append(s[at:])
+    return toks, seps
+
+
+def label_tail(s: str) -> str:
+    """見出しにする、s の終わりの字の塊：1 字ぶん以上の空白の並び（wide_space：窓の空きと同じ 1 em の決まり）で切った最後の塊。
+    ただし、1 字ずつを同じ空白でつないだ並び（字間を空けた見出し「氏　名」「事　業　所」）は、まとめて 1 つの塊にする
+    （空きで切ると「名」だけになる）。前後の空白は除く。"""
+    toks, seps = _wide_split(s.strip(" 　\t\r\n"))
+    i = len(toks) - 1
+    while i > 0 and len(toks[i]) == 1 and len(toks[i - 1]) == 1 and (i == len(toks) - 1 or seps[i - 1] == seps[i]):
+        i -= 1
+    return "".join(t + (seps[k] if k < len(seps) else "") for k, t in enumerate(toks[i:], i)).strip()
+
+
+def label_head(s: str) -> str:
+    """見出しにする、s の初めの字の塊（label_tail の逆向き：初めの塊。字間を空けた見出しはまとめる）。"""
+    toks, seps = _wide_split(s.strip(" 　\t\r\n"))
+    j = 0
+    while j < len(toks) - 1 and len(toks[j]) == 1 and len(toks[j + 1]) == 1 and (j == 0 or seps[j - 1] == seps[j]):
+        j += 1
+    return "".join(t + (seps[k] if k < j else "") for k, t in enumerate(toks[:j + 1])).strip()
 
 
 def _ident(ch: str) -> bool:
@@ -449,7 +484,25 @@ def blank_token(text: str, a: int, b: int, why, mark: bool = False) -> str:
     box = text[a:b] if b - a == 1 and text[a:b] in chars.BOXES else ""
     if why is None:
         return f"{box}［{m or '　'}］"
-    return f"{box}［{m}？］"
+    return f"{box}［{m}？{shown_gap(text[a:b])}］"
+
+
+def shown_gap(covered: str) -> str:
+    """「？」の所の印の中に、その所の元の空白の字をそのまま入れる（「［P1.1？　］」は全角の空白 1 つ、「［P1.1？  ］」は半角の
+    空白 2 つの空き）。空きの大きさ（1 字ぶんちょうどか、もっと広いか）を、エージェントが印から読めるようにする。空白だけの所
+    （Unicode の Zs）のときだけで、ほかの字（点線・ダッシュなど）の所は ""。"""
+    return covered if covered and all(unicodedata.category(ch) == "Zs" for ch in covered) else ""
+
+
+def one_wide_space(covered: str) -> bool:
+    """空きが全角の空白 1 つだけ（1 字ぶんちょうど。字下げ・語の区切りのこともある、いちばん狭い空き）か。"""
+    return covered == "　"
+
+
+GAP_TOKEN_NOTE = ("「？」の所が空白だけの空きなら、その元の空白を印の中にそのまま入れる（「？　」は全角の空白 1 つ、「？　　」は"
+                  "2 つ、「？  」は半角の空白 2 つの空き）。空きの大きさを比べる目安")
+
+ONE_WIDE_SPACE_WHY ="空きは 1 つの全角空白（1 字ぶんちょうど。語の区切りのこともある、いちばん狭い空き）"
 
 
 def space_width(text: str, a: int, b: int) -> float:
@@ -478,6 +531,7 @@ AGENT_WHY = {
     # 表計算（Excel・OpenDocument）のマス
     "blank_box": "枠・塗り・結合のある空のマスで、入力欄と決める印（入力規則・保護の中のロックの解除・すぐそばの見出し）がないもの",
     "table_row": "表の行に入力欄があるのに、この列のセルには入力欄の印（入力規則・枠・ロックの解除）がないもの",
+    "bullet_box": "箇条書きの印にもよく使う箱の字（❏・❐・❑・❒・◻・◽。チェックの箱とは決められない）",
 }
 
 
@@ -573,11 +627,12 @@ def agent_blanks(text: str, found=(), detail: bool = False) -> list[tuple[int, i
         add(core_end, len(text), "after_colon")  # 「住所：」「Facility Name:」「Nom :」
         return sorted(out)
     # 文の区切りの字（Unicode の Terminal_Punctuation：。 . , 、 ; ! ? । ؟ など）のない段落の後ろ：見出しだけの段落の後ろに
-    # 値を書き足す書類が多い（表題・節の見出しのこともある）。中に 2 つ以上の空白の並びがある段落（空きは別の所として示す）は除く
+    # 値を書き足す書類が多い（表題・節の見出しのこともある）。中に 1 字ぶん以上の空白の並び（wide_space：全角の空白 1 つか
+    # 半角の空白 2 つ以上）がある段落（空きは別の所として示す。「１　目的」の空きと段落の後ろの両方を出さない）は除く
     body = _lead_marker(core)
     if (body and not any(chars.is_terminal_punctuation(ch) for ch in body)
             and any(unicodedata.category(ch)[0] in ("L", "N") for ch in body)
-            and not any(k == "space" and b - a >= GAP_MIN for a, b, k in chars.char_runs(body))):
+            and not any(k == "space" and wide_space(core[a:b]) for a, b, k in chars.char_runs(core))):  # 番号の後ろの空きも数える
         key = "after_label"
         if detail:
             key = "after_label_more" if (found or out) else "after_label" if 2 <= len(body) <= 16 else "after_label_long"
@@ -589,14 +644,18 @@ def cell_blanks(text: str) -> list[tuple[int, int, str | None]]:
     """表計算のマスの文字の中の、書き込む所（の候補）：(始め, 終わり, 何か)。何かが None なら規則で決まる空欄、
     文字なら規則では決められない所（AGENT_WHY の鍵。エージェントが窓を読んで判断する）。
 
-    - 規則（字の形だけで決まる）：下線の字の並び・かっこの中の空白だけの所（「（　　）」「[ ]」）・チェックの箱の字（☐ □ など）
+    - 規則（字の形だけで決まる）：下線の字の並び・かっこの中の空白だけの所（「（　　）」「[ ]」）・チェックの箱と決まる字
+      （chars.CERTAIN_EMPTY_BOXES の ☐ □ など・記入済みの ☑ ☒）
     - 規則では決められない：1 字ぶん以上の空白の並び（wide_space）・点線・ダッシュの並び（blank_places）と、agent_blanks の見つけ方
-      （同じ記号の並び・コロンで終わる字の後ろ）"""
+      （同じ記号の並び・コロンで終わる字の後ろ）、箇条書きの印にもよく使う箱の字（chars.BULLET_LIKE_BOXES の ❏❐❑❒◻◽：
+      bullet_box。Word・PDF と同じ）"""
     found = blank_places(text)
     out: list[tuple[int, int, str | None]] = [(a, b, None if k in BLANK_RULE_KINDS else k) for a, b, k in found]
     for i, ch in enumerate(text):
-        if ch in chars.EMPTY_BOXES or ch in chars.CHECKED_BOXES:
+        if ch in chars.CERTAIN_EMPTY_BOXES or ch in chars.CHECKED_BOXES:
             out.append((i, i + 1, None))  # チェックの箱の字：書くときは、その字を ☑ などに書き換える
+        elif chars.is_bullet_like_box(ch):
+            out.append((i, i + 1, "bullet_box"))  # チェックの箱か箇条の印か、規則では決められない（「？」）
     # 文の区切りのない字（「住所」）の後ろ（after_label）は、表計算のマスでは出さない。表計算では、見出しは1つのマスに書き、
     # 値は別のマスに書く作りで、見出しの後ろまで出すと、すべての見出し・すべての値のマス（表の中の「東京都」など）が候補になり、
     # 窓が読めなくなる。値を書くマスは、入力欄か、印（罫線・塗り・結合）があれば［B5？］として出る。見出しのマスに書き足すときは、
@@ -1265,6 +1324,7 @@ class Layout:
                     secs.append(t)
         heads = self.header(target, phrase)
         parts = list(secs)
+        between_text = None  # 前の字が、あいだの別の欄の見出しのとき（見出しにせず、別に示す）
         sh_ = self.shape(r)
         repeated = bool(sh_) and (self.shape(r - 1) == sh_ or self.shape(r + 1) == sh_)
         if heads and (item is None or repeated or self._list_table(r, target.c1) is not None):
@@ -1286,8 +1346,20 @@ class Layout:
             key = self.row_key(r, first.c1, with_between=True)
             if key:
                 text, between = key
-                parts.append(text)
-                method.append(f"{before}の字（あいだに欄 {'・'.join(between)}）" if between else f"{before}の字")
+                # 補助のセル：数式が参照する値で、もう値の入っているもの（空の 1 桁ずつのマスは、数式が参照しても欄の並び）
+                helper = ("数式が参照している値" in self.inputs.get((target.r, target.c1), [])
+                          and target.cell is not None and target.cell.value not in (None, "")) or any(
+                    b.kind == "locked" and b.cell_ref in between for b in row)
+                if between and helper:
+                    # あいだに別の欄がはさまり、この欄が数式の参照する値（補助のセル）か、あいだがロックされた見出しの欄
+                    # （B5）：その字はあいだの欄の見出しで、この欄の見出しとは言えない。見出しにせず、前の字として別に示す
+                    # （本人に伝えるときに「開始日：5」「氏名：10」と取り違えない）
+                    between_text = f"{text}（あいだに欄 {'・'.join(between)}）"
+                    method.append(f"{before}の字は、あいだの欄の見出し（この欄の見出しにしない）")
+                else:
+                    # あいだの欄が、同じ並びの欄（郵便番号を 1 桁ずつ書くマス「〒｜［M24］｜［N24］」）：前の字をそのまま示す
+                    parts.append(text)
+                    method.append(f"{before}の字（あいだに欄 {'・'.join(between)}）" if between else f"{before}の字")
         phrase_text = None
         if shown:
             phrase_text = "".join(
@@ -1299,6 +1371,8 @@ class Layout:
             label = f"{label}：{phrase_text}" if label else phrase_text
         out = {"label": label or None, "label_method": "・".join(method) or None,
                "context": self.line(r, mark_box=target)}
+        if between_text:
+            out["text_before"] = between_text  # 前（左）の字と、あいだの欄（見出しにはしていない）
         if not shown and target.kind != "check":
             # すぐ後ろ（右。右から左のシートでは左）のマスの字（「金額｜［］｜円」の「円」）：そのまま示す（単位かどうかは決めない）
             nxt = [b for b in row if b.c1 > target.c2 and b.kind != "check"]
@@ -1589,7 +1663,9 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
                      # 所ごとの、元の字（空白・下線・点線・箱の字）・その幅（全角を 1 とした字の幅のおよその数）と、前後の字（そのまま）
                      "spans": [{"n": i, "before": t[max(0, x - 8):x], "printed": t[x:y], "after": t[y:y + 8],
                                 "width": space_width(t, x, y),
-                                "rule": k is None, **({"why": AGENT_WHY[k]} if k is not None else {})}
+                                "rule": k is None,
+                                **({"why": AGENT_WHY[k] + (f"。{ONE_WIDE_SPACE_WHY}" if one_wide_space(t[x:y]) else "")}
+                                   if k is not None else {})}
                                for i, (x, y, k) in enumerate(b.blanks, 1)],
                      "reason": ["文字の中の空欄"], "provenance": LAYOUT}
                 if whys:
@@ -1742,7 +1818,7 @@ def build(wb: Workbook) -> dict:
                               LAYOUT: "配置から決定的に推定した見出し。推定なので、context（その行の並び）と合わせて読む",
                               AGENT: "規則では欄と決められない所。欄かどうかは、エージェントが窓（evidence・context）を読んで判断する",
                               "ai": "AIの判断で補った"},
-        "notation": {"［L15］": "入力欄", "［L15＝値］": "記入済みの入力欄", "［B5？］": AGENT_CELLS_RULE,
+        "notation": {"［L15］": "入力欄", "［L15＝値］": "記入済みの入力欄", "［B5？］": AGENT_CELLS_RULE, "［？　］": GAP_TOKEN_NOTE,
                      "〔B3〕令和［？］年": "文字の中の、規則では決められない空き（語の並びから推定した所など）。"
                                       "書くなら、空欄ごとの値のリストで（書かない所は null）",
                      "〈AF35＝値〉": "計算結果（数式）",

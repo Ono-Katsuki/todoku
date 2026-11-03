@@ -89,7 +89,7 @@ def test_excel_places_in_other_languages():
     for a in ("A7", "A8", "A9"):  # かっこの中の空白・チェックの箱の字：規則の所
         assert f[f"S!{a}"]["blanks"] == 2 and not f[f"S!{a}"].get("agent"), f[f"S!{a}"]
     reading = {x.get("row"): x["text"] for x in doc["sheets"][0]["reading"]}
-    assert reading[1] == "〔A1〕中華民國［？］年［？］月［？］日"
+    assert reading[1] == "〔A1〕中華民國［？　　］年［？　　］月［？　　］日"  # 「？」の所の印に、元の空白をそのまま入れる
     assert reading[7] == "〔A7〕[［　］] Yes [［　］] No"
     assert reading[8] == "〔A8〕☐［　］ Male ☐［　］ Female"  # 箱の字は消さずに示す
     res = xlsx_fill(Workbook(blob, "t.xlsx"), {"S!A1": ["115", "11", "3"], "S!A8": ["☑", None], "S!A4": [" Lee"]})
