@@ -209,3 +209,22 @@ def test_option_text_with_undefined_pdfdoc_bytes_is_unreadable():
     assert not text_unreadable(b"Yes")
     assert not text_unreadable("\ufeffはい".encode("utf-16-be"))
     assert text_unreadable(b"\xfe\xff\xd8\x00")  # 対のない代用符号
+
+
+def test_actualtext_span_keeps_advance_and_is_not_legacy(tmp_path):
+    """ActualText で置き換えた字（Quartz・Chrome・Word の合字など）は、送りの幅を保ち、Unicode でない書体の字としない。"""
+    from pdfmini import build
+
+    from todoku import api
+    from todoku.pdf.content import page_content
+
+    content = "BT /F1 12 Tf 72 720 Td (Name: ) Tj /Span <</ActualText (fi)>> BDC (fi) Tj EMC (le) Tj ET"
+    blob = build(content, "<< /Font << /F1 2 0 R >> >>", ["<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"])
+    p = tmp_path / "actual.pdf"
+    p.write_bytes(blob)
+    g = api.grade(str(p))
+    assert g["grade"] in ("S", "A"), g["reasons"]
+    b, name, _k, lock = api._read(str(p))
+    doc = api._pdf(b, name, lock)
+    merged = [x for x in page_content(doc, doc.pages()[0]).glyphs if x.actual]
+    assert [(x.text, x.legacy) for x in merged] == [("fi", False)] and merged[0].adv > 0

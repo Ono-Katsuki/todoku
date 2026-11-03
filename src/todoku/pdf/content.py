@@ -670,7 +670,7 @@ class Interpreter:
                                 merged = Glyph(actual, min(g.x0 for g in gl), min(g.y0 for g in gl), max(g.x1 for g in gl),
                                                max(g.y1 for g in gl), g0.size, g0.ox, g0.oy, gl[-1].ox + gl[-1].dx - g0.ox,
                                                gl[-1].oy + gl[-1].dy - g0.oy, g0.vertical, g0.invisible, g0.font, g0.color,
-                                               mcid, True, sum(g.adv for g in gl))
+                                               mcid=mcid, actual=True, legacy=any(g.legacy for g in gl), adv=sum(g.adv for g in gl))
                                 del out.glyphs[first:]
                                 out.glyphs.append(merged)
             except LimitExceeded:
