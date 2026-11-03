@@ -159,7 +159,12 @@ tr.unr td { color: var(--muted); }
 .opening .voice blockquote { color: color-mix(in srgb, var(--shiro) 78%, var(--sumi)); font-weight: 700; letter-spacing: .04em;
   font-size: clamp(1.6rem, 1rem + 2.4vw, 2.6rem); line-height: 1.6; }
 .opening .voice blockquote em { color: var(--shiro); }
-.opening .voice .who { color: var(--usuzumi); font-size: .8rem; line-height: 1.8; margin: 22px auto 0; max-width: 30em; text-wrap: balance; }
+.opening .voice .who { color: var(--usuzumi); margin: 30px auto 0; max-width: 31em; display: grid; gap: 6px; }
+.opening .voice .who p { margin: 0; text-wrap: balance; }
+.opening .voice .who .prop { font-family: var(--display); color: color-mix(in srgb, var(--shiro) 86%, var(--sumi)); font-size: .98rem; line-height: 1.85; }
+.opening .voice .who .orig { font-size: .7rem; line-height: 1.6; color: var(--nibi); font-style: italic; }
+.opening .voice .who figcaption { font-size: .68rem; letter-spacing: .06em; color: var(--nibi); margin-top: 4px; }
+.opening .voice .who figcaption span { display: inline-block; }
 /* 論文：箱なし。左の列は言葉の側へ寄せ、右の列は外へ流す */
 .opening .slip { background: none; border: 0; box-shadow: none; padding: 0; transform: none; animation: none; color: var(--usuzumi);
   max-width: 26em; font-size: .78rem; line-height: 1.75; }
@@ -227,7 +232,11 @@ tr.unr td { color: var(--muted); }
   <div class="orbit">
       <div class="voice">
         <blockquote><span class="ln">エージェントが全て正確に</span><span class="ln">読み書きできないと、</span><span class="ln"><em>申請で困るのは私</em>だからね。</span></blockquote>
-        <p class="who">小野克樹。申請する本人。話すことも手を動かすこともできず、頭のスイッチ1つで Claude を使う<br>（Ono, ASSETS '26）</p>
+        <figure class="who">
+          <p class="prop">多くの道具の画面を一つずつ使えるようにするのではなく、そのすべてに届く、ひとつの自然言語の入口を用意する。</p>
+          <p class="orig" lang="en">“rather than adapting many specialized interfaces, provide a single natural-language entry point through which the user can reach all of them.”</p>
+          <figcaption><span>小野克樹「Reconfiguration of Ability」ASSETS '26</span> <span>§5.7 デザインへの示唆（日本語訳）</span></figcaption>
+        </figure>
       </div>
       <aside class="slip s1" style="--i:0;--fx:-1;--fy:-1"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
         <p>手続きの負担を、学ぶ・従う・心理の3つのコストに分けた。</p><a href="https://doi.org/10.1093/jopart/muu009">doi:10.1093/jopart/muu009</a></aside>
