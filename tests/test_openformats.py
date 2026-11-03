@@ -385,6 +385,7 @@ def _corpus(sub: str, exts: tuple[str, ...]) -> list[Path]:
     return sorted(p for p in base.rglob("*") if p.is_file() and p.suffix.lower() in exts)
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("path", _corpus("wide_csv", (".csv", ".tsv", ".json", ".jsonl")), ids=lambda p: p.name)
 def test_corpus_data(path):
     from todoku.openkinds import audit_runner
@@ -401,6 +402,7 @@ def test_corpus_data(path):
         assert g.grade == "S"
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("path", _corpus("wide_odf", (".odt", ".ods", ".ott", ".ots")), ids=lambda p: p.name)
 def test_corpus_odf(path):
     from todoku.openkinds import audit_runner
@@ -410,6 +412,7 @@ def test_corpus_odf(path):
     assert au.ok, [(c.name, c.items[:5]) for c in au.checks if not c.ok]
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("path", _corpus("wide_rtf", (".rtf",)), ids=lambda p: p.name)
 def test_corpus_rtf(path):
     from todoku.rtf.audit import run

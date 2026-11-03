@@ -662,6 +662,7 @@ def test_cfb_editor_removes_streams_and_grows_mini_stream():
 JTD = sorted(CORPUS.glob("wide_jtd/**/*.jtd")) if CORPUS.exists() else []
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("path", JTD[:40], ids=lambda p: p.name)
 def test_jtd_corpus_reading_and_overwrite(path):
     from todoku.jtd.audit import run
@@ -680,6 +681,7 @@ def test_jtd_corpus_reading_and_overwrite(path):
 GROW = [p for p in JTD if p.name.split("_", 1)[1] in ("001188742.jtd", "1242588_001.jtd", "001189440.jtd")]
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("path", GROW, ids=lambda p: p.name)
 def test_jtd_corpus_fills_empty_cells(path):
     """集めた様式の、字のない空のマス（これまで書けなかった欄）に字を足し、証明・読み直しを確かめる。"""
@@ -712,6 +714,7 @@ BOUNDARY = [("057e70ea353d", "T2.R5.C4"), ("8cd333a10d8a", "T2.R3.C2"), ("056d41
 # 字の形と並びだけで決める窓では示さない（書くときは字を目印にする）ので外した
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("prefix, fid", BOUNDARY, ids=lambda x: x)
 def test_jtd_corpus_fills_at_format_boundary(prefix, fid):
     """書式の切り替わる所の欄に字を足す：証明が通り、4 つの読み方のどれでも、足した字は足す所の単位（段落の終わりの印、
@@ -931,6 +934,7 @@ def test_biff5_write_refusals():
         fill(XlsWorkbook(blob), {"様式!B1": "あ" * 130})
 
 
+@pytest.mark.corpus
 def test_dual_format_reads_biff8_and_book_agrees():
     p = next(iter(CORPUS.glob("wide_legacy/**/*SENTEI.xls")), None) if CORPUS.exists() else None
     if p is None:
@@ -947,6 +951,7 @@ def test_dual_format_reads_biff8_and_book_agrees():
             assert s5.cells[k].value == cell.value or (cell.value in (None, "") and s5.cells[k].value in (None, ""))
 
 
+@pytest.mark.corpus
 def test_dual_format_writes_both_streams_and_proves_both():
     p = next(iter(CORPUS.glob("wide_legacy/**/*SENTEI.xls")), None) if CORPUS.exists() else None
     if p is None:

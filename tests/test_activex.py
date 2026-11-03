@@ -119,6 +119,7 @@ def _section(spec: str, title: str) -> str:
     return spec[m.end():m.end() + (nxt.start() if nxt else 6000)]
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("name,title", [("CommandButton", "CommandButton"), ("Image", "Image"), ("Label", "Label"),
                                         ("MorphData", "MorphData"), ("ScrollBar", "ScrollBar"),
                                         ("SpinButton", "SpinButton"), ("TextProps", "TextProps")])
@@ -145,6 +146,7 @@ def test_layout_tables_match_spec(spec, name, title):
         assert bits["f" + n] == b
 
 
+@pytest.mark.corpus
 def test_various_bits_and_defaults_match_spec(spec):
     seg = _section(spec, "VariousPropertiesBitfield")
     pos, at = 0, {}
@@ -783,6 +785,7 @@ def test_docx_proof_detects_wrong_value():
     assert not prove(blob, res.blob, w).ok
 
 
+@pytest.mark.corpus
 @pytest.mark.skipif(not (CORPUS / "wide_activex").exists(), reason="ActiveX の部品のある様式（corpus/wide_activex）がありません")
 def test_corpus_activex_audits():
     from todoku.docx import audit as daudit

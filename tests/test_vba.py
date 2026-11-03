@@ -27,6 +27,7 @@ def test_decrypt_spec_examples():
     assert decrypt(bytes.fromhex("1517CAF1D6F9D7F9D706")) == b"\xff"  # GC：見える
 
 
+@pytest.mark.corpus
 def test_corpus_macro_sources():
     files = [f for f in sorted(glob.glob("corpus/**/*.xlsm", recursive=True))]
     if not files:

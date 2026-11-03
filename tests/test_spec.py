@@ -23,6 +23,7 @@ def spec() -> str:
     return SPEC.read_text(encoding="utf-8")
 
 
+@pytest.mark.corpus
 def test_fib_field_order(spec):
     names = []
     for m in re.finditer(r"\n2\.5\.\d+ FibRgFcLcb\w+", spec):
@@ -32,6 +33,7 @@ def test_fib_field_order(spec):
     assert [n.lower() for n in norm] == [n.split("_2")[0].lower() if not n.startswith("dw") else n.lower() for n in FC_NAMES]
 
 
+@pytest.mark.corpus
 def test_dop_protection_bits(spec):
     i = spec.find("\n2.7.2 DopBase")
     seg = spec[i:spec.find("\n2.7.3 ", i)]
@@ -45,6 +47,7 @@ def test_dop_protection_bits(spec):
     assert (bits["fLockAtn"] // 8, 1 << bits["fLockAtn"] % 8) == (6, 0x10)
 
 
+@pytest.mark.corpus
 def test_sprm_codes(spec):
     lines = spec.split("\n")
     vals = {}
@@ -62,6 +65,7 @@ def test_sprm_codes(spec):
     assert {k: vals.get(k) for k in used} == used
 
 
+@pytest.mark.corpus
 def test_shifted_tables_sizes(spec):
     # 各 PLC の要素の大きさ（原本の 2.8 節）と、とどくがずらす表の大きさ
     def plc(name):
@@ -78,6 +82,7 @@ def test_shifted_tables_sizes(spec):
         assert f"({size} bytes" in plc(name) or f"{size} bytes each" in plc(name), name
 
 
+@pytest.mark.corpus
 def test_cleared_tables_are_deprecated_caches(spec):
     # 空にするのは、原本で「出力しない・読まない」とされた控えだけ
     for n in CACHES:

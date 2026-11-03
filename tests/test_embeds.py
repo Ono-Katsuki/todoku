@@ -571,6 +571,7 @@ def _corpus(*pats: str) -> list[str]:
 ESTAT = CORPUS / "data.e-gov.go.jp" / "a5dc5ac2e8c3fa40.bin"
 
 
+@pytest.mark.corpus
 def test_corpus_estat_chart():
     if not ESTAT.exists():
         pytest.skip("corpus がありません")
@@ -583,6 +584,7 @@ def test_corpus_estat_chart():
     assert next(c for c in run(blob, "e-stat.xlsx").checks if c.name == "読み落とし（グラフ）").ok
 
 
+@pytest.mark.corpus
 def test_corpus_xls_ole_object_of_unknown_kind():
     p = CORPUS / "wide_xls" / "www.pref.tottori.lg.jp" / "saigai-yousiki1.xls"
     if not p.exists():
@@ -596,6 +598,7 @@ WIDE_EMBED = [p for p in _corpus("wide_embed/**/*.xlsx", "wide_embed/**/*.xls", 
               if not p.endswith("ikoutyousa.docx")]
 
 
+@pytest.mark.corpus
 @pytest.mark.parametrize("path", WIDE_EMBED or ["(なし)"])
 def test_corpus_wide_embed_reads_everything(path):
     """集めた様式（グラフ・埋め込みを含むもの）：窓とは別の読み方で、グラフ・SmartArt・埋め込みの字がすべて窓に出ている。"""
@@ -625,6 +628,7 @@ def _embed_file(name: str) -> Path:
     return Path(p)
 
 
+@pytest.mark.corpus
 def test_corpus_chart_kinds_in_real_files():
     from todoku.api import window
 
@@ -646,6 +650,7 @@ def test_corpus_chart_kinds_in_real_files():
     assert "#### グラフ1：行財政マネジメントのための基本方針（散布図）" in md and "「市民から信頼される市政運営」" in md
 
 
+@pytest.mark.corpus
 def test_corpus_embedded_office_files():
     from todoku.api import window
 
