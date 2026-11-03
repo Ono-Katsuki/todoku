@@ -580,6 +580,10 @@ def build(doc: DocxDocument) -> dict:
         _render_blocks(blocks, sp, by_para, lines, plain)
         if lines or kind == "body":
             out["stories"].append({"kind": kind, "part": part, "reading": lines, "_plain": plain})
+    # 変更履歴で削除された字の残る段落（窓では〔変更履歴で削除された字〕と示す）
+    out["tracked_deletions"] = [f"段落 {sp.para_index[id(q)]}「{q.deleted_text().strip()[:20]}」"
+                                for _k, _part, blocks in doc.all_blocks() for q in iter_paras(blocks)
+                                if hasattr(q, "deleted_text") and q.deleted_text().strip()]
     out["embeds"] = _embeds(doc)
     out["pictures"] = _pictures(doc)
     from ..embeds.word import objects as _objects
@@ -633,6 +637,10 @@ def build(doc: DocxDocument) -> dict:
             d["shaded"] = it["shade"]
         if c is not None and c.lock in ("contentLocked", "sdtContentLocked"):
             d["readonly"] = True
+        if c is not None and getattr(c, "unwritable", ""):
+            d["readonly"] = True
+            d["unwritable"] = True
+            d["why"] = c.unwritable  # 書けない理由（欄の状態を入れる所がファイルにないなど）
         if not editable(doc, sp, it):
             d["readonly"] = True
             d["protected"] = True  # 文書の保護で、編集できる範囲の外
