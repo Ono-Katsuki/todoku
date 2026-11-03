@@ -159,6 +159,7 @@ tr.unr td { color: var(--muted); }
 .bval { font-size: .8rem; color: var(--muted); }
 .bval b { font-size: 1.05rem; color: var(--ink); font-variant-numeric: tabular-nums; }
 .bnote { margin: 0; font-size: .78rem; color: var(--muted); line-height: 1.7; }
+.bwall { margin: 0; font-size: .84rem; line-height: 1.7; color: var(--ink); padding-left: 10px; border-left: 3px solid var(--gE); }
 .bnote b { color: var(--ink); }
 @media (max-width: 640px) {
   .brow { grid-template-columns: 1fr; gap: 4px; }
@@ -323,6 +324,7 @@ tr.unr td { color: var(--muted); }
         <span class="btrack"><span class="bfill todoku" style="--w: 3.2%" title="本人が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）"></span></span>
         <span class="bval"><b>2〜3 分</b>で頼む</span>
       </div>
+      <p class="bwall"><b>そもそも、本人が使う iPad では書けない。</b>Office の書類は iPad では表示が崩れて扱えず（本人）、iPad の Excel はマクロ（VBA）も動かせない。上の時間は、書類が正しく開けたとしたときの下限です。</p>
       <p class="bnote">とどくが 233 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで <b>2.5 秒</b>。本人は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、本人の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
     </figure>
     <ol class="how">
@@ -335,7 +337,7 @@ tr.unr td { color: var(--muted); }
       <li><h3>書いて、証明する</h3>
         <p>書いたら、前と後のファイルを読み直して、変わったのが書いた所だけであることを機械で証明し、書いた値を読み戻します。部分標本 <b class="num" id="how-audited">—</b> 件で全ての欄に書き、<b class="num" id="how-auditok">—</b> 件で全てを正確に読み書きできました。残りは、とどくの直す所として数えています。</p></li>
       <li><h3>対話で伝える</h3>
-        <p>申請する本人は、書類を Word や Acrobat で開きません。書いた所の見出しと値・まだ空いている欄・本人が決めることを、エージェントが会話でそのまま伝え、本人が確かめます。</p></li>
+        <p>申請する本人は、書類を Word や Acrobat で開きません。とどくは書類を開かずに読み書きするので、本人は iPad から会話するだけです。書いた所の見出しと値・まだ空いている欄・本人が決めることを、エージェントが会話でそのまま伝え、本人が確かめます。</p></li>
     </ol>
   </section>
 
