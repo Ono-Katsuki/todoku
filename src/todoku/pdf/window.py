@@ -38,8 +38,9 @@ class _Item:
     marks: list = field(default_factory=list)  # (順番の x, 印の文字列を返す関数)
 
 
-def _render_line(ln: Line, spots: list[Spot], name) -> str:
-    """行の文字に、入力欄の印（［p1.3］）を入れる。"""
+def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None) -> str:
+    """行の文字に、入力欄の印（［p1.3］）を入れる。kept があれば、窓に出した元の字（印に置き換えて消えた字を除いたもの）を足す
+    （読み落としの検査が、窓に実際に出た字で数えるため）。"""
     text = ln.text
     edits = []
     for sp in sorted(spots, key=lambda x: x.at or (0, 0)):
@@ -63,16 +64,25 @@ def _render_line(ln: Line, spots: list[Spot], name) -> str:
         elif sp.kind == "space":
             edits.append((a, b, f" ［{name(sp)}{q}］"))
         else:
-            edits.append((a, b, f"［{name(sp)}{q}］"))
+            # 空欄の字（下線の字「＿＿＿」など）は消さずに残し、その後ろに印を置く（空白だけの空欄は印に置き換える）
+            keep = text[a:b] if text[a:b].strip(" \u3000") else ""
+            edits.append((a, b, f"{keep}［{name(sp)}{q}］"))
     edits.sort(key=lambda e: (e[0], e[1]))
     out, at = [], 0
+    shown = []
     for a, b, rep in edits:
         if a < at:
             continue
         out.append(text[at:a])
         out.append(rep)
+        shown.append(text[at:a])
+        if text[a:b].strip(" \u3000") and text[a:b] in rep:
+            shown.append(text[a:b])
         at = b
     out.append(text[at:])
+    shown.append(text[at:])
+    if kept is not None:
+        kept.append("".join(shown))
     return "".join(out).strip()
 
 
@@ -246,11 +256,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         parts = []
         for it in row:
             if it.line is not None:
-                plain.append(it.line.text)
-            elif it.cell is not None:
-                plain.extend(ln.text for ln in it.cell.lines)
-            if it.line is not None:
-                t = _render_line(it.line, line_spots.get(id(it.line), []), name) + room_mark(it.line)
+                t = _render_line(it.line, line_spots.get(id(it.line), []), name, plain) + room_mark(it.line)
             elif getattr(it, "spot", None) is not None:
                 sp = it.spot
                 mark = _filled_mark(sp, name)
@@ -270,7 +276,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                         pieces.append(("☑" if sp.checked else "☐") + f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
                     else:
                         pieces.append(f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
-                rendered = [_render_line(ln, line_spots.get(id(ln), []), name) + room_mark(ln) for ln in c.lines]
+                rendered = [_render_line(ln, line_spots.get(id(ln), []), name, plain) + room_mark(ln) for ln in c.lines]
                 pieces.append(_join(rendered) + room_mark(c))
                 for sp in circles:
                     nm = name(sp)
@@ -402,8 +408,11 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         txt = decode_text(doc.resolve(ad.get("Contents"))) if ad.get("Contents") is not None else ""
         if txt or st in ("FreeText", "Stamp", "Text"):
             annots.append({"kind": st, "text": txt})
+    marks, inword = unmapped_places(lay)
     return {"number": number, "width": round(view.width, 1), "height": round(view.height, 1), "rotate": view.rot,
             "fields": out_fields, "reading": reading, "chars": chars, "unmapped": pc.unmapped, "images": images,
+            # 字に直せない字の、行の中での役割（字の並びの形で決める）：行の頭の印（箇条の印）と、それ以外（本文の字）
+            "unmapped_marks": marks, "unmapped_text": inword,
             "image_only": chars == 0 and images > 0, "pictures": pictures, "problems": pc.problems, "annotations": annots,
             "_plain": plain, "_dropped": lay.dropped,
             # 窓の作り方で1つにした字：同じ位置に重ねて描いた同じ字（太字に見せる重ね書き）・縦に1字ずつ積んだ字の列
@@ -413,6 +422,38 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             "room_marks": emitted_marks[0],  # 欄にしていない空きの印（［→余白 n pt］）の数  # 字の入らない細い空のマス（幅か高さが 4pt 未満）
             "stacked_columns": sum(1 for ln in [x for c in lay.cells for x in c.lines] + list(lay.free_lines)
                                    if getattr(ln, "stacked", 0))}
+
+
+def _where(view, x0: float, y0: float, x1: float, y1: float) -> str:
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    return ("上" if cy < view.height / 3 else "中ほど" if cy < view.height * 2 / 3 else "下") + "の" + \
+        ("左" if cx < view.width / 3 else "中央" if cx < view.width * 2 / 3 else "右")
+
+
+def unmapped_places(lay) -> tuple[list[dict], list[dict]]:
+    """字に直せない字（�）の所を、行の中の役割で2つに分ける（字の並びの形だけで決める。数や字の種類では決めない）：
+    - 行の頭の印：行の最初の字で、すぐ後ろに空き（空白）があり、その後ろに字の続くもの（「•　項目の文」の •）。
+      箇条の印・飾りの形で、行の中の語は1字も欠けていない
+    - 本文の字：それ以外（語の中・行の途中・字の続く所）。中身の字が欠けている
+    どちらも {行の位置, 近くの字, 数} の一覧（行ごと）。"""
+    from .fonts import UNKNOWN
+
+    view = lay.view
+    marks, inword = [], []
+    for ln in [x for c in lay.cells for x in c.lines] + list(lay.free_lines):
+        t = ln.text
+        if UNKNOWN not in t:
+            continue
+        lead = len(t) - len(t.lstrip(" \u3000"))
+        rest = t[lead + 1:]
+        n = t.count(UNKNOWN)
+        is_mark = (t[lead:lead + 1] == UNKNOWN and rest[:1] in (" ", "\u3000") and rest.strip(" \u3000")
+                   and UNKNOWN not in rest)
+        near = (rest if is_mark else t).strip(" \u3000")[:30]
+        item = {"where": _where(view, ln.x0, ln.y0, ln.x1, ln.y1), "rect": [round(v, 1) for v in (ln.x0, ln.y0, ln.x1, ln.y1)],
+                "near": near, "count": n}
+        (marks if is_mark else inword).append(item)
+    return marks, inword
 
 
 def _pictures(doc: PdfDocument, page: dict, number: int, pc, lay) -> list[dict]:
@@ -647,6 +688,17 @@ def _md_page(pg: dict) -> list[str]:
                 "\"value\": 書く字}} で書きます", ""]
     if pg.get("unmapped"):
         out += [f"- 文字に直せない字が {pg['unmapped']} 字あります（�で示しています）", ""]
+        marks = pg.get("unmapped_marks") or []
+        text = pg.get("unmapped_text") or []
+        if marks:
+            out += [f"  - 行の頭の印（箇条の印など。後ろの文の字は欠けていません）：{sum(m['count'] for m in marks)} 字（"
+                    + "・".join(f"{m['where']}「{_md(m['near'][:16])}」の前" for m in marks[:8])
+                    + ("ほか" if len(marks) > 8 else "") + "）"]
+        if text:
+            out += [f"  - 本文の中の字：{sum(m['count'] for m in text)} 字（"
+                    + "・".join(f"{m['where']}「{_md(m['near'][:16])}」" for m in text[:8])
+                    + ("ほか" if len(text) > 8 else "") + "）。この字は窓では読めません。中身を推測で埋めないでください"]
+        out.append("")
     if pg.get("merged_glyphs") or pg.get("stacked_columns") or pg.get("unseen_glyphs") or pg.get("slivers"):
         notes = []
         if pg.get("slivers"):
