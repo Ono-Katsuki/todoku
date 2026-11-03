@@ -732,9 +732,8 @@ def _numbering_reasons(doc) -> list[Reason]:
 
     bad = []
     for p in iter_paras(getattr(doc, "body", []) or []):
-        m = re.search(r"番号の書式「([^」]*)」は再現できません", getattr(p, "label", "") or "")
-        if m:
-            bad.append((m[1], (_words(p) or "")[:20]))
+        for fmt in getattr(p, "number_unshown", None) or []:  # 読んだときに決めた事実（窓の字は見ない）
+            bad.append((fmt, (_words(p) or "")[:20]))
     if not bad:
         return []
     names = "・".join(sorted({f for f, _t in bad}))
@@ -962,8 +961,23 @@ def _unverifiable_rules(wb) -> list[str]:
     return out
 
 
-_SHEET_MARKS = {"入力規則があるセル", "シート保護の中で編集できるセル"}  # ファイルの作りとして入力欄の印になっているもの
-_SHEET_BOXED = {"枠のある空欄", "色の付いた空欄"}  # 罫線・塗りと、近くの見出しから推定したもの（印ではない）
+# 段階は、窓の欄の理由の符号（reason_codes）で決める。理由の字（reason：本人・エージェント向けの説明の文）は比べない
+# （説明の字を直しても段階が変わらないように）。符号：
+#   validation（入力規則のあるセル）・unlocked（シート保護の中で編集できるセル）：ファイルの作りとして入力欄の印
+#   border（枠のある空欄）・fill（色の付いた空欄）：罫線・塗りと近くの見出しから推定したもの（印ではない）
+#   formula_ref（数式が参照している値）：数式の入力から推定したもの
+_SHEET_MARKS = {"validation", "unlocked"}
+_SHEET_BOXED = {"border", "fill"}
+# 符号を出さない窓（まだ理由の字だけの窓）のための、理由の字 → 符号の対応。窓が reason_codes を出すようになったら使わない
+_REASON_CODE_OF = {"入力規則があるセル": "validation", "シート保護の中で編集できるセル": "unlocked",
+                   "枠のある空欄": "border", "色の付いた空欄": "fill", "数式が参照している値": "formula_ref"}
+
+
+def reason_codes(f: dict) -> set[str]:
+    """欄の理由の符号：窓が出した reason_codes。なければ、理由の字を 1 か所の対応（_REASON_CODE_OF）で符号にする。"""
+    if f.get("reason_codes") is not None:
+        return set(f["reason_codes"])
+    return {_REASON_CODE_OF[r] for r in f.get("reason", []) if r in _REASON_CODE_OF}
 _CONTROL_KINDS = ("checkbox", "radio", "select", "multiselect", "spin", "option", "combo")
 
 
@@ -983,7 +997,7 @@ def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "�
                 continue
             if f.get("unlabeled"):
                 continue
-            why = set(f.get("reason", []))
+            why = reason_codes(f)
             if f["kind"] == "inline":
                 inline.append(f["id"])
             elif why & _SHEET_MARKS or ((f["kind"] in _CONTROL_KINDS or f.get("activex")) and not f.get("undecided")):
@@ -1172,7 +1186,7 @@ def _grade_word6(doc) -> Grade:
         write.append(Reason("B", "配置から推定した入力欄",
                             f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、フォームの欄ではなく、空のマスや空白・下線から推定しました",
                             [f["id"] for f in layout[:12]]))
-    unread = sum(t.count("状態は読めません") for st in win["stories"] for t in st["reading"])
+    unread = win.get("unread_controls", 0)  # 読んだときに数えた数（窓の字は数えない）
     if unread:
         reasons.append(Reason("C", "状態の読めないフォームの欄",
                               f"チェックボックス・ドロップダウンのフォームの欄 {unread} か所は、Word 6.0/95 の欄のデータの形が仕様書にないので、"

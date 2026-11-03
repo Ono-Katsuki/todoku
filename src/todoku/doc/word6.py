@@ -428,6 +428,7 @@ class Word6File(DocFile):
             what = "チェックボックス" if word == "FORMCHECKBOX" else "ドロップダウン"
             p.segs.append(Seg(f"〔フォームの{what}：状態は読めません（Word 6.0/95 の欄のデータの形が分からないため）〕",
                               "other", CPRef(f["begin"]), None))
+            self.unread_controls = getattr(self, "unread_controls", 0) + 1  # 段階は、この数で決める（窓の字は数えない）
             return None
         if word != "FORMTEXT":
             return None
@@ -506,6 +507,7 @@ def build(doc: Word6File) -> dict:
     from ..docx.window import build as wbuild
 
     win = wbuild(doc)
+    win["unread_controls"] = getattr(doc, "unread_controls", 0)  # 状態を読めないチェックボックス・ドロップダウンの数
     sp = Spots(doc)
     for f in win["fields"]:
         it = sp.items.get(f["id"])

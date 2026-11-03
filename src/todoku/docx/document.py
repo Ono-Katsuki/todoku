@@ -215,6 +215,7 @@ class Numbering:
             cnt[ilvl] += 1
         text = lv.get("lvlText") or ""
         fmt = lv.get("numFmt") or "decimal"
+        self.last_unshown = []  # この番号の中の、再現できない番号の書式（段階は、この事実で決める）
         if fmt == "bullet":
             return _bullet(text)
         if fmt == "none":
@@ -225,7 +226,10 @@ class Numbering:
             lvi = dict(levels.get(i, {}))
             lvi.update({k: v for k, v in over.get(i, {}).items() if k != "start"})
             n = cnt[i] if cnt[i] else lvi.get("start", 1)
-            return number_text(n, lvi.get("numFmt") or "decimal")
+            f_ = lvi.get("numFmt") or "decimal"
+            if _number(n, f_) is None:
+                self.last_unshown.append(f_)
+            return number_text(n, f_)
 
         return re.sub(r"%(\d)", rep, text)
 
@@ -735,6 +739,8 @@ class DocxDocument:
                 seen += 1
         if num is not None and num[0]:
             p.label = self.numbering.label(num[0], num[1])
+            if getattr(self.numbering, "last_unshown", None):
+                p.number_unshown = list(self.numbering.last_unshown)  # 再現できない番号の書式（窓では〔n：番号の書式「…」は再現できません〕）
             if p.label in BULLET_BOXES and self.numbering.fmt(num[0], num[1]) == "bullet":
                 # 箇条書きの印が □ の段落（「□ Ⅰ 負担上限月額に関する認定」）：チェックの欄にできる（印は段落番号の定義の字）
                 p.bullet = {"num": num[0], "ilvl": num[1], "direct": ppr is not None and ppr.find("numPr") is not None}
