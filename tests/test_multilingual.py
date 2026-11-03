@@ -27,7 +27,9 @@ openpyxl = pytest.importorskip("openpyxl")
 
 # ====================================================================== 字の集まり
 def test_char_tables_cite_unicode():
-    assert chars.UCD_VERSION == unicodedata.unidata_version
+    # 字の表は、動かす Python の unicodedata と同じ版でなければならない（pyproject の requires-python で 3.11 に固定）。
+    # Python の版を上げるときは、その版で scripts/make_chars.py を動かして chars.py の表を作り直す
+    assert chars.UCD_VERSION == unicodedata.unidata_version,         f"chars.py は Unicode {chars.UCD_VERSION}、この Python は {unicodedata.unidata_version}：scripts/make_chars.py で作り直す"
     # かっこの組（BidiBrackets.txt）：ASCII・全角・CJK のかっこ
     for o, c in ("()", "[]", "{}", "（）", "［］", "【】", "「」", "〔〕", "《》"):
         assert chars.closing(o) == c
