@@ -93,7 +93,9 @@ def weekday_sun0(n: float, date1904: bool | None = None) -> int:
     return (serial_to_date(v, False).weekday() + 1) % 7 if v >= 61 else (v - 1) % 7
 
 
-# 和暦（元号の開始日）
+# 和暦（元号の開始日）。Windows の和暦の表（レジストリの Calendars\Japanese\Eras。明治は「1868 01 01」）と同じ日：
+# 明治はその年の初めから数える（改元の詔は 1868 年 10 月 23 日だが、その年の初めにさかのぼる）。
+# Excel の表示形式と Word の日付の欄（docx/fill.py）の両方で、この1つの表を使う
 ERAS = [
     ("令和", "R", dt.date(2019, 5, 1)),
     ("平成", "H", dt.date(1989, 1, 8)),

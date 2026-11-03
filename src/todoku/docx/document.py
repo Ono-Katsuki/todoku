@@ -129,6 +129,8 @@ class Control:
     placeholder: bool = False
     maxlen: int | None = None
     date_format: str = ""
+    date_lid: str = ""  # 日付の言語（コンテンツコントロールの w:date/w:lid。旧来の欄は、欄の字の要素の w:lang）
+    date_calendar: str = ""  # 日付の暦（w:date/w:calendar：gregorian・japan・taiwan・thai・korea・hijri・hebrew・saka など）
     result_segs: list[Seg] = field(default_factory=list)
     end: Node | None = None
     lock: str = ""
@@ -235,9 +237,30 @@ def _bullet(t: str) -> str:
     return t
 
 
+# 段落番号の書式（ECMA-376 第1部 17.18.59 ST_NumberFormat）。番号の字が Word と同じと確かめられる範囲だけを字にし、
+# それ以外（書式を知らない・その番号の字の決まりを確かめていない）は、1, 2, 3 にせず〔…は再現できません〕と示す。
 _KANJI = "〇一二三四五六七八九"
 _AIUEO = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン"
+_AIUEO_HALF = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜｦﾝ"
 _IROHA = "イロハニホヘトチリヌルヲワカヨタレソツネナラムウヰノオクヤマケフコエテアサキユメミシヱヒモセスン"
+# 半角のカタカナには ヰ・ヱ がない（JIS X 0201）。その番号は再現できないので None
+_IROHA_HALF = [{"ヰ": None, "ヱ": None}.get(c, _AIUEO_HALF[_AIUEO.index(c)] if c in _AIUEO else None) for c in _IROHA]
+_DAIJI_JA = "〇壱弐参四伍六七八九"  # japaneseLegal（日本の大字）
+_DAIJI_ZH_S = "零壹贰叁肆伍陆柒捌玖"  # chineseLegalSimplified
+_DAIJI_ZH_T = "零壹貳參肆伍陸柒捌玖"  # ideographLegalTraditional
+_STEMS = "甲乙丙丁戊己庚辛壬癸"
+_BRANCHES = "子丑寅卯辰巳午未申酉戌亥"
+_GANADA = "가나다라마바사아자차카타파하"
+_CHOSUNG = "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ"
+_KO_SINO = ["", "일", "이", "삼", "사", "오", "육", "칠", "팔", "구"]
+_KO_NATIVE = ["하나", "둘", "셋", "넷", "다섯", "여섯", "일곱", "여덟", "아홉", "열"]
+# ロシア語の字の番号：Й・Ъ・Ы・Ь を除く 28 字（Ё も除く）。Word・LibreOffice の russianUpper/Lower と同じ並び
+_RU_UPPER = "АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ"
+_HEBREW_ALEF = "אבגדהוזחטיכלמנסעפצקרשת"  # hebrew2：22 字（語末の形は使わない）
+_HE_ONES = ["", "א", "ב", "ג", "ד", "ה", "ו", "ז", "ח", "ט"]
+_HE_TENS = ["", "י", "כ", "ל", "מ", "נ", "ס", "ע", "פ", "צ"]
+_HE_HUNDREDS = ["", "ק", "ר", "ש", "ת"]
+_TH_DIGITS = ["", "หนึ่ง", "สอง", "สาม", "สี่", "ห้า", "หก", "เจ็ด", "แปด", "เก้า"]
 
 
 def _roman(n: int) -> str:
@@ -251,50 +274,180 @@ def _roman(n: int) -> str:
     return out
 
 
-def _kanji(n: int) -> str:
-    if n < 10:
-        return _KANJI[n]
-    if n < 100:
-        t, o = divmod(n, 10)
-        return ("" if t == 1 else _KANJI[t]) + "十" + (_KANJI[o] if o else "")
-    return str(n)
+def _kanji(n: int) -> str | None:
+    """位取りの漢数字（japaneseCounting：十・百・千の前の「一」は書かない）。1〜9999。"""
+    if not 1 <= n <= 9999:
+        return None
+    out = []
+    for digit, unit in zip(f"{n:04d}", ("千", "百", "十", "")):
+        k = int(digit)
+        if k:
+            out.append(("" if k == 1 and unit else _KANJI[k]) + unit)
+    return "".join(out)
 
 
-def number_text(n: int, fmt: str) -> str:
+def _counting_99(n: int, ones: list[str] | str, ten: str) -> str | None:
+    """1〜99 の位取りの数（十の前の「一」は書かない：十・十一・二十・二十一）。"""
+    if not 1 <= n <= 99:
+        return None
+    t, o = divmod(n, 10)
+    return (("" if t == 1 else ones[t]) + ten if t else "") + (ones[o] if o else "")
+
+
+def _digits(n: int, table: str | list[str]) -> str:
+    return "".join(table[int(c)] for c in str(n))
+
+
+def _cycle(chars, n: int, repeat: bool = False) -> str | None:
+    """字の並びで1つずつ。repeat：並びを超えたら同じ字を重ねる（ECMA-376 17.18.59 の aiueo・iroha は「1つの字の1回以上の
+    くり返し」：ｱ…ﾝ、ｱｱ…）。repeat でない並びを超える番号は、確かめていないので None。"""
+    if n < 1 or (n > len(chars) and not repeat):
+        return None
+    ch = chars[(n - 1) % len(chars)]
+    return None if ch is None else ch * ((n - 1) // len(chars) + 1)
+
+
+def _hebrew1(n: int) -> str | None:
+    """ヘブライ文字の数（hebrew1：1〜499。15 は טו、16 は טז（神の名を避ける書き方））。"""
+    if not 1 <= n <= 499:
+        return None
+    h, rest = divmod(n, 100)
+    t, o = divmod(rest, 10)
+    if rest == 15:
+        tail = "טו"
+    elif rest == 16:
+        tail = "טז"
+    else:
+        tail = _HE_TENS[t] + _HE_ONES[o]
+    return _HE_HUNDREDS[h] + tail
+
+
+def _thai_counting(n: int) -> str | None:
+    """タイ語の数の言葉（thaiCounting：1〜99。十の位の 1 は สิบ、2 は ยี่สิบ、一の位の 1 は十のあとで เอ็ด）。"""
+    if not 1 <= n <= 99:
+        return None
+    t, o = divmod(n, 10)
+    head = "" if not t else ("สิบ" if t == 1 else ("ยี่สิบ" if t == 2 else _TH_DIGITS[t] + "สิบ"))
+    tail = "" if not o else ("เอ็ด" if o == 1 and t else _TH_DIGITS[o])
+    return head + tail
+
+
+def _letters(n: int, base: str) -> str:
+    """A, B, …, Z, AA, BB, …（Word の upperLetter・lowerLetter：同じ字を重ねる）。"""
+    return base[(n - 1) % len(base)] * ((n - 1) // len(base) + 1)
+
+
+def number_unshown(n: int, fmt: str) -> str:
+    return f"〔{n}：番号の書式「{fmt}」は再現できません〕"
+
+
+def _number(n: int, fmt: str) -> str | None:
     if fmt in ("decimal", "decimalHalfWidth"):
         return str(n)
     if fmt == "decimalZero":
         return f"{n:02d}"
     if fmt in ("decimalFullWidth", "decimalFullWidth2"):
         return str(n).translate(str.maketrans("0123456789", "０１２３４５６７８９"))
-    if fmt == "decimalEnclosedCircle" or fmt == "decimalEnclosedCircleChinese":
+    if fmt in ("decimalEnclosedCircle", "decimalEnclosedCircleChinese"):
         return chr(0x2460 + n - 1) if 1 <= n <= 20 else (chr(0x3251 + n - 21) if 21 <= n <= 35 else str(n))
     if fmt == "decimalEnclosedParen":
         return chr(0x2474 + n - 1) if 1 <= n <= 20 else f"({n})"
     if fmt == "decimalEnclosedFullstop":
         return chr(0x2488 + n - 1) if 1 <= n <= 20 else f"{n}."
+    if fmt == "numberInDash":
+        return f"- {n} -"
     if fmt == "upperRoman":
-        return _roman(n)
+        return _roman(n) if n >= 1 else None
     if fmt == "lowerRoman":
-        return _roman(n).lower()
+        return _roman(n).lower() if n >= 1 else None
     if fmt == "upperLetter":
-        return chr(ord("A") + (n - 1) % 26) * ((n - 1) // 26 + 1)
+        return _letters(n, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") if n >= 1 else None
     if fmt == "lowerLetter":
-        return chr(ord("a") + (n - 1) % 26) * ((n - 1) // 26 + 1)
-    if fmt in ("aiueo", "aiueoFullWidth"):
-        ch = _AIUEO[(n - 1) % len(_AIUEO)]
-        return ch if fmt == "aiueoFullWidth" else ch
-    if fmt in ("iroha", "irohaFullWidth"):
-        return _IROHA[(n - 1) % len(_IROHA)]
-    if fmt in ("japaneseCounting", "chineseCounting", "japaneseLegal", "chineseCountingThousand", "taiwaneseCounting"):
-        return _kanji(n)
-    if fmt == "ideographTraditional":
-        return "甲乙丙丁戊己庚辛壬癸"[(n - 1) % 10]
-    if fmt == "ideographZodiac":
-        return "子丑寅卯辰巳午未申酉戌亥"[(n - 1) % 12]
+        return _letters(n, "abcdefghijklmnopqrstuvwxyz") if n >= 1 else None
     if fmt == "ordinal":
         return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
-    return str(n)
+    # 日本語
+    if fmt == "aiueo":
+        return _cycle(_AIUEO_HALF, n, True)
+    if fmt == "aiueoFullWidth":
+        return _cycle(_AIUEO, n, True)
+    if fmt == "iroha":
+        return _cycle(_IROHA_HALF, n, True)
+    if fmt == "irohaFullWidth":
+        return _cycle(_IROHA, n, True)
+    if fmt == "japaneseCounting":
+        return _kanji(n)
+    if fmt == "japaneseLegal":
+        return _DAIJI_JA[n] if 1 <= n <= 9 else None  # 10 からの書き方（拾・壱拾）は確かめていない
+    if fmt == "japaneseDigitalTenThousand":
+        return _digits(n, _KANJI) if 1 <= n <= 9999 else None
+    if fmt in ("ideographDigital", "taiwaneseDigital", "koreanDigital2"):
+        return _digits(n, _KANJI) if n >= 1 else None
+    # 中国語
+    if fmt in ("chineseCounting", "taiwaneseCounting"):
+        return _counting_99(n, _KANJI, "十")  # 100 から（一百・一百零一）は確かめていない
+    if fmt in ("chineseCountingThousand", "taiwaneseCountingThousand"):
+        return _KANJI[n] if 1 <= n <= 9 else None
+    if fmt == "chineseLegalSimplified":
+        return _DAIJI_ZH_S[n] if 1 <= n <= 9 else None
+    if fmt == "ideographLegalTraditional":
+        return _DAIJI_ZH_T[n] if 1 <= n <= 9 else None
+    if fmt == "ideographTraditional":
+        return _cycle(_STEMS, n)
+    if fmt == "ideographZodiac":
+        return _cycle(_BRANCHES, n)
+    if fmt == "ideographZodiacTraditional":
+        return _STEMS[(n - 1) % 10] + _BRANCHES[(n - 1) % 12] if 1 <= n <= 60 else None  # 干支（甲子〜癸亥）
+    if fmt == "ideographEnclosedCircle":
+        return chr(0x3280 + n - 1) if 1 <= n <= 10 else None  # ㊀〜㊉
+    # 韓国語
+    if fmt == "ganada":
+        return _cycle(_GANADA, n)
+    if fmt == "chosung":
+        return _cycle(_CHOSUNG, n)
+    if fmt == "koreanDigital":
+        return _KO_SINO[n] if 1 <= n <= 9 else None
+    if fmt == "koreanCounting":
+        return _counting_99(n, _KO_SINO, "십")
+    if fmt == "koreanLegal":
+        return _KO_NATIVE[n - 1] if 1 <= n <= 10 else None
+    # ロシア語・ヘブライ語・インド・タイ
+    if fmt == "russianUpper":
+        return _cycle(_RU_UPPER, n)
+    if fmt == "russianLower":
+        return _cycle(_RU_UPPER.lower(), n)
+    if fmt == "hebrew1":
+        return _hebrew1(n)
+    if fmt == "hebrew2":
+        return _cycle(_HEBREW_ALEF, n)
+    if fmt == "hindiNumbers":
+        return "".join(chr(0x0966 + int(c)) for c in str(n)) if n >= 0 else None  # デーヴァナーガリーの数字
+    if fmt == "thaiNumbers":
+        return "".join(chr(0x0E50 + int(c)) for c in str(n)) if n >= 0 else None  # タイ数字
+    if fmt == "thaiCounting":
+        return _thai_counting(n)
+    # arabicAlpha・arabicAbjad・hindiVowels・hindiConsonants・hindiCounting・thaiLetters・vietnameseCounting・
+    # cardinalText・ordinalText・dollarText・bahtText・hex・chicago・custom など：字の並び（字の形・除く字）を確かめていない
+    return None
+
+
+def number_text(n: int, fmt: str) -> str:
+    """段落番号の n 番目の字。再現できない書式・番号は、1, 2, 3 にせず〔n：番号の書式「…」は再現できません〕。"""
+    got = _number(n, fmt)
+    return got if got is not None else number_unshown(n, fmt)
+
+
+def _run_lang(begin, fmt: str) -> str:
+    """旧来の日付の欄の言語：欄の始まりの字の要素の w:rPr/w:lang（ECMA-376 第1部 17.3.2.20）。元号の記号（g・e）のある書式は
+    東アジアの言語（w:eastAsia）、ほかは w:val。なければ ""（言語の指定なし：名前・元号は書けない）。"""
+    run = getattr(begin, "parent", None)
+    rpr = run.find("rPr") if run is not None and hasattr(run, "find") else None
+    lang = rpr.find("lang") if rpr is not None else None
+    if lang is None:
+        return ""
+    if re.search(r"[ge]", re.sub(r"'[^']*'", "", fmt or "")):
+        return lang.get("eastAsia") or ""
+    return lang.get("val") or ""
 
 
 class DocxDocument:
@@ -808,6 +961,8 @@ class DocxDocument:
                 fmt = ti.find("format")
                 if fmt is not None:
                     ctl.date_format = fmt.get("val", "")
+                if ctl.kind == "date":
+                    ctl.date_lid = _run_lang(f["begin"], ctl.date_format)
         ctl.name = name
         self.controls.append(ctl)
         return ctl
@@ -818,7 +973,7 @@ class DocxDocument:
             return None
         kind = "richtext"
         options: list[str] = []
-        date_fmt = ""
+        date_fmt = date_lid = date_cal = ""
         checked = False
         for k in pr.kids:
             loc = k.local
@@ -828,6 +983,9 @@ class DocxDocument:
                 kind = "date"
                 df = k.find("dateFormat")
                 date_fmt = df.get("val", "") if df is not None else ""
+                lid_el, cal_el = k.find("lid"), k.find("calendar")
+                date_lid = lid_el.get("val", "") if lid_el is not None else ""
+                date_cal = cal_el.get("val", "") if cal_el is not None else ""
             elif loc in ("dropDownList", "comboBox"):
                 kind = "dropdown" if loc == "dropDownList" else "combo"
                 options = [li.get("displayText") or li.get("value") or "" for li in k.findall("listItem")]
@@ -844,7 +1002,8 @@ class DocxDocument:
         lock = pr.find("lock")
         ctl = Control(kind, "sdt", (alias.get("val") if alias is not None else "") or (tag.get("val") if tag is not None else ""),
                       sdt, part, p, options=options, checked=checked, date_format=date_fmt,
-                      placeholder=pr.find("showingPlcHdr") is not None, lock=lock.get("val", "") if lock is not None else "")
+                      placeholder=pr.find("showingPlcHdr") is not None, lock=lock.get("val", "") if lock is not None else "",
+                      date_lid=date_lid, date_calendar=date_cal)
         self.controls.append(ctl)
         return ctl
 

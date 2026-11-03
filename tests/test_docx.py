@@ -65,11 +65,11 @@ def test_kind_of_docx():
 
 def test_number_and_date_formats():
     assert [number_text(3, f) for f in ("decimal", "decimalFullWidth", "decimalEnclosedCircle", "aiueoFullWidth", "iroha", "japaneseCounting")] == \
-        ["3", "３", "③", "ウ", "ハ", "三"]
+        ["3", "３", "③", "ウ", "ﾊ", "三"]  # iroha は半角のカタカナ（ECMA-376 17.18.59）
     import datetime as dt
 
-    assert format_word_date(dt.date(2026, 4, 1), "ggge年M月d日") == "令和8年4月1日"
-    assert format_word_date(dt.date(2019, 5, 1), "ggge年M月d日") == "令和元年5月1日"
+    assert format_word_date(dt.date(2026, 4, 1), "ggge年M月d日", "ja-JP", "japan") == "令和8年4月1日"
+    assert format_word_date(dt.date(2019, 5, 1), "ggge年M月d日", "ja-JP", "japan") == "令和元年5月1日"
 
 
 def test_sample_window():

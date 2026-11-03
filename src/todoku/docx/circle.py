@@ -16,9 +16,9 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 
 from ..pdf.circle import _pattern, face, inside, shape, touches
+from ..textwidth import cells, east_asian_context, fixed_width
 from .document import DocxDocument, Para, iter_paras
 
 EMU = 12700
@@ -98,8 +98,10 @@ def run_size(doc: DocxDocument, p: Para, run) -> float:
     return v or st["default"]
 
 
-def width(ch: str, size: float) -> float:
-    return size if unicodedata.east_asian_width(ch) in ("W", "F", "A") else 0.5 * size
+def width(ch: str, size: float, ambiguous_wide: bool = False) -> float:
+    """字の幅の見積もり（textwidth：Unicode の東アジアの幅）：全角（W・F）は字の大きさ、曖昧（A：○・ギリシャ文字・
+    キリル文字など）は東アジアの文脈（段落に全角の字がある）なら字の大きさ・ほかは半分、結合の記号は 0、ほかは半分。"""
+    return 0.5 * size * cells(ch, ambiguous_wide)
 
 
 # ---------------------------------------------------------------------- 囲む所
@@ -170,10 +172,11 @@ def _glyphs(doc: DocxDocument, p: Para) -> list[_G]:
     out = []
     x = 0.0
     pos = p.positions()
+    wide = east_asian_context(p.text)
     for k, ch in enumerate(p.text):
         sg = p.segs[pos[k][0]] if k < len(pos) else None
         size = run_size(doc, p, sg.run if sg is not None else None)
-        w = width(ch, size) if ch not in "\t\n" else size
+        w = width(ch, size, wide) if ch not in "\t\n" else size
         out.append(_G(ch, x, 0.0, x + w, size, size))
         x += w
     return out
@@ -214,9 +217,13 @@ def resolve(doc: DocxDocument, spec: dict, used: dict) -> dict:
     used.setdefault("spans", []).append((key, a, b))
     k = len(used["spans"]) + _existing(doc)
     label = spec.get("near") or (p.cell.text()[:30] if p.cell is not None else p.text.strip()[:30])
+    wide = east_asian_context(p.text)
+    near = p.text[max(0, a - 6):b + 6]
+    notes = (["幅の変わる字（ラテン文字・キリル文字・アラビア文字など、書体で字ごとに幅が違う字）を含む（字の幅は見積もり）"]
+             if any(not fixed_width(ch, wide) for ch in near if not ch.isspace()) else [])
     return {"id": f"○{k}", "part": p.part, "para": p, "start": a, "end": b, "text": p.text[a:b], "style": style,
             "ellipse": [round(v, 3) for v in e] if e else None, "size": size, "label": label,
-            "context": re.sub(r"\s+", " ", p.text).strip()[:60]}
+            "context": re.sub(r"\s+", " ", p.text).strip()[:60], "notes": notes}
 
 
 def _existing(doc: DocxDocument) -> int:
@@ -416,7 +423,8 @@ def read_back(blob: bytes, name: str, circled: list[dict]) -> list[dict]:
                     ext = re.search(rb'<wp:extent cx="(\d+)" cy="(\d+)"', xml[run.s:run.e])
                     if ext:
                         w = int(ext[1]) / EMU
-                        tw = sum(width(ch, c["size"]) for ch in c["text"] if not ch.isspace())
+                        wide = east_asian_context(p.text)
+                        tw = sum(width(ch, c["size"], wide) for ch in c["text"] if not ch.isspace())
                         if w < tw:
                             found = f"{found}（○の幅 {w:.1f}pt が、字の幅 {tw:.1f}pt より狭い）"
                     break

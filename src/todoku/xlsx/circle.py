@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import posixpath
 import re
-import unicodedata
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
 from ..formula.parser import addr, parse_cell
+from ..textwidth import cells, east_asian_context, fixed_width
 from ..pdf.circle import _pattern, shape, touches, face, inside
 
 EMU = 12700  # 1 pt の EMU
@@ -108,11 +108,12 @@ def row_pt(sh, r: int) -> float:
     return sh.row_heights.get(r, sh.default_row_height or 15.0)
 
 
-def width(ch: str, size: float) -> float:
-    """字の幅の見積もり：東アジアの幅が全角（W・F）と曖昧（A。和文の書体では全角）の字は字の大きさ、ほかは半分。"""
+def width(ch: str, size: float, ambiguous_wide: bool = False) -> float:
+    """字の幅の見積もり（textwidth：Unicode の東アジアの幅）：全角（W・F）の字は字の大きさ、曖昧（A：○・①・ギリシャ文字・
+    キリル文字など）は東アジアの文脈（ambiguous_wide）なら字の大きさ・ほかは半分、結合の記号は 0、ほかは半分。"""
     if ch == "\n":
         return 0.0
-    return size if unicodedata.east_asian_width(ch) in ("W", "F", "A") else 0.5 * size
+    return 0.5 * size * cells(ch, ambiguous_wide)
 
 
 # ---------------------------------------------------------------------- 囲む所
@@ -223,7 +224,9 @@ def glyphs(wb, sh, r: int, c: int, text: str) -> tuple[list[G], list[str]]:
     h = sum(row_pt(sh, k) for k in range(r1, r2 + 1))
     lines = text.split("\n") if xf["wrap"] else [text]  # 折り返さないセルの改行は、幅のない字として
     pad = 2 * 0.75  # セルの縁から字までの余白（2 ピクセル）
-    lw = [sum(width(ch, size) for ch in ln) for ln in lines]
+    # 曖昧な幅の字は、セルの字に全角の字があるか、書体の名前が東アジアの字（ＭＳ ゴシックなど）のときだけ全角
+    wide = east_asian_context(text) or bool(re.search(r"[^\x00-\x7f]", name or ""))
+    lw = [sum(width(ch, size, wide) for ch in ln) for ln in lines]
     if xf["wrap"] and max(lw) > w - 2 * pad:
         raise CircleError("折り返して表示するセルで、字が自動で改行される（改行の位置が分からない）ので、字の位置を決められません")
     if xf["shrink"] and max(lw) > w - 2 * pad:
@@ -240,8 +243,9 @@ def glyphs(wb, sh, r: int, c: int, text: str) -> tuple[list[G], list[str]]:
     hal = xf["h"] if xf["h"] != "general" else ("right" if numeric else "left")
     if xf["indent"]:
         notes.append("字下げ（インデント）のあるセル")
-    if any(unicodedata.east_asian_width(ch) not in ("W", "F", "A") for ch in text) or "P" in name.upper() or not re.search(r"[^\x00-\x7f]", name or "a"):
-        notes.append("半角の字・幅の変わる書体の字を含む（字の幅は見積もり）")
+    if any(not fixed_width(ch, wide) for ch in text if ch != "\n") or "P" in name.upper() or not re.search(r"[^\x00-\x7f]", name or "a"):
+        # ラテン文字・キリル文字・ギリシャ文字・アラビア文字などは、書体で字ごとに幅が変わる（プロポーショナル）
+        notes.append("半角の字・幅の変わる書体の字（ラテン文字・キリル文字など）を含む（字の幅は見積もり）")
     out: list[G] = []
     for k, (ln, wd) in enumerate(zip(lines, lw)):
         if hal == "left":
@@ -252,7 +256,7 @@ def glyphs(wb, sh, r: int, c: int, text: str) -> tuple[list[G], list[str]]:
             x = x0 + w - pad - wd
         y = top + k * pitch
         for ch in ln:
-            cw = width(ch, size)
+            cw = width(ch, size, wide)
             out.append(G(ch, x, y, x + cw, y + size, size))
             x += cw
         if k < len(lines) - 1:

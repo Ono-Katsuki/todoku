@@ -8,8 +8,8 @@ S 素で問題ない（表のデータそのもの：CSV・JSON など）
 A 規則だけで正確に読める（中身の字・並び・表示の値がファイルの作りから決まり、数式もすべて確かめられる）
 B エージェントが読めば正確（中身は窓にすべて出ているが、一部の値の読み方が規則では決まらず、窓に示した根拠で
   エージェントが決める：Excel 以外のアプリが保存した計算結果、いくつもの文字コードで仕様どおりに読める文字のファイル
-  （候補と見本を窓に並べる。エージェントが選んで encoding で渡せば、その文字コードで読み直し、段階は下げない）、
-  本文の中身である説明のない画像（字の中身はあるが、画像の所はエージェントが見て確かめる。タグ付きの PDF の Alt のない図も）など）
+  （候補と見本を窓に並べる。エージェントが選んで encoding で渡せば、その文字コードで読み直し、段階は下げない）など）
+  ※本文の字のある書類の、説明（代わりの字）のない画像は、段階を変えず、アクセシビリティの注意（alerts）に位置を示す
 C エージェントが工夫して変換できる（マクロ・確かめられない数式・自動で動くスクリプトなど、規則では再現しない処理がある。
   どの文字コードとしても読めない。窓の読み落とし：窓とは別の読み方で拾った中身が窓に出ていない（Excel の Markdown の窓・
   PDF のページの字・Word の文字）ので、エージェントは窓だけを信じてはいけない。落ちた所を where に示す）
@@ -25,7 +25,7 @@ A エージェントがそのまま書ける（入力欄がすべて作り手の
 B 解析しないと書けない（書く所を、罫線・空き・空のセルなどの配置から推定するか、規則では決められない所（窓の「？」）を
   エージェントが窓を読んで決める。スキャンのページ（PDF）は、エージェントがページの画像（view_page）を見て枠で書く）
 C 画面（UI）から入力する（ボタンで動くマクロ、または書類が電子申請などの画面からの入力を求めている）
-D 書けない（アクセスできない・字の情報がなく、ページの画像も作れない紙・押印や自署のような手書き）
+D 書けない（アクセスできない・字の情報がなく、ページの画像も作れない紙・署名・印・拇印・公証など、手で行う所）
   ※様式が認める所には、本人が同意したときだけ、本人の印影・署名の画像を置ける（fill の seal・signature）。
     それで書けるかは書類の決まり（意味）によるので、段階は変えず、問い（cannot_do）でエージェントが確かめる
   ※郵送・持参・来庁などの提出のしかたは、書類の外のことなので、段階の対象にしない
@@ -67,12 +67,15 @@ NAMES = {
 # エージェントが窓を読んで確かめること（規則では決めない）。見つかれば、その段階（score：read 読む・write 書く）
 AGENT_CHECKS = [
     {"id": "cannot_do", "score": "write", "grade": "D", "title": "エージェントにはできない記入",
-     "question": "押印・自署（手書き）のように、書類の中で、エージェントには代わりにできない記入を求めていますか。"
-                 "求めていれば、その場所と書き方を答えてください（「押印不要」のように求めていないものは除く。"
+     "question": "署名・印・拇印・公証など、手で行う所（本人や立会人が、紙の上で自分の手で行う記入や、役所・公証人の前で"
+                 "行う手続き。印は 印・인감・公章・stamp など、署名は自署・서명・signature など、書類の言葉は問いません）"
+                 "のように、書類の中で、エージェントには代わりにできない記入を求めていますか。"
+                 "求めていれば、その場所と書き方を答えてください（「押印不要」「no signature required」のように"
+                 "求めていないものは除く。"
                  "郵送・持参・来庁などの提出のしかたは、書類の外のことなので、ここでは数えません）。"
                  "なお、様式が印影・署名の画像を認めている所（注意書きに、画像や電子の印影でよいとある所など）には、"
                  "本人が同意したときだけ、fill_document で本人の印影・署名の画像を置けます"
-                 "（{\"seal\": 画像のパス, \"consent\": true, …}）。実印の押印・自署（手書き）が求められる所や、"
+                 "（{\"seal\": 画像のパス, \"consent\": true, …}）。登録した印（実印など）・手書きの署名・拇印・立会い・公証が求められる所や、"
                  "画像でよいかが書類から分からない所は、ここに答えて、本人に伝えてください。"},
     {"id": "ui_only", "score": "write", "grade": "C", "title": "画面からの入力",
      "question": "この書類のファイルに書くのではなく、電子申請の画面など、別の画面（UI）から入力するよう求めていますか。"
@@ -405,7 +408,6 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
             write.append(Reason("D", "開けない画像だけのページ", f"{len(bad)} ページは、画像の圧縮（{codecs}）を todoku が開けず、"
                                 "ページの画像で書く所を確かめられないので、書けません", list(bad)))
     reasons += _pdf_lost(doc, win)
-    reasons += _pdf_figures(win)
     if win["form"]["xfa"]:
         xr, xw_ = _xfa_reasons(win.get("xfa"))
         reasons += xr
@@ -443,21 +445,6 @@ def _pdf_lost(doc, win: dict) -> list[Reason]:
     except Exception as e:  # noqa: BLE001  確かめられないものは、通ったことにしない
         c = Check("読み落とし（確かめられない）", False, f"窓の読み落としを確かめられませんでした（{type(e).__name__}: {str(e)[:80]}）")
     return lost_reason([c], "ページ")
-
-
-def _pdf_figures(win: dict) -> list[Reason]:
-    """タグ付きの PDF の、字のあるページの、説明（Alt）のない図（構造の木の要素に結びつき、Artifact でない画像）：中身の図
-    （PDF/UA 7.3）なので、エージェントがページを見て確かめる（読む B。where に位置）。画像だけのページは E（別の理由）。
-    タグのない PDF の画像は、中身の図か飾りかがファイルの作りから決まらない（大きさの目安で決めることはしない）ので、
-    段階は変えず、注意（alerts）に位置と大きさを示す。"""
-    figs = [f"{p['id']}（{p['where']}・{p['size_mm'][0]}×{p['size_mm'][1]} mm" + (f"・近くの字「{p['near']}」" if p.get("near") else "") + "）"
-            for pg in win["pages"] if not pg.get("image_only")
-            for p in pg.get("pictures", []) if p.get("tagged") and not p.get("alt") and not p.get("decorative")]
-    if not figs:
-        return []
-    return [Reason("B", "説明のない図（タグ付きの PDF）",
-                   f"字のあるページの図 {len(figs)} 個は、構造の木（タグ）で中身の図とされていますが、説明（Alt）がなく、中身を字として"
-                   "読めません。図の所は、エージェントがページを見て読み（PDF を描ける道具で）、中身を推測で埋めないでください", figs[:12])]
 
 
 def _unmapped(pages: list[dict]) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
@@ -499,7 +486,17 @@ def picture_alerts(pictures: list[dict]) -> list[Reason]:
     return [Reason("F", "説明のない画像",
                    f"画像 {len(bare)} 個に、説明（代わりの字）がありません。画面の読み上げを使う人には中身が届かず、"
                    "エージェントも画像の中身は字として読めません（WCAG 1.1.1）。段階は変えません",
-                   [f"{p['id']}（{p.get('where', '')}）" for p in bare[:12]])]
+                   [_picture_where(p) for p in bare[:12]])]
+
+
+def _picture_where(p: dict) -> str:
+    """注意の where：画像の id と位置（PDF は大きさ・近くの字も）。"""
+    extra = [p.get("where", "")]
+    if p.get("size_mm"):
+        extra.append(f"{p['size_mm'][0]}×{p['size_mm'][1]} mm")
+    if p.get("near"):
+        extra.append(f"近くの字「{p['near']}」")
+    return f"{p['id']}（" + "・".join(x for x in extra if x) + "）"
 
 
 def _write_fields(fields: list[dict], layout: list[dict], agent: list[dict], marked: str, free: str,
@@ -633,6 +630,7 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
     else:
         reasons += content_image_reasons(doc, win, doc.body, lambda p: word_heading(doc, p), "本文")
     reasons += _word_lost(doc, win, kind)
+    reasons += _numbering_reasons(doc)
     write += _write_fields(fields, layout, agent, "フォームの欄・コンテンツコントロール",
                            "欄のない所は、前後の字を指定して書き換えます")
     write += _write_embeds(win.get("embeds") or [])
@@ -643,6 +641,25 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
     g = _final(reasons, write)
     g.alerts = picture_alerts(win.get("pictures") or [])
     return g
+
+
+def _numbering_reasons(doc) -> list[Reason]:
+    """段落番号の書式（ST_NumberFormat）を再現できない段落：窓は 1, 2, 3 にせず〔n：番号の書式「…」は再現できません〕と出す。
+    番号の字の見え方はエージェントが書式の名前と番号から読む（読む B）。"""
+    from .docx.document import iter_paras
+
+    bad = []
+    for p in iter_paras(getattr(doc, "body", []) or []):
+        m = re.search(r"番号の書式「([^」]*)」は再現できません", getattr(p, "label", "") or "")
+        if m:
+            bad.append((m[1], (_words(p) or "")[:20]))
+    if not bad:
+        return []
+    names = "・".join(sorted({f for f, _t in bad}))
+    return [Reason("B", "再現できない段落番号",
+                   f"{len(bad)} 段落の段落番号は、番号の書式（{names}）の字の決まりを確かめていないので、窓では 1, 2, 3 にせず"
+                   "〔n：番号の書式「…」は再現できません〕と示しています。番号の字は、エージェントが書式の名前と番号から読みます",
+                   [f"「{t}」の段落" for _f, t in bad[:12]])]
 
 
 # 見出し・図表番号の、組み込みのスタイルの名前（ECMA-376 第1部 17.7.4.9 の name。大文字・小文字は区別しない）
@@ -680,7 +697,8 @@ def content_image_reasons(doc, win: dict, body_blocks, heading, body_ja: str) ->
     本文の中身か（ヘッダー・フッターの飾りでないか）は、画像のある段落が本文の段落か（表のマス・テキストボックスの中も含む）で、
     飾りかは作り手の印（decorative）で決める（ファイルの作り。大きさや字の数の目安は使わない）。
     - 本文に、見出し・図表番号・空の段落のほかに字のある段落が1つもない：読む E（中身は画像。画像を見て読む）
-    - ほかに本文の字がある：読む B（字の中身は窓にあるが、画像の所はエージェントが見て確かめる。where に位置）"""
+    - ほかに本文の字がある：段階は変えない（説明のない画像は、アクセシビリティの注意 picture_alerts に位置を示す。
+      段階はエージェントが読めるかだけで決め、説明（代わりの字）の有無は注意に分ける）"""
     from .docx.document import iter_paras
 
     paras = list(iter_paras(body_blocks))
@@ -701,8 +719,8 @@ def content_image_reasons(doc, win: dict, body_blocks, heading, body_ja: str) ->
         return [Reason("E", "中身が画像の文書",
                        f"{body_ja}には、見出し・図表番号のほかに字の段落がなく、中身は説明（代わりの字）のない画像 {len(bare)} 個です。{see}",
                        where[:12])]
-    return [Reason("B", "説明のない本文の画像",
-                   f"{body_ja}の画像 {len(bare)} 個に説明（代わりの字）がなく、中身を字として読めません。{see}", where[:12])]
+    # ほかに本文の字がある：説明のない画像は、段階とは別のアクセシビリティの注意（picture_alerts）に位置を示す。段階は変えない
+    return []
 
 
 def _word_lost(doc, win: dict, kind: str) -> list[Reason]:
@@ -865,10 +883,24 @@ def image_only_sheets(wb) -> list[str]:
 
 def unshown_reasons(doc: dict) -> list[Reason]:
     """表示形式を再現できないセル（窓には推測した字でなく元の値を出す）：読む B。"""
-    where = [f"{sh['name']}!{u['cell']}" for sh in doc.get("sheets", []) for u in sh.get("unshown_formats", [])]
+    from .formula.numfmt import builtin_id
+
+    items = [(f"{sh['name']}!{u['cell']}", builtin_id(u.get("format"))) for sh in doc.get("sheets", [])
+             for u in sh.get("unshown_formats", [])]
+    out = []
+    pc = [(w, i) for w, i in items if i is not None]
+    if pc:
+        ids = "・".join(str(i) for i in sorted({i for _w, i in pc}))
+        # 値（日付）はそのまま正確に分かる。変わるのは受け取る人の PC での見え方だけなので、読む段階は下げない（A のまま、伝える）
+        out.append(Reason("A", f"組み込みの表示形式（番号 {ids}）は、開く PC の地域の設定で見え方が変わる",
+                          f"{len(pc)} か所のセルは、組み込みの表示形式（ECMA-376 第1部 18.8.30 の番号 {ids}）で、形式の字がファイルに"
+                          "なく、開く PC の地域の設定（短い日付など）で見え方が変わります。todoku は受け取る人の PC を知らないので、"
+                          "特定の地域の字にせず、窓には元の値と、地域によらない書き方（ISO 8601）を示します",
+                          [w for w, _i in pc][:12]))
+    where = [w for w, i in items if i is None]
     if not where:
-        return []
-    return [Reason("B", "再現できない表示形式",
+        return out
+    return out + [Reason("B", "再現できない表示形式",
                    f"{len(where)} か所のセルは、表示形式（ロケール・暦・漢数字などの指定）を規則どおりに再現できません。"
                    "窓には推測した字ではなく元の値を出しているので、Excel での見え方は、エージェントが元の値と表示形式から読みます",
                    where[:12])]

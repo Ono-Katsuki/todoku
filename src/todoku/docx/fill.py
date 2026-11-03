@@ -81,8 +81,12 @@ def _t(pre: str, text: str) -> bytes:
     return bytes(out)
 
 
-def _width(s: str) -> int:
-    return sum(2 if ord(ch) > 0xFF and ch != " " else 1 for ch in s)
+def _width(s: str, ambiguous_wide: bool = False) -> int:
+    """字の幅（半角を 1）：Unicode の東アジアの幅で W・F は 2、A（曖昧）は東アジアの文脈なら 2、結合の記号は 0、ほかは 1
+    （textwidth。アラビア文字・キリル文字・デーヴァナーガリーなどは 1）。"""
+    from ..textwidth import text_cells
+
+    return text_cells(s, ambiguous_wide)
 
 
 def _is_text_value(v) -> str:
@@ -203,7 +207,10 @@ class Filler:
         self.check_editable(item, part, p.segs[segs_idx[0]].node.s)
         pad = ""
         if keep_width:
-            room = _width(p.text[a:b]) - _width(value)
+            from ..textwidth import east_asian_context
+
+            wide = east_asian_context(p.text + value)  # 曖昧な幅の字（○・キリル文字など）は、段落に全角の字があるときだけ全角
+            room = _width(p.text[a:b], wide) - _width(value, wide)
             pad = " " * room if room > 0 else ""
         bm = self.bookmark(item["id"])
         for n, i in enumerate(segs_idx):
@@ -427,7 +434,7 @@ class Filler:
                 return
             text = _is_text_value(value)
             if c.kind == "date" and c.date_format:
-                text = format_word_date(_parse_any_date(text), c.date_format)
+                text = format_word_date(_parse_any_date(text), c.date_format, c.date_lid, c.date_calendar)
             if c.maxlen and len(text) > c.maxlen:
                 raise FillError(f"{item['id']}: 「{text}」は {len(text)} 字です（この欄は {c.maxlen} 字まで）")
             self._replace_result(item, c, text)
@@ -456,7 +463,7 @@ class Filler:
             raise FillError(f"{item['id']}: 「{text}」は選択肢にありません。選べるのは " + "、".join(f"「{x}」" for x in c.options))
         if c.kind == "date":
             d = _parse_any_date(text)
-            text = format_word_date(d, c.date_format or "yyyy/MM/dd")
+            text = format_word_date(d, c.date_format or "yyyy/MM/dd", c.date_lid, c.date_calendar)
             dnode = next((k for k in pr.kids if k.local == "date"), None)
             if dnode is not None:
                 tag = xml[dnode.s:dnode.se]
@@ -520,10 +527,6 @@ def placeholder_style(doc, run) -> "Node | None":
 
 
 # ====================================================================== 日付
-ERAS = [("令和", dt.date(2019, 5, 1)), ("平成", dt.date(1989, 1, 8)), ("昭和", dt.date(1926, 12, 25)), ("大正", dt.date(1912, 7, 30)),
-        ("明治", dt.date(1868, 1, 25))]
-
-
 def _parse_any_date(text: str) -> dt.date:
     t = str(text).strip()
     try:
@@ -540,20 +543,179 @@ def _parse_any_date(text: str) -> dt.date:
     raise FillError(f"「{t}」を日付として読めません")
 
 
-def format_word_date(d: dt.date, fmt: str) -> str:
-    """Word の日付の書式（yyyy/MM/dd、ggge年M月d日、dddd など）。"""
-    era, start = next(((n, s) for n, s in ERAS if d >= s), ("", dt.date(1, 1, 1)))
-    ey = d.year - start.year + 1
+def date_lang(lid: str | None) -> str | None:
+    """w:lid（ECMA-376 第1部 17.18.47 ST_Lang：言語の名前（ja-JP）か、16進の LCID（0411））→ locale_fmt の言語の名前。
+    読めない・知らない言語は、名前を出さないように「tag:…」「lcid:…」の形（name_table は Unsupported を投げる）。"""
+    from ..formula.locale_fmt import _lang_of_lcid, _lang_of_tag
+    from ..formula.values import Unsupported
 
-    def rep(m):
-        t = m[0]
-        return {"yyyy": f"{d.year:04d}", "yy": f"{d.year % 100:02d}", "MMMM": d.strftime("%B"), "MMM": d.strftime("%b"),
-                "MM": f"{d.month:02d}", "M": str(d.month), "dddd": "月火水木金土日"[d.weekday()] + "曜日" if "g" in fmt else d.strftime("%A"),
-                "ddd": d.strftime("%a"), "dd": f"{d.day:02d}", "d": str(d.day), "ggg": era, "gg": era[:1], "g": era[:1],
-                "ee": f"{ey:02d}", "e": "元" if ey == 1 and "ggge年" in fmt else str(ey), "aaaa": "月火水木金土日"[d.weekday()] + "曜日",
-                "aaa": "月火水木金土日"[d.weekday()]}[t]
+    t = (lid or "").strip()
+    if not t:
+        return None
+    try:
+        if re.fullmatch(r"[0-9A-Fa-f]{4}", t):
+            return _lang_of_lcid(int(t, 16))
+        return _lang_of_tag(t)[0]
+    except Unsupported:
+        return f"tag:{t}"
 
-    return re.sub(r"yyyy|yy|MMMM|MMM|MM|M|dddd|ddd|dd|d|ggg|gg|g|ee|e|aaaa|aaa", rep, fmt)
+
+# w:calendar（ECMA-376 第1部 17.18.7 ST_CalendarType）のうち、年月日の数がグレゴリオ暦と同じもの。
+# gregorianXlit*・gregorianMeFrench・gregorianArabic は、月・曜日の名前の書き方（音訳など）が違うので、名前は出さない
+_GREG_NUM = {"", "gregorian", "gregorianUs", "gregorianXlitEnglish", "gregorianXlitFrench", "gregorianMeFrench",
+             "gregorianArabic", "none"}
+_GREG_NAMES = {"", "gregorian", "gregorianUs", "none"}
+
+
+def format_word_date(d: dt.date, fmt: str, lid: str | None = None, calendar: str | None = None) -> str:
+    """Word の日付の書式（w:dateFormat：yyyy/MM/dd、ggge年M月d日、dddd d MMMM yyyy など）を、言語（w:lid）と
+    暦（w:calendar）どおりに字にする。名前（月・曜日）は formula/locale_fmt の表、和暦は formula/dates の元号の表、
+    ヒジュラ暦は locale_fmt の表で決まるヒジュラ暦（Windows の HijriCalendar）。タイの暦は西暦 + 543、韓国の暦（檀紀）は
+    西暦 + 2333、台湾（民国）の年は西暦 − 1911。確かめていない組み合わせ（ヘブライ暦・サカ暦・民国の元号の名前など）は、
+    推測した字を書かずに FillError を投げる。日付の欄は時刻を 0 時として書く（fullDate の T00:00:00Z と同じ）。"""
+    from ..formula.dates import to_wareki
+    from ..formula.locale_fmt import hijri_tabular, name_table
+    from ..formula.values import Unsupported
+
+    cal = calendar or ""
+    lang = date_lang(lid)
+    try:
+        return _word_date(d, fmt, lang, cal, to_wareki, hijri_tabular, name_table)
+    except Unsupported as e:
+        where = f"言語 {lid or '指定なし'}・暦 {calendar or 'gregorian'}・書式「{fmt}」"
+        raise FillError(f"この日付の欄の見える字（{where}）を、Word と同じに作れません（{e}）。"
+                        "日付の欄でない所に字で書くか、書式を確かめてください") from None
+
+
+def _word_date(d, fmt, lang, cal, to_wareki, hijri_tabular, name_table) -> str:
+    from ..formula.values import Unsupported
+
+    # 書式を、字（'…' で囲んだ所・記号でない字）と記号の並びに分ける
+    toks: list[tuple[str, str]] = []
+    i = 0
+    while i < len(fmt):
+        ch = fmt[i]
+        if ch == "'":
+            j = fmt.find("'", i + 1)
+            j = len(fmt) if j < 0 else j
+            toks.append(("lit", fmt[i + 1:j] if j > i + 1 else ("'" if fmt[i + 1:i + 2] == "'" else "")))
+            i = j + 1
+            continue
+        if fmt[i:i + 5].upper() == "AM/PM":
+            toks.append(("code", "AM/PM"))
+            i += 5
+            continue
+        if ch in "yMdgeaHhms":
+            j = i
+            while j < len(fmt) and fmt[j] == ch:
+                j += 1
+            toks.append(("code", fmt[i:j]))
+            i = j
+            continue
+        if ch.isascii() and ch.isalpha():
+            raise Unsupported(f"日付の書式の記号「{ch}」")
+        toks.append(("lit", ch))
+        i += 1
+    has_day = any(k == "code" and t[0] == "d" and len(t) <= 2 for k, t in toks)
+
+    def ymd(part: int) -> int:
+        """暦の年（0）・月（1）・日（2）。"""
+        if cal in _GREG_NUM:
+            return (d.year, d.month, d.day)[part]
+        if cal == "hijri":
+            return hijri_tabular(d.year, d.month, d.day)[part]
+        if cal in ("thai", "korea", "japan", "taiwan"):
+            if part:
+                return (d.year, d.month, d.day)[part]  # 月と日はグレゴリオ暦と同じ
+            if cal == "thai":
+                return d.year + 543
+            if cal == "korea":
+                return d.year + 2333
+            raise Unsupported(f"暦 {cal} の年の記号 y（元号の年は e で書きます）")
+        raise Unsupported(f"暦 {cal}")
+
+    def names(kind: str) -> list[str]:
+        # 和暦・民国・タイ・韓国の暦は、月と曜日がグレゴリオ暦と同じ（年の数え方だけが違う）
+        if cal not in _GREG_NAMES | {"japan", "taiwan", "thai", "korea"}:
+            raise Unsupported(f"暦 {cal} の月・曜日の名前")
+        lg = "en" if cal == "gregorianUs" else lang  # 米国の英語のグレゴリオ暦：名前は英語
+        if lg is None:
+            raise Unsupported("言語（w:lid）の指定のない、月・曜日の名前")
+        return name_table(lg, kind, has_day)
+
+    def era() -> tuple[str, int, str]:
+        if cal == "japan" or (cal == "" and lang == "ja"):
+            name, _abbr, n = to_wareki(d)
+            if not name:
+                raise Unsupported("明治より前の日付の元号")
+            return name, n, "jp"
+        if cal == "taiwan":
+            if d.year <= 1911:
+                raise Unsupported("中華民国の暦より前の日付")
+            return "", d.year - 1911, "roc"
+        raise Unsupported(f"暦 {cal or 'gregorian'}・言語 {lang or '指定なし'} の元号の記号 g・e")
+
+    sun0 = (d.weekday() + 1) % 7
+    out = []
+    for idx, (k, t) in enumerate(toks):
+        if k == "lit":
+            out.append(t)
+            continue
+        c, n = t[0], len(t)
+        if c == "y":
+            y = ymd(0)
+            if n == 2:
+                out.append(f"{y % 100:02d}")
+            elif n == 4:
+                out.append(f"{y:04d}")
+            else:
+                raise Unsupported(f"年の記号 {t}")
+        elif c == "M":
+            if n <= 2:
+                m = ymd(1)
+                out.append(f"{m:02d}" if n == 2 else str(m))
+            elif n in (3, 4):
+                out.append(names("mmm" if n == 3 else "mmmm")[d.month - 1])
+            else:
+                raise Unsupported(f"月の記号 {t}")
+        elif c == "d":
+            if n <= 2:
+                dd = ymd(2)
+                out.append(f"{dd:02d}" if n == 2 else str(dd))
+            elif n in (3, 4):
+                out.append(names("ddd" if n == 3 else "dddd")[sun0])
+            else:
+                raise Unsupported(f"曜日の記号 {t}")
+        elif c == "a":
+            if n not in (3, 4):
+                raise Unsupported(f"曜日の記号 {t}")
+            out.append(names("aaa" if n == 3 else "aaaa")[sun0])
+        elif c == "g":
+            name, _n, kind = era()
+            if kind != "jp" or n > 3:
+                raise Unsupported(f"元号の名前の記号 {t}（暦 {cal}）")
+            out.append(name if n == 3 else name[:1])
+        elif c == "e":
+            _name, ey, kind = era()
+            nxt = next((x for kk, x in toks[idx + 1:] if kk == "lit"), "")
+            if n == 1 and ey == 1 and kind == "jp" and nxt.startswith("年"):
+                out.append("元")  # 元号の最初の年は「元年」（日本語の Word の和暦の表示）
+            elif n <= 2:
+                out.append(f"{ey:02d}" if n == 2 else str(ey))
+            else:
+                raise Unsupported(f"元号の年の記号 {t}")
+        elif c in "Hh":
+            h = 0 if c == "H" else 12  # 日付の欄の時刻は 0 時（12 時間の表示では 12）
+            out.append(f"{h:02d}" if n == 2 else str(h))
+        elif c in "ms":
+            out.append("00" if n == 2 else "0")
+        elif t == "AM/PM":
+            if lang != "en":
+                raise Unsupported("英語でない言語の午前・午後の記号 AM/PM")
+            out.append("AM")
+        else:
+            raise Unsupported(f"日付の書式の記号 {t}")
+    return "".join(out)
 
 
 # ====================================================================== 入口
