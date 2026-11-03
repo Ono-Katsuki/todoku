@@ -10,7 +10,9 @@
 
 from __future__ import annotations
 
+import bisect
 import hashlib
+import itertools
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -61,8 +63,23 @@ class Anchor:
     text: str
 
 
+_MEMO = "_window_memo"  # 窓を作るあいだだけ、シートに置く控え（配置のマス・表）。build の外では使わない
+
+
 def anchors(sh: Sheet) -> dict[int, list[Anchor]]:
-    """行ごとに、表示上の1マス（結合セルは1つ）を左から並べる。"""
+    """行ごとに、表示上の1マス（結合セルは1つ）を左から並べる。
+
+    窓を作るあいだ（build）は、同じシートについて何度も呼ばれる（入力欄・配置・表）ので、1回だけ作って控える。
+    窓を作るあいだ、セルと結合は変わらない（控えは build の終わりに捨てる）。"""
+    memo = sh.__dict__.get(_MEMO)
+    if memo is None:
+        return _anchors(sh)
+    if "anchors" not in memo:
+        memo["anchors"] = _anchors(sh)
+    return memo["anchors"]
+
+
+def _anchors(sh: Sheet) -> dict[int, list[Anchor]]:
     merged_cover: dict[tuple[int, int], tuple[int, int, int, int]] = {}
     for m in sh.merges:
         if (m[2] - m[0] + 1) * (m[3] - m[1] + 1) > 20000:
@@ -194,6 +211,32 @@ def _boxed_blanks(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], str]:
         for a in items:
             for rr in range(a.r, min(a.r2, a.r + 50) + 1):
                 covered[(rr, a.c1)] = a
+    # 行ごとの、マスの左端（左から並んでいる）と、そこまでのマスの右端のいちばん右。上の行の「列がかかるマス」を、
+    # 行のマスを全部見ずに、二分探索で拾う（拾うマスと順は、全部見たときと同じ）
+    starts: dict[int, list[int]] = {}
+    reach: dict[int, list[int]] = {}
+    for rr, items in rows.items():
+        starts[rr] = [b.c1 for b in items]
+        mx, acc = 0, []
+        for b in items:
+            mx = max(mx, b.c2)
+            acc.append(mx)
+        reach[rr] = acc
+
+    def over(rr: int, c1: int, c2: int) -> list[Anchor]:
+        """行 rr の、列 c1〜c2 にかかるマス（左から）。"""
+        items = rows.get(rr)
+        if not items:
+            return []
+        j = bisect.bisect_right(starts[rr], c2)  # ここより左のマスだけが c1 <= c2
+        acc = reach[rr]
+        got = []
+        while j > 0 and acc[j - 1] >= c1:
+            j -= 1
+            if items[j].c2 >= c1:
+                got.append(items[j])
+        got.reverse()
+        return got
     for r, items in rows.items():
         for k, a in enumerate(items):
             cell = a.cell
@@ -211,7 +254,8 @@ def _boxed_blanks(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], str]:
                 continue
             # 見出し：同じ行の左（あいだに文字のマスをはさまない、空き4列まで）か、上（3行まで）
             labeled = False
-            for b in reversed(items[:k]):
+            for j in range(k - 1, -1, -1):
+                b = items[j]
                 if text_of(b):
                     labeled = a.c1 - b.c2 - 1 <= 4
                     break
@@ -219,8 +263,10 @@ def _boxed_blanks(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], str]:
                     break
             if not labeled:
                 for rr in range(a.r - 1, max(0, a.r - 4), -1):
-                    above = [b for b in rows.get(rr, []) if b.c1 <= a.c2 and b.c2 >= a.c1]
-                    above += [x for x in (covered.get((rr, a.c1)),) if x is not None and x not in above]
+                    above = over(rr, a.c1, a.c2)
+                    x = covered.get((rr, a.c1))
+                    if x is not None and all(x is not b for b in above):  # マスは (行, 列) ごとに1つなので、等しいマスは同じもの
+                        above.append(x)
                     if any(text_of(b) for b in above):
                         labeled = True
                         break
@@ -445,7 +491,17 @@ def fill_blanks(text: str, values: list) -> str:
 
 
 def detect_tables(wb: Workbook, sh: Sheet, rows: dict[int, list[Anchor]]):
-    """見出し行と、同じ列割りで続く行を表として取り出す。"""
+    """見出し行と、同じ列割りで続く行を表として取り出す。窓を作るあいだは、同じ配置について1回だけ調べて控える。"""
+    memo = sh.__dict__.get(_MEMO)
+    if memo is None:
+        return _detect_tables(rows)
+    got = memo.get("tables")
+    if got is None or got[0] is not rows:
+        got = memo["tables"] = (rows, _detect_tables(rows))
+    return got[1]
+
+
+def _detect_tables(rows: dict[int, list[Anchor]]):
     tables = []
     used = set()
     rlist = sorted(rows)
@@ -1254,89 +1310,98 @@ def build(wb: Workbook) -> dict:
         if sh.state.startswith("non-worksheet"):
             doc["sheets"].append({"name": sh.name, "state": sh.state, "cells": [], "fields": [], "reading": []})
             continue
-        lay = Layout(wb, sh, opts.calc)
-        inputs = lay.inputs
-        hidden_fmt = set(lay.hidden_by_format)
-        cells = []
-        for (r, c) in sorted(set(sh.cells) | set(inputs)):
-            cell = sh.cells.get((r, c))
-            is_input = (r, c) in inputs
-            if (cell is None or (cell.value is None and not cell.has_formula)) and not is_input:
-                continue
-            m = sh.merged_at(r, c)
-            item = {"cell": addr(r, c), "provenance": DET}
-            if m and (r, c) != (m[0], m[1]):
-                if cell is None or (cell.value is None and not cell.has_formula):
-                    continue
-                # 結合セルの左上以外に残っている値（Excelの画面には出ないが、ファイルにはある）
-                item["hidden_by_merge"] = f"{addr(m[0], m[1])}:{addr(m[2], m[3])}"
-                is_input = False
-            elif m:
-                item["merged"] = f"{addr(m[0], m[1])}:{addr(m[2], m[3])}"
-            if cell is not None and cell.value is not None:
-                v = cell.value
-                item["value"] = v.code if isinstance(v, ExcelError) else v
-                d = display(wb, cell)
-                if d != (str(v) if not is_number(v) else None):
-                    item["display"] = d
-                if is_number(v) and is_date_format(wb.style(cell.style).num_fmt):
-                    item["type"] = "date"
-            if cell is not None and cell.formula:
-                item["formula"] = "=" + cell.formula
-            if is_input:
-                item["input"] = True
-                item["input_reason"] = inputs[(r, c)]
-            if sh.is_hidden(r, c):
-                item["hidden"] = True
-            elif not sh.in_print_area(r, c):
-                item["outside_print_area"] = True
-            if (r, c) in hidden_fmt:
-                item["hidden_by_format"] = True  # 条件付き書式で、いまは見えない
-            rules = [v for v in sh.validations if v.covers(r, c)]
-            if rules:
-                item["rules"] = [_rule_dict(v) for v in rules]
-            if (r, c) in sh.comments:
-                item["note"] = sh.comments[(r, c)]
-            cells.append(item)
-        fields = fields_for(wb, sh, lay, opts)
-        undecided = [{"cell": addr(r, c), "column": col, "decide": "agent", "provenance": LAYOUT,
-                      "reason": "表の行に入力欄があるが、このセルには入力欄の印（入力規則・枠・ロックの解除）がない。"
-                                "書く欄かどうかは、規則では決められない（見出しから判断する）"}
-                     for (r, c), col in sorted(undecided_cells(wb, sh, inputs).items())]
-        labels = {f["cell"]: f for f in fields if f.get("cell")}
-        for item in cells:
-            f = labels.get(item["cell"])
-            if f is not None and f["kind"] != "checkbox" and f.get("label"):
-                item["label"] = f["label"]
-        doc["sheets"].append({
-            "name": sh.name,
-            "state": sh.state,
-            "protected": sh.protected,
-            "used_range": f"A1:{addr(max(sh.max_row, 1), max(sh.max_col, 1))}",
-            "print_area": sh.print_area,
-            "hidden_rows": _runs(sorted(sh.hidden_rows)),
-            "hidden_cols": _runs(sorted(sh.hidden_cols), cols=True),
-            "header_footer": sh.header_footer,
-            "fields": fields,
-            "undecided": undecided,
-            "reading": reading(lay),
-            "hidden_by_format": [addr(*k) for k in lay.hidden_by_format],
-            "validations": [{"sqref": v.sqref_text, **_rule_dict(v), "provenance": DET} for v in sh.validations],
-            "cells": cells,
-            "controls": [{"name": c.name, "kind": c.kind, "checked": c.checked or "Unchecked", "link": c.link,
-                          "at": addr(*c.anchor) if c.anchor else None, "text": c.text, "provenance": DET,
-                          **_ax_control_info(c)}
-                         for c in sh.controls],
-            "shapes": [{"kind": s.kind, "name": s.name, "text": s.text, "alt": s.alt,
-                        "anchor": addr(*s.anchor) if s.anchor else None, "provenance": DET,
-                        **({"decorative": True} if getattr(s, "decorative", False) else {})} for s in sh.shapes],
-            "notes": [{"cell": addr(*k), "text": t, "provenance": DET} for k, t in sorted(sh.comments.items())],
-            "tables": _tables(wb, sh),
-        })
+        sh.__dict__[_MEMO] = {}
+        try:
+            doc["sheets"].append(_sheet_doc(wb, sh, opts))
+        finally:
+            sh.__dict__.pop(_MEMO, None)
     from ..embeds.excel import add_to_window
 
     add_to_window(wb, doc)  # グラフ（charts）と埋め込み（objects）：読むだけ
     return doc
+
+
+def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
+    """1枚のシートの窓（JSON）。"""
+    lay = Layout(wb, sh, opts.calc)
+    inputs = lay.inputs
+    hidden_fmt = set(lay.hidden_by_format)
+    cells = []
+    for (r, c) in sorted(set(sh.cells) | set(inputs)):
+        cell = sh.cells.get((r, c))
+        is_input = (r, c) in inputs
+        if (cell is None or (cell.value is None and not cell.has_formula)) and not is_input:
+            continue
+        m = sh.merged_at(r, c)
+        item = {"cell": addr(r, c), "provenance": DET}
+        if m and (r, c) != (m[0], m[1]):
+            if cell is None or (cell.value is None and not cell.has_formula):
+                continue
+            # 結合セルの左上以外に残っている値（Excelの画面には出ないが、ファイルにはある）
+            item["hidden_by_merge"] = f"{addr(m[0], m[1])}:{addr(m[2], m[3])}"
+            is_input = False
+        elif m:
+            item["merged"] = f"{addr(m[0], m[1])}:{addr(m[2], m[3])}"
+        if cell is not None and cell.value is not None:
+            v = cell.value
+            item["value"] = v.code if isinstance(v, ExcelError) else v
+            d = display(wb, cell)
+            if d != (str(v) if not is_number(v) else None):
+                item["display"] = d
+            if is_number(v) and is_date_format(wb.style(cell.style).num_fmt):
+                item["type"] = "date"
+        if cell is not None and cell.formula:
+            item["formula"] = "=" + cell.formula
+        if is_input:
+            item["input"] = True
+            item["input_reason"] = inputs[(r, c)]
+        if sh.is_hidden(r, c):
+            item["hidden"] = True
+        elif not sh.in_print_area(r, c):
+            item["outside_print_area"] = True
+        if (r, c) in hidden_fmt:
+            item["hidden_by_format"] = True  # 条件付き書式で、いまは見えない
+        rules = [v for v in sh.validations if v.covers(r, c)]
+        if rules:
+            item["rules"] = [_rule_dict(v) for v in rules]
+        if (r, c) in sh.comments:
+            item["note"] = sh.comments[(r, c)]
+        cells.append(item)
+    fields = fields_for(wb, sh, lay, opts)
+    undecided = [{"cell": addr(r, c), "column": col, "decide": "agent", "provenance": LAYOUT,
+                  "reason": "表の行に入力欄があるが、このセルには入力欄の印（入力規則・枠・ロックの解除）がない。"
+                            "書く欄かどうかは、規則では決められない（見出しから判断する）"}
+                 for (r, c), col in sorted(undecided_cells(wb, sh, inputs).items())]
+    labels = {f["cell"]: f for f in fields if f.get("cell")}
+    for item in cells:
+        f = labels.get(item["cell"])
+        if f is not None and f["kind"] != "checkbox" and f.get("label"):
+            item["label"] = f["label"]
+    return {
+        "name": sh.name,
+        "state": sh.state,
+        "protected": sh.protected,
+        "used_range": f"A1:{addr(max(sh.max_row, 1), max(sh.max_col, 1))}",
+        "print_area": sh.print_area,
+        "hidden_rows": _runs(sorted(sh.hidden_rows)),
+        "hidden_cols": _runs(sorted(sh.hidden_cols), cols=True),
+        "header_footer": sh.header_footer,
+        "fields": fields,
+        "undecided": undecided,
+        "reading": reading(lay),
+        "hidden_by_format": [addr(*k) for k in lay.hidden_by_format],
+        "validations": [{"sqref": v.sqref_text, **_rule_dict(v), "provenance": DET} for v in sh.validations],
+        "cells": cells,
+        "controls": [{"name": c.name, "kind": c.kind, "checked": c.checked or "Unchecked", "link": c.link,
+                      "at": addr(*c.anchor) if c.anchor else None, "text": c.text, "provenance": DET,
+                      **_ax_control_info(c)}
+                     for c in sh.controls],
+        "shapes": [{"kind": s.kind, "name": s.name, "text": s.text, "alt": s.alt,
+                    "anchor": addr(*s.anchor) if s.anchor else None, "provenance": DET,
+                    **({"decorative": True} if getattr(s, "decorative", False) else {})} for s in sh.shapes],
+        "notes": [{"cell": addr(*k), "text": t, "provenance": DET} for k, t in sorted(sh.comments.items())],
+        "tables": _tables(wb, sh),
+    }
 
 
 def _split_spans(text: str, blanks: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -1518,11 +1583,15 @@ def _md_sheet(sh: dict) -> list[str]:
 
 
 def to_markdown(doc: dict) -> str:
+    return _to_markdown(doc, [_md_sheet(sh) for sh in doc["sheets"]])
+
+
+def _to_markdown(doc: dict, sheet_lines: list[list[str]]) -> str:
     from ..macros import markdown as macro_md
 
     out = _md_head(doc)
-    for sh in doc["sheets"]:
-        out += _md_sheet(sh)
+    for lines in sheet_lines:
+        out += lines
     out += macro_md(doc.get("macros"))
     return "\n".join(out)
 
@@ -1536,12 +1605,12 @@ def markdown_parts(doc: dict, budget: int = BUDGET) -> list[tuple[str, str]]:
     分けるときは、最初の部分を目次にし、シートごと（大きなシートは行の範囲ごと）に分ける。
     どの部分にも、見出しの行（どのシートのどこか）を付ける。
     """
-    whole = to_markdown(doc)
+    sheet_lines = [_md_sheet(sh) for sh in doc["sheets"]]  # シートの窓は一度だけ作る（全体と部分の両方に使う）
+    whole = _to_markdown(doc, sheet_lines)
     if len(whole) <= budget:
         return [("全体", whole)]
     parts: list[tuple[str, list[str]]] = []
-    for sh in doc["sheets"]:
-        lines = _md_sheet(sh)
+    for sh, lines in zip(doc["sheets"], sheet_lines):
         title = f"シート「{sh['name']}」"
         if sum(len(x) + 1 for x in lines) <= budget:
             parts.append((title, lines))
@@ -1692,29 +1761,49 @@ def _group_fields(fields: list[dict]) -> list[tuple[str, str, str, str]]:
     """表の列のように、同じ見出し・同じ種類の欄が縦に続くところ（1〜4行おき）は1行にまとめる。"""
     from ..formula.parser import parse_cell
 
+    # 同じ種類・同じ見出し・同じ列の欄を、元の順のまま組に分けておく（欄ごとに残り全部を見直すと、
+    # 欄の多いシートで欄の数の2乗かかる）。組の中で、もう出した欄・まとめた欄は飛ばす
+    pos: dict[int, tuple[int, int]] = {}  # 欄の順番 → (行, 列)
+    groups: dict[tuple, list[int]] = {}
+    for i, g in enumerate(fields):
+        if g.get("cell") and g["kind"] != "checkbox":
+            pos[i] = parse_cell(g["cell"])
+            groups.setdefault((g["kind"], g.get("label"), pos[i][1]), []).append(i)
+    head = {k: 0 for k in groups}  # 組の中で、まだ出していない欄の始まり
+    used: set[int] = set()  # まとめて出した欄
+
+    def later(key: tuple, i: int, r0: int):
+        """組の中で、i より後に残っていて、r0 より下の欄（元の順）。"""
+        idx = groups[key]
+        while head[key] < len(idx) and idx[head[key]] <= i:
+            head[key] += 1
+        for j in idx[head[key]:]:
+            if j not in used and pos[j][0] > r0:
+                yield j
+
     out = []
-    rest = list(fields)
-    while rest:
-        f = rest.pop(0)
-        if f.get("cell") and f["kind"] != "checkbox":
-            r0, c0 = parse_cell(f["cell"])
-            same = [g for g in rest if g.get("cell") and g["kind"] == f["kind"] and g.get("label") == f.get("label")
-                    and parse_cell(g["cell"])[1] == c0 and parse_cell(g["cell"])[0] > r0]
-            run = [f]
-            if same:
-                step = parse_cell(same[0]["cell"])[0] - r0
+    for i, f in enumerate(fields):
+        if i in used:
+            continue
+        if i in pos:
+            r0, c0 = pos[i]
+            run_idx = [i]
+            same = later((f["kind"], f.get("label"), c0), i, r0)
+            first = next(same, None)
+            if first is not None:
+                step = pos[first][0] - r0
                 if 1 <= step <= 4:
                     want = r0 + step
-                    for g in same:
-                        rg = parse_cell(g["cell"])[0]
+                    for j in itertools.chain((first,), same):
+                        rg = pos[j][0]
                         if rg == want:
-                            run.append(g)
+                            run_idx.append(j)
                             want += step
                         elif rg > want:
                             break
-            if len(run) >= 3:
-                ids = {id(g) for g in run}
-                rest = [g for g in rest if id(g) not in ids]
+            if len(run_idx) >= 3:
+                used.update(run_idx)
+                run = [fields[j] for j in run_idx]
                 filled = sum(1 for g in run if g.get("value") not in (None, ""))
                 vals = "空欄" if not filled else f"記入済み {filled}・空欄 {len(run) - filled}"
                 outside = sum(1 for g in run if g.get("outside_print_area"))
