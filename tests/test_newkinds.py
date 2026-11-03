@@ -89,7 +89,7 @@ def test_txt_audit_and_grade(tmp_path):
     names = {c["name"] for c in au["checks"]}
     assert {"読み落とし（行の字）", "全入力欄への書き込み", "読み戻し", "字を目印にした書き込み"} <= names
     g = api.grade(str(p))
-    assert g["grade"] == "C" and g["write"]["grade"] == "B"  # 「？」の所があるので C、推定の欄なので B
+    assert g["grade"] == "A" and g["write"]["grade"] == "B"  # 字は読める（A）。推定の欄・「？」の所は書く段階の B
     plain = tmp_path / "b.txt"
     plain.write_bytes("ただの文です。\n二行目です。\n".encode())
     g = api.grade(str(plain))

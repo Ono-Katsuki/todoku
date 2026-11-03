@@ -300,9 +300,16 @@ def _grade_data(k: str, blob: bytes, name: str):
         from .datafile.csvfile import CsvFile
 
         f = CsvFile(blob, name, k)
-        if "\x00" in f.text:
+        nul = f.text.count("\x00")
+        if nul and f.dec.encoding == "latin-1":
+            # どの文字コードとしても読めず（Latin-1 として読んだ）、NUL もある：文字のファイルかを決められない
             return _locked("読めない", "文字のファイルではありません（バイナリのデータが入っています）", "読めないので、書けません")
         reasons = [Reason("S", "データそのもの", f"表のデータ（{KIND_JA[k]}・{f.dec.label}・{len(f.records):,} 行）で、変換しなくても機械が読めます")]
+        if nul:
+            # 文字コードとして正しく読めたファイルの中の NUL（U+0000）：値の中の制御文字。中身は読めるので、段階は変えない
+            rows = [str(i) for i, ln in enumerate(f.text.split("\n"), 1) if "\x00" in ln][:12]
+            reasons.append(Reason("S", "値の中の NUL", f"値の中に NUL（U+0000、制御文字）が {nul:,} 個あります（{f.dec.label}として読めるファイル）。"
+                                  "表のデータとしては読めます。NUL を値の一部とするかは、使う側で決めます", [f"{r}行目" for r in rows]))
         if f.problems:
             reasons.append(Reason("S", "書き方の問題", "RFC 4180 に合わない書き方があります（どう読んだかは窓に書いてあります）", f.problems[:5]))
         return Grade("S", reasons, write="A", write_reasons=direct)
@@ -340,21 +347,14 @@ def _grade_txt(blob: bytes, name: str):
 
 
 def _grade_textdoc(win: dict, kind_ja: str, explicit: str):
-    """Word と同じ決め方：規則では決められない所は C、配置から推定した欄は B、作り手の印（部品・入力の欄）だけなら A。"""
-    from .grade import Reason, _agent_reason, _final, _macro_reasons, _write_fields, _write_macros
+    """Word と同じ決め方：入力欄（作り手の印・配置からの推定・規則では決められない所）は書く段階で決め、読む段階は
+    中身が読めるか（マクロ・読めない部分）だけで決める。"""
+    from .grade import Reason, _final, _macro_reasons, _write_fields, _write_macros
 
     reasons: list = []
     agent = [f for f in win["fields"] if f.get("agent")]
     fields = [f for f in win["fields"] if not f.get("agent")]
     layout = [f for f in fields if f.get("source") == "layout"]
-    if agent:
-        reasons.append(_agent_reason(agent))
-    if layout:
-        reasons.append(Reason("B", "配置から推定した入力欄",
-                              f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、{explicit}ではなく、空のマスや空白・下線から推定しました",
-                              [f["id"] for f in layout[:12]]))
-    elif fields:
-        reasons.append(Reason("A", "作り手の印のある入力欄", f"入力欄 {len(fields)} か所は、すべて{kind_ja}の{explicit}です"))
     reasons += _macro_reasons(win.get("macros"))
     for e in win.get("unread") or []:
         reasons.append(Reason("F", "読めない部分", e))

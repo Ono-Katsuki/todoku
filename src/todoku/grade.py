@@ -1,31 +1,38 @@
 """書類の段階：読む段階（S〜F）と書く段階（A〜D）。どちらも、いちばん悪い条件で決める。
 
-読む段階（S〜F）：誰が扱えば、中身を正確に読めるか。
+読む段階（S〜F）：誰が扱えば、中身（字・数・表の並び）を正確に読めるか。読むことだけで決める：入力欄（書く所）が
+作り手の印で決まるか・配置からの推定か・規則では決められない所（窓の「？」）かは、書く段階で決め、読む段階には入れない
+（様式でない統計表・報告の見出しや空のマスが「？」の候補になっても、中身が正確に読めれば読む段階は下げない）。
 
 S 素で問題ない（表のデータそのもの：CSV・JSON など）
-A 規則だけで正確に読める（入力欄がすべて作り手の印で決まり、数式もすべて確かめられる）
-B エージェントが読めば正確（一部の欄が配置からの推定か、規則では決められない）
-C エージェントが工夫して変換できる（マクロなど、規則では再現しない処理がある）
-D エージェントの解釈が必要（書く値がおおよそでよい・人によって解釈が分かれる書き方がある）
-E エージェントが得意でない形式（文字の情報がないページ：画像だけの PDF・スキャン）
-F アクセスできない（開けない・パスワードが分からない・読めない部分がある）
+A 規則だけで正確に読める（中身の字・並び・表示の値がファイルの作りから決まり、数式もすべて確かめられる）
+B エージェントが読めば正確（中身は窓にすべて出ているが、一部の値の読み方が規則では決まらず、窓に示した根拠で
+  エージェントが決める：Excel 以外のアプリが保存した計算結果 など）
+C エージェントが工夫して変換できる（マクロ・確かめられない数式・自動で動くスクリプトなど、規則では再現しない処理がある。
+  文字コードを決められない）
+D エージェントの解釈が必要（書く値がおおよそでよい・人によって解釈が分かれる書き方がある：エージェントの判断）
+E エージェントが得意でない形式（字として読めない中身があり、エージェントがページを画像として見て読む：画像だけの
+  ページ・スキャン（todoku が開けない圧縮の画像も含む）、字に直せない本文の字、画像だけのシート・文書）
+F アクセスできない（開けない・パスワードが分からない・中身を取り出せない・ページが1つもない）
+  ※字に直せない字が、行の頭の印（箇条の印など）だけなら、語は欠けていないので段階は変えず、注意（alerts）に位置を示す
 
 書く段階（A〜D）：エージェントが、どうすれば書けるか。
 A エージェントがそのまま書ける（入力欄がすべて作り手の印で決まる：フォームの欄・コンテンツコントロール・入力規則など）
-B 解析しないと書けない（書く所を、罫線・空き・空のセルなどの配置から推定するか、エージェントが窓を読んで決める）
+B 解析しないと書けない（書く所を、罫線・空き・空のセルなどの配置から推定するか、規則では決められない所（窓の「？」）を
+  エージェントが窓を読んで決める。スキャンのページ（PDF）は、エージェントがページの画像（view_page）を見て枠で書く）
 C 画面（UI）から入力する（ボタンで動くマクロ、または書類が電子申請などの画面からの入力を求めている）
-D 書けない（アクセスできない・字の情報のない紙（スキャン）・押印や自署のような手書き）
+D 書けない（アクセスできない・字の情報がなく、ページの画像も作れない紙・押印や自署のような手書き）
   ※様式が認める所には、本人が同意したときだけ、本人の印影・署名の画像を置ける（fill の seal・signature）。
     それで書けるかは書類の決まり（意味）によるので、段階は変えず、問い（cannot_do）でエージェントが確かめる
   ※郵送・持参・来庁などの提出のしかたは、書類の外のことなので、段階の対象にしない
 
 段階とは別に、アクセシビリティの注意（alerts）を示す：エージェントが読めるかとは別に、画面の読み上げなどを使う人に
-届かない作りのこと（説明（代わりの字）のない画像：WCAG 1.1.1・PDF/UA）。段階は変えない。
+届かない作りのこと（説明（代わりの字）のない画像：WCAG 1.1.1・PDF/UA、字に直せない行の頭の印：PDF/UA 7.21.7）。段階は変えない。
 
 判定は「規則」か「エージェント」のどちらかで行う。言葉の一致（「押印」「約」など）は、打ち消しや書類の名前の中の語も
 拾ってしまい判定の根拠として弱いので、使わない。
 - 規則：ファイルの構造から確実に分かること（フォームの欄・入力規則などの印、配置からの推定か、画像だけのページ、
-  マクロの命令（意味の決まったプログラムの文法で調べる）、開けるか）
+  字に直せない字が行の頭の印か本文の字か（字の並びの形）、マクロの命令（意味の決まったプログラムの文法で調べる）、開けるか）
 - エージェント：書かれた内容の意味が要ること（エージェントにはできない記入、書く値のぼかし）。todoku は問い（agent_checks）を
   示し、エージェントが窓を読んで答えた判断（combine）を、出どころ「エージェントの判断」として段階に合わせる
 """
@@ -325,12 +332,18 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
 
     doc = PdfDocument(blob, filename, password=password) if password else PdfDocument(blob, filename)
     win = build(doc)
+    if not win["pages"]:
+        return _locked("ページがない", "ページの木（Catalog の Pages）をたどっても、ファイルを頭から読み直しても、ページが1つも"
+                       "見つかりません。窓は空なので、中身を読めません", "ページがないので、書けません")
     reasons: list[Reason] = []
     write: list[Reason] = []
-    unmapped = [f"{p['number']}ページ（{p['unmapped']} 字）" for p in win["pages"] if p.get("unmapped")]
-    if unmapped:
-        reasons.append(Reason("F", "文字に直せない字", "フォントに文字の対応がなく、文字に直せない字があります（窓では �）。"
-                              "読めないものには、エージェントもアクセスできません", unmapped))
+    marks, body = _unmapped(win["pages"])
+    if body:
+        n = sum(k for _w, k in body)
+        reasons.append(Reason("E", "字に直せない本文の字",
+                              f"{n} 字は、フォントに文字の対応がなく、字に直せません（窓では �）。その所の中身は、ページを画像として"
+                              "見て読みます（todoku の view_page は画像だけを描き、字は描かないので、PDF を描ける別の道具で見ます）。"
+                              "中身を推測で埋めないでください", [w for w, _k in body][:12]))
     img = [f"{p['number']}ページ" for p in win["pages"] if p.get("image_only")]
     if img:
         from .pdf.pageimage import unreadable_images
@@ -345,10 +358,14 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
             write.append(Reason("B", "画像だけのページ", f"{len(ok)} ページは字の情報のない紙（スキャン）です。エージェントがページの画像"
                                 "（view_page）を見て、書く所を枠（mm）で決めて書きます", ok))
         if bad:
-            reasons.append(Reason("F", "開けない画像だけのページ", f"{len(bad)} ページは画像だけで、その画像の圧縮（"
-                                  + "・".join(sorted({x.split('：')[-1] for v in bad.values() for x in v})) + "）を todoku が開けません",
+            # 書類はスキャン（画像だけ）で、中身は画像として見て読むもの（E）。開けないのは todoku の圧縮の対応で、書類のせいではない
+            codecs = "・".join(sorted({x.split('：')[-1] for v in bad.values() for x in v}))
+            reasons.append(Reason("E", "画像だけのページ（todoku が開けない圧縮）",
+                                  f"{len(bad)} ページは文字の情報がなく、画像（スキャン）です。その画像の圧縮（{codecs}）を todoku は"
+                                  "開けないので、view_page ではページの画像を出せません。PDF を描ける別の道具でページを見て読みます",
                                   list(bad)))
-            write.append(Reason("D", "開けない画像だけのページ", f"{len(bad)} ページは画像を開けないので、書く所を決められません", list(bad)))
+            write.append(Reason("D", "開けない画像だけのページ", f"{len(bad)} ページは、画像の圧縮（{codecs}）を todoku が開けず、"
+                                "ページの画像で書く所を確かめられないので、書けません", list(bad)))
     if win["form"]["xfa"]:
         xr, xw_ = _xfa_reasons(win.get("xfa"))
         reasons += xr
@@ -356,19 +373,43 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
     agent = [f for p in win["pages"] for f in p["fields"] if f.get("agent")]
     fields = [f for p in win["pages"] for f in p["fields"] if not f.get("agent")]
     layout = [f for f in fields if f.get("source") == "layout"]
-    if agent:
-        reasons.append(_agent_reason(agent))
-    if layout:
-        reasons.append(Reason("B", "配置から推定した入力欄",
-                              f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、フォームの欄ではなく、罫線や空きから推定しました"
-                              "（窓には見出しと前後の文字を添えています）", [f["id"] for f in layout[:12]]))
-    elif fields:
-        reasons.append(Reason("A", "フォームの欄", f"入力欄 {len(fields)} か所は、すべて PDF のフォームの欄です"))
     write += _write_fields(fields, layout, agent, "フォームの欄",
-                           "見出しの右や下の空いている所を、見出しの字を手がかりに指定して書きます")
+                           "見出しの右や下の空いている所を、見出しの字を手がかりに指定して書きます",
+                           "罫線や空きから推定しました（窓には見出しと前後の文字を添えています）")
     g = _final(reasons, write)
-    g.alerts = picture_alerts([p for pg in win["pages"] for p in pg.get("pictures", [])])
+    g.alerts = picture_alerts([p for pg in win["pages"] for p in pg.get("pictures", [])]) + _mark_alerts(marks)
     return g
+
+
+def _unmapped(pages: list[dict]) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
+    """字に直せない字を、行の頭の印（箇条の印）と本文の字に分ける：(所, 字の数) の一覧。行に入らなかった字（窓の作り方で
+    1字にした重ね書き・見えない大きさの字を除いて、数の合わないもの）は、本文の字として数える（読めない中身かもしれない）。"""
+    marks, body = [], []
+    for p in pages:
+        if not p.get("unmapped"):
+            continue
+        n0 = p["number"]
+        for m in p.get("unmapped_marks") or []:
+            marks.append((f"{n0}ページ・{m['where']}の行「{m['near'][:20]}」の頭", m["count"]))
+        for m in p.get("unmapped_text") or []:
+            body.append((f"{n0}ページ・{m['where']}の行「{m['near'][:20]}」", m["count"]))
+        placed = sum(m["count"] for m in (p.get("unmapped_marks") or []) + (p.get("unmapped_text") or []))
+        dropped = sum(t.count("\ufffd") for _k, t in p.get("_dropped") or [])
+        rest = p["unmapped"] - placed - dropped
+        if rest > 0:
+            body.append((f"{n0}ページ（行に入らない字）", rest))
+    return marks, body
+
+
+def _mark_alerts(marks: list[tuple[str, int]]) -> list[Reason]:
+    """字に直せない行の頭の印：語は欠けていないので段階は変えない。画面の読み上げでは、印が読めない（PDF/UA 7.21.7）。"""
+    if not marks:
+        return []
+    return [Reason("F", "字に直せない行の頭の印",
+                   f"行の頭の印（箇条の印など）{sum(k for _w, k in marks)} 字は、フォントに文字の対応がなく、字に直せません（窓では �）。"
+                   "後ろの文の字は欠けていないので、段階は変えません。印の形（・や □ など）を知りたいときは、ページを見て確かめます。"
+                   "画面の読み上げを使う人には、印が届きません（PDF/UA 7.21.7）",
+                   [w for w, _k in marks][:12])]
 
 
 def picture_alerts(pictures: list[dict]) -> list[Reason]:
@@ -382,12 +423,18 @@ def picture_alerts(pictures: list[dict]) -> list[Reason]:
                    [f"{p['id']}（{p.get('where', '')}）" for p in bare[:12]])]
 
 
-def _write_fields(fields: list[dict], layout: list[dict], agent: list[dict], marked: str, free: str) -> list[Reason]:
-    """入力欄の書く段階：作り手の印の欄だけなら A、配置からの推定やエージェントの判断が要れば B。"""
-    if layout or agent:
-        ids = [f["id"] for f in layout + agent]
-        return [Reason("B", "解析して決める入力欄",
-                       f"{len(ids)} か所は、作り手の印のない所で、配置から推定するか、エージェントが窓を読んで書く所を決めます", ids[:12])]
+def _write_fields(fields: list[dict], layout: list[dict], agent: list[dict], marked: str, free: str,
+                  how: str = "空のマスや空白・下線から推定しました") -> list[Reason]:
+    """入力欄の書く段階：作り手の印の欄だけなら A、配置からの推定（B）・規則では決められない所（窓の「？」。B）があれば B。
+    入力欄の見つけ方は書く段階だけで決める（読む段階は、中身が正確に読めるかで決める）。"""
+    out = []
+    if layout:
+        out.append(Reason("B", "配置から推定した入力欄",
+                          f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、{marked}ではなく、{how}", [f["id"] for f in layout[:12]]))
+    if agent:
+        out.append(_agent_reason(agent))
+    if out:
+        return out
     if fields:
         return [Reason("A", marked, f"入力欄 {len(fields)} か所は、すべて{marked}で、id を指定してそのまま書けます")]
     return [Reason("B", "印のある欄がない", f"作り手の印のある欄がありません。{free}")]
@@ -450,11 +497,12 @@ def _xfa_reasons(xw: dict | None) -> tuple[list[Reason], list[Reason]]:
 
 
 def _agent_reason(agent: list[dict]) -> Reason:
-    """規則では決められない所（窓の［…？］）：エージェントが窓を読んで判断し、書く所なら id を指定して書く（C）。"""
+    """規則では決められない所（窓の［…？］）：エージェントが窓を読んで判断し、書く所なら id を指定して書く。
+    書く所の見つけ方なので、書く段階の B（解析しないと書けない）。読む段階は変えない。"""
     kinds: dict[str, int] = {}
     for f in agent:
         kinds[f.get("why", "")] = kinds.get(f.get("why", ""), 0) + 1
-    return Reason("C", "規則では決められない所",
+    return Reason("B", "規則では決められない所",
                   f"書き込む所かもしれない所 {len(agent)} か所は、規則では欄と決められません（"
                   + "・".join(f"{k} {n}" for k, n in kinds.items())
                   + "）。エージェントが窓を読んで判断し、書く所なら id を指定して書きます",
@@ -480,15 +528,14 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
     agent = [f for f in win["fields"] if f.get("agent")]
     fields = [f for f in win["fields"] if not f.get("agent")]
     layout = [f for f in fields if f.get("source") == "layout"]
-    if agent:
-        reasons.append(_agent_reason(agent))
-    if layout:
-        reasons.append(Reason("B", "配置から推定した入力欄",
-                              f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、フォームの欄ではなく、空のマスや空白・下線から推定しました",
-                              [f["id"] for f in layout[:12]]))
-    elif fields:
-        reasons.append(Reason("A", "フォームの欄", f"入力欄 {len(fields)} か所は、すべて Word のフォームの欄・コンテンツコントロールです"))
     reasons += _macro_reasons(win.get("macros"))
+    pics = [p for p in win.get("pictures") or [] if not p.get("decorative")]
+    has_text = any(str(t).strip() for st in win.get("stories") or [] for t in st.get("_plain") or [])
+    if pics and not has_text and not fields:
+        # 字が1字もなく、画像だけの文書（スキャンを貼ったものなど）：中身は画像として見て読む
+        reasons.append(Reason("E", "画像だけの文書", f"本文に字がなく、中身は画像 {len(pics)} 個だけです。中身は画像を見て読みます",
+                              [p["id"] for p in pics[:12]]))
+        write.append(Reason("D", "画像だけの文書", "字の情報がなく、書く所を字で示せないので、書けません（手で書く紙として扱います）"))
     write += _write_fields(fields, layout, agent, "フォームの欄・コンテンツコントロール",
                            "欄のない所は、前後の字を指定して書き換えます")
     write += _write_embeds(win.get("embeds") or [])
@@ -565,10 +612,10 @@ _CONTROL_KINDS = ("checkbox", "radio", "select", "multiselect", "spin", "option"
 
 
 def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "シート保護") -> None:
-    """表計算（Excel・OpenDocument）の入力欄の段階：
+    """表計算（Excel・OpenDocument）の入力欄の、書く段階（入力欄の見つけ方は読む段階に入れない。reasons は変えない）：
     - A：すべての欄が、ファイルの作りとしての印（入力規則・保護の中のロックの解除・フォームの部品）で決まる
-    - B：罫線・塗りと近くの見出し・文字の中の空欄の字の形・数式の入力から推定した欄（印ではない）
-    - C：規則では決められない所（窓の［B5？］・文字の中の［？］。エージェントが判断する）・重なった入力規則"""
+    - B：罫線・塗りと近くの見出し・文字の中の空欄の字の形・数式の入力から推定した欄（印ではない）、規則では決められない所
+      （窓の［B5？］・文字の中の［？］。エージェントが判断する）、重なった入力規則（どれが使われるかをエージェントが読む）"""
     marked, boxed, inferred, inline, overlap, agent = [], [], [], [], [], []
     for sh in doc["sheets"]:
         for f in sh.get("fields", []):
@@ -590,43 +637,43 @@ def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "�
                 overlap.append(f["id"])
     n_fields = len(marked) + len(boxed) + len(inferred) + len(inline)
     guessed = inline + boxed + inferred
-    if guessed or agent or overlap:
-        ids = guessed + [f["id"] for f in agent] + overlap
-        write.append(Reason("B", "解析して決める入力欄",
-                            f"{len(ids)} か所は、入力欄の印がなく（か、入力規則が重なっていて）、"
-                            "枠・塗りと近くの見出し・文字の中の空き・数式の入力・表の作りから解析して書く所を決めます", ids[:12]))
-    elif n_fields:
-        write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・{protect}・フォームの部品の印で決まり、そのまま書けます"))
-    else:
-        write.append(Reason("B", "印のある欄がない", f"入力欄の印（入力規則・{protect}など）がありません。表の作りを読んで、書くセルを番地で指定します"))
     if boxed:
-        reasons.append(Reason("B", "枠・塗りから推定した入力欄",
-                              f"{len(boxed)} か所は、入力規則も{protect}の印もなく、枠や塗りのある空のマスで、そばに見出しがあることから推定した欄です",
-                              boxed[:12]))
+        write.append(Reason("B", "枠・塗りから推定した入力欄",
+                            f"{len(boxed)} か所は、入力規則も{protect}の印もなく、枠や塗りのある空のマスで、そばに見出しがあることから推定した欄です",
+                            boxed[:12]))
     if inline:
-        reasons.append(Reason("B", "文字の中の空欄", f"{len(inline)} か所は、「（　　）」「＿＿＿」のような、文字の中の空欄の形から推定した欄です", inline[:12]))
+        write.append(Reason("B", "文字の中の空欄", f"{len(inline)} か所は、「（　　）」「＿＿＿」のような、文字の中の空欄の形から推定した欄です", inline[:12]))
     if inferred:
-        reasons.append(Reason("B", "印のない入力欄", f"{len(inferred)} か所は、入力規則も枠もなく、数式の入力になっていることから推定した欄です",
-                              inferred[:12]))
+        write.append(Reason("B", "印のない入力欄", f"{len(inferred)} か所は、入力規則も枠もなく、数式の入力になっていることから推定した欄です",
+                            inferred[:12]))
     if agent:
-        reasons.append(_agent_reason(agent))
+        write.append(_agent_reason(agent))
     if overlap:
-        reasons.append(Reason("C", "重なった入力規則",
-                              f"{len(overlap)} か所に入力規則が重なっていて、どの規則が使われるかはファイルから決まりません。"
-                              "窓に出したそれぞれの規則を、エージェントが読んで判断します", overlap[:12]))
-    if n_fields and not (guessed or agent or overlap):
-        reasons.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・{protect}・フォームの部品の印で決まります"))
+        write.append(Reason("B", "重なった入力規則",
+                            f"{len(overlap)} か所に入力規則が重なっていて、どの規則が使われるかはファイルから決まりません。"
+                            "窓に出したそれぞれの規則を、エージェントが読んで、合う値を書きます", overlap[:12]))
+    if not (guessed or agent or overlap):
+        if n_fields:
+            write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・{protect}・フォームの部品の印で決まり、そのまま書けます"))
+        else:
+            write.append(Reason("B", "印のある欄がない", f"入力欄の印（入力規則・{protect}など）がありません。表の作りを読んで、書くセルを番地で指定します"))
 
 
 def image_only_sheets(wb) -> list[str]:
-    """画像だけのシート：絵・グラフがあり、使っている範囲（印刷範囲があればその中）に、値・数式のあるセルも、字のある図形・部品もない
-    （ファイルの作りで決まる）。"""
+    """画像だけのシート：絵があり、使っている範囲（印刷範囲が絵に重なれば、その中）に、値・数式のあるセルも、字のある図形・部品も
+    ない（ファイルの作りで決まる）。グラフはセルの値から描くもので、中身は値として読めるので数えない。"""
     out = []
     for sh in wb.sheets:
         shapes = getattr(sh, "shapes", [])
-        if not any(s.kind in ("picture", "chart") for s in shapes):
+        # グラフは、セルの値から描くもの（中身は値として窓に出る）なので、画像に数えない。絵（picture）だけ
+        pics = [s for s in shapes if s.kind == "picture"]
+        if not pics:
             continue
-        if any((c.has_formula or c.value not in (None, "")) and sh.in_print_area(r, col) for (r, col), c in sh.cells.items()):
+        # 印刷範囲が絵のどれとも重ならない（使っている範囲の外にある、など）ときは、印刷範囲で見ず、シート全体で見る
+        anchors = [getattr(s, "anchor", None) for s in pics]
+        in_area = any(a is not None and sh.in_print_area(*a) for a in anchors) or all(a is None for a in anchors)
+        if any((c.has_formula or c.value not in (None, "")) and (not in_area or sh.in_print_area(r, col))
+               for (r, col), c in sh.cells.items()):
             continue
         if any((getattr(s, "text", "") or "").strip() for s in shapes) or \
                 any((getattr(c, "text", "") or "").strip() for c in getattr(sh, "controls", [])):
@@ -699,12 +746,12 @@ def _grade_word6(doc) -> Grade:
     agent = [f for f in win["fields"] if f.get("agent")]
     fields = [f for f in win["fields"] if not f.get("agent")]
     if agent:
-        reasons.append(_agent_reason(agent))
+        write.append(_agent_reason(agent))
     layout = [f for f in fields if f.get("source") == "layout"]
     if layout:
-        reasons.append(Reason("B", "配置から推定した入力欄",
-                              f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、フォームの欄ではなく、空のマスや空白・下線から推定しました",
-                              [f["id"] for f in layout[:12]]))
+        write.append(Reason("B", "配置から推定した入力欄",
+                            f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、フォームの欄ではなく、空のマスや空白・下線から推定しました",
+                            [f["id"] for f in layout[:12]]))
     unread = sum(t.count("状態は読めません") for st in win["stories"] for t in st["reading"])
     if unread:
         reasons.append(Reason("C", "状態の読めないフォームの欄",
@@ -744,11 +791,11 @@ def _grade_jtd(blob: bytes, filename: str) -> Grade:
     agent = [f for f in win["fields"] if f.get("agent")]
     fields = [f for f in win["fields"] if not f.get("agent")]
     if agent:
-        reasons.append(_agent_reason(agent))
+        write.append(_agent_reason(agent))
     if fields:
-        reasons.append(Reason("B", "配置から推定した入力欄",
-                              f"一太郎の文書には入力欄の印がないので、入力欄 {len(fields)} か所は、空のマスや空白・□ から推定しました",
-                              [f["id"] for f in fields[:12]]))
+        write.append(Reason("B", "配置から推定した入力欄",
+                            f"一太郎の文書には入力欄の印がないので、入力欄 {len(fields)} か所は、空のマスや空白・□ から推定しました",
+                            [f["id"] for f in fields[:12]]))
     ok = [f for f in fields if not f.get("readonly")]
     blocked = [f for f in fields if f.get("readonly")]
     grow = [f for f in ok if f["kind"] != "checkbox" and not f.get("maxlen")]
