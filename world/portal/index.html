@@ -458,11 +458,11 @@ tr.unr td { color: var(--muted); }
   <section aria-labelledby="h-method">
     <h2 id="h-method">方法と限界</h2>
     <div class="method">
-      <div><h3>母集団と標本</h3><p>各国の政府の公式のオープンデータ目録に登録された、PDF・表計算・文書・CSV の書類。国 × 形式の群を層にして、層ごとに 250 件を無作為に選びました（二段の抽出。選ばれる重みを記録）。目録の API が robots.txt で禁止されている国は、届かない国として示しています。</p></div>
+      <div><h3>母集団と標本</h3><p>各国の政府の公式のオープンデータ目録に登録された、PDF・表計算・文書・CSV の書類。国 × 形式の群を層にして、層ごとに 250 件を無作為に選びました（二段の抽出。選ばれる重みを記録）。国は選び出さず、国連の加盟 193 か国のすべてについて、公式の目録を探した結果（届く・目録はあるが使えない（理由）・公式の国の目録が見つからない）を地図に示しています。robots.txt は RFC 9309 のとおりに読み、目録の API が禁止されている国は届かない国としています。</p></div>
       <div><h3>分析の単位</h3><p>主の単位は書類（ファイル）です。段階がファイルごとに付くためです。書く段階の理由は入力欄ごとにも数えます。書類の数だけでなく、字数や欄の数でも偏りを確かめます。</p></div>
       <div><h3>測ること</h3><p>届くか（robots.txt・HTTP・ログイン・ボット対策）、読む段階 S〜F、書く段階 A〜D、その理由。すべて決定的な処理です。10% の部分標本では、全欄に書いて、書いた所のほかはバイト一致することを証明しました。</p></div>
       <div><h3>限界</h3><p>オープンデータの目録には統計の表や報告書が多く、申請の様式は少なめです。省庁の様式のページは枠に入っていません。段階の妥当性は、人の評価者 2 人による一致度（κ）で確かめる予定です。</p></div>
-      <div><h3>礼儀</h3><p>robots.txt を守り、同じ相手には 2 秒以上の間をあけました。ボット対策やログインは破らず、そう記録しました。書類は段階を付けたあとに消し、URL・SHA-256・結果だけを残しています。</p></div>
+      <div><h3>礼儀</h3><p>robots.txt を RFC 9309 のとおりに読んで守り（Crawl-delay も守る）、同じ相手には 2 秒以上の間をあけました。ボット対策やログインは破らず、そう記録しました。書類はスコアを付けたあとに消し、URL・SHA-256・結果だけを残しています。</p></div>
     </div>
     <div class="refs">
       <span>Moynihan, Herd &amp; Harvey (2015) JPART · Herd &amp; Moynihan (2018) · Goodwin et al. (2011) JITP · Singanamalla et al. (2020) IMC · Kumar &amp; Wang (2024) ASSETS · Foppiano (2026) WAC · Fok et al. (2022) CHI · Hackett &amp; Parmanto (2009) · Vigo, Brown &amp; Conway (2013) W4A · Brown, Cai &amp; DasGupta (2001) · Cohen (1960) · Thelwall &amp; Stuart (2006) · Partridge &amp; Allman (2016) · Ono (2026) ASSETS</span>
@@ -544,7 +544,7 @@ tr.unr td { color: var(--muted); }
       .attr("fill", f => {
         const cc = byIso[f.id];
         if (cc) { const v = DATA.countries[cc][metric]; return v && v.p != null ? color(v.p) : css("--none"); }
-        if (unr[f.id]) return "url(#hatch)";
+        if (unr[f.id]) return DATA.unreached[unr[f.id]].outcome === "none" ? css("--line") : "url(#hatch)";
         return css("--none");
       })
       .attr("tabindex", f => byIso[f.id] ? 0 : null)
@@ -566,6 +566,7 @@ tr.unr td { color: var(--muted); }
     const lg = document.getElementById("legend");
     lg.innerHTML = BINS.map(([a, , label], i) => `<span><span class="sw" style="background:var(--q${i + 1})"></span>${label}</span>`).join("") +
       `<span><span class="sw" style="background:repeating-linear-gradient(45deg,${css("--hatch")} 0 2px,transparent 2px 5px);border:1px solid ${css("--line")}"></span>目録に届かない</span>` +
+      `<span><span class="sw" style="background:${css("--line")}"></span>公式の国の目録が見つからない</span>` +
       `<span><span class="sw" style="background:${css("--none")}"></span>調べていない</span>`;
     document.getElementById("metric-note").textContent = METRIC[metric].label + "：" + METRIC[metric].note +
       "国の値は、PDF・表計算・文書・CSV の割合を、その国の目録にある数に合わせて足し合わせたものです（選んだ数の偏りを直すため）。マルタは地図では小さすぎるので、下の一覧で見てください。";
@@ -615,7 +616,7 @@ tr.unr td { color: var(--muted); }
        <td class="num">${pct(c.forms_writable.p)}<br><span class="ci">${c.forms_writable.n ? "様式 " + c.forms_writable.n : ""}</span></td></tr>`).join("") +
       (!allCountries ? "" : pending.length ? `<tr class="unr"><td>まだ選んでいない ${pending.length} か国</td><td colspan="7">目録には届いていて、標本をまだ選んでいません：${pending.map(esc).join("・")}</td></tr>` : "") +
       Object.entries(Object.values(DATA.unreached).reduce((m, u) => ((m[u.why] ||= []).push(u.name), m), {}))
-        .filter(() => allCountries).map(([why, names]) => `<tr class="unr"><td>目録に届かない ${names.length} か国</td><td colspan="7">${esc(why)}：${names.map(esc).join("・")}</td></tr>`).join("");
+        .filter(() => allCountries).map(([why, names]) => `<tr class="unr"><td>${why.startsWith("公式の国の目録が見つからない") ? "目録が見つからない" : "目録に届かない"} ${names.length} か国</td><td colspan="7">${esc(why)}：${names.map(esc).join("・")}</td></tr>`).join("");
     tb.querySelectorAll("a[data-cc]").forEach(a => a.addEventListener("click", () => select(a.dataset.cc)));
   }
   // コピーのボタン（使えないときは、字を選んだ状態にする）

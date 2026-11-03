@@ -17,14 +17,9 @@ ROOT = Path(__file__).resolve().parent.parent
 W = ROOT / "world"
 Z = 1.959964
 
-ISO_NUM = {
-    "JP": "392", "GB": "826", "CA": "124", "NL": "528", "GR": "300", "UA": "804", "HR": "191", "LV": "428", "IL": "376",
-    "DE": "276", "AT": "040", "IT": "380", "BE": "056", "PT": "620", "FR": "250", "SI": "705", "CH": "756", "ES": "724",
-    "IE": "372", "PL": "616", "SK": "703", "MD": "498", "SE": "752", "FI": "246", "RO": "642", "HU": "348", "EE": "233",
-    "DK": "208", "ME": "499", "MT": "470", "NO": "578", "LT": "440", "CZ": "203", "AL": "008", "IS": "352",
-    "AU": "036", "NZ": "554", "TW": "158", "SG": "702", "TH": "764", "MX": "484", "BR": "076", "AR": "032", "CL": "152",
-    "UY": "858", "EC": "218", "BG": "100",
-}
+# 国の番号（地図の ISO 3166-1 の数字）は、母集団の記録（world/population.json）から取る
+POP = json.loads((W / "population.json").read_text(encoding="utf-8"))["countries"]
+ISO_NUM = {c["iso2"]: c["num"] for c in POP}
 READ_OK = set("SAB")  # 正確に読める（素のデータ・規則だけで・エージェントが読めば）
 # 様式の見分け（構造の印だけで決める）：作り手が入力欄の印を付けた書類（PDF・XFA のフォームの欄、Word のコンテンツコントロール、
 # Excel の入力の印・フォームの部品など）。配置や空白から推定した欄だけの書類は「推定の欄」として別に数える
@@ -73,7 +68,8 @@ def _ungraded_why(r: dict) -> str:
 
 def main() -> int:
     frames = json.loads((W / "frames.json").read_text(encoding="utf-8"))
-    unreached = json.loads((W / "unreached.json").read_text(encoding="utf-8"))
+    # 枠のない国：目録はあるが使えない（理由）・公式の国の目録が見つからない。母集団の全部の国を地図に載せる
+    unreached = {c["iso2"]: (c["ja"], c["reason"] or "枠をまだ作っていない", c["outcome"]) for c in POP if c["iso2"] not in frames}
     recs = [json.loads(x) for x in (W / "results.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     by_cell = defaultdict(list)
     for r in recs:
@@ -140,7 +136,9 @@ def main() -> int:
         "kinds": dict(Counter(r.get("kind") for r in recs if r.get("read"))),
     }
     out = {"total": total, "countries": countries,
-           "unreached": {cc: {"name": v[0], "why": v[1], "iso": ISO_NUM.get(cc)} for cc, v in unreached.items()},
+           "unreached": {cc: {"name": v[0], "why": v[1], "outcome": v[2], "iso": ISO_NUM.get(cc)} for cc, v in unreached.items()},
+           "population": {"size": sum(1 for c in POP if c["un_member"]),
+                          "outcomes": dict(Counter(("reachable" if c["iso2"] in frames else c["outcome"]) for c in POP if c["un_member"]))},
            "docs": docs}
     (W / "portal").mkdir(exist_ok=True)
     (W / "portal" / "data.json").write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
