@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from .doc import PdfDocument
 from . import glyphs
-from .form import FF_COMB, FormField, read_fields
+from .form import FF_COMB, FF_EDIT, FF_MULTILINE, FF_MULTISELECT, FormField, read_fields
 from .layout import View
 from .objects import Name, PdfError, PdfString, Ref, Stream, dumps, text_string
 
@@ -39,6 +39,8 @@ class Patch:
     seal: dict | None = None  # 本人の印影・署名の画像を置いたとき：本人に伝える文・位置・画像の SHA-256
     circle: dict | None = None  # 印刷された字を○で囲んだとき：囲んだ字・楕円（見た目の座標）・見出し（circle.resolve）
     shown: str | None = None  # 見た目に描いた字（値と違うとき：選択肢の見せる字・書式で整えた数など）。読み戻しで見た目と照らす
+    ap_text: str | None = None  # 見た目に描いた字の全体（リスト：見える行の選択肢を並べたもの）。なければ shown と照らす
+    expect: dict | None = None  # 書いた状態：チェック・ラジオは {"V": 名前, "AS": [(部品の番号, 状態)]}、リストは {"I": 番号}
 
 
 @dataclass
@@ -477,9 +479,11 @@ class Filler:
         return None
 
     # ------------------------------------------------------------------ フォームの欄
-    def set_field(self, f: FormField, value, force: bool, display: str | None = None, calc: bool = False) -> None:
+    def set_field(self, f: FormField, value, force: bool, display: str | None = None, calc: bool = False,
+                  allow_hidden: bool = False) -> None:
         """display：見た目に描く字（XFA の静的なフォームで、値は決まった形・見た目は書式で整えた字のとき）。
-        calc：計算の欄を、計算し直した値で書くとき（_recalculate だけが使う）。"""
+        calc：計算の欄を、計算し直した値で書くとき（_recalculate だけが使う）。
+        allow_hidden：画面にも紙にも出ない欄（/F の Hidden・NoView、Print なし）にも書く（本人に、出ないことを伝える）。"""
         if f.readonly and not force:
             raise FillError(f"{f.name}: 読み取り専用の欄です")
         k = f.kind
@@ -502,38 +506,77 @@ class Filler:
             srcs = acrojs.calc_sources(js["C"])
             raise FillError(f"{f.name}: 計算で決まる欄です（{('「' + '」「'.join(srcs) + '」から計算') if srcs else '計算のスクリプト'}）。"
                             "書いても、Acrobat などで開くと計算し直されて変わるので、書きません。元になる欄に書いてください")
+        hidden_ok = calc or display is not None  # 計算し直した欄・XFA の欄（XFA の側で、隠した欄を確かめる）
         if k == "checkbox":
             states = self._check_states(f, fd)
-            on = True if isinstance(value, str) and value in {st for _w, st in states} | {o[0] for o in f.options}                 else _as_bool(value)  # 「入」の状態の名前・書き出しの値（/Ja など）で指してもよい
-            fd["V"] = Name(states[0][1]) if on and states else Name("Off")
+            on = True if isinstance(value, str) and value in {st for _w, st in states} | {o[0] for o in f.options} \
+                else _as_bool(value)  # 「入」の状態の名前・書き出しの値（/Ja など）で指してもよい
             if on and not states:
                 raise FillError(f"{f.name}: チェックの「入」の状態の名前がありません")
+            if not hidden_ok:
+                self._visible(f, None, allow_hidden)
+            fd["V"] = Name(states[0][1]) if on else Name("Off")
+            expect = []
             for w, st in states:
                 wd = self.up.get(w.ref) if w.ref is not None and w.ref != f.ref else fd
                 wd["AS"] = Name(st) if on else Name("Off")
+                expect.append((w.ref.num if w.ref is not None else None, wd["AS"].name))
                 self._ensure_state_ap(wd, w, st, check=True)
-            self.patches.append(Patch(f.name, "control", on))
+            p = Patch(f.name, "control", on)
+            p.expect = {"V": fd["V"].name, "AS": expect}
+            self.patches.append(p)
             return
         if k == "radio":
-            want = _as_text(value)
             states = self._radio_states(f, fd)
-            labels = {}
-            for _w, st, lab in states:
-                labels[st] = lab
-            pick = next((st for st, lab in labels.items() if lab == want), None) or \
-                next((st for st in labels if st == want), None)
             if not states:
                 raise FillError(f"{f.name}: 選択肢の名前が書類にありません（見た目（/AP）の状態も /Opt もなく、どれを選んだかを"
                                 "書けません）")
-            if pick is None:
-                raise FillError(f"{f.name}: 「{want}」は選択肢にありません。選べるのは " + "、".join(f"「{x}」" for x in labels.values()))
-            fd["V"] = Name(pick)
+            labels = {}
+            for _w, st, lab in states:
+                labels[st] = lab
+            listed = "、".join(f"「{x}」" for x in labels.values())
+            if isinstance(value, (list, tuple, dict, set)):
+                raise FillError(f"{f.name}: ひとつ選ぶ欄です。選ぶ選択肢の名前を 1 つ書いてください。選べるのは {listed}")
+            off = False
+            if isinstance(value, bool) or value is None:
+                if value is True or not f.radio_like:
+                    # はい／いいえ（true / false）では、どの部品を入にするか決まらない（部品ごとに「入」の名前が違う）
+                    raise FillError(f"{f.name}: ひとつ選ぶ欄（部品ごとに「入」の名前が違う欄）です。はい／いいえ（true / false）"
+                                    f"では、どれを選ぶかが決まりません。選ぶ選択肢の名前で書いてください。選べるのは {listed}")
+                off = True  # チェックの欄（Radio の印なし）：どれも選ばない（すべて Off）
+            want = _as_text(value)
+            if not off and want == "Off" and f.radio_like and "Off" not in labels.values():
+                off = True
+            pick = None
+            if not off:
+                hit = [st for st, lab in labels.items() if lab == want] or [st for st in labels if st == want]
+                if len(set(hit)) > 1:
+                    raise FillError(f"{f.name}: 「{want}」に当たる選択肢が {len(set(hit))} つあり、どれか決められません"
+                                    f"（状態の名前 {'、'.join(hit)}）")
+                pick = hit[0] if hit else None
+                if pick is None:
+                    raise FillError(f"{f.name}: 「{want}」は選択肢にありません。選べるのは {listed}")
+                if not hidden_ok:
+                    self._visible(f, [w for w, st, _l in states if st == pick], allow_hidden)
+            fd["V"] = Name(pick) if pick is not None else Name("Off")
+            expect = []
             for w, st, _lab in states:
                 wd = self.up.get(w.ref) if w.ref is not None and w.ref != f.ref else fd
                 wd["AS"] = Name(st) if st == pick else Name("Off")
-                self._ensure_state_ap(wd, w, st, check=False)
-            self.patches.append(Patch(f.name, "control", labels[pick]))
+                expect.append((w.ref.num if w.ref is not None else None, wd["AS"].name))
+                self._ensure_state_ap(wd, w, st, check=f.radio_like)
+            p = Patch(f.name, "control", labels[pick] if pick is not None else "Off")
+            p.expect = {"V": fd["V"].name, "AS": expect}
+            self.patches.append(p)
             return
+        if k in ("combo", "list"):
+            self._set_choice(f, fd, value, js, display, allow_hidden, hidden_ok)
+            return
+        if isinstance(value, (list, tuple, dict, set)):
+            raise FillError(f"{f.name}: この欄には 1 つの値（字か数）を書きます。リストや {{…}} の形の値は書けません"
+                            f"（受け取った値：{value!r}）")
+        if not hidden_ok:
+            self._visible(f, None, allow_hidden)
         text = _as_text(value)
         shown_fmt = None
         fmt_js = {kk: v for kk, v in js.items() if kk in ("F", "K", "V")}
@@ -545,51 +588,195 @@ class Filler:
                     raise FillError(f"{f.name}: {e}") from None
             else:
                 self.warnings.append(f"{f.name}: 独自のスクリプト（書式・入力の制限）は実行していません")
-        label = None
-        if k in ("combo", "list"):
-            opts = [o[1] or o[0] for o in f.options]
-            exports = [o[0] for o in f.options]
-            if text not in opts and text not in exports and not (f.flags & (1 << 18)):
-                raise FillError(f"{f.name}: 「{text}」は選択肢にありません。選べるのは " + "、".join(f"「{x}」" for x in opts[:30]))
-            if text in opts:
-                label = text
-                text = exports[opts.index(text)]
-            elif text in exports:
-                label = opts[exports.index(text)]  # 書き出しの値で指したとき：見た目には、選択肢の見せる字
+        multiline = bool(f.flags & FF_MULTILINE)
         if "\n" in text or "\r" in text:
-            if k != "text" or not (f.flags & (1 << 12)):
+            if not multiline:
                 raise FillError(f"{f.name}: 1行の欄です。改行は書けません（改行の代わりに空白や「、」で区切るなど、"
                                 "1行にして書いてください）")
             text = text.replace("\r\n", "\n").replace("\r", "\n")
         if f.maxlen and len(text) > f.maxlen:
             raise FillError(f"{f.name}: 「{text}」は {len(text)} 字です（この欄は {f.maxlen} 字まで）")
-        shown = display if display is not None else (label if label is not None else (shown_fmt if shown_fmt is not None else text))
+        shown = display if display is not None else (shown_fmt if shown_fmt is not None else text)
         try:
             keys = fonts_used([shown]) if shown else set()
         except FillError as e:
             raise FillError(f"{f.name}: {e}") from None
         fd["V"] = text_string(text)
+        da = self._da_of(f)
+        da_size = _da_size(da)
         for w in f.widgets:
             wd = self.up.get(w.ref) if w.ref is not None and w.ref != f.ref else fd
             x0, y0, x1, y1 = w.rect
-            size = _da_size(f.da) or max(6.0, min(12.0, (y1 - y0) * 0.65))
+            size = da_size or max(6.0, min(12.0, (y1 - y0) * 0.65))
             comb = None
             if f.flags & FF_COMB and f.maxlen:
                 cw = (x1 - x0) / f.maxlen
                 comb = [(x0 + i * cw - x0, 0, x0 + (i + 1) * cw - x0, y1 - y0) for i in range(f.maxlen)]
             rot = int(self.doc.resolve((self.doc.resolve(wd.get("MK")) or {}).get("R")) or 0) if isinstance(wd, dict) else 0
-            ap, s = text_appearance(self.up, x1 - x0, y1 - y0, shown, size, self.fonts_for(keys | {"Helv"}),
-                                    comb=comb, rot=rot, multiline=bool(f.flags & (1 << 12)) or (y1 - y0) > 2.4 * size,
-                                    align={1: "center", 2: "right"}.get(f.q, "left"))  # /Q（0 左・1 中央・2 右）
+            try:
+                # 1 行の欄（Multiline の印なし）は折り返さない：見た目を作り直すビューアーも 1 行で描くので、1 行に収まる大きさにする
+                ap, s = text_appearance(self.up, x1 - x0, y1 - y0, shown, size, self.fonts_for(keys | {"Helv"}),
+                                        comb=comb, rot=rot, multiline=multiline,
+                                        align={1: "center", 2: "right"}.get(f.q, "left"))  # /Q（0 左・1 中央・2 右）
+            except FillError as e:
+                raise FillError(f"{f.name}: {e}" + ("" if multiline or comb else "（1 行の欄なので、折り返して書けません）")) from None
             wd["AP"] = {"N": ap}
-            if keys - {"Helv"}:
-                # 日本語などは Helvetica では描けないので、欄の書体の指定も合わせる
-                cjk = _da_key(keys)
-                wd["DA"] = PdfString(f"/{cjk} {s:.1f} Tf 0 g".encode())
-                fd["DA"] = wd["DA"]
+            self._set_da(fd, wd, da, s, keys, bool(shown))
+            if shown and not calc:
+                self._report_size(f.name, s, da_size)
         p = Patch(f.name, "input", text)
         p.shown = shown
         self.patches.append(p)
+
+    def _set_choice(self, f: FormField, fd: dict, value, js: dict, display, allow_hidden: bool, hidden_ok: bool) -> None:
+        """一覧から選ぶ欄（コンボ・リスト）：値（/V）・選んだ番号（/I、ISO 32000-1 12.7.4.4）・見た目を合わせて書く。
+        リスト：選択肢を並べて描き、選んだ行に色を付ける。複数選べるリスト（MultiSelect）は、値をリストで渡せる。"""
+        from . import acrojs
+
+        k = f.kind
+        opts = [o[1] or o[0] for o in f.options]
+        exports = [o[0] for o in f.options]
+        multi = k == "list" and bool(f.flags & FF_MULTISELECT)
+        editable = k == "combo" and bool(f.flags & FF_EDIT)
+        listed = "、".join(f"「{x}」" for x in opts[:30])
+        if isinstance(value, (dict, set)):
+            raise FillError(f"{f.name}: 選ぶ選択肢の名前で書いてください。選べるのは {listed}")
+        if isinstance(value, (list, tuple)):
+            if not multi:
+                raise FillError(f"{f.name}: 1 つだけ選ぶ欄です。リストでは書けません。選ぶ選択肢の名前を 1 つ書いてください")
+            wants = [_as_text(x) for x in value]
+            if not wants:
+                raise FillError(f"{f.name}: 選ぶ選択肢を 1 つ以上書いてください")
+        else:
+            wants = [_as_text(value)]
+            fmt_js = {kk: v for kk, v in js.items() if kk in ("F", "K", "V")}
+            if fmt_js and display is None:
+                if all(acrojs.known(v) for v in fmt_js.values()):
+                    try:
+                        wants = [acrojs.commit_pair(fmt_js, wants[0])[0]]
+                    except acrojs.JsError as e:
+                        raise FillError(f"{f.name}: {e}") from None
+                else:
+                    self.warnings.append(f"{f.name}: 独自のスクリプト（書式・入力の制限）は実行していません")
+        idx: list[int] = []
+        custom = None
+        for t in wants:
+            hit = [i for i, o in enumerate(opts) if o == t] or [i for i, e in enumerate(exports) if e == t]
+            if not hit:
+                if editable and len(wants) == 1:
+                    custom = t  # 字を書ける一覧（Edit）：選択肢にない字
+                    continue
+                raise FillError(f"{f.name}: 「{t}」は選択肢にありません。選べるのは {listed}")
+            if len({(opts[i], exports[i]) for i in hit}) > 1:
+                raise FillError(f"{f.name}: 「{t}」に当たる選択肢が {len(hit)} つあり（"
+                                + "、".join(f"{i + 1} 番目「{opts[i]}」＝{exports[i]}" for i in hit)
+                                + "）、どれか決められません。見せる字で指定してください")
+            if hit[0] not in idx:
+                idx.append(hit[0])
+        idx.sort()
+        if not hidden_ok:
+            self._visible(f, None, allow_hidden)
+        if custom is not None:
+            if "\n" in custom or "\r" in custom:
+                raise FillError(f"{f.name}: 1行の欄です。改行は書けません")
+            vals, labels = [custom], [custom]
+        else:
+            vals, labels = [exports[i] for i in idx], [opts[i] for i in idx]
+        shown = display if display is not None else "、".join(labels)
+        try:
+            keys = fonts_used([shown] + ([] if k == "combo" else opts)) if shown else set()
+        except FillError as e:
+            raise FillError(f"{f.name}: {e}") from None
+        if multi and isinstance(value, (list, tuple)):
+            fd["V"] = [text_string(v) for v in vals]
+        else:
+            fd["V"] = text_string(vals[0])
+        if k == "list" or "I" in fd:
+            if idx and custom is None:
+                fd["I"] = list(idx)  # 選んだ選択肢の番号（0 から、小さい順）
+            else:
+                fd.pop("I", None)
+        da = self._da_of(f)
+        da_size = _da_size(da)
+        ap_text = None
+        for w in f.widgets:
+            wd = self.up.get(w.ref) if w.ref is not None and w.ref != f.ref else fd
+            x0, y0, x1, y1 = w.rect
+            if k == "combo":
+                size = da_size or max(6.0, min(12.0, (y1 - y0) * 0.65))
+                ap, s = text_appearance(self.up, x1 - x0, y1 - y0, shown, size, self.fonts_for(keys | {"Helv"}),
+                                        multiline=False, align={1: "center", 2: "right"}.get(f.q, "left"))
+            else:
+                ti = self.doc.resolve(fd.get("TI"))
+                ti = int(ti) if isinstance(ti, (int, float)) and not isinstance(ti, bool) and 0 <= ti < len(opts) else 0
+                ap, s, top, visible = list_appearance(self.up, x1 - x0, y1 - y0, opts, set(idx), ti, da_size or 12.0,
+                                                      self.fonts_for(keys | {"Helv"}))
+                if top != ti:
+                    fd["TI"] = top  # 選んだ行が見える所から並べる（一番上に見せる選択肢の番号）
+                ap_text = "".join(opts[i] for i in visible)
+            wd["AP"] = {"N": ap}
+            self._set_da(fd, wd, da, s, keys, bool(shown))
+            self._report_size(f.name, s, da_size)
+        p = Patch(f.name, "input", list(vals) if multi and isinstance(value, (list, tuple)) else vals[0])
+        p.shown = shown
+        p.ap_text = ap_text
+        p.expect = {"I": list(idx) if (idx and custom is None and (k == "list" or "I" in fd)) else None}
+        self.patches.append(p)
+
+    def _da_of(self, f: FormField) -> str:
+        """欄の書体の指定（/DA）：欄（親の欄を含む）になければ、フォーム（AcroForm）の既定の指定。"""
+        if f.da:
+            return f.da
+        af = self.doc.resolve(self.doc.root.get("AcroForm"))
+        v = self.doc.resolve(af.get("DA")) if isinstance(af, dict) else None
+        return bytes(v).decode("latin-1") if isinstance(v, (bytes, PdfString)) else ""
+
+    def _set_da(self, fd: dict, wd: dict, da: str, s: float, keys: set, drawn: bool) -> None:
+        """見た目を作り直すビューアー（NeedAppearances・欄を選んだとき）が、描いた大きさと同じ大きさで描くように、/DA の字の
+        大きさを、見た目に描いた大きさにする。元が自動（0）なら 0 のまま（ビューアーが欄に収まる大きさにする）。"""
+        orig = _da_size(da)
+        m = re.search(r"([\d.]+)\s+Tf", da or "")
+        auto = m is not None and _num(m[1]) == 0
+        if keys - {"Helv"}:
+            # 日本語などは Helvetica では描けないので、欄の書体の指定も合わせる
+            cjk = _da_key(keys)
+            wd["DA"] = PdfString(f"/{cjk} {'0' if auto else _pt(s)} Tf 0 g".encode())
+            fd["DA"] = wd["DA"]
+            return
+        if not drawn or auto or orig is None or abs(orig - s) < 0.005:
+            return
+        new = _da_resize(da, s)
+        if new is not None:
+            wd["DA"] = PdfString(new.encode("latin-1"))
+
+    def _report_size(self, name: str, s: float, da_size: float | None) -> None:
+        msg = None
+        if s < MIN_READABLE_PT:
+            msg = (f"{name}: 欄に収めるため、字が {s:.1f} pt になり、印刷すると読みにくい大きさです"
+                   f"（{MIN_READABLE_PT:g} pt 未満）。短く書けないか確かめてください")
+        elif da_size and s < da_size - 0.005:
+            msg = (f"{name}: 欄に収めるため、字を {_pt(s)} pt に小さくしました（書類の決めた大きさ {_pt(da_size)} pt）。"
+                   "欄の書体の指定（/DA）も同じ大きさにしました")
+        if msg and msg not in self.warnings:
+            self.warnings.append(msg)
+
+    def _visible(self, f: FormField, widgets, allow_hidden: bool) -> None:
+        """値を見せる部品が、画面にも紙にも出ない（隠した欄）なら断る（allow_hidden のときは、書いて知らせる）。
+        画面には出るが紙に印刷されない欄は、書いて知らせる。"""
+        gone, unprinted = f.visibility(widgets)
+        if gone:
+            if not allow_hidden:
+                raise FillError(f"{f.name}: この欄は、画面にも紙にも出ない欄です（{gone}）。書いても本人にも受け取る人にも見えず、"
+                                "紙には印刷されないので、書きません（ほかの欄を選ぶとスクリプトで出てくる欄のこともあります）。"
+                                '隠れた欄と分かったうえで書くときは {"value": 値, "allow_hidden": true} で書いてください')
+            self.warnings.append(f"{f.name}: 画面にも紙にも出ない欄（{gone}）に書きました。値はファイルに入りますが、"
+                                 "書いた値は紙に印刷されず、画面にも出ません")
+        elif unprinted:
+            self.warnings.append(f"{f.name}: 画面には出ますが、紙に印刷されない欄です（{unprinted}）。印刷して出すときは、"
+                                 "書いた値が紙に出ません")
+        elif not any(w.on_screen for w in (f.widgets if widgets is None else widgets)):
+            self.warnings.append(f"{f.name}: 紙には印刷されますが、画面には出ない欄です（画面に出さない印（/F の NoView））。"
+                                 "PDF のまま出すときは、書いた値が画面で見えません")
 
     def _check_states(self, f: FormField, fd: dict) -> list:
         """チェックの部品ごとの「入」の状態の名前。見た目（/AP /N）にあればそれ。なければ /Opt の書き出しの値か、
@@ -876,12 +1063,76 @@ def _da_key(keys: set[str]) -> str:
     return "Helv"
 
 
+def _num(t: str) -> float | None:
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
 def _da_size(da: str) -> float | None:
     m = re.search(r"([\d.]+)\s+Tf", da or "")
     if m:
-        v = float(m[1])
-        return v if v > 0 else None
+        v = _num(m[1])
+        return v if v is not None and v > 0 else None
     return None
+
+
+def _pt(s: float) -> str:
+    """字の大きさを /DA に書く形に（10.0 → 10、7.5 → 7.5）。"""
+    return f"{round(s, 2):g}"
+
+
+def _da_resize(da: str, s: float) -> str | None:
+    """/DA の字の大きさ（Tf の前の数。_da_size と同じ所）だけを s にした指定。書体・色などはそのまま。"""
+    m = re.search(r"([\d.]+)(\s+Tf)", da or "")
+    if not m:
+        return None
+    return da[:m.start(1)] + _pt(s) + da[m.end(1):]
+
+
+# リストの選んだ行の色：Acrobat がリストの見た目で使う色（RGB）。書類の集まりから決めた値ではない
+LIST_HIGHLIGHT = (0.6, 0.757, 0.855)
+
+
+def list_appearance(update: Update, w: float, h: float, labels: list[str], selected: set[int], top: int, size: float,
+                    dr_fonts) -> tuple[Ref, float, int, list[int]]:
+    """リスト（一覧から選ぶ欄で、コンボでないもの）の見た目：選択肢を上から 1 行ずつ並べ、選んだ行に色を付ける
+    （ISO 32000-1 12.7.4.4 のリストの描き方。行の高さは字の大きさ）。選んだ行が欄に入らなければ、一番上に見せる行（/TI）を
+    ずらす。選んだ選択肢の字が欄の幅に入らなければ、字を小さくする（4pt でも入らなければ FillError）。
+    返す値：(見た目, 字の大きさ, 一番上に見せる行, 見える行の番号)。"""
+    pad = min(2.0, 0.1 * w)
+    s = size
+    while s >= 4.0 and any(text_width(labels[i], s) > w - 2 * pad for i in selected):
+        s -= 0.5
+    if s < 4.0:
+        raise FillError("選んだ選択肢の字が、リストの幅（" + f"{w:.0f}pt）に入りきりません")
+    line = s
+    rows = max(1, int((h - 2 * pad) // line))
+    if selected:
+        first, last = min(selected), max(selected)
+        if not (top <= first < top + rows):
+            top = first
+        if last >= top + rows and last - first < rows:
+            top = last - rows + 1
+        if any(not (top <= i < top + rows) for i in selected):
+            raise FillError(f"選んだ選択肢が離れていて、リストの高さ（{rows} 行）に一度に見せられません")
+    visible = list(range(top, min(len(labels), top + rows)))
+    ops = bytearray(b"/Tx BMC\nq\n")
+    ops += f"{pad:.2f} {pad:.2f} {w - 2 * pad:.2f} {h - 2 * pad:.2f} re W n\n".encode()
+    y_top = h - pad
+    for n, i in enumerate(visible):
+        y = y_top - (n + 1) * line
+        if i in selected:
+            r, g, b = LIST_HIGHLIGHT
+            ops += f"{r} {g} {b} rg\n{pad:.2f} {y:.2f} {w - 2 * pad:.2f} {line:.2f} re f\n".encode()
+    for n, i in enumerate(visible):
+        y = y_top - (n + 1) * line + 0.22 * s  # 基線：行の下から、字の下がり（ディセンダー）ぶん上
+        if labels[i]:
+            ops += text_ops([labels[i]], s, pad + 1.0, y, line)
+    ops += b"Q\nEMC\n"
+    keys = fonts_used([labels[i] for i in visible if labels[i]])
+    return _ap(update, w, h, bytes(ops), keys, dr_fonts), s, top, visible
 
 
 def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
@@ -959,15 +1210,14 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
                 f.patches[-1].anchor = dict(value)
                 f.patches[-1].key = key
                 continue
-            if key in f.by_name:
-                f.set_field(f.by_name[key], value, force)
+            if key in f.by_name or (key in spots and spots[key][1].get("source") == "acroform"):
+                fld = f.by_name.get(key) or f.by_name[spots[key][1]["name"]]
+                val, allow_hidden = _field_value(key, value)
+                f.set_field(fld, val, force, allow_hidden=allow_hidden)
                 continue
             if key not in spots:
                 raise FillError(f"{key}: そのような欄はありません")
             page_no, sd = spots[key]
-            if sd.get("source") == "acroform":
-                f.set_field(f.by_name[sd["name"]], value, force)
-                continue
             if page_no not in views:
                 views[page_no] = View(doc, f.pages[page_no - 1])
             sd, value = as_kind(sd, value)
@@ -990,8 +1240,26 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
     note = f.sigs.note()
     if note and f.patches:
         f.warnings.insert(0, note)
+    if f.patches and _need_appearances(doc):
+        f.warnings.append("この PDF は、開くときにビューアーが欄の見た目を作り直す設定です（AcroForm の NeedAppearances が true）。"
+                          "とどくが描いて確かめた見た目ではなく、ビューアーが値から描き直した見た目で表示・印刷されます"
+                          "（字の大きさ・折り返し・書体が変わることがあります）。書いた値（/V）は確かめたとおりです")
     blob = f.finish() if f.patches else doc.blob
     return FillResult(blob, f.patches, f.warnings)
+
+
+def _field_value(key: str, value) -> tuple:
+    """フォームの欄に書く値：{"value": 値, "allow_hidden": true} の形なら、(値, True)。ほかは (値, False)。"""
+    if isinstance(value, dict) and "allow_hidden" in value:
+        if set(value) - {"value", "allow_hidden"} or "value" not in value or not isinstance(value["allow_hidden"], bool):
+            raise FillError(f'{key}: 隠れた欄に書くときは {{"value": 値, "allow_hidden": true}} の形で指定してください')
+        return value["value"], value["allow_hidden"]
+    return value, False
+
+
+def _need_appearances(doc) -> bool:
+    af = doc.resolve(doc.root.get("AcroForm"))
+    return isinstance(af, dict) and doc.resolve(af.get("NeedAppearances")) is True
 
 
 def _signed_new(f: Filler, key: str, value, spots: dict) -> None:
@@ -1023,12 +1291,14 @@ def appearance_readback(doc: PdfDocument, patches: list[Patch]) -> list[dict]:
     by = {x.name: x for x in read_fields(doc)}
     out = []
     for p in patches:
+        fld = by.get(p.id)
+        if fld is not None and p.expect:
+            out += _state_readback(doc, fld, p)
         if p.kind not in ("input", "calc") or p.shown is None:
             continue
-        fld = by.get(p.id)
         if fld is None:
             continue
-        want = re.sub(r"\s", "", str(p.shown))
+        want = re.sub(r"\s", "", str(p.ap_text if p.ap_text is not None else p.shown))
         for w in fld.widgets:
             wd = doc.resolve(w.ref) if w.ref is not None else doc.resolve(fld.ref)
             st = widget_appearance(doc, wd)
@@ -1042,6 +1312,35 @@ def appearance_readback(doc: PdfDocument, patches: list[Patch]) -> list[dict]:
             if re.sub(r"\s", "", got) != want:
                 out.append({"id": p.id, "written": p.shown, "read_back": f"見た目の字：{got}"})
                 break
+    return out
+
+
+def _state_readback(doc: PdfDocument, fld: FormField, p: Patch) -> list[dict]:
+    """書いた後の文書で、チェック・ラジオの値（/V）と部品ごとの見た目の状態（/AS）、リストの選んだ番号（/I）を読み直し、
+    書いたつもりの状態と照らす（値が合っていても、別の部品が入になっていれば、紙では別の所に印が付く）。"""
+    out = []
+    ex = p.expect or {}
+    if "V" in ex:
+        v = fld.value
+        got = v.name if isinstance(v, Name) else None
+        if got != ex["V"]:
+            out.append({"id": p.id, "written": ex["V"], "read_back": f"値（/V）：{got}"})
+        states = {w.ref.num: (w.state or "Off") for w in fld.widgets if w.ref is not None}
+        for num, want in ex.get("AS") or []:
+            got_as = states.get(num) if num is not None else next((w.state or "Off" for w in fld.widgets if w.ref is None), None)
+            if got_as != want:
+                out.append({"id": p.id, "written": want,
+                            "read_back": f"部品（オブジェクト {num}）の見た目の状態（/AS）：{got_as}"})
+        on = [w for w in fld.widgets if (w.state or "Off") != "Off"]
+        if any(w.state != got for w in on):
+            out.append({"id": p.id, "written": ex["V"],
+                        "read_back": "値と違う状態の部品が入になっています：" + "、".join(str(w.state) for w in on)})
+    if "I" in ex:
+        node = doc.resolve(fld.ref) if fld.ref is not None else None
+        got_i = doc.resolve(node.get("I")) if isinstance(node, dict) else None
+        got_i = [doc.resolve(x) for x in got_i] if isinstance(got_i, list) else got_i
+        if ex["I"] is not None and got_i != ex["I"]:
+            out.append({"id": p.id, "written": ex["I"], "read_back": f"選んだ番号（/I）：{got_i}"})
     return out
 
 
