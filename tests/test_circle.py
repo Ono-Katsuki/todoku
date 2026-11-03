@@ -103,6 +103,20 @@ def test_pdf_audit_of_a_filled_document_with_circles(tmp_path):
     assert not bad, [c["items"] for c in bad]
 
 
+def test_pdf_era_circle_is_read_back_when_the_line_has_larger_chars(tmp_path):
+    """元号の字が、同じ行のほかの字（「年」「月」「日」）より小さい：行の高さでなく字の箱で、囲んだ○を読む
+    （目黒区・江戸川区の様式で、書いた「昭和」が窓で読めなかった）。"""
+    rules = (b"0.8 w 60 700 m 540 700 l S 60 670 m 540 670 l S 60 700 m 60 670 l S 200 700 m 200 670 l S "
+             b"540 700 m 540 670 l S\n")
+    data = _pdf([(70, 682, 10, "生年月日"), (210, 682, 7.92, "昭和・平成"), (260, 682, 12, "　　年　　月　　日")], rules)
+    win = build(PdfDocument(data))
+    era = next(f for pg in win["pages"] for f in pg["fields"] if f["kind"] == "circle" and "昭和" in f["options"])
+    r, out = _write(tmp_path, data, "t.pdf", {era["id"]: "昭和"})
+    assert r["proof_ok"] and r["read_back_ok"], (r["unexpected"], r["read_back_differences"])
+    after = {f["id"]: f.get("value") for f in api.fields(out)}
+    assert after[era["id"]] == "昭和"
+
+
 # ====================================================================== Excel
 def _xlsx() -> bytes:
     return make_xlsx({"S": ({"A1": "外出の有無", "B1": "有　・　無", "A2": "年", "B2": None}, [])})

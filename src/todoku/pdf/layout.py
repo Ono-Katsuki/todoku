@@ -1221,11 +1221,22 @@ class PageLayout:
                 ells.append(((r[0] + r[2]) / 2, (r[1] + r[3]) / 2, (r[2] - r[0]) / 2, (r[3] - r[1]) / 2))
         if not ells:
             return
+
+        def glyphs(r):
+            # 選択肢の字の箱：選択肢の位置（行の高さの帯）の中に中心がある字の箱を合わせたもの。書くとき（circle.resolve）は
+            # 字の箱を囲むので、行の高さ（行のいちばん大きい字の高さ）で比べると、囲んだ○でも角がはみ出す
+            cs = [c for c in self.chars if not c.text.isspace() and r[0] <= c.cx <= r[2] and r[1] <= c.cy <= r[3]]
+            if not cs:
+                return r
+            return (min(c.x0 for c in cs), min(c.y0 for c in cs), max(c.x1 for c in cs), max(c.y1 for c in cs))
+
         for sp in self.spots:
             if sp.kind != "circle":
                 continue
-            for e in ells:
-                inner = [o for o, r in sp.options if inside(e, r)]
+            boxes = [(o, glyphs(r)) for o, r in sp.options]
+            for cx, cy, a, b in ells:
+                e = (cx, cy, a + 0.01, b + 0.01)  # 描いた座標の丸め（小数 3 桁）の分
+                inner = [o for o, r in boxes if inside(e, r)]
                 if len(inner) == 1:
                     sp.chosen = inner[0]
                     break
