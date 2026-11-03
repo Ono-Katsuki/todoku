@@ -10300,6 +10300,9796 @@
     "application/pdf": 15
    },
    "built": "2026-11-03"
+  },
+  "AR": {
+   "name": "アルゼンチン",
+   "prefixes": 40,
+   "blocks": {
+    "core": 0,
+    "edge": 39
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 30
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "edge": 3007
+   },
+   "families": {
+    "pdf": {
+     "frame": 152,
+     "pool": 117,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 117
+     },
+     "truncated_in_pool": 16
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 119
+   },
+   "built": "2026-11-03"
+  },
+  "AM": {
+   "name": "アルメニア",
+   "prefixes": 28,
+   "blocks": {
+    "core": 1,
+    "edge": 28
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 28
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 13704
+   },
+   "families": {
+    "pdf": {
+     "frame": 2089,
+     "pool": 2089,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 25,
+      "edge": 2064
+     },
+     "truncated_in_pool": 400
+    },
+    "sheet": {
+     "frame": 6,
+     "pool": 6,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 2,
+      "edge": 4
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 71,
+     "pool": 71,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 4,
+      "edge": 67
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 2117,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 62,
+    "application/msword": 11,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 5,
+    "application/vnd.ms-excel": 1
+   },
+   "built": "2026-11-03"
+  },
+  "AU": {
+   "name": "オーストラリア",
+   "prefixes": 73,
+   "blocks": {
+    "core": 13,
+    "edge": 80
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 4,
+    "edge": 26
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 12000,
+    "edge": 7308
+   },
+   "families": {
+    "pdf": {
+     "frame": 7233,
+     "pool": 2350,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 14,
+      "edge": 2336
+     },
+     "truncated_in_pool": 115
+    },
+    "sheet": {
+     "frame": 3,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 46,
+     "pool": 15,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 15
+     },
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 2449,
+    "application/octet-stream": 33,
+    "application/vnd.ms-excel.sheet.macroenabled.12": 1
+   },
+   "built": "2026-11-03"
+  },
+  "AT": {
+   "name": "オーストリア",
+   "prefixes": 1553,
+   "blocks": {
+    "core": 12,
+    "edge": 955
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 30
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 6057
+   },
+   "families": {
+    "pdf": {
+     "frame": 10428,
+     "pool": 436,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 174,
+      "edge": 262
+     },
+     "truncated_in_pool": 49
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 64,
+     "pool": 2,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 457,
+    "application/vnd.oasis.opendocument.text": 1,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
+   },
+   "built": "2026-11-03"
+  },
+  "AZ": {
+   "name": "アゼルバイジャン",
+   "prefixes": 24,
+   "blocks": {
+    "core": 1,
+    "edge": 25
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 25
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 6251
+   },
+   "families": {
+    "pdf": {
+     "frame": 16,
+     "pool": 16,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 16
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 16
+   },
+   "built": "2026-11-03"
+  },
+  "BS": {
+   "name": "バハマ",
+   "prefixes": 6,
+   "blocks": {
+    "core": 0,
+    "edge": 7
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 7
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2475
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "BH": {
+   "name": "バーレーン",
+   "prefixes": 7,
+   "blocks": {
+    "core": 0,
+    "edge": 7
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 7
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 341
+   },
+   "families": {
+    "pdf": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 1
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 2
+   },
+   "built": "2026-11-03"
+  },
+  "BD": {
+   "name": "バングラデシュ",
+   "prefixes": 8,
+   "blocks": {
+    "core": 0,
+    "edge": 7
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 7
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 133
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "BB": {
+   "name": "バルバドス",
+   "prefixes": 3,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 4553
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "BY": {
+   "name": "ベラルーシ",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 304
+   },
+   "families": {
+    "pdf": {
+     "frame": 6,
+     "pool": 6,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 6
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 6
+   },
+   "built": "2026-11-03"
+  },
+  "BE": {
+   "name": "ベルギー",
+   "prefixes": 681,
+   "blocks": {
+    "core": 17,
+    "edge": 621
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 29
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 13938
+   },
+   "families": {
+    "pdf": {
+     "frame": 9633,
+     "pool": 462,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 59,
+      "edge": 403
+     },
+     "truncated_in_pool": 29
+    },
+    "sheet": {
+     "frame": 107,
+     "pool": 5,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 5
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 214,
+     "pool": 10,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 10
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 464,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 9,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 5,
+    "application/msword": 1
+   },
+   "built": "2026-11-03"
+  },
+  "BZ": {
+   "name": "ベリーズ",
+   "prefixes": 6,
+   "blocks": {
+    "core": 0,
+    "edge": 6
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 6
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 57
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "BJ": {
+   "name": "ベナン",
+   "prefixes": 21,
+   "blocks": {
+    "core": 0,
+    "edge": 12
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 12
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 700
+   },
+   "families": {
+    "pdf": {
+     "frame": 26,
+     "pool": 26,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 26
+     },
+     "truncated_in_pool": 7
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 26
+   },
+   "built": "2026-11-03"
+  },
+  "BT": {
+   "name": "ブータン",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 2
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 2
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 172
+   },
+   "families": {
+    "pdf": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1
+   },
+   "built": "2026-11-03"
+  },
+  "BO": {
+   "name": "ボリビア",
+   "prefixes": 7,
+   "blocks": {
+    "core": 0,
+    "edge": 6
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 6
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2133
+   },
+   "families": {
+    "pdf": {
+     "frame": 61,
+     "pool": 61,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 61
+     },
+     "truncated_in_pool": 13
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 63
+   },
+   "built": "2026-11-03"
+  },
+  "BA": {
+   "name": "ボスニア・ヘルツェゴビナ",
+   "prefixes": 22,
+   "blocks": {
+    "core": 0,
+    "edge": 23
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 23
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 9722
+   },
+   "families": {
+    "pdf": {
+     "frame": 1245,
+     "pool": 1245,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1245
+     },
+     "truncated_in_pool": 18
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 6,
+     "pool": 6,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 6
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1275,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 5,
+    "application/msword": 1,
+    "application/x-tika-msoffice": 1
+   },
+   "built": "2026-11-03"
+  },
+  "BW": {
+   "name": "ボツワナ",
+   "prefixes": 12,
+   "blocks": {
+    "core": 0,
+    "edge": 9
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 9
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1835
+   },
+   "families": {
+    "pdf": {
+     "frame": 347,
+     "pool": 347,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 347
+     },
+     "truncated_in_pool": 10
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 363,
+    "application/octet-stream": 4
+   },
+   "built": "2026-11-03"
+  },
+  "BN": {
+   "name": "ブルネイ",
+   "prefixes": 0,
+   "blocks": {
+    "core": 0,
+    "edge": 0
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "families": {},
+   "read": {
+    "core": 0,
+    "edge": 0
+   },
+   "exact": true
+  },
+  "BG": {
+   "name": "ブルガリア",
+   "prefixes": 16,
+   "blocks": {
+    "core": 17,
+    "edge": 17
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 15,
+    "edge": 15
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 45000,
+    "edge": 12085
+   },
+   "families": {
+    "pdf": {
+     "frame": 6542,
+     "pool": 5772,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 4802,
+      "edge": 970
+     },
+     "truncated_in_pool": 178
+    },
+    "sheet": {
+     "frame": 1338,
+     "pool": 1181,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 1180,
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 423,
+     "pool": 373,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 370,
+      "edge": 3
+     },
+     "truncated_in_pool": 3
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 5995,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 972,
+    "application/msword": 229,
+    "application/timestamp-reply": 216,
+    "application/vnd.ms-excel": 207,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 153,
+    "application/octet-stream": 50,
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": 7
+   },
+   "built": "2026-11-03"
+  },
+  "BF": {
+   "name": "ブルキナファソ",
+   "prefixes": 11,
+   "blocks": {
+    "core": 0,
+    "edge": 10
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 10
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 351
+   },
+   "families": {
+    "pdf": {
+     "frame": 3,
+     "pool": 3,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 3
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 3
+   },
+   "built": "2026-11-03"
+  },
+  "BI": {
+   "name": "ブルンジ",
+   "prefixes": 17,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1019
+   },
+   "families": {
+    "pdf": {
+     "frame": 11,
+     "pool": 11,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 11
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 11
+   },
+   "built": "2026-11-03"
+  },
+  "CV": {
+   "name": "カーボベルデ",
+   "prefixes": 9,
+   "blocks": {
+    "core": 0,
+    "edge": 6
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 6
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1157
+   },
+   "families": {
+    "pdf": {
+     "frame": 204,
+     "pool": 204,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 204
+     },
+     "truncated_in_pool": 14
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 226
+   },
+   "built": "2026-11-03"
+  },
+  "KH": {
+   "name": "カンボジア",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 776
+   },
+   "families": {
+    "pdf": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1
+   },
+   "built": "2026-11-03"
+  },
+  "CM": {
+   "name": "カメルーン",
+   "prefixes": 12,
+   "blocks": {
+    "core": 0,
+    "edge": 11
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 11
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 775
+   },
+   "families": {
+    "pdf": {
+     "frame": 49,
+     "pool": 49,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 49
+     },
+     "truncated_in_pool": 11
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 49
+   },
+   "built": "2026-11-03"
+  },
+  "CA": {
+   "name": "カナダ",
+   "prefixes": 979,
+   "blocks": {
+    "core": 110,
+    "edge": 676
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 4,
+    "edge": 26
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 12000,
+    "edge": 5567
+   },
+   "families": {
+    "pdf": {
+     "frame": 20168,
+     "pool": 762,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 237,
+      "edge": 525
+     },
+     "truncated_in_pool": 10
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 766
+   },
+   "built": "2026-11-03"
+  },
+  "CF": {
+   "name": "中央アフリカ",
+   "prefixes": 1,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {},
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "TD": {
+   "name": "チャド",
+   "prefixes": 13,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 602
+   },
+   "families": {
+    "pdf": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 1
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1
+   },
+   "built": "2026-11-03"
+  },
+  "CL": {
+   "name": "チリ",
+   "prefixes": 319,
+   "blocks": {
+    "core": 4,
+    "edge": 185
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 29
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 11910
+   },
+   "families": {
+    "pdf": {
+     "frame": 3828,
+     "pool": 600,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 600
+     },
+     "truncated_in_pool": 45
+    },
+    "sheet": {
+     "frame": 6,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 604,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
+   },
+   "built": "2026-11-03"
+  },
+  "CN": {
+   "name": "中国",
+   "prefixes": 179,
+   "blocks": {
+    "core": 3,
+    "edge": 174
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 29
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 6893
+   },
+   "families": {
+    "pdf": {
+     "frame": 435,
+     "pool": 73,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 1,
+      "edge": 72
+     },
+     "truncated_in_pool": 15
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 77
+   },
+   "built": "2026-11-03"
+  },
+  "CO": {
+   "name": "コロンビア",
+   "prefixes": 9,
+   "blocks": {
+    "core": 1,
+    "edge": 12
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 12
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 7514
+   },
+   "families": {
+    "pdf": {
+     "frame": 193,
+     "pool": 193,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 2,
+      "edge": 191
+     },
+     "truncated_in_pool": 20
+    },
+    "sheet": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 227,
+    "application/x-bibtex-text-file": 56,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 10,
+    "application/marc": 9,
+    "application/vnd.openxmlformats-officedocument.presentationml.slideshow": 4,
+    "application/epub+zip": 2
+   },
+   "built": "2026-11-03"
+  },
+  "KM": {
+   "name": "コモロ",
+   "prefixes": 0,
+   "blocks": {
+    "core": 0,
+    "edge": 0
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "families": {},
+   "read": {
+    "core": 0,
+    "edge": 0
+   },
+   "exact": true
+  },
+  "CG": {
+   "name": "コンゴ共和国",
+   "prefixes": 9,
+   "blocks": {
+    "core": 0,
+    "edge": 7
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 7
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1546
+   },
+   "families": {
+    "pdf": {
+     "frame": 112,
+     "pool": 112,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 112
+     },
+     "truncated_in_pool": 12
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 112
+   },
+   "built": "2026-11-03"
+  },
+  "CR": {
+   "name": "コスタリカ",
+   "prefixes": 3,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 3636
+   },
+   "families": {
+    "pdf": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1
+   },
+   "built": "2026-11-03"
+  },
+  "CI": {
+   "name": "コートジボワール",
+   "prefixes": 15,
+   "blocks": {
+    "core": 0,
+    "edge": 16
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 16
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 611
+   },
+   "families": {
+    "pdf": {
+     "frame": 31,
+     "pool": 31,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 31
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 35
+   },
+   "built": "2026-11-03"
+  },
+  "HR": {
+   "name": "クロアチア",
+   "prefixes": 453,
+   "blocks": {
+    "core": 5,
+    "edge": 291
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 29
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 8549
+   },
+   "families": {
+    "pdf": {
+     "frame": 7767,
+     "pool": 774,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 774
+     },
+     "truncated_in_pool": 31
+    },
+    "sheet": {
+     "frame": 120,
+     "pool": 12,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 12
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 50,
+     "pool": 5,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 5
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 785,
+    "application/x-tika-msoffice": 59,
+    "application/vnd.ms-excel.sheet.macroenabled.12": 11,
+    "application/vnd.oasis.opendocument.text": 5,
+    "application/vnd.ms-word.document.macroenabled.12": 3,
+    "application/vnd.oasis.opendocument.spreadsheet": 1
+   },
+   "built": "2026-11-03"
+  },
+  "CU": {
+   "name": "キューバ",
+   "prefixes": 19,
+   "blocks": {
+    "core": 1,
+    "edge": 15
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 15
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 4953
+   },
+   "families": {
+    "pdf": {
+     "frame": 107,
+     "pool": 107,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 64,
+      "edge": 43
+     },
+     "truncated_in_pool": 4
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 108,
+    "application/x-bibtex-text-file": 47,
+    "application/epub+zip": 31
+   },
+   "built": "2026-11-03"
+  },
+  "CY": {
+   "name": "キプロス",
+   "prefixes": 6,
+   "blocks": {
+    "core": 0,
+    "edge": 7
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 7
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2542
+   },
+   "families": {
+    "pdf": {
+     "frame": 20,
+     "pool": 20,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 20
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 20
+   },
+   "built": "2026-11-03"
+  },
+  "CZ": {
+   "name": "チェコ",
+   "prefixes": 6268,
+   "blocks": {
+    "core": 9,
+    "edge": 2286
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 30
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 16144
+   },
+   "families": {
+    "pdf": {
+     "frame": 64125,
+     "pool": 965,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 140,
+      "edge": 825
+     },
+     "truncated_in_pool": 78
+    },
+    "sheet": {
+     "frame": 390,
+     "pool": 6,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 1,
+      "edge": 5
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 3026,
+     "pool": 45,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 6,
+      "edge": 39
+     },
+     "truncated_in_pool": 1
+    },
+    "csv": {
+     "frame": 63,
+     "pool": 7,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 7
+     },
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1016,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 34,
+    "application/msword": 12,
+    "application/octet-stream": 4,
+    "application/vnd.ms-excel": 3,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 2,
+    "application/vnd.ms-excel.sheet.macroenabled.12": 1
+   },
+   "built": "2026-11-03"
+  },
+  "KP": {
+   "name": "北朝鮮",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 587
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "CD": {
+   "name": "コンゴ民主共和国",
+   "prefixes": 7,
+   "blocks": {
+    "core": 0,
+    "edge": 7
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 7
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 439
+   },
+   "families": {
+    "pdf": {
+     "frame": 25,
+     "pool": 25,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 25
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 25
+   },
+   "built": "2026-11-03"
+  },
+  "DK": {
+   "name": "デンマーク",
+   "prefixes": 70,
+   "blocks": {
+    "core": 9,
+    "edge": 87
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 3,
+    "edge": 27
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 9000,
+    "edge": 9531
+   },
+   "families": {
+    "pdf": {
+     "frame": 774,
+     "pool": 244,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 53,
+      "edge": 191
+     },
+     "truncated_in_pool": 38
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 244
+   },
+   "built": "2026-11-03"
+  },
+  "DJ": {
+   "name": "ジブチ",
+   "prefixes": 6,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 651
+   },
+   "families": {
+    "pdf": {
+     "frame": 64,
+     "pool": 64,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 64
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 65
+   },
+   "built": "2026-11-03"
+  },
+  "DM": {
+   "name": "ドミニカ国",
+   "prefixes": 0,
+   "blocks": {
+    "core": 0,
+    "edge": 0
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "families": {},
+   "read": {
+    "core": 0,
+    "edge": 0
+   },
+   "exact": true
+  },
+  "DO": {
+   "name": "ドミニカ共和国",
+   "prefixes": 3,
+   "blocks": {
+    "core": 0,
+    "edge": 3
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 3
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1938
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "EC": {
+   "name": "エクアドル",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 703
+   },
+   "families": {
+    "pdf": {
+     "frame": 19,
+     "pool": 19,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 19
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 19
+   },
+   "built": "2026-11-03"
+  },
+  "EG": {
+   "name": "エジプト",
+   "prefixes": 36,
+   "blocks": {
+    "core": 0,
+    "edge": 29
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 29
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 5243
+   },
+   "families": {
+    "pdf": {
+     "frame": 64,
+     "pool": 64,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 64
+     },
+     "truncated_in_pool": 11
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 64
+   },
+   "built": "2026-11-03"
+  },
+  "SV": {
+   "name": "エルサルバドル",
+   "prefixes": 0,
+   "blocks": {
+    "core": 0,
+    "edge": 0
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "families": {},
+   "read": {
+    "core": 0,
+    "edge": 0
+   },
+   "exact": true
+  },
+  "GQ": {
+   "name": "赤道ギニア",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 3
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 3
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2487
+   },
+   "families": {
+    "pdf": {
+     "frame": 2,
+     "pool": 2,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 2
+   },
+   "built": "2026-11-03"
+  },
+  "ER": {
+   "name": "エリトリア",
+   "prefixes": 1,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {},
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "EE": {
+   "name": "エストニア",
+   "prefixes": 32,
+   "blocks": {
+    "core": 1,
+    "edge": 39
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 29
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 13509
+   },
+   "families": {
+    "pdf": {
+     "frame": 1493,
+     "pool": 1111,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 2,
+      "edge": 1109
+     },
+     "truncated_in_pool": 31
+    },
+    "sheet": {
+     "frame": 3,
+     "pool": 2,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 3,
+     "pool": 2,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 1,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1138,
+    "application/zip": 12,
+    "application/vnd.ms-excel.sheet.macroenabled.12": 2,
+    "application/rtf": 1,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
+   },
+   "built": "2026-11-03"
+  },
+  "SZ": {
+   "name": "エスワティニ",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 70
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "ET": {
+   "name": "エチオピア",
+   "prefixes": 12,
+   "blocks": {
+    "core": 0,
+    "edge": 10
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 10
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 350
+   },
+   "families": {
+    "pdf": {
+     "frame": 8,
+     "pool": 8,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 8
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 9
+   },
+   "built": "2026-11-03"
+  },
+  "FJ": {
+   "name": "フィジー",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 5
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 5
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 67
+   },
+   "families": {
+    "pdf": {
+     "frame": 2,
+     "pool": 2,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 2
+   },
+   "built": "2026-11-03"
+  },
+  "FI": {
+   "name": "フィンランド",
+   "prefixes": 373,
+   "blocks": {
+    "core": 31,
+    "edge": 384
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 2,
+    "edge": 28
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 6000,
+    "edge": 20872
+   },
+   "families": {
+    "pdf": {
+     "frame": 14467,
+     "pool": 1054,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 7,
+      "edge": 1047
+     },
+     "truncated_in_pool": 193
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 55,
+     "pool": 4,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 4
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1058,
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": 11,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 4
+   },
+   "built": "2026-11-03"
+  },
+  "FR": {
+   "name": "フランス",
+   "prefixes": 21910,
+   "blocks": {
+    "core": 182,
+    "edge": 6791
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 29
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 15847
+   },
+   "families": {
+    "pdf": {
+     "frame": 186870,
+     "pool": 798,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 798
+     },
+     "truncated_in_pool": 34
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 806
+   },
+   "built": "2026-11-03"
+  },
+  "GA": {
+   "name": "ガボン",
+   "prefixes": 11,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 116
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "GM": {
+   "name": "ガンビア",
+   "prefixes": 43,
+   "blocks": {
+    "core": 0,
+    "edge": 6
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 6
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1788
+   },
+   "families": {
+    "pdf": {
+     "frame": 198,
+     "pool": 198,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 198
+     },
+     "truncated_in_pool": 7
+    },
+    "sheet": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 201,
+    "application/octet-stream": 6,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
+   },
+   "built": "2026-11-03"
+  },
+  "GE": {
+   "name": "ジョージア",
+   "prefixes": 14,
+   "blocks": {
+    "core": 0,
+    "edge": 13
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 13
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 5613
+   },
+   "families": {
+    "pdf": {
+     "frame": 199,
+     "pool": 199,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 199
+     },
+     "truncated_in_pool": 18
+    },
+    "sheet": {
+     "frame": 21,
+     "pool": 21,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 21
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 54,
+     "pool": 54,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 54
+     },
+     "truncated_in_pool": 2
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 203,
+    "application/msword": 33,
+    "application/vnd.ms-wordml": 20,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 14,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 12,
+    "application/vnd.ms-excel": 9,
+    "application/rtf": 7,
+    "application/vnd.ms-excel.sheet.binary.macroenabled.12": 4
+   },
+   "built": "2026-11-03"
+  },
+  "GH": {
+   "name": "ガーナ",
+   "prefixes": 15,
+   "blocks": {
+    "core": 11,
+    "edge": 17
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 11,
+    "edge": 17
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "core": 33000,
+    "edge": 4203
+   },
+   "families": {
+    "pdf": {
+     "frame": 446,
+     "pool": 446,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 385,
+      "edge": 61
+     },
+     "truncated_in_pool": 34
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 447
+   },
+   "built": "2026-11-03"
+  },
+  "GR": {
+   "name": "ギリシャ",
+   "prefixes": 299,
+   "blocks": {
+    "core": 24,
+    "edge": 295
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 2,
+    "edge": 28
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 6000,
+    "edge": 18955
+   },
+   "families": {
+    "pdf": {
+     "frame": 7376,
+     "pool": 698,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 15,
+      "edge": 683
+     },
+     "truncated_in_pool": 27
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 711
+   },
+   "built": "2026-11-03"
+  },
+  "GD": {
+   "name": "グレナダ",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 188
+   },
+   "families": {
+    "pdf": {
+     "frame": 16,
+     "pool": 16,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 16
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 16
+   },
+   "built": "2026-11-03"
+  },
+  "GT": {
+   "name": "グアテマラ",
+   "prefixes": 13,
+   "blocks": {
+    "core": 0,
+    "edge": 13
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 13
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2814
+   },
+   "families": {
+    "pdf": {
+     "frame": 180,
+     "pool": 180,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 180
+     },
+     "truncated_in_pool": 48
+    },
+    "sheet": {
+     "frame": 2,
+     "pool": 2,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 2
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 181,
+    "application/vnd.ms-excel.sheet.macroenabled.12": 2
+   },
+   "built": "2026-11-03"
+  },
+  "GN": {
+   "name": "ギニア",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 40
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "GW": {
+   "name": "ギニアビサウ",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 2
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 2
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 81
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "GY": {
+   "name": "ガイアナ",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 2
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 2
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 7
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "HT": {
+   "name": "ハイチ",
+   "prefixes": 1,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 64
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "HN": {
+   "name": "ホンジュラス",
+   "prefixes": 5,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1744
+   },
+   "families": {
+    "pdf": {
+     "frame": 11,
+     "pool": 11,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 11
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 11
+   },
+   "built": "2026-11-03"
+  },
+  "HU": {
+   "name": "ハンガリー",
+   "prefixes": 38,
+   "blocks": {
+    "core": 10,
+    "edge": 46
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 5,
+    "edge": 25
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 15000,
+    "edge": 14393
+   },
+   "families": {
+    "pdf": {
+     "frame": 4897,
+     "pool": 2644,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 198,
+      "edge": 2446
+     },
+     "truncated_in_pool": 121
+    },
+    "sheet": {
+     "frame": 431,
+     "pool": 234,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 234
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 210,
+     "pool": 114,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 114
+     },
+     "truncated_in_pool": 3
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 2715,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 152,
+    "application/vnd.ms-excel": 83,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 75,
+    "application/msword": 39,
+    "application/x-tika-msoffice": 6,
+    "application/x-msaccess": 2,
+    "application/java-archive": 1
+   },
+   "built": "2026-11-03"
+  },
+  "IS": {
+   "name": "アイスランド",
+   "prefixes": 60,
+   "blocks": {
+    "core": 3,
+    "edge": 65
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 29
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 15221
+   },
+   "families": {
+    "pdf": {
+     "frame": 991,
+     "pool": 442,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 442
+     },
+     "truncated_in_pool": 10
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 2,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 444,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
+   },
+   "built": "2026-11-03"
+  },
+  "ID": {
+   "name": "インドネシア",
+   "prefixes": 13,
+   "blocks": {
+    "core": 1,
+    "edge": 12
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 12
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 6564
+   },
+   "families": {
+    "pdf": {
+     "frame": 35,
+     "pool": 35,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 25,
+      "edge": 10
+     },
+     "truncated_in_pool": 1
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 35,
+    "application/x-bibtex-text-file": 5,
+    "application/vnd.oasis.opendocument.text": 1
+   },
+   "built": "2026-11-03"
+  },
+  "IR": {
+   "name": "イラン",
+   "prefixes": 31,
+   "blocks": {
+    "core": 10,
+    "edge": 36
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 7,
+    "edge": 23
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 21000,
+    "edge": 7396
+   },
+   "families": {
+    "pdf": {
+     "frame": 92,
+     "pool": 59,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 59
+     },
+     "truncated_in_pool": 3
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 65,
+    "application/x-bibtex-text-file": 50,
+    "application/x-endnote-refer": 25
+   },
+   "built": "2026-11-03"
+  },
+  "IQ": {
+   "name": "イラク",
+   "prefixes": 14,
+   "blocks": {
+    "core": 0,
+    "edge": 12
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 12
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 914
+   },
+   "families": {
+    "pdf": {
+     "frame": 3,
+     "pool": 3,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 3
+     },
+     "truncated_in_pool": 1
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 3
+   },
+   "built": "2026-11-03"
+  },
+  "IE": {
+   "name": "アイルランド",
+   "prefixes": 82,
+   "blocks": {
+    "core": 1,
+    "edge": 93
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 30
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 14725
+   },
+   "families": {
+    "pdf": {
+     "frame": 4929,
+     "pool": 1590,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1590
+     },
+     "truncated_in_pool": 135
+    },
+    "sheet": {
+     "frame": 3,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 3,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1861,
+    "application/x-geopackage": 2,
+    "application/octet-stream": 1,
+    "application/vnd.ms-powerpoint": 1,
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": 1,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1,
+    "application/vnd.ms-excel.sheet.macroenabled.12": 1
+   },
+   "built": "2026-11-03"
+  },
+  "IL": {
+   "name": "イスラエル",
+   "prefixes": 99,
+   "blocks": {
+    "core": 0,
+    "edge": 52
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 30
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "edge": 5565
+   },
+   "families": {
+    "pdf": {
+     "frame": 71,
+     "pool": 41,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 41
+     },
+     "truncated_in_pool": 1
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 41
+   },
+   "built": "2026-11-03"
+  },
+  "IT": {
+   "name": "イタリア",
+   "prefixes": 7761,
+   "blocks": {
+    "core": 170,
+    "edge": 1179
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 4,
+    "edge": 26
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 12000,
+    "edge": 46452
+   },
+   "families": {
+    "pdf": {
+     "frame": 112555,
+     "pool": 2494,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 189,
+      "edge": 2305
+     },
+     "truncated_in_pool": 83
+    },
+    "sheet": {
+     "frame": 91,
+     "pool": 2,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 227,
+     "pool": 5,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 5
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 18199,
+     "pool": 428,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 425,
+      "edge": 3
+     },
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 2565,
+    "application/pkcs7-signature": 71,
+    "application/vnd.oasis.opendocument.text": 3,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 2,
+    "application/vnd.oasis.opendocument.spreadsheet": 1,
+    "application/vnd.ms-excel": 1
+   },
+   "built": "2026-11-03"
+  },
+  "JM": {
+   "name": "ジャマイカ",
+   "prefixes": 62,
+   "blocks": {
+    "core": 0,
+    "edge": 26
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 26
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 10418
+   },
+   "families": {
+    "pdf": {
+     "frame": 398,
+     "pool": 398,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 398
+     },
+     "truncated_in_pool": 51
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 406
+   },
+   "built": "2026-11-03"
+  },
+  "JO": {
+   "name": "ヨルダン",
+   "prefixes": 5,
+   "blocks": {
+    "core": 0,
+    "edge": 6
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 6
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 345
+   },
+   "families": {
+    "pdf": {
+     "frame": 3,
+     "pool": 3,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 3
+     },
+     "truncated_in_pool": 1
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 4
+   },
+   "built": "2026-11-03"
+  },
+  "KZ": {
+   "name": "カザフスタン",
+   "prefixes": 23,
+   "blocks": {
+    "core": 1,
+    "edge": 26
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 26
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 11126
+   },
+   "families": {
+    "pdf": {
+     "frame": 2418,
+     "pool": 2418,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 698,
+      "edge": 1720
+     },
+     "truncated_in_pool": 197
+    },
+    "sheet": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 2750,
+    "application/x-bibtex-text-file": 184,
+    "application/x-tika-msoffice": 5,
+    "application/vnd.ms-excel": 1
+   },
+   "built": "2026-11-03"
+  },
+  "KI": {
+   "name": "キリバス",
+   "prefixes": 0,
+   "blocks": {
+    "core": 0,
+    "edge": 0
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "families": {},
+   "read": {
+    "core": 0,
+    "edge": 0
+   },
+   "exact": true
+  },
+  "KW": {
+   "name": "クウェート",
+   "prefixes": 5,
+   "blocks": {
+    "core": 0,
+    "edge": 3
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 3
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 282
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "KG": {
+   "name": "キルギス",
+   "prefixes": 13,
+   "blocks": {
+    "core": 0,
+    "edge": 12
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 12
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2390
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "LA": {
+   "name": "ラオス",
+   "prefixes": 0,
+   "blocks": {
+    "core": 0,
+    "edge": 0
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "families": {},
+   "read": {
+    "core": 0,
+    "edge": 0
+   },
+   "exact": true
+  },
+  "LV": {
+   "name": "ラトビア",
+   "prefixes": 12,
+   "blocks": {
+    "core": 0,
+    "edge": 14
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 14
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 8794
+   },
+   "families": {
+    "pdf": {
+     "frame": 104,
+     "pool": 104,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 104
+     },
+     "truncated_in_pool": 12
+    },
+    "sheet": {
+     "frame": 2,
+     "pool": 2,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 5,
+     "pool": 5,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 5
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 104,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 4,
+    "application/msword": 1,
+    "application/vnd.ms-excel": 1,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
+   },
+   "built": "2026-11-03"
+  },
+  "LB": {
+   "name": "レバノン",
+   "prefixes": 3,
+   "blocks": {
+    "core": 0,
+    "edge": 3
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 3
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 72
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "LS": {
+   "name": "レソト",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 2
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 2
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 57
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "LR": {
+   "name": "リベリア",
+   "prefixes": 0,
+   "blocks": {
+    "core": 0,
+    "edge": 0
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "families": {},
+   "read": {
+    "core": 0,
+    "edge": 0
+   },
+   "exact": true
+  },
+  "LY": {
+   "name": "リビア",
+   "prefixes": 7,
+   "blocks": {
+    "core": 0,
+    "edge": 8
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 8
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2231
+   },
+   "families": {
+    "pdf": {
+     "frame": 11,
+     "pool": 11,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 11
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 11
+   },
+   "built": "2026-11-03"
+  },
+  "LI": {
+   "name": "リヒテンシュタイン",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 840
+   },
+   "families": {
+    "pdf": {
+     "frame": 4,
+     "pool": 4,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 4
+     },
+     "truncated_in_pool": 1
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 4
+   },
+   "built": "2026-11-03"
+  },
+  "LT": {
+   "name": "リトアニア",
+   "prefixes": 161,
+   "blocks": {
+    "core": 0,
+    "edge": 103
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 30
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "edge": 6050
+   },
+   "families": {
+    "pdf": {
+     "frame": 996,
+     "pool": 290,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 290
+     },
+     "truncated_in_pool": 14
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 3,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 292,
+    "application/vnd.oasis.opendocument.text": 1
+   },
+   "built": "2026-11-03"
+  },
+  "LU": {
+   "name": "ルクセンブルク",
+   "prefixes": 33,
+   "blocks": {
+    "core": 4,
+    "edge": 29
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 4,
+    "edge": 26
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 12000,
+    "edge": 17117
+   },
+   "families": {
+    "pdf": {
+     "frame": 1404,
+     "pool": 1269,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 97,
+      "edge": 1172
+     },
+     "truncated_in_pool": 67
+    },
+    "sheet": {
+     "frame": 7,
+     "pool": 7,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 7
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1275,
+    "application/vnd.ms-excel": 4,
+    "application/vnd.ms-excel.sheet.macroenabled.12": 2,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
+   },
+   "built": "2026-11-03"
+  },
+  "MG": {
+   "name": "マダガスカル",
+   "prefixes": 5,
+   "blocks": {
+    "core": 0,
+    "edge": 5
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 5
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 181
+   },
+   "families": {
+    "pdf": {
+     "frame": 34,
+     "pool": 34,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 34
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 34
+   },
+   "built": "2026-11-03"
+  },
+  "MW": {
+   "name": "マラウイ",
+   "prefixes": 9,
+   "blocks": {
+    "core": 0,
+    "edge": 6
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 6
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 394
+   },
+   "families": {
+    "pdf": {
+     "frame": 3,
+     "pool": 3,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 3
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 3
+   },
+   "built": "2026-11-03"
+  },
+  "MY": {
+   "name": "マレーシア",
+   "prefixes": 19,
+   "blocks": {
+    "core": 0,
+    "edge": 21
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 21
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 5366
+   },
+   "families": {
+    "pdf": {
+     "frame": 163,
+     "pool": 163,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 163
+     },
+     "truncated_in_pool": 12
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 8,
+     "pool": 8,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 8
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 163,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 8,
+    "application/octet-stream": 3
+   },
+   "built": "2026-11-03"
+  },
+  "MV": {
+   "name": "モルディブ",
+   "prefixes": 0,
+   "blocks": {
+    "core": 0,
+    "edge": 0
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "families": {},
+   "read": {
+    "core": 0,
+    "edge": 0
+   },
+   "exact": true
+  },
+  "ML": {
+   "name": "マリ",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 154
+   },
+   "families": {
+    "pdf": {
+     "frame": 5,
+     "pool": 5,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 5
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 5
+   },
+   "built": "2026-11-03"
+  },
+  "MT": {
+   "name": "マルタ",
+   "prefixes": 35,
+   "blocks": {
+    "core": 0,
+    "edge": 19
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 19
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2950
+   },
+   "families": {
+    "pdf": {
+     "frame": 23,
+     "pool": 23,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 23
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 23
+   },
+   "built": "2026-11-03"
+  },
+  "MH": {
+   "name": "マーシャル諸島",
+   "prefixes": 3,
+   "blocks": {
+    "core": 0,
+    "edge": 2
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 2
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 762
+   },
+   "families": {
+    "pdf": {
+     "frame": 458,
+     "pool": 458,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 458
+     },
+     "truncated_in_pool": 22
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 464
+   },
+   "built": "2026-11-03"
+  },
+  "MR": {
+   "name": "モーリタニア",
+   "prefixes": 4,
+   "blocks": {
+    "core": 1,
+    "edge": 5
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 5
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 1405
+   },
+   "families": {
+    "pdf": {
+     "frame": 3,
+     "pool": 3,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 3
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 3
+   },
+   "built": "2026-11-03"
+  },
+  "MU": {
+   "name": "モーリシャス",
+   "prefixes": 14,
+   "blocks": {
+    "core": 0,
+    "edge": 9
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 9
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 415
+   },
+   "families": {
+    "pdf": {
+     "frame": 72,
+     "pool": 72,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 72
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 73
+   },
+   "built": "2026-11-03"
+  },
+  "MX": {
+   "name": "メキシコ",
+   "prefixes": 24,
+   "blocks": {
+    "core": 2,
+    "edge": 29
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 2,
+    "edge": 28
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 6000,
+    "edge": 14190
+   },
+   "families": {
+    "pdf": {
+     "frame": 1509,
+     "pool": 1457,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 5,
+      "edge": 1452
+     },
+     "truncated_in_pool": 437
+    },
+    "sheet": {
+     "frame": 31,
+     "pool": 30,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 30
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1478,
+    "application/x-bibtex-text-file": 55,
+    "application/octet-stream": 42,
+    "application/vnd.oasis.opendocument.spreadsheet": 30,
+    "application/epub+zip": 28,
+    "application/vnd.openxmlformats-officedocument.presentationml.slideshow": 1
+   },
+   "built": "2026-11-03"
+  },
+  "FM": {
+   "name": "ミクロネシア連邦",
+   "prefixes": 3,
+   "blocks": {
+    "core": 0,
+    "edge": 3
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 3
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 18
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "MD": {
+   "name": "モルドバ",
+   "prefixes": 61,
+   "blocks": {
+    "core": 4,
+    "edge": 41
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 3,
+    "edge": 27
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 9000,
+    "edge": 12965
+   },
+   "families": {
+    "pdf": {
+     "frame": 3510,
+     "pool": 2336,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 199,
+      "edge": 2137
+     },
+     "truncated_in_pool": 224
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 64,
+     "pool": 48,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 48
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 2377,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 44,
+    "application/msword": 4,
+    "application/x-x509-cert; format=der": 1
+   },
+   "built": "2026-11-03"
+  },
+  "MC": {
+   "name": "モナコ",
+   "prefixes": 3,
+   "blocks": {
+    "core": 9,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 9,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "core": 27000,
+    "edge": 4958
+   },
+   "families": {
+    "pdf": {
+     "frame": 153,
+     "pool": 153,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "core": 45,
+      "edge": 108
+     },
+     "truncated_in_pool": 15
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 155
+   },
+   "built": "2026-11-03"
+  },
+  "MN": {
+   "name": "モンゴル",
+   "prefixes": 9,
+   "blocks": {
+    "core": 0,
+    "edge": 10
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 10
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 4459
+   },
+   "families": {
+    "pdf": {
+     "frame": 39,
+     "pool": 39,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 39
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 51,
+    "application/x-tika-msoffice": 1
+   },
+   "built": "2026-11-03"
+  },
+  "ME": {
+   "name": "モンテネグロ",
+   "prefixes": 21,
+   "blocks": {
+    "core": 0,
+    "edge": 23
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 23
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 12980
+   },
+   "families": {
+    "pdf": {
+     "frame": 2199,
+     "pool": 2199,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 2199
+     },
+     "truncated_in_pool": 64
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 2208,
+    "application/vnd.oasis.opendocument.text": 1,
+    "application/vnd.ms-xpsdocument": 1
+   },
+   "built": "2026-11-03"
+  },
+  "MA": {
+   "name": "モロッコ",
+   "prefixes": 37,
+   "blocks": {
+    "core": 0,
+    "edge": 37
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 30
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "edge": 5736
+   },
+   "families": {
+    "pdf": {
+     "frame": 99,
+     "pool": 80,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 80
+     },
+     "truncated_in_pool": 3
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 80
+   },
+   "built": "2026-11-03"
+  },
+  "MZ": {
+   "name": "モザンビーク",
+   "prefixes": 1,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {},
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "MM": {
+   "name": "ミャンマー",
+   "prefixes": 11,
+   "blocks": {
+    "core": 0,
+    "edge": 7
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 7
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 602
+   },
+   "families": {
+    "pdf": {
+     "frame": 5,
+     "pool": 5,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 5
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 5
+   },
+   "built": "2026-11-03"
+  },
+  "NA": {
+   "name": "ナミビア",
+   "prefixes": 19,
+   "blocks": {
+    "core": 0,
+    "edge": 14
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 14
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 460
+   },
+   "families": {
+    "pdf": {
+     "frame": 14,
+     "pool": 14,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 14
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 14
+   },
+   "built": "2026-11-03"
+  },
+  "NR": {
+   "name": "ナウル",
+   "prefixes": 1,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 130
+   },
+   "families": {
+    "pdf": {
+     "frame": 7,
+     "pool": 7,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 7
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 7
+   },
+   "built": "2026-11-03"
+  },
+  "NP": {
+   "name": "ネパール",
+   "prefixes": 82,
+   "blocks": {
+    "core": 0,
+    "edge": 72
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 30
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "edge": 19322
+   },
+   "families": {
+    "pdf": {
+     "frame": 1502,
+     "pool": 626,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 626
+     },
+     "truncated_in_pool": 74
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 688
+   },
+   "built": "2026-11-03"
+  },
+  "NL": {
+   "name": "オランダ",
+   "prefixes": 554,
+   "blocks": {
+    "core": 34,
+    "edge": 554
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 2,
+    "edge": 28
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 6000,
+    "edge": 8893
+   },
+   "families": {
+    "pdf": {
+     "frame": 3106,
+     "pool": 157,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 157
+     },
+     "truncated_in_pool": 34
+    },
+    "sheet": {
+     "frame": 20,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 175,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
+   },
+   "built": "2026-11-03"
+  },
+  "NZ": {
+   "name": "ニュージーランド",
+   "prefixes": 16,
+   "blocks": {
+    "core": 0,
+    "edge": 17
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 17
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 6214
+   },
+   "families": {
+    "pdf": {
+     "frame": 35,
+     "pool": 35,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 35
+     },
+     "truncated_in_pool": 3
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 7,
+     "pool": 7,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 7
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 35,
+    "application/rtf": 7
+   },
+   "built": "2026-11-03"
+  },
+  "NI": {
+   "name": "ニカラグア",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 2
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 2
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1267
+   },
+   "families": {
+    "pdf": {
+     "frame": 9,
+     "pool": 9,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 9
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 9
+   },
+   "built": "2026-11-03"
+  },
+  "NE": {
+   "name": "ニジェール",
+   "prefixes": 9,
+   "blocks": {
+    "core": 0,
+    "edge": 7
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 7
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 6362
+   },
+   "families": {
+    "pdf": {
+     "frame": 4,
+     "pool": 4,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 4
+     },
+     "truncated_in_pool": 1
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 4
+   },
+   "built": "2026-11-03"
+  },
+  "NG": {
+   "name": "ナイジェリア",
+   "prefixes": 48,
+   "blocks": {
+    "core": 0,
+    "edge": 46
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 30
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "edge": 908
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "MK": {
+   "name": "北マケドニア",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 5
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 5
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 5241
+   },
+   "families": {
+    "pdf": {
+     "frame": 74,
+     "pool": 74,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 74
+     },
+     "truncated_in_pool": 3
+    },
+    "sheet": {
+     "frame": 3,
+     "pool": 3,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 3
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 81,
+    "application/vnd.ms-excel": 3
+   },
+   "built": "2026-11-03"
+  },
+  "NO": {
+   "name": "ノルウェー",
+   "prefixes": 436,
+   "blocks": {
+    "core": 29,
+    "edge": 119
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 6,
+    "edge": 24
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 18000,
+    "edge": 17038
+   },
+   "families": {
+    "pdf": {
+     "frame": 7502,
+     "pool": 1513,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1513
+     },
+     "truncated_in_pool": 134
+    },
+    "sheet": {
+     "frame": 5,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 50,
+     "pool": 10,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 10
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1520,
+    "application/x-sqlite3": 9,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 8,
+    "application/x-sh": 4,
+    "application/x-geopackage": 1,
+    "application/vnd.oasis.opendocument.text": 1,
+    "application/msword": 1,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
+   },
+   "built": "2026-11-03"
+  },
+  "OM": {
+   "name": "オマーン",
+   "prefixes": 1,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 983
+   },
+   "families": {
+    "pdf": {
+     "frame": 11,
+     "pool": 11,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 11
+     },
+     "truncated_in_pool": 5
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 12
+   },
+   "built": "2026-11-03"
+  },
+  "PK": {
+   "name": "パキスタン",
+   "prefixes": 36,
+   "blocks": {
+    "core": 0,
+    "edge": 27
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 27
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 700
+   },
+   "families": {
+    "pdf": {
+     "frame": 233,
+     "pool": 233,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 233
+     },
+     "truncated_in_pool": 1
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 238
+   },
+   "built": "2026-11-03"
+  },
+  "PW": {
+   "name": "パラオ",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 2
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 2
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1328
+   },
+   "families": {
+    "pdf": {
+     "frame": 297,
+     "pool": 297,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 297
+     },
+     "truncated_in_pool": 46
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 301
+   },
+   "built": "2026-11-03"
+  },
+  "PA": {
+   "name": "パナマ",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1931
+   },
+   "families": {
+    "pdf": {
+     "frame": 395,
+     "pool": 395,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 395
+     },
+     "truncated_in_pool": 8
+    },
+    "sheet": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 395,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1
+   },
+   "built": "2026-11-03"
+  },
+  "PG": {
+   "name": "パプアニューギニア",
+   "prefixes": 5,
+   "blocks": {
+    "core": 0,
+    "edge": 2
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 2
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 133
+   },
+   "families": {
+    "pdf": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1
+   },
+   "built": "2026-11-03"
+  },
+  "PY": {
+   "name": "パラグアイ",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 3
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 3
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2303
+   },
+   "families": {
+    "pdf": {
+     "frame": 8,
+     "pool": 8,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 8
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 8
+   },
+   "built": "2026-11-03"
+  },
+  "PE": {
+   "name": "ペルー",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 440
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "PH": {
+   "name": "フィリピン",
+   "prefixes": 79,
+   "blocks": {
+    "core": 1,
+    "edge": 63
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 30
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 1382
+   },
+   "families": {
+    "pdf": {
+     "frame": 101,
+     "pool": 86,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 72,
+      "edge": 14
+     },
+     "truncated_in_pool": 12
+    },
+    "sheet": {
+     "frame": 1,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 90,
+    "application/vnd.ms-excel.sheet.macroenabled.12": 1,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.template": 1
+   },
+   "built": "2026-11-03"
+  },
+  "PL": {
+   "name": "ポーランド",
+   "prefixes": 641,
+   "blocks": {
+    "core": 101,
+    "edge": 750
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 4,
+    "edge": 26
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 12000,
+    "edge": 24348
+   },
+   "families": {
+    "pdf": {
+     "frame": 36413,
+     "pool": 1286,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 190,
+      "edge": 1096
+     },
+     "truncated_in_pool": 50
+    },
+    "sheet": {
+     "frame": 317,
+     "pool": 11,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 11
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 5279,
+     "pool": 183,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 183
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1329,
+    "application/msword": 184,
+    "application/vnd.ms-excel": 10,
+    "application/x-tika-msoffice": 3,
+    "application/vnd.oasis.opendocument.text": 3,
+    "application/rtf": 3,
+    "application/vnd.oasis.opendocument.spreadsheet": 1
+   },
+   "built": "2026-11-03"
+  },
+  "PT": {
+   "name": "ポルトガル",
+   "prefixes": 82,
+   "blocks": {
+    "core": 13,
+    "edge": 92
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 4,
+    "edge": 26
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 12000,
+    "edge": 18485
+   },
+   "families": {
+    "pdf": {
+     "frame": 10741,
+     "pool": 3188,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 1871,
+      "edge": 1317
+     },
+     "truncated_in_pool": 95
+    },
+    "sheet": {
+     "frame": 74,
+     "pool": 21,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 21
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 18,
+     "pool": 5,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 5
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 4328,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 27,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.template": 5,
+    "application/x-geopackage": 2,
+    "application/msword": 2,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 2,
+    "application/vnd.ms-excel": 2,
+    "application/vnd.oasis.opendocument.text": 1
+   },
+   "built": "2026-11-03"
+  },
+  "QA": {
+   "name": "カタール",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 5
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 5
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2758
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "KR": {
+   "name": "韓国",
+   "prefixes": 77,
+   "blocks": {
+    "core": 4,
+    "edge": 56
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 2,
+    "edge": 28
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 6000,
+    "edge": 21222
+   },
+   "families": {
+    "pdf": {
+     "frame": 638,
+     "pool": 319,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 319
+     },
+     "truncated_in_pool": 40
+    },
+    "sheet": {
+     "frame": 2,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 329,
+    "application/x-tika-msoffice": 248,
+    "application/x-tex": 7,
+    "application/vnd.ms-excel": 2
+   },
+   "built": "2026-11-03"
+  },
+  "RO": {
+   "name": "ルーマニア",
+   "prefixes": 275,
+   "blocks": {
+    "core": 5,
+    "edge": 130
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 29
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 10190
+   },
+   "families": {
+    "pdf": {
+     "frame": 9889,
+     "pool": 2206,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 2206
+     },
+     "truncated_in_pool": 42
+    },
+    "sheet": {
+     "frame": 18,
+     "pool": 4,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 4
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 4,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 2347,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 4,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
+   },
+   "built": "2026-11-03"
+  },
+  "RU": {
+   "name": "ロシア",
+   "prefixes": 116,
+   "blocks": {
+    "core": 13,
+    "edge": 124
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 3,
+    "edge": 27
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 9000,
+    "edge": 8429
+   },
+   "families": {
+    "pdf": {
+     "frame": 1249,
+     "pool": 279,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 125,
+      "edge": 154
+     },
+     "truncated_in_pool": 20
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 5,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 280,
+    "application/x-tika-msoffice": 5,
+    "application/rtf": 1
+   },
+   "built": "2026-11-03"
+  },
+  "RW": {
+   "name": "ルワンダ",
+   "prefixes": 12,
+   "blocks": {
+    "core": 0,
+    "edge": 11
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 11
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2098
+   },
+   "families": {
+    "pdf": {
+     "frame": 8,
+     "pool": 8,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 8
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 10
+   },
+   "built": "2026-11-03"
+  },
+  "KN": {
+   "name": "セントクリストファー・ネービス",
+   "prefixes": 3,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 592
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "LC": {
+   "name": "セントルシア",
+   "prefixes": 3,
+   "blocks": {
+    "core": 0,
+    "edge": 3
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 3
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 236
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "VC": {
+   "name": "セントビンセント及びグレナディーン諸島",
+   "prefixes": 0,
+   "blocks": {
+    "core": 0,
+    "edge": 0
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "families": {},
+   "read": {
+    "core": 0,
+    "edge": 0
+   },
+   "exact": true
+  },
+  "WS": {
+   "name": "サモア",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 2
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 2
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 25
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "SM": {
+   "name": "サンマリノ",
+   "prefixes": 9,
+   "blocks": {
+    "core": 0,
+    "edge": 8
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 8
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 669
+   },
+   "families": {
+    "pdf": {
+     "frame": 83,
+     "pool": 83,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 83
+     },
+     "truncated_in_pool": 4
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 87
+   },
+   "built": "2026-11-03"
+  },
+  "ST": {
+   "name": "サントメ・プリンシペ",
+   "prefixes": 1,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {},
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "SA": {
+   "name": "サウジアラビア",
+   "prefixes": 19,
+   "blocks": {
+    "core": 0,
+    "edge": 17
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 17
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2500
+   },
+   "families": {
+    "pdf": {
+     "frame": 191,
+     "pool": 191,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 191
+     },
+     "truncated_in_pool": 8
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 191
+   },
+   "built": "2026-11-03"
+  },
+  "SN": {
+   "name": "セネガル",
+   "prefixes": 22,
+   "blocks": {
+    "core": 0,
+    "edge": 22
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 22
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2722
+   },
+   "families": {
+    "pdf": {
+     "frame": 41,
+     "pool": 41,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 41
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 48
+   },
+   "built": "2026-11-03"
+  },
+  "RS": {
+   "name": "セルビア",
+   "prefixes": 26,
+   "blocks": {
+    "core": 0,
+    "edge": 32
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 30
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "edge": 16615
+   },
+   "families": {
+    "pdf": {
+     "frame": 1482,
+     "pool": 1389,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1389
+     },
+     "truncated_in_pool": 82
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 13,
+     "pool": 12,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 12
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1527,
+    "application/vnd.oasis.opendocument.text": 12,
+    "application/octet-stream": 5,
+    "application/x-tika-msoffice": 1
+   },
+   "built": "2026-11-03"
+  },
+  "SC": {
+   "name": "セーシェル",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 2
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 2
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 601
+   },
+   "families": {
+    "pdf": {
+     "frame": 14,
+     "pool": 14,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 14
+     },
+     "truncated_in_pool": 1
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 14
+   },
+   "built": "2026-11-03"
+  },
+  "SL": {
+   "name": "シエラレオネ",
+   "prefixes": 1,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "SG": {
+   "name": "シンガポール",
+   "prefixes": 10,
+   "blocks": {
+    "core": 0,
+    "edge": 11
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 11
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 5659
+   },
+   "families": {
+    "pdf": {
+     "frame": 53,
+     "pool": 53,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 53
+     },
+     "truncated_in_pool": 13
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 53
+   },
+   "built": "2026-11-03"
+  },
+  "SK": {
+   "name": "スロバキア",
+   "prefixes": 2819,
+   "blocks": {
+    "core": 11,
+    "edge": 1069
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 30
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 12558
+   },
+   "families": {
+    "pdf": {
+     "frame": 30894,
+     "pool": 867,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 867
+     },
+     "truncated_in_pool": 25
+    },
+    "sheet": {
+     "frame": 36,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 1318,
+     "pool": 37,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 37
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 889,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 22,
+    "application/msword": 11,
+    "application/rtf": 4,
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": 1,
+    "application/vnd.ms-excel": 1
+   },
+   "built": "2026-11-03"
+  },
+  "SI": {
+   "name": "スロベニア",
+   "prefixes": 85,
+   "blocks": {
+    "core": 29,
+    "edge": 74
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 8,
+    "edge": 22
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 24000,
+    "edge": 12543
+   },
+   "families": {
+    "pdf": {
+     "frame": 2195,
+     "pool": 640,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 162,
+      "edge": 478
+     },
+     "truncated_in_pool": 32
+    },
+    "sheet": {
+     "frame": 43,
+     "pool": 12,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 11,
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 441,
+     "pool": 131,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 131
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 2392,
+     "pool": 660,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 660
+     },
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 686,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 72,
+    "application/msword": 72,
+    "application/vnd.oasis.opendocument.spreadsheet": 7,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 4,
+    "application/vnd.openxmlformats-officedocument.presentationml.slideshow": 4,
+    "application/zip": 2,
+    "application/vnd.ms-excel": 1
+   },
+   "built": "2026-11-03"
+  },
+  "SB": {
+   "name": "ソロモン諸島",
+   "prefixes": 0,
+   "blocks": {
+    "core": 0,
+    "edge": 0
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "families": {},
+   "read": {
+    "core": 0,
+    "edge": 0
+   },
+   "exact": true
+  },
+  "SO": {
+   "name": "ソマリア",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 2
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 2
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "ZA": {
+   "name": "南アフリカ",
+   "prefixes": 30,
+   "blocks": {
+    "core": 0,
+    "edge": 30
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 30
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 12806
+   },
+   "families": {
+    "pdf": {
+     "frame": 733,
+     "pool": 733,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 733
+     },
+     "truncated_in_pool": 49
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 734,
+    "application/octet-stream": 77
+   },
+   "built": "2026-11-03"
+  },
+  "SS": {
+   "name": "南スーダン",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 2
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 2
+   },
+   "exact": true,
+   "lines_in_frame": {},
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "ES": {
+   "name": "スペイン",
+   "prefixes": 4992,
+   "blocks": {
+    "core": 270,
+    "edge": 2612
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 3,
+    "edge": 27
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 9000,
+    "edge": 12717
+   },
+   "families": {
+    "pdf": {
+     "frame": 36665,
+     "pool": 379,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 379
+     },
+     "truncated_in_pool": 34
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 193,
+     "pool": 2,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 388,
+    "application/vnd.oasis.opendocument.text": 2
+   },
+   "built": "2026-11-03"
+  },
+  "LK": {
+   "name": "スリランカ",
+   "prefixes": 13,
+   "blocks": {
+    "core": 0,
+    "edge": 11
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 11
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2032
+   },
+   "families": {
+    "pdf": {
+     "frame": 18,
+     "pool": 18,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 18
+     },
+     "truncated_in_pool": 6
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 19,
+    "application/octet-stream": 2,
+    "application/marc": 1
+   },
+   "built": "2026-11-03"
+  },
+  "SD": {
+   "name": "スーダン",
+   "prefixes": 3,
+   "blocks": {
+    "core": 0,
+    "edge": 3
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 3
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 235
+   },
+   "families": {
+    "pdf": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1
+   },
+   "built": "2026-11-03"
+  },
+  "SR": {
+   "name": "スリナム",
+   "prefixes": 20,
+   "blocks": {
+    "core": 0,
+    "edge": 15
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 15
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 3549
+   },
+   "families": {
+    "pdf": {
+     "frame": 46,
+     "pool": 46,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 46
+     },
+     "truncated_in_pool": 5
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 46
+   },
+   "built": "2026-11-03"
+  },
+  "SE": {
+   "name": "スウェーデン",
+   "prefixes": 308,
+   "blocks": {
+    "core": 19,
+    "edge": 387
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 29
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 19838
+   },
+   "families": {
+    "pdf": {
+     "frame": 15257,
+     "pool": 1017,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 298,
+      "edge": 719
+     },
+     "truncated_in_pool": 95
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 360,
+     "pool": 27,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 27
+     },
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1021,
+    "application/octet-stream": 1
+   },
+   "built": "2026-11-03"
+  },
+  "CH": {
+   "name": "スイス",
+   "prefixes": 56,
+   "blocks": {
+    "core": 65,
+    "edge": 70
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 14,
+    "edge": 16
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 42000,
+    "edge": 10687
+   },
+   "families": {
+    "pdf": {
+     "frame": 3118,
+     "pool": 690,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 369,
+      "edge": 321
+     },
+     "truncated_in_pool": 58
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 4,
+     "pool": 1,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 714,
+    "application/vnd.google-earth.kmz": 3,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1
+   },
+   "built": "2026-11-03"
+  },
+  "SY": {
+   "name": "シリア",
+   "prefixes": 16,
+   "blocks": {
+    "core": 1,
+    "edge": 11
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 11
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 3750
+   },
+   "families": {
+    "pdf": {
+     "frame": 39,
+     "pool": 39,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 39
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 39
+   },
+   "built": "2026-11-03"
+  },
+  "TJ": {
+   "name": "タジキスタン",
+   "prefixes": 9,
+   "blocks": {
+    "core": 0,
+    "edge": 8
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 8
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1923
+   },
+   "families": {
+    "pdf": {
+     "frame": 1,
+     "pool": 1,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1
+   },
+   "built": "2026-11-03"
+  },
+  "TH": {
+   "name": "タイ",
+   "prefixes": 29,
+   "blocks": {
+    "core": 1,
+    "edge": 31
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 29
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 12323
+   },
+   "families": {
+    "pdf": {
+     "frame": 984,
+     "pool": 921,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 8,
+      "edge": 913
+     },
+     "truncated_in_pool": 40
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 925
+   },
+   "built": "2026-11-03"
+  },
+  "TL": {
+   "name": "東ティモール",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 78
+   },
+   "families": {
+    "pdf": {
+     "frame": 18,
+     "pool": 18,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 18
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 18
+   },
+   "built": "2026-11-03"
+  },
+  "TG": {
+   "name": "トーゴ",
+   "prefixes": 19,
+   "blocks": {
+    "core": 0,
+    "edge": 9
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 9
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1181
+   },
+   "families": {
+    "pdf": {
+     "frame": 13,
+     "pool": 13,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 13
+     },
+     "truncated_in_pool": 1
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 13
+   },
+   "built": "2026-11-03"
+  },
+  "TO": {
+   "name": "トンガ",
+   "prefixes": 0,
+   "blocks": {
+    "core": 0,
+    "edge": 0
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "families": {},
+   "read": {
+    "core": 0,
+    "edge": 0
+   },
+   "exact": true
+  },
+  "TT": {
+   "name": "トリニダード・トバゴ",
+   "prefixes": 4,
+   "blocks": {
+    "core": 0,
+    "edge": 4
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 4
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 180
+   },
+   "families": {
+    "pdf": {
+     "frame": 2,
+     "pool": 2,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 2
+   },
+   "built": "2026-11-03"
+  },
+  "TN": {
+   "name": "チュニジア",
+   "prefixes": 54,
+   "blocks": {
+    "core": 0,
+    "edge": 30
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 30
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 9613
+   },
+   "families": {
+    "pdf": {
+     "frame": 1375,
+     "pool": 1375,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 1375
+     },
+     "truncated_in_pool": 50
+    },
+    "sheet": {
+     "frame": 7,
+     "pool": 7,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 7
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 37,
+     "pool": 37,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 37
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1399,
+    "application/msword": 37,
+    "application/vnd.ms-excel.sheet.macroenabled.12": 7,
+    "application/vnd.ms-excel": 1
+   },
+   "built": "2026-11-03"
+  },
+  "TR": {
+   "name": "トルコ",
+   "prefixes": 132,
+   "blocks": {
+    "core": 2,
+    "edge": 71
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 29
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 22789
+   },
+   "families": {
+    "pdf": {
+     "frame": 2323,
+     "pool": 958,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 51,
+      "edge": 907
+     },
+     "truncated_in_pool": 194
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 982,
+    "application/x-tika-msoffice": 8
+   },
+   "built": "2026-11-03"
+  },
+  "TM": {
+   "name": "トルクメニスタン",
+   "prefixes": 1,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {},
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "TV": {
+   "name": "ツバル",
+   "prefixes": 1,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {},
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "UG": {
+   "name": "ウガンダ",
+   "prefixes": 15,
+   "blocks": {
+    "core": 0,
+    "edge": 9
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 9
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 1022
+   },
+   "families": {
+    "pdf": {
+     "frame": 54,
+     "pool": 54,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 54
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 54
+   },
+   "built": "2026-11-03"
+  },
+  "UA": {
+   "name": "ウクライナ",
+   "prefixes": 212,
+   "blocks": {
+    "core": 11,
+    "edge": 106
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 3,
+    "edge": 27
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 9000,
+    "edge": 5618
+   },
+   "families": {
+    "pdf": {
+     "frame": 1029,
+     "pool": 262,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 262
+     },
+     "truncated_in_pool": 13
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 8,
+     "pool": 2,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 2
+     },
+     "truncated_in_pool": 1
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 262,
+    "application/vnd.etsi.asic-e+zip": 10,
+    "application/pkcs7-signature": 6,
+    "application/msword": 2
+   },
+   "built": "2026-11-03"
+  },
+  "AE": {
+   "name": "アラブ首長国連邦",
+   "prefixes": 25,
+   "blocks": {
+    "core": 6,
+    "edge": 26
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 6,
+    "edge": 24
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 18000,
+    "edge": 5081
+   },
+   "families": {
+    "pdf": {
+     "frame": 9,
+     "pool": 8,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 8
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 8
+   },
+   "built": "2026-11-03"
+  },
+  "GB": {
+   "name": "英国",
+   "prefixes": 173,
+   "blocks": {
+    "core": 183,
+    "edge": 162
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 16,
+    "edge": 14
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 48000,
+    "edge": 4588
+   },
+   "families": {
+    "pdf": {
+     "frame": 14585,
+     "pool": 1274,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 1175,
+      "edge": 99
+     },
+     "truncated_in_pool": 307
+    },
+    "sheet": {
+     "frame": 80,
+     "pool": 7,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 7
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 69,
+     "pool": 6,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 6
+     },
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1302,
+    "application/octet-stream": 12,
+    "application/vnd.ms-excel.sheet.macroenabled.12": 7,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 6,
+    "application/x-bat": 2,
+    "application/x-bibtex-text-file": 2
+   },
+   "built": "2026-11-03"
+  },
+  "TZ": {
+   "name": "タンザニア",
+   "prefixes": 7,
+   "blocks": {
+    "core": 0,
+    "edge": 7
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 7
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 525
+   },
+   "families": {
+    "pdf": {
+     "frame": 15,
+     "pool": 15,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 15
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 16
+   },
+   "built": "2026-11-03"
+  },
+  "US": {
+   "name": "米国",
+   "prefixes": 5615,
+   "blocks": {
+    "core": 94,
+    "edge": 3492
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 1,
+    "edge": 29
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 3000,
+    "edge": 4517
+   },
+   "families": {
+    "pdf": {
+     "frame": 35161,
+     "pool": 292,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "edge": 292
+     },
+     "truncated_in_pool": 23
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 295,
+    "application/octet-stream": 1
+   },
+   "built": "2026-11-03"
+  },
+  "UY": {
+   "name": "ウルグアイ",
+   "prefixes": 9,
+   "blocks": {
+    "core": 5,
+    "edge": 10
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 5,
+    "edge": 10
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "core": 15000,
+    "edge": 5517
+   },
+   "families": {
+    "pdf": {
+     "frame": 422,
+     "pool": 422,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 422
+     },
+     "truncated_in_pool": 18
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 443
+   },
+   "built": "2026-11-03"
+  },
+  "UZ": {
+   "name": "ウズベキスタン",
+   "prefixes": 36,
+   "blocks": {
+    "core": 10,
+    "edge": 36
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 7,
+    "edge": 23
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 21000,
+    "edge": 7090
+   },
+   "families": {
+    "pdf": {
+     "frame": 357,
+     "pool": 249,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 243,
+      "edge": 6
+     },
+     "truncated_in_pool": 7
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 250
+   },
+   "built": "2026-11-03"
+  },
+  "VU": {
+   "name": "バヌアツ",
+   "prefixes": 2,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 9
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "VE": {
+   "name": "ベネズエラ",
+   "prefixes": 13,
+   "blocks": {
+    "core": 0,
+    "edge": 12
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 12
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 2596
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "VN": {
+   "name": "ベトナム",
+   "prefixes": 51,
+   "blocks": {
+    "core": 20,
+    "edge": 50
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 9,
+    "edge": 21
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 27000,
+    "edge": 18233
+   },
+   "families": {
+    "pdf": {
+     "frame": 83,
+     "pool": 35,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 1,
+      "edge": 34
+     },
+     "truncated_in_pool": 5
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 40,
+    "application/x-tika-msoffice": 1
+   },
+   "built": "2026-11-03"
+  },
+  "YE": {
+   "name": "イエメン",
+   "prefixes": 7,
+   "blocks": {
+    "core": 0,
+    "edge": 9
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 9
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 4134
+   },
+   "families": {
+    "pdf": {
+     "frame": 47,
+     "pool": 47,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 47
+     },
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 47
+   },
+   "built": "2026-11-03"
+  },
+  "ZM": {
+   "name": "ザンビア",
+   "prefixes": 7,
+   "blocks": {
+    "core": 0,
+    "edge": 6
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 6
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 469
+   },
+   "families": {
+    "pdf": {
+     "frame": 8,
+     "pool": 8,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 8
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 8
+   },
+   "built": "2026-11-03"
+  },
+  "ZW": {
+   "name": "ジンバブエ",
+   "prefixes": 20,
+   "blocks": {
+    "core": 0,
+    "edge": 13
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 13
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 893
+   },
+   "families": {
+    "pdf": {
+     "frame": 9,
+     "pool": 9,
+     "exact": true,
+     "pool_by_block_stratum": {
+      "edge": 9
+     },
+     "truncated_in_pool": 2
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 9
+   },
+   "built": "2026-11-03"
+  },
+  "HK": {
+   "name": "香港",
+   "prefixes": 1,
+   "blocks": {
+    "core": 0,
+    "edge": 1
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 0,
+    "edge": 1
+   },
+   "exact": true,
+   "lines_in_frame": {
+    "edge": 6
+   },
+   "families": {
+    "pdf": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "sheet": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": true,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {},
+   "built": "2026-11-03"
+  },
+  "TW": {
+   "name": "台湾",
+   "prefixes": 38,
+   "blocks": {
+    "core": 509,
+    "edge": 12
+   },
+   "blocks_max": 30,
+   "version": 2,
+   "read": {
+    "core": 29,
+    "edge": 1
+   },
+   "exact": false,
+   "lines_in_frame": {
+    "core": 87000,
+    "edge": 100
+   },
+   "families": {
+    "pdf": {
+     "frame": 32857,
+     "pool": 1872,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 1872
+     },
+     "truncated_in_pool": 103
+    },
+    "sheet": {
+     "frame": 176,
+     "pool": 10,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 10
+     },
+     "truncated_in_pool": 0
+    },
+    "text": {
+     "frame": 1931,
+     "pool": 110,
+     "exact": false,
+     "pool_by_block_stratum": {
+      "core": 110
+     },
+     "truncated_in_pool": 1
+    },
+    "csv": {
+     "frame": 0,
+     "pool": 0,
+     "exact": false,
+     "pool_by_block_stratum": {},
+     "truncated_in_pool": 0
+    }
+   },
+   "other_document_mimes": {
+    "application/pdf": 1927,
+    "application/vnd.oasis.opendocument.text": 108,
+    "application/x-bibtex-text-file": 20,
+    "application/x-tika-msoffice": 15,
+    "application/x-endnote-refer": 12,
+    "application/octet-stream": 10,
+    "application/vnd.oasis.opendocument.spreadsheet": 8,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 5
+   },
+   "built": "2026-11-03"
   }
  }
 }

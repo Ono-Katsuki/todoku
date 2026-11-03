@@ -50,7 +50,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -72,13 +82,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 4647,
+     "pdf": 4651,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 4647,
+     "pdf": 4651,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -94,7 +104,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 8
+     },
+     "read": {
+      "core": 0,
+      "edge": 8
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -116,13 +136,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 156,
+     "pdf": 1754,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 156,
+     "pdf": 1754,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -138,7 +158,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 4,
+      "edge": 23
+     },
+     "read": {
+      "core": 4,
+      "edge": 23
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -149,16 +179,26 @@
    "en": "Andorra",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 7
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 59,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 59,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -170,7 +210,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 5
+     },
+     "read": {
+      "core": 0,
+      "edge": 5
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -215,7 +265,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -226,16 +286,26 @@
    "en": "Antigua and Barbuda",
    "region": "AM",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 3
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 15,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 15,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -247,7 +317,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -270,13 +350,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 25736,
+     "pdf": 25888,
      "sheet": 0,
      "text": 0,
      "csv": 21
     },
     "pool": {
-     "pdf": 3722,
+     "pdf": 3839,
      "sheet": 0,
      "text": 0,
      "csv": 3
@@ -292,7 +372,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 39
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -303,16 +393,26 @@
    "en": "Armenia",
    "region": "AS",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 28
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 2089,
+     "sheet": 6,
+     "text": 71,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2089,
+     "sheet": 6,
+     "text": 71,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -324,7 +424,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 28
+     },
+     "read": {
+      "core": 1,
+      "edge": 28
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -346,16 +456,16 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 45620,
-     "sheet": 162,
+     "pdf": 52853,
+     "sheet": 165,
      "text": 2900,
-     "csv": 174
+     "csv": 220
     },
     "pool": {
-     "pdf": 4083,
-     "sheet": 14,
+     "pdf": 6433,
+     "sheet": 15,
      "text": 254,
-     "csv": 15
+     "csv": 30
     },
     "suffix": {
      "blocks": {
@@ -368,7 +478,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 13,
+      "edge": 80
+     },
+     "read": {
+      "core": 4,
+      "edge": 26
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -390,15 +510,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 15938,
+     "pdf": 26366,
      "sheet": 20,
-     "text": 106,
+     "text": 170,
      "csv": 0
     },
     "pool": {
-     "pdf": 3940,
+     "pdf": 4376,
      "sheet": 5,
-     "text": 26,
+     "text": 28,
      "csv": 0
     },
     "suffix": {
@@ -412,7 +532,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 12,
+      "edge": 955
+     },
+     "read": {
+      "core": 1,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -434,13 +564,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 1321,
+     "pdf": 1337,
      "sheet": 0,
      "text": 0,
      "csv": 3
     },
     "pool": {
-     "pdf": 1321,
+     "pdf": 1337,
      "sheet": 0,
      "text": 0,
      "csv": 3
@@ -456,7 +586,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 25
+     },
+     "read": {
+      "core": 1,
+      "edge": 25
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -500,7 +640,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -522,13 +672,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 14,
+     "pdf": 15,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 14,
+     "pdf": 15,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -544,7 +694,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -588,7 +748,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -632,7 +802,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -654,13 +834,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 3519,
+     "pdf": 3525,
      "sheet": 0,
      "text": 22,
      "csv": 0
     },
     "pool": {
-     "pdf": 2603,
+     "pdf": 2609,
      "sheet": 0,
      "text": 16,
      "csv": 0
@@ -676,7 +856,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -699,15 +889,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 1534,
-     "sheet": 3,
-     "text": 7,
+     "pdf": 11167,
+     "sheet": 110,
+     "text": 221,
      "csv": 8
     },
     "pool": {
-     "pdf": 1534,
-     "sheet": 3,
-     "text": 7,
+     "pdf": 1996,
+     "sheet": 8,
+     "text": 17,
      "csv": 8
     },
     "suffix": {
@@ -721,7 +911,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 17,
+      "edge": 621
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -765,7 +965,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -776,16 +986,26 @@
    "en": "Benin",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 21
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 26,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 26,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -797,7 +1017,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 12
+     },
+     "read": {
+      "core": 0,
+      "edge": 12
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -819,13 +1049,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 610,
+     "pdf": 611,
      "sheet": 3,
      "text": 1,
      "csv": 0
     },
     "pool": {
-     "pdf": 610,
+     "pdf": 611,
      "sheet": 3,
      "text": 1,
      "csv": 0
@@ -841,7 +1071,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -863,13 +1103,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 2881,
+     "pdf": 2942,
      "sheet": 2,
      "text": 0,
      "csv": 265
     },
     "pool": {
-     "pdf": 2881,
+     "pdf": 2942,
      "sheet": 2,
      "text": 0,
      "csv": 265
@@ -885,7 +1125,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -907,15 +1157,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 4291,
+     "pdf": 5536,
      "sheet": 5,
-     "text": 59,
+     "text": 65,
      "csv": 0
     },
     "pool": {
-     "pdf": 4291,
+     "pdf": 5536,
      "sheet": 5,
-     "text": 59,
+     "text": 65,
      "csv": 0
     },
     "suffix": {
@@ -929,7 +1179,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 23
+     },
+     "read": {
+      "core": 0,
+      "edge": 23
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -951,13 +1211,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 58,
+     "pdf": 405,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 58,
+     "pdf": 405,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -973,7 +1233,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 9
+     },
+     "read": {
+      "core": 0,
+      "edge": 9
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1071,7 +1341,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1082,16 +1362,26 @@
    "en": "Bulgaria",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 16
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 6542,
+     "sheet": 1338,
+     "text": 423,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 5772,
+     "sheet": 1181,
+     "text": 373,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -1103,7 +1393,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 17,
+      "edge": 17
+     },
+     "read": {
+      "core": 15,
+      "edge": 15
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -1125,13 +1425,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 128,
+     "pdf": 131,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 128,
+     "pdf": 131,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -1147,7 +1447,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 10
+     },
+     "read": {
+      "core": 0,
+      "edge": 10
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1158,16 +1468,26 @@
    "en": "Burundi",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 17
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 11,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 11,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -1179,7 +1499,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1190,16 +1520,26 @@
    "en": "Cabo Verde",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 9
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 204,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 204,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -1211,7 +1551,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1233,13 +1583,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 829,
+     "pdf": 830,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 829,
+     "pdf": 830,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -1255,7 +1605,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1277,13 +1637,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 483,
+     "pdf": 532,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 483,
+     "pdf": 532,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -1299,7 +1659,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 11
+     },
+     "read": {
+      "core": 0,
+      "edge": 11
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1322,13 +1692,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 6859,
+     "pdf": 27027,
      "sheet": 69,
      "text": 10,
      "csv": 0
     },
     "pool": {
-     "pdf": 1399,
+     "pdf": 2161,
      "sheet": 14,
      "text": 2,
      "csv": 0
@@ -1344,7 +1714,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 110,
+      "edge": 676
+     },
+     "read": {
+      "core": 4,
+      "edge": 26
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -1355,16 +1735,26 @@
    "en": "Central African Republic",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 1
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -1376,7 +1766,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1387,16 +1787,26 @@
    "en": "Chad",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 13
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 1,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -1408,7 +1818,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1431,14 +1851,14 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 16015,
-     "sheet": 116,
+     "pdf": 19843,
+     "sheet": 122,
      "text": 165,
      "csv": 2
     },
     "pool": {
-     "pdf": 7868,
-     "sheet": 57,
+     "pdf": 8468,
+     "sheet": 58,
      "text": 81,
      "csv": 1
     },
@@ -1453,7 +1873,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 4,
+      "edge": 185
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -1475,13 +1905,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 27974,
+     "pdf": 28409,
      "sheet": 610,
      "text": 779,
      "csv": 0
     },
     "pool": {
-     "pdf": 1652,
+     "pdf": 1725,
      "sheet": 36,
      "text": 46,
      "csv": 0
@@ -1497,7 +1927,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 3,
+      "edge": 174
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -1519,14 +1959,14 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 61109,
-     "sheet": 1759,
+     "pdf": 61302,
+     "sheet": 1760,
      "text": 582,
      "csv": 2768
     },
     "pool": {
-     "pdf": 9033,
-     "sheet": 260,
+     "pdf": 9226,
+     "sheet": 261,
      "text": 86,
      "csv": 409
     },
@@ -1541,7 +1981,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 12
+     },
+     "read": {
+      "core": 1,
+      "edge": 12
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1586,7 +2036,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1597,16 +2057,26 @@
    "en": "Congo",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 9
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 112,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 112,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -1618,7 +2088,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1640,13 +2120,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 3278,
+     "pdf": 3279,
      "sheet": 84,
      "text": 257,
      "csv": 1
     },
     "pool": {
-     "pdf": 3278,
+     "pdf": 3279,
      "sheet": 84,
      "text": 257,
      "csv": 1
@@ -1662,7 +2142,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1684,13 +2174,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 228,
+     "pdf": 259,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 228,
+     "pdf": 259,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -1706,7 +2196,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 16
+     },
+     "read": {
+      "core": 0,
+      "edge": 16
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1717,16 +2217,26 @@
    "en": "Croatia",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 453
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 7767,
+     "sheet": 120,
+     "text": 50,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 774,
+     "sheet": 12,
+     "text": 5,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -1738,7 +2248,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 5,
+      "edge": 291
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -1760,13 +2280,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 283,
+     "pdf": 390,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 283,
+     "pdf": 390,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -1782,7 +2302,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 15
+     },
+     "read": {
+      "core": 1,
+      "edge": 15
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1804,13 +2334,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 569,
+     "pdf": 589,
      "sheet": 0,
      "text": 2,
      "csv": 0
     },
     "pool": {
-     "pdf": 569,
+     "pdf": 589,
      "sheet": 0,
      "text": 2,
      "csv": 0
@@ -1826,7 +2356,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1848,16 +2388,16 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 10660,
-     "sheet": 154,
-     "text": 384,
-     "csv": 64
+     "pdf": 74785,
+     "sheet": 544,
+     "text": 3410,
+     "csv": 127
     },
     "pool": {
-     "pdf": 5826,
-     "sheet": 84,
-     "text": 210,
-     "csv": 35
+     "pdf": 6791,
+     "sheet": 90,
+     "text": 255,
+     "csv": 42
     },
     "suffix": {
      "blocks": {
@@ -1870,7 +2410,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 9,
+      "edge": 2286
+     },
+     "read": {
+      "core": 1,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -1882,7 +2432,7 @@
    "region": "AS",
    "un_member": true,
    "outcome": "no_documents",
-   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 2 を読んだ）",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 6 を読んだ）",
    "domains": {
     "suffixes": [
      "gov.kp"
@@ -1914,7 +2464,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1925,8 +2485,8 @@
    "en": "Democratic Republic of the Congo",
    "region": "AF",
    "un_member": true,
-   "outcome": "no_documents",
-   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [
      "gov.cd"
@@ -1936,13 +2496,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 0,
+     "pdf": 25,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 0,
+     "pdf": 25,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -1958,7 +2518,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -1969,16 +2539,26 @@
    "en": "Denmark",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 70
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 774,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 244,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -1990,7 +2570,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 9,
+      "edge": 87
+     },
+     "read": {
+      "core": 3,
+      "edge": 27
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -2001,16 +2591,26 @@
    "en": "Djibouti",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 6
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 64,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 64,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -2022,7 +2622,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2066,7 +2676,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2111,7 +2731,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2134,13 +2764,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 25486,
+     "pdf": 25505,
      "sheet": 381,
      "text": 45,
      "csv": 809
     },
     "pool": {
-     "pdf": 11376,
+     "pdf": 11395,
      "sheet": 170,
      "text": 20,
      "csv": 361
@@ -2156,7 +2786,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2178,13 +2818,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 592,
+     "pdf": 656,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 592,
+     "pdf": 656,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -2200,7 +2840,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 29
+     },
+     "read": {
+      "core": 0,
+      "edge": 29
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2244,7 +2894,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2255,16 +2915,26 @@
    "en": "Equatorial Guinea",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 2
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 2,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -2276,7 +2946,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2287,45 +2967,11 @@
    "en": "Eritrea",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
-   "domains": {
-    "suffixes": [],
-    "wikidata_hosts": 1
-   },
-   "frame": {
-    "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
-    "suffix": {
-     "blocks": {
-      "core": 0,
-      "edge": 0
-     },
-     "read": {
-      "core": 0,
-      "edge": 0
-     },
-     "exact": true
-    },
-    "wikidata": null
-   }
-  },
-  {
-   "iso2": "EE",
-   "iso3": "EST",
-   "num": "233",
-   "ja": "エストニア",
-   "en": "Estonia",
-   "region": "EU",
-   "un_member": true,
    "outcome": "no_documents",
    "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
    "domains": {
-    "suffixes": [
-     "gov.ee"
-    ],
-    "wikidata_hosts": 32
+    "suffixes": [],
+    "wikidata_hosts": 1
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
@@ -2344,6 +2990,60 @@
     "suffix": {
      "blocks": {
       "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    },
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
+   }
+  },
+  {
+   "iso2": "EE",
+   "iso3": "EST",
+   "num": "233",
+   "ja": "エストニア",
+   "en": "Estonia",
+   "region": "EU",
+   "un_member": true,
+   "outcome": "reachable",
+   "reason": "",
+   "domains": {
+    "suffixes": [
+     "gov.ee"
+    ],
+    "wikidata_hosts": 32
+   },
+   "frame": {
+    "crawl": "CC-MAIN-2026-43",
+    "families": {
+     "pdf": 1493,
+     "sheet": 3,
+     "text": 3,
+     "csv": 1
+    },
+    "pool": {
+     "pdf": 1111,
+     "sheet": 2,
+     "text": 2,
+     "csv": 1
+    },
+    "suffix": {
+     "blocks": {
+      "core": 0,
       "edge": 1
      },
      "read": {
@@ -2352,7 +3052,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 39
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -2363,16 +3073,26 @@
    "en": "Eswatini",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 2
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -2384,7 +3104,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2406,13 +3136,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 359,
+     "pdf": 367,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 359,
+     "pdf": 367,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -2428,7 +3158,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 10
+     },
+     "read": {
+      "core": 0,
+      "edge": 10
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2450,13 +3190,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 194,
+     "pdf": 196,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 194,
+     "pdf": 196,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -2472,7 +3212,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 5
+     },
+     "read": {
+      "core": 0,
+      "edge": 5
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2483,16 +3233,26 @@
    "en": "Finland",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 373
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 14467,
+     "sheet": 0,
+     "text": 55,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1054,
+     "sheet": 0,
+     "text": 4,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -2504,7 +3264,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 31,
+      "edge": 384
+     },
+     "read": {
+      "core": 2,
+      "edge": 28
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -2526,13 +3296,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 10857,
+     "pdf": 197727,
      "sheet": 441,
      "text": 1075,
      "csv": 6
     },
     "pool": {
-     "pdf": 1881,
+     "pdf": 2679,
      "sheet": 76,
      "text": 186,
      "csv": 1
@@ -2548,7 +3318,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 182,
+      "edge": 6791
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -2559,16 +3339,26 @@
    "en": "Gabon",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 4 を読んだ）",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 11
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -2580,7 +3370,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2591,16 +3391,26 @@
    "en": "Gambia",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 43
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 198,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 198,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -2612,7 +3422,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2634,15 +3454,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 2104,
-     "sheet": 53,
-     "text": 156,
+     "pdf": 2303,
+     "sheet": 74,
+     "text": 210,
      "csv": 0
     },
     "pool": {
-     "pdf": 2104,
-     "sheet": 53,
-     "text": 156,
+     "pdf": 2303,
+     "sheet": 74,
+     "text": 210,
      "csv": 0
     },
     "suffix": {
@@ -2656,7 +3476,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 13
+     },
+     "read": {
+      "core": 0,
+      "edge": 13
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2732,13 +3562,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 1169,
+     "pdf": 1615,
      "sheet": 1,
      "text": 2,
      "csv": 1
     },
     "pool": {
-     "pdf": 1169,
+     "pdf": 1615,
      "sheet": 1,
      "text": 2,
      "csv": 1
@@ -2754,7 +3584,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 11,
+      "edge": 17
+     },
+     "read": {
+      "core": 11,
+      "edge": 17
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2776,13 +3616,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 6156,
+     "pdf": 13532,
      "sheet": 115,
      "text": 35,
      "csv": 179
     },
     "pool": {
-     "pdf": 3306,
+     "pdf": 4004,
      "sheet": 62,
      "text": 19,
      "csv": 96
@@ -2798,7 +3638,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 24,
+      "edge": 295
+     },
+     "read": {
+      "core": 2,
+      "edge": 28
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -2820,13 +3670,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 3,
+     "pdf": 19,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 3,
+     "pdf": 19,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -2842,7 +3692,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2864,14 +3724,14 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 12318,
-     "sheet": 329,
+     "pdf": 12498,
+     "sheet": 331,
      "text": 73,
      "csv": 0
     },
     "pool": {
-     "pdf": 12318,
-     "sheet": 329,
+     "pdf": 12498,
+     "sheet": 331,
      "text": 73,
      "csv": 0
     },
@@ -2886,7 +3746,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 13
+     },
+     "read": {
+      "core": 0,
+      "edge": 13
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2930,7 +3800,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -2941,16 +3821,26 @@
    "en": "Guinea-Bissau",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 2 を読んだ）",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 2
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -2962,7 +3852,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3006,7 +3906,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3050,7 +3960,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3072,13 +3992,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 966,
+     "pdf": 977,
      "sheet": 2,
      "text": 6,
      "csv": 0
     },
     "pool": {
-     "pdf": 966,
+     "pdf": 977,
      "sheet": 2,
      "text": 6,
      "csv": 0
@@ -3094,7 +4014,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3105,16 +4035,26 @@
    "en": "Hungary",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 38
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 4897,
+     "sheet": 431,
+     "text": 210,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2644,
+     "sheet": 234,
+     "text": 114,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -3126,7 +4066,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 10,
+      "edge": 46
+     },
+     "read": {
+      "core": 5,
+      "edge": 25
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -3137,16 +4087,26 @@
    "en": "Iceland",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 60
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 991,
+     "sheet": 0,
+     "text": 2,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 442,
+     "sheet": 0,
+     "text": 1,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -3158,7 +4118,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 3,
+      "edge": 65
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -3235,15 +4205,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 21050,
+     "pdf": 21085,
      "sheet": 50,
-     "text": 0,
+     "text": 1,
      "csv": 0
     },
     "pool": {
-     "pdf": 2522,
+     "pdf": 2557,
      "sheet": 6,
-     "text": 0,
+     "text": 1,
      "csv": 0
     },
     "suffix": {
@@ -3257,7 +4227,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 12
+     },
+     "read": {
+      "core": 1,
+      "edge": 12
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3279,13 +4259,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 151,
+     "pdf": 243,
      "sheet": 1,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 151,
+     "pdf": 210,
      "sheet": 1,
      "text": 0,
      "csv": 0
@@ -3301,7 +4281,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 10,
+      "edge": 36
+     },
+     "read": {
+      "core": 7,
+      "edge": 23
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -3323,13 +4313,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 251,
+     "pdf": 254,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 251,
+     "pdf": 254,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -3345,7 +4335,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 12
+     },
+     "read": {
+      "core": 0,
+      "edge": 12
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3367,15 +4367,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 1372,
-     "sheet": 1,
-     "text": 0,
+     "pdf": 6301,
+     "sheet": 4,
+     "text": 3,
      "csv": 0
     },
     "pool": {
-     "pdf": 1372,
-     "sheet": 1,
-     "text": 0,
+     "pdf": 2962,
+     "sheet": 2,
+     "text": 1,
      "csv": 0
     },
     "suffix": {
@@ -3389,7 +4389,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 93
+     },
+     "read": {
+      "core": 1,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -3411,13 +4421,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 1937,
+     "pdf": 2008,
      "sheet": 0,
      "text": 2,
      "csv": 3
     },
     "pool": {
-     "pdf": 1937,
+     "pdf": 1978,
      "sheet": 0,
      "text": 2,
      "csv": 3
@@ -3433,7 +4443,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 52
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -3455,16 +4475,16 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 10386,
-     "sheet": 66,
-     "text": 83,
-     "csv": 113
+     "pdf": 122941,
+     "sheet": 157,
+     "text": 310,
+     "csv": 18312
     },
     "pool": {
-     "pdf": 4876,
-     "sheet": 31,
-     "text": 39,
-     "csv": 53
+     "pdf": 7370,
+     "sheet": 33,
+     "text": 44,
+     "csv": 481
     },
     "suffix": {
      "blocks": {
@@ -3477,7 +4497,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 170,
+      "edge": 1179
+     },
+     "read": {
+      "core": 4,
+      "edge": 26
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -3488,16 +4518,26 @@
    "en": "Jamaica",
    "region": "AM",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 62
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 398,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 398,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -3509,7 +4549,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 26
+     },
+     "read": {
+      "core": 0,
+      "edge": 26
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3586,13 +4636,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 2550,
+     "pdf": 2553,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 2550,
+     "pdf": 2553,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -3608,7 +4658,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3630,14 +4690,14 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 457,
-     "sheet": 899,
+     "pdf": 2875,
+     "sheet": 900,
      "text": 40,
      "csv": 15
     },
     "pool": {
-     "pdf": 457,
-     "sheet": 899,
+     "pdf": 2875,
+     "sheet": 900,
      "text": 40,
      "csv": 15
     },
@@ -3652,7 +4712,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 26
+     },
+     "read": {
+      "core": 1,
+      "edge": 26
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3750,7 +4820,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3794,7 +4874,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3838,7 +4928,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 12
+     },
+     "read": {
+      "core": 0,
+      "edge": 12
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3882,7 +4982,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3904,15 +5014,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 4119,
-     "sheet": 30,
-     "text": 116,
+     "pdf": 4223,
+     "sheet": 32,
+     "text": 121,
      "csv": 1
     },
     "pool": {
-     "pdf": 4119,
-     "sheet": 30,
-     "text": 116,
+     "pdf": 4223,
+     "sheet": 32,
+     "text": 121,
      "csv": 1
     },
     "suffix": {
@@ -3926,7 +5036,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 14
+     },
+     "read": {
+      "core": 0,
+      "edge": 14
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -3970,7 +5090,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4014,7 +5144,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4058,7 +5198,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4080,13 +5230,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 186,
+     "pdf": 197,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 186,
+     "pdf": 197,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -4102,7 +5252,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 8
+     },
+     "read": {
+      "core": 0,
+      "edge": 8
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4113,16 +5273,26 @@
    "en": "Liechtenstein",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 4
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 4,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 4,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -4134,7 +5304,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4156,15 +5336,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 77,
+     "pdf": 1073,
      "sheet": 0,
-     "text": 0,
+     "text": 3,
      "csv": 0
     },
     "pool": {
-     "pdf": 77,
+     "pdf": 367,
      "sheet": 0,
-     "text": 0,
+     "text": 1,
      "csv": 0
     },
     "suffix": {
@@ -4178,7 +5358,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 103
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -4189,16 +5379,26 @@
    "en": "Luxembourg",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 33
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 1404,
+     "sheet": 7,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1269,
+     "sheet": 7,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -4210,7 +5410,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 4,
+      "edge": 29
+     },
+     "read": {
+      "core": 4,
+      "edge": 26
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -4232,13 +5442,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 382,
+     "pdf": 416,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 382,
+     "pdf": 416,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -4254,7 +5464,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 5
+     },
+     "read": {
+      "core": 0,
+      "edge": 5
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4276,13 +5496,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 58,
+     "pdf": 61,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 58,
+     "pdf": 61,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -4298,7 +5518,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4320,15 +5550,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 11271,
+     "pdf": 11434,
      "sheet": 229,
-     "text": 17,
+     "text": 25,
      "csv": 14
     },
     "pool": {
-     "pdf": 3988,
+     "pdf": 4151,
      "sheet": 81,
-     "text": 6,
+     "text": 14,
      "csv": 5
     },
     "suffix": {
@@ -4342,7 +5572,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 21
+     },
+     "read": {
+      "core": 0,
+      "edge": 21
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4386,7 +5626,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4409,13 +5659,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 49,
+     "pdf": 54,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 49,
+     "pdf": 54,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -4431,7 +5681,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4442,16 +5702,26 @@
    "en": "Malta",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 35
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 23,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 23,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -4463,7 +5733,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 19
+     },
+     "read": {
+      "core": 0,
+      "edge": 19
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4474,16 +5754,26 @@
    "en": "Marshall Islands",
    "region": "OC",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 3
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 458,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 458,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -4495,7 +5785,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4517,13 +5817,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 137,
+     "pdf": 140,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 137,
+     "pdf": 140,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -4539,7 +5839,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 5
+     },
+     "read": {
+      "core": 1,
+      "edge": 5
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4550,8 +5860,8 @@
    "en": "Mauritius",
    "region": "AF",
    "un_member": true,
-   "outcome": "no_documents",
-   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [
      "gov.mu"
@@ -4561,13 +5871,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 0,
+     "pdf": 72,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 0,
+     "pdf": 72,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -4583,7 +5893,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 9
+     },
+     "read": {
+      "core": 0,
+      "edge": 9
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4605,14 +5925,14 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 119307,
-     "sheet": 131,
+     "pdf": 120816,
+     "sheet": 162,
      "text": 89,
      "csv": 28
     },
     "pool": {
-     "pdf": 21649,
-     "sheet": 30,
+     "pdf": 23106,
+     "sheet": 60,
      "text": 16,
      "csv": 5
     },
@@ -4627,7 +5947,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 2,
+      "edge": 29
+     },
+     "read": {
+      "core": 2,
+      "edge": 28
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -4638,16 +5968,26 @@
    "en": "Micronesia (Federated States of)",
    "region": "OC",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 3 を読んだ）",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 3
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -4659,7 +5999,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4670,16 +6020,26 @@
    "en": "Moldova",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 61
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 3510,
+     "sheet": 0,
+     "text": 64,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2336,
+     "sheet": 0,
+     "text": 48,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -4691,7 +6051,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 4,
+      "edge": 41
+     },
+     "read": {
+      "core": 3,
+      "edge": 27
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -4702,16 +6072,26 @@
    "en": "Monaco",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 3
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 153,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 153,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -4723,7 +6103,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 9,
+      "edge": 4
+     },
+     "read": {
+      "core": 9,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4745,13 +6135,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 1523,
+     "pdf": 1562,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 1523,
+     "pdf": 1562,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -4767,7 +6157,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 10
+     },
+     "read": {
+      "core": 0,
+      "edge": 10
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4789,15 +6189,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 666,
+     "pdf": 2865,
      "sheet": 27,
-     "text": 204,
+     "text": 205,
      "csv": 0
     },
     "pool": {
-     "pdf": 666,
+     "pdf": 2865,
      "sheet": 27,
-     "text": 204,
+     "text": 205,
      "csv": 0
     },
     "suffix": {
@@ -4811,7 +6211,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 23
+     },
+     "read": {
+      "core": 0,
+      "edge": 23
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4833,13 +6243,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 2077,
+     "pdf": 2176,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 2077,
+     "pdf": 2157,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -4855,7 +6265,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 37
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -4899,7 +6319,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4910,16 +6340,26 @@
    "en": "Myanmar",
    "region": "AS",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 11
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 5,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 5,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -4931,7 +6371,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4953,13 +6403,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 148,
+     "pdf": 162,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 148,
+     "pdf": 162,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -4975,7 +6425,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 14
+     },
+     "read": {
+      "core": 0,
+      "edge": 14
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -4997,13 +6457,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 214,
+     "pdf": 221,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 214,
+     "pdf": 221,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -5019,7 +6479,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5030,16 +6500,26 @@
    "en": "Nepal",
    "region": "AS",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 82
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 1502,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 626,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -5051,7 +6531,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 72
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -5062,16 +6552,26 @@
    "en": "Netherlands",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 554
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 3106,
+     "sheet": 20,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 157,
+     "sheet": 1,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -5083,7 +6583,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 34,
+      "edge": 554
+     },
+     "read": {
+      "core": 2,
+      "edge": 28
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -5105,15 +6615,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 22298,
+     "pdf": 22333,
      "sheet": 24,
-     "text": 13,
+     "text": 20,
      "csv": 297
     },
     "pool": {
-     "pdf": 6783,
+     "pdf": 6818,
      "sheet": 9,
-     "text": 5,
+     "text": 12,
      "csv": 88
     },
     "suffix": {
@@ -5127,7 +6637,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 17
+     },
+     "read": {
+      "core": 0,
+      "edge": 17
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5149,13 +6669,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 511,
+     "pdf": 520,
      "sheet": 0,
      "text": 0,
      "csv": 1
     },
     "pool": {
-     "pdf": 511,
+     "pdf": 520,
      "sheet": 0,
      "text": 0,
      "csv": 1
@@ -5171,7 +6691,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5182,16 +6712,26 @@
    "en": "Niger",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 9
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 4,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 4,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -5203,7 +6743,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5247,7 +6797,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 46
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -5269,14 +6829,14 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 3112,
-     "sheet": 2,
+     "pdf": 3186,
+     "sheet": 5,
      "text": 21,
      "csv": 8
     },
     "pool": {
-     "pdf": 3112,
-     "sheet": 2,
+     "pdf": 3186,
+     "sheet": 5,
      "text": 21,
      "csv": 8
     },
@@ -5291,7 +6851,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 5
+     },
+     "read": {
+      "core": 0,
+      "edge": 5
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5302,16 +6872,26 @@
    "en": "Norway",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 436
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 7502,
+     "sheet": 5,
+     "text": 50,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1513,
+     "sheet": 1,
+     "text": 10,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -5323,7 +6903,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 29,
+      "edge": 119
+     },
+     "read": {
+      "core": 6,
+      "edge": 24
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -5345,13 +6935,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 564,
+     "pdf": 575,
      "sheet": 4,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 564,
+     "pdf": 575,
      "sheet": 4,
      "text": 0,
      "csv": 0
@@ -5367,7 +6957,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5393,13 +6993,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 3481,
+     "pdf": 3714,
      "sheet": 37,
      "text": 1,
      "csv": 15
     },
     "pool": {
-     "pdf": 3481,
+     "pdf": 3714,
      "sheet": 37,
      "text": 1,
      "csv": 15
@@ -5415,7 +7015,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 27
+     },
+     "read": {
+      "core": 0,
+      "edge": 27
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5437,13 +7047,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 29,
+     "pdf": 326,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 29,
+     "pdf": 326,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -5459,7 +7069,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5481,14 +7101,14 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 1174,
-     "sheet": 0,
+     "pdf": 1569,
+     "sheet": 1,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 1174,
-     "sheet": 0,
+     "pdf": 1569,
+     "sheet": 1,
      "text": 0,
      "csv": 0
     },
@@ -5503,7 +7123,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5514,16 +7144,26 @@
    "en": "Papua New Guinea",
    "region": "OC",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 5
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 1,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 1,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -5535,7 +7175,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5557,13 +7207,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 5011,
+     "pdf": 5019,
      "sheet": 35,
      "text": 60,
      "csv": 5
     },
     "pool": {
-     "pdf": 5011,
+     "pdf": 5019,
      "sheet": 35,
      "text": 60,
      "csv": 5
@@ -5579,7 +7229,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5623,7 +7283,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5645,14 +7315,14 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 21859,
-     "sheet": 8,
+     "pdf": 21960,
+     "sheet": 9,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 8135,
-     "sheet": 3,
+     "pdf": 8221,
+     "sheet": 4,
      "text": 0,
      "csv": 0
     },
@@ -5667,7 +7337,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 63
+     },
+     "read": {
+      "core": 1,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -5689,15 +7369,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 39854,
-     "sheet": 198,
-     "text": 1197,
+     "pdf": 76267,
+     "sheet": 515,
+     "text": 6476,
      "csv": 0
     },
     "pool": {
-     "pdf": 8873,
-     "sheet": 44,
-     "text": 266,
+     "pdf": 10159,
+     "sheet": 55,
+     "text": 449,
      "csv": 0
     },
     "suffix": {
@@ -5711,7 +7391,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 101,
+      "edge": 750
+     },
+     "read": {
+      "core": 4,
+      "edge": 26
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -5733,15 +7423,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 3550,
-     "sheet": 8,
-     "text": 2,
+     "pdf": 14291,
+     "sheet": 82,
+     "text": 20,
      "csv": 0
     },
     "pool": {
-     "pdf": 3550,
-     "sheet": 8,
-     "text": 2,
+     "pdf": 6738,
+     "sheet": 29,
+     "text": 7,
      "csv": 0
     },
     "suffix": {
@@ -5755,7 +7445,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 13,
+      "edge": 92
+     },
+     "read": {
+      "core": 4,
+      "edge": 26
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -5799,7 +7499,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 5
+     },
+     "read": {
+      "core": 0,
+      "edge": 5
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5822,14 +7532,14 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 20343,
-     "sheet": 44,
+     "pdf": 20981,
+     "sheet": 46,
      "text": 11,
      "csv": 0
     },
     "pool": {
-     "pdf": 1879,
-     "sheet": 4,
+     "pdf": 2198,
+     "sheet": 5,
      "text": 1,
      "csv": 0
     },
@@ -5844,7 +7554,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 4,
+      "edge": 56
+     },
+     "read": {
+      "core": 2,
+      "edge": 28
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -5855,16 +7575,26 @@
    "en": "Romania",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 275
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 9889,
+     "sheet": 18,
+     "text": 4,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 2206,
+     "sheet": 4,
+     "text": 1,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -5876,7 +7606,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 5,
+      "edge": 130
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -5887,16 +7627,26 @@
    "en": "Russian Federation",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 116
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 1249,
+     "sheet": 0,
+     "text": 5,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 279,
+     "sheet": 0,
+     "text": 1,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -5908,7 +7658,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 13,
+      "edge": 124
+     },
+     "read": {
+      "core": 3,
+      "edge": 27
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -5930,13 +7690,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 280,
+     "pdf": 288,
      "sheet": 0,
      "text": 6,
      "csv": 2
     },
     "pool": {
-     "pdf": 280,
+     "pdf": 288,
      "sheet": 0,
      "text": 6,
      "csv": 2
@@ -5952,7 +7712,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 11
+     },
+     "read": {
+      "core": 0,
+      "edge": 11
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -5996,7 +7766,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6040,7 +7820,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6084,7 +7874,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6128,7 +7928,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6139,16 +7949,26 @@
    "en": "San Marino",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 9
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 83,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 83,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -6160,7 +7980,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 8
+     },
+     "read": {
+      "core": 0,
+      "edge": 8
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6171,16 +8001,26 @@
    "en": "Sao Tome and Principe",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 1
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -6192,7 +8032,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6214,13 +8064,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 1312,
+     "pdf": 1503,
      "sheet": 8,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 1267,
+     "pdf": 1458,
      "sheet": 8,
      "text": 0,
      "csv": 0
@@ -6236,7 +8086,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 17
+     },
+     "read": {
+      "core": 0,
+      "edge": 17
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6258,13 +8118,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 249,
+     "pdf": 290,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 249,
+     "pdf": 290,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -6280,7 +8140,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 22
+     },
+     "read": {
+      "core": 0,
+      "edge": 22
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6302,15 +8172,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 8215,
+     "pdf": 9697,
      "sheet": 192,
-     "text": 52,
+     "text": 65,
      "csv": 100
     },
     "pool": {
-     "pdf": 6197,
+     "pdf": 7586,
      "sheet": 142,
-     "text": 47,
+     "text": 59,
      "csv": 74
     },
     "suffix": {
@@ -6324,7 +8194,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 32
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -6346,13 +8226,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 78,
+     "pdf": 92,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 78,
+     "pdf": 92,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -6368,7 +8248,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6412,7 +8302,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6434,13 +8334,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 996,
+     "pdf": 1049,
      "sheet": 0,
      "text": 3,
      "csv": 0
     },
     "pool": {
-     "pdf": 996,
+     "pdf": 1049,
      "sheet": 0,
      "text": 3,
      "csv": 0
@@ -6456,7 +8356,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 11
+     },
+     "read": {
+      "core": 0,
+      "edge": 11
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6467,16 +8377,26 @@
    "en": "Slovakia",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 2819
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 30894,
+     "sheet": 36,
+     "text": 1318,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 867,
+     "sheet": 1,
+     "text": 37,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -6488,7 +8408,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 11,
+      "edge": 1069
+     },
+     "read": {
+      "core": 1,
+      "edge": 30
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -6499,16 +8429,26 @@
    "en": "Slovenia",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 85
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 2195,
+     "sheet": 43,
+     "text": 441,
+     "csv": 2392
+    },
+    "pool": {
+     "pdf": 640,
+     "sheet": 12,
+     "text": 131,
+     "csv": 660
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -6520,7 +8460,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 29,
+      "edge": 74
+     },
+     "read": {
+      "core": 8,
+      "edge": 22
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -6564,7 +8514,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6608,7 +8568,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6630,13 +8600,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 18357,
+     "pdf": 19090,
      "sheet": 12,
      "text": 75,
      "csv": 0
     },
     "pool": {
-     "pdf": 15586,
+     "pdf": 16319,
      "sheet": 10,
      "text": 64,
      "csv": 0
@@ -6652,7 +8622,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 30
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6696,7 +8676,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 2
+     },
+     "read": {
+      "core": 0,
+      "edge": 2
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6718,15 +8708,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 4286,
+     "pdf": 40951,
      "sheet": 0,
-     "text": 3,
+     "text": 196,
      "csv": 8
     },
     "pool": {
-     "pdf": 1680,
+     "pdf": 2059,
      "sheet": 0,
-     "text": 1,
+     "text": 3,
      "csv": 3
     },
     "suffix": {
@@ -6740,7 +8730,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 270,
+      "edge": 2612
+     },
+     "read": {
+      "core": 3,
+      "edge": 27
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -6762,13 +8762,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 5237,
+     "pdf": 5255,
      "sheet": 18,
      "text": 3,
      "csv": 2
     },
     "pool": {
-     "pdf": 5237,
+     "pdf": 5255,
      "sheet": 18,
      "text": 3,
      "csv": 2
@@ -6784,7 +8784,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 11
+     },
+     "read": {
+      "core": 0,
+      "edge": 11
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6806,13 +8816,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 253,
+     "pdf": 254,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 253,
+     "pdf": 254,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -6828,7 +8838,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 3
+     },
+     "read": {
+      "core": 0,
+      "edge": 3
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6839,16 +8859,26 @@
    "en": "Suriname",
    "region": "AM",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 20
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 46,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 46,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -6860,7 +8890,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 15
+     },
+     "read": {
+      "core": 0,
+      "edge": 15
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -6871,16 +8911,26 @@
    "en": "Sweden",
    "region": "EU",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 308
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 15257,
+     "sheet": 0,
+     "text": 0,
+     "csv": 360
+    },
+    "pool": {
+     "pdf": 1017,
+     "sheet": 0,
+     "text": 0,
+     "csv": 27
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -6892,7 +8942,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 19,
+      "edge": 387
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -6914,15 +8974,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 9043,
+     "pdf": 12161,
      "sheet": 113,
-     "text": 0,
+     "text": 4,
      "csv": 10
     },
     "pool": {
-     "pdf": 3697,
+     "pdf": 4387,
      "sheet": 46,
-     "text": 0,
+     "text": 1,
      "csv": 4
     },
     "suffix": {
@@ -6936,7 +8996,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 65,
+      "edge": 70
+     },
+     "read": {
+      "core": 14,
+      "edge": 16
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -6958,13 +9028,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 262,
+     "pdf": 301,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 262,
+     "pdf": 301,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -6980,7 +9050,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 11
+     },
+     "read": {
+      "core": 1,
+      "edge": 11
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7002,13 +9082,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 2,
+     "pdf": 3,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 2,
+     "pdf": 3,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -7024,7 +9104,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 8
+     },
+     "read": {
+      "core": 0,
+      "edge": 8
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7046,13 +9136,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 23322,
+     "pdf": 24306,
      "sheet": 21,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 3390,
+     "pdf": 4311,
      "sheet": 3,
      "text": 0,
      "csv": 0
@@ -7068,7 +9158,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 1,
+      "edge": 31
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -7090,13 +9190,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 311,
+     "pdf": 329,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 311,
+     "pdf": 329,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -7112,7 +9212,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7123,16 +9233,26 @@
    "en": "Togo",
    "region": "AF",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 19
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 13,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 13,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -7144,7 +9264,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 9
+     },
+     "read": {
+      "core": 0,
+      "edge": 9
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7188,7 +9318,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 0
+     },
+     "read": {
+      "core": 0,
+      "edge": 0
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7210,13 +9350,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 779,
+     "pdf": 781,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 779,
+     "pdf": 781,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -7232,7 +9372,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 4
+     },
+     "read": {
+      "core": 0,
+      "edge": 4
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7254,15 +9404,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 1123,
-     "sheet": 0,
-     "text": 0,
+     "pdf": 2498,
+     "sheet": 7,
+     "text": 37,
      "csv": 0
     },
     "pool": {
-     "pdf": 1123,
-     "sheet": 0,
-     "text": 0,
+     "pdf": 2498,
+     "sheet": 7,
+     "text": 37,
      "csv": 0
     },
     "suffix": {
@@ -7276,7 +9426,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 30
+     },
+     "read": {
+      "core": 0,
+      "edge": 30
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7298,13 +9458,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 10724,
+     "pdf": 13047,
      "sheet": 0,
      "text": 4,
      "csv": 0
     },
     "pool": {
-     "pdf": 2934,
+     "pdf": 3892,
      "sheet": 0,
      "text": 1,
      "csv": 0
@@ -7320,7 +9480,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 2,
+      "edge": 71
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -7364,7 +9534,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7375,16 +9555,26 @@
    "en": "Tuvalu",
    "region": "OC",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 1
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -7396,7 +9586,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7419,13 +9619,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 1352,
+     "pdf": 1406,
      "sheet": 4,
      "text": 1,
      "csv": 0
     },
     "pool": {
-     "pdf": 1352,
+     "pdf": 1406,
      "sheet": 4,
      "text": 1,
      "csv": 0
@@ -7441,7 +9641,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 9
+     },
+     "read": {
+      "core": 0,
+      "edge": 9
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7463,15 +9673,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 29372,
+     "pdf": 30401,
      "sheet": 8823,
-     "text": 15019,
+     "text": 15027,
      "csv": 0
     },
     "pool": {
-     "pdf": 1721,
+     "pdf": 1983,
      "sheet": 517,
-     "text": 880,
+     "text": 882,
      "csv": 0
     },
     "suffix": {
@@ -7485,7 +9695,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 11,
+      "edge": 106
+     },
+     "read": {
+      "core": 3,
+      "edge": 27
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -7507,13 +9727,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 2070,
+     "pdf": 2079,
      "sheet": 846,
      "text": 11,
      "csv": 0
     },
     "pool": {
-     "pdf": 2070,
+     "pdf": 2078,
      "sheet": 846,
      "text": 11,
      "csv": 0
@@ -7529,7 +9749,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 6,
+      "edge": 26
+     },
+     "read": {
+      "core": 6,
+      "edge": 24
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -7551,15 +9781,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 144298,
-     "sheet": 30466,
-     "text": 674,
+     "pdf": 158883,
+     "sheet": 30546,
+     "text": 743,
      "csv": 1561
     },
     "pool": {
-     "pdf": 8146,
-     "sheet": 1718,
-     "text": 38,
+     "pdf": 9420,
+     "sheet": 1725,
+     "text": 44,
      "csv": 88
     },
     "suffix": {
@@ -7573,7 +9803,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 183,
+      "edge": 162
+     },
+     "read": {
+      "core": 16,
+      "edge": 14
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -7595,13 +9835,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 2957,
+     "pdf": 2972,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 2957,
+     "pdf": 2972,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -7617,7 +9857,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 7
+     },
+     "read": {
+      "core": 0,
+      "edge": 7
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7639,13 +9889,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 822436,
+     "pdf": 857597,
      "sheet": 1538,
      "text": 118,
      "csv": 118
     },
     "pool": {
-     "pdf": 7134,
+     "pdf": 7426,
      "sheet": 13,
      "text": 1,
      "csv": 1
@@ -7661,7 +9911,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 94,
+      "edge": 3492
+     },
+     "read": {
+      "core": 1,
+      "edge": 29
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -7683,13 +9943,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 5222,
+     "pdf": 5644,
      "sheet": 142,
      "text": 12,
      "csv": 60
     },
     "pool": {
-     "pdf": 4197,
+     "pdf": 4619,
      "sheet": 136,
      "text": 10,
      "csv": 48
@@ -7705,7 +9965,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 5,
+      "edge": 10
+     },
+     "read": {
+      "core": 5,
+      "edge": 10
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7716,16 +9986,26 @@
    "en": "Uzbekistan",
    "region": "AS",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "reachable",
+   "reason": "",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 36
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 357,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 249,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -7737,7 +10017,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 10,
+      "edge": 36
+     },
+     "read": {
+      "core": 7,
+      "edge": 23
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -7748,16 +10038,26 @@
    "en": "Vanuatu",
    "region": "OC",
    "un_member": true,
-   "outcome": "not_in_crawl",
-   "reason": "政府のドメインは分かるが、この収集に入っていない",
+   "outcome": "no_documents",
+   "reason": "政府のサイトは収集にあるが、書類が見つからない（索引のブロック 1 を読んだ）",
    "domains": {
     "suffixes": [],
     "wikidata_hosts": 2
    },
    "frame": {
     "crawl": "CC-MAIN-2026-43",
-    "families": {},
-    "pool": {},
+    "families": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
+    "pool": {
+     "pdf": 0,
+     "sheet": 0,
+     "text": 0,
+     "csv": 0
+    },
     "suffix": {
      "blocks": {
       "core": 0,
@@ -7769,7 +10069,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7814,7 +10124,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 12
+     },
+     "read": {
+      "core": 0,
+      "edge": 12
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7836,13 +10156,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 13109,
+     "pdf": 13192,
      "sheet": 233,
      "text": 425,
      "csv": 0
     },
     "pool": {
-     "pdf": 2809,
+     "pdf": 2844,
      "sheet": 50,
      "text": 91,
      "csv": 0
@@ -7858,7 +10178,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 20,
+      "edge": 50
+     },
+     "read": {
+      "core": 9,
+      "edge": 21
+     },
+     "exact": false
+    }
    }
   },
   {
@@ -7880,13 +10210,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 10,
+     "pdf": 57,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 10,
+     "pdf": 57,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -7902,7 +10232,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 9
+     },
+     "read": {
+      "core": 0,
+      "edge": 9
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7924,13 +10264,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 541,
+     "pdf": 549,
      "sheet": 0,
      "text": 0,
      "csv": 0
     },
     "pool": {
-     "pdf": 541,
+     "pdf": 549,
      "sheet": 0,
      "text": 0,
      "csv": 0
@@ -7946,7 +10286,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 6
+     },
+     "read": {
+      "core": 0,
+      "edge": 6
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -7968,13 +10318,13 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 13,
+     "pdf": 22,
      "sheet": 0,
      "text": 1,
      "csv": 0
     },
     "pool": {
-     "pdf": 13,
+     "pdf": 22,
      "sheet": 0,
      "text": 1,
      "csv": 0
@@ -7990,7 +10340,17 @@
      },
      "exact": true
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 13
+     },
+     "read": {
+      "core": 0,
+      "edge": 13
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -8034,7 +10394,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 0,
+      "edge": 1
+     },
+     "read": {
+      "core": 0,
+      "edge": 1
+     },
+     "exact": true
+    }
    }
   },
   {
@@ -8056,15 +10426,15 @@
    "frame": {
     "crawl": "CC-MAIN-2026-43",
     "families": {
-     "pdf": 31165,
-     "sheet": 1676,
-     "text": 4796,
+     "pdf": 64022,
+     "sheet": 1852,
+     "text": 6727,
      "csv": 0
     },
     "pool": {
-     "pdf": 4125,
-     "sheet": 222,
-     "text": 631,
+     "pdf": 5997,
+     "sheet": 232,
+     "text": 741,
      "csv": 0
     },
     "suffix": {
@@ -8078,7 +10448,17 @@
      },
      "exact": false
     },
-    "wikidata": null
+    "wikidata": {
+     "blocks": {
+      "core": 509,
+      "edge": 12
+     },
+     "read": {
+      "core": 29,
+      "edge": 1
+     },
+     "exact": false
+    }
    }
   }
  ]

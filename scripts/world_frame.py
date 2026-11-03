@@ -586,6 +586,112 @@ def build_frames(countries: list[str], blocks_max: int, source: str = "suffix") 
     return 0
 
 
+RARE = ("sheet", "text")  # 申請の様式が多い群。1回目のブロックでは候補が少ない
+RARE_TARGET = 20  # 層ごとにこの数の候補が集まるまで、ブロックを足す
+EXTRA_MAX = 90  # 国 × 出典ごとに足すブロックの上限（1回目の 30 と合わせて 120 まで）
+
+
+def extend_rare(blocks_max: int, countries: list[str], source: str) -> int:
+    """表計算・文書の層の候補が RARE_TARGET 未満の国で、まだ読んでいないブロックを、別の種で無作為な順に並べ、
+    候補がそろうか、ブロックが尽きるか、EXTRA_MAX に届くまで、順に読む（1回目と合わせて、層の中の単純無作為抽出になる）。
+    足したブロックは表計算・文書の候補にだけ使う（PDF・CSV の標本は 1回目のブロックのまま変えない）。
+    枠の推定と選ばれる確率は、群ごとに読んだブロックの数（blocks_read）で出す。止め方が観測に依るので、推定はわずかに偏りうる。"""
+    part = "countries" if source == "suffix" else "wikidata"
+    doms = json.loads((OUT / "domains.json").read_text(encoding="utf-8"))["countries"]
+    fpath, spath = OUT / "frames.json", OUT / "sample.jsonl"
+    frames = json.loads(fpath.read_text(encoding="utf-8"))
+    samples: dict[tuple, list] = defaultdict(list)
+    for line in spath.read_text(encoding="utf-8").splitlines():
+        r = json.loads(line)
+        samples[(r["country"], r.get("domain_source", "suffix"))].append(line)
+    idx = ClusterIndex()
+    for cc in countries or list(frames[part]):
+        rec = frames[part].get(cc)
+        fams = (rec or {}).get("families") or {}
+        if not fams or rec.get("extend") is not None:
+            continue
+        need = [f for f in RARE if fams[f]["pool"] < RARE_TARGET]
+        d = doms[cc]
+        own_s = [surt(x["suffix"]) for x in d["suffixes"] if "excluded" not in x] if source == "suffix" else []
+        own_h = {surt(h) for h, _ in d["hosts"]} if source == "wikidata" else set()
+        blocks = idx.blocks(own_s + sorted(own_h))
+        strata = {h: sorted(i for i, t in blocks.items() if t == h) for h in ("core", "edge")}
+        B = {h: len(v) for h, v in strata.items()}
+        m = rec["read"]
+        # 1回目に読んだブロック（build_frames と同じ種で、同じ選び方）
+        rnd = random.Random(f"{SEED}:{cc}" + ("" if source == "suffix" else f":{source}"))
+        chosen = {h: (rnd.sample(strata[h], m[h]) if m[h] < B[h] else list(strata[h])) for h in B}
+        first = set(chosen["core"]) | set(chosen["edge"])
+        if any(json.loads(x)["block"] not in first for x in samples[(cc, source)]):
+            raise RuntimeError(f"{cc} {source}：1回目のブロックを作り直せない（枠を作り直してから足す）")
+        rest = [(i, h) for h in B for i in strata[h] if i not in first]
+        random.Random(f"{SEED}:{cc}:{source}:extend").shuffle(rest)
+        if not need or not rest:
+            rec["extend"] = {"read": {"core": 0, "edge": 0}, "stop": "enough" if not need else "exhausted"}
+            _save(frames, samples, fpath, spath)
+            continue
+
+        def mine(host_surt: str) -> bool:
+            if any(host_surt == p or host_surt.startswith(p + ",") for p in own_s):
+                return True
+            parts = host_surt.split(",")
+            return any(",".join(parts[:k]) in own_h for k in range(2, len(parts) + 1))
+
+        old = {f: [json.loads(x) for x in samples[(cc, source)] if json.loads(x)["family"] == f] for f in RARE}
+        cand = {f: {c["digest"]: c for c in old[f]} for f in RARE}  # 候補が 50 未満の層は、標本の行が候補のすべて
+        extra = Counter()
+        stop = "exhausted"
+        for i, h in rest:
+            if all(len(cand[f]) >= RARE_TARGET for f in RARE):
+                stop = "enough"
+                break
+            if sum(extra.values()) >= EXTRA_MAX:
+                stop = "cap"
+                break
+            extra[h] += 1
+            for line in idx.read(i):
+                try:
+                    key, ts, js = line.split(" ", 2)
+                except ValueError:
+                    continue
+                if not mine(line_host(key)):
+                    continue
+                r = json.loads(js)
+                if r.get("status") != "200":
+                    continue
+                fam, by = family_of(r)
+                if fam not in RARE or not r.get("digest") or r["digest"] in cand[fam]:
+                    continue
+                cand[fam][r["digest"]] = {"url": r["url"], "timestamp": ts, "mime": r.get("mime"),
+                                          "mime_detected": r.get("mime-detected"), "digest": r["digest"],
+                                          "filename": r["filename"], "offset": int(r["offset"]),
+                                          "length": int(r["length"]), "block": i, "block_stratum": h,
+                                          **({"family_by": by} if by != "mime" else {}),
+                                          **({"truncated": r["truncated"]} if r.get("truncated") else {})}
+        m2 = {h: m[h] + extra[h] for h in B}
+        lines = [x for x in samples[(cc, source)] if json.loads(x)["family"] not in RARE]
+        for fam in RARE:
+            pool = [{k: v for k, v in c.items() if k not in ("id", "country", "family", "rank", "domain_source", "pi", "crawl")}
+                    for c in cand[fam].values()]
+            by_h = Counter(c["block_stratum"] for c in pool)
+            pool.sort(key=lambda c: _key(c["digest"]))
+            fams[fam].update(frame=round(sum(B[h] / m2[h] * by_h[h] for h in B if m2[h])), pool=len(pool),
+                             exact=all(m2[h] == B[h] for h in B), pool_by_block_stratum=dict(by_h), blocks_read=m2,
+                             truncated_in_pool=sum(1 for c in pool if c.get("truncated")))
+            n_take = min(SAMPLE_MAX, len(pool))
+            for rank, c in enumerate(pool[:SAMPLE_MAX]):
+                pi = (m2[c["block_stratum"]] / B[c["block_stratum"]]) * (n_take / len(pool))
+                sid = f"{cc}-{fam}-{rank:03d}" if source == "suffix" else f"{cc}-{fam}-w{rank:03d}"
+                lines.append(json.dumps({"id": sid, "country": cc, "family": fam, "rank": rank, "domain_source": source,
+                                         "pi": pi, "crawl": CRAWL, **c}, ensure_ascii=False))
+        samples[(cc, source)] = lines
+        rec["extend"] = {"read": dict(extra), "stop": stop}
+        print(f"[足す] {cc} {source}：ブロック +{sum(extra.values())}（{stop}）・"
+              + "・".join(f"{f} 候補 {fams[f]['pool']}（推定 {fams[f]['frame']:,}）" for f in RARE), flush=True)
+        _save(frames, samples, fpath, spath)
+    return 0
+
+
 def _save(frames, samples, fpath, spath):
     fpath.write_text(json.dumps(frames, ensure_ascii=False, indent=1), encoding="utf-8")
     tmp = spath.with_suffix(".tmp")
@@ -644,7 +750,7 @@ def update_population() -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=["wikidata", "domains", "frames", "population"])
+    ap.add_argument("stage", choices=["wikidata", "domains", "frames", "extend", "population"])
     ap.add_argument("--countries", default="")
     ap.add_argument("--blocks", type=int, default=BLOCKS_MAX)
     ap.add_argument("--no-wikidata", action="store_true", help="domains：政府用の第2レベルと足すドメインだけ（Wikidata を使わない）")
@@ -657,6 +763,10 @@ def main(argv=None) -> int:
         return 0
     if a.stage == "domains":
         return build_domains(not a.no_wikidata)
+    if a.stage == "extend":
+        rc = extend_rare(a.blocks, [c for c in a.countries.split(",") if c], a.source)
+        update_population()
+        return rc
     if a.stage == "population":
         update_population()
         return 0
