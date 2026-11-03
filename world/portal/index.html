@@ -105,6 +105,7 @@ th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--lin
 th { font-weight: 700; font-size: .76rem; color: var(--muted); letter-spacing: .04em; white-space: nowrap; }
 th button { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font-weight: inherit; letter-spacing: inherit; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+#table tbody tr:not(.unr) td:first-child { white-space: nowrap; }
 td .ci { color: var(--muted); font-size: .72rem; }
 td .stack { min-width: 120px; }
 tr.unr td { color: var(--muted); }
@@ -139,6 +140,7 @@ tr.unr td { color: var(--muted); }
 /* ---- 方法 ---- */
 .method { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; font-size: .88rem; }
 .method h3 { font-size: .95rem; margin: 0 0 4px; }
+.method.two { grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); max-width: 960px; }
 .method p { margin: 0; }
 .refs { font-size: .78rem; color: var(--muted); margin-top: 18px; display: grid; gap: 2px; }
 .refs a { word-break: break-all; }
@@ -478,7 +480,9 @@ tr.unr td { color: var(--muted); }
   // ---------------------------------------------------------------- 表
   let sortKey = "n", sortDir = -1;
   function renderTable() {
-    const rows = Object.entries(DATA.countries).map(([cc, c]) => ({ cc, c, name: c.name, n: c.reach.n,
+    const all = Object.entries(DATA.countries);
+    const pending = all.filter(([, c]) => !c.reach.n).map(([, c]) => c.name).sort((a, b) => a.localeCompare(b, "ja"));
+    const rows = all.filter(([, c]) => c.reach.n).map(([cc, c]) => ({ cc, c, name: c.name, n: c.reach.n,
       reach: c.reach.p ?? -1, read_ok: c.read_ok.p ?? -1, write_a: c.write_a.p ?? -1, forms_writable: c.forms_writable.p ?? -1 }));
     rows.sort((a, b) => (typeof a[sortKey] === "string" ? a[sortKey].localeCompare(b[sortKey], "ja") : a[sortKey] - b[sortKey]) * sortDir);
     const tb = document.querySelector("#table tbody");
@@ -490,7 +494,9 @@ tr.unr td { color: var(--muted); }
        <td class="num">${pct(c.write_a.p)}<br><span class="ci">${ci(c.write_a.ci)}</span></td>
        <td>${stackHtml(c.write, WRITE, "w", WRITE_JA)}</td>
        <td class="num">${pct(c.forms_writable.p)}<br><span class="ci">${c.forms_writable.n ? "様式 " + c.forms_writable.n : ""}</span></td></tr>`).join("") +
-      Object.values(DATA.unreached).map(u => `<tr class="unr"><td>${esc(u.name)}</td><td colspan="7">${esc(u.why)}</td></tr>`).join("");
+      (pending.length ? `<tr class="unr"><td>まだ選んでいない ${pending.length} か国</td><td colspan="7">目録には届いていて、標本をまだ選んでいません：${pending.map(esc).join("・")}</td></tr>` : "") +
+      Object.entries(Object.values(DATA.unreached).reduce((m, u) => ((m[u.why] ||= []).push(u.name), m), {}))
+        .map(([why, names]) => `<tr class="unr"><td>目録に届かない ${names.length} か国</td><td colspan="7">${esc(why)}：${names.map(esc).join("・")}</td></tr>`).join("");
     tb.querySelectorAll("a[data-cc]").forEach(a => a.addEventListener("click", () => select(a.dataset.cc)));
   }
   document.querySelectorAll("#table th button").forEach(b => b.addEventListener("click", () => {
