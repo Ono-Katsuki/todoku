@@ -300,7 +300,7 @@ def run(blob: bytes, filename: str = "") -> Audit:
 
     targets, protected = {}, []
     for f in win["fields"]:
-        if f.get("readonly") or f.get("options_unknown"):
+        if f.get("readonly") or f.get("options_unknown") or f.get("filled"):  # 書き込み済みの欄（todoku が書いた所）は除く
             protected.append(f["id"])
             continue
         targets[f["id"]] = _sample(f)

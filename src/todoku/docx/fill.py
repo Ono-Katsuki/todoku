@@ -258,6 +258,73 @@ class Filler:
             flush()
             ed.put(run.s, run.e, bytes(out))
 
+    # ------------------------------------------------------------------ 箇条書きの印の □
+    def fill_bullet(self, item: dict, on: bool) -> None:
+        """箇条書きの印の □ を、この段落だけ ■（☑）にする（todoku.docx.bullet）。チェックを外す（False）のは、白紙の様式では
+        何も変えない。"""
+        from .bullet import PART, BulletError, level_of, checked_lvl
+
+        p: Para = item["para"]
+        bl = item.get("bullet")
+        if item.get("filled") or bl is None:
+            raise FillError(f"{item['id']}: すでに書き込んだ欄です（書き直すには、元の様式に書いてください）")
+        if not on:
+            return
+        self.check_editable(item, p.part, p.node.s)
+        if PART not in self.doc.parts:
+            raise FillError(f"{item['id']}: 段落番号の定義（{PART}）がありません")
+        try:
+            checked_lvl(self.doc.xml(PART), level_of(self.doc.xml(PART), bl["num"], bl["ilvl"])[1])
+        except BulletError as e:
+            raise FillError(f"{item['id']}: {e}") from None
+        self.bullets = getattr(self, "bullets", [])
+        self.bullets.append(item)
+
+    def finish_bullets(self) -> None:
+        """足す w:num をまとめて numbering.xml に入れ、段落の w:numId を、足した w:num にする。段落の頭にしおりを置く。"""
+        from .bullet import PART, insert_at, new_num, next_ids
+
+        items = getattr(self, "bullets", [])
+        if not items:
+            return
+        xml = self.doc.xml(PART)
+        ed = self.ed(PART)
+        ids = next_ids(xml, len(items))
+        body = b"".join(new_num(xml, ed.pre, it["bullet"]["num"], it["bullet"]["ilvl"], nid) for it, nid in zip(items, ids))
+        at = insert_at(xml)
+        ed.put(at, at, body)
+        for it, nid in zip(items, ids):
+            p: Para = it["para"]
+            ped = self.ed(p.part)
+            pre = ped.pre
+            pxml = ped.xml
+            node = p.node
+            ppr = node.find("pPr")
+            npr = ppr.find("numPr") if ppr is not None else None
+            bm = self.bookmark(it["id"])
+            if npr is not None and npr.find("numId") is not None:
+                ni = npr.find("numId")
+                ped.put(ni.s, ni.e, re.sub(rb'(\b(?:\w+:)?val=")[^"]*(")', lambda m: m[1] + nid.encode() + m[2],
+                                         pxml[ni.s:ni.e], count=1))
+            else:
+                add = f'<{pre}:numPr><{pre}:ilvl {pre}:val="{it["bullet"]["ilvl"]}"/><{pre}:numId {pre}:val="{nid}"/></{pre}:numPr>'.encode()
+                if ppr is None:
+                    raise FillError(f"{it['id']}: 段落の書式（w:pPr）がありません")
+                # CT_PPrBase の並び：pStyle・keepNext・keepLines・pageBreakBefore・framePr・widowControl の後ろに numPr
+                before = [k for k in ppr.kids if k.local in ("pStyle", "keepNext", "keepLines", "pageBreakBefore", "framePr",
+                                                             "widowControl")]
+                if npr is not None:
+                    ped.put(npr.s, npr.e, add)
+                elif before:
+                    ped.put(before[-1].e, before[-1].e, add)
+                elif ppr.se == ppr.e:
+                    ped.put(ppr.s, ppr.e, pxml[ppr.s:ppr.e][:-2].rstrip() + b">" + add + f"</{pre}:pPr>".encode())
+                    ppr = None
+                else:
+                    ped.put(ppr.se, ppr.se, add)
+            at = ppr.e if ppr is not None else node.find("pPr").e
+            ped.put(at, at, bm[0] + bm[1])
+
     # ------------------------------------------------------------------ 表の空のマス
     def fill_cell(self, item: dict, value: str) -> None:
         p: Para = item["para"]
@@ -400,11 +467,10 @@ class Filler:
             ed.put(n0.s, n0.e, f'<{pre}:t xml:space="preserve">'.encode() + escape(text) + f"</{pre}:t>".encode())
             for s in ts[1:]:
                 ed.put(s.node.s, s.node.e, f'<{pre}:t xml:space="preserve"></{pre}:t>'.encode())
-            # 「例：…」の書式（PlaceholderText）は外す
+            # 「ここをクリックして入力」の書式（プレースホルダーの文字のスタイル）は外す（Word が値を入れるときと同じ）
             for s in ts:
-                rpr = s.run.find("rPr") if s.run is not None else None
-                st = rpr.find("rStyle") if rpr is not None else None
-                if st is not None and "placeholder" in (st.get("val") or "").lower():
+                st = placeholder_style(self.doc, s.run) if c.source == "sdt" else None
+                if st is not None:
                     ed.put(st.s, st.e, b"")
             return
         # 結果の文字がない：結果の終わりの前に、文字を足す
@@ -422,6 +488,19 @@ class Filler:
                 ed.put(content.se, content.se, f"<{pre}:r>".encode() + _t(pre, text) + f"</{pre}:r>".encode())
             return
         raise FillError(f"{item['id']}: 値を書く場所がありません")
+
+
+def placeholder_style(doc, run) -> "Node | None":
+    """字の要素（w:r）の、プレースホルダーの文字のスタイル（w:rStyle）。Word は、コンテンツコントロールのプレースホルダーを
+    「Placeholder Text」のスタイルで表示し、値を入れるとそのスタイルを外す。スタイルの名前（styles.xml の w:name）か、
+    名前の分からないときは id で見分ける。書き込みと証明で同じものを使う。"""
+    rpr = run.find("rPr") if run is not None else None
+    st = rpr.find("rStyle") if rpr is not None else None
+    if st is None:
+        return None
+    sid = st.get("val") or ""
+    name = (getattr(doc, "style_names", {}) or {}).get(sid, sid)
+    return st if name.replace(" ", "").lower() == "placeholdertext" or sid.lower() == "placeholdertext" else None
 
 
 # ====================================================================== 日付
@@ -464,7 +543,7 @@ def format_word_date(d: dt.date, fmt: str) -> str:
 # ====================================================================== 入口
 def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
     from ..embed import EmbedError, is_embed_key
-    from .window import WriteError, resolve_write
+    from .window import WriteError, is_bullet, resolve_write
 
     f = Filler(doc, force)
     problems = []
@@ -531,6 +610,10 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
                 else:
                     f.fill_cell(item, text)
                 f.patches.append(Patch(key, "input", text, item["para"].part))
+            elif kind == "checkbox" and is_bullet(item):
+                on = _as_bool(value)
+                f.fill_bullet(item, on)
+                f.patches.append(Patch(key, "control", on, item["para"].part))
             elif kind == "checkbox":
                 on = _as_bool(value)
                 p = item["para"]
@@ -555,6 +638,7 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
             problems.append(str(e))
     if problems:
         raise FillError("\n".join(problems))
+    f.finish_bullets()
     f.finish_runs()
     z = doc.zip
     from ..zipraw import RawZip

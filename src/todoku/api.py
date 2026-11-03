@@ -185,7 +185,7 @@ def fields(path: str, password: str | None = None) -> list[dict]:
 def _field(f: dict, **where) -> dict:
     d = {"id": f["id"], "label": f.get("label", ""), "kind": f.get("kind", ""), "value": f.get("value")}
     for key in ("options", "maxlen", "format", "readonly", "protected", "confidence", "context", "boxes", "write_as",
-                "options_depend_on", "unit", "rules", "agent", "why", "placeholder", "cover"):
+                "options_depend_on", "unit", "rules", "agent", "why", "placeholder", "cover", "label_printed"):
         if f.get(key) not in (None, "", [], False):
             d[key] = f[key]
     d.update({k: v for k, v in where.items() if v is not None})
@@ -204,9 +204,11 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     readback_values = dict(values)  # 読み戻しで確かめる、欄の id → 書いた値
     told = None  # 本人に伝える、書いた所（ほかの形式は読み戻しの値と同じ）
     try:
-        labels = {f["id"]: f.get("label", "") for f in fields(path, password)}  # 白紙のときの見出し（対話で伝える一覧に使う）
+        before = fields(path, password)
+        labels = {f["id"]: f.get("label", "") for f in before}  # 白紙のときの見出し（対話で伝える一覧に使う）
+        printed = {f["id"] for f in before if f.get("label_printed")}  # 見出しが文書に印刷される字の欄
     except ApiError:
-        labels = {}
+        labels, printed = {}, set()
     if k in ("xlsx", "xls"):
         from .book import open_book
         from .xlsx.edit import EditError
@@ -313,6 +315,13 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             result["anchored"] = anchored
             readback_values = {k: v for k, v in values.items() if not k.startswith("@")}
             readback_values.update({p.id: p.value for p in res.patches if getattr(p, "anchor", None)})
+        # 欄の書式で書いた値（日付の欄の w:dateFormat「yyyy年M月d日」など）：読み戻しは、書式を通した字で比べる
+        shaped = {p.id: p.value for p in res.patches if not getattr(p, "anchor", None) and p.kind == "input"
+                  and p.id in values and not isinstance(values[p.id], bool) and str(p.value) != str(values[p.id])
+                  and not _num_equal(p.value, values[p.id])}
+        if shaped:
+            result["written_as"] = shaped
+            readback_values.update(shaped)
     written_plain = new_blob  # 書いた中身（保護し直す前）
     if lock is not None:
         # 元と同じパスワードで保護し直し、それを同じパスワードで解いて、書いた中身とバイト一致かを確かめてから書き出す
@@ -368,9 +377,9 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     result["read_back_differences"] = mismatch[:30]
     if told is not None:
         # 一太郎：書いた所の印がないので、読み直した窓の同じ id（残りの空白）ではなく、証明で確かめた書いた値を伝える
-        result.update(_to_tell([f for f in after_list if f["id"] not in told], told, result, labels))
+        result.update(_to_tell([f for f in after_list if f["id"] not in told], told, result, labels, printed))
     else:
-        result.update(_to_tell(after_list, readback_values, result, labels))
+        result.update(_to_tell(after_list, readback_values, result, labels, printed))
     return result
 
 
@@ -386,9 +395,16 @@ def _prove_pdf(prove, original: bytes, new: bytes, allowed: set, anchored: dict,
     return prove(original, new, allowed, anchored)
 
 
-def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict | None = None) -> dict:
+def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict | None = None,
+             printed: set | None = None) -> dict:
     """本人が Word などで開いて確かめなくても、エージェントが対話で伝えられるように：書いた所（見出しと、書いた後の
-    ファイルを読み直した値）・まだ空いている欄・本人に伝えること。"""
+    ファイルを読み直した値）・まだ空いている欄・本人に伝えること。
+    見出しは、書く前の書類の見出し（labels）を使う：書いた後の書類では、いま書いた値が隣の欄の見出しに見えることがある
+    （「電話／東京都千代田区1-1」）。見出しは書類に印刷された字で、todoku が書いた値ではない。
+    printed：見出しが書類に印刷された字の欄（欄の名前と同じ字でも「見出しなし」にしない）。"""
+    labels = labels or {}
+    printed = printed or set()
+    after_list = [dict(f, label=labels[f["id"]]) if labels.get(f["id"]) else f for f in after_list]
     by_id = {f["id"]: f for f in after_list}
     told = []
     for key, v in written.items():
@@ -417,7 +433,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
     def name(d: dict) -> str:
         """読み上げても分かる欄の名前：窓の印（［▶］・［　］）は「何番目の欄」に、見出しのない欄はセルの番地にする。"""
         lab = d.get("label") or ""
-        if not lab or lab == d["id"]:
+        if not lab or (lab == d["id"] and d["id"] not in printed):
             return f"{bare_id(d)}（見出しなし）"
         slots = list(re.finditer(r"［[^］]*］", lab))
         if not slots:
@@ -434,7 +450,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
             rest = re.sub(r"［[^］]*］", "［ ］", lab[m.end():])
             head = re.sub(r"［[^］]*］", "［ ］", lab[:m.start()])
             return f"{head}［{v}］{rest}"  # 「令和［8］年［ ］月」：空欄に値を入れた形で
-        return f"{name(d)}：{v}"
+        return f"{name(d).rstrip('：:　 ')}：{v}"  # 見出しの終わりの「：」は重ねない（「人数：12」）
 
     # 記入した内容の一覧：書いた所を、書類の中の順（シート・ページごと）に、全部。値は書いた後のファイルを読み直したもの
     order = {f["id"]: i for i, f in enumerate(after_list)}

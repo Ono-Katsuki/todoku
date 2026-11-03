@@ -186,7 +186,7 @@ def check_writing(blob: bytes, filename: str, win: dict) -> list[Check]:
     targets = {}
     protected = []
     for f in win["fields"]:
-        if f.get("readonly"):
+        if f.get("readonly") or f.get("filled"):  # 書き込み済みの欄（todoku が書いた所）は除く
             protected.append(f["id"])
             continue
         targets[f["id"]] = _sample(f)

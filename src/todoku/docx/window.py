@@ -23,6 +23,12 @@ LAYOUT = "layout"
 AGENT = "agent"  # 規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する）
 BOX = set("□☐")
 MARK_PREFIX = "_todoku_"
+BULLET_CHECKED = frozenset("■☑☒")
+
+
+def is_bullet(item: dict) -> bool:
+    """箇条書きの印の □ の欄（P段落.b）。"""
+    return item.get("kind") == "checkbox" and str(item.get("id", "")).endswith(".b") and "span" not in item
 
 KIND_JA = {"text": "文字", "inline": "文字の中の空欄", "checkbox": "チェック", "dropdown": "一覧から選ぶ", "combo": "一覧から選ぶ（自由入力も可）",
            "date": "日付", "richtext": "文字（書式つき）", "picture": "画像", "cell": "文字"}
@@ -89,6 +95,8 @@ class Spots:
         self.para_index: dict[int, int] = {}
         self.ranges: dict = {}
         self.marks = doc.marks() if hasattr(doc, "marks") else _bookmarks(doc)
+        # todoku が書いたマス（しおりのあるマス）：ほかの欄の見出しにしない
+        self.written_cells = {id(q.cell) for name, (q, _x, _y) in self.marks.items() if q.cell is not None and name.startswith("T")}
         self._collect()
 
     def _collect(self) -> None:
@@ -121,7 +129,7 @@ class Spots:
                             continue
                         if not c.paras():
                             continue
-                        label, rl, cl = _cell_label(t, c)
+                        label, rl, cl = _cell_label(t, c, self.written_cells)
                         fid = f"T{tno}.R{c.row + 1}.C{c.col + 1}"
                         if not label:
                             # 見出しの見つからない空のマス：桁のマスのこともあれば、飾りのマスのこともある（エージェントが判断）
@@ -142,6 +150,15 @@ class Spots:
                     continue
                 pi = self.para_index[id(p)]
                 text = p.text
+                bullet_id = f"P{pi}.b"
+                bm = self.marks.get(bullet_id)
+                if getattr(p, "bullet", None) is not None or (bm is not None and bm[0] is p):
+                    # 箇条書きの印の □（段落番号の定義の字）：チェックの欄。書くと、この段落の印だけを ■・☑ にする
+                    m = re.search(r"[\u3000 ]{2,}|□|☐|※", text)
+                    opt = norm_label((text[:m.start()] if m and m.start() > 0 else text).strip(" \u3000"))[:40]
+                    self.items[bullet_id] = {"id": bullet_id, "kind": "checkbox", "source": "layout", "para": p,
+                                             "bullet": getattr(p, "bullet", None), "label": opt, "provenance": LAYOUT,
+                                             "filled": bm is not None}
                 k = 0
                 spans = []
                 for i, ch in enumerate(text):
@@ -197,7 +214,7 @@ class Spots:
                         it["placeholder"] = text[a:b]
                     self.items[fid] = it
         # 3') マスの中の見出し（「住所」「住所：」「所在地　〒」）の後ろ：すぐ右のマスに規則の欄があれば、値はそちらに書く
-        ruled_cells = set()
+        ruled_cells = set(self.written_cells)  # todoku が書いたマスも、規則の欄のマス
         for it in self.items.values():
             if it.get("provenance") == AGENT:
                 continue
@@ -218,7 +235,7 @@ class Spots:
             kind = "checkbox" if p.text[a:b] in ("■", "☑", "☒", "□", "☐") else ("cell" if name.startswith("T") else "inline")
             label = self._label(p, a, b) if kind == "inline" else ""
             if kind == "cell" and p.cell is not None and p.cell.table is not None:
-                label = _cell_label(p.cell.table, p.cell)[0]  # 書き込み済みのマスも、表の行・列の見出しで示す
+                label = _cell_label(p.cell.table, p.cell, self.written_cells)[0]  # 書き込み済みのマスも、表の行・列の見出しで示す
             self.items[name] = {"id": name, "kind": kind, "source": "layout", "para": p, "span": (a, b), "filled": True,
                                 "label": label, "provenance": LAYOUT}
 
@@ -255,6 +272,8 @@ class Spots:
     def value(self, item: dict):
         """いまの値（書き込み済みなら、その値）。"""
         name = item["id"]
+        if is_bullet(item):
+            return item["para"].label in BULLET_CHECKED  # 箇条書きの印
         if name in self.marks:
             p, a, b = self.marks[name]
             t = p.text[a:b]
@@ -395,7 +414,14 @@ def resolve_write(sp: "Spots", spec: dict, used: dict | None = None) -> dict:
         k1 += 1
     a, b = i + k0, i + len(old) - k1
     value = new[k0:len(new) - k1]
-    if any(_in_field(q, j) for j in range(max(0, a - (a == b)), max(a + 1, b))):
+    near_fields = [f for j in range(max(0, a - (a == b)), max(a + 1, b)) for f in [_field_at(q, j)] if f is not None]
+    calc = next((f for f in near_fields if f.kind == "field"), None)
+    if calc is not None and any(_field_at(q, j) is calc for j in range(a, max(a + 1, b))):
+        what = getattr(calc, "instr", "") or calc.name or "フィールド"
+        raise WriteError(f"「{old}」は、フィールド（{what}）の結果の字です。Word などで開いてフィールドを更新すると、"
+                         "書いた字は消えて元の結果に戻るので、書けません（差し込み印刷の欄なら、差し込みのデータの値になります）。"
+                         "様式の作り手に差し込みを解除した様式を求めるか、本人に、印刷した後に手で書いてもらってください")
+    if any(f.kind != "field" for f in near_fields):
         raise WriteError("フォームの欄の中・すぐ隣は、その欄の id で書いてください")
     used = used if used is not None else {}
     for _k, x, y in used.get(n, []):
@@ -426,6 +452,18 @@ def _in_field(p: Para, i: int) -> bool:
     return False
 
 
+def _field_at(p: Para, i: int):
+    """段落の i 字目の字の、入力欄・フィールドの印（なければ None）。"""
+    k = 0
+    for s in p.segs:
+        if s.hidden:
+            continue
+        if k <= i < k + len(s.text):
+            return s.field
+        k += len(s.text)
+    return None
+
+
 def _has_control(c: Cell) -> bool:
     return any(s.field is not None for p in c.paras() for s in p.segs)
 
@@ -441,27 +479,43 @@ def _tables(blocks):
             yield from _tables(b.boxes)
 
 
-def _cell_label(t: Table, c: Cell) -> tuple[str, str, str]:
+def _cell_label(t: Table, c: Cell, written: set | None = None) -> tuple[str, str, str]:
+    """表の空のマスの見出し：同じ行の左のマス（行の見出し）と、上のマス（列の見出し）。列の見出しは、そのマスの列の幅を
+    すべて覆うマスだけ（結合して2列にまたがるマスの上の、1列だけのマスは、その列の見出しではない）。
+    todoku が書いたマス（written：書き込みのしおりのあるマス）は、見出しにしない（書いた値は、印刷された見出しではない）。"""
+    written = written or set()
     row = t.rows[c.row]
     left = None
     for x in row:
-        if x.col < c.col and x.text():
+        if x.col < c.col and _printed(x) and id(x) not in written:
             if left is None or x.col > left.col:
                 left = x
     up = None
     for r in range(c.row - 1, -1, -1):
         for x in t.rows[r]:
-            if x.col <= c.col < x.col + x.span and x.text():
+            if x.col <= c.col < x.col + x.span and (x.text() or id(x) in written):
                 up = x
                 break
         if up is not None:
             break
-    rl = norm_label(left.text()) if left else ""
-    cl = norm_label(up.text()) if up else ""
+    if up is not None and (id(up) in written or not _printed(up) or c.col + c.span > up.col + up.span):
+        up = None
+    rl = norm_label(_printed(left)) if left else ""
+    cl = norm_label(_printed(up)) if up else ""
     adjacent_left = left is not None and left.col + left.span == c.col
     if rl and cl and rl != cl and not (adjacent_left and up is not None and c.row - up.row > 2):
         return f"{rl}／{cl}", rl, cl
     return rl or cl, rl, cl
+
+
+def _printed(c: Cell) -> str:
+    """マスの、印刷される字（入力欄の値・フィールドの結果でない字）。"""
+    out = []
+    for p in c.paras():
+        t = "".join(s.text for s in p.segs if not s.hidden and s.field is None).strip()
+        if t:
+            out.append(t)
+    return " ".join(out)
 
 
 # ====================================================================== 窓
@@ -540,12 +594,19 @@ def build(doc: DocxDocument) -> dict:
         c = it.get("control")
         kind = it["kind"]
         label = it.get("label") or ""
+        printed = False
         if c is not None:
-            label = c.help or c.name or _context_label(it, contexts)
+            # 見出しは、文書に印刷される字（欄の前の字・同じ行の左のマス）。なければ、作り手の説明（help）・欄の名前（タグ）
+            label = printed_label(sp, it)
+            printed = bool(label)
             if c.source == "activex":
-                label = c.help or _context_label(it, contexts) or c.name  # 見出しは部品の Caption か、前に書かれた字
+                label = label or c.help or c.name  # 見出しは前に書かれた字か、部品の Caption
+            else:
+                label = label or c.help or c.name
         d = {"id": it["id"], "kind": "text" if kind == "cell" else kind, "label": label, "source": it["source"],
              "provenance": it["provenance"], "value": sp.value(it), "context": contexts.get(it["id"], "")}
+        if printed or (c is None and label):
+            d["label_printed"] = True  # 見出しは文書に印刷される字（欄の名前・タグではない）
         if c is not None and c.source == "activex":
             from ..axfile import word_describe
 
@@ -562,6 +623,8 @@ def build(doc: DocxDocument) -> dict:
             d["why"] = it["why"]
             if it.get("placeholder"):
                 d["placeholder"] = it["placeholder"]
+        if it.get("filled") or (it["id"] in sp.marks and c is None):
+            d["filled"] = True  # todoku が書き込んだ所（書き直すには元の様式に書く）
         if it.get("row_label"):
             d["row_label"] = it["row_label"]
         if it.get("column_label"):
@@ -656,6 +719,41 @@ def _embeds(doc) -> list[dict]:
         out.append({"n": e["n"], "label": e["label"], "prog": e["prog"], "storage": e["storage"],
                     "sheets": [sh["name"] for sh in xdoc["sheets"]], "markdown": list(md), **info})
     return out
+
+
+def printed_label(sp: "Spots", it: dict) -> str:
+    """入力欄（フォームの欄・コンテンツコントロール）の見出し：同じ段落の、欄の前に印刷される字（ほかの欄の値・todoku が
+    書いた所は除く。区切り（タブ・2つ以上の空白・表のマスの区切り）より前は含めない）。段落の頭にある欄で、表のマスの中なら、
+    同じ行の左のマス（か上のマス）の字。どれもなければ ""。"""
+    c: Control = it["control"]
+    p = c.para
+    if p is None:
+        return ""
+    cuts = [(x, y) for q, x, y in sp.marks.values() if q is p and y > x]
+    a, _b = _ctl_span(p, c)
+    out, pos = [], 0
+    for s in p.segs:
+        if s.hidden:
+            continue
+        if pos >= a:
+            break
+        n = len(s.text)
+        if s.field is not None and s.field is not c or s.kind in ("note",):
+            out.append("\x00")  # ほかの欄の値・脚注の印：見出しに入れない
+        else:
+            for k, ch in enumerate(s.text[:max(0, a - pos)]):
+                out.append("\x00" if any(x <= pos + k < y for x, y in cuts) else ch)
+        pos += n
+    head = re.split(r"\x00|\t|[ \u3000]{2,}|\n", "".join(out))[-1]
+    head = norm_label(head.strip(" \u3000")).rstrip("\uff1a:\u3000 ")
+    if len(head) > 30:
+        head = head[-30:]
+    if head:
+        return head
+    cell = p.cell
+    if cell is not None and cell.table is not None:
+        return _cell_label(cell.table, cell, sp.written_cells)[0]
+    return ""
 
 
 def _context_label(it: dict, contexts: dict) -> str:
@@ -765,8 +863,15 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
     hid = p.hidden_text().strip()
     if hid:
         t += f"〔非表示の文字: {hid}〕"
-    if p.label:
-        t = f"{p.label} {t}" if not p.label.endswith((" ", "\t", "　")) else p.label + t
+    gone = p.deleted_text().strip() if hasattr(p, "deleted_text") else ""
+    if gone:
+        t += f"〔変更履歴で削除された字（いまの本文ではない）: {gone}〕"
+    label = p.label
+    bullet = next((it for it in items if is_bullet(it)), None)
+    if bullet is not None and label:
+        label = ("☑" if label in BULLET_CHECKED else "☐") + f"［{bullet['id']}］"
+    if label:
+        t = f"{label} {t}" if not label.endswith((" ", "\t", "　")) else label + t
     return t.replace("\t", " ")
 
 
