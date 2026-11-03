@@ -308,38 +308,106 @@ def _all_fields(win: dict) -> list[dict]:
     return out
 
 
+_NUM_OR_OP = re.compile(rb"([-+]?(?:\d+\.?\d*|\.\d+))|([A-Za-z*]+)")
+
+
+def raw_circles(doc: PdfDocument, page: dict) -> dict[str, tuple[str, tuple[float, float, float, float]]]:
+    """ページの描画の命令をそのまま読み、印 TdkCircle（とどくが描いた○）の中の曲線の点の外枠を、ページの座標
+    （ページの初めの座標。○は Q で初めの座標に戻してから描く）で返す：id → (形 "ellipse"・"border", (x0, y0, x1, y1))。
+    楕円は 4 つのベジエ曲線で描くので、制御点の外枠が楕円の外枠。窓の座標の換算（View）も circle.drawn も通さない。"""
+    data = doc.page_content(page)
+    out = {}
+    for m in re.finditer(rb"/TdkCircle\s*\(([^)]*)\)([^>]*)>>\s*BDC(.*?)EMC", data, re.S):
+        nums: list[float] = []
+        pts: list[tuple[float, float]] = []
+        for t in _NUM_OR_OP.finditer(m[3]):
+            if t[1] is not None:
+                nums.append(float(t[1]))
+                continue
+            if t[2] == b"m" and len(nums) >= 2:
+                pts.append((nums[-2], nums[-1]))
+            elif t[2] == b"c" and len(nums) >= 6:
+                pts += [(nums[-6], nums[-5]), (nums[-4], nums[-3]), (nums[-2], nums[-1])]
+            nums = []
+        if len(pts) < 13:
+            continue
+        xs, ys = [x for x, _y in pts], [y for _x, y in pts]
+        out[m[1].decode("latin-1")] = ("border" if b"/TdkStyle /border" in m[2] else "ellipse",
+                                       (min(xs), min(ys), max(xs), max(ys)))
+    return out
+
+
+def raw_circled_text(glyphs, kind: str, box) -> str:
+    """ページの字（描画の命令の順、ページの座標）のうち、箱の中心が○の内側にある字（同じ字を同じ所に重ねたものは 1 字）。
+    窓の決め方（circle.encloses：字の箱がすっかり内側）とは別の量（箱の中心）で数える。"""
+    x0, y0, x1, y1 = box
+    cx, cy, a, b = (x0 + x1) / 2, (y0 + y1) / 2, max((x1 - x0) / 2, 1e-6), max((y1 - y0) / 2, 1e-6)
+    seen = set()
+    out = []
+    for g in glyphs:
+        if g.invisible or not g.text.strip():
+            continue
+        gx, gy = g.cx, g.cy
+        ok = (x0 <= gx <= x1 and y0 <= gy <= y1) if kind == "border" else ((gx - cx) / a) ** 2 + ((gy - cy) / b) ** 2 <= 1.0
+        key = (g.text, round(g.ox, 1), round(g.oy, 1))
+        if ok and key not in seen:
+            seen.add(key)
+            out.append(g.text)
+    return "".join(out)
+
+
 def check_circles(doc: PdfDocument) -> Check | None:
     """書いてある○（とどくが描いた、印 TdkCircle のもの）：試しに書き直さず（選んだものを変えない）、いまの○が囲んでいる字を、
     書くときと同じ決め方（circle.encloses）で読み、窓がその字を「［p1.c1：○］」として出しているか（いまの値を読めるか）を確かめる。
+    これは窓と書くときが同じ決め方で同じ配置を見ていることの照らし合わせ（整合の検査）で、決め方そのものの正しさは確かめない。
+    そのため別に、描画の命令から直接、○の外枠（ページの座標）と字の箱の中心で数え直し（raw_circles・raw_circled_text：窓の
+    座標の換算・行の組み立て・encloses を通さない。字の位置の読み取り content.py は共通）、窓の囲んだ字と同じかを見る。違えば、
+    どちらが正しいかは画像で確かめる所として示す（NG にはしない）。
     ○の線がほかの字の面にかかっているもの（前の版で書いた○など）は、値は読めるので NG にはせず、位置を添えて
     エージェントが画像で確かめる所として示す。○のない書類は None。"""
     from . import circle
     from .content import page_content
     from .layout import PageLayout
 
-    bad, touching, n_all = [], [], 0
+    bad, touching, differ, n_all = [], [], [], 0
     for n, pg in enumerate(doc.pages(), 1):
         shapes = circle.drawn(doc, n)
         if not shapes:
             continue
-        lay = PageLayout(doc, pg, page_content(doc, pg), n)
+        pc = page_content(doc, pg)
+        lay = PageLayout(doc, pg, pc, n)
         shown = {ident: ln.text[a_:b_] for ln, a_, b_, ident in getattr(lay, "circled", []) if ident}
+        raw = raw_circles(doc, pg)
         for ident, kind, g, lw in shapes:
             n_all += 1
             inner, touch = circle.circled_text(lay, kind, g, lw)
             if not inner or ident not in shown:
                 bad.append(f"{ident}：囲んでいる字「{''.join(c.text for c in inner)}」・窓に囲んだ字として出ていない"
                            "（2 つの行にかかる・囲んだ字の間に囲まれていない字がある）")
-            elif touch:
+                continue
+            if touch:
                 touching.append(f"{ident}「{shown[ident]}」：○の線がほかの字「{''.join(c.text for c in touch[:6])}」にかかる"
                                 f"（{n} ページ。view_page で確かめる）")
+            want = sorted(re.sub(r"\s", "", shown[ident]))
+            if ident not in raw:
+                differ.append(f"{ident}「{shown[ident]}」：描画の命令から○の形を読み直せない（{n} ページ。view_page で確かめる）")
+            else:
+                got = raw_circled_text(pc.glyphs, *raw[ident])
+                if sorted(got) != want:
+                    differ.append(f"{ident}「{shown[ident]}」：描画の命令から数え直すと、○の内側に中心がある字は「{got}」"
+                                  f"（{n} ページ。view_page で確かめる）")
     if not n_all:
         return None
-    detail = f"書いてある○ {n_all} 個を、試しに書き直さずに読みました（いまの値）。" + (
+    detail = (f"書いてある○ {n_all} 個を、試しに書き直さずに読みました（いまの値）。窓と書くときが同じ決め方（circle.encloses）で"
+              "同じ配置を見ているかの照らし合わせ（整合の検査）で、決め方そのものの正しさは確かめません。") + (
         "どれも、囲んだ字を窓に出しています" if not bad else f"{len(bad)} 個は、囲んだ字を窓に出せません")
+    if not bad:
+        detail += ("。別に、描画の命令から直接（○の外枠と字の箱の中心で）数え直し、" +
+                   ("どれも窓の囲んだ字と同じでした" if not differ else
+                    f"{len(differ)} 個は窓の囲んだ字と違いました（どちらが正しいかは画像で確かめる）"))
     if touching:
         detail += f"。{len(touching)} 個は○の線がほかの字にかかります（値は読めます。どれを囲んだかは画像で確かめる）"
-    return Check("書いてある○", not bad, detail, (bad + touching)[:30], agent=bool(touching) and not bad)
+    return Check("書いてある○", not bad, detail, (bad + differ + touching)[:30], agent=bool(touching or differ) and not bad)
 
 
 def check_writing(doc: PdfDocument, win: dict, password: str | None = None) -> list[Check]:
