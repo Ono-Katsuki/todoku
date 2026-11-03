@@ -23,7 +23,9 @@ F アクセスできない（開けない・パスワードが分からない・
 書く段階（A〜D）：エージェントが、どうすれば書けるか。
 A エージェントがそのまま書ける（入力欄がすべて作り手の印で決まる：フォームの欄・コンテンツコントロール・入力規則など）
 B 解析しないと書けない（書く所を、罫線・空き・空のセルなどの配置から推定するか、規則では決められない所（窓の「？」）を
-  エージェントが窓を読んで決める。スキャンのページ（PDF）は、エージェントがページの画像（view_page）を見て枠で書く）
+  エージェントが窓を読んで決める。スキャンのページ（PDF）は、エージェントがページの画像（view_page）を見て枠で書く。
+  PDF の権限の設定（暗号の辞書の P）が記入・変更を許していない：とどくは書くが、受け取る側が拒むことがあるので、
+  エージェントが本人に伝えて提出先に確かめる）
 C 画面（UI）から入力する（ボタンで動くマクロ、または書類が電子申請などの画面からの入力を求めている）
 D 書けない（アクセスできない・字の情報がなく、ページの画像も作れない紙・署名・印・拇印・公証など、手で行う所）
   ※様式が認める所には、本人が同意したときだけ、本人の印影・署名の画像を置ける（fill の seal・signature）。
@@ -432,6 +434,15 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
     from .pdf.signatures import write_reasons as _sig_reasons
 
     write += _sig_reasons(doc)  # 変更を許さない電子署名（DocMDP P=1）は書けない
+    if doc.decryptor is not None:
+        # 作り手の権限の設定（暗号の辞書の P、ISO 32000-1 表 22）が記入・変更を許していない：とどくは断らずに書くが
+        # （pdf/fill.py の _permissions）、受け取る側が拒むことがあるので、エージェントが本人に伝えて確かめる
+        rs = doc.decryptor.restrictions()
+        if rs:
+            write.append(Reason("B", "権限の設定が記入・変更を許していない",
+                                "作り手が権限の設定（暗号の辞書の P）で「" + "」「".join(w for _o, w in rs) + "」を許していません。"
+                                "とどくは書けますが、受け取る側のソフトが記入を拒んだり、窓口が受け付けなかったりすることがあります"
+                                "（紙に印刷して手で書く様式のこともあります）。書く前に本人に伝え、提出先に確かめます", []))
     agent = [f for p in win["pages"] for f in p["fields"] if f.get("agent")]
     fields = [f for p in win["pages"] for f in p["fields"] if not f.get("agent")]
     layout = [f for f in fields if f.get("source") == "layout"]

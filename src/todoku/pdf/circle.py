@@ -27,7 +27,7 @@ import math
 import re
 import unicodedata
 
-from .anchor import MM, AnchorError
+from .anchor import AnchorError
 from .content import page_content, tokens
 from .layout import PageLayout, View
 
@@ -445,13 +445,13 @@ def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None
     if box is not None:
         if not (isinstance(box, list) and len(box) == 4 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in box)):
             raise AnchorError("box は [左, 上, 右, 下]（ページの左上からの mm。○の外枠）で指定してください")
-        x0, y0, x1, y1 = (v * MM for v in box)
+        x0, y0, x1, y1 = (v * lay.view.mm for v in box)  # mm → ページの座標（UserUnit も反映）
         if not (0 <= x0 < x1 <= page[0] + 0.01 and 0 <= y0 < y1 <= page[1] + 0.01):
             raise AnchorError("box がページの外か、左＜右・上＜下になっていません")
         g = (x0, y0, x1, y1) if style == "border" else ((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2)
         if not all(encloses(style, g, c, line_width(size)) for c in mine):
-            raise AnchorError(f"box の○（線の内側の縁）が、「{spec['circle']}」の字を囲みきれません（字の箱は 左 {rect[0] / MM:.1f}・上 "
-                              f"{rect[1] / MM:.1f}・右 {rect[2] / MM:.1f}・下 {rect[3] / MM:.1f} mm）")
+            raise AnchorError(f"box の○（線の内側の縁）が、「{spec['circle']}」の字を囲みきれません（字の箱は 左 {rect[0] / lay.view.mm:.1f}・上 "
+                              f"{rect[1] / lay.view.mm:.1f}・右 {rect[2] / lay.view.mm:.1f}・下 {rect[3] / lay.view.mm:.1f} mm）")
         hit = next((o for o in others if hits(style, g, o, line_width(size))), None)
         if hit is not None:
             raise AnchorError(f"box の○が、ほかの字「{hit.text}」に触れます")
@@ -501,7 +501,7 @@ def _resolve_unread_box(doc, spec: dict, layouts: dict, used: dict, taken: set |
         raise AnchorError("box は [左, 上, 右, 下]（ページの左上からの mm。○の外枠）で指定してください")
     lay = layout(doc, n, layouts)
     page = (lay.view.width, lay.view.height)
-    x0, y0, x1, y1 = (v * MM for v in box)
+    x0, y0, x1, y1 = (v * lay.view.mm for v in box)  # mm → ページの座標（UserUnit も反映）
     if not (0 <= x0 < x1 <= page[0] + 0.01 and 0 <= y0 < y1 <= page[1] + 0.01):
         raise AnchorError("box がページの外か、左＜右・上＜下になっていません")
     size = min(y1 - y0, 10.5)

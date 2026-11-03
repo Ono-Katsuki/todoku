@@ -467,6 +467,9 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                        "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
                        "written_as": {p.id: p.value for p in res.patches
                                       if not p.anchor and str(p.value) != str(values.get(p.id))}})
+        if res.denied:
+            # 作り手の権限の設定が許していない書き込み（断らずに書き、本人に伝える：pdf/fill.py の _permissions）
+            result["permissions_denied"] = list(res.denied)
         # 字を組み立てて（シェーピング）描いた欄：証明は、とどく自身の組み立てと照らすだけで、見た目そのものは確かめていない。
         # 書く段階 B として、エージェントに書いた欄の画像を確かめてもらう
         from .pdf.glyphs import shaped as _shaped
@@ -516,7 +519,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         if placed:
             # 本人の印影・署名の画像（本人が同意したときだけ）：何を、どこに置いたか。読み戻しは、書いた後のファイルで下で確かめる
             result["placed"] = [{"key": p.key, "id": p.id, "page": p.page, "what": p.seal["what"], "say": p.seal["told"],
-                                 "box_mm": [round(v / 72 * 25.4, 1) for v in p.seal["rect"]], "rect_pt": p.seal["rect"], "image_sha256": p.seal["sha256"]}
+                                 "box_mm": [round(v / p.seal["mm"], 1) for v in p.seal["rect"]], "rect_pt": p.seal["rect"], "image_sha256": p.seal["sha256"]}
                                 for p in placed]
     elif k == "jtd" or (k == "doc" and _is_word6(blob)):
         # 一太郎・Word 6.0/95：同じ字数（バイト数）の上書きは、ファイル全体で変わったのがその字のバイトだけかを証明する。
@@ -1467,7 +1470,8 @@ def calculate(path: str, values: dict, password: str | None = None) -> dict:
 def view_page(path: str, page: int, region: list | None = None, marks: list | None = None,
               password: str | None = None) -> dict:
     """PDF のページの画像（スキャンした紙のページを、エージェントが見て読み、書く所を mm の枠で決めるため）。
-    todoku が書き込んだ欄（p ページ.w 番号など）は、青い枠で描き、id と値を添える。"""
+    todoku が書き込んだ欄（p ページ.w 番号など）は、青い枠で描き、id と値を添える。欄・注釈の見た目（/AP）の字は、見た目の
+    とおりの位置・大きさ・向きで、字ごとの四角と基線として描く（pdf/pageimage.py）。"""
     from .pdf.pageimage import view_page as pview
 
     blob, name, k, lock = _read(path, password)
@@ -1482,7 +1486,7 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
 
 def _written_boxes(path: str, password: str | None, page: int) -> list[dict]:
     """ページの、値の入った入力欄（フォームの欄・todoku が書いた欄）の枠（mm）と値。"""
-    from .pdf.pageimage import MM
+    from .pdf.layout import MM_PT
 
     out = []
     k, doc, _ = window(path, password)
@@ -1494,7 +1498,8 @@ def _written_boxes(path: str, password: str | None, page: int) -> list[dict]:
             r = f.get("rect")
             if v in (None, "", False) or not r:
                 continue
-            out.append({"box": [r[0] / MM, r[1] / MM, r[2] / MM, r[3] / MM], "id": f["id"], "value": v})
+            mm = MM_PT / (pg.get("user_unit") or 1.0)  # 1 mm のページの座標の長さ（UserUnit も反映）
+            out.append({"box": [r[0] / mm, r[1] / mm, r[2] / mm, r[3] / mm], "id": f["id"], "value": v})
     return out
 
 

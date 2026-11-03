@@ -493,6 +493,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                       "why": "曲線と直線で閉じた図形（角の丸い四角など）が囲む字：○で選んだ印か、ただの枠か、規則では決められない"}
                      for ln_, a_, b_, _ident in getattr(lay, "maybe_circled", [])]
     return {"number": number, "width": round(view.width, 1), "height": round(view.height, 1), "rotate": view.rot,
+            # UserUnit（ページの座標の 1 単位が何ポイントか）：1 でないページだけ。窓の rect・大きさは、ページの座標の単位
+            **({"user_unit": view.unit} if view.unit != 1.0 else {}),
             "fields": out_fields, "reading": reading, "circled": circled, "maybe_circled": maybe_circled, "chars": chars, "unmapped": pc.unmapped, "images": images,
             # 字に直せない字の、行の中での役割（字の並びの形で決める）：行の頭の印（箇条の印）と、それ以外（本文の字）
             "unmapped_marks": marks, "unmapped_text": inword,
@@ -587,7 +589,7 @@ def _pictures(doc: PdfDocument, page: dict, number: int, pc, lay) -> list[dict]:
             ln = min(lines, key=dist)
             near = ln.text.strip()[:30]
         out.append({"id": f"p{number}.i{k}", "rect": [round(v, 1) for v in (x0, y0, x1, y1)], "where": where,
-                    "size_mm": [round((x1 - x0) * 25.4 / 72), round((y1 - y0) * 25.4 / 72)], "near": near,
+                    "size_mm": [round((x1 - x0) / view.mm), round((y1 - y0) / view.mm)], "near": near,
                     "alt": d["alt"], "decorative": d["decorative"], "tagged": d["tagged"]})
     return out
 

@@ -49,6 +49,8 @@ class FillResult:
     patches: list[Patch] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     unverified: list[str] = field(default_factory=list)
+    # 作り手の権限の設定（暗号の辞書の P）が許していないのに行った書き込み：[{"op": 操作の名前, "what": 説明}]（_permissions）
+    denied: list[dict] = field(default_factory=list)
 
 
 # ====================================================================== 増分更新
@@ -299,11 +301,13 @@ def spot_fits(text: str, rect, size: float | None, kind: str) -> bool:
     return True
 
 
-def layout_text(text: str, w: float, h: float, size: float, center: bool = False, multiline: bool = True):
-    """枠に入るように、字の大きさと折り返しを決める。(行, 大きさ)。入らなければ FillError。"""
+def layout_text(text: str, w: float, h: float, size: float, center: bool = False, multiline: bool = True,
+                unit: float = 1.0):
+    """枠に入るように、字の大きさと折り返しを決める。(行, 大きさ)。入らなければ FillError。
+    unit：ページの UserUnit（大きさ・幅はページの座標の単位。小さくする下限の 4pt と、知らせる寸法は紙の上の pt）。"""
     s = size
     pad = min(3.0, 0.2 * w)
-    while s >= 4.0:
+    while s >= 4.0 / unit - 1e-9:
         lines = wrap(text, s, w - pad) if multiline else [str(text)]
         if multiline and len(lines) * s * 1.15 > h + 0.5:
             s -= 0.5
@@ -311,11 +315,14 @@ def layout_text(text: str, w: float, h: float, size: float, center: bool = False
         if all(text_width(line, s) <= w - pad for line in lines):
             return lines, s
         s -= 0.5
-    raise FillError(f"「{text}」は、欄（幅 {w:.0f}pt・高さ {h:.0f}pt）に入りきりません")
+    raise FillError(f"「{text}」は、欄（幅 {w * unit:.0f}pt・高さ {h * unit:.0f}pt）に入りきりません")
 
 
 # ====================================================================== 見た目のストリーム
 def _ap(update: Update, w: float, h: float, ops: bytes, fonts: set[str], dr_fonts, matrix=None) -> Ref:
+    """見た目のフォーム。w・h は BBox の大きさ（描く向きの座標：回した欄は、欄の Rect の幅と高さを入れ替えたもの）。
+    matrix で BBox を写した四角が、欄の Rect と同じ大きさになること（ISO 32000-1 12.5.5 Algorithm 8.1：違うと、ビューアーが
+    縦と横を別の倍率で伸び縮みさせて描く）。"""
     res = {}
     if fonts:
         res["Font"] = {k: (dr_fonts(k) if callable(dr_fonts) else dr_fonts[k]) for k in sorted(fonts)}
@@ -326,14 +333,27 @@ def _ap(update: Update, w: float, h: float, ops: bytes, fonts: set[str], dr_font
 
 
 def _rot_matrix(rot: int, w: float, h: float):
-    """ページの回転を打ち消して、見た目の向きで描くための行列。"""
+    """ページの回転（欄の /MK の R）を打ち消して、見た目の向きで描くための行列（反時計回りに rot 度）。w・h は欄の Rect の
+    幅と高さ。描く向きの BBox [0 0 vw vh]（90・270 度は vw = h・vh = w）を、ちょうど [0 0 w h] に写す。"""
     if rot == 90:
-        return [0, 1, -1, 0, h, 0]
+        return [0, 1, -1, 0, w, 0]
     if rot == 180:
         return [-1, 0, 0, -1, w, h]
     if rot == 270:
-        return [0, -1, 1, 0, 0, w]
+        return [0, -1, 1, 0, 0, h]
     return None
+
+
+def norm_rot(v) -> int:
+    """回転の角度（/Rotate・/MK の R）を 0・90・180・270 に（90 の倍数でなければ 0）。"""
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or v != int(v) or int(v) % 90:
+        return 0
+    return int(v) % 360
+
+
+def _view_box(rot: int, w: float, h: float) -> tuple[float, float]:
+    """描く向きの BBox の大きさ（90・270 度は、Rect の幅と高さを入れ替える）。"""
+    return (h, w) if rot in (90, 270) else (w, h)
 
 
 def inline_align(spot: dict) -> str:
@@ -358,9 +378,10 @@ def inline_align(spot: dict) -> str:
 
 def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, size: float, dr_fonts: dict, *,
                     center: bool = False, comb: list | None = None, rot: int = 0, multiline: bool = True,
-                    cover: bool = False, align: str = "left") -> tuple[Ref, float]:
-    """cover：欄の下地を白く塗ってから書く（伏せ字の「○○」の上に書くときに、下の字を覆う。元の字は消さない）。"""
-    vw, vh = (rect_h, rect_w) if rot in (90, 270) else (rect_w, rect_h)
+                    cover: bool = False, align: str = "left", unit: float = 1.0) -> tuple[Ref, float]:
+    """cover：欄の下地を白く塗ってから書く（伏せ字の「○○」の上に書くときに、下の字を覆う。元の字は消さない）。
+    rot：欄の回転（/MK の R）。描く向きの座標（vw×vh）で字を並べ、BBox も同じ大きさにして、Matrix で Rect の向きに回す。"""
+    vw, vh = _view_box(rot, rect_w, rect_h)
     bg = f"q\n1 g\n0 0 {vw:.2f} {vh:.2f} re\nf\nQ\n".encode() if cover else b""
     if comb:
         if glyphs.shaped(str(value)):
@@ -379,8 +400,8 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
             ly = vh - ((b[1] - y_top) + bh / 2 + s * 0.35)
             ops += text_ops([ch], s, lx, ly, s)
         ops += b"Q\nEMC\n"
-        return _ap(update, rect_w, rect_h, bytes(ops), fonts_used(chars), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
-    lines, s = layout_text(str(value), vw, vh, size, center, multiline)
+        return _ap(update, vw, vh, bytes(ops), fonts_used(chars), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
+    lines, s = layout_text(str(value), vw, vh, size, center, multiline, unit)
     leading = s * 1.15
     block = leading * (len(lines) - 1) + s
     y = (vh + block) / 2 - s * 0.8
@@ -388,17 +409,20 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
     align = "center" if center else align
     ops = bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, (vw - 2 * pad) if align in ("center", "right") else None,
                                           align) + b"Q\nEMC\n"
-    return _ap(update, rect_w, rect_h, ops, fonts_used(lines), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
+    return _ap(update, vw, vh, ops, fonts_used(lines), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
 
 
-def check_appearance(update: Update, w: float, h: float, dr_fonts: dict, char: str = "4") -> Ref:
-    s = min(w, h) * 0.8
-    ops = f"q\nBT\n0 g\n/ZaDb {s:.2f} Tf\n{(w - s * 0.85) / 2:.2f} {(h - s * 0.75) / 2:.2f} Td\n({char}) Tj\nET\nQ\n".encode()
-    return _ap(update, w, h, ops, {"ZaDb"}, dr_fonts)
+def check_appearance(update: Update, w: float, h: float, dr_fonts: dict, char: str = "4", rot: int = 0) -> Ref:
+    """チェックの印の見た目。w・h は欄の Rect の幅と高さ、rot は欄の回転（/MK の R）：印も欄の向きに回して描く。"""
+    vw, vh = _view_box(rot, w, h)
+    s = min(vw, vh) * 0.8
+    ops = f"q\nBT\n0 g\n/ZaDb {s:.2f} Tf\n{(vw - s * 0.85) / 2:.2f} {(vh - s * 0.75) / 2:.2f} Td\n({char}) Tj\nET\nQ\n".encode()
+    return _ap(update, vw, vh, ops, {"ZaDb"}, dr_fonts, _rot_matrix(rot, w, h))
 
 
-def empty_appearance(update: Update, w: float, h: float) -> Ref:
-    return _ap(update, w, h, b"", set(), {})
+def empty_appearance(update: Update, w: float, h: float, rot: int = 0) -> Ref:
+    vw, vh = _view_box(rot, w, h)
+    return _ap(update, vw, vh, b"", set(), {}, _rot_matrix(rot, w, h))
 
 
 # ====================================================================== 書き込み
@@ -607,23 +631,25 @@ class Filler:
         for w in f.widgets:
             wd = self.up.get(w.ref) if w.ref is not None and w.ref != f.ref else fd
             x0, y0, x1, y1 = w.rect
-            size = da_size or max(6.0, min(12.0, (y1 - y0) * 0.65))
+            rot = self._widget_rot(wd)
+            unit = self._unit_of(w)
+            vw, vh = _view_box(rot, x1 - x0, y1 - y0)  # 描く向きの幅と高さ（欄を 90・270 度回したときは入れ替わる）
+            size = da_size or max(6.0 / unit, min(12.0 / unit, vh * 0.65))
             comb = None
             if f.flags & FF_COMB and f.maxlen:
-                cw = (x1 - x0) / f.maxlen
-                comb = [(x0 + i * cw - x0, 0, x0 + (i + 1) * cw - x0, y1 - y0) for i in range(f.maxlen)]
-            rot = int(self.doc.resolve((self.doc.resolve(wd.get("MK")) or {}).get("R")) or 0) if isinstance(wd, dict) else 0
+                cw = vw / f.maxlen
+                comb = [(i * cw, 0, (i + 1) * cw, vh) for i in range(f.maxlen)]
             try:
                 # 1 行の欄（Multiline の印なし）は折り返さない：見た目を作り直すビューアーも 1 行で描くので、1 行に収まる大きさにする
                 ap, s = text_appearance(self.up, x1 - x0, y1 - y0, shown, size, self.fonts_for(keys | {"Helv"}),
-                                        comb=comb, rot=rot, multiline=multiline,
+                                        comb=comb, rot=rot, multiline=multiline, unit=unit,
                                         align={1: "center", 2: "right"}.get(f.q, "left"))  # /Q（0 左・1 中央・2 右）
             except FillError as e:
                 raise FillError(f"{f.name}: {e}" + ("" if multiline or comb else "（1 行の欄なので、折り返して書けません）")) from None
             wd["AP"] = {"N": ap}
             self._set_da(fd, wd, da, s, keys, bool(shown))
             if shown and not calc:
-                self._report_size(f.name, s, da_size)
+                self._report_size(f.name, s, da_size, unit)
         p = Patch(f.name, "input", text)
         p.shown = shown
         self.patches.append(p)
@@ -702,21 +728,24 @@ class Filler:
         for w in f.widgets:
             wd = self.up.get(w.ref) if w.ref is not None and w.ref != f.ref else fd
             x0, y0, x1, y1 = w.rect
+            rot = self._widget_rot(wd)
+            unit = self._unit_of(w)
             if k == "combo":
-                size = da_size or max(6.0, min(12.0, (y1 - y0) * 0.65))
+                size = da_size or max(6.0 / unit, min(12.0 / unit, _view_box(rot, x1 - x0, y1 - y0)[1] * 0.65))
                 ap, s = text_appearance(self.up, x1 - x0, y1 - y0, shown, size, self.fonts_for(keys | {"Helv"}),
-                                        multiline=False, align={1: "center", 2: "right"}.get(f.q, "left"))
+                                        multiline=False, align={1: "center", 2: "right"}.get(f.q, "left"), rot=rot,
+                                        unit=unit)
             else:
                 ti = self.doc.resolve(fd.get("TI"))
                 ti = int(ti) if isinstance(ti, (int, float)) and not isinstance(ti, bool) and 0 <= ti < len(opts) else 0
-                ap, s, top, visible = list_appearance(self.up, x1 - x0, y1 - y0, opts, set(idx), ti, da_size or 12.0,
-                                                      self.fonts_for(keys | {"Helv"}))
+                ap, s, top, visible = list_appearance(self.up, x1 - x0, y1 - y0, opts, set(idx), ti, da_size or 12.0 / unit,
+                                                      self.fonts_for(keys | {"Helv"}), rot=rot, unit=unit)
                 if top != ti:
                     fd["TI"] = top  # 選んだ行が見える所から並べる（一番上に見せる選択肢の番号）
                 ap_text = "".join(opts[i] for i in visible)
             wd["AP"] = {"N": ap}
             self._set_da(fd, wd, da, s, keys, bool(shown))
-            self._report_size(f.name, s, da_size)
+            self._report_size(f.name, s, da_size, unit)
         p = Patch(f.name, "input", list(vals) if multi and isinstance(value, (list, tuple)) else vals[0])
         p.shown = shown
         p.ap_text = ap_text
@@ -749,13 +778,26 @@ class Filler:
         if new is not None:
             wd["DA"] = PdfString(new.encode("latin-1"))
 
-    def _report_size(self, name: str, s: float, da_size: float | None) -> None:
+    def _widget_rot(self, wd) -> int:
+        """欄の部品の回転（/MK の R：反時計回りの角度。ISO 32000-1 表 189）。"""
+        mk = self.doc.resolve(wd.get("MK")) if isinstance(wd, dict) else None
+        return norm_rot(self.doc.resolve(mk.get("R"))) if isinstance(mk, dict) else 0
+
+    def _unit_of(self, w) -> float:
+        """欄の部品があるページの UserUnit（分からなければ 1）。"""
+        from .layout import user_unit
+
+        pg = getattr(w, "page", None)
+        return user_unit(self.doc, self.pages[pg]) if isinstance(pg, int) and 0 <= pg < len(self.pages) else 1.0
+
+    def _report_size(self, name: str, s: float, da_size: float | None, unit: float = 1.0) -> None:
+        """知らせる字の大きさは、紙の上の pt（UserUnit のあるページは、ページの座標の大きさ × UserUnit）。"""
         msg = None
-        if s < MIN_READABLE_PT:
-            msg = (f"{name}: 欄に収めるため、字が {s:.1f} pt になり、印刷すると読みにくい大きさです"
+        if s * unit < MIN_READABLE_PT:
+            msg = (f"{name}: 欄に収めるため、字が {s * unit:.1f} pt になり、印刷すると読みにくい大きさです"
                    f"（{MIN_READABLE_PT:g} pt 未満）。短く書けないか確かめてください")
         elif da_size and s < da_size - 0.005:
-            msg = (f"{name}: 欄に収めるため、字を {_pt(s)} pt に小さくしました（書類の決めた大きさ {_pt(da_size)} pt）。"
+            msg = (f"{name}: 欄に収めるため、字を {_pt(s * unit)} pt に小さくしました（書類の決めた大きさ {_pt(da_size * unit)} pt）。"
                    "欄の書体の指定（/DA）も同じ大きさにしました")
         if msg and msg not in self.warnings:
             self.warnings.append(msg)
@@ -812,13 +854,14 @@ class Filler:
             return
         x0, y0, x1, y1 = w.rect
         bw, bh = x1 - x0, y1 - y0
+        rot = self._widget_rot(wd)  # 回した欄（/MK の R）は、印も欄の向きに回す
         mk = self.doc.resolve(wd.get("MK")) if isinstance(wd, dict) else None
         ca = self.doc.resolve(mk.get("CA")) if isinstance(mk, dict) else None
         char = bytes(ca).decode("latin-1")[:1] if isinstance(ca, (bytes, PdfString)) and ca else ""
         if not char.isalnum():
             char = "4" if check else "l"  # ZapfDingbats：4 はチェックの印、l は黒い丸
-        on = check_appearance(self.up, bw, bh, self.fonts_for({"ZaDb"}), char)
-        off = empty_appearance(self.up, bw, bh)
+        on = check_appearance(self.up, bw, bh, self.fonts_for({"ZaDb"}), char, rot)
+        off = empty_appearance(self.up, bw, bh, rot)
         wd["AP"] = {"N": {st: on, "Off": off}}
 
     # ------------------------------------------------------------------ 配置から見つけた欄
@@ -836,11 +879,11 @@ class Filler:
                 "TU": text_string(spot.get("label") or spot["id"]), "F": 4, "P": page_ref}
         if k == "checkbox":
             on = _as_bool(value)
-            yes = check_appearance(self.up, w, h, self.fonts_for({"ZaDb"}))
-            off = empty_appearance(self.up, w, h)
+            yes = check_appearance(self.up, w, h, self.fonts_for({"ZaDb"}), rot=rot)  # 回したページでは、印も見た目の向きに
+            off = empty_appearance(self.up, w, h, rot)
             d = {**base, "FT": Name("Btn"), "Rect": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)],
                  "V": Name("Yes") if on else Name("Off"), "AS": Name("Yes") if on else Name("Off"),
-                 "AP": {"N": {"Yes": yes, "Off": off}}, "MK": {"CA": PdfString(b"4")},
+                 "AP": {"N": {"Yes": yes, "Off": off}}, "MK": {"CA": PdfString(b"4"), **({"R": rot} if rot else {})},
                  "DA": PdfString(b"/ZaDb 0 Tf 0 g")}
             ref = self.up.new(d)
             self._attach(page_no, ref)
@@ -851,7 +894,7 @@ class Filler:
             raise FillError(f"{spot['id']}: この所には 1 つの値（字か数）を書きます。リストや {{…}} の形の値は書けません"
                             f"（受け取った値：{value!r}）。空きが並ぶ所は、それぞれの id に 1 つずつ書いてください")
         text = _as_text(value)
-        size = float(spot.get("size") or 10.5)
+        size = float(spot.get("size") or 10.5 / view.unit)
         comb = None
         if k == "comb":
             boxes = spot.get("box_rects") or []
@@ -860,16 +903,17 @@ class Filler:
                 bx0, by0, bx1, by1 = b
                 comb.append((bx0 - vx0, by0 - vy0, bx1 - vx0, by1 - vy0))
         cover = bool(spot.get("cover"))
+        unit = view.unit  # 知らせる字の大きさは、紙の上の pt（UserUnit のあるページも）
         ap, s = text_appearance(self.up, w, h, text, size, self.fonts_for(fonts_used([text]) | {"Helv"}),
                                 align=inline_align(spot) if k == "inline" else "left", comb=comb, rot=rot,
-                                multiline=(vy1 - vy0) > 2.4 * min(size, 10.5), cover=cover)
+                                multiline=(vy1 - vy0) > 2.4 * min(size, 10.5 / unit), cover=cover, unit=unit)
         if cover:
             self.warnings.append(f"{spot['id']}: 元の字「{spot.get('covered', '')}」は、白い下地の欄で覆いました（元の字は消していません）")
-        if text and s < MIN_READABLE_PT:
-            self.warnings.append(f"{spot['id']}: 欄に収めるため、字が {s:.1f} pt になり、印刷すると読みにくい大きさです"
+        if text and s * unit < MIN_READABLE_PT:
+            self.warnings.append(f"{spot['id']}: 欄に収めるため、字が {s * unit:.1f} pt になり、印刷すると読みにくい大きさです"
                                  f"（{MIN_READABLE_PT:g} pt 未満）。もっと広い所に書くか、短く書けないか確かめてください")
         elif text and s < 0.6 * size:
-            self.warnings.append(f"{spot['id']}: 欄に収めるため、字を {s:.1f} pt に小さくしました（元の大きさ {size:.1f} pt）")
+            self.warnings.append(f"{spot['id']}: 欄に収めるため、字を {s * unit:.1f} pt に小さくしました（元の大きさ {size * unit:.1f} pt）")
         keys = fonts_used([text]) or {"Helv"}
         da_font = _da_key(keys)
         d = {**base, "FT": Name("Tx"), "Rect": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)],
@@ -1096,17 +1140,21 @@ LIST_HIGHLIGHT = (0.6, 0.757, 0.855)
 
 
 def list_appearance(update: Update, w: float, h: float, labels: list[str], selected: set[int], top: int, size: float,
-                    dr_fonts) -> tuple[Ref, float, int, list[int]]:
+                    dr_fonts, rot: int = 0, unit: float = 1.0) -> tuple[Ref, float, int, list[int]]:
     """リスト（一覧から選ぶ欄で、コンボでないもの）の見た目：選択肢を上から 1 行ずつ並べ、選んだ行に色を付ける
     （ISO 32000-1 12.7.4.4 のリストの描き方。行の高さは字の大きさ）。選んだ行が欄に入らなければ、一番上に見せる行（/TI）を
     ずらす。選んだ選択肢の字が欄の幅に入らなければ、字を小さくする（4pt でも入らなければ FillError）。
-    返す値：(見た目, 字の大きさ, 一番上に見せる行, 見える行の番号)。"""
+    返す値：(見た目, 字の大きさ, 一番上に見せる行, 見える行の番号)。
+    rot：欄の回転（/MK の R）。w・h は欄の Rect の幅と高さで、描く向きの座標（90・270 度は幅と高さが入れ替わる）で並べる。"""
+    rect_w, rect_h = w, h
+    w, h = _view_box(rot, w, h)
     pad = min(2.0, 0.1 * w)
     s = size
-    while s >= 4.0 and any(text_width(labels[i], s) > w - 2 * pad for i in selected):
+    floor = 4.0 / unit - 1e-9  # 小さくする下限：紙の上の 4pt
+    while s >= floor and any(text_width(labels[i], s) > w - 2 * pad for i in selected):
         s -= 0.5
-    if s < 4.0:
-        raise FillError("選んだ選択肢の字が、リストの幅（" + f"{w:.0f}pt）に入りきりません")
+    if s < floor:
+        raise FillError("選んだ選択肢の字が、リストの幅（" + f"{w * unit:.0f}pt）に入りきりません")
     line = s
     rows = max(1, int((h - 2 * pad) // line))
     if selected:
@@ -1132,7 +1180,7 @@ def list_appearance(update: Update, w: float, h: float, labels: list[str], selec
             ops += text_ops([labels[i]], s, pad + 1.0, y, line)
     ops += b"Q\nEMC\n"
     keys = fonts_used([labels[i] for i in visible if labels[i]])
-    return _ap(update, w, h, bytes(ops), keys, dr_fonts), s, top, visible
+    return _ap(update, w, h, bytes(ops), keys, dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s, top, visible
 
 
 def fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
@@ -1253,8 +1301,38 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False) -> FillResult:
         f.warnings.append("この PDF は、開くときにビューアーが欄の見た目を作り直す設定です（AcroForm の NeedAppearances が true）。"
                           "とどくが描いて確かめた見た目ではなく、ビューアーが値から描き直した見た目で表示・印刷されます"
                           "（字の大きさ・折り返し・書体が変わることがあります）。書いた値（/V）は確かめたとおりです")
+    denied = _permissions(f)
     blob = f.finish() if f.patches else doc.blob
-    return FillResult(blob, f.patches, f.warnings)
+    return FillResult(blob, f.patches, f.warnings, denied=denied)
+
+
+def _permissions(f: Filler) -> list[dict]:
+    """作り手の権限の設定（暗号の辞書の P、ISO 32000-1 表 22）が許していない書き込みをしたか。
+
+    断らずに書く：権限の設定は、作り手が「ビューアーに許す操作」を決めるもので、本人が自分の申請書に記入することまで
+    禁じるものとは限らない（記入の欄があるのに、記入を許す印を付け忘れた書類もある）。ただし、受け取る側のソフトが記入を
+    拒んだり、窓口が「電子で記入したもの」を受け付けなかったりする（紙に印刷して手で書く様式のこともある）ので、
+    本人に伝えること（warnings → say_to_user）の先頭に入れ、書類の書く段階も下げる（grade の「権限の設定」）。"""
+    dec = f.doc.decryptor
+    if dec is None or not f.patches:
+        return []
+    ops = set()
+    for p in f.patches:
+        if p.kind == "seal":
+            ops.add("annotate")
+        elif p.kind == "circle":
+            ops.add("modify")
+        elif p.kind in ("input", "control") and p.id not in f.by_name:
+            ops.add("create")
+        else:
+            ops.add("fill")
+    denied = [{"op": op, "what": what} for op, what in dec.restrictions() if op in ops]
+    if denied:
+        f.warnings.insert(0, "この PDF は、作り手が権限の設定（暗号の辞書の P）で「" + "」「".join(d["what"] for d in denied)
+                          + "」を許していません。とどくは書きましたが、受け取る側のソフトが記入を拒んだり、窓口が受け付けな"
+                          "かったりすることがあります（紙に印刷して手で書く様式のこともあります）。この書き出したファイルで"
+                          "提出してよいか、提出先に確かめてください")
+    return denied
 
 
 def _field_value(key: str, value) -> tuple:
@@ -1428,7 +1506,8 @@ def _place_seal(f: Filler, key: str, spec: dict, skey: str, used: dict, layouts:
     except (SealError, AnchorError) as e:
         raise FillError(f"{key}: {e}") from None
     p = Patch(sd["id"], "seal", f"本人の{sd['what']}の画像", page_no, anchor=dict(spec), key=key)
-    p.seal = {"told": seal.told(sd, skey), "rect": sd["rect"], "sha256": img.sha256, "what": sd["what"], "key": skey}
+    p.seal = {"told": seal.told(sd, skey), "rect": sd["rect"], "sha256": img.sha256, "what": sd["what"], "key": skey,
+              "mm": sd["mm"]}
     f.patches.append(p)
     caution = seal.caution(sd["what"])
     if caution not in f.warnings:

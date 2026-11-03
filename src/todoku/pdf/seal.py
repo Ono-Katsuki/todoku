@@ -67,9 +67,9 @@ def resolve(doc, spec: dict, key: str, img: SealImage, used: dict | None, layout
         if size is not None:
             raise AnchorError("枠（box）で置くときは、size は使いません（画像は枠の中に収めます）")
         view = View(doc, pages[n - 1])
-        slot = tuple(v * MM for v in box)
+        slot = tuple(v * view.mm for v in box)  # mm → ページの座標（UserUnit も反映）
         if not (0 <= slot[0] < slot[2] <= view.width + 0.01 and 0 <= slot[1] < slot[3] <= view.height + 0.01):
-            raise AnchorError(f"box がページ（{view.width / MM:.0f}×{view.height / MM:.0f} mm）の外か、左＜右・上＜下になっていません")
+            raise AnchorError(f"box がページ（{view.width / view.mm:.0f}×{view.height / view.mm:.0f} mm）の外か、左＜右・上＜下になっていません")
         mode, anchor = "box", ""
     else:
         if spec.get("after") is None and spec.get("cover") is None:
@@ -88,7 +88,7 @@ def resolve(doc, spec: dict, key: str, img: SealImage, used: dict | None, layout
     if size is None:
         s = min((x1 - x0) / img.w, (y1 - y0) / img.h)
     else:
-        s = size * MM / max(img.w, img.h)
+        s = size * view.mm / max(img.w, img.h)  # 長い辺が size mm（UserUnit のあるページも、紙の上で size mm）
     w, h = img.w * s, img.h * s
     if mode in ("box", "cover"):
         left, top = (x0 + x1 - w) / 2, (y0 + y1 - h) / 2
@@ -98,7 +98,7 @@ def resolve(doc, spec: dict, key: str, img: SealImage, used: dict | None, layout
         left, top = x0, y0
     rect = (left, top, left + w, top + h)
     if rect[0] < -0.01 or rect[1] < -0.01 or rect[2] > view.width + 0.01 or rect[3] > view.height + 0.01:
-        raise AnchorError(f"画像（{w / MM:.0f}×{h / MM:.0f} mm）が、ページの外にはみ出します（size を小さくしてください）")
+        raise AnchorError(f"画像（{w / view.mm:.0f}×{h / view.mm:.0f} mm）が、ページの外にはみ出します（size を小さくしてください）")
     if n not in layouts:
         layouts[n] = PageLayout(doc, pages[n - 1], page_content(doc, pages[n - 1]), n)
     lay = layouts[n]
@@ -112,12 +112,13 @@ def resolve(doc, spec: dict, key: str, img: SealImage, used: dict | None, layout
                           "が隠れます。透ける PNG にするか、置く所・size を変えてください")
     what = KINDS[key]
     if mode == "box":
-        label = f"{n}ページの枠（左 {slot[0] / MM:.0f}・上 {slot[1] / MM:.0f}・右 {slot[2] / MM:.0f}・下 {slot[3] / MM:.0f} mm）の中"
+        label = (f"{n}ページの枠（左 {slot[0] / view.mm:.0f}・上 {slot[1] / view.mm:.0f}・右 {slot[2] / view.mm:.0f}・"
+                 f"下 {slot[3] / view.mm:.0f} mm）の中")
     else:
         label = f"{n}ページの「{anchor}」の" + {"right": "右", "below": "下", "cover": "上"}[mode]
     out = _place(n, rect, used, taken_names, {"id": None, "page": n, "kind": "seal"}, "seal", anchor, 0.0,
                  prefix="s", label=label)
-    out.update({"slot": [round(v, 2) for v in slot], "mode": mode, "anchor": anchor, "what": what,
+    out.update({"slot": [round(v, 2) for v in slot], "mode": mode, "anchor": anchor, "what": what, "mm": view.mm,
                 "under": "".join(c.text for c in under)})
     return out
 
@@ -288,8 +289,9 @@ def _check_image(doc, im, img: SealImage, sid: str, nums: set[int]) -> list[str]
 
 def told(sd: dict, key: str) -> str:
     """本人に伝える文：何を、どこに置いたか。"""
-    w = (sd["rect"][2] - sd["rect"][0]) / MM
-    h = (sd["rect"][3] - sd["rect"][1]) / MM
+    mm = sd.get("mm") or MM  # 1 mm のページの座標の長さ（UserUnit も反映）
+    w = (sd["rect"][2] - sd["rect"][0]) / mm
+    h = (sd["rect"][3] - sd["rect"][1]) / mm
     under = f"。画像の下に、ページの字「{sd['under']}」があります（画像は透けるので、字は見えます）" if sd.get("under") else ""
     return f"{sd['label']}に、本人の{KINDS[key]}の画像を置きました（横 {w:.0f} mm・縦 {h:.0f} mm）{under}"
 
