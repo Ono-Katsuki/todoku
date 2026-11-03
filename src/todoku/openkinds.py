@@ -292,19 +292,46 @@ def grade(k: str, blob: bytes, name: str):
     return _locked("対応していない形式", f"この形式（{k}）は、まだ読めません", "読めないので、書けません")
 
 
+def encoding_reason(dec):
+    """文字コードを規則で決められないときの、読む段階の理由（C：エージェントが字を読んで決める）。決まっていれば None。"""
+    from .datafile.textenc import NAME_JA
+    from .grade import Reason
+
+    if dec.basis == "none":
+        return Reason("C", "文字コードを決められない",
+                      "BOM がなく、UTF-8・UTF-16・多バイト（Shift_JIS・EUC-JP・Big5・GBK・EUC-KR）・1バイトの文字コードのどれとしても"
+                      "きれいに読めないので、バイトを1字ずつ Latin-1 の字にして読みました。字が正しく読めているかは、"
+                      "エージェントが窓を読んで判断します")
+    if dec.candidates:
+        names = [NAME_JA.get(dec.encoding, dec.encoding)] + [c["label"] for c in dec.candidates]
+        return Reason("C", "文字コードを規則では決められない",
+                      f"{len(names)} つの文字コード（{'・'.join(names)}）のどれとしても、仕様どおりにきれいに読めます。"
+                      f"窓は {names[0]} で読み、ほかの読み方の見本（字の違う最初の行）を窓に並べました。"
+                      "どれが正しいかは、エージェントが字を読んで判断します", names)
+    return None
+
+
 def _grade_data(k: str, blob: bytes, name: str):
-    from .grade import Grade, Reason, _locked
+    from .grade import Grade, Reason, _final, _locked
 
     direct = [Reason("A", "データそのもの", "行と列（か、名前と値）のデータに、そのまま書けます")]
     if k in ("csv", "tsv"):
         from .datafile.csvfile import CsvFile
 
         f = CsvFile(blob, name, k)
-        if "\x00" in f.text:
-            return _locked("読めない", "文字のファイルではありません（バイナリのデータが入っています）", "読めないので、書けません")
+        if f.dec.binary:
+            return _locked("読めない", "文字のファイルではありません（どの文字コードとしても読めず、NUL のバイトがあります）",
+                           "読めないので、書けません")
         reasons = [Reason("S", "データそのもの", f"表のデータ（{KIND_JA[k]}・{f.dec.label}・{len(f.records):,} 行）で、変換しなくても機械が読めます")]
         if f.problems:
             reasons.append(Reason("S", "書き方の問題", "RFC 4180 に合わない書き方があります（どう読んだかは窓に書いてあります）", f.problems[:5]))
+        if f.dec.controls:
+            # UTF などとして厳密に読めたうえで、値の中に NUL などの制御文字がある：字としてそのまま読む（窓にも書く）
+            reasons.append(Reason("S", "制御文字", f"値の中に、制御文字（NUL など）が {f.dec.controls:,} 個あります。字としてそのまま読みました"))
+        enc = encoding_reason(f.dec)
+        if enc is not None:
+            return _final(reasons + [enc], [Reason("B", enc.title, "書く値の文字コードは、エージェントが字を読んで正しい"
+                                                   "文字コードを決めてから書きます")] + direct)
         return Grade("S", reasons, write="A", write_reasons=direct)
     from .datafile.jsonfile import JsonFile
 
@@ -330,10 +357,9 @@ def _grade_txt(blob: bytes, name: str):
     except TxtError as e:
         return _locked("読めない", str(e), "読めないので、書けません")
     g = _grade_textdoc(build(doc), "テキスト", "入力欄の印")
-    if doc.dec.encoding != "latin-1":
+    enc = encoding_reason(doc.dec)
+    if enc is None:
         return g
-    enc = Reason("C", "文字コードを決められない", "UTF-8・Shift_JIS・EUC-JP のどれとしても読めないので、Latin-1 として読みました。"
-                 "字が正しく読めているかは、エージェントが窓を読んで判断します")
     out = _final(g.reasons + [enc], g.write_reasons)
     out.alerts = g.alerts
     return out

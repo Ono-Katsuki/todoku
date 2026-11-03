@@ -263,6 +263,91 @@ def check_reading(wb: Workbook, doc: dict) -> list[Check]:
     return head + out
 
 
+_BLANK_MARKS = ("［▶？］", "［？］", "［▶］", "［　］")
+
+
+def _md_squash(s: str) -> str:
+    """窓の字と比べる形：空白と下線（文字の中の空欄の印に置き換わる字）を除く。"""
+    return re.sub(r"[\s_＿]+", "", s)
+
+
+def check_markdown(doc: dict, links: set | None = None) -> Check:
+    """Markdown の窓（読み順）の読み落とし：値のあるすべてのセルの字が、そのセルの行の読み順に出ているか、まとめの行
+    （「○行目と同じ形の行が続きます」）が、何も落とさずにまとめたものか（字の違うマスはまとめの行に番地つきで書かれ、
+    ほかのマスは組の行の同じ列と同じ字か）を、JSON の窓のセルの一覧（ファイルから直接読んだ値と照らし済み）と照らす。
+    エージェントが読むのは Markdown の窓なので、ここで落ちた字は、エージェントには無いのと同じ。
+    links：チェックボックスなどにつながったセル（窓には部品の印 ☑［B5］として出す）の (シート, 行, 列)。"""
+    from ..formula.parser import parse_cell
+
+    links = links or set()
+    missing: list[str] = []
+    total = 0
+    for sh in doc.get("sheets", []):
+        if str(sh.get("state", "")).startswith("non-"):
+            continue
+        by_cell = {c["cell"]: c for c in sh.get("cells", [])}
+        lines: dict[int, list[str]] = {}
+        runs = []
+        for ln in sh.get("reading", []):
+            if "row" in ln:
+                lines.setdefault(ln["row"], []).append(ln["text"])
+            else:
+                a, b = (int(x) for x in ln["rows"].split("-"))
+                s0, s1 = (int(x) for x in ln.get("same_as", f"{a - 1}-{a - 1}").split("-"))
+                runs.append((a, b, s0, s1 - s0 + 1, {d["cell"]: d["text"] for d in ln.get("differs", [])}))
+
+        def shown(c: dict) -> str:
+            v = c.get("display", c.get("value"))
+            return "" if v is None else str(v)
+
+        for c in sh.get("cells", []):
+            if c.get("value") is None and not c.get("formula"):
+                continue
+            want = shown(c)
+            if not _md_squash(want):
+                continue
+            r, col = parse_cell(c["cell"])
+            if (sh["name"], r, col) in links:
+                continue
+            total += 1
+            got = lines.get(r)
+            if got is not None:
+                text = "".join(got)
+                plain = text
+                for m in _BLANK_MARKS:
+                    plain = plain.replace(m, "")
+                if _md_squash(want) in _md_squash(text):
+                    continue
+                # 文字の中の空欄は［　］・［？］に置き換えて出す：置き換えた所を除いて、残りの字が順に出ているか
+                from .window import cell_blanks
+
+                t, at, rest = want, 0, []
+                for x, y, _ in cell_blanks(t):
+                    rest.append(t[at:x])
+                    at = y
+                rest.append(t[at:])
+                if all(_md_squash(p) in _md_squash(plain) for p in rest if _md_squash(p)):
+                    continue
+                missing.append(f"{sh['name']}!{c['cell']}: {want[:40]!r}")
+                continue
+            run = next((x for x in runs if x[0] <= r <= x[1]), None)
+            if run is not None:
+                a, b, s0, per, differs = run
+                if c["cell"] in differs:
+                    if _md_squash(differs[c["cell"]]) == _md_squash(want):
+                        continue
+                else:
+                    tmpl = by_cell.get(addr(s0 + (r - a) % per, col))
+                    if tmpl is not None and shown(tmpl) == want:
+                        continue
+                missing.append(f"{sh['name']}!{c['cell']}: {want[:40]!r}（{a}〜{b}行のまとめの中）")
+                continue
+            missing.append(f"{sh['name']}!{c['cell']}: {want[:40]!r}（読み順にその行がない）")
+    return Check("読み落とし（Markdown の窓）", not missing,
+                 f"値のあるセル {total - len(missing):,}/{total:,} 個の字が、Markdown の窓の読み順に出ている"
+                 "（まとめの行は、字の違うマスを番地つきで書き、ほかのマスは組の行と同じ字であることを確かめた）", missing)
+
+
 def _no_cells(blob: bytes) -> str:
     """空のブックかを、窓を作る処理を使わずに確かめる。空でない・確かめられないときは、その理由（空なら ""）。
     ブックのすべてのシートが部品につながり、ワークシートの XML のどこにも、値（v）か字（is）を持つセル（c）がないこと。"""
@@ -545,6 +630,8 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
     doc = window.build(wb)
     au = Audit(filename)
     au.checks += check_reading(wb, doc)
+    links = {(ctl.link_cell[0], ctl.link_cell[1], ctl.link_cell[2]) for s in wb.sheets for ctl in s.controls if ctl.link_cell}
+    au.checks.append(check_markdown(doc, links))
     from ..embeds.audit import excel_checks
 
     au.checks += excel_checks(wb, doc)  # グラフ・SmartArt・埋め込みの読み落とし

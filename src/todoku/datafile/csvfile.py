@@ -162,7 +162,8 @@ class CsvFile:
         return {"encoding": self.dec.encoding, "encoding_ja": self.dec.label, "bom": bool(self.dec.bom),
                 "ascii_only": self.dec.ascii_only, "newline": NEWLINE_JA[self.newline], "mixed_newlines": self.mixed_newlines,
                 "ends_with_newline": self.ends_with_newline, "delimiter": self.delim,
-                "delimiter_ja": DELIM_JA.get(self.delim, repr(self.delim)), "quoting": q, "empty_lines": self.empty_lines}
+                "delimiter_ja": DELIM_JA.get(self.delim, repr(self.delim)), "quoting": q, "empty_lines": self.empty_lines,
+                **self.dec.info(), "encoding_notes": self.dec.note_lines()}
 
     # ------------------------------------------------------------------ id
     def resolve(self, key: str) -> tuple[int, int]:

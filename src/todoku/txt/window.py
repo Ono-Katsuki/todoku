@@ -97,9 +97,7 @@ def _head(win: dict) -> list[str]:
            "- 記号: " + "、".join(f"{k} は{v}" for k, v in win["notation"].items())]
     if fm.get("ascii_only"):
         out.append("- このファイルは ASCII の字だけなので、文字コードは決まりません（日本語を書くと UTF-8 で書きます）。")
-    if fm["encoding"] == "latin-1":
-        out.append("- **文字コードを決められませんでした**：UTF-8・Shift_JIS・EUC-JP のどれとしても読めないので、Latin-1 として読みました"
-                   "（字が正しいとは限りません）。")
+    out += fm.get("encoding_notes") or []
     out.append("")
     if win["fields"]:
         out += [f"## 入力欄（{len(win['fields'])} か所）", "", "| 欄 | 見出し | 種類 | いまの値 |", "|---|---|---|---|"]

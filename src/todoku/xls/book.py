@@ -886,8 +886,11 @@ class XlsWorkbook:
                 return
         if kind in ("Drop", "List") and info is not None and info.ui_object:
             return  # オートフィルターなどのために Excel が自動で置いたボタン（入力欄ではない）
-        pos = (anchor["r1"], anchor["c1"]) if anchor else None
-        pos_to = (anchor["r2"], anchor["c2"]) if anchor else None
+        # 位置（OfficeArt の 0xF010 ClientAnchor）は、ない図形もある（グループの中の子の図形は、グループの中の座標 0xF00F
+        # だけを持つ）。そのときは位置を決めずに（None）、名前・代替テキスト・字は残す（窓には「位置がファイルにない」と出る）
+        placed = anchor is not None and "r1" in anchor
+        pos = (anchor["r1"], anchor["c1"]) if placed else None
+        pos_to = (anchor["r2"], anchor["c2"]) if placed else None
         if kind in ("CheckBox", "Radio", "Drop", "List", "Spin", "Scroll", "Button", "Label", "GBox"):
             c = Control(kind=kind, name=(anchor or {}).get("name") or f"{kind} {ob['id']}", shape_id=str(ob["id"]),
                         anchor=pos, anchor_to=pos_to, link=ob["link"], text=ob["text"] or "",
