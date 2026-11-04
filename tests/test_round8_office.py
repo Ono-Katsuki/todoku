@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import struct
 
 from test_activex import _cfb_tree
@@ -9,6 +10,8 @@ from test_activex import _cfb_tree
 from todoku.cfb import CFB
 from todoku.doc.book import FC_NAMES, DocFile
 from todoku.doc.fill import DocWriter, Edit
+from todoku.pdf.doc import PdfDocument
+from todoku.pdf.pageimage import render
 
 
 def plain_doc(text: str) -> bytes:
@@ -90,3 +93,65 @@ def test_doc_character_format_table_stays_continuous_up_to_the_added_text():
     after = DocFile(blob, "a.doc")
     assert after.text.startswith("氏名：山田\r住所：\r")
     assert after.ccp["text"] == doc.ccp["text"] + 2
+
+
+def _gray_jpeg(w: int, h: int, black) -> bytes:
+    """濃さだけの基本の JPEG（T.81）。どのブロックも DC だけで、black(x, y) のブロックは黒、ほかは白。w・h は 8 の倍数。"""
+    seg = lambda m, b: b"\xff" + bytes([m]) + struct.pack(">H", len(b) + 2) + b
+    out = b"\xff\xd8" + seg(0xDB, b"\0" + bytes([8] * 64))  # 量子化はみな 8（DC は画素の値の差そのもの）
+    out += seg(0xC0, b"\x08" + struct.pack(">HH", h, w) + b"\x01\x01\x11\x00")
+    # DC：分類 0〜11 を長さ 4 の符号に。AC：終わりの印（0x00）だけ、長さ 1 の符号「0」
+    out += seg(0xC4, b"\x00" + bytes([0, 0, 0, 12] + [0] * 12) + bytes(range(12)))
+    out += seg(0xC4, b"\x10" + bytes([1] + [0] * 15) + b"\x00")
+    out += seg(0xDA, b"\x01\x01\x00\x00\x3f\x00")
+    bits, pred = [], 0
+    for y in range(0, h, 8):
+        for x in range(0, w, 8):
+            dc = -128 if black(x, y) else 127
+            diff, pred = dc - pred, dc
+            n = abs(diff).bit_length()
+            bits.append(format(n, "04b"))
+            if n:
+                bits.append(format(diff if diff > 0 else diff + (1 << n) - 1, f"0{n}b"))
+            bits.append("0")
+    data = "".join(bits)
+    data += "1" * (-len(data) % 8)
+    raw = int(data, 2).to_bytes(len(data) // 8, "big").replace(b"\xff", b"\xff\x00")
+    return out + raw + b"\xff\xd9"
+
+
+def _pdf_with_jpeg(jpeg: bytes, w: int, h: int) -> bytes:
+    content = f"q {w} 0 0 {h} 0 0 cm /I Do Q".encode()
+    objs = [b"<</Type/Catalog/Pages 2 0 R>>", b"<</Type/Pages/Kids[3 0 R]/Count 1>>",
+            f"<</Type/Page/Parent 2 0 R/MediaBox[0 0 {w} {h}]/Contents 4 0 R/Resources<</XObject<</I 5 0 R>>>>>>".encode(),
+            b"<</Length %d>>stream\n" % len(content) + content + b"\nendstream",
+            f"<</Type/XObject/Subtype/Image/Width {w}/Height {h}/BitsPerComponent 8/ColorSpace/DeviceGray/Filter/DCTDecode/Length {len(jpeg)}>>stream\n".encode()
+            + jpeg + b"\nendstream"]
+    out = bytearray(b"%PDF-1.4\n")
+    offs = []
+    for i, o in enumerate(objs, 1):
+        offs.append(len(out))
+        out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    x = len(out)
+    out += b"xref\n0 6\n0000000000 65535 f \n" + b"".join(b"%010d 00000 n \n" % o for o in offs)
+    out += b"trailer\n<</Size 6/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF\n" % x
+    return bytes(out)
+
+
+def test_zoomed_page_draws_only_the_opened_part_of_a_jpeg_in_its_own_place():
+    # JPEG の見える所だけを開くとき、開いた範囲を RGBA.window に渡す（別の欄に渡すと、切り取った絵がページ全体に引き伸ばされ、
+    # スキャンの様式を拡大すると印刷の字が崩れて見える）
+    w, h = 800, 800
+    jpeg = _gray_jpeg(w, h, lambda x, y: x < 300 and y < 300)  # 左上だけ黒（真ん中に対して片寄らせる）
+    doc = PdfDocument(_pdf_with_jpeg(jpeg, w, h), "t.pdf")
+    mm = 25.4 / 72
+    r = render(doc, 1, [500 * mm, 500 * mm, 700 * mm, 700 * mm], dpi=72)
+    assert min(r["rgb"]) > 200  # 右下は白のまま
+    r = render(doc, 1, [100 * mm, 100 * mm, 250 * mm, 250 * mm], dpi=72)
+    assert max(r["rgb"]) < 60  # 左上は黒のまま
+    # 境をまたぐ範囲：黒の終わりが、ページの同じ位置（横 300 pt）にある
+    r = render(doc, 1, [250 * mm, 200 * mm, 500 * mm, 280 * mm], dpi=72)
+    W = r["w"]
+    vals = [r["rgb"][(r["h"] // 2 * W + x) * 3] for x in range(W)]
+    edge = next(i for i, v in enumerate(vals) if v > 128)
+    assert abs(edge - W / 5) <= 8

@@ -97,7 +97,7 @@ def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None
                 tab.append(bytes((int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5))))
             px = b"".join(map(tab.__getitem__, px[0::3]))
         done = getattr(im, "window", None)
-        out = RGBA(im.w, im.h, px, None, False, [], [], (done[0] / dw, done[1] / dh, done[2] / dw, done[3] / dh) if done else None)
+        out = RGBA(im.w, im.h, px, None, False, [], [], window=(done[0] / dw, done[1] / dh, done[2] / dw, done[3] / dh) if done else None)
     elif "CCITTFaxDecode" in names or "JBIG2Decode" in names:
         g = image_gray(doc, image, max_pixels, deadline)
         px, gw, gh = _shrink(g, dct_pixels)
@@ -183,7 +183,7 @@ def _jpx_rgba(doc, image, d: dict, res, max_pixels: int, screen_pixels: int | No
     px = _planes_rgb(planes[:nc], cs, im.w, im.h)
     fw_, fh_ = im.full_w, im.full_h
     out = RGBA(im.w, im.h, px, None, False, list(im.notes), list(im.problems),
-               (im.window[0] / fw_, im.window[1] / fh_, im.window[2] / fw_, im.window[3] / fh_) if im.window else None)
+               window=(im.window[0] / fw_, im.window[1] / fh_, im.window[2] / fw_, im.window[3] / fh_) if im.window else None)
     smd = doc.resolve(d.get("SMaskInData")) if isinstance(image, Stream) else 0
     if isinstance(image, Stream):
         sm = doc.resolve(d.get("SMask"))
