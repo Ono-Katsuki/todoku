@@ -159,13 +159,20 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     tdk = re.compile(rf"p{number}\.(?:[a-z]?\d+|{PLACE_ID})")
     hidden: set[int] = set()
     real_ws = [(f, w, r) for f, w, r in ws if not tdk.fullmatch(f.name)]
-    _inherit_ids(lay.spots if layout else [], [(f, r) for f, w, r in ws if tdk.fullmatch(f.name)], number)
+    tdk_ws = [(f, w, r) for f, w, r in ws if tdk.fullmatch(f.name)]
+    _inherit_ids(lay.spots if layout else [], [(f, r) for f, w, r in tdk_ws], number)
+    # 欄を四角の索引に置く（所ごとにすべての欄と比べない：所の数 × 欄の数にならないように）
+    tdk_index, real_index = _RectIndex(), _RectIndex()
+    for e in tdk_ws:
+        tdk_index.add(_Placed(e[2], e))
+    for e in real_ws:
+        real_index.add(_Placed(e[2], e))
     for sp in (lay.spots if layout else []):
         # 配置から見つけた欄に重なる、とどくが書き込んだフォームの欄（その欄の値を、この所の印として出す）
-        hits = [(f, w) for f, w, r in ws if tdk.fullmatch(f.name) and _overlap(sp.rect, r) > 0.5]
+        hits = [p.entry[:2] for p in tdk_index.touching(sp.rect) if _overlap(sp.rect, p.rect) > 0.5]
         sp.widget = hits or None
         if not hits:
-            near = _near_widget(sp, real_ws)
+            near = _near_widget(sp, [p.entry for p in real_index.touching(sp.rect, max(sp.size, 1.0), True)])
             if near == "inside":
                 # 本物のフォームの欄（元からある欄）の中に収まる所（欄の外に 1 字も入らない）：書く所はその欄そのもの
                 hidden.add(id(sp))
@@ -378,8 +385,9 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         if filled is not None:
             d["value"] = filled.checked if filled.kind == "checkbox" else filled.value_text()
         out_fields.append(d)
+    out_ids = {x.get("id") for x in out_fields}  # 欄ごとに、出した欄を全部見ない
     for f, w, r in ws:
-        if f.name in emitted or any(x.get("id") == f.name for x in out_fields):
+        if f.name in emitted or f.name in out_ids:
             continue
         d = {"id": f.name, "page": number, "kind": f.kind, "label": f.tu or _near_label(lay, r) or f.name.split(".")[-1],
              "name": f.name, "rect": [round(v, 1) for v in r], "provenance": DET, "source": "acroform",
@@ -450,6 +458,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                 elif not (p_ and p_[0] in acrojs.KNOWN):
                     d.setdefault("scripts", []).append(k2)
         out_fields.append(d)
+        out_ids.add(f.name)
     # 配置の所は位置の順（上から、同じ高さは左から）、フォームの欄はその後ろに元の順で
     out_fields.sort(key=lambda d: (0, round(d["rect"][1]), d["rect"][0]) if d.get("source") == "layout" else (1, 0, 0))
     images = len(pc.pictures)
@@ -675,6 +684,14 @@ def _em_overlap(sp: Spot, r) -> float:
         return 0.0
     em = min(max(sp.size, 1.0), sp.rect[a1] - sp.rect[a0], r[a1] - r[a0])
     return along / max(em, 1e-6)
+
+
+@dataclass(slots=True)
+class _Placed:
+    """四角の索引に置く、フォームの欄の組。"""
+
+    rect: tuple
+    entry: tuple
 
 
 def _near_widget(sp: Spot, real_ws: list):

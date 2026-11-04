@@ -1273,14 +1273,17 @@ class _RectIndex:
             for y in range(math.floor(r[1] / cell), math.floor(r[3] / cell) + 1):
                 grid.setdefault((x, y), []).append(i)
 
-    def touching(self, r) -> list:
-        if not math.isfinite(r[0] + r[1] + r[2] + r[3]):
+    def touching(self, r, pad: float = 0.0, own_size: bool = False) -> list:
+        """四角 r に重なりうるもの（入れた順）。pad：r をこれだけ広げて探す。own_size：相手の大きさの分も広げて探す
+        （「欄の高さの内に接する」のように、相手の大きさで届く所を探すとき）。"""
+        if not math.isfinite(r[0] + r[1] + r[2] + r[3] + pad):
             return self.items
         found = set(self.odd)
         for level, grid in self.grids.items():
             cell = 2.0 ** level
-            x0, x1 = math.floor(r[0] / cell), math.floor(r[2] / cell)
-            y0, y1 = math.floor(r[1] / cell), math.floor(r[3] / cell)
+            grow = pad + (cell if own_size else 0.0)
+            x0, x1 = math.floor((r[0] - grow) / cell), math.floor((r[2] + grow) / cell)
+            y0, y1 = math.floor((r[1] - grow) / cell), math.floor((r[3] + grow) / cell)
             if (x1 - x0 + 1) * (y1 - y0 + 1) > len(grid):  # 升目が多い：ある升目だけを見る
                 for (x, y), ids in grid.items():
                     if x0 <= x <= x1 and y0 <= y <= y1:

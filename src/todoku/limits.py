@@ -197,13 +197,15 @@ def inflate(data: bytes, wbits: int = 15, what: str = "", part: int | None = Non
     b = budget()
     cap = b.room(part, len(data))
     d = zlib.decompressobj(wbits)
-    out = bytearray()
+    pieces: list[bytes] = []  # 少しずつ伸ばさない（伸ばすたびに写すと、大きなデータで一時に何倍も使う）
+    got = 0
     src = data
     try:
         while True:
-            piece = d.decompress(src, min(1 << 22, cap - len(out) + 1))
-            out += piece
-            if len(out) > cap:
+            piece = d.decompress(src, min(1 << 22, cap - got + 1))
+            pieces.append(piece)
+            got += len(piece)
+            if got > cap:
                 raise b.exceeded(cap, part, what)
             src = d.unconsumed_tail
             if d.eof or (not src and not piece):
@@ -213,8 +215,12 @@ def inflate(data: bytes, wbits: int = 15, what: str = "", part: int | None = Non
     except zlib.error:
         if not tolerant:
             raise
-    b.charge(len(out), what)
-    return bytes(out)
+    b.charge(got, what)
+    out = b"".join(pieces)
+    if got >= 1 << 26:
+        pieces.clear()
+        release_memory()
+    return out
 
 
 class StreamInflate:

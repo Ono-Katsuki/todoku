@@ -539,12 +539,31 @@ def _a85(data: bytes) -> bytes:
     return bytes(out)
 
 
+class _Chunks:
+    """展開したものを 4 MB ごとの塊で持つ（1 つの大きな塊を伸ばし続けると、写すたびに一時に何倍も使う）。"""
+
+    def __init__(self):
+        self.parts: list[bytes] = []
+        self.cur = bytearray()
+        self.n = 0
+
+    def add(self, b: bytes) -> None:
+        self.cur += b
+        self.n += len(b)
+        if len(self.cur) >= 1 << 22:
+            self.parts.append(bytes(self.cur))
+            self.cur.clear()
+
+    def value(self) -> bytes:
+        return b"".join(self.parts) + bytes(self.cur)
+
+
 def _lzw(data: bytes) -> bytes:
     from ..limits import budget
 
     b = budget()
     cap = b.room()
-    out = bytearray()
+    out = _Chunks()
     table = [bytes([i]) for i in range(256)] + [b"", b""]
     bits = 9
     buf = 0
@@ -562,8 +581,8 @@ def _lzw(data: bytes) -> bytes:
                 prev = None
                 continue
             if code == 257:
-                b.charge(len(out))
-                return bytes(out)
+                b.charge(out.n)
+                return out.value()
             if prev is None:
                 entry = table[code]
             elif code < len(table):
@@ -572,14 +591,14 @@ def _lzw(data: bytes) -> bytes:
             else:
                 entry = prev + prev[:1]
                 table.append(entry)
-            out += entry
+            out.add(entry)
             prev = entry
-            if len(out) > cap:
+            if out.n > cap:
                 raise b.exceeded(cap, None, "PDF のストリーム（LZW）")
             if len(table) + 1 >= (1 << bits) and bits < 12:
                 bits += 1
-    b.charge(len(out))
-    return bytes(out)
+    b.charge(out.n)
+    return out.value()
 
 
 def _rle(data: bytes) -> bytes:
@@ -587,19 +606,19 @@ def _rle(data: bytes) -> bytes:
 
     b = budget()
     cap = b.room()
-    out = bytearray()
+    out = _Chunks()
     i = 0
     while i < len(data):
-        if len(out) > cap:
+        if out.n > cap:
             raise b.exceeded(cap, None, "PDF のストリーム（RunLength）")
         n = data[i]
         if n == 128:
             break
         if n < 128:
-            out += data[i + 1:i + 2 + n]
+            out.add(data[i + 1:i + 2 + n])
             i += 2 + n
         else:
-            out += data[i + 1:i + 2] * (257 - n)
+            out.add(data[i + 1:i + 2] * (257 - n))
             i += 2
-    b.charge(len(out))
-    return bytes(out)
+    b.charge(out.n)
+    return out.value()

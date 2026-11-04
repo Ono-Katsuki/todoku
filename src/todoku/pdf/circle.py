@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import math
+import bisect
 import re
 import unicodedata
 
@@ -49,6 +50,17 @@ def _lines(lay: PageLayout):
             yield c, ln
     for ln in lay.free_lines:
         yield None, ln
+
+
+def lines_between(lay: PageLayout, top: float, bottom: float) -> list:
+    """(マス, 行) のうち、行の上下が top〜bottom の中にあるもの（並びは _lines のとおり）。欄ごとに、ページの全部の行を見ない。"""
+    idx = lay.__dict__.get("_lines_by_top")
+    if idx is None:
+        rows = sorted(((ln.y0, i, c, ln) for i, (c, ln) in enumerate(_lines(lay))), key=lambda e: (e[0], e[1]))
+        idx = lay.__dict__["_lines_by_top"] = ([e[0] for e in rows], rows)
+    tops, rows = idx
+    a, b = bisect.bisect_left(tops, top), bisect.bisect_right(tops, bottom)
+    return [(e[2], e[3]) for e in sorted((e for e in rows[a:b] if e[3].y1 <= bottom), key=lambda e: e[1])]
 
 
 def _pattern(text: str) -> re.Pattern:
