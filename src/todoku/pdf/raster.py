@@ -4,6 +4,7 @@
 - CCITTFaxDecode：ITU-T T.4（G3：1次元・2次元）と T.6（G4）。
 - DCTDecode：JPEG（ITU-T T.81）のベースラインと拡張（ハフマン・順次）。濃さだけを使うので、輝度（Y）の成分だけを
   逆 DCT する（大きな画像は、係数の左上だけを使って 1/2・1/4 の大きさで開く：T.81 の DCT の定義どおりの縮小）。
+- JBIG2Decode（ITU-T T.88）と JPXDecode（ISO/IEC 15444-1）：todoku.imaging の部品で開く。
 - そのほか（FlateDecode・LZW など）は doc.decode が開いた画素を、色空間（Gray・RGB・CMYK・ICCBased・Indexed）と
   Decode の配列で濃さにする。
 
@@ -15,7 +16,7 @@ from __future__ import annotations
 import math
 import struct
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 class RasterError(ValueError):
@@ -27,6 +28,8 @@ class Gray:
     w: int
     h: int
     px: bytes  # w*h バイト（0＝黒〜255＝白）
+    notes: list = field(default_factory=list)  # 開き方の知らせ（解像度を下げたなど）
+    problems: list = field(default_factory=list)  # 描けなかった所
 
     def row(self, y: int) -> bytes:
         return self.px[y * self.w:(y + 1) * self.w]
@@ -589,7 +592,42 @@ _KEY_ABBR = {"W": "Width", "H": "Height", "BPC": "BitsPerComponent", "CS": "Colo
 _CS_ABBR = {"G": "DeviceGray", "RGB": "DeviceRGB", "CMYK": "DeviceCMYK", "I": "Indexed"}
 
 
-def image_gray(doc, image, max_pixels: int = 4_000_000) -> Gray:
+def jbig2_gray(doc, d: dict, data: bytes, names: list, deadline: float | None = None) -> Gray:
+    """JBIG2Decode（ISO 32000-1 7.4.7）：埋め込みの編成。DecodeParms の JBIG2Globals を合わせて開く。1 が黒（0＝黒の濃さにして返す）。"""
+    from ..imaging.jbig2 import Jbig2Error
+    from ..imaging.pdfcodec import jbig2
+    from .objects import Stream
+
+    parms = doc.resolve(d.get("DecodeParms"))
+    if isinstance(parms, list):
+        i = names.index("JBIG2Decode")
+        parms = doc.resolve(parms[i]) if i < len(parms) else None
+    glob = doc.resolve(parms.get("JBIG2Globals")) if isinstance(parms, dict) else None
+    gdata = doc.decode(glob) if isinstance(glob, Stream) else None
+    try:
+        page = jbig2(data, gdata, int(d.get("Width") or 0) or None, int(d.get("Height") or 0) or None, deadline,
+                     cache=getattr(doc, "decryptor", None) is None)
+    except Jbig2Error as e:
+        raise RasterError(f"JBIG2 の画像を開けません：{e}") from None
+    except (IndexError, struct.error) as e:
+        raise RasterError(f"JBIG2 の画像を開けません（データが壊れています：{type(e).__name__}）") from None
+    return Gray(page.w, page.h, page.px, [], [f"JBIG2：{x}" for x in page.problems])
+
+
+def jpx_image(doc, data: bytes, target_pixels: int | None, deadline: float | None = None):
+    """JPXDecode（ISO 32000-1 7.4.9）。imaging.jpx.Image を返す。"""
+    from ..imaging.jpx import JpxError
+    from ..imaging.pdfcodec import jpx
+
+    try:
+        return jpx(data, target_pixels, deadline, cache=getattr(doc, "decryptor", None) is None)
+    except JpxError as e:
+        raise RasterError(f"JPEG 2000 の画像を開けません：{e}") from None
+    except (IndexError, struct.error) as e:
+        raise RasterError(f"JPEG 2000 の画像を開けません（データが壊れています：{type(e).__name__}）") from None
+
+
+def image_gray(doc, image, max_pixels: int = 4_000_000, deadline: float | None = None) -> Gray:
     """PDF の画像（XObject の Stream か、埋め込みの画像の (辞書, データ)）を濃さにする。開けない圧縮は RasterError。"""
     from .objects import Name, Stream
 
@@ -609,8 +647,11 @@ def image_gray(doc, image, max_pixels: int = 4_000_000) -> Gray:
     names = [getattr(x, "name", "") for x in (flt if isinstance(flt, list) else [flt] if flt is not None else [])]
     parms = d.get("DecodeParms")
     w, h = int(d.get("Width") or 0), int(d.get("Height") or 0)
-    if "JBIG2Decode" in names or "JPXDecode" in names:
-        raise RasterError(f"この画像の圧縮（{'JBIG2' if 'JBIG2Decode' in names else 'JPEG 2000'}）は、まだ開けません")
+    if "JBIG2Decode" in names:
+        return _decode_array(jbig2_gray(doc, d, data, names, deadline), d, 1)
+    if "JPXDecode" in names:
+        im = jpx_image(doc, data, max_pixels, deadline)
+        return Gray(im.w, im.h, _jpx_gray(im), list(im.notes), list(im.problems))
     if "CCITTFaxDecode" in names:
         p = parms[names.index("CCITTFaxDecode")] if isinstance(parms, list) else parms
         p = {k: doc.resolve(v) for k, v in (doc.resolve(p) or {}).items()}
@@ -629,10 +670,17 @@ def _decode_array(g: Gray, d: dict, bpc: int) -> Gray:
     inv = isinstance(dec, list) and len(dec) >= 2 and float(dec[0]) > float(dec[1])
     if d.get("ImageMask") is True:
         inv = not inv  # 型抜き：0（既定）の所を、塗りの色（黒とみなす）で塗る
-        g = Gray(g.w, g.h, g.px.translate(bytes(255 - i for i in range(256))))
+        g = Gray(g.w, g.h, g.px.translate(bytes(255 - i for i in range(256))), g.notes, g.problems)
     if inv:
-        g = Gray(g.w, g.h, g.px.translate(bytes(255 - i for i in range(256))))
+        g = Gray(g.w, g.h, g.px.translate(bytes(255 - i for i in range(256))), g.notes, g.problems)
     return g
+
+
+def _jpx_gray(im) -> bytes:
+    """JPEG 2000 の画像の濃さ（SMask の用途：1 成分はそのまま。色は輝度に）。"""
+    if len(im.planes) < 3:
+        return bytes(im.planes[0])
+    return bytes([(r * 77 + g * 151 + b * 28) >> 8 for r, g, b in zip(im.planes[0], im.planes[1], im.planes[2])])
 
 
 def _colorspace(doc, cs) -> tuple[str, int, object]:

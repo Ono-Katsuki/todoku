@@ -76,6 +76,7 @@ class Renderer:
         self.problems: list[str] = []
         self.approx: dict[str, int] = {}
         self.image_failed: list[str] = []
+        self.image_notes: list[str] = []  # 画像の開き方の知らせ（JPEG 2000 の解像度など）
         self._oc_off = self._oc_config()
 
     # ------------------------------------------------------------------ 見える／見えない内容
@@ -661,7 +662,7 @@ class Renderer:
         dev = abs(m[0] * m[3] - m[1] * m[2])
         # JPEG は逆 DCT で 1/2・1/4・1/8 に縮めて開ける（縮めても面積の平均）：画面の 2 倍まで。ほかは開いてから箱の平均で縮める
         try:
-            im = image_rgba(self.doc, img, 16_000_000, res, int(max(250_000, dev * 2)))
+            im = image_rgba(self.doc, img, 16_000_000, res, int(max(250_000, dev * 2)), self.deadline)
         except Exception as e:  # noqa: BLE001
             from ...limits import LimitExceeded
 
@@ -671,6 +672,8 @@ class Renderer:
             self._undrawn_image(gs, m)
             return
         self.stats["images"] += 1
+        self.image_notes += [f"{name}：{n}" for n in im.notes if f"{name}：{n}" not in self.image_notes]
+        self.problems += [f"{name}：{n}" for n in im.problems if f"{name}：{n}" not in self.problems]
         fill = gs.fc
         if im.stencil and gs.fpat is not None:
             fill = (128, 128, 128)

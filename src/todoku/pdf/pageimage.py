@@ -76,7 +76,7 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int | Non
             "skipped": skipped, "view": view, "stamps": stamps, "annot_failed": annot_failed, "glyphs": len(cells),
             "user_unit": view.unit, "dpi": s * 25.4, "stats": dict(rr.stats), "substituted": dict(rr.subst),
             "missing_fonts": sorted(rr.missing_fonts), "approx": dict(rr.approx), "stopped": rr.stopped,
-            "problems": list(rr.problems), "no_appearance": appearance_notes(doc, page)}
+            "problems": list(rr.problems), "no_appearance": appearance_notes(doc, page), "image_notes": list(rr.image_notes)}
 
 
 def _annot_pictures(doc, page: dict, stamps: list, failed: list | None = None, glyphs: list | None = None) -> list:
@@ -267,6 +267,8 @@ def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | No
         text += (" 仕様どおりには描けず、近い形で描いたもの：" + "・".join(f"{k} {v} か所" for k, v in r["approx"].items()) + "。")
     if r.get("stopped"):
         text += " 描くのに時間がかかりすぎるため、途中で止めました（描いていない所があります）。"
+    if r.get("image_notes"):
+        text += " 画像の開き方：" + "／".join(r["image_notes"][:5]) + "（細かな字が読めないときは、region で範囲を狭めて拡大すると、細かな解像度で開きます）。"
     if r["skipped"]:
         text += " 描けなかった画像：" + "／".join(r["skipped"][:5])
     if r.get("annot_failed"):
@@ -304,12 +306,12 @@ def not_drawn(r: dict) -> list[str]:
     return out
 
 
-_CAN ={"FlateDecode", "Fl", "ASCII85Decode", "A85", "ASCIIHexDecode", "AHx", "LZWDecode", "LZW", "RunLengthDecode", "RL",
-        "DCTDecode", "DCT", "CCITTFaxDecode", "CCF", "Crypt"}
+_CAN = {"FlateDecode", "Fl", "ASCII85Decode", "A85", "ASCIIHexDecode", "AHx", "LZWDecode", "LZW", "RunLengthDecode", "RL",
+        "DCTDecode", "DCT", "CCITTFaxDecode", "CCF", "Crypt", "JBIG2Decode", "JPXDecode"}
 
 
 def unreadable_images(doc, page: dict) -> list[str]:
-    """ページの画像のうち、todoku が開けない圧縮（JBIG2・JPEG 2000 など）のもの（画像の名前：圧縮）。"""
+    """ページの画像のうち、PDF の規格にない名前の圧縮のもの（画像の名前：圧縮）。規格の圧縮はどれも開ける。"""
     from .objects import Stream
 
     out = []
