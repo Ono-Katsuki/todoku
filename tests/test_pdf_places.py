@@ -125,13 +125,14 @@ def test_rtl_label_room_is_on_the_left():
     assert len(end) == 1 and end[0]["rect"][2] <= 300 and end[0]["rect"][0] < 60, end  # 読む順の行の終わりは左
 
 
-def test_underscore_and_bracket_and_box_are_drawn_blanks():
+def test_underscore_and_bracket_are_drawn_blanks_and_box_is_left_to_the_agent():
     rows = _row("Signature ____", 60, 700, 7) + _row("( )", 60, 680, 7) + _row("□ Yes", 60, 660, 7)
     fields = _fields(glyphs_pdf(rows, {"_": 500, "(": 333, ")": 333, " ": 250}))
     by = {f.get("shape"): f for f in fields}
     assert not by["connector"].get("agent") and by["connector"]["facts"]["glyph"] == "_"
     assert not by["bracket"].get("agent")
-    assert not by["box"].get("agent") and by["box"]["facts"]["char"] == "□" and by["box"]["label"] == "Yes"
+    # 箱の字は、チェックの箱か箇条の印かを形で決めない（「？」。表計算・Word の窓と同じ）
+    assert by["box"].get("agent") and by["box"]["facts"]["char"] == "□" and by["box"]["label"] == "Yes"
 
 
 # ====================================================================== 3. 位置から決める id

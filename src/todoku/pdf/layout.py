@@ -839,11 +839,11 @@ def _move_pre_base(units: list[list]) -> list[list]:
 #   3. 測った空き：字と字の間、行の頭の前・行の終わりの後ろ（マスの縁・同じ高さの字・縦の罫線・ページの字の端まで）の空きで、
 #      1 字ぶん（1 em：JIS X 4051・Unicode 6.2 の全角の空白の幅）以上のもの。組版の決まりでできる空き（文の終わりの字
 #      Sentence_Terminal の後ろの行末・左右の空きが等しい中央そろえの行の両側・段落の 1 字下げ）は除く
-#   4. チェックの箱の字（□ など。記入済みの箱の字 ☑ ■ などは、書き換えられない所として）
+#   4. チェックの箱の字（□ など。どれも「？」：箱か箇条の印かは決めない。記入済みの箱の字 ☑ ■ などは、書き換えられない所として）
 #   5. 下線の罫線：マスの縁でも表の中の線でもない横線で、すぐ上に字のないもの（線の上の 1 行の帯）
 # 所は事実（位置・大きさ mm・周りの字とその離れ mm）と一緒に示し、書く所かどうか（意味）はエージェントが決める。
 # 規則の欄（窓の［p1.t…］）と「？」（［p1.g…？］）の違いも作りで決める：描かれた空欄（空のマス・下線の罫線・下線の字・
-# かっこの中・箱の字）は規則の欄、字の間の空き（空白・点線・ダッシュ・行の前後の空き）と、空のマスの並びは「？」。
+# かっこの中）は規則の欄、字の間の空き（空白・点線・ダッシュ・行の前後の空き）・箱の字・空のマスの並びは「？」。
 DASH_MIN = 2  # 点線・ダッシュの並び：同じ種類の字が 2 字以上続くもの（1 字だけのものは句読点・区切りの記号）
 RULE_TOL = 2.0  # 罫線の交わりの許し（cells_from と同じ）：マスの大きさ・隣り合いを比べるときも、この幅の違いは同じとみなす
 EDGE_PAD = 1.5  # 書く所の四角を、マスの縁（罫線）から離す幅（pt）：書いた字が罫線に触れないように（書き込みの安全のための余白）
@@ -1692,6 +1692,8 @@ class PageLayout:
                       line_text=text, cell=cell, size=ln.size, host=ln, at=(i, i + 1), shape="box", anchor=(x0, ln.y0))
             sp.facts = {"rect_mm": self._rect_mm((x0, y0, x1, y1)), "char": ch, "line": text.strip(" 　"),
                         "char_name": f"U+{ord(ch):04X} {unicodedata.name(ch, '')}", "after": after, "before": before}
+            # 箱の字は、チェックの箱か箇条の印かを字の形では決められない（どの箱の字も「？」：表計算・Word の窓と同じ）
+            _agent(sp)
             if not boxed:
                 sp.checked = True
                 sp.shape = "checked"
@@ -1714,7 +1716,7 @@ class PageLayout:
             x0, x1 = lb + pad[lk], rb - pad[rk]
             if wide_gap(rb - lb, sz) and x1 > x0:
                 y0, y1 = self._band(ln, cell, x0, x1)
-                sp = _agent(Spot("inline", (x0, y0, x1, y1), "［　］", GAP_WHY["blank_line"], line_text=text, blank=(0, n),
+                sp = _agent(Spot("text" if cell is not None else "inline", (x0, y0, x1, y1), "［　］", GAP_WHY["blank_line"], line_text=text, blank=(0, n),
                                  cell=cell, size=sz, host=ln, at=(0, n), shape="blank_line", anchor=(lb, ln.y0),
                                  write_size_from="行の字の大きさ"))
                 sp.facts = {"rect_mm": self._rect_mm(sp.rect), "width_mm": self._mm(rb - lb), "width_em": round((rb - lb) / sz, 1),
@@ -1762,6 +1764,9 @@ class PageLayout:
                     continue
                 y0, y1 = self._band(ln, cell, x0, x1)
                 rect = (x0, y0, x1, y1)
+                if any(k.cell is cell and k.shape in ("lead", "trail") and all(abs(u - v) <= 0.5 for u, v in zip(k.rect, rect))
+                       for k in self.spots):
+                    continue  # 同じマスのほかの行の前後の空きと同じ四角（縦に並ぶ行の左の、同じ空き）：同じ所は 1 つ
             else:
                 at = (max(a0, 0), min(b0, n))
                 if at[1] <= at[0]:
@@ -1777,7 +1782,9 @@ class PageLayout:
             shown = text[:at[0]] + (orig if orig.strip(" 　") else "") + "［　］" + text[at[1]:]
             if why == "placeholder":
                 shown = text[:at[0]] + "［　］" + text[at[1]:]
-            sp = Spot("inline", rect, norm_label(shown), GAP_WHY.get(why, "空き"), line_text=text, blank=at, cell=cell,
+            # マスの中の行の前後の空きは、行と行の間の帯（行より高いこともある四角）：字の欄（text）として書く。行の中の空きは inline
+            kind = "text" if why in ("lead", "trail") and cell is not None else "inline"
+            sp = Spot(kind, rect, norm_label(shown), GAP_WHY.get(why, "空き"), line_text=text, blank=at, cell=cell,
                       size=sz, host=ln, at=at, shape=why, anchor=anchor, write_size_from="行の字の大きさ",
                       cover=orig if why == "placeholder" else "")
             if not blank.structural:
@@ -1800,14 +1807,14 @@ class PageLayout:
             self.spots.append(sp)
 
     def _band(self, ln: Line, cell: Cell | None, x0: float, x1: float) -> tuple[float, float]:
-        """行の前後の空き（x0〜x1）の上下：マスの中では、上下のほかの行の字（なければマスの縁）まで（行と行の間の帯）。
+        """行の前後の空き（x0〜x1）の上下：マスの中では、その横の範囲にかかる上下のほかの行の字（なければマスの縁）まで。
         マスの外の行は、行の高さだけ（上下に描かれた端がない）。"""
         if cell is None:
             return ln.y0, ln.y1
         pad = TEXT_PAD * ln.size
         top, bottom = cell.y0, cell.y1
         for o in cell.lines:
-            if o is ln or not o.text.strip(" \u3000"):
+            if o is ln or not o.text.strip(" \u3000") or min(o.x1, x1) - max(o.x0, x0) <= 0:
                 continue
             if o.y1 <= ln.y0 + pad:
                 top = max(top, o.y1 + pad)

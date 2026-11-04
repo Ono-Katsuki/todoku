@@ -138,7 +138,7 @@ def test_only_closed_curves_are_circles_and_shadowed_squares_are_left_to_the_age
     # 箱の字はどれも同じ扱い（❏ と □ を使い方で分けない）。字と Unicode の名前は facts に
     pg = window(glyphs_pdf([("❏", 40, 700), ("A", 52, 700), ("□", 40, 680), ("B", 52, 680)]))["pages"][0]
     boxes = {f["label"]: f for f in pg["fields"] if f["kind"] == "checkbox"}
-    assert not boxes["A"].get("agent") and not boxes["B"].get("agent"), boxes
+    assert boxes["A"].get("agent") and boxes["B"].get("agent"), boxes  # どの箱の字も「？」（箱か箇条の印かは決めない）
     assert boxes["A"]["facts"]["char_name"].startswith("U+274F") and boxes["B"]["facts"]["char"] == "□"
 
 

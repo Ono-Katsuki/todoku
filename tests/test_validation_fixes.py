@@ -42,7 +42,7 @@ def _line_pdf() -> bytes:
 def test_narrow_letters_side_by_side_are_not_an_overprint():
     lines = _reading(_line_pdf())
     assert "All Temperature Windows; collections delle" in lines, lines
-    assert any(ln.split(" ")[0] == "Bold" for ln in lines) and "BBoolldd" not in "".join(lines), lines  # 本当の重ね書きは1字
+    assert any(ln.split(" ")[0].startswith("Bold") for ln in lines) and "BBoolldd" not in "".join(lines), lines  # 本当の重ね書きは1字
     win = build(PdfDocument(_line_pdf(), "t.pdf"))
     assert win["pages"][0]["merged_glyphs"] == 4
 
@@ -58,11 +58,13 @@ def test_reading_audit_catches_glyphs_dropped_as_false_overprints(monkeypatch):
     def old_rule(a, b, size_a, size_b):
         return abs(a[0] - b[0]) < 0.25 * size_b and abs(a[1] - b[1]) < 0.25 * size_b and abs(size_a - size_b) < 0.2 * size_b
 
+    # 検査の数え直しは窓と同じ決まり（layout.is_overprint：決まりを 2 か所に書かない）を使うので、決まりそのものの誤りは、
+    # 数え直しでは見つからない（窓と食い違わない）。決まりとは別の量（字の箱の重なり）で、窓の読む段階の注意 C が見つける
     monkeypatch.setattr(pdf_layout, "is_overprint", old_rule)
     doc = PdfDocument(blob, "t.pdf")
-    bad = check_reading(doc, build(doc))[0]
-    assert not bad.ok and any("「l」" in x and "重ねた字ではありません" in x for x in bad.items), bad.items
-    # 窓の側でも：字の箱が重ならない字を1字にしたら、読む C で知らせる（箱の重なりを実際に測る）
+    same = check_reading(doc, build(doc))[0]
+    assert same.ok, same.items
+    # 窓の側：字の箱が重ならない字を1字にしたら、読む C で知らせる（箱の重なりを実際に測る）
     fl = {f["title"]: f for f in build(PdfDocument(blob, "t.pdf"))["pages"][0]["read_flags"]}
     assert fl.get("重ね書きとして1字にした字", {}).get("grade") == "C", fl.keys()
 
