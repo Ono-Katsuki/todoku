@@ -5,6 +5,8 @@
 - 控えの場所：TODOKU_JOBS_DIR（なければ ~/.cache/todoku/jobs）。ファイルの中身のうち、控えに入るのは検査で見つけた問題の短い字と、集計の途中の値・結果だけ。
   パスワードは控えに書かない（標準入力で仕事に渡す。止まった仕事を続けるときは、もう一度 password を渡す）
 - 同じファイル（パス・大きさ・更新時刻・文字コード）の仕事は 1 つだけ
+- 窓を作る仕事（start_window）：open_document などが時間の上限に当たったとき。できた窓は控えの場所に置き（.window。自分だけが読める。
+  書類の中身が入るので、大きさの合計を limits.WINDOW_CACHE までにする）、次の呼び出しで使う。パスワードのある書類ではしない
 """
 
 from __future__ import annotations
@@ -142,6 +144,115 @@ def start_calc(path: str, password: str | None, values: dict, cells: list, scans
     return new
 
 
+# ---------------------------------------------------------------------- 窓を作る仕事（open_document が時間の上限に当たったとき）
+def _window_key(path: str, encoding: str | None) -> str:
+    return "win-" + job_key(path, encoding)
+
+
+def _window_file(key: str) -> Path:
+    return jobs_dir() / f"{key}.window"
+
+
+def window_running(path: str, encoding: str | None) -> dict | None:
+    rec = load(_window_key(path, encoding))
+    return rec if rec and not rec.get("finished") and not rec.get("stopped") and _alive(rec.get("pid")) else None
+
+
+def window_made(path: str, encoding: str | None) -> bool:
+    """窓の仕事は終わっている（それでも時間の上限に当たるなら、窓のほかの所が遅い）。"""
+    key = _window_key(path, encoding)
+    rec = load(key)
+    return bool(rec and rec.get("finished")) and _window_file(key).exists()
+
+
+def window_failed(path: str, encoding: str | None) -> str | None:
+    """窓の仕事が予算・メモリで止まった理由（なければ None）。同じファイルで仕事を始め直さない。"""
+    rec = load(_window_key(path, encoding))
+    return rec.get("stopped") if rec else None
+
+
+def start_window(path: str, encoding: str | None) -> dict:
+    """窓を作る仕事を始める（動いていれば、その控えを返す）。"""
+    key = _window_key(path, encoding)
+    rec = load(key)
+    if rec and not rec.get("finished") and _alive(rec.get("pid")):
+        return rec
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([here] + [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p])
+    new = {"key": key, "kind": "window", "path": path, "encoding": encoding, "started": time.time()}
+    proc = subprocess.Popen([sys.executable, "-m", "todoku.jobs", key], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, env=env, start_new_session=True)
+    new["pid"] = proc.pid
+    save(key, new)
+    proc.stdin.write(b"{}")
+    proc.stdin.close()
+    return new
+
+
+def window_result(path: str, encoding: str | None, sha: str):
+    """長い仕事で作った窓（なければ None）。中身が同じファイルのものだけ。"""
+    import pickle
+
+    try:
+        with open(_window_file(_window_key(path, encoding)), "rb") as f:
+            got_sha, out = pickle.load(f)
+    except (OSError, ValueError, EOFError, pickle.PickleError, AttributeError, ImportError):
+        return None
+    return out if got_sha == sha else None
+
+
+def _prune_windows(keep: Path) -> None:
+    """置いた窓の大きさの合計を limits.WINDOW_CACHE までに（古いものから消す。いま作ったものは残す）。"""
+    files = sorted((p for p in jobs_dir().glob("*.window") if p != keep), key=lambda p: p.stat().st_mtime, reverse=True)
+    total = keep.stat().st_size
+    for p in files:
+        total += p.stat().st_size
+        if total > limits.WINDOW_CACHE:
+            p.unlink(missing_ok=True)
+
+
+def _run_window(key: str, rec: dict) -> int:
+    import pickle
+
+    from . import api
+    from .lazy.filebytes import sha256_hex
+
+    os.nice(10)
+    rec["pid"] = os.getpid()
+    threading.Thread(target=_watch_memory, args=(key, rec), daemon=True).start()
+    last = {"t": 0.0}
+
+    def report(text: str, done: int = 0, total: int = 0) -> None:
+        rec["progress"] = {"text": text, "done": done, "total": total}
+        now = time.monotonic()
+        if now - last["t"] > SAVE_EVERY:
+            last["t"] = now
+            save(key, rec)
+
+    limits.set_progress_reporter(report)
+    try:
+        # 縛らないのは時間だけ。展開・描画・項目の予算は、ふつうの呼び出しと同じ（壊れた・悪意のある書類を、止まらない仕事にしない）
+        with limits.call_budget():
+            out = api.window(rec["path"], None, rec.get("encoding"))
+            blob = api._read(rec["path"], None)[0]
+        p = _window_file(key)
+        tmp = p.with_suffix(f".{os.getpid()}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            pickle.dump((sha256_hex(blob), out), f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, p)
+        _prune_windows(p)
+        rec["finished"] = time.time()
+        rec["progress"] = {"text": "終わりました"}
+        save(key, rec)
+        return 0
+    except Exception as e:  # noqa: BLE001  仕事の失敗は、控えで伝える
+        rec["stopped"] = f"途中で問題が起きました（{type(e).__name__}）：{str(e)[:500]}"
+        save(key, rec)
+        return 1
+
+
 def _run_calc(key: str, rec: dict, args: dict) -> int:
     from .formula.lazyarr import ScanStore
     from .xlsx import model as xm
@@ -195,6 +306,8 @@ def run(key: str) -> int:
     rec = load(key) or {"key": key}
     if rec.get("kind") == "calc":
         return _run_calc(key, rec, args)
+    if rec.get("kind") == "window":
+        return _run_window(key, rec)
     os.nice(10)
     rec["pid"] = os.getpid()
     threading.Thread(target=_watch_memory, args=(key, rec), daemon=True).start()
@@ -208,8 +321,10 @@ def run(key: str) -> int:
             save(key, rec)
 
     limits.set_progress_reporter(report)
+    from .embeds.lazy import whole
+
     try:
-        with limits.call_budget(limits.Budget(total=None)):
+        with limits.call_budget(limits.Budget(total=None)), whole():  # 検査は、後回しにした埋め込みの表も読む
             doc = lazy.open_doc(args["path"], args.get("password"), args.get("encoding"), force=True)
             state = rec.get("state") or doc.audit_begin()
             if rec.get("skip_whole"):

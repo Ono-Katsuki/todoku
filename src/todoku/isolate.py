@@ -284,10 +284,56 @@ def _TIME() -> str:  # noqa: N802
     return f"{limits.TIME_LIMIT} 秒を超えても終わりませんでした（環境変数 TODOKU_TIME_LIMIT で変えられます）"
 
 
+_WINDOW_TOOLS = ("open_document", "read_window", "list_fields")  # 窓を作るところで時間がかかる道具
+_RANGE_ARGS = ("pages", "sheet", "rows", "paragraphs", "records", "path_in", "cursor", "raw", "part")
+
+
+def _window_args(name: str, args: dict | None) -> bool:
+    """窓の全体を作る呼び出しか（範囲を頼んだ呼び出しは、範囲を小さくできる。パスワードは控えに残さないので、長い仕事にしない）。"""
+    args = args or {}
+    return name in _WINDOW_TOOLS and bool(args.get("path")) and not args.get("password") and not any(args.get(k) for k in _RANGE_ARGS)
+
+
+def _job_result(rec: dict) -> dict:
+    """窓を作っている長い仕事の進み具合（失敗ではない）。"""
+    pr = rec.get("progress") or {}
+    at = pr.get("text") or "始めたところ"
+    if pr.get("total"):
+        at += f"（{pr['done']:,}／{pr['total']:,}）"
+    text = (f"窓を作るのに時間がかかるので、別のプロセスの長い仕事にしました（いま：{at}）。読めないのではありません。"
+            "もう一度同じ呼び出しをすると、進み具合か結果が返ります")
+    return {"content": [{"type": "text", "text": text}], "isError": False,
+            "structuredContent": {"job": {"running": True, "progress": pr, "key": rec.get("key")}}}
+
+
+def window_job_view(name: str, args: dict) -> dict | None:
+    """同じ書類の窓を長い仕事で作っている間は、働き手を待たせず進み具合を返す。動いていなければ None。"""
+    if not _window_args(name, args):
+        return None
+    from . import jobs
+
+    try:
+        rec = jobs.window_running(args["path"], args.get("encoding"))
+    except OSError:
+        return None
+    return _job_result(rec) if rec is not None else None
+
+
 def stopped(why: str, name: str = "", args: dict | None = None, at: dict | None = None) -> dict:
     """止めた理由と、どこまで進んだか、代わりに頼める小さな頼み方（行き止まりにしない）。"""
     from .lazy import smaller_request
 
+    if why == _TIME() and _window_args(name, args):
+        from . import jobs
+
+        try:
+            failed = jobs.window_failed(args["path"], args.get("encoding"))
+            if failed:
+                why = f"{why}。長い仕事でも止まりました：{failed}"
+            elif not jobs.window_made(args["path"], args.get("encoding")):
+                return _job_result(jobs.start_window(args["path"], args.get("encoding")))
+        except (OSError, ValueError):
+            pass  # 仕事を始められない：いままでどおり、止めた理由と頼み方を伝える
     hint = smaller_request(name, args or {})
     where = ""
     if at and at.get("text"):

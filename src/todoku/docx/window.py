@@ -865,6 +865,9 @@ def build(doc: DocxDocument) -> dict:
     out["tracked_deletions"] = [f"段落 {sp.para_index[id(q)]}「{q.deleted_text().strip()[:20]}」"
                                 for _k, _part, blocks in doc.all_blocks() for q in iter_paras(blocks)
                                 if hasattr(q, "deleted_text") and q.deleted_text().strip()]
+    from ..embeds import lazy as embed_lazy
+
+    embed_lazy.spend(sum(len(ln) for st in out["stories"] for ln in st["reading"]))
     out["embeds"] = _embeds(doc)
     out["pictures"] = _pictures(doc)
     from ..embeds.word import objects as _objects
@@ -985,13 +988,21 @@ def _embed_key(doc, e: dict) -> tuple | None:
 
 
 def _embed_windows(doc) -> list[tuple[dict, object]]:
-    """(埋め込み, (Excel の窓, 窓の Markdown の行) か 作れなかった理由の字)。Excel のブックでない埋め込みは除く。"""
+    """(埋め込み, (Excel の窓, 窓の Markdown の行)・作れなかった理由の字・後回しにした概要（dict）)。Excel のブックでない埋め込みは除く。"""
+    from .. import limits
+    from ..embeds import lazy as embed_lazy
     from ..xlsx import window as xw
 
     if not hasattr(doc, "embedded_book"):
         return []
     out = []
-    for e in list(getattr(doc, "embeds", []) or []):
+    embeds = list(getattr(doc, "embeds", []) or [])
+    for i, e in enumerate(embeds):
+        limits.progress("埋め込みの表を読んでいます", i, len(embeds))
+        brief = embed_lazy.later(doc, e)
+        if brief is not None:
+            out.append((e, brief))  # 窓に入らない：頼まれたときに、頼まれた行だけ読む
+            continue
         k = _embed_key(doc, e)
         if k is not None and k in _EMBED_WINDOWS:
             got = _EMBED_WINDOWS[k]
@@ -1011,6 +1022,8 @@ def _embed_windows(doc) -> list[tuple[dict, object]]:
                 _EMBED_WINDOWS[k] = got
         if got is not None:
             out.append((e, got))
+            if isinstance(got, tuple):
+                embed_lazy.spend(sum(len(ln) for ln in got[1]))
     return out
 
 
@@ -1022,6 +1035,9 @@ def _embeds(doc) -> list[dict]:
     for e, got in _embed_windows(doc):
         if isinstance(got, str):
             out.append({"n": e["n"], "label": e["label"], "prog": e["prog"], "storage": e["storage"], "error": got})
+            continue
+        if isinstance(got, dict):
+            out.append(got)
             continue
         xdoc, md = got
         info = window_info(doc, e, xdoc)  # 書くときの欄の名前（E1!Sheet1!C4）と、表の絵を描き直せるか
@@ -1267,6 +1283,11 @@ def to_markdown(doc: dict) -> str:
         out += [f"## 埋め込み{e['n']}：{e['label']}（{e['prog']}・{e['storage']}）", ""]
         if e.get("error"):
             out += [f"- この埋め込みは開けませんでした：{e['error']}", ""]
+            continue
+        if e.get("deferred"):
+            from ..embeds.lazy import markdown as later_md
+
+            out += later_md(e)
             continue
         out += ["- 本文の〔埋め込み" + str(e["n"]) + "：…〕の所にある表です。Excel の窓と同じ書き方（［C4］はセル）で出しています。"]
         ids = [f["id"] for f in e.get("fields") or []]

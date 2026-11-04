@@ -23,7 +23,7 @@ from ..formula.numfmt import format_value, is_date_format
 from ..formula.parser import NameNode, RefNode, addr, iter_refs, parse_cell
 from ..formula.values import ExcelError, Unsupported, is_number, to_text
 from ..limits import MAX_DECLARED_CELLS
-from .places import ONE_DECLARATION, Declared, markdown as places_markdown, place_docs
+from .places import Declared, fits_window, markdown as places_markdown, place_docs
 from .readers import Readers
 from .workbook import Cell, Control, Sheet, Workbook
 
@@ -191,7 +191,7 @@ def _unlocked_ranges(wb: Workbook, sh: Sheet, lim_r: int, lim_c: int) -> list[De
         if c <= lim_c and c in sh.col_styles and not wb.style(sh.col_styles[c]).locked:
             run.append(c)
             continue
-        if run and len(run) * lim_r > ONE_DECLARATION:
+        if run and not fits_window(1, run[0], lim_r, run[-1]):
             out.append(Declared(1, run[0], lim_r, run[-1], "unlocked"))
         run = []
     return out
@@ -233,7 +233,7 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
             r2, c2 = min(r2, lim_r), min(c2, lim_c)
             if r2 < r1 or c2 < c1:
                 continue
-            if (r2 - r1 + 1) * (c2 - c1 + 1) <= min(ONE_DECLARATION, room - len(out)):
+            if (r2 - r1 + 1) * (c2 - c1 + 1) <= room - len(out) and fits_window(r1, c1, r2, c2):
                 for r in range(r1, r2 + 1):
                     for c in range(c1, c2 + 1):
                         add(r, c, "入力規則があるセル")
@@ -364,38 +364,32 @@ def row_mm(sh: Sheet, r: int) -> float:
     return float(sh.row_heights.get(r, sh.default_row_height or 15.0)) * PT_MM
 
 
-_SUM_NEAR = 1024  # これより長い行・列の並びの大きさは、1 つずつ足さず、控えから求める（表の行ごとに、遠い見出しまで足し直さないように）
-
-
 def rows_mm(sh: Sheet, a: int, b: int) -> float:
-    """行 a〜b の高さの合計（mm）。高さの指定のある行と非表示の行だけの控えで求める（行の数によらない）。"""
-    if b - a < _SUM_NEAR:
-        return sum(row_mm(sh, r) for r in range(a, b + 1))
-    size = (len(sh.row_heights), len(sh.hidden_rows))
+    """行 a〜b の高さの合計（mm）。高さの指定のある行と非表示の行だけの控えで求める（離れた行まで 1 つずつ足さない：行の数によらない）。"""
     got = sh.__dict__.get("_rows_mm")
-    if got is None or got[0] != size:
-        base = row_base = float(sh.default_row_height or 15.0) * PT_MM
+    if got is None or got[0] != (len(sh.row_heights), len(sh.hidden_rows)):
+        base = float(sh.default_row_height or 15.0) * PT_MM
         rows = sorted({*sh.row_heights, *sh.hidden_rows})
         total = [0.0]
         for r in rows:
             total.append(total[-1] + row_mm(sh, r) - base)
-        got = sh.__dict__["_rows_mm"] = (size, rows, total, row_base)
+        got = sh.__dict__["_rows_mm"] = ((len(sh.row_heights), len(sh.hidden_rows)), rows, total, base)
     _, rows, total, base = got
     return (b - a + 1) * base + total[bisect.bisect_right(rows, b)] - total[bisect.bisect_left(rows, a)]
 
 
 def cols_mm(wb: Workbook, sh: Sheet, a: int, b: int) -> float:
-    """列 a〜b の幅の合計（mm）。"""
-    if b - a < _SUM_NEAR:
-        return sum(col_mm(wb, sh, c) for c in range(a, b + 1))
+    """列 a〜b の幅の合計（mm）。幅の指定のある列と非表示の列だけの控えで求める。"""
     got = sh.__dict__.get("_cols_mm")
-    if got is None or got[0] != len(sh.col_widths):
+    if got is None or got[0] != (len(sh.col_widths), len(sh.hidden_cols)):
+        base = col_mm(wb, sh, 0)  # 列 0 はないので、幅の指定のない列の幅
+        cols = sorted({*sh.col_widths, *sh.hidden_cols})
         total = [0.0]
-        for c in range(1, 16385):
-            total.append(total[-1] + col_mm(wb, sh, c))
-        got = sh.__dict__["_cols_mm"] = (len(sh.col_widths), total)
-    total = got[1]
-    return total[min(b, 16384)] - total[min(a - 1, 16384)]
+        for c in cols:
+            total.append(total[-1] + col_mm(wb, sh, c) - base)
+        got = sh.__dict__["_cols_mm"] = ((len(sh.col_widths), len(sh.hidden_cols)), cols, total, base)
+    _, cols, total, base = got
+    return (b - a + 1) * base + total[bisect.bisect_right(cols, b)] - total[bisect.bisect_left(cols, a)]
 
 
 def span_mm(wb: Workbook, sh: Sheet, r1: int, c1: int, r2: int, c2: int) -> dict:

@@ -27,6 +27,7 @@ GDI の寄せ方（TA_RIGHT・TA_CENTER）で描くので、字の幅が分か�
 
 from __future__ import annotations
 
+import bisect
 import math
 import re
 import struct
@@ -334,6 +335,23 @@ def shown_sheet(wb):
     return sheets[ai] if 0 <= ai < len(sheets) else None
 
 
+class _RowTops:
+    """行の境：範囲の上から行 r の上の境までの高さ（ポイント）。高さの指定のある行と非表示の行だけの控えで求める
+    （遠くの行のセルがあっても、あいだの行を 1 つずつ足さない）。"""
+
+    def __init__(self, sh, r1: int, r2: int):
+        self.r1 = r1
+        self.base = float(sh.default_row_height)
+        self.rows = sorted(r for r in {*sh.row_heights, *sh.hidden_rows} if r1 <= r <= r2)
+        self.total = [0.0]
+        for r in self.rows:
+            h = 0.0 if r in sh.hidden_rows else float(sh.row_heights.get(r, sh.default_row_height))
+            self.total.append(self.total[-1] + h - self.base)
+
+    def __getitem__(self, r: int) -> float:
+        return (r - self.r1) * self.base + self.total[bisect.bisect_left(self.rows, r)]
+
+
 class SheetModel:
     """絵に映るシートと範囲、列・行の境（既知の幅の和と、既定の幅の列の数）、セルの字。"""
 
@@ -347,6 +365,7 @@ class SheetModel:
         if sh is None or sh.state.startswith("non-"):
             raise PictureError("表の絵に映るシート（選ばれているシート）が、セルのあるシートではありません")
         self.sheet = sh
+        self.range_recorded = "range" in info
         if "range" in info:
             self.range = info["range"]
         else:
@@ -355,7 +374,6 @@ class SheetModel:
                           max(sh.max_col, max((c for _r, c in sh.cells), default=1)))
         r1, c1, r2, c2 = self.range
         self.cols = list(range(c1, c2 + 1))
-        self.rows = list(range(r1, r2 + 1))
         # 列の境：k 番目の境 = 範囲の左から k 列の右（既知の幅の和, 既定の幅の列の数）
         self.xb: dict[int, tuple[float, int]] = {}
         s, n = 0.0, 0
@@ -369,14 +387,7 @@ class SheetModel:
             else:
                 s += w
         self.xb[c2 + 1] = (s, n)
-        self.yb: dict[int, float] = {}
-        y = 0.0
-        for r in self.rows:
-            self.yb[r] = y
-            if r in sh.hidden_rows:
-                continue
-            y += sh.row_heights.get(r, sh.default_row_height)
-        self.yb[r2 + 1] = y
+        self.yb = _RowTops(sh, r1, r2)
 
     def visible(self, r: int, c: int) -> bool:
         r1, c1, r2, c2 = self.range
@@ -390,14 +401,13 @@ class SheetModel:
         return max(r1, R1), max(c1, C1), min(r2, R2), min(c2, C2)
 
     def display_cells(self):
-        """字を描くセル（結合セルの左上だけ）。"""
-        for r in self.rows:
-            for c in self.cols:
-                m = self.sheet.merged_at(r, c)
-                if m and (r, c) != (m[0], m[1]):
-                    continue
-                if self.visible(r, c):
-                    yield r, c
+        """字を描けるセル（結合セルの左上だけ）。ファイルに要素のあるマスだけを見る（要素のないマスに字はない。範囲の広さによらない）。"""
+        for r, c in self.sheet.existing_in(*self.range):
+            m = self.sheet.merged_at(r, c)
+            if m and (r, c) != (m[0], m[1]):
+                continue
+            if self.visible(r, c):
+                yield r, c
 
     def text(self, r: int, c: int) -> CellText:
         return cell_text(self.wb, self.sheet, self.formats, r, c)
@@ -643,7 +653,8 @@ class Layout:
             # 下寄せの字の下端（境 − ずれ）のように、描くのに要る組み合わせが証拠から決まるかを、描くときに一つずつ確かめる
             # （既定の幅の列しかなければ、幅の分かる列の倍率 bx は要らない）
             self.x_fixed = all(xs.estimable(self._xb(c)) for c in self.cols_b)
-            self.y_fixed = all(ys.estimable(self._yb(r)) for r in self.rows_b)
+            # 行の境の式は (1, 高さ) の形：いちばん上と下で決まれば、あいだの行の境も、その 2 つの組み合わせなので決まる
+            self.y_fixed = all(ys.estimable(self._yb(r)) for r in (self.rows_b[0], self.rows_b[-1]))
             guess = {k: (xs.value({k: 1}) if k in ("ax", "bx", "v") and xs.estimable({k: 1}) else
                          ys.value({k: 1}) if k in ("ay", "by") and ys.estimable({k: 1}) else guess[k]) for k in guess}
             self._guess = guess
@@ -653,9 +664,14 @@ class Layout:
             anchors.update(more)
         self.anchors = anchors
         # 罫線のある境は、罫線の位置そのものを使う（列ごとの丸めの差を残さない）
-        self.snap_x = self._snap("v", [self._xb(c) for c in self.cols_b], xs, tolx)
-        self.snap_y = self._snap("h", [self._yb(r) for r in self.rows_b], ys, toly)
+        self.snap_x = self._snap("v", self.cols_b, self._xb, xs, tolx)
+        self.snap_y = self._snap("h", self.rows_b, self._yb, ys, toly)
         self.tolx, self.toly = tolx, toly
+        if not model.range_recorded and not all(self._inside(self._run(i), rc) for i, rc in anchors.items()):
+            # 映る範囲の記録がなく、使われているセルの範囲と見なした：字が自分のセルの中に来ないなら、絵に映る範囲はもっと狭い
+            # （見なした範囲に合わせて解くと、行の高さを取り違える。遠くのセルは絵に映らないので、ここには書けない）
+            raise PictureError("表の絵の中の罫線と字の位置が、ブックの列の幅・行の高さと合いません"
+                               "（映る範囲の記録がなく、使われているセルの範囲が絵に収まりません）")
         self._offsets()
 
     def _offsets(self) -> None:
@@ -730,8 +746,9 @@ class Layout:
         return sorted(self.model.xb)
 
     @property
-    def rows_b(self) -> list[int]:
-        return sorted(self.model.yb)
+    def rows_b(self) -> range:
+        r1, _c1, r2, _c2 = self.model.range
+        return range(r1, r2 + 2)
 
     def _run(self, idx: int) -> TextRun:
         return next(r for r in self.runs if r.index == idx)
@@ -752,39 +769,58 @@ class Layout:
             return None
         return min(spots, key=lambda x: abs(x - want))
 
-    def _lines(self, xs: _System, ys: _System, guess: dict, tolx: float, toly: float) -> None:
-        for c in self.cols_b:
-            co = self._xb(c)
-            at = self._near("v", guess["ax"] + guess["bx"] * co["bx"] + guess["v"] * co["v"], 2 * tolx)
-            if at is not None:
-                xs.add(co, at, ("line", c))
-        for r in self.rows_b:
-            co = self._yb(r)
-            at = self._near("h", guess["ay"] + guess["by"] * co["by"], 2 * toly)
-            if at is not None:
-                ys.add(co, at, ("line", r))
+    def _tied(self, orient: str, keys, at_of) -> list:
+        """絵の罫線ごとの、いちばん近いセルの境（行・列の番号の順）。罫線 1 本は、いちばん近い境の証拠にしかならない：
+        見るのは絵の線の数だけで、範囲の広さ（遠くのセルまでの行の数）によらない。at_of(境)：いまの見当の位置。"""
+        keys = list(keys) if not isinstance(keys, (list, range)) else keys
+        rising = at_of(keys[0]) <= at_of(keys[-1])
+        key = at_of if rising else (lambda k: -at_of(k))
+        out = set()
+        for at in {ln.at for ln in self.emf.lines if ln.orient == orient}:
+            i = bisect.bisect_left(keys, at if rising else -at, key=key)
+            near = [keys[j] for j in (i - 1, i) if 0 <= j < len(keys)]
+            out.add(min(near, key=lambda k: abs(at_of(k) - at)))
+        return sorted(out)
 
-    def _snap(self, orient: str, coefs: list[dict], sysm: _System, tol: float) -> dict[int, float]:
+    def _lines(self, xs: _System, ys: _System, guess: dict, tolx: float, toly: float) -> None:
+        def x_at(c: int) -> float:
+            co = self._xb(c)
+            return guess["ax"] + guess["bx"] * co["bx"] + guess["v"] * co["v"]
+
+        def y_at(r: int) -> float:
+            return guess["ay"] + guess["by"] * self._yb(r)["by"]
+
+        for c in self._tied("v", self.cols_b, x_at):
+            at = self._near("v", x_at(c), 2 * tolx)
+            if at is not None:
+                xs.add(self._xb(c), at, ("line", c))
+        for r in self._tied("h", self.rows_b, y_at):
+            at = self._near("h", y_at(r), 2 * toly)
+            if at is not None:
+                ys.add(self._yb(r), at, ("line", r))
+
+    def _snap(self, orient: str, keys, coef_of, sysm: _System, tol: float) -> dict:
+        """罫線のある境は、その罫線の位置そのものに：{境の、幅・高さの和: 罫線の位置}（幅のない行・列は、同じ境）。"""
         out = {}
-        keys = self.cols_b if orient == "v" else self.rows_b
-        for k, co in zip(keys, coefs):
+        # 線に結びつけた境は、位置が決まらない向きでも、そこだけは決まることがあるので必ず見る
+        tagged = {t[1] for _c, _o, t in sysm.rows if isinstance(t, tuple) and t[0] == "line"}
+        for k in sorted({*self._tied(orient, keys, lambda k_: sysm.value(coef_of(k_))), *tagged}):
+            co = coef_of(k)
             if not sysm.estimable(co):
                 continue  # 位置の決まらない境は、近くの線に寄せない
             at = self._near(orient, sysm.value(co), tol)
             if at is not None:
-                out[k] = at
+                out[self.model.xb[k] if orient == "v" else self.model.yb[k]] = at
         return out
 
     def bx(self, c: int) -> float:
         """列 c の左の境の、絵の上の x。"""
-        if c in self.snap_x:
-            return self.snap_x[c]
-        return self.xs.value(self._xb(c))
+        got = self.snap_x.get(self.model.xb[c])
+        return self.xs.value(self._xb(c)) if got is None else got
 
     def by(self, r: int) -> float:
-        if r in self.snap_y:
-            return self.snap_y[r]
-        return self.ys.value(self._yb(r))
+        got = self.snap_y.get(self.model.yb[r])
+        return self.ys.value(self._yb(r)) if got is None else got
 
     def rect(self, r: int, c: int) -> tuple[float, float, float, float]:
         """セルの矩形（求めた解）。境の位置が決まらない向きでは、本当の位置からずれていることがある（x_range・y_fixed を見る）。"""
@@ -1233,7 +1269,8 @@ class PictureEdit:
 def changed_cells(old: SheetModel, new: SheetModel) -> list[tuple[tuple[int, int], CellText, CellText]]:
     """絵に映る範囲で、見える字か描き方が変わったセル。"""
     out = []
-    for rc in old.display_cells():
+    # 要素のないマスは、どちらのブックでも字がない。片方にだけ要素のあるマス（空のマスに書いた所）は、新しいブックの側で見つかる
+    for rc in sorted({*old.display_cells(), *(x for x in new.display_cells() if old.visible(*x))}):
         a, b = old.text(*rc), new.text(*rc)
         if (a.text, a.parts, a.color, a.halign, a.pad_left, a.pad_right) != (b.text, b.parts, b.color, b.halign, b.pad_left,
                                                                            b.pad_right):

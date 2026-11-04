@@ -49,6 +49,28 @@ class StreamDecoded(Decoded):
         return cand.get("own_sample", "")
 
 
+class MemorySource:
+    """メモリの中のバイト列を、Source と同じ形で読む（文書に埋め込んだブック）。ファイルに書き出さない。"""
+
+    def __init__(self, data: bytes):
+        self.path = None
+        self.data = data
+        self.size = len(data)
+        self.key = (len(data), 0)
+
+    def read(self, a: int, b: int) -> bytes:
+        return self.data[a:b]
+
+    def chunks(self, a: int = 0, b: int | None = None, size: int = CHUNK):
+        b = self.size if b is None else min(b, self.size)
+        while a < b:
+            yield self.data[a:min(a + size, b)]
+            a += size
+
+    def close(self) -> None:
+        pass
+
+
 class Source:
     """開いたファイル（読むだけ）。"""
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import signal
 import struct
 import sys
 import time
@@ -455,9 +456,19 @@ def test_isolated_calls_stop_on_time_and_memory_and_the_server_survives(monkeypa
     slow.write_bytes(_chain_pdf(9))  # 10 ** 9 回描く：上限の 1 秒で止める
     monkeypatch.setattr(limits, "TIME_LIMIT", 1)
     t = time.time()
+    monkeypatch.setenv("TODOKU_JOBS_DIR", str(tmp_path / "jobs"))
     r = _handle("open_document", path=str(slow))
-    assert r["isError"] and limits.STOPPED in r["content"][0]["text"] and "秒" in r["content"][0]["text"]
+    # 時間の上限では失敗にせず、長い仕事にする（働き手は止めて、すぐ返す）
+    assert not r.get("isError") and r["structuredContent"]["job"]["running"]
     assert time.time() - t < 10
+    from todoku import jobs
+
+    rec = jobs.load(r["structuredContent"]["job"]["key"])
+    os.kill(rec["pid"], signal.SIGKILL)  # この試験では、最後まで動かさない
+    rec["stopped"] = "止めました"
+    jobs.save(rec["key"], rec)
+    r = _handle("read_window", path=str(slow), part=1)  # 範囲を頼めば、いままでどおり止めた理由を伝える
+    assert r["isError"] and limits.STOPPED in r["content"][0]["text"] and "秒" in r["content"][0]["text"]
     monkeypatch.setattr(limits, "TIME_LIMIT", 120)
     monkeypatch.setattr(limits, "MEMORY_LIMIT", 1024)  # 外からの見張り（ps）で、すぐ超える
     r = _handle("open_document", path=str(slow))

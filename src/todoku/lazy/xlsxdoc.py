@@ -27,7 +27,7 @@ from pathlib import Path
 from .. import limits
 from ..formula.parser import addr, parse_cell
 from .base import LazyDoc, Page, RangeError, comma, parse_range, temp_beside
-from .textstream import Source
+from .textstream import MemorySource, Source
 
 CHECK_EVERY = 1 << 22  # 展開の状態を控える間隔（展開したバイト）
 
@@ -566,11 +566,12 @@ class XlsxLazy(LazyDoc):
             return False
         return all(d["index"] is None or d["index"].ends is None for d in self.sheet_meta)
 
-    def __init__(self, path: str, name: str):
+    def __init__(self, path: str | None, name: str, blob: bytes | None = None):
+        """blob：ファイルでなくメモリの中のブック（文書に埋め込んだブック。読むだけ）。"""
         self.path = path
         self.name = name
-        self.src = Source(path)
-        self.z = zipfile.ZipFile(path)
+        self.src = Source(path) if blob is None else MemorySource(blob)
+        self.z = zipfile.ZipFile(path if blob is None else io.BytesIO(blob))
         self.members = {i.filename: Member(self.src, i) for i in self.z.infolist()}
         self._strings: LazyStrings | None = None
         self._meta: list[dict] | None = None
@@ -638,6 +639,14 @@ class XlsxLazy(LazyDoc):
     @property
     def sheet_meta(self) -> list[dict]:
         return self._load_meta()
+
+    def sheet_names(self) -> list[dict]:
+        """シートの名前だけ（シートの中身を読まない）。"""
+        from ..xlsx.workbook import M, parse_xml
+
+        wb_path = next((t for typ, t in self._rels("").values() if typ == "officeDocument"), "xl/workbook.xml")
+        el = parse_xml(self.members[wb_path].read()).find(M + "sheets")
+        return [{"name": s.get("name")} for s in el] if el is not None else []
 
     def _rels(self, part: str) -> dict:
         import posixpath

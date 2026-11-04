@@ -11,7 +11,7 @@ import bisect
 from collections import defaultdict
 
 from ..limits import MAX_DECLARED_CELLS, budget
-from .places import ONE_DECLARATION
+from .places import fits_window
 
 NARROW = 64  # これより幅の広い範囲は、列ごとに持たず、問われた列で見る
 
@@ -128,7 +128,7 @@ class Readers:
         same = {b[:4] for b in self.boxes}  # 同じ範囲を読む数式がいくつあっても、広げるのは 1 度
         for r1, c1, r2, c2 in sorted(same, key=lambda b: (b[2] - b[0] + 1) * (b[3] - b[1] + 1)):
             area = (r2 - r1 + 1) * (c2 - c1 + 1)
-            if area > min(room, ONE_DECLARATION) or work < c2 - c1 + 1:
+            if area > room or not fits_window(r1, c1, r2, c2) or work < c2 - c1 + 1:
                 self.wide.append((r1, c1, r2, c2))
                 continue
             work -= c2 - c1 + 1

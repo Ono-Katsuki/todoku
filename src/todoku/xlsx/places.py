@@ -13,12 +13,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .. import limits
 from ..formula.parser import addr, num_to_col
 from ..formula.values import ExcelError
 
-ONE_DECLARATION = 16384  # 1 つの宣言を 1 マスずつの欄にする広さ（様式の欄の数）。これより広い宣言は範囲の所（頼まれた行だけ、1 マスずつの欄にする）
 MAX_DECOMPOSE = 2048  # 区間に分ける宣言の数（これを超えると、宣言ごとの区間のまま。重なりは overlap で伝える）
 READERS_MAX = 20
+
+
+def fits_window(r1: int, c1: int, r2: int, c2: int) -> bool:
+    """宣言を 1 マスずつの欄にして、窓に入るか（limits.CONTEXT_BUDGET）。窓に書く字そのもので数える：行ごとの「- 77000: 」と、
+    マスごとの「［B77000？］ ｜ 」（どれも範囲の右下の番地の長さで）。入らない宣言は範囲の所にする（頼まれた行だけ、1 マスずつの欄にする）。"""
+    a = addr(r2, c2)
+    return (r2 - r1 + 1) * (len(f"- {r2}: ") + (c2 - c1 + 1) * len(f"［{a}？］ ｜ ")) <= limits.CONTEXT_BUDGET
 
 
 @dataclass

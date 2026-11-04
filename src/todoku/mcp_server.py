@@ -31,6 +31,8 @@ INSTRUCTIONS = (
     "大きな書類は、読む量を分けて読みます（読めない所はありません）：open_document が large の概要を返したら、要る所を read_window に範囲で頼みます"
     "（PDF は pages、Excel・OpenDocument の表は sheet と rows、CSV・TSV は rows、JSON Lines は records、JSON は path_in（JSON Pointer）、.txt・Word・一太郎・한글・PowerPoint・OpenDocument の文書・RTF は paragraphs。結果の next をそのまま渡すと続きが読め、"
     "たどり終えると全部を読んだことになります）。list_fields も同じ範囲で頼みます。段階の deferred（未確認）は、まだ確かめていないことなので、確かめたことのように伝えないでください。"
+    "文書に埋め込んだ大きな表は、開くときには解析しません：窓の案内のとおり、read_window・list_fields に sheet: \"E1!シート\" と rows で頼みます。"
+    "open_document などが「長い仕事にしました」と返したら、失敗ではありません。もう一度同じ呼び出しをすると、進み具合か結果が返ります。"
     "検査 audit_document は長い仕事として動き、呼ぶたびに進み具合を返します。呼び出しが上限で止まったら、結果の smaller_request の頼み方で頼み直します。"
     "まず open_document で書類を開き、read_window で窓を読み、list_fields で入力欄の名前を確かめてから、"
     "fill_document で書き込んでください。書き込みは元のファイルを変えず、別の名前で書き出します。"
@@ -87,7 +89,7 @@ TOOLS = [
                                                       "part": {"type": "integer", "minimum": 1, "default": 1},
                                                       "pages": _RANGE_SCHEMA, "rows": _RANGE_SCHEMA, "paragraphs": _RANGE_SCHEMA, "records": _RANGE_SCHEMA,
                                                       "path_in": {"type": "string", "description": "大きな JSON の中の値の位置（JSON Pointer。例 /items/0）"},
-                                                      "sheet": {"type": "string", "description": "Excel のシート・Access の表の名前（rows と一緒に）"},
+                                                      "sheet": {"type": "string", "description": "Excel のシート・Access の表の名前（rows と一緒に）。文書に埋め込んだ表は「E1!シート」"},
                                                       "cursor": {"type": "string", "description": "前の結果の next にある、続きの印"},
                                                       "max_chars": {"type": "integer", "minimum": 200, "description": "1 回に返す大きさ（字）"},
                                                       "raw": {"type": "boolean", "description": "窓を作らずに、ファイルの字を順に読む（欄は見つけない）。窓を作るのが上限で止まった書類のための道"}},
@@ -571,7 +573,9 @@ def handle(msg: dict) -> dict | None:
         from . import isolate
 
         # 別のプロセス（働き手）で、時間とメモリの上限をつけて動かす（壊れた書類でサーバーごと止まらないように）
-        result = isolate.worker().call(name, args) if isolate.enabled() else isolate.soft_call(tool_result, name, args)
+        result = isolate.window_job_view(name, args)  # 窓を長い仕事で作っている間は、進み具合をすぐ返す
+        if result is None:
+            result = isolate.worker().call(name, args) if isolate.enabled() else isolate.soft_call(tool_result, name, args)
         return {"jsonrpc": "2.0", "id": mid, "result": result}
     if mid is None:
         return None

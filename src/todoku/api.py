@@ -355,8 +355,12 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
     if key is not None and key in _WINDOWS:
         _WINDOWS[key] = _WINDOWS.pop(key)  # いちばん新しく使ったものにする
         return _cached_window(key)
-    out = _window(blob, name, k, lock, encoding)
-    _list_images(out, blob, name, k, lock)
+    from . import jobs
+
+    out = jobs.window_result(path, encoding, key[0]) if key is not None and password is None else None  # 長い仕事で作っておいた窓
+    if out is None:
+        out = _window(blob, name, k, lock, encoding)
+        _list_images(out, blob, name, k, lock)
     if key is not None:
         from .limits import WINDOW_CACHE
 
@@ -439,7 +443,10 @@ def _window(blob: bytes, name: str, k: str, lock, encoding: str | None = None) -
 
         doc = build6(d)
     else:
-        doc = build(d)
+        from .embeds.lazy import window_room
+
+        with window_room():  # 窓に入らない埋め込みの表は、頼まれたときに読む
+            doc = build(d)
     return k, doc, markdown_parts(doc)
 
 
@@ -1898,12 +1905,17 @@ def audit(path: str, password: str | None = None, encoding: str | None = None, r
     """大きな書類は、長い仕事（jobs）として動かす：すぐ返して、進み具合と、ここまでの結果を示す。何度でも呼べて、止まっても続きから進む。
     job：大きさによらず、長い仕事として動かす（いままでの検査が時間の上限に当たったとき）。"""
     lz = lazy_open(path, password, encoding) if not job else True  # 窓の全体が予算に入らない書類は、どの形式でも長い仕事に
-    if lz is None:
+    if lz is None and not _has_later_embeds(path, password, encoding):  # 後回しにした埋め込みの表も、検査では読む
         return audit_whole(path, password, encoding)
     from . import jobs
 
     rec = jobs.start(path, password, encoding, restart)
     return _job_view(rec, path, password, encoding)
+
+
+def _has_later_embeds(path: str, password: str | None, encoding: str | None) -> bool:
+    k, win, _parts = window(path, password, encoding)
+    return k in ("docx", "doc") and any(e.get("deferred") for e in win.get("embeds") or [])
 
 
 def _job_view(rec: dict, path: str, password: str | None, encoding: str | None) -> dict:
@@ -2551,7 +2563,10 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
         g = _locked("開けない", str(e), "読めないので、書けません")
         return (combine(g, findings or [], answered) if findings or answered else g).to_dict()
     encoding = _encoding(blob, k, encoding)
-    g = grade_blob(blob, name, password=pdf_password(lock), encoding=encoding)
+    from .embeds.lazy import window_room
+
+    with window_room():  # 窓に入らない埋め込みの表は開かない（理由に「まだ確かめていない」と書く。検査の仕事の中では、すべて読む）
+        g = grade_blob(blob, name, password=pdf_password(lock), encoding=encoding)
     if findings or answered:
         g = combine(g, findings or [], answered)
     _remember_hand_only(path, g, findings, answered)
@@ -2628,7 +2643,18 @@ def read_range(path: str, rng: dict, max_chars=None, password: str | None = None
     import struct
 
     from .lazy import RangeError, clamp_chars
+    from .embeds import lazy as embed_lazy
 
+    embed = embed_lazy.split_sheet(rng.get("sheet"))
+    if embed is not None and not rng.get("raw"):
+        blob, name, k, _lock = _read(path, password)
+        if k not in ("docx", "doc"):
+            embed = None  # 「E1」という名前のシート
+    if embed is not None and not rng.get("raw"):
+        try:
+            return embed_lazy.read(_word(blob, name, k), embed[0], embed[1], rng, clamp_chars(max_chars)), None
+        except RangeError as e:
+            raise ApiError(str(e)) from None
     if rng.get("raw"):
         from .lazy.rawtext import read_raw
 
