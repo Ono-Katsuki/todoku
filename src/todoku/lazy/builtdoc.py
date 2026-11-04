@@ -57,6 +57,8 @@ class BuiltDoc(LazyDoc):
     def read(self, rng: dict, max_chars: int) -> Page:
         if rng.get("paragraphs") is not None or str(rng.get("cursor") or "").startswith("paragraphs:"):
             return self._read_paragraphs(rng, max_chars)
+        if rng.get("sheet") is not None or rng.get("rows") is not None:
+            return self._read_sheet(rng, max_chars)
         if rng.get("part") is not None:
             n = int(rng["part"])
             if not 1 <= n <= len(self.parts):
@@ -82,6 +84,54 @@ class BuiltDoc(LazyDoc):
         if end >= len(text):
             return Page(piece, cov, None, "", [piece])
         return Page(piece, cov, {"cursor": f"chars:{end}"}, f"{comma(len(text) - end)} 字", [piece])
+
+    # ------------------------------------------------------------------ シート（表だけの形式）
+    def _sheet_text(self, name: str, rows) -> str:
+        """窓の中の 1 つのシートの節。読んでいない部分の注のうち、そのシートの名前のあるものを前に添える。"""
+        text = self.whole()
+        heads = list(re.finditer(r"^## シート「(.*)」$", text, re.M))
+        if not heads:
+            raise RangeError("この書類はシートの範囲では読めません（part か cursor で読んでください）")
+        at = next((i for i, m in enumerate(heads) if m[1] == name), None)
+        if at is None:
+            raise RangeError(f"シート「{name}」はありません（ある名前：{'・'.join(m[1] for m in heads[:30])}）")
+        body = text[heads[at].start():heads[at + 1].start() if at + 1 < len(heads) else len(text)]
+        if rows is not None:
+            a, b = parse_range(rows, "行")
+            kept = []
+            for line in body.split("\n"):
+                m = re.match(r"- (\d+): ", line)
+                if m is None or a <= int(m[1]) <= b:
+                    kept.append(line)
+            body = "\n".join(kept)
+        notes = [ln for ln in text[:heads[0].start()].split("\n") if ln.startswith("- **読んでいない部分**") and f"「{name}」" in ln]
+        return "\n".join(notes + [body]) if notes else body
+
+    def _read_sheet(self, rng: dict, max_chars: int) -> Page:
+        name = rng.get("sheet")
+        if name is None:
+            raise RangeError("rows は sheet（シートの名前）といっしょに渡してください")
+        text = self._sheet_text(str(name), rng.get("rows"))
+        at = 0
+        cur = rng.get("cursor")
+        if cur:
+            m = re.fullmatch(r"chars:(\d+)", str(cur))
+            if not m:
+                raise RangeError(f"cursor「{cur}」はこの書類の続きの印ではありません（前の結果の next をそのまま渡してください）")
+            at = int(m[1])
+        end = min(at + max_chars, len(text))
+        if end < len(text):
+            nl = text.rfind("\n", at, end)
+            if nl > at:
+                end = nl + 1
+        piece = text[at:end]
+        cov = f"シート「{name}」の {at + 1:,}〜{end:,} 字目（全 {len(text):,} 字）"
+        if end >= len(text):
+            return Page(piece, cov, None, "", [piece])
+        nxt = {"sheet": name, "cursor": f"chars:{end}"}
+        if rng.get("rows") is not None:
+            nxt["rows"] = rng["rows"]
+        return Page(piece, cov, nxt, f"{comma(len(text) - end)} 字", [piece])
 
     # ------------------------------------------------------------------ Word の段落
     def _word_units(self):

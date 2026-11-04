@@ -1,4 +1,4 @@
-"""試験用の Access のデータベースを、ページの形（mdbtools の HACKING・Jackcess）のとおりに手で作る（Jet3・Jet4）。"""
+"""試験用の Access のデータベースを、ページの形のとおりに手で作る（Jet3・Jet4）。形は jet.py の冒頭の説明（実物で観察した形）に合わせる。"""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class Maker:
     # ------------------------------------------------------------ 行
     def row(self, cols: list[dict], values: dict) -> bytes:
         """cols：{name, type, num, var or None, fixed or None, size}。"""
-        ncols = len(cols)
+        ncols = max(c["num"] for c in cols) + 1  # 消した列の番号も数える
         fixed_bytes = bytearray(sum(c["size"] for c in cols if c.get("var") is None))
         var_vals: list[bytes] = []
         mask = bytearray((ncols + 7) // 8)
@@ -96,11 +96,14 @@ class Maker:
             e[0] = c["type"]
             e[1 if j3 else 5] = c["num"]
             struct.pack_into("<H", e, 3 if j3 else 7, c.get("var") or 0)
-            struct.pack_into("<H", e, 5 if j3 else 9, c["num"])
+            struct.pack_into("<H", e, 5 if j3 else 9, c.get("pos", c["num"]))
             e[13 if j3 else 15] = 0 if c.get("var") is not None else 1
             struct.pack_into("<H", e, 14 if j3 else 21, c.get("fixed") or 0)
             struct.pack_into("<H", e, 16 if j3 else 23, c["size"])
-            e[9 if j3 else 11] = c.get("scale", 0)
+            e[9 if j3 else 11] = c.get("prec", 0)
+            e[10 if j3 else 12] = c.get("scale", 0)
+            if not j3:
+                e[16] = c.get("flags2", 0)
             p[pos:pos + entry] = e
             pos += entry
         for c in cols:
@@ -127,7 +130,8 @@ class Maker:
         idx_data = len(self.pages)
         self.pages.append(self._data_page(idx_tdef, rows, flags))
         self.pages[idx_usage] = self._usage_page([idx_data])[0]
-        self.pages[idx_tdef] = self._tdef(cols, len(rows), idx_usage << 8)
+        live = sum(1 for f in (flags or [0] * len(rows)) if not f & 0x8000)
+        self.pages[idx_tdef] = self._tdef(cols, live, idx_usage << 8)
         if catalog:
             self.catalog.append((idx_tdef, name, typ, cat_flags))
         return idx_tdef
