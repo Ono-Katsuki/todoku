@@ -14,6 +14,7 @@ DrawingML のグラフ（ECMA-376 第1部 21.2、c:chartSpace）。系列（c:se
 
 from __future__ import annotations
 
+import bisect
 import posixpath
 import re
 import xml.etree.ElementTree as ET
@@ -169,6 +170,11 @@ def _cache(el: ET.Element | None, date1904: bool, notes: list | None = None) -> 
     return {}, 0, None
 
 
+def _dense_limit(present: int) -> int:
+    """値のある点が present 個のとき、点の番号の順に（値のない点は空の字で）並べてよい長さ。"""
+    return max(4 * present, 1024)
+
+
 def _cache_values(cache: ET.Element | None, numeric: bool, date1904: bool,
                   notes: list | None = None) -> tuple[dict[int, str], int]:
     if cache is None:
@@ -180,20 +186,23 @@ def _cache_values(cache: ET.Element | None, numeric: bool, date1904: bool,
         levels = []
         for lv in lvls:
             pts = sorted(((int(_attr(p, "idx") or 0), _text(_kid(p, "v"))) for p in _kids(lv, "pt")))
-            levels.append(pts)
+            levels.append(([idx for idx, _t in pts], pts, {}))
+        for _idxs, pts, inner in levels:
+            for idx, t in pts:
+                inner.setdefault(idx, t)  # 同じ番号が重なれば、最初のもの
         out = {}
-        for i in range(n):
+        # 宣言された点の数をそのまま広げない：見出しのある点の数に見合わないほど大きければ、見出しのある点だけ
+        have = sorted({idx for idxs, _p, _i in levels for idx in idxs})
+        for i in (range(n) if n <= _dense_limit(len(have)) else (x for x in have if x < n)):
             parts = []
-            for k, pts in enumerate(reversed(levels)):
+            for k, (idxs, pts, inner) in enumerate(reversed(levels)):
                 lab = ""
                 if k == len(levels) - 1:  # いちばん内側の段は、その点の見出しだけ
-                    lab = next((t for idx, t in pts if idx == i), "")
+                    lab = inner.get(i, "")
                 else:
-                    for idx, t in pts:  # 外の段の見出しは、次の見出しの点の前まで続く
-                        if idx <= i:
-                            lab = t
-                        else:
-                            break
+                    at = bisect.bisect_right(idxs, i) - 1  # 外の段の見出しは、次の見出しの点の前まで続く
+                    if at >= 0:
+                        lab = pts[at][1]
                 if lab:
                     parts.append(lab)
             out[i] = " ／ ".join(parts)
@@ -469,7 +478,8 @@ def _read_chartex(root: ET.Element, ch: Chart, date1904: bool = False) -> Chart:
                 for lv in lvls:
                     per.append({int(_attr(p, "idx") or 0): (p.text or "") for p in _kids(lv, "pt")})
                 n = max((max(x) + 1 for x in per if x), default=0)
-                for i in range(n):
+                have = sorted({i for x in per for i in x})
+                for i in (range(n) if n <= _dense_limit(len(have)) else have):
                     parts = [x.get(i, "") for x in reversed(per)]
                     if _ln(dim.tag) == "numDim":
                         vals[i] = number_text(per[0].get(i, ""), code, date1904, ch.notes) if i in per[0] else ""
@@ -527,12 +537,17 @@ def chart_dict(ch: Chart, n: int) -> dict:
     sers = []
     for s in ch.series:
         k = _count(s)
-        d = {"name": s.name, "kind": s.kind, "categories": [s.cats.get(i, "") for i in range(k)] if s.cats else [],
-             "values": [s.vals.get(i, "") for i in range(k)]}
+        have = sorted({*s.cats, *s.vals, *s.sizes})
+        order = range(k) if k <= _dense_limit(len(have)) else have  # 宣言された点の数・番号をそのまま広げない
+        d = {"name": s.name, "kind": s.kind, "categories": [s.cats.get(i, "") for i in order] if s.cats else [],
+             "values": [s.vals.get(i, "") for i in order]}
+        if order is have:
+            d["point_numbers"] = [i + 1 for i in have]  # 値のある点の番号（点の数の宣言が、値のある点より、はるかに多いとき）
+            d["points_declared"] = k
         if s.xy:
             d["xy"] = True
         if s.sizes:
-            d["sizes"] = [s.sizes.get(i, "") for i in range(k)]
+            d["sizes"] = [s.sizes.get(i, "") for i in order]
         if s.labels:
             d["labels"] = {str(i): t for i, t in sorted(s.labels.items())}
         if s.refs:
@@ -569,8 +584,9 @@ def table_rows(d: dict) -> list[tuple[str, list[list[str]]]]:
         cats = list(key) if key[:1] != ("#",) else []
         n = max(max(len(s["values"]) for s in g), len(cats))
         rows = [["項目"] + [s["name"] for s in g]]
+        numbers = g[0].get("point_numbers")
         for i in range(n):
-            label = cats[i] if i < len(cats) else str(i + 1)
+            label = cats[i] if i < len(cats) else str(numbers[i] if numbers and i < len(numbers) else i + 1)
             rows.append([label] + [s["values"][i] if i < len(s["values"]) else "" for s in g])
         out.append(("" if len(groups) == 1 else "・".join(s["name"] for s in g), rows))
     for s in d["series"]:

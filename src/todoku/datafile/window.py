@@ -41,16 +41,24 @@ def build_csv(f: CsvFile) -> dict:
     cells = sum(len(r) for r in rows[1:])
     every = cells + width <= MAX_FIELDS
     for r in range(2, n + 1):
+        if len(fields) > MAX_FIELDS:
+            break  # 窓に出す欄の数を超えた先は作らない（空のマスの多いファイルで、作ってから捨てると大きなメモリを使う）
         vals = rows[r - 1]
+        line = None  # 行の文脈：同じ行の欄は同じ字を共有する（幅の広い行で、欄の数だけ作らない）
         for c in range(1, width + 1):
             v = vals[c - 1] if c <= len(vals) else None
             if not every and v not in (None, ""):
                 continue
+            if len(fields) > MAX_FIELDS:
+                break
             name = head[c - 1].strip() if c <= len(head) and head[c - 1].strip() else f"C{c}"
+            line = line if line is not None else row_line(f"R{r}", vals, width)
             fields.append({"id": f"R{r}.C{c}", "kind": "text", "label": f"{name}（{r}行目）", "value": v,
                            "row": r, "col": c, "column": name, "provenance": "deterministic",
-                           "context": row_line(f"R{r}", vals, width)})
+                           "context": line})
     for c in range(1, max(width, 1) + 1):
+        if len(fields) > MAX_FIELDS:
+            break
         name = head[c - 1].strip() if c <= len(head) and head[c - 1].strip() else f"C{c}"
         fields.append({"id": f"R{n + 1}.C{c}", "kind": "text", "label": f"{name}（足す行 {n + 1}行目）", "value": None,
                        "row": n + 1, "col": c, "column": name, "agent": True, "why": NEW_ROW_WHY, "provenance": "deterministic"})

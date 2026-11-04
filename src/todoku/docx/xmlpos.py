@@ -64,22 +64,13 @@ class Node:
         return f"<{self.local} {self.s}-{self.e}>"
 
 
+_TAG_END = re.compile(rb"""(?:[^"'>]+|"[^"]*"|'[^']*')*>""")
+
+
 def _tag_end(xml: bytes, pos: int) -> int:
     """pos から始まるタグの '>' の次の位置（属性の値の中の '>' は飛ばす）。"""
-    q = None
-    i = pos
-    n = len(xml)
-    while i < n:
-        c = xml[i]
-        if q is not None:
-            if c == q:
-                q = None
-        elif c in (0x22, 0x27):
-            q = c
-        elif c == 0x3E:
-            return i + 1
-        i += 1
-    return n
+    m = _TAG_END.match(xml, pos)
+    return m.end() if m else len(xml)
 
 
 def parse(xml: bytes, more_text: frozenset[str] = frozenset()) -> Node:
@@ -91,18 +82,25 @@ def parse(xml: bytes, more_text: frozenset[str] = frozenset()) -> Node:
     text_tags = {"{" + W + "}" + t for t in ("t", "instrText", "delText", "delInstrText")} | {
         "{http://schemas.openxmlformats.org/officeDocument/2006/math}t"} | set(more_text)
 
+    names: dict[str, str] = {}  # 名前 → そろえた名前（同じ名前は 1 つの字を共有する）
+
     def norm(tag: str) -> str:
-        if "}" in tag:
-            ns, local = tag.split("}", 1)
-            ns = STRICT.get(ns, ns)
-            return "{" + ns + "}" + local
-        return tag
+        got = names.get(tag)
+        if got is None:
+            if "}" in tag:
+                ns, local = tag.split("}", 1)
+                ns = STRICT.get(ns, ns)
+                got = "{" + ns + "}" + local
+            else:
+                got = tag
+            names[tag] = got
+        return got
 
     def start(tag, attrs):
-        tag = norm(tag)
+        tag = names.get(tag) or norm(tag)
         s = p.CurrentByteIndex
         node = Node(tag, {norm(k): v for k, v in attrs.items()}, s, stack[-1])
-        node.se = _tag_end(xml, s)
+        node.se = _TAG_END.match(xml, s).end() if xml[s] == 0x3C else s
         stack[-1].kids.append(node)
         stack.append(node)
 

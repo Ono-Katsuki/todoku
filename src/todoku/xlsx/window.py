@@ -984,8 +984,17 @@ def _detect_tables(wb: Workbook, sh: Sheet, rows: dict[int, list[Anchor]]) -> li
             cell = sh.cells.get((top, c)) if t.header_rows else None
             v = cell.value if cell is not None and isinstance(cell.value, str) else (t.columns[k] if k < len(t.columns) else "")
             heads[c] = label_text(v or "")
-        body = list(range(t.r1 + t.header_rows, t.r2 - t.totals_rows + 1))
-        out.append(TableArea("listobject", top, [(c, c) for c in range(t.c1, t.c2 + 1)], body, heads, t.name))
+        first, last = t.r1 + t.header_rows, t.r2 - t.totals_rows
+        columns = range(t.c1, t.c2 + 1)
+        if (last - first + 1) * len(columns) > _declared_room(wb):
+            # 宣言された範囲が広すぎる（壊れた宣言）：ファイルにある行と、見出しのある列だけを見る
+            sh.note_unread("テーブル", t.r1, t.c1, t.r2, t.c2)
+            have = sh.existing_in(first, t.c1, last, t.c2)
+            body = sorted({r for r, _c in have})
+            columns = sorted({c for _r, c in have} | set(c for c in columns if heads.get(c))) if len(columns) > 1024 else columns
+        else:
+            body = list(range(first, last + 1))
+        out.append(TableArea("listobject", top, [(c, c) for c in columns], body, heads, t.name))
         taken.append((t.r1, t.c1, t.r2, t.c2))
 
     closed: dict[tuple[int, int, int], bool] = {}

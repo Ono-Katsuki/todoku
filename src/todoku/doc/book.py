@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import bisect
 import struct
 from dataclasses import dataclass, field
 
@@ -236,15 +237,25 @@ class DocFile:
         return "".join(out)
 
     def fc_of(self, cp: int) -> int:
-        for p in self.pieces:
-            if p.cp0 <= cp < p.cp1:
-                return p.fc + (cp - p.cp0) * (1 if p.compressed else 2)
-        return -1
+        p = self.piece_of(cp)
+        return p.fc + (cp - p.cp0) * (1 if p.compressed else 2) if p is not None else -1
 
     def piece_of(self, cp: int) -> Piece | None:
-        for p in self.pieces:
+        got = self.__dict__.get("_piece_index")
+        if got is None or got[0] is not self.pieces:  # 字ごとに全部のピースをなめない（速い保存のピースの多い文書で 2 乗になる）
+            starts = [p.cp0 for p in self.pieces]
+            got = self.__dict__["_piece_index"] = (self.pieces, starts if starts == sorted(starts) else None)
+        starts = got[1]
+        if starts is None:  # 順に並んでいない（壊れた）ピースの表
+            return next((p for p in self.pieces if p.cp0 <= cp < p.cp1), None)
+        i = bisect.bisect_right(starts, cp) - 1
+        while i >= 0:  # 同じ位置から始まる空のピースは、前のものを見る
+            p = self.pieces[i]
             if p.cp0 <= cp < p.cp1:
                 return p
+            if p.cp1 > p.cp0:
+                return None
+            i -= 1
         return None
 
     # ------------------------------------------------------------------ 絵の説明（代わりの字）
@@ -531,8 +542,9 @@ class DocFile:
         text = self.text
         paras = []
         start = a
+        b = min(b, len(text))  # 字の数の宣言（FIB の ccp）は、実際に読めた字までに切る（宣言を信じて空の段落を作らない）
         for cp in range(a, b):
-            ch = text[cp] if cp < len(text) else "\r"
+            ch = text[cp]
             if ch in "\r\x07":
                 paras.append((start, cp))
                 start = cp + 1
