@@ -2134,11 +2134,12 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
             raise ApiError(broken_message(path, e)) from None
     if k != "pdf":
         raise ApiError("view_page は PDF・XPS と画像のファイルのページの画像です（ほかの形式は窓で読み、書類の中の画像は view_image で見ます）")
+    from .limits import LimitExceeded
+
     doc = _pdf(blob, name, lock)
     try:
         if dpi is not None and (isinstance(dpi, bool) or not isinstance(dpi, (int, float)) or not 10 <= dpi <= 1200):
             raise ApiError("dpi は 10〜1200 の数で指定してください（省くとページ全体は 100 dpi）")
-        from .limits import LimitExceeded
 
         problem = ""
         try:
@@ -2155,6 +2156,8 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
             v["text"] += " " + problem + "。"
             v["not_drawn"].append(problem)
         return v
+    except LimitExceeded:
+        raise  # 上限：サーバーが、小さな頼み方を添えて伝える
     except ValueError as e:
         raise ApiError(str(e)) from None
 

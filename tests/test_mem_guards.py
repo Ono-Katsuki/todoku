@@ -10,6 +10,8 @@ import random
 import struct
 import sys
 import time
+import xml.etree.ElementTree as ET
+import zlib
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,7 @@ from todoku import isolate, limits
 from todoku.cfb import MAGIC, CFB, CfbError
 from todoku.pdf import doc as pdfdoc
 from todoku.pdf import fonts, raster, sfnt
+from todoku.pdf import objects as pdfobjects
 from todoku.pdf.audit import _KeptFrames
 from todoku.pdf.layout import _overlap, _RectIndex
 from todoku.pdf.pageimage import with_ruler
@@ -306,6 +309,62 @@ def test_rect_index_keeps_order_and_finds_all_overlaps():
             idx.add(s)
 
 
+# ---------------------------------------------------------------------- 壊れた書類の例外
+@pytest.mark.parametrize("exc", [zlib.error("x"), ET.ParseError("x"), pdfobjects.PdfError("x")])
+def test_corrupt_input_errors_become_api_errors(exc):
+    from todoku import api
+
+    def boom(path):
+        raise exc
+
+    with pytest.raises(api.ApiError) as e:
+        api._budgeted(boom)("a.pdf")
+    assert type(e.value) is api.ApiError and "壊れて" in str(e.value)
+
+
+def test_bugs_are_not_swallowed_at_the_boundary():
+    from todoku import api
+
+    def bug(path):
+        raise KeyError("bug")
+
+    with pytest.raises(KeyError):
+        api._budgeted(bug)("a.pdf")
+
+
+def test_unknown_keyword_value_reads_as_null():
+    assert pdfobjects.parse_object(pdfobjects.Lexer(b"<< /Rotate 1e9 /Q true >>")) == {"Rotate": None, "Q": True}
+
+
+def test_page_box_with_broken_numbers_falls_back():
+    from todoku.pdf.pagetext import View
+
+    class D:
+        def resolve(self, o):
+            return o
+
+    v = View(D(), {"MediaBox": [0, None, 100, 200], "Rotate": None})
+    assert v.width == 595 and v.height == 842
+
+
+# ---------------------------------------------------------------------- 線を分けて描く
+def test_path_chunks_keep_the_points_in_order():
+    from todoku.pdf.render.paint import _path_chunks
+
+    path = [(0, 0.0, 0.0)] + [(1, float(i), 0.0) for i in range(1, 10)] + [(4,)]
+    parts = list(_path_chunks(path, 4))
+    assert all(len(c) <= 5 for c in parts)
+    points = [op[1:] for c in parts for op in c if op[0] in (0, 1)]
+    assert points[0] == (0.0, 0.0) and points[-1] == (0.0, 0.0)  # 閉じる命令は、始まりの点への線になる
+
+
+def test_box_down_with_a_large_box_takes_no_table():
+    from todoku.pdf.render.image import box_down
+
+    px, w, h = box_down(bytes([100]) * (4000 * 4000), 4000, 4000, 1, 4000, 4000)
+    assert (w, h) == (1, 1) and px == bytes([100])
+
+
 # ---------------------------------------------------------------------- 見張り
 def test_rss_is_read_without_starting_a_process():
     assert isolate.rss_bytes() > 1 << 20
@@ -322,6 +381,12 @@ def test_soft_watchdog_stops_python_with_a_smaller_request(monkeypatch):
     assert time.perf_counter() - t < 5
     assert r["isError"] and r["structuredContent"]["stopped"]
     assert "pages" in r["structuredContent"]["smaller_request"]
+
+
+def test_view_page_stop_names_a_region():
+    from todoku.lazy import smaller_request
+
+    assert "region" in smaller_request("view_page", {"path": "a.pdf", "page": 1})
 
 
 def test_soft_watchdog_leaves_quick_calls_alone():
@@ -355,6 +420,11 @@ def test_xfa_occur_beyond_data_is_stated_as_a_fact(tmp_path):
     _k, _d, parts = api.window(str(p))
     text = "\n".join(t for _n, t in parts)
     assert "2,000,000,000 回と宣言" in text
+
+
+def test_memory_is_returned_without_error():
+    limits.release_memory()
+    limits.release_memory()
 
 
 def test_comb_maxlen_declaration_takes_no_room(tmp_path):
