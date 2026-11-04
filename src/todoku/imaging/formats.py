@@ -66,6 +66,8 @@ def sniff(blob: bytes) -> str | None:
         return "emf"
     if blob[:4] == b"\xd7\xcd\xc6\x9a":
         return "wmf"
+    if len(blob) >= 18 and blob[:4] in (b"\x01\0\x09\0", b"\x02\0\x09\0") and blob[4:6] in (b"\x00\x01", b"\x00\x03"):
+        return "wmf"  # 大きさの見出し（placeable）のない WMF：META_HEADER（MS-WMF 2.3.2.2。種類 1・2、見出し 9 語、版 0x0100・0x0300）から始まる
     brand = heif_brand(blob)
     if brand == "HEIC":
         return "heic"

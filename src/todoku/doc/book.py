@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import bisect
+import re
 import struct
 from dataclasses import dataclass, field
 
@@ -233,8 +234,8 @@ class DocFile:
             if p.compressed:
                 out.append(self.wd[p.fc:p.fc + n].decode("cp1252", errors="replace"))
             else:
-                out.append(self.wd[p.fc:p.fc + 2 * n].decode("utf-16-le", errors="replace"))
-        return "".join(out)
+                out.append(self.wd[p.fc:p.fc + 2 * n].decode("utf-16-le", errors="surrogatepass"))
+        return cp_string("".join(out))
 
     def fc_of(self, cp: int) -> int:
         p = self.piece_of(cp)
@@ -330,6 +331,8 @@ class DocFile:
                             grpprl = page[boff + 2:boff + 2 + 2 * cb2]
                         else:
                             grpprl = page[boff + 1:boff + 1 + 2 * cb - 1]
+                        if len(grpprl) >= 2:
+                            self.__dict__.setdefault("papx_istd", {})[rgfc[k]] = struct.unpack_from("<H", grpprl, 0)[0]
                         grpprl = grpprl[2:]  # istd を除く
                     else:
                         grpprl = page[boff + 1:boff + 1 + cb]
@@ -349,6 +352,64 @@ class DocFile:
             else:
                 return r.grpprl
         return b""
+
+    def _list_of(self, cp: int, starts: list) -> tuple[int, int]:
+        """段落の番号のリスト：(ilfo, ilvl)。段落の書式になければ、スタイルの書式（基のスタイルも）。"""
+        fc = self.fc_of(cp)
+        ilfo = ilvl = None
+        for sp, op in sprms(self._lookup(self.papx, fc)):
+            if sp == 0x460B and len(op) >= 2:
+                ilfo = struct.unpack_from("<h", op, 0)[0]
+            elif sp == 0x260A and op:
+                ilvl = op[0]
+        if ilfo is None or ilvl is None:
+            from .wrap import _styles
+
+            i = bisect.bisect_right(starts, fc) - 1
+            istd = self.__dict__.get("papx_istd", {}).get(starts[i]) if i >= 0 else None
+            st = _styles(self)
+            seen = 0
+            while istd in st and seen < 20:
+                base, papx, _chpx = st[istd]
+                for sp, op in sprms(papx):
+                    if sp == 0x460B and len(op) >= 2 and ilfo is None:
+                        ilfo = struct.unpack_from("<h", op, 0)[0]
+                    elif sp == 0x260A and op and ilvl is None:
+                        ilvl = op[0]
+                if base == 0x0FFF or base == istd:
+                    break
+                istd = base
+                seen += 1
+        return ilfo or 0, ilvl or 0
+
+    def number_labels(self) -> dict:
+        """段落の終わりの CP → 段落番号の字。文書の頭から順に数える（本文の一部だけを読むときも、番号が同じになるように）。"""
+        got = self.__dict__.get("_number_labels")
+        if got is not None:
+            return got
+        out: dict = {}
+        self.__dict__["_number_labels"] = out
+        if getattr(self, "word6", False):
+            return out  # Word 6.0/95 の段落番号は別の形（読まない）
+        from .numbering import Numberer, read_lists
+
+        try:
+            lists, lfos = read_lists(self.fc, self.table)
+        except (struct.error, ValueError, IndexError) as e:
+            self.__dict__["numbering_problem"] = f"段落番号の表を読めないので、段落番号の字を出していません（{e}）"
+            return out
+        if not lfos:
+            return out
+        n = Numberer(lists, lfos)
+        starts = sorted(self.__dict__.get("papx_istd", {}))
+        for m in re.finditer("[\r\x07]", self.text):
+            cp = m.start()
+            ilfo, ilvl = self._list_of(cp, starts)
+            if ilfo > 0:
+                pp = self.para_props(cp)
+                if not (pp["ttp"] or pp["inner_ttp"]):
+                    out[cp] = n.next(ilfo, ilvl)
+        return out
 
     def para_props(self, cp_end: int) -> dict:
         """段落の終わりの字（0x0D・0x07）の位置から、段落の書式（表の中か・行の終わりか・入れ子の深さ）。"""
@@ -598,12 +659,17 @@ class DocFile:
     def _para(self, s: int, e: int) -> Para:
         p = Para(None, "doc", [])
         p.cp0, p.cp1 = s, e
+        sk = (getattr(self, "partial", None) or {}).get("skel")
+        p.label = (sk if sk else self).number_labels().get(e, "")
         text = self.text
         stack: list[dict] = []
         cp = s
         while cp < e:
             ch = text[cp]
             o = ord(ch)
+            if ch == CP_PAD:
+                cp += 1
+                continue
             if o == 0x13:
                 stack.append({"begin": cp, "instr": "", "phase": "instr"})
                 cp += 1
@@ -636,6 +702,14 @@ class DocFile:
                     f["ctl"] = self._form_field(f, p)
                     f["n0"] = len(p.segs)
                 ctl = f.get("ctl")
+                if ctl is None and len(p.segs) == f["n0"]:
+                    self._eq_segs(f["instr"], p, cp)
+                if ctl is None:
+                    from ..links import field_target
+
+                    target = field_target(f["instr"])
+                    if target:
+                        self.__dict__.setdefault("links", []).append(("".join(s.text for s in p.segs[f["n0"]:]), target))
                 if ctl is not None:
                     ctl.result_segs = p.segs[f["n0"]:]
                     ctl.end_cp = cp
@@ -702,6 +776,21 @@ class DocFile:
             cp += 1
         return p
 
+    def _eq_segs(self, instr: str, p: Para, cp: int) -> None:
+        """結果の字のない EQ フィールド（ふりがななど）の見える字。"""
+        from ..eqfield import eq_text
+
+        got = eq_text(instr)
+        if got is None:
+            return
+        base, ruby = got
+        if ruby is None:
+            p.segs.append(Seg(base, "other", CPRef(cp), None))
+            return
+        p.segs.append(Seg(base, "ruby", CPRef(cp), None))
+        if ruby:
+            p.segs += [Seg("（", "other", CPRef(cp), None), Seg(ruby, "ruby", CPRef(cp), None), Seg("）", "other", CPRef(cp), None)]
+
     def _form_field(self, f: dict, p: Para) -> Control | None:
         instr = f["instr"].strip()
         word = instr.split()[0].upper() if instr.split() else ""
@@ -749,6 +838,26 @@ class DocFile:
         yield "body", "doc", self.body
         for kind, part, blocks in self.stories:
             yield kind, part, blocks
+
+
+CP_PAD = "\uffff"  # BMP の外の字（𠮷 など）の 2 つ目の CP の場所（字ではない。U+FFFF は文字に使えない番号）
+_SURROGATE_PAIR = re.compile("[\ud800-\udbff][\udc00-\udfff]")
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+_OUTSIDE_BMP = re.compile("[\U00010000-\U0010ffff]")
+
+
+def cp_string(s: str) -> str:
+    """文書の位置（CP。UTF-16 の 1 単位が 1 つ）と、文字列の位置を同じにする：BMP の外の字は、その字と CP_PAD の 2 つにする。
+    Python の文字列は 𠮷 を 1 字に数えるので、そのままでは、それより後ろの字の書式（非表示・削除・表のマスの印など）と、
+    本文と脚注の境がずれる。ピースの境で分かれた組は 1 字に戻し、組にならないものは U+FFFD にする。"""
+    s = _SURROGATE_PAIR.sub(lambda m: m[0].encode("utf-16-le", "surrogatepass").decode("utf-16-le"), s)
+    s = _LONE_SURROGATE.sub("\ufffd", s)
+    return _OUTSIDE_BMP.sub(lambda m: m[0] + CP_PAD, s)
+
+
+def units(ch: str) -> int:
+    """字の CP の数。"""
+    return 2 if ord(ch) > 0xFFFF else 1
 
 
 def para_index(p: Para, cp: int) -> int:

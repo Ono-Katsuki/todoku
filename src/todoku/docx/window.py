@@ -876,6 +876,9 @@ def build(doc: DocxDocument) -> dict:
     from ..embeds import lazy as embed_lazy
 
     embed_lazy.spend(sum(len(ln) for st in out["stories"] for ln in st["reading"]))
+    out["links"] = [{"text": t, "target": u} for t, u in getattr(doc, "links", [])]
+    if getattr(doc, "numbering_problem", None):
+        out.setdefault("unread", []).append(doc.numbering_problem)
     out["embeds"] = _embeds(doc)
     out["pictures"] = _pictures(doc)
     from ..embeds.word import objects as _objects
@@ -1261,6 +1264,7 @@ def to_markdown(doc: dict) -> str:
     line = summary_line(doc["macros"])
     if line:
         out.append("- " + line.replace("ブック", "文書"))
+    out += [f"- **読んでいない部分**：{u}" for u in doc.get("unread") or []]  # JSON だけでなく、エージェントの読む窓にも出す
     out.append("")
     if doc["fields"]:
         out += [f"## 入力欄（{len(doc['fields'])} か所）", "", "| 欄 | 見出し | 種類 | いまの値 |", "|---|---|---|---|"]
@@ -1287,6 +1291,9 @@ def to_markdown(doc: dict) -> str:
         for line in st["reading"]:
             out.append(f"- {line}")
         out.append("")
+    from ..links import markdown as links_md
+
+    out += links_md([(x["text"], x["target"]) for x in doc.get("links") or []])
     for e in doc.get("embeds") or []:
         out += [f"## 埋め込み{e['n']}：{e['label']}（{e['prog']}・{e['storage']}）", ""]
         if e.get("error"):

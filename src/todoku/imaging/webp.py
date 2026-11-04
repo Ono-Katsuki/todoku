@@ -141,12 +141,18 @@ def decode(blob: bytes, index: int = 0) -> Frame:
     for i in range(index + 1):
         f = frames[i]
         fw, fh, rgb, alpha = _decode_plain(blob, f)
-        painted = _on_white(rgb, alpha) if alpha is not None and any(v != 255 for v in alpha) else rgb
+        see_through = alpha is not None and any(v != 255 for v in alpha)
+        painted = _on_white(rgb, alpha) if see_through and not f["blend"] else rgb  # 重ねない枠：透けた所は、下の絵を消す（紙の色）
         for y in range(fh):
             Y = f["y"] + y
             n = min(fw, W - f["x"])
             if Y < H and n > 0:
-                canvas[(Y * W + f["x"]) * 3:(Y * W + f["x"] + n) * 3] = painted[y * fw * 3:y * fw * 3 + n * 3]
+                at = (Y * W + f["x"]) * 3
+                row = painted[y * fw * 3:y * fw * 3 + n * 3]
+                if see_through and f["blend"]:  # 重ねる枠：透けた所には、前の枠の絵が見える（RFC 9649 の Blending method）
+                    row = bytes((row[3 * k + c] * alpha[y * fw + k] + canvas[at + 3 * k + c] * (255 - alpha[y * fw + k]) + 127) // 255
+                                for k in range(n) for c in range(3))
+                canvas[at:at + n * 3] = row
         if i < index and f["dispose"]:
             for y in range(fh):
                 Y = f["y"] + y
@@ -338,8 +344,10 @@ def _image_stream(br: _BR, w: int, h: int, is_argb: bool) -> list:
     sym = _sym
     mul_shift = 32 - cache_bits
     last_cached = 0
+    moved = False  # 距離の符号の後：区画の途中でも、組はいまの位置のもの（区画の頭に止まるとは限らない）
     while i < total:
-        if meta and (i % w) & mask == 0:
+        if meta and (moved or (i % w) & mask == 0):
+            moved = False
             y = i // w
             cg, cr, cb, ca, cd = tables[meta[(y >> prefix_bits) * mw + ((i % w) >> prefix_bits)]]
         s = sym(br, cg)
@@ -369,6 +377,7 @@ def _image_stream(br: _BR, w: int, h: int, is_argb: bool) -> list:
                 for k in range(length):
                     px[i + k] = px[i + k - dist]
             i += length
+            moved = True
         else:
             if cache is None:
                 raise ImageError("WebP：色のキャッシュの符号が読めません")

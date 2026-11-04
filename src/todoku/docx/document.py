@@ -619,6 +619,23 @@ class DocxDocument:
             raise DocxError("Word の文書の本体（document.xml）がありません")
         return name
 
+    def _note_link(self, node: Node, part: str, segs: list) -> None:
+        """w:hyperlink の先（r:id の関係、または w:anchor の文書の中の位置）。"""
+        rid = node.get("id")
+        target = self._rels(part).get(rid, ("", ""))[1] if rid else ""
+        anchor = node.get("anchor")
+        if anchor:
+            target = f"{target}#{anchor}"
+        if target:
+            self.__dict__.setdefault("links", []).append(("".join(s.text for s in segs), target))
+
+    def _note_field_link(self, instr: str, segs: list) -> None:
+        from ..links import field_target
+
+        target = field_target(instr)
+        if target:
+            self.__dict__.setdefault("links", []).append(("".join(s.text for s in segs), target))
+
     def _rels(self, part: str) -> dict[str, tuple[str, str]]:
         d, base = part.rsplit("/", 1) if "/" in part else ("", part)
         rp = f"{d}/_rels/{base}.rels" if d else f"_rels/{base}.rels"
@@ -787,6 +804,10 @@ class DocxDocument:
             elif loc in ("hyperlink", "smartTag", "customXml", "ins", "moveTo", "fldSimple", "bdo", "dir"):
                 n0 = len(p.segs)
                 self._inline(ch, p, part, st, deleted)
+                if loc == "hyperlink":
+                    self._note_link(ch, part, p.segs[n0:])
+                if loc == "fldSimple":
+                    self._note_field_link(ch.get("instr", ""), p.segs[n0:])
                 if loc == "fldSimple":
                     _mark_result(p.segs[n0:], ch.get("instr", ""), ch, part, p, ch.get("fldLock", "") in ("1", "true", "on"))
             elif loc in ("del", "moveFrom"):
@@ -843,6 +864,17 @@ class DocxDocument:
                         f["ctl"] = self._form_field(f, part, p)
                         f["n0"] = len(p.segs)
                     ctl = f.get("ctl")
+                    if ctl is None and len(p.segs) == f.get("n0", len(p.segs)):
+                        # 結果の字のない EQ フィールド（古い形のふりがな）：命令の中の字が見える字
+                        from ..eqfield import eq_text
+
+                        got = eq_text(f["instr"])
+                        if got is not None:
+                            p.segs.append(Seg(got[0], "ruby" if got[1] is not None else "other", None, r))
+                            if got[1]:
+                                p.segs += [Seg("（", "other", None, r), Seg(got[1], "ruby", None, r), Seg("）", "other", None, r)]
+                    if ctl is None and f["phase"] == "result":
+                        self._note_field_link(f["instr"], p.segs[f.get("n0", len(p.segs)):])
                     if ctl is None and f["phase"] == "result":
                         # 差し込み・計算などのフィールドの結果（MERGEFIELD・DATE・REF・= など）：Word が更新すると作り直す字
                         _mark_result(p.segs[f.get("n0", len(p.segs)):], f["instr"], f["begin"], part, p,

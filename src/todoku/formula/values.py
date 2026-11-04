@@ -144,6 +144,8 @@ def number_to_text(x: float) -> str:
     """数値を文字列に（& や TEXT 以外での変換。Excelの「標準」に近い）。"""
     if isinstance(x, bool):
         return "TRUE" if x else "FALSE"
+    if x != x or x in (float("inf"), float("-inf")):
+        return "〔数として読めない値（" + ("NaN" if x != x else "大きすぎる数") + "）〕"  # 1 つのマスのために、ブック全体を読めなくしない
     if x == int(x) and abs(x) < 1e15:
         return str(int(x))
     s = f"{x:.15g}"

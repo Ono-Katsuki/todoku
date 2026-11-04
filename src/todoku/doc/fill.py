@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from ..docx.fill import FillError, _as_bool, _is_text_value
 from ..docx.window import MARK_PREFIX, Spots, box_mark
-from .book import FC_NAMES, DocFile
+from .book import FC_NAMES, DocFile, units
 
 # 本文の位置（CP）を持つ表と、1つの要素のデータの大きさ（バイト）。どれも MS-DOC の原本（2.8 節の各 PLC と 2.9 節の構造）で確かめた。
 #   Plcfbkf=FBKF 4・Plcfbkl=0・Plcfbkfd=FBKFD 6・Plcfbkld=FBKLD 4・Plcbkf=BKF 6・Plcbkl=BKL 4・Plcbkfd=BKFD 10・Plcbkld=BKLD 8
@@ -73,6 +73,11 @@ class Edit:
     style_cp: int  # 書式を引き継ぐ字の位置
     mark: str | None = None
     key: str | None = None  # 書いた欄の名前（引き継がなかった書式を伝えるのに使う）
+
+    @property
+    def n(self) -> int:
+        """書く字の CP の数（UTF-16 の単位。𠮷 は 2）。"""
+        return len(self.text.encode("utf-16-le")) // 2
 
 
 # 書いた字に引き継がない文字の書式（sprm の番号は MS-DOC の原本 2.6.1 で確かめた）。値が「なし」のものは数えない
@@ -187,11 +192,11 @@ class DocWriter:
         for e in self.edits:
             if e.a == e.b:
                 if cp >= e.a:
-                    d += len(e.text)
+                    d += e.n
             elif cp >= e.b:
-                d += len(e.text) - (e.b - e.a)
+                d += e.n - (e.b - e.a)
             elif e.a < cp < e.b:
-                return e.a + d + min(cp - e.a, len(e.text))
+                return e.a + d + min(cp - e.a, e.n)
         return cp + d
 
     def build(self) -> bytes:
@@ -253,8 +258,8 @@ class DocWriter:
             self.new_starts.append(new_cp)
             if e.text:
                 pc = piece_at(e.a if e.a < old[-1].cp1 else e.a - 1)
-                new_pieces.append([e.a, e.a + len(e.text), texts_fc[k], False, *rest(pc)])
-                new_cp += len(e.text)
+                new_pieces.append([e.a, e.a + e.n, texts_fc[k], False, *rest(pc)])
+                new_cp += e.n
             cur = e.b
         emit_original(cur, old[-1].cp1)
         # 新しい CP を振り直す（元の CP → 新しい CP の順に並べ、長さから数え直す）
@@ -265,7 +270,7 @@ class DocWriter:
             out_pieces.append((cp, cp + n, f, comp, flags, prm))
             cp += n
         total_old = old[-1].cp1
-        total_new = total_old + sum(len(e.text) - (e.b - e.a) for e in self.edits)
+        total_new = total_old + sum(e.n - (e.b - e.a) for e in self.edits)
         if cp != total_new:
             raise FillError(f"ピースの表の組み立てが合いません（{cp} ≠ {total_new}）")
         # CLX：元の Prc（書式の命令）はそのまま、Pcdt を作り直して表のストリームの後ろへ
@@ -301,7 +306,7 @@ class DocWriter:
                 continue
             base_old = st_old[story]
             base_new = self.shift(base_old) if not any(e.a == base_old and e.a == e.b for e in self.edits) else base_old + sum(
-                len(e.text) - (e.b - e.a) for e in self.edits if e.a < base_old)
+                e.n - (e.b - e.a) for e in self.edits if e.a < base_old)
             for name, cb in plcs:
                 f0, lcb = fc.get(name, (0, 0))
                 if not lcb:
@@ -318,7 +323,7 @@ class DocWriter:
         for k, e in enumerate(self.edits):
             if e.mark:
                 a = self.new_starts[k]
-                marks.append((MARK_PREFIX + e.mark, a, a + len(e.text)))
+                marks.append((MARK_PREFIX + e.mark, a, a + e.n))
         if marks:
             sttb, bkf, bkl = _bookmark_tables(doc, marks)
             for name, blob in (("SttbfBkmk", sttb), ("PlcfBkf", bkf), ("PlcfBkl", bkl)):
@@ -333,7 +338,7 @@ class DocWriter:
             grpprl, dropped = clean_chpx(grpprl)
             if dropped:
                 self.dropped.append((e.key, dropped))
-            runs.append((texts_fc[k], texts_fc[k] + 2 * len(e.text), grpprl))
+            runs.append((texts_fc[k], texts_fc[k] + 2 * e.n, grpprl))
         if runs:
             while len(wd) % 512:
                 wd += b"\x00"
@@ -371,7 +376,7 @@ class DocWriter:
         lw = list(doc.lw)
         for story in ORDER:
             idx = 3 if story == "text" else SUB[story][0]
-            lw[idx] += sum(len(e.text) - (e.b - e.a) for e in self.edits if self.story_of(e.a) == story)
+            lw[idx] += sum(e.n - (e.b - e.a) for e in self.edits if self.story_of(e.a) == story)
         lw[0] = len(wd)  # cbMac
         struct.pack_into(f"<{len(lw)}i", wd, doc.lw_pos, *lw)
         vals = list(struct.unpack_from(f"<{doc.cb_fclcb * 2}I", doc.wd, doc.fclcb_pos))
@@ -647,10 +652,10 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                     elif a0 == 0 and cps:
                         raise FillError(f"{key}: 書き足す位置が、書き換えられない部分にあります")
                     else:
-                        a = b = (cps[a0 - 1] + 1) if a0 > 0 and cps[a0 - 1] >= 0 else p.cp1
+                        a = b = (cps[a0 - 1] + units(p.text[a0 - 1])) if a0 > 0 and cps[a0 - 1] >= 0 else p.cp1
                 else:
-                    a, b = cps[a0], cps[b0 - 1] + 1
-                    if b - a != b0 - a0 or -1 in cps[a0:b0]:
+                    a, b = cps[a0], cps[b0 - 1] + units(p.text[b0 - 1])
+                    if b - a != sum(units(c) for c in p.text[a0:b0]) or -1 in cps[a0:b0]:
                         raise FillError(f"{key}: 空欄が、書き換えられない部分にかかっています")
                 w.add(Edit(a, b, pad[0] + text + pad[1], a, mark))
                 patches.append(Patch(key, "input", text, "doc", anchor=anchor, key=given if anchor else "",

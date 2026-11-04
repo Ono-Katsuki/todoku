@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 
 from ..formula.dates import date_to_serial
-from ..formula.parser import parse
+from ..formula.parser import addr, parse
 from ..formula.values import ExcelError, Unsupported
 from ..limits import MAX_DECLARED_CELLS
 from ..xlsx.workbook import Cell, DefinedName, Shape, Sheet, Style, Validation
@@ -78,7 +78,8 @@ class RepeatRange:
 
 
 def para_text(el: El, data: bytes) -> str:
-    """セルの中の段落（text:p）の字：ODF の空白の決まり（6.1.2）で作る。"""
+    """セルの中の段落（text:p）の字：ODF の空白の決まり（6.1.2）で作る。ただし終わりの空白は残す：決まりでは無視するものだが、
+    LibreOffice はセルの終わりの空白をこの形で書き、開いても字として残す（Excel も同じ）。セルの字を黙って変えない。"""
     atoms: list = []
 
     def walk(n: El) -> None:
@@ -129,8 +130,6 @@ def para_text(el: El, data: bytes) -> str:
             at_start = False
             if a[0] == "x":
                 out.append(("\x00" if a[1] == "" else "") + a[1])
-    while out and out[-1] == " ":
-        out.pop()
     return "".join(out).replace("\x00", "")
 
 
@@ -526,6 +525,17 @@ class OdsWorkbook:
         if content and made < n and cel.c0 + made <= 16384:  # 同じ中身の残りの列：範囲のまま
             self._repeat_cols(sh, r, cel, made, row_dcs, col_style)
 
+    def _cell_links(self, sh: Sheet, el: El, r: int, c: int) -> None:
+        """セルの中のリンク（text:a の xlink:href）。"""
+        stack = [el]
+        while stack:
+            n = stack.pop()
+            for k in n.els():
+                if k.tag == _T + "a" and k.get("xlink:href"):
+                    sh.hyperlinks.append((addr(r, c), k.get("xlink:href")))
+                elif k.tag in (_T + "p", _T + "span", _T + "h"):
+                    stack.append(k)
+
     def _cell(self, sh: Sheet, el: El, r: int, c: int, style: str | None, validations: dict, covered: bool) -> None:
         key = (sh.name, r, c)
         cell = Cell(sh.name, r, c, style=self.style_index(style) if style else 0)
@@ -533,6 +543,7 @@ class OdsWorkbook:
         cvt = el.get("calcext:value-type")
         text = cell_text(el, self.data)
         has_text = any(k.tag in (_T + "p", _T + "h") for k in el.els())
+        self._cell_links(sh, el, r, c)
         if vt in ("float", "percentage", "currency"):
             try:
                 cell.value = float(el.get("office:value", "0") or 0)
@@ -559,7 +570,7 @@ class OdsWorkbook:
             cell.value = _bool(el.get("office:boolean-value"))
         elif vt == "string":
             sv = el.get("office:string-value")
-            cell.value = sv if sv is not None else text
+            cell.value = sv if sv else text  # 空の office:string-value に字の段落があれば、見えている字が値（calcext のない保存の #DIV/0! など）
             cell.t = "str"
         elif has_text and text:
             cell.value = text

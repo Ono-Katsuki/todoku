@@ -21,7 +21,7 @@ from ..cfb import CFB
 from ..docx.document import WINGDINGS, iter_paras
 from ..docx.window import Spots, box_mark, build, markdown_parts
 from ..xlsx.audit import AUDIT_BOXES, Audit, Check, count_chars
-from .book import DocFile
+from .book import CP_PAD, DocFile
 from .fill import SHIFT, FillError, fill
 
 BOXES = AUDIT_BOXES
@@ -34,6 +34,8 @@ def raw_chars(doc: DocFile) -> list[str]:
     text = doc.text
     for cp, ch in enumerate(text):
         o = ord(ch)
+        if ch == CP_PAD:
+            continue
         if o == 0x13:
             depth.append("instr")
             continue
