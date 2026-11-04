@@ -533,6 +533,7 @@ class XlsWorkbook:
         data = self.data
         rows = []
         depth = 0
+        last_colinfo = None
         for pos, t, b in records(data, lb):
             if t == 0x0809:
                 depth += 1
@@ -640,6 +641,9 @@ class XlsWorkbook:
                 sh.default_col_width = struct.unpack_from("<H", b, 0)[0] / 256
             elif t == 0x007D:  # COLINFO
                 c1, c2, w, x, flags = struct.unpack_from("<HHHHH", b, 0)
+                if (c1, c2, w, x, flags) == last_colinfo:
+                    continue  # 同じ記録の繰り返し（記録ごとに、最大 256 列を書き直さない）
+                last_colinfo = (c1, c2, w, x, flags)
                 for c in range(c1, min(c2, 255) + 1):
                     sh.col_widths[c + 1] = w / 256
                     if x not in (0, 15):

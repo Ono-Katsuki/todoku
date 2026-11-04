@@ -83,7 +83,8 @@ class Entry:
             # 圧縮の爆弾：バイトの上限の内でも、小さな要素が何千万もあれば、木にしたときにメモリを使い切る。木にする前に開始タグを数える
             from .limits import budget
 
-            budget().count_part(self.name, raw.count(b"<") - raw.count(b"</"), f"{self.name} の XML の要素")
+            # 要素は 1 つで 2 項目に数える（要素の木と、そこから作るセル・段落。1 要素で数百バイトになる）
+            budget().count_part(self.name, 2 * (raw.count(b"<") - raw.count(b"</")), f"{self.name} の XML の要素")
         return raw
 
     @property

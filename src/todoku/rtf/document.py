@@ -916,7 +916,7 @@ class RtfDocument:
     def _make_table(self, lv: _Level) -> Table:
         """行ごとのマスの右の端（\\cellx）を合わせた格子で、マスの列と幅を決める。横の結合（\\clmrg）は前のマスに含める。"""
         t = Table(None, "rtf")
-        grid = sorted({d["x"] for defs in lv.defs for d in defs if "x" in d})
+        grid = {x: i for i, x in enumerate(sorted({d["x"] for defs in lv.defs for d in defs if "x" in d}))}  # 右の端 → 列
         for r, (cells, defs) in enumerate(zip(lv.rows, lv.defs)):
             row: list[Cell] = []
             prev_x = None
@@ -931,12 +931,12 @@ class RtfDocument:
                         if isinstance(p, Para):
                             p.cell = last
                     if x in grid:
-                        last.span = max(last.span, grid.index(x) - last.col + 1)
+                        last.span = max(last.span, grid[x] - last.col + 1)
                     prev_x = x
                     continue
                 if x is not None and x in grid:
-                    c0 = 0 if prev_x is None or prev_x not in grid else grid.index(prev_x) + 1
-                    c1 = grid.index(x)
+                    c0 = 0 if prev_x is None or prev_x not in grid else grid[prev_x] + 1
+                    c1 = grid[x]
                     col, span = c0, max(1, c1 - c0 + 1)
                 else:
                     col, span = (row[-1].col + row[-1].span) if row else seq, 1
