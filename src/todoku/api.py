@@ -348,6 +348,9 @@ def far_label(f: dict) -> str | None:
     _mm, s = min(sides)
     ja, unit = _SIDE_JA[s]
     v = near[s]
+    if lab not in {str(x.get("label") or x.get("text") or "") for x in near.values() if isinstance(x, dict)} \
+            or "表の" in str(f.get("label_method") or ""):
+        return None  # 見出しが、離れた 1 つの字そのものではない（表の行・列の見出し：窓が罫線の表の作りから決めた見出し）
     cell = str(f["id"]).rsplit("!", 1)[-1]
     how = f"{ja}のすぐ隣" if gap[s] == 0 else f"{ja}に {gap[s]} {unit}あけて"
     t = str(v.get("label") or v.get("text") or "")
