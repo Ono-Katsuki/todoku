@@ -45,6 +45,8 @@ def package_kind(path: str) -> str | None:
     s = set(names)
     if "[Content_Types].xml" not in s or "mimetype" in s or not any(n.startswith("xl/") for n in s) or any(n.startswith(("word/", "ppt/")) for n in s):
         return None
+    if any(n.lower().endswith("workbook.bin") for n in s) or not any(n.lower().endswith("workbook.xml") for n in s):
+        return None  # .xlsb など：XML のシートでないブックは、丸ごと読む道へ
     return "xlsx"
 
 
