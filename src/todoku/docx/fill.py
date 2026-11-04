@@ -1114,7 +1114,7 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
             if key.startswith("@"):
                 # 規則で示していない所：エージェントが字を目印にして指した所（{"old": 元の字, "new": 書き換えた後の字}）
                 if not isinstance(value, dict):
-                    raise FillError(f'{key}: 字を目印にした書き込みは {{"old": …, "new": …}} の形で指定してください')
+                    raise FillError(f'{key}: 字を目印にした書き込みは {{"old": …, "new": …}} か {{"before" か "after": 字, "value": …}} の形で指定してください')
                 try:
                     item = resolve_write(f.sp, value, used)
                 except WriteError as e:

@@ -191,7 +191,7 @@ def test_circles_are_always_told_even_when_the_key_was_written():
     written = {"S!B1": "有"}
     result = {"circled": [{"key": "S!B1", "sheet": "S", "label": "外出の有無", "text": "有"}]}
     say = _to_tell([{"id": "S!B1", "sheet": "S", "label": "外出の有無", "value": "有　・　無"}], written, result)["say_to_user"]
-    assert "○で囲んだ：S・外出の有無：「有」" in say
+    assert "○で囲んだ：S・近くの字「外出の有無」：「有」" in say
 
 
 # ====================================================================== サーバーの立ち上げ：ps の確かめ・UTF-8 の標準出力
