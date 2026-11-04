@@ -106,7 +106,7 @@ def _view(recs: list, i: int, sheet: str | None, caches: list[dict], cfb, memo: 
     b = recs[i][2]
     r1, r2, c1, c2 = struct.unpack_from("<HHHH", b, 0)
     i_cache = struct.unpack_from("<h", b, 14)[0]
-    c_dim, c_rw, c_col, c_pg, c_data = struct.unpack_from("<hHHHh", b, 20)
+    c_dim, c_rw, c_col, c_pg, c_data = struct.unpack_from("<hHHHh", b, 22)
     cch_table = struct.unpack_from("<H", b, 40)[0]
     name = _no_cch(b, 44, cch_table)[0] if cch_table not in (0, 0xFFFF) else ""
     cache = caches[i_cache] if 0 <= i_cache < len(caches) else {}
