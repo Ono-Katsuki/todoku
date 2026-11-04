@@ -218,9 +218,8 @@ def _obj(lx: Lexer, kind, val):
             return True
         if val == "false":
             return False
-        if val == "null":
-            return None
-        return ("kw", val)
+        # 値の所の、分からない言葉（「1e9」など。壊れた書類）：null として読む（数や辞書を待つ所に、形の違う値を渡さない）
+        return None
     if kind == "eof":
         raise PdfError("思いがけずファイルの終わりに来ました")
     return None

@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import bisect
 import gzip
 import json
 import re
@@ -19,7 +18,9 @@ import unicodedata
 from functools import lru_cache
 from pathlib import Path
 
+from ..limits import budget
 from .objects import Name, PdfString, Ref, Stream
+from .ranges import RangeMap
 
 UNKNOWN = "�"
 
@@ -171,13 +172,17 @@ class CMap:
 
     def __init__(self):
         self.codespace: list[tuple[bytes, bytes]] = []
-        self.uni: dict[bytes, str] = {}
-        self.uni_ranges: list[tuple[int, int, int, int, bytes]] = []  # (lo, hi, 長さ, 始まりの値, 始まりの文字)
+        # 宣言のまま持ち、引くときに二分探索する（RangeMap）。広げない（1 行の宣言が 256 字になる）
+        self.uni: list[tuple[int, int, int, object]] = []  # bfchar と短い bfrange：(長さ, lo, hi, 字 or (lo, 始まりの字のバイト))。後が勝つ
+        self.uni_ranges: list[tuple[int, int, int, int, bytes]] = []  # 長い bfrange：(lo, hi, 長さ, 0, 始まりの字のバイト)。上の次に引く
         self.cid: dict[bytes, int] = {}
         self.cid_ranges: list[tuple[int, int, int, int]] = []  # (lo, hi, 長さ, 始まりの CID)
         self.wmode = 0
         self.name = ""
         self._lens: list[int] | None = None
+        self._by_first: dict[int, list] | None = None
+        self._tables: dict[str, dict[int, RangeMap]] = {}
+        self._uni_any = False  # uni の宣言があった（表に移した後も）
 
     @classmethod
     def parse(cls, data: bytes, resolver=None) -> "CMap":
@@ -200,7 +205,7 @@ class CMap:
             parent = resolver(m[1].decode("latin-1"))
             if parent is not None:
                 self.codespace += parent.codespace
-                self.uni.update(parent.uni)
+                self.uni += parent.uni_entries()
                 self.uni_ranges += parent.uni_ranges
                 self.cid.update(parent.cid)
                 self.cid_ranges += parent.cid_ranges
@@ -211,7 +216,10 @@ class CMap:
                     self.codespace.append((lo_b, hi_b))
         for block in re.findall(rb"beginbfchar(.*?)endbfchar", text, re.S):
             for src, dst in re.findall(rb"<([0-9A-Fa-f\s]*)>\s*(<[0-9A-Fa-f\s]*>|/[^\s<>\[\]/]+)", block):
-                self.uni[_hb(src)] = _dst(dst)
+                code = _hb(src)
+                v = int.from_bytes(code, "big")
+                self.uni.append((len(code), v, v, _dst(dst)))
+                self._uni_any = True
         for block in re.findall(rb"beginbfrange(.*?)endbfrange", text, re.S):
             for m2 in re.finditer(rb"<([0-9A-Fa-f\s]*)>\s*<([0-9A-Fa-f\s]*)>\s*(<[0-9A-Fa-f\s]*>|\[[^\]]*\])", block):
                 lo_b, hi_b = _hb(m2[1]), _hb(m2[2])
@@ -222,13 +230,14 @@ class CMap:
                     for i, d in enumerate(re.findall(rb"<([0-9A-Fa-f\s]*)>", dst)):
                         if lo + i > hi:
                             break
-                        self.uni[(lo + i).to_bytes(n, "big")] = _utf16(_hb(d))
+                        at = lo + i
+                        self.uni.append((n, at, at, _utf16(_hb(d))))
+                        self._uni_any = True
                 elif hi >= lo:
                     raw = _hb(dst[1:-1])
                     if hi - lo < 256:
-                        base = int.from_bytes(raw, "big") if raw else 0
-                        for i in range(hi - lo + 1):
-                            self.uni[(lo + i).to_bytes(n, "big")] = _utf16(_inc(raw, i))
+                        self.uni.append((n, lo, hi, (lo, raw)))
+                        self._uni_any = True
                     else:
                         self.uni_ranges.append((lo, hi, n, 0, raw))
         for block in re.findall(rb"begincidchar(.*?)endcidchar", text, re.S):
@@ -249,16 +258,23 @@ class CMap:
         lens = self.lengths()
         if lens == [2] and len(self.codespace) <= 1:
             return [s[i:i + 2] for i in range(0, len(s) - 1, 2)]
+        if self._by_first is None:
+            # はじめのバイトごとの、合いうる範囲（字ごとに全部の範囲を見ると、字の数 × 範囲の数になる）。同じ範囲は 1 つに
+            self._by_first = {}
+            for lo, hi in dict.fromkeys(self.codespace):
+                for b0 in range(lo[0], hi[0] + 1):
+                    self._by_first.setdefault(b0, []).append((lo, hi))
         out = []
         i = 0
         n = len(s)
         while i < n:
             took = 0
+            near = self._by_first.get(s[i], ())
             for ln in lens:
                 c = s[i:i + ln]
                 if len(c) < ln:
                     break
-                for lo, hi in self.codespace:
+                for lo, hi in near:
                     if len(lo) == ln and all(lo[k] <= c[k] <= hi[k] for k in range(ln)):
                         took = ln
                         break
@@ -266,29 +282,49 @@ class CMap:
                     break
             if not took:
                 # どの範囲にも合わない：最初のバイトが合う範囲の長さ、それもなければ1バイト
-                for lo, hi in self.codespace:
-                    if lo[0] <= s[i] <= hi[0]:
-                        took = len(lo)
-                        break
-                took = took or lens[0]
+                took = len(near[0][0]) if near else lens[0]
             out.append(s[i:i + took])
             i += took
         return out
 
+    def _table(self, kind: str, n: int) -> RangeMap | None:
+        """長さ n の文字コードの区切りの表（はじめて引くときに作る）。bfchar・短い bfrange は書いた順に後が勝ち、
+        長い範囲は lo の大きいものが勝つ（lo の順に並べて渡すので、後が勝つのと同じ）。"""
+        by = self._tables.get(kind)
+        if by is None:
+            groups: dict[int, list] = {}
+            if kind == "uni":
+                for ln, lo, hi, v in self.uni:
+                    groups.setdefault(ln, []).append((lo, hi, v))
+            elif kind == "uni_ranges":
+                for lo, hi, ln, _b, raw in sorted(self.uni_ranges):
+                    groups.setdefault(ln, []).append((lo, hi, (lo, raw)))
+            else:
+                for lo, hi, ln, cid in sorted(self.cid_ranges):
+                    groups.setdefault(ln, []).append((lo, hi, (lo, cid)))
+            by = {ln: RangeMap(es, _CMAP_VALUE[kind]) for ln, es in groups.items()}
+            self._tables[kind] = by
+            if kind == "uni":
+                self.uni = []  # 表に移した：同じものを 2 度持たない（uni_entries で読める）
+        return by.get(n)
+
+    def uni_entries(self) -> list:
+        """bfchar・短い bfrange の宣言の並び（usecmap の子に渡す）。"""
+        if self.uni or "uni" not in self._tables:
+            return self.uni
+        return [(ln, lo, hi, v) for ln, t in self._tables["uni"].items() for lo, hi, v in t.segments()]
+
     def to_unicode(self, code: bytes) -> str | None:
-        u = self.uni.get(code)
-        if u is not None:
-            return u
+        v = int.from_bytes(code, "big")
+        if self._uni_any:
+            t = self._table("uni", len(code))
+            u = t.get(v) if t is not None else None
+            if u is not None:
+                return u
         if self.uni_ranges:
-            v = int.from_bytes(code, "big")
-            k = bisect.bisect_right(self.uni_ranges, (v, 1 << 62)) - 1
-            while k >= 0:
-                lo, hi, n, _b, raw = self.uni_ranges[k]
-                if lo <= v <= hi and n == len(code):
-                    return _utf16(_inc(raw, v - lo))
-                if hi < v - 0x10000:
-                    break
-                k -= 1
+            t = self._table("uni_ranges", len(code))
+            if t is not None:
+                return t.get(v)
         return None
 
     def to_cid(self, code: bytes) -> int | None:
@@ -296,16 +332,19 @@ class CMap:
         if c is not None:
             return c
         if self.cid_ranges:
-            v = int.from_bytes(code, "big")
-            k = bisect.bisect_right(self.cid_ranges, (v, 1 << 62)) - 1
-            while k >= 0:
-                lo, hi, n, cid = self.cid_ranges[k]
-                if lo <= v <= hi and n == len(code):
-                    return cid + v - lo
-                k -= 1
-                if k >= 0 and self.cid_ranges[k][1] < v - 0x10000:
-                    break
+            t = self._table("cid_ranges", len(code))
+            if t is not None:
+                return t.get(int.from_bytes(code, "big"))
         return None
+
+
+def _uni_value(v, k: int) -> str:
+    if isinstance(v, str):
+        return v
+    return _utf16(_inc(v[1], k - v[0]))
+
+
+_CMAP_VALUE = {"uni": _uni_value, "uni_ranges": _uni_value, "cid_ranges": lambda v, k: v[1] + k - v[0]}
 
 
 def _hb(b: bytes) -> bytes:
@@ -999,47 +1038,55 @@ def visible_text(t: str) -> str:
     return "".join(out)
 
 
-def _cid_widths(doc, w) -> dict[int, float]:
-    out: dict[int, float] = {}
+def _cid_widths(doc, w) -> RangeMap | dict[int, float]:
+    """/W：CID → 幅。[a b 幅] は範囲のまま持つ（1 組 12 字ほどが、広げると何万にもなる）。"""
     if not isinstance(w, list):
-        return out
+        return {}
+    budget().count(len(w), "フォントの幅（/W）の項目")
+    out: list[tuple[int, int, float]] = []
     i = 0
     while i < len(w):
         a = doc.resolve(w[i])
         b = doc.resolve(w[i + 1]) if i + 1 < len(w) else None
         if isinstance(b, list):
-            for k, x in enumerate(b):
-                out[int(a) + k] = float(doc.resolve(x) or 0)
+            if isinstance(a, (int, float)):
+                for k, x in enumerate(b):
+                    out.append((int(a) + k, int(a) + k, _num(doc.resolve(x))))
             i += 2
         else:
             c = doc.resolve(w[i + 2]) if i + 2 < len(w) else 0
-            if isinstance(a, (int, float)) and isinstance(b, (int, float)) and b - a < 70000:
-                for cid in range(int(a), int(b) + 1):
-                    out[cid] = float(c or 0)
+            if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+                out.append((int(a), int(b), _num(c)))
             i += 3
-    return out
+    return RangeMap(out)
 
 
-def _cid_widths2(doc, w) -> dict[int, tuple[float, float, float]]:
-    out: dict[int, tuple[float, float, float]] = {}
+def _cid_widths2(doc, w) -> RangeMap | dict[int, tuple[float, float, float]]:
+    """/W2：CID → 縦書きの (送り, 原点 x, 原点 y)。[a b w1 v1 v2] は範囲のまま持つ。"""
     if not isinstance(w, list):
-        return out
+        return {}
+    budget().count(len(w), "フォントの縦書きの幅（/W2）の項目")
+    out: list[tuple[int, int, tuple[float, float, float]]] = []
     i = 0
     while i < len(w):
         a = doc.resolve(w[i])
         b = doc.resolve(w[i + 1]) if i + 1 < len(w) else None
         if isinstance(b, list):
-            vals = [float(doc.resolve(x) or 0) for x in b]
-            for k in range(0, len(vals) - 2, 3):
-                out[int(a) + k // 3] = (vals[k], vals[k + 1], vals[k + 2])
+            vals = [_num(doc.resolve(x)) for x in b]
+            if isinstance(a, (int, float)):
+                for k in range(0, len(vals) - 2, 3):
+                    out.append((int(a) + k // 3, int(a) + k // 3, (vals[k], vals[k + 1], vals[k + 2])))
             i += 2
         else:
-            vals = [float(doc.resolve(x) or 0) for x in w[i + 2:i + 5]]
-            if len(vals) == 3 and isinstance(a, (int, float)) and isinstance(b, (int, float)) and b - a < 70000:
-                for cid in range(int(a), int(b) + 1):
-                    out[cid] = (vals[0], vals[1], vals[2])
+            vals = [_num(doc.resolve(x)) for x in w[i + 2:i + 5]]
+            if len(vals) == 3 and isinstance(a, (int, float)) and isinstance(b, (int, float)):
+                out.append((int(a), int(b), (vals[0], vals[1], vals[2])))
             i += 5
-    return out
+    return RangeMap(out)
+
+
+def _num(x) -> float:
+    return float(x) if isinstance(x, (int, float)) else 0.0
 
 
 def load_font(doc, ref_or_dict, key: str = "") -> PdfFont | None:

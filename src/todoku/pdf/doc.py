@@ -115,12 +115,18 @@ class PdfDocument:
         d = obj.dict
         data = self.decode(obj, decrypt=False)
         w = [int(x) for x in d["W"]]
+        if len(w) != 3 or min(w) < 0:
+            raise PdfError("xref ストリームの欄の幅（W）が壊れています")
         size = int(d.get("Size", 0))
         index = [int(x) for x in d.get("Index", [0, size])]
         step = sum(w)
+        if step <= 0:
+            raise PdfError("xref ストリームの欄の幅（W）が壊れています")
         p = 0
-        for a in range(0, len(index), 2):
-            start, count = index[a], index[a + 1]
+        for a in range(0, len(index) - 1, 2):
+            start = index[a]
+            # 宣言された数（Index）は信じない：実際のデータに入っている行の数まで
+            count = min(index[a + 1], (len(data) - p) // step)
             for i in range(count):
                 fields = []
                 for width in w:
@@ -284,7 +290,7 @@ class PdfDocument:
             first = int(st.dict.get("First", 0))
             lx = Lexer(data, 0)
             offs = []
-            for _ in range(n):
+            for _ in range(min(n, len(data) // 2)):  # 番号と位置の組は、どんなに短くても 2 バイトより長い
                 _k, onum = lx.token()
                 _k, off = lx.token()
                 offs.append(off)
@@ -459,6 +465,8 @@ def _predict(data: bytes, prm) -> bytes:
             cols = int(prm.get("Columns", 1))
             if bpc == 8:
                 rowlen = colors * cols
+                if rowlen <= 0 or colors <= 0:
+                    return data
                 out = bytearray(data)
                 for r in range(0, len(out), rowlen):
                     for i in range(r + colors, min(r + rowlen, len(out))):
@@ -470,6 +478,8 @@ def _predict(data: bytes, prm) -> bytes:
     cols = int(prm.get("Columns", 1))
     bpp = max(1, colors * bpc // 8)
     rowlen = (colors * bpc * cols + 7) // 8
+    if rowlen <= 0 or rowlen >= len(data):
+        return b"" if rowlen > 0 else data  # 宣言の 1 行より短いデータ：行が 1 つもない（宣言の大きさの場所を取らない）
     out = bytearray()
     prev = bytearray(rowlen)
     i = 0
@@ -529,12 +539,31 @@ def _a85(data: bytes) -> bytes:
     return bytes(out)
 
 
+class _Chunks:
+    """展開したものを 4 MB ごとの塊で持つ（1 つの大きな塊を伸ばし続けると、写すたびに一時に何倍も使う）。"""
+
+    def __init__(self):
+        self.parts: list[bytes] = []
+        self.cur = bytearray()
+        self.n = 0
+
+    def add(self, b: bytes) -> None:
+        self.cur += b
+        self.n += len(b)
+        if len(self.cur) >= 1 << 22:
+            self.parts.append(bytes(self.cur))
+            self.cur.clear()
+
+    def value(self) -> bytes:
+        return b"".join(self.parts) + bytes(self.cur)
+
+
 def _lzw(data: bytes) -> bytes:
     from ..limits import budget
 
     b = budget()
     cap = b.room()
-    out = bytearray()
+    out = _Chunks()
     table = [bytes([i]) for i in range(256)] + [b"", b""]
     bits = 9
     buf = 0
@@ -552,8 +581,8 @@ def _lzw(data: bytes) -> bytes:
                 prev = None
                 continue
             if code == 257:
-                b.charge(len(out))
-                return bytes(out)
+                b.charge(out.n)
+                return out.value()
             if prev is None:
                 entry = table[code]
             elif code < len(table):
@@ -562,14 +591,14 @@ def _lzw(data: bytes) -> bytes:
             else:
                 entry = prev + prev[:1]
                 table.append(entry)
-            out += entry
+            out.add(entry)
             prev = entry
-            if len(out) > cap:
+            if out.n > cap:
                 raise b.exceeded(cap, None, "PDF のストリーム（LZW）")
             if len(table) + 1 >= (1 << bits) and bits < 12:
                 bits += 1
-    b.charge(len(out))
-    return bytes(out)
+    b.charge(out.n)
+    return out.value()
 
 
 def _rle(data: bytes) -> bytes:
@@ -577,19 +606,19 @@ def _rle(data: bytes) -> bytes:
 
     b = budget()
     cap = b.room()
-    out = bytearray()
+    out = _Chunks()
     i = 0
     while i < len(data):
-        if len(out) > cap:
+        if out.n > cap:
             raise b.exceeded(cap, None, "PDF のストリーム（RunLength）")
         n = data[i]
         if n == 128:
             break
         if n < 128:
-            out += data[i + 1:i + 2 + n]
+            out.add(data[i + 1:i + 2 + n])
             i += 2 + n
         else:
-            out += data[i + 1:i + 2] * (257 - n)
+            out.add(data[i + 1:i + 2] * (257 - n))
             i += 2
-    b.charge(len(out))
-    return bytes(out)
+    b.charge(out.n)
+    return out.value()

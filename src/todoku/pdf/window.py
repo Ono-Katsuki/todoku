@@ -14,6 +14,7 @@ import contextlib
 import contextvars
 
 import hashlib
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -21,7 +22,7 @@ from ..xlsx.window import GAP_TOKEN_NOTE, label_text, shown_gap, with_label_keys
 from .content import page_content
 from .doc import PdfDocument
 from .form import FormField, Widget, has_xfa, read_fields
-from .layout import OLD_ID, PLACE_ID, Cell, Line, PageLayout, Spot, _overlap
+from .layout import OLD_ID, PLACE_ID, Cell, Line, PageLayout, Spot, _overlap, _RectIndex
 
 DET = "deterministic"
 LAYOUT = "layout"
@@ -158,13 +159,20 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     tdk = re.compile(rf"p{number}\.(?:[a-z]?\d+|{PLACE_ID})")
     hidden: set[int] = set()
     real_ws = [(f, w, r) for f, w, r in ws if not tdk.fullmatch(f.name)]
-    _inherit_ids(lay.spots if layout else [], [(f, r) for f, w, r in ws if tdk.fullmatch(f.name)], number)
+    tdk_ws = [(f, w, r) for f, w, r in ws if tdk.fullmatch(f.name)]
+    _inherit_ids(lay.spots if layout else [], [(f, r) for f, w, r in tdk_ws], number)
+    # 欄を四角の索引に置く（所ごとにすべての欄と比べない：所の数 × 欄の数にならないように）
+    tdk_index, real_index = _RectIndex(), _RectIndex()
+    for e in tdk_ws:
+        tdk_index.add(_Placed(e[2], e))
+    for e in real_ws:
+        real_index.add(_Placed(e[2], e))
     for sp in (lay.spots if layout else []):
         # 配置から見つけた欄に重なる、とどくが書き込んだフォームの欄（その欄の値を、この所の印として出す）
-        hits = [(f, w) for f, w, r in ws if tdk.fullmatch(f.name) and _overlap(sp.rect, r) > 0.5]
+        hits = [p.entry[:2] for p in tdk_index.touching(sp.rect) if _overlap(sp.rect, p.rect) > 0.5]
         sp.widget = hits or None
         if not hits:
-            near = _near_widget(sp, real_ws)
+            near = _near_widget(sp, [p.entry for p in real_index.touching(sp.rect, max(sp.size, 1.0), True)])
             if near == "inside":
                 # 本物のフォームの欄（元からある欄）の中に収まる所（欄の外に 1 字も入らない）：書く所はその欄そのもの
                 hidden.add(id(sp))
@@ -227,15 +235,23 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     # 行にまとめる（上から、行の中は左から）
     items.sort(key=lambda it: (round(it.y0, 1), it.x0))
     rows: list[list[_Item]] = []
+    mid = 0.0  # いまの行の帯：いちばん背の低い項目の上半分（縦に長い見出しのマスに引きずられないように）
     for it in items:
-        if rows:
-            # 行の帯：いちばん背の低い項目の上半分（縦に長い見出しのマスに引きずられないように）
-            mid = min((x.y0 + min(x.y1, x.y0 + 3 * _hint(x))) / 2 for x in rows[-1])
-            if it.y0 < mid:
-                rows[-1].append(it)
-                continue
+        band = (it.y0 + min(it.y1, it.y0 + 3 * _hint(it))) / 2
+        if rows and it.y0 < mid:
+            rows[-1].append(it)
+            mid = min(mid, band)
+            continue
         rows.append([it])
+        mid = band
     names: dict[int, str] = {}
+    in_host: dict[int, list[Spot]] = {}  # マスごとの所（マスの数 × 所の数にならないように）
+    for sp in spots:
+        in_host.setdefault(id(sp.host), []).append(sp)
+    alternatives: dict[int, list[Spot]] = {}  # 同じ所の別の読み方
+    for sp in spots:
+        if sp.alternative_to is not None:
+            alternatives.setdefault(id(sp.alternative_to), []).append(sp)
 
     def name(sp: Spot) -> str:
         # 所の id は位置から決めたもの（layout.place_id）。この所のものでない、元からあるフォームの欄と同じ名前のときだけ、
@@ -286,7 +302,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             else:
                 c = it.cell
                 pieces = []
-                for sp in [sp for sp in spots if sp.host is c]:
+                for sp in in_host.get(id(c), ()):
                     mark = _filled_mark(sp, name)
                     if mark is not None:
                         pieces.append(mark)
@@ -340,7 +356,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         if sp.kind == "comb":
             d["boxes"] = len(sp.boxes)
             d["box_rects"] = [[round(v, 2) for v in b] for b in sp.boxes]
-            d["cell_ids"] = [name(x) for x in spots if x.alternative_to is sp and x.shape == "cell"]
+            d["cell_ids"] = [name(x) for x in alternatives.get(id(sp), ()) if x.shape == "cell"]
         if sp.row_label:
             d["row_label"] = sp.row_label
         if sp.column_label:
@@ -369,8 +385,9 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         if filled is not None:
             d["value"] = filled.checked if filled.kind == "checkbox" else filled.value_text()
         out_fields.append(d)
+    out_ids = {x.get("id") for x in out_fields}  # 欄ごとに、出した欄を全部見ない
     for f, w, r in ws:
-        if f.name in emitted or any(x.get("id") == f.name for x in out_fields):
+        if f.name in emitted or f.name in out_ids:
             continue
         d = {"id": f.name, "page": number, "kind": f.kind, "label": f.tu or _near_label(lay, r) or f.name.split(".")[-1],
              "name": f.name, "rect": [round(v, 1) for v in r], "provenance": DET, "source": "acroform",
@@ -441,6 +458,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                 elif not (p_ and p_[0] in acrojs.KNOWN):
                     d.setdefault("scripts", []).append(k2)
         out_fields.append(d)
+        out_ids.add(f.name)
     # 配置の所は位置の順（上から、同じ高さは左から）、フォームの欄はその後ろに元の順で
     out_fields.sort(key=lambda d: (0, round(d["rect"][1]), d["rect"][0]) if d.get("source") == "layout" else (1, 0, 0))
     images = len(pc.pictures)
@@ -617,14 +635,20 @@ def _inherit_ids(spots: list[Spot], written: list[tuple], number: int) -> None:
     （書いた書類を開き直しても、同じ名前で書き直せる）。どの所とも決まらない欄（重なる所が 2 つ以上・ない）は、名前を移さない
     （その欄は、フォームの欄として窓に出る）。字を目印にした所（w）・印影（s）・○（c）は、所の名前にしない。"""
     pat = re.compile(rf"p{number}\.(?:{OLD_ID}|{PLACE_ID})")
+    index = None  # 書いた欄ごとに、すべての所と比べない（書いた欄の数 × 所の数にならないように）
+    ids: set = set()
     for f, r in written:
         if not pat.fullmatch(f.name):
             continue
-        hits = [sp for sp in spots if _iou(sp.rect, r) > 0.5]
-        if len(hits) == 1 and hits[0].id != f.name:
-            taken = any(sp.id == f.name for sp in spots)
-            if not taken:
-                hits[0].id = f.name
+        if index is None:
+            index = _RectIndex()
+            for sp in spots:
+                index.add(sp)
+            ids = {sp.id for sp in spots}
+        hits = [sp for sp in index.touching(r) if _iou(sp.rect, r) > 0.5]
+        if len(hits) == 1 and hits[0].id != f.name and f.name not in ids:
+            hits[0].id = f.name
+            ids.add(f.name)
 
 
 def _beside_widget(rect, r) -> bool:
@@ -660,6 +684,14 @@ def _em_overlap(sp: Spot, r) -> float:
         return 0.0
     em = min(max(sp.size, 1.0), sp.rect[a1] - sp.rect[a0], r[a1] - r[a0])
     return along / max(em, 1e-6)
+
+
+@dataclass(slots=True)
+class _Placed:
+    """四角の索引に置く、フォームの欄の組。"""
+
+    rect: tuple
+    entry: tuple
 
 
 def _near_widget(sp: Spot, real_ws: list):
@@ -1196,34 +1228,56 @@ def _grid_blocks(fields: list[dict]) -> tuple[list[tuple[dict, list[str]]], set[
                 i = parent[i]
             return i
         rs = [f["facts"]["rect_mm"] for f in fs]
-        for i in range(len(fs)):
-            for j in range(i + 1, len(fs)):
-                a, b = rs[i], rs[j]
-                side = abs(a[1] - b[1]) <= 0.6 and (abs(a[2] - b[0]) <= 0.6 or abs(b[2] - a[0]) <= 0.6)
-                vert = abs(a[0] - b[0]) <= 0.6 and (abs(a[3] - b[1]) <= 0.6 or abs(b[3] - a[1]) <= 0.6)
-                if side or vert:
-                    parent[find(i)] = find(j)
+        # 左上の角で升目に置き、隣になりうる所（右の辺・下の辺の近く）だけと比べる（マスどうしを総当たりしない）
+        cell = 0.6
+        grid: dict[tuple[int, int], list[int]] = {}
+        for i, a in enumerate(rs):
+            grid.setdefault((math.floor(a[0] / cell), math.floor(a[1] / cell)), []).append(i)
+        for i, a in enumerate(rs):
+            kx0, ky0 = math.floor(a[0] / cell), math.floor(a[1] / cell)
+            kx1, ky1 = math.floor(a[2] / cell), math.floor(a[3] / cell)
+            for gx, gy in ((kx1, ky0), (kx0, ky1)):
+                for x in (gx - 1, gx, gx + 1):
+                    for y in (gy - 1, gy, gy + 1):
+                        for j in grid.get((x, y), ()):
+                            b = rs[j]
+                            side = abs(a[1] - b[1]) <= 0.6 and abs(a[2] - b[0]) <= 0.6
+                            vert = abs(a[0] - b[0]) <= 0.6 and abs(a[3] - b[1]) <= 0.6
+                            if side or vert:
+                                parent[find(i)] = find(j)
         comps: dict[int, list[dict]] = {}
         for i, f in enumerate(fs):
             comps.setdefault(find(i), []).append(f)
         for comp in comps.values():
             if len(comp) < 2:
                 continue
-            xs = sorted({_id_xy(f["id"])[0] for f in comp})
-            ys = sorted({_id_xy(f["id"])[1] for f in comp})
-            top = {x: min((f for f in comp if _id_xy(f["id"])[0] == x), key=lambda f: _id_xy(f["id"])[1]) for x in xs}
-            lft = {y: min((f for f in comp if _id_xy(f["id"])[1] == y), key=lambda f: _id_xy(f["id"])[0]) for y in ys}
+            xy = {f["id"]: _id_xy(f["id"]) for f in comp}  # 列ごと・行ごとに分けておく（列の数 × マスの数にならないように）
+            xs = sorted({xy[f["id"]][0] for f in comp})
+            ys = sorted({xy[f["id"]][1] for f in comp})
+            top: dict[int, dict] = {}
+            lft: dict[int, dict] = {}
+            for f in comp:
+                x, y = xy[f["id"]]
+                if x not in top or y < xy[top[x]["id"]][1]:
+                    top[x] = f
+                if y not in lft or x < xy[lft[y]["id"]][0]:
+                    lft[y] = f
 
             def txt(f, side):
                 return ((f.get("facts") or {}).get(side) or {}).get("text")
-            members = [f for f in comp if txt(f, "above") == txt(top[_id_xy(f["id"])[0]], "above")
-                       and txt(f, "left") == txt(lft[_id_xy(f["id"])[1]], "left")]
+            members = [f for f in comp if txt(f, "above") == txt(top[xy[f["id"]][0]], "above")
+                       and txt(f, "left") == txt(lft[xy[f["id"]][1]], "left")]
             if len(members) < 2:
                 continue
             ids = {f["id"] for f in members}
-            have = {_id_xy(i) for i in ids}
+            have = {xy[i] for i in ids}
+            by_x: dict[int, list[dict]] = {}
+            by_y: dict[int, list[dict]] = {}
+            for f in members:
+                by_x.setdefault(xy[f["id"]][0], []).append(f)
+                by_y.setdefault(xy[f["id"]][1], []).append(f)
             missing = [f"p{comp[0]['page']}.t{x}-{y}" for y in ys for x in xs if (x, y) not in have]
-            first = min(members, key=lambda f: (_id_xy(f["id"])[1], _id_xy(f["id"])[0]))
+            first = min(members, key=lambda f: (xy[f["id"]][1], xy[f["id"]][0]))
             pg = first["page"]
             lines = [f"- ［p{pg}.t{{x}}-{{y}}］ 空のマス {len(members)} 個（各 {size[0]}×{size[1]} mm）：横 {len(xs)} × 縦 {len(ys)} に並ぶ。"
                      f"x = {'・'.join(map(str, xs))}、y = {'・'.join(map(str, ys))}（mm）"
@@ -1238,20 +1292,20 @@ def _grid_blocks(fields: list[dict]) -> tuple[list[tuple[dict, list[str]]], set[
                 lines.append("  - 行の左の字（いちばん左のマスから）：" + _runs_text(rows))
             ends = []
             for y in ys:
-                row = [f for f in members if _id_xy(f["id"])[1] == y]
+                row = by_y.get(y)
                 if not row:  # この行のマスは、上・左の字が違うので、まとまりに入っていない
                     continue
-                last = max(row, key=lambda f: _id_xy(f["id"])[0])
+                last = max(row, key=lambda f: xy[f["id"]][0])
                 if txt(last, "right"):
                     ends.append((f"y={y}", txt(last, "right"), last["facts"]["right"]["mm"]))
             if ends:
                 lines.append("  - 行の右の字（いちばん右のマスから）：" + _runs_text(ends))
             bots = []
             for x in xs:
-                col = [f for f in members if _id_xy(f["id"])[0] == x]
+                col = by_x.get(x)
                 if not col:
                     continue
-                low = max(col, key=lambda f: _id_xy(f["id"])[1])
+                low = max(col, key=lambda f: xy[f["id"]][1])
                 if txt(low, "below"):
                     bots.append((f"x={x}", txt(low, "below"), low["facts"]["below"]["mm"]))
             if bots:
@@ -1259,8 +1313,7 @@ def _grid_blocks(fields: list[dict]) -> tuple[list[tuple[dict, list[str]]], set[
             combs = {f.get("alternative_to") for f in members if f.get("alternative_to")
                      and (by_id.get(f["alternative_to"]) or {}).get("shape") == "cells"}
             if combs:
-                every = {f"p{pg}.m{min(_id_xy(f['id'])[0] for f in members if _id_xy(f['id'])[1] == y)}-{y}"
-                         for y in ys if any(_id_xy(f["id"])[1] == y for f in members)}
+                every = {f"p{pg}.m{min(xy[f['id']][0] for f in by_y[y])}-{y}" for y in ys if y in by_y}
                 shown = (f"［p{pg}.m{xs[0]}-{{y}}？］（y は各行の y）" if combs == every and all(c.startswith(f"p{pg}.m{xs[0]}-") for c in combs)
                          else "・".join(f"［{c}？］" for c in sorted(combs, key=lambda c: [int(v) for v in re.findall(r"\d+", c)])))
                 lines.append("  - 横に続くマスの並び（1 字ずつ書く。{\"kind\": \"text\", \"as\": \"郵便番号\", \"value\": …} で 1 つの欄に。並びとマスは重なるので、書けるのは"

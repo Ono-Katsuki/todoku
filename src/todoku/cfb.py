@@ -63,6 +63,10 @@ class CFB:
         self.msize = 1 << mshift
         (self.n_dir_sectors, self.n_fat, self.dir_start, _txn, self.cutoff, self.minifat_start, self.n_minifat,
          self.difat_start, self.n_difat) = struct.unpack_from("<IIIIIIIII", blob, 0x28)
+        if self.cutoff != 4096:  # 決まった値（MS-CFB 2.2）。ほかの値は壊れている（宣言どおりに 2 GB のミニストリームの空きを作らせない）
+            raise CfbError(f"{BROKEN}：ミニストリームの境目が {self.cutoff} です（4096 に決まっています）")
+        if not 7 <= sshift <= 16 or not 2 <= mshift <= sshift:
+            raise CfbError(f"{BROKEN}：セクタの大きさの宣言（2^{sshift}・2^{mshift}）が壊れています")
         difat = list(struct.unpack_from("<109I", blob, 0x4C))
         sec = self.difat_start
         per = self.ssize // 4 - 1

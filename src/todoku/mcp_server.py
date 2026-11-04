@@ -539,7 +539,7 @@ def handle(msg: dict) -> dict | None:
         from . import isolate
 
         # 別のプロセス（働き手）で、時間とメモリの上限をつけて動かす（壊れた書類でサーバーごと止まらないように）
-        result = isolate.worker().call(name, args) if isolate.enabled() else tool_result(name, args)
+        result = isolate.worker().call(name, args) if isolate.enabled() else isolate.soft_call(tool_result, name, args)
         return {"jsonrpc": "2.0", "id": mid, "result": result}
     if mid is None:
         return None

@@ -35,13 +35,16 @@ def _base_matrix(view: View, s: float, x0: float, y0: float):
 
 
 def render(doc, page_no: int, region_mm: list | None = None, max_side: int | None = None, dpi: float | None = None,
-           time_limit: float = 60.0) -> dict:
+           time_limit: float | None = None) -> dict:
     """ページ（の範囲）の画像。region_mm：[左, 上, 右, 下]（ページの左上からの mm）。
     大きさ：dpi を指定すればその解像度。なければ、max_side を指定すれば長い辺をその画素に、どちらもなければ、ページ全体は
     100 dpi・範囲は長い辺 1600 画素（拡大して読む）。
     返す：{rgb: 画素（RGB）, w, h, scale（1 mm の画素）, origin_mm（画像の左上の mm）, skipped（描けなかった画像）, ...}。"""
+    from ..limits import TIME_LIMIT
     from .render.paint import appearance_notes, render_page
 
+    if time_limit is None:
+        time_limit = min(50.0, TIME_LIMIT * 0.4)  # 描いた所までを返す余裕を残す
     pages = doc.pages()
     if not 1 <= page_no <= len(pages):
         raise ValueError(f"page は 1〜{len(pages)} です")
@@ -189,6 +192,11 @@ def with_ruler(r: dict, marks: list | None = None, written: list | None = None, 
     tick = 5
     if ticks:
         tick, step = ticks
+    # 目盛りの数は画素の数で決まる（ページの宣言の大きさで増やさない）：線が 4 画素、数が 16 画素より詰まるなら間隔を 10 倍に
+    while tick * s < 4:
+        tick *= 10
+    while step * s < 16 or step % tick:
+        step *= 10
     first = int(ox // tick + 1) * tick
     for mm in range(first, int(ox + W / s) + 1, tick):
         X = M + int((mm - ox) * s)

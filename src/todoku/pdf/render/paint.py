@@ -21,6 +21,7 @@ from .canvas import (Canvas, Clip, _rect_of, fill_rows, flatten, inv, mul, paint
                      stroke_polys, transform_polys)
 from .colors import DCMYK, DRGB, GRAY, PatternCS, colorspace, function
 from .fontmap import _decoded_name, glyphs_for
+from ...limits import release_memory
 from .image import draw_image, image_rgba
 
 IDENT = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
@@ -60,6 +61,39 @@ def _rgb255(c) -> tuple[int, int, int]:
     return (int(c[0] * 255 + 0.5), int(c[1] * 255 + 0.5), int(c[2] * 255 + 0.5))
 
 
+STROKE_CHUNK = 1000  # 不透明な線を分けて描く、図形の命令の数
+
+
+def _path_chunks(path: list, n: int):
+    """図形の命令を n 個ずつに分ける（次の組は、前の組の終わりの点から続ける。前の組で始まった図形を閉じる命令は、始まりの点への線にする）。"""
+    cur: list = []
+    start = last = (0.0, 0.0)
+    begun_here = False
+    for op in path:
+        k = op[0]
+        if k == 4 and not begun_here:
+            cur.append((1, start[0], start[1]))
+            last = start
+        else:
+            cur.append(op)
+            if k == 0:
+                start = last = (op[1], op[2])
+                begun_here = True
+            elif k == 4:
+                last = start
+            elif k != 4:
+                last = (op[-2], op[-1])
+        if len(cur) >= n:
+            yield cur
+            cur = [(0, last[0], last[1])]
+            begun_here = False
+    if len(cur) > 1 or (cur and cur[0][0] != 0):
+        yield cur
+
+
+MAX_IMAGES_HELD = 128 << 20  # 開いた画像の控えの大きさの合計（バイト。古いものから捨てる）
+
+
 class Renderer:
     def __init__(self, doc, cv: Canvas, deadline: float | None = None):
         self.doc = doc
@@ -68,6 +102,9 @@ class Renderer:
         self.stopped = False
         self.ops = 0
         self.gcache: dict = {}
+        self.images: dict = {}  # 開いた画像の控え（オブジェクトと大きさごと）：同じ画像を何度も描くページで、開き直さない
+        self.images_held = 0  # 控えの大きさの合計
+        self.images_spent = 0  # このページで開いた画像の大きさの合計
         self.drawing: set = set()
         self.stats = {"glyphs": 0, "glyphs_embedded": 0, "glyphs_system": 0, "glyphs_type3": 0, "glyphs_box": 0,
                       "images": 0, "paths": 0}
@@ -474,6 +511,17 @@ class Renderer:
     def stroke_path(self, gs: GS, path: list) -> None:
         if gs.clip.empty:
             return
+        if len(path) > STROKE_CHUNK:
+            # 長い図形：不透明なら、分けて描いても同じ（線の形の多角形を、一度に全部メモリに置かない。分け目の角の形だけ省く）
+            if gs.CA >= 0.999 and gs.spat is None:
+                for part in _path_chunks(path, STROKE_CHUNK):
+                    if self.deadline is not None and time.monotonic() > self.deadline:
+                        raise _Stop()
+                    self.stroke_path(gs, part)
+                return
+            from ...limits import budget
+
+            budget().count(len(path), "透ける線の図形の命令")
         self.stats["paths"] += 1
         m = gs.ctm
         sc = scale_of(m)
@@ -671,20 +719,47 @@ class Renderer:
         # 画面での大きさ（画素）：大きすぎる画像は、この大きさの数倍に間引いて開く
         dev = abs(m[0] * m[3] - m[1] * m[2])
         # JPEG は逆 DCT で 1/2・1/4・1/8 に縮めて開ける（縮めても面積の平均）：画面の 2 倍まで。ほかは開いてから箱の平均で縮める
-        try:
-            view = _visible_part(m, self.cv.w, self.cv.h)
-            im = image_rgba(self.doc, img, 16_000_000, res, int(max(250_000, dev * 2)), self.deadline, view)
-            if im.window is not None:  # 開いたのは見える所だけ：その部分の四角に描く（画像の行は上から、単位の四角の v は下から）
-                ul, ut, ur, ub = im.window
-                m = mul(((ur - ul), 0, 0, (ub - ut), ul, 1 - ub), m)
-        except Exception as e:  # noqa: BLE001
-            from ...limits import LimitExceeded
+        screen = int(max(250_000, dev * 2))
+        view = _visible_part(m, self.cv.w, self.cv.h)
+        key = (img.num, screen, view) if isinstance(img, Stream) and img.num else None
+        im = self.images.pop(key, None) if key is not None else None
+        if im is None:
+            from ...limits import MEMORY_LIMIT, LimitExceeded
 
-            if isinstance(e, LimitExceeded):
-                raise
-            self.image_failed.append((name, str(e), _unit_square_box(m)))
-            self._undrawn_image(gs, m)
-            return
+            if self.images_spent > MEMORY_LIMIT:
+                # 1 ページで開く画像の合計の上限：描けない所を伝え、残りのページは描き続ける（範囲を小さくすれば、その中の画像だけを開く）
+                why = f"このページで開いた画像の合計が {MEMORY_LIMIT // (1 << 20):,} MB を超えたので開きませんでした。region で範囲を小さくして頼めます"
+                self.image_failed.append((name, why, _unit_square_box(m)))
+                self._undrawn_image(gs, m)
+                return
+            try:
+                im = image_rgba(self.doc, img, 16_000_000, res, screen, self.deadline, view)
+            except Exception as e:  # noqa: BLE001
+                if isinstance(e, LimitExceeded):
+                    raise
+                self.image_failed.append((name, str(e), _unit_square_box(m)))
+                self._undrawn_image(gs, m)
+                return
+            size = len(im.px) + len(im.alpha or b"")
+            self.images_spent += size
+            self.images_held += size
+            if size >= 1 << 24:
+                release_memory()  # 開くときに使った大きな塊を OS に返す（ページに大きな画像が並ぶとき、常駐を増やし続けない）
+        if key is not None:
+            self.images[key] = im  # 入れ直すと新しい方になる（辞書の順）
+            while self.images_held > MAX_IMAGES_HELD and len(self.images) > 1:
+                old = next(iter(self.images))
+                gone = self.images.pop(old)
+                self.images_held -= len(gone.px) + len(gone.alpha or b"")
+                del gone
+                release_memory()  # 大きな画像の分を OS に返す（ページに大きな画像が並ぶとき、常駐を増やし続けない）
+        else:
+            self.images_held -= len(im.px) + len(im.alpha or b"")
+        if self.deadline is not None and time.monotonic() > self.deadline:  # 画像は 1 つが重い：字句の数を待たずに時間を見る
+            raise _Stop()
+        if im.window is not None:  # 開いたのは見える所だけ：その部分の四角に描く（画像の行は上から、単位の四角の v は下から）
+            ul, ut, ur, ub = im.window
+            m = mul(((ur - ul), 0, 0, (ub - ut), ul, 1 - ub), m)
         self.stats["images"] += 1
         self.image_notes += [f"{name}：{n}" for n in im.notes if f"{name}：{n}" not in self.image_notes]
         self.problems += [f"{name}：{n}" for n in im.problems if f"{name}：{n}" not in self.problems]
@@ -709,6 +784,8 @@ class Renderer:
         d = sh.dict if isinstance(sh, Stream) else sh
         if not isinstance(d, dict):
             return
+        if self.deadline is not None and time.monotonic() > self.deadline:  # 網かけは 1 つが重い：字句の数を待たずに時間を見る
+            raise _Stop()
         t = int(doc.resolve(d.get("ShadingType")) or 0)
         cs = colorspace(doc, d.get("ColorSpace"), res)
         m = matrix if matrix is not None else gs.ctm

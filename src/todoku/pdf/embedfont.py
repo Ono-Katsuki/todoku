@@ -52,18 +52,9 @@ def collection_faces(data: bytes) -> list[int]:
 
 
 def _cmap(t: bytes) -> dict[int, int]:
-    from .sfnt import _subtable
+    from .sfnt import cmap_tables
 
-    subs: dict[tuple[int, int], dict[int, int]] = {}
-    n = struct.unpack_from(">H", t, 2)[0]
-    for i in range(n):
-        pid, eid, off = struct.unpack_from(">HHI", t, 4 + 8 * i)
-        try:
-            m = _subtable(t, off)
-        except (struct.error, IndexError):
-            m = {}
-        if m:
-            subs.setdefault((pid, eid), m)
+    subs = cmap_tables(t)
     return subs.get((3, 10)) or subs.get((0, 4)) or subs.get((3, 1)) or subs.get((0, 3)) or {}
 
 

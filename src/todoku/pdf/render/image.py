@@ -12,8 +12,9 @@ from dataclasses import dataclass, field
 from itertools import repeat
 from operator import add, itemgetter, mul, rshift
 
+from ...limits import budget
 from ..objects import Name, Stream
-from ..raster import _CS_ABBR, _FILTER_ABBR, _KEY_ABBR, RasterError, image_gray, jpeg_gray
+from ..raster import _CS_ABBR, _FILTER_ABBR, _KEY_ABBR, RasterError, _thin_step, image_gray, jpeg_gray
 from .canvas import Canvas, Clip, intersect, inv
 from .colors import GRAY, colorspace
 
@@ -27,6 +28,7 @@ class RGBA:
     stencil: bool = False  # 型抜き（ImageMask）：alpha の所を、塗りの色で塗る
     notes: list = field(default_factory=list)  # 開き方の知らせ（解像度を下げたなど）
     problems: list = field(default_factory=list)  # 描けなかった所
+    scaled: tuple | None = None  # 画面の大きさに縮めたもの：((幅, 高さ), 画素, 透け)。同じ画像を同じ大きさで何度も描くとき、縮め直さない
     window: tuple | None = None  # 開いた範囲（元の画像の割合 [左, 上, 右, 下)。1 が右・下の端）。None は全体
 
 
@@ -275,6 +277,7 @@ def _resample(px: bytes, w: int, h: int, W: int, H: int, nc: int = 1) -> bytes:
     """いちばん近い画素で W × H に（nc：1 画素の成分の数）。"""
     if (w, h) == (W, H):
         return bytes(px)
+    budget().count(W * nc, "画像を合わせる列の数")
     cols = [min(w - 1, x * w // W) * nc + k for x in range(W) for k in range(nc)]
     rows: dict[int, bytes] = {}  # 広げるときは同じ元の行が続く
     out = []
@@ -314,11 +317,13 @@ def _raw_rgb(data: bytes, d: dict, w: int, h: int, cs, dec, max_pixels: int) -> 
     if bpc not in (1, 2, 4, 8, 16):
         raise RasterError(f"画像の標本のビット数 {bpc} は扱えません")
     nc = cs.n
-    step = max(1, math.isqrt(w * h // max(1, max_pixels)))
-    while (-(-w // step)) * (-(-h // step)) > max_pixels:
-        step += 1
+    step = _thin_step(w, h, max_pixels)
     ow, oh = -(-w // step), -(-h // step)
     stride = (w * nc * bpc + 7) // 8
+    # 宣言の幅でなく、実際にあるデータの分だけ読む（描けるだけ描く。足りない所は 0 の標本の色で、場所は出力の画素の分だけ取る）
+    w_read = min(w, len(data) * 8 // max(1, nc * bpc))
+    stride_read = (w_read * nc * bpc + 7) // 8
+    ow_read = -(-w_read // step)
     maxv = 255 if bpc == 16 else (1 << bpc) - 1
     rng = cs.ranges()
     if not dec or len(dec) < 2 * nc:
@@ -330,24 +335,36 @@ def _raw_rgb(data: bytes, d: dict, w: int, h: int, cs, dec, max_pixels: int) -> 
             x = dec[0] + v * (dec[1] - dec[0]) / maxv
             r, g, b = cs.rgb([round(x) if cs.kind == "Indexed" else x])
             tab.append(bytes((int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5))))
+        pad = tab[0] * (ow - ow_read)
         for y in range(0, h, step):
-            row = data[y * stride:(y + 1) * stride]
-            if len(row) < stride:
-                row = row + bytes(stride - len(row))
-            vals = _samples(row, bpc, w)
+            if y * stride >= len(data):
+                out += tab[0] * (ow * ((h - y + step - 1) // step))
+                break
+            row = data[y * stride:y * stride + stride_read]
+            if len(row) < stride_read:
+                row = row + bytes(stride_read - len(row))
+            vals = _samples(row, bpc, w_read)
             if step > 1:
                 vals = vals[::step]
-            out += b"".join(map(tab.__getitem__, vals))
+            out += b"".join(map(tab.__getitem__, vals)) + pad
         return RGBA(ow, oh, bytes(out), None)
     ident = all(abs(dec[2 * k] - rng[k][0]) < 1e-9 and abs(dec[2 * k + 1] - rng[k][1]) < 1e-9 for k in range(nc))
     cache: dict = {}
+    pad = b""
+    if ow_read < ow or len(data) < stride * h:
+        comps = [dec[2 * k] for k in range(nc)]  # 標本 0 の色
+        r, g, b = cs.rgb(comps)
+        pad = bytes((int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5)))
     for y in range(0, h, step):
-        row = data[y * stride:(y + 1) * stride]
-        if len(row) < stride:
-            row = row + bytes(stride - len(row))
-        vals = _samples(row, bpc, w * nc)
+        if y * stride >= len(data):
+            out += pad * (ow * ((h - y + step - 1) // step))
+            break
+        row = data[y * stride:y * stride + stride_read]
+        if len(row) < stride_read:
+            row = row + bytes(stride_read - len(row))
+        vals = _samples(row, bpc, w_read * nc)
         if cs.kind == "DeviceRGB" and ident and bpc in (8, 16) and step == 1:
-            out += bytes(vals)
+            out += bytes(vals) + pad * (ow - ow_read)
             continue
         if cs.kind == "DeviceCMYK" and ident and bpc in (8, 16):
             c_, m_, y_, k_ = vals[0::nc * step], vals[1::nc * step], vals[2::nc * step], vals[3::nc * step]
@@ -355,10 +372,10 @@ def _raw_rgb(data: bytes, d: dict, w: int, h: int, cs, dec, max_pixels: int) -> 
             line[0::3] = bytes((255 - a) * (255 - k) // 255 for a, k in zip(c_, k_))
             line[1::3] = bytes((255 - a) * (255 - k) // 255 for a, k in zip(m_, k_))
             line[2::3] = bytes((255 - a) * (255 - k) // 255 for a, k in zip(y_, k_))
-            out += line
+            out += line + pad * (ow - ow_read)
             continue
         line = bytearray()
-        for x in range(0, w, step):
+        for x in range(0, w_read, step):
             px = tuple(vals[x * nc:(x + 1) * nc])
             c = cache.get(px)
             if c is None:
@@ -371,7 +388,7 @@ def _raw_rgb(data: bytes, d: dict, w: int, h: int, cs, dec, max_pixels: int) -> 
                 if len(cache) < 65536:
                     cache[px] = c
             line += c
-        out += line
+        out += line + pad * (ow - ow_read)
     return RGBA(ow, oh, bytes(out), None)
 
 
@@ -399,7 +416,7 @@ def box_down(px: bytes, w: int, h: int, nc: int, kx: int, ky: int) -> tuple[byte
     rowlen = w * nc
     kk = kx * ky
     out = bytearray(W * H * nc)
-    div = [v // kk for v in range(256 * kk)]
+    div = [v // kk for v in range(256 * kk)] if kk <= 1024 else None  # 表は小さな箱だけ（大きな箱で表を作ると、箱の広さ × 256 の場所を取る）
     for Y in range(H):
         acc = None
         for r in range(ky):
@@ -416,7 +433,7 @@ def box_down(px: bytes, w: int, h: int, nc: int, kx: int, ky: int) -> tuple[byte
                         acc[c] = list(map(add, acc[c], part))
         o = Y * W * nc
         for c in range(nc):
-            out[o + c:o + W * nc:nc] = bytes(map(div.__getitem__, acc[c]))
+            out[o + c:o + W * nc:nc] = bytes(map(div.__getitem__, acc[c])) if div is not None else bytes([v // kk for v in acc[c]])
     return bytes(out), W, H
 
 
@@ -497,10 +514,14 @@ def draw_image(cv: Canvas, img: RGBA, m, clip: Clip, alpha: float = 1.0, fill=(0
     if W_t < w or H_t < h:
         # 画面より細かい画像：面積の平均で、ちょうど画面の画素の数に縮める（整数の倍率でないと、間引きで細い線が切れる）
         W_t, H_t = min(W_t, w), min(H_t, h)
-        if not img.stencil:
-            px = area_down(px, w, h, nc, W_t, H_t)
-        if al is not None:
-            al = area_down(al, w, h, 1, W_t, H_t)
+        if img.scaled is not None and img.scaled[0] == (W_t, H_t):
+            px, al = img.scaled[1], img.scaled[2]
+        else:
+            if not img.stencil:
+                px = area_down(px, w, h, nc, W_t, H_t)
+            if al is not None:
+                al = area_down(al, w, h, 1, W_t, H_t)
+            img.scaled = ((W_t, H_t), px, al)
         w, h = W_t, H_t
     im = inv(m)
     if im is None or w <= 0 or h <= 0:

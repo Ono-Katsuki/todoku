@@ -678,7 +678,8 @@ class Filler:
             comb = None
             if f.flags & FF_COMB and f.maxlen:
                 cw = vw / f.maxlen
-                comb = [(i * cw, 0, (i + 1) * cw, vh) for i in range(f.maxlen)]
+                # 使うマスは書く字の分だけ（/MaxLen の宣言の数だけ作らない。超える字は text_appearance が断る）
+                comb = [(i * cw, 0, (i + 1) * cw, vh) for i in range(min(f.maxlen, max(1, len(shown) + 1)))]
             try:
                 # 1 行の欄（Multiline の印なし）は折り返さない：見た目を作り直すビューアーも 1 行で描くので、1 行に収まる大きさにする
                 ap, s = text_appearance(self.up, x1 - x0, y1 - y0, shown, size, self.fonts_for(keys | {"Helv"}),
@@ -1466,10 +1467,11 @@ def _stacked_note(f: Filler, doc, page_no: int, sd: dict, value, layouts: dict) 
     x0, y0, x1, y1 = sd["rect"]
     size = float(sd.get("size") or 10.5)
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    home = next((c for c in lay.cells if c.x0 <= cx <= c.x1 and c.y0 <= cy <= c.y1), None)  # 欄のあるマス（同じマスの行だけ）
+    # 欄のあるマス（同じマスの行だけ）
+    home = next((c for c in lay.index.near(cx, cy, cx, cy) if c.x0 <= cx <= c.x1 and c.y0 <= cy <= c.y1), None)
     rows = []
-    for cell_, ln in _circle._lines(lay):
-        if ln.vertical or not ln.text.strip() or ln.y0 < y0 - 0.5 or ln.y1 > y1 + 0.5:
+    for cell_, ln in _circle.lines_between(lay, y0 - 0.5, y1 + 0.5):
+        if ln.vertical or not ln.text.strip():
             continue
         if home is not None and cell_ is not home:
             continue

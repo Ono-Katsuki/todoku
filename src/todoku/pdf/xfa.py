@@ -23,6 +23,7 @@ import re
 import xml.parsers.expat as expat
 from dataclasses import dataclass, field
 
+from .. import limits
 from ..docx.xmlpos import _tag_end
 from .objects import PdfString, Ref, Stream, decode_text
 
@@ -115,6 +116,7 @@ def _parse(data: bytes) -> El:
         return tag, ""
 
     def start(tag, attrs):
+        limits.budget().count(1, "XFA の XML の要素")
         local, ns = split(tag)
         a = {}
         for k, v in attrs.items():
@@ -671,6 +673,8 @@ class Merge:
         self.alloc: dict[tuple[int, str], int] = {}
         self.gslots: dict[str, Slot] = {}
         self.empty = data.record is None
+        self.blank_left = limits.MAX_XFA_BLANK  # データのないくり返しを、あと何回作るか（宣言の数は信じない）
+        self.occur_cut: dict[str, tuple[int, int]] = {}  # 作らなかったくり返し：名前 → (宣言の数, 作った数)
         root_el = next((e for e in tmpl.el.elements if e.tag == "subform"), None)
         if root_el is None:
             raise XfaError("template に subform がありません")
@@ -685,8 +689,28 @@ class Merge:
         self._fill(self.root, rt, self.root.slot, rec)
         self._ids(self.root)
 
+    def _bounded(self, t: T, want: int, have: int) -> int:
+        """宣言のくり返し want 回のうち、作る回数。データのある have 回はすべて作り、データのない回は、書類ごとの残りの数まで
+        （2 回目から数える：くり返さない subform は減らさない）。作らなかった分は事実として覚え、窓に書く（occur_notes）。"""
+        floor = max(have, 1)
+        extra = want - floor
+        if extra <= 0:
+            return want
+        take = min(extra, self.blank_left)
+        self.blank_left -= take
+        if take < extra:
+            name = t.get("name") or "（名前のない subform）"
+            made = self.occur_cut.get(name, (0, 0))
+            self.occur_cut[name] = (max(want, made[0]), max(floor + take, made[1]))
+        return floor + take
+
+    def occur_notes(self) -> list[str]:
+        return [f"くり返し「{n}」は {want:,} 回と宣言されていますが、データのない分は全部で {limits.MAX_XFA_BLANK:,} 回までしか作っていません"
+                f"（ここでは {made:,} 回。TODOKU_MAX_XFA_BLANK で変えられます）" for n, (want, made) in self.occur_cut.items()]
+
     # ------------------------------------------------------------------ 中身
     def _fill(self, f: F, t: T, slot: Slot | None, scope: D | None) -> None:
+        limits.budget().count(len(t.kids), "XFA の部品")
         for c in t.kids:
             tag = c.tag
             if tag == "subform":
@@ -763,6 +787,7 @@ class Merge:
             nodes = data_som(ref, scope, self.data) or []
             nodes = [n for n in nodes if n.kind == "group"]
             count = ini if self.empty else max(mn, len(nodes) if mx < 0 else min(len(nodes), mx))
+            count = self._bounded(t, count, len(nodes))
             for i in range(count):
                 node = nodes[i] if i < len(nodes) else None
                 sl = Slot(None, node.name, 0, "group", node) if node is not None else \
@@ -779,13 +804,14 @@ class Merge:
                 self.used.add(id(n))
                 nodes.append(n)
             count = ini if self.empty else max(mn, len(nodes))
+            count = self._bounded(t, count, len(nodes))
             for i in range(count):
                 node = nodes[i] if i < len(nodes) else None
                 sl = Slot(slot, name, 0 if node is not None else self._new_index(slot, scope, name), "group", node)
                 self._instance(f, t, i, sl, node, (mn, mx, ini))
             return
         # 名前のない subform・scope="none"・bind none：データには透明。くり返しは、中身が新しく結ばれる間だけ
-        count = ini if self.empty else mn
+        count = self._bounded(t, ini if self.empty else mn, 0)
         i = 0
         while True:
             if i >= count:
@@ -1767,7 +1793,7 @@ def _scripts(x: XfaForm) -> list[dict]:
 
 def _unshown(x: XfaForm) -> list[str]:
     """template の中の字で、ほかの所に出していないもの（説明の情報・使われない書式・プロトタイプの中など）。"""
-    out = []
+    out = x.merge.occur_notes()
     for e in x.template.el.iter():
         if id(e) in x.shown or e.tag in ("image", "script"):
             continue

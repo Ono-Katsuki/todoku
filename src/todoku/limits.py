@@ -15,7 +15,7 @@
                                         （分けて読める形式は、もともとディスクから少しずつ読む）
 - TODOKU_MAX_INFLATE_PART_MB（256）    1 つの部品・ストリームを展開した大きさの基本の上限。実際の上限は、これと「圧縮したバイト × 比率」の大きい方
                                         （宣言された大きさではなく、実際に出てきたバイトを数える）
-- TODOKU_MAX_INFLATE_TOTAL_MB（2048 と、メモリの上限の 3/4 の小さい方）  1 回の呼び出しで展開するバイトの合計（同じく、これと
+- TODOKU_MAX_INFLATE_TOTAL_MB（768 と、メモリの上限の半分の小さい方）  1 回の呼び出しで展開するバイトの合計（同じく、これと
                                         「ファイルの大きさ × 比率」の大きい方）。メモリの上限より先に、理由の言える形で止まるように、小さく置く
 - TODOKU_MAX_INFLATE_RATIO（200）      圧縮の比率の上限。ふつうの XML は 10〜100 倍で、deflate の理屈の上限は 1032 倍。爆弾はここで止まる
 - TODOKU_CONTEXT_BUDGET_CHARS（400000） 窓の全体を一度に返してよい大きさ（字）。およそ 20 万トークンの会話に入らなくなる大きさ。
@@ -30,6 +30,7 @@
 - TODOKU_TIME_LIMIT（120）             1 回の呼び出しの秒数（MCP サーバー：別のプロセスで動かし、超えたら止める）
 - TODOKU_MEMORY_LIMIT_MB（物理メモリの 1/4。2048 以上）  その別のプロセスのメモリ
 - TODOKU_WINDOW_CACHE_MB（256）        窓の控え（同じ書類を開き直さない）の大きさの合計
+- TODOKU_MAX_XFA_BLANK（10000）         XFA：データのないくり返し（occur の min・initial）を作る数（1 つの書類）。超える分は作らず、窓に事実として書く
 - TODOKU_MAX_DECLARED_CELLS（262144）  表計算：ファイルの宣言（入力規則・数式の参照・配列数式の範囲・繰り返し）から、セルの要素のない所まで
                                         広げる数（1 ブック。超える範囲は、ファイルにあるセルだけを見て、広げなかったことを伝える）
 - TODOKU_MAX_RANGE_CELLS（16777216）    表計算：数式の 1 つの範囲を計算のために開く数（.xls の 1 シートまるごと）
@@ -71,8 +72,9 @@ MAX_PIXELS = _env("TODOKU_MAX_PIXELS", 100_000_000)
 TIME_LIMIT = _env("TODOKU_TIME_LIMIT", 120)
 MEMORY_LIMIT = _env("TODOKU_MEMORY_LIMIT_MB", max(2048, _physical_memory() / 4 / MB), MB)
 MAX_FILE = _env("TODOKU_MAX_FILE_MB", MEMORY_LIMIT / 2 / MB, MB)
-# 展開の合計は、メモリの上限より小さく置く（同じ大きさだと、展開の予算で理由を言う前に、働き手が殺される）
-MAX_INFLATE_TOTAL = _env("TODOKU_MAX_INFLATE_TOTAL_MB", min(2048, MEMORY_LIMIT * 3 / 4 / MB), MB)
+# 展開の合計は、メモリの上限より十分に小さく置く（同じ大きさだと、展開の予算で理由を言う前に、働き手が殺される。展開したものをつなぐと
+# 一時に 2 倍を使う）。大きなファイルは allow_file で広がるので、本物の書類には当たらない
+MAX_INFLATE_TOTAL = _env("TODOKU_MAX_INFLATE_TOTAL_MB", min(768, MEMORY_LIMIT / 2 / MB), MB)
 # 1 回の呼び出しで作る項目の合計：Python の小さな値は 1 つ数十〜数百バイトなので、メモリの上限より先に、理由の言える形で止まる大きさ
 MAX_ITEMS = _env("TODOKU_MAX_ITEMS", MEMORY_LIMIT / 512)
 ITEMS_PER_FILE_BYTE = 4  # 本物の書類の項目は、ファイルのバイトに比例する（圧縮した XML でも、1 バイトから数個まで）
@@ -86,6 +88,7 @@ MAX_VBA_STRING = _env("TODOKU_MAX_VBA_STRING", 16 * MB)
 MAX_VBA_ARRAY = _env("TODOKU_MAX_VBA_ARRAY", 10_000_000)
 MAX_VBA_BYTES = _env("TODOKU_MAX_VBA_BYTES_MB", 1024, MB)
 MAX_VBA_RANGE = _env("TODOKU_MAX_VBA_RANGE", 2_000_000)  # マクロが 1 度に書く範囲のマスの数（1 列まるごと 1,048,576 は書ける）
+MAX_XFA_BLANK = _env("TODOKU_MAX_XFA_BLANK", 10_000)
 MAX_DECLARED_CELLS = _env("TODOKU_MAX_DECLARED_CELLS", 262_144)
 MAX_RANGE_CELLS = _env("TODOKU_MAX_RANGE_CELLS", 16_777_216)
 MAX_ARRAY_CELLS = _env("TODOKU_MAX_ARRAY_CELLS", 4_194_304)
@@ -206,13 +209,15 @@ def inflate(data: bytes, wbits: int = 15, what: str = "", part: int | None = Non
     b = budget()
     cap = b.room(part, len(data))
     d = zlib.decompressobj(wbits)
-    out = bytearray()
+    pieces: list[bytes] = []  # 少しずつ伸ばさない（伸ばすたびに写すと、大きなデータで一時に何倍も使う）
+    got = 0
     src = data
     try:
         while True:
-            piece = d.decompress(src, min(1 << 22, cap - len(out) + 1))
-            out += piece
-            if len(out) > cap:
+            piece = d.decompress(src, min(1 << 22, cap - got + 1))
+            pieces.append(piece)
+            got += len(piece)
+            if got > cap:
                 raise b.exceeded(cap, part, what)
             src = d.unconsumed_tail
             if d.eof or (not src and not piece):
@@ -222,8 +227,12 @@ def inflate(data: bytes, wbits: int = 15, what: str = "", part: int | None = Non
     except zlib.error:
         if not tolerant:
             raise
-    b.charge(len(out), what)
-    return bytes(out)
+    b.charge(got, what)
+    out = b"".join(pieces)
+    if got >= 1 << 26:
+        pieces.clear()
+        release_memory()
+    return out
 
 
 class StreamInflate:
@@ -259,6 +268,32 @@ def progress(text: str, done: int = 0, total: int = 0) -> None:
     fn = _PROGRESS["report"]
     if fn is not None:
         fn(text, done, total)
+
+
+def release_memory() -> None:
+    """使い終えた大きなメモリを OS に返す（macOS の malloc は、大きな塊を自分の控えに残し、常駐に数えられたままになる）。"""
+    global _RELEASE
+    if _RELEASE is None:
+        import ctypes
+        import sys
+
+        _RELEASE = lambda: None  # noqa: E731
+        try:
+            if sys.platform == "darwin":
+                fn = ctypes.CDLL("libSystem.dylib").malloc_zone_pressure_relief
+                fn.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+                fn.restype = ctypes.c_size_t
+                _RELEASE = lambda: fn(None, 0)
+            elif sys.platform.startswith("linux"):
+                trim = ctypes.CDLL(None).malloc_trim
+                trim.argtypes = [ctypes.c_size_t]
+                _RELEASE = lambda: trim(0)
+        except (OSError, AttributeError):
+            pass
+    _RELEASE()
+
+
+_RELEASE = None
 
 
 def check_output(n: int, what: str = "", part: int | None = None) -> None:

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import re
+import math
 import unicodedata
 from dataclasses import dataclass, field
 
@@ -23,7 +24,7 @@ from ..xlsx.window import label_text
 from .content import PageContent
 # 字・罫線・マス・行（pagetext）：ここからも同じ名前で使える（ほかのモジュール・テストの import のため）
 from .pagetext import (  # noqa: F401
-    _attach_marks, BOX_GLYPHS, _box_overlap, Cell, CellIndex, cells_from, Ch, _clash, EM_ROUND, EM_SPACE, glyph_frame,
+    WIDE_BUCKETS, _attach_marks, BOX_GLYPHS, _box_overlap, Cell, CellIndex, cells_from, Ch, _clash, EM_ROUND, EM_SPACE, glyph_frame,
     _is_cjk, _is_hangul, _is_mark, is_overprint, _is_pua, join_lines, Line, _line, _logical_order, make_lines, _merge,
     MM_PT, _move_pre_base, no_word_space, PRE_BASE, _ruby_base, Rule, rulings, _spaces, _split_overprinted, user_unit,
     _vertical_runs, _vertical_stacks, View, view_chars, _virama, wide_gap,
@@ -662,15 +663,15 @@ class PageLayout:
         # 重なる所：小さいほうの面積の 6 割（チェックの印どうしは 7 割）より多く重なる所は、同じ所の別の読み方（alternative_to）。
         # 両方に書くと字が重なるので、書き込みはどちらか一方だけを受ける（先に見つけた所を主にする）。重なりは測った事実で、
         # どちらが正しい読み方かは決めない
-        kept: list[Spot] = []
+        kept = _RectIndex()
         for s in self.spots:
             chk = s.kind == "checkbox"
             lim = 0.7 if chk else 0.6
-            k = next((k for k in kept if (k.kind == "checkbox") == chk and _overlap(s.rect, k.rect) > lim), None)
+            k = next((k for k in kept.touching(s.rect) if (k.kind == "checkbox") == chk and _overlap(s.rect, k.rect) > lim), None)
             if k is not None:
                 s.alternative_to = k
                 continue
-            kept.append(s)
+            kept.add(s)
         # ページの外：見えるのはページの枠（CropBox を MediaBox に切り詰めたもの）の中だけ。欄の四角を枠に切り詰め、
         # 枠の外にしかないもの（ページの外に描いた線・字から見つけたもの）は欄にしない
         self._clip_to_page()
@@ -698,11 +699,21 @@ class PageLayout:
         B = 24.0
         self._yb: dict[int, list[int]] = {}
         self._xb: dict[int, list[int]] = {}
+        self._y_wide: list[int] = []  # ページより何桁も大きな宣言の字：帯に置かず、いつも見る
+        self._x_wide: list[int] = []
         for i, it in enumerate(items):
-            for k in range(int(it[1] // B), int(it[3] // B) + 1):
-                self._yb.setdefault(k, []).append(i)
-            for k in range(int(it[0] // B), int(it[2] // B) + 1):
-                self._xb.setdefault(k, []).append(i)
+            a, b = int(it[1] // B), int(it[3] // B)
+            if b - a > WIDE_BUCKETS:
+                self._y_wide.append(i)
+            else:
+                for k in range(a, b + 1):
+                    self._yb.setdefault(k, []).append(i)
+            a, b = int(it[0] // B), int(it[2] // B)
+            if b - a > WIDE_BUCKETS:
+                self._x_wide.append(i)
+            else:
+                for k in range(a, b + 1):
+                    self._xb.setdefault(k, []).append(i)
         self._B = B
         self._line_of = {id(ch): ln for ln in self.all_lines() for ch in ln.chars}
 
@@ -712,7 +723,7 @@ class PageLayout:
         x0, y0, x1, y1 = r
         B = self._B
         best: dict[str, tuple] = {}
-        rows = {i for k in range(int(y0 // B), int(y1 // B) + 1) for i in self._yb.get(k, ())}
+        rows = _in_bands(self._yb, self._y_wide, int(y0 // B), int(y1 // B))
         for i in rows:
             it = self._items[i]
             if min(y1, it[3]) - max(y0, it[1]) <= 0:
@@ -725,7 +736,7 @@ class PageLayout:
                 continue
             if side not in best or d < best[side][0]:
                 best[side] = (max(d, 0.0), it)
-        cols = {i for k in range(int(x0 // B), int(x1 // B) + 1) for i in self._xb.get(k, ())}
+        cols = _in_bands(self._xb, self._x_wide, int(x0 // B), int(x1 // B))
         for i in cols:
             it = self._items[i]
             if min(x1, it[2]) - max(x0, it[0]) <= 0:
@@ -1230,6 +1241,58 @@ def _inside(r, box) -> bool:
 
 def _area(r) -> float:
     return max(0.0, r[2] - r[0]) * max(0.0, r[3] - r[1])
+
+
+def _in_bands(bands: dict[int, list[int]], wide: list[int], a: int, b: int) -> set[int]:
+    """帯 a〜b にある項目。幅の広い所（ページより何桁も大きな欄）は、番号を 1 つずつ探さず、ある帯を見る。"""
+    if b - a >= len(bands):
+        return {i for k, items in bands.items() if a <= k <= b for i in items} | set(wide)
+    return {i for k in range(a, b + 1) for i in bands.get(k, ())} | set(wide)
+
+
+class _RectIndex:
+    """四角の索引：重なりうる所（入れた順）だけを比べる（線の交わりが何千とあるページでも、所どうしを総当たりしない）。
+    四角は大きさの桁（2 の冪）ごとの升目に置くので、大小の四角が混ざっても、1 つの四角は 4 升までに収まる。"""
+
+    def __init__(self):
+        self.items: list = []
+        self.grids: dict[int, dict[tuple[int, int], list[int]]] = {}
+        self.odd: list[int] = []  # 無限大など、升目に置けない四角：いつも比べる
+
+    def add(self, s) -> None:
+        i = len(self.items)
+        self.items.append(s)
+        r = s.rect
+        if not math.isfinite(r[0] + r[1] + r[2] + r[3]):
+            self.odd.append(i)
+            return
+        level = math.frexp(max(r[2] - r[0], r[3] - r[1], 1.0))[1]
+        cell = 2.0 ** level
+        grid = self.grids.setdefault(level, {})
+        for x in range(math.floor(r[0] / cell), math.floor(r[2] / cell) + 1):
+            for y in range(math.floor(r[1] / cell), math.floor(r[3] / cell) + 1):
+                grid.setdefault((x, y), []).append(i)
+
+    def touching(self, r, pad: float = 0.0, own_size: bool = False) -> list:
+        """四角 r に重なりうるもの（入れた順）。pad：r をこれだけ広げて探す。own_size：相手の大きさの分も広げて探す
+        （「欄の高さの内に接する」のように、相手の大きさで届く所を探すとき）。"""
+        if not math.isfinite(r[0] + r[1] + r[2] + r[3] + pad):
+            return self.items
+        found = set(self.odd)
+        for level, grid in self.grids.items():
+            cell = 2.0 ** level
+            grow = pad + (cell if own_size else 0.0)
+            x0, x1 = math.floor((r[0] - grow) / cell), math.floor((r[2] + grow) / cell)
+            y0, y1 = math.floor((r[1] - grow) / cell), math.floor((r[3] + grow) / cell)
+            if (x1 - x0 + 1) * (y1 - y0 + 1) > len(grid):  # 升目が多い：ある升目だけを見る
+                for (x, y), ids in grid.items():
+                    if x0 <= x <= x1 and y0 <= y <= y1:
+                        found.update(ids)
+            else:
+                for x in range(x0, x1 + 1):
+                    for y in range(y0, y1 + 1):
+                        found.update(grid.get((x, y), ()))
+        return [self.items[i] for i in sorted(found)]
 
 
 def _overlap(r1, r2) -> float:

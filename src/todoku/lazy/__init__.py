@@ -170,6 +170,8 @@ def smaller_request(tool: str, args: dict) -> str:
     if tool == "fill_document":
         return (f"一度に書く所を減らして、何回かに分けて書いてください（書いたファイルを次の path に）。読むだけなら read_window に {what[0]} を渡せます。"
                 "TODOKU_MEMORY_LIMIT_MB・TODOKU_TIME_LIMIT を大きくしても動きます")
+    if tool == "view_page":
+        return "ページの一部だけを頼んでください：view_page に region（[左, 上, 右, 下] の mm）を渡すと、その範囲の画像だけを開きます。dpi を下げても軽くなります"
     if tool == "read_table":
         return f"表の見出しまでの行を read_window に {what[0]} で読み、要る行の範囲を頼んでください"
     if what[0] != "raw: true" and ext not in (".csv", ".tsv", ".jsonl", ".ndjson", ".txt"):

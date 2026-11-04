@@ -134,9 +134,14 @@ def _budgeted(fn):
     @functools.wraps(fn)
     def run(*a, **k):
         import struct
+        import xml.etree.ElementTree as ET
+        import xml.parsers.expat as expat
+        import zlib
 
         from .cfb import CfbError
         from .limits import call_budget
+        from .pdf.crypto import NeedsPassword as PdfNeedsPassword
+        from .pdf.objects import PdfError
         from .xls.book import XlsError
 
         try:
@@ -147,6 +152,13 @@ def _budgeted(fn):
             raise ApiError(broken_message(a[0] if a else k.get("path"), e)) from None
         except XlsError as e:
             raise ApiError(str(e)) from None  # 読めないブック：本人に分かる言葉（例外の種類の名前は見せない）
+        except (zlib.error, ET.ParseError, expat.ExpatError) as e:
+            # 壊れた圧縮・XML（形式の読み方の入口で分かる、ファイルの壊れ）：種類の名前を添えて、壊れていることを伝える
+            raise ApiError(f"{broken_message(a[0] if a else k.get('path'), e)}（{type(e).__name__}）") from None
+        except PdfError as e:
+            if isinstance(e, PdfNeedsPassword):
+                raise
+            raise ApiError(f"PDF が壊れていて読めません：{e}") from None
         except _broken_input() as e:
             raise ApiError(_broken_detail(e)) from None
 
@@ -2177,11 +2189,12 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
             raise ApiError(broken_message(path, e)) from None
     if k != "pdf":
         raise ApiError("view_page は PDF・XPS と画像のファイルのページの画像です（ほかの形式は窓で読み、書類の中の画像は view_image で見ます）")
+    from .limits import LimitExceeded
+
     doc = _pdf(blob, name, lock)
     try:
         if dpi is not None and (isinstance(dpi, bool) or not isinstance(dpi, (int, float)) or not 10 <= dpi <= 1200):
             raise ApiError("dpi は 10〜1200 の数で指定してください（省くとページ全体は 100 dpi）")
-        from .limits import LimitExceeded
 
         problem = ""
         try:
@@ -2198,6 +2211,8 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
             v["text"] += " " + problem + "。"
             v["not_drawn"].append(problem)
         return v
+    except LimitExceeded:
+        raise  # 上限：サーバーが、小さな頼み方を添えて伝える
     except ValueError as e:
         raise ApiError(str(e)) from None
 

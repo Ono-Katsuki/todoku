@@ -799,6 +799,16 @@ def _colorspace(doc, cs) -> tuple[str, int, object]:
     return "DeviceGray", 1, None
 
 
+def _thin_step(w: int, h: int, max_pixels: int) -> int:
+    """幅 × 高さが max_pixels に収まる、行と列を間引く間隔（大きな宣言でも、すぐに決まるよう 1% ずつ増やす）。"""
+    import math
+
+    step = max(1, math.isqrt(w * h // max(1, max_pixels)))
+    while (-(-w // step)) * (-(-h // step)) > max_pixels:
+        step = max(step + 1, step * 101 // 100)
+    return step
+
+
 def _raw_gray(doc, data: bytes, d: dict, w: int, h: int, max_pixels: int = 4_000_000) -> Gray:
     """圧縮していない（Flate などで開いた後の）画素の並び → 濃さ。幅 × 高さが max_pixels を超える画像は、
     行と列を同じ間隔で間引いて開く（画素の並びの大きさを作る前に決める：データより大きな幅・高さを書いた画像でも、
@@ -813,19 +823,19 @@ def _raw_gray(doc, data: bytes, d: dict, w: int, h: int, max_pixels: int = 4_000
         raise RasterError("画像の大きさか色空間が分かりません")
     if w < 0 or h < 0:
         raise RasterError("画像の大きさが負です")
-    import math
-
-    step = max(1, math.isqrt(w * h // max(1, max_pixels)))
-    while (-(-w // step)) * (-(-h // step)) > max_pixels:
-        step += 1
+    step = _thin_step(w, h, max_pixels)
     stride = (w * nc * bpc + 7) // 8
     out = bytearray()
     maxv = (1 << bpc) - 1
     ow, oh = -(-w // step), -(-h // step)
+    # 宣言の幅でなく、実際にあるデータの分だけ読む（足りない所は 0 とみなすが、場所は出力の画素の分だけ取る）
+    w_read = min(w, len(data) * 8 // max(1, nc * bpc))
+    stride_read = (w_read * nc * bpc + 7) // 8
+    ow_read = -(-w_read // step)
     # 使う成分の番号（間引かなければ全部）
-    comps = range(w * nc) if step == 1 else [x * nc + c for x in range(0, w, step) for c in range(nc)]
+    all_comps = range(w_read * nc) if step == 1 else [x * nc + c for x in range(0, w_read, step) for c in range(nc)]
 
-    def line(row: bytes) -> bytes:
+    def line(row: bytes, comps=all_comps, ow: int = ow_read) -> bytes:
         if bpc == 8:
             vals = row if step == 1 else bytes(row[i] for i in comps)
         elif bpc == 16:
@@ -844,17 +854,16 @@ def _raw_gray(doc, data: bytes, d: dict, w: int, h: int, max_pixels: int = 4_000
             return bytes(vals[:ow])
         return bytes(_to_gray(kind, vals[i * nc:(i + 1) * nc]) for i in range(ow))
 
-    blank = None  # データのない行（0 とみなす）は、1 度だけ作る
+    zero = line(bytes((nc * bpc + 7) // 8 + 1), range(nc), 1)  # 0 の標本の濃さ
+    pad = zero * (ow - ow_read)
     for y in range(0, h, step):
         if y * stride >= len(data):
-            if blank is None:
-                blank = line(bytes(stride))
-            out += blank
-            continue
-        row = data[y * stride:(y + 1) * stride]
-        if len(row) < stride:
-            row = row + b"\0" * (stride - len(row))
-        out += line(row)
+            out += zero * (ow * ((h - y + step - 1) // step))  # データのない行
+            break
+        row = data[y * stride:y * stride + stride_read]
+        if len(row) < stride_read:
+            row = row + b"\0" * (stride_read - len(row))
+        out += line(row) + pad
     g = Gray(ow, oh, bytes(out))
     if kind == "Separation":  # 色の濃さ（1＝インクいっぱい）
         g = Gray(ow, oh, g.px.translate(bytes(255 - i for i in range(256))))

@@ -192,32 +192,22 @@ def _tt_simple(g: bytes, nc: int) -> list:
 
 
 def _cmaps(t: bytes) -> dict[tuple[int, int], dict[int, int]]:
-    from ..sfnt import _subtable
+    from ..sfnt import cmap_tables
 
-    out: dict[tuple[int, int], dict[int, int]] = {}
-    if len(t) < 4:
-        return out
-    try:
-        n = struct.unpack_from(">H", t, 2)[0]
-        for i in range(n):
-            pid, eid, off = struct.unpack_from(">HHI", t, 4 + 8 * i)
-            try:
-                m = _subtable(t, off)
-            except (struct.error, IndexError):
-                m = {}
-            if m:
-                out.setdefault((pid, eid), m)
-    except struct.error:
-        pass
-    return out
+    return cmap_tables(t)
 
 
 def sfnt_tables(data: bytes, offset: int = 0) -> dict[str, bytes]:
     out: dict[str, bytes] = {}
     n = struct.unpack_from(">H", data, offset + 4)[0]
+    room = 2 * len(data)  # 本物の表は重ならない：宣言の 16 バイトが、同じ大きな場所を何度も写させないように
     for i in range(n):
         tag, _chk, off, ln = struct.unpack_from(">4sIII", data, offset + 12 + 16 * i)
-        out[tag.decode("latin-1")] = data[off:off + ln]
+        piece = data[off:off + min(ln, room)]
+        room -= len(piece)
+        if room < 0:
+            break
+        out[tag.decode("latin-1")] = piece
     return out
 
 
@@ -753,7 +743,7 @@ class Type1Outlines:
         self.encoding_names = type1_encoding(data[:k + 5])
         m = re.search(rb"/lenIV\s+(-?\d+)", priv)
         self.leniv = int(m[1]) if m else 4
-        self.subrs: list[bytes] = []
+        self.subrs: dict[int, bytes] = {}
         self.charstrings: dict[str, bytes] = {}
         self._parse(priv)
         self.names = {n: n for n in self.charstrings}
@@ -763,8 +753,7 @@ class Type1Outlines:
         m = re.search(rb"/Subrs\s+(\d+)\s+array", p)
         pos = 0
         if m:
-            n = int(m[1])
-            self.subrs = [b""] * n
+            n = int(m[1])  # 宣言の数：場所は取らない（実際にある分だけ下で入れる）
             pos = m.end()
             rx = re.compile(rb"dup\s+(\d+)\s+(\d+)\s+(\S+)\s")
             for _ in range(n):
@@ -908,7 +897,7 @@ class Type1Outlines:
                     st.clear()
                 elif v == 10:
                     k = int(st.pop())
-                    if 0 <= k < len(self.subrs):
+                    if k in self.subrs:
                         if run(self.subrs[k], depth + 1):
                             return True
                 elif v == 11:
