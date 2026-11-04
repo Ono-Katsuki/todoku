@@ -198,3 +198,17 @@ def test_audit_counts_overprints_with_the_window_rule():
     doc = PdfDocument(blob, "t.pdf")
     glyphs = page_content(doc, list(doc.pages())[0]).glyphs
     assert overprints(glyphs) == {"A": 1}
+
+
+def test_grid_block_where_a_whole_row_is_left_out_of_the_group():
+    """格子のある行のマスが、上・左の字が違うのでまとまりに入らないとき、窓が落ちない。"""
+    from todoku.pdf.window import _grid_blocks
+
+    def cell(x, y, above, left):
+        return {"id": f"p1.t{x}-{y}", "page": 1, "source": "layout", "shape": "cell",
+                "facts": {"rect_mm": [x, y, x + 10, y + 10], "size_mm": [10, 10],
+                          "above": {"text": above, "mm": 1}, "left": {"text": left, "mm": 1}}}
+
+    fields = [cell(10, 10, "甲", "一"), cell(20, 10, "乙", "一"), cell(10, 20, "丙", "二"), cell(20, 20, "丁", "二")]
+    blocks, used = _grid_blocks(fields)
+    assert used <= {f["id"] for f in fields}

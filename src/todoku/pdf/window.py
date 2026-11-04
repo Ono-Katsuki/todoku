@@ -1217,6 +1217,8 @@ def _grid_blocks(fields: list[dict]) -> tuple[list[tuple[dict, list[str]]], set[
             ends = []
             for y in ys:
                 row = [f for f in members if _id_xy(f["id"])[1] == y]
+                if not row:  # この行のマスは、上・左の字が違うので、まとまりに入っていない
+                    continue
                 last = max(row, key=lambda f: _id_xy(f["id"])[0])
                 if txt(last, "right"):
                     ends.append((f"y={y}", txt(last, "right"), last["facts"]["right"]["mm"]))
@@ -1225,6 +1227,8 @@ def _grid_blocks(fields: list[dict]) -> tuple[list[tuple[dict, list[str]]], set[
             bots = []
             for x in xs:
                 col = [f for f in members if _id_xy(f["id"])[0] == x]
+                if not col:
+                    continue
                 low = max(col, key=lambda f: _id_xy(f["id"])[1])
                 if txt(low, "below"):
                     bots.append((f"x={x}", txt(low, "below"), low["facts"]["below"]["mm"]))
@@ -1233,7 +1237,8 @@ def _grid_blocks(fields: list[dict]) -> tuple[list[tuple[dict, list[str]]], set[
             combs = {f.get("alternative_to") for f in members if f.get("alternative_to")
                      and (by_id.get(f["alternative_to"]) or {}).get("shape") == "cells"}
             if combs:
-                every = {f"p{pg}.m{min(_id_xy(f['id'])[0] for f in members if _id_xy(f['id'])[1] == y)}-{y}" for y in ys}
+                every = {f"p{pg}.m{min(_id_xy(f['id'])[0] for f in members if _id_xy(f['id'])[1] == y)}-{y}"
+                         for y in ys if any(_id_xy(f["id"])[1] == y for f in members)}
                 shown = (f"［p{pg}.m{xs[0]}-{{y}}？］（y は各行の y）" if combs == every and all(c.startswith(f"p{pg}.m{xs[0]}-") for c in combs)
                          else "・".join(f"［{c}？］" for c in sorted(combs, key=lambda c: [int(v) for v in re.findall(r"\d+", c)])))
                 lines.append("  - 横に続くマスの並び（1 字ずつ書く。{\"as\": \"text\"} で 1 つの欄に。並びとマスは重なるので、書けるのは"
