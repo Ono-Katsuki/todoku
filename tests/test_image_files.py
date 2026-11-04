@@ -500,10 +500,10 @@ def test_audit_of_image_reports_ok(tmp_path):
     assert d["ok"] and d["grade"]["grade"] == "E"
 
 
-def test_heic_is_detected_and_says_the_exact_conversion_never_pretends(tmp_path):
+def test_broken_heic_says_the_exact_conversion_never_pretends(tmp_path):
     p = tmp_path / "a.heic"
     p.write_bytes(struct.pack(">I", 24) + b"ftypheic" + b"\0\0\0\0mif1heic" + b"\0" * 64)
-    with pytest.raises(api.Unsupported) as e:
+    with pytest.raises(api.ApiError) as e:
         api.window(str(p))
     assert "sips -s format jpeg" in str(e.value)
     g = api.grade(str(p))

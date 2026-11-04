@@ -220,6 +220,10 @@ def audit(blob: bytes, name: str):
     bad = []
     for i, _f in enumerate(frames):
         try:
+            if _fmt == "heic":  # 全部を開くと何分もかかる：はじめのタイルが開けることを確かめる（見出しは全部読んである）
+                fr = decode(blob, i, 250_000, time.monotonic() + DECODE_SECONDS, (0, 0, 1, 1))
+                bad += [f"{i + 1} 枚目：{p}" for p in fr.problems if not fr.incomplete]
+                continue
             fr = decode(blob, i, 250_000)
             bad += [f"{i + 1} 枚目：{p}" for p in fr.problems]
         except Exception as e:  # noqa: BLE001
@@ -245,7 +249,9 @@ def to_pdf(blob: bytes) -> tuple[bytes, list[dict], list[str]]:
         if fmt == "jpeg" and _jpeg_upright(blob):
             passthrough = blob
         else:
-            fr = decode(blob, i)
+            fr = decode(blob, i, None, time.monotonic() + DECODE_SECONDS)
+            if fr.incomplete:  # 途中の画素を PDF にしない（PDF の見た目が本物と違ってしまう）
+                raise ImageError(f"まだ全部を開けていないので、PDF に包めません（{'／'.join(fr.problems[:1])}）")
             fw, fh = fr.w, fr.h
             notes += [f"{i + 1} 枚目：{p}" for p in fr.problems]
         dpi = fi.dpi
