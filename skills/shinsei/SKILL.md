@@ -56,6 +56,7 @@ description: 申請書・届出・様式（Excel・Word・PDF・一太郎など�
 
 ## 道具
 
+- 大きな書類：`open_document` が概要（`large`）を返したら、要る所を `read_window` に範囲で頼む（PDF は `pages`、Excel は `sheet` と `rows`、CSV・TSV は `rows`、JSON Lines は `records`、.txt・Word は `paragraphs`）。結果の `next` をそのまま渡すと続きが読め、たどり終えると全部を読んだことになる。読む量を分けるだけで、読めない所はない（本人に「大きいので読めません」と言わない）。`list_fields` も同じ範囲で頼む。段階の `deferred`（未確認）は、まだ確かめていないことなので、確かめたように伝えない。`audit_document` は長い仕事で、呼ぶたびに進み具合を返す。止まったら `smaller_request` の頼み方で頼み直す。
 - `open_document` → `read_window`：書類を開いて窓を読む。扱える形式は Excel（.xlsx・.xlsm・.xls）・Word（.docx・.docm・.doc）・PDF・
   一太郎（.jtd）・OpenDocument（.odt・.ods）・RTF・PowerPoint（.pptx）・.txt・CSV・TSV・JSON・ZIP・한글の HWPX（.hwpx。読む・書く）。
   한글の HWP 5（.hwp）は読むだけ（書くときは、本人に HWPX で保存し直したファイルを頼む）。配布用・パスワードの HWP は読めない。

@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
+
 import posixpath
 import re
 import xml.etree.ElementTree as ET
@@ -336,7 +339,8 @@ class Sheet:
     def note_unread(self, what: str, r1: int, c1: int, r2: int, c2: int) -> None:
         """広げなかった宣言を控える（同じものは 1 度だけ）。"""
         note = (f"{self.name}：{what}の範囲 {addr(r1, c1)}:{addr(r2, c2)} は広すぎるので（壊れている可能性があります）、"
-                "ファイルにあるセルだけを見ました。セルのない所は欄として広げていません")
+                "ファイルにあるセルだけを見ました。セルのない所は欄として広げていません"
+                "（どのセルにも番地で書けます。read_window・list_fields に sheet と rows を渡すと、頼んだ行の範囲では欄として広げます）")
         if note not in self.unread:
             self.unread.append(note)
 
@@ -393,6 +397,19 @@ class CondRule:
 
     def covers(self, r: int, c: int) -> bool:
         return _covers(self, r, c)
+
+
+_SST_SOURCE = contextvars.ContextVar("todoku_sst_source", default=None)
+
+
+@contextlib.contextmanager
+def sst_scope(source):
+    """小さなブック（lazy）の共有文字列：部品を読まず、元のブックの字を番号で引く（番号は元のまま）。"""
+    tok = _SST_SOURCE.set(source)
+    try:
+        yield
+    finally:
+        _SST_SOURCE.reset(tok)
 
 
 class Workbook:
@@ -537,6 +554,11 @@ class Workbook:
 
     def _load_shared_strings(self, path: str) -> None:
         self.sst_path = path
+        src = _SST_SOURCE.get()
+        if src is not None:
+            self.shared_strings = src
+            self.phonetic = src.phonetic
+            return
         root = self.xml(path)
         for i, si in enumerate(root.findall(M + "si")):
             self.shared_strings.append(_rich_text(si))

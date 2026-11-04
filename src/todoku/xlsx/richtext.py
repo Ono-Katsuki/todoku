@@ -123,7 +123,15 @@ def cell_rst(wb, sheet: str, r: int, c: int) -> Rst | None:
         path = getattr(wb, "sst_path", None)
         if vm is None or not path or not wb.zip.has(path):
             return None
-        sst = wb.zip.read(path)
+        src = wb.shared_strings
+        if hasattr(src, "si_xml"):  # 小さなブック（lazy）：字は元のブックの部品から番号で引く
+            i_ = int(vm[1])
+            if i_ >= len(src):
+                return None
+            sst = src.wrap_open + src.si_xml(i_) + src.wrap_close
+            vm = {1: b"0"}
+        else:
+            sst = wb.zip.read(path)
         sm = re.search(rb"<(\w+:)?sst\b", sst)
         sp = (sm[1] if sm else None) or b""
         q = re.escape(sp)

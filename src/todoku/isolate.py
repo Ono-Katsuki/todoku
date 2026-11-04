@@ -176,10 +176,14 @@ class Worker:
             t0 = time.monotonic()
             next_ps = t0 + 1.0
             why = None
+            at = None
             while True:
                 ready, _w, _x = select.select([self.res], [], [], 0.2)
                 if ready:
                     msg = _recv(self.res)
+                    if msg is not None and "progress" in msg:
+                        at = msg["progress"]  # 働き手の進み具合（止まったときに、どこまで進んだかを言う）
+                        continue
                     if msg is not None:
                         return msg["result"]
                     try:
@@ -200,7 +204,7 @@ class Worker:
                         break
             self.stop()
             self.start()  # 次の呼び出しのために、すぐ立ち上げ直す（立ち上がるのを待たない）
-            return stopped(why)
+            return stopped(why, name, args, at)
 
 
 def _MEMORY() -> str:  # noqa: N802
@@ -211,9 +215,16 @@ def _TIME() -> str:  # noqa: N802
     return f"{limits.TIME_LIMIT} 秒を超えても終わりませんでした（環境変数 TODOKU_TIME_LIMIT で変えられます）"
 
 
-def stopped(why: str) -> dict:
-    return {"content": [{"type": "text", "text": f"{limits.STOPPED}：{why}"}], "isError": True,
-            "structuredContent": {"stopped": True, "reason": why}}
+def stopped(why: str, name: str = "", args: dict | None = None, at: dict | None = None) -> dict:
+    """止めた理由と、どこまで進んだか、代わりに頼める小さな頼み方（行き止まりにしない）。"""
+    from .lazy import smaller_request
+
+    hint = smaller_request(name, args or {})
+    where = ""
+    if at and at.get("text"):
+        where = f"（{at['text']}" + (f"：{at['done']:,}／{at['total']:,}" if at.get("total") else "") + " まで進みました）"
+    return {"content": [{"type": "text", "text": f"{limits.STOPPED}：{why}{where}\n{hint}"}], "isError": True,
+            "structuredContent": {"stopped": True, "reason": why, "smaller_request": hint, **({"progress": at} if at else {})}}
 
 
 _WORKER: Worker | None = None
@@ -266,6 +277,16 @@ def _watchdog() -> None:
 def serve(req: int, res: int) -> int:
     _watchdog()
     from . import mcp_server  # 先に読み込んでおく（はじめの呼び出しを速く）
+
+    last = {"t": 0.0}
+
+    def report(text: str, done: int = 0, total: int = 0) -> None:  # 1 秒に 1 回まで、サーバーに進み具合を伝える
+        now = time.monotonic()
+        if now - last["t"] >= 1.0:
+            last["t"] = now
+            _send(res, {"progress": {"text": text, "done": done, "total": total}})
+
+    limits.set_progress_reporter(report)
 
     while True:
         msg = _recv(req)

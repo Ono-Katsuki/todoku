@@ -92,7 +92,8 @@ class Evaluator:
     def materialize(self, rng: Rng) -> Arr:
         rng = self.clip(rng)
         if (rng.r2 - rng.r1 + 1) * (rng.c2 - rng.c1 + 1) > MAX_RANGE_CELLS:
-            raise Unsupported(f"範囲が広すぎます（{rng.r2 - rng.r1 + 1:,} 行 × {rng.c2 - rng.c1 + 1:,} 列）")
+            raise Unsupported(f"範囲が広すぎます（{rng.r2 - rng.r1 + 1:,} 行 × {rng.c2 - rng.c1 + 1:,} 列）。この数式は計算せず、Excel で開いたときに計算されます。"
+                              "範囲の中の字は read_window に sheet と rows を渡して読めます")
         return Arr([[self.ctx.cell_value(rng.sheet, r, c) for c in range(rng.c1, rng.c2 + 1)]
                     for r in range(rng.r1, rng.r2 + 1)])
 

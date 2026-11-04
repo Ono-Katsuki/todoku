@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
+
 import hashlib
 import re
 from dataclasses import dataclass, field
@@ -960,7 +963,22 @@ def unknown_id_message(key: str) -> str:
     return ""
 
 
-def build(doc: PdfDocument) -> dict:
+_PAGE_SCOPE: contextvars.ContextVar = contextvars.ContextVar("todoku_pdf_pages", default=None)
+
+
+@contextlib.contextmanager
+def page_scope(pages):
+    """大きな PDF（lazy）：この中で作る窓は、pages（ページの番号）だけを配置する。"""
+    tok = _PAGE_SCOPE.set(pages)
+    try:
+        yield
+    finally:
+        _PAGE_SCOPE.reset(tok)
+
+
+def build(doc: PdfDocument, pages=None) -> dict:
+    """pages：配置するページの番号（None なら全部。page_scope の中ならその範囲）。"""
+    pages = pages if pages is not None else _PAGE_SCOPE.get()
     blob = doc.blob
     fields = read_fields(doc)
     out = {
@@ -991,6 +1009,8 @@ def build(doc: PdfDocument) -> dict:
     }
     xw = _xfa_window(doc)
     for i, p in enumerate(doc.pages()):
+        if pages is not None and i + 1 not in pages:
+            continue
         out["pages"].append(page_window(doc, p, i + 1, fields, layout=xw is None or not xw.get("readable")))
     if xw is not None:
         out["xfa"] = xw

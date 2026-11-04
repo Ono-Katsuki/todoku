@@ -78,13 +78,15 @@ def _read(path: str, password: str | None = None):
 
 
 def _read_file(p: Path) -> bytes:
-    """ファイルを読む。limits.MAX_FILE より大きなファイルは読まない（申請書類は、ふつう数 MB まで）。"""
-    from .limits import MAX_FILE
+    """ファイルをメモリに読む。limits.MAX_FILE（メモリの上限の半分）より大きなファイルは読まない。分けて読める形式（lazy）は、ここを
+    通らない。.xlsx も PDF も大きなものは分けて読むので、ここに当たるのは丸ごと読むしかない形式だけ。そのときは次の手を伝える。"""
+    from . import limits
 
     size = p.stat().st_size
-    if size > MAX_FILE:
-        raise ApiError(f"ファイルが大きすぎるので開きません（{size / 1048576:,.0f} MB。開ける大きさは {MAX_FILE / 1048576:,.0f} MB まで。"
-                       "環境変数 TODOKU_MAX_FILE_MB で変えられます）")
+    if size > limits.MAX_FILE:
+        raise ApiError(f"ファイルが大きすぎるので、丸ごとメモリに読めません（{size / 1048576:,.0f} MB。メモリに読める大きさは "
+                       f"{limits.MAX_FILE / 1048576:,.0f} MB まで）。環境変数 TODOKU_MEMORY_LIMIT_MB・TODOKU_MAX_FILE_MB を大きくすると読めます")
+    limits.budget().allow_file(size)
     return p.read_bytes()
 
 
@@ -220,7 +222,10 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
 
     blob, name, k, lock = _read(path, password)
     encoding = _encoding(blob, k, encoding)
-    key = (hashlib.sha256(blob).hexdigest(), name, encoding) if lock is None else None
+    from .pdf.window import _PAGE_SCOPE
+
+    scope = _PAGE_SCOPE.get()  # 大きな PDF：書く所のページだけの窓
+    key = (hashlib.sha256(blob).hexdigest(), name, encoding, tuple(sorted(scope)) if scope is not None else None) if lock is None else None
     if key is not None and key in _WINDOWS:
         _WINDOWS[key] = _WINDOWS.pop(key)  # いちばん新しく使ったものにする
         return pickle.loads(_WINDOWS[key][1])  # 呼んだ側が変えても控えは変わらないよう、写しを返す
@@ -484,6 +489,19 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         raise ApiError(str(e)) from None
     temps: list[Path] = []
     try:
+        lz = lazy_open(path, password, encoding, built_ok=False) if _member(path) is None else None
+        if lz is not None and lz.kind == "pdf":
+            # 大きな PDF：書く所のページだけを配置して、いままでの書き込みと証明を通す（増分更新なので、元のバイトはそのまま）
+            from .pdf.window import page_scope
+
+            pages = lz.pages_for(values)
+            with page_scope(pages):
+                res = _fill(path, values, out_path, force, password, encoding, overwrite, temps)
+            note = (f"大きな PDF なので、「まだ空いている欄」は書いたページ（{sorted(pages)[:20]}）の分だけです。"
+                    "ほかのページの欄は list_fields に pages を渡すと分かります")
+            res["empty_fields_note"] = note
+            res["say_to_user"] = (res.get("say_to_user") or "") + f"\n（{note}）"
+            return res
         return _fill(path, values, out_path, force, password, encoding, overwrite, temps)
     finally:
         for t in temps:
@@ -501,6 +519,16 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     src = Path(path).expanduser().resolve()
     dst = Path(out_path).expanduser().resolve()
     _not_source(src, dst)
+    lz = lazy_open(path, password, encoding, built_ok=False)
+    if lz is not None and hasattr(lz, "fill") and lz.streams:
+        # 大きな書類：書く所のバイトだけを置き換えて写す（窓の全体を作らない）
+        plain, said = _split_values(values, lz.kind, {})
+        try:
+            return lz.fill(plain, out_path, force, overwrite, said)
+        except ApiError:
+            raise
+        except ValueError as e:
+            raise ApiError(str(e)) from None
     blob, name, k, lock = _read(path, password)
     encoding = _encoding(blob, k, encoding)
     if k in _arc.KINDS:
@@ -1028,6 +1056,19 @@ def _temp_beside(dst: Path, blob: bytes) -> Path:
     return Path(name)
 
 
+def _same_bytes(a: Path, b: Path) -> bool:
+    """2 つのファイルが同じ中身か（少しずつ読んで比べる）。"""
+    if a.stat().st_size != b.stat().st_size:
+        return False
+    with a.open("rb") as fa, b.open("rb") as fb:
+        while True:
+            x = fa.read(1 << 20)
+            if x != fb.read(1 << 20):
+                return False
+            if not x:
+                return True
+
+
 def _publish(tmp: Path, dst: Path, src: Path, overwrite: bool, result: dict, ok: bool | None = None) -> Path:
     """確かめた一時ファイルを、書き出す名前に付け替える（os.replace：途中で止まっても、半分だけ書いたファイルは残らない）。
     証明か読み戻しで確かめられなかったときは、dst ではなく「名前.unverified.拡張子」に置き、提出してはいけないことを伝える。
@@ -1038,7 +1079,7 @@ def _publish(tmp: Path, dst: Path, src: Path, overwrite: bool, result: dict, ok:
         ok = bool(result.get("proof_ok")) and bool(result.get("read_back_ok"))
     final = dst if ok else unverified_path(dst)
     _not_source(src, final)
-    if ok and final.exists() and not overwrite and final.read_bytes() != tmp.read_bytes():
+    if ok and final.exists() and not overwrite and not _same_bytes(final, tmp):
         raise ApiError(f"書き出す先「{final.name}」には、すでに別のファイルがあります（書き出していません）。"
                        "置き換えてよいと本人が言ったときだけ overwrite に true を入れるか、別の名前（out_path）を指定してください")
     os.replace(tmp, final)
@@ -1671,7 +1712,40 @@ def _num_equal(a, b) -> bool:
 
 
 @_budgeted
-def audit(path: str, password: str | None = None, encoding: str | None = None) -> dict:
+def audit(path: str, password: str | None = None, encoding: str | None = None, restart: bool = False, job: bool = False) -> dict:
+    """大きな書類は、長い仕事（jobs）として動かす：すぐ返して、進み具合と、ここまでの結果を示す。何度でも呼べて、止まっても続きから進む。
+    job：大きさによらず、長い仕事として動かす（いままでの検査が時間の上限に当たったとき）。"""
+    lz = lazy_open(path, password, encoding) if not job else True  # 窓の全体が予算に入らない書類は、どの形式でも長い仕事に
+    if lz is None:
+        return audit_whole(path, password, encoding)
+    from . import jobs
+
+    rec = jobs.start(path, password, encoding, restart)
+    return _job_view(rec, path, password, encoding)
+
+
+def _job_view(rec: dict, path: str, password: str | None, encoding: str | None) -> dict:
+    state = rec.get("state") or {}
+    finished = bool(rec.get("finished"))
+    d: dict = {"job": {"key": rec.get("key"), "running": not finished and not rec.get("stopped"), "finished": finished,
+                       "progress": rec.get("progress"), "resumed": rec.get("resumed", False), "steps": rec.get("steps", 0),
+                       **({"peak_rss_mb": rec["peak_rss_mb"], "seconds": round(rec["finished"] - rec.get("started", rec["finished"]), 1)} if finished and rec.get("peak_rss_mb") else {}),
+                       **({"stopped": rec["stopped"]} if rec.get("stopped") else {})}}
+    full = state.get("full")
+    if finished and full:
+        d.update(full)
+        return d
+    d["checks"] = list(state.get("checks") or [])
+    d["ok"] = all(c.get("ok") for c in d["checks"]) if finished else None
+    if not finished:
+        d["note"] = ("検査は別のプロセスで続いています（書類が大きいので、1 回の呼び出しの時間には縛られません）。"
+                     "もう一度 audit_document を呼ぶと、進み具合と結果が分かります。止まっても、控えの続きから進みます")
+    if lazy_open(path, password, encoding, built_ok=False) is not None:
+        d["grade"] = grade(path, password=password, encoding=encoding)  # 窓を作って測る形式は、段階も全体を作るので、終わってから
+    return d
+
+
+def audit_whole(path: str, password: str | None = None, encoding: str | None = None) -> dict:
     import inspect
 
     from .unlock import pdf_password
@@ -1764,6 +1838,18 @@ def calc_model(path: str, cell: str | None = None, password: str | None = None) 
     blob, name, k, lock = _read(path, password)
     if k not in _BOOKS:
         raise ApiError("計算の取り出しは Excel の様式（.xlsx・.xlsm・.xls）です")
+    lz = lazy_open(path, password, built_ok=False)
+    if lz is not None and lz.kind == "xlsx":
+        wb_, doc = lz.calc_book([cell] if cell else [])  # 大きなブック：そのセルの計算に要る行だけ
+        m = xm.model(wb_, doc)
+        if not cell:
+            return {"inputs": len(m["inputs"]), "steps": len(m["steps"]), "results": len(m["results"]), "dynamic": m["dynamic"],
+                    "result_groups": xm.summary(m),
+                    "note": "大きなブックなので、はじめの行だけで調べました。cell（シート!B3）を指すと、そのセルの計算を、要る行だけ読んでさかのぼります"}
+        try:
+            return {"explain": xm.explain(m, cell)}
+        except ValueError as e:
+            raise ApiError(str(e)) from None
     _k, doc, _ = window(path, password)
     m = xm.model(open_book(blob, name), doc)
     if cell:
@@ -1785,10 +1871,15 @@ def calculate(path: str, values: dict, password: str | None = None) -> dict:
     blob, name, k, lock = _read(path, password)
     if k not in _BOOKS:
         raise ApiError("試算は Excel の様式（.xlsx・.xlsm・.xls）です")
-    _k, doc, _ = window(path, password)
     values = _split_values(values, k)[0]  # as（述べた意味）は書くときのもの。試算にも同じ値の形を渡せるように
+    lz = lazy_open(path, password, built_ok=False)
     try:
-        r = xm.calculate(open_book(blob, name), doc, values)
+        if lz is not None and lz.kind == "xlsx":
+            wb_, doc = lz.calc_book(list(values), dependents=True)  # 大きなブック：書いたセルに連動する行だけ
+            r = xm.calculate(wb_, doc, values)
+        else:
+            _k, doc, _ = window(path, password)
+            r = xm.calculate(open_book(blob, name), doc, values)
     except EditError as e:
         raise ApiError(str(e)) from None
     lines = [f"試算（ファイルは書いていません）：入れた値 {len(r['inputs'])} か所で、計算が変わる所 {len(r['changed'])} か所。"]
@@ -1831,7 +1922,10 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
 
         problem = ""
         try:
-            written = _written_boxes(path, password, int(page))
+            from .pdf.window import page_scope
+
+            with page_scope({int(page)}):  # 値の入った欄の青い枠：そのページだけを配置する（大きな PDF でも全部を作らない）
+                written = _written_boxes(path, password, int(page))
         except LimitExceeded:
             raise
         except Exception as e:  # noqa: BLE001  窓を作れない書類でも、ページの画像は出す（青い枠だけ描けないと伝える）
@@ -1891,10 +1985,10 @@ def _pdf_window_doc(path: str, password: str | None) -> dict:
     from .pdf.window import build
 
     blob, name, _k, lock = _read(path, password)
-    key = (hashlib.sha256(blob).hexdigest(), name, None) if lock is None else None
+    key = (hashlib.sha256(blob).hexdigest(), name, None, None) if lock is None else None
     if key is not None and key in _WINDOWS:
         return pickle.loads(_WINDOWS[key][1])[1]
-    return build(_pdf(blob, name, lock))
+    return build(_pdf(blob, name, lock))  # page_scope の中なら、そのページだけ
 
 
 def _written_boxes(path: str, password: str | None, page: int) -> list[dict]:
@@ -1949,6 +2043,10 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
     from .grade import combine, grade_blob, unsupported_grade
     from .unlock import pdf_password
 
+    lz = lazy_open(path, password, encoding, built_ok=False)
+    gl = lz.grade() if lz is not None else None
+    if gl is not None:
+        return _lazy_grade(path, gl, encoding, findings, answered)
     try:
         blob, name, k, lock = _read(path, password)
     except Unsupported as e:
@@ -1966,6 +2064,34 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
         g = combine(g, findings or [], answered)
     _remember_hand_only(path, g, findings, answered)
     return g.to_dict()
+
+
+def _lazy_grade(path: str, g, encoding: str | None, findings, answered) -> dict:
+    """大きな書類の段階：費用の小さな確かめは全体で行い、残した確かめ（deferred）を「未確認」として必ず示す。見本で決めたことにはしない。
+    長い検査（audit_document の仕事）が終わっていれば、その結果を理由に足して、未確認を消す。"""
+    from . import jobs
+    from .grade import Reason, combine
+
+    deferred = list(getattr(g, "deferred", []) or [])
+    rec = jobs.status(path, encoding)
+    if rec and rec.get("finished"):
+        checks = (rec.get("state") or {}).get("checks") or []
+        bad = [c for c in checks if not c.get("ok")]
+        deferred = list((rec.get("state") or {}).get("still_deferred") or [])
+        g.reasons.append(Reason("C" if bad else g.grade, "全体の検査（audit_document）",
+                                f"書類の全体を確かめました（確かめ {len(checks)} つ）" + (f"。確認が要るもの {len(bad)} つ" if bad else ""),
+                                [c["name"] for c in bad]))
+        if bad:
+            g.grade = max(g.grade, "C", key="SABCDF".index)
+    if findings or answered:
+        g2 = combine(g, findings or [], answered)
+        g = g2
+    d = g.to_dict()
+    d["deferred"] = deferred
+    d["provisional"] = bool(deferred)
+    if deferred:
+        d["headline"] += "（" + "／".join(deferred) + "）"
+    return d
 
 
 # 手で行う所（署名・押印・拇印・公証など。書く段階 D の理由）：段階を決めたときに見つかったものを、ファイルの中身ごとに控え、
@@ -1990,8 +2116,69 @@ def _remember_hand_only(path: str, g, findings, answered) -> None:
         _HAND_ONLY.pop(next(iter(_HAND_ONLY)))
 
 
+def lazy_open(path: str, password: str | None = None, encoding: str | None = None, force: bool = False, built_ok: bool = True):
+    """分けて読む書類（窓の全体が予算に入らないとき。force なら大きさによらず）。入るなら None（いままでどおり）。
+    built_ok=False：窓を作って測るしかない形式は見ない（書き込み・段階は、いままでの道で全体を確かめる）。"""
+    from .datafile.textenc import EncodingError
+    from . import lazy
+
+    try:
+        return lazy.open_doc(path, password, encoding, force, built_ok)
+    except EncodingError as e:
+        raise ApiError(str(e)) from None
+    except UnicodeDecodeError as e:
+        raise ApiError(f"文字コードを読めません（{e.reason}）") from None
+
+
+@_budgeted
+def read_range(path: str, rng: dict, max_chars=None, password: str | None = None, encoding: str | None = None):
+    """窓の、頼まれた範囲：(Page, 書類)。rng：pages・sheet・rows・paragraphs・records・part・cursor。"""
+    from .lazy import RangeError, clamp_chars
+
+    if rng.get("raw"):
+        from .lazy.rawtext import read_raw
+
+        p = Path(path).expanduser()
+        if not p.is_file():
+            raise ApiError(f"raw で読めるのは、ファイルそのものです（ZIP の中のファイルは読めません）: {path}")
+        try:
+            return read_raw(str(p), rng.get("cursor"), clamp_chars(max_chars), encoding), None
+        except RangeError as e:
+            raise ApiError(str(e)) from None
+    doc = lazy_open(path, password, encoding, force=True)
+    if doc is None:
+        raise ApiError(f"ファイルが見つかりません: {path}")
+    if rng.get("part") is not None and not hasattr(doc, "whole"):
+        if int(rng["part"]) > 1:
+            raise ApiError("大きな書類は part ではなく範囲で読みます（前の結果の next をそのまま渡すか、open_document の概要の範囲で頼んでください）")
+        rng = {k_: v_ for k_, v_ in rng.items() if k_ != "part"}
+    try:
+        return doc.read(rng, clamp_chars(max_chars)), doc
+    except RangeError as e:
+        raise ApiError(str(e)) from None
+
+
+@_budgeted
+def fields_range(path: str, rng: dict, only_empty: bool = False, limit: int | None = None, password: str | None = None,
+                 encoding: str | None = None) -> dict:
+    """入力欄の、頼まれた範囲（数と、続きの頼み方つき）。"""
+    from .lazy import RangeError
+
+    doc = lazy_open(path, password, encoding, force=True)
+    if doc is None:
+        raise ApiError(f"ファイルが見つかりません: {path}")
+    try:
+        return doc.fields(rng, only_empty, limit or 2000)
+    except RangeError as e:
+        raise ApiError(str(e)) from None
+
+
 @_budgeted
 def summary(path: str, password: str | None = None, encoding: str | None = None) -> dict:
+    lz = lazy_open(path, password, encoding)
+    if lz is not None:
+        return {"file": Path(path).name, "kind": lz.kind, "kind_ja": KIND_JA.get(lz.kind, lz.kind), "large": True, "estimated_window_chars": lz.est_chars,
+                "context_budget_chars": __import__("todoku.limits", fromlist=["x"]).CONTEXT_BUDGET, **lz.overview()}
     k, doc, parts = window(path, password, encoding)
     fl = fields(path, password, encoding)
     d = {"file": Path(path).name, "kind": k, "kind_ja": KIND_JA[k], "fields": len(fl),
