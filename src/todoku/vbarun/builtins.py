@@ -169,6 +169,9 @@ def f_replace(rt, args, fr, node):
     s = s[start - 1:]
     if find == "":
         return s
+    if len(rep) > len(find):  # 置き換えてできる長さを、作る前に確かめる（1 字を長い字に換えると、何千倍にもなる）
+        hits = s.lower().count(find.lower()) if mode is not MISSING and to_long(mode) == 1 else s.count(find)
+        rt.make_string(len(s) + (min(hits, count) if count >= 0 else hits) * (len(rep) - len(find)), "Replace の結果")
     if mode is not MISSING and to_long(mode) == 1:
         import re
 
@@ -305,6 +308,8 @@ def f_split(rt, args, fr, node):
     limit = to_long(limit) if limit is not MISSING else -1
     if s == "":
         return VArray([0], [-1])
+    if d and len(s) >= 1 << 20:  # 区切りの数だけ要素ができる
+        VArray([0], [s.count(d)])  # 大きすぎれば、ここで止まる
     parts = s.split(d, limit - 1) if limit > 0 else s.split(d) if d else [s]
     return VArray([0], [len(parts) - 1], {(i,): p for i, p in enumerate(parts)})
 
@@ -316,7 +321,9 @@ def f_join(rt, args, fr, node):
     d = to_str(d) if d is not MISSING else " "
     if not isinstance(a, VArray):
         raise VbaError(13)
-    return d.join(to_str(x) for x in a.flat())
+    parts = [to_str(x) for x in a.flat()]
+    rt.make_string(sum(map(len, parts)) + len(d) * max(len(parts) - 1, 0), "Join の結果")
+    return d.join(parts)
 
 
 @fn("format", "format$")

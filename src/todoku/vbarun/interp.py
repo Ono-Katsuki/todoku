@@ -532,10 +532,13 @@ class Runtime:
             if self.big_chars > MAX_VBA_BYTES:
                 raise Unsupported(f"大きな文字列をたくさん作るマクロ（合計 {MAX_VBA_BYTES:,} 字まで再現します）")
 
-    def exec_stmt(self, st: P.Stmt, fr: Frame) -> None:
+    def tick(self, st: P.Stmt, fr: Frame) -> None:
         self.steps += 1
         if self.steps > self.max_steps:
             raise Unsupported("繰り返しが多すぎます（終わらないマクロかもしれません）", st.line, fr.module)
+
+    def exec_stmt(self, st: P.Stmt, fr: Frame) -> None:
+        self.tick(st, fr)
         try:
             self._exec(st, fr)
         except VbaError as e:
@@ -573,6 +576,8 @@ class Runtime:
             items = self.host.iterate(coll) if not isinstance(coll, (VArray, Collection, Dictionary)) else _iter_items(coll)
             try:
                 for item in items:
+                    if not st.body:
+                        self.tick(st, fr)
                     self.assign(st.var, item, fr, set_=_is_object(item))
                     try:
                         self.exec_body(st.body, fr)
@@ -687,6 +692,8 @@ class Runtime:
         endv, stepv = to_double(end), to_double(step)
         self.assign(st.var, num_result(to_double(x)), fr)
         while True:
+            if not st.body:  # 中身のない繰り返しも数える（文のある繰り返しは文を数える）
+                self.tick(st, fr)
             cur = to_double(self.value(st.var, fr))
             if (stepv >= 0 and cur > endv) or (stepv < 0 and cur < endv):
                 return
@@ -708,6 +715,8 @@ class Runtime:
             return b if w == "while" else not b
 
         while True:
+            if not st.body:  # 中身のない繰り返しも数える（文のある繰り返しは文を数える）
+                self.tick(st, fr)
             if st.pre is not None and not ok(st.pre):
                 return
             try:

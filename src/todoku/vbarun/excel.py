@@ -164,7 +164,8 @@ class Host:
 
     def iterate(self, obj) -> list:
         if isinstance(obj, Range):
-            return [obj.cell(i, j) for i in range(1, obj.rows + 1) for j in range(1, obj.cols + 1)]
+            # 1 マスずつ順に作る（列全体・シート全体でも、まず全部を作らない。繰り返しの数は実行の上限で数える）
+            return (obj.cell(i, j) for i in range(1, obj.rows + 1) for j in range(1, obj.cols + 1))
         if isinstance(obj, Sheets):
             return [Worksheet(self, sh.name) for sh in self.wb.sheets if not sh.state.startswith("non-")]
         if isinstance(obj, _Lines):
@@ -387,7 +388,7 @@ class Range:
         if n == "hasformula":
             sh = h.sheet(self.sheet)
             return any((sh.cells.get((r, c)) is not None and sh.cells[(r, c)].has_formula and (sh.name, r, c) not in h.over)
-                       for r in range(self.r1, self.r2 + 1) for c in range(self.c1, self.c2 + 1))
+                       for r, c in sh.existing_in(self.r1, self.c1, self.r2, self.c2))  # 範囲の広さでなく、ファイルにあるセルの数で済む
         if n == "row":
             return self.r1
         if n == "column":
