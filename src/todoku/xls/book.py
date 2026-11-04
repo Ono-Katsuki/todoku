@@ -641,10 +641,10 @@ class XlsWorkbook:
                 sh.default_col_width = struct.unpack_from("<H", b, 0)[0] / 256
             elif t == 0x007D:  # COLINFO
                 c1, c2, w, x, flags = struct.unpack_from("<HHHHH", b, 0)
-                if (c1, c2, w, x, flags) == last_colinfo:
-                    continue  # 同じ記録の繰り返し（記録ごとに、最大 256 列を書き直さない）
+                # 同じ記録の繰り返しは飛ばす（記録ごとに、最大 256 列を書き直さない）
+                same = (c1, c2, w, x, flags) == last_colinfo
                 last_colinfo = (c1, c2, w, x, flags)
-                for c in range(c1, min(c2, 255) + 1):
+                for c in range(c1, 0 if same else min(c2, 255) + 1):
                     sh.col_widths[c + 1] = w / 256
                     if x not in (0, 15):
                         sh.col_styles[c + 1] = x

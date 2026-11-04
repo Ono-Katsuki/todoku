@@ -382,6 +382,13 @@ def test_doc_character_count_is_bound_by_the_stream(tmp_path):
     assert time.time() - t0 < 30
 
 
+def test_xls_repeated_colinfo_is_read_once(tmp_path):
+    p = _case(tmp_path, "xls_colinfo_many", "xls")
+    t0 = time.time()
+    assert api.summary(p)
+    assert time.time() - t0 < 30
+
+
 # ====================================================================== 文字のファイル
 def test_csv_fields_stop_at_the_window_limit_and_share_context():
     from todoku.datafile.csvfile import CsvFile

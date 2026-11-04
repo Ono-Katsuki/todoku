@@ -261,14 +261,27 @@ def anchored_check(blob: bytes, filename: str, opener, fill_fn, prove_fn, main_e
     full = "\n".join(q.text for _n, q in paras)
     tried = 0
     last_err = ""
+    work = 32 * len(full) + (1 << 20)  # 目印を探して読む字の数の上限（同じ字の並びばかりの大きな文書で、2 乗にならないように）
+
+    def once(frag: str) -> bool:
+        nonlocal work
+        a = full.find(frag)
+        b = full.find(frag, a + 1)
+        work -= b if b >= 0 else len(full)
+        return b < 0
+
     for n, q in paras:
         if main_end is not None and getattr(q, "cp0", 0) >= main_end:
             continue
+        if work < 0:
+            break
         t = q.text
         pos = q.positions()
         for i in range(0, len(t) - 3):
             frag = t[i:i + 4]
-            if frag != frag.strip(" \u3000\t") or full.count(frag) != 1 or any(_in_field(q, j) for j in range(i, i + 5)):
+            if frag != frag.strip(" \u3000\t") or not once(frag) or any(_in_field(q, j) for j in range(i, i + 5)):
+                if work < 0:
+                    break
                 continue
             if any(q.segs[pos[k][0]].kind != "t" for k in range(i, min(i + 5, len(pos)))):
                 continue  # 本文の字（字の要素）の中だけを目印にする（図の説明などは目印にならない）
