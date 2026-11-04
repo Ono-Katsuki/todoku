@@ -27,6 +27,7 @@ class RGBA:
     stencil: bool = False  # 型抜き（ImageMask）：alpha の所を、塗りの色で塗る
     notes: list = field(default_factory=list)  # 開き方の知らせ（解像度を下げたなど）
     problems: list = field(default_factory=list)  # 描けなかった所
+    window: tuple | None = None  # 開いた範囲（元の画像の割合 [左, 上, 右, 下)。1 が右・下の端）。None は全体
 
 
 def _image_dict(doc, image):
@@ -59,8 +60,10 @@ def _shrink(g, screen_pixels: int | None):
 
 
 def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None, dct_pixels: int | None = None,
-               deadline: float | None = None) -> RGBA:
-    """PDF の画像（XObject の Stream か、埋め込みの (辞書, データ)）→ RGBA。"""
+               deadline: float | None = None, view: tuple | None = None) -> RGBA:
+    """PDF の画像（XObject の Stream か、埋め込みの (辞書, データ)）→ RGBA。
+    view：画面に見える範囲（画像の割合 [左, 上, 右, 下)）。JPEG 2000・JPEG は、そこだけを開いて RGBA.window で知らせる（拡大して読むとき、
+    予算は開く分に掛かるので、元の解像度まで開ける）。SMask・Mask は全体を開いて、同じ割合で切り取る（解像度は画像と別）。"""
     d, inline = _image_dict(doc, image)
     flt = d.get("Filter")
     names = [getattr(x, "name", "") for x in (flt if isinstance(flt, list) else [flt] if flt is not None else [])]
@@ -71,14 +74,16 @@ def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None
         g = image_gray(doc, image, max_pixels, deadline)  # 塗る所が 0（黒）
         return RGBA(g.w, g.h, b"", g.px.translate(_inv_table()), True, g.notes, g.problems)
     if "JPXDecode" in names:
-        return _jpx_rgba(doc, image, d, res, max_pixels, dct_pixels, deadline)
+        return _jpx_rgba(doc, image, d, res, max_pixels, dct_pixels, deadline, view)
     cs = colorspace(doc, d.get("ColorSpace"), res)
     dec = d.get("Decode")
     dec = [float(doc.resolve(v)) for v in dec] if isinstance(dec, list) else None
     data = b""
     if "DCTDecode" in names:
         data = doc.decode(image) if isinstance(image, Stream) else doc.decode(Stream({"Filter": d["Filter"]}, inline), decrypt=False)
-        im = jpeg_gray(data, min(max_pixels, dct_pixels or max_pixels), want_rgb=True)
+        dw, dh = w, h
+        im = jpeg_gray(data, min(max_pixels, dct_pixels or max_pixels), want_rgb=True,
+                       window=(int(view[0] * dw), int(view[1] * dh), math.ceil(view[2] * dw), math.ceil(view[3] * dh)) if view else None)
         px = im.px
         if dec and len(dec) >= 2 and dec[0] > dec[1]:
             px = px.translate(_inv_table())
@@ -89,7 +94,8 @@ def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None
                 r, g, b = cs.rgb([v if cs.kind == "Indexed" else v / 255])
                 tab.append(bytes((int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5))))
             px = b"".join(map(tab.__getitem__, px[0::3]))
-        out = RGBA(im.w, im.h, px, None)
+        done = getattr(im, "window", None)
+        out = RGBA(im.w, im.h, px, None, False, [], [], (done[0] / dw, done[1] / dh, done[2] / dw, done[3] / dh) if done else None)
     elif "CCITTFaxDecode" in names or "JBIG2Decode" in names:
         g = image_gray(doc, image, max_pixels, deadline)
         px, gw, gh = _shrink(g, dct_pixels)
@@ -113,20 +119,31 @@ def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None
         sm = doc.resolve(d.get("SMask"))
         mk = doc.resolve(d.get("Mask"))
         if isinstance(sm, Stream):
-            a = image_gray(doc, sm, max_pixels, deadline)
+            a = _cropped(image_gray(doc, sm, max_pixels, deadline), out.window)
             _set_alpha(out, a.px, a.w, a.h, max_pixels, dct_pixels)
             matte = doc.resolve(sm.dict.get("Matte"))
             if isinstance(matte, list) and len(matte) == cs.n and (a.w, a.h) == (out.w, out.h):
                 _unmatte(out, cs.rgb([float(doc.resolve(v)) for v in matte]))
         elif isinstance(mk, Stream):
-            a = image_gray(doc, mk, max_pixels, deadline)  # 型抜き：隠す所（既定は 1）が白
+            a = _cropped(image_gray(doc, mk, max_pixels, deadline), out.window)  # 型抜き：隠す所（既定は 1）が白
             _set_alpha(out, a.px.translate(_inv_table()), a.w, a.h, max_pixels, dct_pixels)
         elif isinstance(mk, list) and len(mk) >= 2 * max(1, cs.n) and data and "DCTDecode" not in names:
             out.alpha = _color_key(data, d, w, h, cs, [int(doc.resolve(v)) for v in mk], out)
     return out
 
 
-def _jpx_rgba(doc, image, d: dict, res, max_pixels: int, screen_pixels: int | None, deadline: float | None) -> RGBA:
+def _cropped(g, win: tuple | None):
+    """マスクを、画像の開いた範囲（割合）と同じ所に切り取る。"""
+    if win is None:
+        return g
+    x0, y0 = int(win[0] * g.w), int(win[1] * g.h)
+    x1, y1 = max(x0 + 1, min(g.w, math.ceil(win[2] * g.w))), max(y0 + 1, min(g.h, math.ceil(win[3] * g.h)))
+    from ..raster import Gray
+
+    return Gray(x1 - x0, y1 - y0, b"".join(g.px[y * g.w + x0:y * g.w + x1] for y in range(y0, y1)))
+
+
+def _jpx_rgba(doc, image, d: dict, res, max_pixels: int, screen_pixels: int | None, deadline: float | None, view: tuple | None = None) -> RGBA:
     """JPXDecode（ISO 32000-1 7.4.9）：ColorSpace があれば JP2 の色の指定より優先、なければ JP2 の箱で決める。Decode は無視する。
     SMaskInData（表 89）：1・2 なら、JP2 の透けの成分を透けとして使う。SMask の Stream があれば、そちらを使う。"""
     from ..raster import image_gray as _ig
@@ -138,7 +155,13 @@ def _jpx_rgba(doc, image, d: dict, res, max_pixels: int, screen_pixels: int | No
         data = doc.decode(Stream({"Filter": d["Filter"]}, image[1]), decrypt=False)
     target = min(max_pixels, screen_pixels or max_pixels)
     # 画面の 2 倍の screen_pixels のうち、解像度の段は画面の画素を下回らないところまで下げる
-    im = jpx_image(doc, data, max(1, target // 2), deadline)
+    win = None
+    if view is not None:
+        from ...imaging import jpx as _jpx
+
+        head = _jpx.info(data)
+        win = (int(view[0] * head["w"]), int(view[1] * head["h"]), math.ceil(view[2] * head["w"]), math.ceil(view[3] * head["h"]))
+    im = jpx_image(doc, data, max(1, target // 2), deadline, win)
     planes = im.planes
     n = len(planes)
     cs_obj = d.get("ColorSpace")
@@ -156,19 +179,21 @@ def _jpx_rgba(doc, image, d: dict, res, max_pixels: int, screen_pixels: int | No
         top = (1 << im.bits[0]) - 1  # 面は 0〜255 に広げてあるので、添字に戻す
         planes = [planes[0].translate(bytes((v * top + 127) // 255 for v in range(256)))]
     px = _planes_rgb(planes[:nc], cs, im.w, im.h)
-    out = RGBA(im.w, im.h, px, None, False, list(im.notes), list(im.problems))
+    fw_, fh_ = im.full_w, im.full_h
+    out = RGBA(im.w, im.h, px, None, False, list(im.notes), list(im.problems),
+               (im.window[0] / fw_, im.window[1] / fh_, im.window[2] / fw_, im.window[3] / fh_) if im.window else None)
     smd = doc.resolve(d.get("SMaskInData")) if isinstance(image, Stream) else 0
     if isinstance(image, Stream):
         sm = doc.resolve(d.get("SMask"))
         if isinstance(sm, Stream):
-            a = _ig(doc, sm, max_pixels, deadline)
+            a = _cropped(_ig(doc, sm, max_pixels, deadline), out.window)
             _set_alpha(out, a.px, a.w, a.h, max_pixels, screen_pixels)
         elif smd in (1, 2) and im.alpha is not None:
             out.alpha = bytes(im.alpha)
         else:
             mk = doc.resolve(d.get("Mask"))
             if isinstance(mk, Stream):
-                a = _ig(doc, mk, max_pixels, deadline)
+                a = _cropped(_ig(doc, mk, max_pixels, deadline), out.window)
                 _set_alpha(out, a.px.translate(_inv_table()), a.w, a.h, max_pixels, screen_pixels)
     return out
 

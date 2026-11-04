@@ -528,7 +528,12 @@ def _as_output(data: bytes, fmt_hint: str, region: list | None = None) -> dict:
 
         fr = emf(data) if fmt_hint == "emf" or data[40:44] == b" EMF" else wmf(data)
         return _encode(fr, region)
-    if sn in ("png", "jpeg") and len(data) <= MAX_BYTES and region is None:
+    plain = True
+    if sn == "jpeg":
+        from .formats import jpeg_plain
+
+        plain = jpeg_plain(data)  # 算術符号・12 ビット・可逆は、ふつうの道具で見られないので描いて渡す
+    if sn in ("png", "jpeg") and plain and len(data) <= MAX_BYTES and region is None:
         try:
             from .formats import info
 
@@ -540,7 +545,11 @@ def _as_output(data: bytes, fmt_hint: str, region: list | None = None) -> dict:
             return {"mime": "image/png" if sn == "png" else "image/jpeg", "data": data, "width": w, "height": h, "not_drawn": [], "notes": []}
     if sn is None:
         raise ImageError(f"この形式（{fmt_hint or '不明'}）の絵は描けません")
-    return _encode(decode(data, 0, MAX_SIDE * MAX_SIDE, time.monotonic() + 60.0), region)
+    want = None
+    if region is not None and isinstance(region, list) and len(region) == 4:
+        rx0, ry0, rx1, ry1 = [int(v) for v in region]
+        want = (min(rx0, rx1), min(ry0, ry1), max(rx0, rx1), max(ry0, ry1))
+    return _encode(decode(data, 0, MAX_SIDE * MAX_SIDE, time.monotonic() + 60.0, want), region)
 
 
 def _encode(fr, region: list | None) -> dict:
@@ -553,6 +562,11 @@ def _encode(fr, region: list | None) -> dict:
         if not (isinstance(region, list) and len(region) == 4):
             raise ValueError("region は [左, 上, 右, 下]（画素）で指定してください")
         x0, y0, x1, y1 = [int(v) for v in region]
+        wn = getattr(fr, "window", None)
+        if wn:  # 範囲だけを開いた画像：範囲の座標を、開いた画素の座標に
+            sx, sy = w / (wn[2] - wn[0]), h / (wn[3] - wn[1])
+            x0, x1 = int((x0 - wn[0]) * sx), int((x1 - wn[0]) * sx + 0.999)
+            y0, y1 = int((y0 - wn[1]) * sy), int((y1 - wn[1]) * sy + 0.999)
         x0, x1 = sorted((max(0, x0), min(w, x1)))
         y0, y1 = sorted((max(0, y0), min(h, y1)))
         if x1 - x0 < 1 or y1 - y0 < 1:
@@ -697,8 +711,18 @@ def pdf_get(doc, image_id: str, region: list | None = None) -> dict:
             cs = doc.resolve(image.dict.get("ColorSpace"))
             if getattr(cs, "name", "") in ("DeviceRGB", "DeviceGray") and len(data) <= MAX_BYTES:
                 return _deliver(data, "jpeg", image_id, {"where": item["where"]}, None)
+    # 範囲の指定があれば、そこだけ開く（JPEG 2000・JPEG：どの部分でも元の解像度まで届く）
+    view = None
+    full_w = full_h = 0
+    if isinstance(image, Stream) and isinstance(region, list) and len(region) == 4:
+        full_w, full_h = int(doc.resolve(image.dict.get("Width")) or 0), int(doc.resolve(image.dict.get("Height")) or 0)
+        if full_w > 0 and full_h > 0:
+            rx0, ry0, rx1, ry1 = [int(v) for v in region]
+            view = (max(0.0, min(rx0, rx1) / full_w), max(0.0, min(ry0, ry1) / full_h), min(1.0, max(rx0, rx1) / full_w), min(1.0, max(ry0, ry1) / full_h))
+            if view[2] <= view[0] or view[3] <= view[1]:
+                view = None
     try:
-        im = image_rgba(doc, image, 16_000_000, deadline=time.monotonic() + 60.0)
+        im = image_rgba(doc, image, 16_000_000, deadline=time.monotonic() + 60.0, view=view)
     except RasterError as e:
         raise ImageNotFound(f"画像「{image_id}」を開けません：{e}") from None
     if im.stencil:
@@ -713,6 +737,8 @@ def pdf_get(doc, image_id: str, region: list | None = None) -> dict:
 
             px = _on_white(px, im.alpha)
     fr = Frame(im.w, im.h, px, None, list(im.notes), list(im.problems))
+    if getattr(im, "window", None) and full_w:
+        fr.window = (round(im.window[0] * full_w), round(im.window[1] * full_h), round(im.window[2] * full_w), round(im.window[3] * full_h))
     out = _encode(fr, region)
     text = (f"画像 {image_id}（{item['where']}・左 {item['at_mm'][0]}・上 {item['at_mm'][1]} mm・約 {item['size_mm'][0]}×{item['size_mm'][1]} mm）。{out['width']}×{out['height']} 画素。"
             "読めない所は推測で埋めず、本人に伝えてください。")

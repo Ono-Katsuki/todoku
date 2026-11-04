@@ -1,4 +1,4 @@
-"""単独の画像ファイルの形式を見分けて、フレーム（RGB の画素）に開く：JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2。
+"""単独の画像ファイルの形式を見分けて、フレーム（RGB の画素）に開く：JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2・PICT・SVG。
 
 仕様：PNG（ISO/IEC 15948）・GIF89a・BMP（DIB、MS-WMF 2.2.2）・TIFF 6.0・WebP（RFC 9649・RFC 6386）。
 どれも、開く前に幅 × 高さを limits.MAX_PIXELS で確かめ、展開は limits.inflate で数える。
@@ -34,10 +34,12 @@ class Frame:
     dpi: tuple | None = None
     notes: list = field(default_factory=list)
     problems: list = field(default_factory=list)
+    window: tuple | None = None  # 開いた範囲（元の画素の [左, 上, 右, 下)。画素は w × h に縮んでいることがある）。None は全体
+    incomplete: bool = False  # 時間が来て途中まで（HEIC：同じ呼び出しをもう一度すると続きから）
 
 
 FORMAT_JA = {"emf": "EMF（メタファイル）", "wmf": "WMF（メタファイル）", "jpeg": "JPEG", "png": "PNG", "gif": "GIF", "bmp": "BMP", "tiff": "TIFF", "webp": "WebP", "jp2": "JPEG 2000", "j2k": "JPEG 2000（符号の流れ）",
-             "jbig2": "JBIG2"}
+             "jbig2": "JBIG2", "pict": "PICT（QuickDraw の絵）", "svg": "SVG（ベクターの絵）", "heic": "HEIC（HEIF）"}
 
 
 def sniff(blob: bytes) -> str | None:
@@ -64,6 +66,16 @@ def sniff(blob: bytes) -> str | None:
         return "emf"
     if blob[:4] == b"\xd7\xcd\xc6\x9a":
         return "wmf"
+    if heif_brand(blob) == "HEIC":
+        return "heic"
+    from .svg import is_svg
+
+    if is_svg(blob):
+        return "svg"
+    from .pict import is_pict
+
+    if is_pict(blob):
+        return "pict"
     return None
 
 
@@ -119,16 +131,30 @@ def info(blob: bytes) -> tuple[str, list[FrameInfo]]:
     if f in ("emf", "wmf"):
         fr = decode(blob)
         return f, [FrameInfo(fr.w, fr.h, fr.dpi)]
+    if f == "heic":
+        from .heif import infos as heif_infos
+
+        return f, heif_infos(blob)
+    if f == "svg":
+        from .svg import infos as svg_infos
+
+        return f, svg_infos(blob)
+    if f == "pict":
+        from .pict import infos as pict_infos
+
+        return f, pict_infos(blob)
     from . import jbig2
 
     return f, _jbig2_infos(blob, jbig2)
 
 
-def decode(blob: bytes, index: int = 0, target_pixels: int | None = None, deadline: float | None = None) -> Frame:
-    """index 番目のフレームを開く。target_pixels：画面に要る画素の数（JPEG・JPEG 2000 は、これより細かく開かない）。"""
+def decode(blob: bytes, index: int = 0, target_pixels: int | None = None, deadline: float | None = None, window: tuple | None = None) -> Frame:
+    """index 番目のフレームを開く。target_pixels：画面に要る画素の数（JPEG・JPEG 2000 は、これより細かく開かない）。
+    window：要る範囲（元の画素の [左, 上, 右, 下)）。分けて開ける形式（JPEG・JPEG 2000・HEIC）は、そこだけを開いて Frame.window で知らせる。
+    ほかの形式は全体を返す（Frame.window は None）。"""
     f = sniff(blob)
     if f == "jpeg":
-        return _jpeg(blob, target_pixels)
+        return _jpeg(blob, target_pixels, window)
     if f == "png":
         return _png(blob)
     if f == "gif":
@@ -138,7 +164,7 @@ def decode(blob: bytes, index: int = 0, target_pixels: int | None = None, deadli
     if f == "tiff":
         from .tiff import decode as tdecode
 
-        return tdecode(blob, index, target_pixels)
+        return tdecode(blob, index, target_pixels, deadline, window)
     if f == "webp":
         from .webp import decode as wdecode
 
@@ -146,11 +172,23 @@ def decode(blob: bytes, index: int = 0, target_pixels: int | None = None, deadli
     if f in ("jp2", "j2k"):
         from . import jpx
 
-        return _jpx_frame(jpx.decode(blob, target_pixels=target_pixels, deadline=deadline))
+        return _jpx_frame(jpx.decode(blob, target_pixels=target_pixels, deadline=deadline, window=window))
     if f in ("emf", "wmf"):
         from .metaraster import emf, wmf
 
         return emf(blob) if f == "emf" else wmf(blob)
+    if f == "heic":
+        from .heif import decode_frame
+
+        return decode_frame(blob, target_pixels, deadline, window)
+    if f == "svg":
+        from .svg import render as svg_render
+
+        return svg_render(blob, target_pixels, deadline, window)
+    if f == "pict":
+        from .pict import render as pict_render
+
+        return pict_render(blob)
     if f == "jbig2":
         from . import jbig2
 
@@ -179,7 +217,7 @@ def _jpx_frame(im) -> Frame:
     if im.alpha:
         rgb = _on_white(rgb, im.alpha)
         notes.append("透けのある画像を、白い紙の上の色で示しました")
-    return Frame(w, h, rgb, im.dpi, notes, problems)
+    return Frame(w, h, rgb, im.dpi, notes, problems, im.window)
 
 
 def _on_white(rgb: bytes, a: bytes) -> bytes:
@@ -276,6 +314,14 @@ def _jpeg_meta(blob: bytes) -> tuple[int, int, tuple | None, int]:
     return w, h, dpi, orient
 
 
+def jpeg_plain(blob: bytes) -> bool:
+    """ふつうの見る道具・PDF（DCTDecode）がそのまま扱える JPEG か：ハフマンの 8 ビット（ベースライン・拡張の順次・プログレッシブ）。"""
+    for m, seg in _jpeg_segments(blob):
+        if 0xC0 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):
+            return m in (0xC0, 0xC1, 0xC2) and seg[:1] == b"\x08"
+    return False
+
+
 def _jpeg_info(blob: bytes) -> FrameInfo:
     w, h, dpi, orient = _jpeg_meta(blob)
     if not w or not h:
@@ -286,28 +332,72 @@ def _jpeg_info(blob: bytes) -> FrameInfo:
     return FrameInfo(w, h, dpi)
 
 
-def _jpeg(blob: bytes, target_pixels: int | None) -> Frame:
+def _jpeg(blob: bytes, target_pixels: int | None, window: tuple | None = None) -> Frame:
     from ..pdf.raster import RasterError, jpeg_gray
 
     w, h, dpi, orient = _jpeg_meta(blob)
     if not w or not h:
         raise ImageError("JPEG：フレームの見出しがありません")
     check_size(w, h, "JPEG")
+    stored = stored_rect(window, w, h, orient) if window is not None else None
     try:
-        im = jpeg_gray(blob, target_pixels * 4 if target_pixels else MAX_PIXELS, want_rgb=True)
+        im = jpeg_gray(blob, target_pixels * 4 if target_pixels else MAX_PIXELS, want_rgb=True, window=stored)
     except RasterError as e:
         raise ImageError(str(e)) from None
-    notes = []
-    if im.w != w:
-        notes.append(f"JPEG を {w}×{h} 画素の {w // im.w if im.w else 1} 分の 1 で開きました（region で拡大すると細かく開きます）")
+    notes = list(getattr(im, "notes", ()) or ())
+    done = getattr(im, "window", None)
+    # 開いた細かさ（範囲だけのときは、範囲の幅との比）
+    ratio = (im.w / (done[2] - done[0])) if done else (im.w / w)
+    if ratio < 0.999:
+        notes.append(f"JPEG を {w}×{h} 画素の {round(1 / ratio)} 分の 1 で開きました（region で拡大すると細かく開きます）")
     rgb, ow, oh = orient_rgb(im.px, im.w, im.h, orient)
     if orient != 1:
         notes.append(f"EXIF の向き（{orient}）のとおりに回しました")
     if orient >= 5 and dpi:
         dpi = (dpi[1], dpi[0])
-    if dpi and im.w != w:
-        dpi = (dpi[0] * im.w / w, dpi[1] * im.h / h)
-    return Frame(ow, oh, rgb, dpi, notes, [])
+    if dpi and ratio < 0.999:
+        dpi = (dpi[0] * ratio, dpi[1] * ratio)
+    return Frame(ow, oh, rgb, dpi, notes, [], shown_rect(done, w, h, orient) if done else None)
+
+
+def stored_rect(win: tuple, w: int, h: int, o: int) -> tuple:
+    """見た目（向きを直した後）の四角 → 保存された画素の四角。w・h は保存された大きさ。向きの番号は TIFF・EXIF のとおり。"""
+    x0, y0, x1, y1 = win
+    if o == 2:
+        return w - x1, y0, w - x0, y1
+    if o == 3:
+        return w - x1, h - y1, w - x0, h - y0
+    if o == 4:
+        return x0, h - y1, x1, h - y0
+    if o == 5:
+        return y0, x0, y1, x1
+    if o == 6:  # 見た目の行 y は元の列 y を下から上へ：見た目の x は元の h−1−y
+        return y0, h - x1, y1, h - x0
+    if o == 7:
+        return w - y1, h - x1, w - y0, h - x0
+    if o == 8:
+        return w - y1, x0, w - y0, x1
+    return x0, y0, x1, y1
+
+
+def shown_rect(win: tuple, w: int, h: int, o: int) -> tuple:
+    """保存された画素の四角 → 見た目の四角（stored_rect の逆）。"""
+    x0, y0, x1, y1 = win
+    if o == 2:
+        return w - x1, y0, w - x0, y1
+    if o == 3:
+        return w - x1, h - y1, w - x0, h - y0
+    if o == 4:
+        return x0, h - y1, x1, h - y0
+    if o == 5:
+        return y0, x0, y1, x1
+    if o == 6:
+        return h - y1, x0, h - y0, x1
+    if o == 7:
+        return h - y1, w - x1, h - y0, w - x0
+    if o == 8:
+        return y0, w - x1, y1, w - x0
+    return x0, y0, x1, y1
 
 
 def orient_rgb(px: bytes, w: int, h: int, o: int) -> tuple[bytes, int, int]:

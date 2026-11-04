@@ -119,7 +119,7 @@ Linux では、`ps` が使えなくてもメモリの上限 RLIMIT_AS は効き�
 | Excel 2〜4・Lotus（.wk1）・dBase（.dbf）・Access（.mdb・.accdb） | 表をシートとして（窓・表の取り出し）。Lotus の数式は保存された結果だけ | 書けない | — |
 | Word 1.x・2.0・OpenOffice.org 1.x（.sxw・.sxc）・iWork（.pages・.numbers・.key） | 字（iWork は非公開の形を知られた範囲で：C。Word の高速保存は読まない：F） | 書けない | — |
 | テキスト（.txt） | 文字コード（CSV と同じ決め方）・すべての行（空の行・行の頭の空白もそのまま、「行番号｜字」） | 空欄・□・字を目印にした書き込み（Word と同じ欄の決め方。改行は書かない） | 書いた所の字のバイトのほかは、文字コード・BOM・改行まで1バイトも変えない |
-| 画像そのもののファイル（JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2・EMF・WMF） | 自前で開き、`view_page`（page＝何枚目か）で画像を見せる。解像度の記録があれば mm の目盛り、なければ画素の目盛り。HEIC・AVIF は開けないので、変換のしかたを伝える | 直接は書けない。`to_pdf` で PDF に包み、PDF の枠（mm）に書く | PDF について証明する |
+| 画像そのもののファイル（JPEG（算術符号・12 ビット・可逆も）・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2・EMF・WMF・PICT・SVG・HEIC） | 自前で開き、`view_page`（page＝何枚目か）で画像を見せる。解像度の記録があれば mm の目盛り、なければ画素の目盛り。`region` で狭めれば、掛かる所だけを元の解像度で開く。HEIC は純粋な Python の HEVC で開くので遅く（12 MP で数十秒〜数分）、範囲のタイルだけを開き、途中までのときは同じ呼び出しで続きから進む。AVIF は開けないので、変換のしかたを伝える | 直接は書けない。`to_pdf` で PDF に包み、PDF の枠（mm）に書く | PDF について証明する |
 | 書類の中の画像（Word・Excel・PowerPoint・ODF・HWPX・.doc・.xls・RTF・PDF の注釈） | 窓に一覧（id・位置・大きさ・説明・部品の名前）を出し、`view_image` で渡す（PNG・JPEG はそのまま、ほかは PNG に。EMF・WMF は描く） | — | — |
 | スキャンした紙（画像だけの PDF のページ） | 画像（CCITT G3・G4、JPEG、Flate、JBIG2、JPEG 2000 など）を自前で開き、ページを描いた画像をエージェントに見せる（`view_page`。JPEG 2000 は画面に要る解像度で開き、そのことを伝える） | エージェントが画像を見て決めた枠（mm）に書く。書く前に枠を描いて確かめる | 元のファイルのバイト列は1つも変えない |
 | ZIP | 中のファイルを「a.zip!/中の名前」で、その形式のまま読む | 中のファイルに書き、ZIP はその部品だけを入れ替える | 書いた部品のほかはバイト一致 |
