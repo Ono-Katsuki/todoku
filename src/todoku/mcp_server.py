@@ -93,7 +93,9 @@ TOOLS = [
                      "required": ["path"]}},
     {"name": "list_fields",
      "description": "入力欄の一覧を JSON で返す：id（書き込むときの名前）・label（見出し）・kind（種類）・options（選択肢）・value（いまの値）・readonly（書けない欄）・context（その行）。"
-                    "大きな書類は範囲で頼む（read_window と同じ pages・sheet・rows・paragraphs・records。空のマスは only_empty）。結果の next で続きを頼める。",
+                    "大きな書類は範囲で頼む（read_window と同じ pages・sheet・rows・paragraphs・records。空のマスは only_empty）。結果の next で続きを頼める。"
+                    "kind が range の項目は「範囲の所」：入力規則や数式の参照が広いとき、空のセルをまとめて 1 つで示す（id は S!C5:C40000。count が空のセルの数）。"
+                    "中のどのマスも番地（S!C7）で書ける。sheet と rows を渡すと、その行の分を 1 マスずつの欄で返す（文書に埋め込んだ表は sheet に「E1!シート」）。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
                                                       "only_empty": {"type": "boolean", "default": False},
                                                       "pages": _RANGE_SCHEMA, "rows": _RANGE_SCHEMA, "paragraphs": _RANGE_SCHEMA, "records": _RANGE_SCHEMA,

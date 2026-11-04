@@ -2,7 +2,7 @@
 
 - audit_document を呼ぶと、仕事を始めて（すでに動いていれば、その進み具合を）すぐ返す。終わるまで何度でも呼べる
 - 区切りごとに控え（state.json）を書くので、止まっても（PC を閉じた・メモリの上限など）次の呼び出しで続きから進む
-- 控えの場所：TODOKU_JOBS_DIR（なければ ~/.cache/todoku/jobs）。ファイルの中身のうち、控えに入るのは検査で見つけた問題の短い字だけ。
+- 控えの場所：TODOKU_JOBS_DIR（なければ ~/.cache/todoku/jobs）。ファイルの中身のうち、控えに入るのは検査で見つけた問題の短い字と、集計の途中の値・結果だけ。
   パスワードは控えに書かない（標準入力で仕事に渡す。止まった仕事を続けるときは、もう一度 password を渡す）
 - 同じファイル（パス・大きさ・更新時刻・文字コード）の仕事は 1 つだけ
 """
@@ -123,7 +123,7 @@ def start_calc(path: str, password: str | None, values: dict, cells: list, scans
     rec = load(key)
     if rec and (rec.get("finished") or _alive(rec.get("pid"))):
         return rec
-    new = dict(rec or {"key": key, "path": path, "kind": "calc", "values": values, "cells": cells, "started": time.time()})
+    new = dict(rec or {"key": key, "path": path, "kind": "calc", "cells": cells, "started": time.time()})  # 書く値は控えに残さない（標準入力で渡す）
     merged = dict(new.get("scans") or {})
     for k, v in (scans or {}).items():
         if k not in merged or v.get("k", 0) > merged[k].get("k", 0):
@@ -137,7 +137,7 @@ def start_calc(path: str, password: str | None, values: dict, cells: list, scans
                             stderr=subprocess.DEVNULL, env=env, start_new_session=True)
     new["pid"] = proc.pid
     save(key, new)
-    proc.stdin.write(json.dumps({"path": path, "password": password}).encode())
+    proc.stdin.write(json.dumps({"path": path, "password": password, "values": values}).encode())
     proc.stdin.close()
     return new
 
@@ -160,7 +160,7 @@ def _run_calc(key: str, rec: dict, args: dict) -> int:
         b = limits.Budget(total=None)
         b.calc_left = float("inf")
         with limits.call_budget(b):
-            rec["results"] = xm.cells_for_job(args["path"], args.get("password"), rec.get("values") or {}, rec["cells"], store)
+            rec["results"] = xm.cells_for_job(args["path"], args.get("password"), args.get("values") or {}, rec["cells"], store)
         rec["scans"] = store.data
         rec["finished"] = time.time()
         save(key, rec)

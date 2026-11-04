@@ -1579,7 +1579,8 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         return r is not None and any(_overlaps(r, w) for w in written_rects)
 
     empty = [f for f in after_list if f.get("value") in (None, "") and not f.get("readonly") and not f.get("agent")
-             and f.get("kind") not in ("checkbox", "radio", "button", "picture") and not covered(f)]
+             and f.get("kind") not in ("checkbox", "radio", "button", "picture", "range") and not covered(f)]
+    ranges = [f for f in after_list if f.get("kind") == "range" and not f.get("readonly")]
     notes = list(result.get("warnings") or [])
     hand = result.get("hand_only")
     if hand:
@@ -1724,6 +1725,9 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         same = len({place(f) for f in nxt[:10]}) == 1
         head = f"続きの空欄（{place(nxt[0]).rstrip('・')}）：" if same and place(nxt[0]) else "続きの空欄："
         lines.append(head + "、".join(name(f) if same else f"{place(f)}{name(f)}" for f in nxt[:10]) + ("ほか" if len(nxt) > 10 else ""))
+    if ranges:
+        lines.append("ほかに、空のセルをまとめて示している範囲の所 " + "、".join(f"{f['id']}（{f['count']:,} 個）" for f in ranges[:5])
+                     + (f" など {len(ranges)} か所" if len(ranges) > 5 else "") + "（list_fields に sheet と rows を渡すと、1 マスずつの欄で返します）")
     # 選んでいない選択肢（チェックボックス・ラジオボタン）と、残っている「？」の所：数と、どこにあるか（一つずつは並べない）
     groups: dict = {}
     for f in after_list:
@@ -2502,9 +2506,14 @@ def read_range(path: str, rng: dict, max_chars=None, password: str | None = None
             raise ApiError("大きな書類は part ではなく範囲で読みます（前の結果の next をそのまま渡すか、open_document の概要の範囲で頼んでください）")
         rng = {k_: v_ for k_, v_ in rng.items() if k_ != "part"}
     try:
-        return doc.read(rng, clamp_chars(max_chars)), doc
+        page = doc.read(rng, clamp_chars(max_chars))
     except RangeError as e:
         raise ApiError(str(e)) from None
+    if rng.get("sheet") and rng.get("rows") and not getattr(doc, "large", False) and not rng.get("cursor"):
+        more = _array_rows(path, rng, password, encoding)
+        if more:
+            page.text = page.text.rstrip("\n") + "\n\n" + "\n".join(more) + "\n"
+    return page, doc
 
 
 @_budgeted
@@ -2529,6 +2538,44 @@ def fields_range(path: str, rng: dict, only_empty: bool = False, limit: int | No
     return res
 
 
+def _array_rows(path: str, rng: dict, password, encoding) -> list[str]:
+    """広い配列数式の範囲の、頼まれた行の値（マスを作らず、その行のマスだけ計算する）。"""
+    from .formula.parser import addr, parse_cell
+    from .formula.values import ExcelError
+    from .xlsx.calc import Calc, _run_deep
+
+    k, win, _ = window(path, password, encoding)
+    if k not in _BOOKS or not isinstance(win, dict):
+        return []
+    sh = next((s for s in win.get("sheets") or [] if s.get("name") == rng["sheet"]), None)
+    places = [p for p in (sh or {}).get("range_places") or [] if p.get("why_key") == ["array"]]
+    if not places:
+        return []
+    a, b = _rows_of(rng)
+    wb = calc_workbook(path, password, [f"{rng['sheet']}!{p['master']}" for p in places])
+
+    def run():
+        calc = Calc(wb)
+        out = []
+        for p in places:
+            (r1, c1), (r2, c2) = (parse_cell(x) for x in p["cell"].split(":"))
+            ra, rb = max(a, r1), min(b, r2)
+            if ra > rb:
+                continue
+            out.append(f"配列数式 {p['master']} の結果（{p['cell']}）の、頼まれた行の値：")
+            for r in range(ra, min(rb, ra + 199) + 1):
+                vals = []
+                for c in range(c1, min(c2, c1 + 63) + 1):
+                    v = calc.cell_value(rng["sheet"], r, c)
+                    vals.append(f"{addr(r, c)}＝{v.code if isinstance(v, ExcelError) else v}")
+                out.append(f"- {r}: " + " ｜ ".join(vals) + (f" ｜ …（{addr(r, c2)} まで）" if c2 > c1 + 63 else ""))
+            if rb > ra + 199:
+                out.append(f"（{ra + 200} 行目から先は、rows で続きを頼めます）")
+        return out
+
+    return _run_deep(run)
+
+
 def _rows_of(rng: dict) -> tuple[int, int]:
     from .lazy.base import parse_range
 
@@ -2536,8 +2583,8 @@ def _rows_of(rng: dict) -> tuple[int, int]:
     return a or 1, b or 1048576
 
 
-def _expand_places(wb, sh, a: int, b: int, limit: int) -> tuple[list[dict], list[dict], int | None]:
-    """シート sh の範囲の所と、行 a〜b の分の 1 マスずつの欄。"""
+def _expand_places(wb, sh, a: int, b: int, limit: int, others: bool = False) -> tuple[list[dict], list[dict], int | None]:
+    """シート sh の範囲の所と、行 a〜b の分の 1 マスずつの欄（others：その行の、ほかの欄も）。"""
     from .xlsx import places as xp
     from .xlsx import window as xw
 
@@ -2547,6 +2594,12 @@ def _expand_places(wb, sh, a: int, b: int, limit: int) -> tuple[list[dict], list
         lay = xw.Layout(wb, sh, opts.calc)
         places = xp.place_docs(wb, sh, lay, opts)
         got, more = xp.expand_fields(wb, sh, lay, opts, places, a, b, limit)
+        if others:
+            def in_rows(f):
+                m = re.match(r"[A-Z]+(\d+)", f.get("cell") or "")
+                return m is not None and a <= int(m[1]) <= b
+
+            got = [f for f in xw.fields_for(wb, sh, lay, opts) if in_rows(f)] + got
     finally:
         sh.__dict__.pop(xw._MEMO, None)
     return places, got, more
@@ -2587,25 +2640,8 @@ def _embed_range_fields(path: str, n: int, sheet: str, rng: dict, limit: int, pa
     except KeyError:
         raise ApiError(f"埋め込み E{n} にシート「{sheet}」がありません") from None
     a, b = _rows_of(rng)
-    from .xlsx import window as xw
-
-    sh.__dict__[xw._MEMO] = {}
-    try:
-        opts = xw._Options(wb)
-        lay = xw.Layout(wb, sh, opts.calc)
-        from .xlsx import places as xp
-
-        places = xp.place_docs(wb, sh, lay, opts)
-        got, more = xp.expand_fields(wb, sh, lay, opts, places, a, b, limit)
-        whole = [f for f in xw.fields_for(wb, sh, lay, opts) if f.get("cell")]
-    finally:
-        sh.__dict__.pop(xw._MEMO, None)
-
-    def in_rows(f):
-        m = re.match(r"[A-Z]+(\d+)", f["cell"])
-        return m is not None and a <= int(m[1]) <= b
-
-    out = [{**f, "id": f"E{n}!{f['id']}"} for f in whole if in_rows(f)] + [{**f, "id": f"E{n}!{f['id']}"} for f in got]
+    places, got, more = _expand_places(wb, sh, a, b, limit, others=True)
+    out = [{**f, "id": f"E{n}!{f['id']}"} for f in got]
     res = {"fields": out[:limit], "sheet": f"E{n}!{sheet}", "range_places": [{**p, "id": f"E{n}!{p['id']}"} for p in places], "next": None}
     if more is not None or len(out) > limit:
         res["next"] = {"sheet": f"E{n}!{sheet}", "rows": f"{more if more is not None else a}-{b}"}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import sys
 import threading
 from dataclasses import dataclass, field
@@ -309,8 +310,9 @@ def _run_deep(fn):
     old = sys.getrecursionlimit()
     sys.setrecursionlimit(200000)
     threading.stack_size(512 * 1024 * 1024)
+    ctx = contextvars.copy_context()  # 呼び出しの予算（limits.call_budget）を、大きなスタックのスレッドでも同じに使う
     try:
-        t = threading.Thread(target=target)
+        t = threading.Thread(target=ctx.run, args=(target,))
         t.start()
         t.join()
     finally:

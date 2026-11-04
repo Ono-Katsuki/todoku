@@ -221,6 +221,33 @@ def test_aggregate_over_a_wide_array_range(tmp_path):
     assert Calc(wb).cell_value("S", 1, 1) == 998 * 2
 
 
+def test_read_window_rows_show_only_the_requested_array_rows(tmp_path):
+    path = tmp_path / "a.xlsx"
+    path.write_bytes(xlsx(cells(ARR)))
+    page, _d = api.read_range(str(path), {"sheet": "S", "rows": "1000-1001"})
+    assert "A1000＝998" in page.text and "B1001＝1998" in page.text
+    assert "1002:" not in page.text
+
+
+def test_fill_tells_the_places_left(tmp_path):
+    p = write_case(tmp_path, cells(far()) + DV)
+    r = api.fill(str(p), {"S!A2": "x"}, str(tmp_path / "o.xlsx"))
+    assert "範囲の所" in r["say_to_user"] and "S!B3:B150000" in r["say_to_user"]
+
+
+def test_unlocked_column_on_a_protected_sheet_is_a_place():
+    from todoku.xlsx.workbook import Style
+
+    wb = Workbook(xlsx(cells(far()) + '<sheetProtection sheet="1"/>'), "t.xlsx")
+    sh = wb.sheets[0]
+    assert sh.protected
+    wb.styles.append(Style("General", False, False))  # ロックを外した書式を、列全体に
+    sh.col_styles[2] = len(wb.styles) - 1
+    doc = build(wb)
+    p = doc["sheets"][0]["range_places"][0]
+    assert p["why_key"] == ["unlocked"] and p["cell"] == "B1:B200000"
+
+
 # ------------------------------------------------------------------ 長い仕事（集計の続き）
 def test_try_calculation_continues_as_a_job(tmp_path, monkeypatch):
     monkeypatch.setenv("TODOKU_JOBS_DIR", str(tmp_path / "jobs"))
@@ -231,6 +258,7 @@ def test_try_calculation_continues_as_a_job(tmp_path, monkeypatch):
     r = api.calculate(str(p), {}, cells=["S!A1"])
     assert r["cells"][0]["status"] == "unfinished" and 0 < r["cells"][0]["done"] < 400000
     assert r["job"]["running"] and "まだ計算中" in r["say_to_user"]
+    assert "400,000" in r["say_to_user"]
     import time
 
     want = float(sum(i % 7 for i in range(1, 400001)))

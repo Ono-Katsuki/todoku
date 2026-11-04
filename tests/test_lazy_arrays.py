@@ -110,6 +110,8 @@ def test_textsplit_and_makearray():
     m = calc("MAKEARRAY(1048576,16384,LAMBDA(_xlpm.r,_xlpm.c,_xlpm.r*_xlpm.c))")
     assert isinstance(m, LazyArr) and m.at(1048575, 16383) == 1048576 * 16384
     assert flat(calc("MAKEARRAY(2,2,LAMBDA(_xlpm.r,_xlpm.c,_xlpm.r+_xlpm.c))")) == [2, 3, 3, 4]
+    assert flat(calc("_xlfn.MAKEARRAY(2,2,_xlfn.LAMBDA(_xlpm.r,_xlpm.c,_xlpm.r*_xlpm.c))")) == [1, 2, 2, 4]
+    assert calc('_xlfn.TEXTSPLIT("a b"," ")').at(0, 1) == "b"
 
 
 # ====================================================================== 集計：式で答える
@@ -239,3 +241,28 @@ def test_filter_unique_sort_on_big_arrays_keep_only_the_numbers():
     assert flat(u) == [1, 2, 0]
     s = calc("SORT(SEQUENCE(100000),1,-1)")
     assert isinstance(s, LazyArr) and s.at(0, 0) == 100000 and s.at(99999, 0) == 1
+
+
+def test_job_runs_without_a_time_limit_and_budget_reaches_the_deep_thread():
+    from todoku.xlsx.calc import _run_deep
+
+    b = limits.Budget()
+    b.calc_left = float("inf")
+    with limits.call_budget(b):
+        assert _run_deep(limits.budget) is b
+
+
+def test_sum_past_double_range_follows_excel_row_order(monkeypatch):
+    # 2^53 を超える和：Excel と同じに行の順に足す（実機の Excel で 15 桁まで一致を確かめた形）
+    b = limits.Budget()
+    b.calc_left = 1000
+    with limits.call_budget(b):
+        got = calc("SUM(ROW(1:1000)*COLUMN(A:CV)*123456789012)")
+    s = 0.0
+    for i in range(1, 1001):
+        for j in range(1, 101):
+            s += float(i) * j * 123456789012.0
+    assert got == s
+    with limits.call_budget(b):
+        got = calc("SUM(ROW(1:1048576)*COLUMN(A:XFD))")  # Excel も持てない大きさ：正確な和
+    assert got == float((1048576 * 1048577 // 2) * (16384 * 16385 // 2))

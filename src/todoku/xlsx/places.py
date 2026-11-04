@@ -307,11 +307,17 @@ def expand_fields(wb, sh, lay, opts, places: list[dict], a: int, b: int, limit: 
 
     out: list[dict] = []
     el = Eligible(wb, sh)
-    for r in range(a, b + 1):
-        for p in places:
-            if p["why_key"] in (["array"], ["repeat"]):
-                continue
+    rects = []
+    for p in places:
+        if p["why_key"] not in (["array"], ["repeat"]):
             (r1, c1), (r2, c2) = (parse_cell(x) for x in p["cell"].split(":"))
+            rects.append((r1, c1, r2, c2, p))
+    if not rects:
+        return out, None
+    a = max(a, min(x[0] for x in rects))
+    b = min(b, max(x[2] for x in rects))
+    for r in range(a, b + 1):
+        for r1, c1, r2, c2, p in rects:
             if not r1 <= r <= r2:
                 continue
             for c in range(c1, c2 + 1):

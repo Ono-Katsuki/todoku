@@ -368,10 +368,11 @@ def cell_values(wb: Workbook, values: dict, cells: list, store=None) -> list[dic
             if where is not None and sh.cells.get((r, c)) is None:
                 v = where["value"]
             st, why = calc.status.get((s, r, c), ("ok", ""))
-            if where is not None and where.get("master"):
-                st, why = calc.status.get((s, *where["master"]), (st, why))
+            master = where["master"] if where is not None else (sh.array_span_at(r, c) if hasattr(sh, "array_span_at") else None)
+            if master:
+                st, why = calc.status.get((s, *master), (st, why))
             d: dict = {"cell": _key(s, r, c)}
-            un = calc.unfinished.get((s, r, c)) or (calc.unfinished.get((s, *where["master"])) if where and where.get("master") else None)
+            un = calc.unfinished.get((s, r, c)) or (calc.unfinished.get((s, *master)) if master else None)
             if un is not None:
                 d.update({"status": "unfinished", "why": why, "done": un.done, "total": un.total})
             elif st in ("ok", "volatile"):

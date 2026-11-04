@@ -183,6 +183,20 @@ def _declared_room(wb: Workbook) -> int:
     return MAX_DECLARED_CELLS // max(len(wb.sheets), 1)
 
 
+def _unlocked_ranges(wb: Workbook, sh: Sheet, lim_r: int, lim_c: int) -> list[Declared]:
+    """保護されたシートで、列全体・行全体の書式でロックを外した広い範囲（ファイルにセルの要素のない所）：範囲の所。"""
+    out = []
+    run: list[int] = []
+    for c in [*range(1, lim_c + 1), lim_c + 1]:
+        if c <= lim_c and c in sh.col_styles and not wb.style(sh.col_styles[c]).locked:
+            run.append(c)
+            continue
+        if run and len(run) * lim_r > ONE_DECLARATION:
+            out.append(Declared(1, run[0], lim_r, run[-1], "unlocked"))
+        run = []
+    return out
+
+
 def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
     """入力欄の候補と、そう判断した理由。"""
     out: dict[tuple[int, int], list[str]] = {}
@@ -210,6 +224,8 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
     lim_r, lim_c = _used_limits(sh, wb)
     room = _declared_room(wb)
     wide: list = []  # 1 マスずつにしない入力規則（範囲の所）
+    if sh.protected:
+        wide += _unlocked_ranges(wb, sh, lim_r, lim_c)
     for v in sh.validations:
         for r1, c1, r2, c2 in v.sqref:
             # 列全体などの広い範囲は、使っている範囲と印刷範囲（ファイルの作り）までに切る。切った外のセルは、

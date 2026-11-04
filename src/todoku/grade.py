@@ -1046,6 +1046,13 @@ def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "�
                 inferred.append(f["id"])
             if f.get("rules_overlap"):
                 overlap.append(f["id"])
+        for p in sh.get("range_places") or []:  # 1 マスずつにしない広い宣言（範囲の所）：宣言の種類で同じに数える
+            if p.get("readonly"):
+                continue
+            if p.get("agent"):
+                agent.append({"id": p["id"], "why": "・".join(p.get("why_key") or [])})
+            elif {"validation", "unlocked"} & set(p.get("why_key") or []):
+                marked.append(p["id"])
     n_fields = len(marked) + len(boxed) + len(inferred) + len(inline)
     guessed = inline + boxed + inferred
     if boxed:
