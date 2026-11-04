@@ -77,7 +77,7 @@ class DocLazy(SeqLazy):
     def parse_unit(self, u: int, state: dict):
         from ..doc.book import DocFile
 
-        return DocFile(self.cf.fb, self.name, cfb=self.spool, partial={"range": self.units[u], **state})
+        return DocFile(self.cf.fb, self.name, cfb=self.spool, partial={"range": self.units[u], "skel": self.skel, **state})
 
     def state_after(self, doc, state: dict) -> dict:
         return {"embeds": _stubs(doc.embeds), "pictures": len(doc.pictures)}
@@ -190,6 +190,13 @@ class HwpLazy(SeqLazy):
 
         return list_images("hwp", self.cf.fb, {})
 
+    def grade(self):
+        from ..grade import Reason, _final
+
+        g = _final([], [Reason("D", "HWP 5 には書けない", "HWP 5 には書けません。HWPX で保存し直せば書けます（한글の「다른 이름으로 저장」で .hwpx を選ぶ）")])
+        g.deferred = ["未確認：全段落の字の読み落とし（audit_document で全部のまとまりを確かめます）"]
+        return g
+
 
 # ====================================================================== 本文の直下の要素で分ける XML（.odt・.hwpx）
 class XmlSplit:
@@ -249,8 +256,9 @@ class XmlSplit:
         self.head = bytes(kept[:first]) if len(kept) >= first else self.reader.read(0, first)
         self.tail = self.reader.read(self.end, total)
 
-    def groups(self, limit: int = UNIT_BYTES) -> list[tuple[int, int]]:
+    def groups(self) -> list[tuple[int, int]]:
         """[(要素の番号の始め, 終わり)]。"""
+        limit = UNIT_BYTES
         out = []
         i = 0
         n = len(self.offs)
@@ -309,6 +317,12 @@ class _PackagedLazy(SeqLazy):
 
     def unit_blob(self, u: int) -> bytes:
         raise NotImplementedError
+
+    def images_for_view(self) -> list[dict]:
+        return self.list_images()
+
+    def read_part(self, name: str) -> bytes:
+        return Member(self.src, self.z.getinfo(name)).read()
 
     def list_images(self) -> list[dict]:
         """単位ごとに一覧を作ってつなぐ（図の番号は全体の順に直す）。"""
@@ -425,6 +439,26 @@ class HwpxLazy(_PackagedLazy):
 
 
 # ====================================================================== PowerPoint
+class _ZipView:
+    """部品を使うときに読む、ZIP の代わり（has・read・names）。読んだスライドの部品は控えない（まとめて読む部品は kept にある）。"""
+
+    def __init__(self, doc: "_PackagedLazy"):
+        self.doc = doc
+        self.names_ = {i.filename: i for i in doc.z.infolist()}
+
+    def has(self, name: str) -> bool:
+        return name in self.names_
+
+    def names(self):
+        return list(self.names_)
+
+    def read(self, name: str) -> bytes:
+        got = self.doc.kept.get(name)
+        if got:
+            return got
+        return Member(self.doc.src, self.names_[name]).read()
+
+
 class PptxLazy(_PackagedLazy):
     """スライドごと：頼まれたスライドとそのノートだけを小さな ZIP に写して読む。"""
 
@@ -441,7 +475,8 @@ class PptxLazy(_PackagedLazy):
         self.templates: dict[str, list[str]] = {}
         self.unread_notes: list[str] = []
         self.pictures_seen: list[dict] = []
-        skel = PptxDocument(self._mini_zip({}), name, partial={"slides": ()})
+        self.zipview = _ZipView(self)
+        skel = PptxDocument(b"", name, partial={"slides": (), "zip": self.zipview})
         order = list(skel.slide_parts)
         para = table = chars = 0
         pics = charts = dgm = 0
@@ -463,16 +498,11 @@ class PptxLazy(_PackagedLazy):
     def _open_slide(self, n: int, part: str, pics: int, charts: int, dgm: int):
         from ..pptx.document import PptxDocument
 
-        real = {part: Member(self.src, self.z.getinfo(part)).read()}
-        rp = part.replace("slides/slide", "slides/_rels/slide") + ".rels"
-        if rp in self.kept:
-            for m in re.finditer(rb'Target="([^"]*notesSlide[^"]*)"', self.kept[rp]):
-                from ..docx.document import _join
-
-                nn = _join(part, m[1].decode())
-                if nn in self.z.namelist():
-                    real[nn] = Member(self.src, self.z.getinfo(nn)).read()
-        return PptxDocument(self._mini_zip(real), self.name, partial={"slides": (n,), "pictures": pics, "charts": charts, "diagrams": dgm})
+        shared = self.__dict__.setdefault("_layouts", {})
+        d = PptxDocument(b"", self.name, partial={"slides": (n,), "pictures": pics, "charts": charts, "diagrams": dgm, "zip": self.zipview,
+                                                  "parts": shared, "templates_known": self.templates})
+        shared.update({k: v for k, v in d.parts.items() if not k.lower().startswith(("ppt/slides/", "ppt/notesslides/"))})  # スライドの木は控えない
+        return d
 
     def _remember_templates(self, d) -> None:
         from ..docx.window import Spots, _render_blocks
@@ -511,6 +541,11 @@ class PptxLazy(_PackagedLazy):
                  "where": f"スライド {p['slide']}" + (f"の「{p['name']}」" if p["name"] else ""), "media": p.get("media", ""),
                  **({"size_mm": p["size_mm"]} if p.get("size_mm") else {})} for p in self.pictures_seen]
         images = list_images("pptx", self._mini_zip({}), {"pictures": pics})
+        self._images = images
         if images:
             lines += markdown(images).split("\n")
         return lines
+
+    def images_for_view(self) -> list[dict]:
+        self.extras_lines()
+        return self._images

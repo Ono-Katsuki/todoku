@@ -112,6 +112,7 @@ def _watch_memory(key: str, rec: dict) -> None:
         if resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * scale > limits.MEMORY_LIMIT:
             rec["stopped"] = (f"メモリを {limits.MEMORY_LIMIT / limits.MB:,.0f} MB より多く使ったので止めました。ここまでの控えは残っています。"
                               "もう一度 audit_document を呼ぶと続きから進みます（TODOKU_MEMORY_LIMIT_MB で上限を変えられます）")
+            rec["skip_whole"] = True  # 書類の全体を一度に読む検査が重すぎた：次は分けて読む検査に（行き止まりにしない）
             save(key, rec)
             os._exit(86)
         time.sleep(0.2)
@@ -139,6 +140,8 @@ def run(key: str) -> int:
         with limits.call_budget(limits.Budget(total=None)):
             doc = lazy.open_doc(args["path"], args.get("password"), args.get("encoding"), force=True)
             state = rec.get("state") or doc.audit_begin()
+            if rec.get("skip_whole"):
+                state["skip_whole"] = True
             while not state.get("done"):
                 state = doc.audit_step(state)
                 rec["state"] = state

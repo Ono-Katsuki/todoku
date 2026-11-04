@@ -472,6 +472,14 @@ class DocxLazy(BlocksLazy):
 
         return [n for n in self.kept if _ext(n) in _IMG_EXT and n.startswith("word/")]
 
+    def images_for_view(self) -> list[dict]:
+        from ..imaging.docimages import list_images
+
+        return list_images("docx", self._mini(b"", ()), {"pictures": self.pictures})
+
+    def read_part(self, name: str) -> bytes:
+        return self._read_part(self.z.getinfo(name))
+
     def _extras_doc(self):
         """埋め込み・グラフ・SmartArt のあるブロックだけの小さな文書（番号は、全体と同じ順に出てくる）。"""
         from ..docx.document import DocxDocument

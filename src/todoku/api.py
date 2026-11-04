@@ -2092,14 +2092,30 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
 def view_image(path: str, image: str, password: str | None = None, region: list | None = None) -> dict:
     """書類の中の画像を渡す（窓の「書類の中の画像」の id か、部品の名前で指す）。PNG・JPEG はそのまま、ほかは描いて PNG で。
     結果：{id, mime, data_base64, width, height, not_drawn, text}。"""
-    from .imaging.docimages import ImageNotFound, get_image, pdf_get
+    from .imaging.docimages import ImageNotFound, _deliver, get_image, list_images, pdf_get
+    from .lazy.filebytes import mapped_reads
 
-    blob, name, k, lock = _read(path, password)
+    lz = lazy_open(path, password, built_ok=False) if _member(path) is None else None
+    if lz is not None and hasattr(lz, "images_for_view"):
+        # 大きな書類：窓を作らずに一覧を作り、その部品だけを読む
+        try:
+            images = lz.images_for_view()
+            item = next((im for im in images if im.get("id") == image or (im.get("part") and im.get("part") == image)), None)
+            if item is None or not item.get("part"):
+                ids = "・".join(str(im["id"]) for im in images[:12])
+                raise ApiError(f"画像「{image}」は書類にありません（窓の一覧の id：{ids}）")
+            return _deliver(lz.read_part(item["part"]), item.get("format") or "", image, item, region)
+        except (ValueError, struct.error, IndexError, KeyError) as e:
+            raise ApiError(f"画像を開けません：{e}") from None
+    with mapped_reads():
+        blob, name, k, lock = _read(path, password)
     try:
         if k == "pdf":
             return pdf_get(_pdf(blob, name, lock), image, region)
         if k == "image":
             raise ApiError("画像のファイルは view_page で見ます")
+        if lz is not None and lz.kind in ("doc", "xls", "hwp"):
+            return get_image(k, blob, list_images(k, blob, {}), image, region)  # 窓を作らない（一覧はファイルの作りだけで決まる）
         _k, doc, _parts = window(path, password)
         return get_image(k, blob, doc.get("images") or [], image, region)
     except ImageNotFound as e:

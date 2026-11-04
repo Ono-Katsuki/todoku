@@ -58,12 +58,12 @@ class PptxDocument:
         self.blob = blob
         self.filename = filename
         self.partial = partial
+        p_ = partial or {}
         try:
-            self.zip = RawZip(blob)
+            self.zip = p_["zip"] if "zip" in p_ else RawZip(blob)  # zip：部品を使うときに読む入れ物（lazy：スライドごとに ZIP を作り直さない）
         except Exception as e:  # noqa: BLE001
             raise PptxError(f"ZIP として読めません：{e}") from None
-        p_ = partial or {}
-        self.parts: dict[str, tuple[bytes, Node]] = {}
+        self.parts: dict[str, tuple[bytes, Node]] = dict(p_.get("parts", {}))  # parts：読んであるレイアウト・マスター（lazy）
         self.pictures: list[dict] = [{"n": i + 1, "stub": True} for i in range(p_.get("pictures", 0))]  # {"n", "alt", "decorative", "slide", "name"}
         self.charts: list[dict] = [{"n": i + 1, "stub": True} for i in range(p_.get("charts", 0))]
         self.diagrams: list[dict] = [{"n": i + 1, "stub": True} for i in range(p_.get("diagrams", 0))]
@@ -160,7 +160,10 @@ class PptxDocument:
                             if t2.endswith("/slideMaster") and self.zip.has(_join(name, tg2)):
                                 shown_templates.append(_join(name, tg2))
             self.slides.append(s)
+        known = (self.partial or {}).get("templates_known", ())
         for name in dict.fromkeys(shown_templates):
+            if name in known:
+                continue
             troot = self.load(name)
             if troot is None or not troot.kids:
                 continue

@@ -85,7 +85,7 @@ class _SheetBook(XlsxLazy):
     def audit_step(self, state: dict) -> dict:
         import os
 
-        if state["sheet"] == 0 and state["next_i"] == 0 and not state["cells"] and os.path.getsize(self.path) <= limits.MAX_FILE // 8:
+        if state["sheet"] == 0 and state["next_i"] == 0 and not state["cells"] and not state.get("skip_whole") and os.path.getsize(self.path) <= limits.MAX_FILE // 8:
             from .. import api
 
             au = api.audit_whole(self.path, None, None)
@@ -248,7 +248,6 @@ class OdsLazy(_SheetBook):
         k = self.reader.read(tables_end[0], tables_end[0] + 64).find(b">")
         self.after_tables = tables_end[0] + k + 1
         self.tail = self.reader.read(self.after_tables, total)
-        self.between = []
         for sh in self.sheets:
             sh.pre = self.reader.read(sh.open_tag[0], sh.pre_end)
             sh.post = self.reader.read(sh.post_start, sh.end + 64)

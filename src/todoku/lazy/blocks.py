@@ -282,7 +282,7 @@ class BlocksLazy(LazyDoc):
         """いままでの検査で全体を確かめられる大きさなら、それを動かす。大きすぎるときは、まとまりごとに窓を作り、段落の字が窓に出ていることを確かめる。"""
         import os
 
-        if state.get("next_chunk", 0) == 0 and os.path.getsize(self.path) <= limits.MAX_FILE // 8:
+        if state.get("next_chunk", 0) == 0 and not state.get("skip_whole") and os.path.getsize(self.path) <= limits.MAX_FILE // 8:
             from .. import api
 
             limits.progress("書類の全体を検査しています")

@@ -273,10 +273,13 @@ def test_concat_odt_many(tmp_path, monkeypatch):
 
     body = "".join(f'<text:p>第{i}段落 氏名（　　）</text:p><text:h text:outline-level="1">見出し{i}</text:h>'
                    f'<table:table table:name="t{i}"><table:table-column table:number-columns-repeated="2"/><table:table-row><table:table-cell><text:p>氏名{i}</text:p></table:table-cell><table:table-cell><text:p/></table:table-cell></table:table-row></table:table>'
+                   + (f'<text:p>本文<text:note text:note-class="footnote"><text:note-citation>{i}</text:note-citation><text:note-body><text:p>脚注{i}</text:p></text:note-body></text:note></text:p>'
+                      f'<text:list><text:list-item><text:p>箇条{i}</text:p></text:list-item><text:list-item><text:p>箇条{i}の二</text:p></text:list-item></text:list>' if i % 7 == 0 else "")
                    for i in range(60))
     p = tmp_path / "many.odt"
     p.write_bytes(make_odt(body, ODT_AUTO, ODT_FORMS))
     _word_like(p, monkeypatch, "OdtLazy")
+    assert len(lazy.open_doc(str(p), force=True).chunks) > 3
 
 
 def test_concat_hwpx(tmp_path, monkeypatch):
@@ -572,3 +575,91 @@ def test_stop_names_a_smaller_request_for_every_old_format():
         hint = lazy.smaller_request("read_window", {"path": name})
         assert "read_window" in hint and ("paragraphs" in hint or "rows" in hint or "path" in hint)
         assert "raw: true" in hint
+
+
+def test_view_image_of_big_word_reads_only_that_part(tmp_path, monkeypatch):
+    from test_doc_images import _docx
+
+    p = _docx(tmp_path)
+    lazy.clear()
+    monkeypatch.setattr(limits, "CONTEXT_BUDGET", 0)
+    doc = lazy.open_doc(str(p), force=True)
+    assert type(doc).__name__ == "DocxLazy"
+    monkeypatch.setattr(api, "window", lambda *a, **k: (_ for _ in ()).throw(AssertionError("窓を作らない")))
+    ims = doc.images_for_view()
+    assert ims
+    got = api.view_image(str(p), ims[0]["id"])
+    assert got["mime"].startswith("image/")
+
+
+def test_word_bomb_stops_in_the_lazy_path(tmp_path, monkeypatch):
+    p = tmp_path / "bomb.docx"
+    body = _para(0) * 50 + ("<w:p/>" * 3_000_000)
+    p.write_bytes(_word_blob(body))
+    monkeypatch.setattr(limits, "MAX_INFLATE_PART", limits.MB)
+    monkeypatch.setattr(limits, "MAX_INFLATE_RATIO", 2)
+    lazy.clear()
+    with pytest.raises(ValueError, match="爆弾|超え"):
+        lazy.open_doc(str(p), force=True)
+
+
+def test_audit_job_falls_back_to_chunks_after_memory_stop(tmp_path, monkeypatch):
+    """丸ごとの検査がメモリで止まっても、次はまとまりごとの検査に進む（行き止まりにしない）。"""
+    from todoku.lazy import blocks
+
+    p = _copy(tmp_path, "form.jtd")
+    monkeypatch.setattr(blocks, "VIEW_CHUNK_PARAS", 5)
+    doc = lazy.open_doc(str(p), force=True)
+    st = doc.audit_begin()
+    st["skip_whole"] = True
+    while not st.get("done"):
+        st = doc.audit_step(st)
+    assert "full" not in st and st["checks"][0]["ok"] and st["still_deferred"]
+
+
+def test_doc_many_paragraphs_units(tmp_path, monkeypatch):
+    """ピースの表から、字の範囲ごとに読んでも、窓の全体と同じ。"""
+    import struct
+
+    from todoku.cfb import build_cfb
+
+    text = "".join(f"第{i}段落の字です。氏名（　　　　）\r" for i in range(500))
+    fc0 = 2048
+    tb = text.encode("utf-16-le")
+    wd = bytearray(fc0 + len(tb))
+    struct.pack_into("<HHHHHHHI", wd, 0, 0xA5EC, 0x00C1, 0, 0x0411, 0, 0x1200, 0x00BF, 0)
+    struct.pack_into("<H", wd, 0x20, 14)
+    struct.pack_into("<H", wd, 0x3E, 22)
+    struct.pack_into("<22i", wd, 0x40, len(wd), 0, 0, len(text), *([0] * 18))
+    struct.pack_into("<H", wd, 0x98, 93)
+    wd[fc0:] = tb
+    clx = b"\x02" + struct.pack("<I", 16) + struct.pack("<II", 0, len(text)) + struct.pack("<HIH", 0, fc0, 0)
+    struct.pack_into("<II", wd, 0x9A + 33 * 8, 0, len(clx))
+    p = tmp_path / "many.doc"
+    p.write_bytes(build_cfb({"WordDocument": bytes(wd), "1Table": clx, "Data": b"DATA" * 2000}))
+    _word_like(p, monkeypatch, "DocLazy")
+    doc = lazy.open_doc(str(p), force=True)
+    assert len(doc.chunks) > 5
+    assert "第499段落" in "\n".join(pg.text for pg in _follow(p, {"raw": True}, max_chars=2000))
+
+
+def test_hwp_many_and_hwpx_many(tmp_path, monkeypatch):
+    from test_hwpx import NS, XML, make_hwpx, para, run_, t, _para, _w
+    import struct as st
+    import zlib
+
+    from todoku.cfb import build_cfb
+
+    head = (b"HWP Document File".ljust(32, b"\0") + st.pack("<II", 0x05010000, 1)).ljust(256, b"\0")
+    c = zlib.compressobj(6, zlib.DEFLATED, -15)
+    body = b"".join(_para(_w(f"제{i}항 본문 성명") + [13]) for i in range(300))
+    p = tmp_path / "m.hwp"
+    p.write_bytes(build_cfb({"FileHeader": head, "DocInfo": b"", "BodyText/Section0": c.compress(body) + c.flush() + bytes(5000)}))
+    _word_like(p, monkeypatch, "HwpLazy")
+    assert len(lazy.open_doc(str(p), force=True).chunks) > 3
+    sec = XML + f"<hs:sec {NS}>" + "".join(para(run_(t(f"제{i}항 본문 내용입니다"))) for i in range(200)) + "</hs:sec>"
+    q = tmp_path / "m.hwpx"
+    q.write_bytes(make_hwpx(sec))
+    lazy.clear()
+    _word_like(q, monkeypatch, "HwpxLazy")
+    assert len(lazy.open_doc(str(q), force=True).chunks) > 3

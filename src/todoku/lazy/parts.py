@@ -43,7 +43,7 @@ def parts_kind(path: str) -> str | None:
 
 def cfb_kind(path: str) -> str | None:
     """複合ファイルの書類の、分けて読む形式（xls・doc・word6・hwp・jtd）。暗号・小さなファイルは None。"""
-    if os.path.getsize(path) < limits.LAZY_MIN_BYTES:
+    if os.path.getsize(path) < limits.LAZY_MIN_BYTES // 16:  # 圧縮した本文（HWP・一太郎）は小さなファイルでも大きい
         return None
     from ..cfb import CfbError
     from .cfbfile import CfbFile
@@ -53,7 +53,10 @@ def cfb_kind(path: str) -> str | None:
     except (CfbError, OSError, ValueError, struct.error):
         return None
     try:
-        return _kind_of_cfb(cf)
+        got = _kind_of_cfb(cf)
+        if got not in ("hwp", "jtd") and cf.size < limits.LAZY_MIN_BYTES:
+            return None
+        return got
     except (CfbError, OSError, ValueError, struct.error, IndexError):
         return None
     finally:

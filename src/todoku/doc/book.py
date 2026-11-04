@@ -169,14 +169,15 @@ class DocFile:
         # 文字の数（本文・脚注・ヘッダー・コメント・文末脚注・テキストボックス・ヘッダーのテキストボックス）
         self.ccp = {"text": self.lw[3], "ftn": self.lw[4], "hdd": self.lw[5], "atn": self.lw[7], "edn": self.lw[8],
                     "txbx": self.lw[9], "hdrtxbx": self.lw[10]}
-        self.pieces = self._pieces()
-        self.papx = self._fkps("PlcfBtePapx", papx=True)
-        self.chpx = self._fkps("PlcfBteChpx", papx=False)
-        self.text = self._text() if not p_.get("no_text") else ""
+        sk = p_.get("skel")  # 読んである字と表を使う（lazy：字の範囲ごとに読み直さない）
+        self.pieces = sk.pieces if sk else self._pieces()
+        self.papx = sk.papx if sk else self._fkps("PlcfBtePapx", papx=True)
+        self.chpx = sk.chpx if sk else self._fkps("PlcfBteChpx", papx=False)
+        self.text = sk.text if sk else (self._text() if not p_.get("no_text") else "")
         self.protection, self.protection_enforced = self._dop()
         self.has_macros = self.cfb.has("Macros/VBA/dir") or any(p.lower().startswith("macros/") for p in self.cfb.streams())
         self.controls: list[Control] = []
-        self.bookmarks = self._bookmarks()
+        self.bookmarks = sk.bookmarks if sk else self._bookmarks()
         self.stories: list[tuple[str, str, list]] = []
         self._build()
 

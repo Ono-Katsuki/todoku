@@ -375,7 +375,8 @@ class JsonLazy(LazyDoc):
             frames.pop()
             if size >= max_chars and frames:
                 return self._page(body, frames, stop_end, "残りの値")
-        return Page("\n".join(body), f"JSON の値（全 {comma(self.size)} バイト）を終わりまで", None, "", body)
+        what = f"{rng['path']} の値" if rng.get("path") else "JSON の値（全 " + comma(self.size) + " バイト）"
+        return Page("\n".join(body), f"{what}を終わりまで", None, "", body)
 
     def _after(self, b: int) -> int:
         pos = self._skip_ws(b)

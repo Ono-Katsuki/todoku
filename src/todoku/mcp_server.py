@@ -28,7 +28,7 @@ INSTRUCTIONS = (
     "入力欄に証明つきで書き込む道具です。韓国のワープロ（한글）の HWPX（.hwpx）も読んで書け、HWP 5（.hwp）は読むだけです"
     "（HWP 5 に書くときは、本人に HWPX で保存し直したファイルを頼みます）。"
     "大きな書類は、読む量を分けて読みます（読めない所はありません）：open_document が large の概要を返したら、要る所を read_window に範囲で頼みます"
-    "（PDF は pages、Excel は sheet と rows、CSV・TSV は rows、JSON Lines は records、.txt・Word は paragraphs。結果の next をそのまま渡すと続きが読め、"
+    "（PDF は pages、Excel・OpenDocument の表は sheet と rows、CSV・TSV は rows、JSON Lines は records、JSON は path_in（JSON Pointer）、.txt・Word・一太郎・한글・PowerPoint・OpenDocument の文書・RTF は paragraphs。結果の next をそのまま渡すと続きが読め、"
     "たどり終えると全部を読んだことになります）。list_fields も同じ範囲で頼みます。段階の deferred（未確認）は、まだ確かめていないことなので、確かめたことのように伝えないでください。"
     "検査 audit_document は長い仕事として動き、呼ぶたびに進み具合を返します。呼び出しが上限で止まったら、結果の smaller_request の頼み方で頼み直します。"
     "まず open_document で書類を開き、read_window で窓を読み、list_fields で入力欄の名前を確かめてから、"
@@ -79,7 +79,7 @@ TOOLS = [
                      "required": ["path"]}},
     {"name": "read_window",
      "description": "窓（Markdown）を返す。ふつうの書類は part 番目の部分（1から）。大きな書類は範囲で頼む：PDF は pages（\"1-20\"）、"
-                    "Excel は sheet と rows（\"1-500\"）、CSV・TSV は rows、JSON Lines は records、.txt・Word は paragraphs（行・段落の範囲）。"
+                    "Excel・OpenDocument の表は sheet と rows（\"1-500\"）、CSV・TSV は rows、JSON Lines は records、JSON は path_in（JSON Pointer）、.txt・Word・一太郎・한글・PowerPoint・OpenDocument の文書・RTF は paragraphs（行・段落の範囲）。"
                     "どの書類でも範囲で読める。結果には、読んだ範囲・残り・続きの頼み方（next）が付く。next をそのまま渡していけば、"
                     "全部を読める（読む量を分けるだけで、読めない所はない）。max_chars で 1 回の大きさ（字）を変えられる。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},

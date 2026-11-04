@@ -496,7 +496,7 @@ class XlsLazy(XlsxLazy):
     def audit_step(self, state: dict) -> dict:
         import os
 
-        if state["sheet"] == 0 and state["next_i"] == 0 and os.path.getsize(self.path) <= limits.MAX_FILE // 8 and not state.get("cells"):
+        if state["sheet"] == 0 and state["next_i"] == 0 and os.path.getsize(self.path) <= limits.MAX_FILE // 8 and not state.get("cells") and not state.get("skip_whole"):
             from .. import api
 
             au = api.audit_whole(self.path, self.password, None)
