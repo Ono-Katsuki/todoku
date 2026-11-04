@@ -836,6 +836,17 @@ class PageLayout:
             sp.facts = {**facts, **self._facts_nb(nb)}
             self.spots.append(sp)
 
+    def _chars_at_height(self, y: float, d: float) -> list:
+        """字の中ほどの高さが y ± d の字（ページの字の順のまま）。高さの索引で引く（行ごとにページのすべての字をたどらない）。"""
+        import bisect
+
+        idx = self.__dict__.get("_cy_index")
+        if idx is None or idx[2] != len(self.chars):
+            order = sorted(range(len(self.chars)), key=lambda i: self.chars[i].cy)
+            idx = self.__dict__["_cy_index"] = ([self.chars[i].cy for i in order], order, len(self.chars))
+        keys, order, _n = idx
+        return [self.chars[i] for i in sorted(order[bisect.bisect_left(keys, y - d):bisect.bisect_right(keys, y + d)])]
+
     def _bounds(self, ln: Line, cell: Cell | None) -> tuple[tuple, tuple]:
         """行の左右の端：(位置, 種類, その先の字)。種類は "cell"（マスの縁）・"text"（同じ高さのほかの字）・"ruling"（縦の罫線）・
         "page"（ページの字の端）。"""
@@ -852,7 +863,7 @@ class PageLayout:
             return left, right
         left, right = (self.left, "page", ""), (self.right, "page", "")
         own = {id(c) for c in ln.chars}
-        for c in self.chars:
+        for c in self._chars_at_height((ln.y0 + ln.y1) / 2, 0.6 * sz):
             if c.text.isspace() or id(c) in own or abs(c.cy - (ln.y0 + ln.y1) / 2) >= 0.6 * sz:
                 continue
             if c.x1 <= ln.x0 + 0.5 and c.x1 > left[0]:

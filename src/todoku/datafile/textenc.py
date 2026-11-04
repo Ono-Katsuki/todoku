@@ -36,6 +36,8 @@
 
 from __future__ import annotations
 
+from array import array
+
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -177,23 +179,34 @@ class Decoded:
         return _clip(lines[n]) if n < len(lines) else ""
 
     def byte_of(self, i: int) -> int:
-        """文字列の i 番目の字の始まりの、ファイルの中のバイトの位置（字ごとのバイト数を足し上げた表を、1回だけ作る）。"""
+        """文字列の i 番目の字の始まりの、ファイルの中のバイトの位置。字ごとのバイト数を足し上げた表を 1 回だけ作るが、
+        1024 字ごとの控えだけを持つ（字ごとに持つと、1 億字の行で何 GB にもなる）。ASCII の字だけなら表は要らない。"""
+        if self.encoding not in WIDE and self.text.isascii():
+            return len(self.bom) + i
         pre = getattr(self, "_prefix", None)
         if pre is None:
-            sizes: dict[str, int] = {}
-            pre = [0] * (len(self.text) + 1)
+            pre = array("Q", [0])
+            self._sizes: dict[str, int] = {}
             at = 0
-            for k, ch in enumerate(self.text):
-                if ch < "\x80" and self.encoding not in WIDE:
-                    at += 1
-                else:
-                    n = sizes.get(ch)
-                    if n is None:
-                        n = sizes[ch] = len(ch.encode(self.encoding))
-                    at += n
-                pre[k + 1] = at
+            for k, ch in enumerate(self.text, 1):
+                at += self._char_size(ch)
+                if not k % 1024:
+                    pre.append(at)
             self._prefix = pre
-        return len(self.bom) + pre[i]
+        q, r = divmod(i, 1024)
+        at = pre[q]
+        if r:
+            for ch in self.text[q * 1024:i]:
+                at += self._char_size(ch)
+        return len(self.bom) + at
+
+    def _char_size(self, ch: str) -> int:
+        if ch < "\x80" and self.encoding not in WIDE:
+            return 1
+        n = self._sizes.get(ch)
+        if n is None:
+            n = self._sizes[ch] = len(ch.encode(self.encoding))
+        return n
 
     def span(self, blob: bytes, a: int, b: int) -> tuple[int, int]:
         """字の範囲 [a, b) → バイトの範囲。読み直して同じ字になることを確かめる。"""

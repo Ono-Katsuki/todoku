@@ -37,6 +37,9 @@ from .base import ByteRanges, LazyDoc, Page, RangeError, comma, cut_note, parse_
 from .textstream import STRIDE, CsvStats, Source, TextIndex, detect, index_csv, index_lines, sniff_delimiter, span_hash
 
 
+_csv.field_size_limit(2 ** 31 - 1)  # 別の読み方の確かめで、長いマスを「壊れている」としない（既定は 131072 字）
+
+
 class TextDoc(LazyDoc):
     streams = True
 
@@ -253,10 +256,13 @@ class CsvDoc(TextDoc):
                     elif only_empty:
                         continue
                     if row_ctx is None:
-                        row_ctx = row_line(f"R{rn}", vals, width)
+                        row_ctx = row_line(f"R{rn}", [_short_value(x)[0] for x in vals], width)
                     name = self._label(c)
-                    out.append({"id": f"R{rn}.C{c}", "kind": "text", "label": f"{name}（{rn}行目）", "value": v, "row": rn, "col": c,
-                                "column": name, "provenance": "deterministic", "context": row_ctx})
+                    shown, whole = _short_value(v)
+                    out.append({"id": f"R{rn}.C{c}", "kind": "text", "label": f"{name}（{rn}行目）", "value": shown, "row": rn, "col": c,
+                                "column": name, "provenance": "deterministic", "context": row_ctx,
+                                **({"value_chars": whole, "value_cut": f"値は {whole:,} 字あり、頭の {FIELD_VALUE_CHARS:,} 字だけを示しています。全部は read_window で読めます"}
+                                   if whole else {})})
                 if len(out) >= limit:
                     stop = rn + 1
                     break
@@ -521,6 +527,16 @@ class CsvDoc(TextDoc):
                         "items": (res.get("unexpected") or []) + [str(x) for x in res.get("read_back_differences") or []]}
             except (CsvError, ValueError) as e:
                 return {"name": "書き込みの試し", "ok": False, "agent": False, "detail": f"書けませんでした：{e}", "items": []}
+
+
+FIELD_VALUE_CHARS = 2000  # 欄の一覧に入れる値の字数。とても長いマスで、一覧が何百 MB にならない（切ったときは、切ったと示す）
+
+
+def _short_value(v) -> tuple:
+    """(一覧に出す値, 切ったときの全体の字数。切らなければ 0)。"""
+    if isinstance(v, str) and len(v) > FIELD_VALUE_CHARS:
+        return v[:FIELD_VALUE_CHARS], len(v)
+    return v, 0
 
 
 def _text_checks(name: str, state: dict, detail: str) -> list[dict]:
@@ -865,6 +881,7 @@ def _rec_args(rng: dict, n: int) -> tuple[int, int, int]:
 
 # ====================================================================== .txt
 SEG_CHARS = 50_000  # とても長い行を分ける単位（字）。id は字の位置で決まるので、この単位は id には関わらない
+SCAN_SEGS = 40  # list_fields が 1 回に調べる区切りの数（200 万字）。残りは next の cursor で
 
 
 class HugeLine:
@@ -1108,24 +1125,19 @@ class TxtLazy(LineDoc):
             last = min(b, r + STRIDE - 1)
             for ln, x, y, _t in self.line_spans(r, last):
                 h = self.huge(ln, x, y)
-                docs = []
-                if h is not None:
-                    g = self._grid(h)
-                    seg0 = bisect.bisect_right(g, skip) - 1
-                    for seg in range(max(seg0, 0), len(g)):
-                        docs.append((self._segment_doc(ln, h, seg)[0], seg))
-                else:
-                    docs.append((self._slice_doc(ln, self.src.read(x, y)), None))
                 from ..api import _field
 
-                for doc, seg in docs:
+                # 長い行は区切りごとに、1 回の呼び出しで SCAN_SEGS 区切りまで（欄のない長い行で、時間の上限に当たらない。続きは cursor で）
+                segs = (range(max(bisect.bisect_right(self._grid(h), skip) - 1, 0), len(self._grid(h))) if h is not None else (None,))
+                for done, seg in enumerate(segs, 1):
+                    doc = self._segment_doc(ln, h, seg)[0] if h is not None else self._slice_doc(ln, self.src.read(x, y))
                     _lines, fl = self._window_lines(doc)
                     for f in fl:
                         d = _field(f)
                         if only_empty and d.get("value") not in (None, "", False):
                             continue
                         out.append(d)
-                    if len(out) >= limit and seg is not None and seg + 1 < len(self._grid(h)):
+                    if seg is not None and seg + 1 < len(self._grid(h)) and (len(out) >= limit or done >= SCAN_SEGS):
                         stop = (ln, self._grid(h)[seg + 1])
                         break
                 if stop:
@@ -1138,7 +1150,7 @@ class TxtLazy(LineDoc):
         res = {"fields": out, "total_lines": n, "next": None}
         if stop and stop[0] <= b:
             res["next"] = {"cursor": f"lines:{stop[0]}:{stop[1]}" + (f":{b}" if b != n else "")}
-            res["remaining"] = f"{comma(b - stop[0] + 1)} 行"
+            res["remaining"] = f"{comma(b - stop[0] + 1)} 行" + (f"（{stop[0]} 行目は {stop[1]:,} 字の後ろから）" if stop[1] else "")
         return res
 
     # ------------------------------------------------------------------ 書く
