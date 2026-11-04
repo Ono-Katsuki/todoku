@@ -132,3 +132,55 @@ def test_zip_other_method_checks_the_crc():
     blob[i + 16] ^= 0xFF
     with pytest.raises(archives.ArchiveError, match="CRC"):
         archives.extract(bytes(blob), "a.txt", "zip")
+
+
+# ---------------------------------------------------------------- ZIP64（中央ディレクトリの欄が 0xFFFFFFFF で、終端も 64 ビットの形。Java の Zip64Mode.Always などが作る）
+def _zip64_blob(files: dict[str, bytes], descriptor: bool = False) -> bytes:
+    out = bytearray()
+    cen = bytearray()
+    for name, raw in files.items():
+        nm = name.encode()
+        off = len(out)
+        comp = _deflate_raw(raw)
+        crc = zlib.crc32(raw) & 0xFFFFFFFF
+        flags = 0x800 | (0x8 if descriptor else 0)
+        ex = struct.pack("<HHQQ", 1, 16, len(raw), len(comp))
+        if descriptor:
+            out += struct.pack("<IHHHHHIIIHH", 0x04034B50, 45, flags, 8, 0, 0, 0, 0xFFFFFFFF, 0xFFFFFFFF, len(nm), len(ex)) + nm + ex + comp
+            out += b"PK\x07\x08" + struct.pack("<IQQ", crc, len(comp), len(raw))
+        else:
+            out += struct.pack("<IHHHHHIIIHH", 0x04034B50, 45, flags, 8, 0, 0, crc, 0xFFFFFFFF, 0xFFFFFFFF, len(nm), len(ex)) + nm + ex + comp
+        cex = struct.pack("<HHQQQ", 1, 24, len(raw), len(comp), off)
+        cen += struct.pack("<IHHHHHHIIIHHHHHII", 0x02014B50, 45, 45, flags, 8, 0, 0, crc, 0xFFFFFFFF, 0xFFFFFFFF, len(nm), len(cex), 0, 0, 0, 0, 0xFFFFFFFF) + nm + cex
+    cd_at = len(out)
+    out += cen
+    at = len(out)
+    n = len(files)
+    out += struct.pack("<IQHHIIQQQQ", 0x06064B50, 44, 45, 45, 0, 0, n, n, len(cen), cd_at)
+    out += struct.pack("<IIQI", 0x07064B50, 0, at, 1)
+    out += struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, 0xFFFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0)
+    return bytes(out)
+
+
+@pytest.mark.parametrize("descriptor", [False, True])
+def test_zip64_package_is_read(descriptor):
+    from todoku.zipraw import RawZip
+
+    z = RawZip(_zip64_blob({"a.txt": BODY, "b.txt": b"second"}, descriptor))
+    assert z.zip64 and z.read("a.txt") == BODY and z.read("b.txt") == b"second"
+    assert z.get("a.txt").crc == zlib.crc32(BODY) & 0xFFFFFFFF
+
+
+def test_zip64_xlsx_reads_and_write_says_why(tmp_path):
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    wb.active["A1"] = "氏名"
+    src = tmp_path / "plain.xlsx"
+    wb.save(src)
+    z = zipfile.ZipFile(src)
+    p = tmp_path / "z64.xlsx"
+    p.write_bytes(_zip64_blob({n: z.read(n) for n in z.namelist()}))
+    assert "氏名" in "\n".join(t for _n, t in api.window(str(p))[2])
+    with pytest.raises(api.ApiError, match="ZIP64"):
+        api.fill(str(p), {"Sheet!B1": "x"}, str(tmp_path / "o.xlsx"))
