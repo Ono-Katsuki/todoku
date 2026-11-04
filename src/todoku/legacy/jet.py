@@ -25,7 +25,13 @@ Access 2007 以降の .accdb の「パスワードで暗号化」は別の形（
 - 計算列（列の 2 つ目の印が 0xC0）の値は、16 バイトの 0・4 バイトの長さ・値・3 バイトの 0。長い字はメモの形の中に同じ枠で入る。
 - 拡張日付（型 20）は ASCII の字で「日数:100 ナノ秒の数:桁数」。日数は 0001-01-01 からの数。
 
-行の形が確かめられないときは、値を推測せず、その行を読まずに行の数を窓に書く（別の道具で書き出してもらう）。
+行の形が確かめられないときは、値を推測せず、その行を読まずに行の数を窓に書く（別の道具で書き出してもらう）。行の番号は飛ばさない（読み方によらず、同じ番号が同じ行）。
+
+窓の行の書き方（record_text）：列の順に「｜」で区切り、NULL は〔NULL〕。前後の空白・改行・「｜」のある字と空の字は JSON の "…" で囲む（字を変えず、NULL・空の字・空白のある字を見分ける）。
+すべての列が NULL の行も、ファイルにある行なので出す。数は桁を落とさずに書く（表計算の「標準」の 11 桁に丸めない）。
+
+大きなデータベースは lazy/jetdoc.py が分けて読む（ページの表だけを作り、頼まれた行のページだけを解く）。下の JetWorkbook は窓の全体を作る道で、小さなデータベースと、
+名前で見分けられない書庫の中のファイルに使う。MAX_CELLS はその道でメモリを守るためのもので、分けて読む道には効かない。
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ from __future__ import annotations
 import bisect
 import datetime as dt
 import codecs
+import json
 import re
 import struct
 from decimal import Decimal
@@ -41,6 +48,8 @@ from .tablebook import TableBook
 
 MAX_CELLS = 300_000
 TYPE_JA = {1: "真偽", 2: "バイト", 3: "整数", 4: "長整数", 5: "通貨", 6: "単精度", 7: "倍精度", 8: "日時", 9: "バイナリ", 10: "字", 11: "OLE", 12: "メモ", 15: "GUID", 16: "数値", 18: "複合", 20: "拡張日付"}
+NULL_MARK = "〔NULL〕"
+LEGEND = "（行は列の順に「｜」で区切ります。〔NULL〕は値のない列です。\"…\" は字をそのまま示す囲みで、前後の空白・改行のある字と空の字に使います）"
 GUIDE = "Access で開いて表を .xlsx か CSV に書き出したものか、別の道具（mdbtools の mdb-export など）で CSV にしたものを開いてください"
 _C1_GAPS = frozenset(b"\x81\x8d\x8f\x90\x9d")  # cp1252 に字のないバイト：同じ番号の制御文字にする（バイトを失わない）
 _EXT_DATE = re.compile(rb"^(\d{19}):(\d{19}):(\d)\0$")
@@ -48,6 +57,53 @@ _EXT_DATE = re.compile(rb"^(\d{19}):(\d{19}):(\d)\0$")
 
 class JetError(ValueError):
     pass
+
+
+class Mark(str):
+    """値ではなく、とどくの言葉（〔OLE：… 中身は読みません〕など）。窓で "…" で囲まない。"""
+
+
+class BadRow:
+    """形を確かめられなかった行（番号は飛ばさない）。"""
+
+    __slots__ = ("why",)
+
+    def __init__(self, why: str):
+        self.why = why
+
+
+_NEEDS_QUOTE = re.compile(r"[\x00-\x1f\x7f｜]")
+
+
+def number_text(v: float) -> str:
+    if v != v or v in (float("inf"), float("-inf")):
+        return repr(v)
+    return str(int(v)) if v == int(v) and abs(v) < 1e16 else repr(v)
+
+
+def shown_value(v) -> str:
+    if isinstance(v, bool):
+        return "TRUE" if v else "FALSE"
+    if isinstance(v, float):
+        return number_text(v)
+    return str(v)
+
+
+def cell_text(v) -> str:
+    """窓の 1 つの列の字。"""
+    if v is None:
+        return NULL_MARK
+    if isinstance(v, Mark) or not isinstance(v, str):
+        return shown_value(v)
+    if not v or v != v.strip() or v[0] in '"〔' or _NEEDS_QUOTE.search(v):
+        return json.dumps(v, ensure_ascii=False)
+    return v
+
+
+def record_text(order: list, row) -> str:
+    if isinstance(row, BadRow):
+        return f"〔この行は形を確かめられないので読んでいません：{row.why}〕"
+    return " ｜ ".join(cell_text(row.get(c.name)) for c in order)
 
 
 def check_password(blob: bytes, password: str | None) -> str:
@@ -352,8 +408,45 @@ class Jet:
             raise JetError(f"使うページの表の形（{m[0]}）が読めません")
         return out
 
-    def rows(self, tdef_pg: int, cols: list[_Col], d: bytes):
-        """表の行を順に。形を確かめられない行は値を推測せず、self.bad[表の定義のページ] に理由を入れて飛ばす。"""
+    def live_rows(self, p: bytes) -> list[int]:
+        """データのページの、消えていない行の位置の番号（表に入りきらない番号も、読むときに理由を言えるように残す）。"""
+        rc = self.f.row_count
+        n = struct.unpack_from("<H", p, rc)[0]
+        fit = min(n, (len(p) - rc - 2) // 2)
+        out = [i for i, x in enumerate(struct.unpack_from(f"<{fit}H", p, rc + 2)) if not x & 0x8000]
+        out.extend(range(fit, n))
+        return out
+
+    def count_live(self, pg: int, tdef_pg: int) -> int:
+        """このページにある、この表の行の数（中身は解かない。暗号のページも、頭だけを解く）。"""
+        o = pg * self.f.pg
+        rc = self.f.row_count
+        if self.key:
+            k = struct.pack("<I", self.key ^ pg)
+            head = _rc4(k, bytes(self.b[o:o + rc + 2]))
+            n = struct.unpack_from("<H", head, rc)[0]
+            head = _rc4(k, bytes(self.b[o:o + min(self.f.pg, rc + 2 + 2 * n)]))
+        else:
+            head = self.b[o:o + self.f.pg]
+        if len(head) < rc + 2 or head[0] != 1 or struct.unpack_from("<I", head, 4)[0] != tdef_pg:
+            return 0
+        n = struct.unpack_from("<H", head, rc)[0]
+        fit = min(n, (len(head) - rc - 2) // 2)
+        return sum(1 for x in struct.unpack_from(f"<{fit}H", head, rc + 2) if not x & 0x8000) + n - fit
+
+    def record(self, tdef_pg: int, p: bytes, i: int, cols: list[_Col]):
+        """1 つの行：値の辞書か BadRow（消えた行は None）。"""
+        try:
+            q, start, end, flags = self._follow(tdef_pg, p, i)
+            if flags & 0x8000:
+                return None
+            return self._crack(q, start, end, cols)
+        except (JetError, struct.error, IndexError, ValueError) as e:
+            return BadRow(str(e))
+
+    def rows(self, tdef_pg: int, cols: list[_Col], d: bytes, slots: bool = False):
+        """表の行を順に。形を確かめられない行は値を推測せず、self.bad[表の定義のページ] に理由を入れて飛ばす。
+        slots：飛ばさず BadRow を返す（行の番号が、読み方によらず同じになる）。"""
         f = self.f
         bad = self.bad[tdef_pg] = []
         for pg in self.usage_pages(d):
@@ -367,14 +460,14 @@ class Jet:
                 continue
             n = struct.unpack_from("<H", p, f.row_count)[0]
             for i in range(n):
-                try:
-                    q, start, end, flags = self._follow(tdef_pg, p, i)
-                    if flags & 0x8000:
-                        continue
-                    row = self._crack(q, start, end, cols)
-                except (JetError, struct.error, IndexError, ValueError) as e:
-                    bad.append(f"ページ {pg} の行 {i}：{e}")
+                row = self.record(tdef_pg, p, i, cols)
+                if row is None:
                     continue
+                if isinstance(row, BadRow):
+                    row.why = f"ページ {pg} の行 {i}：{row.why}"
+                    bad.append(row.why)
+                    if not slots:
+                        continue
                 yield row
 
     def _follow(self, tdef_pg: int, p: bytes, i: int) -> tuple[bytes, int, int, int]:
@@ -437,7 +530,7 @@ class Jet:
     def _calc_value(self, c: _Col, raw: bytes):
         """計算列。字だけを読む（字でない列は、宣言の型と違う形の値が入っている実物があるので読まない）。"""
         if c.type not in (10, 12):
-            return f"〔計算列（{TYPE_JA.get(c.type, f'型{c.type}')}）：結果の形を確かめられないので読みません〕"
+            return Mark(f"〔計算列（{TYPE_JA.get(c.type, f'型{c.type}')}）：結果の形を確かめられないので読みません〕")
         body = raw
         if c.type == 12 or c.size == 0:  # 長い字はメモの形（同じ行の中か、別の行）
             body = self._memo(raw)
@@ -511,8 +604,8 @@ class Jet:
             return ""
         if t == 11 and len(raw) >= 12:  # OLE の値は 12 バイトの見出しで、見出しの長さが中身の長さ
             n = struct.unpack_from("<I", raw, 0)[0] & 0x3FFFFFFF
-            return f"〔OLE：{n} バイト。中身は読みません〕"
-        return f"〔{TYPE_JA.get(t, f'型{t}')}：{len(raw)} バイト。中身は読みません〕"
+            return Mark(f"〔OLE：{n} バイト。中身は読みません〕")
+        return Mark(f"〔{TYPE_JA.get(t, f'型{t}')}：{len(raw)} バイト。中身は読みません〕")
 
     # ---------------------------------------------------------- 表の一覧
     def catalog(self) -> tuple[list[tuple[str, int]], list[str], int]:
@@ -602,7 +695,59 @@ def _date(d: float) -> str:
     return f"{day} {t.hour:02d}:{t.minute:02d}:{t.second:02d}" if secs else day
 
 
-class JetWorkbook(TableBook):
+def open_catalog(db: Jet) -> tuple[list[tuple[str, int]], list[str], int]:
+    """表の一覧。読めないときは、本人に伝える言葉の JetError。"""
+    try:
+        return db.catalog()
+    except (JetError, struct.error, IndexError) as e:
+        if db.ver >= 2:
+            raise JetError(f"表の一覧を読めません（{e}）。Access 2007 以降の「パスワードで暗号化」した .accdb なら、とどくでは解けません。"
+                           "Access でパスワードを解除して保存し直したものか、表を .xlsx・CSV に書き出したものを開いてください") from None
+        raise JetError(f"表の一覧を読めません（{e}）。{GUIDE}") from None
+
+
+def database_notes(db: Jet, linked: list[str], queries: int) -> list[str]:
+    """データベース全体の、読んでいない所・確かめられない所。"""
+    out = []
+    if not db.enc_known:
+        out.append(f"データベースの文字コード（{db.code_page}）を知らないので、Jet3 の字は 1252 として読みました。字が正しいとは言えません")
+    if db.pw_status == "unknown":
+        out.append("データベースのパスワードの欄を字として読めないので、パスワードが要るかどうかを確かめられません（表はそのまま読みました）")
+    if linked or queries:
+        out.append("" + (f"リンクした表 {len(linked)} 個（{'・'.join(linked[:8])}）の先のデータはこのファイルにないので読めません。" if linked else "")
+                   + (f"クエリ {queries} 個は読んでいません（表だけを読みました）。" if queries else ""))
+    return out
+
+
+def column_notes(name: str, cols: list[_Col]) -> list[str]:
+    """列の型から分かる、読まない中身。"""
+    out = []
+    bin_cols = [c.name for c in cols if c.type in (9, 11, 18)]
+    if bin_cols:
+        out.append(f"表「{name}」：バイナリ・OLE・添付の列（{'・'.join(bin_cols)}）の中身は読んでいません")
+    calc_cols = [c.name for c in cols if c.calc and c.type not in (10, 12)]
+    if calc_cols:
+        out.append(f"表「{name}」：計算列（{'・'.join(calc_cols)}）の結果は読んでいません（結果の形を確かめられないので）。Access で開いて確かめてください")
+    return out
+
+
+def bad_note(name: str, bad: list[str]) -> str:
+    return f"表「{name}」：{len(bad):,} 行は形を確かめられないので読んでいません（値を推測しません。例：{bad[0]}）。{GUIDE}"
+
+
+def stated_note(name: str, stated: int, nrows: int) -> str:
+    return f"表「{name}」：表の定義の行の数は {stated:,} ですが、読めた行は {nrows:,} です。行の数を確かめられません。{GUIDE}"
+
+
+class RecordBook(TableBook):
+    """データベースの表のブック。数は桁を落とさずに見せる（窓の読み手の「標準」の丸めを通さない）。
+    シートの records（行の範囲）がレコードのある行で、値がなくても行として数える（xlsx/tables.py）。"""
+
+    def shown_text(self, cell) -> str | None:
+        return None if cell.value is None else shown_value(cell.value)
+
+
+class JetWorkbook(RecordBook):
     def __init__(self, blob: bytes, filename: str = ""):
         super().__init__(blob, filename, "mdb")
         try:
@@ -613,13 +758,7 @@ class JetWorkbook(TableBook):
             if state:
                 raise JetError("このデータベースはパスワードで保護されています。本人にパスワードを聞いて password に入れて開いてください"
                                if state == "need" else "パスワードが違います")
-            try:
-                tables, linked, queries = db.catalog()
-            except (JetError, struct.error, IndexError) as e:
-                if db.ver >= 2:
-                    raise JetError(f"表の一覧を読めません（{e}）。Access 2007 以降の「パスワードで暗号化」した .accdb なら、とどくでは解けません。"
-                                   "Access でパスワードを解除して保存し直したものか、表を .xlsx・CSV に書き出したものを開いてください") from None
-                raise JetError(f"表の一覧を読めません（{e}）。{GUIDE}") from None
+            tables, linked, queries = open_catalog(db)
             self.db = db
             total = 0
             self.table_rows: dict[str, int] = {}
@@ -635,13 +774,7 @@ class JetWorkbook(TableBook):
             if not self.sheets:
                 sh = self.add_sheet("（表なし）")
                 sh.unread.append("利用者の表がありません")
-            if not db.enc_known:
-                self.sheets[0].unread.append(f"データベースの文字コード（{db.code_page}）を知らないので、Jet3 の字は 1252 として読みました。字が正しいとは言えません")
-            if db.pw_status == "unknown":
-                self.sheets[0].unread.append("データベースのパスワードの欄を字として読めないので、パスワードが要るかどうかを確かめられません（表はそのまま読みました）")
-            if linked or queries:
-                self.sheets[0].unread.append("" + (f"リンクした表 {len(linked)} 個（{'・'.join(linked[:8])}）の先のデータはこのファイルにないので読めません。" if linked else "")
-                                             + (f"クエリ {queries} 個は読んでいません（表だけを読みました）。" if queries else ""))
+            self.sheets[0].unread.extend(database_notes(db, linked, queries))
         except (struct.error, IndexError) as e:
             raise JetError(f"データベースのページが壊れています（{e}）") from None
 
@@ -650,34 +783,46 @@ class JetWorkbook(TableBook):
         order = _display_order(cols)
         for c, col in enumerate(order, 1):
             self.put(sh, 1, c, col.name)
+        sh.record_lines = {1: " ｜ ".join(cell_text(col.name) for col in order)}
+        sh.bad_rows = {}
         nrows = 0
         skipped = 0
-        for row in db.rows(pg, cols, d):
+        for row in db.rows(pg, cols, d, slots=True):
             if total >= MAX_CELLS:
                 skipped += 1
                 continue
             nrows += 1
+            sh.record_lines[nrows + 1] = record_text(order, row)
+            if isinstance(row, BadRow):
+                sh.bad_rows[nrows + 1] = row.why
+                continue
             for c, col in enumerate(order, 1):
                 v = row.get(col.name)
                 if v is not None and v != "":
                     self.put(sh, nrows + 1, c, v)
                     total += 1
         self.table_rows[name] = nrows
+        sh.records = [(2, nrows + 1)] if nrows else []
+        sh.max_row = max(sh.max_row, nrows + 1)
         if skipped:
-            sh.unread.append(f"表「{name}」：セルの数が読む上限（{MAX_CELLS:,}）を超えたので、{skipped:,} 行は読んでいません。{GUIDE}")
+            sh.unread.append(f"表「{name}」：セルの数が、窓の全体を作る道の上限（{MAX_CELLS:,}）を超えたので、{skipped:,} 行はここに入れていません。"
+                             "書庫から出したファイルなら、read_window に sheet と rows を渡して全部の行を読めます")
         bad = db.bad.get(pg) or []
         if bad:
-            sh.unread.append(f"表「{name}」：{len(bad):,} 行は形を確かめられないので読んでいません（値を推測しません。例：{bad[0]}）。{GUIDE}")
+            sh.unread.append(bad_note(name, bad))
         stated = struct.unpack_from("<I", d, db.f.tab_rows)[0]
         if not skipped and not bad and stated != nrows:
-            sh.unread.append(f"表「{name}」：表の定義の行の数は {stated:,} ですが、読めた行は {nrows:,} です。行の数を確かめられません。{GUIDE}")
-        bin_cols = [c.name for c in cols if c.type in (9, 11, 18)]
-        if bin_cols:
-            sh.unread.append(f"表「{name}」：バイナリ・OLE・添付の列（{'・'.join(bin_cols)}）の中身は読んでいません")
-        calc_cols = [c.name for c in cols if c.calc and c.type not in (10, 12)]
-        if calc_cols:
-            sh.unread.append(f"表「{name}」：計算列（{'・'.join(calc_cols)}）の結果は読んでいません（結果の形を確かめられないので）。Access で開いて確かめてください")
+            sh.unread.append(stated_note(name, stated, nrows))
+        sh.unread.extend(column_notes(name, cols))
         return total
+
+
+def use_record_lines(doc: dict, wb) -> None:
+    """窓の読み順を、レコードの行に置き換える（NULL の列・すべて NULL の行・前後の空白をそのまま示す）。"""
+    for sd, sh in zip(doc["sheets"], wb.sheets):
+        lines = getattr(sh, "record_lines", None)
+        if lines is not None:
+            sd["reading"] = [{"row": r, "text": t} for r, t in sorted(lines.items())]
 
 
 def _stated_cells(db: Jet, pg: int) -> int:
@@ -706,10 +851,12 @@ def raw_values(wb) -> dict:
         for c, col in enumerate(order, 1):
             s.add((1, c))
         r = 1
-        for row in db.rows(pg, cols, d):
+        for row in db.rows(pg, cols, d, slots=True):
             r += 1
             if r - 1 > wb.table_rows.get(name, 0):
                 break
+            if isinstance(row, BadRow):
+                continue
             for c, col in enumerate(order, 1):
                 v = row.get(col.name)
                 if v is not None and v != "":
