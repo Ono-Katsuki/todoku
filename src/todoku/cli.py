@@ -461,6 +461,14 @@ def cmd_diagnose(a) -> int:
     return 0
 
 
+def cmd_forget(a) -> int:
+    from . import jobs
+
+    gone = jobs.purge(everything=True)
+    print(f"控えを {len(gone)} 個消しました（{jobs._dir()}）")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="todoku", description="書類を、内容を一字も変えずにAIと支援技術に届ける")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -498,6 +506,8 @@ def main(argv=None) -> int:
     p.add_argument("file")
     p.add_argument("-o", "--out", required=True)
     p.set_defaults(func=cmd_bake)
+    p = sub.add_parser("forget", help="長い仕事の控え（窓・検査の結果。書類の中身が入る）を、動いている仕事のほかはすぐに消す")
+    p.set_defaults(func=cmd_forget)
     p = sub.add_parser("diagnose", help="作り手向けの診断")
     p.add_argument("file")
     p.add_argument("--json", action="store_true")

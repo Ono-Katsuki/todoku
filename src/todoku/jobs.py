@@ -7,6 +7,10 @@
 - 同じファイル（パス・大きさ・更新時刻・文字コード）の仕事は 1 つだけ
 - 窓を作る仕事（start_window）：open_document などが時間の上限に当たったとき。できた窓は控えの場所に置き（.window。自分だけが読める。
   書類の中身が入るので、大きさの合計を limits.WINDOW_CACHE までにする）、次の呼び出しで使う。パスワードのある書類ではしない
+- 控えの消し方（申請の書類は個人情報なので、置きっぱなしにしない）：TODOKU_JOBS_TTL_HOURS（24 時間）より古い控えは、窓も記録も
+  字を探した控えも消す（purge：この場所を使うときと MCP サーバーの立ち上げで）。元のファイルがなくなった仕事の控えも消す。動いている仕事は消さない。
+  0 にすると、窓は読んだら、仕事の記録は終わった結果を返したら消す（読まれなかった控えは 1 時間で。大きな書類は開くたびに作り直す）。
+  `todoku forget` で、動いている仕事のほかをすぐに消せる
 """
 
 from __future__ import annotations
@@ -25,10 +29,81 @@ from . import limits
 SAVE_EVERY = 1.0  # 控えを書く間隔（秒）
 
 
-def jobs_dir() -> Path:
+def _dir() -> Path:
     d = Path(os.environ.get("TODOKU_JOBS_DIR") or Path.home() / ".cache" / "todoku" / "jobs")
     d.mkdir(parents=True, exist_ok=True, mode=0o700)
     return d
+
+
+DEFAULT_TTL_HOURS = 24.0
+UNREAD_TTL = 3600.0  # 読んだら消す設定（0）で、読まれなかった控えを残す時間（秒）
+PURGE_EVERY = 60.0  # 片づける間隔（秒）。同じプロセスで何度も一覧を読まない
+_purged: dict[str, float] = {}
+
+
+def jobs_dir() -> Path:
+    d = _dir()
+    now = time.monotonic()
+    if now - _purged.get(str(d), -PURGE_EVERY) >= PURGE_EVERY:
+        _purged[str(d)] = now
+        purge()
+    return d
+
+
+def ttl_seconds() -> float:
+    """控えを残す時間（秒）。0 は読んだら消す。読めない値は既定（消す側の既定に倒す）。"""
+    try:
+        h = float(os.environ.get("TODOKU_JOBS_TTL_HOURS", "") or DEFAULT_TTL_HOURS)
+    except ValueError:
+        h = DEFAULT_TTL_HOURS
+    return max(h, 0.0) * 3600
+
+
+def purge(now: float | None = None, everything: bool = False) -> list[str]:
+    """古い控えを消す（消した名前を返す）。残す時間は最後に書いた時刻から。動いている仕事の控えは消さない。
+    元のファイルがなくなった仕事の控えも消す（消したファイルの中身を控えに残さない）。everything：動いている仕事のほかは、すべて。"""
+    now = time.time() if now is None else now
+    ttl = ttl_seconds() or UNREAD_TTL
+    gone: list[str] = []
+    d = _dir()
+    try:
+        names = list(d.iterdir())
+    except OSError:
+        return gone
+    running = set()
+    source_gone = set()
+    for p in names:
+        if p.suffix != ".json" or p.name.startswith("anchor-"):
+            continue
+        try:
+            rec = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not rec.get("finished") and not rec.get("stopped") and _alive(rec.get("pid")):
+            running.add(p.stem)
+        elif rec.get("path") and not Path(str(rec["path"]).split("!/")[0]).expanduser().exists():
+            source_gone.add(p.stem)
+    for p in names:
+        stem = p.name.split(".", 1)[0]
+        if stem in running:
+            continue
+        try:
+            old = now - p.stat().st_mtime >= ttl
+        except OSError:
+            continue
+        if everything or old or stem in source_gone:
+            try:
+                p.unlink(missing_ok=True)
+                gone.append(p.name)
+            except OSError:
+                pass
+    return gone
+
+
+def read_once(rec: dict | None) -> None:
+    """読んだら消す設定（TODOKU_JOBS_TTL_HOURS=0）：終わった仕事の結果を返したので、その記録を消す。"""
+    if rec and rec.get("finished") and rec.get("key") and ttl_seconds() <= 0:
+        _state_path(rec["key"]).unlink(missing_ok=True)
 
 
 def job_key(path: str, encoding: str | None) -> str:
@@ -194,11 +269,14 @@ def window_result(path: str, encoding: str | None, sha: str):
     """長い仕事で作った窓（なければ None）。中身が同じファイルのものだけ。"""
     import pickle
 
+    wf = _window_file(_window_key(path, encoding))
     try:
-        with open(_window_file(_window_key(path, encoding)), "rb") as f:
+        with open(wf, "rb") as f:
             got_sha, out = pickle.load(f)
     except (OSError, ValueError, EOFError, pickle.PickleError, AttributeError, ImportError):
         return None
+    if ttl_seconds() <= 0:
+        wf.unlink(missing_ok=True)  # 残さない設定：読んだら消す
     return out if got_sha == sha else None
 
 

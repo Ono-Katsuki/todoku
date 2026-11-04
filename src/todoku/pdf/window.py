@@ -1316,8 +1316,8 @@ def _grid_blocks(fields: list[dict]) -> tuple[list[tuple[dict, list[str]]], set[
                 every = {f"p{pg}.m{min(xy[f['id']][0] for f in by_y[y])}-{y}" for y in ys if y in by_y}
                 shown = (f"［p{pg}.m{xs[0]}-{{y}}？］（y は各行の y）" if combs == every and all(c.startswith(f"p{pg}.m{xs[0]}-") for c in combs)
                          else "・".join(f"［{c}？］" for c in sorted(combs, key=lambda c: [int(v) for v in re.findall(r"\d+", c)])))
-                lines.append("  - 横に続くマスの並び（1 字ずつ書く。{\"kind\": \"text\", \"as\": \"郵便番号\", \"value\": …} で 1 つの欄に。並びとマスは重なるので、書けるのは"
-                             "どちらか一方）：" + shown)
+                lines.append("  - 横に続くマスの並び（値をそのまま渡すと 1 字ずつマスに入る。{\"kind\": \"text\", \"value\": …} はマスの仕切りを無視した 1 本の字列で、"
+                             "字が仕切りの線にかかる。並びとマスは重なるので、書けるのはどちらか一方）：" + shown)
                 used.update(combs)
             other = sorted({f["alternative_to"] for f in members if f.get("alternative_to") and f["alternative_to"] not in combs})
             if other:

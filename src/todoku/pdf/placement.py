@@ -291,11 +291,15 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
                                          f"（{where(hit[1])}）。view_page で見て確かめてください")
                 rules = [(r, True) for r in lay.hs] + [(r, False) for r in lay.vs]
                 if it[1] == "text":
-                    cross = next(((r, hz, b) for b in it[2] for r, hz in rules if _rule_crosses_box(r, hz, b)), None)
-                    if cross is not None:
+                    # かかる罫線をすべて数える（マスの並びに 1 つの字列で書くと、仕切りの本数だけかかる）
+                    crossed = {(id(r), hz): (r, hz, b) for b in it[2] for r, hz in rules if _rule_crosses_box(r, hz, b)}
+                    if crossed:
+                        cross = next(iter(crossed.values()))
+                        count = {hz: sum(1 for _r, h, _b in crossed.values() if h == hz) for hz in (True, False)}
+                        what = "・".join(f"{'横' if hz else '縦'}の罫線 {n} 本" for hz, n in count.items() if n)
                         notes.append(f"{name}：書いた字に、ページの{'横' if cross[1] else '縦'}の罫線がかかる見込みです"
-                                     f"（{where(cross[2])}）。view_page で見て、字が線に重なっていれば、線のあいだの空いた所に"
-                                     "書き直してください（box で枠を決めて書けます）")
+                                     f"（{what}。1 つ目は {where(cross[2])}）。view_page で見て、字が線に重なっていれば、線のあいだの空いた所に"
+                                     "書き直してください（box で枠を決めて書けます。マスの並びなら、kind を付けずに書くと 1 字ずつマスに入ります）")
                 else:
                     cross = next(((r, hz) for r, hz in rules if _rule_crosses_shape(r, hz, it[1], it[2], it[3])), None)
                     touch = None if cross is not None else next(

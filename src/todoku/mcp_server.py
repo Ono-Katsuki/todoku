@@ -601,6 +601,12 @@ def main() -> int:
         isolate.probe_ps()  # 外からのメモリの見張り（ps）が使えるかを、立ち上げの時に確かめる（説明 instructions に書くため）
         isolate.worker().start()  # 働き手を先に立ち上げておく（はじめの呼び出しを待たせない）
     _utf8_stdio()
+    try:
+        from . import jobs
+
+        jobs.purge()  # 古い控え（書類の中身が入る）を、立ち上げのときにも消す
+    except OSError:
+        pass
     stdin = sys.stdin.buffer
     out = sys.stdout
     for raw in stdin:

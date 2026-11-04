@@ -1688,6 +1688,14 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
             return lab.split("（", 1)[1].rsplit("）", 1)[0] if "（" in lab else lab  # far_label：「左に 3 列あけて『氏名』」
         if not lab or (lab == d["id"] and d["id"] not in printed):
             return "近くの字なし"
+        from .xlsx.window import label_text
+
+        src_ = source(d)
+        left, up = src_.get("row_label"), src_.get("column_label")
+        if left and up and left != up:
+            # 表のマス：左のマスと上のマスの字を、どちら側の字かを添えて（2 つを 1 つの見出しに見せない。上のマスは別の項目のことがある）
+            short = lambda t: t if len(t) <= 24 else t[:24] + "…"  # noqa: E731
+            return f"近くの字：左「{short(label_text(left))}」・上「{short(label_text(up))}」"
         slots = list(re.finditer(r"［[^］]*］", lab))
         k = next((n for n, m in enumerate(slots, 1) if "▶" in m.group()), 0)
         base = re.sub(r"［[^］]*］", "［ ］", lab).strip("：:　 ") if len(slots) > 1 else re.sub(r"［[^］]*］", "", lab).strip("-－ー：:　 ")
@@ -1962,6 +1970,8 @@ def _has_later_embeds(path: str, password: str | None, encoding: str | None) -> 
 
 
 def _job_view(rec: dict, path: str, password: str | None, encoding: str | None) -> dict:
+    from . import jobs
+
     state = rec.get("state") or {}
     finished = bool(rec.get("finished"))
     d: dict = {"job": {"key": rec.get("key"), "running": not finished and not rec.get("stopped"), "finished": finished,
@@ -1971,6 +1981,7 @@ def _job_view(rec: dict, path: str, password: str | None, encoding: str | None) 
     full = state.get("full")
     if finished and full:
         d.update(full)
+        jobs.read_once(rec)
         return d
     d["checks"] = list(state.get("checks") or [])
     d["ok"] = all(c.get("ok") for c in d["checks"]) if finished else None
@@ -1979,6 +1990,8 @@ def _job_view(rec: dict, path: str, password: str | None, encoding: str | None) 
                      "もう一度 audit_document を呼ぶと、進み具合と結果が分かります。止まっても、控えの続きから進みます")
     if lazy_open(path, password, encoding, built_ok=False) is not None:
         d["grade"] = grade(path, password=password, encoding=encoding)  # 窓を作って測る形式は、段階も全体を作るので、終わってから
+    if finished:
+        jobs.read_once(rec)
     return d
 
 
@@ -2320,6 +2333,7 @@ def _calculate_cells(path: str, values: dict, cells: list, password: str | None)
     if rec and rec.get("finished") and rec.get("results") is not None:
         got = rec["results"]
         job = {"finished": True}
+        jobs.read_once(rec)
     else:
         running = jobs.calc_running(rec)
         store = ScanStore(dict((rec or {}).get("scans") or {}), frozen=running)
@@ -2610,10 +2624,29 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
 
     with window_room():  # 窓に入らない埋め込みの表は開かない（理由に「まだ確かめていない」と書く。検査の仕事の中では、すべて読む）
         g = grade_blob(blob, name, password=pdf_password(lock), encoding=encoding)
+    g = _with_finished_audit(g, path, encoding)
     if findings or answered:
         g = combine(g, findings or [], answered)
     _remember_hand_only(path, g, findings, answered)
     return g.to_dict()
+
+
+def _with_finished_audit(g, path: str, encoding: str | None):
+    """開くときに読まなかった埋め込みの表（「まだ確かめていない」理由）：同じファイルの長い検査が終わっていれば、検査の中で全部を読んで
+    決めた段階を使う。検査の段階にもその理由が残っていれば、いまのまま。"""
+    from . import jobs
+    from .grade import DEFERRED_EMBEDS, combine
+
+    if not any(r.title == DEFERRED_EMBEDS for r in g.write_reasons):
+        return g
+    try:
+        rec = jobs.status(path, encoding)
+    except OSError:
+        return g
+    done = ((rec or {}).get("state") or {}).get("full", {}).get("grade") if rec and rec.get("finished") else None
+    if not isinstance(done, dict) or any(r.get("title") == DEFERRED_EMBEDS for r in (done.get("write") or {}).get("reasons", [])):
+        return g
+    return combine(done, [])
 
 
 def _lazy_grade(path: str, g, encoding: str | None, findings, answered) -> dict:

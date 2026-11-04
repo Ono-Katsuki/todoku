@@ -625,12 +625,15 @@ def word_reasons(win: dict) -> tuple[list[Reason], list[Reason]]:
     return read, write
 
 
+DEFERRED_EMBEDS = "まだ確かめていない埋め込みの表"
+
+
 def _write_embeds(embeds: list[dict]) -> list[Reason]:
     """文書に埋め込んだ Excel の表：表のセルと、表示・印刷の絵を描き直して書く（B）。描き直せない形なら書けない（D）。"""
     out = []
     later = [e for e in embeds if e.get("deferred")]
     if later:  # 大きいので窓を開くときには読んでいない：書けるかは、書くときと audit_document で確かめる
-        out.append(Reason("C", "まだ確かめていない埋め込みの表", "埋め込んだ Excel の表 " + str(len(later)) + " 個は大きいので、開くときには解析していません。"
+        out.append(Reason("C", DEFERRED_EMBEDS, "埋め込んだ Excel の表 " + str(len(later)) + " 個は大きいので、開くときには解析していません。"
                           "read_window・list_fields に sheet: \"E1!シート\" で読めます。書けるかは、書くときと audit_document で確かめます",
                           [f"E{e['n']}" for e in later]))
     ok = [e for e in embeds if e.get("fields") and e.get("writable")]
