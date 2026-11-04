@@ -331,6 +331,8 @@ class DocFile:
                             grpprl = page[boff + 2:boff + 2 + 2 * cb2]
                         else:
                             grpprl = page[boff + 1:boff + 1 + 2 * cb - 1]
+                        if len(grpprl) >= 2:
+                            self.__dict__.setdefault("papx_istd", {})[rgfc[k]] = struct.unpack_from("<H", grpprl, 0)[0]
                         grpprl = grpprl[2:]  # istd を除く
                     else:
                         grpprl = page[boff + 1:boff + 1 + cb]
@@ -350,6 +352,62 @@ class DocFile:
             else:
                 return r.grpprl
         return b""
+
+    def _list_of(self, cp: int, starts: list) -> tuple[int, int]:
+        """段落の番号のリスト：(ilfo, ilvl)。段落の書式になければ、スタイルの書式（基のスタイルも）。"""
+        fc = self.fc_of(cp)
+        ilfo = ilvl = None
+        for sp, op in sprms(self._lookup(self.papx, fc)):
+            if sp == 0x460B and len(op) >= 2:
+                ilfo = struct.unpack_from("<h", op, 0)[0]
+            elif sp == 0x260A and op:
+                ilvl = op[0]
+        if ilfo is None or ilvl is None:
+            from .wrap import _styles
+
+            i = bisect.bisect_right(starts, fc) - 1
+            istd = self.__dict__.get("papx_istd", {}).get(starts[i]) if i >= 0 else None
+            st = _styles(self)
+            seen = 0
+            while istd in st and seen < 20:
+                base, papx, _chpx = st[istd]
+                for sp, op in sprms(papx):
+                    if sp == 0x460B and len(op) >= 2 and ilfo is None:
+                        ilfo = struct.unpack_from("<h", op, 0)[0]
+                    elif sp == 0x260A and op and ilvl is None:
+                        ilvl = op[0]
+                if base == 0x0FFF or base == istd:
+                    break
+                istd = base
+                seen += 1
+        return ilfo or 0, ilvl or 0
+
+    def number_labels(self) -> dict:
+        """段落の終わりの CP → 段落番号の字。文書の頭から順に数える（本文の一部だけを読むときも、番号が同じになるように）。"""
+        got = self.__dict__.get("_number_labels")
+        if got is not None:
+            return got
+        out: dict = {}
+        self.__dict__["_number_labels"] = out
+        from .numbering import Numberer, read_lists
+
+        try:
+            lists, lfos = read_lists(self.fc, self.table)
+        except (struct.error, ValueError, IndexError) as e:
+            self.__dict__["numbering_problem"] = f"段落番号の表を読めないので、段落番号の字を出していません（{e}）"
+            return out
+        if not lfos:
+            return out
+        n = Numberer(lists, lfos)
+        starts = sorted(self.__dict__.get("papx_istd", {}))
+        for m in re.finditer("[\r\x07]", self.text):
+            cp = m.start()
+            ilfo, ilvl = self._list_of(cp, starts)
+            if ilfo > 0:
+                pp = self.para_props(cp)
+                if not (pp["ttp"] or pp["inner_ttp"]):
+                    out[cp] = n.next(ilfo, ilvl)
+        return out
 
     def para_props(self, cp_end: int) -> dict:
         """段落の終わりの字（0x0D・0x07）の位置から、段落の書式（表の中か・行の終わりか・入れ子の深さ）。"""
@@ -599,6 +657,8 @@ class DocFile:
     def _para(self, s: int, e: int) -> Para:
         p = Para(None, "doc", [])
         p.cp0, p.cp1 = s, e
+        sk = (self.partial or {}).get("skel")
+        p.label = (sk if sk else self).number_labels().get(e, "")
         text = self.text
         stack: list[dict] = []
         cp = s

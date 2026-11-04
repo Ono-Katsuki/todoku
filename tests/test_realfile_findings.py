@@ -620,3 +620,70 @@ def test_hidden_sheet_can_be_read_by_name(tmp_path):
     assert "隠した字" in page.text
     page2, _doc = api.read_range(p, {"sheet": "S"}, None)
     assert "見える" in page2.text and "隠した字" not in page2.text
+
+
+# ---------------------------------------------------------------- .doc の段落番号
+def _lvl(start: int, nfc: int, xst: str, flags: int = 0) -> bytes:
+    return (struct.pack("<iBB", start, nfc, flags) + bytes(9) + bytes(1) + bytes(8) + bytes([0, 0, 0, 0])
+            + struct.pack("<H", len(xst)) + xst.encode("utf-16-le"))
+
+
+def _lists_table() -> tuple[bytes, dict]:
+    lstf = struct.pack("<II", 77, 0) + bytes(18) + bytes([0, 0])  # 9 段のリスト
+    levels = _lvl(1, 14, "\x00．") + _lvl(1, 0, "(\x01)") + b"".join(_lvl(1, 0, "") for _ in range(7))
+    plf = struct.pack("<H", 1) + lstf
+    lfo = struct.pack("<I", 2) + struct.pack("<IIIBBBB", 77, 0, 0, 0, 0, 0, 0) + struct.pack("<IIIBBBB", 77, 0, 0, 1, 0, 0, 0)
+    lfodata = struct.pack("<I", 0) + struct.pack("<I", 0) + struct.pack("<iI", 5, 0x10)  # 2 つ目の LFO：深さ 0 は 5 から
+    t = plf + levels + lfo + lfodata
+    return t, {"PlfLst": (0, len(plf)), "PlfLfo": (len(plf) + len(levels), len(lfo) + len(lfodata))}
+
+
+def test_doc_list_numbers_are_counted():
+    """.doc の段落番号（１．・(1) など）を読んでいなかった。Word が数えて出す字なので、窓から消えていた（LibreOffice の読みと照らして発見）。"""
+    from todoku.doc.numbering import Numberer, read_lists
+
+    t, fc = _lists_table()
+    lists, lfos = read_lists(fc, t)
+    assert lfos[1]["lsid"] == 77 and lfos[2]["over"] == {0: 5}
+    n = Numberer(lists, lfos)
+    assert n.next(1, 0) == "１．"
+    assert n.next(1, 1) == "(1)"
+    assert n.next(1, 1) == "(2)"
+    assert n.next(1, 0) == "２．"
+    assert n.next(1, 1) == "(1)"  # 浅い番号が進むと、始めに戻る
+    assert n.next(2, 0) == "５．"  # 始まりの数を変えた LFO
+    assert n.next(2, 0) == "６．"
+
+
+def test_doc_unknown_number_format_is_not_turned_into_123():
+    from todoku.doc.numbering import label_text
+
+    lv = {"start": 1, "nfc": 200, "legal": False, "no_restart": False, "xst": "\x00"}
+    assert "再現できません" in label_text([lv], 0, [3], {})
+
+
+def test_doc_broken_list_table_is_reported():
+    from todoku.doc.numbering import read_lists
+
+    with pytest.raises((struct.error, ValueError, IndexError)):
+        read_lists({"PlfLst": (0, 4)}, struct.pack("<H", 3))
+
+
+def test_unread_notes_reach_the_markdown_window(tmp_path):
+    """読んでいない部分（.pptx の埋め込みなど）が JSON にだけあり、エージェントの読む窓に出ていなかった。"""
+    from todoku.docx.window import to_markdown
+
+    p = _p(tmp_path, "a.doc", _doc97("字\r"))
+    _k, doc, _parts = api.window(p)
+    doc["unread"] = ["埋め込みの中身は読んでいません"]
+    assert "**読んでいない部分**：埋め込みの中身は読んでいません" in to_markdown(doc)
+
+
+def test_numbers_says_number_cells_are_not_read(tmp_path):
+    """Numbers の表の数のマスを読んでいないのに、そのことを言っていなかった（数のマスの値は Tile の中で、字のマスだけが字の表にある）。"""
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        z.writestr("Index/Document.iwa", b"")
+        z.writestr("Index/Tables/Tile.iwa", b"")
+    _k, doc, parts = api.window(_p(tmp_path, "a.numbers", out.getvalue()))
+    assert "数・日付・計算の結果のマス" in "\n".join(x[1] for x in parts)
