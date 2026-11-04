@@ -21,8 +21,13 @@ KIND_JA["jtd"] = "一太郎（.jtd）"
 from . import openkinds as _open  # noqa: E402
 
 KIND_JA.update(_open.KIND_JA)
+_BOOKS = ("xlsx", "xls", *sorted(_open._more.WORKBOOKS))  # 同じブックの形で読めるもの（表の取り出し・計算の説明）
 # ZIP：中のファイルを「a.zip!/中の名前」で指して、その形式のまま読む・書く（ziparc）
 KIND_JA["zip"] = "ZIP（ファイルをまとめたもの）"
+# ほかの、中にファイルが入っている形式（tar・gzip・LZH・メール）：archives。指定のしかたは ZIP と同じ
+from . import archives as _arc  # noqa: E402
+
+KIND_JA.update(_arc.KIND_JA)
 
 
 class ApiError(ValueError):
@@ -145,13 +150,16 @@ def _member_blob(path: str) -> tuple[bytes, str]:
 
     outer, chain = _member(path)
     blob = _read_file(Path(outer).expanduser())
+    cur = Path(outer).name
     for m in chain:
-        if kind_of(blob) != "zip":
+        k = kind_of(blob, cur)
+        if k not in _arc.KINDS:
             raise ApiError(f"「{m}」の外側のファイルは ZIP ではありません")
         try:
-            blob = ziparc.extract(blob, m)
+            blob = _arc.extract(blob, m, k, cur)
         except ziparc.ArchiveError as e:
             raise ApiError(str(e)) from None
+        cur = ziparc.base_name(m)
     return blob, ziparc.base_name(chain[-1])
 
 
@@ -236,12 +244,11 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
 
 
 def _window(blob: bytes, name: str, k: str, lock, encoding: str | None = None) -> tuple[str, dict, list[tuple[str, str]]]:
-    if k == "zip":
+    if k in _arc.KINDS:
         from .ziparc import ArchiveError
-        from .ziparc import window as zwindow
 
         try:
-            doc, parts = zwindow(blob, name, KIND_JA)
+            doc, parts = _arc.window(blob, name, KIND_JA, k)
         except ArchiveError as e:
             raise ApiError(str(e)) from None
         return k, doc, parts
@@ -310,7 +317,7 @@ def _word(blob: bytes, name: str, k: str):
 def fields(path: str, password: str | None = None, encoding: str | None = None) -> list[dict]:
     """入力欄の一覧（名前・見出し・種類・選択肢・いまの値・書けるか・その行の文脈）。"""
     k, doc, _ = window(path, password, encoding)
-    if k == "zip":
+    if k in _arc.KINDS:
         return []  # ZIP そのものに欄はない（中のファイルを「a.zip!/名前」で開く）
     if k in _open.KINDS:  # 追加の形式
         return [_field(f, **w) for f, w in _open.field_rows(k, doc)]
@@ -505,7 +512,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             raise ApiError(str(e)) from None
     blob, name, k, lock = _read(path, password)
     encoding = _encoding(blob, k, encoding)
-    if k == "zip":
+    if k in _arc.KINDS:
         raise ApiError("ZIP そのものには書けません。中のファイルを path に「" + path + "!/中の名前」で指定してください")
     _seal_supported(k, values)
     result: dict = {"kind": k, "out_path": str(dst), "original_sha256": hashlib.sha256(src.read_bytes()).hexdigest()}
@@ -1080,12 +1087,16 @@ def _fill_member(path: str, values: dict, out_path: str, force: bool, password: 
     dst = Path(out_path).expanduser().resolve()
     _not_source(src, dst)
     original = _read_file(src)
-    layers = [original]  # 外側から順の ZIP
+    layers = [(original, kind_of(original, src.name), src.name)]  # 外側から順の入れ物：(中身, 形式, 名前)
     try:
         for m in chain[:-1]:
-            layers.append(ziparc.extract(layers[-1], m))
+            sub = _arc.extract(layers[-1][0], m, layers[-1][1], layers[-1][2])
+            layers.append((sub, kind_of(sub, ziparc.base_name(m)), ziparc.base_name(m)))
     except ziparc.ArchiveError as e:
         raise ApiError(str(e)) from None
+    for _b, lk, _n in layers:
+        if lk not in _arc.WRITABLE:
+            raise ApiError(_arc.NO_WRITE.get(lk, f"この形式（{lk}）の中のファイルには書けません"))
     member_blob, name = _member_blob(path)
     name = name.replace("\\", "_")
     if name.strip(".") == "":  # 「..」「.」だけの名前：一時フォルダの中のファイルの名前にできない
@@ -1099,9 +1110,12 @@ def _fill_member(path: str, values: dict, out_path: str, force: bool, password: 
         written = Path(result["out_path"]).read_bytes()  # 確かめられなければ「名前.unverified.拡張子」
     # 内側から順に、書いた部品だけを入れ替える
     new = written
-    for zblob, m in reversed(list(zip(layers, chain))):
-        replaced = ziparc.replace(zblob, m, new)
-        problems = ziparc.unchanged_except(zblob, replaced, m)
+    for (zblob, lk, ln), m in reversed(list(zip(layers, chain))):
+        try:
+            replaced = _arc.replace(zblob, m, new, lk, ln)
+        except ziparc.ArchiveError as e:
+            raise ApiError(str(e)) from None
+        problems = _arc.unchanged_except(zblob, replaced, m, lk, ln)
         if problems:
             raise ApiError("ZIP に入れ直すと、書いたファイルのほかの部品も変わります（書き出していません）：" + "、".join(problems[:5]))
         new = replaced
@@ -1719,8 +1733,8 @@ def audit_whole(path: str, password: str | None = None, encoding: str | None = N
 
     blob, name, k, lock = _read(path, password)
     encoding = _encoding(blob, k, encoding)
-    if k == "zip":
-        return _audit_zip(path, blob, password)
+    if k in _arc.KINDS:
+        return _audit_zip(path, blob, password, k, name)
     if k == "pdf":
         from .pdf.audit import run
     elif k == "docx":
@@ -1765,7 +1779,7 @@ def read_table(path: str, header: str, sheet: str | None = None, header_rows: in
     from .xlsx.tables import read as tread
 
     blob, name, k, lock = _read(path, password)
-    if k not in ("xlsx", "xls"):
+    if k not in _BOOKS:
         raise ApiError("表の取り出しは Excel（.xlsx・.xlsm・.xls）です（ほかの形式は窓で読めます）")
     try:
         t = tread(open_book(blob, name), header, sheet, header_rows)
@@ -1803,7 +1817,7 @@ def calc_model(path: str, cell: str | None = None, password: str | None = None) 
     from .xlsx import model as xm
 
     blob, name, k, lock = _read(path, password)
-    if k not in ("xlsx", "xls"):
+    if k not in _BOOKS:
         raise ApiError("計算の取り出しは Excel の様式（.xlsx・.xlsm・.xls）です")
     lz = lazy_open(path, password, built_ok=False)
     if lz is not None and lz.kind == "xlsx":
@@ -1836,7 +1850,7 @@ def calculate(path: str, values: dict, password: str | None = None) -> dict:
     from .xlsx.edit import EditError
 
     blob, name, k, lock = _read(path, password)
-    if k not in ("xlsx", "xls"):
+    if k not in _BOOKS:
         raise ApiError("試算は Excel の様式（.xlsx・.xlsm・.xls）です")
     values = _split_values(values, k)[0]  # as（述べた意味）は書くときのもの。試算にも同じ値の形を渡せるように
     lz = lazy_open(path, password, built_ok=False)
@@ -1928,12 +1942,19 @@ def _written_boxes(path: str, password: str | None, page: int) -> list[dict]:
     return out
 
 
-def _audit_zip(path: str, blob: bytes, password: str | None) -> dict:
+def _audit_zip(path: str, blob: bytes, password: str | None, k: str = "zip", name: str = "") -> dict:
     """ZIP：中の、扱える形式のファイルを1つずつ検査する（検査の名前の頭に、中の名前を付ける）。"""
     from . import ziparc
 
     checks = []
-    for m in ziparc.files(blob):
+    if k in _arc.MAIL:
+        _kk, doc, _parts = window(path, password)
+        from .readonlydoc import chars
+
+        missing = chars(_arc.mail_body(blob, k)) - chars("".join(doc["body_lines"]))
+        checks.append({"name": "読み落とし（本文）", "ok": not missing, "agent": False, "items": [str(x) for x in list(missing)[:20]],
+                       "detail": "差出人・宛先・件名・本文の字が、すべて窓に出ていることを確かめました" if not missing else "本文の字のうち窓に出ていない字があります"})
+    for m in _arc.files(blob, k, name):
         try:
             d = audit(path + ziparc.SEP + m.name, password)
         except ApiError as e:
@@ -2105,7 +2126,7 @@ def summary(path: str, password: str | None = None, encoding: str | None = None)
         if isinstance(m, dict) and m.get("readable"):
             d["macro_procedures"] = sum(len(x["procedures"]) for x in m["modules"])
             d["macro_runs_on_change"] = any(e["on_change"] for e in m["events"])
-    elif k == "zip":
+    elif k in _arc.KINDS:
         d["members"] = [{"name": m["name"], "kind": m["kind"], "size": m["size"]} for m in doc["members"]]
     else:
         d["protection"] = doc.get("protection")

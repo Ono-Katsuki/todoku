@@ -16,15 +16,15 @@ KIND_JA = {"csv": "CSV", "tsv": "TSV（タブ区切り）", "json": "JSON", "jso
            "txt": "テキスト（.txt）", "pptx": "PowerPoint（.pptx）",
            "hwpx": "한글の文書（.hwpx）", "hwp": "한글の文書（.hwp・HWP 5）",
            "markup": "HTML・XML（字だけを読む）"}
+from . import morekinds as _more  # noqa: E402  古い・役所が今も配っている形式（.xlsb など）
+from .openkinds_base import OpenFormatError  # noqa: E402
+
+KIND_JA.update(_more.KIND_JA)
 KINDS = frozenset(KIND_JA)
 DATA = frozenset({"csv", "tsv", "json", "jsonl"})
 TEXT_DOCS = frozenset({"odt", "fodt"})
-SHEETS = frozenset({"ods", "fods"})
+SHEETS = frozenset({"ods", "fods"}) | _more.WORKBOOKS
 HANGUL = frozenset({"hwpx", "hwp"})  # 한글：HWPX は読む・書く、HWP 5 は読むだけ（hwpx/）
-
-
-class OpenFormatError(ValueError):
-    pass
 
 
 def _err(e: Exception) -> OpenFormatError:
@@ -37,6 +37,15 @@ TEXT_FILES = DATA | {"txt", "markup"}  # 文字だけのファイル：文字コ
 
 def window(k: str, blob: bytes, name: str, encoding: str | None = None) -> tuple[dict, list[tuple[str, str]]]:
     """encoding：文字だけのファイル（TEXT_FILES）の文字コードを、エージェントが選んで指定したとき（ほかの形式では使わない）。"""
+    if k in _more.KINDS:
+        import zlib
+
+        try:
+            return _more.window(k, blob, name)
+        except (ValueError, KeyError) as e:
+            raise _err(e) from None
+        except (IndexError, zlib.error) as e:  # 長さの合わない記録・解けない部品：壊れたファイル
+            raise OpenFormatError(f"ファイルが壊れていて読めません（{type(e).__name__}）。元のファイルをもう一度受け取り直してください") from None
     try:
         if k in DATA:
             from .datafile import window as dw
@@ -96,6 +105,9 @@ def window(k: str, blob: bytes, name: str, encoding: str | None = None) -> tuple
 
 def field_rows(k: str, doc: dict):
     """(欄, どこか)。表計算はシートの名前を添える。"""
+    if k in _more.KINDS:
+        yield from _more.field_rows(k, doc)
+        return
     if k in SHEETS:
         for sh in doc["sheets"]:
             for f in sh.get("fields", []):
@@ -106,6 +118,8 @@ def field_rows(k: str, doc: dict):
 
 
 def summary(k: str, doc: dict) -> dict:
+    if k in _more.KINDS:
+        return _more.summary(k, doc)
     d: dict = {}
     if k in SHEETS:
         d["sheets"] = [s["name"] for s in doc["sheets"]]
@@ -131,6 +145,8 @@ def summary(k: str, doc: dict) -> dict:
 # ====================================================================== 書き込み
 def fill(k: str, blob: bytes, name: str, values: dict, force: bool = False, encoding: str | None = None) -> dict:
     """{"blob": 書いた中身, "result": api の結果に足すもの, "readback": 読み戻しで照らす id → 値, "labels": id → 見出し}。"""
+    if k in _more.KINDS:
+        return _more.fill(k, blob, name, values, force)
     if k in ("csv", "tsv"):
         return _fill_csv(k, blob, name, values, encoding)
     if k in ("json", "jsonl"):
@@ -313,6 +329,8 @@ def _fill_hwpx(blob: bytes, name: str, values: dict, force: bool) -> dict:
 
 def read_back(k: str, blob: bytes, name: str, keys: dict, encoding: str | None = None) -> dict:
     """書いた後のファイルから、書いた所（keys の id）の値を読む（欄の一覧に出ないマス・値のため）。"""
+    if k in _more.KINDS:
+        return _more.read_back(k, blob, name, keys)
     out: dict = {}
     try:
         if k in ("csv", "tsv"):
@@ -348,6 +366,8 @@ def read_back(k: str, blob: bytes, name: str, keys: dict, encoding: str | None =
 
 # ====================================================================== 検査・段階
 def audit_runner(k: str, encoding: str | None = None):
+    if k in _more.KINDS:
+        return _more.audit_runner(k)
     if k in DATA:
         from .datafile.audit import run
 
@@ -389,6 +409,11 @@ def audit_runner(k: str, encoding: str | None = None):
 
 def grade(k: str, blob: bytes, name: str, encoding: str | None = None):
     from .grade import _locked
+    if k in _more.KINDS:
+        try:
+            return _more.grade(k, blob, name)
+        except Exception as e:  # noqa: BLE001
+            return _locked("開けない", f"ファイルを読めませんでした（{type(e).__name__}: {str(e)[:80]}）", "読めないので、書けません")
 
     try:
         if k in DATA:

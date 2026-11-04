@@ -25,8 +25,13 @@ def kind_of(blob: bytes, filename: str = "") -> str:
             return "docx"
         if any(n.startswith("ppt/") for n in names):
             return "pptx"
+        if "xl/workbook.bin" in names:
+            return "xlsb"  # Excel のバイナリのブック（MS-XLSB）：xlsb/
         if _is_hwpx(blob, names):
             return "hwpx"  # 韓国のワープロ（한글）の HWPX（OWPML、KS X 6101）：読む・書く（hwpx/）
+        more = _more_zip_kind(blob, names)  # XPS・EPUB・iWork・OpenOffice.org 1.x（ZIP の入れ物のほかの形式）
+        if more:
+            return more
         odf = _odf_kind(blob, names)  # OpenDocument（.odt・.ods）：mimetype の部品で見分ける
         if odf:
             return odf
@@ -45,6 +50,14 @@ def kind_of(blob: bytes, filename: str = "") -> str:
             return "xls"
         if "worddocument" in names:
             return "doc"
+        if "powerpoint document" in names:
+            return "ppt"  # 古い PowerPoint（MS-PPT）：読むだけ（legacy/ppt.py）
+        from .legacy.mail import is_msg
+
+        if is_msg(names):
+            return "msg"  # Outlook のメール（MS-OXMSG）
+        if "contents" in names and ({"mn0", "spelling", "spelling0", "layout"} & names or filename.lower().endswith(".wps")):
+            return "works"  # Microsoft Works（CONTENTS のストリーム）。Kingsoft の .wps は WordDocument があるので doc
         # 一太郎（.jtd・.jtt）：JustSystems のストリームの一覧と、本文（または圧縮した文書）
         from .jtd.book import is_jtd
 
@@ -55,6 +68,9 @@ def kind_of(blob: bytes, filename: str = "") -> str:
         return "cfb"
     if blob[:4] == b"%PDF":
         return "pdf"
+    head_kind = _head_kind(blob, filename)  # 先頭のバイトで決まる形式（tar・gzip・LZH・7z・RAR・古い Excel など）
+    if head_kind:
+        return head_kind
     text = _text_kind(blob, filename)  # RTF（中身で）・CSV・TSV・JSON・JSON Lines・文字だけのファイル（.txt）（名前で）
     if text:
         return text
@@ -68,13 +84,67 @@ _ODF_MIME = {"application/vnd.oasis.opendocument.text": "odt", "application/vnd.
              "application/vnd.oasis.opendocument.spreadsheet-template": "ods",
              "application/vnd.oasis.opendocument.presentation": "odp", "application/vnd.oasis.opendocument.graphics": "odg"}
 _BY_NAME = {".csv": "csv", ".tsv": "tsv", ".tab": "tsv", ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl",
-            ".txt": "txt", ".html": "markup", ".htm": "markup", ".xhtml": "markup", ".xml": "markup"}
+            ".eml": "eml", ".txt": "txt", ".html": "markup", ".htm": "markup", ".xhtml": "markup", ".xml": "markup"}
 
 
 # 見分けるが、まだ読めない形式（開くと「未対応の形式」と伝え、段階は F）。HWP・HWPX は hwpx/ で読む（openkinds）
 UNSUPPORTED: dict[str, str] = {
     "ooxml-unknown": "Office Open XML のパッケージ（Excel・Word・PowerPoint の部品がない）",
 }
+
+
+UNSUPPORTED.update({
+    "7z": "7-Zip の書庫（.7z）",
+    "rar": "RAR の書庫（.rar）",
+    "docuworks": "DocuWorks の文書（.xdw・.xbd）",
+    "works": "Microsoft Works の文書（.wps）",
+    "wk3": "Lotus 1-2-3 の新しい形（.wk3・.wk4・.123）",
+})
+# 形式ごとの、次の一手（なければ「PDF・Word などに書き出したもの」）
+NEXT_STEP: dict[str, str] = {
+    "7z": "とどくは 7-Zip の書庫を解きません（標準のライブラリに書庫の形の読み方がありません）。7-Zip か Windows のエクスプローラーで展開したファイルか、ZIP にしたものを開いてください",
+    "rar": "RAR の圧縮は標準のライブラリにも公開の仕様にもなく、とどくは解きません。WinRAR や 7-Zip で展開したファイルか、ZIP にしたものを開いてください",
+    "docuworks": "DocuWorks の形は公開されていないので、とどくは読みません（字を推測で取り出しません）。発行元に PDF を頼むか、本人が DocuWorks Viewer Light（無償）で開いて、"
+                 "PDF を作るプリンター（Microsoft Print to PDF など）に印刷したものを開いてください",
+    "works": "Microsoft Works の形は公開されていないので、とどくは読みません（Kingsoft の .wps は Word と同じ形なので読めます）。"
+             "Works か LibreOffice で .docx か PDF に保存し直したものを開いてください",
+    "wk3": "とどくは .wk1 までを読みます。1-2-3 か LibreOffice で .xlsx か CSV に保存し直したものを開いてください",
+}
+
+
+def _head_kind(blob: bytes, filename: str) -> str | None:
+    if blob[:6] == b"7z\xbc\xaf\x27\x1c":
+        return "7z"
+    if blob[:6] == b"Rar!\x1a\x07":
+        return "rar"
+    from .legacy.biff234 import is_biff234
+    from .legacy.jet import is_jet
+    from .legacy.lotus import is_wk1, is_wk3plus
+    from .legacy.word2 import is_word2
+
+    if is_biff234(blob):
+        return "xls2"  # Excel 2〜4（複合ファイルでない .xls）
+    if is_word2(blob):
+        return "word2"  # Word 1.x・2.0（複合ファイルでない .doc）
+    if is_jet(blob):
+        return "mdb"  # Access（Jet・ACE）
+    if is_wk1(blob):
+        return "wk1"
+    if is_wk3plus(blob):
+        return "wk3"
+    low = filename.lower()
+    if low.endswith((".xdw", ".xbd")):
+        return "docuworks"  # 中身の形は公開されていない（IANA の登録でも、仕様・印ともに「なし」）。名前で見分ける
+    if low.endswith(".dbf"):
+        from .legacy.dbf import is_dbf
+
+        if is_dbf(blob):
+            return "dbf"
+    if low.endswith(".wps"):
+        return "works"  # 複合ファイルでない .wps（古い Works）
+    from .archives import sniff
+
+    return sniff(blob, filename)
 
 
 def ooxml_main_type(blob: bytes) -> str | None:
@@ -102,9 +172,36 @@ def ooxml_main_type(blob: bytes) -> str | None:
 
 def unsupported_message(kind: str, blob: bytes | None = None) -> str:
     what = UNSUPPORTED.get(kind, kind)
+    if kind in NEXT_STEP:
+        return f"未対応の形式：{what}。{NEXT_STEP[kind]}"
     main = ooxml_main_type(blob) if kind == "ooxml-unknown" and blob else None
     return (f"未対応の形式：{what}" + (f"（主な部品の種類：{main}）" if main else "")
             + "。とどくは読めません（中身を推測して読むことはしません）。PDF・Word などに書き出したものがあれば、そちらを開いてください")
+
+
+def _more_zip_kind(blob: bytes, names: set) -> str | None:
+    """ZIP の入れ物の、ほかの形式：XPS（パッケージの関係 fixedrepresentation）・EPUB（mimetype）。"""
+    from .legacy.epub import is_epub
+    from .legacy.xps import is_xps
+    from .zipraw import RawZip
+
+    try:
+        z = RawZip(blob)
+    except Exception:  # noqa: BLE001
+        return None
+    if is_xps(z, names):
+        return "xps"
+    if is_epub(z, names):
+        return "epub"
+    from .legacy.iwork import is_iwork
+    from .legacy.sxo import kind_of_package
+
+    sx = kind_of_package(z, names)
+    if sx:
+        return sx
+    if is_iwork(names):
+        return "iwork"
+    return None
 
 
 def _is_hwpx(blob: bytes, names: set) -> bool:
@@ -170,7 +267,7 @@ def _text_kind(blob: bytes, filename: str) -> str | None:
 
 
 def open_book(blob: bytes, filename: str = ""):
-    k = kind_of(blob)
+    k = kind_of(blob, filename)
     if k == "xlsx":
         from .xlsx.workbook import Workbook
 
@@ -179,6 +276,10 @@ def open_book(blob: bytes, filename: str = ""):
         from .xls.book import XlsWorkbook
 
         return XlsWorkbook(blob, filename)
+    from .morekinds import WORKBOOKS, open_workbook
+
+    if k in WORKBOOKS:
+        return open_workbook(k, blob, filename)
     if k == "encrypted":
         raise FormatError("パスワードで暗号化されたファイルです")
     raise FormatError(f"この形式（{k}）は、Excelのブックとして開けません")
