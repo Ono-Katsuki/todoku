@@ -138,12 +138,6 @@ def plan(data: bytes, items: list[tuple[int, int, int, object]]) -> list[tuple[i
     def put(s: int, e: int, b: bytes) -> None:
         edits.setdefault((s, e), bytearray()).extend(b)
 
-    new_rows = sorted(r for r in want if r not in by_row)
-    for r in new_rows:
-        pos = next((x.start for x in rows if x.row > r), data_end)
-        cols = sorted(want[r])
-        body = struct.pack("<IIHBBBI", r, 0, 0, 0, 0, 0, 1) + struct.pack("<II", cols[0], cols[-1])
-        put(pos, pos, rec(ROW, body) + b"".join(cell_record(c, *want[r][c]) for c in cols))
     for r, wcols in sorted(want.items()):
         row = by_row.get(r)
         if row is None:
@@ -160,6 +154,13 @@ def plan(data: bytes, items: list[tuple[int, int, int, object]]) -> list[tuple[i
         if nb is not None:
             hdr_end = row.body + row.ln
             put(row.start, hdr_end, rec(ROW, nb))
+    # 新しい行は、ある行の後ろに足す字より後に（同じ位置に足すとき、前の行の字が新しい行に入らないように）
+    new_rows = sorted(r for r in want if r not in by_row)
+    for r in new_rows:
+        pos = next((x.start for x in rows if x.row > r), data_end)
+        cols = sorted(want[r])
+        body = struct.pack("<IIHBBBI", r, 0, 0, 0, 0, 0, 1) + struct.pack("<II", cols[0], cols[-1])
+        put(pos, pos, rec(ROW, body) + b"".join(cell_record(c, *want[r][c]) for c in cols))
     if dim is not None:
         r1, r2, c1, c2 = struct.unpack_from("<IIII", data, dim)
         empty = r1 > r2 or c1 > c2

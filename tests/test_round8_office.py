@@ -214,3 +214,25 @@ def test_doc_paragraph_place_takes_align_like_docx(tmp_path):
     # 指定がなければ、これまでのまま
     r = api.fill(str(p), {place: "8"}, str(tmp_path / "o2.doc"))
     assert r["proof_ok"] and r["read_back_ok"] and "aligned" not in r
+
+
+def test_xlsb_appending_to_a_row_and_adding_the_next_row_together(tmp_path):
+    # ある行の最後のセルの後ろと、その次の新しい行に、同じ書き込みで書く：足す位置が同じになっても、それぞれの行に入る
+    import test_xlsb_grow as G
+
+    blob, _ = G.book()
+    p = tmp_path / "a.xlsb"
+    p.write_bytes(blob)
+    r = api.fill(str(p), {"S!E1": "右の空", "S!B2": "新しい行"}, str(tmp_path / "o.xlsb"))
+    assert r["proof_ok"] and r["read_back_ok"]
+    assert "recalculation_unchecked" not in r  # 書いた後のブックを読み直して確かめた
+    k, doc, parts = api.window(str(tmp_path / "o.xlsb"))
+    text = "\n".join(t for _, t in parts)
+    assert "右の空" in text and "新しい行" in text
+
+
+def test_written_pdf_field_warns_about_viewers_that_redraw_from_the_value(tmp_path):
+    p = tmp_path / "a.pdf"
+    p.write_bytes(_pdf_text(b"1 w 100 500 300 100 re S BT /F 12 Tf 110 610 Td (Name) Tj ET"))
+    r = api.fill(str(p), {"@1": {"page": 1, "box": [40, 90, 130, 120], "value": "Yamada"}}, str(tmp_path / "o.pdf"))
+    assert sum("Mac のプレビュー" in w for w in r["warnings"]) == 1

@@ -985,6 +985,8 @@ class Filler:
             d["MK"] = {"R": rot}
         if cover:
             d.setdefault("MK", {})["BG"] = [1]  # 見た目を作り直すソフトでも、下地は白
+        if QUARTZ_NOTE not in self.warnings:
+            self.warnings.append(QUARTZ_NOTE)
         ref = self.up.new(d)
         self._attach(page_no, ref)
         p_ = Patch(spot["id"], "input", text, page_no, shown=text)
@@ -1156,6 +1158,13 @@ class Filler:
             if "DA" not in af:
                 af["DA"] = PdfString(b"/Helv 0 Tf 0 g")
         return up.build()
+
+
+# 書いた字はフォームの欄（値と見た目）として足す。Apple の PDF の描画（Mac のプレビュー・iPhone などの標準の表示）は見た目を使わず、
+# 値から自分で描き直すので、狭い欄では字の終わりが欠けて見える（実物のプレビューで確かめた。Poppler は見た目のとおり）
+QUARTZ_NOTE = ("書いた字は PDF のフォームの欄として足しました。Mac のプレビューや iPhone などの標準の表示では、欄の見た目を使わず描き直すので、"
+               "狭い欄の字の終わりが欠けて見えることがあります（ファイルの中の値は正しい）。"
+               "確かめや印刷は、欄の見た目を使う表示（Acrobat など）で行ってください")
 
 
 def _da_key(keys: set[str]) -> str:
