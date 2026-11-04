@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import bisect
+import re
 import struct
 from dataclasses import dataclass, field
 
@@ -233,8 +234,8 @@ class DocFile:
             if p.compressed:
                 out.append(self.wd[p.fc:p.fc + n].decode("cp1252", errors="replace"))
             else:
-                out.append(self.wd[p.fc:p.fc + 2 * n].decode("utf-16-le", errors="replace"))
-        return "".join(out)
+                out.append(self.wd[p.fc:p.fc + 2 * n].decode("utf-16-le", errors="surrogatepass"))
+        return cp_string("".join(out))
 
     def fc_of(self, cp: int) -> int:
         p = self.piece_of(cp)
@@ -604,6 +605,9 @@ class DocFile:
         while cp < e:
             ch = text[cp]
             o = ord(ch)
+            if ch == CP_PAD:
+                cp += 1
+                continue
             if o == 0x13:
                 stack.append({"begin": cp, "instr": "", "phase": "instr"})
                 cp += 1
@@ -749,6 +753,26 @@ class DocFile:
         yield "body", "doc", self.body
         for kind, part, blocks in self.stories:
             yield kind, part, blocks
+
+
+CP_PAD = "\uffff"  # BMP の外の字（𠮷 など）の 2 つ目の CP の場所（字ではない。U+FFFF は文字に使えない番号）
+_SURROGATE_PAIR = re.compile("[\ud800-\udbff][\udc00-\udfff]")
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+_OUTSIDE_BMP = re.compile("[\U00010000-\U0010ffff]")
+
+
+def cp_string(s: str) -> str:
+    """文書の位置（CP。UTF-16 の 1 単位が 1 つ）と、文字列の位置を同じにする：BMP の外の字は、その字と CP_PAD の 2 つにする。
+    Python の文字列は 𠮷 を 1 字に数えるので、そのままでは、それより後ろの字の書式（非表示・削除・表のマスの印など）と、
+    本文と脚注の境がずれる。ピースの境で分かれた組は 1 字に戻し、組にならないものは U+FFFD にする。"""
+    s = _SURROGATE_PAIR.sub(lambda m: m[0].encode("utf-16-le", "surrogatepass").decode("utf-16-le"), s)
+    s = _LONE_SURROGATE.sub("\ufffd", s)
+    return _OUTSIDE_BMP.sub(lambda m: m[0] + CP_PAD, s)
+
+
+def units(ch: str) -> int:
+    """字の CP の数。"""
+    return 2 if ord(ch) > 0xFFFF else 1
 
 
 def para_index(p: Para, cp: int) -> int:

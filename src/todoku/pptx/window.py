@@ -30,6 +30,8 @@ def build(doc: PptxDocument) -> dict:
         _render_blocks(blocks, sp, {}, lines, plain)
         if lines:
             win["stories"].append({"kind": TEMPLATE, "part": part, "reading": lines, "_plain": plain, "template": True})
+    for slide, part, lines in doc.comments:
+        win["stories"].append({"kind": f"スライド {slide} のコメント（スライドには出ません）", "part": part, "reading": lines, "_plain": lines, "template": True})
     win["pictures"] = [{"id": f"図{p['n']}", "alt": p["alt"] or None, "decorative": p["decorative"],
                         "where": f"スライド {p['slide']}" + (f"の「{p['name']}」" if p["name"] else ""), "media": p.get("media", ""),
                         **({"size_mm": p["size_mm"]} if p.get("size_mm") else {})} for p in doc.pictures]

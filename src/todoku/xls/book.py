@@ -104,10 +104,11 @@ class Seg:
             if take == 0:
                 raise XlsError("文字列のデータが壊れています")
             raw = self.parts[self.pi][self.pos:self.pos + take * width]
-            out.append(raw.decode("utf-16-le", errors="replace") if high else raw.decode("latin-1"))
+            out.append(raw.decode("utf-16-le", errors="surrogatepass") if high else raw.decode("latin-1"))
             self.pos += take * width
             cch -= take
-        return "".join(out)
+        # CONTINUE の境で分かれた BMP の外の字（𠮷 など）は 1 字に戻す。組にならないものだけ U+FFFD
+        return "".join(out).encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
 def xlstring(b: bytes, pos: int, cch_size: int = 2) -> tuple[str, int]:

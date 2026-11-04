@@ -316,6 +316,8 @@ def decode(blob: bytes, index: int, target_pixels: int | None = None, deadline: 
                 row += bytes(stride_t - len(row))
                 if not problems:
                     problems.append("TIFF：画像のデータが途中で切れています（足りない所は 0 として示しました）")
+            if bits == 16 and blob[:2] == b"II":
+                row[0::2], row[1::2] = row[1::2], row[0::2]  # 16 ビットの標本は、ファイルの向きの値：ここからは上の桁を先にそろえる
             if pred == 2:
                 _undiff(row, per, bits)
             if tx == 0 and stride_t == stride_f:
@@ -350,8 +352,7 @@ def _ccitt(raw: bytes, comp: int, t4: int, cols: int, rows: int) -> bytes:
     if comp == 4:
         parm["K"] = -1
     elif comp == 3:
-        parm["K"] = 1 if t4 & 1 else 0
-        parm["EncodedByteAlign"] = bool(t4 & 4)
+        parm["K"] = 1 if t4 & 1 else 0  # T4Options のビット 2 は EOL の前の詰め物（行の頭をそろえる印ではない。TIFF 6.0 11 章）。詰め物は skip_eol が飛ばす
     else:  # 2：行ごとにバイトの境（EOL なし）
         parm["K"] = 0
         parm["EncodedByteAlign"] = True
@@ -445,6 +446,13 @@ def _to_rgb(full: list, w: int, h: int, spp: int, per: int, bits: int, photo: in
         raise ImageError(f"TIFF：色の型（Photometric {photo}）は扱えません")
     rgb = bytes(out)
     if alpha is not None:
-        rgb = _on_white(rgb, alpha)
+        if extra[0] == 1:  # ExtraSamples 1：色に透けを掛けてある（白の紙の上の色は 色 + (1 - 透け)。掛けていない 2 と同じに混ぜると、暗くなる）
+            na = bytes(255 - v for v in alpha)
+            flat = bytearray(rgb)
+            for k in range(3):
+                flat[k::3] = bytes([min(255, a + b) for a, b in zip(rgb[k::3], na)])
+            rgb = bytes(flat)
+        else:
+            rgb = _on_white(rgb, alpha)
         notes.append("透けのある画像を、白い紙の上の色で示しました")
     return rgb

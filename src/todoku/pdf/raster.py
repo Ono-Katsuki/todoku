@@ -120,6 +120,16 @@ class _Bits:
     def at_eol(self) -> bool:
         return self.peek(12) == 1
 
+    def skip_eol(self) -> bool:
+        """詰め物の 0 と EOL（0 が 11 個以上の後の 1。T.4 4.1.2）を読み飛ばす。どの符号も 0 が 11 個は続かないので、行の頭で見分けられる。なければ False。"""
+        if self.peek(11) != 0:
+            return False
+        p = self.pos + 11
+        while p < self.n and not (self.data[p >> 3] >> (7 - (p & 7))) & 1:
+            p += 1
+        self.pos = min(p + 1, self.n)
+        return True
+
 
 def _run(bits: _Bits, black: bool) -> int:
     table = _BLACK if black else _WHITE
@@ -154,11 +164,17 @@ def ccitt(data: bytes, parms: dict) -> Gray:
             if align:
                 while bits.pos < bits.n and bits.peek(12) != 1 and (bits.pos & 7) == 0 and bits.peek(8) == 0:
                     bits.skip(8)
-            while bits.pos < bits.n and bits.peek(12) == 1:
-                bits.skip(12)
-                if bits.peek(12) == 1:  # RTC（EOL の続き）：終わり
+            while bits.pos < bits.n and bits.skip_eol():
+                # RTC（EOL の続き。2 次元の符号では EOL の後ろに 1 ビットの印）：終わり
+                if k > 0:
+                    at = bits.pos
+                    bits.skip(1)
+                    more = bits.peek(11) == 0
+                    bits.pos = at
+                else:
+                    more = bits.peek(11) == 0
+                if more:
                     bits.pos = bits.n
-                    break
             if bits.pos >= bits.n:
                 break
             two_d = False
