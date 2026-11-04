@@ -34,24 +34,31 @@ def user_unit(doc, page: dict) -> float:
     return float(v)
 
 
+def _box_numbers(doc, box) -> list[float] | None:
+    """[左 下 右 上] の 4 つの数（壊れていて数でなければ None：ページの大きさは、次の候補か、既定の大きさ）。"""
+    box = doc.resolve(box)
+    if not isinstance(box, list) or len(box) != 4:
+        return None
+    vals = [doc.resolve(v) for v in box]
+    return [float(v) for v in vals] if all(isinstance(v, (int, float)) for v in vals) else None
+
+
 class View:
     """ページの座標 → 見た目の座標（左上が原点、y は下向き、回転を反映）。"""
 
     def __init__(self, doc, page: dict):
-        box = page.get("CropBox") or page.get("MediaBox") or [0, 0, 595, 842]
-        box = [float(doc.resolve(v)) for v in doc.resolve(box)]
-        if len(box) != 4:
-            box = [0, 0, 595, 842]
+        box = _box_numbers(doc, page.get("CropBox")) or _box_numbers(doc, page.get("MediaBox")) or [0, 0, 595, 842]
         mb = page.get("MediaBox")
         if mb is not None:
-            mb = [float(doc.resolve(v)) for v in doc.resolve(mb)]
-            if len(mb) == 4:
+            mb = _box_numbers(doc, mb)
+            if mb:
                 # CropBox は MediaBox の内側に切り詰める
                 box = [max(box[0], min(mb[0], mb[2])), max(box[1], min(mb[1], mb[3])),
                        min(box[2], max(mb[0], mb[2])), min(box[3], max(mb[1], mb[3]))]
         self.x0, self.y0 = min(box[0], box[2]), min(box[1], box[3])
         self.x1, self.y1 = max(box[0], box[2]), max(box[1], box[3])
-        rot = int(doc.resolve(page.get("Rotate")) or 0) % 360
+        rot = doc.resolve(page.get("Rotate"))
+        rot = int(rot) % 360 if isinstance(rot, (int, float)) else 0
         self.rot = rot - rot % 90
         w, h = self.x1 - self.x0, self.y1 - self.y0
         self.width, self.height = (h, w) if self.rot in (90, 270) else (w, h)
@@ -95,7 +102,7 @@ class View:
         return min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1])
 
 
-@dataclass
+@dataclass(slots=True)  # 字はページに何万と並ぶ：1 字のメモリを小さく
 class Ch:
     text: str
     x0: float
@@ -447,19 +454,28 @@ def join_lines(lines) -> str:
     return out
 
 
+WIDE_BUCKETS = 4096  # 升目の索引に、1 つの四角を置く升の数の上限（ページの全体でも 1,000 升に届かない）
+
+
 class CellIndex:
     def __init__(self, cells: list[Cell], bucket: float = 24.0):
         self.cells = cells
         self.bucket = bucket
         self.grid: dict[tuple[int, int], list[int]] = {}
+        self.wide: list[int] = []  # 升目に置くと多すぎる大きなマス（ページより何桁も大きな宣言）：いつも見る
         for i, c in enumerate(cells):
-            for gx in range(int(c.x0 // bucket), int(c.x1 // bucket) + 1):
-                for gy in range(int(c.y0 // bucket), int(c.y1 // bucket) + 1):
+            ax, bx = int(c.x0 // bucket), int(c.x1 // bucket)
+            ay, by = int(c.y0 // bucket), int(c.y1 // bucket)
+            if (bx - ax + 1) * (by - ay + 1) > WIDE_BUCKETS:
+                self.wide.append(i)
+                continue
+            for gx in range(ax, bx + 1):
+                for gy in range(ay, by + 1):
                     self.grid.setdefault((gx, gy), []).append(i)
 
     def at(self, x: float, y: float) -> Cell | None:
         best = None
-        for i in self.grid.get((int(x // self.bucket), int(y // self.bucket)), ()):
+        for i in [*self.grid.get((int(x // self.bucket), int(y // self.bucket)), ()), *self.wide]:
             c = self.cells[i]
             if c.x0 - 0.5 <= x <= c.x1 + 0.5 and c.y0 - 0.5 <= y <= c.y1 + 0.5:
                 if best is None or c.w * c.h < best.w * best.h:
@@ -467,10 +483,18 @@ class CellIndex:
         return best
 
     def near(self, x0, y0, x1, y1) -> list[Cell]:
-        out = {}
+        out = {i: self.cells[i] for i in self.wide}
         b = self.bucket
-        for gx in range(int(x0 // b), int(x1 // b) + 1):
-            for gy in range(int(y0 // b), int(y1 // b) + 1):
+        ax, bx = int(x0 // b), int(x1 // b)
+        ay, by = int(y0 // b), int(y1 // b)
+        if (bx - ax + 1) * (by - ay + 1) > len(self.grid):  # 大きな範囲：升目を 1 つずつ探すより、ある升目を見る
+            for (gx, gy), items in self.grid.items():
+                if ax <= gx <= bx and ay <= gy <= by:
+                    for i in items:
+                        out[i] = self.cells[i]
+            return [out[i] for i in sorted(out)]
+        for gx in range(ax, bx + 1):
+            for gy in range(ay, by + 1):
                 for i in self.grid.get((gx, gy), ()):
                     out[i] = self.cells[i]
         return list(out.values())
@@ -508,15 +532,19 @@ def make_lines(chars: list[Ch], overlaps: list | None = None) -> list[Line]:
             continue
         group.sort(key=lambda c: (c.base, c.x0 if not vertical else c.y0))
         rows: list[list[Ch]] = []
+        total = biggest = 0.0  # いまの行の基準線の和と、いちばん大きな字（字ごとに行の全部を見ると、長い行で 2 乗になる）
         for c in group:
             if rows:
                 last = rows[-1]
-                ref = sum(x.base for x in last) / len(last)
-                sz = max(max(x.size for x in last), c.size)
+                ref = total / len(last)
+                sz = max(biggest, c.size)
                 if abs(c.base - ref) <= 0.45 * sz:
                     last.append(c)
+                    total += c.base
+                    biggest = sz
                     continue
             rows.append([c])
+            total, biggest = c.base, c.size
         for row in rows:
             row.sort(key=lambda c: c.y0 if vertical else c.x0)
             parts = _split_overprinted(row)
@@ -564,6 +592,8 @@ def _split_overprinted(row: list[Ch]) -> list[list[Ch]]:
         if segs:
             p = segs[-1][-1]
             back = c.x0 < p.x0 - 0.1 * max(c.size, p.size) if not c.vertical else c.y0 < p.y0 - 0.1 * max(c.size, p.size)
+            if back:
+                budget().count(len(segs[-1]), "重ねて描いた行の字の比べ")
             if not (back and any(_clash(c, o) for o in segs[-1])):
                 segs[-1].append(c)
                 continue
@@ -573,6 +603,7 @@ def _split_overprinted(row: list[Ch]) -> list[list[Ch]]:
     groups: list[list[Ch]] = []
     for sg in segs:
         for g in groups:
+            budget().count(len(sg) * len(g), "重ねて描いた行の字の比べ")
             if not any(_clash(x, y) for x in sg for y in g):
                 g += sg
                 break

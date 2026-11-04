@@ -25,7 +25,7 @@ def apply(m, x, y):
     return (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
 
 
-@dataclass
+@dataclass(slots=True)  # 字はページに何万と並ぶ：1 字のメモリを小さく
 class Glyph:
     text: str
     x0: float

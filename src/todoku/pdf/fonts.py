@@ -182,6 +182,7 @@ class CMap:
         self._lens: list[int] | None = None
         self._by_first: dict[int, list] | None = None
         self._tables: dict[str, dict[int, RangeMap]] = {}
+        self._uni_any = False  # uni の宣言があった（表に移した後も）
 
     @classmethod
     def parse(cls, data: bytes, resolver=None) -> "CMap":
@@ -204,7 +205,7 @@ class CMap:
             parent = resolver(m[1].decode("latin-1"))
             if parent is not None:
                 self.codespace += parent.codespace
-                self.uni += parent.uni
+                self.uni += parent.uni_entries()
                 self.uni_ranges += parent.uni_ranges
                 self.cid.update(parent.cid)
                 self.cid_ranges += parent.cid_ranges
@@ -218,6 +219,7 @@ class CMap:
                 code = _hb(src)
                 v = int.from_bytes(code, "big")
                 self.uni.append((len(code), v, v, _dst(dst)))
+                self._uni_any = True
         for block in re.findall(rb"beginbfrange(.*?)endbfrange", text, re.S):
             for m2 in re.finditer(rb"<([0-9A-Fa-f\s]*)>\s*<([0-9A-Fa-f\s]*)>\s*(<[0-9A-Fa-f\s]*>|\[[^\]]*\])", block):
                 lo_b, hi_b = _hb(m2[1]), _hb(m2[2])
@@ -228,11 +230,14 @@ class CMap:
                     for i, d in enumerate(re.findall(rb"<([0-9A-Fa-f\s]*)>", dst)):
                         if lo + i > hi:
                             break
-                        self.uni.append((n, lo + i, lo + i, _utf16(_hb(d))))
+                        at = lo + i
+                        self.uni.append((n, at, at, _utf16(_hb(d))))
+                        self._uni_any = True
                 elif hi >= lo:
                     raw = _hb(dst[1:-1])
                     if hi - lo < 256:
                         self.uni.append((n, lo, hi, (lo, raw)))
+                        self._uni_any = True
                     else:
                         self.uni_ranges.append((lo, hi, n, 0, raw))
         for block in re.findall(rb"begincidchar(.*?)endcidchar", text, re.S):
@@ -299,11 +304,19 @@ class CMap:
                     groups.setdefault(ln, []).append((lo, hi, (lo, cid)))
             by = {ln: RangeMap(es, _CMAP_VALUE[kind]) for ln, es in groups.items()}
             self._tables[kind] = by
+            if kind == "uni":
+                self.uni = []  # 表に移した：同じものを 2 度持たない（uni_entries で読める）
         return by.get(n)
+
+    def uni_entries(self) -> list:
+        """bfchar・短い bfrange の宣言の並び（usecmap の子に渡す）。"""
+        if self.uni or "uni" not in self._tables:
+            return self.uni
+        return [(ln, lo, hi, v) for ln, t in self._tables["uni"].items() for lo, hi, v in t.segments()]
 
     def to_unicode(self, code: bytes) -> str | None:
         v = int.from_bytes(code, "big")
-        if self.uni:
+        if self._uni_any:
             t = self._table("uni", len(code))
             u = t.get(v) if t is not None else None
             if u is not None:

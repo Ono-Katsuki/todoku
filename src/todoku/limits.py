@@ -15,7 +15,7 @@
                                         （分けて読める形式は、もともとディスクから少しずつ読む）
 - TODOKU_MAX_INFLATE_PART_MB（256）    1 つの部品・ストリームを展開した大きさの基本の上限。実際の上限は、これと「圧縮したバイト × 比率」の大きい方
                                         （宣言された大きさではなく、実際に出てきたバイトを数える）
-- TODOKU_MAX_INFLATE_TOTAL_MB（1024 と、メモリの上限の半分の小さい方）  1 回の呼び出しで展開するバイトの合計（同じく、これと
+- TODOKU_MAX_INFLATE_TOTAL_MB（768 と、メモリの上限の半分の小さい方）  1 回の呼び出しで展開するバイトの合計（同じく、これと
                                         「ファイルの大きさ × 比率」の大きい方）。メモリの上限より先に、理由の言える形で止まるように、小さく置く
 - TODOKU_MAX_INFLATE_RATIO（200）      圧縮の比率の上限。ふつうの XML は 10〜100 倍で、deflate の理屈の上限は 1032 倍。爆弾はここで止まる
 - TODOKU_CONTEXT_BUDGET_CHARS（400000） 窓の全体を一度に返してよい大きさ（字）。およそ 20 万トークンの会話に入らなくなる大きさ。
@@ -72,7 +72,7 @@ MEMORY_LIMIT = _env("TODOKU_MEMORY_LIMIT_MB", max(2048, _physical_memory() / 4 /
 MAX_FILE = _env("TODOKU_MAX_FILE_MB", MEMORY_LIMIT / 2 / MB, MB)
 # 展開の合計は、メモリの上限より十分に小さく置く（同じ大きさだと、展開の予算で理由を言う前に、働き手が殺される。展開したものをつなぐと
 # 一時に 2 倍を使う）。大きなファイルは allow_file で広がるので、本物の書類には当たらない
-MAX_INFLATE_TOTAL = _env("TODOKU_MAX_INFLATE_TOTAL_MB", min(1024, MEMORY_LIMIT / 2 / MB), MB)
+MAX_INFLATE_TOTAL = _env("TODOKU_MAX_INFLATE_TOTAL_MB", min(768, MEMORY_LIMIT / 2 / MB), MB)
 # 1 回の呼び出しで作る項目の合計：Python の小さな値は 1 つ数十〜数百バイトなので、メモリの上限より先に、理由の言える形で止まる大きさ
 MAX_ITEMS = _env("TODOKU_MAX_ITEMS", MEMORY_LIMIT / 512)
 ITEMS_PER_FILE_BYTE = 4  # 本物の書類の項目は、ファイルのバイトに比例する（圧縮した XML でも、1 バイトから数個まで）

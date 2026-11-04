@@ -28,6 +28,7 @@ class RGBA:
     stencil: bool = False  # 型抜き（ImageMask）：alpha の所を、塗りの色で塗る
     notes: list = field(default_factory=list)  # 開き方の知らせ（解像度を下げたなど）
     problems: list = field(default_factory=list)  # 描けなかった所
+    scaled: tuple | None = None  # 画面の大きさに縮めたもの：((幅, 高さ), 画素, 透け)。同じ画像を同じ大きさで何度も描くとき、縮め直さない
 
 
 def _image_dict(doc, image):
@@ -488,10 +489,14 @@ def draw_image(cv: Canvas, img: RGBA, m, clip: Clip, alpha: float = 1.0, fill=(0
     if W_t < w or H_t < h:
         # 画面より細かい画像：面積の平均で、ちょうど画面の画素の数に縮める（整数の倍率でないと、間引きで細い線が切れる）
         W_t, H_t = min(W_t, w), min(H_t, h)
-        if not img.stencil:
-            px = area_down(px, w, h, nc, W_t, H_t)
-        if al is not None:
-            al = area_down(al, w, h, 1, W_t, H_t)
+        if img.scaled is not None and img.scaled[0] == (W_t, H_t):
+            px, al = img.scaled[1], img.scaled[2]
+        else:
+            if not img.stencil:
+                px = area_down(px, w, h, nc, W_t, H_t)
+            if al is not None:
+                al = area_down(al, w, h, 1, W_t, H_t)
+            img.scaled = ((W_t, H_t), px, al)
         w, h = W_t, H_t
     im = inv(m)
     if im is None or w <= 0 or h <= 0:

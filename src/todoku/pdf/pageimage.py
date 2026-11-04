@@ -35,13 +35,16 @@ def _base_matrix(view: View, s: float, x0: float, y0: float):
 
 
 def render(doc, page_no: int, region_mm: list | None = None, max_side: int | None = None, dpi: float | None = None,
-           time_limit: float = 60.0) -> dict:
+           time_limit: float | None = None) -> dict:
     """ページ（の範囲）の画像。region_mm：[左, 上, 右, 下]（ページの左上からの mm）。
     大きさ：dpi を指定すればその解像度。なければ、max_side を指定すれば長い辺をその画素に、どちらもなければ、ページ全体は
     100 dpi・範囲は長い辺 1600 画素（拡大して読む）。
     返す：{rgb: 画素（RGB）, w, h, scale（1 mm の画素）, origin_mm（画像の左上の mm）, skipped（描けなかった画像）, ...}。"""
+    from ..limits import TIME_LIMIT
     from .render.paint import appearance_notes, render_page
 
+    if time_limit is None:
+        time_limit = min(50.0, TIME_LIMIT * 0.4)  # 描いた所までを返す余裕を残す
     pages = doc.pages()
     if not 1 <= page_no <= len(pages):
         raise ValueError(f"page は 1〜{len(pages)} です")

@@ -24,7 +24,7 @@ from ..xlsx.window import label_text
 from .content import PageContent
 # 字・罫線・マス・行（pagetext）：ここからも同じ名前で使える（ほかのモジュール・テストの import のため）
 from .pagetext import (  # noqa: F401
-    _attach_marks, BOX_GLYPHS, _box_overlap, Cell, CellIndex, cells_from, Ch, _clash, EM_ROUND, EM_SPACE, glyph_frame,
+    WIDE_BUCKETS, _attach_marks, BOX_GLYPHS, _box_overlap, Cell, CellIndex, cells_from, Ch, _clash, EM_ROUND, EM_SPACE, glyph_frame,
     _is_cjk, _is_hangul, _is_mark, is_overprint, _is_pua, join_lines, Line, _line, _logical_order, make_lines, _merge,
     MM_PT, _move_pre_base, no_word_space, PRE_BASE, _ruby_base, Rule, rulings, _spaces, _split_overprinted, user_unit,
     _vertical_runs, _vertical_stacks, View, view_chars, _virama, wide_gap,
@@ -699,11 +699,21 @@ class PageLayout:
         B = 24.0
         self._yb: dict[int, list[int]] = {}
         self._xb: dict[int, list[int]] = {}
+        self._y_wide: list[int] = []  # ページより何桁も大きな宣言の字：帯に置かず、いつも見る
+        self._x_wide: list[int] = []
         for i, it in enumerate(items):
-            for k in range(int(it[1] // B), int(it[3] // B) + 1):
-                self._yb.setdefault(k, []).append(i)
-            for k in range(int(it[0] // B), int(it[2] // B) + 1):
-                self._xb.setdefault(k, []).append(i)
+            a, b = int(it[1] // B), int(it[3] // B)
+            if b - a > WIDE_BUCKETS:
+                self._y_wide.append(i)
+            else:
+                for k in range(a, b + 1):
+                    self._yb.setdefault(k, []).append(i)
+            a, b = int(it[0] // B), int(it[2] // B)
+            if b - a > WIDE_BUCKETS:
+                self._x_wide.append(i)
+            else:
+                for k in range(a, b + 1):
+                    self._xb.setdefault(k, []).append(i)
         self._B = B
         self._line_of = {id(ch): ln for ln in self.all_lines() for ch in ln.chars}
 
@@ -713,7 +723,7 @@ class PageLayout:
         x0, y0, x1, y1 = r
         B = self._B
         best: dict[str, tuple] = {}
-        rows = {i for k in range(int(y0 // B), int(y1 // B) + 1) for i in self._yb.get(k, ())}
+        rows = _in_bands(self._yb, self._y_wide, int(y0 // B), int(y1 // B))
         for i in rows:
             it = self._items[i]
             if min(y1, it[3]) - max(y0, it[1]) <= 0:
@@ -726,7 +736,7 @@ class PageLayout:
                 continue
             if side not in best or d < best[side][0]:
                 best[side] = (max(d, 0.0), it)
-        cols = {i for k in range(int(x0 // B), int(x1 // B) + 1) for i in self._xb.get(k, ())}
+        cols = _in_bands(self._xb, self._x_wide, int(x0 // B), int(x1 // B))
         for i in cols:
             it = self._items[i]
             if min(x1, it[2]) - max(x0, it[0]) <= 0:
@@ -1231,6 +1241,13 @@ def _inside(r, box) -> bool:
 
 def _area(r) -> float:
     return max(0.0, r[2] - r[0]) * max(0.0, r[3] - r[1])
+
+
+def _in_bands(bands: dict[int, list[int]], wide: list[int], a: int, b: int) -> set[int]:
+    """帯 a〜b にある項目。幅の広い所（ページより何桁も大きな欄）は、番号を 1 つずつ探さず、ある帯を見る。"""
+    if b - a >= len(bands):
+        return {i for k, items in bands.items() if a <= k <= b for i in items} | set(wide)
+    return {i for k in range(a, b + 1) for i in bands.get(k, ())} | set(wide)
 
 
 class _RectIndex:

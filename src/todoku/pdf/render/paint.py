@@ -708,6 +708,8 @@ class Renderer:
                 self.images_held -= len(gone.px) + len(gone.alpha or b"")
         else:
             self.images_held -= len(im.px) + len(im.alpha or b"")
+        if self.deadline is not None and time.monotonic() > self.deadline:  # 画像は 1 つが重い：字句の数を待たずに時間を見る
+            raise _Stop()
         self.stats["images"] += 1
         self.image_notes += [f"{name}：{n}" for n in im.notes if f"{name}：{n}" not in self.image_notes]
         self.problems += [f"{name}：{n}" for n in im.problems if f"{name}：{n}" not in self.problems]

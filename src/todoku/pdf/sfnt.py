@@ -336,6 +336,9 @@ def _cff_index(d: bytes, p: int) -> tuple[list[bytes], int]:
         offs.append(int.from_bytes(d[q:q + osz], "big"))
         q += osz
     base = q - 1
+    # 本物の索引は並びの順で重ならない：宣言の位置が、同じ大きな場所を何度も写させないように
+    if sum(max(0, offs[i + 1] - offs[i]) for i in range(count)) > len(d):
+        raise struct.error("CFF の索引の位置が重なっています")
     items = [d[base + offs[i]:base + offs[i + 1]] for i in range(count)]
     return items, base + offs[-1]
 
