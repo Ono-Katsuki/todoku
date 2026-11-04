@@ -4,7 +4,8 @@
 BIFF12 のレコードの並び（型 1〜2 バイト・長さ 1〜4 バイト。どちらも 7 ビットずつ。MS-XLSB 2.1.4）。
 読んだあとは、窓・計算（explain_calculation・try_calculation）・表の取り出しを xlsx と同じ処理で行う。
 
-読まないもの（窓の unread に書き、段階は C）：図形（BrtDrawing の先）・条件付き書式・表の構造化参照の数式。
+図形は BrtDrawing の先の DrawingML（xlsx と同じ部品）を読む。条件付き書式は BrtBeginConditionalFormatting・BrtBeginCFRule の範囲と条件を読む。
+読まないもの（窓の unread に書き、段階は C）：条件付き書式の見た目（BrtDXF の色など）・表の構造化参照の数式。
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from ..formula.parser import addr, parse
 from ..formula.values import ExcelError, Unsupported
 from ..xls.book import _DV_OP, _DV_TYPE, _PALETTE, _rk
 from ..xls.ptg import ERRORS
-from ..xlsx.workbook import Cell, DefinedName, Sheet, Style, Validation, _area_ranges, _header_text, apply_tint, theme_colors
+from ..xlsx.workbook import Cell, CondRule, DefinedName, Sheet, Style, Validation, _area_ranges, _header_text, apply_tint, theme_colors
 from ..zipraw import RawZip
 from .ptg import Decoder12, _q
 
@@ -33,7 +34,13 @@ EXTERNSHEET, SUP_BOOK, SUP_SELF, SUP_SAME, SUP_TABS, SUP_PLACEHOLDER = 362, 355,
 ARR, SHR = 426, 427
 BEGIN_CELLXFS, END_CELLXFS = 617, 618
 HLINK, SHEETPROT, BOOKPROT, WSFMT, HEADERFOOTER = 494, 535, 534, 485, 479
-DRAWING, LEGACYDRAWING, BEGIN_CF = 550, 551, 461
+DRAWING, LEGACYDRAWING, BEGIN_CF, BEGIN_CFRULE = 550, 551, 461, 463
+_CF_OPER = {1: "between", 2: "notBetween", 3: "equal", 4: "notEqual", 5: "greaterThan", 6: "lessThan", 7: "greaterThanOrEqual", 8: "lessThanOrEqual"}
+_CF_OPER_JA = {"between": "の間", "notBetween": "の外", "equal": "と同じ", "notEqual": "と違う", "greaterThan": "より大きい", "lessThan": "より小さい",
+               "greaterThanOrEqual": "以上", "lessThanOrEqual": "以下"}
+_CF_TYPE = {1: "cellIs", 3: "colorScale", 4: "dataBar", 5: "top10", 6: "iconSet"}
+_CF_TEMPLATE = {1: "expression", 7: "uniqueValues", 8: "containsText", 9: "containsBlanks", 10: "notContainsBlanks", 11: "containsErrors", 12: "notContainsErrors",
+                25: "aboveAverage", 26: "aboveAverage", 27: "duplicateValues", 29: "aboveAverage", 30: "aboveAverage"}
 LISTPART = 661
 C_AUTHOR, C_BEGIN, C_TEXT = 632, 635, 637
 
@@ -92,6 +99,16 @@ def _rfx(b, p: int = 0) -> tuple[int, int, int, int]:
     """UncheckedRfX（行の始め・終わり、列の始め・終わり）→ (r1, c1, r2, c2)、1 始まり。"""
     r1, r2, c1, c2 = struct.unpack_from("<IIII", b, p)
     return r1 + 1, c1 + 1, r2 + 1, c2 + 1
+
+
+def _cf_text(rule: CondRule) -> str:
+    where = "・".join(f"{addr(a, b)}:{addr(c, d)}" if (a, b) != (c, d) else addr(a, b) for a, b, c, d in rule.sqref[:3])
+    what = rule.type
+    if rule.type == "cellIs" and rule.operator:
+        what = "〜".join(rule.formulas) + _CF_OPER_JA.get(rule.operator, rule.operator)
+    elif rule.type == "expression" and rule.formulas:
+        what = f"式 {rule.formulas[0]}"
+    return f"{where} が {what}"
 
 
 class XlsbWorkbook:
@@ -380,6 +397,8 @@ class XlsbWorkbook:
         formulas = []
         n_vals = 0
         cf = 0
+        cf_ranges: list = []
+        cf_bad = 0
         last_formula = None
         for rid, p, ln in records(data):
             b = data[p:p + ln]
@@ -510,19 +529,73 @@ class XlsbWorkbook:
                         sh.header_footer.append(t)
             elif rid == BEGIN_CF:
                 cf += 1
+                try:
+                    n = struct.unpack_from("<I", b, 8)[0]
+                    cf_ranges = [_rfx(b, 12 + 16 * k) for k in range(n)]
+                except struct.error:
+                    cf_ranges = []
+                    cf_bad += 1
+            elif rid == BEGIN_CFRULE:
+                try:
+                    self._cf_rule(sh, b, cf_ranges)
+                except (struct.error, XlsbError, IndexError, ValueError, Unsupported):
+                    cf_bad += 1
             elif rid == DRAWING:
-                self._note(sh, "図形・グラフ（BrtDrawing の先）は読んでいません（Excel で PDF にしたものか、.xlsx で保存し直したものを読んでください）")
+                self._drawing(sh, wstr(b, 0)[0], rels)
             elif rid == LISTPART:
                 pass
         self.record_counts[sh.name] = n_vals
         if cf:
             sh.cond_formats = cf
-            self._note(sh, f"条件付き書式 {cf} か所は読んでいません（色などで見え方が変わる所は、窓に出ません）")
+            shown = "／".join(_cf_text(x) for x in sh.cond_rules[:8])
+            self._note(sh, f"条件付き書式 {cf} か所：{shown or '条件を読めません'}。見た目の変化（色など）は読んでいないので、色で見え方が変わる所は窓に出ません"
+                       + (f"（{cf_bad} 個の条件は読めません）" if cf_bad else ""))
         for cell, rgce, extra in formulas:
             self._formula(sh, cell, rgce, extra, shared, arrays)
         for typ, part in rels.values():
             if typ == "comments" and self.zip.has(part):
                 self._comments(sh, part)
+
+    def _cf_rule(self, sh: Sheet, b: bytes, ranges: list) -> None:
+        """BrtBeginCFRule（MS-XLSB 2.4.23）：iType・iTemplate・dxfId・iPri・iParam・予約 2 つ・印 2 バイト・cbFmla 3 つ・strParam・数式（CFParsedFormula）。"""
+        ty, tmpl, dxf, pri, param = struct.unpack_from("<IIIiI", b, 0)
+        flags = struct.unpack_from("<H", b, 28)[0]
+        sizes = struct.unpack_from("<III", b, 30)
+        s, q = wstr(b, 42)
+        forms = []
+        origin = (min(r[0] for r in ranges) - 1, min(r[1] for r in ranges) - 1) if ranges else (0, 0)
+        for sz in sizes:
+            if not sz:
+                continue
+            cce = struct.unpack_from("<I", b, q)[0]
+            rgce = bytes(b[q + 4:q + 4 + cce])
+            q += 4 + cce
+            cb = struct.unpack_from("<I", b, q)[0]
+            extra = bytes(b[q + 4:q + 4 + cb])
+            q += 4 + cb
+            forms.append(self.decoder.decode(rgce, extra, base=origin))
+        kind = _CF_TYPE.get(ty) or ("timePeriod" if 15 <= tmpl <= 24 else _CF_TEMPLATE.get(tmpl, f"type{ty}"))
+        rule = CondRule(list(ranges), kind, pri, None if dxf == 0xFFFFFFFF else dxf, forms, _CF_OPER.get(param) if ty == 1 else None, bool(flags & 2))
+        rule.text = s  # type: ignore[attr-defined]
+        sh.cond_rules.append(rule)
+
+    def xml(self, name: str) -> ET.Element:
+        """DrawingML の部品（xlsx と同じ XML）。"""
+        from ..xlsx.workbook import Workbook
+
+        return Workbook.xml(self, name)
+
+    def _drawing(self, sh: Sheet, relid: str, rels: dict) -> None:
+        part = rels.get(relid, ("", ""))[1]
+        if not part or not self.zip.has(part):
+            self._note(sh, "図形・グラフの部品が見つかりません（Excel で PDF にしたものか、.xlsx で保存し直したものを読んでください）")
+            return
+        from ..xlsx.workbook import Workbook
+
+        try:
+            Workbook._load_drawing(self, sh, part)
+        except (ET.ParseError, AttributeError, ValueError, TypeError) as e:
+            self._note(sh, f"図形・グラフの部品を読めません（{type(e).__name__}）")
 
     def _note(self, sh: Sheet, text: str) -> None:
         s = f"シート「{sh.name}」：{text}"

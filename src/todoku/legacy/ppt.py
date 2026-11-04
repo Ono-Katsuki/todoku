@@ -1,7 +1,7 @@
 """古い PowerPoint（.ppt、MS-PPT）：スライドとノートの字・表の字を読む（読むだけ）。
 
 字の取り出しは embeds/ppt.py（CurrentUserAtom → UserEditAtom → PersistDirectoryAtom → スライド）。表は、.ppt では
-図形のまとまりなので、マスごとの字として順に出す。絵（Pictures ストリーム）の中身は読まない。
+図形のまとまりなので、マスごとの字として順に出す。絵（Pictures ストリーム）は字として読まず、一覧にして view_image で見せる（imaging/docimages.py）。
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def build(blob: bytes, name: str) -> dict:
     c, names = _storage(blob)
     slides = ppt_slides(c)
     n = pictures(c, names)
-    unread = [f"絵 {n} 個の中身は字として読めません（PowerPoint で開くか、PDF にしたものを読みます）"] if n else []
+    unread = [f"絵 {n} 個の中身は字として読めません（view_image で見られます）"] if n else []
     return rd.make("ppt", KIND_JA, name, blob, slides, "元のファイルが正本。スライドとノートの字を、図形の順に読みました（字の位置と飾りは読みません）。" + WRITE, unread)
 
 

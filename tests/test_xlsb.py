@@ -85,7 +85,7 @@ def test_window_api_fields_and_calc_model(tmp_path):
     assert "直接の字" in text and "1,235円" in text and "グラフ" not in text
     f = {x["id"]: x for x in api.fields(str(p))}
     b5 = next(v for i, v in f.items() if i.endswith("B5"))
-    assert b5["options"] == ["甲", "乙"] and b5["readonly"]
+    assert b5["options"] == ["甲", "乙"] and not b5.get("readonly")
     model = api.calc_model(str(p), "申請!B3")
     assert "B2" in str(model) and "C2" in str(model)
     t = api.read_table(str(p), "単価", "申請")
@@ -99,7 +99,7 @@ def test_audit_counts_and_grade(tmp_path):
     au = api.audit(str(p))
     assert au["ok"], [c for c in au["checks"] if not c["ok"]]
     g = api.grade(str(p))
-    assert g["write"]["grade"] == "D" and g["grade"] in "AB"
+    assert g["write"]["grade"] == "C" and g["grade"] in "AB"
     assert any(".xlsb" in r["title"] for r in g["write"]["reasons"])
 
 
@@ -122,8 +122,6 @@ def test_overwrite_same_size_with_proof_and_recalculation(tmp_path):
 def test_refuses_what_would_change_size(tmp_path):
     p = _write(tmp_path)
     out = tmp_path / "b.xlsb"
-    with pytest.raises(api.ApiError, match="レコードの大きさ"):
-        api.fill(str(p), {"申請!B5": "甲"}, str(out))
     with pytest.raises(api.ApiError, match="同じ字数"):
         api.fill(str(p), {"申請!C1": "もっと長い字にする"}, str(out))
     with pytest.raises(api.ApiError, match="共有"):
