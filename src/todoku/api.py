@@ -147,8 +147,35 @@ def _budgeted(fn):
             raise ApiError(broken_message(a[0] if a else k.get("path"), e)) from None
         except XlsError as e:
             raise ApiError(str(e)) from None  # 読めないブック：本人に分かる言葉（例外の種類の名前は見せない）
+        except _broken_input() as e:
+            raise ApiError(_broken_detail(e)) from None
 
     return run
+
+
+def _broken_input() -> tuple:
+    """書類の読み方の例外のうち、入力が壊れていることだけを意味するもの（ほかの例外は、このツールの誤りかもしれないので、そのまま出す）。"""
+    import csv
+    import xml.etree.ElementTree as ET
+    import zlib
+    from xml.parsers.expat import ExpatError
+
+    from .datafile.jsonfile import JsonError
+    from .doc.book import DocError
+    from .hwpx.package import HwpxError
+    from .odf.package import OdfError
+    from .ziparc import ArchiveError
+    from .zipraw import ZipFormatError
+
+    return (ET.ParseError, ExpatError, zlib.error, csv.Error, ZipFormatError, ArchiveError, DocError, HwpxError, OdfError, JsonError)
+
+
+def _broken_detail(e: Exception) -> str:
+    """壊れた入力の、例外の種類の名前つきの言い方。形式ごとの例外は、本人に分かる言葉の文が入っている。"""
+    text = str(e)
+    if isinstance(e, ValueError) and any("\u3040" <= ch <= "\u9fff" for ch in text):
+        return f"{text}（{type(e).__name__}）"
+    return f"ファイルが壊れていて読めません（{type(e).__name__}：{text[:200]}）。元のファイルが壊れていないか、もう一度受け取り直してください"
 
 
 def broken_message(path, e: Exception) -> str:

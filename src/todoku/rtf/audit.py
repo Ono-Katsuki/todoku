@@ -131,7 +131,7 @@ def independent_text(blob: bytes) -> Counter:
                 elif 0xDC00 <= n < 0xE000:
                     ch = chr(0x10000 + ((high - 0xD800) << 10) + (n - 0xDC00)) if high else None
                     high = 0
-                else:
+                elif 0 <= n <= 0x10FFFF:  # 壊れて大きな数は字にしない（窓の読み方と同じ）
                     ch = chr(n)
                 if ch is not None and not hide and not ch.isspace() and ch not in BOXES:
                     out[ch] += 1

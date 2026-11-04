@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from ..formula.parser import Node, addr, parse, parse_cell, unparse
 from ..formula.values import ExcelError, Unsupported
-from ..limits import MAX_DECLARED_CELLS
+from ..limits import MAX_DECLARED_CELLS, budget
 from ..zipraw import RawZip
 
 UNREAD_NOTES = 20  # 1 枚のシートで、広げなかった範囲を 1 つずつ伝える数
@@ -670,6 +670,8 @@ class Workbook:
         for c in cols if cols is not None else []:
             lo, hi = int(c.get("min")), int(c.get("max"))
             w = c.get("width")
+            if hi - lo >= 1024:  # 列はシートの右端まで。広い宣言が何千と並んでも、列ごとに書き直し続けない
+                budget().count(min(hi, 16384) - lo + 1, "列の宣言")
             for i in range(lo, min(hi, 16384) + 1):  # 列はシートの右端まで（壊れた max で、列の表を広げない）
                 if w is not None:
                     sh.col_widths[i] = float(w)

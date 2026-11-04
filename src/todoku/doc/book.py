@@ -204,7 +204,7 @@ class DocFile:
         fc, lcb = self.fc["Clx"]
         t = self.table
         i = fc
-        while i < fc + lcb:
+        while i < min(fc + lcb, len(t)):  # 表の位置と長さの宣言は、ストリームの中まで
             if t[i] == 1:
                 cbg = struct.unpack_from("<H", t, i + 1)[0]
                 i += 3 + cbg

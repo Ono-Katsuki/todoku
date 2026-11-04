@@ -94,11 +94,11 @@ def array_room(ev, rows: int, cols: int) -> None:
     """rows 行 cols 列の配列を、作る前に確かめる。シートの大きさを超える配列は #NUM!（Excel の仕様）。
     シートに入る大きさでも、limits.MAX_ARRAY_CELLS を超える配列と、1 回の計算で作る配列の合計が上限を超えるものは、
     値を作らずに「計算しなかった」と伝える（Unsupported。Excel で開いたときに計算される）。"""
+    if rows > 1048576 or cols > 16384:
+        raise ExcelError("#NUM!")
     n = rows * cols
     if n <= _ARRAY_SMALL:
         return
-    if rows > 1048576 or cols > 16384:
-        raise ExcelError("#NUM!")
     from ..limits import MAX_ARRAY_CELLS, MAX_ARRAY_TOTAL
 
     if n > MAX_ARRAY_CELLS:

@@ -589,7 +589,8 @@ class RtfDocument:
                 continue
             if w == "u" and t.param is not None:
                 code = t.param + 65536 if t.param < 0 else t.param
-                ch = chr(code) if not 0xD800 <= code < 0xE000 else ""
+                # \\uN は 16 ビットの符号つきの数（壊れて大きな数なら、字にしない）
+                ch = chr(code) if 0 <= code <= 0x10FFFF and not 0xD800 <= code < 0xE000 else ""
                 if 0xDC00 <= code < 0xE000 and story.para is not None and story.para.segs and \
                         0xD800 <= ord(story.para.segs[-1].text[-1:] or "a") < 0xDC00:
                     # サロゲートの組：前の字と合わせる

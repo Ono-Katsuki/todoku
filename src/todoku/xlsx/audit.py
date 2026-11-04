@@ -334,7 +334,10 @@ def check_markdown(doc: dict, links: set | None = None) -> Check:
             want = shown(c)
             if not _md_squash(want):
                 continue
-            r, col = parse_cell(c["cell"])
+            try:
+                r, col = parse_cell(c["cell"])
+            except ValueError:  # シートの大きさを超える番地（壊れた .xls の記録）：窓の行とは照らせない
+                continue
             if (sh["name"], r, col) in links:
                 continue
             total += 1

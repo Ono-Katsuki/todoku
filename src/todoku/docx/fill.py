@@ -21,6 +21,17 @@ from .window import CHECKED, MARK_PREFIX, Spots, box_mark
 from .xmlpos import Node, escape, prefix_of
 
 
+def _state_char(state, on: bool) -> str:
+    """チェックの印の字（w14:checkedState の val は 16 進の字の番号。壊れた値なら、ふつうの印）。"""
+    plain = "☒" if on else "☐"
+    if state is None:
+        return plain
+    try:
+        return chr(int(state.get("val", "2612" if on else "2610"), 16))
+    except (ValueError, OverflowError):
+        return plain
+
+
 class FillError(ValueError):
     pass
 
@@ -630,7 +641,7 @@ class Filler:
                 tag = re.sub(rb'(:val=")[^"]*(")', rb"\g<1>" + (b"1" if on else b"0") + rb"\g<2>", tag)
                 ed.put(chk.s, chk.e, tag)
             state = box.find("checkedState" if on else "uncheckedState") if box is not None else None
-            ch = chr(int(state.get("val", "2612" if on else "2610"), 16)) if state is not None else ("☒" if on else "☐")
+            ch = _state_char(state, on)
             segs = [s for s in c.result_segs if s.kind == "t" and s.node is not None]
             if segs:
                 n0 = segs[0].node
