@@ -991,10 +991,15 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     if k in _open.SHEETS:
         # OpenDocument の表計算：Excel と同じく、日付・数をそろえて比べ、見えている字（ファイルに保存された字）で伝える
         try:
+            from .morekinds import WORKBOOKS, open_workbook
             from .odf.sheet import OdsWorkbook
             from .xlsx import readback as _xrb
 
-            ods_before, ods_after = OdsWorkbook(blob, name), OdsWorkbook(written_plain, name)
+            # .xlsb などは、それぞれのブックとして開く（OpenDocument として開くと、どの書き込みも「読み直せず」になる）
+            if k in WORKBOOKS:
+                ods_before, ods_after = open_workbook(k, blob, name), open_workbook(k, written_plain, name)
+            else:
+                ods_before, ods_after = OdsWorkbook(blob, name), OdsWorkbook(written_plain, name)
             xl_back = _xrb.check(ods_after, readback_values)
             result["recalculated_cells"] = _xrb.recalculated(
                 ods_before, ods_after, [(i.rsplit("!", 1)[0], i.rsplit("!", 1)[1], v) for i, v in (result.get("recalculated") or {}).items()])

@@ -339,6 +339,13 @@ class DocWriter:
                 wd += b"\x00"
             pages = []
             chunk: list = []
+            f0, lcb = fc["PlcfBteChpx"]
+            n = (lcb - 4) // 8
+            # 文字の書式の表は、元の終わりから足した字まで切れ目なく続ける：FKP の初めの字の位置が表の区切りと合わないと、
+            # Word は「ファイルを開こうとして、エラーが発生しました」で開かない（LibreOffice は開くので、実物の Word で見つけた）
+            prev_end = struct.unpack_from("<I", t, f0 + 4 * n)[0]
+            if prev_end < runs[0][0]:
+                runs.insert(0, (prev_end, runs[0][0], b""))
             for r in runs:
                 if chunk and not _fits(chunk + [r]):
                     pn = len(wd) // 512
@@ -613,8 +620,19 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                     w.add(Edit(cps[a0], cps[a0] + 1, box_mark(orig, on), cps[a0], mark))
                 patches.append(Patch(key, "control", on, "doc"))
             elif kind == "inline":
+                from ..textwidth import AMBIGUOUS, align_options, gap_padding
+
+                try:
+                    opts, value = align_options(key, value)
+                except ValueError as e:
+                    raise FillError(str(e)) from None
                 text = _is_text_value(value)
                 a0, b0 = it["span"]
+                pad = ("", "")
+                if opts:
+                    # そろえ方の指定：空きの幅を保って、前後に半角の空白を足す（Word の .docx と同じ決まり）
+                    pad = gap_padding(p.text[a0:b0], text, opts.get("align", "left"), context=p.text,
+                                      ambiguous_wide=AMBIGUOUS.get(opts.get("ambiguous_width")))
                 if a0 == b0:
                     # 挿入：直前の字の後ろ（段落の終わりなら、段落の印の前）。段落の頭は、初めの字の前（書式も初めの字から）
                     if a0 == 0 and cps and cps[0] >= 0:
@@ -627,8 +645,9 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                     a, b = cps[a0], cps[b0 - 1] + 1
                     if b - a != b0 - a0 or -1 in cps[a0:b0]:
                         raise FillError(f"{key}: 空欄が、書き換えられない部分にかかっています")
-                w.add(Edit(a, b, text, a, mark))
-                patches.append(Patch(key, "input", text, "doc", anchor=anchor, key=given if anchor else ""))
+                w.add(Edit(a, b, pad[0] + text + pad[1], a, mark))
+                patches.append(Patch(key, "input", text, "doc", anchor=anchor, key=given if anchor else "",
+                                     align={**opts, "pad": [len(pad[0]), len(pad[1])]} if opts else None))
             else:
                 raise FillError(f"{key}: この種類の欄（{kind}）には書けません")
         except FillError as e:
