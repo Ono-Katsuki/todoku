@@ -29,6 +29,9 @@ def kind_of(blob: bytes, filename: str = "") -> str:
             return "xlsb"  # Excel のバイナリのブック（MS-XLSB）：xlsb/
         if _is_hwpx(blob, names):
             return "hwpx"  # 韓国のワープロ（한글）の HWPX（OWPML、KS X 6101）：読む・書く（hwpx/）
+        more = _more_zip_kind(blob, names)  # XPS・EPUB など（ZIP の入れ物のほかの形式）
+        if more:
+            return more
         odf = _odf_kind(blob, names)  # OpenDocument（.odt・.ods）：mimetype の部品で見分ける
         if odf:
             return odf
@@ -47,6 +50,8 @@ def kind_of(blob: bytes, filename: str = "") -> str:
             return "xls"
         if "worddocument" in names:
             return "doc"
+        if "powerpoint document" in names:
+            return "ppt"  # 古い PowerPoint（MS-PPT）：読むだけ（legacy/ppt.py）
         # 一太郎（.jtd・.jtt）：JustSystems のストリームの一覧と、本文（または圧縮した文書）
         from .jtd.book import is_jtd
 
@@ -107,6 +112,23 @@ def unsupported_message(kind: str, blob: bytes | None = None) -> str:
     main = ooxml_main_type(blob) if kind == "ooxml-unknown" and blob else None
     return (f"未対応の形式：{what}" + (f"（主な部品の種類：{main}）" if main else "")
             + "。とどくは読めません（中身を推測して読むことはしません）。PDF・Word などに書き出したものがあれば、そちらを開いてください")
+
+
+def _more_zip_kind(blob: bytes, names: set) -> str | None:
+    """ZIP の入れ物の、ほかの形式：XPS（パッケージの関係 fixedrepresentation）・EPUB（mimetype）。"""
+    from .legacy.epub import is_epub
+    from .legacy.xps import is_xps
+    from .zipraw import RawZip
+
+    try:
+        z = RawZip(blob)
+    except Exception:  # noqa: BLE001
+        return None
+    if is_xps(z, names):
+        return "xps"
+    if is_epub(z, names):
+        return "epub"
+    return None
 
 
 def _is_hwpx(blob: bytes, names: set) -> bool:

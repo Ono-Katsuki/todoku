@@ -6,7 +6,16 @@ from .openkinds_base import OpenFormatError
 
 KIND_JA = {"xlsb": "Excel のバイナリのブック（.xlsb）"}
 WORKBOOKS = frozenset({"xlsb"})  # xlsx と同じ窓・計算・表の取り出しを使うもの
+# 読むだけの形式：形式 → legacy の部品（build・grade・audit・KIND_JA を持つ。窓は readonlydoc の形）
+READONLY = {"ppt": "ppt", "xps": "xps", "epub": "epub"}
+KIND_JA.update({"ppt": "古い PowerPoint（.ppt。読むだけ）", "xps": "XPS（.xps・.oxps。読むだけ）", "epub": "EPUB（.epub。読むだけ）"})
 KINDS = frozenset(KIND_JA)
+
+
+def _mod(k: str):
+    import importlib
+
+    return importlib.import_module(f".legacy.{READONLY[k]}", __package__)
 
 
 def open_workbook(k: str, blob: bytes, name: str):
@@ -27,6 +36,11 @@ def window(k: str, blob: bytes, name: str):
         if k == "xlsb":
             _mark_xlsb_fields(doc)
         return doc, xw.markdown_parts(doc)
+    if k in READONLY:
+        from . import readonlydoc as rd
+
+        doc = _mod(k).build(blob, name)
+        return doc, rd.markdown_parts(doc)
     raise OpenFormatError(f"この形式（{k}）は扱えません")
 
 
@@ -80,6 +94,8 @@ def audit_runner(k: str):
         from .xlsb.audit import run
 
         return run
+    if k in READONLY:
+        return _mod(k).audit
     raise OpenFormatError(f"この形式（{k}）は検査できません")
 
 
@@ -96,4 +112,6 @@ def grade(k: str, blob: bytes, name: str):
                                   "シートの部品の中の位置を指す索引がずれるので、書きません。本人か発行元に .xlsx で保存し直してもらえば書けます")]
         g.write = "D"
         return g
+    if k in READONLY:
+        return _mod(k).grade(blob, name)
     raise OpenFormatError(f"この形式（{k}）の段階は決められません")
