@@ -91,4 +91,4 @@ def test_embedded_excel_table_in_doc_is_shown_as_plain_text():
     win = build(doc)
     assert any("〔埋め込み1：Excel の表〕" in ln for st in win["stories"] for ln in st["reading"])
     md = to_markdown(win)
-    assert "## 埋め込み1：Excel の表" in md and "B 年間総収入" in md and "実績・見込み" in md
+    assert "## 埋め込み1：Excel の表" in md and "B　年間総収入" in md  # 見出しは字のまま（全角の空白を詰めない） and "実績・見込み" in md

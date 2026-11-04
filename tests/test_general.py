@@ -359,6 +359,10 @@ def test_side_by_side_tables_keep_their_own_row_labels():
                 ws.cell(r, c).protection = openpyxl.styles.Protection(locked=False)
 
     doc = window.build(book(build))
-    f = {x["cell"]: x["label"] for x in doc["sheets"][0]["fields"]}
-    assert f["B3"] == "Grant／Income／Cash"
-    assert f["G4"] == "Venue／Expenditure／In-kind"
+    fs = {x["cell"]: x for x in doc["sheets"][0]["fields"]}
+    f = {k: x["label"] for k, x in fs.items()}
+    # 罫線もテーブルの宣言もない並び：見出しはその表の左の字。上に続く列の見出しは near の header に字のまま（付けない）
+    assert f["B3"] == "Grant"
+    assert f["G4"] == "Venue／In-kind"  # すぐ左が欄（F4）で左に見出しがない：その表の行の名前と、上のいちばん近い字
+    assert [h["text"] for h in fs["B3"]["near"]["header"]] == ["Cash", "Income"]
+    assert [h["text"] for h in fs["G4"]["near"]["header"]] == ["In-kind", "Expenditure"]

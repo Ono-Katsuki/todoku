@@ -1388,11 +1388,11 @@ class Layout:
         if left:
             x = max(left, key=lambda x: x.c2)
             if txt(x):
-                out["left"] = {"text": x.cell.value, "key": label_key(x.cell.value), "cell": x.cell_ref,
+                out["left"] = {"text": x.cell.value, "label": label_text(x.cell.value), "key": label_key(x.cell.value), "cell": x.cell_ref,
                                "cols": b.c1 - x.c2 - 1, "mm": mm_cols(x.c2 + 1, b.c1 - 1)}
         x = self._above_box(b)
         if x is not None and txt(x):
-            out["above"] = {"text": x.cell.value, "key": label_key(x.cell.value), "cell": x.cell_ref,
+            out["above"] = {"text": x.cell.value, "label": label_text(x.cell.value), "key": label_key(x.cell.value), "cell": x.cell_ref,
                             "rows": b.r - x.r2, "mm": mm_rows(x.r2 + 1, b.r - 1)}
         return out
 
@@ -1662,7 +1662,7 @@ class Layout:
         """近くの字の事実：印刷された字のまま（text）・探す鍵（key）・番地・広さ（cols）・target からの離れ方
         （上なら rows と mm、左なら cols_between と mm）。"""
         t = text if text is not None else (x.cell.value if x is not None and x.cell is not None else "")
-        d: dict = {"text": t, "key": label_key(t)}
+        d: dict = {"text": t, "label": label_text(t), "key": label_key(t)}
         if x is None:
             return d
         d["cell"] = x.ref if x.control is None else x.cell_ref
@@ -1904,7 +1904,7 @@ class Layout:
         near = self._near_text(target)
         rt = [b for b in row if b.c1 > target.c2 and b.kind != "check"]
         if rt and _text(rt[0]):
-            near["right"] = {"text": rt[0].cell.value, "key": label_key(rt[0].cell.value), "cell": rt[0].cell_ref,
+            near["right"] = {"text": rt[0].cell.value, "label": label_text(rt[0].cell.value), "key": label_key(rt[0].cell.value), "cell": rt[0].cell_ref,
                              "cols": rt[0].c1 - target.c2 - 1,
                              "mm": round(sum(col_mm(self.wb, self.sh, c) for c in range(target.c2 + 1, rt[0].c1)), 1)}
         if chain:

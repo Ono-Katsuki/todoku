@@ -25,8 +25,29 @@ def test_excel_with_marked_inputs_only_is_a():
 def test_unmarked_table_columns_are_write_b_not_read():
     # 入力欄の印のない表の空のセル：規則では決められない（エージェントが判断して、番地で書く）。書く所の見つけ方なので、
     # 書く段階の B。中身は規則で正確に読めるので、読む段階は A のまま
+    import io
+
+    import openpyxl
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from openpyxl.worksheet.table import Table
+
+    # 罫線もテーブルの宣言もない字の並びは表とみなさない（字の並びの目安をやめた）：印のない列は「？」にならない
     g = grade_blob(make_xlsx({"Budget": (HEAD, VALS)}), "b.xlsx")
-    # （表の行の空のマスは、ほかの「規則では決められない所」と同じく［B5？］として窓に出し、まとめて数える）
+    assert g.grade == "A" and g.write == "A", g.headline()
+    # ファイルが宣言するテーブルの行の、印のない空のマスは［B5？］（表の行）として窓に出し、まとめて数える
+    x = openpyxl.Workbook()
+    ws = x.active
+    ws.title = "Budget"
+    ws.append(["Type", "Description", "Amount", "Notes"])
+    for _ in range(8):
+        ws.append([None] * 4)
+    dv = DataValidation(type="list", formula1='"A,B"')
+    ws.add_data_validation(dv)
+    dv.add("A2:A9")
+    ws.add_table(Table(displayName="T", ref="A1:D9"))
+    buf = io.BytesIO()
+    x.save(buf)
+    g = grade_blob(buf.getvalue(), "t.xlsx")
     assert g.grade == "A" and not any(r.title == "規則では決められない所" for r in g.reasons), g.headline()
     assert g.write == "B" and any(r.title == "規則では決められない所" and r.grade == "B" for r in g.write_reasons), g.headline()
 
