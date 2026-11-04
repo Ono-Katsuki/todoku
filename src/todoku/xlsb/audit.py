@@ -5,7 +5,7 @@ from __future__ import annotations
 import struct
 
 from ..xlsx.audit import Audit, Check, check_markdown
-from .book import C_BLANK, CELLS, ROW, records
+from .book import C_BLANK, CELLS, ROW, sheet_records
 
 
 def raw_values(wb) -> dict[str, set[tuple[int, int]]]:
@@ -17,7 +17,7 @@ def raw_values(wb) -> dict[str, set[tuple[int, int]]]:
         data = wb.zip.read(sh.path)
         row = -1
         cells = out.setdefault(sh.name, set())
-        for rid, p, _ln in records(data):
+        for rid, p, _ln in sheet_records(data):
             if rid == ROW:
                 row = struct.unpack_from("<I", data, p)[0]
             elif rid in CELLS and rid != C_BLANK:

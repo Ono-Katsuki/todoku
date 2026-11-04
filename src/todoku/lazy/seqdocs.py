@@ -475,6 +475,8 @@ class PptxLazy(_PackagedLazy):
         self.templates: dict[str, list[str]] = {}
         self.unread_notes: list[str] = []
         self.pictures_seen: list[dict] = []
+        self.comments_seen: list[tuple] = []  # (スライド, 部品, 字の行)
+        self.links_seen: list[tuple] = []  # (見える字, 先)
         self.zipview = _ZipView(self)
         skel = PptxDocument(b"", name, partial={"slides": (), "zip": self.zipview})
         order = list(skel.slide_parts)
@@ -490,6 +492,8 @@ class PptxLazy(_PackagedLazy):
                 chars += sum(len(p.text) for p in iter_paras(blocks))
             pics, charts, dgm = len(d.pictures), len(d.charts), len(d.diagrams)
             self.pictures_seen += [p for p in d.pictures if not p.get("stub")]
+            self.comments_seen += [(n, c_part, lines) for _s, c_part, lines in d.comments]
+            self.links_seen += list(getattr(d, "links", None) or [])
             self._remember_templates(d)
             self.unread_notes += [x for x in d.unread if x not in self.unread_notes]
         self.paragraphs, self.tables = para, table
@@ -531,12 +535,16 @@ class PptxLazy(_PackagedLazy):
 
     def _make_extras(self) -> list[str]:
         from ..imaging.docimages import list_images, markdown
+        from ..links import markdown as links_markdown
         from ..pptx.window import TEMPLATE
 
         lines: list[str] = []
         for part, ls in self.templates.items():
             if ls:
                 lines += [f"## {TEMPLATE}（{part}）", ""] + [f"- {x}" for x in ls] + [""]
+        for slide, part, ls in self.comments_seen:
+            lines += [f"## スライド {slide} のコメント（スライドには出ません。{part}）", ""] + [f"- {x}" for x in ls] + [""]
+        lines += links_markdown(self.links_seen)
         pics = [{"id": f"図{p['n']}", "alt": p["alt"] or None, "decorative": p["decorative"],
                  "where": f"スライド {p['slide']}" + (f"の「{p['name']}」" if p["name"] else ""), "media": p.get("media", ""),
                  **({"size_mm": p["size_mm"]} if p.get("size_mm") else {})} for p in self.pictures_seen]

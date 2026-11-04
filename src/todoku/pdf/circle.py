@@ -627,6 +627,12 @@ def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None
                      f"上 {ob[1] / mm:.1f}・右 {ob[2] / mm:.1f}・下 {ob[3] / mm:.1f} mm{at}）。view_page で見て確かめてください")
     if info.get("off_line"):
         notes.append(f"{out['id']}：{info['off_line']}")
+    if style == "ellipse" and g[3] - (rect[3] - rect[1]) / 2 > rect[3] - rect[1]:
+        # 隣の字をよけるために、字の高さより上下へ大きくはみ出した楕円：どの行を囲んだかが分かりにくい
+        mm = lay.view.mm
+        notes.append(f"{out['id']}：「{out['text']}」の○は、隣の字をよけて縦に長くなりました（高さ {2 * g[3] / mm:.1f} mm。字の高さは "
+                     f"{(rect[3] - rect[1]) / mm:.1f} mm）。view_page で見て、上下の行にかかっていれば、\"style\": \"border\"（字に沿った四角）か box で"
+                     "書き直してください")
     if notes:
         out["note"] = "\n".join(notes)
     if not bounded(ln.text, a, b):

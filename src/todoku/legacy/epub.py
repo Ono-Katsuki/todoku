@@ -75,6 +75,7 @@ def build(blob: bytes, name: str) -> dict:
     names = set(z.names())
     enc = set(_encrypted(z))
     secs, unread = [], []
+    links: list = []
     for k, part in enumerate(spine(z), 1):
         if part in enc:
             unread.append(f"{part}：暗号化された本文は読めません（DRM）")
@@ -84,7 +85,8 @@ def build(blob: bytes, name: str) -> dict:
             continue
         win = markup.build(z.read(part), part.rsplit("/", 1)[-1] + (".html" if not part.lower().endswith((".html", ".htm", ".xhtml")) else ""))
         secs.append((f"{k}. {part}", list(win["lines"])))
-    return rd.make("epub", KIND_JA, name, blob, secs, "元のファイルが正本。目次の順（spine）に本文の字を読みました（字の飾り・絵は読みません）。" + WRITE, unread)
+        links += win.get("links") or []
+    return rd.make("epub", KIND_JA, name, blob, secs, "元のファイルが正本。目次の順（spine）に本文の字を読みました（字の飾り・絵は読みません）。" + WRITE, unread, links=links)
 
 
 def grade(blob: bytes, name: str):

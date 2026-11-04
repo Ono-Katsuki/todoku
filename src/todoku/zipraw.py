@@ -110,15 +110,24 @@ class RawZip:
         eocd_pos = blob.rfind(EOCD_SIG, max(0, len(blob) - 65557))
         if eocd_pos < 0:
             raise ZipFormatError("ZIPの終端レコードが見つかりません")
-        if blob.rfind(ZIP64_EOCD_SIG, 0, eocd_pos) >= 0 and eocd_pos >= 20 and blob[eocd_pos - 20:eocd_pos - 16] == b"PK\x06\x07":
-            raise ZipFormatError("ZIP64 には未対応です")
         (_, disk, cd_disk, n_disk, n_total, cd_size, cd_offset, comment_len) = struct.unpack_from(
             "<4sHHHHIIH", blob, eocd_pos
         )
+        self.zip64 = False
+        cd_end = eocd_pos
+        if eocd_pos >= 20 and blob[eocd_pos - 20:eocd_pos - 16] == b"PK\x06\x07":
+            # ZIP64（APPNOTE 4.3.14・4.3.15）：位置の印から終端レコードへ。数と位置は 64 ビットの方を読む。書くときは別（_rebuild で断る）
+            at = struct.unpack_from("<Q", blob, eocd_pos - 12)[0]
+            if at + 56 > len(blob) or blob[at:at + 4] != ZIP64_EOCD_SIG:
+                raise ZipFormatError("ZIP64 の終端レコードが見つかりません")
+            disk, cd_disk = struct.unpack_from("<II", blob, at + 16)
+            n_disk, n_total, cd_size, cd_offset = struct.unpack_from("<QQQQ", blob, at + 24)
+            self.zip64 = True
+            cd_end = at
         if disk != 0 or cd_disk != 0 or n_disk != n_total:
             raise ZipFormatError("分割ZIPには未対応です")
         self.cd_tail = blob[eocd_pos:]
-        self._cd_gap = blob[cd_offset + cd_size:eocd_pos]
+        self._cd_gap = blob[cd_offset + cd_size:cd_end] if not self.zip64 else b""
 
         # 中央ディレクトリ
         centrals: list[tuple[str, bytes, int, int]] = []
@@ -136,12 +145,20 @@ class RawZip:
                 struct.unpack_from("<H", blob, p + 32)[0],
                 struct.unpack_from("<I", blob, p + 42)[0],
             )
-            if 0xFFFFFFFF in (csize, usize, local_off):
-                raise ZipFormatError("ZIP64 には未対応です")
             raw_name = blob[p + 46:p + 46 + nlen]
             name = raw_name.decode("utf-8" if flags & 0x800 else "cp437")
             rec_len = 46 + nlen + xlen + clen
-            centrals.append((name, blob[p:p + rec_len], local_off, csize))
+            central = blob[p:p + rec_len]
+            if 0xFFFFFFFF in (csize, usize, local_off):
+                # ZIP64 の追加の項目（APPNOTE 4.5.3）：0xFFFFFFFF の欄の値が、元の大きさ・縮めた大きさ・位置の順に 8 バイトずつ
+                self.zip64 = True
+                usize, csize, local_off = _zip64_values(central, 46 + nlen, xlen, usize, csize, local_off, name)
+                if usize > 0xFFFFFFFF or csize > 0xFFFFFFFF:
+                    raise ZipFormatError(f"{name}: 4 GB を超える部品は読みません")
+                b = bytearray(central)  # ここから先は 32 ビットの欄を読むので、本当の大きさを入れる（書くときは _rebuild で断る）
+                struct.pack_into("<II", b, 20, csize, usize)
+                central = bytes(b)
+            centrals.append((name, central, local_off, csize))
             p += rec_len
 
         _no_two_readings(blob, centrals, cd_offset)
@@ -162,10 +179,12 @@ class RawZip:
             flags = struct.unpack_from("<H", blob, off + 6)[0]
             desc = b""
             if flags & 0x8:
+                # データ記述子：ZIP64 の部品（ローカルに追加の項目 1 がある）は大きさが 8 バイトずつ（APPNOTE 4.3.9.2）
+                wide = 8 if _has_zip64_extra(blob[off + 30 + nlen:hdr_end]) else 4
                 if blob[data_end:data_end + 4] == DD_SIG:
-                    desc = blob[data_end:data_end + 16]
+                    desc = blob[data_end:data_end + 8 + 2 * wide]
                 else:
-                    desc = blob[data_end:data_end + 12]
+                    desc = blob[data_end:data_end + 4 + 2 * wide]
             end = data_end + len(desc)
             nxt = centrals[order[rank + 1]][2] if rank + 1 < len(order) else cd_offset
             e = Entry(
@@ -194,7 +213,14 @@ class RawZip:
                 idx.setdefault(e.name, e)
         e = idx.get(name)
         if e is None:
-            raise KeyError(name)
+            # 部品の名前は大文字小文字を区別しない（ECMA-376 第2部 6.2.2.3。Excel は xl/SharedStrings.bin のような名前も開く）。
+            # 大文字小文字だけが違う部品が 2 つある ZIP は _no_two_readings が読まないので、1 つに決まる
+            folded = getattr(self, "_by_fold", None)
+            if folded is None or len(folded) != len(self.entries):
+                folded = self._by_fold = {x.name.casefold(): x for x in self.entries}
+            e = folded.get(name.casefold())
+            if e is None:
+                raise KeyError(name)
         return e
 
     def has(self, name: str) -> bool:
@@ -250,6 +276,11 @@ class RawZip:
 
     # ------------------------------------------------------------------ 書き出し
     def build(self) -> bytes:
+        if getattr(self, "zip64", False):
+            if not getattr(self, "added", None) and not any(e.modified for e in self.entries):
+                return self.original
+            raise ZipFormatError("ZIP64 の形のファイルは読めますが、書き込みはまだできません（位置と大きさの 64 ビットの欄を書き直す形を作っていません）。"
+                                 "Excel・Word などで開いて保存し直したものなら書けます")
         out = bytearray(self.prefix)
         new_offsets: dict[int, int] = {}
         new_centrals: dict[int, bytes] = {}
@@ -279,6 +310,9 @@ class RawZip:
     def _rebuild_entry(self, e: Entry, offset: int) -> tuple[bytes, bytes, bytes, bytes]:
         raw = e._replacement
         assert raw is not None
+        if getattr(self, "zip64", False):
+            raise ZipFormatError("ZIP64 の形のファイルは読めますが、書き込みはまだできません（位置と大きさの 64 ビットの欄を書き直す形を作っていません）。"
+                                 "Excel・Word などで開いて保存し直したものなら書けます")
         crc = zlib.crc32(raw) & 0xFFFFFFFF
         if e.method == 8:
             # 元の圧縮レベルは分からないので既定のレベルで圧縮する（このエントリだけが変わる）
@@ -303,6 +337,38 @@ class RawZip:
         struct.pack_into("<III", central, 16, crc, len(data), len(raw))
         struct.pack_into("<I", central, 42, offset)
         return bytes(local), data, desc, bytes(central)
+
+
+def _zip64_values(central: bytes, at: int, xlen: int, usize: int, csize: int, off: int, name: str) -> tuple[int, int, int]:
+    end = at + xlen
+    while at + 4 <= end:
+        hid, n = struct.unpack_from("<HH", central, at)
+        if hid == 1:
+            p = at + 4
+            lim = p + n
+
+            def wide(v: int) -> int:
+                nonlocal p
+                if v != 0xFFFFFFFF:
+                    return v
+                if p + 8 > lim:
+                    raise ZipFormatError(f"{name}: ZIP64 の追加の項目が短すぎます")
+                p += 8
+                return struct.unpack_from("<Q", central, p - 8)[0]
+
+            return wide(usize), wide(csize), wide(off)
+        at += 4 + n
+    raise ZipFormatError(f"{name}: ZIP64 の追加の項目がありません")
+
+
+def _has_zip64_extra(extra: bytes) -> bool:
+    at = 0
+    while at + 4 <= len(extra):
+        hid, n = struct.unpack_from("<HH", extra, at)
+        if hid == 1:
+            return True
+        at += 4 + n
+    return False
 
 
 def _no_two_readings(blob: bytes, centrals: list[tuple[str, bytes, int, int]], cd_offset: int) -> None:

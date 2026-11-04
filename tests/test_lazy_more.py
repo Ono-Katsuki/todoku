@@ -686,3 +686,39 @@ def test_word_extras_sections_are_read_to_the_end(tmp_path, monkeypatch):
             assert ln in text, ln
         if ln.startswith("- ") and ("グラフ" in whole) and ln in ("- 売上",):
             assert ln in text
+
+
+def test_large_pptx_read_in_parts_shows_comments_and_links(tmp_path, monkeypatch):
+    import zipfile as _z
+
+    import pptx_maker as pm
+
+    monkeypatch.setattr(limits, "CONTEXT_BUDGET", 500)
+    monkeypatch.setattr(limits, "LAZY_MIN_BYTES", 0)
+    lazy.clear()
+    api._WINDOWS.clear()
+    base = pm.make([pm.sp(pm.para("一枚目の本文" * 50)), pm.sp(pm.para("二枚目の本文" * 50))])
+    p = tmp_path / "b.pptx"
+    REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    with _z.ZipFile(p, "w") as out, _z.ZipFile(io.BytesIO(base)) as z:
+        for n in z.namelist():
+            b = z.read(n)
+            if n == "ppt/slides/_rels/slide2.xml.rels":
+                b = b.replace(b"</Relationships>", f'<Relationship Id="rIdC" Type="{REL}/comments" Target="../comments/comment1.xml"/></Relationships>'.encode())
+            if n == "[Content_Types].xml":
+                b = b.replace(b"</Types>", b'<Override PartName="/ppt/comments/comment1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.comments+xml"/></Types>')
+            out.writestr(n, b)
+        out.writestr("ppt/comments/comment1.xml", '<?xml version="1.0"?><p:cmLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cm authorId="0"><p:text>コメントの字</p:text></p:cm></p:cmLst>')
+    doc = api.lazy_open(str(p))
+    assert doc is not None and doc.kind == "pptx"
+    seen = ""
+    args: dict = {"paragraphs": "1-"}
+    while True:
+        page, _d = api.read_range(str(p), args)
+        seen += page.text
+        if page.next is None:
+            break
+        args = dict(page.next)
+    assert "コメントの字" in seen
+    lazy.clear()
+    api._WINDOWS.clear()

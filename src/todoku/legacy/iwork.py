@@ -217,6 +217,9 @@ def build(blob: bytes, name: str) -> dict:
                     data.append((ident, t, payload))
         except (IworkError, IndexError) as e:
             unread.append(f"部品 {part} を読めませんでした（{e}）")
+    if any(n.startswith("Index/Tables/Tile") for n in names) or (name.lower().endswith(".numbers") and n_parts):
+        unread.append("表の数・日付・計算の結果のマスは、読めていません（読めるのは字のマスだけです。表に数があっても、ここには出ません）。"
+                      "Numbers で CSV か Excel に書き出してもらえば、すべてのマスを読めます")
     if n_parts:
         body, others = _strings(data)
         secs = []

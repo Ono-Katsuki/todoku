@@ -12,6 +12,7 @@ from __future__ import annotations
 
 KIND_JA = {"csv": "CSV", "tsv": "TSV（タブ区切り）", "json": "JSON", "jsonl": "JSON Lines", "rtf": "RTF（リッチテキスト）",
            "odt": "OpenDocument の文書（.odt）", "ods": "OpenDocument の表計算（.ods）",
+           "odp": "OpenDocument の発表資料（.odp）", "odg": "OpenDocument の図形描画（.odg）",
            "fodt": "OpenDocument の文書（.fodt・1つの XML）", "fods": "OpenDocument の表計算（.fods・1つの XML）",
            "txt": "テキスト（.txt）", "pptx": "PowerPoint（.pptx）",
            "hwpx": "한글の文書（.hwpx）", "hwp": "한글の文書（.hwp・HWP 5）",
@@ -22,7 +23,7 @@ from .openkinds_base import OpenFormatError  # noqa: E402
 KIND_JA.update(_more.KIND_JA)
 KINDS = frozenset(KIND_JA)
 DATA = frozenset({"csv", "tsv", "json", "jsonl"})
-TEXT_DOCS = frozenset({"odt", "fodt"})
+TEXT_DOCS = frozenset({"odt", "fodt", "odp", "odg"})
 SHEETS = frozenset({"ods", "fods"}) | _more.WORKBOOKS
 HANGUL = frozenset({"hwpx", "hwp"})  # 한글：HWPX は読む・書く、HWP 5 は読むだけ（hwpx/）
 

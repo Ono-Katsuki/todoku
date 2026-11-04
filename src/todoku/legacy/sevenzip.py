@@ -503,6 +503,8 @@ def _lsb_table(lengths: list[int]) -> tuple[list[int], list[int]]:
     return count, syms
 
 
+# 符号の表の作り方と 1 字ずつ解く形（下の sym）は、zlib の contrib/puff/puff.c（Mark Adler）と同じ形に見える。作った記録で由来を
+# 確かめられないので、派生として扱い、zlib の許諾の表示を THIRD_PARTY_NOTICES.md に置く
 def deflate64(data: bytes, cap: int) -> bytes:
     out = bytearray()
     pos = 0

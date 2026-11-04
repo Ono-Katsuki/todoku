@@ -37,6 +37,9 @@ def markdown_parts(win: dict) -> list[tuple[str, str]]:
             cur, size, label = [], 0, sec["heading"]
         cur += block
         size += n
+    from .links import markdown as _links
+
+    cur += _links(win.get("links") or [])
     parts.append((label, "\n".join(cur) + "\n"))
     return parts
 

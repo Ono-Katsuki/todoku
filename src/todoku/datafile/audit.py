@@ -22,6 +22,8 @@ from .jsonfile import fill as json_fill
 from .jsonfile import prove as json_prove
 from .window import build_csv, build_json, cell_text, parts_csv, parts_json, row_line
 
+csv.field_size_limit(2 ** 31 - 1)  # 別の読み方の確かめで、長いマスを「壊れている」としない（既定は 131072 字）
+
 
 def _chars(texts) -> Counter:
     c = Counter()

@@ -600,8 +600,9 @@ def resolve_write(sp: "Spots", spec: dict, used: dict | None = None) -> dict:
     "occurrence": 何番目か（しぼった中の、文書の順。1 から）}。
     near でしぼる範囲（距離の決まった数は持たない。広さを変えるのはエージェント）：
     - near_paras を指定したとき：near の欄の段落の前後 near_paras 段落（0 なら同じ段落だけ）
-    - 指定しないとき：near の欄が表のマスにあれば同じ表の同じ行（文書の作り）、なければ同じ話（本文・ヘッダー・脚注などの、同じ部分）old と new の前後の同じ字は、元の字と書式のまま残し、
-    違う所だけを書き換える。元の字が見つからない・いくつもあって決まらないときは、候補を添えて断る。
+    - 指定しないとき：near の欄が表のマスにあれば同じ表の同じ行（文書の作り）、なければ同じ話（本文・ヘッダー・脚注などの、同じ部分）。
+      その中に候補がいくつもあり occurrence もないときは、near の欄の段落、次に near の欄のマスの中の候補に絞る（作りでいちばん近い所）
+    old と new の前後の同じ字は、元の字と書式のまま残し、違う所だけを書き換える。元の字が見つからない・いくつもあって決まらないときは、候補を添えて断る。
     used：同じ書き込みの中で、もう使った番号と範囲（段落の番号 → [(番号, 始め, 終わり)]）。"""
     old, new = spec.get("old"), spec.get("new")
     if not isinstance(old, str) or not old or not isinstance(new, str):
@@ -638,6 +639,13 @@ def resolve_write(sp: "Spots", spec: dict, used: dict | None = None) -> dict:
     if not hits:
         raise WriteError(f"「{old}」が、{f'欄 {near} の近く' if near else '文書'}に見つかりません（窓の字のとおりに指定してください）")
     occ = spec.get("occurrence")
+    if occ is None and near and span_n is None and len(hits) > 1:
+        # near の欄と作りでいちばん近い候補：同じ段落、次に同じマス。それでも 1 つに決まらなければ、広い範囲の候補を示して断る
+        for same in (lambda q: q is q0, lambda q: c0 is not None and q.cell is c0):
+            mine = [h for h in hits if same(h[1])]
+            if mine:
+                hits = mine
+                break
     if occ is not None:
         if not isinstance(occ, int) or not 1 <= occ <= len(hits):
             raise WriteError(f"occurrence は 1〜{len(hits)} で指定してください")
@@ -868,6 +876,9 @@ def build(doc: DocxDocument) -> dict:
     from ..embeds import lazy as embed_lazy
 
     embed_lazy.spend(sum(len(ln) for st in out["stories"] for ln in st["reading"]))
+    out["links"] = [{"text": t, "target": u} for t, u in getattr(doc, "links", [])]
+    if getattr(doc, "numbering_problem", None):
+        out.setdefault("unread", []).append(doc.numbering_problem)
     out["embeds"] = _embeds(doc)
     out["pictures"] = _pictures(doc)
     from ..embeds.word import objects as _objects
@@ -987,25 +998,28 @@ def _embed_key(doc, e: dict) -> tuple | None:
     return (getattr(doc, "kind", "docx"), e["storage"], h.hexdigest())
 
 
-def _embed_windows(doc) -> list[tuple[dict, object]]:
-    """(埋め込み, (Excel の窓, 窓の Markdown の行)・作れなかった理由の字・後回しにした概要（dict）)。Excel のブックでない埋め込みは除く。"""
+def _embed_windows(doc):
+    """(埋め込み, (Excel の窓, 窓の Markdown の行)・作れなかった理由の字・後回しにした概要（dict）) を 1 つずつ（同時にいくつも持たない。
+    大きなブックの窓は 1 つで数百 MB になる）。控えは縮めて持つ。Excel のブックでない埋め込みは除く。"""
+    import pickle
+    import zlib
+
     from .. import limits
     from ..embeds import lazy as embed_lazy
     from ..xlsx import window as xw
 
     if not hasattr(doc, "embedded_book"):
-        return []
-    out = []
+        return
     embeds = list(getattr(doc, "embeds", []) or [])
     for i, e in enumerate(embeds):
         limits.progress("埋め込みの表を読んでいます", i, len(embeds))
         brief = embed_lazy.later(doc, e)
         if brief is not None:
-            out.append((e, brief))  # 窓に入らない：頼まれたときに、頼まれた行だけ読む
+            yield e, brief  # 窓に入らない：頼まれたときに、頼まれた行だけ読む
             continue
         k = _embed_key(doc, e)
         if k is not None and k in _EMBED_WINDOWS:
-            got = _EMBED_WINDOWS[k]
+            got = pickle.loads(zlib.decompress(_EMBED_WINDOWS[k]))
         else:
             wb = doc.embedded_book(e)
             if wb is None:
@@ -1019,12 +1033,11 @@ def _embed_windows(doc) -> list[tuple[dict, object]]:
             if k is not None:  # 中身の要約を作れなかったものは、使い回さない
                 while len(_EMBED_WINDOWS) >= _EMBED_WINDOWS_MAX:
                     _EMBED_WINDOWS.pop(next(iter(_EMBED_WINDOWS)))
-                _EMBED_WINDOWS[k] = got
+                _EMBED_WINDOWS[k] = zlib.compress(pickle.dumps(got, protocol=pickle.HIGHEST_PROTOCOL), 1)
         if got is not None:
-            out.append((e, got))
             if isinstance(got, tuple):
                 embed_lazy.spend(sum(len(ln) for ln in got[1]))
-    return out
+            yield e, got
 
 
 def _embeds(doc) -> list[dict]:
@@ -1041,8 +1054,10 @@ def _embeds(doc) -> list[dict]:
             continue
         xdoc, md = got
         info = window_info(doc, e, xdoc)  # 書くときの欄の名前（E1!Sheet1!C4）と、表の絵を描き直せるか
+        del got
         out.append({"n": e["n"], "label": e["label"], "prog": e["prog"], "storage": e["storage"],
                     "sheets": [sh["name"] for sh in xdoc["sheets"]], "markdown": list(md), **info})
+        del xdoc, md
     return out
 
 
@@ -1226,7 +1241,7 @@ def _md(s) -> str:
     return str(s).replace("|", "\\|").replace("\n", " ")
 
 
-STORY_JA = {"body": "本文", "header": "ヘッダー", "footer": "フッター", "footnotes": "脚注", "endnotes": "文末脚注", "comments": "コメント"}
+STORY_JA = {"body": "本文", "master": "スライドマスターの字", "header": "ヘッダー", "footer": "フッター", "footnotes": "脚注", "endnotes": "文末脚注", "comments": "コメント"}
 
 
 def _macros(doc):
@@ -1253,6 +1268,7 @@ def to_markdown(doc: dict) -> str:
     line = summary_line(doc["macros"])
     if line:
         out.append("- " + line.replace("ブック", "文書"))
+    out += [f"- **読んでいない部分**：{u}" for u in doc.get("unread") or []]  # JSON だけでなく、エージェントの読む窓にも出す
     out.append("")
     if doc["fields"]:
         out += [f"## 入力欄（{len(doc['fields'])} か所）", "", "| 欄 | 見出し | 種類 | いまの値 |", "|---|---|---|---|"]
@@ -1279,6 +1295,9 @@ def to_markdown(doc: dict) -> str:
         for line in st["reading"]:
             out.append(f"- {line}")
         out.append("")
+    from ..links import markdown as links_md
+
+    out += links_md([(x["text"], x["target"]) for x in doc.get("links") or []])
     for e in doc.get("embeds") or []:
         out += [f"## 埋め込み{e['n']}：{e['label']}（{e['prog']}・{e['storage']}）", ""]
         if e.get("error"):

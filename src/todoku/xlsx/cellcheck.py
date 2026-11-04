@@ -80,6 +80,9 @@ def written_format(wb, plan) -> tuple[list[dict], list[str]]:
             items.append(f"字の色と塗りの色が同じ（#{font}）")
         elif cell_font and font == "FFFFFF":
             items.append("白い字")
+        elif cell_font and font != "000000":
+            # セルの書式は変えないので、書いた字はこの色になる（元の様式の色。黒にしたいなら様式の作り手か本人が決める）
+            items.append(f"字の色（セルの書式の色 #{font}。書いた字もこの色で表示・印刷されます）")
         if cell_font and getattr(st, "font_strike", False):
             items.append("取り消し線")
         if rich is not None:

@@ -31,6 +31,7 @@
 - TODOKU_TIME_LIMIT（120）             1 回の呼び出しの秒数（MCP サーバー：別のプロセスで動かし、超えたら止める）
 - TODOKU_MEMORY_LIMIT_MB（物理メモリの 1/4。2048 以上）  その別のプロセスのメモリ
 - TODOKU_WINDOW_CACHE_MB（256）        窓の控え（同じ書類を開き直さない）の大きさの合計
+- TODOKU_JOBS_TTL_HOURS（24）           長い仕事の控え（書類の中身が入る。jobs.py）を残す時間。0 なら読んだら消す
 - TODOKU_MAX_XFA_BLANK（10000）         XFA：データのないくり返し（occur の min・initial）を作る数（1 つの書類）。超える分は作らず、窓に事実として書く
 - TODOKU_MAX_DECLARED_CELLS（262144）  表計算：ファイルの宣言（入力規則・数式の参照・配列数式の範囲・繰り返し）から、セルの要素のない所を 1 マスずつの欄として
                                         一度に作る数（1 ブック）。超える範囲は「範囲の所」（xlsx/places.py）として同じ事実を持つ（読めない所は作らない）

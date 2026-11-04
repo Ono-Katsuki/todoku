@@ -1156,13 +1156,20 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
                 raise FillError(f"{key}: すでに書き込んだ欄です（書き直すには、元の様式に書いてください）")
             kind = item["kind"]
             if kind == "cell":
+                from ..textwidth import align_options
+
+                try:
+                    opts, value = align_options(key, value)
+                except ValueError as e:
+                    raise FillError(str(e)) from None
                 text = _is_text_value(value)
                 p = item["para"]
                 if p.text and not p.text.strip(" \u3000\u2002\u2003"):
                     f.replace_span(item, p, 0, len(p.text), text)
                 else:
                     f.fill_cell(item, text)
-                f.patches.append(Patch(key, "input", text, item["para"].part))
+                # 空のマスには、字の間の空きがない：そろえ方は効かない（足す空白 0 を結果に示し、api が警告する）
+                f.patches.append(Patch(key, "input", text, item["para"].part, align={**opts, "pad": [0, 0]} if opts else None))
             elif kind == "checkbox" and is_bullet(item):
                 on = _as_bool(value)
                 f.fill_bullet(item, on)

@@ -742,6 +742,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                 # 空きの中にそろえて書いた所：そろえ方と、空きの幅を保つために前・後ろに足した半角の空白の字数。
                 # 証明は書いたセルだけが変わったこと、読み戻しは書いた後のセルの字（足した空白を含む）で確かめる
                 result["aligned"] = dict(res.aligned)
+                result["warnings"] += _align_no_effect(res.aligned)
             if res.unverified:
                 # 書いた値に連動するのに、todoku が計算し直せない数式（BAHTTEXT・動的配列など）：保存された結果は古いまま
                 result["stale_formulas"] = list(res.unverified)
@@ -928,12 +929,19 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             if wrapped:
                 result["wrap"] = wrapped
                 result["warnings"] += wrapped
+                from .pagecount import growth_note
+
+                grown = growth_note(blob, k, wrapped)
+                if grown:
+                    result["page_growth"], said_ = grown
+                    result["warnings"].append(said_)
             anchored = {(p.key or p.id): p.id for p in res.patches if getattr(p, "anchor", None)}
             aligned = {p.id: p.align for p in res.patches if getattr(p, "align", None)}
             if aligned:
                 # 空きの中にそろえて書いた所：そろえ方と、空きの幅を保つために前・後ろに足した半角の空白の字数（証明で確かめた）。
                 # 読み戻しは、書いた値そのもの（足した空白は欄の値に入れない）
                 result["aligned"] = aligned
+                result["warnings"] += _align_no_effect(aligned)
                 for id_ in aligned:
                     if isinstance(values.get(id_), dict):
                         readback_values[id_] = values[id_]["value"]
@@ -1680,6 +1688,14 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
             return lab.split("（", 1)[1].rsplit("）", 1)[0] if "（" in lab else lab  # far_label：「左に 3 列あけて『氏名』」
         if not lab or (lab == d["id"] and d["id"] not in printed):
             return "近くの字なし"
+        from .xlsx.window import label_text
+
+        src_ = source(d)
+        left, up = src_.get("row_label"), src_.get("column_label")
+        if left and up and left != up:
+            # 表のマス：左のマスと上のマスの字を、どちら側の字かを添えて（2 つを 1 つの見出しに見せない。上のマスは別の項目のことがある）
+            short = lambda t: t if len(t) <= 24 else t[:24] + "…"  # noqa: E731
+            return f"近くの字：左「{short(label_text(left))}」・上「{short(label_text(up))}」"
         slots = list(re.finditer(r"［[^］]*］", lab))
         k = next((n for n, m in enumerate(slots, 1) if "▶" in m.group()), 0)
         base = re.sub(r"［[^］]*］", "［ ］", lab).strip("：:　 ") if len(slots) > 1 else re.sub(r"［[^］]*］", "", lab).strip("-－ー：:　 ")
@@ -1815,13 +1831,43 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
 
         lines.append(_recalc_say(result["recalculated_cells"]))  # 書いた値から計算し直して変わったセル（金額・合計など）
     if notes:
-        lines.append("本人に伝えること：" + "／".join(notes[:10]))
+        merged = _merged_notes(notes)
+        lines.append("本人に伝えること：" + "／".join(merged[:10])
+                     + (f"／ほかに {len(merged) - 10} 件（warnings にすべてあります）" if len(merged) > 10 else ""))
     # as のない書き込み：本人が確かめる書類なら、書いた値の意味を as で述べて書き直せる（対話が本人の確かめる手段なので）
     without_as = [d["id"] for d in told if not d.get("as")] + [c.get("id") or c.get("key") for c in result.get("circled") or [] if not c.get("as")]
     return {"written": told, "written_without_as": without_as, "still_empty": [{"id": f["id"], "label": f.get("label", ""), **({"sheet": f["sheet"]} if "sheet" in f else {}),
                                               **({"page": f["page"]} if "page" in f else {})} for f in empty[:50]],
             "still_empty_count": len(empty), "unchosen_choice_groups": len(unchosen), "agent_places_left": len(agent_left),
             "say_to_user": "\n".join(lines)}
+
+
+def _align_no_effect(aligned: dict) -> list[str]:
+    """align（center・right）を受けたのに足す空白がなかった所：そろえる空きがないので、値は元の位置から書いてある。黙らない。"""
+    return [f"{i}: align（{o['align']}）は効いていません。ここには字の間の空きの幅がない（空の段落・マスか、値が空きより長い）ので、"
+            "値はそのままの位置に書きました。寄せるなら、値の前に全角の空白を足すなどで書き直してください"
+            for i, o in aligned.items() if o.get("align") in ("center", "right") and not any(o.get("pad") or ())]
+
+
+def _merged_notes(notes: list[str]) -> list[str]:
+    """本人に伝えることの、同じ内容の繰り返しを 1 つに：先頭の所の名前（「P12.c1: …」）と数字だけが違うものをまとめ、か所の数と名前を添える。
+    数字（位置の mm など）が違うときは 1 か所目のものと断る。warnings にはすべてを残す。"""
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for n in notes:
+        m = re.match(r"([^\s:：「」（）]{1,60}?)[:：]\s*(?=\S)", n)
+        place, body = (m[1], n[m.end():]) if m else ("", n)
+        groups.setdefault(re.sub(r"\d+(?:\.\d+)?", "#", body), []).append((place, body))
+    out = []
+    for got in groups.values():
+        places = [p for p, _b in got if p]
+        first = got[0][1]
+        if len(got) == 1:
+            out.append(f"{places[0]}: {first}" if places else first)
+            continue
+        names = "・".join(dict.fromkeys(places[:8])) + ("ほか" if len(set(places)) > 8 else "")
+        differ = len({b for _p, b in got}) > 1
+        out.append(f"{len(got)} か所" + (f"（{names}）" if names else "") + f"：{first}" + ("（数字は 1 か所目のもの。すべては warnings に）" if differ else ""))
+    return out
 
 
 @_budgeted
@@ -1924,6 +1970,8 @@ def _has_later_embeds(path: str, password: str | None, encoding: str | None) -> 
 
 
 def _job_view(rec: dict, path: str, password: str | None, encoding: str | None) -> dict:
+    from . import jobs
+
     state = rec.get("state") or {}
     finished = bool(rec.get("finished"))
     d: dict = {"job": {"key": rec.get("key"), "running": not finished and not rec.get("stopped"), "finished": finished,
@@ -1933,6 +1981,7 @@ def _job_view(rec: dict, path: str, password: str | None, encoding: str | None) 
     full = state.get("full")
     if finished and full:
         d.update(full)
+        jobs.read_once(rec)
         return d
     d["checks"] = list(state.get("checks") or [])
     d["ok"] = all(c.get("ok") for c in d["checks"]) if finished else None
@@ -1941,6 +1990,8 @@ def _job_view(rec: dict, path: str, password: str | None, encoding: str | None) 
                      "もう一度 audit_document を呼ぶと、進み具合と結果が分かります。止まっても、控えの続きから進みます")
     if lazy_open(path, password, encoding, built_ok=False) is not None:
         d["grade"] = grade(path, password=password, encoding=encoding)  # 窓を作って測る形式は、段階も全体を作るので、終わってから
+    if finished:
+        jobs.read_once(rec)
     return d
 
 
@@ -2282,6 +2333,7 @@ def _calculate_cells(path: str, values: dict, cells: list, password: str | None)
     if rec and rec.get("finished") and rec.get("results") is not None:
         got = rec["results"]
         job = {"finished": True}
+        jobs.read_once(rec)
     else:
         running = jobs.calc_running(rec)
         store = ScanStore(dict((rec or {}).get("scans") or {}), frozen=running)
@@ -2572,10 +2624,29 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
 
     with window_room():  # 窓に入らない埋め込みの表は開かない（理由に「まだ確かめていない」と書く。検査の仕事の中では、すべて読む）
         g = grade_blob(blob, name, password=pdf_password(lock), encoding=encoding)
+    g = _with_finished_audit(g, path, encoding)
     if findings or answered:
         g = combine(g, findings or [], answered)
     _remember_hand_only(path, g, findings, answered)
     return g.to_dict()
+
+
+def _with_finished_audit(g, path: str, encoding: str | None):
+    """開くときに読まなかった埋め込みの表（「まだ確かめていない」理由）：同じファイルの長い検査が終わっていれば、検査の中で全部を読んで
+    決めた段階を使う。検査の段階にもその理由が残っていれば、いまのまま。"""
+    from . import jobs
+    from .grade import DEFERRED_EMBEDS, combine
+
+    if not any(r.title == DEFERRED_EMBEDS for r in g.write_reasons):
+        return g
+    try:
+        rec = jobs.status(path, encoding)
+    except OSError:
+        return g
+    done = ((rec or {}).get("state") or {}).get("full", {}).get("grade") if rec and rec.get("finished") else None
+    if not isinstance(done, dict) or any(r.get("title") == DEFERRED_EMBEDS for r in (done.get("write") or {}).get("reasons", [])):
+        return g
+    return combine(done, [])
 
 
 def _lazy_grade(path: str, g, encoding: str | None, findings, answered) -> dict:

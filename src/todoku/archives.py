@@ -27,13 +27,16 @@ from .limits import LimitExceeded
 from .unlock import NeedsPassword, WrongPassword
 from .ziparc import MAX_MEMBER, ArchiveError
 
-KINDS = frozenset({"zip", "tar", "gz", "lzh", "7z", "eml", "msg"})
+KINDS = frozenset({"zip", "tar", "gz", "bz2", "xz", "lzh", "7z", "eml", "msg"})
 PASSWORDED = frozenset({"7z"})
 WRITABLE = frozenset({"zip", "tar", "gz"})
 MAIL = frozenset({"eml", "msg"})
-KIND_JA = {"tar": "tar（ファイルをまとめたもの）", "gz": "gzip（縮めた 1 つのファイル）", "lzh": "LZH（.lzh・.lha。読むだけ）", "7z": "7-Zip の書庫（.7z。読むだけ）",
+KIND_JA = {"tar": "tar（ファイルをまとめたもの）", "gz": "gzip（縮めた 1 つのファイル）", "bz2": "bzip2（縮めた 1 つのファイル。読むだけ）",
+           "xz": "xz（縮めた 1 つのファイル。読むだけ）", "lzh": "LZH（.lzh・.lha。読むだけ）", "7z": "7-Zip の書庫（.7z。読むだけ）",
            "eml": "メール（.eml。読むだけ）", "msg": "Outlook のメール（.msg。読むだけ）"}
-NO_WRITE = {"lzh": "LZH の書庫には書きません（とどくは LZH を縮め直しません）。取り出したファイルを別の名前で書き出します。path に中のファイルを指定して、その形式で読んでください",
+NO_WRITE = {"bz2": "bzip2 には書きません（とどくは縮め直しません）。取り出したファイルを別の名前で書き出します。path に中のファイルを指定して、その形式で読んでください",
+            "xz": "xz には書きません（とどくは縮め直しません）。取り出したファイルを別の名前で書き出します。path に中のファイルを指定して、その形式で読んでください",
+            "lzh": "LZH の書庫には書きません（とどくは LZH を縮め直しません）。取り出したファイルを別の名前で書き出します。path に中のファイルを指定して、その形式で読んでください",
             "7z": "7z の書庫には書きません（とどくは 7z を縮め直しません）。取り出したファイルを別の名前で書き出します。path に中のファイルを指定して、その形式で読んでください",
             "eml": "メールには書きません", "msg": "メールには書きません"}
 
@@ -82,10 +85,70 @@ def _peek_gz(b: bytes, n: int) -> bytes:
         return b""
 
 
+def _packed_kind(b: bytes) -> str | None:
+    """bzip2（"BZh" と 1〜9、ブロックの印）・xz（6 バイトの印）か。"""
+    if b[:3] == b"BZh" and b[3:4] in tuple(b"%d" % i for i in range(1, 10)) and b[4:10] in (b"1AY&SY", b"\x17rE8P\x90"):
+        return "bz2"
+    return "xz" if b[:6] == b"\xfd7zXZ\0" else None
+
+
+def _new_decompressor(k: str):
+    import bz2
+    import lzma
+
+    return bz2.BZ2Decompressor() if k == "bz2" else lzma.LZMADecompressor(format=lzma.FORMAT_XZ)
+
+
+def _peek_packed(b: bytes, k: str, n: int) -> bytes:
+    import lzma
+
+    try:
+        return _new_decompressor(k).decompress(b, n)
+    except (OSError, EOFError, lzma.LZMAError, ValueError):
+        return b""
+
+
+def unpack(b: bytes, k: str, what: str = "") -> bytes:
+    """bzip2・xz を解く（つないだストリームも）。大きさは展開の予算と MAX_MEMBER まで。読むだけ。"""
+    import lzma
+
+    from .limits import budget
+
+    what = what or KIND_JA.get(k, k)
+    bud = budget()
+    cap = min(bud.room(None), MAX_MEMBER)
+    out = bytearray()
+    src = b
+    try:
+        while True:
+            d = _new_decompressor(k)
+            out += d.decompress(src, min(1 << 22, cap - len(out) + 1))
+            while not d.eof and len(out) <= cap:
+                if d.needs_input:
+                    raise ArchiveError(f"{what}：データが途中で終わっています")
+                out += d.decompress(b"", min(1 << 22, cap - len(out) + 1))
+            if len(out) > cap:
+                raise bud.exceeded(cap, None, what)
+            src = d.unused_data.lstrip(b"\0") if k == "xz" else d.unused_data
+            if not src:
+                break
+            if _packed_kind(src) != k:
+                raise ArchiveError(f"{what}：終わりの後ろに、読めないバイトが {len(src):,} バイトあります")
+    except (ArchiveError, LimitExceeded):
+        raise
+    except (OSError, EOFError, lzma.LZMAError, ValueError) as e:
+        raise ArchiveError(f"{what}：解けません（{e}）") from None
+    bud.charge(len(out), what)
+    return bytes(out)
+
+
 def sniff(blob: bytes, filename: str = "") -> str | None:
     """中身で決まる入れ物の形式（なければ None）。"""
     if is_gzip(blob):
         return "tar" if tar_header_ok(_peek_gz(blob, 512)) else "gz"
+    packed = _packed_kind(blob)
+    if packed:
+        return "tar" if tar_header_ok(_peek_packed(blob, packed, 512)) else packed
     if tar_header_ok(blob[:512]):
         return "tar"
     if blob[:2] == b"MZ" and not filename.lower().endswith((".lzh", ".lha", ".rar", ".7z", ".exe")):
@@ -194,6 +257,9 @@ def _tar_plain(blob: bytes) -> tuple[bytes, bool]:
     if is_gzip(blob):
         data, _multi = gunzip(blob, "tar.gz")
         return data, True
+    packed = _packed_kind(blob)
+    if packed:
+        return unpack(blob, packed, f"tar.{packed}"), True
     return blob, False
 
 
@@ -369,6 +435,11 @@ def files(blob: bytes, k: str, filename: str = "") -> list:
     if k == "tar":
         data, _gz = _tar_plain(blob)
         return _tar_members(data)
+    if k in ("bz2", "xz"):
+        base = filename.rsplit("/", 1)[-1]
+        ext = f".{k}"
+        nm = base[:-len(ext)] if base.lower().endswith(ext) and len(base) > len(ext) else (base + ".out" if base else "中身")
+        return [AMember(nm, len(unpack(blob, k)), len(blob), named="ファイルの名前から")]
     if k == "gz":
         nm = _name_of_gz(blob, filename)
         isize = struct.unpack_from("<I", blob, len(blob) - 4)[0] if len(blob) >= 18 else 0
@@ -411,6 +482,9 @@ def extract(blob: bytes, name: str, k: str, filename: str = "") -> bytes:
     if k == "gz":
         _find(files(blob, k, filename), name, k)
         return gunzip(blob)[0]
+    if k in ("bz2", "xz"):
+        _find(files(blob, k, filename), name, k)
+        return unpack(blob, k)
     m = _find(files(blob, k, filename), name, k)
     if k in PASSWORDED:
         return _packed_extract(blob, m, k)
@@ -428,6 +502,9 @@ def replace(blob: bytes, name: str, content: bytes, k: str, filename: str = "") 
     if k == "zip":
         return ziparc.replace(blob, name, content)
     if k == "tar":
+        if _packed_kind(blob):
+            raise ArchiveError(f"tar.{_packed_kind(blob)} には書きません（とどくは {_packed_kind(blob)} に縮め直しません）。"
+                               "中のファイルを別の名前で書き出してください（.tar.gz・.tar なら、入れ直して書けます）")
         data, wrapped = _tar_plain(blob)
         if wrapped and gunzip(blob)[1]:
             raise ArchiveError("複数の部分をつないだ gz には書きません")

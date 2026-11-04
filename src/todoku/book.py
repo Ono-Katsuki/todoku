@@ -89,7 +89,8 @@ _ODF_MIME = {"application/vnd.oasis.opendocument.text": "odt", "application/vnd.
              "application/vnd.oasis.opendocument.text-master": "odt",
              "application/vnd.oasis.opendocument.spreadsheet": "ods",
              "application/vnd.oasis.opendocument.spreadsheet-template": "ods",
-             "application/vnd.oasis.opendocument.presentation": "odp", "application/vnd.oasis.opendocument.graphics": "odg"}
+             "application/vnd.oasis.opendocument.presentation": "odp", "application/vnd.oasis.opendocument.presentation-template": "odp",
+             "application/vnd.oasis.opendocument.graphics": "odg", "application/vnd.oasis.opendocument.graphics-template": "odg"}
 _BY_NAME = {".csv": "csv", ".tsv": "tsv", ".tab": "tsv", ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl",
             ".eml": "eml", ".txt": "txt", ".html": "markup", ".htm": "markup", ".xhtml": "markup", ".xml": "markup"}
 

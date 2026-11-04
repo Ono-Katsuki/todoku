@@ -577,6 +577,22 @@ def _clash(a: Ch, b: Ch) -> bool:
     return _box_overlap(a, b) > 0.5
 
 
+def _grid_add(grid: dict, c: Ch, step: float) -> None:
+    grid.setdefault(int(c.x0 // step), []).append(c)
+
+
+def _clashes_grid(c: Ch, grid: dict, step: float) -> bool:
+    """c が、grid（字の左の端の網の目 → 字）のどれかと _clash するか。箱が重なる字は、横の位置が字の幅の中にある。比べた数を予算に数える。"""
+    k = int(c.x0 // step)
+    for at in (k - 1, k, k + 1):
+        cand = grid.get(at)
+        if cand:
+            budget().count(len(cand), "重ねて描いた行の字の比べ")
+            if any(_clash(c, o) for o in cand):
+                return True
+    return False
+
+
 def _split_overprinted(row: list[Ch]) -> list[list[Ch]]:
     """同じ行の帯に、違う字が重なって描かれているとき（2つの行を重ねて印刷した様式）、描いた順で行を分ける。
     描いた順に字をたどり、前の字と重なる所で切り、互いに重ならないまとまりどうしをつなぐ。"""
@@ -587,28 +603,36 @@ def _split_overprinted(row: list[Ch]) -> list[list[Ch]]:
         return [row]
     # 描いた順の続き：前の字より左へ戻った所（次の行を描き始めた所）で切る。約物を詰めた字（「・」「（」の箱が次の字と重なる）は、
     # 描いた順では左から右へ進み続けるので、切れない
+    step = max((c.x1 - c.x0 for c in row), default=0.0) or 1.0  # 網の目の幅：いちばん広い字。重なる字は、同じか隣の目にある
     segs: list[list[Ch]] = []
+    seg_grid: dict = {}
     for c in sorted(row, key=lambda c: c.seq):
         if segs:
             p = segs[-1][-1]
             back = c.x0 < p.x0 - 0.1 * max(c.size, p.size) if not c.vertical else c.y0 < p.y0 - 0.1 * max(c.size, p.size)
-            if back:
-                budget().count(len(segs[-1]), "重ねて描いた行の字の比べ")
-            if not (back and any(_clash(c, o) for o in segs[-1])):
+            if not (back and _clashes_grid(c, seg_grid, step)):
                 segs[-1].append(c)
+                _grid_add(seg_grid, c, step)
                 continue
         segs.append([c])
+        seg_grid = {}
+        _grid_add(seg_grid, c, step)
     if len(segs) < 2:
         return [row]
     groups: list[list[Ch]] = []
+    grids: list[dict] = []
     for sg in segs:
-        for g in groups:
-            budget().count(len(sg) * len(g), "重ねて描いた行の字の比べ")
-            if not any(_clash(x, y) for x in sg for y in g):
+        for g, grid in zip(groups, grids):
+            if not any(_clashes_grid(x, grid, step) for x in sg):
                 g += sg
+                for x in sg:
+                    _grid_add(grid, x, step)
                 break
         else:
             groups.append(list(sg))
+            grids.append({})
+            for x in sg:
+                _grid_add(grids[-1], x, step)
     return groups
 
 

@@ -1005,11 +1005,12 @@ def _fkp(runs: list[tuple[int, int, bytes]], papx: bool) -> bytes:
 
 
 def make_word6(text: str, paras: dict[int, bytes] | None = None, chars: list[tuple[int, int, bytes]] | None = None,
-               split: int | None = None, lid: int = 0x0411, nfib: int = 101, dop: bytes = bytes(16), enc: str = "cp932") -> bytes:
+               split: int | None = None, lid: int = 0x0411, nfib: int = 101, dop: bytes = bytes(16), enc: str = "cp932",
+               raw: bytes | None = None, fonts: bytes | None = None) -> bytes:
     """Word 6.0 の文書（仕様書の形のとおりに、ここで組み立てる）。text は文書の字（CP の順）。
     paras：段落の終わりの字の CP → その段落の grpprl。chars：(CP の始まり, 終わり, grpprl) の文字の書式。
     split を決めると、高速保存の形（ピースの表）にして、後ろの字を先に置く（字の並びとファイルの並びを変える）。"""
-    raw = text.encode(enc)
+    raw = text.encode(enc) if raw is None else raw
     n = len(raw)
     fc_min = 0x200
     if split is None:
@@ -1037,6 +1038,8 @@ def make_word6(text: str, paras: dict[int, bytes] | None = None, chars: list[tup
     wd += _fkp([r for r in runs_of(pmarks)], papx=True)
     tables: dict[str, bytes] = {"PlcfBteChpx": struct.pack("<IIH", lo, hi, pn_chp), "PlcfBtePapx": struct.pack("<IIH", lo, hi, pn_pap),
                                 "Dop": dop}
+    if fonts is not None:
+        tables["SttbfFfn"] = fonts
     if split is not None:
         cps = [0, split, n]
         pcds = struct.pack("<HIH", 0, cp_to_fc[0], 0) + struct.pack("<HIH", 0, cp_to_fc[split], 0)
@@ -1194,3 +1197,48 @@ def test_word6_through_the_api_and_grade(tmp_path):
     assert res["proof_ok"] and res["read_back_ok"], res
     g = api.grade(str(src))
     assert g["write"]["grade"] in ("B", "D") and any("状態の読めない" in r["title"] for r in g["reasons"]), g
+
+
+# ---------------------------------------------------------------- Word 6.0/95：書体ごとの文字コード
+def _ffn(name: str, chs: int) -> bytes:
+    body = bytes([0, 0, 0]) + bytes([chs, 0]) + name.encode("latin-1") + b"\0"  # 印・太さ（2）・chs・ixchSzAlt・名前
+    return bytes([len(body)]) + body
+
+
+def _fonts(*items) -> bytes:
+    b = b"".join(_ffn(n, c) for n, c in items)
+    return struct.pack("<H", len(b) + 2) + b
+
+
+def _word6_two_scripts():
+    ru = "Привет".encode("cp1251")
+    en = b"Name "
+    raw = en + ru + b"\r"
+    run = (len(en), len(en) + len(ru), bytes([93]) + struct.pack("<H", 1))
+    return make_word6("", raw=raw, chars=[run], lid=0x0409, fonts=_fonts(("Times", 0), ("Arial Cyr", 204)))
+
+
+def test_word6_run_with_a_font_of_another_charset_is_decoded_by_that_font():
+    from todoku.doc.word6 import Word6File
+
+    doc = Word6File(_word6_two_scripts(), "a.doc")
+    assert doc.enc == "cp1252" and "Name Привет" in doc.text and doc.charset_warning is None
+
+
+def test_word6_high_bytes_without_a_stated_font_keep_the_warning():
+    from todoku.doc.word6 import Word6File
+
+    raw = "Привет".encode("cp1251") + b"\r"
+    doc = Word6File(make_word6("", raw=raw, lid=0x0409, fonts=_fonts(("Times", 0), ("Arial Cyr", 204))), "a.doc")
+    assert doc.text.startswith("Ïðèâåò") and "別の文字コード" in doc.charset_warning
+
+
+def test_word6_no_write_into_a_run_of_another_charset(tmp_path):
+    from todoku import api
+
+    p = tmp_path / "a.doc"
+    p.write_bytes(_word6_two_scripts())
+    with pytest.raises(api.ApiError, match="文字コード"):
+        api.fill(str(p), {"@1": {"old": "Привет", "new": "Пока  "}}, str(tmp_path / "o.doc"))
+    r = api.fill(str(p), {"@1": {"old": "Name", "new": "Nom "}}, str(tmp_path / "o.doc"))
+    assert r["proof_ok"] and r["read_back_ok"]
