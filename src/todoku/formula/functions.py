@@ -13,7 +13,7 @@ from typing import Callable
 
 from .dates import date_to_serial, serial_parts, serial_to_date, weekday_sun0
 from .parser import Func, Missing, Node, iter_funcs
-from .values import DIV0, NA, NUM, REF, VALUE, Arr, ExcelError, Rng, Unsupported, compare, dec15, err, is_number, parse_number, round_half_up, to_bool, to_number, to_text
+from .values import DIV0, NA, NUM, REF, TEXT_MAX, VALUE, Arr, ExcelError, Rng, Unsupported, compare, dec15, err, is_number, parse_number, round_half_up, to_bool, to_number, to_text
 
 EAGER: dict[str, Callable] = {}
 LAZY: dict[str, Callable] = {}
@@ -55,7 +55,7 @@ def call(ev, node: Func):
         if out is not None:
             return out
     try:
-        return f(ev, *args)
+        out = f(ev, *args)
     except ExcelError as e:
         return e
     except ZeroDivisionError:
@@ -66,6 +66,9 @@ def call(ev, node: Func):
         if "positional argument" in str(e) or "arguments" in str(e):
             return err(VALUE)
         raise
+    if isinstance(out, str) and len(out) > TEXT_MAX:
+        return err(VALUE)  # 1 つのセルの字の数の上限を超える字（Excel も #VALUE!）
+    return out
 
 
 def S(ev, v):
@@ -1299,7 +1302,10 @@ def f_rept(ev, x, n):
     k = int(num(ev, n))
     if k < 0:
         raise err(VALUE)
-    return to_text(S(ev, x)) * k
+    t = to_text(S(ev, x))
+    if len(t) * k > TEXT_MAX:
+        raise err(VALUE)
+    return t * k
 
 
 @fn("EXACT")
@@ -1313,6 +1319,8 @@ def f_substitute(ev, text, old, new, inst=None):
     if o == "":
         return s
     if inst is None:
+        if len(n) > len(o) and len(s) + s.count(o) * (len(n) - len(o)) > TEXT_MAX:
+            raise err(VALUE)  # 作ってから比べると、大きなメモリを使う
         return s.replace(o, n)
     k = int(num(ev, inst))
     if k < 1:

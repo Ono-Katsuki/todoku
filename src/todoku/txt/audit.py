@@ -113,11 +113,24 @@ def anchored_check(blob: bytes, filename: str, encoding: str | None = None) -> C
     full = "\n".join(ln.text for ln in doc.lines)
     probe = _writable(doc, "（試し）", "(test)")
     tried, last = 0, ""
+    work = 32 * len(full) + (1 << 20)  # 目印を探して読む字の数の上限（同じ字の並びばかりの大きなファイルで、2 乗にならないように）
+
+    def once(frag: str) -> bool:
+        nonlocal work
+        a = full.find(frag)
+        b = full.find(frag, a + 1)
+        work -= (b if b >= 0 else len(full))
+        return b < 0
+
     for ln in doc.lines:
+        if work < 0:
+            break
         t = ln.text
         for i in range(0, len(t) - 3):
             frag = t[i:i + 4]
-            if frag != frag.strip(" 　\t") or full.count(frag) != 1 or any(_in_field(ln, j) for j in range(i, i + 5)):
+            if frag != frag.strip(" 　\t") or not once(frag) or any(_in_field(ln, j) for j in range(i, i + 5)):
+                if work < 0:
+                    break
                 continue
             tried += 1
             try:

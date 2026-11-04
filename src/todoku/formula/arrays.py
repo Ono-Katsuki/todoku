@@ -10,7 +10,7 @@ from collections import Counter
 from functools import cmp_to_key
 
 from .functions import EAGER, LAZY, S, _same_kind, _wild, fn, num
-from .values import NA, VALUE, Arr, ExcelError, Rng, compare, err, is_number, round_half_up, to_15, to_bool, to_number
+from .values import NA, VALUE, Arr, ExcelError, Rng, array_room, compare, err, is_number, round_half_up, to_15, to_bool, to_number
 
 CALC = "#CALC!"  # 空の配列（FILTER で何も残らないなど）
 
@@ -69,8 +69,7 @@ def f_sequence(ev, rows, cols=None, start=None, step=None):
         raise err(VALUE)
     if r == 0 or c == 0:
         raise err(CALC)
-    if r * c > 1_048_576 * 16_384 or r > 1_048_576 or c > 16_384:
-        raise err("#NUM!")
+    array_room(ev, r, c)
     return Arr([[to_15(s + (i * c + j) * st) for j in range(c)] for i in range(r)])
 
 
@@ -240,6 +239,7 @@ def f_transpose(ev, array):
 def f_vstack(ev, *arrays):
     gs = [_grid(ev, a) for a in arrays]
     width = max(g.cols for g in gs)
+    array_room(ev, sum(g.rows for g in gs), width)
     out = []
     for g in gs:
         for row in g.data:
@@ -251,6 +251,7 @@ def f_vstack(ev, *arrays):
 def f_hstack(ev, *arrays):
     gs = [_grid(ev, a) for a in arrays]
     height = max(g.rows for g in gs)
+    array_room(ev, height, sum(g.cols for g in gs))
     out = [[] for _ in range(height)]
     for g in gs:
         for i in range(height):
@@ -270,6 +271,7 @@ def f_choosecols(ev, array, *nums):
     if not nums:
         raise err(VALUE)
     cols = [_pick_index(int(to_number(x)), a.cols) for n_ in nums for x in ev.values(n_)]
+    array_room(ev, a.rows, len(cols))
     return Arr([[row[j] for j in cols] for row in a.data])
 
 
@@ -279,6 +281,7 @@ def f_chooserows(ev, array, *nums):
     if not nums:
         raise err(VALUE)
     rows = [_pick_index(int(to_number(x)), a.rows) for n_ in nums for x in ev.values(n_)]
+    array_room(ev, len(rows), a.cols)
     return Arr([list(a.data[i]) for i in rows])
 
 
@@ -326,6 +329,7 @@ def f_expand(ev, array, rows=None, cols=None, pad=None):
     c = _int(ev, cols, a.cols) if cols is not None else a.cols
     if r < a.rows or c < a.cols:
         raise err(VALUE)
+    array_room(ev, r, c)
     p = S(ev, pad) if pad is not None else err(NA)
     out = [list(a.data[i]) + [p] * (c - a.cols) if i < a.rows else [p] * c for i in range(r)]
     return Arr(out)
@@ -344,6 +348,7 @@ def f_wraprows(ev, vector, count, pad=None):
     n = _int(ev, count)
     if n < 1:
         raise err("#NUM!")
+    array_room(ev, (len(xs) + n - 1) // n, n)
     p = S(ev, pad) if pad is not None else err(NA)
     rows = [xs[i:i + n] for i in range(0, len(xs), n)]
     rows[-1] = rows[-1] + [p] * (n - len(rows[-1]))
@@ -525,6 +530,7 @@ def broadcast(ev, f, args: list):
         return None
     rows = max(g.rows for g in multi.values())
     cols = max(g.cols for g in multi.values())
+    array_room(ev, rows, cols)
     out = []
     for r in range(rows):
         line = []

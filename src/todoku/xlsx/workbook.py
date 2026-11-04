@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import bisect
 import contextlib
 import contextvars
 
@@ -17,6 +18,8 @@ from ..formula.parser import Node, addr, parse, parse_cell, unparse
 from ..formula.values import ExcelError, Unsupported
 from ..limits import MAX_DECLARED_CELLS
 from ..zipraw import RawZip
+
+UNREAD_NOTES = 20  # 1 枚のシートで、広げなかった範囲を 1 つずつ伝える数
 
 NS = {
     "m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
@@ -331,18 +334,38 @@ class Sheet:
         return r in self.hidden_rows or c in self.hidden_cols
 
     def existing_in(self, r1: int, c1: int, r2: int, c2: int) -> list[tuple[int, int]]:
-        """範囲の中で、ファイルに実際にあるマス（セルの要素と結合の左上）。宣言された範囲の広さによらず、ファイルの大きさで済む。"""
-        out = [k for k in self.cells if r1 <= k[0] <= r2 and c1 <= k[1] <= c2]
-        return out + [(m[0], m[1]) for m in self.merges
-                      if r1 <= m[0] <= r2 and c1 <= m[1] <= c2 and (m[0], m[1]) not in self.cells]
+        """範囲の中で、ファイルに実際にあるマス（セルの要素と結合の左上）。宣言された範囲の広さによらず、ファイルの大きさで済む
+        （列ごとの索引を 1 度だけ作り、範囲ごとにシート全体をなめない）。行の順に返す。"""
+        size = (len(self.cells), len(self.merges))
+        got = self.__dict__.get("_existing_index")
+        if got is None or got[0] != size:
+            cols: dict[int, list[int]] = {}
+            for r, c in {*self.cells, *((m[0], m[1]) for m in self.merges)}:
+                cols.setdefault(c, []).append(r)
+            for rows in cols.values():
+                rows.sort()
+            got = self.__dict__["_existing_index"] = (size, cols, sorted(cols))
+        _, cols, order = got
+        out = []
+        for c in order[bisect.bisect_left(order, c1):bisect.bisect_right(order, c2)]:
+            rows = cols[c]
+            out += [(r, c) for r in rows[bisect.bisect_left(rows, r1):bisect.bisect_right(rows, r2)]]
+        out.sort()
+        return out
 
     def note_unread(self, what: str, r1: int, c1: int, r2: int, c2: int) -> None:
         """広げなかった宣言を控える（同じものは 1 度だけ）。"""
         note = (f"{self.name}：{what}の範囲 {addr(r1, c1)}:{addr(r2, c2)} は広すぎるので（壊れている可能性があります）、"
                 "ファイルにあるセルだけを見ました。セルのない所は欄として広げていません"
                 "（どのセルにも番地で書けます。read_window・list_fields に sheet と rows を渡すと、頼んだ行の範囲では欄として広げます）")
-        if note not in self.unread:
+        seen = self.__dict__.setdefault("_unread_seen", set())
+        if note in seen:
+            return
+        seen.add(note)
+        if len(seen) <= UNREAD_NOTES:
             self.unread.append(note)
+        elif len(seen) == UNREAD_NOTES + 1:  # 宣言の数だけ控えない（残りは同じ種類の範囲）
+            self.unread.append(f"{self.name}：ほかにも、広すぎる範囲の宣言があります（セルのない所は欄として広げていません）")
 
     def in_print_area(self, r: int, c: int) -> bool:
         if not self.print_ranges:

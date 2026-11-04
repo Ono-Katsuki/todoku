@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..docx.document import Cell, Control, Para, Seg, Table, iter_paras
+from ..limits import budget
 from ..odf.text import Src
 from ..odf.xml import El, Txt
 from . import numbers
@@ -209,7 +210,8 @@ class HwpxDocument:
         t = Table(el, part)
         t.protected = protected
         below: dict[int, list[Cell]] = {}
-        for r, tr in enumerate(kids(el, "tr")):
+        trs = kids(el, "tr")
+        for r, tr in enumerate(trs):
             row: list[Cell] = []
             for tc in kids(tr, "tc"):
                 addr = kid(tc, "cellAddr")
@@ -224,7 +226,10 @@ class HwpxDocument:
                 c.protected = protected or tc.attrs.get("protect") == "1"
                 c.blocks = self._sublist(tc, part, c, c.protected)
                 row.append(c)
-                for rr in range(r + 1, r + rs):
+                last = min(r + rs, len(trs))  # 結合の宣言は表の行の数までに切る（宣言の数を信じない）
+                if last > r + 1:
+                    budget().count(last - r - 1, "表の縦の結合")
+                for rr in range(r + 1, last):
                     cc = Cell(tc, rr, col, cs, "continue", table=t)
                     cc.protected = c.protected
                     below.setdefault(rr, []).append(cc)

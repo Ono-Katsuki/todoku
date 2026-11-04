@@ -79,6 +79,11 @@ class Entry:
             raise ZipFormatError(f"{self.name}: 未対応の圧縮方式 {self.method}")
         if zlib.crc32(raw) & 0xFFFFFFFF != self.crc:
             raise ZipFormatError(f"{self.name}: CRCが一致しません")
+        if self.name.endswith((".xml", ".rels", ".vml", ".hpf")):
+            # 圧縮の爆弾：バイトの上限の内でも、小さな要素が何千万もあれば、木にしたときにメモリを使い切る。木にする前に開始タグを数える
+            from .limits import budget
+
+            budget().count_part(self.name, raw.count(b"<") - raw.count(b"</"), f"{self.name} の XML の要素")
         return raw
 
     @property

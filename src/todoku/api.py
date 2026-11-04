@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import struct
 from pathlib import Path
@@ -257,6 +258,32 @@ def _pdf(blob: bytes, name: str, lock):
 # 鍵はファイルの中身のハッシュと名前だけ（パスワードで保護された書類は控えない。パスワードは控えにも残さない）
 _WINDOWS: "dict[tuple, tuple[str, bytes]]" = {}
 _WINDOWS_MAX = 8  # 控える書類の数
+_WINDOWS_COPY = int(os.environ.get("TODOKU_WINDOW_COPY_BYTES", 16 * 1024 * 1024))  # これより大きな窓は写しを作らず、そのまま控える（写しの分だけ、メモリが倍になる）
+
+
+class _Held:
+    """大きな窓の控え：写さず、作った窓をそのまま持つ（読むだけで使う。len は大きさの見積もり）。"""
+
+    def __init__(self, out: tuple, size: int):
+        self.out = out
+        self.size = size
+
+    def __len__(self) -> int:
+        return self.size
+
+
+def _window_size(out: tuple) -> int:
+    """窓を写したときの大きさの見積もり（写して測ると、測るだけでメモリが倍になる）。字は UTF-8 で約 3 バイトで、JSON にも同じ字が入る。"""
+    return sum(len(t) for _n, t in out[2]) * 6
+
+
+def _cached_window(key: tuple) -> tuple:
+    held = _WINDOWS[key][1]
+    if isinstance(held, _Held):
+        return held.out
+    import pickle
+
+    return pickle.loads(held)  # 呼んだ側が変えても控えは変わらないよう、写しを返す
 # 控えの大きさ（窓を写したバイトの合計）の上限：limits.WINDOW_CACHE。大きな書類の窓をいくつも控えて、メモリを使い切らない
 
 
@@ -277,14 +304,15 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
            if lock is None and not (password and k in _arc.PASSWORDED) and k != "dbf" else None)
     if key is not None and key in _WINDOWS:
         _WINDOWS[key] = _WINDOWS.pop(key)  # いちばん新しく使ったものにする
-        return pickle.loads(_WINDOWS[key][1])  # 呼んだ側が変えても控えは変わらないよう、写しを返す
+        return _cached_window(key)
     out = _window(blob, name, k, lock, encoding)
     _list_images(out, blob, name, k, lock)
     if key is not None:
         from .limits import WINDOW_CACHE
 
+        size = _window_size(out)
         try:
-            snap = pickle.dumps(out, protocol=pickle.HIGHEST_PROTOCOL)
+            snap = _Held(out, size) if size > _WINDOWS_COPY else pickle.dumps(out, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception:  # noqa: BLE001  写せないものが入っていれば、控えない
             return out
         if len(snap) <= WINDOW_CACHE:
@@ -2211,7 +2239,7 @@ def _pdf_window_doc(path: str, password: str | None) -> dict:
     blob, name, _k, lock = _read(path, password)
     key = (hashlib.sha256(blob).hexdigest(), name, None, None) if lock is None else None
     if key is not None and key in _WINDOWS:
-        return pickle.loads(_WINDOWS[key][1])[1]
+        return _cached_window(key)[1]
     return build(_pdf(blob, name, lock))  # page_scope の中なら、そのページだけ
 
 

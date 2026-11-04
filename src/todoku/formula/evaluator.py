@@ -27,11 +27,13 @@ from .dates import _CURRENT_1904
 from .values import (
     NAME,
     REF,
+    TEXT_MAX,
     VALUE,
     Arr,
     ExcelError,
     Rng,
     Unsupported,
+    array_room,
     compare,
     err,
     to_number,
@@ -214,6 +216,7 @@ class Evaluator:
         if isinstance(v, Rng):
             v = self.materialize(v) if self.array else self.intersect(v)
         if isinstance(v, Arr):
+            array_room(self, v.rows, v.cols)
             return Arr([[_safe(f, x) for x in row] for row in v.data])
         return _safe(f, v)
 
@@ -228,6 +231,7 @@ class Evaluator:
         B = b if isinstance(b, Arr) else Arr([[b]])
         rows = max(A.rows, B.rows)
         cols = max(A.cols, B.cols)
+        array_room(self, rows, cols)
 
         def pick(X: Arr, r, c):
             rr = 0 if X.rows == 1 else r
@@ -289,13 +293,20 @@ def _pow(a, b):
     return float(r)
 
 
+def _concat(a, b):
+    x, y = to_text(a), to_text(b)
+    if len(x) + len(y) > TEXT_MAX:
+        raise err(VALUE)
+    return x + y
+
+
 _BIN: dict[str, Callable] = {
     "+": lambda a, b: to_number(a) + to_number(b),
     "-": lambda a, b: to_number(a) - to_number(b),
     "*": lambda a, b: to_number(a) * to_number(b),
     "/": _div,
     "^": _pow,
-    "&": lambda a, b: to_text(a) + to_text(b),
+    "&": _concat,
     "=": lambda a, b: compare(a, b) == 0,
     "<>": lambda a, b: compare(a, b) != 0,
     "<": lambda a, b: compare(a, b) < 0,

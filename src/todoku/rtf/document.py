@@ -13,9 +13,10 @@
 
 from __future__ import annotations
 
-import codecs
 import bisect
+import codecs
 import re
+from array import array
 from dataclasses import dataclass, field
 
 from ..docx.document import WINGDINGS, Cell, Control, Para, Seg, Table, iter_paras
@@ -60,8 +61,8 @@ class RSrc:
     kind: str  # txt（字）/ tab / br / el（字の印・図の説明）/ field（フィールドの表示）/ ctl（フォームの欄の印）
     s: int
     e: int
-    starts: list[int] | None = None
-    ends: list[int] | None = None
+    starts: "array | None" = None  # 字ごとの位置（1 字 8 バイトの配列。字の数だけ int の控えを作らない）
+    ends: "array | None" = None
     uc: int = 1  # この字を読んだときの \\uc（書き足す字の、代わりの字の数）
     look: dict | None = None  # この字の書式のうち、取り消し線・非表示・字の色・蛍光ペン・背景の色（LOOK_WORDS → 値）
 
@@ -370,7 +371,7 @@ class RtfDocument:
             hid = st.hidden or kind == "del"
             if kind in ("t", "del") and segs and segs[-1].kind == kind and segs[-1].node is not None and segs[-1].node.kind == "txt" \
                     and segs[-1].hidden == hid and segs[-1].underline == st.ul and segs[-1].field is fctl \
-                    and segs[-1].node.look == st.look \
+                    and segs[-1].node.look == st.look and segs[-1].node.uc == st.uc \
                     and getattr(segs[-1], "_open", False) and segs[-1].node.e == s_join[0]:
                 sg = segs[-1]
                 sg.text += ch
@@ -380,10 +381,28 @@ class RtfDocument:
             else:
                 if segs and getattr(segs[-1], "_open", False):
                     segs[-1]._open = False
-                sg = Seg(ch, kind, RSrc("txt", s, e, [s], [e], st.uc, st.look), None, hid, st.ul, fctl)
+                sg = Seg(ch, kind, RSrc("txt", s, e, array("Q", (s,)), array("Q", (e,)), st.uc, st.look), None, hid, st.ul, fctl)
                 sg._open = True
                 segs.append(sg)
             s_join[0] = e
+
+        def add_plain(data: bytes, s: int) -> None:
+            """ASCII の字の並び：add_char を 1 字ずつ呼ぶのと同じ結果を、まとめて作る（字の位置は続いた番号）。"""
+            if st.skip or st.dest in SKIP or st.dest in ("listtext", "pntext", "fldinst", "bkmkstart", "bkmkend", "ffname", "ffl", "ffdeftext"):
+                for i, x in enumerate(data):
+                    add_char(chr(x), s + i, s + i + 1)
+                return
+            text = data.decode("ascii")
+            add_char(text[0], s, s + 1)
+            if len(text) == 1:
+                return
+            node = para().segs[-1].node
+            sg = para().segs[-1]
+            sg.text += text[1:]
+            node.starts.extend(range(s + 1, s + len(text)))
+            node.ends.extend(range(s + 2, s + len(text) + 1))
+            node.e = s + len(text)
+            s_join[0] = node.e
 
         s_join = [-1]  # 字をまとめる：直前の字の終わり（あいだに制御語があれば、まとめない）
 
@@ -486,8 +505,7 @@ class RtfDocument:
                             flush_bytes()
                             add_char(chr(x), t.s + i, t.s + i + 1)
                     continue
-                for i, x in enumerate(data):
-                    add_char(chr(x), t.s + i, t.s + i + 1)
+                add_plain(data, t.s)
                 continue
             if k == "hex":
                 st.first = False
@@ -521,7 +539,8 @@ class RtfDocument:
             w = t.word
             first = st.first
             st.first = False
-            s_join[0] = -1
+            if w != "u":  # \\uN は字そのもの：前の字と 1 片にまとめる（字ごとに片を作らない）
+                s_join[0] = -1
             if first and (st.star or w in SKIP or w in STORY or w in ("fldinst", "fldrslt", "field", "footnote", "annotation",
                                                                       "shptxt", "dptxbxtext", "shpinst", "shp", "do",
                                                                       "listtext", "pntext", "bkmkstart", "bkmkend",

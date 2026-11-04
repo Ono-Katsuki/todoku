@@ -1112,10 +1112,14 @@ def _render_blocks(blocks, sp: Spots, by_para, lines: list[str], plain: list[str
 
 
 def _cell_field(sp: Spots, c: Cell) -> str | None:
-    for it in sp.items.values():
-        if it.get("cell") is c:
-            return it["id"]
-    return None
+    index = sp.__dict__.get("_by_cell")
+    if index is None or index[0] != len(sp.items):  # マスごとに全部の欄をなめない（大きな表で 2 乗になる）
+        cells: dict[int, str] = {}
+        for it in sp.items.values():
+            if it.get("cell") is not None:
+                cells.setdefault(id(it["cell"]), it["id"])
+        index = sp.__dict__["_by_cell"] = (len(sp.items), cells)
+    return index[1].get(id(c))
 
 
 def _render_para(p: Para, sp: Spots, by_para) -> str:

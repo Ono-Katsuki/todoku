@@ -23,6 +23,7 @@ from ..formula.numfmt import format_value, is_date_format
 from ..formula.parser import NameNode, RefNode, addr, iter_refs, parse_cell
 from ..formula.values import ExcelError, Unsupported, is_number, to_text
 from ..limits import MAX_DECLARED_CELLS
+from .readers import Readers
 from .workbook import Cell, Control, Sheet, Workbook
 
 DET = "deterministic"
@@ -233,17 +234,17 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
 READERS_MAX = 20  # 1 つのセルについて、窓に番地を出す数式の数（窓の大きさを抑えるため。数は n にすべて数える）
 
 
-def formula_readers(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], dict]:
+def formula_readers(wb: Workbook, sh: Sheet) -> Readers:
     """シート sh のセル → それを読む数式（事実）：{"cells": [「シート!番地」…（READERS_MAX まで）], "n": 読む数式の数}。
     ブックのすべてのシートの数式の参照を見る（名前の定義を通した参照も）。列全体（A:A）などの広い参照は、使っている範囲と
-    印刷範囲までに切る（その外は、値も書式もないセル）。読まれることは入力欄の宣言ではないので、ここでは欄と決めない。"""
+    印刷範囲までに切る（その外は、値も書式もないセル）。読まれることは入力欄の宣言ではないので、ここでは欄と決めない。
+    範囲はマスに広げず、区間のまま持つ（xlsx/readers.py）。"""
     memo = sh.__dict__.get(_MEMO)
     if memo is not None and "readers" in memo:
         return memo["readers"]
     lim_r, lim_c = _used_limits(sh, wb)
-    room = _declared_room(wb)
     me = sh.name.lower()
-    out: dict[tuple[int, int], dict] = {}
+    out = Readers(READERS_MAX, _declared_room(wb), sh.note_unread)
 
     def boxes(ast, here: str, dr: int, dc: int, depth: int = 0):
         for ref in iter_refs(ast):
@@ -260,25 +261,14 @@ def formula_readers(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], dict]:
         for (r0, c0), cell in s_.cells.items():
             if cell.ast is None or not cell.has_formula:
                 continue
-            who = f"{s_.name}!{addr(r0, c0)}"
-            seen: set = set()
+            order = None
             for r1, c1, r2, c2 in boxes(cell.ast, s_.name, cell.dr, cell.dc):
                 r1, c1, r2, c2 = max(r1, 1), max(c1, 1), min(r2, lim_r), min(c2, lim_c)
                 if r2 < r1 or c2 < c1:
                     continue
-                if (r2 - r1 + 1) * (c2 - c1 + 1) <= room - len(out):
-                    places = ((r, c) for r in range(r1, r2 + 1) for c in range(c1, c2 + 1))
-                else:  # 広い宣言：ファイルにあるマスだけ（入力規則と同じ）
-                    sh.note_unread("数式の参照", r1, c1, r2, c2)
-                    places = sh.existing_in(r1, c1, r2, c2)
-                for k in places:
-                    if k in seen:
-                        continue
-                    seen.add(k)
-                    d = out.setdefault(k, {"cells": [], "n": 0})
-                    d["n"] += 1
-                    if len(d["cells"]) < READERS_MAX:
-                        d["cells"].append(who)
+                if order is None:
+                    order = out.add_formula(s_.name, r0, c0)
+                out.add_box(r1, c1, r2, c2, order)
     if memo is not None:
         memo["readers"] = out
     return out
@@ -354,10 +344,44 @@ def row_mm(sh: Sheet, r: int) -> float:
     return float(sh.row_heights.get(r, sh.default_row_height or 15.0)) * PT_MM
 
 
+_SUM_NEAR = 64  # これより長い行・列の並びの大きさは、1 つずつ足さず、控えから求める（表の行ごとに、遠い見出しまで足し直さないように）
+
+
+def rows_mm(sh: Sheet, a: int, b: int) -> float:
+    """行 a〜b の高さの合計（mm）。高さの指定のある行と非表示の行だけの控えで求める（行の数によらない）。"""
+    if b - a < _SUM_NEAR:
+        return sum(row_mm(sh, r) for r in range(a, b + 1))
+    size = (len(sh.row_heights), len(sh.hidden_rows))
+    got = sh.__dict__.get("_rows_mm")
+    if got is None or got[0] != size:
+        base = row_base = float(sh.default_row_height or 15.0) * PT_MM
+        rows = sorted({*sh.row_heights, *sh.hidden_rows})
+        total = [0.0]
+        for r in rows:
+            total.append(total[-1] + row_mm(sh, r) - base)
+        got = sh.__dict__["_rows_mm"] = (size, rows, total, row_base)
+    _, rows, total, base = got
+    return (b - a + 1) * base + total[bisect.bisect_right(rows, b)] - total[bisect.bisect_left(rows, a)]
+
+
+def cols_mm(wb: Workbook, sh: Sheet, a: int, b: int) -> float:
+    """列 a〜b の幅の合計（mm）。"""
+    if b - a < _SUM_NEAR:
+        return sum(col_mm(wb, sh, c) for c in range(a, b + 1))
+    got = sh.__dict__.get("_cols_mm")
+    if got is None or got[0] != len(sh.col_widths):
+        total = [0.0]
+        for c in range(1, 16385):
+            total.append(total[-1] + col_mm(wb, sh, c))
+        got = sh.__dict__["_cols_mm"] = (len(sh.col_widths), total)
+    total = got[1]
+    return total[min(b, 16384)] - total[min(a - 1, 16384)]
+
+
 def span_mm(wb: Workbook, sh: Sheet, r1: int, c1: int, r2: int, c2: int) -> dict:
     """マスの範囲の大きさ：{"w": 幅 mm, "h": 高さ mm}（小数 1 桁）。"""
-    return {"w": round(sum(col_mm(wb, sh, c) for c in range(c1, c2 + 1)), 1),
-            "h": round(sum(row_mm(sh, r) for r in range(r1, r2 + 1)), 1)}
+    return {"w": round(cols_mm(wb, sh, c1, c2), 1),
+            "h": round(rows_mm(sh, r1, r2), 1)}
 
 
 def blank_marks(wb: Workbook, sh: Sheet, a: "Anchor") -> dict | None:
@@ -1259,13 +1283,13 @@ class Layout:
         # 数式が読む、ファイルにセルの要素がない（値も書式もない）マス：「？」の所（formula_ref）。保護されたシートの
         # ロックされたマス（Excel でも書けない）・非表示のシート・行・列・結合の中は除く
         if shown_sheet:
-            for (r, c), read in self.readers.items():
+            for r, c in self.readers.places():
                 if (r, c) in anchored or (r, c) in self.links or (r, c) in self.inputs or sh.is_hidden(r, c) or \
                         sh.merged_at(r, c) is not None or (sh.protected and wb.style(sh.style_of(r, c)).locked):
                     continue
                 self.agent.setdefault(r, []).append(
                     Box(r, c, r, c, "agent", None, "", outside=not sh.in_print_area(r, c), why=["formula_ref"],
-                        evidence={"referenced_by": read}))
+                        evidence={"referenced_by": self.readers[(r, c)]}))
         # 結合セルの左上でないマスに残っている字（Excel の画面には出ないが、ファイルにある）：読み順に印をつけて出す
         if sh.merges:
             for (r, c), cell in sh.cells.items():
@@ -1434,7 +1458,7 @@ class Layout:
             t = shown(x)
             if t.strip():
                 out["left"] = {**fact(x, t, skipped), "cols": b.c1 - x.c2 - 1,
-                               "mm": round(sum(col_mm(self.wb, self.sh, c) for c in range(x.c2 + 1, b.c1)), 1)}
+                               "mm": round(cols_mm(self.wb, self.sh, x.c2 + 1, b.c1 - 1), 1)}
             break
         probe, skipped = b, 0
         while True:
@@ -1448,7 +1472,7 @@ class Layout:
             t = shown(x)
             if t.strip():
                 out["above"] = {**fact(x, t, skipped), "rows": b.r - x.r2,
-                                "mm": round(sum(row_mm(self.sh, r) for r in range(x.r2 + 1, b.r)), 1)}
+                                "mm": round(rows_mm(self.sh, x.r2 + 1, b.r - 1), 1)}
             break
         return out
 
@@ -1608,20 +1632,39 @@ class Layout:
         texts = [b for b in self.boxes(r) if b.kind == "text" and b.c2 < before_col and isinstance(b.cell.value, str)
                  and b.cell.value.strip() and b.r2 == b.r]
         if len(texts) == 1 and not any(o.c2 < texts[0].c1 for o in out):
-            item = texts[0]
-            for rr in range(r - 1, 0, -1):
-                above = [b for b in self.boxes(rr) if b.kind == "text" and b.c2 < before_col and isinstance(b.cell.value, str)
-                         and b.cell.value.strip()]
-                same = [b for b in above if (b.c1, b.c2) == (item.c1, item.c2)]
-                if not same:
-                    break
-                lead = [b for b in above if b.c2 < item.c1 and b.r2 == b.r]
-                if lead:
-                    out.append(lead[-1])
-                    break
-                if any(b.c2 < item.c1 for b in self.cover.get(rr, [])):
-                    break
+            lead = self._section_above(r - 1, texts[0], before_col)
+            if lead is not None:
+                out.append(lead)
         return sorted(out, key=lambda b: b.c1)
+
+    def _section_above(self, r: int, item: Box, before_col: int) -> Box | None:
+        """行 r から上へ、同じ列割りの字の行が続くあいだに、item の左にある見出し（なければ None）。
+        同じ列割りの行が何千と続く表で、行ごとに上まで見直さないよう、同じ問い（行・列割り・before_col）の答えを控える。"""
+        memo = self.__dict__.setdefault("_section_memo", {})
+        tail = (item.c1, item.c2, before_col)
+        walked = []
+        found = None
+        rr = r
+        while rr > 0:
+            key = (rr, *tail)
+            if key in memo:
+                found = memo[key]
+                break
+            walked.append(key)
+            above = [b for b in self.boxes(rr) if b.kind == "text" and b.c2 < before_col and isinstance(b.cell.value, str)
+                     and b.cell.value.strip()]
+            if not any((b.c1, b.c2) == (item.c1, item.c2) for b in above):
+                break
+            lead = [b for b in above if b.c2 < item.c1 and b.r2 == b.r]
+            if lead:
+                found = lead[-1]
+                break
+            if any(b.c2 < item.c1 for b in self.cover.get(rr, [])):
+                break
+            rr -= 1
+        for key in walked:
+            memo[key] = found
+        return found
 
     # ------------------------------------------------------------------ 見出し
     def phrase(self, r: int, target: Box) -> tuple[list[Box], int]:
@@ -1732,11 +1775,11 @@ class Layout:
         d["cols"] = x.c2 - x.c1 + 1
         if x.r2 < target.r:
             d["rows"] = target.r - x.r2
-            d["mm"] = round(sum(row_mm(self.sh, rr) for rr in range(x.r2 + 1, target.r)), 1)
+            d["mm"] = round(rows_mm(self.sh, x.r2 + 1, target.r - 1), 1)
         elif x.c2 < target.c1:
             d["rows"] = 0
             d["cols_between"] = target.c1 - x.c2 - 1
-            d["mm"] = round(sum(col_mm(self.wb, self.sh, c) for c in range(x.c2 + 1, target.c1)), 1)
+            d["mm"] = round(cols_mm(self.wb, self.sh, x.c2 + 1, target.c1 - 1), 1)
         return d
 
     def describe(self, target: Box, options: list | None = None) -> dict:
@@ -1882,7 +1925,7 @@ class Layout:
         if rt and _text(rt[0]):
             near["right"] = {"text": rt[0].cell.value, "label": label_text(rt[0].cell.value), "key": label_key(rt[0].cell.value), "cell": rt[0].cell_ref,
                              "cols": rt[0].c1 - target.c2 - 1,
-                             "mm": round(sum(col_mm(self.wb, self.sh, c) for c in range(target.c2 + 1, rt[0].c1)), 1)}
+                             "mm": round(cols_mm(self.wb, self.sh, target.c2 + 1, rt[0].c1 - 1), 1)}
         if chain:
             near["header"] = [self._fact(x, target, t) for t, x in chain]  # 上に続く見出しの並び（近い順。何段でも）
         if sec_boxes:

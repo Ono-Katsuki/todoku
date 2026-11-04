@@ -13,6 +13,7 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 
+from ..limits import budget
 from .textenc import Decoded, EncodingError, decode
 
 NEWLINE_JA = {"\r\n": "CRLF", "\n": "LF", "\r": "CR", "": "なし"}
@@ -132,6 +133,8 @@ class CsvFile:
             raise CsvError(f"文字コードを読めません（{e.reason}）") from None
         self.text = self.dec.text
         self.delim = _delimiter(self.text, kind)
+        # 圧縮の爆弾（書庫の中の CSV）：バイトの上限の内でも、小さなマスが何千万もあれば、読むだけでメモリを使い切る。作る前に数える
+        budget().count_part("csv", self.text.count(self.delim) + self.text.count("\n") + self.text.count("\r"), "CSV のマス")
         self.records, self.problems = parse(self.text, self.delim)
         terms = [r.terminator for r in self.records if r.terminator]
         self.newline = max(("\r\n", "\n", "\r"), key=lambda t: (terms.count(t), t == "\r\n")) if terms else "\r\n"

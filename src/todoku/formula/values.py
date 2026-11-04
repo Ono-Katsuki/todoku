@@ -86,6 +86,29 @@ class Arr:
 
 BLANK = None  # 空白セル
 
+TEXT_MAX = 32767  # 1 つのセルの字の数の上限（Excel の仕様。これを超える字を返す数式は #VALUE!）
+_ARRAY_SMALL = 65536  # これ以下の配列は数えない
+
+
+def array_room(ev, rows: int, cols: int) -> None:
+    """rows 行 cols 列の配列を、作る前に確かめる。シートの大きさを超える配列は #NUM!（Excel の仕様）。
+    シートに入る大きさでも、limits.MAX_ARRAY_CELLS を超える配列と、1 回の計算で作る配列の合計が上限を超えるものは、
+    値を作らずに「計算しなかった」と伝える（Unsupported。Excel で開いたときに計算される）。"""
+    n = rows * cols
+    if n <= _ARRAY_SMALL:
+        return
+    if rows > 1048576 or cols > 16384:
+        raise ExcelError("#NUM!")
+    from ..limits import MAX_ARRAY_CELLS, MAX_ARRAY_TOTAL
+
+    if n > MAX_ARRAY_CELLS:
+        raise Unsupported(f"配列が大きすぎます（{rows:,} 行 × {cols:,} 列）。この数式は計算せず、Excel で開いたときに計算されます")
+    ctx = ev.ctx
+    made = getattr(ctx, "array_cells", 0) + n
+    if made > MAX_ARRAY_TOTAL:
+        raise Unsupported(f"1 回の計算で作る配列のマスが {MAX_ARRAY_TOTAL:,} を超えます。この数式は計算せず、Excel で開いたときに計算されます")
+    ctx.array_cells = made
+
 
 # ---------------------------------------------------------------- 数値の扱い
 def to_15(x: float) -> float:

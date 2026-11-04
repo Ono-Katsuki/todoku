@@ -41,6 +41,23 @@ def independent_rows(text: str, delim: str) -> list[list[str]]:
     return [r if r else [""] for r in rows]
 
 
+class _InOrder:
+    """窓の Markdown に字があるか。窓は書類の順に並ぶので、前に見つけた所の先から探す（行ごとに頭から探すと 2 乗になる）。"""
+
+    def __init__(self, md: str):
+        self.md = md
+        self.at = 0
+
+    def has(self, s: str) -> bool:
+        i = self.md.find(s, self.at)
+        if i < 0:
+            i = self.md.find(s)
+            if i < 0:
+                return False
+        self.at = i
+        return True
+
+
 def csv_reading(f: CsvFile, doc: dict, md: str) -> Check:
     """Python の csv モジュール（RFC 4180 の別の実装）で読み、マスごとに値を照らし、窓の表の行がそのまま出ているかを見る。"""
     raw = list(csv.reader(io.StringIO(f.text, newline=""), delimiter=f.delim, quotechar='"', strict=False))
@@ -60,7 +77,8 @@ def csv_reading(f: CsvFile, doc: dict, md: str) -> Check:
             if len(problems) > 20:
                 break
     width = max(doc["width"], 1)
-    missing = [f"R{r}" for r, vals in enumerate(other, 1) if row_line(f"R{r}" + ("（見出し）" if r == 1 else ""), vals, width) not in md]
+    seen = _InOrder(md)
+    missing = [f"R{r}" for r, vals in enumerate(other, 1) if not seen.has(row_line(f"R{r}" + ("（見出し）" if r == 1 else ""), vals, width))]
     if missing:
         problems.append(f"窓に、そのままの形で出ていない行 {len(missing)} 行：" + "、".join(missing[:15]))
     total = sum(_chars(v for row in other for v in row).values())
@@ -152,6 +170,7 @@ def _keys(f: JsonFile) -> list[str]:
 
 def json_reading(f: JsonFile, doc: dict, md: str) -> Check:
     problems = []
+    seen = _InOrder(md)
     try:
         other = _independent_leaves(f)
     except ValueError as e:
@@ -172,7 +191,7 @@ def json_reading(f: JsonFile, doc: dict, md: str) -> Check:
                                                       and isinstance(got, (int, float)) and not isinstance(got, bool) and got == v)
         if not same:
             problems.append(f"{i}：窓 {w['json'][:40]}・別の読み方 {json.dumps(v, ensure_ascii=False)[:40]}")
-        elif w["json"] not in md:
+        elif not seen.has(w["json"]):
             problems.append(f"{i}：値 {w['json'][:40]} が窓の Markdown に出ていません")
         if len(problems) > 30:
             break

@@ -373,7 +373,7 @@ class OdsWorkbook:
             dcs = ce.get("table:default-cell-style-name")
             hidden = ce.get("table:visibility", "visible") != "visible"
             if n <= 1024:
-                for k in range(n):
+                for k in range(min(n, 16385 - col)):  # シートの右端（16,384 列）より外は持たない
                     if dcs:
                         col_style[col + k] = dcs
                     if hidden:
@@ -416,7 +416,7 @@ class OdsWorkbook:
             if meaningful and n > 10000:
                 self.unexpanded.append(f"{name}：{r}行目から {n:,} 行（同じ中身を繰り返す行。最初の 10,000 行だけ読みました）")
                 expand = 10000
-            for k in range(expand):
+            for k in range(min(expand, 1048577 - r)):  # シートの下端（1,048,576 行）より外は持たない
                 if k and self._repeated >= MAX_DECLARED_CELLS:
                     self.unexpanded.append(f"{name}：{r}行目から {n:,} 行（同じ中身を繰り返す行。最初の {k:,} 行だけ読みました）")
                     break

@@ -25,27 +25,53 @@ def _key(sheet: str, r: int, c: int) -> str:
 
 
 class _Index:
-    """シートごとの、入力欄と数式のセル（範囲の参照に含まれるものを速く探す）。"""
+    """入力欄と数式のセルに、シート・列・行の順の番号（位置）をふる。参照は、位置の区間のまま持つ
+    （積み上げの合計 SUM(A$3:Ai) のように範囲が重なる数式が並んでも、マスごとの控えを作らない）。"""
 
     def __init__(self, cells: set[tuple[str, int, int]]):
-        self.by_sheet: dict[str, list[tuple[int, int]]] = defaultdict(list)
+        cols: dict[tuple[str, int], list[int]] = defaultdict(list)
         for s, r, c in cells:
-            self.by_sheet[s].append((r, c))
-        for v in self.by_sheet.values():
-            v.sort()
+            cols[(s, c)].append(r)
+        self.keys: list[tuple[str, int, int]] = []
+        self.cols: dict[str, tuple[list[int], list[tuple[list[int], int]]]] = {}  # シート → (列の並び, 列ごとの (行の並び, 最初の位置))
+        by_sheet: dict[str, list[int]] = defaultdict(list)
+        for s, c in cols:
+            by_sheet[s].append(c)
+        for s, cs in by_sheet.items():
+            cs.sort()
+            rows = []
+            for c in cs:
+                rs = sorted(cols[(s, c)])
+                rows.append((rs, len(self.keys)))
+                self.keys.extend((s, r, c) for r in rs)
+            self.cols[s] = (cs, rows)
+        self.pos = {k: i for i, k in enumerate(self.keys)}
+        self._memo: dict[tuple, list[tuple[int, int]]] = {}
 
-    def within(self, sheet: str, r1: int, c1: int, r2: int, c2: int):
-        rows = self.by_sheet.get(sheet, [])
-        i = bisect.bisect_left(rows, (r1, -1))
-        while i < len(rows) and rows[i][0] <= r2:
-            r, c = rows[i]
-            if c1 <= c <= c2:
-                yield (sheet, r, c)
-            i += 1
+    def spans(self, sheet: str, r1: int, c1: int, r2: int, c2: int) -> list[tuple[int, int]]:
+        """範囲の中のセルの位置の区間 [a, b)。同じ範囲は 1 度だけ計算する（隣の列まで続く区間は 1 つにつなぐ）。"""
+        got = self._memo.get((sheet, r1, c1, r2, c2))
+        if got is not None:
+            return got
+        out: list[tuple[int, int]] = []
+        one = self.cols.get(sheet)
+        if one is not None:
+            cs, rows = one
+            for i in range(bisect.bisect_left(cs, c1), bisect.bisect_right(cs, c2)):
+                rs, base = rows[i]
+                a, b = bisect.bisect_left(rs, r1) + base, bisect.bisect_right(rs, r2) + base
+                if a >= b:
+                    continue
+                if out and out[-1][1] == a:
+                    out[-1] = (out[-1][0], b)
+                else:
+                    out.append((a, b))
+        self._memo[(sheet, r1, c1, r2, c2)] = out
+        return out
 
 
-def _ref_cells(wb: Workbook, node, sheet: str, idx: _Index, depth: int = 0):
-    """参照が指す（入力欄か数式の）セル。"""
+def _ref_spans(wb: Workbook, node, sheet: str, idx: _Index, depth: int = 0):
+    """参照が指す（入力欄か数式の）セルの、位置の区間。"""
     if isinstance(node, RefNode):
         sh = node.sheet or sheet
         if not wb.has_sheet(sh):
@@ -55,7 +81,7 @@ def _ref_cells(wb: Workbook, node, sheet: str, idx: _Index, depth: int = 0):
             r1, r2 = 1, 1 << 20
         elif node.kind == "rows":
             c1, c2 = 1, 1 << 14
-        yield from idx.within(sh, min(r1, r2), min(c1, c2), max(r1, r2), max(c1, c2))
+        yield from idx.spans(sh, min(r1, r2), min(c1, c2), max(r1, r2), max(c1, c2))
     elif isinstance(node, NameNode) and depth < 8:
         d = next((x for x in wb.names if x.name.lower() == node.name.lower()
                   and (x.sheet_scope in (None, sheet) or node.sheet)), None)
@@ -65,12 +91,85 @@ def _ref_cells(wb: Workbook, node, sheet: str, idx: _Index, depth: int = 0):
             except Exception:  # noqa: BLE001
                 return
             for ref in iter_refs(ast):
-                yield from _ref_cells(wb, ref, sheet, idx, depth + 1)
+                yield from _ref_spans(wb, ref, sheet, idx, depth + 1)
     elif isinstance(node, StructRef):
         # テーブル全体を、使う範囲とみなす（列の指定は、静的には広めにとる）
         t = (getattr(wb, "tables", None) or {}).get((node.table or "").lower())
         if t is not None:
-            yield from idx.within(t.sheet, t.r1, t.c1, t.r2, t.c2)
+            yield from idx.spans(t.sheet, t.r1, t.c1, t.r2, t.c2)
+
+
+def _merged(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """区間の和（重なりをなくし、位置の順に）。"""
+    out: list[tuple[int, int]] = []
+    for a, b in sorted(spans):
+        if out and a <= out[-1][1]:
+            if b > out[-1][1]:
+                out[-1] = (out[-1][0], b)
+        else:
+            out.append((a, b))
+    return out
+
+
+class _Stabber:
+    """区間を区間木に入れ、ある位置を含む区間の持ち主を、1 度ずつ取り出す（取り出した分は消える。全部で区間の数 × log）。"""
+
+    def __init__(self, size: int):
+        self.n = max(size, 1)
+        self.nodes: dict[int, list[int]] = {}
+
+    def add(self, a: int, b: int, who: int) -> None:
+        a += self.n
+        b += self.n
+        while a < b:
+            if a & 1:
+                self.nodes.setdefault(a, []).append(who)
+                a += 1
+            if b & 1:
+                b -= 1
+                self.nodes.setdefault(b, []).append(who)
+            a >>= 1
+            b >>= 1
+
+    def take(self, p: int) -> list[int]:
+        out: list[int] = []
+        i = p + self.n
+        while i:
+            got = self.nodes.pop(i, None)
+            if got:
+                out += got
+            i >>= 1
+        return out
+
+
+LISTED = 64  # 1 つの処理について、つながる入力欄・処理を番地で示す数（数は n にすべて数える。積み上げの合計で 2 乗にならないように）
+
+
+def _listed(spans: list[tuple[int, int]], next_at: list[int], name, total_upto: list[int]) -> tuple[list[str], int]:
+    """区間の中の、印のある位置の名前（LISTED まで。字の順）と、印のある位置の数。next_at：その位置以降の次の印の位置。"""
+    total = sum(total_upto[b] - total_upto[a] for a, b in spans)
+    out: list[str] = []
+    for a, b in spans:
+        i = next_at[a]
+        while i < b and len(out) < LISTED:
+            out.append(name(i))
+            i = next_at[i + 1]
+        if len(out) >= LISTED:
+            break
+    out.sort()
+    return out, total
+
+
+def _marks(flags: bytearray) -> tuple[list[int], list[int]]:
+    """印の並び → (その位置以降の次の印の位置, その位置より前の印の数)。"""
+    n = len(flags)
+    nxt = [n] * (n + 2)
+    for i in range(n - 1, -1, -1):
+        nxt[i] = i if flags[i] else nxt[i + 1]
+    upto = [0] * (n + 1)
+    for i in range(n):
+        upto[i + 1] = upto[i] + flags[i]
+    return nxt, upto
 
 
 def model(wb: Workbook, doc: dict) -> dict:
@@ -85,27 +184,30 @@ def model(wb: Workbook, doc: dict) -> dict:
                 inputs[(sh["name"], r, c)] = f
     formulas = {(s.name, r, c): cell for s in wb.sheets for (r, c), cell in s.cells.items() if cell.has_formula}
     idx = _Index(set(inputs) | set(formulas))
-    uses: dict[tuple, set] = {}
+    uses: dict[tuple, list[tuple[int, int]]] = {}
     dynamic = set()
+    users = _Stabber(len(idx.keys))
     for k, cell in formulas.items():
         if cell.ast is None:
             continue
-        uses[k] = {x for ref in iter_refs(cell.ast) for x in _ref_cells(wb, ref, k[0], idx)}
+        uses[k] = _merged([x for ref in iter_refs(cell.ast) for x in _ref_spans(wb, ref, k[0], idx)])
+        me = idx.pos[k]
+        for a, b in uses[k]:
+            users.add(a, b, me)
         if any(f in DYNAMIC for f in iter_funcs(cell.ast)):
             dynamic.add(k)
-    users = defaultdict(set)
-    for k, us in uses.items():
-        for u in us:
-            users[u].add(k)
     # 入力につながる数式（入力から、使う側へたどる）
-    seen = set(inputs)
-    todo = list(inputs)
+    seen = bytearray(len(idx.keys))
+    todo = [idx.pos[k] for k in inputs]
+    for i in todo:
+        seen[i] = 1
     while todo:
-        for u in users.get(todo.pop(), ()):
-            if u not in seen:
-                seen.add(u)
+        for u in users.take(todo.pop()):
+            if not seen[u]:
+                seen[u] = 1
                 todo.append(u)
-    steps_keys = sorted((k for k in seen if k in formulas), key=lambda k: ([s.name for s in wb.sheets].index(k[0]), k[1], k[2]))
+    order = {s.name: i for i, s in enumerate(wb.sheets)}
+    steps_keys = sorted((k for k in formulas if seen[idx.pos[k]]), key=lambda k: (order.get(k[0], -1), k[1], k[2]))
     # 見出し（窓の入力欄と同じ決め方で、数式のセルにも）
     labels: dict[tuple, str] = {k: f.get("label") or "" for k, f in inputs.items()}
     lays = {}
@@ -124,18 +226,44 @@ def model(wb: Workbook, doc: dict) -> dict:
         lab = labels.get(k)
         return f"「{lab}」" if lab else _key(*k)
 
+    is_input = bytearray(len(idx.keys))
+    is_step = bytearray(len(idx.keys))
+    for k in inputs:
+        is_input[idx.pos[k]] = 1
+    for k in steps_keys:
+        is_step[idx.pos[k]] = 1
+    in_next, in_upto = _marks(is_input)
+    st_next, st_upto = _marks(is_step)
+    names: dict[int, str] = {}
+
+    def pos_name(i: int) -> str:
+        got = names.get(i)
+        if got is None:
+            got = names[i] = _key(*idx.keys[i])
+        return got
+
     steps = []
-    used_by_steps = set()
+    used = [0] * (len(idx.keys) + 1)  # どこかの処理が使う位置（区間の出入りを数える）
     for k in steps_keys:
         cell = formulas[k]
-        used_by_steps |= uses.get(k, set())
+        sp = uses.get(k, [])
+        for a, b in sp:
+            used[a] += 1
+            used[b] -= 1
+        from_in, n_in = _listed(sp, in_next, pos_name, in_upto)
+        from_st, n_st = _listed(sp, st_next, pos_name, st_upto)
         steps.append({"cell": _key(*k), "label": labels.get(k) or None, "formula": "=" + cell.formula,
                       "in_words": "＝" + _in_words(wb, cell.formula, k[0], idx, name_of),
                       **_value_and_note(wb, cell),
-                      "from_inputs": sorted(_key(*i) for i in uses.get(k, set()) if i in inputs),
-                      "from_steps": sorted(_key(*i) for i in uses.get(k, set()) if i in formulas and i in seen),
+                      "from_inputs": from_in, "from_steps": from_st,
+                      **({"from_inputs_n": n_in} if n_in > len(from_in) else {}),
+                      **({"from_steps_n": n_st} if n_st > len(from_st) else {}),
                       **({"dynamic": "参照先が計算で決まる関数（INDIRECT・OFFSET）を含む。依存は静的にはたどれない"} if k in dynamic else {})})
-    results = [s for s, k in zip(steps, steps_keys) if k not in used_by_steps]
+    depth = 0
+    for i in range(len(idx.keys)):
+        depth += used[i]
+        used[i] = depth
+    results = [s for s, k in zip(steps, steps_keys) if used[idx.pos[k]] == 0]
     return {"inputs": [{"id": f["id"], "label": f.get("label"), "kind": f.get("kind"), "value": f.get("value"),
                         **({"options": f["options"]} if f.get("options") else {})} for f in inputs.values()],
             "steps": steps, "results": [{"cell": s["cell"], "label": s["label"], "value": s["value"]} for s in results],

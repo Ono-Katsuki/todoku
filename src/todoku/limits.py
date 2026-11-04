@@ -33,6 +33,8 @@
 - TODOKU_MAX_DECLARED_CELLS（262144）  表計算：ファイルの宣言（入力規則・数式の参照・配列数式の範囲・繰り返し）から、セルの要素のない所まで
                                         広げる数（1 ブック。超える範囲は、ファイルにあるセルだけを見て、広げなかったことを伝える）
 - TODOKU_MAX_RANGE_CELLS（16777216）    表計算：数式の 1 つの範囲を計算のために開く数（.xls の 1 シートまるごと）
+- TODOKU_MAX_ARRAY_CELLS（4194304）     表計算：数式が作る 1 つの配列のマスの数（SEQUENCE・EXPAND・配列どうしの計算）。超える数式は計算しないと伝える
+- TODOKU_MAX_ARRAY_TOTAL（268435456）   表計算：1 回の計算で作る配列のマスの合計
 """
 
 from __future__ import annotations
@@ -86,6 +88,8 @@ MAX_VBA_BYTES = _env("TODOKU_MAX_VBA_BYTES_MB", 1024, MB)
 MAX_VBA_RANGE = _env("TODOKU_MAX_VBA_RANGE", 2_000_000)  # マクロが 1 度に書く範囲のマスの数（1 列まるごと 1,048,576 は書ける）
 MAX_DECLARED_CELLS = _env("TODOKU_MAX_DECLARED_CELLS", 262_144)
 MAX_RANGE_CELLS = _env("TODOKU_MAX_RANGE_CELLS", 16_777_216)
+MAX_ARRAY_CELLS = _env("TODOKU_MAX_ARRAY_CELLS", 4_194_304)
+MAX_ARRAY_TOTAL = _env("TODOKU_MAX_ARRAY_TOTAL", 268_435_456)
 
 STOPPED = "この書類は大きすぎるか、壊れているため止めました"
 
@@ -133,6 +137,14 @@ class Budget:
             raise LimitExceeded(f"{what}：1 回の呼び出しで作る項目が {self.items_cap:,} 個を超えます（大きな数が宣言された壊れた書類か、"
                                 "一度に読む範囲が広すぎます。ページ・行の範囲を小さくして頼み直してください。"
                                 "TODOKU_MAX_ITEMS で変えられます）", True)
+
+    def count_part(self, part: str, n: int, what: str = "") -> None:
+        """部品 part の中の項目の数（XML の要素・CSV のマス）。同じ部品を読み直しても（検査で書いては読み直す）、いちばん大きな数だけを 1 度数える。"""
+        seen = self.__dict__.setdefault("parts_seen", {})
+        had = seen.get(part, 0)
+        if n > had:
+            seen[part] = n
+            self.count(n - had, what or f"{part} の要素")
 
     def alloc(self, n: int, what: str = "") -> None:
         """これから 1 度に n バイトを取る（C の中の 1 回の確保は途中で止められないので、取る前に確かめる）。"""

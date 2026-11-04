@@ -14,9 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..docx.document import Cell, Control, Para, Seg, Table, iter_paras, number_text
+from ..limits import MAX_DECLARED_CELLS
 from .package import OdfError, OdfPackage, text_of
 from .styles import Styles
 from .xml import NS, El, Txt
+
+MAX_REPEATED = MAX_DECLARED_CELLS // 4  # 表の繰り返しの宣言（table:number-…-repeated）から広げるマスの数（文書ごと）
 
 MARK_PREFIX = "_todoku_"  # 書き込んだ所のしおり（名前は「_todoku_」＋欄の id そのもの）
 
@@ -86,6 +89,8 @@ class OdtDocument:
         if self.office_text is None:
             raise OdfError("文書の本文（office:text）がありません")
         self.styles = Styles(self.pkg)
+        self.unread: list[str] = []  # 読まなかった所（広げなかった繰り返し）
+        self._repeated = 0  # 繰り返しを広げたマスの数
         self.controls: list[Control] = []
         self.pictures: list[dict] = [{"n": i + 1, "stub": True} for i in range(p_.get("pictures", 0))]  # 絵（draw:image）：説明（svg:title・svg:desc）と飾りの印。段階とは別の注意に使う
         self.form_by_id: dict[str, Control] = {}
@@ -247,8 +252,17 @@ class OdtDocument:
         def collect(n: El) -> None:
             for ch in n.els():
                 if ch.tag == _TABLE + "table-row":
-                    rep = int(ch.get("table:number-rows-repeated", "1") or 1)
-                    rows.extend([ch] * min(rep, 50))
+                    rep = min(int(ch.get("table:number-rows-repeated", "1") or 1), 50)
+                    if rep > 1:
+                        # 繰り返しを広げてよいのは、文書で MAX_REPEATED マスまで（小さなファイルが何百万ものマスにならないように）
+                        cells = sum(min(int(tc.get("table:number-columns-repeated", "1") or 1), 200) for tc in ch.els()
+                                    if tc.tag in (_TABLE + "table-cell", _TABLE + "covered-table-cell"))
+                        if self._repeated + rep * cells > MAX_REPEATED:
+                            self.unread.append(f"同じ中身を {rep} 回繰り返す表の行は、広げすぎになるので 1 行だけ読みました")
+                            rep = 1
+                        else:
+                            self._repeated += rep * cells
+                    rows.extend([ch] * rep)
                 elif ch.tag in (_TABLE + "table-header-rows", _TABLE + "table-rows", _TABLE + "table-row-group"):
                     collect(ch)
 
@@ -262,6 +276,12 @@ class OdtDocument:
                 if tc.tag not in (_TABLE + "table-cell", _TABLE + "covered-table-cell"):
                     continue
                 rep = min(int(tc.get("table:number-columns-repeated", "1") or 1), 200)
+                if rep > 1:
+                    if self._repeated + rep > MAX_REPEATED:
+                        self.unread.append(f"同じ中身を {rep} 回繰り返す表のマスは、広げすぎになるので 1 つだけ読みました")
+                        rep = 1
+                    else:
+                        self._repeated += rep
                 for k in range(rep):
                     if tc.tag == _TABLE + "covered-table-cell":
                         if skip > 0:
