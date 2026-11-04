@@ -84,11 +84,19 @@ def wraps(before: str, after: str, avail: float, size_before, size_after, first_
     return None
 
 
+class WrapNote(str):
+    """警告の言葉と、増える行の数（added）。ページの増えの事実（pagecount）に渡す。"""
+
+    added: int = 0
+
+
 def say(place: str, shown: str, nb: int, na: int, basis: str, sure: bool = True) -> str:
     """警告の言葉：所・字・行の数・見積もりの元。"""
     s = shown.replace("\n", " ").strip()
     s = s if len(s) <= 40 else s[:40] + "…"
     how = (f"「{s}」が {nb} 行から {na} 行になります" if sure else
            f"「{s}」が幅いっぱいに近く、字の幅を少し広く測るソフト（LibreOffice など）や印刷では {nb} 行から {na} 行になります")
-    return (f"{place}: {MESSAGE}：{how}（{basis}からの見積もり）。選んだ字や書いた字が次の行の字と離れて見えることがあるので、"
-            "字を短くするか、本人に確かめてください")
+    note = WrapNote(f"{place}: {MESSAGE}：{how}（{basis}からの見積もり）。選んだ字や書いた字が次の行の字と離れて見えることがあるので、"
+                    "字を短くするか、本人に確かめてください")
+    note.added = na - nb
+    return note

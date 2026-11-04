@@ -600,8 +600,9 @@ def resolve_write(sp: "Spots", spec: dict, used: dict | None = None) -> dict:
     "occurrence": 何番目か（しぼった中の、文書の順。1 から）}。
     near でしぼる範囲（距離の決まった数は持たない。広さを変えるのはエージェント）：
     - near_paras を指定したとき：near の欄の段落の前後 near_paras 段落（0 なら同じ段落だけ）
-    - 指定しないとき：near の欄が表のマスにあれば同じ表の同じ行（文書の作り）、なければ同じ話（本文・ヘッダー・脚注などの、同じ部分）old と new の前後の同じ字は、元の字と書式のまま残し、
-    違う所だけを書き換える。元の字が見つからない・いくつもあって決まらないときは、候補を添えて断る。
+    - 指定しないとき：near の欄が表のマスにあれば同じ表の同じ行（文書の作り）、なければ同じ話（本文・ヘッダー・脚注などの、同じ部分）。
+      その中に候補がいくつもあり occurrence もないときは、near の欄の段落、次に near の欄のマスの中の候補に絞る（作りでいちばん近い所）
+    old と new の前後の同じ字は、元の字と書式のまま残し、違う所だけを書き換える。元の字が見つからない・いくつもあって決まらないときは、候補を添えて断る。
     used：同じ書き込みの中で、もう使った番号と範囲（段落の番号 → [(番号, 始め, 終わり)]）。"""
     old, new = spec.get("old"), spec.get("new")
     if not isinstance(old, str) or not old or not isinstance(new, str):
@@ -638,6 +639,13 @@ def resolve_write(sp: "Spots", spec: dict, used: dict | None = None) -> dict:
     if not hits:
         raise WriteError(f"「{old}」が、{f'欄 {near} の近く' if near else '文書'}に見つかりません（窓の字のとおりに指定してください）")
     occ = spec.get("occurrence")
+    if occ is None and near and span_n is None and len(hits) > 1:
+        # near の欄と作りでいちばん近い候補：同じ段落、次に同じマス。それでも 1 つに決まらなければ、広い範囲の候補を示して断る
+        for same in (lambda q: q is q0, lambda q: c0 is not None and q.cell is c0):
+            mine = [h for h in hits if same(h[1])]
+            if mine:
+                hits = mine
+                break
     if occ is not None:
         if not isinstance(occ, int) or not 1 <= occ <= len(hits):
             raise WriteError(f"occurrence は 1〜{len(hits)} で指定してください")

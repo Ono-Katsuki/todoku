@@ -742,6 +742,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                 # 空きの中にそろえて書いた所：そろえ方と、空きの幅を保つために前・後ろに足した半角の空白の字数。
                 # 証明は書いたセルだけが変わったこと、読み戻しは書いた後のセルの字（足した空白を含む）で確かめる
                 result["aligned"] = dict(res.aligned)
+                result["warnings"] += _align_no_effect(res.aligned)
             if res.unverified:
                 # 書いた値に連動するのに、todoku が計算し直せない数式（BAHTTEXT・動的配列など）：保存された結果は古いまま
                 result["stale_formulas"] = list(res.unverified)
@@ -928,12 +929,19 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             if wrapped:
                 result["wrap"] = wrapped
                 result["warnings"] += wrapped
+                from .pagecount import growth_note
+
+                grown = growth_note(blob, k, wrapped)
+                if grown:
+                    result["page_growth"], said_ = grown
+                    result["warnings"].append(said_)
             anchored = {(p.key or p.id): p.id for p in res.patches if getattr(p, "anchor", None)}
             aligned = {p.id: p.align for p in res.patches if getattr(p, "align", None)}
             if aligned:
                 # 空きの中にそろえて書いた所：そろえ方と、空きの幅を保つために前・後ろに足した半角の空白の字数（証明で確かめた）。
                 # 読み戻しは、書いた値そのもの（足した空白は欄の値に入れない）
                 result["aligned"] = aligned
+                result["warnings"] += _align_no_effect(aligned)
                 for id_ in aligned:
                     if isinstance(values.get(id_), dict):
                         readback_values[id_] = values[id_]["value"]
@@ -1815,13 +1823,43 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
 
         lines.append(_recalc_say(result["recalculated_cells"]))  # 書いた値から計算し直して変わったセル（金額・合計など）
     if notes:
-        lines.append("本人に伝えること：" + "／".join(notes[:10]))
+        merged = _merged_notes(notes)
+        lines.append("本人に伝えること：" + "／".join(merged[:10])
+                     + (f"／ほかに {len(merged) - 10} 件（warnings にすべてあります）" if len(merged) > 10 else ""))
     # as のない書き込み：本人が確かめる書類なら、書いた値の意味を as で述べて書き直せる（対話が本人の確かめる手段なので）
     without_as = [d["id"] for d in told if not d.get("as")] + [c.get("id") or c.get("key") for c in result.get("circled") or [] if not c.get("as")]
     return {"written": told, "written_without_as": without_as, "still_empty": [{"id": f["id"], "label": f.get("label", ""), **({"sheet": f["sheet"]} if "sheet" in f else {}),
                                               **({"page": f["page"]} if "page" in f else {})} for f in empty[:50]],
             "still_empty_count": len(empty), "unchosen_choice_groups": len(unchosen), "agent_places_left": len(agent_left),
             "say_to_user": "\n".join(lines)}
+
+
+def _align_no_effect(aligned: dict) -> list[str]:
+    """align（center・right）を受けたのに足す空白がなかった所：そろえる空きがないので、値は元の位置から書いてある。黙らない。"""
+    return [f"{i}: align（{o['align']}）は効いていません。ここには字の間の空きの幅がない（空の段落・マスか、値が空きより長い）ので、"
+            "値はそのままの位置に書きました。寄せるなら、値の前に全角の空白を足すなどで書き直してください"
+            for i, o in aligned.items() if o.get("align") in ("center", "right") and not any(o.get("pad") or ())]
+
+
+def _merged_notes(notes: list[str]) -> list[str]:
+    """本人に伝えることの、同じ内容の繰り返しを 1 つに：先頭の所の名前（「P12.c1: …」）と数字だけが違うものをまとめ、か所の数と名前を添える。
+    数字（位置の mm など）が違うときは 1 か所目のものと断る。warnings にはすべてを残す。"""
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for n in notes:
+        m = re.match(r"([^\s:：「」（）]{1,60}?)[:：]\s*(?=\S)", n)
+        place, body = (m[1], n[m.end():]) if m else ("", n)
+        groups.setdefault(re.sub(r"\d+(?:\.\d+)?", "#", body), []).append((place, body))
+    out = []
+    for got in groups.values():
+        places = [p for p, _b in got if p]
+        first = got[0][1]
+        if len(got) == 1:
+            out.append(f"{places[0]}: {first}" if places else first)
+            continue
+        names = "・".join(dict.fromkeys(places[:8])) + ("ほか" if len(set(places)) > 8 else "")
+        differ = len({b for _p, b in got}) > 1
+        out.append(f"{len(got)} か所" + (f"（{names}）" if names else "") + f"：{first}" + ("（数字は 1 か所目のもの。すべては warnings に）" if differ else ""))
+    return out
 
 
 @_budgeted

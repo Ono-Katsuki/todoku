@@ -249,7 +249,7 @@ def _expected(p, items) -> str | None:
         if kind == "cell":
             if text.strip(" 　  "):
                 return None
-            edits.append((0, len(text), str(value)))
+            edits.append((0, len(text), str(value["value"] if isinstance(value, dict) else value)))
         elif kind == "checkbox":
             a, b = it["span"]
             on = value is True

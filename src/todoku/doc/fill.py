@@ -605,13 +605,20 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
             kind = it["kind"]
             cps = para_cps(p)
             if kind == "cell":
+                from ..textwidth import align_options
+
+                try:
+                    opts, value = align_options(key, value)
+                except ValueError as e:
+                    raise FillError(str(e)) from None
                 text = _is_text_value(value)
                 if p.text and not p.text.strip(" 　  "):
                     a, b = cps[0], cps[-1] + 1
                 else:
                     a = b = p.cp1  # マスの終わりの印（0x07）の前
                 w.add(Edit(a, b, text, p.cp1 if a == b else a, mark))
-                patches.append(Patch(key, "input", text, "doc"))
+                # 空のマスには字の間の空きがない：そろえ方は効かない（足す空白 0 を結果に示し、api が警告する）
+                patches.append(Patch(key, "input", text, "doc", align={**opts, "pad": [0, 0]} if opts else None))
             elif kind == "checkbox":
                 on = _as_bool(value)
                 a0, b0 = it["span"]
