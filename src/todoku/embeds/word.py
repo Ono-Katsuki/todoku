@@ -72,7 +72,7 @@ def objects(doc, depth: int = 0, shown: set[int] | None = None) -> list[dict]:
     books = set(shown or ())
     if shown is None and depth == 0 and hasattr(doc, "embedded_books"):
         try:
-            books = {e["n"] for e, _wb in doc.embedded_books()}
+            books = {e["n"] for e in doc.embeds if doc.embedded_book(e) is not None}  # 1 つずつ開く（同時に開くとメモリを多く使う）
         except Exception:  # noqa: BLE001
             books = set()
     for e in getattr(doc, "embeds", []):

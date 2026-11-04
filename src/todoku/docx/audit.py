@@ -153,17 +153,31 @@ def embeds_check(doc, win: dict, opener=None, fill_fn=None, prove_fn=None) -> Ch
     """埋め込んだ Excel の表：ブックのセルの字（見えている値）が、すべて窓の埋め込みの節に出ているか。
     opener・fill_fn・prove_fn を渡すと、埋め込みの表の入力欄1か所に試しの値を書き、証明（ブックは Excel の証明、
     表の絵は変わったセルの字だけ）と、読み戻し（書いた後の文書の埋め込みの表に、その値がある）を確かめる。"""
-    books = doc.embedded_books() if hasattr(doc, "embedded_books") else []
-    if not books:
+    if not hasattr(doc, "embedded_book"):
         return None
     from ..xlsx.window import display
+    from .window import _embed_key
 
     shown = {e["n"]: "\n".join(e.get("markdown") or []) for e in win.get("embeds") or []}
     missing = []
     n_cells = 0
-    for e, wb in books:
+    n_books = 0
+    done: dict = {}  # 同じ中身のブックと同じ窓の字：もう確かめた（中身が同じなら、数だけ足す。ブックを同時にいくつも開かない）
+    for e in getattr(doc, "embeds", []) or []:
         md = shown.get(e["n"], "")
         flat = re.sub(r"[\s\u3000]", "", md)
+        k = _embed_key(doc, e)
+        memo = done.get((k, flat)) if k is not None else None
+        if memo is not None:
+            n_books += 1
+            n_cells += memo
+            continue
+        wb = doc.embedded_book(e)
+        if wb is None:
+            continue
+        n_books += 1
+        before = n_cells
+        lost_before = len(missing)
         for sh in wb.sheets:
             for (r, c), cell in sh.cells.items():
                 if cell.value in (None, ""):
@@ -176,7 +190,12 @@ def embeds_check(doc, win: dict, opener=None, fill_fn=None, prove_fn=None) -> Ch
                 key = re.sub(r"[\s\u3000]", "", str(t))
                 if key and key not in flat:
                     missing.append(f"埋め込み{e['n']} {sh.name}!{chr(64 + c) if c <= 26 else c}{r}「{str(cell.value)[:20]}」")
-    detail = (f"文書に埋め込んだ Excel の表 {len(books)} 個（字のあるセル {n_cells:,} か所）を、Excel の窓と同じ読み方で窓に出しました"
+        if k is not None and len(missing) == lost_before:
+            done[(k, flat)] = n_cells - before
+        del wb
+    if not n_books:
+        return None
+    detail = (f"文書に埋め込んだ Excel の表 {n_books} 個（字のあるセル {n_cells:,} か所）を、Excel の窓と同じ読み方で窓に出しました"
               + (f"。窓に出ていないセル {len(missing)} か所" if missing else "。どのセルの字も窓に出ています"))
     items = missing[:20]
     ok = not missing
