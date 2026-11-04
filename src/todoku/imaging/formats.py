@@ -39,7 +39,7 @@ class Frame:
 
 
 FORMAT_JA = {"emf": "EMF（メタファイル）", "wmf": "WMF（メタファイル）", "jpeg": "JPEG", "png": "PNG", "gif": "GIF", "bmp": "BMP", "tiff": "TIFF", "webp": "WebP", "jp2": "JPEG 2000", "j2k": "JPEG 2000（符号の流れ）",
-             "jbig2": "JBIG2", "pict": "PICT（QuickDraw の絵）", "svg": "SVG（ベクターの絵）", "heic": "HEIC（HEIF）"}
+             "jbig2": "JBIG2", "pict": "PICT（QuickDraw の絵）", "svg": "SVG（ベクターの絵）", "heic": "HEIC（HEIF）", "avif": "AVIF（AV1）"}
 
 
 def sniff(blob: bytes) -> str | None:
@@ -66,8 +66,11 @@ def sniff(blob: bytes) -> str | None:
         return "emf"
     if blob[:4] == b"\xd7\xcd\xc6\x9a":
         return "wmf"
-    if heif_brand(blob) == "HEIC":
+    brand = heif_brand(blob)
+    if brand == "HEIC":
         return "heic"
+    if brand == "AVIF":
+        return "avif"
     from .svg import is_svg
 
     if is_svg(blob):
@@ -131,7 +134,7 @@ def info(blob: bytes) -> tuple[str, list[FrameInfo]]:
     if f in ("emf", "wmf"):
         fr = decode(blob)
         return f, [FrameInfo(fr.w, fr.h, fr.dpi)]
-    if f == "heic":
+    if f in ("heic", "avif"):
         from .heif import infos as heif_infos
 
         return f, heif_infos(blob)
@@ -177,7 +180,7 @@ def decode(blob: bytes, index: int = 0, target_pixels: int | None = None, deadli
         from .metaraster import emf, wmf
 
         return emf(blob) if f == "emf" else wmf(blob)
-    if f == "heic":
+    if f in ("heic", "avif"):
         from .heif import decode_frame
 
         return decode_frame(blob, target_pixels, deadline, window)

@@ -220,7 +220,7 @@ def audit(blob: bytes, name: str):
     bad = []
     for i, _f in enumerate(frames):
         try:
-            if _fmt == "heic":  # 全部を開くと何分もかかる：はじめのタイルが開けることを確かめる（見出しは全部読んである）
+            if _fmt in ("heic", "avif"):  # 全部を開くと何分もかかる：はじめのタイルが開けることを確かめる（見出しは全部読んである）
                 fr = decode(blob, i, 250_000, time.monotonic() + DECODE_SECONDS, (0, 0, 1, 1))
                 bad += [f"{i + 1} 枚目：{p}" for p in fr.problems if not fr.incomplete]
                 continue
