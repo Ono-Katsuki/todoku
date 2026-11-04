@@ -38,6 +38,20 @@ def norm_label(s: str) -> str:
     return re.sub(r"[ \u3000\r\n\t]+", " ", t)
 
 
+def label_text(s) -> str:
+    """窓の見出しの字：印刷された字のまま（前後の空白を除き、セルの中の改行だけを空白 1 つにする。字間の空白は詰めない：
+    「氏　　名」は「氏　　名」）。探すための、空白を詰めた写しは label_key（norm_label）で別に出す。"""
+    return re.sub(r"[ \t]*(?:\r\n|\r|\n)[ \t]*", " ", str(s).strip())
+
+
+def label_key(label: str) -> str:
+    """見出しを探すための鍵（窓の見出しそのものではない）：前後の字がどちらも全角の字（UAX #11 の W・F）の空白の並びは除き
+    （「氏　　名」「地 域 区 分」→「氏名」「地域区分」）、ほかの空白の並び（語の区切り）は空白 1 つにする。字数の目安は使わない。"""
+    t = str(label).strip()
+    return re.sub(r"\s+", lambda m: "" if 0 < m.start() and m.end() < len(t) and chars.is_wide(t[m.start() - 1])
+                  and chars.is_wide(t[m.end()]) else " ", t)
+
+
 def display(wb: Workbook, cell: Cell, flag: bool = True) -> str:
     """セルの見えている字（表示形式を通した字）。再現できない表示形式は、推測した字を出さずに、元の値とそう示す
     （flag=False：元の値だけ）。"""
@@ -122,12 +136,16 @@ def _anchors(sh: Sheet) -> dict[int, list[Anchor]]:
 _SHEET_EDGE = (65536, 256)  # .xls のシートの最後の行・列（.xlsx は 1048576・16384。どちらも、ここより大きい範囲は「列全体・行全体」）
 
 
-def _used_limits(sh: Sheet) -> tuple[int, int]:
+def _used_limits(sh: Sheet, wb: Workbook | None = None) -> tuple[int, int]:
     """シートで使っている範囲（値か書式のあるセル・結合）と印刷範囲を合わせた、いちばん下の行・いちばん右の列。
     列全体・行全体の印刷範囲（$A:$H など）は、列・行を決めるだけで、下・右の端は使っている範囲で決める。"""
     rr, cc = sh.max_row, sh.max_col
     for m in sh.merges:
         rr, cc = max(rr, m[2]), max(cc, m[3])
+    sheet_name = getattr(sh, "name", None)
+    for t in (getattr(wb, "tables", None) or {}).values():
+        if t.sheet == sheet_name:  # ファイルが宣言するテーブルの範囲も、使っている範囲
+            rr, cc = max(rr, t.r2), max(cc, t.c2)
     for r1, c1, r2, c2 in sh.print_ranges:
         if r2 < _SHEET_EDGE[0]:
             rr = max(rr, r2)
@@ -179,7 +197,7 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
         for m in sh.merges:
             if (m[0], m[1]) not in sh.cells and not wb.style(sh.style_of(m[0], m[1])).locked:
                 add(m[0], m[1], "シート保護の中で編集できるセル")
-    lim_r, lim_c = _used_limits(sh)
+    lim_r, lim_c = _used_limits(sh, wb)
     for v in sh.validations:
         for r1, c1, r2, c2 in v.sqref:
             # 列全体などの広い範囲は、使っている範囲と印刷範囲（ファイルの作り）までに切る。切った外のセルは、
@@ -205,7 +223,7 @@ def formula_readers(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], dict]:
     memo = sh.__dict__.get(_MEMO)
     if memo is not None and "readers" in memo:
         return memo["readers"]
-    lim_r, lim_c = _used_limits(sh)
+    lim_r, lim_c = _used_limits(sh, wb)
     me = sh.name.lower()
     out: dict[tuple[int, int], dict] = {}
 
@@ -249,9 +267,9 @@ def undecided_cells(wb: Workbook, sh: Sheet, inputs: dict) -> dict[tuple[int, in
         return {}  # 非表示のシート（選択肢の元の表など）は、記入する所ではない
     rows = anchors(sh)
     out: dict[tuple[int, int], str] = {}
-    for hr, spans, body in detect_tables(wb, sh, rows):
-        heads = {a.c1: norm_label(a.cell.value) for a in rows[hr]}
-        for br in body:
+    for t in detect_tables(wb, sh, rows):
+        spans, heads = t.spans, t.heads
+        for br in t.body:
             byc = {a.c1: a for a in rows.get(br, [])}
             if not any((br, c1) in inputs for c1, _c2 in spans):
                 continue
@@ -918,40 +936,104 @@ def fill_blanks(text: str, values, spans: list[tuple[int, int]] | None = None) -
     return "".join(out)
 
 
-def detect_tables(wb: Workbook, sh: Sheet, rows: dict[int, list[Anchor]]):
-    """見出し行と、同じ列割りで続く行を表として取り出す。窓を作るあいだは、同じ配置について1回だけ調べて控える。"""
+@dataclass
+class TableArea:
+    """表の範囲（事実）。how："listobject"（ファイルが表と宣言する：テーブル。ECMA-376 §18.5）か "ruled"（罫線で閉じた格子：
+    すべてのマスの 4 辺に罫線があり、縦と横の罫線が中で交わる）。top：初めの行（ruled では、見出しかどうかは決めない）。
+    heads：列 → 初めの行の字（そのまま。テーブルは見出しの行の字か、テーブルの列の名前）。body：top より下の行。"""
+    how: str
+    top: int
+    spans: list
+    body: list
+    heads: dict
+    name: str = ""
+
+
+def detect_tables(wb: Workbook, sh: Sheet, rows: dict[int, list[Anchor]]) -> list[TableArea]:
+    """ファイルが表と宣言するもの（テーブル）と、罫線で閉じた格子だけを表とする（行・列の数や字の割合の目安は使わない）。
+    窓を作るあいだは、同じ配置について1回だけ調べて控える。"""
     memo = sh.__dict__.get(_MEMO)
     if memo is None:
-        return _detect_tables(rows)
+        return _detect_tables(wb, sh, rows)
     got = memo.get("tables")
     if got is None or got[0] is not rows:
-        got = memo["tables"] = (rows, _detect_tables(rows))
+        got = memo["tables"] = (rows, _detect_tables(wb, sh, rows))
     return got[1]
 
 
-def _detect_tables(rows: dict[int, list[Anchor]]):
-    tables = []
-    used = set()
-    rlist = sorted(rows)
-    for i, r in enumerate(rlist):
-        if r in used:
+def box_sides(wb: Workbook, sh: Sheet, r1: int, c1: int, r2: int, c2: int) -> dict[str, bool]:
+    """マスの範囲の 4 辺の罫線（隣のマスの側に引いた線も数える。ECMA-376 §18.8.4 border）。辺のすべての列・行に線があること。"""
+    def bits(r: int, c: int) -> int:
+        return wb.style(sh.style_of(r, c)).borders if r >= 1 and c >= 1 else 0
+
+    return {"left": all(bits(r, c1) & 1 or bits(r, c1 - 1) & 2 for r in range(r1, r2 + 1)),
+            "right": all(bits(r, c2) & 2 or bits(r, c2 + 1) & 1 for r in range(r1, r2 + 1)),
+            "top": all(bits(r1, c) & 4 or bits(r1 - 1, c) & 8 for c in range(c1, c2 + 1)),
+            "bottom": all(bits(r2, c) & 8 or bits(r2 + 1, c) & 4 for c in range(c1, c2 + 1))}
+
+
+def _detect_tables(wb: Workbook, sh: Sheet, rows: dict[int, list[Anchor]]) -> list[TableArea]:
+    out: list[TableArea] = []
+    taken: list[tuple[int, int, int, int]] = []
+    for t in (getattr(wb, "tables", None) or {}).values():
+        if t.sheet != sh.name:
             continue
-        head = [a for a in rows[r] if a.cell is not None and isinstance(a.cell.value, str) and a.cell.value.strip() and not a.cell.has_formula]
-        if len(head) < 3 or len(head) != len(rows[r]):
-            continue
-        spans = [(a.c1, a.c2) for a in rows[r]]
-        body = []
-        for r2 in rlist[i + 1:]:
-            if r2 != (body[-1] if body else r) + 1:
-                break
-            sp2 = [(a.c1, a.c2) for a in rows[r2]]
-            if not set(sp2) <= set(spans) or len(sp2) < 2:
-                break
-            body.append(r2)
-        if len(body) >= 1:
-            tables.append((r, spans, body))
-            used.update(body)
-    return tables
+        top = t.r1 + t.header_rows - 1 if t.header_rows else t.r1
+        heads = {}
+        for k, c in enumerate(range(t.c1, t.c2 + 1)):
+            cell = sh.cells.get((top, c)) if t.header_rows else None
+            v = cell.value if cell is not None and isinstance(cell.value, str) else (t.columns[k] if k < len(t.columns) else "")
+            heads[c] = label_text(v or "")
+        body = list(range(t.r1 + t.header_rows, t.r2 - t.totals_rows + 1))
+        out.append(TableArea("listobject", top, [(c, c) for c in range(t.c1, t.c2 + 1)], body, heads, t.name))
+        taken.append((t.r1, t.c1, t.r2, t.c2))
+
+    closed: dict[tuple[int, int, int], bool] = {}
+
+    def is_closed(r: int, c1: int, c2: int) -> bool:
+        k = (r, c1, c2)
+        if k not in closed:
+            closed[k] = all(box_sides(wb, sh, r, c1, r, c2).values())
+        return closed[k]
+
+    def split_ok(r: int, c1: int, c2: int) -> bool:
+        """行 r で、列 c1〜c2 が 1 つのマス（結合はその範囲ちょうどで、1 行だけ）か。"""
+        m = sh.merged_at(r, c1)
+        if c1 == c2:
+            return m is None
+        return m is not None and (m[0], m[1], m[2], m[3]) == (r, c1, r, c2)
+
+    used: set[tuple[int, tuple]] = set()
+    for r in sorted(rows):
+        run: list[Anchor] = []
+        runs: list[list[Anchor]] = []
+        for a in sorted(rows[r], key=lambda a: a.c1):
+            if a.r2 == a.r and is_closed(r, a.c1, a.c2) and (not run or a.c1 == run[-1].c2 + 1):
+                run.append(a)
+                continue
+            if len(run) >= 2:
+                runs.append(run)
+            run = [a] if a.r2 == a.r and is_closed(r, a.c1, a.c2) else []
+        if len(run) >= 2:
+            runs.append(run)
+        for run in runs:
+            spans = tuple((a.c1, a.c2) for a in run)
+            if (r, spans) in used or any(r1 <= r <= r2 and not (spans[-1][1] < c1 or spans[0][0] > c2)
+                                         for r1, c1, r2, c2 in taken):
+                continue
+            body = []
+            rr = r + 1
+            # 下の行も同じ列割りで、すべてのマスが閉じている（縦と横の罫線が中で交わる：2 列 × 2 行から格子）
+            while all(split_ok(rr, c1, c2) and is_closed(rr, c1, c2) for c1, c2 in spans):
+                body.append(rr)
+                used.add((rr, spans))
+                rr += 1
+            if body:
+                heads = {a.c1: (label_text(a.cell.value) if a.cell is not None and isinstance(a.cell.value, str) else
+                                (display(wb, a.cell, flag=False) if a.cell is not None and a.cell.value is not None else ""))
+                         for a in run}
+                out.append(TableArea("ruled", r, list(spans), body, heads))
+    return out
 
 
 # ====================================================================== 配置
@@ -1239,7 +1321,8 @@ class Layout:
                 and not (self.sh.protected and self.wb.style(cell.style).locked))
 
     def _locked_slot(self, a: "Anchor") -> bool:
-        """ロックされた空のマスが、見出しの欄の作りか：同じ行のすぐ左（4列以内、あいだは空）に見出しの字があり、
+        """ロックされた空のマスが、見出しの欄の作りか：同じ行の左のいちばん近いマスが見出しの字で（何列はなれていても。
+        離れ方（列の数・mm）は欄の near の left に出す）、
         マスに日付・数の表示形式（作り手が値の形を決めた印）があるか、罫線・塗り・結合があって同じ行の右に入力欄がある
         （配置に入れないと、見出しがその入力欄についてしまう所）。"""
         row = self.rows.get(a.r, [])
@@ -1247,8 +1330,7 @@ class Layout:
         if not left:
             return False
         b = left[-1]
-        if not (b.kind == "text" and b.r2 == b.r and isinstance(b.cell.value, str) and b.cell.value.strip()
-                and a.c1 - b.c2 - 1 <= 4):
+        if not (b.kind == "text" and b.r2 == b.r and isinstance(b.cell.value, str) and b.cell.value.strip()):
             return False
         fmt = self.wb.style(self.sh.style_of(a.r, a.c1)).num_fmt or "General"
         if fmt not in ("General", "@"):
@@ -1306,11 +1388,11 @@ class Layout:
         if left:
             x = max(left, key=lambda x: x.c2)
             if txt(x):
-                out["left"] = {"text": x.cell.value, "label": norm_label(x.cell.value), "cell": x.cell_ref,
+                out["left"] = {"text": x.cell.value, "key": label_key(x.cell.value), "cell": x.cell_ref,
                                "cols": b.c1 - x.c2 - 1, "mm": mm_cols(x.c2 + 1, b.c1 - 1)}
         x = self._above_box(b)
         if x is not None and txt(x):
-            out["above"] = {"text": x.cell.value, "label": norm_label(x.cell.value), "cell": x.cell_ref,
+            out["above"] = {"text": x.cell.value, "key": label_key(x.cell.value), "cell": x.cell_ref,
                             "rows": b.r - x.r2, "mm": mm_rows(x.r2 + 1, b.r - 1)}
         return out
 
@@ -1456,14 +1538,15 @@ class Layout:
 
     def sections(self, r: int, before_col: int) -> list[Box]:
         """その行を含む、縦に結合された見出し（左にあるもの）。結合されていなくても、
-        区分の最初の行にだけ書かれ、下の行は同じ列割りで続いている見出しは引き継ぐ。"""
+        区分の最初の行にだけ書かれ、下の行は同じ列割りで続いている見出しは引き継ぐ（同じ列割りの字の行が続くあいだ。
+        行の数では打ち切らない。何行上の字かは、describe が near の section に出す）。"""
         out = [b for b in self.cover.get(r, []) + self.boxes(r)
                if b.kind == "text" and b.r2 > b.r and b.c2 < before_col and isinstance(b.cell.value, str)]
         texts = [b for b in self.boxes(r) if b.kind == "text" and b.c2 < before_col and isinstance(b.cell.value, str)
                  and b.cell.value.strip() and b.r2 == b.r]
         if len(texts) == 1 and not any(o.c2 < texts[0].c1 for o in out):
             item = texts[0]
-            for rr in range(r - 1, max(0, r - 8), -1):
+            for rr in range(r - 1, 0, -1):
                 above = [b for b in self.boxes(rr) if b.kind == "text" and b.c2 < before_col and isinstance(b.cell.value, str)
                          and b.cell.value.strip()]
                 same = [b for b in above if (b.c1, b.c2) == (item.c1, item.c2)]
@@ -1516,25 +1599,35 @@ class Layout:
         return None
 
     def header(self, target: Box, phrase: list[Box]) -> list[str]:
-        """同じ列の上にある見出し（2段まで）。行の中のほかのマスまで覆う見出し（表題など）は使わない。
-        テーブル（リストオブジェクト）の本体のマスは、テーブルの見出しの行の字（ファイルが見出しと決めている字）をそのまま使い、
-        本体の中の字（見本の値など）を見出しにしない。"""
+        """同じ列の上のいちばん近い見出し（1 段。その上に続く見出しは header_chain の事実として near の header に出す）。"""
+        chain = self.header_chain(target, phrase)
+        return [label_text(chain[0][0])] if chain else []
+
+    def header_chain(self, target: Box, phrase: list[Box]) -> list[tuple[str, Box | None]]:
+        """同じ列の上に続く見出しの並び（近い順。[(印刷された字, マス)]）。何段でも、欄・数式・数のある行に当たるまで
+        たどる（段の数・見出しの幅の目安で打ち切らない。表題のような広い字も、そのまま事実として出す）。
+        いちばん近い段は、行の中のほかのマスまで覆う字（その列だけの見出しではない）なら、見出しなしとする。
+        テーブル（リストオブジェクト）の本体のマスは、テーブルの見出しの行の字（ファイルが見出しと決めている字）だけ。"""
         t = self._list_table(target.r, target.c1)
         if t is not None and t.header_rows:
-            cell = self.sh.cells.get((t.r1 + t.header_rows - 1, target.c1))
+            hr = t.r1 + t.header_rows - 1
+            cell = self.sh.cells.get((hr, target.c1))
             v = cell.value if cell is not None and isinstance(cell.value, str) and cell.value.strip() else None
             if v is None and target.c1 - t.c1 < len(t.columns):
                 v = t.columns[target.c1 - t.c1] or None
-            return [norm_label(v)] if v else []
+            if not v:
+                return []
+            hb = next((x for x in self._cand(hr, (target.c1, target.c1)) if x.kind == "text"), None)
+            return [(v, hb)]
         others = [b for b in self.boxes(target.r) if b not in phrase and b.kind != "check"]
         lo = min(b.c1 for b in phrase) if phrase else target.c1
         hi = max(b.c2 for b in phrase) if phrase else target.c2
-        out: list[str] = []
+        out: list[tuple[str, Box | None]] = []
         r = target.r - 1
         shape = self.shape(target.r)
         span = (target.c1, target.c2)
         # 何行はなれていても見る（行の数の目安で打ち切らない。離れ方は near に出す）。列の範囲にマスのない行はとばす
-        while r > 0 and len(out) < 2:
+        while r > 0:
             if not out:
                 # 表の本体の行（同じ形）と、同じ列割りの欄が上に続く行（表の列）は、数えずに上へ。続く所の上まで、まとめて飛ぶ
                 r = self._skip_up(r, shape, span)
@@ -1549,25 +1642,39 @@ class Layout:
             texts = [b for b in cand if _text(b)]
             if out and any(b.kind in ("input", "formula") or (b.kind == "text" and not isinstance(b.cell.value, str))
                            for b in cand):
-                break  # 親の見出しは、すぐ上に続く見出しだけ（欄や数値をまたがない）
+                break  # 上に続く見出しは、欄や数値をまたがない
             if not texts:
                 r -= 1
                 continue
             h = texts[0]
-            covered = [o for o in others if o.c1 <= h.c2 and o.c2 >= h.c1 and not (lo <= o.c1 and o.c2 <= hi)
-                       and not (o.kind == "formula" and not o.text)]
-            if out:
-                # 2段目（親の見出し）は、いくつかの列をまとめていてよい。表題のように広いものは使わない
-                if len(covered) > 4 or (h.c2 - h.c1 + 1) > max(12, 3 * (span[1] - span[0] + 1)):
+            if not out:
+                covered = [o for o in others if o.c1 <= h.c2 and o.c2 >= h.c1 and not (lo <= o.c1 and o.c2 <= hi)
+                           and not (o.kind == "formula" and not o.text)]
+                if covered:
                     break
-            elif covered:
-                break
-            label = norm_label(h.cell.value)
-            if label not in out:
-                out.insert(0, label)
+            if all(x is not h for _t, x in out):
+                out.append((h.cell.value, h))
             span = (h.c1, h.c2)
             r = h.r - 1
         return out
+
+    def _fact(self, x: Box | None, target: Box, text: str | None = None) -> dict:
+        """近くの字の事実：印刷された字のまま（text）・探す鍵（key）・番地・広さ（cols）・target からの離れ方
+        （上なら rows と mm、左なら cols_between と mm）。"""
+        t = text if text is not None else (x.cell.value if x is not None and x.cell is not None else "")
+        d: dict = {"text": t, "key": label_key(t)}
+        if x is None:
+            return d
+        d["cell"] = x.ref if x.control is None else x.cell_ref
+        d["cols"] = x.c2 - x.c1 + 1
+        if x.r2 < target.r:
+            d["rows"] = target.r - x.r2
+            d["mm"] = round(sum(row_mm(self.sh, rr) for rr in range(x.r2 + 1, target.r)), 1)
+        elif x.c2 < target.c1:
+            d["rows"] = 0
+            d["cols_between"] = target.c1 - x.c2 - 1
+            d["mm"] = round(sum(col_mm(self.wb, self.sh, c) for c in range(x.c2 + 1, target.c1)), 1)
+        return d
 
     def grid_header(self, target: Box) -> tuple[str | None, list[str]] | None:
         """表の格子（左に行の見出しの列・上に列の見出しの行があり、そのあいだに空のマスが並ぶ表。週間の予定表など）の中の
@@ -1616,7 +1723,7 @@ class Layout:
         def shown(b: Box) -> str:
             if b.cell is None or b.cell.value in (None, ""):
                 return ""
-            return norm_label(b.cell.value) if isinstance(b.cell.value, str) else display(self.wb, b.cell, flag=False).strip()
+            return label_text(b.cell.value) if isinstance(b.cell.value, str) else display(self.wb, b.cell, flag=False).strip()
 
         def row_head(rr: int) -> Box | None:
             left = [b for b in self.boxes(rr) + self.cover.get(rr, []) if b.c2 < left_edge and b.kind == "text" and shown(b)
@@ -1670,7 +1777,8 @@ class Layout:
         if not shown:
             phrase = [target]
         first = phrase[0]
-        secs = [norm_label(b.cell.value) for b in self.sections(r, first.c1)]
+        sec_boxes = self.sections(r, first.c1)
+        secs = [label_text(b.cell.value) for b in sec_boxes]
         left_edge = first.c1
         nearest = [b for b in row if b.c2 < left_edge and b.kind != "check"]
         lefts = []
@@ -1694,16 +1802,16 @@ class Layout:
             nxt = [b for b in row if b.c1 > target.c2 and b.kind != "check"]
             if (nxt and nxt[0].kind == "text") or target.kind == "check":
                 t = rights[0]
-                item = norm_label(t.cell.value)
+                item = label_text(t.cell.value)
                 if _is_marker(item):
                     nxt_text = [b for b in self.boxes(t.r) if b.c1 > t.c2 and _text(b)]
                     if nxt_text:
-                        item = item + norm_label(nxt_text[0].cell.value)
+                        item = item + label_text(nxt_text[0].cell.value)
                     elif len(rights) > 1:
-                        item = item + norm_label(rights[1].cell.value)
+                        item = item + label_text(rights[1].cell.value)
                 method.append(f"{after}の項目")
         if item is None and lefts:
-            item = norm_label(lefts[-1].cell.value)
+            item = label_text(lefts[-1].cell.value)
             method.append(f"{before}の見出し")
         if lefts:
             # 同じ行で、見出しのすぐ前に続く見出し（「法人名｜フリガナ」の「法人名」）は区分として読む。
@@ -1718,16 +1826,15 @@ class Layout:
                     break  # すぐ前が欄の字（「［］ヶ月）」の「ヶ月）」）：前の欄の並びの続きで、この欄の区分ではない
                 more.insert(0, b)
             for b in more:
-                t = norm_label(b.cell.value)
+                t = label_text(b.cell.value)
                 if _is_marker(t) and item:
                     item = t + item
                 elif t not in secs:
                     secs.append(t)
-        heads = self.header(target, phrase)
+        chain = self.header_chain(target, phrase)
+        heads = [label_text(chain[0][0])] if chain else []
         parts = list(secs)
         between_text = None  # 前の字が、あいだの別の欄の見出しのとき（見出しにせず、別に示す）
-        sh_ = self.shape(r)
-        repeated = bool(sh_) and (self.shape(r - 1) == sh_ or self.shape(r + 1) == sh_)
         grid = self.grid_header(target) if target.kind == "input" and not shown and self._list_table(r, target.c1) is None \
             else None
         if grid is not None:
@@ -1735,9 +1842,10 @@ class Layout:
             row_h, col_h = grid
             parts = ([row_h] if row_h else []) + [h for h in col_h if h != row_h]
             method.append("表の行の見出し・列の見出し" if row_h else "表の列の見出し（この行に行の見出しはない）")
-        elif heads and (item is None or repeated or self._list_table(r, target.c1) is not None):
-            # 表の欄（同じ形の行が続く・テーブルの本体）：行の見出し（前）と列の見出し（上）の両方で呼ぶ。
-            # 「見出し｜値」が縦に並ぶだけの行では、上の行の値を見出しと取り違えないよう、上は見ない
+        elif heads and (item is None or self._list_table(r, target.c1) is not None):
+            # 前（左）に見出しのない欄は、上のいちばん近い見出しで呼ぶ。テーブル（リストオブジェクト：ファイルが表と宣言する）の
+            # 本体は、行の見出し（前）と列の見出し（上）の両方で呼ぶ。同じ形の行が続くだけ（宣言のない表）では、上の見出しを
+            # 見出しに付けない（上の見出しの並びは near の header に、字のまま・離れ方つきで出す）
             if item is None:
                 key = self.row_key(r, first.c1)
                 if key and key not in parts:
@@ -1792,13 +1900,17 @@ class Layout:
             # すぐ後ろ（右。右から左のシートでは左）のマスの字（「金額｜［］｜円」の「円」）：そのまま示す（単位かどうかは決めない）
             nxt = [b for b in row if b.c1 > target.c2 and b.kind != "check"]
             if nxt and nxt[0].c1 == target.c2 + 1 and _word(nxt[0]):
-                out["after"] = norm_label(nxt[0].cell.value)
+                out["after"] = label_text(nxt[0].cell.value)
         near = self._near_text(target)
         rt = [b for b in row if b.c1 > target.c2 and b.kind != "check"]
         if rt and _text(rt[0]):
-            near["right"] = {"text": rt[0].cell.value, "label": norm_label(rt[0].cell.value), "cell": rt[0].cell_ref,
+            near["right"] = {"text": rt[0].cell.value, "key": label_key(rt[0].cell.value), "cell": rt[0].cell_ref,
                              "cols": rt[0].c1 - target.c2 - 1,
                              "mm": round(sum(col_mm(self.wb, self.sh, c) for c in range(target.c2 + 1, rt[0].c1)), 1)}
+        if chain:
+            near["header"] = [self._fact(x, target, t) for t, x in chain]  # 上に続く見出しの並び（近い順。何段でも）
+        if sec_boxes:
+            near["section"] = [self._fact(x, target) for x in sec_boxes]  # 区分の見出し（縦の結合・上から続く行の字）
         if near:
             out["near"] = near  # 近くの字（事実）：左・上・右のいちばん近い字と、その離れ方（マスの数と mm）
         return out
@@ -1824,7 +1936,7 @@ class Layout:
                 break  # 空の列をはさむ・テーブルの外
             edge = min(edge, b.c1)
             if b.r == r and _text(b) and not _is_marker(b.cell.value):
-                text = norm_label(b.cell.value)
+                text = label_text(b.cell.value)
                 return (text, between) if with_between else text
             if b.kind in ("input", "formula", "agent", "locked"):
                 between.insert(0, b.cell_ref)
@@ -1929,7 +2041,7 @@ class Layout:
         own = [b for b in own if include_outside or not b.outside]
         first = min((b.c1 for b in own), default=10 ** 6)
         carried = [b for b in self.cover.get(r, []) if b.kind == "text" and b.c2 < first]
-        parts = [f"（{norm_label(b.text)}）" for b in sorted(carried, key=lambda b: b.c1)]
+        parts = [f"（{label_text(b.text)}）" for b in sorted(carried, key=lambda b: b.c1)]
         own = [b for b in own if b.kind != "formula" or b.text]
         inside = [self.token(b, b is mark_box) for b in own if not b.outside]
         outside = [self.token(b, b is mark_box) for b in own if b.outside]
@@ -2081,7 +2193,7 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
                 whys = [k for _x, _y, k in b.blanks if k is not None]
                 n = len(b.blanks)
                 f = {"id": f"{sh.name}!{b.cell_ref}", "cell": b.cell_ref, "kind": "inline",
-                     "value": t, "blanks": n, "label": norm_label(shown),
+                     "value": t, "blanks": n, "label": label_text(shown),
                      "label_method": "文字の中の空欄", "context": lay.line(r, mark_box=b),
                      "write_as": f"空欄ごとの値のリスト（{n} 個、例 {['…'] * n}。［？］の所も数え、書かない所は null）か、"
                                  "書き換えたあとの文字全体"
@@ -2175,6 +2287,10 @@ def _with_codes(fields: list[dict]) -> list[dict]:
     for f in fields:
         if "reason" in f:
             f["reason_codes"] = reason_codes(f["reason"])
+        if f.get("label"):
+            k = label_key(f["label"])
+            if k != f["label"]:
+                f["label_key"] = k  # 探すための、字間の空白を詰めた写し（見出しは印刷された字のまま）
     return fields
 
 
@@ -2189,11 +2305,11 @@ def evidence_text(ev: dict, before: str = "左") -> str:
         parts.append(f"結合 {ev['merged']}")
     if ev.get("left"):
         x = ev["left"]
-        t = _clip(x.get("label", x["text"]))
+        t = _clip(label_text(x["text"]))
         parts.append(f"{before}の字「{t}」（{'すぐ' + before if not x['cols'] else str(x['cols']) + ' 列' + str(x.get('mm', '')) + ' mm あけて' + before}）")
     if ev.get("above"):
         x = ev["above"]
-        t = _clip(x.get("label", x["text"]))
+        t = _clip(label_text(x["text"]))
         parts.append(f"上の字「{t}」（{x['rows']} 行上" + (f"・{x['mm']} mm あけて" if x.get("mm") else "") + "）")
     if ev.get("size_mm"):
         parts.append(f"大きさ {ev['size_mm']['w']}×{ev['size_mm']['h']} mm")
@@ -2377,6 +2493,8 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
         f = labels.get(item["cell"])
         if f is not None and f["kind"] != "checkbox" and f.get("label"):
             item["label"] = f["label"]
+            if f.get("label_key"):
+                item["label_key"] = f["label_key"]
     return {
         "name": sh.name,
         "state": sh.state,
@@ -2431,19 +2549,30 @@ def _runs(xs: list[int], cols: bool = False) -> list[str]:
 
 
 def _tables(wb: Workbook, sh: Sheet) -> list[dict]:
+    """表（事実）：ファイルが宣言するテーブルと、罫線で閉じた格子。列の名前は初めの行（テーブルは見出しの行）の字のまま。
+    同じ名前・空の名前の列は、行の値の鍵に列の記号を添えて分ける（columns は字のまま）。"""
+    from ..formula.parser import num_to_col
+
     rows = anchors(sh)
     out = []
-    for hr, spans, body in detect_tables(wb, sh, rows):
-        heads = {a.c1: norm_label(a.cell.value) for a in rows[hr]}
+    for t in detect_tables(wb, sh, rows):
+        cols = [t.heads.get(c1, "") for c1, _c2 in t.spans]
+        keys = [c if c and cols.count(c) == 1 else f"{c}〔{num_to_col(c1)}〕" for c, (c1, _c2) in zip(cols, t.spans)]
         trs = []
-        for br in body:
-            byc = {a.c1: a for a in rows[br]}
-            trs.append({heads[c1]: (display(wb, byc[c1].cell) if c1 in byc and byc[c1].cell else "") for c1, _ in spans})
-        # 見出しの行（3つ以上の文字だけのマスの行）と、同じ列割りで続く行を表とみなすのは、配置からの推定（ファイルに
-        # 表の印はない）。表かどうか・どの行までが表かは、エージェントが読んで判断する
-        out.append({"header_row": hr, "columns": [heads[c] for c, _ in spans],
-                    "rows": trs, "provenance": LAYOUT, "decide": "agent",
-                    "method": "列割りが同じ行の連続を表とみなした（配置からの推定。ファイルに表の印はない）"})
+        for br in t.body:
+            byc = {a.c1: a for a in rows.get(br, [])}
+            trs.append({k: (display(wb, byc[c1].cell) if c1 in byc and byc[c1].cell else "") for k, (c1, _c2) in zip(keys, t.spans)})
+        last = t.body[-1] if t.body else t.top
+        d = {"how": t.how, "range": f"{addr(t.top, t.spans[0][0])}:{addr(last, t.spans[-1][1])}", "header_row": t.top,
+             "columns": cols, "rows": trs, "provenance": DET}
+        if t.how == "listobject":
+            d["name"] = t.name
+            d["method"] = "ファイルが宣言するテーブル（リストオブジェクト）。列の名前は見出しの行の字"
+        else:
+            d["decide"] = "agent"
+            d["method"] = ("罫線で閉じた格子（すべてのマスの 4 辺に罫線があり、縦と横の罫線が中で交わる）。columns は初めの行の字の"
+                           "まま。初めの行が見出しか・表として読むかは、エージェントが判断する")
+        out.append(d)
     return out
 
 

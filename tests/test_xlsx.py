@@ -280,7 +280,8 @@ def test_filled_file_structure(edits):
 def test_window_lists_inputs_with_labels():
     doc = window.build(load(str(KAMI)))
     cells = {c["cell"]: c for c in doc["sheets"][0]["cells"]}
-    assert cells["I4"]["input"] and cells["I4"]["label"] == "地域区分"
+    # 見出しは印刷された字のまま（字間の空白を詰めない）。探すための詰めた写しは label_key
+    assert cells["I4"]["input"] and cells["I4"]["label"] == "地 域 区 分" and cells["I4"]["label_key"] == "地域区分"
     assert cells["O9"]["rules"][0]["type"] == "whole"
     # 表の列は列の見出しで呼び、どの行かは context（その行の並び）で分かる
     assert cells["O9"]["label"] == "回数"

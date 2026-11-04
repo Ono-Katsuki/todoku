@@ -185,3 +185,79 @@ def test_ods_length_parse_returns_none_when_unreadable():
     from todoku.odf.sheet import _pt
 
     assert _pt("1in") == 72 and _pt("2.54cm") == pytest.approx(72, rel=1e-3) and _pt("auto") is None and _pt("") is None
+
+
+# ---------------------------------------------------------------- 見出しは字のまま・上に続く見出しと区分は事実（段の数・行の数で打ち切らない）
+def _protected(ws, cells):
+    from openpyxl.styles import Protection
+
+    ws.protection.sheet = True
+    for ref in cells:
+        ws[ref].protection = Protection(locked=False)
+
+
+@pytest.mark.parametrize("label,key", [("氏　　名", "氏名"), ("성　　명", "성명"), ("姓　　名", "姓名"),
+                                       ("N a m e", "N a m e"), ("الاسم", "الاسم")])
+def test_label_is_verbatim_and_compacted_copy_is_only_a_key(label, key):
+    def build(wb):
+        ws = wb.active
+        ws.title = "S"
+        ws["A1"] = label
+        _protected(ws, ["B1"])
+
+    f = _fields(_blob(build))["S!B1"]
+    assert f["label"] == label  # 字間の空白を詰めない
+    assert f.get("label_key", f["label"]) == key  # 詰めた写しは、探すための鍵として別に
+    assert f["near"]["left"]["text"] == label and f["near"]["left"]["key"] == key
+
+
+@pytest.mark.parametrize("parent,a,b", [("電話番号", "自宅", "携帯"), ("Phone", "Home", "Mobile"), ("هاتف", "منزل", "جوال"),
+                                        ("전화", "자택", "휴대")])
+def test_two_header_rows_are_reported_verbatim_with_spans_and_distance(parent, a, b):
+    def build(wb):
+        ws = wb.active
+        ws.title = "S"
+        ws["B1"] = parent
+        ws.merge_cells("B1:C1")
+        ws["B2"], ws["C2"] = a, b
+        _protected(ws, ["B3", "C3"])
+
+    f = _fields(_blob(build))
+    b3 = f["S!B3"]
+    assert b3["label"] == a  # 見出しは、上のいちばん近い字だけ（上の段を幅の目安で選んで付けない）
+    hd = b3["near"]["header"]
+    assert [h["text"] for h in hd] == [a, parent]
+    assert hd[0]["rows"] == 1 and hd[0]["cols"] == 1 and hd[1]["rows"] == 2 and hd[1]["cols"] == 2
+    assert hd[1]["cell"] == "B1:C1" and hd[1]["mm"] > 0 and hd[0]["mm"] == 0
+
+
+@pytest.mark.parametrize("head,rows", [("Name", ["x1", "x2", "x3"]), ("氏名", ["父", "母", "子"]), ("이름", ["가", "나", "다"])])
+def test_repeated_rows_do_not_inherit_the_heading_above(head, rows):
+    def build(wb):
+        ws = wb.active
+        ws.title = "S"
+        ws["B1"] = head
+        for i, t in enumerate(rows, 2):
+            ws.cell(i, 1, t)
+        _protected(ws, ["B2", "B3", "B4"])
+
+    b3 = _fields(_blob(build))["S!B3"]
+    # 同じ形の行が続くだけ（ファイルに表の宣言はない）：見出しは前（左）の字。上の見出しは near の header に事実として
+    assert b3["label"] == rows[1] and b3["label_method"] == "左の見出し"
+    assert b3["near"]["header"][0]["text"] == head and b3["near"]["header"][0]["rows"] == 2
+
+
+def test_section_heading_is_found_however_far_above_and_reported_with_distance():
+    def build(wb):
+        ws = wb.active
+        ws.title = "S"
+        ws["A1"] = "区分"
+        for r in range(1, 13):
+            ws.cell(r, 2, f"項目{r}")
+        _protected(ws, [f"C{r}" for r in range(1, 13)])
+
+    c12 = _fields(_blob(build))["S!C12"]
+    # 区分の見出しは、同じ列割りの字の行が続くあいだ引き継ぐ（以前は 8 行で打ち切っていた）。何行上かは事実
+    assert c12["label"] == "区分／項目12"
+    sec = c12["near"]["section"]
+    assert [(s["text"], s["cell"], s["rows"]) for s in sec] == [("区分", "A1", 11)] and sec[0]["mm"] > 40

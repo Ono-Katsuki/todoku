@@ -157,15 +157,43 @@ def test_after_label_is_not_cut_by_length_or_other_blanks():
     assert window.agent_blanks("上記のとおり申請します。") == []  # 文の区切りのある段落は、見出しではない
 
 
-def test_tables_are_layout_estimates():
+def test_tables_are_declared_or_ruled_grids_only():
+    from openpyxl.styles import Border, Side
+
+    def build(ruled):
+        def b(wb):
+            ws = wb.active
+            ws.title = "S"
+            ws.append(["品名", "数量", "単価"])
+            ws.append(["りんご", 3, 100])
+            if ruled:
+                thin = Side(style="thin")
+                for row in ws["A1:C2"]:
+                    for c in row:
+                        c.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        return b
+
+    # 字の並びだけ（列の数・字の割合の目安）では表にしない（以前は、字だけのマスが 3 つ以上の行と続く行を表とみなしていた）
+    assert doc_of(blob_of(build(False)))["sheets"][0]["tables"] == []
+    # 罫線で閉じた格子は、事実として表の範囲を出す（初めの行が見出しかは、エージェントが判断する）
+    t = doc_of(blob_of(build(True)))["sheets"][0]["tables"][0]
+    assert t["how"] == "ruled" and t["range"] == "A1:C2" and t["decide"] == "agent"
+    assert t["columns"] == ["品名", "数量", "単価"] and t["rows"] == [{"品名": "りんご", "数量": "3", "単価": "100"}]
+
+
+@pytest.mark.parametrize("heads", [["Item", "Qty"], ["항목", "수량"], ["البند", "الكمية"]])
+def test_list_object_table_is_declared(heads):
+    from openpyxl.worksheet.table import Table
+
     def build(wb):
         ws = wb.active
         ws.title = "S"
-        ws.append(["品名", "数量", "単価"])
-        ws.append(["りんご", 3, 100])
+        ws.append(heads)
+        ws.append(["a", 1])
+        ws.add_table(Table(displayName="T1", ref="A1:B2"))
 
     t = doc_of(blob_of(build))["sheets"][0]["tables"][0]
-    assert t["provenance"] == "layout" and t["decide"] == "agent"
+    assert t["how"] == "listobject" and t["name"] == "T1" and t["columns"] == heads and "decide" not in t
 
 
 def test_image_only_sheet_is_decided_by_structure():

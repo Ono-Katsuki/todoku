@@ -185,6 +185,11 @@ VALS = [("A2:A9", "list"), ("C2:C9", "decimal")]
 
 
 def test_xlsx_unmarked_table_columns_are_left_to_the_agent():
+    import io
+
+    import openpyxl
+    from openpyxl.worksheet.table import Table
+
     from todoku.xlsx.diagnose import diagnose
     from todoku.xlsx.window import input_cells, undecided_cells
     from todoku.xlsx.workbook import Workbook
@@ -194,8 +199,25 @@ def test_xlsx_unmarked_table_columns_are_left_to_the_agent():
     got = input_cells(wb, sh)
     # 入力規則のある列だけが、規則で決めた入力欄
     assert (2, 1) in got and (2, 3) in got and (2, 2) not in got and (2, 4) not in got
-    # 印のない「Description」「Notes」の列は、入力欄と言い切らず「規則では決められない」
-    und = undecided_cells(wb, sh, got)
+    # 罫線もテーブルの宣言もない字の並びは、表とみなさない（以前は字だけの行と続く行を表とみなし、印のない列を「？」にしていた）
+    assert undecided_cells(wb, sh, got) == {}
+    # ファイルが表と宣言する（テーブル）なら、その行の印のない列は「規則では決められない」
+    x = openpyxl.Workbook()
+    ws = x.active
+    ws.title = "Budget"
+    ws.append(["Type", "Description", "Amount", "Notes"])
+    for _ in range(8):
+        ws.append([None, None, None, None])
+    from openpyxl.worksheet.datavalidation import DataValidation
+    dv = DataValidation(type="list", formula1='"A,B"')
+    ws.add_data_validation(dv)
+    dv.add("A2:A9")
+    ws.add_table(Table(displayName="T", ref="A1:D9"))
+    buf = io.BytesIO()
+    x.save(buf)
+    wb = Workbook(buf.getvalue())
+    sh = wb.sheet("Budget")
+    und = undecided_cells(wb, sh, input_cells(wb, sh))
     assert und[(2, 2)] == "Description" and und[(9, 4)] == "Notes" and (1, 2) not in und
     sc = diagnose(wb).score()
     assert sc["rules_reached_name"] == "操作できるの手前" and sc["rules_reached"] < sc["reached"]
@@ -207,5 +229,5 @@ def test_xlsx_example_pairs_renamed_sheet():
     blank = make_xlsx({"Budget": (HEAD, VALS)})
     filled = make_xlsx({"Sample budget": ({**HEAD, "A2": "A", "B2": "Hall hire", "C2": 120, "D2": "30 people"}, VALS)})
     r = xlsx_check(blank, filled)
-    assert r.inputs == 4 and not r.not_input_fields, (r.headline(), r.not_input_fields)
-    assert sorted(r.agent_fields) == ["Budget!B2", "Budget!D2"]  # 印のない列に書かれた所は、エージェントの判断の所
+    # 印のない列（罫線もテーブルの宣言もない）に書かれた所は、欄の印も「？」もない所として数える（表とみなす目安はやめた）
+    assert r.inputs == 4 and sorted(r.not_input_fields) == ["Budget!B2", "Budget!D2"], (r.headline(), r.not_input_fields)
