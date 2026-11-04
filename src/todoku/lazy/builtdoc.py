@@ -89,7 +89,7 @@ class BuiltDoc(LazyDoc):
     def _sheet_text(self, name: str, rows) -> str:
         """窓の中の 1 つのシートの節。読んでいない部分の注のうち、そのシートの名前のあるものを前に添える。"""
         text = self.whole()
-        heads = list(re.finditer(r"^## シート「(.*)」$", text, re.M))
+        heads = list(re.finditer(r"^## シート「(.*)」(?:（非表示[^）]*）)?$", text, re.M))  # 非表示のシートも、名前で読める
         if not heads:
             raise RangeError("この書類はシートの範囲では読めません（part か cursor で読んでください）")
         at = next((i for i, m in enumerate(heads) if m[1] == name), None)

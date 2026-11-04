@@ -146,6 +146,7 @@ class PptxDocument:
             srels = rels_of(self.zip, part)
             s = {"n": self._slide, "part": part, "hidden": sld.get("show") in ("0", "false"), "notes": None,
                  "blocks": self._csld(sld, part, srels), "notes_blocks": []}
+            self._slide_links(sld, part)
             for _rid_, (t, tg) in srels.items():
                 kind = t.rsplit("/", 1)[-1]
                 name = _join(part, tg)
@@ -177,6 +178,21 @@ class PptxDocument:
             blocks = self._csld(troot.kids[0], name, rels_of(self.zip, name), template=True)
             if blocks:
                 self.templates.append((name, blocks))
+
+    def _slide_links(self, sld: Node, part: str) -> None:
+        """字に付いたリンク（a:rPr の a:hlinkClick の r:id。先は関係の Target。外のリンクも含む）。"""
+        d, base = part.rsplit("/", 1)
+        rp = f"{d}/_rels/{base}.rels"
+        if not self.zip.has(rp):
+            return
+        targets = {a.get("Id"): a.get("Target") for a in parse(self.zip.read(rp), frozenset()).iter("Relationship")}
+        for r in sld.iter("r"):
+            rpr = r.find("rPr")
+            h = rpr.find("hlinkClick") if rpr is not None else None
+            tg = targets.get(h.get("id")) if h is not None else None
+            if tg:
+                t = r.find("t")
+                self.__dict__.setdefault("links", []).append((t.text if t is not None else "", tg))
 
     def _comment_authors(self) -> dict[str, str]:
         """コメントの書き手：commentAuthors.xml（p:cmAuthor の id・name）と、新しい形の authors.xml（p188:author の id・name）。"""

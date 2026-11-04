@@ -93,6 +93,7 @@ class _Field:
     ff: dict = field(default_factory=dict)
     n0: int = 0
     para: Para | None = None
+    at_result: tuple | None = None
 
 
 class _Cell:
@@ -471,6 +472,25 @@ class RtfDocument:
                 while fields and fields[-1][0] == depth:
                     _d, fd = fields.pop()
                     self._close_field(fd, story, t)
+                    now = story.para
+                    if fd.ctl is None and fd.instr and fd.kind == "result":
+                        from ..links import field_target
+
+                        target = field_target("".join(fd.instr))
+                        if target:
+                            shown = fd.para.segs[fd.n0:] if fd.para is not None else []
+                            self.__dict__.setdefault("links", []).append(("".join(s.text for s in shown), target))
+                    no_result = fd.kind != "result" or now is None or len(now.segs) == (fd.at_result[1] if fd.at_result and fd.at_result[0] is now else 0)
+                    if fd.ctl is None and fd.instr and no_result:
+                        # 結果の字のない EQ フィールド（ふりがななど）：命令の中の字が見える字
+                        from ..eqfield import eq_text
+
+                        got = eq_text("".join(fd.instr))
+                        if got is not None:
+                            src = RSrc("ctl", t.s, t.s)
+                            para().segs.append(Seg(got[0], "ruby" if got[1] is not None else "other", src))
+                            if got[1]:
+                                para().segs += [Seg("（", "other", src), Seg(got[1], "ruby", src), Seg("）", "other", src)]
                 if story_stack and story_stack[-1][0] == depth:
                     _d, outer = story_stack.pop()
                     end_para(None, "end")
@@ -690,6 +710,7 @@ class RtfDocument:
             if fields:
                 fd = fields[-1][1]
                 fd.kind = "result"
+                fd.at_result = (story.para, len(story.para.segs) if story.para is not None else 0)  # 結果の字があったかを、閉じるときに見分ける
                 self._open_result(fd, story, t)
             return "keep"
         if w in ("listtext", "pntext"):

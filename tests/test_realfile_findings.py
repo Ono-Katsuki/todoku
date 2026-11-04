@@ -482,3 +482,141 @@ def test_pptx_comments_old_and_new_forms(tmp_path):
     assert "コメント（書いた人）：古い形のコメント" in t
     assert "新しい形のコメント" in t and "返信の字" in t
     assert "本文" in t
+
+
+# ---------------------------------------------------------------- ふりがな（EQ フィールド）
+def test_eq_ruby_text():
+    from todoku.eqfield import eq_text
+
+    assert eq_text(r' EQ \* jc2 \* "Font:ＭＳ 明朝" \* hps10 \o\ad(\s\up 9(かんじ),漢字)') == ("漢字", "かんじ")
+    assert eq_text(r"EQ \o\al(\s\up 10(ふり);仮名)") == ("仮名", "ふり")
+    assert eq_text(r"DATE \@ yyyy") is None
+    assert "読めない形" in eq_text(r"EQ \f(1,2)")[0]  # 分かる形でなければ、命令のまま伝える
+
+
+def test_doc_eq_ruby_shows_base_text(tmp_path):
+    """.doc のふりがなの字が窓から消えていた（結果の字のない EQ フィールド。LibreOffice の読みと照らして発見）。"""
+    text = "氏\x13 EQ \\o\\ad(\\s\\up 9(かんじ),漢字)\x15名\r"
+    t = "\n".join(x[1] for x in api.window(_p(tmp_path, "a.doc", _doc97(text)))[2])
+    assert "氏漢字（かんじ）名" in t
+
+
+def test_rtf_eq_ruby_shows_base_text(tmp_path):
+    rtf = (rb"{\rtf1\ansi\deff0{\fonttbl{\f0 MS Mincho;}}\pard a"
+           rb"{\field{\*\fldinst EQ \\o\\al(\\s\\up 10(\u12363?),\u28450?\u23383?)}{\fldrslt {}}}"
+           rb"b\par}")
+    t = "\n".join(x[1] for x in api.window(_p(tmp_path, "a.rtf", rtf))[2])
+    assert "a漢字（か）b" in t
+
+
+def test_rtf_field_with_result_keeps_only_the_result(tmp_path):
+    rtf = (rb"{\rtf1\ansi\deff0{\fonttbl{\f0 Arial;}}\pard a"
+           rb"{\field{\*\fldinst EQ \\f(1,2)}{\fldrslt{RESULT}}}"
+           rb"b\par}")
+    t = "\n".join(x[1] for x in api.window(_p(tmp_path, "a.rtf", rtf))[2])
+    assert "aRESULTb" in t and "読めない形" not in t
+
+
+# ---------------------------------------------------------------- リンクの先
+def _hlink_url(url: str, r: int = 0, c: int = 0) -> bytes:
+    u = (url + "\0").encode("utf-16-le")
+    return _r(0x01B8, struct.pack("<HHHH", r, r, c, c) + bytes.fromhex("d0c9ea79f9bace118c8200aa004ba90b")
+              + struct.pack("<II", 2, 3) + bytes.fromhex("e0c9ea79f9bace118c8200aa004ba90b") + struct.pack("<I", len(u)) + u)
+
+
+def _hlink_location(loc: str) -> bytes:
+    t = (loc + "\0").encode("utf-16-le")
+    return _r(0x01B8, struct.pack("<HHHH", 1, 1, 0, 0) + bytes(16) + struct.pack("<II", 2, 8) + struct.pack("<I", len(t) // 2) + t)
+
+
+def test_xls_hyperlinks_reach_the_window(tmp_path):
+    """.xls のリンクの先を読んでいなかった。.xlsx・.xlsb は読んでいたが、どれも窓に出ていなかった（LibreOffice の読みと照らして発見）。"""
+    cell = _r(0x00FD, struct.pack("<HHHI", 0, 0, 0, 0))
+    p = _p(tmp_path, "a.xls", _xls(["こちら"], 1, cell + _hlink_url("https://example.com/form") + _hlink_location("Sheet2!A1")))
+    _k, doc, parts = api.window(p)
+    assert doc["sheets"][0]["links"][0]["target"] == "https://example.com/form"
+    assert doc["sheets"][0]["links"][1]["target"] == "Sheet2!A1"
+    assert "A1 → https://example.com/form" in "\n".join(x[1] for x in parts)
+
+
+def test_xls_unreadable_hyperlink_is_reported(tmp_path):
+    bad = _r(0x01B8, struct.pack("<HHHH", 0, 0, 0, 0) + bytes(16) + struct.pack("<II", 2, 1) + bytes(16))
+    wb = open_book(_xls(["字"], 1, bad), "a.xls")
+    assert any("リンク" in u for u in wb.sheet("S").unread)
+
+
+def test_field_target():
+    from todoku.links import field_target
+
+    assert field_target(' HYPERLINK "https://a.example/b?c=1" ') == "https://a.example/b?c=1"
+    assert field_target(r'HYPERLINK \l "しおり"') == "#しおり"
+    assert field_target(r'HYPERLINK "x.doc" \l "k" \o "ヒント"') == "x.doc#k"
+    assert field_target("PAGE") is None
+
+
+def test_word_hyperlink_section(tmp_path):
+    from test_docx import make_docx
+
+    body = ('<w:p><w:hyperlink r:id="rIdL" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:r><w:t>申請先</w:t></w:r></w:hyperlink></w:p>')
+    blob = make_docx(body)
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(blob)) as a, zipfile.ZipFile(out, "w") as b:
+        for i in a.infolist():
+            d = a.read(i.filename)
+            if i.filename == "word/_rels/document.xml.rels":
+                d = d.replace(b"</Relationships>", b'<Relationship Id="rIdL" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
+                                                   b'Target="https://example.com/x" TargetMode="External"/></Relationships>')
+            b.writestr(i.filename, d)
+        if "word/_rels/document.xml.rels" not in a.namelist():
+            b.writestr("word/_rels/document.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdL" '
+                       'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/x" TargetMode="External"/></Relationships>')
+    t = "\n".join(x[1] for x in api.window(_p(tmp_path, "a.docx", out.getvalue()))[2])
+    assert "申請先 → https://example.com/x" in t
+
+
+def test_ods_hyperlink(tmp_path):
+    x = ('<table:table-cell office:value-type="string"><text:p><text:a xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://example.com/o">字</text:a></text:p></table:table-cell>')
+    _k, doc, _parts = api.window(_p(tmp_path, "a.ods", _ods(x)))
+    assert doc["sheets"][0]["links"][0]["target"] == "https://example.com/o"
+
+
+# ---------------------------------------------------------------- 数の見え方
+def test_value_too_large_does_not_stop_the_whole_window():
+    """1 つのマスの大きすぎる数（読むと inf）で、ブック全体が「cannot convert float infinity to integer」で読めなくなっていた。"""
+    from todoku.formula.values import number_to_text
+
+    assert "読めない値" in number_to_text(float("inf"))
+    assert "読めない値" in number_to_text(float("nan"))
+
+
+def test_general_format_keeps_the_digits(tmp_path):
+    """標準の書式で 1.23457E+14 と見える数（Excel と同じ見え方）に、元の値を添える（読み順だけを読むと桁が失われる）。"""
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    wb.active["A1"] = 1234567890123
+    p = str(tmp_path / "a.xlsx")
+    wb.save(p)
+    t = "\n".join(x[1] for x in api.window(p)[2])
+    assert "1.23457E+12〔元の値 1234567890123〕" in t
+
+
+def test_hidden_sheet_can_be_read_by_name(tmp_path):
+    """非表示のシートを名前で読むと「ありません」と言っていた（.xls・.ods。.xlsx は読めた）。"""
+    x = '<table:table-cell office:value-type="string"><text:p>見える</text:p></table:table-cell>'
+    blob = _ods(x)
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(blob)) as a, zipfile.ZipFile(out, "w") as b:
+        for i in a.infolist():
+            d = a.read(i.filename)
+            if i.filename == "content.xml":
+                d = d.replace(b'<office:body>', b'<office:automatic-styles><style:style xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" style:name="ta2" style:family="table">'
+                                                b'<style:table-properties table:display="false"/></style:style></office:automatic-styles><office:body>')
+                d = d.replace(b"</office:spreadsheet>", b'<table:table table:name="H" table:style-name="ta2"><table:table-row><table:table-cell office:value-type="string"><text:p>'
+                              + "隠した字".encode() + b"</text:p></table:table-cell></table:table-row></table:table></office:spreadsheet>")
+            b.writestr(i.filename, d)
+    p = _p(tmp_path, "a.ods", out.getvalue())
+    page, _doc = api.read_range(p, {"sheet": "H"}, None)
+    assert "隠した字" in page.text
+    page2, _doc = api.read_range(p, {"sheet": "S"}, None)
+    assert "見える" in page2.text and "隠した字" not in page2.text

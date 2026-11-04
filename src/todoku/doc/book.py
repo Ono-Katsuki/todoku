@@ -640,6 +640,14 @@ class DocFile:
                     f["ctl"] = self._form_field(f, p)
                     f["n0"] = len(p.segs)
                 ctl = f.get("ctl")
+                if ctl is None and len(p.segs) == f["n0"]:
+                    self._eq_segs(f["instr"], p, cp)
+                if ctl is None:
+                    from ..links import field_target
+
+                    target = field_target(f["instr"])
+                    if target:
+                        self.__dict__.setdefault("links", []).append(("".join(s.text for s in p.segs[f["n0"]:]), target))
                 if ctl is not None:
                     ctl.result_segs = p.segs[f["n0"]:]
                     ctl.end_cp = cp
@@ -705,6 +713,21 @@ class DocFile:
                     p.segs.append(Seg(ch.replace("\xa0", " "), "t", CPRef(cp), None, hidden, props["underline"]))
             cp += 1
         return p
+
+    def _eq_segs(self, instr: str, p: Para, cp: int) -> None:
+        """結果の字のない EQ フィールド（ふりがななど）の見える字。"""
+        from ..eqfield import eq_text
+
+        got = eq_text(instr)
+        if got is None:
+            return
+        base, ruby = got
+        if ruby is None:
+            p.segs.append(Seg(base, "other", CPRef(cp), None))
+            return
+        p.segs.append(Seg(base, "ruby", CPRef(cp), None))
+        if ruby:
+            p.segs += [Seg("（", "other", CPRef(cp), None), Seg(ruby, "ruby", CPRef(cp), None), Seg("）", "other", CPRef(cp), None)]
 
     def _form_field(self, f: dict, p: Para) -> Control | None:
         instr = f["instr"].strip()

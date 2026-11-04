@@ -111,6 +111,60 @@ class Seg:
         return "".join(out).encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
+_URL_MONIKER = bytes.fromhex("e0c9ea79f9bace118c8200aa004ba90b")
+_FILE_MONIKER = bytes.fromhex("0303000000000000c000000000000046")
+
+
+def _hyperlink_object(b: bytes, p: int) -> str:
+    """Hyperlink オブジェクト（MS-OSHARED 2.3.7.1）の先：URL か、ファイルの名前と、その中の位置。"""
+    def hstr(q: int) -> tuple[str, int]:
+        n = struct.unpack_from("<I", b, q)[0]  # 字の数（終わりの 0 を含む）
+        q += 4
+        if q + 2 * n > len(b):
+            raise ValueError("字の長さが記録の外に出ています")
+        return b[q:q + 2 * n].decode("utf-16-le", "replace").rstrip("\x00"), q + 2 * n
+
+    ver, flags = struct.unpack_from("<II", b, p)
+    if ver != 2:
+        raise ValueError(f"版 {ver}")
+    p += 8
+    if flags & 0x10:
+        _name, p = hstr(p)
+    if flags & 0x80:
+        _frame, p = hstr(p)
+    target = ""
+    if flags & 0x100:
+        target, p = hstr(p)
+    elif flags & 0x01:
+        clsid = b[p:p + 16]
+        p += 16
+        if clsid == _URL_MONIKER:
+            n = struct.unpack_from("<I", b, p)[0]
+            p += 4
+            target = b[p:p + n].decode("utf-16-le", "replace").split("\x00", 1)[0]
+            p += n
+        elif clsid == _FILE_MONIKER:
+            anti, ln = struct.unpack_from("<HI", b, p)
+            p += 6
+            ansi = b[p:p + ln].rstrip(b"\x00").decode("cp932", "replace")
+            p += ln + 24  # endServer 2・版 2・予約 20
+            cb = struct.unpack_from("<I", b, p)[0]
+            p += 4
+            if cb:
+                nb = struct.unpack_from("<I", b, p)[0]
+                ansi = b[p + 6:p + 6 + nb].decode("utf-16-le", "replace")
+                p += cb
+            target = "../" * anti + ansi
+        else:
+            raise ValueError("知らない形の先（moniker）")
+    if flags & 0x08:
+        loc, p = hstr(p)
+        target = f"{target}#{loc}" if target else loc
+    if not target:
+        raise ValueError("先がありません")
+    return target
+
+
 def xlstring(b: bytes, pos: int, cch_size: int = 2) -> tuple[str, int]:
     """XLUnicodeString（文字数 u16 または u8、印、文字）。(文字列, 次の位置)。"""
     if cch_size == 2:
@@ -513,6 +567,17 @@ class XlsWorkbook:
         extra = b[pos + cce:]
         self._name_raw.append((nm, itab, rgce, extra, bool(grbit & 0x01)))
 
+    def _hlink(self, sh: Sheet, b: bytes) -> None:
+        """HLink（MS-XLS 2.4.140）：範囲 8 バイト・CLSID 16 バイトの後ろが Hyperlink オブジェクト（MS-OSHARED 2.3.7.1）。読めなければ、読めないと伝える。"""
+        r1, r2, c1, c2 = struct.unpack_from("<HHHH", b, 0)
+        cell = addr(r1 + 1, c1 + 1)
+        try:
+            target = _hyperlink_object(b, 24)
+        except (struct.error, ValueError, IndexError) as e:
+            sh.unread.append(f"{cell} のリンクの先を読めません（{e}）")
+            return
+        sh.hyperlinks.append((cell, target))
+
     def _sst(self, parts: list[bytes]) -> None:
         r = Seg(parts)
         r.u32()
@@ -671,6 +736,8 @@ class XlsWorkbook:
                 txt = _header_text(xlstring(b, 0)[0])
                 if txt:
                     sh.header_footer.append(txt)
+            elif t == 0x01B8:  # HLINK
+                self._hlink(sh, b)
             elif t == 0x01BE:  # DV
                 v = self._dv(b)
                 if v is not None:

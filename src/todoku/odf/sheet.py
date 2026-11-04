@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 
 from ..formula.dates import date_to_serial
-from ..formula.parser import parse
+from ..formula.parser import addr, parse
 from ..formula.values import ExcelError, Unsupported
 from ..limits import MAX_DECLARED_CELLS
 from ..xlsx.workbook import Cell, DefinedName, Shape, Sheet, Style, Validation
@@ -525,6 +525,17 @@ class OdsWorkbook:
         if content and made < n and cel.c0 + made <= 16384:  # 同じ中身の残りの列：範囲のまま
             self._repeat_cols(sh, r, cel, made, row_dcs, col_style)
 
+    def _cell_links(self, sh: Sheet, el: El, r: int, c: int) -> None:
+        """セルの中のリンク（text:a の xlink:href）。"""
+        stack = [el]
+        while stack:
+            n = stack.pop()
+            for k in n.els():
+                if k.tag == _T + "a" and k.get("xlink:href"):
+                    sh.hyperlinks.append((addr(r, c), k.get("xlink:href")))
+                elif k.tag in (_T + "p", _T + "span", _T + "h"):
+                    stack.append(k)
+
     def _cell(self, sh: Sheet, el: El, r: int, c: int, style: str | None, validations: dict, covered: bool) -> None:
         key = (sh.name, r, c)
         cell = Cell(sh.name, r, c, style=self.style_index(style) if style else 0)
@@ -532,6 +543,7 @@ class OdsWorkbook:
         cvt = el.get("calcext:value-type")
         text = cell_text(el, self.data)
         has_text = any(k.tag in (_T + "p", _T + "h") for k in el.els())
+        self._cell_links(sh, el, r, c)
         if vt in ("float", "percentage", "currency"):
             try:
                 cell.value = float(el.get("office:value", "0") or 0)

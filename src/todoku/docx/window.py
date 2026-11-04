@@ -865,6 +865,7 @@ def build(doc: DocxDocument) -> dict:
     out["tracked_deletions"] = [f"段落 {sp.para_index[id(q)]}「{q.deleted_text().strip()[:20]}」"
                                 for _k, _part, blocks in doc.all_blocks() for q in iter_paras(blocks)
                                 if hasattr(q, "deleted_text") and q.deleted_text().strip()]
+    out["links"] = [{"text": t, "target": u} for t, u in getattr(doc, "links", [])]
     out["embeds"] = _embeds(doc)
     out["pictures"] = _pictures(doc)
     from ..embeds.word import objects as _objects
@@ -1263,6 +1264,9 @@ def to_markdown(doc: dict) -> str:
         for line in st["reading"]:
             out.append(f"- {line}")
         out.append("")
+    from ..links import markdown as links_md
+
+    out += links_md([(x["text"], x["target"]) for x in doc.get("links") or []])
     for e in doc.get("embeds") or []:
         out += [f"## 埋め込み{e['n']}：{e['label']}（{e['prog']}・{e['storage']}）", ""]
         if e.get("error"):

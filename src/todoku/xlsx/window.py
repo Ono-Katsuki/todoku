@@ -81,7 +81,11 @@ def shown_text(wb: Workbook, cell: Cell, flag: bool = True) -> tuple[str, str | 
         return v.code, None
     fmt = wb.style(cell.style).num_fmt
     try:
-        return format_value(v, fmt, getattr(wb, "date1904", False)), None
+        out = format_value(v, fmt, getattr(wb, "date1904", False))
+        if "E+" in out and fmt in ("General", "") and isinstance(v, (int, float)) and abs(v) < 1e21:
+            # Excel の「標準」は 12 桁から 1.23457E+14 と見せる。口座番号などの桁が読めなくなるので、元の値を添える
+            out += f"〔元の値 {int(v) if v == int(v) else to_text(v)}〕"
+        return out, None
     except Exception as e:  # noqa: BLE001  再現できない表示形式（Unsupported）・壊れた表示形式
         raw = getattr(e, "shown", None) or to_text(v)  # 地域で見え方が変わる組み込みの形式（LocaleDependent）は ISO 8601 の字
         why = str(e) if isinstance(e, Unsupported) else f"表示形式を読めません（{type(e).__name__}）"
@@ -2564,6 +2568,7 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
                     "anchor": addr(*s.anchor) if s.anchor else None, "provenance": DET,
                     **({"decorative": True} if getattr(s, "decorative", False) else {})} for s in sh.shapes],
         "notes": [{"cell": addr(*k), "text": t, "provenance": DET} for k, t in sorted(sh.comments.items())],
+        "links": [{"cell": c, "target": t, "provenance": DET} for c, t in sh.hyperlinks if t],
         "tables": _tables(wb, sh),
         **({"range_places": places} if places else {}),
     }
@@ -2810,6 +2815,8 @@ def _md_sheet(sh: dict) -> list[str]:
     out += places_markdown(sh.get("range_places") or [])
     out += ["### 読み順（上から）", ""] + _md_reading(sh)
     out.append("")
+    if sh.get("links"):
+        out += ["### リンク（マスと、その先。ファイルに書かれた先のまま）", ""] + [f"- {x['cell']} → {_md(x['target'])}" for x in sh["links"]] + [""]
     notes = sh.get("notes", [])
     shapes = [s for s in sh.get("shapes", []) if s["text"] or s["alt"] or s["kind"] == "picture"]
     if notes or shapes or sh.get("header_footer"):
