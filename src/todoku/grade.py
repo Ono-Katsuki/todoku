@@ -368,6 +368,12 @@ def _grade_blob(blob: bytes, filename: str = "", password: str | None = None, en
     return _locked("対応していない形式", f"この形式（{k}）は、まだ読めません", "読めないので、書けません")
 
 
+def _lzh_needs_tool(entry) -> bool:
+    from .legacy.lzh import needs_other_tool
+
+    return needs_other_tool(entry)
+
+
 def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0, k: str = "zip", filename: str = "") -> Grade:
     """ZIP：中のファイルごとに段階を決め、いちばん低いものを ZIP の段階にする（理由の頭に、中の名前を付ける）。
     中の、扱えない形式のファイル・取り出せないファイルは、そのファイルが F（開けない）。"""
@@ -401,6 +407,14 @@ def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0, k: str 
             reasons.append(Reason("C", f"{m.name}：確かめていない", "解くのに時間がかかるので、段階を確かめていません（path に中のファイルを指定すれば、そのファイルの段階を決められます）"))
             continue
         try:
+            if k == "lzh" and _lzh_needs_tool(m.raw):
+                from .legacy.convert_first import WRITE, message
+
+                reads.append("E")
+                writes.append("D")
+                reasons.append(Reason("E", f"{m.name}：別の道具で変換してから読む", message("lzh", filename)))
+                write.append(Reason("D", f"{m.name}：この方式の LZH には書かない", WRITE))
+                continue
             sub = extract(blob, m.name, k, filename)
             ksub = kind_of(sub, m.name.rsplit("/", 1)[-1])
             g = _grade_zip(sub, password, depth + 1, ksub, m.name) if ksub in KINDS else grade_blob(sub, m.name, password)

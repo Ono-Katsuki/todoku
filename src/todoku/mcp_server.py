@@ -8,6 +8,7 @@
 - fill_document   入力欄に書き込み、別の名前で書き出す。元のファイルは変えない。証明と読み戻しの結果を返す
 - audit_document  この書類を「全て正確に読み書きできるか」を確かめる（読み落とし・全欄への書き込み・読み戻し）
 - run_macro       Excel のマクロ（ボタン）を動かし、マクロが変えたセルを証明つきで書き出す
+- extract_processing  書類の計算の処理を、規則・構造・マクロとして取り出す（format="python" で、確かめつきの calculate(inputs) のモジュール）
 - grade_document  書類の段階（読む S〜F・書く A〜D）。規則で決めた段階に、エージェントが窓を読んで確かめたことを合わせる
 """
 
@@ -53,7 +54,7 @@ INSTRUCTIONS = (
     "選び、その名前を、そのファイルのどの道具にも encoding で渡してください。"
     "窓の「画像」の節で「説明（代わりの字）がありません」とある画像は、中身を字として読めません。申請に関わりそうなら view_image（PDF の"
     "ページ全体は view_page）で画像を見て読み、読めなければ、その位置（ページ・上下左右・近くの字）を本人に伝えてください。中身を推測で"
-    "埋めないでください。画像そのもののファイル（JPEG・PNG・TIFF・HEIC・AVIF・SVG など）も open_document で開き、view_page で見ます。段階の alerts（アクセシビリティの注意）は、"
+    "埋めないでください。画像そのもののファイル（JPEG・PNG・TIFF・SVG など）も open_document で開き、view_page で見ます。RAR・HEIC・HEIF・AVIF と LZH の -lh1-〜-lh3- は、とどくは解きません：open_document の needs_tool（format・why・next_step）に、別の道具のコマンドの例があります。入っている道具を確かめて使い、できたファイルをもう一度 open_document で開いてください。変換・展開したことは本人に伝えてください（書いたものは元の形式には戻りません）。計算の決まりを知りたいときは、値から推測せず extract_processing で規則として受け取ります。段階の alerts（アクセシビリティの注意）は、"
     "段階とは別に伝えてください。"
     "fill_document の結果の read_back_ok が false のときは、ファイルはもう書き出されていますが、書いた後のファイルを読み直した値が"
     "書いた値と違う欄があります（read_back_differences）。確かめずに本人に渡さず、違いを読んで直すか、そのことを本人に伝えてください。"
@@ -72,7 +73,7 @@ TOOLS = [
     {"name": "open_document",
      "description": "書類（Excel .xlsx/.xlsm/.xls・PDF・Word .docx/.docm/.doc・一太郎 .jtd）を開き、形式・入力欄の数・窓の分け方と、"
                     "窓（Markdown）の最初の部分を返す。한글の HWPX（.hwpx）は読む・書く、HWP 5（.hwp）は読むだけ"
-                    "（配布用・パスワードの HWP は読めない）。"
+                    "（配布用・パスワードの HWP は読めない。본 제품은 한글과컴퓨터의 한/글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.）。"
                     "ZIP は中のファイルの一覧を返す。中のファイルは、どの道具でも path に「a.zip!/中の名前」と指定して開く・書く"
                     "（書き出す out_path は ZIP。書いたファイルの部品だけを入れ替える）。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "書類のファイルのパス"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"}},
@@ -222,9 +223,9 @@ TOOLS = [
                    "超えた行は返さず、行の数（rows）と返した行の数（rows_returned）を返す"}},
          "required": ["path", "header"]}},
     {"name": "explain_calculation",
-     "description": "Excel の様式を「データ」（入力欄）と「処理」（入力から結果を出す数式）に分けて返す。式は番地を見出しに置き換えて示す"
-                    "（例「＝「報酬総額」-「処遇改善加算の総額」」）。cell を指すと、そのセルの計算を入力欄までさかのぼって説明する。"
-                    "様式の計算のきまりを本人に説明するときや、どの入力が結果を左右するかを知るときに使う。",
+     "description": "1 つの値の説明：cell を指すと、そのセルの計算を、番地を見出しに置き換えた式（例「＝「報酬総額」-「処遇改善加算の総額」」）で入力欄までさかのぼる。"
+                    "cell を省くと、入力欄と結果のまとまりの一覧。本人に「この金額はどう決まるの？」と説明するときに使う。"
+                    "計算の決まりそのものを取り出すのは extract_processing。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
          "cell": {"type": "string", "description": "説明するセル（シート!番地）。省くと、結果のまとまりの一覧"}},
@@ -240,6 +241,21 @@ TOOLS = [
          "values": {"type": "object", "description": "{欄の id: 値}"},
          "cells": {"type": "array", "items": {"type": "string"}, "description": "結果を見たいセル（シート!番地）"}},
          "required": ["path"]}},
+    {"name": "extract_processing",
+     "description": "書類の計算の処理を、処理として取り出す（値ではなく、計算の決まりそのものを受け取る道具）。Excel の仲間（.xlsx・.xls・.xlsb・.ods など）と PDF のフォーム。"
+                    "同じ形の数式は 1 つの規則にまとめる（例「D3:D100000 = B{row}*C{row}」。A1 と R1C1 の正規形、読む範囲、例外のセルつき。10 万行でも規則は数個）。"
+                    "あわせて、入力（見出しの事実・読む規則・入力規則）、パラメータ、参照表（中身はデータとして。read_table で引ける）、名前、出力（どこからも読まれないセル）、"
+                    "規則の順番と循環、IF・IFS・SWITCH の分岐、配列数式（展開しない）、外部参照、TODAY・OFFSET・INDIRECT（静的に分からない所）、隠れたシート・行、シートのあいだの流れ、"
+                    "マクロ（ソース・読み書きするセル・いつ動くか）、条件付き書式・入力規則、ピボット・Power Query（セルの数式で書けない処理としての定義）、PDF の計算の順と欄のあいだの規則（独自の JavaScript は計算せずそのまま）。"
+                    "format=\"python\" で、標準ライブラリだけで動く calculate(inputs) -> dict のモジュールを out_path に書き出す。書き出す前に、別のプロセスで動かして保存された値・とどくの計算と全セルを比べ、"
+                    "一致の割合・すべての不一致・規則ごとの確かめの結果（verification）を返す。計算の規則を知りたいときはこの道具を使う。1 つの値の説明は explain_calculation、値を変えた試算は try_calculation。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
+         "format": {"type": "string", "enum": ["json", "python"], "description": "json（既定）か python"},
+         "out_path": {"type": "string", "description": "python：書き出すモジュール（.py。必須）。json：全部を書き出す .json（大きなブックのとき）"},
+         "sheet": {"type": "string", "description": "このシートの規則・入力だけを返す"},
+         "overwrite": _OVERWRITE},
+         "required": ["path"]}},
     {"name": "view_page",
      "description": "PDF・XPS のページ、または画像のファイル（JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000 など。page は何枚目か）を画像で見る（スキャンした紙のように、字の情報がない画像だけのページを読むため）。"
                     "上と左の帯に、ページの左上からの mm の目盛りが付く。小さな字は region（[左, 上, 右, 下] mm）で拡大して読む。"
@@ -248,7 +264,7 @@ TOOLS = [
                     "ページは、字（埋め込みのフォントの字形）・線・画像・欄の見た目（/AP）を描く。書いた後のファイルを見ると、値の入った欄が青い枠で描かれ、値は文で返る。"
                     "書いた字が欄からはみ出す・つぶれる・横倒し・印刷された字に重なるなら、書いた見た目が正しくないので、書き直す（書いた後は、いつも見て確かめる）。"
                     "フォントが埋め込まれていない字は代わりのフォントで描き（結果の substituted）、使える字形がない字は灰色の四角になる。"
-                    "JBIG2・JPEG 2000 の画像も描く（JPEG 2000 は、画面に要る解像度で開き、そのことを結果に書く。細かな字は region で拡大：範囲に掛かる所だけを開くので、どの部分でも元の解像度まで開ける。HEIC・AVIF も範囲のタイルだけを開き、時間が足りないと途中まで返すので、結果のとおり同じ呼び出しをもう一度する）。開けない画像は灰色の枠と対角線で示して結果に書くので、その所は描けたと思わず、本人に伝える。そのとおりに描けなかったものは、結果の not_drawn に短く並ぶ。置いた印影・署名の画像も、その位置に描く。画像の中の字は推測で埋めず、読めない所は本人に伝える。",
+                    "JBIG2・JPEG 2000 の画像も描く（JPEG 2000 は、画面に要る解像度で開き、そのことを結果に書く。細かな字は region で拡大：範囲に掛かる所だけを開くので、どの部分でも元の解像度まで開ける。）。開けない画像は灰色の枠と対角線で示して結果に書くので、その所は描けたと思わず、本人に伝える。そのとおりに描けなかったものは、結果の not_drawn に短く並ぶ。置いた印影・署名の画像も、その位置に描く。画像の中の字は推測で埋めず、読めない所は本人に伝える。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
          "page": {"type": "integer", "minimum": 1},
@@ -297,7 +313,7 @@ _MORE = ("（ほかに CSV・TSV・JSON・JSON Lines・RTF・OpenDocument の文
          "PowerPoint .pptx・한글 .hwpx（読む・書く）と .hwp（HWP 5。読むだけ）も開けます。"
          "Excel .xlsb（読む。値のあるセルは同じ大きさの上書き、空のセルはレコードを足して書く）・dBase .dbf（読む。項目の幅の中の上書きを書ける）・古い PowerPoint .ppt・XPS .xps/.oxps・EPUB・メール .eml/.msg・Excel 2〜4・Word 1.x/2.0・"
          "Lotus .wk1・Access .mdb/.accdb・OpenOffice.org 1.x .sxw/.sxc・iWork .pages/.numbers/.key は読むだけ。"
-         "tar・.tar.gz・.gz（読む・書く）と LZH・7z・RAR（読むだけ。パスワードは password）は ZIP と同じく「a.tar!/中の名前」で中のファイルを指す。"
+         "tar・.tar.gz・.gz（読む・書く）と LZH・7z（読むだけ。パスワードは password）は ZIP と同じく「a.tar!/中の名前」で中のファイルを指す。RAR・HEIC・HEIF・AVIF は別の道具で展開・変換してから開く（結果の needs_tool に手順）。"
          "DocuWorks は読めないので、次の一手を返す）")
 for _t in TOOLS:
     if _t["name"] == "open_document":
@@ -347,6 +363,8 @@ def call_tool(name: str, args: dict) -> dict:
                     "下の概要を見て、要る所を read_window に範囲で頼んでください（読む量を分けるだけで、読めない所はありません）")
             return {"content": [_text(head), _text(lz.overview_text())], "structuredContent": s}
         _k, _doc, parts = api.window(path, pw, enc)
+        if s.get("needs_tool"):
+            return {"content": [_text(f"{s['kind_ja']}。中身は読んでいません。下の手順で変換・展開してから、できたファイルを開いてください"), _text(parts[0][1])], "structuredContent": s}
         head = (f"{s['kind_ja']}・入力欄 {s['fields']} か所（書ける欄 {s['writable_fields']}）・窓は {s['window_parts']} 部分"
                 + ("（read_window で part を指定して続きを読めます）" if s["window_parts"] > 1 else ""))
         return {"content": [_text(head), _text(parts[0][1])], "structuredContent": s}
@@ -420,6 +438,10 @@ def call_tool(name: str, args: dict) -> dict:
     if name == "try_calculation":
         res = api.calculate(args["path"], args.get("values") or {}, args.get("password"), args.get("cells"))
         return {"content": [_text(res["say_to_user"]), _text(res)], "structuredContent": res}
+    if name == "extract_processing":
+        res = api.extract_processing(args["path"], args.get("format") or "json", args.get("out_path"), args.get("sheet"),
+                                     bool(args.get("overwrite")), args.get("password"))
+        return {"content": [_text(res.get("say_to_user", "")), _text(res)], "structuredContent": res}
     if name == "view_page":
         v = api.view_page(args["path"], args["page"], args.get("region"), args.get("marks"), args.get("password"), args.get("dpi"))
         return {"content": [_text(v["text"]), {"type": "image", "data": v["png_base64"], "mimeType": "image/png"}],

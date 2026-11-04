@@ -1,0 +1,627 @@
+#!/usr/bin/env python3
+"""「@@SOURCE@@」の計算の処理。とどく（todoku）の extract_processing が書き出した、標準ライブラリだけで動くモジュール。
+
+使い方：
+    import この_モジュール as m
+    m.calculate({"シート!B3": 10})                 # 変えない入力は、ブックの今の値のまま。出力（どこからも読まれないセル）を返す
+    m.calculate({...}, outputs=["シート!D3"])      # 欲しいセルだけ
+    m.calculate({...}, all_cells=True)             # 数式のセルをすべて
+    m.calculate({...}, on_unknown="mark")          # 再現できない出力を、エラーにせず CellError の印で返す
+
+値：数は float、字は str、真偽は bool、Excel のエラーは CellError（str の一種。"#N/A" など）、日付はシリアル値（excel_date で日付に）。
+入力に日付（datetime.date）を渡すと、シリアル値にして使う。
+計算の決まり（丸め・日付・エラー）は、とどくの計算エンジンのソースから、使う分だけ切り出したもの。
+確かめた結果は VERIFICATION にある（保存された値・とどくの計算との比較。確かめられなかった規則は、規則ごとに理由がある）。
+
+規則：
+@@RULE_LINES@@
+"""
+
+from __future__ import annotations
+
+import base64
+import datetime
+import json
+import re
+import sys
+import threading
+import time
+import zlib
+
+@@STDLIB@@
+
+SOURCE = @@FILENAME@@
+VERIFICATION = None  # @@todoku-verification@@
+
+# ---------------------------------------------------------------- 計算の決まり（とどくのエンジンから切り出したもの）
+@@VENDORED@@
+
+@@REGISTER@@
+
+
+# ---------------------------------------------------------------- 規則
+class CellError(str):
+    """Excel のエラーの値（"#N/A" など）。"""
+
+
+class NotReproducible(Exception):
+    """再現できない出力がある。cells：セル → 理由。"""
+
+    def __init__(self, cells):
+        self.cells = cells
+        lines = [f"{k}: {v}" for k, v in list(cells.items())[:20]]
+        more = f"\n…ほか {len(cells) - 20} か所" if len(cells) > 20 else ""
+        super().__init__("再現できない出力があります（とどくが計算できない処理に頼っています）。"
+                         "ほかのセルだけ欲しいときは outputs を、印で受け取るときは on_unknown='mark' を指定してください：\n"
+                         + "\n".join(lines) + more)
+
+
+def _E(code):
+    return @@ExcelError@@(code)
+
+
+class _Rule:
+    __slots__ = ("id", "sheet", "kind", "at", "origin", "rects", "code", "_ast")
+
+    def __init__(self, id, sheet, kind, at, origin, rects, code):
+        self.id, self.sheet, self.kind, self.at, self.origin, self.rects, self.code = id, sheet, kind, at, origin, rects, code
+        self._ast = None
+
+    @property
+    def ast(self):
+        if self._ast is None and self.code is not None:
+            self._ast = _build(self.code)
+        return self._ast
+
+
+def _build(code):
+    st = []
+    for t in code:
+        k = t[0]
+        if k == "n":
+            st.append(@@Num@@(float(t[1]), t[1]))
+        elif k == "s":
+            st.append(@@Str@@(t[1]))
+        elif k == "b":
+            st.append(@@Bool@@(t[1]))
+        elif k == "e":
+            st.append(@@Err@@(t[1]))
+        elif k == "m":
+            st.append(@@Missing@@())
+        elif k == "R":
+            f = t[6]
+            st.append(@@RefNode@@(t[1], t[2], t[3], t[4], t[5], bool(f & 1), bool(f & 2), bool(f & 4), bool(f & 8), t[7]))
+        elif k == "N":
+            st.append(@@NameNode@@(t[1], t[2]))
+        elif k == "S":
+            st.append(@@StructRef@@(t[1], tuple(t[2]), t[3], t[4]))
+        elif k == "F":
+            n = t[2]
+            args = st[len(st) - n:] if n else []
+            if n:
+                del st[len(st) - n:]
+            st.append(@@Func@@(t[1], args))
+        elif k == "U":
+            st.append(@@Unary@@(t[1], st.pop()))
+        elif k == "P":
+            st.append(@@Postfix@@(t[1], st.pop()))
+        elif k == "B":
+            b = st.pop()
+            a = st.pop()
+            st.append(@@Binary@@(t[1], a, b))
+        elif k == "A":
+            rows, cols = t[1], t[2]
+            items = st[len(st) - rows * cols:] if rows * cols else []
+            if rows * cols:
+                del st[len(st) - rows * cols:]
+            st.append(@@ArrayLit@@([items[i * cols:(i + 1) * cols] for i in range(rows)]))
+    return st[0]
+
+
+RULES = [
+@@RULES@@
+]
+ORDER = @@ORDER@@  # 読むものが先の順
+UNREPRODUCIBLE = @@UNREPRO@@  # 規則 → 再現できない理由（これらに頼る出力は、エラーになる）
+INPUTS = @@INPUTS@@
+PARAMETERS = @@PARAMETERS@@
+OUTPUTS = @@OUTPUTS@@  # (シート, 行1, 列1, 行2, 列2)：どこからも読まれないセル
+_READS = @@READS@@
+_SHEETS = @@SHEETS@@
+_BOUNDS = @@BOUNDS@@
+_DATE1904 = @@DATE1904@@
+_DYNAMIC = @@DYNAMIC@@
+_NAMES = @@NAMES@@
+_TABLES = @@TABLES@@
+_EXTERNAL = @@EXTERNAL@@
+_HIDDEN = @@HIDDEN@@
+_PHONETIC = @@PHONETIC@@
+_DATA = @@DATA@@
+@@DATA_PACKED@@
+
+def _load_data():
+    global _DATA
+    if _DATA is None:
+        _DATA = {}
+        for s, cells in json.loads(zlib.decompress(base64.b85decode(_DATA_PACKED)).decode("utf-8")):
+            _DATA[s] = {(r, c): (_E(v["e"]) if isinstance(v, dict) else v) for r, c, v in cells}
+    return _DATA
+
+
+_R = {r.id: r for r in RULES}
+_AT = {}
+for _r in RULES:
+    _cols = _AT.setdefault(_r.sheet, {})
+    for _a, _b, _c, _d in _r.rects:
+        for _x in range(_b, _d + 1):
+            _cols.setdefault(_x, []).append((_a, _c, _r))
+for _cols in _AT.values():
+    for _x in _cols:
+        _cols[_x].sort(key=lambda t: t[0])
+_LOWER = {s.lower(): s for s in _SHEETS}
+
+
+def _rule_at(sheet, r, c):
+    col = _AT.get(sheet, {}).get(c)
+    if col is None:
+        return None
+    lo, hi = 0, len(col)
+    while lo < hi:
+        m = (lo + hi) // 2
+        if col[m][1] < r:
+            lo = m + 1
+        else:
+            hi = m
+    if lo < len(col) and col[lo][0] <= r <= col[lo][1]:
+        return col[lo][2]
+    return None
+
+
+class _T:
+    def __init__(self, name, sheet, r1, c1, r2, c2, header_rows, totals_rows, columns):
+        self.name, self.sheet, self.r1, self.c1, self.r2, self.c2 = name, sheet, r1, c1, r2, c2
+        self.header_rows, self.totals_rows, self.columns = header_rows, totals_rows, columns
+
+
+class _CellView:
+    def __init__(self, ast):
+        self.ast = ast
+
+
+class _SheetView:
+    def __init__(self, name):
+        self.name = name
+        rows, af = _HIDDEN.get(name, ([], None))
+        self.hidden_rows = {r for a, b in rows for r in range(a, b + 1)}
+        self.autofilter = af
+        self.cells = self
+
+    def get(self, key):
+        u = _rule_at(self.name, key[0], key[1])
+        return _CellView(u.ast) if u is not None else None
+
+
+class _WB:
+    filename = SOURCE
+
+    def __init__(self):
+        self.views = {}
+        self.tables = {k: _T(*v) for k, v in _TABLES.items()}
+        self.cell_sst = {k: k for k in _PHONETIC}
+        self.phonetic = _PHONETIC
+
+    def has_sheet(self, name):
+        return name in _BOUNDS or name.lower() in _LOWER
+
+    def sheet(self, name):
+        name = name if name in _BOUNDS else _LOWER[name.lower()]
+        got = self.views.get(name)
+        if got is None:
+            got = self.views[name] = _SheetView(name)
+        return got
+
+
+class _Fail:
+    __slots__ = ("why",)
+
+    def __init__(self, why):
+        self.why = why
+
+
+class _Ctx:
+    """ブックの代わり：セルの値を、入力・定数・規則から決める。"""
+
+    date1904 = _DATE1904
+
+    def __init__(self, inputs):
+        self.over = inputs
+        self.data = _load_data()
+        self.memo = {}
+        self.visiting = set()
+        self.arrays = {}
+        self.spill = {}
+        self.wb = _WB()
+        self.names = {}
+        self.deadline = None
+        self.array_cells = 0
+
+    def _ext(self, sheet):
+        if not sheet.startswith("["):
+            return None
+        m = re.match(r"\[(\d+)\](.*)", sheet)
+        if not m:
+            return None
+        return _EXTERNAL.get(int(m[1]), {}).get(m[2].lower())
+
+    def has_sheet(self, sheet):
+        return sheet in _BOUNDS or sheet.lower() in _LOWER or self._ext(sheet) is not None
+
+    def bounds(self, sheet):
+        ext = self._ext(sheet)
+        if ext is not None:
+            return max((r for r, _ in ext), default=1), max((c for _, c in ext), default=1)
+        return _BOUNDS[sheet if sheet in _BOUNDS else _LOWER[sheet.lower()]]
+
+    def resolve_name(self, name, sheet, here):
+        key = (name.lower(), sheet or here)
+        if key in self.names:
+            return self.names[key]
+        low = name.lower()
+        scope = sheet or here
+        d = next((x for x in _NAMES if x[0] == low and x[1] == scope), None) or next((x for x in _NAMES if x[0] == low and x[1] is None), None)
+        res = None
+        if d is not None:
+            if d[3] is None:
+                raise @@Unsupported@@(f"名前 {name}: {d[4]}")
+            res = (_build(d[3]), d[1] or here)
+        self.names[key] = res
+        return res
+
+@@TABLE_METHOD@@
+
+    def cell_value(self, sheet, r, c):
+        if sheet.startswith("["):
+            ext = self._ext(sheet)
+            if ext is not None:
+                return ext.get((r, c))
+        if sheet not in _BOUNDS:
+            sheet = _LOWER[sheet.lower()]
+        key = (sheet, r, c)
+        if key in self.over:
+            return self.over[key]
+        if key in self.memo:
+            v = self.memo[key]
+            if type(v) is _Fail:
+                raise @@Unsupported@@(v.why)
+            return v
+        u = _rule_at(sheet, r, c)
+        if u is None:
+            if key in self.spill:
+                return self.spill[key]
+            return self.data.get(sheet, {}).get((r, c))
+        return self._compute(u, key)
+
+    def _compute(self, u, key):
+        sheet, r, c = key
+        why = UNREPRODUCIBLE.get(u.id)
+        if why is not None and u.code is None:
+            self.memo[key] = _Fail(f"{u.id}: {why}")
+            raise @@Unsupported@@(self.memo[key].why)
+        if u.kind in ("array", "dynamic_array"):
+            try:
+                arr = self._array(u)
+            except @@Unsupported@@ as e:
+                self.memo[key] = _Fail(str(e))
+                raise
+            v = self._pick(u, arr, r, c)
+            self.memo[key] = v
+            return v
+        if key in self.visiting:
+            raise @@Unsupported@@(f"循環参照（{sheet}!{_a1(r, c)}）")
+        self.visiting.add(key)
+        try:
+            ev = @@Evaluator@@(self, sheet, r, c, r - u.at[0], c - u.at[1], u.kind == "array_cell")
+            v = ev.run(u.ast)
+            if isinstance(v, @@Arr@@):
+                v = v.data[0][0] if v.data and v.data[0] else @@ExcelError@@("#VALUE!")
+            if isinstance(v, @@Rng@@):
+                v = ev.intersect(v)
+            if v is None:
+                v = 0.0  # 空白セルを参照した数式は 0 を返す
+        except @@Unsupported@@ as e:
+            self.memo[key] = _Fail(str(e))
+            raise
+        except RecursionError:
+            self.memo[key] = _Fail("参照が深すぎます")
+            raise @@Unsupported@@("参照が深すぎます") from None
+        finally:
+            self.visiting.discard(key)
+        self.memo[key] = v
+        return v
+
+    def _array(self, u):
+        got = self.arrays.get(u.id)
+        if got is not None:
+            if type(got) is _Fail:
+                raise @@Unsupported@@(got.why)
+            return got
+        mr, mc = u.origin
+        key = (u.sheet, mr, mc, "array")
+        if key in self.visiting:
+            raise @@Unsupported@@(f"循環参照（{u.sheet}!{_a1(mr, mc)}）")
+        self.visiting.add(key)
+        try:
+            ev = @@Evaluator@@(self, u.sheet, mr, mc, 0, 0, True)
+            v = ev.run(u.ast)
+            if isinstance(v, @@Rng@@):
+                v = ev.materialize(v)
+            if not isinstance(v, @@Arr@@):
+                v = @@Arr@@([[v]])
+            self.arrays[u.id] = v
+            if u.kind == "dynamic_array":  # 結果の大きさが変わると、こぼれる範囲も変わる
+                for i, row in enumerate(v.data):
+                    for j, x in enumerate(row):
+                        self.spill[(u.sheet, mr + i, mc + j)] = 0.0 if x is None else x
+            return v
+        except @@Unsupported@@ as e:
+            self.arrays[u.id] = _Fail(str(e))
+            raise
+        finally:
+            self.visiting.discard(key)
+
+    def _pick(self, u, arr, r, c):
+        mr, mc = u.origin
+        i, j = r - mr, c - mc
+        if u.kind == "dynamic_array":
+            if i < arr.rows and j < arr.cols:
+                x = arr.data[i][j]
+                return 0.0 if x is None else x
+            return None  # 結果が小さくなった：こぼれなくなったセルは空
+        if arr.rows == 1:
+            i = 0
+        if arr.cols == 1:
+            j = 0
+        if i < arr.rows and j < arr.cols:
+            x = arr.data[i][j]
+            return 0.0 if x is None else x
+        return @@ExcelError@@("#N/A")
+
+
+def _a1(r, c):
+    s = ""
+    while c:
+        c, m = divmod(c - 1, 26)
+        s = chr(65 + m) + s
+    return f"{s}{r}"
+
+
+def _column(letters):
+    n = 0
+    for ch in letters.upper():
+        n = n * 26 + ord(ch) - 64
+    return n
+
+
+def _key(sheet, r, c):
+    return f"{sheet}!{_a1(r, c)}"
+
+
+_KEY_RE = re.compile(r"^\$?([A-Za-z]{1,3})\$?(\d+)(?::\$?([A-Za-z]{1,3})\$?(\d+))?$")
+
+
+def _parse_key(key):
+    """「シート!B3」「シート!B3:C4」「B3」（シートが 1 枚のとき）→ (シート, 行1, 列1, 行2, 列2)。"""
+    k = str(key)
+    if "!" in k:
+        s, _, a = k.rpartition("!")
+        s = s.strip("'").replace("''", "'")
+    else:
+        s, a = (_SHEETS[0] if len(_SHEETS) == 1 else None), k
+    if s is None:
+        raise KeyError(f"{key}：シートの名前がありません（シート!B3 の形で書いてください）")
+    if s not in _BOUNDS:
+        s2 = _LOWER.get(s.lower())
+        if s2 is None:
+            raise KeyError(f"{key}：シート「{s}」はありません")
+        s = s2
+    m = _KEY_RE.match(a)
+    if not m:
+        raise KeyError(f"{key}：セルの番地として読めません")
+    r1, c1 = int(m[2]), _column(m[1])
+    r2, c2 = (int(m[4]), _column(m[3])) if m[3] else (r1, c1)
+    return s, min(r1, r2), min(c1, c2), max(r1, r2), max(c1, c2)
+
+
+def _coerce(v):
+    if isinstance(v, bool) or v is None or isinstance(v, (str, float)):
+        if isinstance(v, CellError):
+            return @@ExcelError@@(str(v))
+        return v
+    if isinstance(v, int):
+        return float(v)
+    if isinstance(v, datetime.datetime):
+        base = datetime.datetime(1904, 1, 1) if _DATE1904 else datetime.datetime(1899, 12, 30)
+        d = (v - base).total_seconds() / 86400
+        return d if _DATE1904 or d >= 61 else d - 1
+    if isinstance(v, datetime.date):
+        return _coerce(datetime.datetime(v.year, v.month, v.day))
+    raise TypeError(f"入力の値にできません: {v!r}")
+
+
+def excel_date(serial):
+    """シリアル値 → datetime（ブックの日付の数え方で）。"""
+    base = datetime.datetime(1904, 1, 1) if _DATE1904 else datetime.datetime(1899, 12, 30)
+    if not _DATE1904 and serial < 61:
+        serial += 1
+    return base + datetime.timedelta(days=serial)
+
+
+def _read_anywhere(sheet, r, c):
+    return any(a <= r <= b2 and c1 <= c <= c2 for a, c1, b2, c2 in _READS.get(sheet, ()))
+
+
+def _inputs(inputs, allow_override):
+    over = {}
+    for key, v in (inputs or {}).items():
+        s, r1, c1, r2, c2 = _parse_key(key)
+        grid = v if isinstance(v, (list, tuple)) else None
+        for r in range(r1, r2 + 1):
+            for c in range(c1, c2 + 1):
+                if grid is None:
+                    x = v
+                else:
+                    row = grid[r - r1]
+                    x = row[c - c1] if isinstance(row, (list, tuple)) else row
+                rule = _rule_at(s, r, c)
+                if rule is not None and not allow_override:
+                    raise ValueError(f"{_key(s, r, c)} は数式のセル（規則 {rule.id}）です。入力ではありません（上書きするなら allow_override=True）")
+                if rule is None and not _DYNAMIC and not _read_anywhere(s, r, c):
+                    raise ValueError(f"{_key(s, r, c)} は、どの規則も読まないセルです。書いても計算は変わりません")
+                over[(s, r, c)] = _coerce(x)
+    return over
+
+
+def _out(v):
+    if isinstance(v, @@ExcelError@@):
+        return CellError(v.code)
+    return v
+
+
+def _deep(fn):
+    """参照が長く続く（累計など）とき、Python の再帰が深くなるので、大きなスタックで動かす。"""
+    box = {}
+
+    def target():
+        try:
+            box["v"] = fn()
+        except BaseException as e:  # noqa: BLE001
+            box["e"] = e
+
+    old = sys.getrecursionlimit()
+    sys.setrecursionlimit(200000)
+    threading.stack_size(512 * 1024 * 1024)
+    try:
+        t = threading.Thread(target=target)
+        t.start()
+        t.join()
+    finally:
+        threading.stack_size(0)
+        sys.setrecursionlimit(old)
+    if "e" in box:
+        raise box["e"]
+    return box["v"]
+
+
+def _rule_cells(ctx, u):
+    if u.kind == "dynamic_array":
+        try:
+            arr = ctx._array(u)
+        except @@Unsupported@@:
+            arr = None
+        if arr is not None:
+            mr, mc = u.origin
+            for i in range(arr.rows):
+                for j in range(arr.cols):
+                    yield mr + i, mc + j
+            a, b, c, d = u.rects[0]
+            for r in range(a, c + 1):  # 結果が小さくなったとき、もとの範囲のセルは空に
+                for col in range(b, d + 1):
+                    if r - mr >= arr.rows or col - mc >= arr.cols:
+                        yield r, col
+            return
+    for a, b, c, d in u.rects:
+        for r in range(a, c + 1):
+            for col in range(b, d + 1):
+                yield r, col
+
+
+def _value_of(ctx, sheet, r, c):
+    try:
+        return ctx.cell_value(sheet, r, c), None
+    except @@Unsupported@@ as e:
+        return None, str(e)
+
+
+def calculate(inputs=None, outputs=None, all_cells=False, on_unknown="raise", allow_override=False):
+    """入力の値（{"シート!B3": 値}）から、規則を読むものが先の順に計算する。変えない入力は、ブックの今の値のまま。
+
+    outputs：欲しいセル（「シート!D3」「シート!D3:D9」）。省くと OUTPUTS（どこからも読まれないセル）。
+    all_cells：数式のセルをすべて返す。on_unknown："raise"（再現できない出力があれば NotReproducible）か "mark"（CellError の印で返す）。
+    """
+
+    def run():
+        ctx = _Ctx(_inputs(inputs, allow_override))
+        wanted = []
+        if outputs is not None:
+            for k in outputs:
+                s, r1, c1, r2, c2 = _parse_key(k)
+                wanted += [(s, r, c) for r in range(r1, r2 + 1) for c in range(c1, c2 + 1)]
+        else:
+            for uid in ORDER:  # 上から順に計算しておくと、参照をたどる深さが浅くなる
+                u = _R[uid]
+                for r, c in _rule_cells(ctx, u):
+                    _value_of(ctx, u.sheet, r, c)
+            if all_cells:
+                wanted = [(u.sheet, r, c) for u in RULES for r, c in _rule_cells(ctx, u)]
+            else:
+                wanted = [(s, r, c) for s, r1, c1, r2, c2 in OUTPUTS for r in range(r1, r2 + 1) for c in range(c1, c2 + 1)]
+        res, bad = {}, {}
+        for s, r, c in wanted:
+            v, why = _value_of(ctx, s, r, c)
+            k = _key(s, r, c)
+            if why is not None:
+                bad[k] = why
+                if on_unknown == "mark":
+                    res[k] = CellError("#UNKNOWN!")
+            else:
+                res[k] = _out(v)
+        if bad and on_unknown != "mark":
+            raise NotReproducible(bad)
+        return res
+
+    return _deep(run)
+
+
+def _dump(path, seconds, max_cells):
+    """確かめるための出力：数式のセルの値を、シート・行・列の順に 1 行ずつ書く。時間かセルの数の上限に当たったら、そこまで。"""
+
+    def run():
+        ctx = _Ctx({})
+        t0 = time.monotonic()
+        seen = 0
+        stopped = None
+        done = {}
+        index = {s: i for i, s in enumerate(_SHEETS)}
+        for uid in ORDER:
+            u = _R[uid]
+            for r, c in _rule_cells(ctx, u):
+                v, why = _value_of(ctx, u.sheet, r, c)
+                done[(index[u.sheet], r, c)] = {"u": why} if why is not None else ({"e": v.code} if isinstance(v, @@ExcelError@@) else v)
+                seen += 1
+                if time.monotonic() - t0 > seconds or seen >= max_cells:
+                    stopped = "時間かセルの数の上限"
+                    break
+            if stopped:
+                break
+        with open(path, "w", encoding="utf-8") as f:
+            for k in sorted(done):
+                f.write(json.dumps([*k, done[k]], ensure_ascii=False) + "\n")
+            f.write(json.dumps({"stopped": stopped}) + "\n")
+
+    _deep(run)
+
+
+def main(argv):
+    if len(argv) >= 2 and argv[1] == "--dump":
+        _dump(argv[2], float(argv[3]), int(argv[4]))
+        return 0
+    inputs = {}
+    if len(argv) >= 2:
+        with open(argv[1], encoding="utf-8") as f:
+            inputs = json.load(f)
+    print(json.dumps(calculate(inputs, on_unknown="mark"), ensure_ascii=False, indent=1))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

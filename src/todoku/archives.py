@@ -1,14 +1,14 @@
-"""中にファイルが入っている形式の入口：ZIP のほか、tar・gzip・LZH・7z・RAR と、メール（.eml・.msg。添付ファイルが中のファイル）。
+"""中にファイルが入っている形式の入口：ZIP のほか、tar・gzip・LZH・7z と、メール（.eml・.msg。添付ファイルが中のファイル）。
 
 中のファイルの指定は ZIP と同じ「a.tar!/中の名前」。
 - 読む：tar（ustar・GNU・pax。標準の tarfile で位置を得る）・.tar.gz・.tgz（tar として扱う）・.gz（中のファイルは 1 つ）・
-  LZH（legacy/lzh.py）・7z（legacy/sevenzip.py）・RAR（legacy/rar.py）・メール（legacy/mail.py）。
-  7z と RAR のパスワードは use_password で置く（呼び出しごとに api が置き直す。結果にも記録にも残さない）。
+  LZH（legacy/lzh.py）・7z（legacy/sevenzip.py）・メール（legacy/mail.py）。RAR は解かない（legacy/convert_first.py：別の道具で展開する手順を返す）。
+  7z のパスワードは use_password で置く（呼び出しごとに api が置き直す。結果にも記録にも残さない）。
 - 書く：ZIP・tar・gz は、中のファイルに書いて入れ直す。
   - tar：書いた項目の見出しの大きさと和、データと埋め草だけが変わる。ほかの項目のバイトはそのまま（unchanged_except で確かめる）
   - gz：見出し（時刻・名前など）はそのまま。データは縮め直すので、圧縮したバイトは変わるが、解いた中身が書いたものとバイト一致すること
     （api が取り出し直して確かめる）。複数の部分をつないだ gz には書かない（どの部分かを証明できない）
-  - LZH・7z・RAR とメールには書かない
+  - LZH・7z とメールには書かない
 """
 
 from __future__ import annotations
@@ -27,15 +27,14 @@ from .limits import LimitExceeded
 from .unlock import NeedsPassword, WrongPassword
 from .ziparc import MAX_MEMBER, ArchiveError
 
-KINDS = frozenset({"zip", "tar", "gz", "lzh", "7z", "rar", "eml", "msg"})
-PASSWORDED = frozenset({"7z", "rar"})
+KINDS = frozenset({"zip", "tar", "gz", "lzh", "7z", "eml", "msg"})
+PASSWORDED = frozenset({"7z"})
 WRITABLE = frozenset({"zip", "tar", "gz"})
 MAIL = frozenset({"eml", "msg"})
-KIND_JA = {"tar": "tar（ファイルをまとめたもの）", "gz": "gzip（縮めた 1 つのファイル）", "lzh": "LZH（.lzh・.lha。読むだけ）", "7z": "7-Zip の書庫（.7z。読むだけ）", "rar": "RAR の書庫（.rar。読むだけ）",
+KIND_JA = {"tar": "tar（ファイルをまとめたもの）", "gz": "gzip（縮めた 1 つのファイル）", "lzh": "LZH（.lzh・.lha。読むだけ）", "7z": "7-Zip の書庫（.7z。読むだけ）",
            "eml": "メール（.eml。読むだけ）", "msg": "Outlook のメール（.msg。読むだけ）"}
 NO_WRITE = {"lzh": "LZH の書庫には書きません（とどくは LZH を縮め直しません）。取り出したファイルを別の名前で書き出します。path に中のファイルを指定して、その形式で読んでください",
             "7z": "7z の書庫には書きません（とどくは 7z を縮め直しません）。取り出したファイルを別の名前で書き出します。path に中のファイルを指定して、その形式で読んでください",
-            "rar": "RAR の書庫には書きません（RAR を作る手段を持ちません）。取り出したファイルを別の名前で書き出します。path に中のファイルを指定して、その形式で読んでください",
             "eml": "メールには書きません", "msg": "メールには書きません"}
 
 
@@ -95,13 +94,11 @@ def sniff(blob: bytes, filename: str = "") -> str | None:
 
     if start_of(blob[:1 << 20] if blob[:2] == b"MZ" else blob[:4096]) is not None:
         return "lzh"
-    if blob[:2] == b"MZ":  # 自己解凍の .exe の中の 7z・RAR（実行せずに、中の書庫を読む）
-        from .legacy import rar, sevenzip
+    if blob[:2] == b"MZ":  # 自己解凍の .exe の中の 7z（実行せずに、中の書庫を読む）
+        from .legacy import sevenzip
 
         if sevenzip.find_start(blob) is not None:
             return "7z"
-        if rar.find_start(blob) is not None:
-            return "rar"
     return None
 
 
@@ -245,7 +242,7 @@ def tar_replace(data: bytes, ti: tarfile.TarInfo, content: bytes) -> bytes:
     return data[:ti.offset] + bytes(h) + content + bytes(pad) + data[old_end:]
 
 
-# ====================================================================== 7z・RAR
+# ====================================================================== 7z
 _PW: contextvars.ContextVar[str | None] = contextvars.ContextVar("todoku_archive_password", default=None)
 _held: dict = {}  # いちばん新しく開いた書庫：{"blob": 中身, "key": ハッシュ, "arc": 読んだ書庫, "folders": {番号: 解いたバイト}}
 _HOLD_MAX = 1 << 30  # 解いたフォルダを控える大きさの合計
@@ -289,64 +286,45 @@ def _opened(blob: bytes, k: str):
 
 
 def _parse(blob: bytes, k: str):
-    if k == "7z":
-        from .legacy import sevenzip
-
-        try:
-            return sevenzip.read_archive(blob, _PW.get())
-        except sevenzip.EncryptedError as e:
-            raise _need_password(e) from None
-        except sevenzip.SevenZipError as e:
-            raise ArchiveError(str(e)) from None
-    from .legacy import rar
+    from .legacy import sevenzip
 
     try:
-        return rar.read_archive(blob, _PW.get())
-    except rar.RarPassword as e:
+        return sevenzip.read_archive(blob, _PW.get())
+    except sevenzip.EncryptedError as e:
         raise _need_password(e) from None
-    except rar.RarError as e:
+    except sevenzip.SevenZipError as e:
         raise ArchiveError(str(e)) from None
 
 
 def _packed_members(blob: bytes, k: str) -> list[AMember]:
     arc = _opened(blob, k)
-    named = "書庫に書かれた名前（UTF-16）" if k == "7z" else None
-    return [AMember(e.name, e.size, e.csize, encrypted=e.encrypted, named=named or e.named, raw=e) for e in arc.entries if not e.is_dir]
+    return [AMember(e.name, e.size, e.csize, encrypted=e.encrypted, named="書庫に書かれた名前（UTF-16）", raw=e) for e in arc.entries if not e.is_dir]
 
 
 def _packed_extract(blob: bytes, m: AMember, k: str) -> bytes:
+    from .legacy import sevenzip
+
     arc = _opened(blob, k)
     e = m.raw
-    if k == "7z":
-        from .legacy import sevenzip
-
-        if e.folder is None:
-            return b""
-        folders = _held["folders"]
-        try:
-            data = folders.get(e.folder)
-            if data is None:
-                data = arc.folder_bytes(e.folder, _PW.get())
-                if sum(len(v) for v in folders.values()) + len(data) <= _HOLD_MAX:
-                    folders[e.folder] = data
-        except sevenzip.EncryptedError as ex:
-            raise _need_password(ex) from None
-        except sevenzip.SevenZipError as ex:
-            raise ArchiveError(str(ex)) from None
-        out = data[e.offset:e.offset + e.size]
-        if e.crc is not None and zlib.crc32(out) & 0xFFFFFFFF != e.crc:
-            if e.encrypted:
-                raise _ArcWrong("パスワードが違います（または書庫が壊れています）")
-            raise ArchiveError(f"「{e.name}」を解いた結果が CRC と合いません（書庫が壊れています）")
-        return out
-    from .legacy import rar
-
+    if e.folder is None:
+        return b""
+    folders = _held["folders"]
     try:
-        return rar.extract(blob, arc, e, _PW.get())
-    except rar.RarPassword as ex:
+        data = folders.get(e.folder)
+        if data is None:
+            data = arc.folder_bytes(e.folder, _PW.get())
+            if sum(len(v) for v in folders.values()) + len(data) <= _HOLD_MAX:
+                folders[e.folder] = data
+    except sevenzip.EncryptedError as ex:
         raise _need_password(ex) from None
-    except rar.RarError as ex:
+    except sevenzip.SevenZipError as ex:
         raise ArchiveError(str(ex)) from None
+    out = data[e.offset:e.offset + e.size]
+    if e.crc is not None and zlib.crc32(out) & 0xFFFFFFFF != e.crc:
+        if e.encrypted:
+            raise _ArcWrong("パスワードが違います（または書庫が壊れています）")
+        raise ArchiveError(f"「{e.name}」を解いた結果が CRC と合いません（書庫が壊れています）")
+    return out
 
 
 def preflight(blob: bytes, k: str) -> None:
@@ -572,6 +550,12 @@ def window(blob: bytes, name: str, kind_ja: dict, k: str) -> tuple[dict, list[tu
             kind = r["kind_ja"] or f"扱えない（{r['why']}）"
             lines.append(f"| {r['name'].replace('|', '｜')} | {kind} | {r['size']:,} バイト |")
     doc = {"kind": k, "name": name, "members": rows, "fields": []}
+    if k == "lzh":
+        from .legacy.convert_first import needs_tool
+        from .legacy.lzh import needs_other_tool
+
+        if any(needs_other_tool(m.raw) for m in ms):
+            doc["needs_tool"] = needs_tool("lzh", name)
     if k in MAIL:
         doc["body_lines"] = body_lines
         doc["notes"] = notes

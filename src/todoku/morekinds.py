@@ -9,9 +9,12 @@ KIND_JA.update({"xls2": "古い Excel（Excel 2〜4 の .xls。読むだけ）",
                 "mdb": "Access のデータベース（.mdb・.accdb。読むだけ）"})
 WORKBOOKS = frozenset({"xlsb", "xls2", "wk1", "dbf", "mdb"})  # xlsx と同じ窓・計算・表の取り出しを使うもの
 # 読むだけの形式：形式 → legacy の部品（build・grade・audit・KIND_JA を持つ。窓は readonlydoc の形）
-READONLY = {"ppt": "ppt", "xps": "xps", "epub": "epub", "word2": "word2", "iwork": "iwork"}
+READONLY = {"ppt": "ppt", "xps": "xps", "epub": "epub", "word2": "word2", "iwork": "iwork",
+            "rar": "convert_first", "heic": "convert_first", "avif": "convert_first"}  # 見分けて、別の道具の手順を返す
 KIND_JA.update({"ppt": "古い PowerPoint（.ppt。読むだけ）", "xps": "XPS（.xps・.oxps。読むだけ）", "epub": "EPUB（.epub。読むだけ）",
                 "word2": "古い Word（Word 1.x・2.0 の .doc。読むだけ）", "iwork": "Apple の iWork（.pages・.numbers・.key。読むだけ）"})
+NEEDS_TOOL = frozenset({"rar", "heic", "avif"})  # 解かない形式：別の道具で変換・展開してから開く（legacy/convert_first.py）
+KIND_JA.update({"rar": "RAR の書庫（.rar。別の道具で展開してから読む）", "heic": "HEIC・HEIF の画像（別の道具で変換してから読む）", "avif": "AVIF の画像（別の道具で変換してから読む）"})
 SXO = frozenset({"sxw", "sxc"})  # OpenOffice.org 1.x：OpenDocument に写して読む
 KIND_JA.update({"sxw": "OpenOffice.org 1.x の文書（.sxw。読むだけ）", "sxc": "OpenOffice.org 1.x の表計算（.sxc。読むだけ）"})
 KINDS = frozenset(KIND_JA)
@@ -165,6 +168,8 @@ def field_rows(k: str, doc: dict):
 def summary(k: str, doc: dict) -> dict:
     if k in WORKBOOKS or k == "sxc":
         return {"sheets": [s["name"] for s in doc["sheets"]], "macros": bool(doc.get("macros"))}
+    if k in NEEDS_TOOL:
+        return {"format": doc.get("format"), "needs_tool": doc.get("needs_tool")}
     return {}
 
 

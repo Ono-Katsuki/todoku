@@ -331,7 +331,7 @@ tr.unr td { color: var(--muted); }
     <p class="sub">行政の書類に苦労するのは、寝たきりの人だけではありません。目が見えずに読み上げで使う人、手が不自由な人、高齢の人、日本語が母語でない人、読み書きに困難のある人、仕事や介護で窓口に行けない人、毎月の書類を扱う事業所の人。誰にとっても重い作業で、その重さは、余裕のない人ほど大きくのしかかります。下の図は、その一つの例として、私の場合を測ったものです。</p>
     <p class="sub">壁は様式の側にあり、なくすことはできません。とどくは、書類を変えずに、AI エージェントが全てを正確に読み書きできる道をつくります。どの段階も AI を使わない決まった処理で、同じ書類と同じ環境（入っている書体など）からは、必ず同じ結果が出ます。数は、この調査で段階を付けた書類のものです。</p>
     <figure class="burden" aria-labelledby="burden-cap">
-      <figcaption id="burden-cap"><b>私が区に出す 1 通の申請書</b>　東京都中央区「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）。2 ページ・入力欄の候補 196 か所。架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合。</figcaption>
+      <figcaption id="burden-cap"><b>例：区に出す 1 通の申請書</b>　東京都中央区の「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）に、架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合を測りました。2 ページで、入力欄の候補は 196 か所です。</figcaption>
       <ul class="walls">
         <li><b>重いと、諦める。</b>良さそうな助成を見つけても、私も諦めることがあります。使える制度を、手続きの重さのために使わない人がいることは、行政の負担の研究でも繰り返し示されています（Currie 2006・Herd &amp; Moynihan 2018）。</li>
         <li><b>探すだけで重い。</b>様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。</li>
@@ -356,7 +356,7 @@ tr.unr td { color: var(--muted); }
       <li><h3>制度と様式を探す</h3>
         <p>「私が使える制度を探して、申請書を書いて」の一言から、エージェントが制度の案内・要綱と様式を探してきます（robots.txt を守り、間をあけて取得）。当たるかどうか分からない条件は、推測で決めずに伝えます。</p></li>
       <li><h3>開いて、一字も変えずに読む</h3>
-        <p>PDF・Excel・Word・一太郎・CSV・ZIP など <b class="num" id="how-kinds">—</b> の形式の書類 <b class="num" id="how-docs">—</b> 件を、元の内容を一字も変えずに読める「窓」にしました。Office も外部のライブラリも使わず、公開された仕様書から実装しています。</p></li>
+        <p>PDF・Excel・Word・一太郎・CSV・ZIP など <b class="num" id="how-kinds">—</b> の形式の書類 <b class="num" id="how-docs">—</b> 件を、元の内容を一字も変えずに読める「窓」にしました。Office も外部のライブラリも使わず、仕様書のある形式は公開の仕様書から、一太郎は公開された書類を比べて形を推定し、Jet（.mdb）は公開の仕様がないので実物の構造を観察して実装しています。一部の部品は公開の実装（libjpeg・libwebp・HarfBuzz・OpenJPEG）に基づきます。</p></li>
       <li><h3>書く所を見つける。迷う所は「？」でエージェントに</h3>
         <p>入力欄は、フォームの欄・入力規則・罫線・下線など、ファイルの構造から規則で見つけます。言葉の一致では決めません。規則で決められない所は、根拠を添えて「？」の印で示し、エージェントが判断します（<b class="num" id="how-agent">—</b> 件の書類）。</p></li>
       <li><h3>紙のままの壁を越える</h3>
@@ -471,7 +471,7 @@ tr.unr td { color: var(--muted); }
     <div class="refs">
       <span>Moynihan, Herd &amp; Harvey (2015) JPART · Herd &amp; Moynihan (2018) · Currie (2006) · Goodwin et al. (2011) JITP · Singanamalla et al. (2020) IMC · Kumar &amp; Wang (2024) ASSETS · Foppiano (2026) WAC · Fok et al. (2022) CHI · Hackett &amp; Parmanto (2009) · Vigo, Brown &amp; Conway (2013) W4A · Brown, Cai &amp; DasGupta (2001) · Korn &amp; Graubard (1998) · Cohen (1960) · Thelwall &amp; Stuart (2006) · Partridge &amp; Allman (2016) · Ono (2026) ASSETS</span>
       <span>書類：Common Crawl（CC-MAIN-2026-43）· 政府のドメイン：Public Suffix List · Wikidata（CC0）</span>
-      <span>地図の国境：Natural Earth（world-atlas, ISC）</span>
+      <span>地図の国境：Made with Natural Earth（public domain）。world-atlas 2.0.2（ISC）Copyright 2013-2019 Michael Bostock</span>
     </div>
   </section>
 </div>

@@ -7,6 +7,7 @@
 
 入手先: https://github.com/adobe-type-tools/cmap-resources （<集まり>/CMap/<名前>）。手元の写し（TeX Live の
 fonts/cmap/adobemapping/cmap-resources など）のフォルダを引数に渡すと、それを読む。
+ライセンス: adobe-type-tools/cmap-resources の BSD 3-Clause（src/todoku/pdf/data/LICENSE-adobe-cmap-resources.txt）
 出力: src/todoku/pdf/data/uni2cid.json.gz（{CMap の名前: [[始まりの Unicode, 個数, 始まりの CID], …]}）
 """
 

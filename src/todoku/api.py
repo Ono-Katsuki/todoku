@@ -32,6 +32,18 @@ from . import archives as _arc  # noqa: E402
 KIND_JA.update(_arc.KIND_JA)
 
 
+def _needs_tool_message(k: str, name: str) -> str:
+    from .legacy.convert_first import message
+
+    return message(k, name)
+
+
+def _lzh_needs_tool(entry) -> bool:
+    from .legacy.lzh import needs_other_tool
+
+    return needs_other_tool(entry)
+
+
 class ApiError(ValueError):
     pass
 
@@ -228,12 +240,14 @@ def _member_blob(path: str) -> tuple[bytes, str]:
     cur = Path(outer).name
     for m in chain:
         k = kind_of(blob, cur)
+        if k == "rar":
+            raise ApiError(_needs_tool_message(k, cur))
         if k not in _arc.KINDS:
             raise ApiError(f"「{m}」の外側のファイルは ZIP ではありません")
         try:
             blob = _arc.extract(blob, m, k, cur)
         except (NeedsPassword, WrongPassword):
-            raise  # 7z・RAR のパスワード：呼んだ側（_read_member）が、聞き直す形に直す
+            raise  # 7z のパスワード：呼んだ側（_read_member）が、聞き直す形に直す
         except ziparc.ArchiveError as e:
             raise ApiError(str(e)) from None
         cur = ziparc.base_name(m)
@@ -2243,6 +2257,27 @@ def calculate(path: str, values: dict, password: str | None = None, cells: list 
 
 
 @_budgeted
+def extract_processing(path: str, format: str = "json", out_path: str | None = None, sheet: str | None = None,
+                       overwrite: bool = False, password: str | None = None) -> dict:
+    """書類の処理を、処理として取り出す：規則（同じ形の数式を 1 つに）・構造（入力・参照表・出力・順番など）・マクロ・PDF の計算。
+    format="python" なら、標準ライブラリだけで動く calculate(inputs) のモジュールを out_path に書き出し、確かめてから返す。"""
+    from .limits import CONTEXT_BUDGET
+    from .processing import ProcessingError, extract
+
+    if format not in ("json", "python"):
+        raise ApiError(f'format は "json" か "python" です（{format!r}）')
+    blob, name, k, lock = _read(path, password)
+    if k not in _BOOKS and k not in ("ods", "fods", "pdf"):
+        raise ApiError(f"処理の取り出しは Excel の仲間（.xlsx・.xls・.xlsb・.ods など）と PDF のフォームです。この形式（{k}）には計算の処理がありません")
+    if out_path:
+        _not_source(Path(path).expanduser(), Path(out_path).expanduser())
+    try:
+        return extract(path, blob, name, k, password, format, out_path, sheet, overwrite, CONTEXT_BUDGET)
+    except ProcessingError as e:
+        raise ApiError(str(e)) from None
+
+
+@_budgeted
 def view_page(path: str, page: int, region: list | None = None, marks: list | None = None,
               password: str | None = None, dpi: float | None = None) -> dict:
     """PDF のページの画像（スキャンした紙のページを、エージェントが見て読み、書く所を mm の枠で決めるため）。
@@ -2251,6 +2286,8 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
     from .pdf.pageimage import view_page as pview
 
     blob, name, k, lock = _read(path, password)
+    if k in _open._more.NEEDS_TOOL:
+        raise ApiError(_needs_tool_message(k, name))
     if k == "image":
         from .imaging.standalone import view_frame
 
@@ -2345,6 +2382,8 @@ def to_pdf(path: str, out_path: str, overwrite: bool = False) -> dict:
     from .imaging.standalone import to_pdf as wrap
 
     blob, _name, k, _lock = _read(path)
+    if k in _open._more.NEEDS_TOOL:
+        raise ApiError(_needs_tool_message(k, _name))
     if k != "image":
         raise ApiError("to_pdf は画像のファイルを PDF に包む道具です（この書類はそのまま読み書きできます）")
     src, dst = Path(path).expanduser(), Path(out_path).expanduser()
@@ -2403,6 +2442,9 @@ def _audit_zip(path: str, blob: bytes, password: str | None, k: str = "zip", nam
         checks.append({"name": "読み落とし（本文）", "ok": not missing, "agent": False, "items": [str(x) for x in list(missing)[:20]],
                        "detail": "差出人・宛先・件名・本文の字が、すべて窓に出ていることを確かめました" if not missing else "本文の字のうち窓に出ていない字があります"})
     for m in _arc.files(blob, k, name):
+        if k == "lzh" and _lzh_needs_tool(m.raw):
+            checks.append({"name": f"{m.name}：別の道具で展開", "ok": True, "agent": True, "detail": _needs_tool_message("lzh", name), "items": []})
+            continue
         try:
             d = audit(path + ziparc.SEP + m.name, password)
         except ApiError as e:
@@ -2703,6 +2745,8 @@ def summary(path: str, password: str | None = None, encoding: str | None = None)
             d["macro_runs_on_change"] = any(e["on_change"] for e in m["events"])
     elif k in _arc.KINDS:
         d["members"] = [{"name": m["name"], "kind": m["kind"], "size": m["size"]} for m in doc["members"]]
+        if doc.get("needs_tool"):
+            d["needs_tool"] = doc["needs_tool"]
     else:
         d["protection"] = doc.get("protection")
     if k in _open.KINDS:  # 追加の形式

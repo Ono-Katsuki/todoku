@@ -290,7 +290,7 @@ class SheetIndex:
             if local == "f":
                 self.formulas += 1
                 return
-            if local == "row":
+            if local == "row" and state["depth"] == 3:  # <sheetData> の直下の行だけ（図形の位置の <xdr:row> は行ではない）
                 r = attrs.get("r")
                 num = int(r) if r else state["next_row"]
                 if rows and num <= rows[-1]:

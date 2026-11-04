@@ -60,6 +60,9 @@ description: 申請書・届出・様式（Excel・Word・PDF・一太郎など�
 - `open_document` → `read_window`：書類を開いて窓を読む。扱える形式は Excel（.xlsx・.xlsm・.xls）・Word（.docx・.docm・.doc）・PDF・
   一太郎（.jtd）・OpenDocument（.odt・.ods）・RTF・PowerPoint（.pptx）・.txt・CSV・TSV・JSON・ZIP・한글の HWPX（.hwpx。読む・書く）。
   한글の HWP 5（.hwp）は読むだけ（書くときは、本人に HWPX で保存し直したファイルを頼む）。配布用・パスワードの HWP は読めない。
+  본 제품은 한글과컴퓨터의 한/글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
+- RAR・HEIC・HEIF・AVIF と LZH の -lh1-〜-lh3- は、とどくは解かない（見分けるだけ。RAR・HEIC・AVIF の段階は読む E・書く D）。`open_document` の `needs_tool.next_step.commands` に別の道具のコマンドの例が OS ごとにある。目安なので、
+  入っている道具を確かめて使う。できたファイルをもう一度 `open_document` で開き、変換・展開したことを本人に伝える。書いたものは元の形式には戻らないので、それも本人に伝える。
 - `list_fields`：入力欄の id・見出し・種類・選択肢・いまの値・書けるか（`readonly`・`why`）。書く前に id を確かめる。
   見出しは書類に印刷された字。「？」のついた欄（`agent`）は、窓を読んで書く所か判断する。
 - `fill_document`：まとめて書く。結果で確かめること：
@@ -101,8 +104,10 @@ description: 申請書・届出・様式（Excel・Word・PDF・一太郎など�
 - Word の箇条書きの □（窓の `☐［P段落.b］`）はチェックの欄：`{"P12.b": true}`。差し込み（MERGEFIELD）などのフィールドの結果の字には書けない。
 - `audit_document`：この書類を全て正確に読み書きできるか（読み落とし・全欄への試しの書き込み・読み戻し）と段階。初めての様式や、結果が怪しいときに。
 - `grade_document`：読む段階（S〜F）・書く段階（A〜D）と、エージェントが確かめる問い（`agent_checks`）。窓を読んで答えを `findings` で渡す。
-- Excel の様式：`read_table`（見出しの列で表を行ごとに取り出す）・`explain_calculation`（入力欄と数式を分け、式を見出しで説明する）・
+- Excel の様式：`read_table`（見出しの列で表を行ごとに取り出す）・`explain_calculation`（1 つの値の説明：入力までさかのぼる）・
   `try_calculation`（書かずに試算する。「区分Ⅱにしたらいくら？」）・`run_macro`（ボタンのマクロ。「はい／いいえ」・入力の値は本人に聞いてから `answers` で）。
+- 計算の決まりを知りたいとき・同じ計算を繰り返すときは `extract_processing`：値から処理を推測せず、規則（「D3:D100000 = B{row}*C{row}」）・入力・参照表・出力・順番・分岐・マクロ・PDF の計算を受け取る。
+  `format: "python"` と `out_path` で、標準ライブラリだけで動く `calculate(inputs)` のモジュールを書き出す。`verification` の一致の割合と、規則ごとの `proven`／`not_proven` を見て、確かめられなかった規則は本人に伝える。
 - `view_page`：PDF のページを描いた画像で見る（スキャンした紙を読む・書いた後に確かめる。`region` で拡大、`dpi` で解像度）。
 
 ## スキャンした紙・ZIP

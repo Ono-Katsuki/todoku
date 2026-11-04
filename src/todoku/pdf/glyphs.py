@@ -10,6 +10,8 @@
 字の組み立て（シェーピング）が要る行（アラビア文字・ヘブライ文字・インド系の文字・タイ文字）は shape.py で組み立て、
 このパソコンの書体から使った字形だけを埋め込んで描く（行を元の字の ActualText で包む）。読み直すときは、その範囲の
 字形の並びが、元の字をいま組み立てた並びと同じかを確かめる。
+
+Helvetica の字幅は Adobe Core 14 AFM による。Copyright (c) 1985, 1987, 1989, 1990, 1997 Adobe Systems Incorporated. All Rights Reserved.
 """
 
 from __future__ import annotations

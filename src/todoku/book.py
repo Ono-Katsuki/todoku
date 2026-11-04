@@ -70,8 +70,11 @@ def kind_of(blob: bytes, filename: str = "") -> str:
         return "pdf"
     from .imaging.formats import sniff
 
-    if sniff(blob):
-        return "image"  # 画像そのもののファイル（JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2・PICT・SVG・HEIC・AVIF）：見て読む（imaging/standalone.py）
+    image_format = sniff(blob)
+    if image_format in ("heic", "avif"):
+        return image_format  # とどくは解かない：別の道具で変換する手順を返す（legacy/convert_first.py）
+    if image_format:
+        return "image"  # 画像そのもののファイル（JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2・PICT・SVG）：見て読む（imaging/standalone.py）
     head_kind = _head_kind(blob, filename)  # 先頭のバイトで決まる形式（tar・gzip・LZH・7z・RAR・古い Excel など）
     if head_kind:
         return head_kind

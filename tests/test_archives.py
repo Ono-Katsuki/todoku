@@ -1,4 +1,4 @@
-"""tar・gzip・LZH・7z/RAR の見分け・メール：中のファイルを「a!/名前」で読む・書く（書いた所のほかはバイト一致）。"""
+"""tar・gzip・LZH・7z の見分け・メール：中のファイルを「a!/名前」で読む・書く（書いた所のほかはバイト一致）。"""
 
 from __future__ import annotations
 
@@ -163,7 +163,7 @@ def test_lzh_rejects_bad_crc_and_unknown_method(tmp_path):
     p = _p(tmp_path, "c.lzh", _lzh_level0(b"a.csv", CSV, method=b"-lzs-", body=CSV))
     with pytest.raises(api.ApiError, match="-lzs-"):
         api.fields(p + "!/a.csv")
-    assert api.grade(p)["grade"] == "F"
+    assert api.grade(p)["grade"] == "E"  # 別の道具で展開してから読む
 
 
 def _bits(*fields) -> bytes:
@@ -195,8 +195,8 @@ def test_lzh_audit_goes_through_members(tmp_path):
     assert au["checks"] and all(c["name"].startswith("a.csv：") for c in au["checks"])
 
 
-@pytest.mark.parametrize("blob,kind", [(b"7z\xbc\xaf\x27\x1c" + bytes(30), "7z"), (b"Rar!\x1a\x07\x00" + bytes(30), "rar")])
-def test_broken_7z_and_rar_say_so(tmp_path, blob, kind):
+@pytest.mark.parametrize("blob,kind", [(b"7z\xbc\xaf\x27\x1c" + bytes(30), "7z")])
+def test_broken_7z_says_so(tmp_path, blob, kind):
     assert kind_of(blob) == kind
     p = _p(tmp_path, f"a.{kind}", blob)
     with pytest.raises(api.ApiError, match="壊れて"):

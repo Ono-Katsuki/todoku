@@ -1,6 +1,9 @@
 """JPEG（ITU-T T.81）の算術符号（附属書 D の QM 符号器・附属書 F.1.4・F.2.4 の順次・G.1.3・G.2.3 のプログレッシブ）と、可逆（附属書 H）のハフマン。
 
-係数は jpegprog と同じ、成分ごとの平らな配列（ジグザグの順）。どちらも規格の流れ図のとおりで、速さより読みやすさを取った（算術符号の JPEG はめったにない）。
+係数は jpegprog と同じ、成分ごとの平らな配列（ジグザグの順）。速さより読みやすさを取った（算術符号の JPEG はめったにない）。
+
+算術符号の復号は、IJG の libjpeg の jdarith.c・jaricom.c を Python に書き直したもの。可逆のハフマンは規格の附属書 H による。
+This software is based in part on the work of the Independent JPEG Group（条件は LICENSES/LICENSE-ijg.txt）。
 """
 
 from __future__ import annotations

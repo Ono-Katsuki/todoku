@@ -7,7 +7,7 @@
   が UCD から作る）で、語頭・語中・語末・独立の形を決め、GSUB の isol・fina・medi・init、rlig（ラーム・アリフ）・calt・liga を
   当てる。記号（ハラカート）は GPOS の mark・mkmk で付ける
 - インド系の文字：Microsoft の「Developing OpenType Fonts for <文字>」（新しい仕様：dev2・bng2 など）の音節の組み立て。
-  音節の切り方・基の子音・レーフ・前に置く母音記号・前に置く子音の並べ替えは、HarfBuzz の Indic の組み立てと同じにする
+  音節の切り方・基の子音・レーフ・前に置く母音記号・前に置く子音の並べ替えは、HarfBuzz（MIT。LICENSES/LICENSE-harfbuzz.txt） の Indic の組み立てを Python に写したもの
   （Unicode の IndicSyllabicCategory・IndicPositionalCategory を使う）。機能は locl・ccmp → nukt・akhn・rphf・rkrf・pref・
   blwf・abvf・half・pstf・vatu・cjct（1 つずつ）→ 並べ直し → init・pres・abvs・blws・psts・haln・calt・clig・liga・rlig・
   rclt、GPOS は abvm・blwm・dist・kern・mark・mkmk・curs
