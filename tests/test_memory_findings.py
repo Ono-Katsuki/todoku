@@ -127,6 +127,34 @@ def test_model_small_results_are_exact():
     assert idx.spans("A", 2, 1, 2, 1) == []
 
 
+@pytest.mark.parametrize("seed", range(5))
+def test_stabber_matches_brute_force(seed):
+    from todoku.xlsx.model import _Stabber
+
+    rng = random.Random(seed)
+    n = rng.randint(1, 60)
+    iv = []
+    st = _Stabber(n)
+    for who in range(40):
+        a = rng.randrange(n)
+        b = rng.randint(a + 1, n)
+        iv.append((a, b, who))
+        st.add(a, b, who)
+    taken = set()
+    for p in rng.sample(range(n), n):
+        got = set(st.take(p))
+        assert got - taken == {w for a, b, w in iv if a <= p < b} - taken
+        taken |= got
+    assert taken == {w for _a, _b, w in iv}
+
+
+def test_tag_end_handles_quotes_and_unterminated():
+    from todoku.docx.xmlpos import _tag_end
+
+    assert _tag_end(b'<a b="x>y" c=\'>\'/>z', 0) == 18
+    assert _tag_end(b'<a b="x', 0) == 7
+
+
 def test_many_rows_of_blanks_sections_and_heights_stay_linear(tmp_path):
     # 数式の列と「？」のある行が 4000 行：見出しの探索・遠い見出しまでの高さを、行ごとに上まで足さない
     p = tmp_path / "t.xlsx"

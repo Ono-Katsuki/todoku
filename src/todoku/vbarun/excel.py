@@ -387,8 +387,11 @@ class Range:
             return "" if v is EMPTY else to_str(v)
         if n == "hasformula":
             sh = h.sheet(self.sheet)
+            # 広い範囲は、範囲の広さでなく、ファイルにあるセルの数で済ませる（1 マスずつ問うマクロは、索引を作り直さない）
+            places = (sh.existing_in(self.r1, self.c1, self.r2, self.c2) if self.rows * self.cols > 4096 else
+                      ((r, c) for r in range(self.r1, self.r2 + 1) for c in range(self.c1, self.c2 + 1)))
             return any((sh.cells.get((r, c)) is not None and sh.cells[(r, c)].has_formula and (sh.name, r, c) not in h.over)
-                       for r, c in sh.existing_in(self.r1, self.c1, self.r2, self.c2))  # 範囲の広さでなく、ファイルにあるセルの数で済む
+                       for r, c in places)
         if n == "row":
             return self.r1
         if n == "column":

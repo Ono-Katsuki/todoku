@@ -96,6 +96,9 @@ class RawZip:
     """バイト列を保ったまま扱える ZIP。"""
 
     def __init__(self, blob: bytes):
+        from .limits import budget
+
+        budget().allow_file(len(blob))  # 項目の予算は、ファイルの大きさに見合うだけ広げる（小さなファイルの爆弾は、いままでの上限で止まる）
         self.original = blob
         self.prefix = b""
         self.entries: list[Entry] = []

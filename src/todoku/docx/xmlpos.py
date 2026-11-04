@@ -64,7 +64,7 @@ class Node:
         return f"<{self.local} {self.s}-{self.e}>"
 
 
-_TAG_END = re.compile(rb"""(?:[^"'>]+|"[^"]*"|'[^']*')*>""")
+_TAG_END = re.compile(rb"""(?:[^"'>]|"[^"]*"|'[^']*')*>""")  # 選びかたは最初の字で 1 通りに決まる（読み直しで遅くならない）
 
 
 def _tag_end(xml: bytes, pos: int) -> int:
@@ -100,7 +100,7 @@ def parse(xml: bytes, more_text: frozenset[str] = frozenset()) -> Node:
         tag = names.get(tag) or norm(tag)
         s = p.CurrentByteIndex
         node = Node(tag, {norm(k): v for k, v in attrs.items()}, s, stack[-1])
-        node.se = _TAG_END.match(xml, s).end() if xml[s] == 0x3C else s
+        node.se = _tag_end(xml, s)
         stack[-1].kids.append(node)
         stack.append(node)
 
