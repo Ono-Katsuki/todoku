@@ -288,7 +288,18 @@ def wrap(text: str, size: float, width: float) -> list[str]:
     return lines
 
 
-def spot_fits(text: str, rect, size: float | None, kind: str) -> bool:
+# 1 行に書く所：行の中の所（字の間・行の前後の空き・字の形の空欄）と下線の罫線。折り返さず、1 行に入る大きさに縮める
+ONE_LINE_SHAPES = ("gap", "lead", "trail", "connector", "leader", "dash", "bracket", "blank_line", "placeholder", "underline")
+
+
+def spot_multiline(spot: dict, h: float, size: float, unit: float = 1.0) -> bool:
+    """折り返してよい所か：何行も入る高さ（字の 2.4 行ぶんより高い）のマス・枠だけ。行の所（基線のある所）は、いつも 1 行。"""
+    if spot.get("shape") in ONE_LINE_SHAPES or spot.get("baseline") is not None:
+        return False
+    return h > 2.4 * min(size, 10.5 / unit)
+
+
+def spot_fits(text: str, rect, size: float | None, kind: str, spot: dict | None = None) -> bool:
     """配置から見つけた欄（窓の rect・size）に、add_widget と同じ決め方で text が入るか。"""
     x0, y0, x1, y1 = rect
     w, h = x1 - x0, y1 - y0
@@ -296,7 +307,7 @@ def spot_fits(text: str, rect, size: float | None, kind: str) -> bool:
     if w <= 0 or h <= 0:
         return False
     try:
-        layout_text(text, w, h, size, center=kind == "inline", multiline=h > 2.4 * min(size, 10.5))
+        layout_text(text, w, h, size, center=kind == "inline", multiline=spot_multiline(spot or {}, h, size))
     except FillError:
         return False
     return True
@@ -385,8 +396,9 @@ def check_layout_options(key: str, opts: dict) -> None:
 def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, size: float, dr_fonts: dict, *,
                     center: bool = False, comb: list | None = None, rot: int = 0, multiline: bool = True,
                     cover: bool = False, align: str = "left", unit: float = 1.0,
-                    pad: float | None = None) -> tuple[Ref, float]:
+                    pad: float | None = None, baseline: float | None = None) -> tuple[Ref, float]:
     """align：枠の中の左右のそろえ方（既定は左）。pad：枠の端と字のあいだの余白（pt。既定は 1.5pt か幅の 1/10 の小さいほう）。
+    baseline：字の基線の、枠の下の端からの高さ（pt。行の所は行の字と同じ基線に書く。省くと、枠の上下の中ほどにそろえる）。
     cover：欄の下地を白く塗ってから書く（伏せ字の「○○」の上に書くときに、下の字を覆う。元の字は消さない）。
     rot：欄の回転（/MK の R）。描く向きの座標（vw×vh）で字を並べ、BBox も同じ大きさにして、Matrix で Rect の向きに回す。"""
     vw, vh = _view_box(rot, rect_w, rect_h)
@@ -412,7 +424,7 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
     lines, s = layout_text(str(value), vw, vh, size, center, multiline, unit)
     leading = s * 1.15
     block = leading * (len(lines) - 1) + s
-    y = (vh + block) / 2 - s * 0.8
+    y = baseline if baseline is not None else (vh + block) / 2 - s * 0.8
     pad = min(1.5, 0.1 * vw) if pad is None else min(pad, 0.45 * vw)
     align = "center" if center else align
     aw = vw - 2 * pad
@@ -435,6 +447,16 @@ def empty_appearance(update: Update, w: float, h: float, rot: int = 0) -> Ref:
 
 
 # ====================================================================== 書き込み
+def _wider_hint(spot: dict, view: View) -> str:
+    """字が小さくなる・入らないときに添える、広く書く方法：行の所の上下の空き（事実）と box。"""
+    x0, y0, x1, y1 = spot["rect"]
+    mm = view.mm
+    room = ((spot.get("facts") or {}).get("room_mm")) or {}
+    roomy = f"。この行の上に {room.get('above', 0):g} mm・下に {room.get('below', 0):g} mm の空き" if room else ""
+    return (f"。もっと広く書くなら、枠を box で決めてください（いまの枠は 左 {x0 / mm:.1f}・上 {y0 / mm:.1f}・右 {x1 / mm:.1f}・"
+            f"下 {y1 / mm:.1f} mm{roomy}）")
+
+
 def _as_text(v) -> str:
     if isinstance(v, bool):
         return "TRUE" if v else "FALSE"
@@ -886,13 +908,13 @@ class Filler:
         x0, y0, x1, y1 = view.back_rect(vx0, vy0, vx1, vy1)
         w, h = x1 - x0, y1 - y0
         rot = view.rot
-        base = {"Type": Name("Annot"), "Subtype": Name("Widget"), "T": text_string(spot["id"]),
+        widget = {"Type": Name("Annot"), "Subtype": Name("Widget"), "T": text_string(spot["id"]),
                 "TU": text_string(spot.get("label") or spot["id"]), "F": 4, "P": page_ref}
         if k == "checkbox":
             on = _as_bool(value)
             yes = check_appearance(self.up, w, h, self.fonts_for({"ZaDb"}), rot=rot)  # 回したページでは、印も見た目の向きに
             off = empty_appearance(self.up, w, h, rot)
-            d = {**base, "FT": Name("Btn"), "Rect": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)],
+            d = {**widget, "FT": Name("Btn"), "Rect": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)],
                  "V": Name("Yes") if on else Name("Off"), "AS": Name("Yes") if on else Name("Off"),
                  "AP": {"N": {"Yes": yes, "Off": off}}, "MK": {"CA": PdfString(b"4"), **({"R": rot} if rot else {})},
                  "DA": PdfString(b"/ZaDb 0 Tf 0 g")}
@@ -919,20 +941,30 @@ class Filler:
         align = spot.get("align") or "left"
         pad = spot.get("pad_mm")
         pad_pt = pad * view.mm if pad is not None else None
-        ap, s = text_appearance(self.up, w, h, text, size, self.fonts_for(fonts_used([text]) | {"Helv"}),
-                                align=align, comb=comb, rot=rot,
-                                multiline=(vy1 - vy0) > 2.4 * min(size, 10.5 / unit), cover=cover, unit=unit, pad=pad_pt)
+        multiline = spot_multiline(spot, vy1 - vy0, size, unit)
+        base = spot.get("baseline")
+        try:
+            ap, s = text_appearance(self.up, w, h, text, size, self.fonts_for(fonts_used([text]) | {"Helv"}),
+                                    align=align, comb=comb, rot=rot, multiline=multiline, cover=cover, unit=unit, pad=pad_pt,
+                                    baseline=vy1 - base if base is not None and not comb else None)
+        except FillError as e:
+            raise FillError(f"{spot['id']}: {e}{_wider_hint(spot, view)}") from None
         if cover:
             self.covers.add(spot["id"])
             self.warnings.append(f"{spot['id']}: 元の字「{spot.get('covered', '')}」は、白い下地の欄で覆いました（元の字は消していません）")
         if text and s * unit < MIN_READABLE_PT:
             self.warnings.append(f"{spot['id']}: 欄に収めるため、字が {s * unit:.1f} pt になり、印刷すると読みにくい大きさです"
-                                 f"（{MIN_READABLE_PT:g} pt 未満）。もっと広い所に書くか、短く書けないか確かめてください")
+                                 f"（{MIN_READABLE_PT:g} pt 未満）。短く書けないか確かめてください{_wider_hint(spot, view)}")
         elif text and s < 0.6 * size:
             self.warnings.append(f"{spot['id']}: 欄に収めるため、字を {s * unit:.1f} pt に小さくしました（元の大きさ {size * unit:.1f} pt）")
+        if multiline and not comb:
+            wrapped = len(layout_text(text, vx1 - vx0, vy1 - vy0, size, False, True, unit)[0])
+            if wrapped > text.count("\n") + 1:
+                self.warnings.append(f"{spot['id']}: 枠の幅に入らないので {wrapped} 行に折り返しました（字 {s * unit:.1f} pt）。"
+                                     "折り返したくなければ、もっと幅のある枠を box で決めてください")
         keys = fonts_used([text]) or {"Helv"}
         da_font = _da_key(keys)
-        d = {**base, "FT": Name("Tx"), "Rect": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)],
+        d = {**widget, "FT": Name("Tx"), "Rect": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)],
              "V": text_string(text), "DA": PdfString(f"/{da_font} {s:.1f} Tf 0 g".encode()), "AP": {"N": ap}}
         if comb:
             d["Ff"] = FF_COMB
@@ -1360,7 +1392,7 @@ def _natural_size(spot: dict, text: str, unit: float) -> float | None:
         boxes = spot.get("box_rects") or []
         return min(size, min(b[3] - b[1] for b in boxes) * 0.7) if boxes else None
     try:
-        return layout_text(text, w, h, size, False, h > 2.4 * min(size, 10.5 / unit), unit)[1]
+        return layout_text(text, w, h, size, False, spot_multiline(spot, h, size, unit), unit)[1]
     except FillError:
         return None
 

@@ -329,6 +329,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
              "shape": sp.shape, "facts": dict(sp.facts)}
         if sp.write_size_from:
             d["size_from"] = sp.write_size_from  # 既定の字の大きさの出どころ（layout.default_size）
+        if sp.baseline is not None:
+            d["baseline"] = round(sp.baseline, 2)  # 行の所：行の字と同じ基線に書く（見た目の y、pt）
         if filled is not None:
             emitted.add(filled.name)
             d["filled"] = True
@@ -1292,6 +1294,12 @@ def _in_line(f: dict) -> str:
         elif shape not in ("lead", "trail"):
             before, after = (fa.get("before") or "")[-6:], (fa.get("after") or "")[:6]
             t += f"{_q(before, 6) if before else '（行頭）'}〜{_q(after, 6) if after else '（行末）'}"
+        # 行の上下の 1 字ぶん以上の空き（書く四角は行の帯。広く書くなら box で）
+        room = fa.get("room_mm") or {}
+        em = (f.get("size") or 0) * 25.4 / 72
+        roomy = [f"{side}{room[k]}" for k, side in (("above", "↑"), ("below", "↓")) if room.get(k, 0) >= em > 0]
+        if roomy:
+            t += "・空き" + "".join(roomy) + "mm"
     return t + _extras(f)
 
 

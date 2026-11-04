@@ -141,23 +141,25 @@ def _stack_pdf() -> bytes:
                  (200, 646, 10, "農協")], rules)
 
 
-def _stack_spot(data):
+def _stack_spots(data):
     from todoku.pdf.doc import PdfDocument
     from todoku.pdf.window import build
 
     win = build(PdfDocument(data))
-    return next(f for pg in win["pages"] for f in pg["fields"] if f.get("kind") in ("text", "inline") and 60 <= f["rect"][0] < 200
-                and f["rect"][2] <= 201 and f["rect"][3] - f["rect"][1] > 40)
+    return [f for pg in win["pages"] for f in pg["fields"] if f.get("shape") == "lead"]
 
 
-def test_value_beside_stacked_lines_is_reported_not_moved(tmp_path):
+def test_value_beside_stacked_lines_has_a_place_on_each_line(tmp_path):
+    # 字の行が縦に並ぶマス：行の前の空きは行ごとの所。どの行に続けて書くかは、所を選ぶことで決まる（行の高さの迷いがない）
     data = _stack_pdf()
-    spot = _stack_spot(data)
+    spots = _stack_spots(data)
+    assert {f["facts"]["line"] for f in spots} == {"銀行", "信用金庫", "信用組合", "農協"}
+    spot = next(f for f in spots if f["facts"]["line"] == "信用金庫")
     r, _ = _write(tmp_path, data, "t.pdf", {spot["id"]: "架空"})
     assert r["proof_ok"] and r["read_back_ok"]
-    assert any("行並ぶマス" in w and "mm" in w for w in r["warnings"]), r["warnings"]
+    assert not any("行並ぶマス" in w for w in r["warnings"]), r["warnings"]
     got = r["written_rects"][spot["id"]]
-    assert abs(got["y"] - round(spot["rect"][1] * 25.4 / 72, 1)) <= 0.1  # 置く所は変えない
+    assert abs(got["y"] - round(spot["rect"][1] * 25.4 / 72, 1)) <= 0.1
 
 
 # ---------------------------------------------------------------- PDF：一続きのマスの字の大きさをそろえる
