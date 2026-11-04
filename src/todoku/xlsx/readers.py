@@ -10,7 +10,7 @@ from __future__ import annotations
 import bisect
 from collections import defaultdict
 
-from ..limits import budget
+from ..limits import MAX_DECLARED_CELLS, budget
 
 NARROW = 64  # これより幅の広い範囲は、列ごとに持たず、問われた列で見る
 
@@ -121,8 +121,9 @@ class Readers:
         （ファイルにセルのあるマスは get で答えられるので、広げなくても読む数式は分かる）。"""
         room = self.room
         spans: dict[int, list[list[int]]] = defaultdict(list)  # 列 → 行の、重ならない区間（行の順）
-        work = room * 16
-        for r1, c1, r2, c2, _o in sorted(self.boxes, key=lambda b: (b[2] - b[0] + 1) * (b[3] - b[1] + 1)):
+        work = MAX_DECLARED_CELLS * 64  # 広げるために見る列の数の上限（幅の広い違う範囲が何百万も並ぶ、壊れた書類のため）
+        same = {b[:4] for b in self.boxes}  # 同じ範囲を読む数式がいくつあっても、広げるのは 1 度
+        for r1, c1, r2, c2 in sorted(same, key=lambda b: (b[2] - b[0] + 1) * (b[3] - b[1] + 1)):
             area = (r2 - r1 + 1) * (c2 - c1 + 1)
             if area > room or work < c2 - c1 + 1:
                 self.note("数式の参照", r1, c1, r2, c2)

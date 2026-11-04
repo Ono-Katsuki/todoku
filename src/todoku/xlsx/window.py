@@ -244,7 +244,8 @@ def formula_readers(wb: Workbook, sh: Sheet) -> Readers:
         return memo["readers"]
     lim_r, lim_c = _used_limits(sh, wb)
     me = sh.name.lower()
-    out = Readers(READERS_MAX, _declared_room(wb), sh.note_unread)
+    # 広げてよい数：ファイルに要素のないマスの分（要素のあるマスは、広げてもメモリは増えない）
+    out = Readers(READERS_MAX, _declared_room(wb) + len(sh.cells) + len(sh.merges), sh.note_unread)
 
     def boxes(ast, here: str, dr: int, dc: int, depth: int = 0):
         for ref in iter_refs(ast):

@@ -168,9 +168,6 @@ def _budgeted(fn):
 def _broken_input() -> tuple:
     """書類の読み方の例外のうち、入力が壊れていることだけを意味するもの（ほかの例外は、このツールの誤りかもしれないので、そのまま出す）。"""
     import csv
-    import xml.etree.ElementTree as ET
-    import zlib
-    from xml.parsers.expat import ExpatError
 
     from .datafile.jsonfile import JsonError
     from .doc.book import DocError
@@ -179,7 +176,7 @@ def _broken_input() -> tuple:
     from .ziparc import ArchiveError
     from .zipraw import ZipFormatError
 
-    return (ET.ParseError, ExpatError, zlib.error, csv.Error, ZipFormatError, ArchiveError, DocError, HwpxError, OdfError, JsonError)
+    return (csv.Error, ZipFormatError, ArchiveError, DocError, HwpxError, OdfError, JsonError)
 
 
 def _broken_detail(e: Exception) -> str:
