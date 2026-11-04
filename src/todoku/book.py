@@ -55,6 +55,12 @@ def kind_of(blob: bytes, filename: str = "") -> str:
         return "cfb"
     if blob[:4] == b"%PDF":
         return "pdf"
+    from .imaging.formats import heif_brand, sniff
+
+    if sniff(blob):
+        return "image"  # 画像そのもののファイル（JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2）：見て読む（imaging/standalone.py）
+    if heif_brand(blob):
+        return "heif"  # HEIC・AVIF：見分けるが開けない（HEVC・AV1 の復号は持たない）
     text = _text_kind(blob, filename)  # RTF（中身で）・CSV・TSV・JSON・JSON Lines・文字だけのファイル（.txt）（名前で）
     if text:
         return text
@@ -74,6 +80,7 @@ _BY_NAME = {".csv": "csv", ".tsv": "tsv", ".tab": "tsv", ".json": "json", ".json
 # 見分けるが、まだ読めない形式（開くと「未対応の形式」と伝え、段階は F）。HWP・HWPX は hwpx/ で読む（openkinds）
 UNSUPPORTED: dict[str, str] = {
     "ooxml-unknown": "Office Open XML のパッケージ（Excel・Word・PowerPoint の部品がない）",
+    "heif": "HEIC・AVIF の画像",
 }
 
 
@@ -102,6 +109,13 @@ def ooxml_main_type(blob: bytes) -> str | None:
 
 def unsupported_message(kind: str, blob: bytes | None = None) -> str:
     what = UNSUPPORTED.get(kind, kind)
+    if kind == "heif":
+        from .imaging.formats import heif_brand
+
+        brand = heif_brand(blob or b"") or "HEIC"
+        return (f"この画像は {brand} です。{'HEVC' if brand == 'HEIC' else 'AV1'} の復号を持たないので、とどくは開けません（中身を推測して読むことはしません）。"
+                "macOS では、エージェントが本人の同意を得て `sips -s format jpeg 入力.heic --out 出力.jpg` で JPEG に変換できます。"
+                "ほかの環境では、本人に JPEG か PNG で保存し直したものを頼んでください。変換したファイルを開けば、view_page で見て読めます")
     main = ooxml_main_type(blob) if kind == "ooxml-unknown" and blob else None
     return (f"未対応の形式：{what}" + (f"（主な部品の種類：{main}）" if main else "")
             + "。とどくは読めません（中身を推測して読むことはしません）。PDF・Word などに書き出したものがあれば、そちらを開いてください")

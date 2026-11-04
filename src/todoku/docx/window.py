@@ -950,7 +950,8 @@ def _pictures(doc) -> list[dict]:
     for pic in getattr(doc, "pictures", []) or []:
         near = re.sub(r"〔[^〕]*〕", "", pic["para"].text).strip()
         out.append({"id": f"図{pic['n']}", "alt": pic["alt"] or None, "decorative": pic["decorative"],
-                    "where": f"「{near[:30]}」の段落" if near else "字のない段落"})
+                    "where": f"「{near[:30]}」の段落" if near else "字のない段落", "media": pic.get("media", ""),
+                    **({"size_mm": pic["size_mm"]} if pic.get("size_mm") else {})})
     return out
 
 

@@ -47,8 +47,9 @@ INSTRUCTIONS = (
     "（パスワードは結果にも記録にも残しません。書き出したファイルも、元と同じパスワードで保護されたままです）。"
     "文字だけのファイル（CSV・.txt など）で、窓に「文字コードを規則では決められません」と候補が並んだときは、字を読んで意味の通る方を"
     "選び、その名前を、そのファイルのどの道具にも encoding で渡してください。"
-    "窓の「画像」の節で「説明（代わりの字）がありません」とある画像は、中身を字として読めません。申請に関わりそうな位置なら、"
-    "その位置（ページ・上下左右・近くの字）を本人に伝え、中身を推測で埋めないでください。段階の alerts（アクセシビリティの注意）は、"
+    "窓の「画像」の節で「説明（代わりの字）がありません」とある画像は、中身を字として読めません。申請に関わりそうなら view_image（PDF の"
+    "ページ全体は view_page）で画像を見て読み、読めなければ、その位置（ページ・上下左右・近くの字）を本人に伝えてください。中身を推測で"
+    "埋めないでください。画像そのもののファイル（JPEG・PNG・TIFF など）も open_document で開き、view_page で見ます。段階の alerts（アクセシビリティの注意）は、"
     "段階とは別に伝えてください。"
     "fill_document の結果の read_back_ok が false のときは、ファイルはもう書き出されていますが、書いた後のファイルを読み直した値が"
     "書いた値と違う欄があります（read_back_differences）。確かめずに本人に渡さず、違いを読んで直すか、そのことを本人に伝えてください。"
@@ -216,7 +217,7 @@ TOOLS = [
          "values": {"type": "object", "description": "{欄の id: 値}"}},
          "required": ["path", "values"]}},
     {"name": "view_page",
-     "description": "PDF のページを画像で見る（スキャンした紙のように、字の情報がない画像だけのページを読むため）。"
+     "description": "PDF のページ、または画像のファイル（JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000 など。page は何枚目か）を画像で見る（スキャンした紙のように、字の情報がない画像だけのページを読むため）。"
                     "上と左の帯に、ページの左上からの mm の目盛りが付く。小さな字は region（[左, 上, 右, 下] mm）で拡大して読む。"
                     "書く所は、画像を見て決めた枠を fill_document に {\"@1\": {\"page\": ページ, \"box\": [左, 上, 右, 下]（mm）, \"value\": 書く字}} で渡す。"
                     "書く前に marks（[{\"box\": [...], \"label\": \"1\"}]）を渡すと、その枠を赤で描くので、位置が合っているかを目で確かめる。"
@@ -232,6 +233,21 @@ TOOLS = [
          "dpi": {"type": "number", "minimum": 10, "maximum": 1200,
                  "description": "解像度。省くとページ全体は 100 dpi、region は長い辺 1600 画素。画像の画素の数には上限があり、超えるときは小さくする"}},
          "required": ["path", "page"]}},
+    {"name": "view_image",
+     "description": "書類の中の画像を見る（Word・Excel・PowerPoint・OpenDocument・HWPX・.doc・.xls・RTF の絵と、PDF のページの画像・注釈の画像）。"
+                    "窓の「書類の中の画像」の id（図1・シート!図1・p1.i1・p1.a1 など）か、部品の名前で指す。PNG・JPEG はそのまま渡し、GIF・BMP・TIFF・WebP・JPEG 2000 は PNG に、"
+                    "EMF・WMF は描いて PNG にする（描けない記録は not_drawn。絵の中の字は text にも出す）。読めない所は推測で埋めず、本人に伝える。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "image": {"type": "string", "description": "画像の id か部品の名前"},
+         "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
+         "region": {"type": "array", "items": {"type": "number"}, "description": "[左, 上, 右, 下]（画素）。大きな画像の一部を元の細かさで見るとき"}},
+         "required": ["path", "image"]}},
+    {"name": "to_pdf",
+     "description": "画像のファイル（JPEG・PNG・TIFF など）を PDF に包む。画像には直接書けないので、できた PDF に fill_document で枠（mm）を指定して書く（証明はその PDF について行う）。"
+                    "元の画像は変えない。JPEG はそのまま入れる。解像度の記録のない画像は A4 に収まる大きさで包み、そのことを結果に書く。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "out_path": {"type": "string", "description": "書き出す PDF の場所（元のファイルとは別の名前）"},
+         "overwrite": {"type": "boolean"}}, "required": ["path", "out_path"]}},
     {"name": "grade_document",
      "description": "書類の段階を返す：読む段階（S〜F）と書く段階（A〜D：そのまま書ける／解析しないと書けない／画面から入力する／書けない）。"
                     "規則で決めた段階に、エージェントが窓を読んで確かめたこと（findings）を合わせる。"
@@ -357,6 +373,13 @@ def call_tool(name: str, args: dict) -> dict:
         v = api.view_page(args["path"], args["page"], args.get("region"), args.get("marks"), args.get("password"), args.get("dpi"))
         return {"content": [_text(v["text"]), {"type": "image", "data": v["png_base64"], "mimeType": "image/png"}],
                 "structuredContent": {"text": v["text"], "width": v["width"], "height": v["height"], "not_drawn": v["not_drawn"]}}
+    if name == "view_image":
+        v = api.view_image(args["path"], args["image"], args.get("password"), args.get("region"))
+        return {"content": [_text(v["text"]), {"type": "image", "data": v["data_base64"], "mimeType": v["mime"]}],
+                "structuredContent": {k: v[k] for k in ("id", "mime", "width", "height", "not_drawn", "text")}}
+    if name == "to_pdf":
+        res = api.to_pdf(args["path"], args["out_path"], bool(args.get("overwrite")))
+        return {"content": [_text(res["say_to_user"])], "structuredContent": res}
     if name == "grade_document":
         g = api.grade(args["path"], args.get("findings") or [], args.get("answered") or [], password=args.get("password"),
                       encoding=args.get("encoding"))

@@ -362,8 +362,12 @@ def jpeg_gray(data: bytes, max_pixels: int = 4_000_000, want_rgb: bool = False):
                 cid, hv, tq = seg[6 + 3 * j], seg[7 + 3 * j], seg[8 + 3 * j]
                 comps.append({"id": cid, "h": hv >> 4, "v": hv & 15, "tq": tq})
             frame = (ww, hh, comps)
+        elif m == 0xC2:
+            from ..imaging.jpegprog import decode as multi_scan
+
+            return multi_scan(data, max_pixels, want_rgb)  # プログレッシブ（T.81 附属書 G）
         elif 0xC2 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):
-            raise RasterError(f"JPEG：この符号化（SOF{m - 0xC0}）は開けません（ベースライン・拡張の順次だけ）")
+            raise RasterError(f"JPEG：この符号化（SOF{m - 0xC0}）は開けません（ベースライン・拡張の順次・プログレッシブだけ）")
         elif m == 0xDD:
             restart = struct.unpack_from(">H", seg, 0)[0]
         elif m == 0xEE and seg[:5] == b"Adobe":
@@ -385,7 +389,9 @@ def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb
         c = next(x for x in comps if x["id"] == cid)
         sc.append((c, hts.get((0, t >> 4)), hts.get((1, t & 15))))
     if ns != len(comps):
-        raise RasterError("JPEG：成分を分けた走査は開けません")
+        from ..imaging.jpegprog import decode as multi_scan
+
+        return multi_scan(data, max_pixels, want_rgb)  # 成分を分けた走査（順次）
     hmax = max(c["h"] for c in comps)
     vmax = max(c["v"] for c in comps)
     # 濃さに使う成分：1成分ならそれ、YCbCr（3成分・Adobe の変換 1 か、印がない）なら Y。RGB・CMYK は全部の成分から

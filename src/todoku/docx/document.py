@@ -938,8 +938,12 @@ class DocxDocument:
         deco = pr is not None and any(x.local == "decorative" and x.get("val") in ("1", "true") for x in pr.iter("decorative"))
         if not alt:
             alt = next((s.get("alt") for s in node.iter("shape") if s.get("alt")), "") or ""  # VML の絵の説明
+        ext = next(iter(node.iter("extent")), None)
+        size = None
+        if ext is not None and (ext.get("cx") or "").isdigit() and (ext.get("cy") or "").isdigit():
+            size = [round(int(ext.get("cx")) / 36000, 1), round(int(ext.get("cy")) / 36000, 1)]  # EMU → mm
         self.pictures.append({"n": len(self.pictures) + 1, "alt": alt.strip(), "decorative": deco, "para": p,
-                              "media": media if self.zip.has(media) else ""})
+                              "media": media if self.zip.has(media) else "", "size_mm": size})
         return True
 
     def _graphics(self, node: Node, part: str) -> list[str]:

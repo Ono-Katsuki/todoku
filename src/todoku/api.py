@@ -216,6 +216,7 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
         _WINDOWS[key] = _WINDOWS.pop(key)  # いちばん新しく使ったものにする
         return pickle.loads(_WINDOWS[key][1])  # 呼んだ側が変えても控えは変わらないよう、写しを返す
     out = _window(blob, name, k, lock, encoding)
+    _list_images(out, blob, name, k, lock)
     if key is not None:
         from .limits import WINDOW_CACHE
 
@@ -228,6 +229,23 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
         while len(_WINDOWS) > _WINDOWS_MAX or sum(len(v[1]) for v in _WINDOWS.values()) > WINDOW_CACHE:
             _WINDOWS.pop(next(iter(_WINDOWS)))  # いちばん前に使ったものから
     return out
+
+
+def _list_images(out: tuple, blob: bytes, name: str, k: str, lock) -> None:
+    """窓に、書類の中の画像の一覧を足す（doc["images"] と、窓の終わりの節。view_image で見る）。"""
+    from .imaging.docimages import list_images, markdown, pdf_annotation_images
+
+    _k, doc, parts = out
+    if k == "pdf":
+        try:
+            images = pdf_annotation_images(_pdf(blob, name, lock))
+        except Exception:  # noqa: BLE001  一覧を作れないだけ（窓は出す）
+            images = []
+    else:
+        images = list_images(k, blob, doc)
+    if images:
+        doc["images"] = images
+        parts[-1] = (parts[-1][0], parts[-1][1].rstrip("\n") + "\n" + markdown(images))
 
 
 def _window(blob: bytes, name: str, k: str, lock, encoding: str | None = None) -> tuple[str, dict, list[tuple[str, str]]]:
@@ -1777,8 +1795,17 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
     from .pdf.pageimage import view_page as pview
 
     blob, name, k, lock = _read(path, password)
+    if k == "image":
+        from .imaging.standalone import view_frame
+
+        try:
+            if dpi is not None and (isinstance(dpi, bool) or not isinstance(dpi, (int, float)) or not 10 <= dpi <= 1200):
+                raise ApiError("dpi は 10〜1200 の数で指定してください")
+            return view_frame(blob, int(page), region, marks, dpi)
+        except ValueError as e:
+            raise ApiError(str(e)) from None
     if k != "pdf":
-        raise ApiError("view_page は PDF のページの画像です（ほかの形式は窓で読めます）")
+        raise ApiError("view_page は PDF と画像のファイルのページの画像です（ほかの形式は窓で読み、書類の中の画像は view_image で見ます）")
     doc = _pdf(blob, name, lock)
     try:
         if dpi is not None and (isinstance(dpi, bool) or not isinstance(dpi, (int, float)) or not 10 <= dpi <= 1200):
@@ -1799,6 +1826,44 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
         return v
     except ValueError as e:
         raise ApiError(str(e)) from None
+
+
+def view_image(path: str, image: str, password: str | None = None, region: list | None = None) -> dict:
+    """書類の中の画像を渡す（窓の「書類の中の画像」の id か、部品の名前で指す）。PNG・JPEG はそのまま、ほかは描いて PNG で。
+    結果：{id, mime, data_base64, width, height, not_drawn, text}。"""
+    from .imaging.docimages import ImageNotFound, get_image, pdf_get
+
+    blob, name, k, lock = _read(path, password)
+    try:
+        if k == "pdf":
+            return pdf_get(_pdf(blob, name, lock), image, region)
+        if k == "image":
+            raise ApiError("画像のファイルは view_page で見ます")
+        _k, doc, _parts = window(path, password)
+        return get_image(k, blob, doc.get("images") or [], image, region)
+    except ImageNotFound as e:
+        raise ApiError(str(e)) from None
+    except ApiError:
+        raise
+    except ValueError as e:
+        raise ApiError(f"画像を開けません：{e}") from None
+
+
+def to_pdf(path: str, out_path: str, overwrite: bool = False) -> dict:
+    """画像のファイルを PDF に包む（元のファイルは変えない）。できた PDF に fill_document で枠（mm）を指定して書く。"""
+    from .imaging.standalone import to_pdf as wrap
+
+    blob, _name, k, _lock = _read(path)
+    if k != "image":
+        raise ApiError("to_pdf は画像のファイルを PDF に包む道具です（この書類はそのまま読み書きできます）")
+    src, dst = Path(path).expanduser(), Path(out_path).expanduser()
+    _not_source(src, dst)
+    if dst.exists() and not overwrite:
+        raise ApiError(f"書き出し先のファイルがすでにあります：{dst.name}（overwrite で上書きできます）")
+    pdf, pages, notes = wrap(blob)
+    dst.write_bytes(pdf)
+    return {"out_path": str(dst), "pages": pages, "notes": notes,
+            "say_to_user": f"画像を PDF（{len(pages)} ページ）に包みました。書くのはこの PDF です（元の画像は変えていません）。" + " ".join(notes)}
 
 
 def _pdf_window_doc(path: str, password: str | None) -> dict:

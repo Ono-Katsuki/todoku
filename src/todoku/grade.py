@@ -805,7 +805,7 @@ def content_image_reasons(doc, win: dict, body_blocks, heading, body_ja: str, pa
         pid = f"図{p['n']}"
         where.append(f"{pid}（{where_of.get(pid, '')}" + (f"・{p['media']}" if p.get("media") else "") + "）")
     text = [p for p in paras if _words(p) and not heading(p)]
-    see = ("画像の中身は、todoku は字にしません。エージェントが画像そのもの（ファイルの中の画像の部品。where に名前）を見て読み、"
+    see = ("画像の中身は、todoku は字にしません。エージェントが画像そのもの（view_image で図の id か部品の名前を指す。where に名前）を見て読み、"
            "中身を推測で埋めないでください")
     if not text:
         return [Reason("E", "中身が画像の文書",
