@@ -9,11 +9,10 @@
 from __future__ import annotations
 
 import bisect
-import math
 from fractions import Fraction
 
 from .. import limits
-from .lazyarr import FlatView, LazyArr, StopScan, closed_float, constant_stats, exact_doubles, scan, stats_of
+from .lazyarr import FlatView, LazyArr, closed_float, constant_stats, exact_doubles, scan, stats_of
 from .values import DIV0, NUM, Arr, ExcelError, Rng, err, is_number, to_number
 
 
@@ -461,5 +460,3 @@ def bools(ev, args) -> list:
     return state
 
 
-__all__ = ["any_big", "total", "average", "extreme", "product", "count", "counta", "countblank", "variance", "kth", "sumproduct",
-           "where", "bools", "StopScan", "math"]

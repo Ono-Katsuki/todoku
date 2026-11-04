@@ -962,6 +962,8 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか
     after_list = fields(str(tmp), password, encoding)
     after = {f["id"]: f.get("value") for f in after_list}
+    if k in ("docx", "doc") and any(is_embed_key(x) for x in readback_values):
+        after.update(_embed_read_back(new_blob, name, k, [x for x in readback_values if is_embed_key(x)]))
     xl_back: dict = {}  # Excel：書いた所の (読み戻しが合うか, 見えている字)。日付・数は、ブックの数え方と表示形式でそろえて比べる
     if k in _open.KINDS:  # 追加の形式：欄の一覧に出ないマス・値も、書いた後のファイルを読み直して照らす
         after.update(_open.read_back(k, written_plain, name, readback_values, encoding))
@@ -1444,6 +1446,35 @@ def _seal_supported(k: str, values: dict) -> None:
             raise ApiError(f"{key}: 本人の{KINDS[sk]}の画像を置けるのは、いまは PDF の書類だけです（{KIND_JA.get(k, k)}には、"
                            "変わったのが置いた画像だけであることを証明して置く方法を、まだ作っていません）。"
                            "書いていません。PDF の様式があればそれを使うか、このことを本人に伝えてください")
+
+
+def is_embed_key(key: str) -> bool:
+    from .embed import is_embed_key as f
+
+    return f(key)
+
+
+def _embed_read_back(blob: bytes, name: str, k: str, keys: list[str]) -> dict:
+    """文書に埋め込んだ表に書いた所：書いた後の文書から、そのブックのセルを読み直す（欄の一覧に出ないマスも）。"""
+    from .formula.parser import parse_cell
+    from .formula.values import ExcelError
+
+    doc = _word(blob, name, k)
+    out = {}
+    for key in keys:
+        n, rest = key[1:].split("!", 1)
+        sheet, a = rest.rsplit("!", 1)
+        e = next((x for x in doc.embeds if str(x.get("n")) == n), None)
+        wb = doc.embedded_book(e) if e is not None else None
+        if wb is None:
+            continue
+        try:
+            cell = wb.sheet(sheet.strip("'")).cells.get(parse_cell(a.replace("$", "")))
+        except (KeyError, ValueError):
+            continue
+        v = None if cell is None else cell.value
+        out[key] = v.code if isinstance(v, ExcelError) else v
+    return out
 
 
 def _read_back_placed(k: str, blob: bytes, name: str, lock, values: dict, placed: list[dict]) -> list[dict]:
@@ -2622,7 +2653,7 @@ def _add_range_fields(path: str, sheet: str, rng: dict, res: dict, limit: int, p
     have = {f.get("id") for f in res.get("fields") or []}
     res.setdefault("fields", []).extend(f for f in got if f["id"] not in have)
     res["range_places"] = sheets[0]["range_places"]
-    if more is not None:
+    if more is not None and not res.get("next"):
         res["next"] = {"sheet": sheet, "rows": f"{more}-{b}"}
 
 
@@ -2640,11 +2671,12 @@ def _embed_range_fields(path: str, n: int, sheet: str, rng: dict, limit: int, pa
     except KeyError:
         raise ApiError(f"埋め込み E{n} にシート「{sheet}」がありません") from None
     a, b = _rows_of(rng)
-    places, got, more = _expand_places(wb, sh, a, b, limit, others=True)
+    at = int(str(rng.get("cursor") or "fields:0").rsplit(":", 1)[-1])
+    places, got, more = _expand_places(wb, sh, a, b, at + limit, others=True)
     out = [{**f, "id": f"E{n}!{f['id']}"} for f in got]
-    res = {"fields": out[:limit], "sheet": f"E{n}!{sheet}", "range_places": [{**p, "id": f"E{n}!{p['id']}"} for p in places], "next": None}
-    if more is not None or len(out) > limit:
-        res["next"] = {"sheet": f"E{n}!{sheet}", "rows": f"{more if more is not None else a}-{b}"}
+    res = {"fields": out[at:at + limit], "sheet": f"E{n}!{sheet}", "range_places": [{**p, "id": f"E{n}!{p['id']}"} for p in places], "next": None}
+    if more is not None or len(out) > at + limit:
+        res["next"] = {"sheet": f"E{n}!{sheet}", "rows": f"{a}-{b}", "cursor": f"fields:{at + limit}"}
     return res
 
 

@@ -163,20 +163,29 @@ def test_any_cell_inside_is_writable_and_read_back(tmp_path):
     assert any("整数" in w for w in r["warnings"])
 
 
-def test_doc_with_embedded_sheet_lists_places_and_rows(tmp_path):
-    pytest.importorskip("todoku.docx.document")
-    # 埋め込みの表（Word）：窓に範囲の所があり、「E1!シート」で行を頼める
-    import todoku.embed as em
+def test_embedded_sheet_places_rows_and_read_back(tmp_path):
+    from test_embed import _docx, _emf
 
-    win = {"sheets": [{"name": "S", "fields": [], "range_places": [{"id": "S!B3:B9", "cell": "B3:B9", "kind": "range", "count": 7, "why_key": ["validation"]}]}]}
-    doc = type("D", (), {"kind": "docx", "zip": None})()
-    info_key = em._WRITABLE
-    k = None
-    em._writable_key = lambda d, e: k
-    em.writable = lambda d, e: (True, "")
-    info = em.window_info(doc, {"n": 1}, win)
-    assert info["range_places"][0]["id"] == "E1!S!B3:B9" and info["range_places"][0]["sheet"] == "S"
-    assert info_key is em._WRITABLE
+    dv = DV.replace("B3:B150000", "B3:B20000")
+    blob = _docx(xlsx(cells(far(21000)) + dv), _emf())
+    p = tmp_path / "e.docx"
+    p.write_bytes(blob)
+    _k, doc, parts = api.window(str(p))
+    e = doc["embeds"][0]
+    assert e["range_places"][0]["id"] == "E1!S!B3:B20000" and e["range_places"][0]["sheet"] == "S"
+    assert any("S!B3:B20000（空のセル" in t for _n, t in parts)
+    got = api.fields_range(str(p), {"sheet": "E1!S", "rows": "100-101"})
+    assert {"E1!S!B100", "E1!S!B101"} <= {f["id"] for f in got["fields"]}
+    first = api.fields_range(str(p), {"sheet": "E1!S", "rows": "100-101"}, limit=1)
+    more = api.fields_range(str(p), first["next"], limit=1)
+    assert first["fields"][0]["id"] != more["fields"][0]["id"]
+    # 書いた所は、書いた後の文書のブックから読み直す（欄の一覧に出ないマスも）
+    from test_embed import _xlsx
+
+    q = tmp_path / "f.docx"
+    q.write_bytes(_docx(_xlsx(), _emf()))
+    r = api.fill(str(q), {"E1!Sheet1!B2": 7}, str(tmp_path / "o.docx"))
+    assert r["proof_ok"] and r["read_back_ok"], r
 
 
 def test_grade_says_nothing_about_ranges_left_out(tmp_path):
