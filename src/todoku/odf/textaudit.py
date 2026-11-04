@@ -65,7 +65,7 @@ def _count(texts) -> Counter:
 
 
 def check_reading(doc: OdtDocument, win: dict) -> list[Check]:
-    raw = raw_chars(doc.pkg.xml(doc.part), "text")
+    raw = raw_chars(doc.pkg.xml(doc.part), doc.office_text.local)
     if doc.pkg.flat or doc.pkg.has("styles.xml"):
         raw += raw_chars(doc.pkg.xml(doc.pkg.part_of("styles.xml")), "master-styles") if not doc.pkg.flat else Counter()
         if doc.pkg.flat:

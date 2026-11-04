@@ -14,7 +14,9 @@ from .xml import NS, El, XmlError, parse, q, top
 MIME_KIND = {"application/vnd.oasis.opendocument.text": "odt", "application/vnd.oasis.opendocument.text-template": "odt",
              "application/vnd.oasis.opendocument.text-master": "odt",
              "application/vnd.oasis.opendocument.spreadsheet": "ods",
-             "application/vnd.oasis.opendocument.spreadsheet-template": "ods"}
+             "application/vnd.oasis.opendocument.spreadsheet-template": "ods",
+             "application/vnd.oasis.opendocument.presentation": "odp", "application/vnd.oasis.opendocument.presentation-template": "odp",
+             "application/vnd.oasis.opendocument.graphics": "odg", "application/vnd.oasis.opendocument.graphics-template": "odg"}
 FLAT = "(1つの XML)"
 
 

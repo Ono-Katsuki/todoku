@@ -82,12 +82,14 @@ class OdtDocument:
         self.filename = filename
         self.pkg = OdfPackage(blob, filename)
         p_ = partial or {}
-        if self.pkg.kind not in ("odt", ""):
+        if self.pkg.kind not in ("odt", "", "odp", "odg"):
             raise OdfError(f"OpenDocument の文書ではありません（{self.pkg.mimetype}）")
         body = self.pkg.body()
-        self.office_text = body.find("office:text")
+        # 発表資料（.odp）・図形描画（.odg）：本文はページ（draw:page）の並びで、字は図形・枠の中（ODF 1.3 第 3 部 10.2）
+        self.office_text = next((x for x in map(body.find, ("office:text", "office:presentation", "office:drawing")) if x is not None), None)
         if self.office_text is None:
             raise OdfError("文書の本文（office:text）がありません")
+        self.page_count = 0
         self.styles = Styles(self.pkg)
         self.unread: list[str] = []  # 読まなかった所
         self.repeats: list[str] = []  # 同じ中身の繰り返し（1 つぶんだけ窓に出している所。中身はぜんぶ読んである）
@@ -150,6 +152,12 @@ class OdtDocument:
         if ms is None:
             return
         for mp in ms.findall("style:master-page"):
+            if self.pkg.kind in ("odp", "odg"):
+                # スライドマスターの枠の字（プレースホルダーの見本も、印刷される字も。どちらかは決めずに、マスターの字として示す）
+                blocks = self._blocks(mp, part, None, False)
+                if blocks:
+                    self.stories.append(("master", part, blocks))
+                continue
             for el in mp.els():
                 loc = el.local
                 if loc.startswith("header") or loc.startswith("footer"):
@@ -176,6 +184,14 @@ class OdtDocument:
                 out += self._blocks(ch.find("text:index-body"), part, cell, protected, list_ctx)
             elif t in (_T + "index-body", _T + "index-title"):
                 out += self._blocks(ch, part, cell, protected, list_ctx)
+            elif t == _DRAW + "page":
+                out += self._draw_page(ch, part, cell, protected)
+            elif t.endswith("}notes") and t.startswith("{urn:oasis:names:tc:opendocument:xmlns:presentation"):
+                got = self._blocks(ch, part, cell, protected, list_ctx)
+                first = next((b for b in got if isinstance(b, Para)), None)
+                if first is not None:
+                    first.label = "（ノート）" + (first.label or "")
+                out += got
             elif t in SHAPES:
                 # ページや段落に固定した枠・図形（段落の外）：中身を、字のない段落の枠として読む
                 p = Para(ch, part, [], cell=cell)
@@ -191,6 +207,17 @@ class OdtDocument:
                        _T + "soft-page-break", _OFFICE + "event-listeners"):
                 continue
         return out
+
+    def _draw_page(self, el: El, part: str, cell: Cell | None, protected: bool) -> list:
+        """発表資料・図形描画の 1 ページ：字のない段落に、何ページ目かと名前を添える（窓の見出し。ファイルの字ではない）。"""
+        self.page_count += 1
+        name = el.get("draw:name") or ""
+        got = self._blocks(el, part, cell, protected)
+        head = Para(el, part, [], cell=cell)
+        head.el = el
+        head.protected = protected
+        head.label = f"〔スライド {self.page_count}" + (f"：{name}" if name else "") + "〕"
+        return [head] + got
 
     def _list(self, el: El, part: str, cell: Cell | None, protected: bool, list_ctx: tuple | None) -> list:
         """リスト：項目ごとに番号（リストのスタイルの書式）を数え、最初の段落の頭に付ける。"""

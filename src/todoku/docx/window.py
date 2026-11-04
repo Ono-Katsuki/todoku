@@ -1237,7 +1237,7 @@ def _md(s) -> str:
     return str(s).replace("|", "\\|").replace("\n", " ")
 
 
-STORY_JA = {"body": "本文", "header": "ヘッダー", "footer": "フッター", "footnotes": "脚注", "endnotes": "文末脚注", "comments": "コメント"}
+STORY_JA = {"body": "本文", "master": "スライドマスターの字", "header": "ヘッダー", "footer": "フッター", "footnotes": "脚注", "endnotes": "文末脚注", "comments": "コメント"}
 
 
 def _macros(doc):
