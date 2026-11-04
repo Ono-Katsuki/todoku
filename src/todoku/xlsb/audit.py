@@ -5,7 +5,7 @@ from __future__ import annotations
 import struct
 
 from ..xlsx.audit import Audit, Check, check_markdown
-from .book import C_BLANK, CELLS, ROW, XlsbWorkbook, records
+from .book import C_BLANK, CELLS, ROW, records
 
 
 def raw_values(wb) -> dict[str, set[tuple[int, int]]]:
@@ -25,21 +25,25 @@ def raw_values(wb) -> dict[str, set[tuple[int, int]]]:
     return out
 
 
-def run(blob: bytes, filename: str = "") -> Audit:
+def cells_check(doc: dict, raw: dict) -> Check:
     from ..formula.parser import parse_cell
-    from ..xlsx import window
-    from ..xlsx.calc import verify
 
-    wb = XlsbWorkbook(blob, filename)
-    doc = window.build(wb)
-    au = Audit(filename)
-    raw = raw_values(wb)
     missing = []
     for sh in doc["sheets"]:
         shown = {parse_cell(c["cell"]) for c in sh["cells"] if c.get("value") is not None}
         missing += [f"{sh['name']}!{r},{c}" for r, c in sorted(raw.get(sh["name"], set()) - shown)]
     n = sum(len(v) for v in raw.values())
-    au.checks.append(Check("読み落とし（セル）", not missing, f"シートの部品のレコードから、値のあるセル {n:,} 個を数え、すべて窓のセルと照らしました", missing[:20]))
+    return Check("読み落とし（セル）", not missing, f"ファイルのレコードから、値のあるセル {n:,} 個を数え、すべて窓のセルと照らしました", missing[:20])
+
+
+def workbook_audit(k: str, wb, raw_of, write_note: str | None) -> Audit:
+    """ブックの形で読む形式の検査：別に数えたセルと窓を照らす・読み順の窓・数式の照合・窓の大きさ。"""
+    from ..xlsx import window
+    from ..xlsx.calc import verify
+
+    doc = window.build(wb)
+    au = Audit(wb.filename)
+    au.checks.append(cells_check(doc, raw_of(k, wb)))
     links = {(c.link_cell[0], c.link_cell[1], c.link_cell[2]) for s in wb.sheets for c in s.controls if c.link_cell}
     au.checks.append(check_markdown(doc, links))
     rep = verify(wb).summary()
@@ -51,6 +55,5 @@ def run(blob: bytes, filename: str = "") -> Audit:
     parts = window.markdown_parts(doc)
     biggest = max(len(t) for _, t in parts)
     au.checks.append(Check("窓の大きさ", biggest <= 150_000, f"Markdown {sum(len(t) for _, t in parts):,} 文字（AIが1回で読める目安 15万文字以内）"))
-    au.checks.append(Check("書き込み", True, "すでに値のあるセルの上書き（レコードの大きさの変わらないもの）だけ書けます。空のセルには書けません"
-                           "（.xlsx で保存し直してもらえば書けます）", agent=True))
+    au.checks.append(Check("書き込み", True, write_note or "書きません", agent=True))
     return au

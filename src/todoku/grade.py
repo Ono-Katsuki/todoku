@@ -1193,8 +1193,11 @@ def _excel_lost(wb, doc: dict) -> list[Reason]:
     from .xlsx.audit import Check, check_markdown, check_reading
 
     links = {(c.link_cell[0], c.link_cell[1], c.link_cell[2]) for s in wb.sheets for c in s.controls if c.link_cell}
+    from .morekinds import WORKBOOKS, reading_check
+
     try:
-        checks = check_reading(wb, doc) + [check_markdown(doc, links)]
+        first = [reading_check(wb.kind, wb, doc)] if getattr(wb, "kind", "xlsx") in WORKBOOKS else check_reading(wb, doc)
+        checks = first + [check_markdown(doc, links)]
     except Exception as e:  # noqa: BLE001  確かめられないものは、通ったことにしない
         checks = [Check("読み落とし（確かめられない）", False, f"窓の読み落としを確かめられませんでした（{type(e).__name__}: {str(e)[:80]}）")]
     return lost_reason(checks, "ブック")

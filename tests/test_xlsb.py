@@ -90,6 +90,8 @@ def test_window_api_fields_and_calc_model(tmp_path):
     assert "B2" in str(model) and "C2" in str(model)
     t = api.read_table(str(p), "単価", "申請")
     assert t["rows"] >= 1
+    r = api.calculate(str(p), {"申請!B2": 2000})
+    assert "14000" in str(r) or "14,000" in str(r)
 
 
 def test_audit_counts_and_grade(tmp_path):
@@ -97,7 +99,7 @@ def test_audit_counts_and_grade(tmp_path):
     au = api.audit(str(p))
     assert au["ok"], [c for c in au["checks"] if not c["ok"]]
     g = api.grade(str(p))
-    assert g["write"]["grade"] == "D" and g["grade"] in "ABC"
+    assert g["write"]["grade"] == "D" and g["grade"] in "AB"
     assert any(".xlsb" in r["title"] for r in g["write"]["reasons"])
 
 

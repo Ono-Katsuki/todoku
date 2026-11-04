@@ -254,7 +254,11 @@ TOOLS = [
 
 # ---------------------------------------------------------------------- 追加の形式（CSV・TSV・JSON・JSON Lines・RTF・OpenDocument・.txt・PowerPoint）
 _MORE = ("（ほかに CSV・TSV・JSON・JSON Lines・RTF・OpenDocument の文書 .odt と表計算 .ods・文字だけのファイル .txt・"
-         "PowerPoint .pptx・한글 .hwpx（読む・書く）と .hwp（HWP 5。読むだけ）も開けます）")
+         "PowerPoint .pptx・한글 .hwpx（読む・書く）と .hwp（HWP 5。読むだけ）も開けます。"
+         "Excel .xlsb（読む。値のあるセルの同じ大きさの上書きだけ書ける）・古い PowerPoint .ppt・XPS .xps/.oxps・EPUB・メール .eml/.msg・Excel 2〜4・Word 1.x/2.0・"
+         "Lotus .wk1・dBase .dbf・Access .mdb/.accdb・OpenOffice.org 1.x .sxw/.sxc・iWork .pages/.numbers/.key は読むだけ。"
+         "tar・.tar.gz・.gz（読む・書く）と LZH（読むだけ）は ZIP と同じく「a.tar!/中の名前」で中のファイルを指す。"
+         "7z・RAR・DocuWorks は読めないので、次の一手を返す）")
 for _t in TOOLS:
     if _t["name"] == "open_document":
         _t["description"] += _MORE
