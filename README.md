@@ -326,7 +326,7 @@ world/            世界調査のデータ（scripts/world_*.py が作る・読�
 
 ## ライセンス
 
-MIT License（`LICENSE`）。個人でも会社でも、自由に使えます。中に入れた他者のデータ（Adobe の文字の表・Unicode の表）は、それぞれのライセンスに従います（`THIRD_PARTY_NOTICES.md`）。
+Apache License 2.0（`LICENSE`・`NOTICE`）。個人でも会社でも、自由に使えます。中に入れた他者のデータ（Adobe の文字の表・Unicode の表）は、それぞれのライセンスに従います（`THIRD_PARTY_NOTICES.md`）。
 
 ## 大きな書類
 
