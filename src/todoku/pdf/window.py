@@ -2,8 +2,10 @@
 
 入力欄は2通り：
 - フォームの欄（AcroForm）：PDFにある欄そのもの。名前は欄の完全な名前
-- 配置から見つけた欄（印刷用のPDF）：空のマス・文字の中の空欄・下線・□ など。名前は p{ページ}.{番号}
-  書き込むと、同じ名前のフォームの欄をその位置に足す（元のページの描画は1バイトも変えない）
+- 配置から見つけた所（印刷用のPDF）：空のマス・字の形の空欄・1 字ぶん以上の空き・箱の字・下線の罫線（layout.py の「書く所」）。
+  名前は p{ページ}.{頭の字}{左}-{上}（作りの種類と、作りの位置を mm に丸めた数：layout.place_id）。位置だけで決まるので、ほかの所が
+  増えても減っても、とどくの版が変わっても、同じ所は同じ名前。書き込むと、同じ名前のフォームの欄をその位置に足す（元のページの描画は
+  1バイトも変えない）。前の版のとどくが書いた欄（名前 p1.3・p1.a12）は、その欄とだけ重なる所の名前として、そのまま使う
 """
 
 from __future__ import annotations
@@ -12,11 +14,11 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 
-from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, SPACED_MARK, SPACED_NOTE, norm_label, one_wide_space, shown_gap, weak_line, weak_space
+from ..xlsx.window import GAP_TOKEN_NOTE, norm_label, shown_gap
 from .content import page_content
 from .doc import PdfDocument
 from .form import FormField, Widget, has_xfa, read_fields
-from .layout import Cell, Line, PageLayout, Spot, _overlap
+from .layout import OLD_ID, PLACE_ID, Cell, Line, PageLayout, Spot, _overlap
 
 DET = "deterministic"
 LAYOUT = "layout"
@@ -37,15 +39,12 @@ class _Item:
     marks: list = field(default_factory=list)  # (順番の x, 印の文字列を返す関数)
 
 
-def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, circled: list | None = None,
-                 spaced=None) -> str:
+def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, circled: list | None = None) -> str:
     """行の文字に、入力欄の印（［p1.3］）を入れる。kept があれば、窓に出した元の字（印に置き換えて消えた字を除いたもの）を足す
     （読み落としの検査が、窓に実際に出た字で数えるため）。circled：ページに描かれた○が囲む字 (始め, 終わり, id)：その字の後ろに
     「［○］」（とどくが描いた○は「［p1.c1：○］」）。4 つ目が真のもの（角の丸い四角など、○かもしれない囲み）は「［○？］」。"""
     text = ln.text
     edits = []
-    for e in sorted(spaced[1]) if spaced else []:
-        edits.append((e, e, SPACED_MARK))  # 字間を空けた見出しの並びの後ろ（字の間の空白は、元のまま）
     for a, b, ident, *maybe in circled or []:
         edits.append((b, b, "［○？］" if maybe and maybe[0] else f"［{ident}：○］" if ident else "［○］"))
     for sp in sorted(spots, key=lambda x: x.at or (0, 0)):
@@ -152,9 +151,11 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     # 配置から見つけた欄のうち、元からあるフォームの欄の中に収まるものは、フォームの欄を使う。重なる・すぐ隣のものは、
     # 消さずに「？」（規則では決められない）にして、その欄の名前を添える（_near_widget・_flag_near_widget）
     spots = []
-    tdk = re.compile(rf"p{number}\.[a-z]?\d+")  # とどくが書き込んだ欄の名前（配置の欄・字を目印にした所・印影）
+    # とどくが書き込んだ欄の名前（配置の所・字を目印にした所 w・印影 s・○ c。前の版の番号の名前 p1.3・p1.a12 も）
+    tdk = re.compile(rf"p{number}\.(?:[a-z]?\d+|{PLACE_ID})")
     hidden: set[int] = set()
     real_ws = [(f, w, r) for f, w, r in ws if not tdk.fullmatch(f.name)]
+    _inherit_ids(lay.spots if layout else [], [(f, r) for f, w, r in ws if tdk.fullmatch(f.name)], number)
     for sp in (lay.spots if layout else []):
         # 配置から見つけた欄に重なる、とどくが書き込んだフォームの欄（その欄の値を、この所の印として出す）
         hits = [(f, w) for f, w, r in ws if tdk.fullmatch(f.name) and _overlap(sp.rect, r) > 0.5]
@@ -171,8 +172,6 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     for sp in spots:
         if sp.alternative_to is not None and id(sp.alternative_to) in hidden:
             sp.alternative_to = None
-        if sp.group:
-            sp.group = [x for x in sp.group if id(x) not in hidden]
     used_widgets: set[int] = set()
     items: list[_Item] = []
     cell_items: dict[int, _Item] = {}
@@ -180,8 +179,6 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     for sp in spots:
         if isinstance(sp.host, Line):
             line_spots.setdefault(id(sp.host), []).append(sp)
-            for b in getattr(sp, "also", []):
-                line_spots.setdefault(id(b.host), []).append(Spot(sp.kind, sp.rect, at=b.at, host=b.host, id="", checked=sp.checked) if False else _alias(sp, b))
     cells_with = set()
     for sp in spots:
         if isinstance(sp.host, Cell):
@@ -204,7 +201,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     loose: list[tuple] = []
     # 配置から見つけた欄に書き込んだフォームの欄（名前が p{ページ}.{番号}・p{ページ}.a{番号} で、その欄に重なるもの）は、
     # 読み順の項目にしない：書き込みの前と同じ読み順・同じ番号になるように（値は、その欄の印として出す）
-    own = re.compile(rf"p{number}\.a?\d+")
+    own = re.compile(rf"p{number}\.(?:{OLD_ID}|{PLACE_ID})")
     written = {id(w) for sp in spots for f, w in (sp.widget or []) if own.fullmatch(f.name)}
     for f, w, r in ws:
         if id(w) in written:
@@ -235,37 +232,25 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                 rows[-1].append(it)
                 continue
         rows.append([it])
-    counter = [0]
-    counter_a = [0]
     names: dict[int, str] = {}
 
     def name(sp: Spot) -> str:
-        # 規則では決められない所は、別の番号（p1.a1）：規則の欄の番号（p1.1）は、そのまま変わらない
+        # 所の id は位置から決めたもの（layout.place_id）。この所のものでない、元からあるフォームの欄と同じ名前のときだけ、
+        # 後ろに「z」を足す（その名前の欄に書いてしまわないように）
         k = id(getattr(sp, "alias_of", sp))
         if k not in names:
-            # すでにある、この欄のものでないフォームの欄と同じ名前は使わない（前に書いた書類で、欄の番号がずれていたとき）
             own_names = {f.name for f, _w in (getattr(getattr(sp, "alias_of", sp), "widget", None) or [])}
-            while True:
-                if getattr(sp, "confidence", "high") == "agent":
-                    counter_a[0] += 1
-                    cand = f"p{number}.a{counter_a[0]}"
-                else:
-                    counter[0] += 1
-                    cand = f"p{number}.{counter[0]}"
-                if cand not in by_name or cand in own_names:
-                    break
+            cand = sp.id or f"p{number}.g0-0"
+            while cand in by_name and cand not in own_names:
+                cand += "z"
             names[k] = cand
         return names[k]
 
-    # 欄にしていない空き（規則の型に合わない、行の右・マスの中の字の下などの空き）：行の後ろに「［→余白 n pt］」と出す。
-    # 行の終わりに、もう欄（候補）があるときは出さない
+    # 欄にしていない空き（字のあるマスの、字の下・上の 1 字ぶん以上の空き）：マスの字の後ろに「［↓余白 n mm］」と出す
     marks_of: dict[int, str] = {}
     emitted_marks = [0]
     for host, arrow, size in (lay.room_marks if layout else []):
-        if isinstance(host, Line) and any(sp.at and sp.at[0] >= len(host.text.rstrip(" \u3000"))
-                                          for sp in line_spots.get(id(host), [])):
-            continue
-        marks_of[id(host)] = f"［{arrow}余白 {size:.0f}pt］"
+        marks_of[id(host)] = marks_of.get(id(host), "") + f"［{arrow}余白 {size / view.mm:.1f} mm］"
 
     def room_mark(host) -> str:
         m = marks_of.get(id(host))
@@ -288,8 +273,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         parts = []
         for it in row:
             if it.line is not None:
-                t = _render_line(it.line, line_spots.get(id(it.line), []), name, plain, circ.get(id(it.line)),
-                                 lay.spaced_marks.get(id(it.line))) + room_mark(it.line)
+                t = _render_line(it.line, line_spots.get(id(it.line), []), name, plain, circ.get(id(it.line))) + room_mark(it.line)
             elif getattr(it, "spot", None) is not None:
                 sp = it.spot
                 mark = _filled_mark(sp, name)
@@ -309,7 +293,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                         pieces.append(f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
                 rendered = []
                 for ln in c.lines:
-                    r_ = _render_line(ln, line_spots.get(id(ln), []), name, plain, circ.get(id(ln)), lay.spaced_marks.get(id(ln))) + room_mark(ln)
+                    r_ = _render_line(ln, line_spots.get(id(ln), []), name, plain, circ.get(id(ln))) + room_mark(ln)
                     grp = getattr(ln, "overprint", None)
                     if grp is not None and rendered and rendered[-1][1] == grp:
                         rendered[-1] = (rendered[-1][0] + " ／ " + r_, grp)  # 重ねて描かれた行
@@ -329,7 +313,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     out_fields = []
     context_of = {}
     for line in reading:
-        for m in re.finditer(r"［(p\d+\.a?\d+)？?[ 　]*[］＝]", line):  # 「？」の所の印は、元の空白を中に入れる
+        for m in re.finditer(rf"［(p\d+\.(?:{PLACE_ID}|{OLD_ID})z*)？?[ 　]*[］＝]", line):  # 「？」の所の印は、元の空白を中に入れる
             context_of.setdefault(m[1], line)
     emitted: set[str] = set()
     for sp in spots:
@@ -341,26 +325,24 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             continue  # 元からあるフォームの欄と重なる：フォームの欄として出す
         d = {"id": fid, "page": number, "kind": sp.kind, "label": sp.label, "reason": sp.reason,
              "rect": [round(v, 1) for v in sp.rect], "provenance": LAYOUT, "source": "layout",
-             "context": context_of.get(fid, ""), "value": True if sp.checked else None, "size": round(sp.size, 2)}
+             "context": context_of.get(fid, ""), "value": True if sp.checked else None, "size": round(sp.size, 2),
+             "shape": sp.shape, "facts": dict(sp.facts)}
+        if sp.write_size_from:
+            d["size_from"] = sp.write_size_from  # 既定の字の大きさの出どころ（layout.default_size）
         if filled is not None:
             emitted.add(filled.name)
             d["filled"] = True
         if sp.kind == "comb":
             d["boxes"] = len(sp.boxes)
             d["box_rects"] = [[round(v, 2) for v in b] for b in sp.boxes]
+            d["cell_ids"] = [name(x) for x in spots if x.alternative_to is sp and x.shape == "cell"]
         if sp.row_label:
             d["row_label"] = sp.row_label
         if sp.column_label:
             d["column_label"] = sp.column_label
         if sp.confidence == "agent":
-            d["agent"] = True  # 規則では決められない所（エージェントが読んで判断する）
+            d["agent"] = True  # 描かれた空欄でない所（字の間の空きなど）：書く所かはエージェントが窓を読んで決める
             d["why"] = sp.reason
-            weak = sp.weak
-            if isinstance(sp.host, Line) and sp.at and one_wide_space(sp.host.text[sp.at[0]:sp.at[1]]):
-                d["why"] += f"。{ONE_WIDE_SPACE_WHY}"  # いちばん狭い空き（エージェントが順を決める目安）
-                weak = weak or ("one_space" if weak_space(sp.host.text, *sp.at) else "")
-            if weak:
-                d["weak"] = weak  # 弱い候補（消さずに順を下げる。窓の欄の一覧では、まとめて 1 行で示す）
         if sp.kind_candidates:
             d["kind_candidates"] = list(sp.kind_candidates)  # 種類が形だけでは決まらない：書き方は fill の as_kind
         if sp.alternative_to is not None:
@@ -370,8 +352,6 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                 # 別の候補とフォームの欄の両方が、同じ所の別の読み方：フォームの欄を先に（もう一方の候補は理由に残す）
                 d["why"] = f"{d['why']}（{d['alternative_to']} とも同じ所の別の読み方）"
             d["alternative_to"] = sp.alt_widget  # 元からあるフォームの欄（同じ所の別の読み方）
-        if sp.group:
-            d["group"] = [name(x) for x in sp.group]  # 縦に並ぶ同じ形の空欄（1つの欄かもしれない組）
         if sp.readonly:
             d["readonly"] = True
             d["why_not"] = sp.readonly
@@ -395,6 +375,11 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         near = _near_label(lay, r)
         if near and near != d["label"]:
             d["nearby_text"] = near
+        nb = lay._facts_nb(lay._neighbours(r))
+        if nb:
+            # 欄の四角の左・上・右・下でいちばん近い字（元のまま）と、その離れ（mm）：見出し（/TU がなければ近くの字から選んだもの）を
+            # エージェントが確かめるための事実
+            d["neighbours"] = nb
         if f.options:
             d["options"] = [o[1] or o[0] for o in f.options]
             d["export_values"] = [o[0] for o in f.options]
@@ -451,7 +436,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                 elif not (p_ and p_[0] in acrojs.KNOWN):
                     d.setdefault("scripts", []).append(k2)
         out_fields.append(d)
-    out_fields.sort(key=lambda d: (0, int(d["id"].split(".")[1])) if re.fullmatch(r"p\d+\.\d+", d["id"]) else (1, 0))
+    # 配置の所は位置の順（上から、同じ高さは左から）、フォームの欄はその後ろに元の順で
+    out_fields.sort(key=lambda d: (0, round(d["rect"][1]), d["rect"][0]) if d.get("source") == "layout" else (1, 0, 0))
     images = len(pc.pictures)
     pictures = _pictures(doc, page, number, pc, lay)
     chars = sum(1 for c in lay.chars if not c.text.isspace())
@@ -504,7 +490,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             "merged_glyphs": sum(1 for k, _t in lay.dropped if k == "dup"),
             "unseen_glyphs": sum(1 for k, _t in lay.dropped if k == "size"),  # 0.5pt に満たない字・ページの何倍もある字
             "slivers": len(lay.slivers) if layout else 0,
-            "room_marks": emitted_marks[0],  # 欄にしていない空きの印（［→余白 n pt］）の数  # 字の入らない細い空のマス（幅か高さが 4pt 未満）
+            "room_marks": emitted_marks[0],  # 欄にしていない空きの印（［↓余白 n mm］）の数
             "stacked_columns": sum(1 for ln in [x for c in lay.cells for x in c.lines] + list(lay.free_lines)
                                    if getattr(ln, "stacked", 0))}
 
@@ -612,10 +598,28 @@ def _cjk(ch: str) -> bool:
     return no_word_space(ch) and ch not in "［］"
 
 
-def _alias(sp: Spot, b: Spot) -> Spot:
-    a = Spot(sp.kind, sp.rect, sp.label, host=b.host, at=b.at, checked=sp.checked)
-    a.alias_of = sp
-    return a
+def _iou(a, b) -> float:
+    x0, y0, x1, y1 = max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])
+    if x1 <= x0 or y1 <= y0:
+        return 0.0
+    i = (x1 - x0) * (y1 - y0)
+    return i / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i)
+
+
+def _inherit_ids(spots: list[Spot], written: list[tuple], number: int) -> None:
+    """とどくが前に書き込んだ欄（名前が配置の所の名前：前の版の番号 p1.3・p1.a12 か、位置の名前）が、ちょうど 1 つの所と
+    重なる（重なりが、合わせた広さの半分より多い：両方の四角がほぼ同じ）とき、その所の id を、書いてある欄の名前にする
+    （書いた書類を開き直しても、同じ名前で書き直せる）。どの所とも決まらない欄（重なる所が 2 つ以上・ない）は、名前を移さない
+    （その欄は、フォームの欄として窓に出る）。字を目印にした所（w）・印影（s）・○（c）は、所の名前にしない。"""
+    pat = re.compile(rf"p{number}\.(?:{OLD_ID}|{PLACE_ID})")
+    for f, r in written:
+        if not pat.fullmatch(f.name):
+            continue
+        hits = [sp for sp in spots if _iou(sp.rect, r) > 0.5]
+        if len(hits) == 1 and hits[0].id != f.name:
+            taken = any(sp.id == f.name for sp in spots)
+            if not taken:
+                hits[0].id = f.name
 
 
 def _beside_widget(rect, r) -> bool:
@@ -944,6 +948,16 @@ def _near_label(lay: PageLayout, r) -> str:
     return norm_label(above.text) if above is not None else ""
 
 
+def unknown_id_message(key: str) -> str:
+    """窓にない名前を書き込みに渡されたときに添える知らせ（書き込みの側が使う）：前の版のとどくの番号の名前（p1.3・p1.a12）は、
+    位置の名前（p1.t45-112）に変わった。番号から位置を推し量ると、違う所に書くおそれがあるので、読み替えずに断る。"""
+    if re.fullmatch(rf"p\d+\.{OLD_ID}", str(key)):
+        return (f"{key} は、前の版のとどくの番号の名前です。所の名前は、位置から決める形（p1.t45-112：作りの頭の字と、左・上の mm）に"
+                "変わりました。番号からは同じ所と決められないので、書きません。窓（read_window・list_fields）を読み直して、新しい名前で"
+                "書いてください（前の版で書き込んだ欄は、元の名前のまま書き直せます）")
+    return ""
+
+
 def build(doc: PdfDocument) -> dict:
     blob = doc.blob
     fields = read_fields(doc)
@@ -954,15 +968,17 @@ def build(doc: PdfDocument) -> dict:
                    "note": "元のファイルが正本。書き込みは、元のバイト列の後ろに足す（増分更新）ので、元の部分は1バイトも変わらない。"},
         "provenance_legend": {DET: "AIを使わない決定的な処理で、ファイルから取り出した",
                               LAYOUT: "配置（罫線・空き・字の並び）から決定的に推定した入力欄。推定なので context と合わせて読む"},
-        "notation": {"［p1.3］": "入力欄（1ページ目の3番目）",
-                     "［p1.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
-                                    "書かなければ何も変わらない）",
-                     "［p1.a1？　］": GAP_TOKEN_NOTE + "（PDF の行の空白は、測った空きから作った字：全角の空白 1 つでおよそ 1 字ぶん）",
-                     "［→余白 12pt］": "欄にしていない、行の右の空き（↓ はマスの中の字の下、↑ は上、← は左。12pt はその幅か高さ）。"
-                                      "書く所と判断したら、字を目印にして {\"@1\": {\"after\": 見出しの字, \"value\": 書く字, "
-                                      "\"page\": ページ}}（下なら \"where\": \"below\"。上・左は {\"page\": …, \"box\": [左, 上, 右, 下]（mm）, "
-                                      "\"value\": …}）で書く",
-                     SPACED_MARK: SPACED_NOTE,
+        "notation": {"［p1.t45-112］": "描かれた空欄（空のマス・下線の罫線・下線の字・かっこの中・箱の字）：書く所かは、周りの字（facts）と"
+                                       "合わせてエージェントが決める",
+                     "［p1.g60-40？］": "字の間の 1 字ぶん以上の空き・点線・ダッシュ・行の前後の空き、空のマスの並び：描かれた空欄では"
+                                       "ない所（エージェントが読んで判断する。書くなら id を指定する。書かなければ何も変わらない）",
+                     "［p1.g60-40？　］": GAP_TOKEN_NOTE + "（PDF の行の空白は、測った空きから作った字：全角の空白 1 つでおよそ 1 字ぶん）",
+                     "［↓余白 12.0 mm］": "欄にしていない、字のあるマスの字の下の空き（↑ は字の上。12.0 mm はその高さ）。"
+                                          "書く所と判断したら、字を目印にして {\"@1\": {\"after\": 見出しの字, \"where\": \"below\", "
+                                          "\"value\": 書く字, \"page\": ページ}}（上は {\"page\": …, \"box\": [左, 上, 右, 下]（mm）, "
+                                          "\"value\": …}）で書く",
+                     "p1.t45-112": "所の id：p{ページ}.{作りの頭の字}{左}-{上}（作りの位置を mm に丸めた数。t 空のマス・m 空のマスの並び・"
+                                   "g 行の中の空き・b 箱の字・u 下線の罫線）。位置だけで決まるので、ほかの所が増減しても変わらない",
                      "［○］": "直前の字を、ページに描かれた○（線の曲線）が囲んでいる（とどくが描いた○は［p1.c1：○］）",
                      "［○？］": "直前の字を、曲線と直線で閉じた図形（角の丸い四角など）が囲んでいる：○で選んだ印か、ただの枠か、"
                                "規則では決められない（view_page で見て確かめる）",
@@ -1054,6 +1070,267 @@ def _kind_text(f: dict) -> str:
     return k
 
 
+_SHAPE_JA = {"cell": "空のマス", "cells": "空のマスの並び", "gap": "字間", "lead": "行頭の前", "trail": "行末の後",
+             "connector": "下線の字", "leader": "点線", "dash": "ダッシュ", "bracket": "かっこの中", "blank_line": "空白の字だけの行", "placeholder": "伏せ字の形",
+             "box": "箱の字", "checked": "記入済みの箱の字", "underline": "下線の罫線"}
+_SIDE_JA = {"left": "左", "above": "上", "right": "右", "below": "下"}
+_BOUND_JA = {"cell": "マスの縁", "text": "字", "ruling": "縦の罫線", "page": "ページの端"}
+_LINE_SHAPES = ("gap", "lead", "trail", "connector", "leader", "dash", "bracket", "blank_line", "placeholder", "box", "checked")
+
+
+def _q(t: str, n: int = 24) -> str:
+    """周りの字（元のまま）。長い字は窓の一覧では n 字で切り、「…」と字の数を添える（全体は facts と読み順に）。"""
+    t = re.sub(r"\s+", " ", str(t)).strip()
+    return f"「{_md(t)}」" if len(t) <= n else f"「{_md(t[:n])}…」（{len(t)} 字）"
+
+
+def _nb_text(fa: dict, sides=("left", "above", "right", "below")) -> str:
+    return "・".join(f"{_SIDE_JA[k]}{_q(fa[k]['text'])}{fa[k]['mm']}mm" for k in sides if fa.get(k))
+
+
+def _size_text(f: dict) -> str:
+    """書く字の既定の大きさ：行の中の所（行の字の大きさ）は窓に出さない（行の字と同じ）。"""
+    if not f.get("size") or f.get("size_from") in (None, "", "行の字の大きさ"):
+        return ""
+    return f"字 {f['size']:g}pt（{f['size_from'].replace('の大きさ', '')}）"
+
+
+def _facts_text(f: dict) -> str:
+    """配置の所の事実を 1 行に（mm）。"""
+    fa = f.get("facts") or {}
+    shape = f.get("shape", "")
+    parts = []
+    head = _SHAPE_JA.get(shape, KIND_JA.get(f["kind"], f["kind"]))
+    if shape == "cell" and fa.get("size_mm"):
+        head += f" {fa['size_mm'][0]}×{fa['size_mm'][1]}mm"
+    elif shape == "cells":
+        head += f" {fa.get('cells')} マス（各 {fa['cell_mm'][0]}×{fa['cell_mm'][1]} mm。1 字ずつ書くか、{{\"as\": \"text\"}} で 1 つの欄に）"
+        if f.get("cell_ids"):
+            head += "：" + "・".join(f"［{x}］" for x in f["cell_ids"])
+    elif shape == "underline":
+        head += f" {fa.get('length_mm')} mm"
+    elif shape in ("box", "checked"):
+        head += f"「{fa.get('char', '')}」（{fa.get('char_name', '')}）"
+    elif "width_mm" in fa:
+        head += f" {fa['width_mm']}mm（{fa.get('width_em')}字）"
+        if fa.get("glyph"):
+            head += f"・「{fa['glyph']}」{fa.get('count')} 字"
+    parts.append(head)
+    nb = _nb_text(fa)
+    if nb:
+        parts.append(nb)
+    if shape in _LINE_SHAPES:
+        ctx = [x for x in ((f"前{_q(fa['before'], 12)}" if fa.get("before") else ""),
+                           (f"後{_q(fa['after'], 12)}" if fa.get("after") else "")) if x]
+        if ctx:
+            parts.append("・".join(ctx))
+    if fa.get("bound"):
+        b = fa["bound"]
+        ks = [_BOUND_JA.get(k, k) for k in str(b["kind"]).split("・")]
+        parts.append(("左右とも" + ks[0] if len(ks) == 2 and ks[0] == ks[1] else "左は" + "・右は".join(ks) if len(ks) == 2 else ks[0])
+                     + "まで" + (_q(b["text"], 12) if b.get("text") else ""))
+    if fa.get("spaced"):
+        parts.append("字間を空けた形の行")
+    if fa.get("fill"):
+        parts.append(f"塗り {fa['fill']}")
+    if fa.get("inner_cells"):
+        parts.append(f"中に小さなマス {fa['inner_cells']} 個")
+    st = _size_text(f)
+    if st:
+        parts.append(st)
+    return "｜".join(parts)
+
+
+def _id_xy(fid: str):
+    m = re.fullmatch(r"p\d+\.t(\d+)-(\d+)", fid)
+    return (int(m[1]), int(m[2])) if m else None
+
+
+def _grid_blocks(fields: list[dict]) -> tuple[list[tuple[dict, list[str]]], set[str]]:
+    """同じ大きさの空のマスが隣り合うまとまり（表の格子・桁の枠）：まとまりごとに、id の作り（x・y の mm）と、列の上の字・行の左の字を
+    1 つの行の組にする。列（行）の中で上（左）の字が違うマスは、まとまりに入れず、1 行ずつ示す。返すもの：([(先頭の欄, 行)], まとめた id)。"""
+    cand = [f for f in fields if f.get("source") == "layout" and f.get("shape") == "cell" and not f.get("value")
+            and not f.get("readonly") and _id_xy(f["id"]) and (f.get("facts") or {}).get("rect_mm")]
+    by_id = {f["id"]: f for f in fields}
+    groups: dict[tuple, list[dict]] = {}
+    for f in cand:
+        groups.setdefault(tuple(f["facts"]["size_mm"]), []).append(f)
+    out, used = [], set()
+    for size, fs in groups.items():
+        if len(fs) < 2:
+            continue
+        # 隣り合い（辺を共にする：0.6 mm の内。マスを作る罫線の許し RULE_TOL 2pt ≒ 0.7 mm と同じほど）でつながるまとまり
+        parent = list(range(len(fs)))
+
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+        rs = [f["facts"]["rect_mm"] for f in fs]
+        for i in range(len(fs)):
+            for j in range(i + 1, len(fs)):
+                a, b = rs[i], rs[j]
+                side = abs(a[1] - b[1]) <= 0.6 and (abs(a[2] - b[0]) <= 0.6 or abs(b[2] - a[0]) <= 0.6)
+                vert = abs(a[0] - b[0]) <= 0.6 and (abs(a[3] - b[1]) <= 0.6 or abs(b[3] - a[1]) <= 0.6)
+                if side or vert:
+                    parent[find(i)] = find(j)
+        comps: dict[int, list[dict]] = {}
+        for i, f in enumerate(fs):
+            comps.setdefault(find(i), []).append(f)
+        for comp in comps.values():
+            if len(comp) < 2:
+                continue
+            xs = sorted({_id_xy(f["id"])[0] for f in comp})
+            ys = sorted({_id_xy(f["id"])[1] for f in comp})
+            top = {x: min((f for f in comp if _id_xy(f["id"])[0] == x), key=lambda f: _id_xy(f["id"])[1]) for x in xs}
+            lft = {y: min((f for f in comp if _id_xy(f["id"])[1] == y), key=lambda f: _id_xy(f["id"])[0]) for y in ys}
+
+            def txt(f, side):
+                return ((f.get("facts") or {}).get(side) or {}).get("text")
+            members = [f for f in comp if txt(f, "above") == txt(top[_id_xy(f["id"])[0]], "above")
+                       and txt(f, "left") == txt(lft[_id_xy(f["id"])[1]], "left")]
+            if len(members) < 2:
+                continue
+            ids = {f["id"] for f in members}
+            have = {_id_xy(i) for i in ids}
+            missing = [f"p{comp[0]['page']}.t{x}-{y}" for y in ys for x in xs if (x, y) not in have]
+            first = min(members, key=lambda f: (_id_xy(f["id"])[1], _id_xy(f["id"])[0]))
+            pg = first["page"]
+            lines = [f"- ［p{pg}.t{{x}}-{{y}}］ 空のマス {len(members)} 個（各 {size[0]}×{size[1]} mm）：横 {len(xs)} × 縦 {len(ys)} に並ぶ。"
+                     f"x = {'・'.join(map(str, xs))}、y = {'・'.join(map(str, ys))}（mm）"
+                     + (f"。この組み合わせの所はない（別に示すか、マスでない）：{'・'.join(missing)}" if missing else "")]
+            cols = [(f"x={x}", txt(top[x], "above"), top[x]["facts"]["above"]["mm"]) for x in xs
+                    if top[x]["id"] in ids and txt(top[x], "above")]
+            if cols:
+                lines.append("  - 列の上の字（いちばん上のマスから）：" + _runs_text(cols))
+            rows = [(f"y={y}", txt(lft[y], "left"), lft[y]["facts"]["left"]["mm"]) for y in ys
+                    if lft[y]["id"] in ids and txt(lft[y], "left")]
+            if rows:
+                lines.append("  - 行の左の字（いちばん左のマスから）：" + _runs_text(rows))
+            ends = []
+            for y in ys:
+                row = [f for f in members if _id_xy(f["id"])[1] == y]
+                last = max(row, key=lambda f: _id_xy(f["id"])[0])
+                if txt(last, "right"):
+                    ends.append((f"y={y}", txt(last, "right"), last["facts"]["right"]["mm"]))
+            if ends:
+                lines.append("  - 行の右の字（いちばん右のマスから）：" + _runs_text(ends))
+            bots = []
+            for x in xs:
+                col = [f for f in members if _id_xy(f["id"])[0] == x]
+                low = max(col, key=lambda f: _id_xy(f["id"])[1])
+                if txt(low, "below"):
+                    bots.append((f"x={x}", txt(low, "below"), low["facts"]["below"]["mm"]))
+            if bots:
+                lines.append("  - 列の下の字（いちばん下のマスから）：" + _runs_text(bots))
+            combs = {f.get("alternative_to") for f in members if f.get("alternative_to")
+                     and (by_id.get(f["alternative_to"]) or {}).get("shape") == "cells"}
+            if combs:
+                every = {f"p{pg}.m{min(_id_xy(f['id'])[0] for f in members if _id_xy(f['id'])[1] == y)}-{y}" for y in ys}
+                shown = (f"［p{pg}.m{xs[0]}-{{y}}？］（y は各行の y）" if combs == every and all(c.startswith(f"p{pg}.m{xs[0]}-") for c in combs)
+                         else "・".join(f"［{c}？］" for c in sorted(combs, key=lambda c: [int(v) for v in re.findall(r"\d+", c)])))
+                lines.append("  - 横に続くマスの並び（1 字ずつ書く。{\"as\": \"text\"} で 1 つの欄に。並びとマスは重なるので、書けるのは"
+                             "どちらか一方）：" + shown)
+                used.update(combs)
+            other = sorted({f["alternative_to"] for f in members if f.get("alternative_to") and f["alternative_to"] not in combs})
+            if other:
+                lines.append("  - 重なる所（書けるのはどちらか一方）：" + "・".join(other))
+            st = _size_text(first)
+            if st:
+                lines.append(f"  - {st}")
+            out.append((first, lines))
+            used.update(ids)
+    return out, used
+
+
+def _runs_text(items: list[tuple[str, str, float]]) -> str:
+    """列・行ごとの字：同じ字・同じ離れの続く所は「y=35〜110」のようにまとめる。"""
+    out: list[list] = []
+    for key, t, d in items:
+        if out and out[-1][1] == t and out[-1][2] == d:
+            out[-1][3] = key
+        else:
+            out.append([key, t, d, None])
+    return "・".join(f"{a}{('〜' + b.split('=')[1]) if b else ''}{_q(t)}{d} mm" for a, t, d, b in out)
+
+
+def _extras(f: dict) -> str:
+    out = ""
+    if f.get("alternative_to"):
+        out += f"｜{f['alternative_to']} と重なる（書けるのはどちらか一方）"
+    if f.get("readonly"):
+        out += f"｜書けない：{f.get('why_not', '')}"
+    if f.get("why") and "フォームの欄" in f["why"]:
+        out += "｜" + f["why"].split("。")[-1]
+    v = _value(f) if f["kind"] != "checkbox" or f.get("value") else ""
+    if v:
+        out += f"｜いまの値 {_md(v)}"
+    return out
+
+
+def _in_line(f: dict) -> str:
+    """行の中の所（行ごとにまとめた行の 1 つ）：作り・測った幅・その所の前後の字。"""
+    fa = f.get("facts") or {}
+    shape = f.get("shape", "")
+    q = "？" if f.get("agent") else ""
+    head = f"［{f['id']}{q}］"
+    if shape in ("box", "checked"):
+        t = f"{head}{_SHAPE_JA[shape]}「{fa.get('char', '')}」{fa.get('char_name', '').split(' ')[0]}" + (
+            f"・後{_q(fa['after'], 12)}" if fa.get("after") else f"・前{_q(fa['before'], 12)}" if fa.get("before") else "")
+    else:
+        t = f"{head}{_SHAPE_JA.get(shape, shape)} {fa.get('width_mm')}mm（{fa.get('width_em')}字）"
+        if fa.get("glyph"):
+            t += f"「{fa['glyph']}」{fa.get('count')} 字"
+        if shape in ("lead", "trail") and fa.get("bound"):
+            bd = fa["bound"]
+            t += f"・{_BOUND_JA.get(bd['kind'], bd['kind'])}まで" + (_q(bd["text"], 12) if bd.get("text") else "")
+        elif shape not in ("lead", "trail"):
+            before, after = (fa.get("before") or "")[-6:], (fa.get("after") or "")[:6]
+            t += f"{_q(before, 6) if before else '（行頭）'}〜{_q(after, 6) if after else '（行末）'}"
+    return t + _extras(f)
+
+
+def _field_lines(fields: list[dict]) -> list[str]:
+    """入力欄の一覧。配置の所は：同じ行の中の所（字の間・行の前後の空き・字の形の空欄・箱の字）は、行ごとに 1 行（行の字は元のまま）。
+    空のマス・下線の罫線などは 1 行に 1 か所。同じ大きさの空のマスが隣り合うまとまりは、id の作り（x・y）と列・行の字の組にまとめる
+    （まとめた所の事実は、窓の JSON の facts に 1 つずつある。id はどれもそのまま書ける）。"""
+    blocks, used = _grid_blocks(fields)
+    first_of = {id(f): lines for f, lines in blocks}
+    groups: dict[tuple, list[dict]] = {}
+    for f in fields:
+        fa = f.get("facts") or {}
+        if f.get("source") == "layout" and f.get("shape") in _LINE_SHAPES and "line" in fa and f["id"] not in used:
+            m = re.search(r"-(\d+)[a-z]*$", f["id"])
+            groups.setdefault((f["page"], fa["line"], m[1] if m else ""), []).append(f)
+    group_of = {id(f): k for k, fs in groups.items() for f in fs}
+    done: set = set()
+    out = []
+    for f in fields:
+        if id(f) in first_of:
+            out += first_of[id(f)]
+        if f["id"] in used:
+            continue
+        k = group_of.get(id(f))
+        if k is not None:
+            if k in done:
+                continue
+            done.add(k)
+            fs = sorted(groups[k], key=lambda x: x["rect"][0])
+            spaced = any((x.get("facts") or {}).get("spaced") for x in fs)
+            out.append(f"- 行{_q(k[1], 40)}" + ("（字間を空けた形）" if spaced else "") + "：" + "・".join(_in_line(x) for x in fs))
+            continue
+        q = "？" if f.get("agent") else ""
+        if f.get("source") == "layout":
+            out.append(f"- ［{f['id']}{q}］ " + _facts_text(f) + _extras(f))
+        else:
+            v = _value(f)
+            nb = _nb_text(f["neighbours"]) if f.get("neighbours") and not f.get("tooltip") else ""
+            out.append(f"- ［{f['id']}］ {_md(f['label'])}｜{_md(_kind_text(f))}" + (f"｜周りの字 {nb}" if nb else "")
+                       + (f"｜いまの値 {_md(v)}" if v else ""))
+    return out
+
+
 def _value(f: dict) -> str:
     v = f.get("value")
     if f["kind"] == "checkbox":
@@ -1131,14 +1408,14 @@ def _md_page(pg: dict) -> list[str]:
         out.append("")
     fields = pg["fields"]
     if fields:
-        weak = [f for f in fields if f.get("weak") and _value(f) in ("", "☐ なし")]
-        strong = [f for f in fields if not any(f is w for w in weak)]
-        out += [f"### 入力欄（{len(fields)} か所）", "", "| 欄 | 見出し | 種類 | いまの値 |", "|---|---|---|---|"]
-        for f in strong:
-            out.append(f"| {_md(f['id'])} | {_md(f['label'])} | {_md(_kind_text(f))} | {_md(_value(f))} |")
+        out += [f"### 入力欄（{len(fields)} か所）", ""]
+        if any(f.get("source") == "layout" for f in fields):
+            out += ["（配置から見つけた所：作り・大きさ（mm）・周りの字（元のまま）とその離れ（mm）。書く所かどうかは、この事実と"
+                    "読み順の字から決める。id の数は所の左・上の位置（mm）。同じ行の中の所（字間・行の前後の空き・箱の字など）は行ごとに 1 行、"
+                    "空のマスは 1 か所 1 行（字でも、チェックの印 true でも書ける）。同じ大きさの空のマスが隣り合うまとまりは、"
+                    "id の作り（x・y）と列・行の字の組にまとめて示す）", ""]
+        out += _field_lines(fields)
         out.append("")
-        if weak:
-            out += [weak_line(weak), ""]
     out += ["### 読み順（上から）", ""]
     for line in pg["reading"]:
         out.append(f"- {line}")

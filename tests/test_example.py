@@ -89,8 +89,8 @@ def test_time_fields():
 def test_unit_fields_and_spaced_labels():
     assert _blanks("□身体障害者手帳　　種　　級") == 2  # 「種」「級」の前に書く
     assert _blanks("片道　　　　　分") == 1
-    # 字間を空けた見出しの形（PDF の窓の全角の空白 1 つは、測った 1 em 以上の空き）：落とさず spaced の「？」
-    assert [x.why for x in gap_blanks("事　業　主　氏　名")] == ["spaced"] * 4
+    # 字間を空けた見出しの形（PDF の窓の全角の空白 1 つは、測った 1 em 以上の空き）：落とさず、ほかの空きと同じ所（形は窓の facts）
+    assert [x.why for x in gap_blanks("事　業　主　氏　名")] == ["gap"] * 4
     # 2 字の間の 2 つ以上の空白（「氏　　名」「番　　号」と「第　　号」）は形が同じ：字の意味では分けず、どれも所の候補（「？」）
     assert len(inline_blanks("番　　号")) == 1 and len(inline_blanks("第　　号")) == 1 and len(inline_blanks("氏　　名")) == 1
     assert len(inline_blanks("事　　業　　所")) == 2  # 1 字ずつ同じ空白で 3 字以上（字間を空けた見出しの形）も spaced の「？」

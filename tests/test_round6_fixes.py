@@ -146,7 +146,7 @@ def _stack_spot(data):
     from todoku.pdf.window import build
 
     win = build(PdfDocument(data))
-    return next(f for pg in win["pages"] for f in pg["fields"] if f.get("kind") == "text" and f["rect"][0] < 200
+    return next(f for pg in win["pages"] for f in pg["fields"] if f.get("kind") in ("text", "inline") and 60 <= f["rect"][0] < 200
                 and f["rect"][2] <= 201 and f["rect"][3] - f["rect"][1] > 40)
 
 
