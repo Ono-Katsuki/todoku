@@ -801,3 +801,17 @@ def test_pdf_write_trial_refusal_is_not_a_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "fill", refuse)
     c = doc._write_trial()
     assert c["ok"] and "確かめていません" in c["detail"] and c["items"]
+
+
+def test_xlsx_rows_out_of_order_do_not_read_wrong_rows(tmp_path):
+    p = _make_xlsx(tmp_path / "a.xlsx", 5, second=False)
+    with zipfile.ZipFile(p) as z:
+        parts = {n: z.read(n) for n in z.namelist()}
+    x = parts["xl/worksheets/sheet1.xml"].decode()
+    parts["xl/worksheets/sheet1.xml"] = x.replace('<row r="2">', '<row r="9">', 1).encode()
+    with zipfile.ZipFile(p, "w") as z:
+        for n, b in parts.items():
+            z.writestr(n, b)
+    res = mcp_server.tool_result("read_window", {"path": str(p), "sheet": "データ", "rows": "1-2"})
+    assert res.get("isError") and "raw" in _text(res)
+    assert "raw" in _text(res) and mcp_server.tool_result("read_window", {"path": str(p), "raw": True}).get("isError") is None

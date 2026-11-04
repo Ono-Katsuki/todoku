@@ -315,6 +315,9 @@ class SheetIndex:
             limits.progress(f"シート {self.m.name} の行の位置を調べています", total, size)
         p.Parse(b"", True)
         self.total = total
+        if not self.ascending:
+            # 行の番号が順に並んでいない（Excel は作らない形）：行の範囲で引けないので、丸ごと読む道へ（open_doc が None を返す）
+            raise ValueError(f"{self.m.name}：行の番号が順に並んでいないので、行の範囲では読めません。read_window の part か raw: true で読めます")
         at = state.get("sheetdata_at")
         if at is None:
             raise ValueError(f"{self.m.name}：sheetData がありません")
