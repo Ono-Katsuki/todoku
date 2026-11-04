@@ -21,6 +21,7 @@ KIND_JA["jtd"] = "一太郎（.jtd）"
 from . import openkinds as _open  # noqa: E402
 
 KIND_JA.update(_open.KIND_JA)
+_BOOKS = ("xlsx", "xls", *sorted(_open._more.WORKBOOKS))  # 同じブックの形で読めるもの（表の取り出し・計算の説明）
 # ZIP：中のファイルを「a.zip!/中の名前」で指して、その形式のまま読む・書く（ziparc）
 KIND_JA["zip"] = "ZIP（ファイルをまとめたもの）"
 
@@ -1691,7 +1692,7 @@ def read_table(path: str, header: str, sheet: str | None = None, header_rows: in
     from .xlsx.tables import read as tread
 
     blob, name, k, lock = _read(path, password)
-    if k not in ("xlsx", "xls"):
+    if k not in _BOOKS:
         raise ApiError("表の取り出しは Excel（.xlsx・.xlsm・.xls）です（ほかの形式は窓で読めます）")
     try:
         t = tread(open_book(blob, name), header, sheet, header_rows)
@@ -1729,7 +1730,7 @@ def calc_model(path: str, cell: str | None = None, password: str | None = None) 
     from .xlsx import model as xm
 
     blob, name, k, lock = _read(path, password)
-    if k not in ("xlsx", "xls"):
+    if k not in _BOOKS:
         raise ApiError("計算の取り出しは Excel の様式（.xlsx・.xlsm・.xls）です")
     _k, doc, _ = window(path, password)
     m = xm.model(open_book(blob, name), doc)
@@ -1750,7 +1751,7 @@ def calculate(path: str, values: dict, password: str | None = None) -> dict:
     from .xlsx.edit import EditError
 
     blob, name, k, lock = _read(path, password)
-    if k not in ("xlsx", "xls"):
+    if k not in _BOOKS:
         raise ApiError("試算は Excel の様式（.xlsx・.xlsm・.xls）です")
     _k, doc, _ = window(path, password)
     values = _split_values(values, k)[0]  # as（述べた意味）は書くときのもの。試算にも同じ値の形を渡せるように

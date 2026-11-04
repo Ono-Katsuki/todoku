@@ -25,6 +25,8 @@ def kind_of(blob: bytes, filename: str = "") -> str:
             return "docx"
         if any(n.startswith("ppt/") for n in names):
             return "pptx"
+        if "xl/workbook.bin" in names:
+            return "xlsb"  # Excel のバイナリのブック（MS-XLSB）：xlsb/
         if _is_hwpx(blob, names):
             return "hwpx"  # 韓国のワープロ（한글）の HWPX（OWPML、KS X 6101）：読む・書く（hwpx/）
         odf = _odf_kind(blob, names)  # OpenDocument（.odt・.ods）：mimetype の部品で見分ける
@@ -179,6 +181,10 @@ def open_book(blob: bytes, filename: str = ""):
         from .xls.book import XlsWorkbook
 
         return XlsWorkbook(blob, filename)
+    if k == "xlsb":
+        from .xlsb.book import XlsbWorkbook
+
+        return XlsbWorkbook(blob, filename)
     if k == "encrypted":
         raise FormatError("パスワードで暗号化されたファイルです")
     raise FormatError(f"この形式（{k}）は、Excelのブックとして開けません")
