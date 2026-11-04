@@ -61,7 +61,7 @@ description: 申請書・届出・様式（Excel・Word・PDF・一太郎など�
   一太郎（.jtd）・OpenDocument（.odt・.ods）・RTF・PowerPoint（.pptx）・.txt・CSV・TSV・JSON・ZIP・한글の HWPX（.hwpx。読む・書く）。
   한글の HWP 5（.hwp）は読むだけ（書くときは、本人に HWPX で保存し直したファイルを頼む）。配布用・パスワードの HWP は読めない。
   본 제품은 한글과컴퓨터의 한/글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
-- RAR・HEIC・HEIF・AVIF は、とどくは解かない（見分けるだけ。段階は読む E・書く D）。`open_document` の `needs_tool.next_step.commands` に別の道具のコマンドの例が OS ごとにある。目安なので、
+- RAR・HEIC・HEIF・AVIF と LZH の -lh1-〜-lh3- は、とどくは解かない（見分けるだけ。RAR・HEIC・AVIF の段階は読む E・書く D）。`open_document` の `needs_tool.next_step.commands` に別の道具のコマンドの例が OS ごとにある。目安なので、
   入っている道具を確かめて使う。できたファイルをもう一度 `open_document` で開き、変換・展開したことを本人に伝える。書いたものは元の形式には戻らないので、それも本人に伝える。
 - `list_fields`：入力欄の id・見出し・種類・選択肢・いまの値・書けるか（`readonly`・`why`）。書く前に id を確かめる。
   見出しは書類に印刷された字。「？」のついた欄（`agent`）は、窓を読んで書く所か判断する。

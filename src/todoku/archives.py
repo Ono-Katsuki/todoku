@@ -550,6 +550,12 @@ def window(blob: bytes, name: str, kind_ja: dict, k: str) -> tuple[dict, list[tu
             kind = r["kind_ja"] or f"扱えない（{r['why']}）"
             lines.append(f"| {r['name'].replace('|', '｜')} | {kind} | {r['size']:,} バイト |")
     doc = {"kind": k, "name": name, "members": rows, "fields": []}
+    if k == "lzh":
+        from .legacy.convert_first import needs_tool
+        from .legacy.lzh import needs_other_tool
+
+        if any(needs_other_tool(m.raw) for m in ms):
+            doc["needs_tool"] = needs_tool("lzh", name)
     if k in MAIL:
         doc["body_lines"] = body_lines
         doc["notes"] = notes

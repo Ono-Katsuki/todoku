@@ -1,6 +1,7 @@
 """WebP の非可逆の画像（VP8 のキーフレーム、RFC 6386）を開く：ブール符号・係数のトークン・予測・逆 DCT・逆 WHT・ループフィルター。
 
-純粋な Python で、1 メガ画素あたり数秒。色は YUV 4:2:0（色差は近い画素で広げる）。表は RFC 6386 の 13・11 章の値を 16 進で持つ。
+純粋な Python で、1 メガ画素あたり数秒。色は YUV 4:2:0（色差は近い画素で広げる）。表は RFC 6386 の 13・11 章の値を 16 進で持つ（LICENSES/LICENSE-webm.txt）。
+係数の読み方の一部（_large・_coeffs・_BANDS）と定数 101581 は libwebp（BSD 3-Clause。LICENSES/LICENSE-libwebp.txt）に基づく。
 """
 
 from __future__ import annotations

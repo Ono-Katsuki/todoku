@@ -1,7 +1,7 @@
 """実行ファイルの飛び先の変換（BCJ・ARM など）と Delta・Swap を、元に戻す（7z の入れ物が使う）。
 
 どれも、機械語の相対の飛び先を絶対の番地にして縮みやすくしたものを、相対に戻す変換（LZMA SDK の Bra.c・Bra86.c・BraIA64.c、
-Delta.c の説明のとおり）。すべて ip（ストリームの先頭）＝0 から。
+Delta.c の説明のとおり。LZMA SDK は public domain、XZ は 0BSD）。すべて ip（ストリームの先頭）＝0 から。
 """
 
 from __future__ import annotations

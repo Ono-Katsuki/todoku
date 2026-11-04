@@ -4,6 +4,8 @@
 1 判定ごとに関数を呼ぶと 2 倍ほど遅いので、MQ の復号の手順を、3 つの通り道（有意の伝播・細かくする・片付け）の中に書き写す。
 Python には字句のマクロがないので、ソースの字を組み立てて compile する（下の _expand：@MQ(文脈, 結果) の行を手順に置き換える）。
 
+一部は OpenJPEG（BSD 2-Clause。LICENSES/LICENSE-openjpeg.txt）に基づく。
+
 符号ブロックの様式（表 A.19）：BYPASS（生のビット）・RESET・TERMALL・VCAUSAL・PTERM（読むだけなら扱いは同じ）・SEGSYM。
 """
 

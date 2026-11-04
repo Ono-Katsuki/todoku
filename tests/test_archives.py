@@ -163,7 +163,7 @@ def test_lzh_rejects_bad_crc_and_unknown_method(tmp_path):
     p = _p(tmp_path, "c.lzh", _lzh_level0(b"a.csv", CSV, method=b"-lzs-", body=CSV))
     with pytest.raises(api.ApiError, match="-lzs-"):
         api.fields(p + "!/a.csv")
-    assert api.grade(p)["grade"] == "F"
+    assert api.grade(p)["grade"] == "E"  # 別の道具で展開してから読む
 
 
 def _bits(*fields) -> bytes:

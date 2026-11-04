@@ -1,7 +1,7 @@
 """OpenType のレイアウトの表（GDEF・GSUB・GPOS）を読み、字形の並びに当てる。
 
 仕様：OpenType 1.9（Microsoft Typography の「Common Table Formats」「GDEF」「GSUB」「GPOS」）。
-当て方（段階・字の目印（mask）・ZWJ と ZWNJ の飛ばし方・記号の付け方）は、HarfBuzz の OpenType の組み立てと同じにする
+当て方（段階・字の目印（mask）・ZWJ と ZWNJ の飛ばし方・記号の付け方）は、HarfBuzz（MIT。LICENSES/LICENSE-harfbuzz.txt） の OpenType の組み立てを Python に写したもの
 （同じ書体で同じ字形の番号と位置になることを、tests で hb-shape と照らして確かめる）。
 
 扱うもの：

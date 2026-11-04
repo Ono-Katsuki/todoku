@@ -286,6 +286,20 @@ def test_dbf_rejects_inconsistent_header_and_guesses_with_note(tmp_path):
 
 
 # ====================================================================== Access
+@pytest.mark.parametrize("sizes", [(240, 10), (255, 1), (256, 1), (254, 254), (300, 20), (20, 700), (600, 700), (1200, 3)])
+def test_jet3_long_rows_cross_256_boundaries(sizes):
+    import jet_maker
+    from todoku.book import open_book
+
+    m = jet_maker.Maker(True)
+    cols = [{"name": "番号", "type": 4, "num": 0, "fixed": 0, "size": 4}, {"name": "前", "type": 10, "num": 1, "var": 0, "size": 255},
+            {"name": "空", "type": 10, "num": 2, "var": 1, "size": 255}, {"name": "後", "type": 10, "num": 3, "var": 2, "size": 255}]
+    a, b = "あ" * (sizes[0] // 2), "z" * sizes[1]
+    m.add_table("表", cols, [m.row(cols, {"番号": struct.pack("<i", 7), "前": m.text(a), "空": b"", "後": m.text(b)})])
+    sh = open_book(m.build(), "a.mdb").sheets[0]
+    assert sh.cells[(2, 1)].value == 7 and sh.cells[(2, 2)].value == a and sh.cells[(2, 4)].value == b
+
+
 @pytest.mark.parametrize("jet3", [False, True])
 def test_jet_tables(tmp_path, jet3):
     import jet_maker

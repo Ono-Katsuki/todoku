@@ -1,11 +1,13 @@
-"""LZH・LHA（.lzh・.lha）：見出し（レベル 0・1・2）を読み、-lh0-・-lz4-（圧縮なし）と -lh4-〜-lh7- を解く。読むだけ。
+"""LZH・LHA（.lzh・.lha）：見出し（レベル 0・1・2・3）を読み、-lh0-・-lz4-（圧縮なし）と -lh4-〜-lh7- を解く。読むだけ。
 
-見出しの形は LHA の技術資料（吉崎栄泰氏の LHA の「技術資料」、lhasa の実装で確かめられる形）のとおり：
+-lh1-〜-lh3- と、それ以外の方式は解かない：見分けて、別の道具で展開する手順を返す（convert_first.py）。
+
+見出しの形：
 - レベル 0・1：[0] 見出しの大きさ、[1] 見出しの和、[2:7] 方式、[7:11] 圧縮後、[11:15] 元の大きさ、[15:19] 時刻、[19] 属性、[20] レベル、
   [21] 名前の長さ、名前、CRC-16。レベル 1 は OS 1 バイトと、次の拡張見出しの大きさ 2 バイトが続く（圧縮後の大きさは、拡張見出しを含む）
 - レベル 2：[0:2] 見出し全体の大きさ、[21:23] CRC-16、[23] OS、[24:26] 次の拡張見出しの大きさ。拡張見出しの 0x01 は名前、0x02 は
   フォルダ（区切りは 0xFF）
-- レベル 3（ほとんど使われない）は読まず、そう伝える。-lh1-〜-lh3- も同じ（方式の名前を伝える）
+- レベル 3：[0:2] 語の大きさ（4）、[21:23] CRC-16、[23] OS、[24:28] 見出し全体の大きさ、[28:32] 次の拡張見出しの大きさ（拡張見出しの大きさの欄も 4 バイト）
 
 解いた結果は見出しの CRC-16 で確かめる（合わなければ読まない）。名前の文字コードは書庫に書かれていないので、ASCII・Shift_JIS・UTF-8 の順に
 厳密に読めるもので読み、読み方を添える。Windows の自己解凍書庫（.exe の中の LZH）も、実行せずに中の書庫を読む。
@@ -190,23 +192,23 @@ def _name(raw: bytes) -> tuple[str, str]:
     return raw.decode("latin-1").replace("\\", "/"), "Latin-1（どの文字コードでも読めません）"
 
 
-def _exts(blob: bytes, pos: int, next_size: int) -> tuple[bytes, bytes, int]:
-    """拡張見出し：(名前, フォルダ, 拡張見出しの大きさの合計)。"""
+def _exts(blob: bytes, pos: int, next_size: int, width: int = 2) -> tuple[bytes, bytes, int]:
+    """拡張見出し：(名前, フォルダ, 拡張見出しの大きさの合計)。width：次の大きさの欄のバイト数（レベル 3 は 4）。"""
     name = b""
     folder = b""
     total = 0
     while next_size:
-        if next_size < 3 or pos + next_size > len(blob):
+        if next_size < 1 + width or pos + next_size > len(blob):
             raise LzhError("拡張見出しが壊れています")
         t = blob[pos]
-        body = blob[pos + 1:pos + next_size - 2]
+        body = blob[pos + 1:pos + next_size - width]
         if t == 0x01:
             name = body
         elif t == 0x02:
             folder = body
         total += next_size
         pos += next_size
-        next_size = struct.unpack_from("<H", blob, pos - 2)[0]
+        next_size = int.from_bytes(blob[pos - width:pos], "little")
     return name, folder, total
 
 
@@ -244,8 +246,15 @@ def _header_at(blob: bytes, pos: int) -> tuple[Entry, int] | None:
         next_size = struct.unpack_from("<H", blob, pos + 24)[0]
         raw, folder, _t = _exts(blob, pos + 26, next_size)
         data_at = pos + total
+    elif level == 3:
+        if blob[pos:pos + 2] != b"\x04\x00" or pos + 32 > len(blob):
+            raise LzhError("レベル 3 の見出しが壊れています")
+        crc = struct.unpack_from("<H", blob, pos + 21)[0]
+        total, next_size = struct.unpack_from("<II", blob, pos + 24)
+        raw, folder, _t = _exts(blob, pos + 32, next_size, 4)
+        data_at = pos + total
     else:
-        raise LzhError(f"見出しのレベル {level} は読めません（レベル 3 は、ほとんど使われない形です）")
+        raise LzhError(f"見出しのレベル {level} は読めません")
     if data_at + csize > len(blob):
         raise LzhError("圧縮したデータが書庫の外に出ています")
     is_dir = method == "-lhd-"
@@ -256,7 +265,7 @@ def _header_at(blob: bytes, pos: int) -> tuple[Entry, int] | None:
 def start_of(blob: bytes) -> int | None:
     """書庫の始まりの位置：先頭か、自己解凍の .exe（MZ）の中の、和の合う最初の見出し。なければ None。"""
     def ok(p: int) -> bool:
-        if p < 0 or p + 22 > len(blob) or blob[p + 2:p + 4] != b"-l" or blob[p + 6] != 0x2D or blob[p + 20] > 2:
+        if p < 0 or p + 22 > len(blob) or blob[p + 2:p + 4] != b"-l" or blob[p + 6] != 0x2D or blob[p + 20] > 3:
             return False
         if blob[p + 20] in (0, 1):
             hs = blob[p]
@@ -307,7 +316,14 @@ def extract(blob: bytes, e: Entry) -> bytes:
         check_output(e.size, f"「{e.name}」")
         out = unlh(data, e.size, e.method)
     else:
-        raise LzhError(f"「{e.name}」の圧縮の方式 {e.method} は、とどくでは解けません（LHA で展開したものか、ZIP にしたものを頼んでください）")
+        from .convert_first import message
+
+        raise LzhError(f"「{e.name}」の圧縮の方式 {e.method} は、とどくでは解きません。" + message("lzh"))
     if len(out) != e.size or crc16(out) != e.crc:
         raise LzhError(f"「{e.name}」を解いた結果が、見出しの CRC-16 と合いません（書庫が壊れています）")
     return out
+
+
+def needs_other_tool(e: Entry) -> bool:
+    """とどくが解かない方式か（別の道具で展開する）。"""
+    return not e.is_dir and e.method not in STORED and e.method not in _METHODS

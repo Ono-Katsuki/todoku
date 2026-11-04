@@ -38,6 +38,12 @@ def _needs_tool_message(k: str, name: str) -> str:
     return message(k, name)
 
 
+def _lzh_needs_tool(entry) -> bool:
+    from .legacy.lzh import needs_other_tool
+
+    return needs_other_tool(entry)
+
+
 class ApiError(ValueError):
     pass
 
@@ -2347,6 +2353,9 @@ def _audit_zip(path: str, blob: bytes, password: str | None, k: str = "zip", nam
         checks.append({"name": "読み落とし（本文）", "ok": not missing, "agent": False, "items": [str(x) for x in list(missing)[:20]],
                        "detail": "差出人・宛先・件名・本文の字が、すべて窓に出ていることを確かめました" if not missing else "本文の字のうち窓に出ていない字があります"})
     for m in _arc.files(blob, k, name):
+        if k == "lzh" and _lzh_needs_tool(m.raw):
+            checks.append({"name": f"{m.name}：別の道具で展開", "ok": True, "agent": True, "detail": _needs_tool_message("lzh", name), "items": []})
+            continue
         try:
             d = audit(path + ziparc.SEP + m.name, password)
         except ApiError as e:
@@ -2524,6 +2533,8 @@ def summary(path: str, password: str | None = None, encoding: str | None = None)
             d["macro_runs_on_change"] = any(e["on_change"] for e in m["events"])
     elif k in _arc.KINDS:
         d["members"] = [{"name": m["name"], "kind": m["kind"], "size": m["size"]} for m in doc["members"]]
+        if doc.get("needs_tool"):
+            d["needs_tool"] = doc["needs_tool"]
     else:
         d["protection"] = doc.get("protection")
     if k in _open.KINDS:  # 追加の形式

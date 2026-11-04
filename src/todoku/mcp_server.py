@@ -54,7 +54,7 @@ INSTRUCTIONS = (
     "選び、その名前を、そのファイルのどの道具にも encoding で渡してください。"
     "窓の「画像」の節で「説明（代わりの字）がありません」とある画像は、中身を字として読めません。申請に関わりそうなら view_image（PDF の"
     "ページ全体は view_page）で画像を見て読み、読めなければ、その位置（ページ・上下左右・近くの字）を本人に伝えてください。中身を推測で"
-    "埋めないでください。画像そのもののファイル（JPEG・PNG・TIFF・SVG など）も open_document で開き、view_page で見ます。RAR・HEIC・HEIF・AVIF は、とどくは解きません：open_document の needs_tool（format・why・next_step）に、別の道具のコマンドの例があります。入っている道具を確かめて使い、できたファイルをもう一度 open_document で開いてください。変換・展開したことは本人に伝えてください（書いたものは元の形式には戻りません）。計算の決まりを知りたいときは、値から推測せず extract_processing で規則として受け取ります。段階の alerts（アクセシビリティの注意）は、"
+    "埋めないでください。画像そのもののファイル（JPEG・PNG・TIFF・SVG など）も open_document で開き、view_page で見ます。RAR・HEIC・HEIF・AVIF と LZH の -lh1-〜-lh3- は、とどくは解きません：open_document の needs_tool（format・why・next_step）に、別の道具のコマンドの例があります。入っている道具を確かめて使い、できたファイルをもう一度 open_document で開いてください。変換・展開したことは本人に伝えてください（書いたものは元の形式には戻りません）。計算の決まりを知りたいときは、値から推測せず extract_processing で規則として受け取ります。段階の alerts（アクセシビリティの注意）は、"
     "段階とは別に伝えてください。"
     "fill_document の結果の read_back_ok が false のときは、ファイルはもう書き出されていますが、書いた後のファイルを読み直した値が"
     "書いた値と違う欄があります（read_back_differences）。確かめずに本人に渡さず、違いを読んで直すか、そのことを本人に伝えてください。"

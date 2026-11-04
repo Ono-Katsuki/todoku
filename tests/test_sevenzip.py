@@ -26,7 +26,7 @@ R = random.Random(9)
 WORDS = [bytes(R.randrange(97, 123) for _ in range(R.randrange(2, 10))) for _ in range(300)]
 TEXT = b" ".join(R.choice(WORDS) for _ in range(3000))
 CSV = "名前,年\n山田,3\n".encode()
-FIXTURES = Path(__file__).parent / "fixtures" / "public"
+FIXTURES = Path(__file__).parent / "fixtures" / "ppmd"
 HAS7 = shutil.which("7zz") is not None
 
 
