@@ -27,6 +27,10 @@ INSTRUCTIONS = (
     "RTF・PowerPoint .pptx・文字だけのファイル .txt/.csv/.tsv/.json・それらをまとめた ZIP）を、内容を一字も変えずに読める「窓」にし、"
     "入力欄に証明つきで書き込む道具です。韓国のワープロ（한글）の HWPX（.hwpx）も読んで書け、HWP 5（.hwp）は読むだけです"
     "（HWP 5 に書くときは、本人に HWPX で保存し直したファイルを頼みます）。"
+    "大きな書類は、読む量を分けて読みます（読めない所はありません）：open_document が large の概要を返したら、要る所を read_window に範囲で頼みます"
+    "（PDF は pages、Excel は sheet と rows、CSV・TSV は rows、JSON Lines は records、.txt・Word は paragraphs。結果の next をそのまま渡すと続きが読め、"
+    "たどり終えると全部を読んだことになります）。list_fields も同じ範囲で頼みます。段階の deferred（未確認）は、まだ確かめていないことなので、確かめたことのように伝えないでください。"
+    "検査 audit_document は長い仕事として動き、呼ぶたびに進み具合を返します。呼び出しが上限で止まったら、結果の smaller_request の頼み方で頼み直します。"
     "まず open_document で書類を開き、read_window で窓を読み、list_fields で入力欄の名前を確かめてから、"
     "fill_document で書き込んでください。書き込みは元のファイルを変えず、別の名前で書き出します。"
     "窓の［T1.R2.C3］［p1.t45-112］［シート!B3］などが入力欄の名前です。推定した見出しは context（その行）と合わせて確かめてください。"
@@ -63,6 +67,7 @@ _OVERWRITE = {"type": "boolean", "default": False,
                              "書き込みを証明か読み戻しで確かめられなかったときは、out_path でなく「名前.unverified.拡張子」に書き出す"
                              "（そのファイルは提出しない）"}
 
+_RANGE_SCHEMA = {"type": ["string", "integer"], "description": "1 から数えた範囲（\"1-20\"・\"500-\"・5）"}
 TOOLS = [
     {"name": "open_document",
      "description": "書類（Excel .xlsx/.xlsm/.xls・PDF・Word .docx/.docm/.doc・一太郎 .jtd）を開き、形式・入力欄の数・窓の分け方と、"
@@ -73,14 +78,25 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "書類のファイルのパス"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"}},
                      "required": ["path"]}},
     {"name": "read_window",
-     "description": "窓（Markdown）の part 番目の部分を返す（1から。大きな書類は目次と部分に分けてある）。",
+     "description": "窓（Markdown）を返す。ふつうの書類は part 番目の部分（1から）。大きな書類は範囲で頼む：PDF は pages（\"1-20\"）、"
+                    "Excel は sheet と rows（\"1-500\"）、CSV・TSV は rows、JSON Lines は records、.txt・Word は paragraphs（行・段落の範囲）。"
+                    "どの書類でも範囲で読める。結果には、読んだ範囲・残り・続きの頼み方（next）が付く。next をそのまま渡していけば、"
+                    "全部を読める（読む量を分けるだけで、読めない所はない）。max_chars で 1 回の大きさ（字）を変えられる。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
-                                                      "part": {"type": "integer", "minimum": 1, "default": 1}},
+                                                      "part": {"type": "integer", "minimum": 1, "default": 1},
+                                                      "pages": _RANGE_SCHEMA, "rows": _RANGE_SCHEMA, "paragraphs": _RANGE_SCHEMA, "records": _RANGE_SCHEMA,
+                                                      "sheet": {"type": "string", "description": "Excel のシートの名前（rows と一緒に）"},
+                                                      "cursor": {"type": "string", "description": "前の結果の next にある、続きの印"},
+                                                      "max_chars": {"type": "integer", "minimum": 200, "description": "1 回に返す大きさ（字）"},
+                                                      "raw": {"type": "boolean", "description": "窓を作らずに、ファイルの字を順に読む（欄は見つけない）。窓を作るのが上限で止まった書類のための道"}},
                      "required": ["path"]}},
     {"name": "list_fields",
-     "description": "入力欄の一覧を JSON で返す：id（書き込むときの名前）・label（見出し）・kind（種類）・options（選択肢）・value（いまの値）・readonly（書けない欄）・context（その行）。",
+     "description": "入力欄の一覧を JSON で返す：id（書き込むときの名前）・label（見出し）・kind（種類）・options（選択肢）・value（いまの値）・readonly（書けない欄）・context（その行）。"
+                    "大きな書類は範囲で頼む（read_window と同じ pages・sheet・rows・paragraphs・records。空のマスは only_empty）。結果の next で続きを頼める。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
-                                                      "only_empty": {"type": "boolean", "default": False}},
+                                                      "only_empty": {"type": "boolean", "default": False},
+                                                      "pages": _RANGE_SCHEMA, "rows": _RANGE_SCHEMA, "paragraphs": _RANGE_SCHEMA, "records": _RANGE_SCHEMA,
+                                                      "sheet": {"type": "string"}, "cursor": {"type": "string"}, "limit": {"type": "integer", "minimum": 1}},
                      "required": ["path"]}},
     {"name": "fill_document",
      "description": "入力欄に書き込み、out_path に書き出す（元のファイルは変えない）。values は {欄の id: 値}。"
@@ -165,7 +181,7 @@ TOOLS = [
          "overwrite": _OVERWRITE},
          "required": ["path", "out_path", "values"]}},
     {"name": "audit_document",
-     "description": "この書類を、エージェントが全て正確に読み書きできるかを確かめる（窓とは別の読み方で読み落としがないか、全入力欄に書けるか、書いた値が読み戻せるか）。"
+     "description": "大きな書類では長い仕事として動く（すぐ返り、呼ぶたびに進み具合・ここまでの結果を返す。止まっても控えの続きから進む。job: true で大きさによらず長い仕事に、restart: true で始めから）。この書類を、エージェントが全て正確に読み書きできるかを確かめる（窓とは別の読み方で読み落としがないか、全入力欄に書けるか、書いた値が読み戻せるか）。"
                     "読む段階（中身を読むことだけで決める。S 素で問題ない／A 規則だけで正確に読める（地域で見え方が変わる組み込みの日付の表示形式は ISO 8601 の字で示して伝える）／B エージェントが読めば正確"
                     "（中身は窓にすべて出ていて、決まらない所は窓の根拠でエージェントが決める：文字コードの候補・再現できない段落番号の書式など。説明のない画像は段階を変えず、注意 alerts に示す）／"
                     "C エージェントが工夫して変換できる（マクロ・確かめられない数式・窓の読み落とし）／"
@@ -296,6 +312,9 @@ _ENCODING = {"type": "string",
                             "その文字コードで厳密に読めることを確かめて、窓・欄・書き込み・段階をその文字コードで読み直す"
                             "（書き込みは、書いた所だけをその文字コードのバイトにする）。同じファイルには、どの道具にも同じ値を渡す"}
 for _t in TOOLS:
+    if _t["name"] == "audit_document":
+        _t["inputSchema"]["properties"]["job"] = {"type": "boolean", "description": "大きさによらず、長い仕事として動かす（呼び出しの時間の上限に当たったとき）"}
+        _t["inputSchema"]["properties"]["restart"] = {"type": "boolean", "description": "控えを捨てて、始めから確かめ直す"}
     if _t["name"] in ("open_document", "read_window", "list_fields", "fill_document", "audit_document", "grade_document"):
         _t["inputSchema"]["properties"]["encoding"] = _ENCODING
 
@@ -314,17 +333,33 @@ def call_tool(name: str, args: dict) -> dict:
         pw = args.get("password")
         enc = args.get("encoding")
         s = api.summary(path, pw, enc)
+        if s.get("large"):
+            lz = api.lazy_open(path, pw, enc)
+            head = (f"{s['kind_ja']}・大きな書類です（窓の全体は見積もりで {s['estimated_window_chars']:,} 字）。全体を一度には返しません。"
+                    "下の概要を見て、要る所を read_window に範囲で頼んでください（読む量を分けるだけで、読めない所はありません）")
+            return {"content": [_text(head), _text(lz.overview_text())], "structuredContent": s}
         _k, _doc, parts = api.window(path, pw, enc)
         head = (f"{s['kind_ja']}・入力欄 {s['fields']} か所（書ける欄 {s['writable_fields']}）・窓は {s['window_parts']} 部分"
                 + ("（read_window で part を指定して続きを読めます）" if s["window_parts"] > 1 else ""))
         return {"content": [_text(head), _text(parts[0][1])], "structuredContent": s}
     if name == "read_window":
+        rng = {k: args[k] for k in ("pages", "sheet", "rows", "paragraphs", "records", "cursor", "raw") if args.get(k) not in (None, "", False)}
+        large = api.lazy_open(args["path"], args.get("password"), args.get("encoding")) if not rng else None
+        if rng or large is not None or args.get("max_chars"):
+            if args.get("part") is not None and not rng:
+                rng["part"] = args["part"]
+            page, doc = api.read_range(args["path"], rng, args.get("max_chars"), args.get("password"), args.get("encoding"))
+            return {"content": [_text(page.text), _text(page.footer())], "structuredContent": page.to_dict()}
         _k, _doc, parts = api.window(args["path"], args.get("password"), args.get("encoding"))
         n = int(args.get("part", 1))
         if not 1 <= n <= len(parts):
             raise api.ApiError(f"part は 1〜{len(parts)} です")
         return {"content": [_text(f"部分 {n}/{len(parts)}：{parts[n - 1][0]}"), _text(parts[n - 1][1])]}
     if name == "list_fields":
+        rng = {k: args[k] for k in ("pages", "sheet", "rows", "paragraphs", "records", "cursor") if args.get(k) not in (None, "")}
+        if rng or args.get("limit") or api.lazy_open(args["path"], args.get("password"), args.get("encoding")) is not None:
+            res = api.fields_range(args["path"], rng, bool(args.get("only_empty")), args.get("limit"), args.get("password"), args.get("encoding"))
+            return {"content": [_text(res)], "structuredContent": res}
         fl = api.fields(args["path"], args.get("password"), args.get("encoding"))
         if args.get("only_empty"):
             fl = [f for f in fl if f.get("value") in (None, "", False)]
@@ -394,9 +429,16 @@ def call_tool(name: str, args: dict) -> dict:
         lines += [f"  - ？（あれば{_score(c)} {c['grade']}）{c['question']}" for c in g.get("agent_checks", [])]
         return {"content": [_text("\n".join(lines)), _text(g)], "structuredContent": g}
     if name == "audit_document":
-        au = api.audit(args["path"], args.get("password"), args.get("encoding"))
+        au = api.audit(args["path"], args.get("password"), args.get("encoding"), restart=bool(args.get("restart")), job=bool(args.get("job")))
         lines = [("[OK] " if c["ok"] else "[要確認] ") + f"{c['name']}: {c['detail']}" for c in au["checks"]]
-        lines.append("結論: " + ("全て正確に読み書きできます" if au["ok"] else "読み書きに確認が必要な点があります"))
+        job = au.get("job")
+        if job and not job["finished"]:
+            pr = job.get("progress") or {}
+            at = f"{pr.get('text', '始めたところ')}" + (f"（{pr['done']:,}／{pr['total']:,}）" if pr.get("total") else "")
+            lines.insert(0, (f"検査は止まりました：{job['stopped']}" if job.get("stopped") else f"検査は別のプロセスで動いています：{at}。") +
+                         "もう一度 audit_document を呼ぶと、進み具合と結果が分かります（止まっていれば、控えの続きから進みます）")
+        else:
+            lines.append("結論: " + ("全て正確に読み書きできます" if au["ok"] else "読み書きに確認が必要な点があります"))
         g = au.get("grade")
         if g:
             lines.append(g["headline"])
@@ -431,6 +473,7 @@ def _clean(msg: str, args: dict, limit: int = 1500) -> str:
 def tool_result(name: str, args: dict) -> dict:
     """1 回の道具の呼び出しの結果（MCP の result）。例外は、短い言葉と例外の種類にする（トレースバック・絶対パスは出さない。
     トレースバックは標準エラーの記録にだけ書く）。"""
+    from .lazy import smaller_request
     from .limits import STOPPED, LimitExceeded, call_budget
 
     try:
@@ -440,13 +483,16 @@ def tool_result(name: str, args: dict) -> dict:
         return {"content": [_text(str(e))], "isError": False,
                 "structuredContent": {"needs_password": True, "wrong_password": isinstance(e, api.PasswordWrong)}}
     except LimitExceeded as e:
-        return {"content": [_text(_clean(str(e), args))], "isError": True, "structuredContent": {"stopped": True}}
+        hint = smaller_request(name, args)
+        return {"content": [_text(_clean(str(e), args) + "\n" + hint)], "isError": True, "structuredContent": {"stopped": True, "smaller_request": hint}}
     except RecursionError:
-        return {"content": [_text(f"{STOPPED}：入れ子や参照が深すぎて、読み終われません（RecursionError）")], "isError": True,
-                "structuredContent": {"stopped": True}}
+        hint = smaller_request(name, args)
+        return {"content": [_text(f"{STOPPED}：入れ子や参照が深すぎて、読み終われません（RecursionError）\n{hint}")], "isError": True,
+                "structuredContent": {"stopped": True, "smaller_request": hint}}
     except MemoryError:
-        return {"content": [_text(f"{STOPPED}：メモリが足りなくなりました（MemoryError）")], "isError": True,
-                "structuredContent": {"stopped": True}}
+        hint = smaller_request(name, args)
+        return {"content": [_text(f"{STOPPED}：メモリが足りなくなりました（MemoryError）\n{hint}")], "isError": True,
+                "structuredContent": {"stopped": True, "smaller_request": hint}}
     except (api.ApiError, KeyError, ValueError) as e:
         kind = "" if isinstance(e, api.ApiError) else f"（{type(e).__name__}）"
         return {"content": [_text(f"できませんでした{kind}：{_clean(str(e), args)}")], "isError": True}
