@@ -1828,8 +1828,19 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
             raise ApiError(str(e)) from None
         except (struct.error, IndexError) as e:
             raise ApiError(broken_message(path, e)) from None
+    if k == "xps":
+        from .legacy.xpsrender import view_page as xview
+
+        try:
+            if dpi is not None and (isinstance(dpi, bool) or not isinstance(dpi, (int, float)) or not 10 <= dpi <= 1200):
+                raise ApiError("dpi は 10〜1200 の数で指定してください")
+            return xview(blob, int(page), region, marks, dpi)
+        except ValueError as e:
+            raise ApiError(str(e)) from None
+        except (struct.error, IndexError, OverflowError, ZeroDivisionError) as e:
+            raise ApiError(broken_message(path, e)) from None
     if k != "pdf":
-        raise ApiError("view_page は PDF と画像のファイルのページの画像です（ほかの形式は窓で読み、書類の中の画像は view_image で見ます）")
+        raise ApiError("view_page は PDF・XPS と画像のファイルのページの画像です（ほかの形式は窓で読み、書類の中の画像は view_image で見ます）")
     doc = _pdf(blob, name, lock)
     try:
         if dpi is not None and (isinstance(dpi, bool) or not isinstance(dpi, (int, float)) or not 10 <= dpi <= 1200):

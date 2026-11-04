@@ -5,7 +5,7 @@
 - 字：Glyphs の UnicodeString（先頭の「{}」は字の中の「{」を逃がす印、ECMA-388 12.1.4）。位置は OriginX・OriginY と
   RenderTransform（Canvas の入れ子の行列）から決め、上から下・左から右の順に、同じ高さのものを 1 行にする（配置からの推定）。
 - UnicodeString がなく Indices（字形の番号）だけの Glyphs は、字に直せないので読まず、窓に数を書く（推測しない）
-- 絵（ImageBrush の ImageSource）の中身は読まない。view_page は PDF のページだけ（XPS は窓で読む）
+- 絵（ImageBrush の ImageSource）の中身は字として読まない。ページの見た目は view_page で見る（xpsrender.py：図形・字の形・絵を描く）
 """
 
 from __future__ import annotations
@@ -183,9 +183,9 @@ def build(blob: bytes, name: str) -> dict:
         sections.append((f"{i}ページ", lines))
     unread = []
     if n_no:
-        unread.append(f"字の番号（Indices）だけで字のない Glyphs が {n_no} か所あります。字に直せないので読んでいません（推測しません）")
+        unread.append(f"字の番号（Indices）だけで字のない Glyphs が {n_no} か所あります。字に直せないので読んでいません（推測しません）。view_page でページの画像を見て読みます")
     if n_img:
-        unread.append(f"絵 {n_img} 個の中身は字として読めません")
+        unread.append(f"絵 {n_img} 個の中身は字として読めません（view_page でページの画像を見られます）")
     return rd.make("xps", KIND_JA, name, blob, sections,
                    "元のファイルが正本。ページの字を、位置から上から下・左から右に並べました（読み順は配置からの推定）。" + WRITE, unread,
                    images=n_img, glyphs_without_text=n_no)
