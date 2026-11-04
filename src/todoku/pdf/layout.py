@@ -19,7 +19,7 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from .. import chars as _chars  # 字の種類（空白・下線の字・ダッシュ・点線・かっこの組・チェックの箱の字）：Unicode の資料の表
-from ..xlsx.window import norm_label
+from ..xlsx.window import label_text
 from .content import PageContent
 
 
@@ -1546,9 +1546,9 @@ class PageLayout:
         right = nb.get("right")
         if right and right["_rtl"] and not (left and left["_rtl"]):
             left, right = right, left
-        rl = norm_label(left["text"]) if left else ""
-        cl = norm_label(nb["above"]["text"]) if nb.get("above") else ""
-        return (rl or cl or (norm_label(right["text"]) if right else "")), rl, cl
+        rl = label_text(left["text"]) if left else ""
+        cl = label_text(nb["above"]["text"]) if nb.get("above") else ""
+        return (rl or cl or (label_text(right["text"]) if right else "")), rl, cl
 
     def default_size(self, nb: dict | None = None, line: "Line | None" = None) -> tuple[float, str]:
         """書く字の既定の大きさ（ひとつの決まり）：行の中の所はその行の字の大きさ。行のない所（空のマス・下線の罫線）は、
@@ -1688,7 +1688,7 @@ class PageLayout:
             after = _option_text(text[i + 1:])
             before = _option_text(text[:i][::-1])[::-1] if i else ""
             x0, y0, x1, y1 = ln.span_rect(i, i + 1)
-            sp = Spot("checkbox", (x0, y0, x1, y1), norm_label(after or before) or "（選択肢の文字なし）", "箱の字",
+            sp = Spot("checkbox", (x0, y0, x1, y1), label_text(after or before) or "（選択肢の文字なし）", "箱の字",
                       line_text=text, cell=cell, size=ln.size, host=ln, at=(i, i + 1), shape="box", anchor=(x0, ln.y0))
             sp.facts = {"rect_mm": self._rect_mm((x0, y0, x1, y1)), "char": ch, "line": text.strip(" 　"),
                         "char_name": f"U+{ord(ch):04X} {unicodedata.name(ch, '')}", "after": after, "before": before}
@@ -1784,7 +1784,7 @@ class PageLayout:
                 shown = text[:at[0]] + "［　］" + text[at[1]:]
             # マスの中の行の前後の空きは、行と行の間の帯（行より高いこともある四角）：字の欄（text）として書く。行の中の空きは inline
             kind = "text" if why in ("lead", "trail") and cell is not None else "inline"
-            sp = Spot(kind, rect, norm_label(shown), GAP_WHY.get(why, "空き"), line_text=text, blank=at, cell=cell,
+            sp = Spot(kind, rect, label_text(shown), GAP_WHY.get(why, "空き"), line_text=text, blank=at, cell=cell,
                       size=sz, host=ln, at=at, shape=why, anchor=anchor, write_size_from="行の字の大きさ",
                       cover=orig if why == "placeholder" else "")
             if not blank.structural:
@@ -1947,7 +1947,7 @@ class PageLayout:
             if self._cell_edge(h):
                 continue  # マスの縁（表の外側の線）：下線ではない
             rect = (h.a, top, h.b, h.pos - 0.5)
-            label = norm_label(near.text.strip()) if near is not None else ""
+            label = label_text(near.text.strip()) if near is not None else ""
             sp = Spot("text", rect, label, "下線の罫線", size=sz, host=near,
                       at=(len(near.text), len(near.text)) if near is not None else None, shape="underline",
                       anchor=(h.a, h.pos), write_size_from="線の左の字の大きさ" if near is not None else "ページのふつうの字の大きさ")

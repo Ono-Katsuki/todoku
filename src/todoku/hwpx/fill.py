@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ..docx.fill import FillError, _as_bool, _is_text_value, _width
+from ..docx.fill import FillError, _as_bool, _is_text_value, inline_padding
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from ..odf.xml import El, esc_attr, esc_text, set_attr
 from .document import END_PREFIX, MARK_PREFIX, HwpxDocument
@@ -189,10 +189,7 @@ class HwpxWriter:
         pre = _prefix(p.el)
         data = self.doc.pkg.xml(part)
         bm = self.bookmark(pre, item["id"])
-        pad = ""
-        if keep_width and a < b:
-            room = _width(p.text[a:b]) - _width(value)
-            pad = " " * room if room > 0 else ""
+        pad = inline_padding(p, a, b, value)[1] if keep_width and a < b else ""  # 下線の長さを保つ（Word と同じ決まり）
         self.part_of_run = part
 
         def body_at(el) -> bytes:

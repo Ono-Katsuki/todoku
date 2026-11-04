@@ -152,10 +152,22 @@ class Grade:
 
     def to_dict(self) -> dict:
         return {"grade": self.grade, "name": self.name, "headline": self.headline(),
-                "reasons": [asdict(r) for r in self.reasons], "agent_checks": self.agent_checks,
-                "write": {"grade": self.write, "name": self.write_name, "reasons": [asdict(r) for r in self.write_reasons]},
-                "without_barriers": self.without_barriers, "alerts": [asdict(a) for a in self.alerts],
+                "reasons": [reason_dict(r) for r in self.reasons], "agent_checks": self.agent_checks,
+                "write": {"grade": self.write, "name": self.write_name, "reasons": [reason_dict(r) for r in self.write_reasons]},
+                "without_barriers": self.without_barriers, "alerts": [reason_dict(a) for a in self.alerts],
                 "scale": NAMES, "write_scale": WRITE_NAMES}
+
+
+WHERE_SHOWN = 12  # 理由ごとに、where に並べる所の数（それより多いときは「ほか N か所」。すべては where_all に）
+
+
+def reason_dict(r: Reason) -> dict:
+    """理由の JSON：where は初めの WHERE_SHOWN か所と「ほか N か所」、すべての所は where_all（多いときだけ）。"""
+    d = asdict(r)
+    if len(r.where) > WHERE_SHOWN:
+        d["where"] = list(r.where[:WHERE_SHOWN]) + [f"ほか {len(r.where) - WHERE_SHOWN} か所"]
+        d["where_all"] = list(r.where)
+    return d
 
 
 def _worst(order: str, base: str, reasons: list[Reason]) -> str:
@@ -244,15 +256,14 @@ def _macro_reasons(info) -> list[Reason]:
               "ソースを読んで判断します")
     if on_change:
         detail += f"。セルの値を変えると動くマクロ（{'、'.join(on_change[:5])}）があります"
-    return [Reason("C", "マクロの処理", detail, [m["name"] for m in busy][:12])]
+    return [Reason("C", "マクロの処理", detail, [m["name"] for m in busy])]
 
 
-def unsupported_grade(kind: str) -> Grade:
-    """見分けたが、まだ読めない形式（HWP・HWPX）：読む F・書く D。"""
-    from .book import UNSUPPORTED
+def unsupported_grade(kind: str, blob: bytes | None = None, detail: str | None = None) -> Grade:
+    """見分けたが、まだ読めない形式（book.UNSUPPORTED：Excel・Word・PowerPoint の部品のない OOXML など）：読む F・書く D。"""
+    from .book import UNSUPPORTED, unsupported_message
 
-    return _locked("未対応の形式：HWP/HWPX（韓国のワープロ）",
-                   f"とどくはまだ読めません（{UNSUPPORTED.get(kind, kind)} の文書。中身を推測して読むことはしません）",
+    return _locked(f"未対応の形式：{UNSUPPORTED.get(kind, kind)}", detail or unsupported_message(kind, blob),
                    "読めないので、書けません")
 
 
@@ -310,8 +321,10 @@ def _grade_blob(blob: bytes, filename: str = "", password: str | None = None, en
         k = kind_of(blob)
     except Exception as e:  # noqa: BLE001
         return _locked("開けない", f"ファイルの形式を判別できませんでした（{type(e).__name__}）", "開けないので、書けません")
-    if k in ("hwp", "hwpx"):
-        return unsupported_grade(k)
+    from .book import UNSUPPORTED
+
+    if k in UNSUPPORTED:
+        return unsupported_grade(k, blob)
     if k == "zip":
         return _grade_zip(blob, password)
     locked = k == "encrypted"
@@ -408,7 +421,7 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
         reasons.append(Reason("E", "字に直せない本文の字",
                               f"{n} 字は、フォントに文字の対応がなく、字に直せません（窓では �）。その所の中身は、ページを画像として"
                               "見て読みます（view_page で描いたページを見る。字に直せない字は、埋め込みのフォントの字形のまま描くので、見た形から読む）。"
-                              "中身を推測で埋めないでください", [w for w, _k in body][:12]))
+                              "中身を推測で埋めないでください", [w for w, _k in body]))
     flagged: dict[str, Reason] = {}
     for p in win["pages"]:
         for fl in p.get("read_flags") or []:
@@ -416,9 +429,7 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
             if r is None:
                 r = flagged[fl["title"]] = Reason(fl["grade"], fl["title"], fl["detail"], [])
             r.where += fl["where"]
-    for r in flagged.values():
-        r.where = r.where[:12] + ([f"ほか {len(r.where) - 12} か所"] if len(r.where) > 12 else [])
-        reasons.append(r)
+    reasons += flagged.values()
     img = [f"{p['number']}ページ" for p in win["pages"] if p.get("image_only")]
     if img:
         from .pdf.pageimage import unreadable_images
@@ -454,7 +465,7 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
         write.append(Reason("B", "字を組み立てて書く文字（見た目は画像で確かめる）",
                             "この書類の文字（アラビア文字・インド系の文字など）は、字を組み立てて（シェーピング）描きます。"
                             "字の並びは、とどくの字の組み立てで確かめますが、見た目そのものは証明していません。書いた欄は view_page で"
-                            "描いたページ（書いた字も字形で描く）を見て、字の形とつながりが正しいかを確かめます", sh[:12]))
+                            "描いたページ（書いた字も字形で描く）を見て、字の形とつながりが正しいかを確かめます", sh))
     from .pdf.signatures import write_reasons as _sig_reasons
 
     write += _sig_reasons(doc)  # 変更を許さない電子署名（DocMDP P=1）は書けない
@@ -518,7 +529,7 @@ def _mark_alerts(marks: list[tuple[str, int]]) -> list[Reason]:
                    f"行の頭の印（箇条の印など）{sum(k for _w, k in marks)} 字は、フォントに文字の対応がなく、字に直せません（窓では �）。"
                    "後ろの文の字は欠けていないので、段階は変えません。印の形（・や □ など）を知りたいときは、ページを見て確かめます。"
                    "画面の読み上げを使う人には、印が届きません（PDF/UA 7.21.7）",
-                   [w for w, _k in marks][:12])]
+                   [w for w, _k in marks])]
 
 
 def picture_alerts(pictures: list[dict]) -> list[Reason]:
@@ -529,7 +540,7 @@ def picture_alerts(pictures: list[dict]) -> list[Reason]:
     return [Reason("F", "説明のない画像",
                    f"画像 {len(bare)} 個に、説明（代わりの字）がありません。画面の読み上げを使う人には中身が届かず、"
                    "エージェントも画像の中身は字として読めません（WCAG 1.1.1）。段階は変えません",
-                   [_picture_where(p) for p in bare[:12]])]
+                   [_picture_where(p) for p in bare])]
 
 
 def _picture_where(p: dict) -> str:
@@ -549,7 +560,7 @@ def _write_fields(fields: list[dict], layout: list[dict], agent: list[dict], mar
     out = []
     if layout:
         out.append(Reason("B", "配置から推定した入力欄",
-                          f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、{marked}ではなく、{how}", [f["id"] for f in layout[:12]]))
+                          f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、{marked}ではなく、{how}", [f["id"] for f in layout]))
     if agent:
         out.append(_agent_reason(agent))
     if out:
@@ -566,11 +577,11 @@ def word_reasons(win: dict) -> tuple[list[Reason], list[Reason]]:
     gone = win.get("tracked_deletions") or []
     if gone:
         read.append(Reason("B", "変更履歴", f"変更履歴で削除された字が {len(gone)} 段落に残っています。窓では本文に入れず"
-                           "〔変更履歴で削除された字〕と示しています。印刷される字は、ソフトの変更履歴の表示の設定で変わります", gone[:12]))
+                           "〔変更履歴で削除された字〕と示しています。印刷される字は、ソフトの変更履歴の表示の設定で変わります", gone))
     bad = [f for f in win.get("fields") or [] if f.get("unwritable")]
     if bad:
         write.append(Reason("D", "書けない入力欄", f"入力欄 {len(bad)} か所は、ファイルの作りのために書けません：{bad[0].get('why', '')}",
-                            [f["id"] for f in bad[:12]]))
+                            [f["id"] for f in bad]))
     return read, write
 
 
@@ -598,7 +609,7 @@ def _write_macros(info) -> list[Reason]:
     if not busy:
         return []
     return [Reason("C", "画面から動かすマクロ", "ボタンや、値を変えると動く処理（マクロ）が、セルや欄を書き換えます。"
-                   "Excel のマクロは、問い（はい・いいえ、入力）を本人に確かめながら、run_macro で動かします", [m["name"] for m in busy][:12])]
+                   "Excel のマクロは、問い（はい・いいえ、入力）を本人に確かめながら、run_macro で動かします", [m["name"] for m in busy])]
 
 
 def _xfa_reasons(xw: dict | None) -> tuple[list[Reason], list[Reason]]:
@@ -617,16 +628,16 @@ def _xfa_reasons(xw: dict | None) -> tuple[list[Reason], list[Reason]]:
     if auto:
         read.append(Reason("C", "XFA のスクリプト",
                            f"自動で動くスクリプト {len(auto)} 種類（開いた時・値を変えた時・計算・確かめなど）は、規則では再現しません。"
-                           "値や欄の出し入れを変えるかは、窓のソースを読んで判断します", [" / ".join(s_["where"][:1]) for s_ in auto[:12]]))
+                           "値や欄の出し入れを変えるかは、窓のソースを読んで判断します", [" / ".join(s_["where"][:1]) for s_ in auto]))
     write.append(Reason("B", "XFA のフォーム", f"XFA の欄（書ける欄 {len(ok)} か所）は、フォームの作りを解析して、データ（datasets）に書きます",
-                        [f["id"] for f in ok[:12]]))
+                        [f["id"] for f in ok]))
     ui = [f for f in fields if f.get("why_not") and not f.get("hidden") and f["kind"] in ("text", "number", "date", "checkbox", "radio",
                                                                                              "combo", "list")
           and f.get("no_data")]
     if ui:
         write.append(Reason("C", "データに結びつかない XFA の欄",
                             f"{len(ui)} か所は、データに結びつかない欄（bind が none など）で、書いた値が Adobe で残る書き方が仕様で決まりません。"
-                            "Adobe Acrobat・Reader の画面から入力します", [f["id"] for f in ui[:12]]))
+                            "Adobe Acrobat・Reader の画面から入力します", [f["id"] for f in ui]))
     return read, write
 
 
@@ -640,7 +651,7 @@ def _agent_reason(agent: list[dict]) -> Reason:
                   f"書き込む所かもしれない所 {len(agent)} か所は、規則では欄と決められません（"
                   + "・".join(f"{k} {n}" for k, n in kinds.items())
                   + "）。エージェントが窓を読んで判断し、書く所なら id を指定して書きます",
-                  [f["id"] for f in agent[:12]])
+                  [f["id"] for f in agent])
 
 
 def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
@@ -668,7 +679,7 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
     if pics and not has_text and not fields:
         # 字が1字もなく、画像だけの文書（スキャンを貼ったものなど）：中身は画像として見て読む
         reasons.append(Reason("E", "画像だけの文書", f"本文に字がなく、中身は画像 {len(pics)} 個だけです。中身は画像を見て読みます",
-                              [p["id"] for p in pics[:12]]))
+                              [p["id"] for p in pics]))
         write.append(Reason("D", "画像だけの文書", "字の情報がなく、書く所を字で示せないので、書けません（手で書く紙として扱います）"))
     else:
         reasons += content_image_reasons(doc, win, doc.body, lambda p: word_heading(doc, p), "本文")
@@ -706,7 +717,7 @@ def pua_reasons(where: list[str]) -> list[Reason]:
         return []
     return [Reason("B", "外字（私用の符号の字）",
                    f"外字：中身は分かりません（私用の符号 U+E000〜F8FF などは、書類ごとに字の形が決まり、字の意味は符号からは"
-                   f"分かりません）。{len(where)} か所。どの字かは、本人か書類の作り手に確かめ、推測で読まないでください", where[:12])]
+                   f"分かりません）。{len(where)} か所。どの字かは、本人か書類の作り手に確かめ、推測で読まないでください", where)]
 
 
 def word_pua_reasons(doc) -> list[Reason]:
@@ -740,7 +751,7 @@ def _numbering_reasons(doc) -> list[Reason]:
     return [Reason("B", "再現できない段落番号",
                    f"{len(bad)} 段落の段落番号は、番号の書式（{names}）の字の決まりを確かめていないので、窓では 1, 2, 3 にせず"
                    "〔n：番号の書式「…」は再現できません〕と示しています。番号の字は、エージェントが書式の名前と番号から読みます",
-                   [f"「{t}」の段落" for _f, t in bad[:12]])]
+                   [f"「{t}」の段落" for _f, t in bad])]
 
 
 # 見出し・図表番号の、組み込みのスタイルの名前（ECMA-376 第1部 17.7.4.9 の name。大文字・小文字は区別しない）
@@ -799,7 +810,7 @@ def content_image_reasons(doc, win: dict, body_blocks, heading, body_ja: str, pa
     if not text:
         return [Reason("E", "中身が画像の文書",
                        f"{body_ja}には、見出し・図表番号のほかに字の段落がなく、中身は説明（代わりの字）のない画像 {len(bare)} 個です。{see}",
-                       where[:12])]
+                       where)]
     # ページ（スライド）ごと：字が1字もなく、説明のない画像だけのページは、PDF の画像だけのページと同じく読む E
     # （ページの区切りは、ファイルの作り：スライド、Word が最後に描いたときのページの区切り w:lastRenderedPageBreak・
     # 改ページ・ページを改める区切り。区切りの記録のない文書は、ページごとには決めない）
@@ -810,7 +821,7 @@ def content_image_reasons(doc, win: dict, body_blocks, heading, body_ja: str, pa
         return [Reason("E", f"画像だけの{what}",
                        f"字が1字もなく、中身が説明（代わりの字）のない画像だけの{what}が {len(only)} あります"
                        f"（{'・'.join(f'{n} {what}目' for n, _p in only[:12])}）。PDF の画像だけのページと同じく、中身は字として読めません。{see}",
-                       [by_n.get(f"図{p['n']}", f"図{p['n']}") for _n, ps in only for p in ps][:12])]
+                       [by_n.get(f"図{p['n']}", f"図{p['n']}") for _n, ps in only for p in ps])]
     # ほかに本文の字がある：説明のない画像は、段階とは別のアクセシビリティの注意（picture_alerts）に位置を示す。段階は変えない
     return []
 
@@ -987,7 +998,7 @@ def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "�
     - A：すべての欄が、ファイルの作りとしての印（入力規則・保護の中のロックの解除・フォームの部品）で決まる
     - B：罫線・塗りと近くの見出し・文字の中の空欄の字の形・数式の入力から推定した欄（印ではない）、規則では決められない所
       （窓の［B5？］・文字の中の［？］。エージェントが判断する）、重なった入力規則（どれが使われるかをエージェントが読む）"""
-    marked, boxed, inferred, inline, overlap, agent, locked = [], [], [], [], [], [], []
+    marked, boxed, inferred, inline, overlap, agent, locked, unlabeled = [], [], [], [], [], [], [], []
     for sh in doc["sheets"]:
         for f in sh.get("fields", []):
             if f.get("locked"):
@@ -997,7 +1008,7 @@ def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "�
                 agent.append(f)
                 continue
             if f.get("unlabeled"):
-                continue
+                unlabeled.append(f["id"])  # 見出しのない空のマス（入力規則もない）：書く欄として数えるが、どの欄かは窓で確かめる
             why = reason_codes(f)
             if f["kind"] == "inline":
                 inline.append(f["id"])
@@ -1014,24 +1025,28 @@ def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "�
     if boxed:
         write.append(Reason("B", "枠・塗りから推定した入力欄",
                             f"{len(boxed)} か所は、入力規則も{protect}の印もなく、枠や塗りのある空のマスで、そばに見出しがあることから推定した欄です",
-                            boxed[:12]))
+                            boxed))
     if inline:
-        write.append(Reason("B", "文字の中の空欄", f"{len(inline)} か所は、「（　　）」「＿＿＿」のような、文字の中の空欄の形から推定した欄です", inline[:12]))
+        write.append(Reason("B", "文字の中の空欄", f"{len(inline)} か所は、「（　　）」「＿＿＿」のような、文字の中の空欄の形から推定した欄です", inline))
     if inferred:
         write.append(Reason("B", "印のない入力欄", f"{len(inferred)} か所は、入力規則も枠もなく、数式の入力になっていることから推定した欄です",
-                            inferred[:12]))
+                            inferred))
     if agent:
         write.append(_agent_reason(agent))
     if locked:
         write.append(Reason("B", "保護されたセルの欄",
                             f"{len(locked)} か所は、見出しのすぐ右の欄ですが、{protect}でロックされていて、Excel でも書けません"
                             "（書くには保護を外すパスワードが要ります）。本人が書く欄かを窓で確かめ、書くなら本人にパスワードを聞くか、"
-                            "保護を外さずに書く（force）ことを本人に確かめます", locked[:12]))
+                            "保護を外さずに書く（force）ことを本人に確かめます", locked))
+    if unlabeled:
+        write.append(Reason("B", "見出しのない欄",
+                            f"{len(unlabeled)} か所は、近くに見出しの字がない空の欄です（入力規則もない）。どの欄かは、窓の近くの字（near）と"
+                            "行の字（context）を読んで確かめてから書きます", unlabeled))
     if overlap:
         write.append(Reason("B", "重なった入力規則",
                             f"{len(overlap)} か所に入力規則が重なっていて、どの規則が使われるかはファイルから決まりません。"
-                            "窓に出したそれぞれの規則を、エージェントが読んで、合う値を書きます", overlap[:12]))
-    if not (guessed or agent or overlap or locked):
+                            "窓に出したそれぞれの規則を、エージェントが読んで、合う値を書きます", overlap))
+    if not (guessed or agent or overlap or locked or unlabeled):
         if n_fields:
             write.append(Reason("A", "印のある入力欄", f"入力欄 {n_fields} か所は、すべて入力規則・{protect}・フォームの部品の印で決まり、そのまま書けます"))
         else:
@@ -1071,14 +1086,14 @@ def unshown_reasons(doc: dict) -> list[Reason]:
                           f"{len(pc)} か所のセルは、組み込みの表示形式（ECMA-376 第1部 18.8.30 の番号 {ids}）で、形式の字がファイルに"
                           "なく、開く PC の地域の設定（短い日付など）で見え方が変わります。todoku は受け取る人の PC を知らないので、"
                           "特定の地域の字にせず、窓には元の値と、地域によらない書き方（ISO 8601）を示します",
-                          [w for w, _i in pc][:12]))
+                          [w for w, _i in pc]))
     where = [w for w, i in items if i is None]
     if not where:
         return out
     return out + [Reason("B", "再現できない表示形式",
                    f"{len(where)} か所のセルは、表示形式（ロケール・暦・漢数字などの指定）を規則どおりに再現できません。"
                    "窓には推測した字ではなく元の値を出しているので、Excel での見え方は、エージェントが元の値と表示形式から読みます",
-                   where[:12])]
+                   where)]
 
 
 def _grade_excel(blob: bytes, filename: str) -> Grade:
@@ -1099,20 +1114,19 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
     if rep["mismatch"]:
         app = _saved_by(wb)
         where = [f"{r.sheet}!{r.address}：保存 {_cell_text(r.expected)} → Excel の規則で {_cell_text(r.actual)}"
-                 for r in vr.results if r.status == "mismatch"][:12]
-        if app is None or app.startswith("Microsoft Excel"):
-            reasons.append(Reason("C", "保存された値と合わない数式", f"{rep['mismatch']} 個のセルで、保存された計算結果が数式と一致しません", where))
-        else:
-            # Excel 以外のアプリが保存した計算結果（Google スプレッドシートの書き出しなど）：Excel で開くと計算し直される
-            reasons.append(Reason("B", "Excel 以外で保存された計算結果",
-                                  f"このファイルは Excel 以外（{app}）で保存されていて、{rep['mismatch']} 個のセルの保存された計算結果が、"
-                                  "Excel の規則で計算した値と違います。Excel で開くと、計算し直した値になります（窓に出ているのは保存された値）。"
-                                  "読むときは、計算し直した値を使ってください", where))
+                 for r in vr.results if r.status == "mismatch"]
+        # ひとつの決まり：保存された計算結果と、Excel の規則で計算し直した値が違う所は、どちらが読む値か決まらない（C）。
+        # 保存したアプリ（docProps/app.xml の Application）は事実として添える（アプリの名前で段階を変えない。エージェントが判断する）
+        saved = f"保存したアプリ：{app}。" if app else ""
+        reasons.append(Reason("C", "保存された値と合わない数式",
+                              f"{rep['mismatch']} 個のセルで、保存された計算結果が、Excel の規則で計算し直した値と違います（窓に出ているのは"
+                              f"保存された値。Excel で開くと計算し直した値になります）。{saved}どちらの値で読むかは、保存したアプリと where の"
+                              "値を見て判断します", where))
     unchecked = _unverifiable_rules(wb)
     if unchecked:
         write.append(Reason("B", "確かめられない入力規則",
                             f"{len(unchecked)} 個の入力規則は、todoku が計算できない関数を使っているので、書いた値が規則に合うかを"
-                            "確かめられません。窓に出した規則を、エージェントが読んで合う値を書きます", unchecked[:12]))
+                            "確かめられません。窓に出した規則を、エージェントが読んで合う値を書きます", unchecked))
     if rep["unsupported"]:
         write.append(Reason("B", "確かめられない数式", f"{rep['unsupported']} 個の数式は計算し直せないので、書いた値から計算される所を確かめられません"))
     reasons += _macro_reasons(doc.get("macros"))
@@ -1154,7 +1168,7 @@ def lost_reason(checks: list, what: str) -> list[Reason]:
     items = [x for c in bad for x in (c.items or [c.detail])]
     return [Reason("C", "窓の読み落とし",
                    f"{what}の中身のうち {len(items)} 件が、窓に出ていないか、元と違って出ています（{'・'.join(c.name for c in bad)}）。"
-                   "窓だけを信じず、落ちた所（where）はファイルの別の読み方で確かめます", items[:12])]
+                   "窓だけを信じず、落ちた所（where）はファイルの別の読み方で確かめます", items)]
 
 
 def _excel_lost(wb, doc: dict) -> list[Reason]:
@@ -1186,7 +1200,7 @@ def _grade_word6(doc) -> Grade:
     if layout:
         write.append(Reason("B", "配置から推定した入力欄",
                             f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、フォームの欄ではなく、空のマスや空白・下線から推定しました",
-                            [f["id"] for f in layout[:12]]))
+                            [f["id"] for f in layout]))
     unread = win.get("unread_controls", 0)  # 読んだときに数えた数（窓の字は数えない）
     if unread:
         reasons.append(Reason("C", "状態の読めないフォームの欄",
@@ -1198,11 +1212,11 @@ def _grade_word6(doc) -> Grade:
     if ok or agent:
         write.append(Reason("B", "同じバイト数の上書き",
                             "Word 6.0/95 の文書は、空白・伏せ字（○○）・□ の上に、そのバイト数（全角の字は 2 バイト）までの値を、文書の文字コードで"
-                            f"上書きします（位置・書式の表は変えない）。規則で見つけた欄 {len(ok)} か所に書けます", [f["id"] for f in ok[:12]]))
+                            f"上書きします（位置・書式の表は変えない）。規則で見つけた欄 {len(ok)} か所に書けます", [f["id"] for f in ok]))
     if blocked:
         write.append(Reason("D", "字のない欄",
                             f"{len(blocked)} か所は字のない所（空のマスなど）です。字を足すと位置の表・書式の表・ピースの表をずらす必要があり、"
-                            "その書き込みと証明をまだ用意していないので、書けません", [f["id"] for f in blocked[:12]]))
+                            "その書き込みと証明をまだ用意していないので、書けません", [f["id"] for f in blocked]))
     if unread:
         write.append(Reason("D", "状態の読めないフォームの欄", "状態の読めないチェックボックス・ドロップダウンには書けません"))
     return _final(reasons, write)
@@ -1230,7 +1244,7 @@ def _grade_jtd(blob: bytes, filename: str) -> Grade:
     if fields:
         write.append(Reason("B", "配置から推定した入力欄",
                             f"一太郎の文書には入力欄の印がないので、入力欄 {len(fields)} か所は、空のマスや空白・□ から推定しました",
-                            [f["id"] for f in fields[:12]]))
+                            [f["id"] for f in fields]))
     ok = [f for f in fields if not f.get("readonly")]
     blocked = [f for f in fields if f.get("readonly")]
     grow = [f for f in ok if f["kind"] != "checkbox" and not f.get("maxlen")]
@@ -1246,12 +1260,12 @@ def _grade_jtd(blob: bytes, filename: str) -> Grade:
         if fixed:
             detail += f"。{len(fixed)} か所は、空白・伏せ字（○○）の字数までの上書きだけです"
         write.append(Reason("B", "解析して書く（字数を変える書き込みを含む）" if grow else "同じ字数の上書き",
-                            detail + packed, [f["id"] for f in ok[:12]]))
+                            detail + packed, [f["id"] for f in ok]))
     if blocked:
         whys = sorted({f.get("why_fixed", "") for f in blocked} - {""})
         write.append(Reason("D", "書けない欄",
                             f"{len(blocked)} か所は書けません（上書きできる字がなく、字数を変える書き込みもできない所）。理由："
-                            + "／".join(whys[:4]), [f["id"] for f in blocked[:12]]))
+                            + "／".join(whys[:4]), [f["id"] for f in blocked]))
     if not (ok or agent or blocked):
         write.append(Reason("B", "印のある欄がない", "欄のない所は、前後の字を目印にして書きます"
                             + ("（本文は字数が違ってもよい）" if pol.ok else "（同じ字数で上書き）")))

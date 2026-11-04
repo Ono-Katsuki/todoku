@@ -348,7 +348,7 @@ def _para_doc(*texts: str) -> bytes:
 def test_long_gap_keeps_space_after_heading(tmp_path):
     p = tmp_path / "g.docx"
     p.write_bytes(_para_doc("氏　名　　　　　　　　", "通院先：　　　　　　　　　通院頻度："))
-    ids = {f["label"]: f["id"] for f in api.fields(str(p))}
+    ids = {f.get("label_key", f["label"]): f["id"] for f in api.fields(str(p))}  # 見出しは字のまま、鍵は字間を詰めた写し
     name_id = next(i for l_, i in ids.items() if l_.startswith("氏名［"))
     clinic_id = next(i for l_, i in ids.items() if l_.startswith("通院先：［"))
     r = api.fill(str(p), {name_id: "山田　花子", clinic_id: "架空医院"}, str(tmp_path / "o.docx"))

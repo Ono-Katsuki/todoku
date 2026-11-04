@@ -56,6 +56,7 @@ INSTRUCTIONS = (
     "（字を組み立てて描いた文字は、字の並びは確かめていますが、見た目そのものは確かめていません）。"
 )
 
+READ_TABLE_LIMIT = 200  # read_table：out_path がないとき、結果に入れる行の数の既定の上限（limit で変えられる）
 _OVERWRITE = {"type": "boolean", "default": False,
               "description": "out_path にすでに別の中身のファイルがあるとき、置き換える（本人が了承したときだけ。元のファイルは決して置き換えない）。"
                              "書き込みを証明か読み戻しで確かめられなかったときは、out_path でなく「名前.unverified.拡張子」に書き出す"
@@ -102,6 +103,9 @@ TOOLS = [
                     "（@ の書き込みは同じ辞書に align・pad_mm を足す）。既定は左（枠の左の端から 1.5pt ほどの決まった余白）で、"
                     "字の意味（「年」の前など）からは決めない。結果の written_rects に、書いた枠（page・x・y・w・h、ページの左上からの mm）"
                     "・字の大きさ・そろえ方と、view_page の marks に渡せる box_mm が出るので、見て、違えば align か box で書き直す。○は circled の box_mm。"
+                    "Word の段落の中の空欄・Excel のセルの字の中の空欄（所の id）も {\"value\": 値, \"align\": \"left\"|\"center\"|\"right\"} で書ける："
+                    "空きの幅を保って、前後に半角の空白を足す（字の数で数える。曖昧な幅の字の数え方は \"ambiguous_width\": \"wide\"|\"narrow\"）。"
+                    "既定は左（指定がなければ空きを値に置き換え、下線の空欄だけ後ろに空白を足して下線の長さを保つ）。足した空白の字数は結果の aligned に出る。"
                     "PDF の伏せ字（「○○」）の上には {\"@1\": {\"cover\": \"○○\", \"value\": 書く字}}（白い下地の欄で覆って書く。元の字は消さない）。"
                     "PDF の欄で kind_candidates（種類の候補）のあるもの：true/false はチェックの印、字はチェックの候補なら文字として、"
                     "1字ずつ書く欄なら1字ずつ書く。種類を決めて書くときは {欄の id: {\"as\": 種類, \"value\": 値}}。"
@@ -183,7 +187,9 @@ TOOLS = [
          "header": {"type": "string", "description": "表の見出しにある字"},
          "sheet": {"type": "string", "description": "シートの名前（省くと、見出しのあるすべてのシート）"},
          "header_rows": {"type": "integer", "minimum": 1, "description": "見出しの行数（省くと自動）"},
-         "out_path": {"type": "string", "description": "すべての行を書き出すファイル（.csv か .json）"}},
+         "out_path": {"type": "string", "description": "すべての行を書き出すファイル（.csv か .json）"},
+         "limit": {"type": "integer", "minimum": 1, "description": f"out_path がないとき、結果に入れる行の数の上限（既定 {READ_TABLE_LIMIT}）。"
+                   "超えた行は返さず、行の数（rows）と返した行の数（rows_returned）を返す"}},
          "required": ["path", "header"]}},
     {"name": "explain_calculation",
      "description": "Excel の様式を「データ」（入力欄）と「処理」（入力から結果を出す数式）に分けて返す。式は番地を見出しに置き換えて示す"
@@ -324,9 +330,12 @@ def call_tool(name: str, args: dict) -> dict:
         res = api.read_table(args["path"], args["header"], args.get("sheet"), args.get("header_rows"), args.get("out_path"),
                              args.get("password"))
         res.pop("all_rows", None) if args.get("out_path") else None
-        if not args.get("out_path") and res["rows"] > 200:
-            res.pop("all_rows", None)
-            res["note"] = f"行が {res['rows']} 行あります。すべての行は out_path（.csv か .json）に書き出して読んでください"
+        limit = args.get("limit", READ_TABLE_LIMIT)
+        if not args.get("out_path") and res["rows"] > limit:
+            res["all_rows"] = res["all_rows"][:limit]  # はじめの limit 行（行の数 rows と、返した行の数 rows_returned）
+            res["rows_returned"] = limit
+            res["note"] = (f"行が {res['rows']} 行あります。はじめの {limit} 行だけを返しました。すべての行は out_path（.csv か .json）"
+                           "に書き出すか、limit を大きくして読んでください")
         return {"content": [_text(res)], "structuredContent": res}
     if name == "explain_calculation":
         res = api.calc_model(args["path"], args.get("cell"), args.get("password"))

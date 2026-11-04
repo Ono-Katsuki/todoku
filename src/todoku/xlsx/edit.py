@@ -58,6 +58,7 @@ class EditResult:
     fit: list = field(default_factory=list)  # 書いた字がセルに収まらず切れて見える見込み：[{id, message}]
     exclusive: list = field(default_factory=list)  # 2つのうち1つを選ぶ所の両方に印をつけた（警告の言葉）
     rich_cells: set = field(default_factory=set)  # 字ごとの書式を残して書いたセル (シート, 番地)（証明で、書式が残ったかを確かめる）
+    aligned: dict = field(default_factory=dict)  # 空きの中にそろえて書いた所の id → {align, pad: [前, 後ろ] に足した空白の字数}
 
     @property
     def allowed_inputs(self) -> set[tuple[str, str]]:
@@ -1162,6 +1163,29 @@ class InputPlan:
     direct: dict = field(default_factory=dict)  # (シート, 行, 列) → 指示の鍵：セルの番地・字を目印に書いたセル
     exclusive: list = field(default_factory=list)  # 2つのうち1つを選ぶ箱の両方に印をつけた所（警告）
     table_changes: dict = field(default_factory=dict)  # テーブルの見出し・集計の行の見出しの書き換え（force のときだけ）
+    aligned: dict = field(default_factory=dict)  # 空きの中にそろえて書いた所の id → {align, pad}（_aligned_blank）
+
+
+def _aligned_blank(where: str, text: str, span, x, aligned: dict):
+    """セルの字の中の空欄に書く値に、そろえ方の指定（{"value": 値, "align": "left"|"center"|"right"}）があれば、空きの幅を
+    保って前後に半角の空白を足した字にする（textwidth.gap_padding：字の数で数える。曖昧な幅の字は、セルの字と値の並びの
+    文脈か、ambiguous_width の指定のとおり）。足した空白の字数は aligned に記録する（結果の aligned）。指定がなければ値のまま。"""
+    from ..textwidth import AMBIGUOUS, align_options, gap_padding
+
+    try:
+        opts, v = align_options(where, x)
+    except ValueError as e:
+        raise EditError(str(e)) from None
+    if not opts:
+        return x
+    if span is None or v is None:
+        return v  # 窓にない所（fill_blanks が断る）・書かない所
+    a, b = span
+    t = to_text(v)
+    lead, trail = gap_padding(text[a:b], t, opts.get("align", "left"), context=text,
+                              ambiguous_wide=AMBIGUOUS.get(opts.get("ambiguous_width")))
+    aligned[f"{where}@{a}"] = {**opts, "pad": [len(lead), len(trail)]}
+    return lead + t + trail
 
 
 class SpanValues(dict):
@@ -1229,6 +1253,7 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
     text_written: dict = {}
     replaced_text: list = []
     anchored: dict = {}
+    aligned: dict = {}
     explicit: set = set()  # 字の置き換えを明示したセル（overwrite_text: true・old/new）
     claimed: dict = {}  # (シート, 行, 列) → (指示の鍵, 字を目印にした書き込みか)
     linked_cells: set = set()  # チェックボックスにつながったセル（字の書式の確かめから外す）
@@ -1334,6 +1359,13 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
                 # 箱の字の所に true/false：その箱の字を、チェックの印の字にする（「TRUE」の字は書かない）
                 vals = [box_glyph(cell.value[a_], x) if isinstance(x, bool) and b_ - a_ == 1 and _is_box(cell.value[a_])
                         else x for (a_, b_), x in zip(sp_, vals)]
+            # そろえ方を指定した所（{"value": 値, "align": …}）：空きの幅を保って、前後に半角の空白を足した字にする
+            where_ = f"{sheet}!{addr(r, c)}"
+            if isinstance(vals, dict):
+                by_at = {a_: (a_, b_) for a_, b_ in sp_}
+                vals = {at: _aligned_blank(where_, cell.value, by_at.get(at), x, aligned) for at, x in vals.items()}
+            elif len(sp_) == len(vals):
+                vals = [_aligned_blank(where_, cell.value, sp, x, aligned) for sp, x in zip(sp_, vals)]
             try:
                 v = fill_blanks(cell.value, vals, spans)
             except ValueError as e:
@@ -1429,7 +1461,7 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             warnings.append(f"{s_}!{addr(r_, c_)}: 書き換えた字に付いていたふりがな（{'・'.join(rich[cell_][2])} の読み）を外しました")
     direct = {c_: k_ for c_, (k_, _a) in claimed.items() if c_ not in linked_cells}
     return InputPlan(targets, controls, writes, ax_writes, warnings, text_written, replaced_text, anchored, rich, direct, exclusive,
-                     table_changes)
+                     table_changes, aligned)
 
 
 def _table_label_writes(wb: Workbook, targets: dict, force: bool) -> dict:
@@ -1591,7 +1623,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
                                                       plan_.warnings)
     text_extra = {"text_written": {k_: (f"{s_}!{addr(r_, c_)}", plan_.targets.get((s_, r_, c_)))
                                     for k_, (s_, r_, c_) in plan_.text_written.items()},
-                  "replaced_text": list(plan_.replaced_text), "anchored": dict(plan_.anchored)}
+                  "replaced_text": list(plan_.replaced_text), "anchored": dict(plan_.anchored), "aligned": dict(plan_.aligned)}
     from .. import axfile
     from . import controls as _ctl
 

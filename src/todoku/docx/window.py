@@ -23,9 +23,9 @@ import itertools
 import re
 
 from .. import chars
-from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, label_tail, norm_label, shown_gap, wide_space
+from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, label_tail, label_text, shown_gap, wide_space
 from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, one_wide_space, place_facts
-from ..xlsx.window import gap_interior
+from ..xlsx.window import gap_interior, with_label_keys
 from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 
 DET = "deterministic"
@@ -271,7 +271,7 @@ class Spots:
                     # 箇条書きの印の □（段落番号の定義の字）：チェックの欄。書くと、この段落の印だけを ■・☑ にする。
                     # 見出しは、次の箱の字か 1 字ぶん以上の空白の並び（wide_space）までの字（そのまま）
                     end = stops[0] if stops and stops[0] > 0 else len(text)
-                    opt = norm_label(text[:end])  # 切らない（長い項目も、字のとおり）
+                    opt = label_text(text[:end])  # 切らない（長い項目も、字のとおり）
                     self.items[bullet_id] = {"id": bullet_id, "kind": "checkbox", "source": "layout", "para": p,
                                              "bullet": getattr(p, "bullet", None), "label": opt, "provenance": LAYOUT,
                                              "filled": bm is not None}
@@ -302,12 +302,12 @@ class Spots:
                         # 字は切らない。ただし区切りのないとても長い段落では、前後 LABEL_WINDOW 字まで（作る時間の上限。label_clipped）
                         end = _option_end(text, b, stops)
                         opt = text[b:min(end, b + LABEL_WINDOW)]
-                        label = norm_label(opt)
+                        label = label_text(opt)
                         clipped = end > b + LABEL_WINDOW
                         if not label:
                             # 後ろに字がなければ、前の字：前の箱の字の後ろから（1 字ぶん以上の空きの前は含めない：label_tail）
                             start = max((x + 1 for x in stops if x < a and (text[x] in BOX or text[x] in CHECKED)), default=0)
-                            label = norm_label(label_tail(text[max(start, a - LABEL_WINDOW):a]).strip(" 　"))
+                            label = label_text(label_tail(text[max(start, a - LABEL_WINDOW):a]).strip(" 　"))
                             clipped = start < a - LABEL_WINDOW
                     else:
                         label = self._label(p, a, b)
@@ -481,7 +481,7 @@ class Spots:
             out.append("［　］" if (x, y) == (a, b) else "　")
             at = y
         out.append(text[at:hi])
-        return norm_label("".join(out))
+        return label_text("".join(out))
 
     def bound(self, c) -> "tuple | None":
         """結び付けた XML の値（w:dataBinding）：(Word が表示する値, たどれないときの理由, 値の所)。結び付けがなければ None。"""
@@ -782,8 +782,8 @@ def _cell_label(t: Table, c: Cell, written: set | None = None) -> tuple[str, str
     行の見出し（左のマス）と列の見出し（上のマス。このマスの列の幅をすべて覆うものだけ）の両方があれば「行／列」、
     片方だけならその字。距離・覆い方で片方を落とすことはしない（距離は cell_neighbours の事実として窓に出す）。"""
     nb = cell_neighbours(t, c, written)
-    rl = norm_label(nb.get("row_label", ""))
-    cl = "" if nb.get("column_label_partial") else norm_label(nb.get("column_label", ""))
+    rl = label_text(nb.get("row_label", ""))
+    cl = "" if nb.get("column_label_partial") else label_text(nb.get("column_label", ""))
     if rl and cl and rl != cl:
         return f"{rl}／{cl}", rl, cl
     return rl or cl, rl, cl
@@ -947,6 +947,7 @@ def build(doc: DocxDocument) -> dict:
             d["readonly"] = True
             d["protected"] = True  # 文書の保護で、編集できる範囲の外
         out["fields"].append(d)
+    with_label_keys(out["fields"])  # 見出しは字のまま。探すための鍵（字間の空白を詰めた写し）は label_key
     return out
 
 
@@ -1058,7 +1059,7 @@ def printed_label(sp: "Spots", it: dict) -> str:
     # 除いて、その前の塊。字間を空けた見出し「氏　名」はまとめる：label_tail）
     head = label_tail(re.split(r"\x00|\t|\n", "".join(out))[-1])
     trim = "".join(ch for ch in set(head) if chars.is_space(ch) or chars.is_label_colon(ch))
-    head = norm_label(head.strip(" 　")).rstrip(trim)  # 見出しのあとのコロン（: ： ﹕ など）と空白を除く
+    head = label_text(head.strip(" 　")).rstrip(trim)  # 見出しのあとのコロン（: ： ﹕ など）と空白を除く
     if head:
         return head
     cell = p.cell
@@ -1066,14 +1067,14 @@ def printed_label(sp: "Spots", it: dict) -> str:
         # 段落の頭の欄：いちばん近い見出しのマスの字をそのまま（同じ行の左のマスがあればそれ、なければ上のマス）。
         # 2 つをつないで 1 つの見出しにはしない（両方の字と間のマスの数は、欄の row_label・column_label に出す）
         nb = cell_neighbours(cell.table, cell, sp.written_cells)
-        return norm_label(nb.get("row_label") or nb.get("column_label") or "")
+        return label_text(nb.get("row_label") or nb.get("column_label") or "")
     return ""
 
 
 def _context_label(it: dict, contexts: dict) -> str:
     line = contexts.get(it["id"], "")
     m = re.search(r"([^｜［］]{1,30})［" + re.escape(it["id"]), line)
-    return norm_label(m[1]) if m else ""
+    return label_text(m[1]) if m else ""
 
 
 def _render_blocks(blocks, sp: Spots, by_para, lines: list[str], plain: list[str]) -> None:

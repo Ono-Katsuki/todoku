@@ -153,7 +153,7 @@ def grade_sheets(blob: bytes, name: str):
     rep = verify(wb).summary()
     if rep["unsupported"]:
         reasons.append(Reason("C", "確かめられない数式", f"{rep['unsupported']} 個の数式は、規則どおりに計算し直して確かめられません"
-                              "（その数式の元になるセルに書くと、保存された計算結果が古いままになります）", doc.get("unknown_formulas", [])[:12]))
+                              "（その数式の元になるセルに書くと、保存された計算結果が古いままになります）", doc.get("unknown_formulas", [])))
     if rep["mismatch"]:
         reasons.append(Reason("C", "保存された値と合わない数式", f"{rep['mismatch']} 個のセルで、保存された計算結果が数式と一致しません"))
     if rep["unsupported"]:
@@ -171,7 +171,7 @@ def grade_sheets(blob: bytes, name: str):
         ctl = [s for s in sh_obj.shapes if s.kind == "control"]
         if ctl:
             write.append(Reason("D", "フォームの部品", f"シート「{sh_obj.name}」のフォームの部品 {len(ctl)} 個には、いまは書けません"
-                                  "（つながったセルがあれば、そのセルに書きます）", [s.name for s in ctl][:12]))
+                                  "（つながったセルがあれば、そのセルに書きます）", [s.name for s in ctl]))
     from ..formula.parser import addr
     from ..grade import picture_alerts
 

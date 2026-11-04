@@ -498,7 +498,7 @@ def _grade_data(k: str, blob: bytes, name: str, encoding: str | None = None):
         reasons = [Reason("S", "データそのもの", f"表のデータ（{KIND_JA[k]}・{f.dec.label}・{len(f.records):,} 行）で、変換しなくても機械が読めます")]
         if nul:
             # 文字コードとして正しく読めたファイルの中の NUL（U+0000）：値の中の制御文字。中身は読めるので、段階は変えない
-            rows = [str(i) for i, ln in enumerate(f.text.split("\n"), 1) if "\x00" in ln][:12]
+            rows = [str(i) for i, ln in enumerate(f.text.split("\n"), 1) if "\x00" in ln]
             reasons.append(Reason("S", "値の中の NUL", f"値の中に NUL（U+0000、制御文字）が {nul:,} 個あります（{f.dec.label}として読めるファイル）。"
                                   "表のデータとしては読めます。NUL を値の一部とするかは、使う側で決めます", [f"{r}行目" for r in rows]))
         if f.problems:
@@ -513,9 +513,9 @@ def _grade_data(k: str, blob: bytes, name: str, encoding: str | None = None):
     reasons = [Reason("S", "データそのもの", f"構造のあるデータ（{KIND_JA[k]}・{f.dec.label}）で、変換しなくても機械が読めます")]
     if f.duplicates:
         reasons.append(Reason("C", "同じ名前が2つ以上ある", "オブジェクトに同じ名前が2つ以上あり、どの値を使うかは読むソフトによって違います。"
-                              "JSON Pointer では1つに決まらないので、エージェントが読んで判断します", f.duplicates[:12]))
+                              "JSON Pointer では1つに決まらないので、エージェントが読んで判断します", f.duplicates))
         return Grade("C", reasons, write="B", write_reasons=[Reason("B", "同じ名前が2つ以上ある",
-                                                                  "どの値に書くかを、エージェントが読んで決めます", f.duplicates[:12])])
+                                                                  "どの値に書くかを、エージェントが読んで決めます", f.duplicates)])
     enc, wenc = encoding_reason(f.dec)
     if enc is not None:
         return _final(reasons + [enc], [wenc] + direct, base="S")

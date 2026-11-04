@@ -173,7 +173,9 @@ def test_struck_cell_is_not_a_field():
 def test_spaced_checkbox_label_is_whole():
     blob = glyphs_pdf([("□", 40, 800)] + [(ch, 60 + 36 * i, 800) for i, ch in enumerate("重度訪問")])
     fields = window(blob)["pages"][0]["fields"]
-    assert [f["label"] for f in fields if f["kind"] == "checkbox"] == ["重度訪問"]
+    # 見出しは字のまま（字間の空きは、測った空きから作った全角の空白）。探す鍵 label_key は字間を詰めた写し
+    boxes = [f for f in fields if f["kind"] == "checkbox"]
+    assert [f["label"].replace("　", "") for f in boxes] == ["重度訪問"] and [f["label_key"] for f in boxes] == ["重度訪問"]
 
 
 def test_field_box_with_printed_text_is_shrunk():

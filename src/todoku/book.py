@@ -32,6 +32,8 @@ def kind_of(blob: bytes, filename: str = "") -> str:
             return odf
         if "[Content_Types].xml" not in names:
             return "zip"  # Office の書類（OOXML：部品の種類の一覧が必ずある）でない ZIP（CSV をまとめたものなど）
+        if not any(n.startswith("xl/") for n in names):
+            return "ooxml-unknown"  # OOXML のパッケージだが、Excel・Word・PowerPoint の部品がない（Visio・XPS など）
         return "xlsx"
     if blob[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
         from .cfb import CFB
@@ -69,14 +71,40 @@ _BY_NAME = {".csv": "csv", ".tsv": "tsv", ".tab": "tsv", ".json": "json", ".json
             ".txt": "txt", ".html": "markup", ".htm": "markup", ".xhtml": "markup", ".xml": "markup"}
 
 
-# 見分けるが、まだ読めない形式（開くと「未対応の形式」と伝え、段階は F）。
-# HWP・HWPX は hwpx/ で読める（HWPX は書ける・HWP 5 は読むだけ）ようになったので、いまはない
-UNSUPPORTED: dict[str, str] = {}
+# 見分けるが、まだ読めない形式（開くと「未対応の形式」と伝え、段階は F）。HWP・HWPX は hwpx/ で読む（openkinds）
+UNSUPPORTED: dict[str, str] = {
+    "ooxml-unknown": "Office Open XML のパッケージ（Excel・Word・PowerPoint の部品がない）",
+}
 
 
-def unsupported_message(kind: str) -> str:
-    return (f"未対応の形式：HWP/HWPX（韓国のワープロ）。このファイルは {UNSUPPORTED.get(kind, kind)} の文書で、"
-            "とどくはまだ読めません（中身を推測して読むことはしません）。PDF・Word などに書き出したものがあれば、そちらを開いてください")
+def ooxml_main_type(blob: bytes) -> str | None:
+    """OOXML のパッケージの、主な部品の種類（[Content_Types].xml の Override の ContentType。ECMA-376 第2部）：
+    パッケージの関係（_rels/.rels）の officeDocument が指す部品、なければ「.main+xml」で終わる種類。分からなければ None。"""
+    import re
+
+    from .zipraw import RawZip
+
+    try:
+        z = RawZip(blob)
+        ct = z.read("[Content_Types].xml").decode("utf-8", "replace")
+        rels = z.read("_rels/.rels").decode("utf-8", "replace") if "_rels/.rels" in set(z.names()) else ""
+    except Exception:  # noqa: BLE001
+        return None
+    over = {m[1].lstrip("/"): m[2] for m in re.finditer(r'<(?:\w+:)?Override\b[^>]*?PartName="([^"]*)"[^>]*?ContentType="([^"]*)"', ct)}
+    over.update({m[2].lstrip("/"): m[1] for m in re.finditer(r'<(?:\w+:)?Override\b[^>]*?ContentType="([^"]*)"[^>]*?PartName="([^"]*)"', ct)})
+    main = re.search(r'Type="[^"]*/officeDocument"[^>]*?Target="([^"]*)"|Target="([^"]*)"[^>]*?Type="[^"]*/officeDocument"', rels)
+    if main:
+        t = (main[1] or main[2]).lstrip("/")
+        if t in over:
+            return over[t]
+    return next((v for v in over.values() if v.endswith(".main+xml")), None)
+
+
+def unsupported_message(kind: str, blob: bytes | None = None) -> str:
+    what = UNSUPPORTED.get(kind, kind)
+    main = ooxml_main_type(blob) if kind == "ooxml-unknown" and blob else None
+    return (f"未対応の形式：{what}" + (f"（主な部品の種類：{main}）" if main else "")
+            + "。とどくは読めません（中身を推測して読むことはしません）。PDF・Word などに書き出したものがあれば、そちらを開いてください")
 
 
 def _is_hwpx(blob: bytes, names: set) -> bool:

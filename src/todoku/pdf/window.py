@@ -14,7 +14,7 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 
-from ..xlsx.window import GAP_TOKEN_NOTE, norm_label, shown_gap
+from ..xlsx.window import GAP_TOKEN_NOTE, label_text, shown_gap, with_label_keys
 from .content import page_content
 from .doc import PdfDocument
 from .form import FormField, Widget, has_xfa, read_fields
@@ -770,7 +770,7 @@ def _label_within_line(lay: PageLayout, r) -> str:
             continue
         if best is None or gap < best[0]:
             best = (gap, head)
-    return norm_label(best[1]) if best is not None else ""
+    return label_text(best[1]) if best is not None else ""
 
 
 def _widget_line(lay: PageLayout, r):
@@ -854,7 +854,7 @@ def _choice_labels(lay: PageLayout, items: list[tuple[str, tuple]]) -> tuple[str
             t = m[2] if m else whole
             if k == 0 and m:
                 group = m[1]
-        labels.append(norm_label(t))
+        labels.append(label_text(t))
     if not all(labels) or len(set(labels)) < len(labels):
         return None
     if not group:
@@ -871,7 +871,7 @@ def _choice_labels(lay: PageLayout, items: list[tuple[str, tuple]]) -> tuple[str
                     if above is None or ln.y1 > above.y1:
                         above = ln
             group = above.text if above is not None else ""
-    return norm_label(group), labels
+    return label_text(group), labels
 
 
 def _option_name(f: FormField, w: Widget) -> str | None:
@@ -924,7 +924,7 @@ def _near_label(lay: PageLayout, r) -> str:
     c = lay.index.at(cx, cy)
     if c is not None:
         if c.lines:
-            return norm_label(c.text())
+            return label_text(c.text())
         label, _rl, _cl = lay._label_for(c, c)
         if label:
             return label
@@ -939,13 +939,13 @@ def _near_label(lay: PageLayout, r) -> str:
             if best is None or ln.x1 > best.x1:
                 best = ln
     if best is not None:
-        return norm_label(best.text)
+        return label_text(best.text)
     above = None
     for ln in lay.free_lines:
         if ln.y1 <= r[1] + 1 and r[1] - ln.y1 < 30 and ln.x0 < r[2] and ln.x1 > r[0] - 20:
             if above is None or ln.y1 > above.y1:
                 above = ln
-    return norm_label(above.text) if above is not None else ""
+    return label_text(above.text) if above is not None else ""
 
 
 def unknown_id_message(key: str) -> str:
@@ -994,6 +994,10 @@ def build(doc: PdfDocument) -> dict:
         out["xfa"] = xw
         out["form"]["xfa_kind"] = xw.get("kind")
         _merge_xfa(out, xw)
+    for pg in out["pages"]:
+        with_label_keys(pg["fields"])  # 見出しは字のまま。探すための鍵（字間の空白を詰めた写し）は label_key
+    if xw is not None and xw.get("fields"):
+        with_label_keys(xw["fields"])
     return out
 
 

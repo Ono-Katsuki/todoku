@@ -47,10 +47,18 @@ def test_char_tables_cite_unicode():
     assert set("☐□▢◻◽❏❐❑❒⬜") == set(chars.EMPTY_BOXES) and set("☑☒") == set(chars.CHECKED_BOXES)
 
 
-def test_norm_label_keeps_latin_word_spaces():
-    assert window.norm_label("I am a b c") == "I am a b c"
-    assert window.norm_label("[ ] Yes [ ] No") == "[ ] Yes [ ] No"
-    assert window.norm_label("事 業 所 番 号") == "事業所番号"  # 全角の字の字間を空けた見出しは、これまでどおり詰める
+def test_label_text_verbatim_and_label_key():
+    # 見出しは字のまま（字間の空白も詰めない）。探す鍵は、全角の字（UAX #11 の W・F）にはさまれた空白だけを除く
+    assert window.label_text("事 業 所 番 号") == "事 業 所 番 号"
+    assert window.label_text("氏\n名") == "氏 名"
+    assert window.label_key("事 業 所 番 号") == "事業所番号"
+    assert window.label_key("氏　　名") == "氏名"
+    assert window.label_key("I am a b c") == "I am a b c"
+    assert window.label_key("[ ] Yes [ ] No") == "[ ] Yes [ ] No"
+    assert window.label_key("ab 漢字") == "ab 漢字"  # 片側が全角でない空白は語の区切り（字数の目安は使わない）
+    f = [{"label": "氏　名"}, {"label": "Name"}, {"label": ""}]
+    window.with_label_keys(f)
+    assert f[0]["label_key"] == "氏名" and "label_key" not in f[1] and "label_key" not in f[2]
 
 
 # ====================================================================== Excel

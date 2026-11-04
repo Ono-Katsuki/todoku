@@ -14,6 +14,7 @@ import re
 import xml.etree.ElementTree as ET
 from collections import Counter
 
+from .. import chars as _chars
 from ..docx.audit import _sample, macro_check
 from ..docx.fill import FillError
 from ..xlsx.audit import Audit, Check, agent_places_check
@@ -22,7 +23,8 @@ from .document import PptxDocument, PptxError
 from .fill import fill, prove, written_of
 from .window import build, markdown_parts
 
-BOXES = set("□☐☑☒■")
+# チェックの箱の字（chars：印のない箱・印のついた箱・印のついた箱かもしれない字。どの形式の窓とも同じ字の集まり）
+BOXES = _chars.BOXES | _chars.MAYBE_CHECKED
 _A = ("{http://schemas.openxmlformats.org/drawingml/2006/main}", "{http://purl.oclc.org/ooxml/drawingml/main}")
 _MC = "{http://schemas.openxmlformats.org/markup-compatibility/2006}"
 _R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"

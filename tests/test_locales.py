@@ -6,7 +6,7 @@ import io
 import pytest
 
 from todoku.docx.document import number_text
-from todoku.docx.fill import FillError, _width, format_word_date
+from todoku.docx.fill import FillError, format_word_date
 from todoku.formula.numfmt import BUILTIN, JA_JP_BUILTIN, LocaleDependent, builtin_id, format_value, is_date_format
 from todoku.formula.values import Unsupported
 from todoku.textwidth import cells, text_cells
@@ -208,7 +208,7 @@ def test_widths_follow_east_asian_width():
     assert cells("Ж") == 1 and cells("Ж", True) == 2  # キリル文字は曖昧（A）：東アジアの文脈だけ全角
     assert cells("ب") == 1 and cells("क") == 1 and cells("́") == 0
     assert text_cells("Имя") == 3 and text_cells("名前") == 4 and text_cells("○有") == 4
-    assert _width("الاسم") == 5 and _width("नाम") == 3  # アラビア文字・デーヴァナーガリーは 2 ではない
+    assert text_cells("الاسم", False) == 5 and text_cells("नाम", False) == 3  # アラビア文字・デーヴァナーガリーは 2 ではない
 
 
 def test_xlsx_circle_marks_proportional_scripts(tmp_path):

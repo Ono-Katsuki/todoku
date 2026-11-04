@@ -52,7 +52,7 @@ def markdown_parts(win: dict) -> list[tuple[str, str]]:
 
 def _beside(p, c) -> str:
     """部品の見出し：チェックは、段落の中のすぐ後ろの字（次の部品・タブの前まで）、字の欄は、すぐ前の字（前の部品・タブの後ろから）。"""
-    from ..xlsx.window import norm_label
+    from ..xlsx.window import label_text
 
     segs = [s for s in p.segs if not s.hidden]
     idx = next((k for k, s in enumerate(segs) if s.field is c), None)
@@ -76,4 +76,4 @@ def _beside(p, c) -> str:
     from .. import chars
 
     trim = "".join(ch for ch in set(text) if chars.is_space(ch) or chars.is_label_colon(ch))
-    return norm_label(text.strip(trim)[:40])
+    return label_text(text.strip(trim)[:40])

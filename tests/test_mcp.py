@@ -92,7 +92,7 @@ def test_fill_result_can_be_told_in_dialogue(tmp_path):
     r = api.fill(str(src), {"T1.R1.C2": "とどく花子", "P2.c2": "8"}, str(tmp_path / "out.docx"))
     assert r["proof_ok"] and r["read_back_ok"]
     assert {d["id"]: d["value"] for d in r["written"]} == {"T1.R1.C2": "とどく花子", "P2.c2": "8"}
-    assert "- 氏名：とどく花子" in r["say_to_user"] and "- 令和［8］年 月 日" in r["say_to_user"], r["say_to_user"]
+    assert "- 氏名：とどく花子" in r["say_to_user"] and "- 令和［8］年　　月　　日" in r["say_to_user"], r["say_to_user"]
     assert "まだ空いている欄" in r["say_to_user"]
     assert r["still_empty_count"] >= 1 and all(not e["id"].startswith(("T1.R1.C2", "P2.c2")) for e in r["still_empty"])
 

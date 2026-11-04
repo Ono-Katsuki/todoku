@@ -291,14 +291,21 @@ def _weekly(tmp_path):
     return _save(tmp_path, wb_, "w.xlsx")
 
 
-def test_weekly_grid_labels_are_row_header_then_column_header(tmp_path):
+def test_weekly_grid_labels_are_nearest_text_with_both_facts(tmp_path):
+    # 罫線の格子（週間の予定表）のマス：数の決まり（見出しの行の仲間の数・下の行の見出しの数）で表の作りを決めず、
+    # 左と上のいちばん近い字（あいだの空の欄をこえる）を、離れ方つきで near に出す（数の値の時刻は number の事実）。
+    # 見出しは、ほかの欄と同じ決まり（左のすぐ隣の字、なければ上の見出し）。字でない数の値は見出しにしない
     p = _weekly(tmp_path)
+    _k, doc, _parts = api.window(str(p))
+    raw = {f["id"]: f for f in doc["sheets"][0]["fields"]}
+    for fid, left, above in (("S!E7", "8:00", "月"), ("S!H3", "6:00", "木"), ("S!F8", "8:00", "火"), ("S!F4", "6:00", "火")):
+        near = raw[fid]["near"]
+        assert near["left"]["label"] == left and near["above"]["label"] == above, (fid, near)
+        assert near["left"]["mm"] >= 0 and near["above"]["mm"] >= 0 and "cols" in near["left"] and "rows" in near["above"]
+    assert raw["S!E7"]["label"] == "月" and raw["S!E7"]["near"]["left"]["number"]  # 左のすぐ隣は時刻（数の値）
+    assert raw["S!H3"]["label"] == "木"  # すぐ上（0 mm）。左の時刻は 3 列先
+    assert raw["S!E5"]["label"] == "月" and "left" not in raw["S!E5"]["near"]  # 行の見出しのない行：上の字だけ
     by = {f["id"]: f for f in api.fields(str(p))}
-    assert by["S!E7"]["label"] == "8:00／月", by["S!E7"]
-    assert by["S!H3"]["label"] == "6:00／木", by["S!H3"]
-    assert by["S!F4"]["label"] == "6:00／火", by["S!F4"]  # 行の見出しが縦に結合された範囲の中の行
-    # 行の見出しのない行（時刻のあいだの行）：近くの行の見出しを借りず、列の見出しだけ。表の上の欄の見出しは拾わない
-    assert by["S!E5"]["label"] == "月", by["S!E5"]
     for f in by.values():
         if f["id"].startswith("S!") and f.get("label") and f["id"][2:3] in "EFGH" and f["id"][3:].isdigit() and int(f["id"][3:]) >= 3:
             assert "受給者証番号" not in f["label"] and "障害支援区分" not in f["label"] and "計画作成日" not in f["label"], f

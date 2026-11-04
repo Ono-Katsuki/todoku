@@ -112,6 +112,10 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
             value = value["value"]
         else:
             it = sp.items.get(fid)
+            if isinstance(value, dict) and "value" in value and it is not None:
+                # そろえ方を指定した書き込み（空きの中の空欄）：書き込みと同じ決まりで、足した空白まで確かめる
+                it = dict(it, align_opts={k: v for k, v in value.items() if k != "value"})
+                value = value["value"]
         if it is None:
             pr.unexpected.append(f"書いた欄 {fid} が、元の文書にありません")
             continue
@@ -463,16 +467,12 @@ def _expected_text(p: Para, items) -> str | None:
         else:
             a, b = it["span"]
             v = str(value)
-            # 書き込みと同じ規則：空欄の字がすべて下線つきのときだけ、幅を保つ（字を目印にした書き込みは、指定のとおり）
-            pos = p.positions()
-            blank_segs = [p.segs[pos[i][0]] for i in range(a, b) if i < len(pos)]
-            underlined = bool(blank_segs) and all(sg.underline for sg in blank_segs) and not it.get("anchored")
-            if underlined and v:
-                from .fill import _width
+            # 書き込みと同じ決まり（inline_padding）：下線を引いた空欄の幅を保つ・そろえ方の指定のとおりに空白を足す
+            # （字を目印にした書き込みは、指定のとおり）
+            from .fill import inline_padding
 
-                room = _width(text[a:b]) - _width(v)
-                v = v + (" " * room if room > 0 else "")
-            edits.append((a, b, v))
+            lead, trail = inline_padding(p, a, b, v, it.get("align_opts"), anchored=bool(it.get("anchored")))
+            edits.append((a, b, lead + v + trail))
     out = text
     for a, b, v in sorted(edits, reverse=True):
         out = out[:a] + v + out[b:]

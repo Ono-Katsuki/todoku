@@ -1,7 +1,8 @@
 """Word に書き込む：書いた欄の部分だけを、元の XML のバイト列への小さな差分として変える。
 
 - 表の空のマス：最初の段落に、段落記号の書式を引き継いだ文字を足す
-- 段落の中の空欄：空白を値に置き換える（その部分だけ文字の要素を分ける）。下線を引いた空白は、下線の長さを保つ
+- 段落の中の空欄：空白を値に置き換える（その部分だけ文字の要素を分ける）。下線を引いた空白は、下線の長さを保つ。
+  align（left・center・right）を指定したときは、空きの幅を保って、そろえ方のとおりに前後へ半角の空白を足す（inline_padding）
 - □：■（☐ は ☑）にする
 - 旧来のフォームの欄・コンテンツコントロール：Word と同じ形で値と状態を書く
 書いた所は見えないしおり（_todoku_…）で囲み、書いた後も同じ欄の名前で読み戻せるようにする。
@@ -32,6 +33,7 @@ class Patch:
     part: str = ""
     anchor: dict | None = None  # 字を目印にした書き込み（{"old": …, "new": …}）。証明で、同じ決め方で位置を確かめる
     key: str = ""  # 指定したときの名前（「@1」など）
+    align: dict | None = None  # 空きの中のそろえ方の指定（{"align", "ambiguous_width"}）と、足した空白（"pad": [前, 後ろ] の字数）
 
 
 # 書いた字に引き継がない文字の書式（w:rPr の子）：消したように見える（取り消し線・非表示）・目立つ（字の色・蛍光ペン・網かけ）もの。
@@ -108,8 +110,14 @@ def written_formatting(blob: bytes, name: str = "") -> list[dict]:
 
 
 def written_of(patches) -> dict:
-    """証明に渡す、書いた欄 → 値（字を目印にした書き込みは、目印も渡す）。"""
-    return {p.id: ({"@": p.anchor, "value": p.value} if p.anchor else p.value) for p in patches}
+    """証明に渡す、書いた欄 → 値（字を目印にした書き込みは目印も、そろえ方を指定した書き込みはその指定も渡す）。"""
+    def one(p):
+        if p.anchor:
+            return {"@": p.anchor, "value": p.value}
+        if p.align:
+            return {"value": p.value, **{k: v for k, v in p.align.items() if k != "pad"}}
+        return p.value
+    return {p.id: one(p) for p in patches}
 
 
 @dataclass
@@ -154,15 +162,29 @@ def _t(pre: str, text: str) -> bytes:
     return bytes(out)
 
 
-def _width(s: str, ambiguous_wide: bool = False) -> int:
-    """字の幅（半角を 1）：Unicode の東アジアの幅で W・F は 2、A（曖昧）は東アジアの文脈なら 2、結合の記号は 0、ほかは 1
-    （textwidth。アラビア文字・キリル文字・デーヴァナーガリーなどは 1）。"""
-    from ..textwidth import text_cells
+def inline_padding(p: Para, a: int, b: int, value: str, opts: dict | None = None, anchored: bool = False) -> tuple[str, str]:
+    """段落の中の空欄 [a, b) に value を書くときに、前と後ろに足す半角の空白（書き込みと証明が同じ決まりで使う）。
+    そろえ方の指定（opts の align・ambiguous_width）があれば、空きの幅を保って、そのとおりに足す（textwidth.gap_padding）。
+    なければ、空欄の字がすべて下線つきのときだけ（字を目印にした書き込みは除く）、下線の長さを保つよう後ろに足す（左にそろえる）。
+    曖昧な幅（A）の字は、指定がなければ、段落と値の並びに全角の字があるときだけ全角として数える（UAX #11）。"""
+    from ..textwidth import AMBIGUOUS, gap_padding
 
-    return text_cells(s, ambiguous_wide)
+    if not value:
+        return "", ""
+    opts = opts or {}
+    if not opts:
+        pos = p.positions()
+        blank = [p.segs[pos[i][0]] for i in range(a, b) if i < len(pos)]
+        if anchored or not (blank and all(sg.underline for sg in blank)):
+            return "", ""
+    text = p.text
+    return gap_padding(text[a:b], value, opts.get("align", "left"), context=text,
+                       ambiguous_wide=AMBIGUOUS.get(opts.get("ambiguous_width")))
 
 
 def _is_text_value(v) -> str:
+    if isinstance(v, dict):
+        raise FillError(f"この所には、字（または数・真偽）で書いてください（受け取った指定 {sorted(v)} は、この所では使えません）")
     if isinstance(v, bool):
         return "TRUE" if v else "FALSE"
     if isinstance(v, float) and v.is_integer():
@@ -268,8 +290,9 @@ class Filler:
                 f'<{pre}:bookmarkEnd {pre}:id="{bid}"/>'.encode())
 
     # ------------------------------------------------------------------ 段落の文字を置き換える
-    def replace_span(self, item: dict, p: Para, a: int, b: int, value: str, keep_width: bool = False) -> None:
-        """段落の文字 [a, b) を value にする予定を立てる（同じ文字の要素の中の複数の空欄は、finish でまとめて書く）。"""
+    def replace_span(self, item: dict, p: Para, a: int, b: int, value: str, pad: tuple[str, str] = ("", "")) -> None:
+        """段落の文字 [a, b) を value にする予定を立てる（同じ文字の要素の中の複数の空欄は、finish でまとめて書く）。
+        pad：value の前と後ろに足す空白（しおりの外。inline_padding）。"""
         part = p.part
         pos = p.positions()
         if a == b:
@@ -296,7 +319,7 @@ class Filler:
                 raise FillError(f"{item['id']}: 書き足す位置が、書き換えられない部分にあります")
             self.check_editable(item, part, sg.node.s)
             bm = self.bookmark(item["id"])
-            self.run_ops.setdefault((part, sg.run.s), (sg.run, []))[1].append((sg.node, at, at, value, bm, ""))
+            self.run_ops.setdefault((part, sg.run.s), (sg.run, []))[1].append((sg.node, at, at, value, bm, ("", "")))
             return
         if a >= len(pos) or b > len(pos):
             raise FillError(f"{item['id']}: 空欄の位置が見つかりません")
@@ -310,20 +333,13 @@ class Filler:
             if sg.kind not in ("t", "sym") or sg.node is None or sg.run is None:
                 raise FillError(f"{item['id']}: 空欄が、書き換えられない部分（{sg.kind}）にかかっています")
         self.check_editable(item, part, p.segs[segs_idx[0]].node.s)
-        pad = ""
-        if keep_width:
-            from ..textwidth import east_asian_context
-
-            wide = east_asian_context(p.text + value)  # 曖昧な幅の字（○・キリル文字など）は、段落に全角の字があるときだけ全角
-            room = _width(p.text[a:b], wide) - _width(value, wide)
-            pad = " " * room if room > 0 else ""
         bm = self.bookmark(item["id"])
         for n, i in enumerate(segs_idx):
             sg = p.segs[i]
             ks = [off for k in range(a, b) for si, off in [pos[k]] if si == i]
             k0, k1 = min(ks), max(ks) + 1
             self.run_ops.setdefault((part, sg.run.s), (sg.run, []))[1].append(
-                (sg.node, k0, k1, value if n == 0 else None, bm if n == 0 else None, pad if n == 0 else ""))
+                (sg.node, k0, k1, value if n == 0 else None, bm if n == 0 else None, pad if n == 0 else ("", "")))
 
     def finish_runs(self) -> None:
         """文字の要素を分けて、値としおりを入れる（1つの文字の要素ごとに1回で書く）。"""
@@ -403,10 +419,11 @@ class Filler:
                 for k0, k1, value, bm, pad in todo:
                     buf += _t(pre, text[cur:k0])
                     if value is not None:
+                        buf += _t(pre, pad[0])  # 前に足す空白（右・中央にそろえるとき）：元の字の要素の書式のまま、しおりの外
                         flush()
                         out.extend((split[0] if split else b"") + (bm[0] if bm else b"") + r_open + rpr_v + _t(pre, value)
                                    + r_close + (bm[1] if bm else b"") + (split[1]() if split else b""))
-                        buf += _t(pre, pad)
+                        buf += _t(pre, pad[1])
                     cur = k1
                 buf += _t(pre, text[cur:])
             flush()
@@ -1148,15 +1165,21 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
                 f.replace_span(item, p, a, b, mark)
                 f.patches.append(Patch(key, "control", on, p.part))
             elif kind == "inline":
+                from ..textwidth import align_options
+
+                try:
+                    opts, value = align_options(key, value)
+                except ValueError as e:
+                    raise FillError(str(e)) from None
                 text = _is_text_value(value)
                 p = item["para"]
                 a, b = item["span"]
-                # 下線を引いた空欄（空欄の字がすべて下線つき）だけ、幅を保つ（下線の長さを変えない）
-                pos = p.positions()
-                blank_segs = [p.segs[pos[i][0]] for i in range(a, b) if i < len(pos)]
-                underlined = bool(blank_segs) and all(sg.underline for sg in blank_segs)
-                f.replace_span(item, p, a, b, text, keep_width=underlined and bool(text))
-                f.patches.append(Patch(key, "input", text, p.part))
+                # 下線を引いた空欄（空欄の字がすべて下線つき）は、幅を保つ（下線の長さを変えない）。そろえ方の指定があれば、
+                # 空きの幅を保って、そのとおりに前後へ空白を足す（inline_padding。証明も同じ決まりで確かめる）
+                pad = inline_padding(p, a, b, text, opts)
+                f.replace_span(item, p, a, b, text, pad=pad)
+                f.patches.append(Patch(key, "input", text, p.part,
+                                       align={**opts, "pad": [len(pad[0]), len(pad[1])]} if opts else None))
                 lead, trail = item.get("kept_edges") or (False, False)
                 if text and (lead or trail):
                     where = "・".join(x for x, on in (("前の見出し", lead), ("後ろの字", trail)) if on)

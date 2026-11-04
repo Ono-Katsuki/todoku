@@ -15,7 +15,7 @@ import hashlib
 from dataclasses import dataclass, field
 
 from ..docx.document import iter_paras
-from ..docx.fill import FillError, _as_bool, _is_text_value, _width
+from ..docx.fill import FillError, _as_bool, _is_text_value, inline_padding
 from ..docx.proof import _expected_text
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from .document import MARK_PREFIX, RtfDocument
@@ -209,10 +209,7 @@ class RtfWriter:
                 order.append(i)
                 ranges[i] = []
             ranges[i].append(off)
-        pad = ""
-        if keep_width:
-            room = _width(p.text[a:b]) - _width(value)
-            pad = " " * room if room > 0 else ""
+        pad = inline_padding(p, a, b, value)[1] if keep_width else ""  # 下線の長さを保つ（Word と同じ決まり）
         first = True
         for i in order:
             sg = p.segs[i]

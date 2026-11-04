@@ -65,7 +65,7 @@ def _read(path: str, password: str | None = None):
         raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
     k = kind_of(plain, p.name)  # 名前は、中身だけでは決まらない形式（CSV・JSON など）を見分けるのに使う
     if k in UNSUPPORTED:
-        raise Unsupported(unsupported_message(k), k)  # 見分けたが、まだ読めない形式（HWP・HWPX）
+        raise Unsupported(unsupported_message(k, plain), k)  # 見分けたが、まだ読めない形式（book.UNSUPPORTED）
     if k not in KIND_JA:
         raise ApiError(f"この形式（{k}）は扱えません。Excel・PDF・Word のファイルを指定してください")
     return plain, p.name, k, lock
@@ -163,7 +163,7 @@ def _read_member(path: str, password: str | None):
         raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
     k = kind_of(plain, name)
     if k in UNSUPPORTED:
-        raise Unsupported(f"ZIP の中の「{name}」：" + unsupported_message(k), k)
+        raise Unsupported(f"ZIP の中の「{name}」：" + unsupported_message(k, plain), k)
     if k not in KIND_JA:
         raise ApiError(f"ZIP の中の「{name}」の形式（{k}）は扱えません")
     return plain, name, k, lock
@@ -339,18 +339,23 @@ def far_label(f: dict) -> str | None:
     lab = f.get("label") or ""
     if not isinstance(near, dict) or not near or not lab:
         return None
-    gap = {s: (v.get("cols") if s != "above" else v.get("rows")) for s, v in near.items() if isinstance(v, dict) and s in _SIDE_JA}
+    # あいだのマスの数：左右は cols（あいだの列の数）。上は rows（行の番号の差：すぐ上の行は 1）から 1 を引いた、あいだの行の数
+    gap = {s: (v.get("cols") if s != "above" else (v["rows"] - 1 if isinstance(v.get("rows"), int) else None))
+           for s, v in near.items() if isinstance(v, dict) and s in _SIDE_JA and not v.get("fields_between")}
+    # あいだに空の欄をはさむ字（表の格子の見出し・1 桁ずつのマスの見出し）は、離れた字として言い換えない（method に欄の番地）
+    if any(isinstance(v, dict) and v.get("fields_between") and (v.get("label") or "") == lab for v in near.values()):
+        return None
     if any(g == 0 and (near[s].get("label") or "") and (near[s].get("label") or "") in lab for s, g in gap.items()):
         return None  # すぐ隣のマスの字が見出しにある
-    sides = [(near[s].get("mm", 0) or 0, s) for s, g in gap.items() if isinstance(g, int)]
+    # いちばん近い字（数の値の事実 number は、字として示さない）
+    sides = [(near[s].get("mm", 0) or 0, s) for s, g in gap.items() if isinstance(g, int) and not near[s].get("number")]
     if not sides:
         return None
     _mm, s = min(sides)
     ja, unit = _SIDE_JA[s]
     v = near[s]
-    if lab not in {str(x.get("label") or x.get("text") or "") for x in near.values() if isinstance(x, dict)} \
-            or "表の" in str(f.get("label_method") or ""):
-        return None  # 見出しが、離れた 1 つの字そのものではない（表の行・列の見出し：窓が罫線の表の作りから決めた見出し）
+    if lab not in {str(x.get("label") or x.get("text") or "") for x in near.values() if isinstance(x, dict)}:
+        return None  # 見出しが、離れた 1 つの字そのものではない（区分と見出しをつないだ見出し・字にはさまれた欄の並び）
     cell = str(f["id"]).rsplit("!", 1)[-1]
     how = f"{ja}のすぐ隣" if gap[s] == 0 else f"{ja}に {gap[s]} {unit}あけて"
     t = str(v.get("label") or v.get("text") or "")
@@ -369,9 +374,12 @@ def _field(f: dict, **where) -> dict:
                 "alternative_to", "group", "why_not", "label_printed", "text_before", "options_labels", "export_value",
                 "hidden", "hidden_why", "not_printed", "not_printed_why", "legacy_id", "why_code", "reason_codes",
                 "row_label", "column_label", "column_label_partial", "label_clipped", "neighbours", "facts", "near",
-                "label_method", "section", "input_reason_codes", "spans", "blanks", "shape", "size", "size_from", "cell_ids"):
+                "label_method", "section", "input_reason_codes", "spans", "blanks", "shape", "size", "size_from", "cell_ids",
+                "label_key", "referenced_by"):
         if f.get(key) not in (None, "", [], False):
             d[key] = f[key]
+    if f.get("agent") and isinstance(f.get("evidence"), dict) and f["evidence"]:
+        d["evidence"] = f["evidence"]  # 規則では決められない所の、判断の材料（罫線・塗り・参照している式など）
     for key in ("row_label_gap", "column_label_gap"):  # 数の事実（0 も、すぐ隣という事実）
         if isinstance(f.get(key), int) and not isinstance(f.get(key), bool):
             d[key] = f[key]
@@ -478,6 +486,10 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                 readback_values[id_] = text_
             if res.anchored:
                 result["anchored"] = dict(res.anchored)
+            if res.aligned:
+                # 空きの中にそろえて書いた所：そろえ方と、空きの幅を保つために前・後ろに足した半角の空白の字数。
+                # 証明は書いたセルだけが変わったこと、読み戻しは書いた後のセルの字（足した空白を含む）で確かめる
+                result["aligned"] = dict(res.aligned)
             if res.unverified:
                 # 書いた値に連動するのに、todoku が計算し直せない数式（BAHTTEXT・動的配列など）：保存された結果は古いまま
                 result["stale_formulas"] = list(res.unverified)
@@ -665,6 +677,14 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                 result["wrap"] = wrapped
                 result["warnings"] += wrapped
             anchored = {(p.key or p.id): p.id for p in res.patches if getattr(p, "anchor", None)}
+            aligned = {p.id: p.align for p in res.patches if getattr(p, "align", None)}
+            if aligned:
+                # 空きの中にそろえて書いた所：そろえ方と、空きの幅を保つために前・後ろに足した半角の空白の字数（証明で確かめた）。
+                # 読み戻しは、書いた値そのもの（足した空白は欄の値に入れない）
+                result["aligned"] = aligned
+                for id_ in aligned:
+                    if isinstance(values.get(id_), dict):
+                        readback_values[id_] = values[id_]["value"]
         else:
             new_blob = blob
             anchored = {}
@@ -672,12 +692,12 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         if anchored:
             # 字を目印にした書き込み：書いた所の id（読み直した窓では［P段落.w番号＝値］）
             result["anchored"] = anchored
-            readback_values = {k: v for k, v in values.items() if not k.startswith("@")}
+            readback_values = {k: v for k, v in readback_values.items() if not k.startswith("@")}
             readback_values.update({p.id: p.value for p in res.patches if getattr(p, "anchor", None)})
         # 欄の書式で書いた値（日付の欄の w:dateFormat「yyyy年M月d日」など）：読み戻しは、書式を通した字で比べる
         shaped = {p.id: p.value for p in (res.patches if values or not circ else []) if not getattr(p, "anchor", None) and p.kind == "input"
-                  and p.id in values and not isinstance(values[p.id], bool) and str(p.value) != str(values[p.id])
-                  and not _num_equal(p.value, values[p.id])}
+                  and p.id in readback_values and not isinstance(readback_values[p.id], bool)
+                  and str(p.value) != str(readback_values[p.id]) and not _num_equal(p.value, readback_values[p.id])}
         if shaped:
             result["written_as"] = shaped
             readback_values.update(shaped)
@@ -1672,7 +1692,7 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
     try:
         blob, name, k, lock = _read(path, password)
     except Unsupported as e:
-        g = unsupported_grade(e.kind)  # まだ読めない形式：段階 F と、その理由
+        g = unsupported_grade(e.kind, detail=str(e))  # まだ読めない形式：段階 F と、その理由
         return (combine(g, findings or [], answered) if findings or answered else g).to_dict()
     except CfbError as e:
         # 形式を見分ける前に、複合ファイルの作りが壊れている：開けない（F）

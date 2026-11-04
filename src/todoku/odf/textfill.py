@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ..docx.fill import FillError, _as_bool, _is_text_value, _width
+from ..docx.fill import FillError, _as_bool, _is_text_value, inline_padding
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from .text import MARK_PREFIX, OdtDocument, Src
 from .xml import NS, esc_attr, esc_text, set_attr, top
@@ -286,10 +286,7 @@ class OdtWriter:
                 order.append(i)
                 ranges[i] = []
             ranges[i].append(off)
-        pad = ""
-        if keep_width:
-            room = _width(p.text[a:b]) - _width(value)
-            pad = " " * room if room > 0 else ""
+        pad = inline_padding(p, a, b, value)[1] if keep_width else ""  # 下線の長さを保つ（Word と同じ決まり）
         first = True
         for i in order:
             sg = p.segs[i]
