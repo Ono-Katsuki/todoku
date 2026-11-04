@@ -37,7 +37,14 @@ def build(blob: bytes, name: str) -> dict:
             "pages": [{"number": i, "width_px": f.w, "height_px": f.h, "dpi": list(f.dpi) if f.dpi else None,
                        "size_mm": [round(f.w / f.dpi[0] * 25.4, 1), round(f.h / f.dpi[1] * 25.4, 1)] if f.dpi else None}
                       for i, f in enumerate(frames, 1)],
-            "fields": [], "statement": "中身は画像の中にあり、字の情報はありません"}
+            "fields": [], "statement": "中身は画像の中にあり、字の情報はありません" if fmt != "svg" else "ベクターの絵です。text の要素の字は窓にあります",
+            "texts": _svg_texts(blob) if fmt == "svg" else []}
+
+
+def _svg_texts(blob: bytes) -> list[str]:
+    from .svg import texts
+
+    return texts(blob)[:500]
 
 
 def markdown_parts(win: dict) -> list[tuple[str, str]]:
@@ -46,6 +53,11 @@ def markdown_parts(win: dict) -> list[tuple[str, str]]:
     lines = [f"# {win['file']}（{win['format_ja']}の画像）", "",
              f"このファイルは画像です（{n} ページ）。**中身は画像の中にあり、字の情報はありません**。"
              "view_page（page＝何枚目か）で画像を見て、エージェントの目で読みます。読めない所は推測で埋めず、本人に伝えてください。", ""]
+    if win["format"] == "svg":
+        lines[2] = (f"このファイルはベクターの絵（SVG）です（{n} ページ）。view_page で絵として見ます（小さな字は region で拡大すると、なめらかなまま細かく描きます）。"
+                    "読めない所は推測で埋めず、本人に伝えてください。")
+        if win.get("texts"):
+            lines += ["絵の中の字（text の要素。図の中の位置は view_page で確かめてください）：", ""] + [f"- {t}" for t in win["texts"]] + [""]
     lines += [f"- {_frame_line(i, f)}" for i, f in enumerate(fr, 1)]
     lines += ["", "画像の上には直接書けません。書く必要があれば、to_pdf で PDF に包み、できた PDF に fill_document で枠（mm）を指定して書きます"
               "（書いた証明は、その PDF について行います）。"]
@@ -101,10 +113,14 @@ def view_frame(blob: bytes, page: int, region: list | None = None, marks: list |
     target = int(fw * fh * min(1.0, k * k))
     if deadline is None:
         deadline = time.monotonic() + DECODE_SECONDS
-    fr = decode(blob, page - 1, target, deadline)
-    scale_x, scale_y = fr.w / fw, fr.h / fh  # 開いた画像 / 元の画素
-    sx0, sy0 = int(x0 * unit_px * scale_x), int(y0 * unit_py * scale_y)
-    sx1, sy1 = min(fr.w, int(x1 * unit_px * scale_x + 0.999)), min(fr.h, int(y1 * unit_py * scale_y + 0.999))
+    want = None
+    if region is not None:  # 範囲だけを開く（分けて開ける形式。予算は開く分に掛かるので、どの部分でも元の解像度まで開ける）
+        want = (int(x0 * unit_px), int(y0 * unit_py), min(fw, int(x1 * unit_px + 0.999)), min(fh, int(y1 * unit_py + 0.999)))
+    fr = decode(blob, page - 1, target, deadline, want)
+    wx0, wy0, wx1, wy1 = fr.window or (0, 0, fw, fh)
+    scale_x, scale_y = fr.w / (wx1 - wx0), fr.h / (wy1 - wy0)  # 開いた画像 / 元の画素
+    sx0, sy0 = max(0, int((x0 * unit_px - wx0) * scale_x)), max(0, int((y0 * unit_py - wy0) * scale_y))
+    sx1, sy1 = min(fr.w, int((x1 * unit_px - wx0) * scale_x + 0.999)), min(fr.h, int((y1 * unit_py - wy0) * scale_y + 0.999))
     crop_w, crop_h = max(1, sx1 - sx0), max(1, sy1 - sy0)
     rows = [fr.rgb[(y * fr.w + sx0) * 3:(y * fr.w + sx0 + crop_w) * 3] for y in range(sy0, sy0 + crop_h)]
     crop = b"".join(rows)
@@ -132,10 +148,16 @@ def view_frame(blob: bytes, page: int, region: list | None = None, marks: list |
         unit = "画素"
         head = (f"{page} 枚目（{FORMAT_JA.get(fmt, fmt)}・{fw}×{fh} 画素。解像度の記録がないので、紙の上の mm は分かりません）の、"
                 f"左 {x0:.0f}〜{x1:.0f}・上 {y0:.0f}〜{y1:.0f} 画素の範囲。上と左の帯の数は、画像の左上からの画素です。")
-    text = (head + f"中身は画像の中にあります（字の情報はありません）。小さな字は region（[左, 上, 右, 下]、単位は{unit}）で拡大して読みます。"
+    inside = "中身は絵の中にあります（text の要素の字は窓にもあります）" if fmt == "svg" else "中身は画像の中にあります（字の情報はありません）"
+    text = (head + f"{inside}。小さな字は region（[左, 上, 右, 下]、単位は{unit}）で拡大して読みます。"
             "読めない所は推測で埋めず、本人に伝えてください。書くには to_pdf で PDF に包みます。")
     if len(frames) > 1:
         text += f" 全部で {len(frames)} 枚です。"
+    if scale_x > 0.999:
+        text += f" この範囲は元の解像度（{fw}×{fh} 画素のまま）で開きました。"
+    else:
+        text += (f" この範囲は元の {fw}×{fh} 画素の約 {1 / scale_x:.1f} 分の 1 の解像度で開きました。"
+                 "細かく見るには region で範囲を狭めてください（どの部分でも、狭めれば元の解像度まで開けます）。")
     if fr.notes:
         text += " " + " ".join(fr.notes)
     if fr.problems:
@@ -198,6 +220,10 @@ def audit(blob: bytes, name: str):
     bad = []
     for i, _f in enumerate(frames):
         try:
+            if _fmt in ("heic", "avif"):  # 全部を開くと何分もかかる：はじめのタイルが開けることを確かめる（見出しは全部読んである）
+                fr = decode(blob, i, 250_000, time.monotonic() + DECODE_SECONDS, (0, 0, 1, 1))
+                bad += [f"{i + 1} 枚目：{p}" for p in fr.problems if not fr.incomplete]
+                continue
             fr = decode(blob, i, 250_000)
             bad += [f"{i + 1} 枚目：{p}" for p in fr.problems]
         except Exception as e:  # noqa: BLE001
@@ -223,7 +249,9 @@ def to_pdf(blob: bytes) -> tuple[bytes, list[dict], list[str]]:
         if fmt == "jpeg" and _jpeg_upright(blob):
             passthrough = blob
         else:
-            fr = decode(blob, i)
+            fr = decode(blob, i, None, time.monotonic() + DECODE_SECONDS)
+            if fr.incomplete:  # 途中の画素を PDF にしない（PDF の見た目が本物と違ってしまう）
+                raise ImageError(f"まだ全部を開けていないので、PDF に包めません（{'／'.join(fr.problems[:1])}）")
             fw, fh = fr.w, fr.h
             notes += [f"{i + 1} 枚目：{p}" for p in fr.problems]
         dpi = fi.dpi
@@ -275,9 +303,10 @@ def to_pdf(blob: bytes) -> tuple[bytes, list[dict], list[str]]:
 
 
 def _jpeg_upright(blob: bytes) -> bool:
-    from .formats import _jpeg_meta
+    """そのまま PDF に入れられる JPEG か：向きが正しく、PDF の DCTDecode が扱える符号化（算術符号・12 ビット・可逆は画素で入れる）。"""
+    from .formats import _jpeg_meta, jpeg_plain
 
-    return _jpeg_meta(blob)[3] == 1
+    return _jpeg_meta(blob)[3] == 1 and jpeg_plain(blob)
 
 
 def _jpeg_components(blob: bytes) -> int:

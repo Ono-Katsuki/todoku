@@ -47,17 +47,29 @@ def jbig2(data: bytes, globals_data: bytes | None, width: int | None, height: in
     return page
 
 
-def jpx(data: bytes, target_pixels: int | None, deadline: float | None, cache: bool = True):
-    """imaging.jpx.Image。控えの中に、画面に足りる解像度のものがあれば使う。"""
+def _covers(have: tuple | None, want: tuple | None) -> bool:
+    if have is None:
+        return True
+    if want is None:
+        return False
+    return have[0] <= want[0] and have[1] <= want[1] and have[2] >= want[2] and have[3] >= want[3]
+
+
+def jpx(data: bytes, target_pixels: int | None, deadline: float | None, cache: bool = True, window: tuple | None = None):
+    """imaging.jpx.Image。控えの中に、範囲を覆って画面に足りる解像度のものがあれば使う。window：要る範囲（元の画素）。"""
     from . import jpx as X
 
     dig = hashlib.sha256(data).hexdigest()
     if cache:
         for key, (img, _n) in reversed(_CACHE.items()):
-            if key[:2] == ("jpx", dig) and (img.reduce == 0 or img.at_limit or not target_pixels or img.w * img.h >= target_pixels):
+            if key[:2] != ("jpx", dig) or not _covers(img.window, window):
+                continue
+            full = (img.full_w >> img.reduce) * (img.full_h >> img.reduce)  # 開いた解像度の、画像の全体の画素の数
+            # 全体を開いたものが予算で細かくできなかった（at_limit）とき、範囲が指定されたら、狭い範囲で開き直せば細かくなる
+            if img.reduce == 0 or not target_pixels or full >= target_pixels or (img.at_limit and window == img.window):
                 _CACHE.move_to_end(key)
                 return img
-    img = X.decode(data, target_pixels=target_pixels, deadline=deadline)
+    img = X.decode(data, target_pixels=target_pixels, deadline=deadline, window=window)
     if cache and not img.stopped:
-        _store(("jpx", dig, img.reduce), img)
+        _store(("jpx", dig, img.reduce, img.window), img)
     return img

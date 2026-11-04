@@ -310,9 +310,25 @@ def _segments(data: bytes, start: int) -> list[bytes]:
         return segs
 
 
-def jpeg_gray(data: bytes, max_pixels: int = 4_000_000, want_rgb: bool = False):
+def jpeg_window(window, ww: int, hh: int, hmax: int, vmax: int) -> tuple:
+    """範囲（元の画素）を MCU の境に広げた [左, 上, 右, 下)。"""
+    ax, ay = 8 * hmax, 8 * vmax
+    x0, y0, x1, y1 = (int(v) for v in window)
+    x1, y1 = min(ww, max(x1, x0 + 1)), min(hh, max(y1, y0 + 1))
+    x0, y0 = max(0, min(x0, ww - 1)), max(0, min(y0, hh - 1))
+    return x0 // ax * ax, y0 // ay * ay, min(ww, (x1 + ax - 1) // ax * ax), min(hh, (y1 + ay - 1) // ay * ay)
+
+
+def jpeg_blocks(win: tuple, c: dict, hmax: int, vmax: int) -> tuple:
+    """範囲を描くのに要る、成分 c のブロックの [左, 上, 右, 下)（なめらかに広げるので 1 つ余分に）。"""
+    return (max(0, win[0] * c["h"] // (8 * hmax) - 1), max(0, win[1] * c["v"] // (8 * vmax) - 1),
+            (win[2] * c["h"] + 8 * hmax - 1) // (8 * hmax) + 1, (win[3] * c["v"] + 8 * vmax - 1) // (8 * vmax) + 1)
+
+
+def jpeg_gray(data: bytes, max_pixels: int = 4_000_000, want_rgb: bool = False, window: tuple | None = None):
     """JPEG の輝度（1成分のときはその成分）を濃さにする。大きな画像は 1/2・1/4・1/8 に縮めて開く。
-    want_rgb：色のまま開く（RGB を返す。YCbCr・RGB・CMYK・YCCK を T.81・Adobe の印どおりに RGB にする）。"""
+    want_rgb：色のまま開く（RGB を返す。YCbCr・RGB・CMYK・YCCK を T.81・Adobe の印どおりに RGB にする）。
+    window：want_rgb のとき、要る範囲（元の画素）。ハフマンの符号は順にしか読めないが、範囲の下で読むのをやめ、逆 DCT と色の変換は範囲だけ行う（RGB.window に開いた範囲）。"""
     if data[:2] != b"\xff\xd8":
         raise RasterError("JPEG ではありません（SOI がない）")
     pos = 2
@@ -356,18 +372,20 @@ def jpeg_gray(data: bytes, max_pixels: int = 4_000_000, want_rgb: bool = False):
         elif m in (0xC0, 0xC1):
             p, hh, ww, nf = seg[0], *struct.unpack_from(">HH", seg, 1), seg[5]
             if p != 8:
-                raise RasterError(f"JPEG：{p} ビットの精度は開けません")
+                from ..imaging.jpegprog import decode as multi_scan
+
+                return multi_scan(data, max_pixels, want_rgb, window)  # 12 ビット（T.81 附属書 F）
             comps = []
             for j in range(nf):
                 cid, hv, tq = seg[6 + 3 * j], seg[7 + 3 * j], seg[8 + 3 * j]
                 comps.append({"id": cid, "h": hv >> 4, "v": hv & 15, "tq": tq})
             frame = (ww, hh, comps)
-        elif m == 0xC2:
+        elif m in (0xC2, 0xC3, 0xC9, 0xCA):
             from ..imaging.jpegprog import decode as multi_scan
 
-            return multi_scan(data, max_pixels, want_rgb)  # プログレッシブ（T.81 附属書 G）
+            return multi_scan(data, max_pixels, want_rgb, window)  # プログレッシブ（附属書 G）・可逆（附属書 H）・算術符号（附属書 D）
         elif 0xC2 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):
-            raise RasterError(f"JPEG：この符号化（SOF{m - 0xC0}）は開けません（ベースライン・拡張の順次・プログレッシブだけ）")
+            raise RasterError(f"JPEG：この符号化（SOF{m - 0xC0}）は開けません（ベースライン・拡張の順次・プログレッシブ・可逆・算術符号だけ）")
         elif m == 0xDD:
             restart = struct.unpack_from(">H", seg, 0)[0]
         elif m == 0xEE and seg[:5] == b"Adobe":
@@ -375,12 +393,12 @@ def jpeg_gray(data: bytes, max_pixels: int = 4_000_000, want_rgb: bool = False):
         elif m == 0xDA:
             if frame is None:
                 raise RasterError("JPEG：フレームの前に走査があります")
-            return _scan(data, pos + ln, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb)
+            return _scan(data, pos + ln, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb, window)
         pos += ln
     raise RasterError("JPEG：画像のデータがありません")
 
 
-def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb=False):
+def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb=False, window=None):
     ww, hh, comps = frame
     ns = seg[0]
     sc = []
@@ -391,7 +409,7 @@ def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb
     if ns != len(comps):
         from ..imaging.jpegprog import decode as multi_scan
 
-        return multi_scan(data, max_pixels, want_rgb)  # 成分を分けた走査（順次）
+        return multi_scan(data, max_pixels, want_rgb, window)  # 成分を分けた走査（順次）
     hmax = max(c["h"] for c in comps)
     vmax = max(c["v"] for c in comps)
     # 濃さに使う成分：1成分ならそれ、YCbCr（3成分・Adobe の変換 1 か、印がない）なら Y。RGB・CMYK は全部の成分から
@@ -412,6 +430,9 @@ def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb
     for c in comps:
         bw, bh = mcux * c["h"], mcuy * c["v"]
         planes.append((c, bytearray(b"\x80" * (bw * n) * (bh * n)), bw * n))
+    win = jpeg_window(window, ww, hh, hmax, vmax) if window is not None and want_rgb else None
+    area = [jpeg_blocks(win, c, hmax, vmax) for c in comps] if win else None
+    last_row = (win[3] + 8 * vmax - 1) // (8 * vmax) + 1 if win else mcuy  # この行より下は読まない（なめらかに広げるので 1 行余分に）
     segs = _segments(data, start)
     total = mcux * mcuy
     q = {id(c): qt.get(c["tq"]) for c in comps}
@@ -419,7 +440,7 @@ def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb
     per = restart or total
     mi = 0
     for buf in segs:
-        if mi >= total:
+        if mi >= total or mi >= last_row * mcux:
             break
         buf = buf + b"\0" * 8
         pos = 0  # ビットの位置
@@ -427,13 +448,19 @@ def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb
         for _ in range(min(per, total - mi)):
             my, mx = divmod(mi, mcux)
             mi += 1
+            if my >= last_row:
+                break
             for ci, (c, dc_t, ac_t) in enumerate(sc):
                 plane, stride = planes[ci][1], planes[ci][2]
                 qv = q[id(c)]
                 dcl, acl = dc_t.lut, ac_t.lut
-                skip = use_y and ci > 0
+                skip0 = use_y and ci > 0
+                ar = area[ci] if area else None
                 for by in range(c["v"]):
                     for bx in range(c["h"]):
+                        skip = skip0
+                        if ar and not (ar[0] <= mx * c["h"] + bx < ar[2] and ar[1] <= my * c["v"] + by < ar[3]):
+                            skip = True
                         i = pos >> 3
                         e = dcl[(int.from_bytes(buf[i:i + 4], "big") << (pos & 7) & 0xFFFFFFFF) >> 16]
                         if not e:
@@ -474,7 +501,7 @@ def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb
     # 濃さにする（Y は成分の大きさをフレームの大きさに合わせる）
     W, H = ww * n // 8 or 1, hh * n // 8 or 1
     if want_rgb:
-        return _jpeg_rgb(planes, hmax, vmax, W, H, adobe)
+        return _jpeg_rgb(planes, hmax, vmax, W, H, adobe, win, n)
     if use_y:
         c, plane, stride = planes[0]
         fx, fy = hmax // c["h"], vmax // c["v"]
@@ -503,27 +530,83 @@ class RGB:
     w: int
     h: int
     px: bytes  # w*h*3 バイト（R G B）
+    window: tuple | None = None  # 開いた範囲（元の画素の [左, 上, 右, 下)）。None は全体
+    notes: list = field(default_factory=list)
 
 
-def _jpeg_rgb(planes, hmax, vmax, W, H, adobe) -> RGB:
-    """JPEG の成分 → RGB（T.81 には色の決まりがないので、JFIF の YCbCr と Adobe の APP14 の変換の印に従う）。"""
+def _smooth_plane(plane, stride: int, fx: int, fy: int, W: int, H: int, x0: int, y0: int, x1: int, y1: int) -> bytes:
+    """間引いた色の面を、なめらかに広げる（三角のフィルター。libjpeg の fancy upsampling と同じ重み）。[x0, x1)×[y0, y1) を返す。
+    2:1 の向きだけを広げ、面の幅は ceil(W / fx)・高さは ceil(H / fy) とする（ブロックの詰め物の画素を混ぜない）。"""
+    cw, ch = (W + fx - 1) // fx, (H + fy - 1) // fy
+    c0, c1 = max(0, x0 // fx - 1), min(cw, (x1 + fx - 1) // fx + 1)
+    skip = x0 - c0 * fx
+    out = []
+    cache: dict = {}
+
+    def row(j: int) -> bytes:
+        r = cache.get(j)
+        if r is None:
+            r = bytes(plane[j * stride + c0:j * stride + c1])
+            cache[j] = r
+        return r
+
+    n = x1 - x0
+    for y in range(y0, y1):
+        j = y // fy
+        if fy == 2:
+            nb = row(max(0, j - 1)) if not y & 1 else row(min(ch - 1, j + 1))
+            sums = [3 * a + b for a, b in zip(row(j), nb)]
+        else:
+            sums = list(row(j))
+        if fx == 2 and fy == 2:
+            ev = [(3 * c + l_ + 8) >> 4 for c, l_ in zip(sums, sums[:1] + sums[:-1])]
+            od = [(3 * c + r_ + 7) >> 4 for c, r_ in zip(sums, sums[1:] + sums[-1:])]
+        elif fx == 2:
+            ev = [(3 * c + l_ + 1) >> 2 for c, l_ in zip(sums, sums[:1] + sums[:-1])]
+            od = [(3 * c + r_ + 2) >> 2 for c, r_ in zip(sums, sums[1:] + sums[-1:])]
+        else:  # fy == 2 だけ
+            bias = 2 if y & 1 else 1
+            out.append(bytes([(v + bias) >> 2 for v in sums])[skip:skip + n])
+            continue
+        line = bytearray(2 * len(sums))
+        line[0::2], line[1::2] = bytes(ev), bytes(od)
+        out.append(bytes(line[skip:skip + n]))
+        if len(cache) > 4:
+            for k in [k for k in cache if k < j - 1]:
+                del cache[k]
+    return b"".join(out)
+
+
+def _jpeg_rgb(planes, hmax, vmax, W, H, adobe, win=None, n: int = 8) -> RGB:
+    """JPEG の成分 → RGB（T.81 には色の決まりがないので、JFIF の YCbCr と Adobe の APP14 の変換の印に従う。印がなく成分の番号が
+    R・G・B なら RGB）。win：範囲（元の画素。n は 8 分のいくつに縮めたか）。"""
+    FW, FH = W, H
+    x0, y0, x1, y1 = 0, 0, W, H
+    if win:
+        x0, y0 = win[0] * n // 8, win[1] * n // 8
+        x1, y1 = max(x0 + 1, min(W, win[2] * n // 8)), max(y0 + 1, min(H, win[3] * n // 8))
+        W, H = x1 - x0, y1 - y0
     full = []
     for (c, plane, stride) in planes:
         fx, fy = hmax // c["h"], vmax // c["v"]
         if fx == 1 and fy == 1:
-            full.append(b"".join(bytes(plane[y * stride:y * stride + W]) for y in range(H)))
+            full.append(b"".join(bytes(plane[y * stride + x0:y * stride + x1]) for y in range(y0, y1)))
+        elif (fx, fy) in ((2, 2), (2, 1), (1, 2)) and n == 8:
+            full.append(_smooth_plane(plane, stride, fx, fy, FW, FH, x0, y0, x1, y1))
         else:
-            cols = [x // fx for x in range(W)]
-            full.append(b"".join(bytes(map(plane.__getitem__, [(y // fy) * stride + c_ for c_ in cols])) for y in range(H)))
+            cols = [x // fx for x in range(x0, x1)]
+            full.append(b"".join(bytes(map(plane.__getitem__, [(y // fy) * stride + c_ for c_ in cols])) for y in range(y0, y1)))
     nc = len(full)
+    done = tuple(win) if win else None
     if nc == 1:
         g = full[0]
         out = bytearray(W * H * 3)
         out[0::3] = g
         out[1::3] = g
         out[2::3] = g
-        return RGB(W, H, bytes(out))
-    ycc = (nc == 3 and adobe != 0) or (nc == 4 and adobe == 2)
+        return RGB(W, H, bytes(out), done)
+    rgb_ids = adobe is None and nc == 3 and [p[0]["id"] for p in planes] == [82, 71, 66]
+    ycc = (nc == 3 and adobe != 0 and not rgb_ids) or (nc == 4 and adobe == 2)
     out = bytearray(W * H * 3)
     if ycc:
         rcr = [int(1.402 * (v - 128)) for v in range(256)]
@@ -539,14 +622,14 @@ def _jpeg_rgb(planes, hmax, vmax, W, H, adobe) -> RGB:
         bb = bytes(cl(y + bcb[cb]) for y, cb in zip(Y, Cb))
         if nc == 3:
             out[0::3], out[1::3], out[2::3] = rr, gg, bb
-            return RGB(W, H, bytes(out))
+            return RGB(W, H, bytes(out), done)
         # YCCK：YCC は反転した C M Y（Adobe）
         comps = [bytes(255 - v for v in rr), bytes(255 - v for v in gg), bytes(255 - v for v in bb), full[3]]
         inv = True
     else:
         if nc == 3:
             out[0::3], out[1::3], out[2::3] = full[0], full[1], full[2]
-            return RGB(W, H, bytes(out))
+            return RGB(W, H, bytes(out), done)
         comps = full[:4]
         inv = adobe is not None
     # CMYK → RGB（Adobe の CMYK は、反転して保存される）
@@ -557,7 +640,7 @@ def _jpeg_rgb(planes, hmax, vmax, W, H, adobe) -> RGB:
     out[0::3] = bytes((255 - c) * (255 - k) // 255 for c, k in zip(cc, kk))
     out[1::3] = bytes((255 - m) * (255 - k) // 255 for m, k in zip(mm, kk))
     out[2::3] = bytes((255 - y) * (255 - k) // 255 for y, k in zip(yy, kk))
-    return RGB(W, H, bytes(out))
+    return RGB(W, H, bytes(out), done)
 
 
 def _put_block(coef, mat, n, plane, stride, ox, oy) -> None:
@@ -620,13 +703,13 @@ def jbig2_gray(doc, d: dict, data: bytes, names: list, deadline: float | None = 
     return Gray(page.w, page.h, page.px, [], [f"JBIG2：{x}" for x in page.problems])
 
 
-def jpx_image(doc, data: bytes, target_pixels: int | None, deadline: float | None = None):
-    """JPXDecode（ISO 32000-1 7.4.9）。imaging.jpx.Image を返す。"""
+def jpx_image(doc, data: bytes, target_pixels: int | None, deadline: float | None = None, window: tuple | None = None):
+    """JPXDecode（ISO 32000-1 7.4.9）。imaging.jpx.Image を返す。window：要る範囲（元の画素）。"""
     from ..imaging.jpx import JpxError
     from ..imaging.pdfcodec import jpx
 
     try:
-        return jpx(data, target_pixels, deadline, cache=getattr(doc, "decryptor", None) is None)
+        return jpx(data, target_pixels, deadline, cache=getattr(doc, "decryptor", None) is None, window=window)
     except JpxError as e:
         raise RasterError(f"JPEG 2000 の画像を開けません：{e}") from None
     except (IndexError, struct.error) as e:

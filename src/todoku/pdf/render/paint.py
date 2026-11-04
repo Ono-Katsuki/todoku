@@ -720,7 +720,8 @@ class Renderer:
         dev = abs(m[0] * m[3] - m[1] * m[2])
         # JPEG は逆 DCT で 1/2・1/4・1/8 に縮めて開ける（縮めても面積の平均）：画面の 2 倍まで。ほかは開いてから箱の平均で縮める
         screen = int(max(250_000, dev * 2))
-        key = (img.num, screen) if isinstance(img, Stream) and img.num else None
+        view = _visible_part(m, self.cv.w, self.cv.h)
+        key = (img.num, screen, view) if isinstance(img, Stream) and img.num else None
         im = self.images.pop(key, None) if key is not None else None
         if im is None:
             from ...limits import MEMORY_LIMIT, LimitExceeded
@@ -732,7 +733,7 @@ class Renderer:
                 self._undrawn_image(gs, m)
                 return
             try:
-                im = image_rgba(self.doc, img, 16_000_000, res, screen, self.deadline)
+                im = image_rgba(self.doc, img, 16_000_000, res, screen, self.deadline, view)
             except Exception as e:  # noqa: BLE001
                 if isinstance(e, LimitExceeded):
                     raise
@@ -756,6 +757,9 @@ class Renderer:
             self.images_held -= len(im.px) + len(im.alpha or b"")
         if self.deadline is not None and time.monotonic() > self.deadline:  # 画像は 1 つが重い：字句の数を待たずに時間を見る
             raise _Stop()
+        if im.window is not None:  # 開いたのは見える所だけ：その部分の四角に描く（画像の行は上から、単位の四角の v は下から）
+            ul, ut, ur, ub = im.window
+            m = mul(((ur - ul), 0, 0, (ub - ut), ul, 1 - ub), m)
         self.stats["images"] += 1
         self.image_notes += [f"{name}：{n}" for n in im.notes if f"{name}：{n}" not in self.image_notes]
         self.problems += [f"{name}：{n}" for n in im.problems if f"{name}：{n}" not in self.problems]
@@ -1158,3 +1162,21 @@ def render_page(doc, page: dict, W: int, H: int, base, time_limit: float = 60.0)
                     raise
                 r.annot_failed.append(f"{getattr(ad.get('Subtype'), 'name', '注釈')}：{type(e).__name__}")
     return cv, r
+
+
+def _visible_part(m, W: int, H: int) -> tuple | None:
+    """画像（単位の四角 → 画面の行列 m）のうち、画面に見える部分（画像の割合 [左, 上, 右, 下)。上が 0）。ほとんど見えるなら None（全体を開く）。"""
+    det = m[0] * m[3] - m[1] * m[2]
+    if abs(det) < 1e-9:
+        return None
+    ia, ib, ic, id_ = m[3] / det, -m[1] / det, -m[2] / det, m[0] / det
+    us, vs = [], []
+    for X, Y in ((0, 0), (W, 0), (0, H), (W, H)):
+        x, y = X - m[4], Y - m[5]
+        us.append(ia * x + ic * y)
+        vs.append(ib * x + id_ * y)
+    u0, u1 = max(0.0, min(us)), min(1.0, max(us))
+    v0, v1 = max(0.0, min(vs)), min(1.0, max(vs))
+    if u1 <= u0 or v1 <= v0 or (u1 - u0) * (v1 - v0) > 0.6:
+        return None
+    return u0, 1 - v1, u1, 1 - v0

@@ -1,6 +1,7 @@
-"""JPEG（ITU-T T.81）のプログレッシブ（SOF2）と、成分を分けた走査の順次（SOF0・SOF1）。
+"""JPEG（ITU-T T.81）のプログレッシブ（SOF2）・成分を分けた走査の順次（SOF0・SOF1）・12 ビットの精度・算術符号（SOF9・SOF10、jpegarith.py）・
+可逆（SOF3、jpegarith.py）。
 
-走査ごとに係数を積み上げてから、逆 DCT する（pdf/raster.py の部品を使う）。ハフマンだけ（算術符号 SOF9 以降は扱えない）。
+走査ごとに係数を積み上げてから、逆 DCT する（pdf/raster.py の部品を使う）。算術符号の可逆（SOF11）と階層（SOF5〜7・13〜15）は扱えない。
 係数は成分ごとの平らな array('h')。大きな画像は raster と同じく、逆 DCT を 1/2・1/4・1/8 にする。1/8 なら AC の走査を読まない。
 """
 
@@ -12,8 +13,8 @@ from array import array
 from ..limits import MAX_PIXELS, LimitExceeded
 
 
-def decode(data: bytes, max_pixels: int, want_rgb: bool):
-    from ..pdf.raster import RasterError, _Huff, _idct_matrix, _jpeg_rgb, _put_block, _segments, _ZZ
+def decode(data: bytes, max_pixels: int, want_rgb: bool, window: tuple | None = None):
+    from ..pdf.raster import RasterError, _Huff, _idct_matrix, _jpeg_rgb, _put_block, _segments, _ZZ, jpeg_blocks, jpeg_window
 
     pos = 2
     qt: dict = {}
@@ -22,6 +23,9 @@ def decode(data: bytes, max_pixels: int, want_rgb: bool):
     restart = 0
     adobe = None
     progressive = False
+    arith = lossless = False
+    precision = 8
+    dac: dict = {}
     coefs: list = []
     n = len(data)
     n_scale = 8
@@ -61,11 +65,14 @@ def decode(data: bytes, max_pixels: int, want_rgb: bool):
                 k = sum(counts)
                 hts[(tc, th)] = _Huff(counts, seg[i + 17:i + 17 + k])
                 i += 17 + k
-        elif m in (0xC0, 0xC1, 0xC2):
-            progressive = m == 0xC2
+        elif m in (0xC0, 0xC1, 0xC2, 0xC3, 0xC9, 0xCA):
+            progressive = m in (0xC2, 0xCA)
+            arith = m in (0xC9, 0xCA)
+            lossless = m == 0xC3
             p, hh, ww, nf = seg[0], *struct.unpack_from(">HH", seg, 1), seg[5]
-            if p != 8:
-                raise RasterError(f"JPEG：{p} ビットの精度は開けません")
+            if (lossless and not 2 <= p <= 16) or (not lossless and p not in (8, 12)):
+                raise RasterError(f"JPEG：{p} ビットの精度は規格にありません")
+            precision = p
             comps = []
             for j in range(nf):
                 cid, hv, tq = seg[6 + 3 * j], seg[7 + 3 * j], seg[8 + 3 * j]
@@ -82,10 +89,18 @@ def decode(data: bytes, max_pixels: int, want_rgb: bool):
                 c["bw"], c["bh"] = mcux * c["h"], mcuy * c["v"]
                 c["nx"] = ((ww * c["h"] + hmax - 1) // hmax + 7) // 8
                 c["ny"] = ((hh * c["v"] + vmax - 1) // vmax + 7) // 8
-                coefs.append(array("h", bytes(c["bw"] * c["bh"] * 128)))
+                if lossless:
+                    c["sw"], c["sh"] = (ww * c["h"] + hmax - 1) // hmax, (hh * c["v"] + vmax - 1) // vmax
+                    coefs.append((array("H", bytes(c["sw"] * c["sh"] * 2)), c["sw"], c["sh"]))
+                else:
+                    coefs.append(array("h", bytes(c["bw"] * c["bh"] * 128)) if p == 8 else array("i", bytes(c["bw"] * c["bh"] * 256)))
             frame = (ww, hh, comps)
             while n_scale > 1 and (ww * n_scale // 8) * (hh * n_scale // 8) > max_pixels:
                 n_scale //= 2
+        elif m == 0xCC:  # DAC：算術符号の条件づけ（B.2.4.3）
+            for i in range(0, len(seg) - 1, 2):
+                tc, tb, cs = seg[i] >> 4, seg[i] & 15, seg[i + 1]
+                dac[(tc, tb)] = cs if tc else (cs & 15, cs >> 4)
         elif m == 0xDD:
             restart = struct.unpack_from(">H", seg, 0)[0]
         elif m == 0xEE and seg[:5] == b"Adobe":
@@ -105,18 +120,32 @@ def decode(data: bytes, max_pixels: int, want_rgb: bool):
             ah, al = ah_al >> 4, ah_al & 15
             segs = _segments(data, pos + ln)
             consumed = _next_marker(data, pos + ln)
-            if not (n_scale == 1 and progressive and ss > 0):
+            if lossless:
+                from .jpegarith import lossless_scan
+
+                lossless_scan(segs, frame, coefs, [(s_[0], s_[1]) for s_ in sel], hts, restart, ss, al, precision, hmax, vmax, RasterError)
+            elif arith:
+                from .jpegarith import scan as arith_scan
+
+                if not (n_scale == 1 and progressive and ss > 0):
+                    arith_scan(segs, frame, coefs, sel, restart, progressive, ss, se if progressive else 63, ah, al, hmax, vmax, dac)
+            elif not (n_scale == 1 and progressive and ss > 0):
                 _scan(segs, frame, coefs, sel, hts, restart, progressive, ss, se, ah, al, hmax, vmax, _ZZ, RasterError)
             pos = consumed
             continue
         elif 0xC3 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):
-            raise RasterError(f"JPEG：この符号化（SOF{m - 0xC0}）は開けません（ベースライン・拡張の順次・プログレッシブだけ）")
+            raise RasterError(f"JPEG：この符号化（SOF{m - 0xC0}）は開けません（ベースライン・拡張の順次・プログレッシブ・可逆のハフマン・算術符号だけ）")
         pos += ln
     if frame is None:
         raise RasterError("JPEG：画像のデータがありません")
     ww, hh, comps = frame
+    if lossless:
+        return _lossless_out(frame, coefs, precision, al, adobe, hmax, vmax, want_rgb, window)
+    center = 1 << (precision - 1)
+    shift = precision - 8
     mat = _idct_matrix(n_scale)
     planes = []
+    win = jpeg_window(window, ww, hh, hmax, vmax) if window is not None and want_rgb else None
     for ci, c in enumerate(comps):
         bw, bh = c["bw"], c["bh"]
         plane = bytearray(b"\x80" * (bw * n_scale) * (bh * n_scale))
@@ -126,9 +155,10 @@ def decode(data: bytes, max_pixels: int, want_rgb: bool):
         cf = coefs[ci]
         zz = _ZZ
         stride = bw * n_scale
-        for by in range(bh):
+        ax0, ay0, ax1, ay1 = jpeg_blocks(win, c, hmax, vmax) if win else (0, 0, bw, bh)  # 範囲に要るブロックだけ逆 DCT する
+        for by in range(ay0, min(bh, ay1)):
             base_row = by * bw * 64
-            for bx in range(bw):
+            for bx in range(ax0, min(bw, ax1)):
                 base = base_row + bx * 64
                 block = cf[base:base + 64]
                 c8 = [0] * 64
@@ -138,16 +168,59 @@ def decode(data: bytes, max_pixels: int, want_rgb: bool):
                     for k, v in enumerate(block):
                         if v:
                             c8[zz[k]] = v * qv[k]
-                _put_block(c8, mat, n_scale, plane, stride, bx * n_scale, by * n_scale)
+                if shift:
+                    _put_block_hi(c8, mat, n_scale, plane, stride, bx * n_scale, by * n_scale, center, shift)
+                else:
+                    _put_block(c8, mat, n_scale, plane, stride, bx * n_scale, by * n_scale)
         planes.append((c, plane, stride))
     W, H = ww * n_scale // 8 or 1, hh * n_scale // 8 or 1
     from ..pdf.raster import Gray
 
-    rgb = _jpeg_rgb(planes, hmax, vmax, W, H, adobe)
+    rgb = _jpeg_rgb(planes, hmax, vmax, W, H, adobe, win, n_scale)
     if want_rgb:
         return rgb
     g = rgb.px[0::3] if len(comps) == 1 else bytes((r * 299 + gg * 587 + b * 114) // 1000 for r, gg, b in zip(rgb.px[0::3], rgb.px[1::3], rgb.px[2::3]))
     return Gray(W, H, g)
+
+
+def _put_block_hi(coef, mat, n, plane, stride, ox, oy, center: int, shift: int) -> None:
+    """12 ビットの逆 DCT：値を 8 ビットに丸めて面へ（画面に見せるため）。"""
+    top = 2 * center - 1
+    half = 1 << (shift - 1)
+    tmp = [[sum(mat[x][u] * coef[v * 8 + u] for u in range(n)) for x in range(n)] for v in range(n)]
+    for y in range(n):
+        o = (oy + y) * stride + ox
+        row = bytearray(n)
+        for x in range(n):
+            s = int(sum(mat[y][v] * tmp[v][x] for v in range(n)) + center + 0.5)
+            s = 0 if s < 0 else top if s > top else s
+            b = (s + half) >> shift
+            row[x] = 255 if b > 255 else b
+        plane[o:o + n] = row
+
+
+def _lossless_out(frame, planes_in, precision: int, pt: int, adobe, hmax: int, vmax: int, want_rgb: bool, window):
+    """可逆の面 → 8 ビットの面 → RGB。8 ビットより細かい値は上の桁、少ないビットは広げる（画面に見せるため）。"""
+    from ..pdf.raster import Gray, _jpeg_rgb, jpeg_window
+
+    ww, hh, comps = frame
+    planes = []
+    for c, (arr, w, _h) in zip(comps, planes_in):
+        if precision - pt == 8 and pt == 0:
+            bytes8 = bytes(arr.tolist())
+        elif precision >= 8:
+            sh = precision - 8
+            bytes8 = bytes([min(255, (v << pt) >> sh) for v in arr])
+        else:
+            top = (1 << precision) - 1
+            bytes8 = bytes([min(255, ((v << pt) * 255 + top // 2) // top) for v in arr])
+        planes.append((c, bytearray(bytes8), w))
+    win = jpeg_window(window, ww, hh, hmax, vmax) if window is not None and want_rgb else None
+    rgb = _jpeg_rgb(planes, hmax, vmax, ww, hh, adobe, win, 8)
+    if want_rgb:
+        return rgb
+    g = rgb.px[0::3] if len(comps) == 1 else bytes((r * 299 + gg * 587 + b * 114) // 1000 for r, gg, b in zip(rgb.px[0::3], rgb.px[1::3], rgb.px[2::3]))
+    return Gray(rgb.w, rgb.h, g)
 
 
 def _next_marker(data: bytes, pos: int) -> int:

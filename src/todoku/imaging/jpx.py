@@ -44,7 +44,8 @@ class Image:
     stopped: bool = False
     dpi: tuple | None = None  # (横, 縦) の 1 インチの画素（res の箱にあれば）
     bits: list = field(default_factory=list)  # 成分ごとのビットの数
-    at_limit: bool = False  # 予算のために解像度を下げた（これより細かくは開かない）
+    at_limit: bool = False  # 予算のために解像度を下げた（これより細かくは開かない。範囲 window を狭めれば細かくなる）
+    window: tuple | None = None  # 開いた範囲（元の画素で [左, 上, 右, 下)）。None は全体
 
 
 # ====================================================================== 箱（JP2）
@@ -958,28 +959,25 @@ def _block_to_band(blk: _Block, band: _Band, rev: bool, orient: int, style: int,
     rows = band.rows
     x0 = blk.x0 - band.x0
     y0 = blk.y0 - band.y0
+    # 範囲だけを開くとき：帯の範囲の外に出る所は書かない
+    bw, bh = band.x1 - band.x0, band.y1 - band.y0
+    sk, en = max(0, -x0), min(w, bw - x0)
+    if en <= sk:
+        return
     thresh = 1 << (roi + 1) if roi else 0
-    if rev:
-        for j in range(h):
-            b = (j + 1) * st + 1
-            mm = mag[b:b + w]
-            if not any(mm):
-                continue
-            ff = flags[b:b + w]
-            if roi:
-                mm = [m >> roi if m >= thresh else m for m in mm]
-            rows[y0 + j][x0:x0 + w] = [-(m >> 1) if f & NEG else m >> 1 for m, f in zip(mm, ff)]
-    else:
-        hs = band.step * 0.5
-        for j in range(h):
-            b = (j + 1) * st + 1
-            mm = mag[b:b + w]
-            if not any(mm):
-                continue
-            ff = flags[b:b + w]
-            if roi:
-                mm = [m >> roi if m >= thresh else m for m in mm]
-            rows[y0 + j][x0:x0 + w] = [-m * hs if f & NEG else m * hs for m, f in zip(mm, ff)]
+    hs = band.step * 0.5
+    for j in range(max(0, -y0), min(h, bh - y0)):
+        b = (j + 1) * st + 1
+        mm = mag[b + sk:b + en]
+        if not any(mm):
+            continue
+        ff = flags[b + sk:b + en]
+        if roi:
+            mm = [m >> roi if m >= thresh else m for m in mm]
+        if rev:
+            rows[y0 + j][x0 + sk:x0 + en] = [-(m >> 1) if f & NEG else m >> 1 for m, f in zip(mm, ff)]
+        else:
+            rows[y0 + j][x0 + sk:x0 + en] = [-m * hs if f & NEG else m * hs for m, f in zip(mm, ff)]
 
 
 def _output_size(st: _Stream, c: int, reduce: int) -> tuple:
@@ -992,17 +990,85 @@ def _output_size(st: _Stream, c: int, reduce: int) -> tuple:
     return x0, y0, x1, y1
 
 
+def _comp_rects(st: _Stream, c: int, tc: _TileComp, win: tuple, rd: int) -> dict:
+    """範囲（基準の格子の [左, 上, 右, 下)）を開くのに要る、解像度の段ごとの四角 {r: (x0, y0, x1, y1)}。
+    逆ウェーブレットは近くの係数しか見ない（F.3：5/3 は ±2、9/7 は ±4）。段ごとにその分を足した四角を普通に合成すれば、足した分の内側は
+    全体を開いたときと同じ値になる（四角の端の折り返しの影響は、足した分の中で消える）。"""
+    _ss, _sg, xr, yr = st.comps[c]
+    k = 1 << rd
+    wx0, wy0 = win[0] // xr // k, win[1] // yr // k
+    wx1, wy1 = _ceildiv(_ceildiv(win[2], xr), k), _ceildiv(_ceildiv(win[3], yr), k)
+    m = 3 if tc.coding.reversible else 5
+    rects = {}
+    for r in range(tc.nl - rd, -1, -1):
+        res = tc.res[r]
+        A, C, B, D = max(res.x0, wx0 - m), max(res.y0, wy0 - m), min(res.x1, wx1 + m), min(res.y1, wy1 + m)
+        if B <= A or D <= C:
+            A, C, B, D = res.x0, res.y0, res.x0, res.y0
+        rects[r] = (A, C, B, D)
+        wx0, wy0, wx1, wy1 = (A + 1) >> 1, (C + 1) >> 1, (B + 1) >> 1, (D + 1) >> 1
+    return rects
+
+
+def _band_rect(o: int, r: int, rect: tuple) -> tuple:
+    """解像度の段の四角のうち、帯 o（1 HL・2 LH・3 HH）の係数の四角。低域は偶数の座標、高域は奇数の座標（F.3.3）。r＝0 はそのまま。"""
+    A, C, B, D = rect
+    if r == 0:
+        return rect
+    x0, x1 = (A >> 1, B >> 1) if o & 1 else ((A + 1) >> 1, (B + 1) >> 1)
+    y0, y1 = (C >> 1, D >> 1) if o & 2 else ((C + 1) >> 1, (D + 1) >> 1)
+    return x0, y0, x1, y1
+
+
+def _block_bytes(blk: _Block) -> int:
+    return sum(len(x) for sg in blk.segs for x in sg[0])
+
+
+def _plan_cost(st: _Stream, tiles: list, win: tuple, rd: int) -> tuple:
+    """解像度を rd 段減らして範囲を開くときの、(第 1 層で読むバイト, 持つ値の数)。"""
+    size = vals = 0
+    for _t, tcs, *_r in tiles:
+        for c, tc in enumerate(tcs):
+            rects = _comp_rects(st, c, tc, win, min(rd, tc.nl))
+            top = max(rects)
+            A, C, B, D = rects[top]
+            vals += (B - A) * (D - C)
+            for r, rect in rects.items():
+                for b in tc.res[r].bands:
+                    x0, y0, x1, y1 = _band_rect(b.orient, r, rect)
+                    if x1 <= x0 or y1 <= y0:
+                        continue
+                    for blk in b.blocks:
+                        if blk.segs and blk.x0 < x1 and blk.x1 > x0 and blk.y0 < y1 and blk.y1 > y0:
+                            size += _block_bytes(blk)
+    return size, vals
+
+
 def decode(data: bytes, target_pixels: int | None = None, reduce: int | None = None, deadline: float | None = None,
-           max_t1_bytes: int | None = None) -> Image:
-    """JPEG 2000 を開く。target_pixels：画面に要る画素の数（これを下回らない範囲で解像度の段を減らす）。reduce：段の数を直接指定。"""
+           max_t1_bytes: int | None = None, window: tuple | None = None) -> Image:
+    """JPEG 2000 を開く。target_pixels：画面に要る画素の数（画像の全体で。これを下回らない範囲で解像度の段を減らす）。reduce：段の数を直接指定。
+    window：[左, 上, 右, 下)（元の画素）を指定すると、そこに掛かるタイルと符号ブロックだけを開く（結果の画像は、その範囲だけ）。予算（MAX_T1_BYTES）は
+    開く分に掛かるので、範囲を狭めれば、どの部分でも元の解像度まで開ける。"""
     j2 = _parse_jp2(data)
     st = _Stream(j2.codestream)
     problems = list(st.problems)
     notes: list = []
     max_t1_bytes = MAX_T1_BYTES if max_t1_bytes is None else max_t1_bytes
-    # タイルを読む（第 2 層は全部読む：符号ブロックのバイトの数が分かる）
+    W, H = st.xsiz - st.xo, st.ysiz - st.yo
+    win = (st.xo, st.yo, st.xsiz, st.ysiz)
+    if window is not None:
+        fx = max(c[2] for c in st.comps)
+        fy = max(c[3] for c in st.comps)
+        wx0, wy0, wx1, wy1 = (int(v) for v in window)
+        wx1, wy1 = min(W, max(wx1, wx0 + 1)), min(H, max(wy1, wy0 + 1))
+        wx0, wy0 = max(0, min(wx0, W - 1)), max(0, min(wy0, H - 1))
+        wx0, wy0, wx1, wy1 = wx0 + st.xo, wy0 + st.yo, wx1 + st.xo, wy1 + st.yo
+        # 間引いた成分とそろうように、基準の格子で間引きの倍数に広げる
+        win = (wx0 // fx * fx, wy0 // fy * fy, min(st.xsiz, _ceildiv(wx1, fx) * fx), min(st.ysiz, _ceildiv(wy1, fy) * fy))
+    # タイルを読む（第 2 層は全部読む：符号ブロックのバイトの数が分かる。範囲の外のタイルは読まない）
     tiles = []
     counter = [0]
+    seen = 0
     for idx in sorted(st.tiles):
         t = st.tiles[idx]
         p, q = idx % st.ntx, idx // st.ntx
@@ -1010,35 +1076,24 @@ def decode(data: bytes, target_pixels: int | None = None, reduce: int | None = N
         ty0 = max(st.yto + q * st.yt, st.yo)
         tx1 = min(st.xto + (p + 1) * st.xt, st.xsiz)
         ty1 = min(st.yto + (q + 1) * st.yt, st.ysiz)
+        seen += 1
+        if tx0 >= win[2] or tx1 <= win[0] or ty0 >= win[3] or ty1 <= win[1]:
+            continue
         tcs = [_build_comp(st, t, c, tx0, ty0, tx1, ty1, counter) for c in range(st.csiz)]
         try:
             _read_packets(st, t, tcs, tx0, ty0, tx1, ty1, problems)
         except (IndexError, struct.error) as e:
             problems.append(f"タイル {idx} のパケットを読めません（{type(e).__name__}）")
         tiles.append((t, tcs, tx0, ty0, tx1, ty1))
-    if not tiles:
+    if not seen:
         raise JpxError("JPEG 2000：タイルのデータがありません")
+    if not tiles:
+        raise JpxError("JPEG 2000：指定の範囲にタイルのデータがありません")
     max_reduce = min(tc.nl for _t, tcs, *_r in tiles for tc in tcs)
-    # 解像度の段ごとのバイトの数
-    by_res: dict = {}
-    for _t, tcs, *_r in tiles:
-        for tc in tcs:
-            for r, res in enumerate(tc.res):
-                drop = tc.nl - r  # この段を読むには reduce ≤ drop
-                total = 0
-                for pct in res.precincts.values():
-                    for pb in pct["bands"]:
-                        for blk in pb.blocks:
-                            total += sum(len(x) for sg in blk.segs for x in sg[0])
-                by_res[drop] = by_res.get(drop, 0) + total
-    W, H = st.xsiz - st.xo, st.ysiz - st.yo
+    wide, tall = win[2] - win[0], win[3] - win[1]
 
-    def kept_bytes(rd: int) -> int:
-        return sum(v for k, v in by_res.items() if k >= rd)
-
-    def kept_vals(rd: int) -> int:
-        return sum(((_ceildiv(st.xsiz, 1 << rd) - _ceildiv(st.xo, 1 << rd)) * (_ceildiv(st.ysiz, 1 << rd) - _ceildiv(st.yo, 1 << rd)))
-                   // (st.comps[c][2] * st.comps[c][3]) for c in range(st.csiz))
+    def cost(rd: int) -> tuple:
+        return _plan_cost(st, tiles, win, rd)
 
     at_limit = False
     if reduce is None:
@@ -1047,33 +1102,43 @@ def decode(data: bytes, target_pixels: int | None = None, reduce: int | None = N
             while rd < max_reduce and ((W >> (rd + 1)) * (H >> (rd + 1))) >= target_pixels:
                 rd += 1
         forced = rd
-        while rd < max_reduce and (kept_bytes(rd) > max_t1_bytes or kept_vals(rd) > MAX_VALUES):
+        kept = first = cost(rd)
+        while rd < max_reduce and (kept[0] > max_t1_bytes or kept[1] > MAX_VALUES):
             rd += 1
+            kept = cost(rd)
         if rd > forced:
             at_limit = True
-            notes.append(f"時間とメモリの予算の中で開くため、解像度を {1 << rd} 分の 1 にしました（これより細かくは開きません）")
+            # 細かく見るには、バイトの数が予算に収まるまで範囲を狭める（辺の長さは面積の平方根）
+            side = min(1.0, (max_t1_bytes / max(1, first[0])) ** 0.5, (MAX_VALUES / max(1, first[1])) ** 0.5) * 0.9
+            notes.append(f"時間とメモリの予算の中で開くため、この範囲（{wide:,}×{tall:,} 画素）を解像度 {1 << rd} 分の 1 で開きました。"
+                         f"{'元の細かさ' if not forced else f'{1 << forced} 分の 1'}で見るには、region で範囲の縦横を今の {max(side, 0.01):.2f} 倍くらいに狭めてください"
+                         "（範囲を狭めれば、どの部分でも元の解像度まで開けます）")
     else:
         rd = min(reduce, max_reduce)
-    if kept_vals(rd) > MAX_VALUES * 2:
+        kept = cost(rd)
+    if kept[1] > MAX_VALUES * 2:
         raise LimitExceeded(f"JPEG 2000 の画像（{W:,} × {H:,} 画素・{st.csiz} 成分）は、分解の段が少なく、開ける大きさを超えます")
-    limits.budget().charge(kept_vals(rd) * 8, "JPEG 2000 の係数")
+    limits.budget().charge(kept[1] * 8, "JPEG 2000 の係数")
     # 第 1 層のバイトの予算：解像度を下げきっても超えるなら、細かい段の後ろの通り道を読まない。低い解像度から順に読む
-    budget = max_t1_bytes * 3 // 2 if kept_bytes(rd) > max_t1_bytes else None
+    budget = max_t1_bytes * 3 // 2 if kept[0] > max_t1_bytes else None
     stopped = False
     jobs = []
     for ti, (_t, tcs, *_r) in enumerate(tiles):
         for c, tc in enumerate(tcs):
-            top = tc.nl - rd
+            top = tc.nl - min(rd, tc.nl)
+            rects = _comp_rects(st, c, tc, win, min(rd, tc.nl))
             for r in range(0, top + 1):
                 res = tc.res[r]
+                res.x0, res.y0, res.x1, res.y1 = rects[r]  # ここから先は、範囲の四角だけを合成する（第 2 層は読み終わった）
                 for b in res.bands:
+                    b.x0, b.y0, b.x1, b.y1 = _band_rect(b.orient, r, rects[r])
                     bw, bh = b.x1 - b.x0, b.y1 - b.y0
                     if bw > 0 and bh > 0:
                         zero = 0 if tc.coding.reversible else 0.0
                         b.rows = [[zero] * bw for _ in range(bh)]
-                    for blk in b.blocks:
-                        if blk.segs:
-                            jobs.append((r, ti, c, blk, b, tc))
+                        for blk in b.blocks:
+                            if blk.segs and blk.x0 < b.x1 and blk.x1 > b.x0 and blk.y0 < b.y1 and blk.y1 > b.y0:
+                                jobs.append((r, ti, c, blk, b, tc))
     jobs.sort(key=lambda t: t[0])  # 低い解像度から（止めるときも、形は残る）
     spent = 0
     clock = time.monotonic
@@ -1083,7 +1148,7 @@ def decode(data: bytes, target_pixels: int | None = None, reduce: int | None = N
             stopped = True
             skipped = len(jobs) - n
             break
-        size = sum(len(x) for sg in blk.segs for x in sg[0])
+        size = _block_bytes(blk)
         if budget is not None and spent + size > budget:
             skipped += 1
             continue
@@ -1094,22 +1159,27 @@ def decode(data: bytes, target_pixels: int | None = None, reduce: int | None = N
             problems.append(f"符号ブロックを読めません（{type(e).__name__}）")
     if skipped:
         if stopped:
-            problems.append(f"時間がかかりすぎるので、{skipped} 個の符号ブロックを読まずに開きました（細かい所がぼけています）")
+            problems.append(f"時間がかかりすぎるので、{skipped} 個の符号ブロックを読まずに開きました（細かい所がぼけています。region で範囲を狭めると読めます）")
         else:
-            notes.append(f"予算の中で開くため、{skipped} 個の符号ブロックを読みませんでした（細かい所がぼけています）")
+            notes.append(f"予算の中で開くため、{skipped} 個の符号ブロックを読みませんでした（細かい所がぼけています。region で範囲を狭めると読めます）")
     # 出力の面
-    sizes = [_output_size(st, c, rd) for c in range(st.csiz)]
+    sizes = [_window_size(st, c, rd, win) for c in range(st.csiz)]
     out_planes = [bytearray((s[2] - s[0]) * (s[3] - s[1])) for s in sizes]
     for _t, tcs, *_r in tiles:
         comps = []
         for tc in tcs:
-            top = tc.nl - rd
+            top = tc.nl - min(rd, tc.nl)
             rev = tc.coding.reversible
             res0 = tc.res[0]
             rows = res0.bands[0].rows or []
             for r in range(1, top + 1):
-                rows = _inverse_level(rows, tc.res[r], rev)
-                for b in tc.res[r].bands:
+                # 1 つ下の段の四角は、合成のために足した分だけ広い：この段の低域の四角に切りそろえる
+                cur, low = tc.res[r], tc.res[r - 1]
+                lx0, ly0, lx1, ly1 = (cur.x0 + 1) >> 1, (cur.y0 + 1) >> 1, (cur.x1 + 1) >> 1, (cur.y1 + 1) >> 1
+                if (lx0, ly0, lx1, ly1) != (low.x0, low.y0, low.x1, low.y1):
+                    rows = [row[lx0 - low.x0:lx1 - low.x0] for row in rows[ly0 - low.y0:ly1 - low.y0]]
+                rows = _inverse_level(rows, cur, rev)
+                for b in cur.bands:
                     b.rows = None
             res0.bands[0].rows = None
             comps.append((tc, rows, top))
@@ -1118,7 +1188,24 @@ def decode(data: bytes, target_pixels: int | None = None, reduce: int | None = N
             tc.res = None
     img = _finish_image(st, j2, out_planes, sizes, rd, notes, problems, stopped)
     img.at_limit = at_limit
+    if window is not None:
+        k = 1 << rd
+        s0 = max(sizes, key=lambda s: s[2] - s[0])
+        c0 = sizes.index(s0)
+        xr, yr = st.comps[c0][2], st.comps[c0][3]
+        img.window = (max(0, s0[0] * k * xr - st.xo), max(0, s0[1] * k * yr - st.yo),
+                      min(W, s0[2] * k * xr - st.xo), min(H, s0[3] * k * yr - st.yo))
     return img
+
+
+def _window_size(st: _Stream, c: int, rd: int, win: tuple) -> tuple:
+    """成分 c の、解像度を rd 段減らした出力の面の四角（範囲に掛かる所）。"""
+    x0, y0, x1, y1 = _output_size(st, c, rd)
+    _ss, _sg, xr, yr = st.comps[c]
+    k = 1 << rd
+    wx0, wy0 = win[0] // xr // k, win[1] // yr // k
+    wx1, wy1 = _ceildiv(_ceildiv(win[2], xr), k), _ceildiv(_ceildiv(win[3], yr), k)
+    return max(x0, wx0), max(y0, wy0), max(max(x0, wx0) + 1, min(x1, wx1)), max(max(y0, wy0) + 1, min(y1, wy1))
 
 
 def _finish_tile(st: _Stream, tile: _Tile, comps: list, out_planes: list, sizes: list, rd: int) -> None:
@@ -1155,21 +1242,27 @@ def _finish_tile(st: _Stream, tile: _Tile, comps: list, out_planes: list, sizes:
         lo, hi = (-(1 << (ss - 1)), (1 << (ss - 1)) - 1) if signed else (0, (1 << ss) - 1)
         shift_show = 1 << (ss - 1) if signed else 0  # 符号つきの成分は、見せるために 0 始まりにずらす
         rev = tc.coding.reversible
+        # 出力の面の四角に掛かる所だけ（範囲を開くときは、合成のために足した分が外に出る）
+        sk = max(0, ox - res.x0)
+        en = min(res.x1 - res.x0, x1 - res.x0)
+        if en <= sk:
+            continue
+        lines = [(res.y0 + j, row[sk:en]) for j, row in enumerate(rows) if oy <= res.y0 + j < y1]
         if ss == 8:
-            for j, row in enumerate(rows):
+            for Y, row in lines:
                 if rev:
                     line = bytes([0 if v < 0 else 255 if v > 255 else v for v in [x + off + shift_show for x in row]])
                 else:
                     t = off + shift_show + 0.5
                     line = bytes([0 if v < 0 else 255 if v > 255 else int(v) for v in [x + t for x in row]])
-                p = (res.y0 + j - oy) * stride + (res.x0 - ox)
+                p = (Y - oy) * stride + (res.x0 + sk - ox)
                 dst[p:p + len(line)] = line
         else:
             # 8 ビットへ（16 ビットは上の桁、少ないビットは広げる）
             scale = 255.0 / ((1 << ss) - 1)
-            for j, row in enumerate(rows):
+            for Y, row in lines:
                 line = bytes([int((min(hi, max(lo, int(x + off + (0 if rev else 0.5)))) + shift_show) * scale + 0.5) for x in row])
-                p = (res.y0 + j - oy) * stride + (res.x0 - ox)
+                p = (Y - oy) * stride + (res.x0 + sk - ox)
                 dst[p:p + len(line)] = line
 
 
@@ -1250,7 +1343,7 @@ def _finish_image(st: _Stream, j2: _JP2, planes: list, sizes: list, rd: int, not
         full = [r, g, b_] + full[3:]
         cs = "sRGB"
     if rd:
-        notes.append(f"解像度の段を {rd} 段減らして開きました（元の {st.xsiz - st.xo}×{st.ysiz - st.yo} 画素 → {W}×{H} 画素）")
+        notes.append(f"解像度の段を {rd} 段減らして開きました（元の {st.xsiz - st.xo}×{st.ysiz - st.yo} 画素の {1 << rd} 分の 1。開いた画像は {W}×{H} 画素）")
     return Image(W, H, full, cs, alpha, rd, st.xsiz - st.xo, st.ysiz - st.yo, notes, problems, stopped, j2.dpi, [c[0] for c in st.comps])
 
 
