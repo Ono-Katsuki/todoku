@@ -101,16 +101,12 @@ UNSUPPORTED: dict[str, str] = {
 
 
 UNSUPPORTED.update({
-    "7z": "7-Zip の書庫（.7z）",
-    "rar": "RAR の書庫（.rar）",
     "docuworks": "DocuWorks の文書（.xdw・.xbd）",
     "works": "Microsoft Works の文書（.wps）",
     "wk3": "Lotus 1-2-3 の新しい形（.wk3・.wk4・.123）",
 })
 # 形式ごとの、次の一手（なければ「PDF・Word などに書き出したもの」）
 NEXT_STEP: dict[str, str] = {
-    "7z": "とどくは 7-Zip の書庫を解きません（標準のライブラリに書庫の形の読み方がありません）。7-Zip か Windows のエクスプローラーで展開したファイルか、ZIP にしたものを開いてください",
-    "rar": "RAR の圧縮は標準のライブラリにも公開の仕様にもなく、とどくは解きません。WinRAR や 7-Zip で展開したファイルか、ZIP にしたものを開いてください",
     "docuworks": "DocuWorks の形は公開されていないので、とどくは読みません（字を推測で取り出しません）。発行元に PDF を頼むか、本人が DocuWorks Viewer Light（無償）で開いて、"
                  "PDF を作るプリンター（Microsoft Print to PDF など）に印刷したものを開いてください",
     "works": "Microsoft Works の形は公開されていないので、とどくは読みません（Kingsoft の .wps は Word と同じ形なので読めます）。"

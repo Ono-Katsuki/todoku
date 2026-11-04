@@ -57,6 +57,7 @@ def _read(path: str, password: str | None = None):
     from .unlock import NeedsPassword, WrongPassword, unlock
 
     p = Path(path).expanduser()
+    _arc.use_password(password)
     if not p.is_file() and _member(path) is not None:
         return _read_member(path, password)
     if not p.is_file():
@@ -64,11 +65,14 @@ def _read(path: str, password: str | None = None):
     blob = _read_file(p)
     try:
         plain, lock = unlock(blob, password)
+        _arc.preflight(plain, kind_of(plain, p.name))
     except NeedsPassword as e:
         raise PasswordNeeded(f"{e}。本人にパスワードを聞いて、password に入れてもう一度呼んでください"
                              "（パスワードは、結果にも記録にも残しません）") from None
     except WrongPassword as e:
         raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
+    except _arc.ArchiveError:
+        pass  # 壊れた書庫：窓・段階の所で、理由を添えて伝える
     k = kind_of(plain, p.name)  # 名前は、中身だけでは決まらない形式（CSV・JSON など）を見分けるのに使う
     if k in UNSUPPORTED:
         raise Unsupported(unsupported_message(k, plain), k)  # 見分けたが、まだ読めない形式（book.UNSUPPORTED）
@@ -146,6 +150,7 @@ def _member(path: str) -> tuple[str, list[str]] | None:
 def _member_blob(path: str) -> tuple[bytes, str]:
     """ZIP の中のファイルの中身と名前（ZIP の中の ZIP も、続けて「!/」で指す）。"""
     from . import ziparc
+    from .unlock import NeedsPassword, WrongPassword
 
     outer, chain = _member(path)
     blob = _read_file(Path(outer).expanduser())
@@ -156,6 +161,8 @@ def _member_blob(path: str) -> tuple[bytes, str]:
             raise ApiError(f"「{m}」の外側のファイルは ZIP ではありません")
         try:
             blob = _arc.extract(blob, m, k, cur)
+        except (NeedsPassword, WrongPassword):
+            raise  # 7z・RAR のパスワード：呼んだ側（_read_member）が、聞き直す形に直す
         except ziparc.ArchiveError as e:
             raise ApiError(str(e)) from None
         cur = ziparc.base_name(m)
@@ -165,8 +172,8 @@ def _member_blob(path: str) -> tuple[bytes, str]:
 def _read_member(path: str, password: str | None):
     from .unlock import NeedsPassword, WrongPassword, unlock
 
-    blob, name = _member_blob(path)
     try:
+        blob, name = _member_blob(path)
         plain, lock = unlock(blob, password)
     except NeedsPassword as e:
         raise PasswordNeeded(f"{e}。本人にパスワードを聞いて、password に入れてもう一度呼んでください"
@@ -220,7 +227,7 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
 
     blob, name, k, lock = _read(path, password)
     encoding = _encoding(blob, k, encoding)
-    key = (hashlib.sha256(blob).hexdigest(), name, encoding) if lock is None else None
+    key = (hashlib.sha256(blob).hexdigest(), name, encoding) if lock is None and not (password and k in _arc.PASSWORDED) else None
     if key is not None and key in _WINDOWS:
         _WINDOWS[key] = _WINDOWS.pop(key)  # いちばん新しく使ったものにする
         return pickle.loads(_WINDOWS[key][1])  # 呼んだ側が変えても控えは変わらないよう、写しを返す

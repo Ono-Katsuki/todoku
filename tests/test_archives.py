@@ -195,14 +195,14 @@ def test_lzh_audit_goes_through_members(tmp_path):
     assert au["checks"] and all(c["name"].startswith("a.csv：") for c in au["checks"])
 
 
-@pytest.mark.parametrize("blob,kind,word", [(b"7z\xbc\xaf\x27\x1c" + bytes(30), "7z", "7-Zip"), (b"Rar!\x1a\x07\x00" + bytes(30), "rar", "RAR")])
-def test_7z_and_rar_are_named_not_read(tmp_path, blob, kind, word):
+@pytest.mark.parametrize("blob,kind", [(b"7z\xbc\xaf\x27\x1c" + bytes(30), "7z"), (b"Rar!\x1a\x07\x00" + bytes(30), "rar")])
+def test_broken_7z_and_rar_say_so(tmp_path, blob, kind):
     assert kind_of(blob) == kind
     p = _p(tmp_path, f"a.{kind}", blob)
-    with pytest.raises(api.ApiError, match=word):
+    with pytest.raises(api.ApiError, match="壊れて"):
         api.window(p)
     g = api.grade(p)
-    assert g["grade"] == "F" and "展開" in str(g["reasons"])
+    assert g["grade"] == "F" and "壊れて" in str(g["reasons"])
 
 
 # ---------------------------------------------------------------------- メール
