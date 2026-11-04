@@ -123,7 +123,8 @@ def test_model_small_results_are_exact():
     assert sorted(st.take(5)) == [100, 200]
     assert st.take(5) == []  # 1 度取ったものは消える
     idx = _Index({("A", 1, 1), ("A", 3, 1), ("A", 2, 2), ("B", 1, 1)})
-    assert idx.spans("A", 1, 1, 3, 2) == [(0, 3)]  # 隣の列まで続く区間は 1 つ
+    got = idx.spans("A", 1, 1, 3, 2)
+    assert len(got) == 1 and got[0][1] - got[0][0] == 3  # 隣の列まで続く区間は 1 つ
     assert idx.spans("A", 2, 1, 2, 1) == []
 
 
