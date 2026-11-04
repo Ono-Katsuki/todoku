@@ -14,6 +14,7 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from .. import chars as _chars  # 字の種類（空白・下線の字・ダッシュ・点線・かっこの組・チェックの箱の字）：Unicode の資料の表
+from ..limits import budget
 from .content import PageContent
 
 
@@ -368,6 +369,7 @@ def cells_from(hs: list[Rule], vs: list[Rule], tol: float = 2.0) -> list[Cell]:
     for hi, h in enumerate(hs):
         lo = bisect.bisect_left(vpos, h.a - tol)
         hi_ = bisect.bisect_right(vpos, h.b + tol)
+        budget().count(hi_ - lo, "罫線の交わり")
         for k in range(lo, hi_):
             v = vs_sorted[k]
             if v.a - tol <= h.pos <= v.b + tol:
@@ -378,20 +380,25 @@ def cells_from(hs: list[Rule], vs: list[Rule], tol: float = 2.0) -> list[Cell]:
         by_h[hi].sort(key=lambda k: vs_sorted[k].pos)
     for k in by_v:
         by_v[k].sort(key=lambda i: hs[i].pos)
+    pos_h = {hi: [vs_sorted[k].pos for k in ks] for hi, ks in by_h.items()}
+    pos_v = {k: [hs[i].pos for i in ks] for k, ks in by_v.items()}
     cells = []
     seen = set()
     for (hi, k), (x, y) in pts.items():
-        # 右の交点（同じ横線の上）
-        rights = [k2 for k2 in by_h[hi] if vs_sorted[k2].pos > x + tol]
-        downs = [h2 for h2 in by_v[k] if hs[h2].pos > y + tol]
+        # 右の交点（同じ横線の上）・下の交点：並びの中の位置から順に、要る所まで見る（交点ごとに線の上の全部の交点を見ると、3 乗になる）
+        row, col = by_h[hi], by_v[k]
+        right0 = bisect.bisect_right(pos_h[hi], x + tol)
+        down0 = bisect.bisect_right(pos_v[k], y + tol)
         done = False
-        for h2 in downs:
+        for d_i in range(down0, len(col)):
+            h2 = col[d_i]
             y2 = hs[h2].pos
             # 縦線 k が y から y2 までつながっているか
             v = vs_sorted[k]
             if not (v.a - tol <= y and v.b + tol >= y2):
                 break
-            for k2 in rights:
+            for r_i in range(right0, len(row)):
+                k2 = row[r_i]
                 x2 = vs_sorted[k2].pos
                 h = hs[hi]
                 if not (h.a - tol <= x and h.b + tol >= x2):

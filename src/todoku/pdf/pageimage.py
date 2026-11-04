@@ -189,6 +189,11 @@ def with_ruler(r: dict, marks: list | None = None, written: list | None = None, 
     tick = 5
     if ticks:
         tick, step = ticks
+    # 目盛りの数は画素の数で決まる（ページの宣言の大きさで増やさない）：線が 4 画素、数が 16 画素より詰まるなら間隔を 10 倍に
+    while tick * s < 4:
+        tick *= 10
+    while step * s < 16 or step % tick:
+        step *= 10
     first = int(ox // tick + 1) * tick
     for mm in range(first, int(ox + W / s) + 1, tick):
         X = M + int((mm - ox) * s)

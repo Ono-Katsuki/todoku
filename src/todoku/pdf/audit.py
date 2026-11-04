@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import re
+import math
 import unicodedata
 from collections import Counter
 
@@ -133,22 +134,63 @@ def overprints(glyphs) -> Counter:
     これは「窓と食い違わないか」の照らし合わせ（整合の検査）で、独立の検査ではない：決まりは窓と同じ pagetext.is_overprint
     （同じ字で、送りの向きにそった2つの字の送りの幅の重なりが、狭い方の幅の半分より多く、直角のずれが字の大きさの 1/4 より
     小さく、大きさがほぼ同じもの）をそのまま使い（決まりを 2 か所に書かない）、窓とは別の手順で数え直す：窓の位置の換算（view）を
-    通さずにページの座標で、探す範囲の区切りを使わずにすべての字どうしを比べる。決まりそのものの正しさは、ここでは確かめない。
+    通さずにページの座標で、字の幅と大きさから決まる届く範囲の字（重ね書きになりうる字はすべて）と比べる。決まりそのものの正しさは、ここでは確かめない。
     決まりとは別の量（描いた字の箱の重なり）で見て、箱が重ならない字を1字にした所は、窓の読む段階の注意（「重ね書きとして1字に
     した字」C）で知らせる。"""
     from .pagetext import glyph_frame, is_overprint
 
     out: Counter = Counter()
-    kept: dict[str, list] = {}
+    kept = _KeptFrames()
     for g in glyphs:
         if not g.text or g.size < 0.5:
             continue
         fr = glyph_frame(g)
-        if any(is_overprint(f0, fr, s0, g.size) for f0, s0 in kept.get(g.text, ())):
+        if any(is_overprint(f0, fr, s0, g.size) for f0, s0 in kept.near(g.text, fr, g.size)):
             out[g.text] += 1
         else:
-            kept.setdefault(g.text, []).append((fr, g.size))
+            kept.add(g.text, fr, g.size)
     return out
+
+
+class _KeptFrames:
+    """残した字を、字ごとに、幅と大きさの桁（2 の冪）で分け、桁ごとの大きさの升目に置く。重ね書きの決まり（is_overprint）では、
+    2 つの字の原点の離れは「広い方の送りの幅 + 大きさの 1/4」までなので、届く升目だけを見れば、重ね書きになりうる字をすべて見る
+    （同じ字が同じ行に何万と並ぶページでも、字ごとに全部の字と比べない）。"""
+
+    def __init__(self):
+        self.by_text: dict[str, dict[tuple[int, int], dict[tuple[int, int], list]]] = {}
+
+    @staticmethod
+    def _class(fr, size) -> tuple[int, int]:
+        return (math.frexp(abs(fr[4]))[1], math.frexp(size)[1])
+
+    @staticmethod
+    def _reach(wc: int, sc: int) -> float:
+        return 2.0 ** wc + 0.5 * 2.0 ** sc  # この桁の字の、届く長さの上限（大きさは、2 つの字の大きさが近いので 2 倍まで見る）
+
+    def add(self, text: str, fr, size: float) -> None:
+        wc, sc = self._class(fr, size)
+        cell = self._reach(wc, sc)
+        key = (math.floor(fr[0] / cell), math.floor(fr[1] / cell)) if math.isfinite(fr[0] + fr[1]) else (0, 0)
+        self.by_text.setdefault(text, {}).setdefault((wc, sc), {}).setdefault(key, []).append((fr, size))
+
+    def near(self, text: str, fr, size: float):
+        for (wc, sc), grid in self.by_text.get(text, {}).items():
+            cell = self._reach(wc, sc)
+            reach = max(cell, abs(fr[4]) + 0.5 * size)  # この字の幅のほうが広いこともある
+            if not math.isfinite(fr[0] + fr[1] + reach):
+                for items in grid.values():
+                    yield from items
+                continue
+            r = math.ceil(reach / cell)
+            cx, cy = math.floor(fr[0] / cell), math.floor(fr[1] / cell)
+            if (2 * r + 1) ** 2 > len(grid):
+                for items in grid.values():
+                    yield from items
+                continue
+            for x in range(cx - r, cx + r + 1):
+                for y in range(cy - r, cy + r + 1):
+                    yield from grid.get((x, y), ())
 
 
 def check_reading(doc: PdfDocument, win: dict) -> list[Check]:

@@ -678,7 +678,8 @@ class Filler:
             comb = None
             if f.flags & FF_COMB and f.maxlen:
                 cw = vw / f.maxlen
-                comb = [(i * cw, 0, (i + 1) * cw, vh) for i in range(f.maxlen)]
+                # 使うマスは書く字の分だけ（/MaxLen の宣言の数だけ作らない。超える字は text_appearance が断る）
+                comb = [(i * cw, 0, (i + 1) * cw, vh) for i in range(min(f.maxlen, max(1, len(shown) + 1)))]
             try:
                 # 1 行の欄（Multiline の印なし）は折り返さない：見た目を作り直すビューアーも 1 行で描くので、1 行に収まる大きさにする
                 ap, s = text_appearance(self.up, x1 - x0, y1 - y0, shown, size, self.fonts_for(keys | {"Helv"}),

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import re
+import math
 import unicodedata
 from dataclasses import dataclass, field
 
@@ -662,15 +663,15 @@ class PageLayout:
         # 重なる所：小さいほうの面積の 6 割（チェックの印どうしは 7 割）より多く重なる所は、同じ所の別の読み方（alternative_to）。
         # 両方に書くと字が重なるので、書き込みはどちらか一方だけを受ける（先に見つけた所を主にする）。重なりは測った事実で、
         # どちらが正しい読み方かは決めない
-        kept: list[Spot] = []
+        kept = _RectIndex()
         for s in self.spots:
             chk = s.kind == "checkbox"
             lim = 0.7 if chk else 0.6
-            k = next((k for k in kept if (k.kind == "checkbox") == chk and _overlap(s.rect, k.rect) > lim), None)
+            k = next((k for k in kept.touching(s.rect) if (k.kind == "checkbox") == chk and _overlap(s.rect, k.rect) > lim), None)
             if k is not None:
                 s.alternative_to = k
                 continue
-            kept.append(s)
+            kept.add(s)
         # ページの外：見えるのはページの枠（CropBox を MediaBox に切り詰めたもの）の中だけ。欄の四角を枠に切り詰め、
         # 枠の外にしかないもの（ページの外に描いた線・字から見つけたもの）は欄にしない
         self._clip_to_page()
@@ -1230,6 +1231,43 @@ def _inside(r, box) -> bool:
 
 def _area(r) -> float:
     return max(0.0, r[2] - r[0]) * max(0.0, r[3] - r[1])
+
+
+class _RectIndex:
+    """四角の升目の索引：重なりうる所（入れた順）だけを比べる（線の交わりが何千とあるページでも、所どうしを総当たりしない）。"""
+
+    CELL = 16.0
+    BIG = 256  # これより多くの升にかかる大きな四角は、別に持ち、いつも比べる
+
+    def __init__(self):
+        self.items: list = []
+        self.grid: dict[tuple[int, int], list[int]] = {}
+        self.big: list[int] = []
+
+    def _cells(self, r):
+        c = self.CELL
+        return (math.floor(r[0] / c), math.floor(r[1] / c), math.floor(r[2] / c), math.floor(r[3] / c))
+
+    def add(self, s) -> None:
+        i = len(self.items)
+        self.items.append(s)
+        x0, y0, x1, y1 = self._cells(s.rect)
+        if (x1 - x0 + 1) * (y1 - y0 + 1) > self.BIG:
+            self.big.append(i)
+            return
+        for x in range(x0, x1 + 1):
+            for y in range(y0, y1 + 1):
+                self.grid.setdefault((x, y), []).append(i)
+
+    def touching(self, r) -> list:
+        x0, y0, x1, y1 = self._cells(r)
+        if (x1 - x0 + 1) * (y1 - y0 + 1) > self.BIG:
+            return self.items  # 大きな四角：入れたものを順に全部（数えるほどしかない）
+        found = set(self.big)
+        for x in range(x0, x1 + 1):
+            for y in range(y0, y1 + 1):
+                found.update(self.grid.get((x, y), ()))
+        return [self.items[i] for i in sorted(found)]
 
 
 def _overlap(r1, r2) -> float:

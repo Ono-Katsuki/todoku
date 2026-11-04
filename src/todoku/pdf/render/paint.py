@@ -60,6 +60,9 @@ def _rgb255(c) -> tuple[int, int, int]:
     return (int(c[0] * 255 + 0.5), int(c[1] * 255 + 0.5), int(c[2] * 255 + 0.5))
 
 
+MAX_IMAGES_HELD = 128 << 20  # 開いた画像の控えの大きさの合計（バイト。古いものから捨てる）
+
+
 class Renderer:
     def __init__(self, doc, cv: Canvas, deadline: float | None = None):
         self.doc = doc
@@ -68,6 +71,9 @@ class Renderer:
         self.stopped = False
         self.ops = 0
         self.gcache: dict = {}
+        self.images: dict = {}  # 開いた画像の控え（オブジェクトと大きさごと）：同じ画像を何度も描くページで、開き直さない
+        self.images_held = 0  # 控えの大きさの合計
+        self.images_spent = 0  # このページで開いた画像の大きさの合計
         self.drawing: set = set()
         self.stats = {"glyphs": 0, "glyphs_embedded": 0, "glyphs_system": 0, "glyphs_type3": 0, "glyphs_box": 0,
                       "images": 0, "paths": 0}
@@ -671,16 +677,37 @@ class Renderer:
         # 画面での大きさ（画素）：大きすぎる画像は、この大きさの数倍に間引いて開く
         dev = abs(m[0] * m[3] - m[1] * m[2])
         # JPEG は逆 DCT で 1/2・1/4・1/8 に縮めて開ける（縮めても面積の平均）：画面の 2 倍まで。ほかは開いてから箱の平均で縮める
-        try:
-            im = image_rgba(self.doc, img, 16_000_000, res, int(max(250_000, dev * 2)), self.deadline)
-        except Exception as e:  # noqa: BLE001
-            from ...limits import LimitExceeded
+        screen = int(max(250_000, dev * 2))
+        key = (img.num, screen) if isinstance(img, Stream) and img.num else None
+        im = self.images.pop(key, None) if key is not None else None
+        if im is None:
+            from ...limits import MEMORY_LIMIT, LimitExceeded
 
-            if isinstance(e, LimitExceeded):
-                raise
-            self.image_failed.append((name, str(e), _unit_square_box(m)))
-            self._undrawn_image(gs, m)
-            return
+            if self.images_spent > MEMORY_LIMIT:
+                # 1 ページで開く画像の合計の上限：描けない所を伝え、残りのページは描き続ける（範囲を小さくすれば、その中の画像だけを開く）
+                why = f"このページで開いた画像の合計が {MEMORY_LIMIT // (1 << 20):,} MB を超えたので開きませんでした。region で範囲を小さくして頼めます"
+                self.image_failed.append((name, why, _unit_square_box(m)))
+                self._undrawn_image(gs, m)
+                return
+            try:
+                im = image_rgba(self.doc, img, 16_000_000, res, screen, self.deadline)
+            except Exception as e:  # noqa: BLE001
+                if isinstance(e, LimitExceeded):
+                    raise
+                self.image_failed.append((name, str(e), _unit_square_box(m)))
+                self._undrawn_image(gs, m)
+                return
+            size = len(im.px) + len(im.alpha or b"")
+            self.images_spent += size
+            self.images_held += size
+        if key is not None:
+            self.images[key] = im  # 入れ直すと新しい方になる（辞書の順）
+            while self.images_held > MAX_IMAGES_HELD and len(self.images) > 1:
+                old = next(iter(self.images))
+                gone = self.images.pop(old)
+                self.images_held -= len(gone.px) + len(gone.alpha or b"")
+        else:
+            self.images_held -= len(im.px) + len(im.alpha or b"")
         self.stats["images"] += 1
         self.image_notes += [f"{name}：{n}" for n in im.notes if f"{name}：{n}" not in self.image_notes]
         self.problems += [f"{name}：{n}" for n in im.problems if f"{name}：{n}" not in self.problems]
