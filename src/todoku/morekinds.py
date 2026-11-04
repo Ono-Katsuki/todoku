@@ -81,13 +81,20 @@ def window(k: str, blob: bytes, name: str):
     if k in WORKBOOKS:
         from .xlsx import window as xw
 
-        doc = xw.build(open_workbook(k, blob, name))
+        wb = open_workbook(k, blob, name)
+        doc = xw.build(wb)
         doc["kind"] = k
         doc["kind_ja"] = KIND_JA[k]
         if k == "dbf":
             _mark_dbf(doc, blob, name)
         elif k != "xlsb":
             _mark_readonly(doc, k)
+        if k == "mdb":
+            from .legacy.jet import LEGEND, use_record_lines
+
+            use_record_lines(doc, wb)
+            head = "### 読み順（上から）\n"
+            return doc, [(n, t.replace(head, f"{head}\n{LEGEND}\n")) for n, t in xw.markdown_parts(doc)]
         return doc, xw.markdown_parts(doc)
     if k in SXO:
         return _sxo_window(k, blob, name)

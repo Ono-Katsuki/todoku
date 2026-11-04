@@ -87,7 +87,7 @@ TOOLS = [
                                                       "part": {"type": "integer", "minimum": 1, "default": 1},
                                                       "pages": _RANGE_SCHEMA, "rows": _RANGE_SCHEMA, "paragraphs": _RANGE_SCHEMA, "records": _RANGE_SCHEMA,
                                                       "path_in": {"type": "string", "description": "大きな JSON の中の値の位置（JSON Pointer。例 /items/0）"},
-                                                      "sheet": {"type": "string", "description": "Excel のシートの名前（rows と一緒に）"},
+                                                      "sheet": {"type": "string", "description": "Excel のシート・Access の表の名前（rows と一緒に）"},
                                                       "cursor": {"type": "string", "description": "前の結果の next にある、続きの印"},
                                                       "max_chars": {"type": "integer", "minimum": 200, "description": "1 回に返す大きさ（字）"},
                                                       "raw": {"type": "boolean", "description": "窓を作らずに、ファイルの字を順に読む（欄は見つけない）。窓を作るのが上限で止まった書類のための道"}},
@@ -211,13 +211,17 @@ TOOLS = [
                     "その下の行が2段目の見出しかどうかは規則で決めず、rows_below_header として返すので、読んで、続きなら header_rows を"
                     "指定してもう一度呼ぶ。列の名前は見出しを上から「／」でつなぐ。結合セルは画面どおりに範囲へ広げ、値は表示形式どおりの字、値ごとに元のセルを添える。"
                     "sheet を省くと、その見出しのあるすべてのシートから。行が多いときは out_path（.csv か .json）に書き出す"
-                    "（結果には列の名前・行数・はじめの 20 行）。表の後ろの注の行もそのまま返すので、どこまでが表かは読んで決める。",
+                    "（結果には列の名前・行数・はじめの 20 行）。表の後ろの注の行もそのまま返すので、どこまでが表かは読んで決める。"
+                    "返さなかった行（使っている範囲の中の値のない行など）は omitted_rows に数と行の番号の範囲で書く。"
+                    "Access の表も読める：sheet に表の名前、header に列の名前。rows で行の範囲を頼むと、その範囲だけを返す（1 行目が列の名前、2 行目からレコード）。"
+                    "すべての列が NULL のレコードも行として返す。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
          "header": {"type": "string", "description": "表の見出しにある字"},
          "sheet": {"type": "string", "description": "シートの名前（省くと、見出しのあるすべてのシート）"},
          "header_rows": {"type": "integer", "minimum": 1, "description": "見出しの行数（省くと自動）"},
          "out_path": {"type": "string", "description": "すべての行を書き出すファイル（.csv か .json）"},
+         "rows": {**_RANGE_SCHEMA, "description": "sheet の行の番号の範囲（例「2-501」）。その範囲の行だけを返す（sheet といっしょに）"},
          "cursor": {"type": "string", "description": "大きなブックで、前の結果の next の続きを読むとき"},
          "limit": {"type": "integer", "minimum": 1, "description": f"out_path がないとき、結果に入れる行の数の上限（既定 {READ_TABLE_LIMIT}）。"
                    "超えた行は返さず、行の数（rows）と返した行の数（rows_returned）を返す"}},
@@ -422,11 +426,12 @@ def call_tool(name: str, args: dict) -> dict:
                 + (f"　エラー：{res['error']}" if res.get("error") else ""))
         return {"content": [_text(head), _text(res)], "structuredContent": res, "isError": bool(res.get("error"))}
     if name == "read_table":
+        # rows で範囲を頼んだら、limit を省いても、その範囲を切り詰めない。分けて読む道は limit の所で止めて next を返す（読み飛ばす行を作らない）
+        limit = args.get("limit", None if args.get("rows") else READ_TABLE_LIMIT)
         res = api.read_table(args["path"], args["header"], args.get("sheet"), args.get("header_rows"), args.get("out_path"),
-                             args.get("password"), args.get("cursor"))
+                             args.get("password"), args.get("cursor"), args.get("rows"), None if args.get("out_path") else limit)
         res.pop("all_rows", None) if args.get("out_path") else None
-        limit = args.get("limit", READ_TABLE_LIMIT)
-        if not args.get("out_path") and res["rows"] > limit:
+        if not args.get("out_path") and limit is not None and res["rows"] > limit:
             res["all_rows"] = res["all_rows"][:limit]  # はじめの limit 行（行の数 rows と、返した行の数 rows_returned）
             res["rows_returned"] = limit
             res["note"] = (f"行が {res['rows']} 行あります。はじめの {limit} 行だけを返しました。すべての行は out_path（.csv か .json）"

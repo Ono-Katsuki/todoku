@@ -1968,9 +1968,11 @@ def audit_whole(path: str, password: str | None = None, encoding: str | None = N
 
 @_budgeted
 def read_table(path: str, header: str, sheet: str | None = None, header_rows: int | None = None,
-               out_path: str | None = None, password: str | None = None, cursor: str | None = None) -> dict:
-    """Excel の表を、見出しの列で行ごとに取り出す（結合セルは画面どおりに範囲へ広げ、値ごとに元のセルを添える）。
-    sheet を省くと、header のあるすべてのシートから。out_path（.csv か .json）を指すと、すべての行を書き出す。"""
+               out_path: str | None = None, password: str | None = None, cursor: str | None = None,
+               rows: str | None = None, limit: int | None = None) -> dict:
+    """Excel の表・データベースの表を、見出しの列で行ごとに取り出す（結合セルは画面どおりに範囲へ広げ、値ごとに元のセルを添える）。
+    sheet を省くと、header のあるすべてのシートから。out_path（.csv か .json）を指すと、すべての行を書き出す。
+    rows（シートの行の番号の範囲。sheet といっしょに）：その範囲の行だけ。limit：分けて読む道で 1 回に返す行の数（続きは next）。"""
     import csv
     import io
     import json
@@ -1978,11 +1980,18 @@ def read_table(path: str, header: str, sheet: str | None = None, header_rows: in
     from .book import open_book
     from .xlsx.tables import TableError
     from .xlsx.tables import read as tread
+    from .lazy.base import RangeError, parse_range
 
-    lz = lazy_open(path, password, built_ok=False) if _member(path) is None else None
+    try:
+        span = parse_range(rows, "行")
+    except RangeError as e:
+        raise ApiError(str(e)) from None
+    if rows and not sheet:
+        raise ApiError("rows は sheet（シート・表の名前）といっしょに渡してください")
+    lz = lazy_open(path, password, built_ok=False)
     if lz is not None and hasattr(lz, "rows_book"):
         # 大きなブック：行を少しずつ読む（見出しを見つけたら、見出しの行と次のかたまりの行だけの小さなブックで表を読む）
-        return _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, TableError, cursor)
+        return _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, TableError, cursor, span, limit)
     blob, name, k, lock = _read(path, password)
     if k not in _BOOKS:
         raise ApiError("表の取り出しは Excel（.xlsx・.xlsm・.xls）です（ほかの形式は窓で読めます）")
@@ -1990,8 +1999,11 @@ def read_table(path: str, header: str, sheet: str | None = None, header_rows: in
         t = tread(open_book(blob, name), header, sheet, header_rows)
     except TableError as e:
         raise ApiError(str(e)) from None
+    if rows:
+        a, b = span[0] or 1, span[1] or 10 ** 12
+        t["rows"] = [r for r in t["rows"] if a <= r["_row"] <= b]
     out = {"columns": t["columns"], "rows": len(t["rows"]), "sheets": t["sheets"][:50], "sheet_count": len(t["sheets"]),
-           "first_rows": t["rows"][:20], "check": t["check"]}
+           "omitted_rows": t["omitted_rows"], "first_rows": t["rows"][:20], "check": t["check"]}
     if out_path:
         dst = Path(out_path).expanduser().resolve()
         src = Path(_member(path)[0] if _member(path) else path).expanduser().resolve()
@@ -2018,13 +2030,21 @@ TABLE_STEP = 2048  # 大きなブックの表を読む、1 回の行の数
 TABLE_RETURN = 20000  # out_path なしで 1 回に返す行の数（続きは cursor）
 
 
-def _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, TableError, cursor) -> dict:
-    """シートごとに行を順に読む。見つけた表の見出しの行を覚え、後ろのかたまりでは見出しの行も一緒に読むので、列の名前は同じ。"""
+def _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, TableError, cursor, span=(None, None), limit=None) -> dict:
+    """シートごとに行を順に読む。見つけた表の見出しの行を覚え、後ろのかたまりでは見出しの行も一緒に読むので、列の名前は同じ。
+    span：シートの行の番号の範囲。データベースの表（records）は、見出しが 1 行目と決まっているので、頼まれた行のページだけを解く。"""
+    import bisect
     import csv
     import json
     import re
 
     from . import limits
+    from .xlsx.tables import omitted_report
+
+    want_lo, want_hi = span
+    room = min(limit, TABLE_RETURN) if limit else TABLE_RETURN
+    if sheet and not any(d["name"] == sheet for d in lz.sheet_meta):
+        raise ApiError(f"シート「{sheet}」がありません")
 
     meta = lz.sheet_meta
     dst = None
@@ -2055,6 +2075,8 @@ def _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, Tabl
     wrote_any = False
     try:
         for si, d in enumerate(meta):
+            if sheet and d["name"] == sheet and d.get("error"):
+                raise ApiError(d["error"])
             if si < start_si or d["index"] is None or (sheet and d["name"] != sheet) or str(d.get("state", "")).startswith("non-worksheet"):
                 continue
             ix = d["index"]
@@ -2062,8 +2084,18 @@ def _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, Tabl
             i = 0
             band: tuple[int, int] | None = None
             info = None
+            none_rows: list[list[int]] = []
+            other_rows: list[list[int]] = []
+            done_to = 0
+            # この行より前は返さない（前の続き・頼まれた範囲の前）
+            low = max((want_lo or 1) - 1, start_row if si == start_si else 0)
             while i < len(rows):
-                e = min(len(rows), i + TABLE_STEP)
+                if band is None and d.get("records"):
+                    e = min(len(rows), i + (header_rows or 1))  # 見出しの行だけを読む
+                else:
+                    e = min(len(rows), i + TABLE_STEP)
+                    if band is not None and want_hi is not None:
+                        e = max(i + 1, min(e, bisect.bisect_right(rows, want_hi)))
                 ra, rb = rows[i], rows[e - 1]
                 limits.progress(f"シート「{d['name']}」の表を読んでいます", i, len(rows))
                 spans = [(ra, rb)]
@@ -2073,6 +2105,8 @@ def _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, Tabl
                 try:
                     t = tread(wb, header, d["name"], header_rows)
                 except TableError:
+                    if d.get("records"):
+                        break  # 列の名前にない：値の中は探さない
                     i = e
                     continue
                 inf = t["sheets"][0]
@@ -2080,11 +2114,18 @@ def _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, Tabl
                     band = tuple(inf["header_rows"])
                     info = inf
                     sheets_info.append(inf)
+                    done_to = band[1]
+                om = inf.pop("omitted_rows", None) if inf is info else inf.get("omitted_rows")
+                clip_a = max(done_to, low) + 1
+                clip_b = min(rb, want_hi) if want_hi is not None else rb
+                _add_ranges(none_rows, ((om or {}).get("no_values") or {}).get("rows", []), clip_a, clip_b)
+                _add_ranges(other_rows, ((om or {}).get("values_outside_columns") or {}).get("rows", []), clip_a, clip_b)
+                done_to = max(done_to, rb)
                 for c in t["columns"]:
                     if c not in columns:
                         columns.append(c)
                 for r in t["rows"]:
-                    if r["_row"] < ra or r["_row"] > rb or (si == start_si and r["_row"] <= start_row):
+                    if r["_row"] < ra or r["_row"] > rb or r["_row"] <= low or (want_hi is not None and r["_row"] > want_hi):
                         continue
                     count += 1
                     if len(first) < 20:
@@ -2101,12 +2142,24 @@ def _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, Tabl
                             w.writerow([r["_sheet"], r["_row"]] + [r.get(c, "") for c in cols_now])
                     else:
                         all_rows.append(r)
-                        if len(all_rows) >= TABLE_RETURN:
+                        if len(all_rows) >= room:
                             nxt = {"cursor": f"table:{si}:{r['_row']}"}
+                            if sheet:
+                                nxt["sheet"] = sheet
+                            if want_hi is not None:
+                                nxt["rows"] = f"{r['_row'] + 1}-{want_hi}"
                             break
                 if nxt:
                     break
                 i = e
+                if want_hi is not None and rb >= want_hi and band is not None:
+                    break
+                if low and band is not None:
+                    i = max(i, bisect.bisect_right(rows, low))
+            if info is not None:
+                report = omitted_report(none_rows, other_rows)
+                if report:
+                    info["omitted_rows"] = report
             del info
             if nxt:
                 break
@@ -2119,8 +2172,13 @@ def _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, Tabl
         if dst is not None:
             dst.unlink(missing_ok=True)
         raise ApiError(f"「{header}」のある表が見つかりません")
-    out = {"columns": columns, "rows": count, "sheets": sheets_info[:50], "sheet_count": len(sheets_info), "first_rows": first,
-           "check": "大きなブックなので、行を少しずつ読みました（表の全部の行を読んでいます）"}
+    how = "頼まれた行の範囲を読みました" if want_lo or want_hi else "表の全部の行を読んでいます"
+    out = {"columns": columns, "rows": count, "sheets": sheets_info[:50], "sheet_count": len(sheets_info),
+           "omitted_rows": sum((s.get("omitted_rows") or {}).get("count", 0) for s in sheets_info), "first_rows": first,
+           "check": f"大きな書類なので、行を少しずつ読みました（{how}）"}
+    if getattr(lz, "kind", "") == "mdb":
+        out["check"] = (f"データベースの表の、ファイルにあるレコードを順に返します（{how}）。_row はシートの行の番号（1 行目が列の名前）。"
+                        "値のない列（NULL）はキーがありません。すべての列が NULL の行は、_row だけの行です。_unread のある行は形を確かめられないので読んでいません")
     if dst is not None:
         out["out_path"] = str(dst)
     else:
@@ -2129,6 +2187,18 @@ def _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, Tabl
         out["next"] = nxt
         out["note"] = "行が多いので、ここまでを返しました。続きは cursor を渡してください（out_path に書き出すと、全部を 1 回で出せます）"
     return out
+
+
+def _add_ranges(into: list[list[int]], ranges, a: int, b: int) -> None:
+    """範囲を a〜b に切って足す（つながる範囲は 1 つに）。"""
+    for x, y in ranges:
+        x, y = max(x, a), min(y, b)
+        if x > y:
+            continue
+        if into and x <= into[-1][1] + 1:
+            into[-1][1] = max(into[-1][1], y)
+        else:
+            into.append([x, y])
 
 
 def _table_cols(lz, si, band, tread, header, sheet, header_rows) -> list[str]:

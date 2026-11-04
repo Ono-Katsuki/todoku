@@ -6,6 +6,9 @@
 - 値：Excel の画面に出る字（表示形式どおり）。結合したセルは、範囲のすべてのセルに同じ値を入れる（画面の見た目どおり）。
   値ごとに、元のセルの番地を添える（結合の左上）。
 - 見出しの行より下の、字の入った行をすべて返す（表の後ろの注などもそのまま。どこまでが表かはエージェントが決める）。
+- 返さなかった行は、黙って消さない：シートごとの omitted_rows に、数と行の番号（範囲）を書く。表計算の使っている範囲の中の、見出しの列に字のない行は
+  「行」として返さないが、見出しのない列にだけ値のある行は、値があることも分けて書く。
+- データベースの表（シートの records にレコードのある行の範囲がある）は、すべての列が NULL の行もレコードなので返す。見出しは 1 行目の列の名前だけで、空の字・空白だけの字も値として返す。
 """
 
 from __future__ import annotations
@@ -25,11 +28,52 @@ def _norm(s: str) -> str:
     return unicodedata.normalize("NFKC", s).replace(" ", "").replace("　", "").replace("\n", "")
 
 
+def ranges_of(rows) -> list[list[int]]:
+    """行の番号（順に並んだもの）→ 続いた範囲 [始め, 終わり] の並び。"""
+    out: list[list[int]] = []
+    for r in rows:
+        if out and r == out[-1][1] + 1:
+            out[-1][1] = r
+        else:
+            out.append([r, r])
+    return out
+
+
+def _count(ranges: list[list[int]]) -> int:
+    return sum(b - a + 1 for a, b in ranges)
+
+
+def omitted_report(no_value: list[list[int]], other: list[list[int]]) -> dict | None:
+    """返さなかった行の事実（なければ None）。"""
+    if not no_value and not other:
+        return None
+    out: dict = {"count": _count(no_value) + _count(other)}
+    if no_value:
+        out["no_values"] = {"count": _count(no_value), "rows": no_value, "what": "使っている範囲の中で、値のない行"}
+    if other:
+        out["values_outside_columns"] = {"count": _count(other), "rows": other, "what": "見出しのない列にだけ値がある行（値はここに返していません。read_window で読めます）"}
+    return out
+
+
+def _gaps(first: int, last: int, taken: list[int]) -> list[list[int]]:
+    """first〜last のうち、taken（順に並んだ行）にない範囲。遠くの行まで 1 行ずつなめない。"""
+    out = []
+    at = first
+    for r in taken:
+        if r > at:
+            out.append([at, r - 1])
+        at = max(at, r + 1)
+    if at <= last:
+        out.append([at, last])
+    return out
+
+
 def _grid(wb, sh):
     """(行, 列) → (画面の字, 元のセルの番地)。結合は範囲に広げる。"""
     from .window import display
 
     g = {}
+    records = getattr(sh, "records", None) is not None
     rows_there = {r for r, _c in sh.cells}
     cols_there = {c for _r, c in sh.cells}
     for (r, c), cell in sh.cells.items():
@@ -40,7 +84,7 @@ def _grid(wb, sh):
             continue  # 結合の左上以外（画面に出ない）
         v = cell.value
         text = v.code if isinstance(v, ExcelError) else display(wb, cell)
-        if text is None or (isinstance(text, str) and not text.strip() and not is_number(v)):
+        if text is None or (not records and isinstance(text, str) and not text.strip() and not is_number(v)):
             continue
         text = str(text)
         src = addr(r, c)
@@ -74,9 +118,11 @@ def read(wb, header: str, sheet: str | None = None, header_rows: int | None = No
         if sh is None or getattr(sh, "state", "").startswith("non-worksheet"):
             continue
         g = _grid(wb, sh)
+        records = getattr(sh, "records", None)
+        heads = {k: x for k, x in g.items() if k[0] == 1} if records is not None else g  # データベースの見出しは、1 行目の列の名前だけ（値の中の同じ字を見出しにしない）
         # 字が見出しと同じセルを先に選ぶ（表題「…サービスコード表」の中の字に引っかからないように）。なければ、字を含むセル
-        hits = sorted((r, c) for (r, c), (t, _s) in g.items() if _norm(t) == want) or \
-            sorted((r, c) for (r, c), (t, _s) in g.items() if want in _norm(t))
+        hits = sorted((r, c) for (r, c), (t, _s) in heads.items() if _norm(t) == want) or \
+            sorted((r, c) for (r, c), (t, _s) in heads.items() if want in _norm(t))
         if not hits:
             continue
         top, hc = hits[0]
@@ -120,8 +166,9 @@ def read(wb, header: str, sheet: str | None = None, header_rows: int | None = No
             cells = {addr(r, c): g[(r, c)][0] for c in range(lo, hi + 1) if (r, c) in g}
             if cells:
                 below.append({"row": r, "cells": cells})
-        read_sheets.append({"sheet": sh.name, "header_cell": addr(top, hc), "header_rows": [band[0], band[-1]], "header_rule": how,
-                            "columns": [names[c] for c in sorted(names)], "rows_below_header": below})
+        info = {"sheet": sh.name, "header_cell": addr(top, hc), "header_rows": [band[0], band[-1]], "header_rule": how,
+                "columns": [names[c] for c in sorted(names)], "rows_below_header": below}
+        read_sheets.append(info)
         for n in (names[c] for c in sorted(names)):
             if n not in columns:
                 columns.append(n)
@@ -129,6 +176,11 @@ def read(wb, header: str, sheet: str | None = None, header_rows: int | None = No
         for (r, c) in g:
             if r > band[-1] and lo <= c <= hi:
                 by_row.setdefault(r, []).append(c)
+        bad_rows = getattr(sh, "bad_rows", None) or {}
+        for a, b in records or []:  # レコードは、値がなくても行
+            for r in range(max(a, band[-1] + 1), b + 1):
+                by_row.setdefault(r, [])
+        kept = set()
         for r in sorted(by_row):
             rec = {}
             src = {}
@@ -136,11 +188,19 @@ def read(wb, header: str, sheet: str | None = None, header_rows: int | None = No
                 if c in names:
                     rec[names[c]] = g[(r, c)][0]
                     src[names[c]] = g[(r, c)][1]
-            if rec:
-                rows.append({"_sheet": sh.name, "_row": r, **rec, "_cells": src})
+            if rec or records is not None:
+                kept.add(r)
+                extra = {"_unread": bad_rows[r]} if r in bad_rows else {}
+                rows.append({"_sheet": sh.name, "_row": r, **rec, "_cells": src, **extra})
+        if records is None:  # 返さなかった行：使っている範囲の中の、値のない行と、見出しのない列にだけ値のある行
+            other = sorted({r for (r, _c) in g if r > band[-1]} - kept)
+            taken = sorted(kept.union(other))
+            report = omitted_report(_gaps(band[-1] + 1, max(sh.max_row, taken[-1] if taken else 0), taken), ranges_of(other))
+            if report:
+                info["omitted_rows"] = report
     if not read_sheets:
         raise TableError(f"「{header}」のある表が見つかりません")
-    return {"columns": columns, "rows": rows, "sheets": read_sheets,
+    return {"columns": columns, "rows": rows, "sheets": read_sheets, "omitted_rows": sum((s.get("omitted_rows") or {}).get("count", 0) for s in read_sheets),
             "check": "見出しの下の行（rows_below_header）が見出しの続き（2段目の見出し・単位の行など）か、データの行かは、"
                      "規則では決めていません。読んで、見出しの続きなら header_rows（見出しの行数）を指定してもう一度呼んでください。"
                      "表の後ろの注の行もそのまま返すので、どこまでが表かも読んで決めてください"}

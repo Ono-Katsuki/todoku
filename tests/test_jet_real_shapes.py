@@ -18,7 +18,8 @@ def _sheet(blob: bytes, name: str | None = None):
 
 
 def _rows(sh) -> list[list]:
-    return [[sh.cells[(r, c)].value if (r, c) in sh.cells else None for c in range(1, sh.max_col + 1)] for r in range(1, sh.max_row + 1)]
+    """読めた行（形を確かめられない行は番号を飛ばさないが、値はない）。"""
+    return [[sh.cells[(r, c)].value if (r, c) in sh.cells else None for c in range(1, sh.max_col + 1)] for r in range(1, sh.max_row + 1) if r not in sh.bad_rows]
 
 
 def _p(tmp_path, name: str, blob: bytes) -> str:
@@ -182,7 +183,7 @@ def test_row_with_too_many_columns_for_its_length_reported():
     bad[0:2] = struct.pack("<H", 0xFFFF)
     m.add_table("表", cols, [bytes(bad)])
     _wb, sh = _sheet(m.build())
-    assert sh.max_row == 1 and any("形を確かめられない" in u for u in sh.unread)
+    assert _rows(sh)[1:] == [] and list(sh.bad_rows) == [2] and any("形を確かめられない" in u for u in sh.unread)
 
 
 def test_missing_data_page_is_reported():
@@ -316,7 +317,7 @@ def test_calculated_frame_broken_is_reported(raw):
     cols = _calc_cols()
     m.add_table("表", cols, [m.row(cols, {"番号": _n(1), "氏名": raw})])
     _wb, sh = _sheet(m.build())
-    assert sh.max_row == 1 and any("形を確かめられない" in u for u in sh.unread)
+    assert _rows(sh)[1:] == [] and list(sh.bad_rows) == [2] and any("形を確かめられない" in u for u in sh.unread)
 
 
 # ---------------------------------------------------------------- メモ
@@ -343,14 +344,14 @@ def test_memo_chain_short_is_reported_not_truncated():
     t = jet_maker.Maker(False).text("あいうえお")
     blob = _memo_table(False, len(t) + 100, [(-1, t)])
     _wb, sh = _sheet(blob)
-    assert sh.max_row == 1 and any("メモの続きが途中で切れて" in u for u in sh.unread)
+    assert _rows(sh)[1:] == [] and list(sh.bad_rows) == [2] and any("メモの続きが途中で切れて" in u for u in sh.unread)
 
 
 def test_memo_chain_loop_is_reported():
     t = jet_maker.Maker(False).text("あ")
     blob = _memo_table(False, 1000, [(0, t)])
     _wb, sh = _sheet(blob)
-    assert sh.max_row == 1 and any("輪" in u for u in sh.unread)
+    assert _rows(sh)[1:] == [] and list(sh.bad_rows) == [2] and any("輪" in u for u in sh.unread)
 
 
 def test_memo_single_shorter_than_stated_is_reported():
@@ -360,7 +361,7 @@ def test_memo_single_shorter_than_stated_is_reported():
     cols = [NUM, {"name": "メモ", "type": 12, "num": 1, "var": 0, "size": 0}]
     m.add_table("表", cols, [m.row(cols, {"番号": _n(1), "メモ": struct.pack("<III", 5000 | 0x40000000, lval << 8, 0)})])
     _wb, sh = _sheet(m.build())
-    assert sh.max_row == 1 and any("メモの長さ" in u for u in sh.unread)
+    assert _rows(sh)[1:] == [] and list(sh.bad_rows) == [2] and any("メモの長さ" in u for u in sh.unread)
 
 
 # ---------------------------------------------------------------- 字

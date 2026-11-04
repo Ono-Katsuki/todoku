@@ -6,12 +6,14 @@
 - CSV・TSV・JSON Lines・.txt（textdocs）：ファイルをメモリに読まない。行の位置の索引と、頼まれた範囲のバイトだけ
 - .xlsx（xlsxdoc）：シートの XML を流し読みして行の位置を覚え、頼まれた行だけの小さなブックを作って、いままでの窓の読み手で読む
 - PDF（pdfdoc）：ページの木と xref だけを読み、頼まれたページだけを配置する
+- Access（jetdoc）：表ごとにページの表だけを作り、頼まれた行のあるページだけを解く
 - ほか（builtdoc）：窓を作ってから、測った字の数で分ける（Word は段落の範囲でも読める）
 """
 
 from __future__ import annotations
 
 import os
+import struct
 from pathlib import Path
 
 from .base import LazyDoc, Page, RangeError, clamp_chars, parse_range  # noqa: F401
@@ -30,6 +32,10 @@ def _kind_for(path: str, name: str) -> str | None:
         return "cfb"  # 古い形式・暗号化：lazy/legacy で見分ける
     if head[:4] == b"%PDF":
         return "pdf"
+    from ..legacy.jet import is_jet
+
+    if is_jet(head):
+        return "mdb"
     if head[:2] == b"PK":
         return "pk"
     return _text_kind(head, name)
@@ -53,6 +59,11 @@ def open_doc(path: str, password: str | None = None, encoding: str | None = None
 
 def _open_doc(path, password, encoding, force, built_ok, _member) -> LazyDoc | None:
     if _member(path) is not None:
+        from .jetdoc import jet_member
+
+        jet = jet_member(path, password)
+        if jet is not None:
+            return jet if force or jet.large else None
         if not built_ok and not force:
             return None
         from .builtdoc import BuiltDoc
@@ -85,7 +96,7 @@ def _open_doc(path, password, encoding, force, built_ok, _member) -> LazyDoc | N
 
 def _is_built(path: str, name: str) -> bool:
     k = _kind_for(path, name)
-    if k in ("csv", "tsv", "jsonl", "txt", "pdf"):
+    if k in ("csv", "tsv", "jsonl", "txt", "pdf", "mdb"):
         return False
     if k == "pk":
         from .docxdoc import word_main
@@ -122,6 +133,16 @@ def _make(path: str, name: str, password: str | None, encoding: str | None) -> L
         from .pdfdoc import PdfLazy
 
         return PdfLazy(path, name, password)
+    if k == "mdb":
+        from ..legacy.jet import JetError
+        from .jetdoc import JetLazy
+
+        try:
+            return JetLazy(path, name, password)
+        except (JetError, struct.error, IndexError):
+            from .builtdoc import BuiltDoc  # 表の一覧が読めない：窓を作る道で、その理由を伝える
+
+            return BuiltDoc(path, password, encoding)
     if k == "pk":
         from .xlsxdoc import package_kind
 
@@ -159,7 +180,7 @@ def smaller_request(tool: str, args: dict) -> str:
     """止まった呼び出しの、代わりに頼める小さな頼み方（行き止まりにしない）。"""
     path = str(args.get("path", ""))
     ext = os.path.splitext(path.split("!/")[-1])[1].lower()
-    what = {".pdf": ('pages: "1-20"', "ページを分けて"), ".xlsx": _SHEET_REQ, ".xlsm": _SHEET_REQ, ".xls": _SHEET_REQ, ".xlsb": _SHEET_REQ, ".ods": _SHEET_REQ,
+    what = {".pdf": ('pages: "1-20"', "ページを分けて"), ".xlsx": _SHEET_REQ, ".xlsm": _SHEET_REQ, ".xls": _SHEET_REQ, ".xlsb": _SHEET_REQ, ".ods": _SHEET_REQ, ".mdb": _SHEET_REQ, ".accdb": _SHEET_REQ,
             ".csv": ('rows: "1-500"', "行の範囲を分けて"), ".tsv": ('rows: "1-500"', "行の範囲を分けて"),
             ".jsonl": ('records: "1-500"', "行の範囲を分けて"), ".ndjson": ('records: "1-500"', "行の範囲を分けて"),
             ".txt": ('paragraphs: "1-500"', "行の範囲を分けて"), ".docx": _PARA_REQ, ".docm": _PARA_REQ, ".doc": _PARA_REQ, ".jtd": _PARA_REQ, ".jtt": _PARA_REQ,
