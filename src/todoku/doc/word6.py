@@ -168,7 +168,7 @@ class Word6File(DocFile):
                 raise DocError(f"Word 6.0/95 の文書の表（{name}）が、ストリームの外を指しています")
         self.table = wd  # 表はすべて WordDocument の中
         self.table_name = "WordDocument"
-        self.charset_warning = self._font_charsets()
+        self.font_cps = self._font_table()
         self.data = b""
         self.lw = list(c)
         total = sum(c)
@@ -181,7 +181,9 @@ class Word6File(DocFile):
         self.papx = self._fkps6("PlcfBtePapx", papx=True, cpn_at=0x190)
         self._chpx_fc0 = [r.fc0 for r in self.chpx]
         self._papx_fc0 = [r.fc0 for r in self.papx]
+        self._enc_runs = self._font_encodings()
         self.text, self._w = self._text6()
+        self.charset_warning = self._charset_note()
         self.protection, self.protection_enforced = self._dop()
         self.has_macros = False
         self.controls = []
@@ -358,38 +360,102 @@ class Word6File(DocFile):
         return d
 
     # ------------------------------------------------------------------ 文字
-    def _font_charsets(self) -> str | None:
-        """書体の表（FFN の chs）に、文書の言語（lid）から決めた文字コードと違うものがあれば、その注。字は 8 ビットで、どの文字コードかは書体で決まるので、
-        言語が英語でも、ロシア語の書体の字は cp1251 で書かれている（窓の字が別の字に見える）。どの字がどの書体かまでは読まないので、推測で読み替えず、伝える。"""
+    def _font_table(self) -> list[str | None]:
+        """書体の表（SttbfFfn。仕様書：書体の名前の順が ftc の番号）：番号 → その書体の文字セットの文字コード（FFN の chs。分からなければ None）。"""
         f0, lcb = self.fc["SttbfFfn"]
         wd = self.wd
+        out: list[str | None] = []
         if lcb <= 2:
-            return None
-        found: dict[str, list[str]] = {}
+            return out
         p, end = f0 + 2, f0 + lcb
+        self._font_names: list[str] = []
         while p + 6 < end:
             cb = wd[p] + 1
-            cp = _CHS_CP.get(wd[p + 4])
-            if cp and cp != self.enc:
-                found.setdefault(cp, []).append(wd[p + 6:p + cb].split(b"\0")[0].decode("latin-1"))
+            out.append(_CHS_CP.get(wd[p + 4]))
+            self._font_names.append(wd[p + 6:p + cb].split(b"\0")[0].decode("latin-1"))
             p += cb
-        if not found:
+        return out
+
+    def _font_encodings(self) -> list[tuple[int, int, str]]:
+        """字を、書体が文字コードを決めている所：[(CP の始め, 終わり, 文字コード)]。字ごとの書式の sprmCFtc（93。chp.ftc）で書体を指している所だけ。
+        文書の文字コードと同じ所は入れない。スタイルから受けた書体は読まない（_charset_note で伝える）。"""
+        if not any(c and c != self.enc for c in self.font_cps):
+            return []
+        out = []
+        for pc in self.pieces:
+            prm = dict(self._prm_sprms(pc)).get(93)
+            n = pc.cp1 - pc.cp0
+            fc0, fc1 = pc.fc, pc.fc + n
+            k = max(bisect.bisect_right(self._chpx_fc0, fc0) - 1, 0)
+            while k < len(self.chpx) and self.chpx[k].fc0 < fc1:
+                r = self.chpx[k]
+                k += 1
+                x0, x1 = max(r.fc0, fc0), min(r.fc1, fc1)
+                if x0 >= x1:
+                    continue
+                op = prm
+                if op is None:
+                    for sp, val in sprms6(r.grpprl):
+                        if sp == 93:
+                            op = val
+                if op is None or len(op) < 2:
+                    continue
+                ftc = struct.unpack_from("<H", op, 0)[0]
+                cp = self.font_cps[ftc] if ftc < len(self.font_cps) else None
+                if cp and cp != self.enc:
+                    out.append((pc.cp0 + x0 - fc0, pc.cp0 + x1 - fc0, cp))
+        return sorted(out)
+
+    def enc_at(self, cp: int) -> str:
+        """この CP の字の文字コード。"""
+        for a, b, enc in self._enc_runs:
+            if a <= cp < b:
+                return enc
+        return self.enc
+
+    def _charset_note(self) -> str | None:
+        """書体の表に、文書の言語（lid）から決めた文字コードと違うものがあり、半角でない字がそれを指していない所にある：スタイルから受けた書体かも
+        しれないので、その事実を伝える（スタイルの書体までは読まない）。どの字もそのような書体を指していれば、読み替えたので伝えない。"""
+        others: dict[str, list[str]] = {}
+        for i, cp in enumerate(self.font_cps):
+            if cp and cp != self.enc:
+                others.setdefault(cp, []).append(self._font_names[i])
+        if not others:
             return None
-        which = "・".join(f"{cp}（{'、'.join(n[:3])}）" for cp, n in found.items())
-        return (f"この文書の字は {self.enc} として読みましたが、書体の表に別の文字コード {which} があります。その書体の字は別の字に見えている"
-                "（字が化けている）かもしれません。LibreOffice か Word で .docx に保存し直してもらえば、確かに読めます")
+        pos = 0
+        high = False
+        for p in self.pieces:
+            for k in range(p.cp1 - p.cp0):
+                if self.wd[p.fc + k] >= 0x80 and not any(a <= p.cp0 + k < b for a, b, _e in self._enc_runs):
+                    high = True
+                    break
+            pos += 1
+            if high:
+                break
+        if not high:
+            return None
+        which = "・".join(f"{cp}（{'、'.join(n[:3])}）" for cp, n in others.items())
+        return (f"この文書の字のうち、字の書式で書体を指している所はその書体の文字コードで読み、ほかは {self.enc} として読みましたが、書体の表に別の文字コード {which} があります。"
+                "スタイルからその書体を受けた字は別の字に見えている（字が化けている）かもしれません。LibreOffice か Word で .docx に保存し直してもらえば、確かに読めます")
 
     def _text6(self) -> tuple[str, list[int]]:
         """CP ごとの字（全角の字は最初の CP に置き、2 つ目の CP は「\\x00」）と、字のバイト数（1・2。2 つ目の CP は 0）。"""
         raw = bytearray()
         for p in self.pieces:
             raw += self.wd[p.fc:p.fc + (p.cp1 - p.cp0)]
+        runs = self._enc_runs
+        next_run = 0
         enc = self.enc
         dbcs = enc in ("cp932", "cp936", "cp949", "cp950")
         out: list[str] = []
         w: list[int] = []
         i, n = 0, len(raw)
         while i < n:
+            if runs:
+                while next_run < len(runs) and runs[next_run][1] <= i:
+                    next_run += 1
+                enc = runs[next_run][2] if next_run < len(runs) and runs[next_run][0] <= i else self.enc
+                dbcs = enc in ("cp932", "cp936", "cp949", "cp950")
             b = raw[i]
             lead = dbcs and ((0x81 <= b <= 0x9F or 0xE0 <= b <= 0xFC) if enc == "cp932" else 0x81 <= b <= 0xFE)
             if lead:
@@ -664,6 +730,9 @@ def plan(doc: Word6File, values: dict, *, force: bool = False):
                 pad = _pad(room - len(raw))
                 new_text = text + pad
                 patches.append(Patch(fid, "input", text, "doc", anchor=anchor, key=key))
+            if any(doc.enc_at(cp) != doc.enc for cp in cps):
+                raise FillError(f"{key}: ここの字は、文書と違う文字コード（{doc.enc_at(next(cp for cp in cps if doc.enc_at(cp) != doc.enc))}）の書体で書かれているので、"
+                                "正しい字になるかを確かめられず、書きません。別の所に書くか、.docx に保存し直してください")
             raw_new = new_text.encode(doc.enc)
             if len(raw_new) != room:
                 raise FillError(f"{key}: 書くバイトの数が合いません（{len(raw_new)} と {room}）")
