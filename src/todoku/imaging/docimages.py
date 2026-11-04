@@ -668,8 +668,18 @@ def pdf_get(doc, image_id: str, region: list | None = None) -> dict:
             cs = doc.resolve(image.dict.get("ColorSpace"))
             if getattr(cs, "name", "") in ("DeviceRGB", "DeviceGray") and len(data) <= MAX_BYTES:
                 return _deliver(data, "jpeg", image_id, {"where": item["where"]}, None)
+    # 範囲の指定があれば、そこだけ開く（JPEG 2000・JPEG：どの部分でも元の解像度まで届く）
+    view = None
+    full_w = full_h = 0
+    if isinstance(image, Stream) and isinstance(region, list) and len(region) == 4:
+        full_w, full_h = int(doc.resolve(image.dict.get("Width")) or 0), int(doc.resolve(image.dict.get("Height")) or 0)
+        if full_w > 0 and full_h > 0:
+            rx0, ry0, rx1, ry1 = [int(v) for v in region]
+            view = (max(0.0, min(rx0, rx1) / full_w), max(0.0, min(ry0, ry1) / full_h), min(1.0, max(rx0, rx1) / full_w), min(1.0, max(ry0, ry1) / full_h))
+            if view[2] <= view[0] or view[3] <= view[1]:
+                view = None
     try:
-        im = image_rgba(doc, image, 16_000_000, deadline=time.monotonic() + 60.0)
+        im = image_rgba(doc, image, 16_000_000, deadline=time.monotonic() + 60.0, view=view)
     except RasterError as e:
         raise ImageNotFound(f"画像「{image_id}」を開けません：{e}") from None
     if im.stencil:
@@ -684,6 +694,8 @@ def pdf_get(doc, image_id: str, region: list | None = None) -> dict:
 
             px = _on_white(px, im.alpha)
     fr = Frame(im.w, im.h, px, None, list(im.notes), list(im.problems))
+    if getattr(im, "window", None) and full_w:
+        fr.window = (round(im.window[0] * full_w), round(im.window[1] * full_h), round(im.window[2] * full_w), round(im.window[3] * full_h))
     out = _encode(fr, region)
     text = (f"画像 {image_id}（{item['where']}・左 {item['at_mm'][0]}・上 {item['at_mm'][1]} mm・約 {item['size_mm'][0]}×{item['size_mm'][1]} mm）。{out['width']}×{out['height']} 画素。"
             "読めない所は推測で埋めず、本人に伝えてください。")

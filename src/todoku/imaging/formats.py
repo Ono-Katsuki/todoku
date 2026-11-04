@@ -164,7 +164,7 @@ def decode(blob: bytes, index: int = 0, target_pixels: int | None = None, deadli
     if f == "tiff":
         from .tiff import decode as tdecode
 
-        return tdecode(blob, index, target_pixels)
+        return tdecode(blob, index, target_pixels, deadline, window)
     if f == "webp":
         from .webp import decode as wdecode
 

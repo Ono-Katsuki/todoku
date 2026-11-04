@@ -63,9 +63,7 @@ def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None
                deadline: float | None = None, view: tuple | None = None) -> RGBA:
     """PDF の画像（XObject の Stream か、埋め込みの (辞書, データ)）→ RGBA。
     view：画面に見える範囲（画像の割合 [左, 上, 右, 下)）。JPEG 2000・JPEG は、そこだけを開いて RGBA.window で知らせる（拡大して読むとき、
-    予算は開く分に掛かるので、元の解像度まで開ける）。別の解像度の SMask・Mask のある画像は、全体を開く。"""
-    if view is not None and isinstance(image, Stream) and (image.dict.get("SMask") is not None or image.dict.get("Mask") is not None):
-        view = None
+    予算は開く分に掛かるので、元の解像度まで開ける）。SMask・Mask は全体を開いて、同じ割合で切り取る（解像度は画像と別）。"""
     d, inline = _image_dict(doc, image)
     flt = d.get("Filter")
     names = [getattr(x, "name", "") for x in (flt if isinstance(flt, list) else [flt] if flt is not None else [])]
@@ -121,17 +119,28 @@ def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None
         sm = doc.resolve(d.get("SMask"))
         mk = doc.resolve(d.get("Mask"))
         if isinstance(sm, Stream):
-            a = image_gray(doc, sm, max_pixels, deadline)
+            a = _cropped(image_gray(doc, sm, max_pixels, deadline), out.window)
             _set_alpha(out, a.px, a.w, a.h, max_pixels, dct_pixels)
             matte = doc.resolve(sm.dict.get("Matte"))
             if isinstance(matte, list) and len(matte) == cs.n and (a.w, a.h) == (out.w, out.h):
                 _unmatte(out, cs.rgb([float(doc.resolve(v)) for v in matte]))
         elif isinstance(mk, Stream):
-            a = image_gray(doc, mk, max_pixels, deadline)  # 型抜き：隠す所（既定は 1）が白
+            a = _cropped(image_gray(doc, mk, max_pixels, deadline), out.window)  # 型抜き：隠す所（既定は 1）が白
             _set_alpha(out, a.px.translate(_inv_table()), a.w, a.h, max_pixels, dct_pixels)
         elif isinstance(mk, list) and len(mk) >= 2 * max(1, cs.n) and data and "DCTDecode" not in names:
             out.alpha = _color_key(data, d, w, h, cs, [int(doc.resolve(v)) for v in mk], out)
     return out
+
+
+def _cropped(g, win: tuple | None):
+    """マスクを、画像の開いた範囲（割合）と同じ所に切り取る。"""
+    if win is None:
+        return g
+    x0, y0 = int(win[0] * g.w), int(win[1] * g.h)
+    x1, y1 = max(x0 + 1, min(g.w, math.ceil(win[2] * g.w))), max(y0 + 1, min(g.h, math.ceil(win[3] * g.h)))
+    from ..raster import Gray
+
+    return Gray(x1 - x0, y1 - y0, b"".join(g.px[y * g.w + x0:y * g.w + x1] for y in range(y0, y1)))
 
 
 def _jpx_rgba(doc, image, d: dict, res, max_pixels: int, screen_pixels: int | None, deadline: float | None, view: tuple | None = None) -> RGBA:
@@ -177,14 +186,14 @@ def _jpx_rgba(doc, image, d: dict, res, max_pixels: int, screen_pixels: int | No
     if isinstance(image, Stream):
         sm = doc.resolve(d.get("SMask"))
         if isinstance(sm, Stream):
-            a = _ig(doc, sm, max_pixels, deadline)
+            a = _cropped(_ig(doc, sm, max_pixels, deadline), out.window)
             _set_alpha(out, a.px, a.w, a.h, max_pixels, screen_pixels)
         elif smd in (1, 2) and im.alpha is not None:
             out.alpha = bytes(im.alpha)
         else:
             mk = doc.resolve(d.get("Mask"))
             if isinstance(mk, Stream):
-                a = _ig(doc, mk, max_pixels, deadline)
+                a = _cropped(_ig(doc, mk, max_pixels, deadline), out.window)
                 _set_alpha(out, a.px.translate(_inv_table()), a.w, a.h, max_pixels, screen_pixels)
     return out
 

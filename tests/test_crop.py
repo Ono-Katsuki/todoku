@@ -145,3 +145,50 @@ def test_view_frame_region_matches_full_jpeg(ppm):
     v = S.view_frame(blob, 1, [40, 30, 200, 150])
     assert "元の解像度" in v["text"]
     assert v["width"] > 160
+
+
+@needs_opj
+def test_pdf_region_keeps_the_mask_aligned(ppm, tmp_path, monkeypatch):
+    """SMask は解像度が別：範囲だけ開いた画像にも、同じ所のマスクが掛かる（左半分が透ける）。"""
+    from test_jpx import _pdf_with_jpx
+
+    from todoku.pdf.doc import PdfDocument
+    from todoku.pdf.pageimage import render
+
+    out = tmp_path / "a.jp2"
+    subprocess.run([OPJ, "-i", str(ppm), "-o", str(out), "-b", "16,16"], check=True, stdout=subprocess.DEVNULL)
+    blob = out.read_bytes()
+    mask = bytes([0, 0, 255, 255]) * 3
+    sm = b"<</Type/XObject/Subtype/Image/Width 4/Height 3/BitsPerComponent 8/ColorSpace/DeviceGray/Length 12>>stream\n" + mask + b"\nendstream"
+    doc = PdfDocument(_pdf_with_jpx(blob, 320, 240, b"/SMask 6 0 R", (sm,)), "t.pdf")
+    # 1 pt = 1 画素。範囲：横 100〜220 pt（真ん中をまたぐ）
+    mm = 25.4 / 72
+    r = render(doc, 1, [100 * mm, 50 * mm, 220 * mm, 100 * mm], max_side=800)
+    w, px = r["w"], r["rgb"]
+    def at(x, y):
+        o = (y * w + x) * 3
+        return tuple(px[o:o + 3])
+    row = r["h"] // 2
+    assert at(5, row) == (0, 255, 0)  # マスクの左半分：下の緑が見える
+    assert at(w - 5, row) != (0, 255, 0)
+
+
+@needs_opj
+def test_tiff_with_jpeg2000_reaches_native(ppm, tmp_path, monkeypatch):
+    """TIFF の中の JPEG 2000（1 区画）も、範囲を狭めれば元の解像度で、位置もずれない（全体は下げた解像度でも紙いっぱいに）。"""
+    out = tmp_path / "a.jp2"
+    subprocess.run([OPJ, "-i", str(ppm), "-o", str(out), "-b", "16,16"], check=True, stdout=subprocess.DEVNULL)
+    jp = out.read_bytes()
+    n = 7
+    head = b"II*\0" + struct.pack("<I", 8) + struct.pack("<H", n)
+    data_at = 8 + 2 + n * 12 + 4
+    ents = [(256, 4, 1, 320), (257, 4, 1, 240), (258, 3, 1, 8), (259, 3, 1, 34712), (262, 3, 1, 2), (273, 4, 1, data_at), (279, 4, 1, len(jp))]
+    tif = head + b"".join(struct.pack("<HHII", *e) for e in ents) + struct.pack("<I", 0) + jp
+    assert F.sniff(tif) == "tiff"
+    full = jpx.decode(jp, max_t1_bytes=10**9)
+    monkeypatch.setattr(jpx, "MAX_T1_BYTES", len(jp) // 3)
+    fr = F.decode(tif, window=(40, 30, 80, 60))
+    assert fr.window == (40, 30, 80, 60) and (fr.w, fr.h) == (40, 30)
+    assert fr.rgb == _crop(_rows_jpx(full), full.w, 40, 30, 80, 60)
+    whole = S.view_frame(tif, 1)
+    assert whole["not_drawn"] == [] and "分の 1" in whole["text"]
