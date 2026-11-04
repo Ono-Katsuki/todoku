@@ -379,6 +379,8 @@ class FormulaIndex:
         self.cells = array("Q")  # 数式の番号 → セルの鍵
         self.opaque: list[int] = []  # 依存を決められない数式（名前・表・間接参照）
         self.refs: dict[int, list] = {}
+        self.masters: dict[int, tuple[int, int]] = {}
+        self.incomplete = False
         names = {s["name"]: i for i, s in enumerate(doc.sheet_meta)}
         pat_c = re.compile(rb"<(?:\w+:)?c\b([^>]*?)(/?)>", re.S)
         pat_f = re.compile(rb"<(?:\w+:)?f\b([^>]*?)(?:/>|>(.*?)</(?:\w+:)?f>)", re.S)
@@ -407,6 +409,7 @@ class FormulaIndex:
             if ix is None or not ix.formulas:
                 continue
             shared: dict[bytes, tuple[str, int, int]] = {}
+            found = 0
             # 行の範囲ごとに読む（XML を丸ごと持たない）
             n = len(ix.rows)
             step = 4096
@@ -414,8 +417,10 @@ class FormulaIndex:
                 xml = ix.row_bytes(i, min(i + step, n))
                 if b"f" not in xml:
                     continue
-                for m in re.finditer(rb"<(?:\w+:)?c\b[^>]*?\br=\"([A-Z]+\d+)\"[^>]*?>(?:(?!</(?:\w+:)?c>).)*?<(?:\w+:)?f\b([^>]*?)(?:/>|>(.*?)</(?:\w+:)?f>)", xml, re.S):
+                # 値のない <c .../> を飛ばし、ほかのセルの <f> を取り違えない
+                for m in re.finditer(rb"<(?:\w+:)?c\b[^>]*?\br=\"([A-Z]+\d+)\"[^>]*?(?<!/)>(?:(?!</?(?:\w+:)?c\b).)*?<(?:\w+:)?f\b([^>]*?)(?:/>|>(.*?)</(?:\w+:)?f>)", xml, re.S):
                     r, c = parse_cell(m[1].decode())
+                    found += 1
                     attrs = m[2]
                     text = (m[3] or b"").decode("utf-8", "replace")
                     if text:
@@ -433,11 +438,14 @@ class FormulaIndex:
                                 continue
                             text, r0, c0 = mast
                             dr, dc = r - r0, c - c0
+                            self.masters[_key(si, r, c)] = (si, r0)  # 共有数式の親の行（小さなブックに一緒に入れる）
                     if t and t[1] in (b"dataTable",):
                         self._add(si, r, c, [], True, 0, 0)
                         continue
                     refs, opaque = analyse(text)
                     self._add(si, r, c, refs, opaque, dr, dc, names, si)
+            if found != ix.formulas:
+                self.incomplete = True  # セルの番地のない数式など：依存を全部は決められない
 
     def _add(self, si, r, c, refs, opaque, dr, dc, names=None, here=None):
         fid = len(self.cells)
@@ -764,6 +772,8 @@ class XlsxLazy(LazyDoc):
         if ix is None or not ix.rows:
             return self._sheet_end(si, walk, f"シート「{d['name']}」（セルのないシート）", self._no_rows_lines(si))
         last_row = ix.rows[-1]
+        if not walk and stop_at is None:
+            stop_at = last_row  # シートを指して頼んだ：続きも、そのシートの中だけ
         b = last_row if stop_at is None else min(stop_at, last_row)
         i, j = ix.locate(a, b)
         if a > last_row and not rng.get("rows"):
@@ -940,9 +950,11 @@ class XlsxLazy(LazyDoc):
             self._fx = FormulaIndex(self)
         fx = self._fx
         dep = fx.dependents(cells)
-        for k in dep:
+        for k in dep | cells:
             si, r, _c = _unkey(k)
             rows.setdefault(si, set()).add(r)
+            if k in fx.masters:
+                rows.setdefault(si, set()).add(fx.masters[k][1])
         wanted: dict[int, list[tuple[int, int]]] = {si: [(r, r) for r in sorted(v)] for si, v in rows.items()}
         far: list[str] = []
         room = limits.MEMORY_LIMIT // 16  # 小さなブックの XML の大きさの上限（セルの表はこの何倍かになる）
@@ -970,6 +982,8 @@ class XlsxLazy(LazyDoc):
             warnings.append("書いた値に連動する数式の計算に要る行が多いので、次の範囲を読まずに、Excel で開いたときに計算し直す印を付けました："
                             + "、".join(far[:10]) + "（その数式のいまの値は、書いた値を反映していません）")
         opaque = [fx.cells[f] for f in fx.opaque]
+        if fx.incomplete:
+            opaque.append(-1)
         return wanted, ([] if not opaque else opaque)
 
     def calc_book(self, cells: list, dependents: bool = False):
@@ -1001,6 +1015,8 @@ class XlsxLazy(LazyDoc):
                 seen.add(k)
                 si, r, c = _unkey(k)
                 wanted.setdefault(si, []).append((r, r))
+                if k in fx.masters:
+                    wanted[si].append((fx.masters[k][1], fx.masters[k][1]))
                 f = by_cell.get(k)
                 if f is None:
                     continue

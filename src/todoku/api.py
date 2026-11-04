@@ -1682,7 +1682,7 @@ def _num_equal(a, b) -> bool:
 def audit(path: str, password: str | None = None, encoding: str | None = None, restart: bool = False, job: bool = False) -> dict:
     """大きな書類は、長い仕事（jobs）として動かす：すぐ返して、進み具合と、ここまでの結果を示す。何度でも呼べて、止まっても続きから進む。
     job：大きさによらず、長い仕事として動かす（いままでの検査が時間の上限に当たったとき）。"""
-    lz = lazy_open(path, password, encoding, built_ok=False) if not job else True
+    lz = lazy_open(path, password, encoding) if not job else True  # 窓の全体が予算に入らない書類は、どの形式でも長い仕事に
     if lz is None:
         return audit_whole(path, password, encoding)
     from . import jobs
@@ -1696,6 +1696,7 @@ def _job_view(rec: dict, path: str, password: str | None, encoding: str | None) 
     finished = bool(rec.get("finished"))
     d: dict = {"job": {"key": rec.get("key"), "running": not finished and not rec.get("stopped"), "finished": finished,
                        "progress": rec.get("progress"), "resumed": rec.get("resumed", False), "steps": rec.get("steps", 0),
+                       **({"peak_rss_mb": rec["peak_rss_mb"], "seconds": round(rec["finished"] - rec.get("started", rec["finished"]), 1)} if finished and rec.get("peak_rss_mb") else {}),
                        **({"stopped": rec["stopped"]} if rec.get("stopped") else {})}}
     full = state.get("full")
     if finished and full:
@@ -1706,7 +1707,8 @@ def _job_view(rec: dict, path: str, password: str | None, encoding: str | None) 
     if not finished:
         d["note"] = ("検査は別のプロセスで続いています（書類が大きいので、1 回の呼び出しの時間には縛られません）。"
                      "もう一度 audit_document を呼ぶと、進み具合と結果が分かります。止まっても、控えの続きから進みます")
-    d["grade"] = grade(path, password=password, encoding=encoding)
+    if lazy_open(path, password, encoding, built_ok=False) is not None:
+        d["grade"] = grade(path, password=password, encoding=encoding)  # 窓を作って測る形式は、段階も全体を作るので、終わってから
     return d
 
 
@@ -2057,6 +2059,10 @@ def read_range(path: str, rng: dict, max_chars=None, password: str | None = None
     doc = lazy_open(path, password, encoding, force=True)
     if doc is None:
         raise ApiError(f"ファイルが見つかりません: {path}")
+    if rng.get("part") is not None and not hasattr(doc, "whole"):
+        if int(rng["part"]) > 1:
+            raise ApiError("大きな書類は part ではなく範囲で読みます（前の結果の next をそのまま渡すか、open_document の概要の範囲で頼んでください）")
+        rng = {k_: v_ for k_, v_ in rng.items() if k_ != "part"}
     try:
         return doc.read(rng, clamp_chars(max_chars)), doc
     except RangeError as e:

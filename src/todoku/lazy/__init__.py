@@ -65,15 +65,17 @@ def _open_doc(path, password, encoding, force, built_ok, _member) -> LazyDoc | N
     st = p.stat()
     if st.st_size == 0:
         return None
-    key = (str(p), st.st_size, st.st_mtime_ns, encoding, password)
-    doc = _CACHE.get(key)
+    # パスワードのある書類は控えない（パスワードを控えに残さない）
+    key = (str(p), st.st_size, st.st_mtime_ns, encoding) if password is None else None
+    doc = _CACHE.get(key) if key is not None else None
     if doc is None:
         if not force and not built_ok and _is_built(str(p), p.name):
             return None
         doc = _make(str(p), p.name, password, encoding)
         if doc is None:
             return None
-        _CACHE[key] = doc
+        if key is not None:
+            _CACHE[key] = doc
         while len(_CACHE) > _CACHE_MAX:
             old = _CACHE.pop(next(iter(_CACHE)))
             if hasattr(old, "close"):

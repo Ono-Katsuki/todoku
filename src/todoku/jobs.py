@@ -148,6 +148,12 @@ def run(key: str) -> int:
                     last["t"] = now
                     save(key, rec)
         rec["finished"] = time.time()
+        try:
+            import resource
+
+            rec["peak_rss_mb"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // (1 << 20 if sys.platform == "darwin" else 1 << 10)
+        except ImportError:
+            pass
         rec["progress"] = {"text": "終わりました"}
         save(key, rec)
         return 0

@@ -756,3 +756,35 @@ def test_view_page_of_big_pdf_lays_out_one_page(tmp_path, monkeypatch):
     api._WINDOWS.clear()
     v = api.view_page(str(p), 7)
     assert v["png_base64"] and set(calls) <= {7}
+
+
+def test_xlsx_shared_formula_master_outside_touched_rows(tmp_path):
+    """共有数式の子のセルの計算：親の行が書く行の外でも、小さなブックに入れて計算し直す。空のセルの次のセルの式を取り違えない。"""
+    p = _make_xlsx(tmp_path / "a.xlsx", 50)
+    with zipfile.ZipFile(p) as z:
+        parts = {n: z.read(n) for n in z.namelist()}
+    x = parts["xl/worksheets/sheet1.xml"].decode()
+    x = re.sub(r"<f>A2\*2</f>", '<f t="shared" ref="D2:D51" si="0">A2*2</f>', x)
+    x = re.sub(r"<f>A(\d+)\*2</f>", '<f t="shared" si="0"/>', x)
+    x = x.replace('<c r="A30">', '<c r="E30" s="0"/><c r="A30">')
+    parts["xl/worksheets/sheet1.xml"] = x.encode()
+    with zipfile.ZipFile(p, "w", zipfile.ZIP_DEFLATED) as z:
+        for n, b in parts.items():
+            z.writestr(n, b)
+    lazy.clear()
+    r = api.fill(str(p), {"データ!A30": 100}, str(tmp_path / "o.xlsx"))
+    assert r["proof_ok"], r
+    assert r["recalculated"] == {"データ!D30": 200.0}
+
+
+def test_part_on_large_stream_doc_points_to_ranges(tmp_path):
+    p, _rows = _make_csv(tmp_path, 2000)
+    res = mcp_server.tool_result("read_window", {"path": str(p), "part": 2})
+    assert res.get("isError") and "範囲で読みます" in _text(res)
+
+
+def test_password_is_not_a_cache_key():
+    import inspect
+
+    src = inspect.getsource(lazy._open_doc)
+    assert "password is None" in src
