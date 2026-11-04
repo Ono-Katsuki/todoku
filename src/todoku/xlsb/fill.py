@@ -1,9 +1,8 @@
-""".xlsb への書き込み：すでに値のあるセルを、レコードの大きさを変えずに上書きする（読み戻しと証明つき）。
+""".xlsb への書き込み（読み戻しと証明つき）。
 
-レコードの大きさを変える書き込み（空のセルに値を入れる・字数を変える・共有文字列のセルを変える）はしない：
-Excel が作るブックには、シートの部品の中の位置を指す索引（xl/worksheets/binaryIndexN.bin の BrtIndexRowBlock など）があり、
-大きさを変えるとずれる。索引を作り直したファイルが Excel で開けることを確かめる手段がないので、確かめられない書き込みをしない。
-.xlsx で保存し直せば、ふつうに書ける。
+- 値のあるセル：レコードの大きさを変えずに上書きする。字数を変える・共有文字列のセルを変える書き込みはしない
+  （.xlsx で保存し直せば、ふつうに書ける）
+- 空のセル：シートの部品にレコードを足し、位置の索引（binaryIndex）を合わせて直す（grow.py）。Excel で開く確認はできないので、warnings で伝える
 
 書くもの：数（BrtCellReal・BrtCellRk。Rk は、その形でちょうど表せる数だけ）・真偽（BrtCellBool）・同じ字数の字（BrtCellSt）。
 書いたセルに連なる数式の保存値（BrtFmlaNum の 8 バイト）も、同じ大きさのまま計算し直した値にする。字の結果の数式が変わるときは書かない。
@@ -86,6 +85,7 @@ def fill(blob: bytes, name: str, values: dict, force: bool = False):
     parts: dict[str, bytearray] = {}
     spans: dict[str, list[tuple[int, int]]] = {}
     written = {}
+    grows: dict[str, list[tuple[int, int, int, object]]] = {}  # シートの部品 → (行, 列, 書式, 値)。0 始まり
     for key, v in values.items():
         try:
             sheet, r, c = resolve_target(wb, key)
@@ -97,31 +97,76 @@ def fill(blob: bytes, name: str, values: dict, force: bool = False):
         if cell is not None and (cell.has_formula or cell.array_master):
             raise XlsbWriteError(f"{where}：数式のセルには書きません")
         rec = wb.value_records.get((sheet, r, c))
-        if rec is None:
-            raise XlsbWriteError(f"{where}：{CANT_GROW}")
         _check_rules(wb, sh, r, c, v, where, force)
+        if rec is None or rec[1] == C_BLANK:
+            if sh.state.startswith("non-worksheet"):
+                raise XlsbWriteError(f"{where}：シートでない部品には書きません")
+            shown, _notes = _interpret(wb, sheet, r, c, v, where)
+            grows.setdefault(sh.path, []).append((r - 1, c - 1, sh.style_of(r, c), shown))
+            written[(sheet, r, c)] = shown
+            continue
         part, rid, pos, ln = rec
         new = _encode(rid, ln, v, where)
         buf = parts.setdefault(part, bytearray(wb.zip.read(part)))
         buf[pos:pos + ln] = new
         spans.setdefault(part, []).append((pos, pos + ln))
         written[(sheet, r, c)] = v
-    recalculated = _recalc(wb, blob, name, parts, spans)
+    recalculated = _recalc(wb, blob, name, parts, spans, grows)
+    return _assemble(blob, wb, parts, grows), written, recalculated, spans
+
+
+def _interpret(wb, sheet: str, r: int, c: int, v, where: str):
+    """Excel でそのセルに入力したときと同じ規則で、数・日付・真偽・字にする（xlsx と同じ）。"""
+    from ..xlsx.edit import EditError, interpret_input
+
+    try:
+        out, notes = interpret_input(wb, sheet, r, c, v)
+    except EditError as e:
+        raise XlsbWriteError(str(e)) from None
+    if out is None or out == "":
+        raise XlsbWriteError(f"{where}：空の値は書けません")
+    if isinstance(out, float) and (out != out or out in (float("inf"), float("-inf"))):
+        raise XlsbWriteError(f"{where}：値 {v!r} は数ではありません")
+    return out, notes
+
+
+def index_part(wb, sheet_part: str) -> str | None:
+    """シートの関係にある、位置の索引の部品の名前。"""
+    for typ, target in wb._rels(sheet_part).values():
+        if typ.lower().endswith("binaryindex") and wb.zip.has(target):
+            return target
+    return None
+
+
+def _assemble(blob: bytes, wb, parts: dict, grows: dict) -> bytes:
+    from .grow import GrowError, plan, rewrite_index, splice
+
     z = RawZip(blob)
+    done = set()
+    try:
+        for part, items in grows.items():
+            raw = bytes(parts[part]) if part in parts else wb.zip.read(part)
+            edits = plan(raw, items)
+            new = splice(raw, edits)
+            z.replace(part, new)
+            done.add(part)
+            ip = index_part(wb, part)
+            if ip:
+                z.replace(ip, rewrite_index(wb.zip.read(ip), edits, new, [(r, c) for r, c, _x, _v in items]))
+    except (GrowError, struct.error, KeyError) as e:
+        raise XlsbWriteError(f"シートのレコードを足せません（{e}）") from None
     for part, buf in parts.items():
-        z.replace(part, bytes(buf))
-    return z.build(), written, recalculated, spans
+        if part not in done:
+            z.replace(part, bytes(buf))
+    return z.build()
 
 
-def _recalc(wb, blob: bytes, name: str, parts: dict, spans: dict) -> dict:
+def _recalc(wb, blob: bytes, name: str, parts: dict, spans: dict, grows: dict | None = None) -> dict:
     """書いたあとのブックを計算し直し、書く前は保存値と合っていた数式で合わなくなったものの、保存値を同じ大きさで直す。"""
     from ..xlsx.calc import verify
 
     def rebuilt() -> XlsbWorkbook:
-        z = RawZip(blob)
-        for part, buf in parts.items():
-            z.replace(part, bytes(buf))
-        return XlsbWorkbook(z.build(), name)
+        return XlsbWorkbook(_assemble(blob, wb, parts, grows or {}), name)
 
     before = {(r.sheet, r.address) for r in verify(wb).results if r.status == "mismatch"}
     out = {}
@@ -146,10 +191,16 @@ def _recalc(wb, blob: bytes, name: str, parts: dict, spans: dict) -> dict:
     raise XlsbWriteError("数式を計算し直しても、保存値が定まりません")
 
 
-def prove(old: bytes, new: bytes, spans: dict) -> list[str]:
-    """ZIP の部品のうち、書いたシートのほかがバイト一致か（圧縮したバイトまで）、書いたシートで変わったのが値のバイトだけか。問題の一覧を返す。"""
+def prove(old: bytes, new: bytes, spans: dict, grown: dict | None = None, indexes: dict | None = None) -> list[str]:
+    """ZIP の部品のうち、書いたシートのほかがバイト一致か（圧縮したバイトまで）、書いたシートで変わったのが値のバイトだけか。問題の一覧を返す。
+    grown：レコードを足した部品 → {(行, 列)}（0 始まり）。indexes：その部品の索引の部品の名前。読み直して、順と索引を確かめる（grow.py）。"""
+    from .grow import GrowError, prove_index, prove_sheet
+
     a, b = RawZip(old), RawZip(new)
     problems = []
+    grown = grown or {}
+    indexes = indexes or {}
+    index_parts = set(indexes.values())
     if a.names() != b.names():
         problems.append("部品の一覧が変わっています")
     by = {e.name: e for e in b.entries}
@@ -157,6 +208,16 @@ def prove(old: bytes, new: bytes, spans: dict) -> list[str]:
         eb = by.get(ea.name)
         if eb is None:
             problems.append(f"{ea.name} がなくなっています")
+        elif ea.name in grown:
+            try:
+                problems += [f"{ea.name}：{x}" for x in prove_sheet(a.read(ea.name), b.read(ea.name), grown[ea.name], spans.get(ea.name, []))]
+                if ea.name in indexes:
+                    ip = indexes[ea.name]
+                    problems += [f"{ip}：{x}" for x in prove_index(a.read(ip), b.read(ip), b.read(ea.name), a.read(ea.name), grown[ea.name])]
+            except (GrowError, struct.error, ValueError, KeyError) as e:
+                problems.append(f"{ea.name}：読み直せません（{e}）")
+        elif ea.name in index_parts:
+            pass  # 上で確かめる
         elif ea.name in spans:
             x, y = a.read(ea.name), b.read(ea.name)
             if len(x) != len(y):
@@ -179,13 +240,61 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
     from ..formula.parser import addr
 
     new, written, recalculated, spans = fill(blob, name, values, force)
-    problems = prove(blob, new, spans)
+    old_wb = XlsbWorkbook(blob, name)
+    grown: dict[str, set] = {}
+    for (s, r, c) in written:
+        rec = old_wb.value_records.get((s, r, c))
+        if rec is None or rec[1] == C_BLANK:
+            grown.setdefault(old_wb.sheet(s).path, set()).add((r - 1, c - 1))
+    indexes = {p: index_part(old_wb, p) for p in grown if index_part(old_wb, p)}
+    problems = prove(blob, new, spans, grown, indexes)
+    problems += _same_cells(old_wb, XlsbWorkbook(new, name), written, recalculated)
     readback = {f"{s}!{addr(r, c)}": v for (s, r, c), v in written.items()}
-    head = (f"{len(written)} セルをレコードの大きさを変えずに上書きしました。ほかの部品は圧縮したバイトまで同じで、シートの部品で変わったのは値のバイトだけです"
-            if not problems else "証明で、想定外の変更が見つかりました")
+    if problems:
+        head = "証明で、想定外の変更が見つかりました"
+    elif grown:
+        n = sum(len(v) for v in grown.values())
+        head = (f"{len(written)} セルを書きました（うち空のセル {n} 個はレコードを足し、位置の索引も直しました）。ほかの部品は圧縮したバイトまで同じで、"
+                "元のレコードは順のまま残り、索引の位置はすべてセルの始まりを指しています")
+    else:
+        head = "%d セルをレコードの大きさを変えずに上書きしました。ほかの部品は圧縮したバイトまで同じで、シートの部品で変わったのは値のバイトだけです" % len(written)
+    from .grow import UNVERIFIED
+
     return {"blob": new, "readback": readback, "labels": {},
-            "result": {"proof_ok": not problems, "proof": head, "warnings": [], "unexpected": problems[:20], "structure_errors": [],
+            "result": {"proof_ok": not problems, "proof": head, "warnings": [UNVERIFIED] if grown else [], "unexpected": problems[:20], "structure_errors": [],
                        "recalculated": recalculated, "written_as": {k: str(v) for k, v in readback.items()}}}
+
+
+def _same_cells(old, new, written: dict, recalculated: dict) -> list[str]:
+    """読み直したブックで、書いたセルと計算し直した数式のほかのセルが、値も書式も元のままか。書いたセルが書いた値か。"""
+    problems = []
+    for sh in old.sheets:
+        if sh.state.startswith("non-worksheet"):
+            continue
+        ns = new.sheet(sh.name)
+        for (r, c), cell in sh.cells.items():
+            key = (sh.name, r, c)
+            n = ns.cells.get((r, c))
+            if key in written:
+                continue
+            if n is None or n.style != cell.style:
+                problems.append(f"{sh.name} の {r} 行 {c} 列のセルが変わっています")
+            elif n.value != cell.value and n.value == n.value and f"{sh.name}!{_addr(r, c)}" not in recalculated:
+                problems.append(f"{sh.name} の {r} 行 {c} 列の値が変わっています")
+        extra = set(ns.cells) - set(sh.cells) - {(r, c) for s, r, c in written if s == sh.name}
+        if extra:
+            problems.append(f"{sh.name} に、書いていないセルが増えています")
+    for (s, r, c), v in written.items():
+        got = new.sheet(s).cells.get((r, c))
+        if got is None or got.value != v:
+            problems.append(f"{s} の {r} 行 {c} 列を読み直すと、書いた値と違います")
+    return problems
+
+
+def _addr(r: int, c: int) -> str:
+    from ..formula.parser import addr
+
+    return addr(r, c)
 
 
 def read_cells(blob: bytes, name: str, keys) -> dict:

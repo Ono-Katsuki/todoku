@@ -47,6 +47,10 @@ def list_images(k: str, blob: bytes, win: dict) -> list[dict]:
             return _ooxml_pictures(blob, win, k)
         if k == "xlsx":
             return _xlsx_pictures(blob)
+        if k == "xlsb":
+            return _xlsb_pictures(blob)
+        if k == "ppt":
+            return [{kk: v for kk, v in b.items() if kk != "data"} for b in _legacy_blips(blob, k)]
         if k in ("odt", "ods"):
             return _odf_pictures(blob)
         if k == "hwpx":
@@ -162,6 +166,42 @@ def _xlsx_pictures(blob: bytes) -> list[dict]:
                     if size:
                         item["size_mm"] = size
                     out.append(item)
+    return out + _rest_of_parts(z, names, used, ("xl/",))
+
+
+def _xlsb_pictures(blob: bytes) -> list[dict]:
+    """.xlsb：シートは BIFF12 だが、図形の部品は xlsx と同じ DrawingML。シートの関係から drawing の部品をたどる。"""
+    from ..formula.parser import addr
+    from ..xlsb.book import XlsbWorkbook
+
+    wb = XlsbWorkbook(blob, "")
+    z = wb.zip
+    names = list(z.names())
+    out: list[dict] = []
+    used: set = set()
+    for sh in wb.sheets:
+        if sh.state.startswith("non-worksheet"):
+            continue
+        n = 0
+        for typ, dp in wb._rels(sh.path).values():
+            if typ != "drawing" or not z.has(dp):
+                continue
+            droot = ET.fromstring(z.read(dp))
+            dr = _rels(z, dp)
+            for anchor in droot:
+                frm = anchor.find(_XDR + "from")
+                pos = (int(frm.find(_XDR + "row").text) + 1, int(frm.find(_XDR + "col").text) + 1) if frm is not None else None
+                for pic in anchor.iter(_XDR + "pic"):
+                    n += 1
+                    nv = pic.find(".//" + _XDR + "cNvPr")
+                    pname = (nv.get("name") or "") if nv is not None else ""
+                    alt = ((nv.get("descr") or nv.get("title") or "") if nv is not None else "").strip() or None
+                    blip = pic.find(".//" + _A + "blip")
+                    media = dr.get(blip.get(_R + "embed")) if blip is not None else ""
+                    if media:
+                        used.add(media)
+                    out.append({"id": f"{sh.name}!{pname or f'図{n}'}", "part": media or "", "format": _ext(media or ""), "alt": alt, "decorative": False,
+                                "where": f"シート「{sh.name}」" + (f"の {addr(*pos)} 付近" if pos else "")})
     return out + _rest_of_parts(z, names, used, ("xl/",))
 
 
@@ -326,6 +366,9 @@ def _legacy_blips(blob: bytes, k: str) -> list[dict]:
         for key in ("worddocument", "data", "0table", "1table"):
             if key in streams:
                 found += _blips_in_word_stream(c.read(streams[key]))
+    elif k == "ppt":
+        if "pictures" in streams:  # Pictures ストリーム（MS-PPT 2.1.2）：BLIP の記録の並び
+            found += _blips(c.read(streams["pictures"]))
     else:
         name = streams.get("workbook") or streams.get("book")
         if name:
@@ -533,7 +576,7 @@ def _encode(fr, region: list | None) -> dict:
 
 
 def _part_bytes(k: str, blob: bytes, part: str) -> bytes:
-    if k in ("docx", "xlsx", "pptx", "odt", "ods", "hwpx"):
+    if k in ("docx", "xlsx", "xlsb", "pptx", "odt", "ods", "hwpx"):
         z = _zip(blob)
         data = z.read(part)
         if _ext(part) in ("emz", "wmz"):
@@ -561,7 +604,7 @@ def get_image(k: str, blob: bytes, images: list[dict], image_id: str, region: li
     if item is None:
         ids = "・".join(str(im["id"]) for im in images[:12])
         raise ImageNotFound(f"画像「{image_id}」は書類にありません" + (f"（窓の一覧の id：{ids}）" if ids else "（この書類には画像の一覧がありません）"))
-    if k in ("doc", "xls", "rtf"):
+    if k in ("doc", "xls", "rtf", "ppt"):
         src = _legacy_blips(blob, k) if k != "rtf" else _rtf_pictures(blob)
         hit = next((b for b in src if b["id"] == item["id"]), None)
         if hit is None:

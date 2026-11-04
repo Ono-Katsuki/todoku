@@ -371,7 +371,9 @@ def _grade_blob(blob: bytes, filename: str = "", password: str | None = None, en
 def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0, k: str = "zip", filename: str = "") -> Grade:
     """ZIP：中のファイルごとに段階を決め、いちばん低いものを ZIP の段階にする（理由の頭に、中の名前を付ける）。
     中の、扱えない形式のファイル・取り出せないファイルは、そのファイルが F（開けない）。"""
-    from .archives import KIND_JA, KINDS, MAIL, NO_WRITE, WRITABLE, extract, files
+    import time
+
+    from .archives import KIND_JA, KINDS, MAIL, NO_WRITE, PASSWORDED, SLOW_SECONDS, WRITABLE, extract, files
     from .book import kind_of
     from .ziparc import ArchiveError
 
@@ -391,7 +393,13 @@ def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0, k: str 
         reads.append("B")
         writes.append("D")
         reasons.append(Reason("B", "メールの本文", "差出人・宛先・件名・本文の字を読みます（添付は中のファイルとして読みます）"))
+    started = time.monotonic()
     for m in ms:
+        if k in PASSWORDED and time.monotonic() - started > SLOW_SECONDS:  # Python で解く書庫：呼び出しの時間の上限に当たる前に止める
+            reads.append("C")
+            writes.append("D")
+            reasons.append(Reason("C", f"{m.name}：確かめていない", "解くのに時間がかかるので、段階を確かめていません（path に中のファイルを指定すれば、そのファイルの段階を決められます）"))
+            continue
         try:
             sub = extract(blob, m.name, k, filename)
             ksub = kind_of(sub, m.name.rsplit("/", 1)[-1])

@@ -57,24 +57,60 @@ def _read(path: str, password: str | None = None):
     from .unlock import NeedsPassword, WrongPassword, unlock
 
     p = Path(path).expanduser()
+    _arc.use_password(password)
     if not p.is_file() and _member(path) is not None:
         return _read_member(path, password)
     if not p.is_file():
         raise ApiError(f"ファイルが見つかりません: {path}")
+    _arc.use_sibling(lambda stem, exts: _file_sibling(p, stem, exts))
     blob = _read_file(p)
     try:
         plain, lock = unlock(blob, password)
+        _arc.preflight(plain, kind_of(plain, p.name))
     except NeedsPassword as e:
         raise PasswordNeeded(f"{e}。本人にパスワードを聞いて、password に入れてもう一度呼んでください"
                              "（パスワードは、結果にも記録にも残しません）") from None
     except WrongPassword as e:
         raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
+    except _arc.ArchiveError:
+        pass  # 壊れた書庫：窓・段階の所で、理由を添えて伝える
     k = kind_of(plain, p.name)  # 名前は、中身だけでは決まらない形式（CSV・JSON など）を見分けるのに使う
     if k in UNSUPPORTED:
         raise Unsupported(unsupported_message(k, plain), k)  # 見分けたが、まだ読めない形式（book.UNSUPPORTED）
     if k not in KIND_JA:
         raise ApiError(f"この形式（{k}）は扱えません。Excel・PDF・Word のファイルを指定してください")
     return plain, p.name, k, lock
+
+
+def _file_sibling(p: Path, stem: str, exts: tuple) -> tuple[bytes, str] | None:
+    """同じフォルダの、語幹が同じファイル（dBase のメモ .dbt・.fpt）。大文字小文字は問わない。"""
+    want = {(stem + e).lower() for e in exts}
+    try:
+        for q in p.parent.iterdir():
+            if q.name.lower() in want and q.is_file():
+                return _read_file(q), q.name
+    except OSError:
+        return None
+    return None
+
+
+def _member_sibling(path: str, stem: str, exts: tuple) -> tuple[bytes, str] | None:
+    """書庫の中の、同じフォルダの語幹が同じファイル。"""
+    from . import ziparc
+
+    outer, chain = _member(path)
+    blob = _read_file(Path(outer).expanduser())
+    cur = Path(outer).name
+    for m in chain[:-1]:
+        blob = _arc.extract(blob, m, kind_of(blob, cur), cur)
+        cur = ziparc.base_name(m)
+    folder = chain[-1].rsplit("/", 1)[0] + "/" if "/" in chain[-1] else ""
+    want = {(folder + stem + e).lower() for e in exts}
+    k = kind_of(blob, cur)
+    for m in _arc.files(blob, k, cur):
+        if m.name.lower() in want:
+            return _arc.extract(blob, m.name, k, cur), ziparc.base_name(m.name)
+    return None
 
 
 def _read_file(p: Path) -> bytes:
@@ -148,6 +184,7 @@ def _member(path: str) -> tuple[str, list[str]] | None:
 def _member_blob(path: str) -> tuple[bytes, str]:
     """ZIP の中のファイルの中身と名前（ZIP の中の ZIP も、続けて「!/」で指す）。"""
     from . import ziparc
+    from .unlock import NeedsPassword, WrongPassword
 
     outer, chain = _member(path)
     blob = _read_file(Path(outer).expanduser())
@@ -158,6 +195,8 @@ def _member_blob(path: str) -> tuple[bytes, str]:
             raise ApiError(f"「{m}」の外側のファイルは ZIP ではありません")
         try:
             blob = _arc.extract(blob, m, k, cur)
+        except (NeedsPassword, WrongPassword):
+            raise  # 7z・RAR のパスワード：呼んだ側（_read_member）が、聞き直す形に直す
         except ziparc.ArchiveError as e:
             raise ApiError(str(e)) from None
         cur = ziparc.base_name(m)
@@ -167,9 +206,16 @@ def _member_blob(path: str) -> tuple[bytes, str]:
 def _read_member(path: str, password: str | None):
     from .unlock import NeedsPassword, WrongPassword, unlock
 
-    blob, name = _member_blob(path)
+    _arc.use_sibling(lambda stem, exts: _member_sibling(path, stem, exts))
     try:
+        blob, name = _member_blob(path)
         plain, lock = unlock(blob, password)
+        try:
+            _arc.preflight(plain, kind_of(plain, name))
+        except _arc.ArchiveError as e:
+            if isinstance(e, (NeedsPassword, WrongPassword)):
+                raise
+            # 壊れた書庫：窓・段階の所で、理由を添えて伝える
     except NeedsPassword as e:
         raise PasswordNeeded(f"{e}。本人にパスワードを聞いて、password に入れてもう一度呼んでください"
                              "（パスワードは、結果にも記録にも残しません）") from None
@@ -227,7 +273,8 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
     scope = _PAGE_SCOPE.get()  # 大きな PDF：書く所のページだけの窓
     from .lazy.filebytes import sha256_hex
 
-    key = (sha256_hex(blob), name, encoding, tuple(sorted(scope)) if scope is not None else None) if lock is None else None
+    key = ((sha256_hex(blob), name, encoding, tuple(sorted(scope)) if scope is not None else None)
+           if lock is None and not (password and k in _arc.PASSWORDED) and k != "dbf" else None)
     if key is not None and key in _WINDOWS:
         _WINDOWS[key] = _WINDOWS.pop(key)  # いちばん新しく使ったものにする
         return pickle.loads(_WINDOWS[key][1])  # 呼んだ側が変えても控えは変わらないよう、写しを返す
@@ -2062,8 +2109,19 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
             raise ApiError(str(e)) from None
         except (struct.error, IndexError) as e:
             raise ApiError(broken_message(path, e)) from None
+    if k == "xps":
+        from .legacy.xpsrender import view_page as xview
+
+        try:
+            if dpi is not None and (isinstance(dpi, bool) or not isinstance(dpi, (int, float)) or not 10 <= dpi <= 1200):
+                raise ApiError("dpi は 10〜1200 の数で指定してください")
+            return xview(blob, int(page), region, marks, dpi)
+        except ValueError as e:
+            raise ApiError(str(e)) from None
+        except (struct.error, IndexError, OverflowError, ZeroDivisionError) as e:
+            raise ApiError(broken_message(path, e)) from None
     if k != "pdf":
-        raise ApiError("view_page は PDF と画像のファイルのページの画像です（ほかの形式は窓で読み、書類の中の画像は view_image で見ます）")
+        raise ApiError("view_page は PDF・XPS と画像のファイルのページの画像です（ほかの形式は窓で読み、書類の中の画像は view_image で見ます）")
     doc = _pdf(blob, name, lock)
     try:
         if dpi is not None and (isinstance(dpi, bool) or not isinstance(dpi, (int, float)) or not 10 <= dpi <= 1200):
