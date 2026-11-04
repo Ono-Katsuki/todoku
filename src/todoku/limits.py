@@ -2,22 +2,29 @@
 
 役所の書類は、どこから来たか分からないファイルとして開く。小さなファイルが展開すると何 GB にもなる（圧縮の爆弾）、
 参照が輪になっていて読み終わらない、といった書類で、メモリや時間を使い切らないよう、次の上限を置く。
-上限は、ふつうの申請書類（数 MB・数百ページまで）が決して当たらない大きさにしてあり、環境変数で変えられる。
-上限に当たったときは LimitExceeded（ValueError の一種）を投げ、エージェントには「大きすぎるか、壊れている」と伝える。
+上限は「壊れた・悪意のある」ファイルを止めるためのもので、大きいだけの本物のファイルを止めるためのものではない。
+大きな書類は読む量を分ける（lazy/：概要を返し、エージェントが要る所をページ・行の範囲で頼む）。読めない所は作らない。
+上限に当たったときは LimitExceeded（ValueError の一種）を投げ、エージェントには、頼み直せる小さな範囲を伝える（isolate.smaller_request）。
 
 1 回の道具の呼び出し（窓を開く・書き込む・検査する）ごとに Budget を 1 つ作り（call_budget）、その呼び出しの中の
 展開（ZIP の部品・PDF のストリーム・一太郎の圧縮）と、PDF の描画の命令を、同じ Budget で数える。
 呼び出しの外（ライブラリとして使うとき）は、1 回の展開の上限だけを守る（合計は数えない）。
 
 環境変数（大きさは MB）：
-- TODOKU_MAX_FILE_MB（200）            開くファイルの大きさ
-- TODOKU_MAX_INFLATE_PART_MB（256）    1 つの部品・ストリームを展開した大きさ（宣言された大きさではなく、実際に出てきたバイト）
-- TODOKU_MAX_INFLATE_TOTAL_MB（2048）  1 回の呼び出しで展開するバイトの合計
+- TODOKU_MAX_FILE_MB（メモリの上限の半分）  メモリに丸ごと読むファイルの大きさ。分けて読める形式（CSV・TSV・JSON Lines・.txt・.xlsx）には
+                                        当たらない（ディスクから少しずつ読む）
+- TODOKU_MAX_INFLATE_PART_MB（256）    1 つの部品・ストリームを展開した大きさの基本の上限。実際の上限は、これと「圧縮したバイト × 比率」の大きい方
+                                        （宣言された大きさではなく、実際に出てきたバイトを数える）
+- TODOKU_MAX_INFLATE_TOTAL_MB（2048）  1 回の呼び出しで展開するバイトの合計（同じく、これと「ファイルの大きさ × 比率」の大きい方）
+- TODOKU_MAX_INFLATE_RATIO（200）      圧縮の比率の上限。ふつうの XML は 10〜100 倍で、deflate の理屈の上限は 1032 倍。爆弾はここで止まる
+- TODOKU_CONTEXT_BUDGET_CHARS（400000） 窓の全体を一度に返してよい大きさ（字）。およそ 20 万トークンの会話に入らなくなる大きさ。
+                                        これを超える書類は、概要だけを返し、ページ・行の範囲で読む（lazy/）
+- TODOKU_PAGE_CHARS（60000）           範囲で読むときの 1 回の大きさ（字）。続きは cursor で読める（読み減らすだけで、読めない所は作らない）
 - TODOKU_MAX_PDF_OPS（200000000）     1 回の呼び出しで読む、PDF の描画の字句（数・名前・命令）の数の合計
 - TODOKU_MAX_PAGE_OPS（5000000）       1 ページ（とその部品）で読む、PDF の描画の字句の数
 - TODOKU_MAX_PIXELS（100000000）       1 つの画像を画素に開く大きさ（幅 × 高さ）
 - TODOKU_TIME_LIMIT（120）             1 回の呼び出しの秒数（MCP サーバー：別のプロセスで動かし、超えたら止める）
-- TODOKU_MEMORY_LIMIT_MB（2048）       その別のプロセスのメモリ
+- TODOKU_MEMORY_LIMIT_MB（物理メモリの 1/4。2048 以上）  その別のプロセスのメモリ
 - TODOKU_WINDOW_CACHE_MB（256）        窓の控え（同じ書類を開き直さない）の大きさの合計
 - TODOKU_MAX_DECLARED_CELLS（262144）  表計算：ファイルの宣言（入力規則・数式の参照・配列数式の範囲・繰り返し）から、セルの要素のない所まで
                                         広げる数（1 ブック。超える範囲は、ファイルにあるセルだけを見て、広げなかったことを伝える）
@@ -42,14 +49,26 @@ def _env(name: str, default: float, scale: int = 1) -> int:
     return int(v * scale) if v > 0 else int(default * scale)
 
 
-MAX_FILE = _env("TODOKU_MAX_FILE_MB", 200, MB)
+
+def _physical_memory() -> int:
+    """この機械の物理メモリ（バイト）。分からなければ 0。"""
+    try:
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (AttributeError, ValueError, OSError):
+        return 0
+
+
 MAX_INFLATE_PART = _env("TODOKU_MAX_INFLATE_PART_MB", 256, MB)
 MAX_INFLATE_TOTAL = _env("TODOKU_MAX_INFLATE_TOTAL_MB", 2048, MB)
 MAX_PDF_OPS = _env("TODOKU_MAX_PDF_OPS", 200_000_000)
 MAX_PAGE_OPS = _env("TODOKU_MAX_PAGE_OPS", 5_000_000)
 MAX_PIXELS = _env("TODOKU_MAX_PIXELS", 100_000_000)
 TIME_LIMIT = _env("TODOKU_TIME_LIMIT", 120)
-MEMORY_LIMIT = _env("TODOKU_MEMORY_LIMIT_MB", 2048, MB)
+MEMORY_LIMIT = _env("TODOKU_MEMORY_LIMIT_MB", max(2048, _physical_memory() / 4 / MB), MB)
+MAX_FILE = _env("TODOKU_MAX_FILE_MB", MEMORY_LIMIT / 2 / MB, MB)
+MAX_INFLATE_RATIO = _env("TODOKU_MAX_INFLATE_RATIO", 200)
+CONTEXT_BUDGET = _env("TODOKU_CONTEXT_BUDGET_CHARS", 400_000)
+PAGE_CHARS = _env("TODOKU_PAGE_CHARS", 60_000)
 WINDOW_CACHE = _env("TODOKU_WINDOW_CACHE_MB", 256, MB)
 # マクロ（VBA）：1 つの文字列の長さ・1 つの配列の要素の数・1 回の実行で作る大きな値（1 MB 以上の文字列）の合計
 MAX_VBA_STRING = _env("TODOKU_MAX_VBA_STRING", 16 * MB)
@@ -85,9 +104,17 @@ class Budget:
         self.inflated = 0
         self.ops = 0
 
-    def room(self, part: int | None = None) -> int:
-        """これから 1 つ展開してよい大きさ。"""
+    def allow_file(self, size: int) -> None:
+        """大きなファイル：合計の上限を、ファイルの大きさに見合うだけ広げる（小さなファイルの爆弾は、いままでの上限で止まる）。"""
+        if self.total is not None:
+            self.total = max(self.total, size * MAX_INFLATE_RATIO)
+
+    def room(self, part: int | None = None, compressed: int = 0) -> int:
+        """これから 1 つ展開してよい大きさ。compressed：展開するデータの圧縮したバイト数。大きなデータには、比率の分だけ広げる
+        （part を指定した展開は、その指定のとおり）。"""
         cap = self.part if part is None else min(part, self.part)
+        if part is None and compressed:
+            cap = max(cap, compressed * MAX_INFLATE_RATIO)
         if self.total is not None:
             cap = min(cap, max(0, self.total - self.inflated))
         return cap
@@ -134,7 +161,7 @@ def inflate(data: bytes, wbits: int = 15, what: str = "", part: int | None = Non
     part：この展開だけの上限（予算の 1 つの展開の上限より小さくするとき）。上限を超えたら LimitExceeded。
     tolerant：壊れたデータを、読めるところまで返す（PDF）。そうでなければ zlib.error（途中で終わるデータも）。"""
     b = budget()
-    cap = b.room(part)
+    cap = b.room(part, len(data))
     d = zlib.decompressobj(wbits)
     out = bytearray()
     src = data
@@ -154,6 +181,41 @@ def inflate(data: bytes, wbits: int = 15, what: str = "", part: int | None = Non
             raise
     b.charge(len(out), what)
     return bytes(out)
+
+
+class StreamInflate:
+    """展開を、出てくるバイトを数えながら少しずつ進める（丸ごとメモリに置かない。圧縮の爆弾は比率の上限で止まる）。"""
+
+    def __init__(self, what: str = "", wbits: int = -15, compressed: int = 0):
+        self.what = what
+        self.d = zlib.decompressobj(wbits)
+        self.out = 0
+        self.compressed = compressed
+        self.cap = max(MAX_INFLATE_PART, compressed * MAX_INFLATE_RATIO)
+
+    def feed(self, data: bytes, max_out: int = 0) -> bytes:
+        piece = self.d.decompress(data, max_out) if max_out else self.d.decompress(data)
+        self.out += len(piece)
+        if self.out > self.cap:
+            raise LimitExceeded(f"{self.what or '部品'}：圧縮した {_mb(self.compressed)} が {_mb(self.cap)} を超えて展開されます"
+                                f"（比率 {MAX_INFLATE_RATIO} 倍まで。TODOKU_MAX_INFLATE_RATIO で変えられます）。圧縮の爆弾か、壊れたファイルです")
+        return piece
+
+
+# ---------------------------------------------------------------------- 進み具合
+_PROGRESS = {"report": None}
+
+
+def set_progress_reporter(fn) -> None:
+    """働き手（isolate）が、進み具合の伝え先を置く。"""
+    _PROGRESS["report"] = fn
+
+
+def progress(text: str, done: int = 0, total: int = 0) -> None:
+    """長い処理の進み具合を伝える（止まったときに、どこまで進んだかを言えるように。止める判断には使わない）。"""
+    fn = _PROGRESS["report"]
+    if fn is not None:
+        fn(text, done, total)
 
 
 def check_output(n: int, what: str = "", part: int | None = None) -> None:

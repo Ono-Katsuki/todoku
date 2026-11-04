@@ -201,7 +201,7 @@ class Spots:
 
     def _collect(self) -> None:
         doc = self.doc
-        n = 0
+        n = getattr(doc, "para_base", 0)  # 書類の一部だけを読むとき（lazy）：段落の番号は元の書類の番号
         for _kind, _part, blocks in doc.all_blocks():
             for p in iter_paras(blocks):
                 n += 1
@@ -390,6 +390,9 @@ class Spots:
         - 書き込み済みの所（しおり）の名前は使わない（その名前は、しおりの所のまま）
         古い名前（P{段落}.{番号}・P{段落}.a{番号}：数え順の番号）は、その段落にその並びの所が 1 つだけのとき（どの数え方でも
         同じ所を指すとき）だけ、legacy として受ける（Items.get）。"""
+        cut = getattr(self.doc, "seg_cut", None)  # とても長い行の一部（lazy）：区切りの所は行の頭・終わりではない
+        if cut:
+            placed = [(it, c_) for it, c_ in placed if not (cut[1] and it["span"][0] >= len(text)) and not (cut[0] and it["span"][1] <= 0)]
         if not placed:
             return
         cover = bytearray(len(text) + 1)
@@ -409,7 +412,8 @@ class Spots:
         order = sorted(placed, key=lambda t: (t[0]["span"][0], t[0]["span"][1], t[1]))
         next_j: dict[str, int] = {}  # 同じ字数の所の、次に試す番号（同じ字数の所がとても多い段落でも、1 回ずつ進む）
         for it, _cls in order:
-            base = f"P{pi}.c{prefix[it['span'][0]]}"
+            at_abs = getattr(self.doc, "place_abs", None)  # とても長い行（lazy）：id は行の頭からの字の位置で決まる
+            base = f"P{pi}.c{prefix[it['span'][0]]}" if at_abs is None else f"P{pi}.x{at_abs + it['span'][0]}"
             j = next_j.get(base, 1)
             fid = base if j == 1 else f"{base}.{j}"
             while fid in taken or fid in self.items:
