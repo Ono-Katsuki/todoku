@@ -37,7 +37,14 @@ def build(blob: bytes, name: str) -> dict:
             "pages": [{"number": i, "width_px": f.w, "height_px": f.h, "dpi": list(f.dpi) if f.dpi else None,
                        "size_mm": [round(f.w / f.dpi[0] * 25.4, 1), round(f.h / f.dpi[1] * 25.4, 1)] if f.dpi else None}
                       for i, f in enumerate(frames, 1)],
-            "fields": [], "statement": "中身は画像の中にあり、字の情報はありません"}
+            "fields": [], "statement": "中身は画像の中にあり、字の情報はありません" if fmt != "svg" else "ベクターの絵です。text の要素の字は窓にあります",
+            "texts": _svg_texts(blob) if fmt == "svg" else []}
+
+
+def _svg_texts(blob: bytes) -> list[str]:
+    from .svg import texts
+
+    return texts(blob)[:500]
 
 
 def markdown_parts(win: dict) -> list[tuple[str, str]]:
@@ -46,6 +53,11 @@ def markdown_parts(win: dict) -> list[tuple[str, str]]:
     lines = [f"# {win['file']}（{win['format_ja']}の画像）", "",
              f"このファイルは画像です（{n} ページ）。**中身は画像の中にあり、字の情報はありません**。"
              "view_page（page＝何枚目か）で画像を見て、エージェントの目で読みます。読めない所は推測で埋めず、本人に伝えてください。", ""]
+    if win["format"] == "svg":
+        lines[2] = (f"このファイルはベクターの絵（SVG）です（{n} ページ）。view_page で絵として見ます（小さな字は region で拡大すると、なめらかなまま細かく描きます）。"
+                    "読めない所は推測で埋めず、本人に伝えてください。")
+        if win.get("texts"):
+            lines += ["絵の中の字（text の要素。図の中の位置は view_page で確かめてください）：", ""] + [f"- {t}" for t in win["texts"]] + [""]
     lines += [f"- {_frame_line(i, f)}" for i, f in enumerate(fr, 1)]
     lines += ["", "画像の上には直接書けません。書く必要があれば、to_pdf で PDF に包み、できた PDF に fill_document で枠（mm）を指定して書きます"
               "（書いた証明は、その PDF について行います）。"]
@@ -136,14 +148,15 @@ def view_frame(blob: bytes, page: int, region: list | None = None, marks: list |
         unit = "画素"
         head = (f"{page} 枚目（{FORMAT_JA.get(fmt, fmt)}・{fw}×{fh} 画素。解像度の記録がないので、紙の上の mm は分かりません）の、"
                 f"左 {x0:.0f}〜{x1:.0f}・上 {y0:.0f}〜{y1:.0f} 画素の範囲。上と左の帯の数は、画像の左上からの画素です。")
-    text = (head + f"中身は画像の中にあります（字の情報はありません）。小さな字は region（[左, 上, 右, 下]、単位は{unit}）で拡大して読みます。"
+    inside = "中身は絵の中にあります（text の要素の字は窓にもあります）" if fmt == "svg" else "中身は画像の中にあります（字の情報はありません）"
+    text = (head + f"{inside}。小さな字は region（[左, 上, 右, 下]、単位は{unit}）で拡大して読みます。"
             "読めない所は推測で埋めず、本人に伝えてください。書くには to_pdf で PDF に包みます。")
     if len(frames) > 1:
         text += f" 全部で {len(frames)} 枚です。"
     if scale_x > 0.999:
         text += f" この範囲は元の解像度（{fw}×{fh} 画素のまま）で開きました。"
     else:
-        text += (f" この範囲は元の {fw}×{fh} 画素の約 {1 / scale_x:.0f} 分の 1 の解像度で開きました。"
+        text += (f" この範囲は元の {fw}×{fh} 画素の約 {1 / scale_x:.1f} 分の 1 の解像度で開きました。"
                  "細かく見るには region で範囲を狭めてください（どの部分でも、狭めれば元の解像度まで開けます）。")
     if fr.notes:
         text += " " + " ".join(fr.notes)

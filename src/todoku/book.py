@@ -71,7 +71,7 @@ def kind_of(blob: bytes, filename: str = "") -> str:
     from .imaging.formats import heif_brand, sniff
 
     if sniff(blob):
-        return "image"  # 画像そのもののファイル（JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2）：見て読む（imaging/standalone.py）
+        return "image"  # 画像そのもののファイル（JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2・PICT・SVG）：見て読む（imaging/standalone.py）
     if heif_brand(blob):
         return "heif"  # HEIC・AVIF：見分けるが開けない（HEVC・AV1 の復号は持たない）
     head_kind = _head_kind(blob, filename)  # 先頭のバイトで決まる形式（tar・gzip・LZH・7z・RAR・古い Excel など）

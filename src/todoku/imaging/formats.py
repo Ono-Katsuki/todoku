@@ -1,4 +1,4 @@
-"""単独の画像ファイルの形式を見分けて、フレーム（RGB の画素）に開く：JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2。
+"""単独の画像ファイルの形式を見分けて、フレーム（RGB の画素）に開く：JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2・PICT・SVG。
 
 仕様：PNG（ISO/IEC 15948）・GIF89a・BMP（DIB、MS-WMF 2.2.2）・TIFF 6.0・WebP（RFC 9649・RFC 6386）。
 どれも、開く前に幅 × 高さを limits.MAX_PIXELS で確かめ、展開は limits.inflate で数える。
@@ -38,7 +38,7 @@ class Frame:
 
 
 FORMAT_JA = {"emf": "EMF（メタファイル）", "wmf": "WMF（メタファイル）", "jpeg": "JPEG", "png": "PNG", "gif": "GIF", "bmp": "BMP", "tiff": "TIFF", "webp": "WebP", "jp2": "JPEG 2000", "j2k": "JPEG 2000（符号の流れ）",
-             "jbig2": "JBIG2"}
+             "jbig2": "JBIG2", "pict": "PICT（QuickDraw の絵）", "svg": "SVG（ベクターの絵）"}
 
 
 def sniff(blob: bytes) -> str | None:
@@ -65,6 +65,14 @@ def sniff(blob: bytes) -> str | None:
         return "emf"
     if blob[:4] == b"\xd7\xcd\xc6\x9a":
         return "wmf"
+    from .svg import is_svg
+
+    if is_svg(blob):
+        return "svg"
+    from .pict import is_pict
+
+    if is_pict(blob):
+        return "pict"
     return None
 
 
@@ -120,6 +128,14 @@ def info(blob: bytes) -> tuple[str, list[FrameInfo]]:
     if f in ("emf", "wmf"):
         fr = decode(blob)
         return f, [FrameInfo(fr.w, fr.h, fr.dpi)]
+    if f == "svg":
+        from .svg import infos as svg_infos
+
+        return f, svg_infos(blob)
+    if f == "pict":
+        from .pict import infos as pict_infos
+
+        return f, pict_infos(blob)
     from . import jbig2
 
     return f, _jbig2_infos(blob, jbig2)
@@ -154,6 +170,14 @@ def decode(blob: bytes, index: int = 0, target_pixels: int | None = None, deadli
         from .metaraster import emf, wmf
 
         return emf(blob) if f == "emf" else wmf(blob)
+    if f == "svg":
+        from .svg import render as svg_render
+
+        return svg_render(blob, target_pixels, deadline, window)
+    if f == "pict":
+        from .pict import render as pict_render
+
+        return pict_render(blob)
     if f == "jbig2":
         from . import jbig2
 
