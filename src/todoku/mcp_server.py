@@ -8,6 +8,7 @@
 - fill_document   入力欄に書き込み、別の名前で書き出す。元のファイルは変えない。証明と読み戻しの結果を返す
 - audit_document  この書類を「全て正確に読み書きできるか」を確かめる（読み落とし・全欄への書き込み・読み戻し）
 - run_macro       Excel のマクロ（ボタン）を動かし、マクロが変えたセルを証明つきで書き出す
+- extract_processing  書類の計算の処理を、規則・構造・マクロとして取り出す（format="python" で、確かめつきの calculate(inputs) のモジュール）
 - grade_document  書類の段階（読む S〜F・書く A〜D）。規則で決めた段階に、エージェントが窓を読んで確かめたことを合わせる
 """
 
@@ -235,6 +236,21 @@ TOOLS = [
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
          "values": {"type": "object", "description": "{欄の id: 値}"}},
          "required": ["path", "values"]}},
+    {"name": "extract_processing",
+     "description": "書類の計算の処理を、処理として取り出す（値ではなく、計算の決まりそのものを受け取る道具）。Excel の仲間（.xlsx・.xls・.xlsb・.ods など）と PDF のフォーム。"
+                    "同じ形の数式は 1 つの規則にまとめる（例「D3:D100000 = B{row}*C{row}」。A1 と R1C1 の正規形、読む範囲、例外のセルつき。10 万行でも規則は数個）。"
+                    "あわせて、入力（見出しの事実・読む規則・入力規則）、パラメータ、参照表（中身はデータとして。read_table で引ける）、名前、出力（どこからも読まれないセル）、"
+                    "規則の順番と循環、IF・IFS・SWITCH の分岐、配列数式（展開しない）、外部参照、TODAY・OFFSET・INDIRECT（静的に分からない所）、隠れたシート・行、シートのあいだの流れ、"
+                    "マクロ（ソース・読み書きするセル・いつ動くか）、条件付き書式・入力規則、ピボット・Power Query（セルの数式で書けない処理としての定義）、PDF の計算の順と欄のあいだの規則（独自の JavaScript は計算せずそのまま）。"
+                    "format=\"python\" で、標準ライブラリだけで動く calculate(inputs) -> dict のモジュールを out_path に書き出す。書き出す前に、別のプロセスで動かして保存された値・とどくの計算と全セルを比べ、"
+                    "一致の割合・すべての不一致・規則ごとの確かめの結果（verification）を返す。計算の規則を知りたいときはこの道具を使う。1 つの値の説明は explain_calculation、値を変えた試算は try_calculation。",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
+         "format": {"type": "string", "enum": ["json", "python"], "description": "json（既定）か python"},
+         "out_path": {"type": "string", "description": "python：書き出すモジュール（.py。必須）。json：全部を書き出す .json（大きなブックのとき）"},
+         "sheet": {"type": "string", "description": "このシートの規則・入力だけを返す"},
+         "overwrite": _OVERWRITE},
+         "required": ["path"]}},
     {"name": "view_page",
      "description": "PDF・XPS のページ、または画像のファイル（JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000 など。page は何枚目か）を画像で見る（スキャンした紙のように、字の情報がない画像だけのページを読むため）。"
                     "上と左の帯に、ページの左上からの mm の目盛りが付く。小さな字は region（[左, 上, 右, 下] mm）で拡大して読む。"
@@ -415,6 +431,10 @@ def call_tool(name: str, args: dict) -> dict:
     if name == "try_calculation":
         res = api.calculate(args["path"], args.get("values") or {}, args.get("password"))
         return {"content": [_text(res["say_to_user"]), _text(res)], "structuredContent": res}
+    if name == "extract_processing":
+        res = api.extract_processing(args["path"], args.get("format") or "json", args.get("out_path"), args.get("sheet"),
+                                     bool(args.get("overwrite")), args.get("password"))
+        return {"content": [_text(res.get("say_to_user", "")), _text(res)], "structuredContent": res}
     if name == "view_page":
         v = api.view_page(args["path"], args["page"], args.get("region"), args.get("marks"), args.get("password"), args.get("dpi"))
         return {"content": [_text(v["text"]), {"type": "image", "data": v["png_base64"], "mimeType": "image/png"}],

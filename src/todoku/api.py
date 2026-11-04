@@ -2154,6 +2154,27 @@ def calculate(path: str, values: dict, password: str | None = None) -> dict:
 
 
 @_budgeted
+def extract_processing(path: str, format: str = "json", out_path: str | None = None, sheet: str | None = None,
+                       overwrite: bool = False, password: str | None = None) -> dict:
+    """書類の処理を、処理として取り出す：規則（同じ形の数式を 1 つに）・構造（入力・参照表・出力・順番など）・マクロ・PDF の計算。
+    format="python" なら、標準ライブラリだけで動く calculate(inputs) のモジュールを out_path に書き出し、確かめてから返す。"""
+    from .limits import CONTEXT_BUDGET
+    from .processing import ProcessingError, extract
+
+    if format not in ("json", "python"):
+        raise ApiError(f'format は "json" か "python" です（{format!r}）')
+    blob, name, k, lock = _read(path, password)
+    if k not in _BOOKS and k not in ("ods", "fods", "pdf"):
+        raise ApiError(f"処理の取り出しは Excel の仲間（.xlsx・.xls・.xlsb・.ods など）と PDF のフォームです。この形式（{k}）には計算の処理がありません")
+    if out_path:
+        _not_source(Path(path).expanduser(), Path(out_path).expanduser())
+    try:
+        return extract(path, blob, name, k, password, format, out_path, sheet, overwrite, CONTEXT_BUDGET)
+    except ProcessingError as e:
+        raise ApiError(str(e)) from None
+
+
+@_budgeted
 def view_page(path: str, page: int, region: list | None = None, marks: list | None = None,
               password: str | None = None, dpi: float | None = None) -> dict:
     """PDF のページの画像（スキャンした紙のページを、エージェントが見て読み、書く所を mm の枠で決めるため）。
