@@ -522,3 +522,67 @@ def test_view_image_png_base64_is_real_png(tmp_path):
     p = _png_file(tmp_path)
     v = S.view_frame(p.read_bytes(), 1)
     assert base64.b64decode(v["png_base64"])[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+# ====================================================================== WebP 非可逆（VP8）：dwebp -yuv と同じ画素
+CWEBP, DWEBP = shutil.which("cwebp"), shutil.which("dwebp")
+needs_webp = pytest.mark.skipif(not (CWEBP and DWEBP and PILImage), reason="cwebp・dwebp・Pillow がない")
+
+
+@needs_webp
+@pytest.mark.parametrize("args", [["-q", "75"], ["-q", "20", "-f", "60", "-sharpness", "3"], ["-q", "90", "-segments", "4", "-sns", "90"],
+                                  ["-q", "50", "-nostrong"], ["-q", "50", "-strong"], ["-q", "40", "-f", "0"], ["-q", "70", "-segments", "1", "-sns", "0"]])
+def test_vp8_lossy_decodes_exact_yuv(args, tmp_path):
+    from todoku.imaging.webp import _frame_size, _parse
+    from todoku.imaging.webp_vp8 import decode_yuv
+
+    w, h = 83, 61
+    # 写真のような濃淡と字のような線
+    im = PILImage.frombytes("RGB", (w, h), bytes(c for y in range(h) for x in range(w)
+                                                  for c in ((x * 3 + (y * y) // 7) & 255, (y * 4 + (x ^ y)) & 255, ((x * y) // 3) & 255)))
+    src = tmp_path / "a.png"
+    im.save(src)
+    out = tmp_path / "a.webp"
+    r = subprocess.run([CWEBP, "-quiet", *args, str(src), "-o", str(out)], capture_output=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    blob = out.read_bytes()
+    yuv = tmp_path / "a.yuv"
+    r = subprocess.run([DWEBP, "-quiet", str(out), "-yuv", "-o", str(yuv)], capture_output=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    ref = yuv.read_bytes()
+    f = _parse(blob)["frames"][0]
+    assert _frame_size(blob, f) == (w, h)
+    Y, U, V, sy, suv = decode_yuv(blob[f["s"]:f["e"]], w, h)
+    my = b"".join(bytes(Y[i * sy:i * sy + w]) for i in range(h))
+    cw, ch = (w + 1) // 2, (h + 1) // 2
+    mu = b"".join(bytes(U[i * suv:i * suv + cw]) for i in range(ch))
+    mv = b"".join(bytes(V[i * suv:i * suv + cw]) for i in range(ch))
+    assert my == ref[:w * h]
+    assert mu == ref[w * h:w * h + cw * ch]
+    assert mv == ref[w * h + cw * ch:]
+
+
+@needs_webp
+def test_vp8_rgb_close_to_pillow_and_opens_as_document(tmp_path):
+    w, h = 60, 40
+    im = PILImage.frombytes("RGB", (w, h), _rgb(w, h))
+    b = io.BytesIO()
+    im.save(b, "WEBP", quality=90)
+    p = tmp_path / "a.webp"
+    p.write_bytes(b.getvalue())
+    fr = F.decode(b.getvalue())
+    ref = PILImage.open(io.BytesIO(b.getvalue())).convert("RGB").tobytes()
+    assert sum(abs(x - y) for x, y in zip(fr.rgb, ref)) / len(ref) <= 8
+    k, _doc, _parts = api.window(str(p))
+    assert k == "image"
+    assert api.view_page(str(p), 1)["png_base64"]
+
+
+@needs_webp
+def test_vp8_with_alpha_chunk(tmp_path):
+    im = PILImage.frombytes("RGB", (40, 30), _rgb(40, 30)).convert("RGBA")
+    im.putalpha(PILImage.frombytes("L", (40, 30), bytes(255 if x < 20 else 0 for y in range(30) for x in range(40))))
+    b = io.BytesIO()
+    im.save(b, "WEBP", quality=90)
+    fr = F.decode(b.getvalue())
+    assert fr.notes and fr.rgb[3 * 39:3 * 40] == b"\xff\xff\xff"

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import struct
+import time
 import zlib
 
 from .formats import FORMAT_JA, Frame, FrameInfo, ImageError, decode, info
@@ -17,6 +18,7 @@ DEFAULT_SIDE = 1600  # ページ全体を見るときの長い辺の画素
 MAX_SIDE = 4000
 MAX_PIXELS = 12_000_000
 A4 = (210.0, 297.0)
+DECODE_SECONDS = 60.0  # 開くのにかける時間の上限（JPEG 2000・JBIG2 はそこまでに開けた所を返す。働き手の上限 TODOKU_TIME_LIMIT より短く）
 
 
 def _frames(blob: bytes) -> tuple[str, list[FrameInfo]]:
@@ -97,6 +99,8 @@ def view_frame(blob: bytes, page: int, region: list | None = None, marks: list |
     k = min(k, MAX_SIDE / max(cw, ch), (MAX_PIXELS / (cw * ch)) ** 0.5)
     # 開く：画面に要る画素の数（全体の画像の大きさで）
     target = int(fw * fh * min(1.0, k * k))
+    if deadline is None:
+        deadline = time.monotonic() + DECODE_SECONDS
     fr = decode(blob, page - 1, target, deadline)
     scale_x, scale_y = fr.w / fw, fr.h / fh  # 開いた画像 / 元の画素
     sx0, sy0 = int(x0 * unit_px * scale_x), int(y0 * unit_py * scale_y)

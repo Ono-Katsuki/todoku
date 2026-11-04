@@ -11,7 +11,7 @@ import struct
 from dataclasses import dataclass, field
 from itertools import accumulate
 
-from ..limits import MAX_PIXELS, LimitExceeded, inflate
+from ..limits import MAX_PIXELS, LimitExceeded, budget, inflate
 
 
 class ImageError(ValueError):
@@ -87,6 +87,7 @@ def check_size(w: int, h: int, what: str) -> None:
         raise ImageError(f"{what}：画像の大きさが 0 です（{w} × {h}）")
     if w * h > MAX_PIXELS:
         raise LimitExceeded(f"{what} の画像（{w:,} × {h:,} 画素）が、開ける大きさ {MAX_PIXELS:,} 画素を超えます")
+    budget().charge(w * h * 3, f"{what} の画素")
 
 
 def info(blob: bytes) -> tuple[str, list[FrameInfo]]:

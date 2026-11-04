@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import struct
 
-from ..limits import inflate  # noqa: F401  （ほかの形式と同じ入口の並びのため）
 from .formats import Frame, FrameInfo, ImageError, _on_white, check_size
 
 
@@ -380,8 +379,6 @@ def _image_stream(br: _BR, w: int, h: int, is_argb: bool) -> list:
                 last_cached += 1
             px[i] = cache[idx]
             i += 1
-        if cache is not None and meta is None and False:
-            pass
     return px
 
 

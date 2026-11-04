@@ -16,7 +16,7 @@ import struct
 import time
 from dataclasses import dataclass, field
 
-from ..limits import MAX_PIXELS, LimitExceeded
+from ..limits import MAX_PIXELS, LimitExceeded, budget
 from . import jpx_t1
 from .jpx_t1 import BYPASS, NEG, TERMALL
 
@@ -1051,6 +1051,7 @@ def decode(data: bytes, target_pixels: int | None = None, reduce: int | None = N
         rd = min(reduce, max_reduce)
     if kept_vals(rd) > MAX_VALUES * 2:
         raise LimitExceeded(f"JPEG 2000 の画像（{W:,} × {H:,} 画素・{st.csiz} 成分）は、分解の段が少なく、開ける大きさを超えます")
+    budget().charge(kept_vals(rd) * 8, "JPEG 2000 の係数")
     # 第 1 層のバイトの予算：解像度を下げきっても超えるなら、細かい段の後ろの通り道を読まない。低い解像度から順に読む
     budget = max_t1_bytes * 3 // 2 if kept_bytes(rd) > max_t1_bytes else None
     stopped = False

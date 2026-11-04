@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import struct
 from pathlib import Path
 
 from .book import UNSUPPORTED, FormatError, kind_of, unsupported_message
@@ -1804,6 +1805,8 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
             return view_frame(blob, int(page), region, marks, dpi)
         except ValueError as e:
             raise ApiError(str(e)) from None
+        except (struct.error, IndexError) as e:
+            raise ApiError(broken_message(path, e)) from None
     if k != "pdf":
         raise ApiError("view_page は PDF と画像のファイルのページの画像です（ほかの形式は窓で読み、書類の中の画像は view_image で見ます）")
     doc = _pdf(blob, name, lock)
@@ -1845,7 +1848,7 @@ def view_image(path: str, image: str, password: str | None = None, region: list 
         raise ApiError(str(e)) from None
     except ApiError:
         raise
-    except ValueError as e:
+    except (ValueError, struct.error, IndexError, KeyError) as e:
         raise ApiError(f"画像を開けません：{e}") from None
 
 

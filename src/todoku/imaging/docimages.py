@@ -14,6 +14,7 @@ import base64
 import posixpath
 import re
 import struct
+import time
 import xml.etree.ElementTree as ET
 import zlib
 
@@ -496,7 +497,7 @@ def _as_output(data: bytes, fmt_hint: str, region: list | None = None) -> dict:
             return {"mime": "image/png" if sn == "png" else "image/jpeg", "data": data, "width": w, "height": h, "not_drawn": [], "notes": []}
     if sn is None:
         raise ImageError(f"この形式（{fmt_hint or '不明'}）の絵は描けません")
-    return _encode(decode(data, 0, MAX_SIDE * MAX_SIDE), region)
+    return _encode(decode(data, 0, MAX_SIDE * MAX_SIDE, time.monotonic() + 60.0), region)
 
 
 def _encode(fr, region: list | None) -> dict:
@@ -656,7 +657,7 @@ def pdf_get(doc, image_id: str, region: list | None = None) -> dict:
             if getattr(cs, "name", "") in ("DeviceRGB", "DeviceGray") and len(data) <= MAX_BYTES:
                 return _deliver(data, "jpeg", image_id, {"where": item["where"]}, None)
     try:
-        im = image_rgba(doc, image, 16_000_000)
+        im = image_rgba(doc, image, 16_000_000, deadline=time.monotonic() + 60.0)
     except RasterError as e:
         raise ImageNotFound(f"画像「{image_id}」を開けません：{e}") from None
     if im.stencil:

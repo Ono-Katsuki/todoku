@@ -17,7 +17,7 @@ from __future__ import annotations
 import struct
 import time
 
-from ..limits import MAX_PIXELS, LimitExceeded
+from ..limits import MAX_PIXELS, LimitExceeded, budget
 from .mq import MQ, NL, NM, QE, QS
 
 
@@ -41,6 +41,7 @@ class Bitmap:
 def _check_size(w: int, h: int, what: str) -> None:
     if w < 0 or h < 0 or w * h > MAX_PIXELS:
         raise LimitExceeded(f"JBIG2 の{what}（{w:,} × {h:,} 画素）が、開ける大きさ {MAX_PIXELS:,} 画素を超えます")
+    budget().charge(w * h, f"JBIG2 の{what}")  # 1 画素 1 バイト。小さなファイルが大きな領域を何度も宣言しても、呼び出しの予算で止まる
 
 
 # ====================================================================== 重ね方（7.4.1.5：OR・AND・XOR・XNOR・REPLACE）
