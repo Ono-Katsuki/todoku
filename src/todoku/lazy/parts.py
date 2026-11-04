@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import struct
 import zipfile
 
@@ -189,5 +188,3 @@ def _make_rtf(path: str, name: str):
     fb = FileBytes(path)
     return ViewLazy(path, name, "rtf", RtfDocument(fb, name), build, markdown_parts, len(fb))
 
-
-del re

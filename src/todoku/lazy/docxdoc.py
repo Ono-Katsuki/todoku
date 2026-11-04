@@ -492,7 +492,6 @@ class DocxLazy(BlocksLazy):
         parts.append(self.tail_xml)
         real = tuple(n for n in self.kept if n.lower().startswith(("word/embeddings/", "word/charts/", "word/diagrams/"))
                      and self.z.getinfo(n).file_size <= limits.MAX_INFLATE_PART)
-        real += tuple(n for n in self.object_stories if n in real)
         return DocxDocument(self._mini(b"".join(parts), real), self.name, base={"stories": tuple(self.object_stories), "para": 0})
 
     def _make_extras(self) -> list[str]:

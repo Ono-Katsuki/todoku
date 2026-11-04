@@ -15,6 +15,7 @@ from .objects import Lexer, Name, PdfError, PdfString, Ref, Stream, parse_object
 
 class PdfDocument:
     kind = "pdf"
+    light = False  # 大きな PDF（lazy）：大きなストリームは控えない（メモリがファイルの大きさに比例しないように）
 
     def __init__(self, blob: bytes, filename: str = "", password: str | bytes | None = None):
         """password：開くためのパスワード（ユーザー）か、権限のパスワード（所有者）。空のパスワードで開けるPDFには要らない。
@@ -23,7 +24,6 @@ class PdfDocument:
         if not head == b"%PDF-":
             raise PdfError("PDFではありません")
         self.blob = blob
-        self.light = False  # 大きな PDF（lazy）：大きなストリームは控えない（メモリがファイルの大きさに比例しないように）
         self.filename = filename
         self.xref: dict[int, tuple] = {}  # 番号 → ("o", 位置, 世代) / ("s", ストリームの番号, 何番目)
         self.trailer: dict = {}

@@ -382,7 +382,6 @@ class ViewLazy(BlocksLazy):
         return self.build_fn(doc)
 
     def _make_extras(self) -> list[str]:
-        from ..api import _pdf  # noqa: F401  （循環を避けて api を先に読む）
         from ..imaging.docimages import list_images, markdown
 
         d = SubDoc(self.doc, [], 0, 0, self.control_ids, objects=True)

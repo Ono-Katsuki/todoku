@@ -372,8 +372,9 @@ def test_file_size_cap(monkeypatch, tmp_path):
     p = tmp_path / "a.csv"
     p.write_text("a,b\n1,2\n")
     monkeypatch.setattr(limits, "MAX_FILE", 4)
-    with pytest.raises(api.ApiError, match="大きすぎる"):
-        api.window(str(p))
+    # 大きさだけでは断らない：丸ごと読まずに写像で読む（爆弾は展開の上限で止まる）
+    k, _doc, parts = api.window(str(p))
+    assert k == "csv" and "R2" in parts[0][1]
 
 
 def test_window_cache_is_capped_by_bytes(monkeypatch, tmp_path):

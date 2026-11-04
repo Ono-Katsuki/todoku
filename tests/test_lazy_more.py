@@ -663,3 +663,26 @@ def test_hwp_many_and_hwpx_many(tmp_path, monkeypatch):
     lazy.clear()
     _word_like(q, monkeypatch, "HwpxLazy")
     assert len(lazy.open_doc(str(q), force=True).chunks) > 3
+
+
+def test_word_extras_sections_are_read_to_the_end(tmp_path, monkeypatch):
+    """グラフ・SmartArt・埋め込みの節も、たどり終えると、窓の全体と同じ字が読める。番号〔グラフ1〕も同じ。"""
+    from test_embeds import make_docx_with_objects
+
+    from todoku.lazy import docxdoc
+
+    monkeypatch.setattr(docxdoc, "CHUNK_BYTES", 400)
+    p = tmp_path / "objs.docx"
+    p.write_bytes(make_docx_with_objects())
+    doc = lazy.open_doc(str(p), force=True)
+    assert type(doc).__name__ == "DocxLazy"
+    k, win, parts = api.window(str(p))
+    whole = "\n".join(t for _n, t in parts)
+    text = "\n".join(pg.text for pg in _follow(p, max_chars=800))
+    assert [ln for st in win["stories"] for ln in st["reading"]] == [
+        _LINE.sub("", ln) for pg in _follow(p, max_chars=800) for b in pg.body for ln in b.split("\n") if _LINE.match(ln)]
+    for ln in whole.split("\n"):
+        if ln.startswith("## ") and ("グラフ" in ln or "SmartArt" in ln or "埋め込み" in ln):
+            assert ln in text, ln
+        if ln.startswith("- ") and ("グラフ" in whole) and ln in ("- 売上",):
+            assert ln in text
