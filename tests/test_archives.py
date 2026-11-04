@@ -160,8 +160,8 @@ def test_lzh_rejects_bad_crc_and_unknown_method(tmp_path):
     bad[-1] ^= 1
     with pytest.raises(api.ApiError, match="CRC"):
         api.fields(_p(tmp_path, "b.lzh", bytes(bad)) + "!/a.csv")
-    p = _p(tmp_path, "c.lzh", _lzh_level0(b"a.csv", CSV, method=b"-lh1-", body=CSV))
-    with pytest.raises(api.ApiError, match="-lh1-"):
+    p = _p(tmp_path, "c.lzh", _lzh_level0(b"a.csv", CSV, method=b"-lzs-", body=CSV))
+    with pytest.raises(api.ApiError, match="-lzs-"):
         api.fields(p + "!/a.csv")
     assert api.grade(p)["grade"] == "F"
 
