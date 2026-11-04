@@ -12,8 +12,8 @@ from array import array
 from ..limits import MAX_PIXELS, LimitExceeded
 
 
-def decode(data: bytes, max_pixels: int, want_rgb: bool):
-    from ..pdf.raster import RasterError, _Huff, _idct_matrix, _jpeg_rgb, _put_block, _segments, _ZZ
+def decode(data: bytes, max_pixels: int, want_rgb: bool, window: tuple | None = None):
+    from ..pdf.raster import RasterError, _Huff, _idct_matrix, _jpeg_rgb, _put_block, _segments, _ZZ, jpeg_blocks, jpeg_window
 
     pos = 2
     qt: dict = {}
@@ -117,6 +117,7 @@ def decode(data: bytes, max_pixels: int, want_rgb: bool):
     ww, hh, comps = frame
     mat = _idct_matrix(n_scale)
     planes = []
+    win = jpeg_window(window, ww, hh, hmax, vmax) if window is not None and want_rgb else None
     for ci, c in enumerate(comps):
         bw, bh = c["bw"], c["bh"]
         plane = bytearray(b"\x80" * (bw * n_scale) * (bh * n_scale))
@@ -126,9 +127,10 @@ def decode(data: bytes, max_pixels: int, want_rgb: bool):
         cf = coefs[ci]
         zz = _ZZ
         stride = bw * n_scale
-        for by in range(bh):
+        ax0, ay0, ax1, ay1 = jpeg_blocks(win, c, hmax, vmax) if win else (0, 0, bw, bh)  # 範囲に要るブロックだけ逆 DCT する
+        for by in range(ay0, min(bh, ay1)):
             base_row = by * bw * 64
-            for bx in range(bw):
+            for bx in range(ax0, min(bw, ax1)):
                 base = base_row + bx * 64
                 block = cf[base:base + 64]
                 c8 = [0] * 64
@@ -143,7 +145,7 @@ def decode(data: bytes, max_pixels: int, want_rgb: bool):
     W, H = ww * n_scale // 8 or 1, hh * n_scale // 8 or 1
     from ..pdf.raster import Gray
 
-    rgb = _jpeg_rgb(planes, hmax, vmax, W, H, adobe)
+    rgb = _jpeg_rgb(planes, hmax, vmax, W, H, adobe, win, n_scale)
     if want_rgb:
         return rgb
     g = rgb.px[0::3] if len(comps) == 1 else bytes((r * 299 + gg * 587 + b * 114) // 1000 for r, gg, b in zip(rgb.px[0::3], rgb.px[1::3], rgb.px[2::3]))

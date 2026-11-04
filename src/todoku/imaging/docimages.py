@@ -497,7 +497,11 @@ def _as_output(data: bytes, fmt_hint: str, region: list | None = None) -> dict:
             return {"mime": "image/png" if sn == "png" else "image/jpeg", "data": data, "width": w, "height": h, "not_drawn": [], "notes": []}
     if sn is None:
         raise ImageError(f"この形式（{fmt_hint or '不明'}）の絵は描けません")
-    return _encode(decode(data, 0, MAX_SIDE * MAX_SIDE, time.monotonic() + 60.0), region)
+    want = None
+    if region is not None and isinstance(region, list) and len(region) == 4:
+        rx0, ry0, rx1, ry1 = [int(v) for v in region]
+        want = (min(rx0, rx1), min(ry0, ry1), max(rx0, rx1), max(ry0, ry1))
+    return _encode(decode(data, 0, MAX_SIDE * MAX_SIDE, time.monotonic() + 60.0, want), region)
 
 
 def _encode(fr, region: list | None) -> dict:
@@ -510,6 +514,11 @@ def _encode(fr, region: list | None) -> dict:
         if not (isinstance(region, list) and len(region) == 4):
             raise ValueError("region は [左, 上, 右, 下]（画素）で指定してください")
         x0, y0, x1, y1 = [int(v) for v in region]
+        wn = getattr(fr, "window", None)
+        if wn:  # 範囲だけを開いた画像：範囲の座標を、開いた画素の座標に
+            sx, sy = w / (wn[2] - wn[0]), h / (wn[3] - wn[1])
+            x0, x1 = int((x0 - wn[0]) * sx), int((x1 - wn[0]) * sx + 0.999)
+            y0, y1 = int((y0 - wn[1]) * sy), int((y1 - wn[1]) * sy + 0.999)
         x0, x1 = sorted((max(0, x0), min(w, x1)))
         y0, y1 = sorted((max(0, y0), min(h, y1)))
         if x1 - x0 < 1 or y1 - y0 < 1:

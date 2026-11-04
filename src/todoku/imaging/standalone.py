@@ -101,10 +101,14 @@ def view_frame(blob: bytes, page: int, region: list | None = None, marks: list |
     target = int(fw * fh * min(1.0, k * k))
     if deadline is None:
         deadline = time.monotonic() + DECODE_SECONDS
-    fr = decode(blob, page - 1, target, deadline)
-    scale_x, scale_y = fr.w / fw, fr.h / fh  # 開いた画像 / 元の画素
-    sx0, sy0 = int(x0 * unit_px * scale_x), int(y0 * unit_py * scale_y)
-    sx1, sy1 = min(fr.w, int(x1 * unit_px * scale_x + 0.999)), min(fr.h, int(y1 * unit_py * scale_y + 0.999))
+    want = None
+    if region is not None:  # 範囲だけを開く（分けて開ける形式。予算は開く分に掛かるので、どの部分でも元の解像度まで開ける）
+        want = (int(x0 * unit_px), int(y0 * unit_py), min(fw, int(x1 * unit_px + 0.999)), min(fh, int(y1 * unit_py + 0.999)))
+    fr = decode(blob, page - 1, target, deadline, want)
+    wx0, wy0, wx1, wy1 = fr.window or (0, 0, fw, fh)
+    scale_x, scale_y = fr.w / (wx1 - wx0), fr.h / (wy1 - wy0)  # 開いた画像 / 元の画素
+    sx0, sy0 = max(0, int((x0 * unit_px - wx0) * scale_x)), max(0, int((y0 * unit_py - wy0) * scale_y))
+    sx1, sy1 = min(fr.w, int((x1 * unit_px - wx0) * scale_x + 0.999)), min(fr.h, int((y1 * unit_py - wy0) * scale_y + 0.999))
     crop_w, crop_h = max(1, sx1 - sx0), max(1, sy1 - sy0)
     rows = [fr.rgb[(y * fr.w + sx0) * 3:(y * fr.w + sx0 + crop_w) * 3] for y in range(sy0, sy0 + crop_h)]
     crop = b"".join(rows)
@@ -136,6 +140,11 @@ def view_frame(blob: bytes, page: int, region: list | None = None, marks: list |
             "読めない所は推測で埋めず、本人に伝えてください。書くには to_pdf で PDF に包みます。")
     if len(frames) > 1:
         text += f" 全部で {len(frames)} 枚です。"
+    if scale_x > 0.999:
+        text += f" この範囲は元の解像度（{fw}×{fh} 画素のまま）で開きました。"
+    else:
+        text += (f" この範囲は元の {fw}×{fh} 画素の約 {1 / scale_x:.0f} 分の 1 の解像度で開きました。"
+                 "細かく見るには region で範囲を狭めてください（どの部分でも、狭めれば元の解像度まで開けます）。")
     if fr.notes:
         text += " " + " ".join(fr.notes)
     if fr.problems:
