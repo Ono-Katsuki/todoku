@@ -445,3 +445,24 @@ def test_iwork_without_readable_parts_is_f(tmp_path):
     blob = _zip({"Index/Document.iwa": b"\x01garbage", "preview.jpg": b"x"})
     g = api.grade(_p(tmp_path, "a.numbers", blob))
     assert g["grade"] == "F" and "書き出して" in str(g["reasons"])
+
+
+def test_docuworks_inside_a_zip_is_named(tmp_path):
+    p = _p(tmp_path, "a.zip", _zip({"a.xdw": b"\x01" + bytes(50)}))
+    g = api.grade(p)
+    assert g["grade"] == "F" and "DocuWorks" in str(g["reasons"])
+
+
+def test_xps_page_in_utf16(tmp_path):
+    ns = "http://schemas.microsoft.com/xps/2005/06"
+    page = f'<FixedPage xmlns="{ns}"><Glyphs UnicodeString="二重の字" OriginX="1" OriginY="1" FontRenderingEmSize="10" Fill="#000"/></FixedPage>'
+    blob = _zip({
+        "_rels/.rels": f'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="{ns}/fixedrepresentation" Target="/s.fdseq"/></Relationships>',
+        "s.fdseq": f'<FixedDocumentSequence xmlns="{ns}"><DocumentReference Source="d.fdoc"/></FixedDocumentSequence>',
+        "d.fdoc": f'<FixedDocument xmlns="{ns}"><PageContent Source="1.fpage"/></FixedDocument>',
+        "1.fpage": ('<?xml version="1.0" encoding="UTF-16"?>' + page).encode("utf-16"),
+    })
+    p = _p(tmp_path, "a.xps", blob)
+    assert "二重の字" in _text(p)
+    au = _ok_audit(p)
+    assert "4 字" in au["checks"][0]["detail"]

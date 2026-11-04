@@ -217,7 +217,8 @@ def audit(blob: bytes, name: str):
         return au
     raw = []
     for part in plist:
-        data = _read_part(z, names, part).decode("utf-8-sig", "replace")
+        rawb = _read_part(z, names, part)
+        data = rawb.decode("utf-16" if rawb[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig", "replace")
         for m in re.finditer(r'UnicodeString\s*=\s*"([^"]*)"', data):
             raw.append(_unicode(html.unescape(m[1])))
     return rd.audit(win, name, raw, f"{len(plist)} ページの UnicodeString", WRITE)

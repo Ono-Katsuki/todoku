@@ -320,6 +320,10 @@ def _grade_blob(blob: bytes, filename: str = "", password: str | None = None, en
 
     if k_open in _ARC_KINDS:
         return _grade_zip(blob, password, 0, k_open, filename)
+    from .book import UNSUPPORTED as _UNSUP
+
+    if k_open in _UNSUP:  # 名前で見分ける形式（DocuWorks など）も、次の一手を伝える
+        return unsupported_grade(k_open, blob)
     # ----
     try:
         k = kind_of(blob)

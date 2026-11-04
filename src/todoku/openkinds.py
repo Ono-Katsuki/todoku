@@ -38,10 +38,14 @@ TEXT_FILES = DATA | {"txt", "markup"}  # 文字だけのファイル：文字コ
 def window(k: str, blob: bytes, name: str, encoding: str | None = None) -> tuple[dict, list[tuple[str, str]]]:
     """encoding：文字だけのファイル（TEXT_FILES）の文字コードを、エージェントが選んで指定したとき（ほかの形式では使わない）。"""
     if k in _more.KINDS:
+        import zlib
+
         try:
             return _more.window(k, blob, name)
         except (ValueError, KeyError) as e:
             raise _err(e) from None
+        except (IndexError, zlib.error) as e:  # 長さの合わない記録・解けない部品：壊れたファイル
+            raise OpenFormatError(f"ファイルが壊れていて読めません（{type(e).__name__}）。元のファイルをもう一度受け取り直してください") from None
     try:
         if k in DATA:
             from .datafile import window as dw
