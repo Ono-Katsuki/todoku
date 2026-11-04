@@ -316,6 +316,10 @@ def _grade_blob(blob: bytes, filename: str = "", password: str | None = None, en
         k_open = None
     if k_open in _OPEN_KINDS:
         return _open_grade(k_open, blob, filename, encoding)
+    from .archives import KINDS as _ARC_KINDS
+
+    if k_open in _ARC_KINDS:
+        return _grade_zip(blob, password, 0, k_open, filename)
     # ----
     try:
         k = kind_of(blob)
@@ -360,16 +364,18 @@ def _grade_blob(blob: bytes, filename: str = "", password: str | None = None, en
     return _locked("対応していない形式", f"この形式（{k}）は、まだ読めません", "読めないので、書けません")
 
 
-def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0) -> Grade:
+def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0, k: str = "zip", filename: str = "") -> Grade:
     """ZIP：中のファイルごとに段階を決め、いちばん低いものを ZIP の段階にする（理由の頭に、中の名前を付ける）。
     中の、扱えない形式のファイル・取り出せないファイルは、そのファイルが F（開けない）。"""
-    from .ziparc import ArchiveError, extract, files
+    from .archives import KIND_JA, KINDS, MAIL, NO_WRITE, WRITABLE, extract, files
+    from .book import kind_of
+    from .ziparc import ArchiveError
 
     try:
-        ms = files(blob)
+        ms = files(blob, k, filename)
     except ArchiveError as e:
         return _locked("開けない", str(e), "開けないので、書けません")
-    if not ms:
+    if not ms and k not in MAIL:
         return _locked("空の ZIP", "ZIP の中にファイルがありません", "書くファイルがありません")
     if depth >= 4:
         return _locked("深い入れ子の ZIP", "ZIP の中の ZIP が深すぎて、中を読みません", "読めないので、書けません")
@@ -377,10 +383,15 @@ def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0) -> Grad
     write: list[Reason] = []
     alerts: list[Reason] = []
     reads, writes = [], []
+    if k in MAIL:
+        reads.append("B")
+        writes.append("D")
+        reasons.append(Reason("B", "メールの本文", "差出人・宛先・件名・本文の字を読みます（添付は中のファイルとして読みます）"))
     for m in ms:
         try:
-            sub = extract(blob, m.name)
-            g = _grade_zip(sub, password, depth + 1) if sub[:2] == b"PK" and _is_plain_zip(sub) else grade_blob(sub, m.name, password)
+            sub = extract(blob, m.name, k, filename)
+            ksub = kind_of(sub, m.name.rsplit("/", 1)[-1])
+            g = _grade_zip(sub, password, depth + 1, ksub, m.name) if ksub in KINDS else grade_blob(sub, m.name, password)
         except ArchiveError as e:
             g = _locked("取り出せない", str(e), "取り出せないので、書けません")
         reads.append(g.grade)
@@ -390,6 +401,9 @@ def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0) -> Grad
         alerts += [Reason(a.grade, a.title, f"{m.name}：{a.detail}", a.where, a.by) for a in g.alerts]
     gr = max(reads, key=ORDER.index)
     wr = max(writes, key=WRITE_ORDER.index)
+    if k not in WRITABLE:
+        wr = "D"
+        write.append(Reason("D", f"{KIND_JA.get(k, k)}には書かない", NO_WRITE.get(k, "この形式には書きません")))
     checks = [dict(c) for c in AGENT_CHECKS] if gr not in ("S", "F") else []
     return Grade(gr, sorted(reasons, key=lambda r: -ORDER.index(r.grade)), checks, alerts=alerts, write=wr,
                  write_reasons=sorted(write, key=lambda r: -WRITE_ORDER.index(r.grade)))

@@ -52,6 +52,10 @@ def kind_of(blob: bytes, filename: str = "") -> str:
             return "doc"
         if "powerpoint document" in names:
             return "ppt"  # 古い PowerPoint（MS-PPT）：読むだけ（legacy/ppt.py）
+        from .legacy.mail import is_msg
+
+        if is_msg(names):
+            return "msg"  # Outlook のメール（MS-OXMSG）
         # 一太郎（.jtd・.jtt）：JustSystems のストリームの一覧と、本文（または圧縮した文書）
         from .jtd.book import is_jtd
 
@@ -62,6 +66,9 @@ def kind_of(blob: bytes, filename: str = "") -> str:
         return "cfb"
     if blob[:4] == b"%PDF":
         return "pdf"
+    head_kind = _head_kind(blob, filename)  # 先頭のバイトで決まる形式（tar・gzip・LZH・7z・RAR）
+    if head_kind:
+        return head_kind
     text = _text_kind(blob, filename)  # RTF（中身で）・CSV・TSV・JSON・JSON Lines・文字だけのファイル（.txt）（名前で）
     if text:
         return text
@@ -75,13 +82,34 @@ _ODF_MIME = {"application/vnd.oasis.opendocument.text": "odt", "application/vnd.
              "application/vnd.oasis.opendocument.spreadsheet-template": "ods",
              "application/vnd.oasis.opendocument.presentation": "odp", "application/vnd.oasis.opendocument.graphics": "odg"}
 _BY_NAME = {".csv": "csv", ".tsv": "tsv", ".tab": "tsv", ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl",
-            ".txt": "txt", ".html": "markup", ".htm": "markup", ".xhtml": "markup", ".xml": "markup"}
+            ".eml": "eml", ".txt": "txt", ".html": "markup", ".htm": "markup", ".xhtml": "markup", ".xml": "markup"}
 
 
 # 見分けるが、まだ読めない形式（開くと「未対応の形式」と伝え、段階は F）。HWP・HWPX は hwpx/ で読む（openkinds）
 UNSUPPORTED: dict[str, str] = {
     "ooxml-unknown": "Office Open XML のパッケージ（Excel・Word・PowerPoint の部品がない）",
 }
+
+
+UNSUPPORTED.update({
+    "7z": "7-Zip の書庫（.7z）",
+    "rar": "RAR の書庫（.rar）",
+})
+# 形式ごとの、次の一手（なければ「PDF・Word などに書き出したもの」）
+NEXT_STEP: dict[str, str] = {
+    "7z": "とどくは 7-Zip の書庫を解きません（標準のライブラリに書庫の形の読み方がありません）。7-Zip か Windows のエクスプローラーで展開したファイルか、ZIP にしたものを開いてください",
+    "rar": "RAR の圧縮は標準のライブラリにも公開の仕様にもなく、とどくは解きません。WinRAR や 7-Zip で展開したファイルか、ZIP にしたものを開いてください",
+}
+
+
+def _head_kind(blob: bytes, filename: str) -> str | None:
+    if blob[:6] == b"7z\xbc\xaf\x27\x1c":
+        return "7z"
+    if blob[:6] == b"Rar!\x1a\x07":
+        return "rar"
+    from .archives import sniff
+
+    return sniff(blob, filename)
 
 
 def ooxml_main_type(blob: bytes) -> str | None:
@@ -109,6 +137,8 @@ def ooxml_main_type(blob: bytes) -> str | None:
 
 def unsupported_message(kind: str, blob: bytes | None = None) -> str:
     what = UNSUPPORTED.get(kind, kind)
+    if kind in NEXT_STEP:
+        return f"未対応の形式：{what}。{NEXT_STEP[kind]}"
     main = ooxml_main_type(blob) if kind == "ooxml-unknown" and blob else None
     return (f"未対応の形式：{what}" + (f"（主な部品の種類：{main}）" if main else "")
             + "。とどくは読めません（中身を推測して読むことはしません）。PDF・Word などに書き出したものがあれば、そちらを開いてください")
