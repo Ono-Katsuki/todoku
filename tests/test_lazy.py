@@ -788,3 +788,16 @@ def test_password_is_not_a_cache_key():
 
     src = inspect.getsource(lazy._open_doc)
     assert "password is None" in src
+
+
+def test_pdf_write_trial_refusal_is_not_a_failure(tmp_path, monkeypatch):
+    p = _make_pdf(tmp_path / "a.pdf", 20)
+    doc = lazy.open_doc(str(p), force=True)
+
+    def refuse(*a, **k):
+        raise api.ApiError("書いた所が、ほかの字や線に重なるので、書き出していません")
+
+    monkeypatch.setattr(doc, "page", lambda n: {"fields": [{"id": "p1.g1-1", "kind": "inline"}]})
+    monkeypatch.setattr(api, "fill", refuse)
+    c = doc._write_trial()
+    assert c["ok"] and "確かめていません" in c["detail"] and c["items"]

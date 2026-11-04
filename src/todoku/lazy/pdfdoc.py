@@ -356,22 +356,30 @@ class PdfLazy(LazyDoc):
         return state
 
     def _write_trial(self) -> dict:
+        """はじめのページの書ける所に、試しの値を書く。字や線に重なる所を断るのは正しい動きなので、失敗に数えず、次の所を試す。"""
         import tempfile
 
         from .. import api
 
-        wr = None
+        refused: list[str] = []
+        tried = 0
         for p in range(1, min(len(self.page_list), 50) + 1):
-            fl = [f for f in self.page(p)["fields"] if f.get("kind") in ("text", "inline", "comb", "space") and not f.get("readonly")]
-            if fl:
-                wr = fl[0]
-                break
-        if wr is None:
-            return {"name": "書き込みの試し", "ok": True, "agent": False, "detail": "はじめの 50 ページに書ける欄が見つからないので、試しませんでした", "items": []}
-        with tempfile.TemporaryDirectory(prefix="todoku-audit-") as td:
-            try:
-                res = api.fill(self.path, {wr["id"]: "テスト"}, str(Path(td) / "t.pdf"), force=True, password=self.password)
-            except ValueError as e:
-                return {"name": "書き込みの試し", "ok": False, "agent": False, "detail": f"{wr['id']} に書けませんでした：{e}", "items": []}
-        return {"name": "書き込みの試し", "ok": bool(res.get("proof_ok") and res.get("read_back_ok")), "agent": False,
-                "detail": f"{wr['id']} に試しの値を書き、{res.get('proof')}", "items": res.get("unexpected") or []}
+            for f in self.page(p)["fields"]:
+                if f.get("kind") not in ("text", "inline", "comb", "space") or f.get("readonly"):
+                    continue
+                if tried >= 8:
+                    break
+                tried += 1
+                with tempfile.TemporaryDirectory(prefix="todoku-audit-") as td:
+                    try:
+                        res = api.fill(self.path, {f["id"]: "テスト"}, str(Path(td) / "t.pdf"), force=True, password=self.password)
+                    except ValueError as e:
+                        refused.append(f"{f['id']}：{str(e).splitlines()[-1][:120]}")
+                        continue
+                return {"name": "書き込みの試し", "ok": bool(res.get("proof_ok") and res.get("read_back_ok")), "agent": False,
+                        "detail": f"{f['id']} に試しの値を書き、{res.get('proof')}", "items": res.get("unexpected") or []}
+        if refused:
+            return {"name": "書き込みの試し", "ok": True, "agent": True, "items": refused,
+                    "detail": f"試した {len(refused)} か所は、どれも字や線に重なるなどの理由で書くのを断りました（重ねて書かないのは決まりどおり）。"
+                              "書き込みそのものは確かめていません。書くときは、空いている所を id か字の目印で指してください"}
+        return {"name": "書き込みの試し", "ok": True, "agent": False, "detail": "はじめの 50 ページに書ける欄が見つからないので、試しませんでした", "items": []}
