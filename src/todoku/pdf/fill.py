@@ -1302,7 +1302,10 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
                     f.patches[-1].value = olabs[opts.index(f.patches[-1].value)]
                 continue
             if key not in spots:
-                raise FillError(f"{key}: そのような欄はありません")
+                from .window import unknown_id_message
+
+                hint = unknown_id_message(key)
+                raise FillError(f"{key}: そのような欄はありません" + (f"。{hint}" if hint else ""))
             page_no, sd = spots[key]
             if page_no not in views:
                 views[page_no] = View(doc, f.pages[page_no - 1])

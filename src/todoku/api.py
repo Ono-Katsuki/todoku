@@ -366,7 +366,7 @@ def _field(f: dict, **where) -> dict:
                 "alternative_to", "group", "why_not", "label_printed", "text_before", "options_labels", "export_value",
                 "hidden", "hidden_why", "not_printed", "not_printed_why", "legacy_id", "why_code", "reason_codes",
                 "row_label", "column_label", "column_label_partial", "label_clipped", "neighbours", "facts", "near",
-                "label_method", "section", "input_reason_codes", "spans", "blanks"):
+                "label_method", "section", "input_reason_codes", "spans", "blanks", "shape", "size", "size_from", "cell_ids"):
         if f.get(key) not in (None, "", [], False):
             d[key] = f[key]
     for key in ("row_label_gap", "column_label_gap"):  # 数の事実（0 も、すぐ隣という事実）
