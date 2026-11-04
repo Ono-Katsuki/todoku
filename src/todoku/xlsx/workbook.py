@@ -339,7 +339,8 @@ class Sheet:
     def note_unread(self, what: str, r1: int, c1: int, r2: int, c2: int) -> None:
         """広げなかった宣言を控える（同じものは 1 度だけ）。"""
         note = (f"{self.name}：{what}の範囲 {addr(r1, c1)}:{addr(r2, c2)} は広すぎるので（壊れている可能性があります）、"
-                "ファイルにあるセルだけを見ました。セルのない所は欄として広げていません")
+                "ファイルにあるセルだけを見ました。セルのない所は欄として広げていません"
+                "（どのセルにも番地で書けます。read_window・list_fields に sheet と rows を渡すと、頼んだ行の範囲では欄として広げます）")
         if note not in self.unread:
             self.unread.append(note)
 

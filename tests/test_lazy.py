@@ -696,3 +696,63 @@ def test_small_docs_also_accept_ranges(tmp_path, monkeypatch):
     # part のいままでの読み方は変わらない
     res = mcp_server.tool_result("read_window", {"path": str(p)})
     assert "部分 1/1" in _text(res)
+
+
+# ---------------------------------------------------------------------- 窓を作らずに読む・計算
+def test_raw_reads_everything_without_a_window(tmp_path):
+    p = _make_docx(tmp_path / "a.docx", 300)
+    got = []
+    args = {"raw": True}
+    while True:
+        page, _ = api.read_range(str(p), args, 500)
+        got += page.body
+        if page.next is None:
+            break
+        args = dict(page.next)
+    text = "".join(got)
+    assert all(f"第{i}段落" in text for i in range(1, 301))
+    q = tmp_path / "b.json"
+    src = json.dumps({"s": "字あ" * 4000}, ensure_ascii=False)
+    q.write_text(src, encoding="utf-8")
+    got, args = [], {"raw": True}
+    while True:
+        page, _ = api.read_range(str(q), args, 700)
+        got += page.body
+        if page.next is None:
+            break
+        args = dict(page.next)
+    assert "".join(got) == src
+
+
+def test_stop_for_built_format_names_raw():
+    from todoku import isolate
+
+    t = isolate.stopped("メモリ", "open_document", {"path": "/x/a.pptx"})["content"][0]["text"]
+    assert "raw: true" in t
+    t = isolate.stopped("時間", "audit_document", {"path": "/x/a.docx"})["content"][0]["text"]
+    assert "job: true" in t
+
+
+def test_xlsx_try_calculation_uses_only_needed_rows(tmp_path):
+    p = _make_xlsx(tmp_path / "a.xlsx", 300)
+    r = api.calculate(str(p), {"データ!A100": 1000})
+    assert any(c["cell"].endswith("D100") and str(c["after"]).startswith("2000") for c in r["changed"]), r["changed"]
+    e = api.calc_model(str(p), "データ!D100")
+    assert "D100" in json.dumps(e, ensure_ascii=False)
+
+
+def test_view_page_of_big_pdf_lays_out_one_page(tmp_path, monkeypatch):
+    from todoku.pdf import window as pw
+
+    p = _make_pdf(tmp_path / "a.pdf", 20)
+    calls = []
+    real = pw.page_window
+
+    def spy(doc, page, number, fields, layout=True):
+        calls.append(number)
+        return real(doc, page, number, fields, layout)
+
+    monkeypatch.setattr(pw, "page_window", spy)
+    api._WINDOWS.clear()
+    v = api.view_page(str(p), 7)
+    assert v["png_base64"] and set(calls) <= {7}

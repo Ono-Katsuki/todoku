@@ -463,7 +463,7 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         raise ApiError(str(e)) from None
     temps: list[Path] = []
     try:
-        lz = lazy_open(path, password, encoding) if _member(path) is None else None
+        lz = lazy_open(path, password, encoding, built_ok=False) if _member(path) is None else None
         if lz is not None and lz.kind == "pdf":
             # 大きな PDF：書く所のページだけを配置して、いままでの書き込みと証明を通す（増分更新なので、元のバイトはそのまま）
             from .pdf.window import page_scope
@@ -493,7 +493,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     src = Path(path).expanduser().resolve()
     dst = Path(out_path).expanduser().resolve()
     _not_source(src, dst)
-    lz = lazy_open(path, password, encoding)
+    lz = lazy_open(path, password, encoding, built_ok=False)
     if lz is not None and hasattr(lz, "fill") and lz.streams:
         # 大きな書類：書く所のバイトだけを置き換えて写す（窓の全体を作らない）
         plain, said = _split_values(values, lz.kind, {})
@@ -1679,9 +1679,10 @@ def _num_equal(a, b) -> bool:
 
 
 @_budgeted
-def audit(path: str, password: str | None = None, encoding: str | None = None, restart: bool = False) -> dict:
-    """大きな書類は、長い仕事（jobs）として動かす：すぐ返して、進み具合と、ここまでの結果を示す。何度でも呼べて、止まっても続きから進む。"""
-    lz = lazy_open(path, password, encoding)
+def audit(path: str, password: str | None = None, encoding: str | None = None, restart: bool = False, job: bool = False) -> dict:
+    """大きな書類は、長い仕事（jobs）として動かす：すぐ返して、進み具合と、ここまでの結果を示す。何度でも呼べて、止まっても続きから進む。
+    job：大きさによらず、長い仕事として動かす（いままでの検査が時間の上限に当たったとき）。"""
+    lz = lazy_open(path, password, encoding, built_ok=False) if not job else True
     if lz is None:
         return audit_whole(path, password, encoding)
     from . import jobs
@@ -1802,6 +1803,18 @@ def calc_model(path: str, cell: str | None = None, password: str | None = None) 
     blob, name, k, lock = _read(path, password)
     if k not in ("xlsx", "xls"):
         raise ApiError("計算の取り出しは Excel の様式（.xlsx・.xlsm・.xls）です")
+    lz = lazy_open(path, password, built_ok=False)
+    if lz is not None and lz.kind == "xlsx":
+        wb_, doc = lz.calc_book([cell] if cell else [])  # 大きなブック：そのセルの計算に要る行だけ
+        m = xm.model(wb_, doc)
+        if not cell:
+            return {"inputs": len(m["inputs"]), "steps": len(m["steps"]), "results": len(m["results"]), "dynamic": m["dynamic"],
+                    "result_groups": xm.summary(m),
+                    "note": "大きなブックなので、はじめの行だけで調べました。cell（シート!B3）を指すと、そのセルの計算を、要る行だけ読んでさかのぼります"}
+        try:
+            return {"explain": xm.explain(m, cell)}
+        except ValueError as e:
+            raise ApiError(str(e)) from None
     _k, doc, _ = window(path, password)
     m = xm.model(open_book(blob, name), doc)
     if cell:
@@ -1823,10 +1836,15 @@ def calculate(path: str, values: dict, password: str | None = None) -> dict:
     blob, name, k, lock = _read(path, password)
     if k not in ("xlsx", "xls"):
         raise ApiError("試算は Excel の様式（.xlsx・.xlsm・.xls）です")
-    _k, doc, _ = window(path, password)
     values = _split_values(values, k)[0]  # as（述べた意味）は書くときのもの。試算にも同じ値の形を渡せるように
+    lz = lazy_open(path, password, built_ok=False)
     try:
-        r = xm.calculate(open_book(blob, name), doc, values)
+        if lz is not None and lz.kind == "xlsx":
+            wb_, doc = lz.calc_book(list(values), dependents=True)  # 大きなブック：書いたセルに連動する行だけ
+            r = xm.calculate(wb_, doc, values)
+        else:
+            _k, doc, _ = window(path, password)
+            r = xm.calculate(open_book(blob, name), doc, values)
     except EditError as e:
         raise ApiError(str(e)) from None
     lines = [f"試算（ファイルは書いていません）：入れた値 {len(r['inputs'])} か所で、計算が変わる所 {len(r['changed'])} か所。"]
@@ -1858,7 +1876,10 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
 
         problem = ""
         try:
-            written = _written_boxes(path, password, int(page))
+            from .pdf.window import page_scope
+
+            with page_scope({int(page)}):  # 値の入った欄の青い枠：そのページだけを配置する（大きな PDF でも全部を作らない）
+                written = _written_boxes(path, password, int(page))
         except LimitExceeded:
             raise
         except Exception as e:  # noqa: BLE001  窓を作れない書類でも、ページの画像は出す（青い枠だけ描けないと伝える）
@@ -1880,10 +1901,10 @@ def _pdf_window_doc(path: str, password: str | None) -> dict:
     from .pdf.window import build
 
     blob, name, _k, lock = _read(path, password)
-    key = (hashlib.sha256(blob).hexdigest(), name, None) if lock is None else None
+    key = (hashlib.sha256(blob).hexdigest(), name, None, None) if lock is None else None
     if key is not None and key in _WINDOWS:
         return pickle.loads(_WINDOWS[key][1])[1]
-    return build(_pdf(blob, name, lock))
+    return build(_pdf(blob, name, lock))  # page_scope の中なら、そのページだけ
 
 
 def _written_boxes(path: str, password: str | None, page: int) -> list[dict]:
@@ -1931,7 +1952,7 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
     from .grade import combine, grade_blob, unsupported_grade
     from .unlock import pdf_password
 
-    lz = lazy_open(path, password, encoding)
+    lz = lazy_open(path, password, encoding, built_ok=False)
     gl = lz.grade() if lz is not None else None
     if gl is not None:
         return _lazy_grade(path, gl, encoding, findings, answered)
@@ -2004,13 +2025,14 @@ def _remember_hand_only(path: str, g, findings, answered) -> None:
         _HAND_ONLY.pop(next(iter(_HAND_ONLY)))
 
 
-def lazy_open(path: str, password: str | None = None, encoding: str | None = None, force: bool = False):
-    """分けて読む書類（窓の全体が予算に入らないとき。force なら大きさによらず）。入るなら None（いままでどおり）。"""
+def lazy_open(path: str, password: str | None = None, encoding: str | None = None, force: bool = False, built_ok: bool = True):
+    """分けて読む書類（窓の全体が予算に入らないとき。force なら大きさによらず）。入るなら None（いままでどおり）。
+    built_ok=False：窓を作って測るしかない形式は見ない（書き込み・段階は、いままでの道で全体を確かめる）。"""
     from .datafile.textenc import EncodingError
     from . import lazy
 
     try:
-        return lazy.open_doc(path, password, encoding, force)
+        return lazy.open_doc(path, password, encoding, force, built_ok)
     except EncodingError as e:
         raise ApiError(str(e)) from None
     except UnicodeDecodeError as e:
@@ -2022,6 +2044,16 @@ def read_range(path: str, rng: dict, max_chars=None, password: str | None = None
     """窓の、頼まれた範囲：(Page, 書類)。rng：pages・sheet・rows・paragraphs・records・part・cursor。"""
     from .lazy import RangeError, clamp_chars
 
+    if rng.get("raw"):
+        from .lazy.rawtext import read_raw
+
+        p = Path(path).expanduser()
+        if not p.is_file():
+            raise ApiError(f"raw で読めるのは、ファイルそのものです（ZIP の中のファイルは読めません）: {path}")
+        try:
+            return read_raw(str(p), rng.get("cursor"), clamp_chars(max_chars), encoding), None
+        except RangeError as e:
+            raise ApiError(str(e)) from None
     doc = lazy_open(path, password, encoding, force=True)
     if doc is None:
         raise ApiError(f"ファイルが見つかりません: {path}")

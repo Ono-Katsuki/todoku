@@ -35,11 +35,26 @@ def _kind_for(path: str, name: str) -> str | None:
     return _text_kind(head, name)
 
 
-def open_doc(path: str, password: str | None = None, encoding: str | None = None, force: bool = False) -> LazyDoc | None:
-    """分けて読む書類。force でなければ、窓の全体が予算に入らないときだけ返す（入るなら None：いままでどおり）。"""
-    from ..api import _member
+def open_doc(path: str, password: str | None = None, encoding: str | None = None, force: bool = False,
+             built_ok: bool = True) -> LazyDoc | None:
+    """分けて読む書類。force でなければ、窓の全体が予算に入らないときだけ返す（入るなら None：いままでどおり）。
+    built_ok：窓を作って測る形式（BuiltDoc）も見るか（段階・書き込みは、その形式なら、いままでの道で全体を確かめる）。"""
+    from ..api import PasswordNeeded, PasswordWrong, _member
 
+    if not force:
+        try:
+            return _open_doc(path, password, encoding, False, built_ok, _member)
+        except (PasswordNeeded, PasswordWrong):
+            raise
+        except Exception:  # noqa: BLE001  見分けられない・読めない書類は、いままでの道で、その理由を伝える
+            return None
+    return _open_doc(path, password, encoding, True, built_ok, _member)
+
+
+def _open_doc(path, password, encoding, force, built_ok, _member) -> LazyDoc | None:
     if _member(path) is not None:
+        if not built_ok and not force:
+            return None
         from .builtdoc import BuiltDoc
 
         doc = BuiltDoc(path, password, encoding)
@@ -53,6 +68,8 @@ def open_doc(path: str, password: str | None = None, encoding: str | None = None
     key = (str(p), st.st_size, st.st_mtime_ns, encoding, password)
     doc = _CACHE.get(key)
     if doc is None:
+        if not force and not built_ok and _is_built(str(p), p.name):
+            return None
         doc = _make(str(p), p.name, password, encoding)
         if doc is None:
             return None
@@ -62,6 +79,17 @@ def open_doc(path: str, password: str | None = None, encoding: str | None = None
             if hasattr(old, "close"):
                 old.close()
     return doc if force or doc.large else None
+
+
+def _is_built(path: str, name: str) -> bool:
+    k = _kind_for(path, name)
+    if k in ("csv", "tsv", "jsonl", "txt", "pdf"):
+        return False
+    if k == "pk":
+        from .xlsxdoc import package_kind
+
+        return package_kind(path) != "xlsx"
+    return True
 
 
 def _make(path: str, name: str, password: str | None, encoding: str | None) -> LazyDoc | None:
@@ -107,13 +135,16 @@ def smaller_request(tool: str, args: dict) -> str:
             ".csv": ('rows: "1-500"', "行の範囲を分けて"), ".tsv": ('rows: "1-500"', "行の範囲を分けて"),
             ".jsonl": ('records: "1-500"', "行の範囲を分けて"), ".ndjson": ('records: "1-500"', "行の範囲を分けて"),
             ".txt": ('paragraphs: "1-500"', "行の範囲を分けて"), ".docx": ('paragraphs: "1-200"', "段落の範囲を分けて"),
-            ".docm": ('paragraphs: "1-200"', "段落の範囲を分けて")}.get(ext, ('max_chars: 20000', "小さく分けて"))
+            ".docm": ('paragraphs: "1-200"', "段落の範囲を分けて")}.get(ext, ('raw: true', "窓を作らずに、字のまま少しずつ"))
     if tool == "audit_document":
-        return "検査は audit_document の長い仕事（job）として動かせます。もう一度 audit_document を呼ぶと、控えから続けます"
+        return "検査は長い仕事として動かせます：audit_document に job: true を渡してください（1 回の呼び出しの時間に縛られず、止まっても控えの続きから進みます）"
     if tool == "fill_document":
         return (f"一度に書く所を減らして、何回かに分けて書いてください（書いたファイルを次の path に）。読むだけなら read_window に {what[0]} を渡せます。"
                 "TODOKU_MEMORY_LIMIT_MB・TODOKU_TIME_LIMIT を大きくしても動きます")
     if tool == "read_table":
         return f"表の見出しまでの行を read_window に {what[0]} で読み、要る行の範囲を頼んでください"
+    if ext in (".docx", ".docm", ".pptx", ".odt", ".ods", ".hwpx", ".json", ".rtf", ".fodt", ".fods", ".html", ".htm", ".xml"):
+        return (f"{what[1]}読んでください：read_window に {what[0]} を渡します。窓を作るところで止まったときは、raw: true なら窓を作らずに"
+                "字のまま少しずつ読めます（欄は見つけません）。TODOKU_MEMORY_LIMIT_MB・TODOKU_TIME_LIMIT を大きくすれば、窓も作れます")
     return (f"{what[1]}読んでください：read_window に {what[0]} を渡します（読む量を減らせば読めます）。"
             "止まらないようにするには TODOKU_MEMORY_LIMIT_MB・TODOKU_TIME_LIMIT も大きくできます")

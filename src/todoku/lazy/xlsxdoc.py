@@ -972,6 +972,58 @@ class XlsxLazy(LazyDoc):
         opaque = [fx.cells[f] for f in fx.opaque]
         return wanted, ([] if not opaque else opaque)
 
+    def calc_book(self, cells: list, dependents: bool = False):
+        """計算に要る行だけの小さなブックと、その窓：(ブック, 窓)。cells のセルが読むセルをさかのぼる。dependents なら、連動する数式も。"""
+        from ..xlsx.window import build
+        from ..xlsx.workbook import sst_scope
+
+        rows, _prob, keys = self._touched({c: 0 for c in cells})
+        for si, d in enumerate(self.sheet_meta):
+            ix = d["index"]
+            if ix is not None and ix.rows:
+                rows.setdefault(si, set()).add(ix.rows[0])
+        wanted: dict = {si: [(r, r) for r in v] for si, v in rows.items()}
+        if any(d["index"] is not None and d["index"].formulas for d in self.sheet_meta):
+            if self._fx is None:
+                self._fx = FormulaIndex(self)
+            fx = self._fx
+            by_cell = {fx.cells[f]: f for f in range(len(fx.cells))}
+            seen: set[int] = set()
+            todo = list(keys)
+            if dependents:
+                todo += list(fx.dependents(keys))
+            room = limits.MEMORY_LIMIT // 16
+            used = 0
+            while todo:  # 読むセルをさかのぼる
+                k = todo.pop()
+                if k in seen:
+                    continue
+                seen.add(k)
+                si, r, c = _unkey(k)
+                wanted.setdefault(si, []).append((r, r))
+                f = by_cell.get(k)
+                if f is None:
+                    continue
+                for (s2, r1, c1, r2, c2) in fx.refs.get(f, ()):
+                    ix = self.sheet_meta[s2]["index"]
+                    if ix is None or not ix.rows:
+                        continue
+                    r2 = min(r2, ix.rows[-1])
+                    i, j = ix.locate(r1, r2)
+                    if i >= j:
+                        continue
+                    a, b = ix.span(i, j)
+                    if used + (b - a) > room:
+                        continue  # 入らない範囲は読まない（計算できないセルとして、結果に出る）
+                    used += b - a
+                    wanted.setdefault(s2, []).append((r1, r2))
+                    if r2 - r1 < 4096 and c2 - c1 < 256:
+                        todo += [_key(s2, x, y) for x in range(r1, r2 + 1) for y in range(c1, c2 + 1)]
+        blob = self.slice_blob({si: _merge_ranges(v) for si, v in wanted.items()})
+        with sst_scope(self.strings):
+            wb = self.book(blob)
+            return wb, build(self.book(blob))
+
     def fill(self, values: dict, out_path: str, force: bool, overwrite: bool, said: dict | None) -> dict:
         from ..xlsx.edit import EditError, _group_span_ids
         from ..xlsx.edit import fill as xfill
