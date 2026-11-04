@@ -213,7 +213,10 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
 
     blob, name, k, lock = _read(path, password)
     encoding = _encoding(blob, k, encoding)
-    key = (hashlib.sha256(blob).hexdigest(), name, encoding) if lock is None else None
+    from .pdf.window import _PAGE_SCOPE
+
+    scope = _PAGE_SCOPE.get()  # 大きな PDF：書く所のページだけの窓
+    key = (hashlib.sha256(blob).hexdigest(), name, encoding, tuple(sorted(scope)) if scope is not None else None) if lock is None else None
     if key is not None and key in _WINDOWS:
         _WINDOWS[key] = _WINDOWS.pop(key)  # いちばん新しく使ったものにする
         return pickle.loads(_WINDOWS[key][1])  # 呼んだ側が変えても控えは変わらないよう、写しを返す
@@ -460,6 +463,19 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
         raise ApiError(str(e)) from None
     temps: list[Path] = []
     try:
+        lz = lazy_open(path, password, encoding) if _member(path) is None else None
+        if lz is not None and lz.kind == "pdf":
+            # 大きな PDF：書く所のページだけを配置して、いままでの書き込みと証明を通す（増分更新なので、元のバイトはそのまま）
+            from .pdf.window import page_scope
+
+            pages = lz.pages_for(values)
+            with page_scope(pages):
+                res = _fill(path, values, out_path, force, password, encoding, overwrite, temps)
+            note = (f"大きな PDF なので、「まだ空いている欄」は書いたページ（{sorted(pages)[:20]}）の分だけです。"
+                    "ほかのページの欄は list_fields に pages を渡すと分かります")
+            res["empty_fields_note"] = note
+            res["say_to_user"] = (res.get("say_to_user") or "") + f"\n（{note}）"
+            return res
         return _fill(path, values, out_path, force, password, encoding, overwrite, temps)
     finally:
         for t in temps:
@@ -1949,7 +1965,7 @@ def _lazy_grade(path: str, g, encoding: str | None, findings, answered) -> dict:
     if rec and rec.get("finished"):
         checks = (rec.get("state") or {}).get("checks") or []
         bad = [c for c in checks if not c.get("ok")]
-        deferred = []
+        deferred = list((rec.get("state") or {}).get("still_deferred") or [])
         g.reasons.append(Reason("C" if bad else g.grade, "全体の検査（audit_document）",
                                 f"書類の全体を確かめました（確かめ {len(checks)} つ）" + (f"。確認が要るもの {len(bad)} つ" if bad else ""),
                                 [c["name"] for c in bad]))

@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
+
 import posixpath
 import re
 import xml.etree.ElementTree as ET
@@ -395,6 +398,19 @@ class CondRule:
         return _covers(self, r, c)
 
 
+_SST_SOURCE = contextvars.ContextVar("todoku_sst_source", default=None)
+
+
+@contextlib.contextmanager
+def sst_scope(source):
+    """小さなブック（lazy）の共有文字列：部品を読まず、元のブックの字を番号で引く（番号は元のまま）。"""
+    tok = _SST_SOURCE.set(source)
+    try:
+        yield
+    finally:
+        _SST_SOURCE.reset(tok)
+
+
 class Workbook:
     def __init__(self, blob: bytes, filename: str = "", only_parts: set[str] | None = None):
         self.filename = filename
@@ -537,6 +553,11 @@ class Workbook:
 
     def _load_shared_strings(self, path: str) -> None:
         self.sst_path = path
+        src = _SST_SOURCE.get()
+        if src is not None:
+            self.shared_strings = src
+            self.phonetic = src.phonetic
+            return
         root = self.xml(path)
         for i, si in enumerate(root.findall(M + "si")):
             self.shared_strings.append(_rich_text(si))

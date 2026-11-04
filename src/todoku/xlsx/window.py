@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import bisect
+import functools
 import hashlib
 import itertools
 import re
@@ -517,13 +518,21 @@ def _spaced_heading(text: str) -> bool:
     return len(toks) >= SPACED_MIN and all(len(t) == 1 for t in toks)
 
 
+@functools.lru_cache(maxsize=4)
+def _box_positions(text: str) -> list[int]:
+    """箱の字（チェックの印らしい字も）の位置の並び（長い段落で、空きごとに字をたどり直さない）。"""
+    return [i for i, ch in enumerate(text) if ch in chars.BOXES or ch in chars.MAYBE_CHECKED]
+
+
 def _spaced_option(text: str, a: int) -> bool:
     """text[a] の空白が、チェックの箱の字のすぐ後ろの、字間を空けた選択肢の字（「□地　域　移　行　支　援」）の中か：
     前の箱の字から次の箱の字（なければ終わり）までの、前後の空白を除いた並びが、字間を空けた見出しの形。"""
-    start = next((i for i in range(a - 1, -1, -1) if text[i] in chars.BOXES or text[i] in chars.MAYBE_CHECKED), None)
-    if start is None:
+    boxes = _box_positions(text)
+    k = bisect.bisect_left(boxes, a)
+    if k == 0:
         return False
-    end = next((i for i in range(a, len(text)) if text[i] in chars.BOXES or text[i] in chars.MAYBE_CHECKED), len(text))
+    start = boxes[k - 1]
+    end = boxes[k] if k < len(boxes) else len(text)
     seg = text[start + 1:end]
     i, j = 0, len(seg)
     while i < j and chars.is_space(seg[i]):
