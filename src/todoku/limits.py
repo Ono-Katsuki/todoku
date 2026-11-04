@@ -15,7 +15,8 @@
                                         （分けて読める形式は、もともとディスクから少しずつ読む）
 - TODOKU_MAX_INFLATE_PART_MB（256）    1 つの部品・ストリームを展開した大きさの基本の上限。実際の上限は、これと「圧縮したバイト × 比率」の大きい方
                                         （宣言された大きさではなく、実際に出てきたバイトを数える）
-- TODOKU_MAX_INFLATE_TOTAL_MB（2048）  1 回の呼び出しで展開するバイトの合計（同じく、これと「ファイルの大きさ × 比率」の大きい方）
+- TODOKU_MAX_INFLATE_TOTAL_MB（2048 と、メモリの上限の 3/4 の小さい方）  1 回の呼び出しで展開するバイトの合計（同じく、これと
+                                        「ファイルの大きさ × 比率」の大きい方）。メモリの上限より先に、理由の言える形で止まるように、小さく置く
 - TODOKU_MAX_INFLATE_RATIO（200）      圧縮の比率の上限。ふつうの XML は 10〜100 倍で、deflate の理屈の上限は 1032 倍。爆弾はここで止まる
 - TODOKU_CONTEXT_BUDGET_CHARS（400000） 窓の全体を一度に返してよい大きさ（字）。およそ 20 万トークンの会話に入らなくなる大きさ。
                                         これを超える書類は、概要だけを返し、ページ・行の範囲で読む（lazy/）
@@ -24,6 +25,8 @@
 - TODOKU_MAX_PDF_OPS（200000000）     1 回の呼び出しで読む、PDF の描画の字句（数・名前・命令）の数の合計
 - TODOKU_MAX_PAGE_OPS（5000000）       1 ページ（とその部品）で読む、PDF の描画の字句の数
 - TODOKU_MAX_PIXELS（100000000）       1 つの画像を画素に開く大きさ（幅 × 高さ）
+- TODOKU_MAX_ITEMS（メモリの上限 ÷ 512 バイト）  1 回の呼び出しで、宣言された数から作る項目の合計（字形の表・/W の組・XFA のくり返し・
+                                        セル・XML の要素・配列の要素など。budget().count）。実際の上限は、これと「ファイルの大きさ × 4」の大きい方
 - TODOKU_TIME_LIMIT（120）             1 回の呼び出しの秒数（MCP サーバー：別のプロセスで動かし、超えたら止める）
 - TODOKU_MEMORY_LIMIT_MB（物理メモリの 1/4。2048 以上）  その別のプロセスのメモリ
 - TODOKU_WINDOW_CACHE_MB（256）        窓の控え（同じ書類を開き直さない）の大きさの合計
@@ -60,13 +63,17 @@ def _physical_memory() -> int:
 
 
 MAX_INFLATE_PART = _env("TODOKU_MAX_INFLATE_PART_MB", 256, MB)
-MAX_INFLATE_TOTAL = _env("TODOKU_MAX_INFLATE_TOTAL_MB", 2048, MB)
 MAX_PDF_OPS = _env("TODOKU_MAX_PDF_OPS", 200_000_000)
 MAX_PAGE_OPS = _env("TODOKU_MAX_PAGE_OPS", 5_000_000)
 MAX_PIXELS = _env("TODOKU_MAX_PIXELS", 100_000_000)
 TIME_LIMIT = _env("TODOKU_TIME_LIMIT", 120)
 MEMORY_LIMIT = _env("TODOKU_MEMORY_LIMIT_MB", max(2048, _physical_memory() / 4 / MB), MB)
 MAX_FILE = _env("TODOKU_MAX_FILE_MB", MEMORY_LIMIT / 2 / MB, MB)
+# 展開の合計は、メモリの上限より小さく置く（同じ大きさだと、展開の予算で理由を言う前に、働き手が殺される）
+MAX_INFLATE_TOTAL = _env("TODOKU_MAX_INFLATE_TOTAL_MB", min(2048, MEMORY_LIMIT * 3 / 4 / MB), MB)
+# 1 回の呼び出しで作る項目の合計：Python の小さな値は 1 つ数十〜数百バイトなので、メモリの上限より先に、理由の言える形で止まる大きさ
+MAX_ITEMS = _env("TODOKU_MAX_ITEMS", MEMORY_LIMIT / 512)
+ITEMS_PER_FILE_BYTE = 4  # 本物の書類の項目は、ファイルのバイトに比例する（圧縮した XML でも、1 バイトから数個まで）
 MAX_INFLATE_RATIO = _env("TODOKU_MAX_INFLATE_RATIO", 200)
 CONTEXT_BUDGET = _env("TODOKU_CONTEXT_BUDGET_CHARS", 400_000)
 PAGE_CHARS = _env("TODOKU_PAGE_CHARS", 60_000)
@@ -99,17 +106,39 @@ def _mb(n: int) -> str:
 class Budget:
     """1 回の呼び出しの予算。total=None なら合計は数えない。"""
 
-    def __init__(self, part: int | None = None, total: int | None = None, ops: int | None = None):
+    def __init__(self, part: int | None = None, total: int | None = None, ops: int | None = None, items: int | None = None):
         self.part = MAX_INFLATE_PART if part is None else part
         self.total = total
         self.ops_total = ops if ops is not None else float("inf")
         self.inflated = 0
         self.ops = 0
+        # items=None（長い仕事・呼び出しの外）：合計は数えず、1 度に頼む数だけを上限と比べる
+        self.items_total = items
+        self.items_cap = MAX_ITEMS if items is None else items
+        self.items = 0
 
     def allow_file(self, size: int) -> None:
         """大きなファイル：合計の上限を、ファイルの大きさに見合うだけ広げる（小さなファイルの爆弾は、いままでの上限で止まる）。"""
         if self.total is not None:
             self.total = max(self.total, size * MAX_INFLATE_RATIO)
+        self.items_cap = max(self.items_cap, size * ITEMS_PER_FILE_BYTE)
+        if self.items_total is not None:
+            self.items_total = self.items_cap
+
+    def count(self, n: int = 1, what: str = "項目") -> None:
+        """これから n 個の項目を作る（宣言された数から広げる展開はすべて、作る前にここを通す：1 つずつの上限の内でも、合わせて止まる）。
+        上限を超えたら LimitExceeded（読む範囲を小さく頼み直せば読める：smaller_request）。"""
+        self.items += n
+        if n > self.items_cap or (self.items_total is not None and self.items > self.items_total):
+            raise LimitExceeded(f"{what}：1 回の呼び出しで作る項目が {self.items_cap:,} 個を超えます（大きな数が宣言された壊れた書類か、"
+                                "一度に読む範囲が広すぎます。ページ・行の範囲を小さくして頼み直してください。"
+                                "TODOKU_MAX_ITEMS で変えられます）", True)
+
+    def alloc(self, n: int, what: str = "") -> None:
+        """これから 1 度に n バイトを取る（C の中の 1 回の確保は途中で止められないので、取る前に確かめる）。"""
+        if n > MEMORY_LIMIT // 2:
+            raise LimitExceeded(f"{what or 'データ'}：1 度に {_mb(n)} を取ることになります（メモリの上限 {_mb(MEMORY_LIMIT)} の半分まで）。"
+                                "範囲や解像度を小さくして頼み直してください")
 
     def room(self, part: int | None = None, compressed: int = 0) -> int:
         """これから 1 つ展開してよい大きさ。compressed：展開するデータの圧縮したバイト数。大きなデータには、比率の分だけ広げる
@@ -151,7 +180,7 @@ def call_budget(b: Budget | None = None):
     if _CURRENT.get() is not None and b is None:
         yield _CURRENT.get()
         return
-    token = _CURRENT.set(b or Budget(total=MAX_INFLATE_TOTAL, ops=MAX_PDF_OPS))
+    token = _CURRENT.set(b or Budget(total=MAX_INFLATE_TOTAL, ops=MAX_PDF_OPS, items=MAX_ITEMS))
     try:
         yield _CURRENT.get()
     finally:
