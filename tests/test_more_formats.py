@@ -480,3 +480,60 @@ def test_xps_page_in_utf16(tmp_path):
     assert "二重の字" in _text(p)
     au = _ok_audit(p)
     assert "4 字" in au["checks"][0]["detail"]
+
+
+# ====================================================================== リンクの先：.ppt・EPUB・HTML
+def _rec(t: int, body: bytes, ver: int = 0, inst: int = 0) -> bytes:
+    return struct.pack("<HHI", ver | (inst << 4), t, len(body)) + body
+
+
+def test_ppt_hyperlink_targets_are_listed(tmp_path):
+    from test_embeds import make_cfb, ppt_document
+
+    d, cu = ppt_document()
+    d = bytearray(d)
+    # 文書の入れ物の中身の頭に ExObjList を足す（文書の長さと、後ろの位置の表を直す代わりに、後ろの字の atom を使わない小さな確かめ）
+    from todoku.embeds.ppt import RT_DOCUMENT, _header
+
+    pos = next(i for i in range(0, len(d) - 8) if _header(bytes(d), i)[2] == RT_DOCUMENT and _header(bytes(d), i)[0] == 0xF)
+    link = _rec(0x0FD7, _rec(0x0FD3, bytes(4)) + _rec(0x0FBA, "様式の入手先".encode("utf-16-le"), inst=0) + _rec(0x0FBA, "https://example.jp/form".encode("utf-16-le"), inst=1)
+                + _rec(0x0FBA, "p2".encode("utf-16-le"), inst=3), ver=0xF)
+    objs = _rec(0x0409, link, ver=0xF)
+    _v, _i, _t, ln = _header(bytes(d), pos)
+    end = pos + 8 + ln
+    new = bytes(d[:end]) + objs + bytes(d[end:])
+    new = bytearray(new)
+    struct.pack_into("<I", new, pos + 4, ln + len(objs))
+    from todoku.cfb import CFB
+    from todoku.legacy import ppt
+
+    class C(CFB):
+        def __init__(self):  # noqa
+            pass
+
+        def streams(self):
+            return {"PowerPoint Document": 0, "Current User": 0}
+
+        def read(self, n):
+            return bytes(new) if n.lower().startswith("power") else cu
+
+    import unittest.mock as um
+    from todoku import embeds
+
+    with um.patch.object(embeds.ppt, "_persist", lambda _c, _n, _d: ({1: pos}, 1)):
+        got = ppt.hyperlinks(C(), {"powerpoint document": "PowerPoint Document", "current user": "Current User"})
+    assert got == [("様式の入手先", "https://example.jp/form#p2")]
+
+
+def test_epub_and_html_show_link_targets(tmp_path):
+    blob = _zip({"mimetype": "application/epub+zip",
+                 "META-INF/container.xml": '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="c.opf"/></rootfiles></container>',
+                 "c.opf": '<package xmlns="http://www.idpf.org/2007/opf"><manifest><item id="a" href="a.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="a"/></spine></package>',
+                 "a.xhtml": '<html><body><p>申請は<a href="https://example.jp/apply">こちら</a>から</p></body></html>'})
+    p = _p(tmp_path, "a.epub", blob)
+    win = "\n".join(t for _n, t in api.window(p)[2])
+    assert "こちら → https://example.jp/apply" in win and "申請はこちらから" in win
+    assert all(c["ok"] for c in api.audit_whole(p)["checks"])
+    h = _p(tmp_path, "a.html", '<html><body><a href="b.pdf">様式</a></body></html>'.encode())
+    assert "様式 → b.pdf" in "\n".join(t for _n, t in api.window(h)[2])
+    assert all(c["ok"] for c in api.audit_whole(h)["checks"])

@@ -698,7 +698,14 @@ def test_word6_warns_when_fonts_use_another_charset():
     ffn = bytes([9, 0, 0, 0, 204, 0]) + b"Cyr\0" + bytes([9, 0, 0, 0, 0, 0]) + b"Lat\0"
     d.wd = struct.pack("<H", len(ffn) + 2) + ffn
     d.fc = {"SttbfFfn": (0, len(d.wd))}
-    note = d._font_charsets()
+    d.wd += b"\xcf"  # 字の書式で書体を指していない、半角でない字（スタイルから書体を受けているかもしれない）
+    from types import SimpleNamespace
+
+    d.pieces = [SimpleNamespace(fc=len(d.wd) - 1, cp0=0, cp1=1)]
+    d._enc_runs = []
+    d.font_cps = d._font_table()
+    note = d._charset_note()
     assert "cp1251" in note and "Cyr" in note
     d.enc = "cp1251"
-    assert d._font_charsets() is None
+    d.font_cps = d._font_table()
+    assert d._charset_note() is None

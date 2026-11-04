@@ -59,7 +59,38 @@ def build(blob: bytes, name: str) -> dict:
             raise PptError("PowerPoint 97〜2003 の作り（編集の記録）が読めず、ほかに字を取り出せる所もありません。中身を読めていません。"
                            "PowerPoint か LibreOffice で .pptx に保存し直してもらえば読めます")
         unread.append("スライドの作りが読めないので、スライドの区切り・順・ノートと本文の別を読めていません（字はファイルにある順に出しています）")
-    return rd.make("ppt", KIND_JA, name, blob, slides, "元のファイルが正本。スライドとノートの字を、図形の順に読みました（字の位置と飾りは読みません）。" + WRITE, unread)
+    return rd.make("ppt", KIND_JA, name, blob, slides, "元のファイルが正本。スライドとノートの字を、図形の順に読みました（字の位置と飾りは読みません）。" + WRITE, unread,
+                   links=hyperlinks(c, names))
+
+
+def hyperlinks(c: CFB, names: dict) -> list[tuple[str, str]]:
+    """文書のリンクの一覧（[MS-PPT] 2.10.16 ExHyperlinkContainer。文書の ExObjList の中）：(名前, 先)。名前は FriendlyNameAtom（instance 0）、
+    先は TargetAtom（1）と LocationAtom（3。「#」でつなぐ）。いまの編集の persist の表が指す文書だけを読む。どのスライドの字のリンクかまでは読まない。"""
+    from ..embeds.ppt import RT_DOCUMENT, _children, _header, _persist
+
+    RT_EXOBJLIST, RT_HYPERLINK, RT_CSTRING = 0x0409, 0x0FD7, 0x0FBA
+    d = c.read(names["powerpoint document"])
+    try:
+        persist, doc_ref = _persist(c, names, d)
+        pos = persist[doc_ref]
+        _v, _i, t, ln = _header(d, pos)
+        if t != RT_DOCUMENT:
+            return []
+        out = []
+        for p, _ver, _inst, t2, l2 in _children(d, pos + 8, pos + 8 + ln):
+            if t2 != RT_EXOBJLIST:
+                continue
+            for q, _v3, _i3, t3, l3 in _children(d, p + 8, p + 8 + l2):
+                if t3 != RT_HYPERLINK:
+                    continue
+                got = {i4: d[r + 8:r + 8 + l4].decode("utf-16-le", "replace").rstrip("\0")
+                       for r, _v4, i4, t4, l4 in _children(d, q + 8, q + 8 + l3) if t4 == RT_CSTRING}
+                target = got.get(1, "") + (f"#{got[3]}" if got.get(3) else "")
+                if target:
+                    out.append((got.get(0, ""), target))
+        return out
+    except (struct.error, KeyError, IndexError, ValueError):
+        return []
 
 
 def raw_texts(c: CFB, names: dict) -> list[str]:

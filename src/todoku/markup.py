@@ -20,8 +20,8 @@ _SKIP = {"script", "style", "template", "noscript", "head"}
 _BLOCK = {"address", "article", "aside", "blockquote", "br", "caption", "dd", "div", "dl", "dt", "fieldset", "figcaption",
           "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p",
           "pre", "section", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "ul"}
-NOTE = ("HTML/XML は字だけを読みます：タグの間の字を取り出し、タグ・属性・注釈・スクリプトとスタイルの中身・見た目（表の形・"
-        "字の大きさ・リンクの先）は読みません")
+NOTE = ("HTML/XML は字だけを読みます：タグの間の字を取り出し（HTML のリンクの先は別に示します）、ほかのタグ・属性・注釈・スクリプトとスタイルの中身・"
+        "見た目（表の形・字の大きさ）は読みません")
 
 
 class MarkupError(ValueError):
@@ -35,6 +35,8 @@ class _Text(HTMLParser):
         self.lines: list[str] = [""]
         self.skip = 0
         self.root: str | None = None
+        self.links: list[tuple[str, str]] = []  # (見える字, 先)
+        self._a: list | None = None
 
     def _break(self) -> None:
         if self.lines[-1].strip():
@@ -43,6 +45,9 @@ class _Text(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if self.root is None:
             self.root = tag
+        if tag == "a" and not self.xml:
+            href = dict(attrs).get("href")
+            self._a = [href, ""] if href else None
         if not self.xml and tag in _SKIP:
             self.skip += 1
         elif self.xml or tag in _BLOCK:
@@ -55,6 +60,9 @@ class _Text(HTMLParser):
             self._break()
 
     def handle_endtag(self, tag):
+        if tag == "a" and self._a is not None:
+            self.links.append((self._a[1], self._a[0]))
+            self._a = None
         if not self.xml and tag in _SKIP:
             self.skip = max(0, self.skip - 1)
         elif self.xml or tag in _BLOCK:
@@ -63,6 +71,8 @@ class _Text(HTMLParser):
     def handle_data(self, data):
         if self.skip:
             return
+        if self._a is not None:
+            self._a[1] += data
         parts = re.split(r"\r\n|\r|\n", data)
         for k, part in enumerate(parts):
             if k:
@@ -98,7 +108,7 @@ def build(blob: bytes, name: str, encoding: str | None = None) -> dict:
     return {"kind": "markup", "file": name, "format": {"markup": "XML" if xml else "HTML", "encoding": dec.encoding,
                                                        "encoding_ja": dec.label, "root": p.root, "lines": len(lines),
                                                        **dec.info(), "encoding_notes": dec.note_lines()},
-            "lines": lines, "fields": [], "note": NOTE}
+            "lines": lines, "fields": [], "note": NOTE, "links": p.links}
 
 
 def markdown_parts(win: dict) -> list[tuple[str, str]]:
@@ -108,6 +118,10 @@ def markdown_parts(win: dict) -> list[tuple[str, str]]:
         out.append(f"> {n}")
     out += ["", "## 字（タグの間の字。上から）", ""]
     out += [f"{k}｜{ln}" for k, ln in enumerate(win["lines"], 1)]
+    from .links import markdown as _links
+
+    if win.get("links"):
+        out += [""] + _links(win["links"])
     return [("本文", "\n".join(out) + "\n")]
 
 
