@@ -151,7 +151,7 @@ class OdtDocument:
         ms = self.pkg.section(part, "master-styles") if (self.pkg.flat or self.pkg.has("styles.xml")) else None
         if ms is None:
             return
-        for mp in ms.findall("style:master-page"):
+        for mp in ms.findall("style:handout-master") + ms.findall("style:master-page"):
             if self.pkg.kind in ("odp", "odg"):
                 # スライドマスターの枠の字（プレースホルダーの見本も、印刷される字も。どちらかは決めずに、マスターの字として示す）
                 blocks = self._blocks(mp, part, None, False)
