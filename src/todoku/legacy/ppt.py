@@ -52,6 +52,13 @@ def build(blob: bytes, name: str) -> dict:
     slides = ppt_slides(c)
     n = pictures(c, names)
     unread = [f"絵 {n} 個の中身は字として読めません（view_image で見られます）"] if n else []
+    from ..embeds.ppt import PP95_HEADING, UNORDERED_HEADING
+
+    if slides and slides[0][0] in (UNORDERED_HEADING, PP95_HEADING):
+        if not slides[0][1]:  # 字がないのではなく、作りが読めない：「字はありません」と見せない
+            raise PptError("PowerPoint 97〜2003 の作り（編集の記録）が読めず、ほかに字を取り出せる所もありません。中身を読めていません。"
+                           "PowerPoint か LibreOffice で .pptx に保存し直してもらえば読めます")
+        unread.append("スライドの作りが読めないので、スライドの区切り・順・ノートと本文の別を読めていません（字はファイルにある順に出しています）")
     return rd.make("ppt", KIND_JA, name, blob, slides, "元のファイルが正本。スライドとノートの字を、図形の順に読みました（字の位置と飾りは読みません）。" + WRITE, unread)
 
 

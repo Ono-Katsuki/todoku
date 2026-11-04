@@ -380,6 +380,8 @@ class OdtDocument:
             elif t == _T + "line-break":
                 atoms.append(("br", ch, ctx))
             elif t in INLINE:
+                if t == _T + "a" and ch.get("xlink:href"):
+                    self.__dict__.setdefault("links", []).append((text_of(ch, data), ch.get("xlink:href")))
                 st = ch.get("text:style-name")
                 c2 = ctx
                 if st:

@@ -134,6 +134,71 @@ def _atom_text(d: bytes, pos: int, t: int, ln: int) -> str:
     return s.replace("\r", "\n").replace("\x0b", "\n").strip("\n")
 
 
+UNORDERED_HEADING = "スライド（順は不明）"
+PP95_HEADING = "スライドの字（PowerPoint 95。スライドの区切りは読めません）"
+
+
+def _summary_codepage(storage, names: dict) -> str | None:
+    """SummaryInformation（OLE のプロパティの集まり）の PIDSI_CODEPAGE（番号 1）。読めなければ None。"""
+    key = next((names[n] for n in names if n.endswith("summaryinformation") and "document" not in n), None)
+    if key is None:
+        return None
+    b = storage.read(key)
+    try:
+        if struct.unpack_from("<H", b, 0)[0] != 0xFFFE:
+            return None
+        at = struct.unpack_from("<I", b, 44)[0]
+        n = struct.unpack_from("<I", b, at + 4)[0]
+        for k in range(n):
+            pid, off = struct.unpack_from("<II", b, at + 8 + 8 * k)
+            if pid == 1:
+                vt, cp = struct.unpack_from("<HxxH", b, at + off)
+                if vt == 2:
+                    return f"cp{cp}" if cp != 65001 else "utf-8"
+    except struct.error:
+        return None
+    return None
+
+
+def _text_content(storage, names: dict) -> list[str]:
+    """PowerPoint 95 の Text_Content ストリーム：字の入れ物の字の並び（段落の区切りは CR）。文字コードは SummaryInformation の記録のもの。
+    記録がなければ読み方を決められないので、字にしない（呼ぶ側が「読めない」と伝える）。"""
+    enc = _summary_codepage(storage, names)
+    if enc is None:
+        return []
+    try:
+        s = storage.read(names["text_content"]).decode(enc, errors="replace")
+    except LookupError:
+        return []
+    return [x.strip("\x0b ") for x in s.replace("\x00", "").split("\r") if x.strip("\x0b ")]
+
+
+RT_COMMENT10, RT_CSTRING, RT_BINARY_BLOB = 0x2EE0, 0x0FBA, 0x138B
+
+
+def _comment_lines(d: bytes, pos: int | None) -> list[str]:
+    """スライドのコメント（MS-PPT Comment10Container。ProgBinaryTag のデータの中にある）。author は CString の instance 0、本文は 1。"""
+    if pos is None or pos + 8 > len(d):
+        return []
+    _v, _i, _t, ln = _header(d, pos)
+    out = []
+    for p, t, ln2 in _all_records(d, pos + 8, pos + 8 + ln):
+        if t != RT_BINARY_BLOB:
+            continue
+        for p3, _v3, _i3, t3, ln3 in _children(d, p + 8, p + 8 + ln2):
+            if t3 != RT_COMMENT10:
+                continue
+            who, text = "", ""
+            for p4, _v4, inst, t4, ln4 in _children(d, p3 + 8, p3 + 8 + ln3):
+                if t4 == RT_CSTRING and inst in (0, 1):
+                    s = d[p4 + 8:p4 + 8 + ln4].decode("utf-16-le", errors="replace")
+                    who, text = (s, text) if inst == 0 else (who, s)
+            if text.strip():
+                text = " ／ ".join(x for x in re.split(r"[\r\n\x0b]+", text) if x)
+                out.append((f"コメント（{who}）：" if who else "コメント：") + text)
+    return out
+
+
 def ppt_slides(storage) -> list[tuple[str, list[str]]]:
     """古い形の PowerPoint（.ppt の入れ物：PowerPoint Document と Current User のストリーム）のスライドの字。"""
     names = {n.lower(): n for n in storage.streams()}
@@ -144,7 +209,10 @@ def ppt_slides(storage) -> list[tuple[str, list[str]]]:
     except (struct.error, KeyError, IndexError, ValueError):
         # 編集の記録をたどれない：ストリームの中の字の atom を、順にすべて出す（落とさない）
         texts = [_atom_text(d, p, t, ln) for p, t, ln in _all_atoms(d, 0, len(d))]
-        return [("スライド（順は不明）", [t for t in texts if t.strip()])]
+        texts = [t for t in texts if t.strip()]
+        if not texts and "text_content" in names:
+            return [(PP95_HEADING, _text_content(storage, names))]
+        return [(UNORDERED_HEADING, texts)]
 
 
 def _persist(storage, names: dict, d: bytes) -> tuple[dict[int, int], int]:
@@ -196,7 +264,7 @@ def _slides_by_persist(d: bytes, persist: dict[int, int], doc_ref: int) -> list[
         lists[inst] = items
     out = []
     for k, (pid, slwt) in enumerate(lists.get(0, []), 1):
-        out.append((f"スライド{k}", _container_lines(d, persist.get(pid), slwt)))
+        out.append((f"スライド{k}", _container_lines(d, persist.get(pid), slwt) + _comment_lines(d, persist.get(pid))))
     for k, (pid, slwt) in enumerate(lists.get(2, []), 1):
         lines = [x for x in _container_lines(d, persist.get(pid), slwt) if x.strip()]
         if lines:

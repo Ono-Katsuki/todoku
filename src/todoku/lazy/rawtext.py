@@ -191,6 +191,8 @@ def _doc_items(cf, name: str):
             k = at0 if pi == p0 else 0
             while k < n:
                 e = min(n, k + (1 << 14))
+                if width == 2 and e < n and 0xD8 <= d.wd[pc.fc + e * 2 - 1] <= 0xDB:
+                    e += 1  # BMP の外の字（2 単位の組）を分けない
                 raw = d.wd[pc.fc + k * width:pc.fc + e * width]
                 t = raw.decode("cp1252" if pc.compressed else "utf-16-le", "replace")
                 t = re.sub("[\\x13\\x14\\x15\\x01\\x08]", "", t).replace("\r", "\n").replace("\x07", "\t")

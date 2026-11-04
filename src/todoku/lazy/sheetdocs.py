@@ -364,7 +364,7 @@ def _walk_biff12(reader, sh: XlsbSheet) -> None:
                 shift += 7
                 if not b & 0x80:
                     break
-            if rid == ROW:
+            if rid == ROW and data_begin is not None and data_end is None:
                 row = struct.unpack_from("<I", carry, k2)[0] + 1
                 if open_row is not None:
                     runs.append((open_row[0], open_row[1], pos))
@@ -376,7 +376,7 @@ def _walk_biff12(reader, sh: XlsbSheet) -> None:
                     runs.append((open_row[0], open_row[1], pos))
                     open_row = None
                 data_end = pos
-            elif rid in CELLS:
+            elif rid in CELLS and data_begin is not None and data_end is None:  # 区切りの外の同じ番号はセルではない（xlsb.book.sheet_records）
                 sh.cells += 1
                 sh.values += 1
                 if rid in forms:

@@ -194,7 +194,14 @@ class RawZip:
                 idx.setdefault(e.name, e)
         e = idx.get(name)
         if e is None:
-            raise KeyError(name)
+            # 部品の名前は大文字小文字を区別しない（ECMA-376 第2部 6.2.2.3。Excel は xl/SharedStrings.bin のような名前も開く）。
+            # 大文字小文字だけが違う部品が 2 つある ZIP は _no_two_readings が読まないので、1 つに決まる
+            folded = getattr(self, "_by_fold", None)
+            if folded is None or len(folded) != len(self.entries):
+                folded = self._by_fold = {x.name.casefold(): x for x in self.entries}
+            e = folded.get(name.casefold())
+            if e is None:
+                raise KeyError(name)
         return e
 
     def has(self, name: str) -> bool:

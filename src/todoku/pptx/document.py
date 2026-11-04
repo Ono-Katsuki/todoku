@@ -21,6 +21,8 @@ A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 A_T = frozenset({"{" + A + "}t"})
 _STRICT_A = "http://purl.oclc.org/ooxml/drawingml/main"
+_COMMENT_TEXT = A_T | frozenset({"{" + _STRICT_A + "}t", "{http://schemas.openxmlformats.org/presentationml/2006/main}text",
+                                 "{http://purl.oclc.org/ooxml/presentationml/main}text"})
 
 
 class PptxError(ValueError):
@@ -75,6 +77,7 @@ class PptxDocument:
         self.has_macros = any(n.lower().endswith("vbaproject.bin") for n in self.zip.names())
         self.main = self._main_part()
         self.slides: list[dict] = []  # {"n", "part", "hidden", "notes", "blocks", "notes_blocks"}
+        self.comments: list[tuple[int, str, list[str]]] = []  # (スライド, 部品, 字の行)
         self.templates: list[tuple[str, list]] = []  # (レイアウト・マスターの部品, ブロック)
         self._slide = 0
         self._read()
@@ -143,6 +146,7 @@ class PptxDocument:
             srels = rels_of(self.zip, part)
             s = {"n": self._slide, "part": part, "hidden": sld.get("show") in ("0", "false"), "notes": None,
                  "blocks": self._csld(sld, part, srels), "notes_blocks": []}
+            self._slide_links(sld, part)
             for _rid_, (t, tg) in srels.items():
                 kind = t.rsplit("/", 1)[-1]
                 name = _join(part, tg)
@@ -151,6 +155,10 @@ class PptxDocument:
                     if nroot is not None and nroot.kids:
                         s["notes"] = name
                         s["notes_blocks"] = self._csld(nroot.kids[0], name, rels_of(self.zip, name))
+                elif kind == "comments" and self.zip.has(name):
+                    lines = self._comment_lines(name)
+                    if lines:
+                        self.comments.append((self._slide, name, lines))
                 elif kind == "slideLayout" and self.zip.has(name) and sld.get("showMasterSp") not in ("0", "false"):
                     shown_templates.append(name)
                     lroot = self.load(name)
@@ -170,6 +178,57 @@ class PptxDocument:
             blocks = self._csld(troot.kids[0], name, rels_of(self.zip, name), template=True)
             if blocks:
                 self.templates.append((name, blocks))
+
+    def _slide_links(self, sld: Node, part: str) -> None:
+        """字に付いたリンク（a:rPr の a:hlinkClick の r:id。先は関係の Target。外のリンクも含む）。"""
+        d, base = part.rsplit("/", 1)
+        rp = f"{d}/_rels/{base}.rels"
+        if not self.zip.has(rp):
+            return
+        targets = {a.get("Id"): a.get("Target") for a in parse(self.zip.read(rp), frozenset()).iter("Relationship")}
+        for r in sld.iter("r"):
+            rpr = r.find("rPr")
+            h = rpr.find("hlinkClick") if rpr is not None else None
+            tg = targets.get(h.get("id")) if h is not None else None
+            if tg:
+                t = r.find("t")
+                self.__dict__.setdefault("links", []).append((t.text if t is not None else "", tg))
+
+    def _comment_authors(self) -> dict[str, str]:
+        """コメントの書き手：commentAuthors.xml（p:cmAuthor の id・name）と、新しい形の authors.xml（p188:author の id・name）。"""
+        if getattr(self, "_authors", None) is not None:
+            return self._authors
+        out: dict[str, str] = {}
+        for n in self.zip.names():
+            if n.lower() in ("ppt/commentauthors.xml", "ppt/authors.xml"):
+                for a in parse(self.zip.read(n), frozenset()).iter():
+                    if a.local in ("cmAuthor", "author") and a.get("id") is not None:
+                        out[a.get("id")] = a.get("name") or ""
+        self._authors = out
+        return out
+
+    def _comment_lines(self, name: str) -> list[str]:
+        """スライドのコメント（p:cm の p:text。新しい形は p188:cm の txBody と、返信の p188:reply）。"""
+        try:
+            root = parse(self.zip.read(name), _COMMENT_TEXT)
+            authors = self._comment_authors()
+        except Exception as e:  # noqa: BLE001  expat の誤り
+            self.unread.append(f"{name}：コメントを読めません（{e}）")
+            return []
+        out: list[str] = []
+        for cm in root.iter():
+            if cm.local not in ("cm", "reply"):
+                continue
+            who = authors.get(cm.get("authorId") or "", "")
+            tx = cm.find("text")
+            if tx is not None:
+                text = _plain(tx)
+            else:
+                body = cm.find("txBody")
+                text = " ／ ".join(t for t in ("".join(_plain(x) for x in p.iter("t")) for p in body.findall("p")) if t) if body is not None else ""
+            if text.strip():
+                out.append(("返信" if cm.local == "reply" else "コメント") + (f"（{who}）" if who else "") + "：" + text)
+        return out
 
     def _csld(self, top: Node, part: str, rels: dict, template: bool = False) -> list:
         csld = top.find("cSld")
@@ -303,6 +362,10 @@ class PptxDocument:
     def marks(self) -> dict:
         """書き込んだ欄の印：PowerPoint の字には、Word のしおりのような見えない印がない（書いた所は、証明で読み直して確かめる）。"""
         return {}
+
+
+def _plain(n: Node) -> str:
+    return n.text or ""
 
 
 def _placeholder_type(sp: Node) -> str:
