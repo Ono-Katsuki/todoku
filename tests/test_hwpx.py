@@ -266,7 +266,8 @@ def test_fill_proof_and_readback(blob):
     after = sec.count("<hp:linesegarray>")
     assert 0 < before - after < before
     lines = "\n".join(_lines(res.blob))
-    assert f"☑［{box}］ 예 ☐［" in lines and "<hp:t>■</hp:t>" in sec  # □ は ■ にする
+    # □ は ■ にする。書いていない箱は「？」の候補として元の字（□）のまま示す（どの箱の字も、規則では決めない）
+    assert f"☑［{box}］ 예 □［" in lines and "<hp:t>■</hp:t>" in sec
     # 書いた欄の id は、書いた後も同じ：もう一度は書かない
     with pytest.raises(FillError, match="すでに書き込んだ"):
         fill(HwpxDocument(res.blob), {"T1.R1.C2": "다시"})

@@ -329,13 +329,44 @@ def fields(path: str, password: str | None = None, encoding: str | None = None) 
     return out
 
 
+_SIDE_JA = {"left": ("左", "列"), "right": ("右", "列"), "above": ("上", "行")}
+
+
+def far_label(f: dict) -> str | None:
+    """表計算の欄の見出しが、すぐ隣のマスの字でないとき（離れた所の字）：見出しにせず、番地と、いちばん近い字とその離れ方で
+    示す字（「B12（左に 3 列あけて『氏名』）」）。すぐ隣のマスの字が見出しなら None。どれを見出しとして読むかはエージェント。"""
+    near = f.get("near")
+    lab = f.get("label") or ""
+    if not isinstance(near, dict) or not near or not lab:
+        return None
+    gap = {s: (v.get("cols") if s != "above" else v.get("rows")) for s, v in near.items() if isinstance(v, dict) and s in _SIDE_JA}
+    if any(g == 0 and (near[s].get("label") or "") and (near[s].get("label") or "") in lab for s, g in gap.items()):
+        return None  # すぐ隣のマスの字が見出しにある
+    sides = [(near[s].get("mm", 0) or 0, s) for s, g in gap.items() if isinstance(g, int)]
+    if not sides:
+        return None
+    _mm, s = min(sides)
+    ja, unit = _SIDE_JA[s]
+    v = near[s]
+    cell = str(f["id"]).rsplit("!", 1)[-1]
+    how = f"{ja}のすぐ隣" if gap[s] == 0 else f"{ja}に {gap[s]} {unit}あけて"
+    t = str(v.get("label") or v.get("text") or "")
+    t = t if len(t) <= 40 else t[:40] + "…"  # 字のすべては nearest_text と near に（ここは対話で読み上げる短い形）
+    return f"{cell}（{how}『{t}』）"
+
+
 def _field(f: dict, **where) -> dict:
     d = {"id": f["id"], "label": f.get("label", ""), "kind": f.get("kind", ""), "value": f.get("value")}
+    far = far_label(f) if where.get("sheet") is not None else None
+    if far:
+        # 離れた所の字を、欄の見出しとして示さない：番地と、いちばん近い字・その離れ方（近くの字の事実は near）
+        d["label"], d["nearest_text"] = far, f.get("label", "")
     for key in ("options", "maxlen", "format", "readonly", "protected", "confidence", "context", "boxes", "write_as",
                 "options_depend_on", "unit", "rules", "agent", "why", "placeholder", "cover", "kind_candidates",
                 "alternative_to", "group", "why_not", "label_printed", "text_before", "options_labels", "export_value",
                 "hidden", "hidden_why", "not_printed", "not_printed_why", "legacy_id", "why_code", "reason_codes",
-                "row_label", "column_label", "column_label_partial", "label_clipped", "neighbours"):
+                "row_label", "column_label", "column_label_partial", "label_clipped", "neighbours", "facts", "near",
+                "label_method", "section", "input_reason_codes", "spans", "blanks"):
         if f.get(key) not in (None, "", [], False):
             d[key] = f[key]
     for key in ("row_label_gap", "column_label_gap"):  # 数の事実（0 も、すぐ隣という事実）
@@ -410,7 +441,16 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
 
         circ = {k_: v for k_, v in values.items() if _is_circle(v)}
         cell_values = {k_: v for k_, v in values.items() if k_ not in circ}
-        readback_values = {k_: v for k_, v in readback_values.items() if k_ not in circ}
+        from .xlsx.edit import _group_span_ids
+        from .xlsx.window import parse_span_id
+
+        try:
+            # マスの文字の中の所の id（「シート!B3@5」）は、セルごとに {位置: 値} にまとめて書く。読み戻しは、書いた後のセルの字で
+            cell_values = _group_span_ids(cell_values)
+        except EditError as e:
+            raise ApiError(str(e)) from None
+        readback_values = {k_: v for k_, v in readback_values.items() if k_ not in circ
+                           and not (isinstance(k_, str) and "!" in k_ and not k_.startswith("@") and parse_span_id(k_))}
         wb = open_book(blob, name)
         if cell_values or not circ:
             try:

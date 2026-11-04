@@ -1109,7 +1109,7 @@ def test_word6_overwrites_in_place_with_proof():
         by_kind.setdefault(f["kind"], []).append(f)
     cell = next(f for f in win["fields"] if f["id"].startswith("T"))
     inline = next(f for f in win["fields"] if f["id"].startswith("P2") and not f.get("readonly")
-                  and f.get("maxlen_bytes", 0) >= 10)
+                  and f.get("maxlen_bytes", 0) >= 8)  # 空白の始めの 1 字は元のまま残すので、書ける字は 1 字ぶん少ない
     box = next(f for f in by_kind["checkbox"] if not f.get("readonly"))
     vals = {cell["id"]: "東京都", inline["id"]: "山田太郎", box["id"]: True}
     res = doc_fill(DocFile(blob), vals)

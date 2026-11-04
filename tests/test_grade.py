@@ -57,21 +57,21 @@ def test_places_rules_cannot_decide_are_c_and_writable():
     # P3.c2：マスの見出し「氏名」の後ろ（すぐ右の空のマス T1.R1.C2 の代わりの所として、消さずに示す）
     # P9.c3：「年　月」の全角の空白 1 つ（1 字ぶんの空き）。中に 1 字ぶんの空きがある段落なので、段落の後ろ（「月」の後ろ）は
     # 示さない（空きと段落の後ろの両方を出さない）。半角の空白 1 つ（「令和 年」）は語の区切りで、
-    # 所にしない（字のまま窓に出る。書くときは字を目印にする）。P10：同じ記号の並び（○○○・○○県○○市○○）・点線「……」・
-    # 全角の空白 1 つの空き（「〒　○○○」「…　○○県」）
-    assert set(agent) == {"P1.c3", "P2.c2", "P2.c3", "P2.c4", "P3.c2", "P9.c3", "P10.c1", "P10.c3", "P10.c4", "P10.c1.2", "P10.c3.2",
-                          "P11.c3"}, agent
+    # 所にしない（字のまま窓に出る。書くときは字を目印にする）。P10：同じ記号の並び（○○○・○○・○○・○○。字をはさむ並びは
+    # つながない）・点線（「…」「……」）・全角の空白 1 つの空き（「〒　○○○」「…　○○県」）。P5：箱の字の □ も「？」の候補
+    assert set(agent) == {"P1.c3", "P2.c2", "P2.c3", "P2.c4", "P3.c2", "P5.c0", "P5.c2", "P9.c3", "P10.c1", "P10.c1.2", "P10.c2",
+                          "P10.c2.2", "P10.c2.3", "P10.c3", "P10.c4", "P10.c5", "P11.c3"}, agent
     assert agent["P3.c2"]["alternative_to"] == "T1.R1.C2"
-    assert agent["P10.c3.2"]["placeholder"] == "○○県○○市○○"
+    assert agent["P10.c2.3"]["placeholder"] == "○○" and agent["P10.c3"]["placeholder"] == "○○"
     assert "1 つの全角空白" in agent["P9.c3"]["why"], agent["P9.c3"]  # いちばん狭い空き（エージェントが順を決める目安）
-    res = fill(DocxDocument(blob, "c.docx"), {"P9.c3": "4", "P10.c3.2": "東京都千代田", "P11.c3": "東京都"})
+    res = fill(DocxDocument(blob, "c.docx"), {"P9.c3": "4", "P10.c2.3": "東京", "P11.c3": "東京都"})
     pr = prove(blob, res.blob, {x.id: x.value for x in res.patches})
     assert pr.ok, pr.unexpected
     after = build(DocxDocument(res.blob, "c.docx"))
     lines = [ln for st in after["stories"] for ln in st["reading"]]
     # 書いたあとは、段落に空きがなくなるので、段落の後ろ（「月」の後ろ）を「？」の所として示す
     assert "令和 年［P9.c3＝4］月［P9.c4？］" in lines and "住所：［P11.c3＝東京都］" in lines, lines
-    assert any("［P10.c3.2＝東京都千代田］" in ln and "［P10.c1.2？＝○○○］" in ln for ln in lines), lines
+    assert any("［P10.c2.3＝東京］県［P10.c3？＝○○］" in ln and "［P10.c1.2？＝○○○］" in ln for ln in lines), lines
 
 
 def test_meaning_is_left_to_the_agent_not_to_word_matching():

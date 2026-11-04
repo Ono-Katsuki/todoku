@@ -24,7 +24,7 @@ import re
 
 from .. import chars
 from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, label_tail, norm_label, shown_gap, wide_space
-from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, SPACED_MARK, SPACED_NOTE, chain_head, heading_gap, one_wide_space, weak_line, weak_space
+from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, one_wide_space, place_facts
 from ..xlsx.window import gap_interior
 from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 
@@ -201,7 +201,6 @@ class Spots:
         self.items: Items = Items()
         self.para_index: dict[int, int] = {}
         self.ranges: dict = {}
-        self.spaced_marks: dict[int, set] = {}  # 字間を空けた見出しの並びの終わり（id(段落) → 位置）：窓に「〔字間〕」
         self._texts: dict[int, str] = {}  # 段落の字（id(段落) → 字）。見出しを作るたびに Para.text を作り直さない
         self.marks =doc.marks() if hasattr(doc, "marks") else _bookmarks(doc)
         # todoku が書いたマス（しおりのあるマス）：ほかの欄の見出しにしない
@@ -286,12 +285,6 @@ class Spots:
                 for a, b, why in para_spans(p, text):
                     if has_field and any(fmask[a:b]):
                         continue
-                    hg = heading_gap(text, a, b) if why == "spaced" else None
-                    if hg is not None:
-                        # 1 字ずつを同じ空白でつないだ 4 字以上の並び（字間を空けた見出しの形）の字の間：所（id）にはせず、
-                        # 元の空白のまま窓に出し、並びの後ろに「〔字間〕」の印を付ける（書くなら old/new で書ける）
-                        self.spaced_marks.setdefault(id(p), set()).add(hg[1])
-                        continue
                     if why in ("gap", "short_underline") and has_field and _touches_field(p, a, b):
                         continue  # フォームの欄にすぐ接する空白は、欄の字の飾り（欄はその id で書く）
                     spans.append((a, b, "inline", why))
@@ -331,10 +324,6 @@ class Spots:
                         it.update(provenance=AGENT, why=WORD_WHY[why], why_key=why)
                         if one_wide_space(text[a:b]):
                             it["why"] += f"。{ONE_WIDE_SPACE_WHY}"  # いちばん狭い空き：エージェントが順を決める目安
-                            if weak_space(text, a, b):
-                                it["weak"] = "one_space"  # 弱い候補（消さずに順を下げる）
-                        if why == "decor":
-                            it["weak"] = "decor"
                         if why == "checked_mark":
                             it["checked"] = True
                     placed.append((it, ""))
@@ -356,12 +345,6 @@ class Spots:
                         elif others:
                             # マスの初めの空の段落（後ろの段落にだけ字がある：「（空）／個人番号」の空の 1 行目に氏名を書くなど）
                             found_agent = [(0, len(text), "first_line")]
-                    head = chain_head(text)
-                    if head is not None and sum(1 for a, _b, _k, w in spans if a >= head[1] and w is not None) >= 2 \
-                            and not any(a < head[1] or a == b == 0 for a, b, _k, _w in spans) and not written \
-                            and not any(a < head[1] for a, _b, _w in found_agent):
-                        # 「年　　月　　日」で始まる段落：初めの字の前（後ろに「？」の所が 2 つ以上あるときだけ：「氏　名」の 1 つの空きでは出さない）
-                        found_agent = sorted(found_agent + [(head[0], head[1], "chain_head")])
                     for a, b, why in found_agent:
                         if has_field and any(fmask[a:max(a + 1, b)]):
                             continue
@@ -867,7 +850,7 @@ def build(doc: DocxDocument) -> dict:
                      "［P12.c5］": PLACE_ID_NOTE,
                      "［P12.c5？］": "規則では決められない、書き込む所かもしれない所（字の形と並びだけで見つけた所。エージェントが読んで判断する。"
                                     "書くなら id を指定する。書かなければ何も変わらない。［P12.c5？＝○○］は、伏せ字の○○を書き換える所）",
-                     "［P12.c5？　］": GAP_TOKEN_NOTE, SPACED_MARK: SPACED_NOTE,
+                     "［P12.c5？　］": GAP_TOKEN_NOTE,
                      "■［P12.c5？］": "チェック済みの印らしい字（☑・■・✓ など。■ は箇条の印のこともある）。チェックの欄なら true / false で書く",
                      "［名前＝値］": "入力欄といまの値", "☐［…］ / ☑": "チェック", " ｜ ": "表のマスの区切り"},
         "protection": {"edit": doc.protection, "enforced": doc.protection_enforced},
@@ -913,6 +896,10 @@ def build(doc: DocxDocument) -> dict:
              "provenance": it["provenance"], "value": sp.value(it), "context": contexts.get(it["id"], "")}
         if printed or (c is None and label):
             d["label_printed"] = True  # 見出しは文書に印刷される字（欄の名前・タグではない）
+        if c is None and "span" in it and it.get("para") is not None and it["id"] not in sp.marks:
+            # 段落の中の所の事実（所の字・字数・幅の目安・前後の字・字間を空けた並びの字数。xlsx.window.place_facts）
+            q = it["para"]
+            d["facts"] = place_facts(sp._texts.get(id(q)) or q.text, *it["span"])
         if it["id"] in legacy_of:
             d["legacy_id"] = legacy_of[it["id"]]  # 古い数え順の名前（その段落にこの並びの所が 1 つだけなので、同じ所を指す）
         if c is not None and c.para is not None and c.para.cell is not None and c.para.cell.table is not None:
@@ -945,8 +932,6 @@ def build(doc: DocxDocument) -> dict:
                 d["placeholder"] = it["placeholder"]
             if it.get("alternative_to"):
                 d["alternative_to"] = it["alternative_to"]  # 同じ値を書く、代わりの欄（どちらか一方に書く）
-            if it.get("weak") or it.get("why_key") == "decor":
-                d["weak"] = it.get("weak") or "decor"
         if it.get("filled") or (it["id"] in sp.marks and c is None):
             d["filled"] = True  # todoku が書き込んだ所（書き直すには元の様式に書く）
         d.update(it.get("neighbours") or {})  # 表のマス：左・上のマスの字（そのまま）と、間のマスの数（row_label_gap・column_label_gap）
@@ -1182,8 +1167,6 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
                 edits.append((a, b, ("☑" if v else "☐") + f"［{name}］"))
             else:
                 edits.append((a, b, f"［{name}＝{v}］" if v not in (None, "") else f"［{name}］"))
-    for e in sorted(getattr(sp, "spaced_marks", {}).get(id(p), ())):  # 埋め込みの読み方（欄なし）には印もない
-        edits.append((e, e, SPACED_MARK))  # 字間を空けた見出しの並びの後ろ（字の間の空白は、元のまま）
     edits.sort()
     out, at = [], 0
     for a, b, rep in edits:
@@ -1260,8 +1243,7 @@ def to_markdown(doc: dict) -> str:
     out.append("")
     if doc["fields"]:
         out += [f"## 入力欄（{len(doc['fields'])} か所）", "", "| 欄 | 見出し | 種類 | いまの値 |", "|---|---|---|---|"]
-        weak = [f for f in doc["fields"] if f.get("weak") and f.get("value") in (None, "", False) and not f.get("filled")]
-        for f in [f for f in doc["fields"] if not any(f is w for w in weak)]:
+        for f in doc["fields"]:
             k = KIND_JA.get(f["kind"], f["kind"])
             if f.get("options"):
                 k += ": " + "／".join(map(str, f["options"][:15]))
@@ -1279,8 +1261,6 @@ def to_markdown(doc: dict) -> str:
             vs = ("☑ あり" if v else "☐ なし") if f["kind"] == "checkbox" else ("" if v in (None, "") else str(v))
             out.append(f"| {_md(f['id'])} | {_md(f['label'])} | {_md(k)} | {_md(vs)} |")
         out.append("")
-        if weak:
-            out += [weak_line(weak), ""]
     for st in doc["stories"]:
         out += [f"## {STORY_JA.get(st['kind'], st['kind'])}（{st['part']}）", ""]
         for line in st["reading"]:

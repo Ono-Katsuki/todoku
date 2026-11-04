@@ -58,12 +58,13 @@ def test_docx_first_empty_paragraph_in_cell_and_head_of_date_chain():
     by, md = _docx_win(body)
     first = [f for f in by.values() if f.get("agent") and "初めの空の段落" in (f.get("why") or "")]
     assert first, by
-    # 「年　　月　　日」で始まる段落の、初めの字の前（年を書く所）。2 字の「氏　　名」には出さない
-    heads = [f for f in by.values() if "初めの字の前" in (f.get("why") or "")]
-    assert len(heads) == 1 and heads[0]["label"].startswith("［"), heads
-    # 字間を空けた 4 字以上の並び：id にせず〔字間〕
-    assert "重　度　訪　問　介　護〔字間〕" in md
-    assert not any("重" in (f.get("label") or "") and f.get("agent") for f in by.values())
+    # 「年　　月　　日」の初めの字の前は、所にしない（後ろの所の数で決めていた決まりをやめた）
+    assert not any("初めの字の前" in (f.get("why") or "") for f in by.values())
+    # 字間を空けた並び（重　度　訪　問　介　護）の字の間も、隠さずに「？」の所にし、並びの字数を事実（facts の chain）で示す。
+    # 見出しか書く所かは、エージェントが判断する
+    spaced = [f for f in by.values() if f.get("agent") and "重" in (f.get("label") or "")]
+    assert spaced and all((f.get("facts") or {}).get("chain", {}).get("len") == 6 for f in spaced), spaced
+    assert "〔字間〕" not in md
 
 
 def test_xlsx_head_of_date_chain_and_spaced_heading():

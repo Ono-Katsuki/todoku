@@ -1164,6 +1164,30 @@ class InputPlan:
     table_changes: dict = field(default_factory=dict)  # テーブルの見出し・集計の行の見出しの書き換え（force のときだけ）
 
 
+class SpanValues(dict):
+    """1 つのセルの、所の id（「シート!B3@5」：span_id）で指した所ごとの値：所の始めの字の位置 → 値。"""
+
+
+def _group_span_ids(values: dict) -> dict:
+    """所の id（「シート!B3@5」。xlsx.window.span_id）で指した値を、セルごとに SpanValues にまとめる
+    （fill_blanks の {位置: 値} の形。ほかの値はそのまま）。同じセルをセルの id と所の id の両方で指したら断る。"""
+    from .window import parse_span_id
+
+    out: dict = {}
+    spans: dict[str, SpanValues] = {}
+    for k, v in values.items():
+        got = parse_span_id(k) if isinstance(k, str) and not k.startswith("@") and "!" in k else None
+        if got is None:
+            out[k] = v
+            continue
+        spans.setdefault(got[0], SpanValues())[got[1]] = v
+    for cell_id, sv in spans.items():
+        if cell_id in out:
+            raise EditError(f"{cell_id} を、セルの id と所の id（{cell_id}@…）の両方で指しています。どちらか一方で指定してください")
+        out[cell_id] = sv
+    return out
+
+
 def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bool = False,
                 force: bool = False) -> InputPlan:
     """values を、fill と同じ読み方でセルの値と部品の状態にする。入力規則とマクロはまだ見ない。
@@ -1176,6 +1200,8 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
     warnings: list[str] = []
     links = checkbox_links(wb)
     from . import controls as _ctl
+
+    values = _group_span_ids(values)
 
     others = _ctl.controls_linked_to(wb)
     writes: list[tuple[str, Control, dict]] = []  # チェックボックス以外の部品の状態
@@ -1290,16 +1316,21 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             continue
         if sh.protected and wb.style(sh.style_of(r, c)).locked and not linked and not force:
             raise EditError(f"{sheet}!{addr(r, c)} はシート保護でロックされたセルです（Excelでも書き込めません）")
-        if isinstance(v, (list, tuple)):
-            # 文字の中の空欄（「令和　　年　　月　　日」）に、順に値を入れる
+        if isinstance(v, (list, tuple, SpanValues)):
+            # 文字の中の空欄（「令和　　年　　月　　日」）に、順に値を入れる（SpanValues：所の id「シート!B3@5」で指した所だけ）
             from .window import blank_spans, fill_blanks
 
             if cell is None or not isinstance(cell.value, str):
                 raise EditError(f"{sheet}!{addr(r, c)} は文字の中に空欄のあるセルではありません")
             spans = blank_spans(wb, sheet, r, c)
-            vals = list(v)
             sp_ = spans if spans is not None else [(a_, b_) for a_, b_, _k in _cell_blanks(cell.value)]
-            if len(sp_) == len(vals):
+            if isinstance(v, SpanValues):
+                by_at = {a_: (a_, b_) for a_, b_ in sp_}
+                vals = {at: (box_glyph(cell.value[at], x) if isinstance(x, bool) and at in by_at and by_at[at][1] - at == 1
+                             and _is_box(cell.value[at]) else x) for at, x in v.items()}
+            else:
+                vals = list(v)
+            if not isinstance(vals, dict) and len(sp_) == len(vals):
                 # 箱の字の所に true/false：その箱の字を、チェックの印の字にする（「TRUE」の字は書かない）
                 vals = [box_glyph(cell.value[a_], x) if isinstance(x, bool) and b_ - a_ == 1 and _is_box(cell.value[a_])
                         else x for (a_, b_), x in zip(sp_, vals)]

@@ -192,3 +192,51 @@ def test_say_to_user_counts_unchosen_choices_and_question_places(tmp_path):
     assert "「？」の所" in r["say_to_user"]
     r = api.fill(str(src), {"P1.c2": "山田", "P2.c0": True}, str(tmp_path / "o2.docx"))
     assert r["unchosen_choice_groups"] == 1, r
+
+
+# ---------------------------------------------------------------------- 表計算：所の id・離れた字・段階の符号
+def _book(tmp_path, cells: dict) -> str:
+    openpyxl = pytest.importorskip("openpyxl")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "S"
+    for a, v in cells.items():
+        ws[a] = v
+    path = tmp_path / "a.xlsx"
+    wb.save(path)
+    return str(path)
+
+
+@pytest.mark.parametrize("text,vals,want", [("令和　　年　　月　　日", ["8", "4"], "令和8年4月"),
+                                            ("Date:　　/　　/　　", ["2026", "11"], "Date:2026/11/")])
+def test_sheet_span_ids_write_only_those_places(tmp_path, text, vals, want):
+    from todoku import api
+
+    src = _book(tmp_path, {"A1": "申請日", "B1": text})
+    spans = [s["id"] for f in api.fields(src) for s in f.get("spans", [])]
+    assert spans and all("@" in s for s in spans)
+    r = api.fill(src, dict(zip(spans, vals)), str(tmp_path / "o.xlsx"))
+    assert r["proof_ok"] and r["read_back_ok"], r
+    assert want in r["say_to_user"]
+
+
+def test_sheet_far_text_is_not_presented_as_the_label():
+    from todoku.api import far_label
+
+    near = {"left": {"text": "氏名", "label": "氏名", "cell": "A12", "cols": 3, "mm": 60}}
+    assert far_label({"id": "S!E12", "label": "氏名", "near": near}) == "E12（左に 3 列あけて『氏名』）"
+    near = {"left": {"text": "氏名", "label": "氏名", "cell": "A12", "cols": 0, "mm": 0}}
+    assert far_label({"id": "S!B12", "label": "氏名", "near": near}) is None  # すぐ隣のマスの字は、見出しのまま
+
+
+def test_grade_reads_reason_codes_not_reason_text():
+    from todoku.grade import sheet_input_reasons
+
+    def grade_of(f):
+        write: list = []
+        sheet_input_reasons({"sheets": [{"fields": [f]}]}, [], write)
+        return write[0].grade
+
+    # 理由の字が何であっても（ほかの言葉に直しても）、符号で決まる
+    assert grade_of({"id": "S!B1", "kind": "text", "reason": ["Data validation"], "reason_codes": ["validation"]}) == "A"
+    assert grade_of({"id": "S!B1", "kind": "text", "reason": ["入力規則があるセル"], "reason_codes": ["formula_ref"]}) == "B"

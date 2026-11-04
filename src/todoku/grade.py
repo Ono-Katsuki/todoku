@@ -967,17 +967,18 @@ def _unverifiable_rules(wb) -> list[str]:
 #   border（枠のある空欄）・fill（色の付いた空欄）：罫線・塗りと近くの見出しから推定したもの（印ではない）
 #   formula_ref（数式が参照している値）：数式の入力から推定したもの
 _SHEET_MARKS = {"validation", "unlocked"}
-_SHEET_BOXED = {"border", "fill"}
-# 符号を出さない窓（まだ理由の字だけの窓）のための、理由の字 → 符号の対応。窓が reason_codes を出すようになったら使わない
-_REASON_CODE_OF = {"入力規則があるセル": "validation", "シート保護の中で編集できるセル": "unlocked",
-                   "枠のある空欄": "border", "色の付いた空欄": "fill", "数式が参照している値": "formula_ref"}
+_SHEET_BOXED = {"border", "fill"}  # 以前の版の窓の鍵（いまの窓は、枠・塗りのある空欄を「？」の所 blank_box にする）
 
 
 def reason_codes(f: dict) -> set[str]:
-    """欄の理由の符号：窓が出した reason_codes。なければ、理由の字を 1 か所の対応（_REASON_CODE_OF）で符号にする。"""
+    """欄の理由の符号：窓が出した reason_codes（xlsx.window.REASON_CODES）。古い控えの窓で符号がなければ、窓と同じ対応で作る。"""
     if f.get("reason_codes") is not None:
         return set(f["reason_codes"])
-    return {_REASON_CODE_OF[r] for r in f.get("reason", []) if r in _REASON_CODE_OF}
+    from .xlsx.window import reason_codes as _codes
+
+    return set(_codes(f.get("reason", [])))
+
+
 _CONTROL_KINDS = ("checkbox", "radio", "select", "multiselect", "spin", "option", "combo")
 
 

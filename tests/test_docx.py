@@ -137,7 +137,8 @@ def test_only_structural_blanks_are_rules_and_word_patterns_are_agent():
     md = to_markdown(win)
     # 「？」の所の印は、元の空白をそのまま中に入れる（全角の空白 2 つの空き・半角の空白 2 つの下線）
     assert "令和［P1.c2？　　］年［P1.c3？　　］月［P1.c4？　　］日" in md and "氏名［P2.c2］" in md
-    assert "番号［P5.c2？  ］" in md and "連絡先［P4.c3？　　］" in md
+    # 空白の並びの始めの 1 字は、元の字のまま所の外に残す（gap_interior。前の字にくっつけない）
+    assert "番号 ［P5.c2？ ］" in md and "連絡先　［P4.c3？　］" in md
     # 「？」の所も id で書け、証明と読み戻しが通る
     blob = make_docx(body)
     vals = {"P1.c2": "8", "P1.c3": "4", "P1.c4": "1", "P2.c2": "山田", "P4.c3": "03", "P5.c2": "12"}
@@ -154,7 +155,8 @@ def test_checked_marks_are_checkbox_candidates():
     win = build(DocxDocument(blob, "m.docx"))
     by = {f["id"]: f for f in win["fields"]}
     assert by["P1.c0"]["kind"] == "checkbox" and by["P1.c0"].get("agent") and by["P1.c0"]["value"] is True
-    assert by["P1.c2"]["kind"] == "checkbox" and not by["P1.c2"].get("agent") and by["P1.c2"]["value"] is False
+    # □ も、ほかの箱の字と同じく「？」の候補（箱の字の使い方は字の形では決まらない：chars.py）。印のない箱なので値は False
+    assert by["P1.c2"]["kind"] == "checkbox" and by["P1.c2"].get("agent") and by["P1.c2"]["value"] is False
     assert by["P2.c0"].get("agent") and by["P3.c0"].get("agent") and "箇条の印" in by["P2.c0"]["why"]
     md = to_markdown(win)
     assert "☑［P1.c0？］ 新規" in md and "■［P2.c0？］ 申請者の情報" in md

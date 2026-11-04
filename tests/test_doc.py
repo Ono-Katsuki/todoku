@@ -47,7 +47,11 @@ def test_doc_header_field_and_bookmarks():
     assert any(n.startswith("_todoku_") for n, _a, _b in after.bookmarks)  # 本文の欄はしおりで囲む
     got = {f["id"]: f["value"] for f in build(after)["fields"]}
     assert got[body] == "とどく"
-    assert any(p.text.startswith("様式第１６号") and "8年" in p.text for _k, _p, bl in after.stories for p in bl if hasattr(p, "text"))
+    # 空白の並びの両端の 1 字は元のまま残る（gap_interior。前後の字にくっつけない）ので、「8」と「年」の間に空白が残る
+    import re
+
+    assert any(p.text.startswith("様式第１６号") and re.search("8[ 　]*年", p.text)
+               for _k, _p, bl in after.stories for p in bl if hasattr(p, "text"))
 
 
 @pytest.mark.corpus
