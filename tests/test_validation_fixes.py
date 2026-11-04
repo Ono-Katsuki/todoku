@@ -14,7 +14,7 @@ from __future__ import annotations
 import zlib
 
 from todoku.grade import grade_blob
-from todoku.pdf import layout as pdf_layout
+from todoku.pdf import pagetext as pdf_pagetext
 from todoku.pdf.audit import check_reading
 from todoku.pdf.doc import PdfDocument
 from todoku.pdf.window import build
@@ -60,7 +60,7 @@ def test_reading_audit_catches_glyphs_dropped_as_false_overprints(monkeypatch):
 
     # 検査の数え直しは窓と同じ決まり（layout.is_overprint：決まりを 2 か所に書かない）を使うので、決まりそのものの誤りは、
     # 数え直しでは見つからない（窓と食い違わない）。決まりとは別の量（字の箱の重なり）で、窓の読む段階の注意 C が見つける
-    monkeypatch.setattr(pdf_layout, "is_overprint", old_rule)
+    monkeypatch.setattr(pdf_pagetext, "is_overprint", old_rule)
     doc = PdfDocument(blob, "t.pdf")
     same = check_reading(doc, build(doc))[0]
     assert same.ok, same.items

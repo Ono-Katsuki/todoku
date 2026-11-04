@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .objects import Name, PdfString, Ref, Stream, decode_text
+from .objects import Name, PdfString, Ref, decode_text
 
 FF_READONLY = 1
 FF_REQUIRED = 2

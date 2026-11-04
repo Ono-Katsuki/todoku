@@ -17,7 +17,7 @@ from collections import Counter
 from .. import chars as _chars
 from ..docx.audit import _sample, macro_check
 from ..docx.fill import FillError
-from ..xlsx.audit import Audit, Check, agent_places_check
+from ..xlsx.audit import Audit, Check, agent_places_check, count_chars
 from ..zipraw import RawZip
 from .document import PptxDocument, PptxError
 from .fill import fill, prove, written_of
@@ -122,12 +122,7 @@ def _tree(root):
 
 
 def _count(texts) -> Counter:
-    c = Counter()
-    for t in texts:
-        for ch in t:
-            if not ch.isspace() and ch not in BOXES:
-                c[ch] += 1
-    return c
+    return count_chars(texts, BOXES)
 
 
 def check_reading(doc: PptxDocument, win: dict) -> list[Check]:

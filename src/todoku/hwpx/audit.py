@@ -13,14 +13,14 @@ from collections import Counter
 
 from ..docx.audit import _sample, already_written, anchored_check
 from ..docx.fill import FillError
-from ..xlsx.audit import Audit, Check, agent_places_check
+from ..xlsx.audit import AUDIT_BOXES, Audit, Check, agent_places_check, count_chars
 from .document import HwpxDocument
 from .fill import fill, written_of
 from .package import HNS
 from .proof import prove
 from .window import build, markdown_parts
 
-BOXES = set("□☐☑☒■")
+BOXES = AUDIT_BOXES
 
 
 def raw_chars(xml: bytes) -> Counter:
@@ -52,12 +52,7 @@ def raw_chars(xml: bytes) -> Counter:
 
 
 def _count(texts) -> Counter:
-    c = Counter()
-    for t in texts:
-        for ch in t:
-            if not ch.isspace() and ch not in BOXES:
-                c[ch] += 1
-    return c
+    return count_chars(texts, BOXES)
 
 
 def check_reading(doc: HwpxDocument, win: dict) -> list[Check]:

@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 
 from ..docx.document import iter_paras
-from ..docx.fill import FillError, _as_bool, _is_text_value
+from ..docx.fill import FillError, _as_bool, _is_text_value, written_of  # 証明に渡す、書いた所 → 値（Word と同じ）
 from ..docx.proof import _expected_text
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from ..docx.xmlpos import escape, parse
@@ -43,10 +43,6 @@ class FillResult:
     blob: bytes
     patches: list[Patch] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
-
-
-def written_of(patches) -> dict:
-    return {p.id: ({"@": p.anchor, "value": p.value} if p.anchor else p.value) for p in patches}
 
 
 def t_chars(xml: bytes, node) -> list[tuple[int, int]]:

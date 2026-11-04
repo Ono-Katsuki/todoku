@@ -49,13 +49,6 @@ class Hwp5Locked(Hwp5Error):
         self.title = title
 
 
-def is_hwp5(blob: bytes) -> bool:
-    try:
-        return CFB(blob).read("FileHeader")[:len(SIG)] == SIG
-    except Exception:  # noqa: BLE001
-        return False
-
-
 class Rec:
     __slots__ = ("tag", "level", "data", "kids")
 

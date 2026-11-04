@@ -510,7 +510,3 @@ def saslprep(s: str) -> str:
     if any(ral) and (any(stringprep.in_table_d2(ch) for ch in s) or not (ral[0] and ral[-1])):
         raise ValueError("SASLprep の双方向の字の決まりに合いません")
     return s
-
-
-def aes_cbc_encrypt_noiv(key: bytes, iv: bytes, data: bytes) -> bytes:
-    return aes_cbc_encrypt(key, data, iv)

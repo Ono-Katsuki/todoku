@@ -375,30 +375,6 @@ def width(text: str) -> float:
     return sum(choose(ch)[2] for ch in text) / 1000.0
 
 
-def undrawable(text: str) -> list[str]:
-    """描けない字の理由（重ねない）。"""
-    if shaped(text):
-        from .shape import line
-
-        try:
-            for ln in text.split("\n"):
-                line(ln)
-        except GlyphError as e:
-            return [str(e)]
-        return []
-    out = []
-    seen = set()
-    for ch in text:
-        if ch in seen or ch in "\n":
-            continue
-        seen.add(ch)
-        try:
-            choose(ch)
-        except GlyphError as e:
-            out.append(str(e))
-    return out
-
-
 # ====================================================================== 見た目を読み直す
 _STD_FAMILIES = ("Helvetica", "Arial", "Times", "Courier")
 WIN_TABLE = [None] * 256

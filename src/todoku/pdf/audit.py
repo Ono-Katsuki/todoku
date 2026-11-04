@@ -130,13 +130,13 @@ def _count(texts) -> Counter:
 
 def overprints(glyphs) -> Counter:
     """重ね書き（同じ字を同じ所に重ねて描いたもの）の、余分な字の数（字ごと）。
-    これは「窓と食い違わないか」の照らし合わせ（整合の検査）で、独立の検査ではない：決まりは窓と同じ layout.is_overprint
+    これは「窓と食い違わないか」の照らし合わせ（整合の検査）で、独立の検査ではない：決まりは窓と同じ pagetext.is_overprint
     （同じ字で、送りの向きにそった2つの字の送りの幅の重なりが、狭い方の幅の半分より多く、直角のずれが字の大きさの 1/4 より
     小さく、大きさがほぼ同じもの）をそのまま使い（決まりを 2 か所に書かない）、窓とは別の手順で数え直す：窓の位置の換算（view）を
     通さずにページの座標で、探す範囲の区切りを使わずにすべての字どうしを比べる。決まりそのものの正しさは、ここでは確かめない。
     決まりとは別の量（描いた字の箱の重なり）で見て、箱が重ならない字を1字にした所は、窓の読む段階の注意（「重ね書きとして1字に
     した字」C）で知らせる。"""
-    from .layout import glyph_frame, is_overprint
+    from .pagetext import glyph_frame, is_overprint
 
     out: Counter = Counter()
     kept: dict[str, list] = {}

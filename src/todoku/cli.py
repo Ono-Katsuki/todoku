@@ -48,10 +48,6 @@ def _kind(path: str) -> str:
     return kind_of(Path(path).read_bytes())
 
 
-def _is_pdf(path: str) -> bool:
-    return _kind(path) == "pdf"
-
-
 def _word_doc(blob: bytes, name: str):
     from .book import kind_of
 

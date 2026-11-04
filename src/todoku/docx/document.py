@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass, field
 
 from ..zipraw import RawZip
-from .xmlpos import STRICT, W, Node, parse
+from .xmlpos import Node, parse
 
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 PKG_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -1153,7 +1153,3 @@ def _join(base: str, target: str) -> str:
         elif x and x != ".":
             out.append(x)
     return "/".join(out)
-
-
-def strict_ns_used(xml: bytes) -> bool:
-    return any(ns.encode() in xml[:2000] for ns in STRICT)

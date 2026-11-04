@@ -31,14 +31,11 @@ from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 DET = "deterministic"
 LAYOUT = "layout"
 AGENT = "agent"  # 規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する）
-BOX = chars.EMPTY_BOXES  # 空のチェックの箱の字（規則のチェックボックス。chars.py：Ballot Box・白い四角など）
-# 箇条書きの印にもよく使う箱の字（chars.BULLET_LIKE_BOXES：影つきの白い四角 ❏❐❑❒・◻・◽）は、本文に並んでいても
-# チェックの箱とは決められない：規則の欄にせず「？」（理由 bullet_box）で示す
-BULLET_LIKE_BOXES = chars.BULLET_LIKE_BOXES
+BOX = chars.EMPTY_BOXES  # 印のない箱の字（chars.py）。どれも箇条・見出しの印のこともある字なので、規則の欄にせず「？」（理由 bullet_box）で示す
 # 印のついたチェックの印らしい字：☑・☒（Ballot Box）はチェック済みの箱、■ は箇条の印・飾りのこともあり、✓ は本文の印のこともある。
 # 規則では決めず、チェック済み（checked）のチェックボックスの候補として「？」をつけて示す（エージェントが判断する）
 CHECKED = chars.CHECKED_BOXES | chars.MAYBE_CHECKED
-UNCHECK = {"☑": "☐", "☒": "☐", "■": "□", "✓": "□", "✔": "□"}  # チェックを外すときに書く字（印のない同じ形の箱）
+UNCHECK = {"☑": "☐", "☒": "☐", "■": "□", "✓": "□", "✔": "□", "▣": "□"}  # チェックを外すときに書く字（印のない同じ形の箱）
 MARK_PREFIX = "_todoku_"
 BULLET_CHECKED = frozenset("■☑☒")
 
@@ -134,11 +131,6 @@ def para_spans(p: Para, text: str | None = None) -> list[tuple[int, int, str | N
             continue
         kept.append([a, b, why])
     return [(a, b, why) for a, b, why in kept]
-
-
-def para_blanks(p: Para) -> list[tuple[int, int]]:
-    """段落の中の空欄の位置（規則の欄も、字の並びから推定した所も）。"""
-    return [(a, b) for a, b, _w in para_spans(p)]
 
 
 def _field_mask(p: Para) -> bytearray:
@@ -279,7 +271,7 @@ class Spots:
                 spans = []  # (始め, 終わり, 種類, 理由の鍵（None は規則の欄）)
                 for i, ch in enumerate(text):
                     if ch in BOX and not (has_field and fmask[i]):
-                        spans.append((i, i + 1, "checkbox", "bullet_box" if ch in BULLET_LIKE_BOXES else None))
+                        spans.append((i, i + 1, "checkbox", "bullet_box"))
                     elif ch in CHECKED and not (has_field and fmask[i]):
                         spans.append((i, i + 1, "checkbox", "checked_mark"))  # チェック済みの欄かもしれない（■ は箇条の印のことも）
                 for a, b, why in para_spans(p, text):
@@ -1069,12 +1061,6 @@ def printed_label(sp: "Spots", it: dict) -> str:
         nb = cell_neighbours(cell.table, cell, sp.written_cells)
         return label_text(nb.get("row_label") or nb.get("column_label") or "")
     return ""
-
-
-def _context_label(it: dict, contexts: dict) -> str:
-    line = contexts.get(it["id"], "")
-    m = re.search(r"([^｜［］]{1,30})［" + re.escape(it["id"]), line)
-    return label_text(m[1]) if m else ""
 
 
 def _render_blocks(blocks, sp: Spots, by_para, lines: list[str], plain: list[str]) -> None:

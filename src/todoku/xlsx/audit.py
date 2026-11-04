@@ -10,15 +10,14 @@ from __future__ import annotations
 
 from ..book import open_book
 
-import datetime as dt
 import json
+from collections import Counter
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
-from ..formula.dates import date_to_serial
 from ..formula.parser import addr, parse_cell
-from ..formula.values import ExcelError, is_number, number_to_text, to_text
+from ..formula.values import ExcelError, is_number, to_text
 from ..zipraw import RawZip
 from . import window
 from .calc import Calc, _run_deep, values_equal
@@ -27,6 +26,18 @@ from .proof import prove
 from .workbook import Workbook
 
 REL = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+# 字の読み落としの検査で数えない箱の字（窓では☐☑に置き換えて出すので、元と窓で字が違う）：Word の仲間の検査で同じ字の集まり
+AUDIT_BOXES = frozenset("□☐☑☒■")
+
+
+def count_chars(texts, skip=AUDIT_BOXES) -> Counter:
+    """字の読み落としの検査：字ごとの数（空白と skip の字は数えない）。"""
+    c: Counter = Counter()
+    for t in texts:
+        for ch in t:
+            if not ch.isspace() and ch not in skip:
+                c[ch] += 1
+    return c
 
 
 @dataclass

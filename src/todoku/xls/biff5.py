@@ -17,7 +17,7 @@ import codecs
 import struct
 
 from ..formula.values import ExcelError
-from ..xlsx.workbook import Cell, DefinedName, Shape, Sheet, Style, _header_text
+from ..xlsx.workbook import DefinedName, Shape, Sheet, Style, _header_text
 
 FORMULA_NOTE = "未対応: Excel 5.0/95（BIFF5）の数式。Excel が保存した計算結果だけを読みました"
 

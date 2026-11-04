@@ -32,7 +32,7 @@ import struct
 
 from ..cfb import CFB, ENDOFCHAIN, FREESECT, NOSTREAM, name_key
 from ..docx.document import iter_paras
-from .book import SSMG, TEXT, JtdError, JtdFile, para_units, ssmg
+from .book import TEXT, JtdError, JtdFile, para_units, ssmg
 
 LAYOUT = ("LineMark", "PageMark", "PaperMark")
 

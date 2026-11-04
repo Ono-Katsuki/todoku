@@ -17,7 +17,7 @@ import re
 import struct
 from collections import Counter
 
-from ..xlsx.audit import Check
+from ..xlsx.audit import AUDIT_BOXES, Check
 from .chart import number_text
 
 
@@ -319,7 +319,7 @@ def _count(texts) -> Counter:
     c = Counter()
     for t in texts:
         for ch in unicodedata.normalize("NFD", t):  # 窓で1字にまとめた母音（ে + া → ো）も、元と同じに数える
-            if not ch.isspace() and ch not in "□☐☑☒■":
+            if not ch.isspace() and ch not in AUDIT_BOXES:
                 c[ch] += 1
     return c
 

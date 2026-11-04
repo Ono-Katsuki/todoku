@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass, field
 
 from .fonts import UNKNOWN, PdfFont, legacy_text, load_font
-from .objects import Lexer, Name, PdfString, Ref, Stream, parse_object
+from .objects import Lexer, Name, PdfString, Stream
 
 IDENT = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 

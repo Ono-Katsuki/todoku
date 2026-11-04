@@ -74,10 +74,6 @@ class _Text(HTMLParser):
             self.handle_data(data[6:])
 
 
-def is_markup_name(name: str) -> bool:
-    return name.lower().endswith(EXTENSIONS)
-
-
 def build(blob: bytes, name: str, encoding: str | None = None) -> dict:
     """窓の JSON：{kind, format, lines, fields（いつも空：書く所は示さない）, note}。"""
     from .datafile.textenc import decode

@@ -590,10 +590,6 @@ def _raise(msg: str):
     raise Unsupported(msg)
 
 
-def number_display(x: float) -> str:
-    return number_to_text(x)
-
-
 def _literal_free(sec: str) -> str:
     """区画の、引用符の中と \ の次の字を除いた部分（@ が書式の記号として使われているかを見る）。"""
     out, i = [], 0

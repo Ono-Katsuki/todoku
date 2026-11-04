@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ..docx.fill import FillError, _as_bool, _is_text_value, inline_padding
+from ..docx.fill import FillError, _as_bool, _is_text_value, inline_padding, written_of  # 証明に渡す、書いた所 → 値（Word と同じ）
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from ..odf.xml import El, esc_attr, esc_text, set_attr
 from .document import END_PREFIX, MARK_PREFIX, HwpxDocument
@@ -39,10 +39,6 @@ class FillResult:
     blob: bytes
     patches: list[Patch] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
-
-
-def written_of(patches) -> dict:
-    return {p.id: ({"@": p.anchor, "value": p.value} if p.anchor else p.value) for p in patches}
 
 
 def _prefix(el: El) -> str:

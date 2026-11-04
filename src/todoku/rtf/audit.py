@@ -13,12 +13,12 @@ from collections import Counter
 
 from ..docx.audit import _sample, anchored_check, macro_check
 from ..docx.fill import FillError
-from ..xlsx.audit import Audit, Check, agent_places_check
+from ..xlsx.audit import AUDIT_BOXES, Audit, Check, agent_places_check, count_chars
 from .document import CHARSET_CP, SKIP, RtfDocument
 from .fill import fill, prove, written_of
 from .window import build, markdown_parts
 
-BOXES = set("□☐☑☒■")
+BOXES = AUDIT_BOXES
 _TOK = re.compile(rb"\\([a-zA-Z]{1,32})(-?\d{1,10})? ?|\\'([0-9a-fA-F]{2})|\\(.)|([{}])|([\r\n]+)|([^\\{}\r\n]+)", re.S)
 _CHARS = {"emdash": "—", "endash": "–", "bullet": "•", "lquote": "‘", "rquote": "’", "ldblquote": "“", "rdblquote": "”"}
 # 窓の段落の字に入れない宛先：書式・情報など（SKIP）に、フィールドの命令・段落番号・しおり・フォームの欄の定義を足す
@@ -162,12 +162,7 @@ def independent_text(blob: bytes) -> Counter:
 
 
 def _count(texts) -> Counter:
-    c = Counter()
-    for t in texts:
-        for ch in t:
-            if not ch.isspace() and ch not in BOXES:
-                c[ch] += 1
-    return c
+    return count_chars(texts, BOXES)
 
 
 def check_reading(doc: RtfDocument, win: dict) -> list[Check]:

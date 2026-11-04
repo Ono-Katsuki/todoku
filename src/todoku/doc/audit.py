@@ -20,11 +20,11 @@ from dataclasses import dataclass, field
 from ..cfb import CFB
 from ..docx.document import WINGDINGS, iter_paras
 from ..docx.window import Spots, box_mark, build, markdown_parts
-from ..xlsx.audit import Audit, Check
+from ..xlsx.audit import AUDIT_BOXES, Audit, Check, count_chars
 from .book import DocFile
 from .fill import SHIFT, FillError, fill
 
-BOXES = set("□☐☑☒■")
+BOXES = AUDIT_BOXES
 
 
 def raw_chars(doc: DocFile) -> list[str]:
@@ -59,12 +59,7 @@ def raw_chars(doc: DocFile) -> list[str]:
 
 
 def _count(texts) -> Counter:
-    c = Counter()
-    for t in texts:
-        for ch in t:
-            if not ch.isspace() and ch not in BOXES:
-                c[ch] += 1
-    return c
+    return count_chars(texts, BOXES)
 
 
 @dataclass

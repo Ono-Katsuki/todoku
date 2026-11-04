@@ -12,7 +12,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
-from .document import Para, Table, iter_paras
+from .document import Para, iter_paras
 from .window import Spots
 
 

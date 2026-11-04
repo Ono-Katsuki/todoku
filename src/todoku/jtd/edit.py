@@ -65,7 +65,7 @@ from dataclasses import dataclass, field
 
 from ..cfb import CFB, CfbEditor
 from ..docx.fill import FillError
-from .book import QLST, SSMG, TEXT, JtdError, JtdFile, Piece, TextStory, parse_runs, qlst_entries, ssmg, tokens
+from .book import QLST, SSMG, TEXT, JtdError, JtdFile, Piece, TextStory, parse_runs, ssmg, tokens
 
 LAYOUT = ("LineMark", "PageMark", "PaperMark")
 UPDATED = {
@@ -810,11 +810,6 @@ def ssmg_update(stream: bytes, changes: dict[int, bytes], added: list[tuple[int,
         else:
             directory += raw
     return bytes(head) + bytes(area) + directory + tail, {"added_blocks": new_blocks}
-
-
-def ssmg_rewrite(stream: bytes, sid: int, data: bytes) -> tuple[bytes, dict]:
-    """番号 sid のセグメントだけを data に替える（ssmg_update の 1 つだけの形）。"""
-    return ssmg_update(stream, {sid: data})
 
 
 # ====================================================================== 本文の字の並び：片ごとに書き、大きければ分ける

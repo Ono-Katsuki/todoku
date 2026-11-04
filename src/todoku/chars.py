@@ -397,8 +397,3 @@ def script_of(ch: str) -> str:
     if i >= 0 and _SCRIPTS[i][0] <= c <= _SCRIPTS[i][1]:
         return SCRIPT_NAMES[_SCRIPTS[i][2]]
     return "Unknown"
-
-
-def is_neutral_script(ch: str) -> bool:
-    """どの文字の種類にも決まらない字か（Common・Inherited・Unknown）。"""
-    return script_of(ch) in NEUTRAL_SCRIPTS

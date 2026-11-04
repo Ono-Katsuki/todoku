@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import re
 import struct
-import zlib
 
 # パスワードの例外（NeedsPassword・WrongPassword）は、ここからも使えるようにする
 from .crypto import Decryptor, NeedsPassword, WrongPassword  # noqa: F401

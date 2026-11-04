@@ -36,6 +36,7 @@ from ..cfb import CFB
 from ..docx.document import Seg, iter_paras
 from ..docx.fill import FillError, Patch, _as_bool, _is_text_value
 from .book import FC_NAMES, CPRef, DocError, DocFile, Piece, Run
+from ..xlsx.audit import AUDIT_BOXES  # 検査で数えない箱の字（Word の仲間と同じ）
 
 WORD6_NFIB = range(101, 105)
 
@@ -117,10 +118,6 @@ def sprms6(grpprl: bytes, where: str = "", pad_ok: bool = False):
             raise DocError(f"{where}書式の命令（sprm {op}）の長さが、書式の大きさと合いません")
         yield op, grpprl[at:at + size]
         i = at + size
-
-
-class W6Ref(CPRef):
-    pass
 
 
 class Word6File(DocFile):
@@ -823,7 +820,7 @@ def raw_chars(doc: Word6File) -> Counter:
         if o == 0x15 and depth:
             depth.pop()
             continue
-        if (depth and depth[-1] == "instr") or o < 0x20 or ch.isspace() or ch in "□☐☑☒■":
+        if (depth and depth[-1] == "instr") or o < 0x20 or ch.isspace() or ch in AUDIT_BOXES:
             continue
         pr = doc.char_props(cp)
         if o == 0x28 and pr["symbol"] and pr["spec"]:
@@ -849,7 +846,7 @@ def run(blob: bytes, filename: str = ""):
     for st in win["stories"]:
         for t in st["_plain"]:
             for ch in t:
-                if not ch.isspace() and ch not in "□☐☑☒■":
+                if not ch.isspace() and ch not in AUDIT_BOXES:
                     shown[ch] += 1
     missing = [f"「{ch}」が {n} 字、窓に出ていません" for ch, n in (raw - shown).items()]
     extra = [f"「{ch}」が {n} 字、元にないのに窓に出ています" for ch, n in (shown - raw).items()]

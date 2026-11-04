@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 
 from .doc import PdfDocument
-from .objects import Lexer, Name, PdfString, Ref, Stream
+from .objects import Name, PdfString, Ref, Stream
 
 
 @dataclass

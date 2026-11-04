@@ -59,13 +59,12 @@ def test_gap_interior_keeps_one_space_on_each_printed_side_or_takes_the_whole_ga
 
 
 def test_old_hiding_rules_are_gone_but_chain_is_a_fact():
-    # 1 字ずつ同じ空白でつないだ並び：字数で隠さない（heading_gap はいつも None）。並びの字数は facts の chain
+    # 1 字ずつ同じ空白でつないだ並び：字数で隠さない（隠す決まり heading_gap・chain_head・weak_space は消した）。並びの字数は facts の chain
     t = "就　労　定　着　支　援"
-    assert window.heading_gap(t, 1, 2) is None and window.chain_head("年　　月　　日") is None
+    assert not hasattr(window, "heading_gap") and not hasattr(window, "chain_head") and not hasattr(window, "weak_space")
     places = window.blank_places(t)
     assert len(places) == 5 and {k for _a, _b, k in places} == {"spaced"}
     assert places[0].facts["chain"] == {"len": 6, "text": t}
-    assert not window.weak_space("年　月", 1, 2)
 
 
 def test_placeholder_runs_are_separate_places():

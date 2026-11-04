@@ -414,10 +414,6 @@ def _formula_refs(wb):
     return res
 
 
-def coerce_input(wb: Workbook, sheet: str, r: int, c: int, value):
-    return interpret_input(wb, sheet, r, c, value)[0]
-
-
 @dataclass
 class Issue:
     cell: str
@@ -603,11 +599,6 @@ def _issues_for(wb: Workbook, sheet: str, r: int, c: int, value, calc: Calc, rul
             elif ok is None:
                 out.append(Issue(where, f"{where}: 入力規則（={v.formula1}）を確かめられませんでした", False))
     return out
-
-
-def check_validation(wb: Workbook, sheet: str, r: int, c: int, value) -> list[str]:
-    """入力規則に照らして、問題があれば説明を返す（ほかの欄への書き込みは考えない簡易版）。"""
-    return [i.message for i in rule_issues(wb, sheet, r, c, value)]
 
 
 def _eq(a, b) -> bool:

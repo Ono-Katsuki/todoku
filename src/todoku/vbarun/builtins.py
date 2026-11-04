@@ -11,9 +11,7 @@ import math
 import unicodedata
 
 from . import parse as P
-from .interp import (EMPTY, MISSING, NOTHING, NULL, Collection, Dictionary, NeedsInput, Unsupported, VArray, VbaError,
-                     VDate, bankers, compare, format_date_default, is_numeric_str, num_result, parse_date_text, serial_from,
-                     to_bool, to_datetime, to_double, to_long, to_str)
+from .interp import EMPTY, MISSING, NOTHING, NULL, Collection, Dictionary, NeedsInput, Unsupported, VArray, VbaError, VDate, compare, is_numeric_str, num_result, parse_date_text, serial_from, to_bool, to_datetime, to_double, to_long, to_str
 
 CONSTANTS = {
     "vbcrlf": "\r\n", "vbnewline": "\r\n", "vbcr": "\r", "vblf": "\n", "vbtab": "\t", "vbnullstring": "", "vbnullchar": "\0",

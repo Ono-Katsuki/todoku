@@ -13,27 +13,7 @@ from typing import Callable
 
 from .dates import date_to_serial, serial_parts, serial_to_date, weekday_sun0
 from .parser import Func, Missing, Node, iter_funcs
-from .values import (
-    DIV0,
-    NA,
-    NUM,
-    REF,
-    VALUE,
-    Arr,
-    ExcelError,
-    Rng,
-    Unsupported,
-    Volatile,
-    compare,
-    dec15,
-    err,
-    is_number,
-    parse_number,
-    round_half_up,
-    to_bool,
-    to_number,
-    to_text,
-)
+from .values import DIV0, NA, NUM, REF, VALUE, Arr, ExcelError, Rng, Unsupported, compare, dec15, err, is_number, parse_number, round_half_up, to_bool, to_number, to_text
 
 EAGER: dict[str, Callable] = {}
 LAZY: dict[str, Callable] = {}

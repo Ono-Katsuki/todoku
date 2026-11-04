@@ -10,7 +10,7 @@ from collections import Counter
 from functools import cmp_to_key
 
 from .functions import EAGER, LAZY, S, _same_kind, _wild, fn, num
-from .values import NA, VALUE, Arr, ExcelError, Rng, compare, err, is_number, round_half_up, to_15, to_bool, to_number, to_text
+from .values import NA, VALUE, Arr, ExcelError, Rng, compare, err, is_number, round_half_up, to_15, to_bool, to_number
 
 CALC = "#CALC!"  # 空の配列（FILTER で何も残らないなど）
 

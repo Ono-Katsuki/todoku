@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 from .content import page_content
 from .doc import PdfDocument
-from .layout import Ch, PageLayout, view_chars
+from .layout import Ch, PageLayout
 
 MARKS = set("✓✔☑☒■●○〇◯レ×✕✗✘◉")
 

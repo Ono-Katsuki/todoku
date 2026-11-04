@@ -307,10 +307,6 @@ def _segments(data: bytes, start: int) -> list[bytes]:
         return segs
 
 
-def _extend(v: int, t: int) -> int:
-    return v - (1 << t) + 1 if t and v < (1 << (t - 1)) else v
-
-
 def jpeg_gray(data: bytes, max_pixels: int = 4_000_000, want_rgb: bool = False):
     """JPEG の輝度（1成分のときはその成分）を濃さにする。大きな画像は 1/2・1/4・1/8 に縮めて開く。
     want_rgb：色のまま開く（RGB を返す。YCbCr・RGB・CMYK・YCCK を T.81・Adobe の印どおりに RGB にする）。"""

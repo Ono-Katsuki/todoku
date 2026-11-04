@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import posixpath
 import re
-import struct
 from dataclasses import dataclass, field
 
 from . import activex as ax
@@ -913,14 +912,6 @@ def rels_added_only(old: bytes, new: bytes, added) -> list[str]:
     names = {posixpath.basename(n) for n in added}
     return [f"関係の部品（.rels）に、分けた絵でない {t.decode()} への関係が足されました"
             for t in extra if posixpath.basename(t.decode()) not in names]
-
-
-def _owner_parts(ref: AxRef) -> set[str]:
-    """控えの絵を指している XML の部品と、その関係の部品（絵を分けたときに変わってよいもの）。"""
-    out = set()
-    for _k, owner, _key, _pic in ref.pic_refs:
-        out |= {owner, _rels_path(owner)}
-    return out
 
 
 def prove_excel(a, b, changed_entries: list[str], allowed_controls, added: list[str] = ()) -> tuple[list[dict], list[str], set[str]]:

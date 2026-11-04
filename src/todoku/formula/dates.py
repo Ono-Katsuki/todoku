@@ -80,11 +80,6 @@ def serial_parts(n: float, date1904: bool | None = None) -> tuple[int, int, int]
     return d.year, d.month, d.day
 
 
-def to_1900(n: float, date1904: bool | None = None) -> float:
-    """そのブックのシリアル値を、1900 年の数え方のシリアル値にする（曜日・暦の計算を1つの数え方でするため）。"""
-    return n + OFFSET_1904 if _flag(date1904) else n
-
-
 def weekday_sun0(n: float, date1904: bool | None = None) -> int:
     """曜日（日曜 = 0）。1900 年の数え方では、実在しない 1900/2/29 も1日として通しで数える（Excel と同じ）。"""
     if _flag(date1904):

@@ -7,7 +7,7 @@ import threading
 from dataclasses import dataclass, field
 
 from ..formula.evaluator import Evaluator
-from ..formula.parser import Node, addr, iter_funcs, iter_refs, parse
+from ..formula.parser import Node, addr, iter_funcs, iter_refs
 from ..formula.values import Arr, ExcelError, Rng, Unsupported, is_number, to_15
 from .workbook import Cell, Workbook
 

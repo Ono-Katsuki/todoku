@@ -11,13 +11,12 @@ text:line-break は字のまま）で作り、1字ごとに、どの要素のど
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 
 from ..docx.document import Cell, Control, Para, Seg, Table, iter_paras, number_text
-from .package import FLAT, OdfError, OdfPackage, text_of
+from .package import OdfError, OdfPackage, text_of
 from .styles import Styles
-from .xml import NS, El, Txt, q, top
+from .xml import NS, El, Txt
 
 MARK_PREFIX = "_todoku_"  # 書き込んだ所のしおり（名前は「_todoku_」＋欄の id そのもの）
 

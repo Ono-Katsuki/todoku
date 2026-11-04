@@ -16,7 +16,7 @@ import datetime as dt
 import re
 from dataclasses import dataclass, field
 
-from .document import WINGDINGS, DocxDocument, Para, iter_paras
+from .document import WINGDINGS, DocxDocument, Para
 from .window import CHECKED, MARK_PREFIX, Spots, box_mark
 from .xmlpos import Node, escape, prefix_of
 
@@ -114,7 +114,7 @@ def written_of(patches) -> dict:
     def one(p):
         if p.anchor:
             return {"@": p.anchor, "value": p.value}
-        if p.align:
+        if getattr(p, "align", None):  # ほかの形式の Patch には、そろえ方の指定がない
             return {"value": p.value, **{k: v for k, v in p.align.items() if k != "pad"}}
         return p.value
     return {p.id: one(p) for p in patches}

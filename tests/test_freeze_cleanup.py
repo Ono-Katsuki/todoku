@@ -299,3 +299,12 @@ def test_read_table_limit_returns_first_rows_and_counts(tmp_path):
     assert res["rows"] == 11 and res["rows_returned"] == 4 and len(res["all_rows"]) == 4 and "limit" in res["note"]
     res = mcp_server.call_tool("read_table", {"path": src, "header": "番号"})["structuredContent"]
     assert len(res["all_rows"]) == 11 and "rows_returned" not in res
+
+
+def test_box_mark_unchecks_every_checked_glyph():
+    # 不具合：▣（MAYBE_CHECKED）を外すときの字がなく、KeyError になっていた
+    from todoku import chars
+    from todoku.docx.window import box_mark
+
+    for ch in chars.CHECKED_BOXES | chars.MAYBE_CHECKED:
+        assert box_mark(ch, False) in chars.EMPTY_BOXES and box_mark(ch, True) == ch

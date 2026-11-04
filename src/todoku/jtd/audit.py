@@ -23,12 +23,12 @@ from dataclasses import dataclass, field
 from ..cfb import CFB
 from ..docx.document import iter_paras
 from ..docx.fill import FillError, written_of
-from ..xlsx.audit import Audit, Check
+from ..xlsx.audit import AUDIT_BOXES, Audit, Check, count_chars
 from .book import SSMG, JtdError, JtdFile, para_units, ssmg, text_units
 from .fill import fill, plan
 from .window import build, markdown_parts
 
-BOXES = set("□☐☑☒■")
+BOXES = AUDIT_BOXES
 # 意味を確かめたストリーム（名前 → 中身）。字を持つのは「文字」のものだけで、窓に出す
 KNOWN = {
     "DocumentText": "本文の文字", "LayoutBoxText": "レイアウト枠の文字", "Header": "柱（ヘッダー・フッター）の文字",
@@ -92,12 +92,7 @@ def raw_chars(doc: JtdFile) -> Counter:
 
 
 def _count(texts) -> Counter:
-    c: Counter = Counter()
-    for t in texts:
-        for ch in t:
-            if not ch.isspace() and ch not in BOXES:
-                c[ch] += 1
-    return c
+    return count_chars(texts, BOXES)
 
 
 def inventory(doc: JtdFile) -> tuple[list[str], list[str]]:

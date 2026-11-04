@@ -13,14 +13,14 @@ from collections import Counter
 
 from ..docx.audit import _sample, anchored_check, macro_check
 from ..docx.fill import FillError
-from ..xlsx.audit import Audit, Check, agent_places_check
+from ..xlsx.audit import AUDIT_BOXES, Audit, Check, agent_places_check, count_chars
 from .text import OdtDocument
 from .textfill import fill, written_of
 from .textproof import prove
 from .textwindow import build, markdown_parts
 from .xml import NS
 
-BOXES = set("□☐☑☒■")
+BOXES = AUDIT_BOXES
 _SKIP = {NS["text"] + "}" + x for x in ("tracked-changes", "note-citation", "variable-decls", "sequence-decls", "user-field-decls",
                                         "dde-connection-decls", "table-of-content-source", "illustration-index-source",
                                         "table-index-source", "object-index-source", "user-index-source",
@@ -61,12 +61,7 @@ def raw_chars(xml: bytes, area: str) -> Counter:
 
 
 def _count(texts) -> Counter:
-    c = Counter()
-    for t in texts:
-        for ch in t:
-            if not ch.isspace() and ch not in BOXES:
-                c[ch] += 1
-    return c
+    return count_chars(texts, BOXES)
 
 
 def check_reading(doc: OdtDocument, win: dict) -> list[Check]:

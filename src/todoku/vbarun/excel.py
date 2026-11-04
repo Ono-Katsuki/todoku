@@ -10,8 +10,7 @@ from __future__ import annotations
 import datetime as dt
 
 from ..formula.parser import addr, col_to_num, num_to_col
-from .interp import (EMPTY, MISSING, NOTHING, NeedsInput, Unsupported, VArray, VbaError, VDate, to_bool, to_double, to_long,
-                     to_str)
+from .interp import EMPTY, MISSING, NOTHING, NeedsInput, Unsupported, VArray, VbaError, VDate, to_bool, to_long, to_str
 
 MAX_ROW, MAX_COL = 1_048_576, 16_384
 XL_UP, XL_DOWN, XL_LEFT, XL_RIGHT = -4162, -4121, -4159, 4161

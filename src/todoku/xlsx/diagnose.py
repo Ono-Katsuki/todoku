@@ -11,7 +11,6 @@ import unicodedata
 from dataclasses import asdict, dataclass, field
 
 from ..formula.parser import addr
-from ..formula.values import is_number
 from .calc import VerifyReport, used_functions, verify
 from .window import input_cells
 from .workbook import Workbook

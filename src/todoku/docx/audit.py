@@ -13,13 +13,13 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from ..xlsx.audit import Audit, Check
+from ..xlsx.audit import AUDIT_BOXES, Audit, Check, count_chars
 from .document import WINGDINGS, DocxDocument
 from .fill import FillError, fill
 from .proof import prove
 from .window import build, markdown_parts
 
-BOXES = set("□☐☑☒■")
+BOXES = AUDIT_BOXES
 
 
 def raw_texts(doc: DocxDocument) -> list[str]:
@@ -46,12 +46,7 @@ def raw_texts(doc: DocxDocument) -> list[str]:
 
 
 def _count(texts) -> Counter:
-    c = Counter()
-    for t in texts:
-        for ch in t:
-            if not ch.isspace() and ch not in BOXES:
-                c[ch] += 1
-    return c
+    return count_chars(texts, BOXES)
 
 
 def check_reading(doc: DocxDocument, win: dict) -> list[Check]:
