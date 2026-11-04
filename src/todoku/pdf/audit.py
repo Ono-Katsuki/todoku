@@ -271,9 +271,13 @@ def _sample(f: dict):
     from .fill import spot_fits
 
     if f.get("source") == "layout":
+        cur = f.get("value")
+        if f.get("filled") and isinstance(cur, str) and cur.strip():
+            # 書いた後の書類の所：もう欄があるので、書き直しはその欄の決まり（1 行）で。その値を書き直す（入ることが分かっている値）
+            return cur
         # 配置から見つけた欄：書き込み（add_widget）と同じ決め方で入る値
         for cand in (("12", "1") if k == "inline" else ("テスト", "12", "1")):
-            if spot_fits(cand, rect, f.get("size"), k):
+            if spot_fits(cand, rect, f.get("size"), k, f):
                 return cand
         return "1"
     cur = f.get("value")

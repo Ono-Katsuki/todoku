@@ -12,7 +12,7 @@ import re
 import unicodedata
 
 from .content import page_content
-from .layout import PageLayout
+from .layout import line_band, PageLayout
 
 
 class AnchorError(ValueError):
@@ -251,9 +251,14 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
     if inside:
         side = {"right": "右", "before": "左", "below": "下"}[where]
         raise AnchorError(f"「{after}」の{side}の所に、ほかの字（「{''.join(c.text for c in inside[:6])}」）があります")
-    return _place(n, rect, used, taken_names, {"id": None, "page": n, "kind": "inline" if where == "cover" else "text",
-                                              "size": None, "anchored": dict(spec), **({"note": note} if note else {})}, where, after, sz,
-                  unit=lay.view.unit)
+    out = {"id": None, "page": n, "kind": "inline" if where == "cover" else "text", "size": None, "anchored": dict(spec),
+           **({"note": note} if note else {})}
+    if where in ("right", "before", "cover"):
+        # 見出しの横に書く字は、見出しの行の基線に（行の所と同じ決まり）。行の帯の外の枠（すぐ右のマスの狭い帯など）は、枠の中ほどのまま
+        base = line_band(ln)[2]
+        if base is not None and rect[1] + 0.5 * sz < base <= rect[3]:
+            out["baseline"] = base
+    return _place(n, rect, used, taken_names, out, where, after, sz, unit=lay.view.unit)
 
 
 def _place(n, rect, used, taken_names, out, where, after, sz, prefix: str = "w", label: str | None = None,
