@@ -117,7 +117,7 @@ def test_word_circle_occurrence_counts_within_near_and_skips_the_heading(tmp_pat
 def test_word_circle_in_hanging_indent_is_marked_uncertain(tmp_path):
     p = tmp_path / "a.docx"
     p.write_bytes(_docx('<w:p><w:pPr><w:ind w:left="722" w:hanging="722"/></w:pPr><w:r><w:t>１　有・無</w:t></w:r></w:p>'))
-    r = api.fill(str(p), {"@c1": {"circle": "無"}}, str(tmp_path / "o.docx"))
+    r = api.fill(str(p), {"@c1": {"circle": "無", "style": "ellipse"}}, str(tmp_path / "o.docx"))
     assert "ぶら下げ" in r["circled"][0]["uncertain"] and "border" in r["circled"][0]["uncertain"]
 
 

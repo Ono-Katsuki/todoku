@@ -1084,7 +1084,7 @@ def anchor_text(wb: Workbook, key: str, spec, *, force: bool = False, allow_form
     1つ目を書き換えた後の字の上で探す（2つの書き換えが両方残る）。"""
     pending = pending or {}
     if not isinstance(spec, dict) or not isinstance(spec.get("old"), str) or not isinstance(spec.get("new"), str):
-        raise EditError(f"{key}: Excel で字を目印にして書くときは {{\"old\": 元の字, \"new\": 書き換えた後の字}} の形で指定してください"
+        raise EditError(f"{key}: Excel で字を目印にして書くときは {{\"old\": 元の字, \"new\": 書き換えた後の字}} か {{\"before\" か \"after\": 字, \"value\": 書く字}} の形で指定してください"
                         "（同じ字がいくつもあれば \"cell\": \"シート!B3\" か \"occurrence\": 何番目か）")
     extra = set(spec) - {"old", "new", "cell", "sheet", "occurrence"}
     if extra:

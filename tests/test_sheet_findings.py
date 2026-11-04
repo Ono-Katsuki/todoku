@@ -85,7 +85,7 @@ def test_date_system_write_and_readback(tmp_path, date1904, serial):
     wb, v = _cell(tmp_path / "b.xlsx", "申請", "B12")
     assert wb.date1904 is date1904 and v == serial  # 1904 年の数え方では 1462 日小さい
     assert r["proof_ok"] and r["read_back_ok"], r
-    assert "受付日：2026/11/3" in r["say_to_user"], r["say_to_user"]
+    assert "B12（近くの字「受付日」）：2026/11/3" in r["say_to_user"], r["say_to_user"]
 
 
 def test_date_system_in_formulas_and_display(tmp_path):
@@ -111,7 +111,7 @@ def test_date_system_xls_datemode(tmp_path):
     r = api.fill(str(src), {"申請!B12": "2026/11/3"}, str(tmp_path / "b.xls"))
     wb, v = _cell(tmp_path / "b.xls", "申請", "B12")
     assert wb.date1904 and v == 44867.0
-    assert r["proof_ok"] and r["read_back_ok"] and "受付日：2026/11/3" in r["say_to_user"], r
+    assert r["proof_ok"] and r["read_back_ok"] and "B12（近くの字「受付日」）：2026/11/3" in r["say_to_user"], r
 
 
 # ====================================================================== 2. ロケール・暦・数字
@@ -241,7 +241,7 @@ def test_say_to_user_shows_cell_format_and_recalculated(tmp_path):
     r = api.fill(str(src), {"申請!B4": "３", "申請!B6": 2500}, str(tmp_path / "b.xlsx"))
     say = r["say_to_user"]
     assert r["read_back_ok"], r["read_back_differences"]
-    assert "人数：3\n" in say and "単価：2500" in say and "3.0" not in say
+    assert "B4（近くの字「人数」）：3\n" in say and "B6（近くの字「単価」）：2500" in say and "3.0" not in say
     assert "再計算で変わった所" in say and "金額（申請!B8）" in say and "→ 5000" in say, say
     assert any(x["id"] == "申請!B8" and x["after"] == "5000" for x in r["recalculated_cells"])
 
@@ -263,7 +263,7 @@ def test_ods_whole_number_rule_and_no_bogus_chart(tmp_path):
         with pytest.raises(api.ApiError):
             api.fill(str(src), {"申請!B1": bad}, str(tmp_path / "b.ods"))
     r = api.fill(str(src), {"申請!B1": 5}, str(tmp_path / "b.ods"))
-    assert r["proof_ok"] and r["read_back_ok"] and "人数：5\n" in r["say_to_user"] + "\n", r["say_to_user"]
+    assert r["proof_ok"] and r["read_back_ok"] and "B1（近くの字「人数」）：5\n" in r["say_to_user"] + "\n", r["say_to_user"]
     _k, doc, parts = api.window(str(src))
     md = "\n".join(t for _n, t in parts)
     assert "整数 1〜10" in md and "None" not in md

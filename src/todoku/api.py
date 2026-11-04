@@ -92,6 +92,7 @@ def _budgeted(fn):
 
         from .cfb import CfbError
         from .limits import call_budget
+        from .xls.book import XlsError
 
         try:
             with call_budget():
@@ -99,6 +100,8 @@ def _budgeted(fn):
         except (struct.error, CfbError) as e:
             # 記録の長さ・位置の合わない、壊れたファイル：読み方の内部のエラー（struct.error）をそのまま見せない
             raise ApiError(broken_message(a[0] if a else k.get("path"), e)) from None
+        except XlsError as e:
+            raise ApiError(str(e)) from None  # 読めないブック：本人に分かる言葉（例外の種類の名前は見せない）
 
     return run
 
@@ -375,7 +378,7 @@ def _field(f: dict, **where) -> dict:
                 "hidden", "hidden_why", "not_printed", "not_printed_why", "legacy_id", "why_code", "reason_codes",
                 "row_label", "column_label", "column_label_partial", "label_clipped", "neighbours", "facts", "near",
                 "label_method", "section", "input_reason_codes", "spans", "blanks", "shape", "size", "size_from", "cell_ids",
-                "label_key", "referenced_by"):
+                "label_key", "referenced_by", "tooltip"):
         if f.get(key) not in (None, "", [], False):
             d[key] = f[key]
     if f.get("agent") and isinstance(f.get("evidence"), dict) and f["evidence"]:
@@ -385,6 +388,61 @@ def _field(f: dict, **where) -> dict:
             d[key] = f[key]
     d.update({k: v for k, v in where.items() if v is not None})
     return d
+
+
+def _insert_spec(key: str, v: dict, k: str) -> dict:
+    """字の前・後ろに差し込む指定 {"before" か "after": 字, "value": 書く字, "occurrence"…} を、その形式の書き方に直す。
+    PDF は見出しの左・右の空き（after と where）。ほかの形式は、字はそのままで前か後ろに足すだけの old/new（証明も同じ決まりで確かめる）。"""
+    if "before" in v and "after" in v:
+        raise ApiError(f'{key}: before と after は、どちらか一方を指定してください')
+    side = "before" if "before" in v else "after"
+    mark = v[side]
+    if k == "pdf":
+        if side == "after":
+            return v
+        if "where" in v:
+            raise ApiError(f'{key}: before は「字の左」です。where と一緒には指定できません（下は {{"after": 字, "where": "below"}}）')
+        return {**{x: y for x, y in v.items() if x != "before"}, "after": mark, "where": "before"}
+    sheet = k in ("xlsx", "xls") or k in _open.SHEETS
+    allowed = {"occurrence"} | ({"cell", "sheet"} if sheet else {"near", "near_paras"})
+    extra = set(v) - {side, "value"} - allowed
+    if extra:
+        raise ApiError(f"{key}: 分からない指定があります（{'・'.join(sorted(extra))}）。{side} と一緒に使えるのは value・{'・'.join(sorted(allowed))} です")
+    if not isinstance(mark, str) or not mark:
+        raise ApiError(f'{key}: {side} は、目印にする字（窓の字のとおり）で指定してください')
+    val = v.get("value")
+    if isinstance(val, bool) or not isinstance(val, (str, int, float)) or val == "":
+        raise ApiError(f'{key}: {{"{side}": 目印の字, "value": 書く字}} の形で指定してください（value は字か数）')
+    text = _say_value(val)
+    return {**{x: y for x, y in v.items() if x in allowed}, "old": mark, "new": text + mark if side == "before" else mark + text}
+
+
+def _split_values(values: dict, k: str, kinds: dict | None = None) -> tuple[dict, dict]:
+    """書く値から、エージェントが述べた意味（as：「生年月日」など）を分ける。返す：(形式ごとの書き手に渡す値, {鍵: 述べた意味})。
+    as は対話で伝えるためのもので、書類には書かない。とどくは字の意味を決めないので、as を確かめも直しもしない。
+    PDF の kind_candidates のある欄で、as の字がその候補と同じときは、書く種類の指定（pdf/fill.py の as_kind。窓の {"as": "text"}）。
+    種類と意味の両方を言うときは {"kind": 種類, "as": 意味, "value": 値}。
+    {"value": 値} だけになった指定は、値そのものと同じ。@ の字の前・後ろの差し込み（before・after）も、ここで形式の書き方に直す。"""
+    kinds = kinds or {}
+    out: dict = {}
+    said: dict = {}
+    for key, v in values.items():
+        if isinstance(v, dict):
+            v = dict(v)
+            if "as" in v and not (k == "pdf" and v["as"] in (kinds.get(key) or ())):
+                a = v.pop("as")
+                if not isinstance(a, str) or not a.strip():
+                    raise ApiError(f'{key}: as は、書いた値の意味を字で指定してください（例 {{"value": …, "as": "生年月日"}}）')
+                said[key] = a.strip()
+            if k == "pdf" and "kind" in v:
+                v["as"] = v.pop("kind")
+            if isinstance(key, str) and key.startswith("@"):
+                if ("before" in v or "after" in v) and not any(x in v for x in ("circle", "seal", "signature", "cover")):
+                    v = _insert_spec(key, v, k)
+            elif set(v) == {"value"}:
+                v = v["value"]
+        out[key] = v
+    return out, said
 
 
 @_budgeted
@@ -442,8 +500,11 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             values = {renamed.get(k_, k_): v for k_, v in values.items()}
             readback_values = dict(values)
             result["renamed_ids"] = renamed
+        kind_cands = {f["id"]: f["kind_candidates"] for f in before if f.get("kind_candidates")}
     except ApiError:
-        labels, printed = {}, set()
+        labels, printed, kind_cands = {}, set(), {}
+    values, said = _split_values(values, k, kind_cands)
+    readback_values = dict(values)
     if k in ("xlsx", "xls"):
         from .book import open_book
         from .xlsx.edit import EditError
@@ -766,6 +827,11 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             from .xlsx import readback as _xrb
 
             xl_back = _xrb.check(wb_after, readback_values)
+            for key in readback_values:
+                if not labels.get(key) and not key.startswith("@"):
+                    t_ = _cell_near_text(wb, key)
+                    if t_:
+                        labels[key] = t_  # 見出しの空いたセル・欄の一覧にないセル：書く前のブックの近くの字（事実）
             if cell_values or not circ:
                 result["recalculated_cells"] = _xrb.recalculated(
                     wb, wb_after, [(p.sheet, p.address, p.after) for p in res.patches if p.kind == "formula"])
@@ -834,16 +900,33 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     if told is not None:
         # 一太郎：書いた所の印がないので、読み直した窓の同じ id（残りの空白）ではなく、証明で確かめた書いた値を伝える
         rest = rest_fields if rest_fields is not None else [f for f in after_list if f["id"] not in told]
-        result.update(_to_tell(rest, told, result, labels, printed, rects))
+        result.update(_to_tell(rest, told, result, labels, printed, rects, said))
     elif xl_back:
         # Excel：本人に伝える値は、セルの表示形式を通した見えている字（日付は「2026/11/3」、数は「3」）
         shown_list = [dict(f, value=xl_back[f["id"]][1]) if f["id"] in xl_back else f for f in after_list]
         result.update(_to_tell(shown_list, {k_: xl_back[k_][1] if k_ in xl_back else v for k_, v in readback_values.items()},
-                               result, labels, printed, rects))
+                               result, labels, printed, rects, said))
     else:
-        result.update(_to_tell(after_list, readback_values, result, labels, printed, rects))
+        result.update(_to_tell(after_list, readback_values, result, labels, printed, rects, said))
     _publish(tmp, dst, src, overwrite, result)
     return result
+
+
+def _cell_near_text(wb, key: str) -> str:
+    """セルのいちばん近い字：同じ行を左へ、なければ同じ列を上へたどって、最初にある字（字のまま。見出しと決めたものではない）。"""
+    from .xlsx.edit import resolve_target
+    from .xlsx.window import label_text
+
+    try:
+        sheet, r, c = resolve_target(wb, key)
+        cells = wb.sheet(sheet).cells
+    except Exception:  # noqa: BLE001  部品の名前など、セルでない指定
+        return ""
+    for rr, cc in [(r, x) for x in range(c - 1, 0, -1)] + [(x, c) for x in range(r - 1, 0, -1)]:
+        cell = cells.get((rr, cc))
+        if cell is not None and isinstance(cell.value, str) and not cell.has_formula and cell.value.strip():
+            return label_text(cell.value)
+    return ""
 
 
 def _writer_bool(k: str, v) -> bool | None:
@@ -1102,9 +1185,10 @@ def _circle_word(blob: bytes, name: str, circ: dict, result: dict, original: byt
                                                      "（ほかの部品はバイト一致）" if not bad else f"○の書き込みで想定外の変更 {len(bad)} 件")
     result["circled"] = [{"key": key_, "id": sd["id"], "text": sd["text"], "label": sd["label"], "context": sd["context"], "around": sd.get("around"),
                           "style": sd["style"], "size": sd["size"],
-                          "how": "字に結び付けた楕円の図形を足した" if sd["style"] == "ellipse" else "字に四角い囲み線を付けた（○ではなく□）",
+                          "how": ("字に結び付けた楕円の図形を足した（style: ellipse。位置は見積もり）" if sd["style"] == "ellipse"
+                                  else "字に四角い囲み線（w:bdr）を付けた（○ではなく□。字の書式なので位置はずれない）"),
                           "uncertain": ("位置は見積もり。印刷か画面で確かめが要る" + (f"：{'・'.join(sd['notes'])}" if sd.get("notes") else "")
-                                        if sd["style"] == "ellipse" else "")}
+                                        if sd["style"] == "ellipse" else "・".join(sd.get("notes") or []))}
                          for key_, sd in sds]
     if any(sd["style"] == "ellipse" for _k, sd in sds):
         w = list(result.get("warnings") or [])
@@ -1209,6 +1293,9 @@ def _overlaps(a: tuple, b: tuple) -> bool:
     return w > 0 and h > 0 and small > 0 and w * h >= 0.5 * small
 
 
+_DATA_KINDS = ("csv", "tsv", "json", "jsonl")  # 列の名前・キーが、その値の名前（近くの字ではない）
+
+
 def _verbatim_label(f: dict) -> str:
     """本人に伝える見出し：窓の見出しが「推定した見出し：その行の字（［▶］入り）」の形で、推定した見出しの語がその行（context。
     窓の読み順の字のとおり）にないときは、その語を外し、行の字のとおりにする（ほかの行・列から推定した語「個人番号：」が、
@@ -1227,12 +1314,14 @@ def _verbatim_label(f: dict) -> str:
 
 
 def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict | None = None,
-             printed: set | None = None, rects: dict | None = None) -> dict:
+             printed: set | None = None, rects: dict | None = None, said: dict | None = None) -> dict:
     """本人が Word などで開いて確かめなくても、エージェントが対話で伝えられるように：書いた所（見出しと、書いた後の
     ファイルを読み直した値）・まだ空いている欄・本人に伝えること。
     見出しは、書く前の書類の見出し（labels）を使う：書いた後の書類では、いま書いた値が隣の欄の見出しに見えることがある
     （「電話／東京都千代田区1-1」）。見出しは書類に印刷された字で、todoku が書いた値ではない。
-    printed：見出しが書類に印刷された字の欄（欄の名前と同じ字でも「見出しなし」にしない）。"""
+    printed：見出しが書類に印刷された字の欄（欄の名前と同じ字でも「見出しなし」にしない）。
+    said：エージェントが述べた、書いた値の意味（as）。近くの字は事実であって欄の意味ではないので、欄の名前として示さない：
+    as があれば「生年月日：昭和60年4月1日（p1.t45-112／近くの字「住所」）」、なければ「p1.t45-112（近くの字「住所」）：昭和60年4月1日」。"""
     labels = labels or {}
     printed = printed or set()
     after_list = [dict(f, label=labels[f["id"]]) if labels.get(f["id"]) else f for f in after_list]
@@ -1258,6 +1347,15 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
             whole_text.add(key)
         told.append(d)
     written_ids = {d["id"] for d in told} | set((result.get("anchored") or {}).values())
+    said = said or {}
+    # as を述べた鍵 → 伝える行（@ の書き込みは書いた所の id、セルの字の中の所「シート!B3@5」はそのセルの行）
+    renamed_, anchored_ = result.get("renamed_ids") or {}, result.get("anchored") or {}
+    rows = {d["id"]: d for d in told}
+    for key, meaning in said.items():
+        i = anchored_.get(renamed_.get(key, key), renamed_.get(key, key))
+        d = rows.get(i) or rows.get(str(i).rsplit("@", 1)[0])
+        if d is not None and meaning not in (d.get("as") or "").split("／"):
+            d["as"] = f"{d['as']}／{meaning}" if d.get("as") else meaning
     rects = rects or {}
     written_rects = [rects[i] for i in written_ids if i in rects]
 
@@ -1290,29 +1388,60 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         i = d["id"]
         return i.split("!", 1)[1] if d.get("sheet") and i.startswith(d["sheet"] + "!") else i
 
-    def name(d: dict) -> str:
-        """読み上げても分かる欄の名前：窓の印（［▶］・［　］）は「何番目の欄」に、見出しのない欄はセルの番地にする。"""
+    def source(d: dict) -> dict:
+        return by_id.get(d["id"]) or d
+
+    def own_name(d: dict) -> bool:
+        """見出しが、位置から選んだ近くの字でなく、書類が欄に付けた名前か：データの列の名前・キー、PDF の欄の説明（/TU）や欄の名前、
+        部品の Caption、Word などのコントロールの説明・タグ（印刷された字でないと窓が示したもの）。"""
+        f, lab = source(d), d.get("label") or ""
+        if not lab or "［" in lab:
+            return False
+        if result.get("kind") in _DATA_KINDS or f.get("tooltip") or f.get("label_method") == "部品の見出し（Caption）":
+            return True
+        if result.get("kind") == "pdf":
+            return lab == d["id"].rsplit(".", 1)[-1]
+        return not sheet_kind and d["id"] in labels and d["id"] not in printed and lab != d["id"]
+
+    def near_text(d: dict) -> str:
+        """近くの字の言い方（事実。欄の意味とはしない）。ない所は「近くの字なし」。窓の印は［ ］、書く所は「k つ目の空き」。"""
         lab = d.get("label") or ""
+        if source(d).get("nearest_text"):
+            return lab.split("（", 1)[1].rsplit("）", 1)[0] if "（" in lab else lab  # far_label：「左に 3 列あけて『氏名』」
         if not lab or (lab == d["id"] and d["id"] not in printed):
-            return f"{bare_id(d)}（見出しなし）"
+            return "近くの字なし"
         slots = list(re.finditer(r"［[^］]*］", lab))
-        if not slots:
-            return lab
         k = next((n for n, m in enumerate(slots, 1) if "▶" in m.group()), 0)
-        base = re.sub(r"［[^］]*］", "", lab).rstrip("-－ー：:　 ")
-        return f"{base}（{k}つ目の欄）" if k and len(slots) > 1 else base
+        base = re.sub(r"［[^］]*］", "［ ］", lab).strip("：:　 ") if len(slots) > 1 else re.sub(r"［[^］]*］", "", lab).strip("-－ー：:　 ")
+        base = base if len(base) <= 40 else base[:40] + "…"  # 字のすべては窓に（ここは対話で読み上げる短い形）
+        if not base:
+            return "近くの字なし"
+        return f"近くの字「{base}」" + (f"の {k} つ目の空き" if k and len(slots) > 1 else "")
+
+    def name(d: dict) -> str:
+        """読み上げても分かる所の名前：書類が欄に付けた名前か、id と近くの字。"""
+        return (d.get("label") or "") if own_name(d) else f"{bare_id(d)}（{near_text(d)}）"
+
+    def said_as(d: dict, v: str) -> str:
+        """述べた意味があるとき：「意味：値（id／近くの字）」。"""
+        tail = f"欄の名前「{d['label']}」" if own_name(d) else near_text(d)
+        return f"{d['as']}：{v}（{bare_id(d)}／{tail}）"
 
     def shown(d: dict) -> str:
         v = "☑" if d["value"] is True else "☐" if d["value"] is False else _say_value(d["value"])
+        if d.get("as"):
+            return said_as(d, v.strip() if d["id"] in whole_text else v)
         if d["id"] in whole_text:
-            return v.strip()  # マスの字の全体（書いた後の字のとおり。空欄に差し込んだ形にしない）
+            return f"{bare_id(d)}：{v.strip()}"  # マスの字の全体（書いた後の字のとおり。空欄に差し込んだ形にしない）
         lab = d["label"] or ""
         m = re.search(r"［▶[^］]*］", lab) or re.search(r"［[ 　]*］", lab)
         if lab and m:
             rest = re.sub(r"［[^］]*］", "［ ］", lab[m.end():])
             head = re.sub(r"［[^］]*］", "［ ］", lab[:m.start()])
-            return f"{head}［{v}］{rest}"  # 「令和［8］年［ ］月」：空欄に値を入れた形で
-        return f"{name(d).rstrip('：:　 ')}：{v}"  # 見出しの終わりの「：」は重ねない（「人数：12」）
+            return f"{bare_id(d)}：{head}［{v}］{rest}"  # 「令和［8］年［ ］月」：行の字のとおりに、空欄に値を入れた形で
+        if own_name(d):
+            return f"{lab.rstrip('：:　 ')}：{v}"  # 見出しの終わりの「：」は重ねない（「人数：12」）
+        return f"{name(d)}：{v}"
 
     # 記入した内容の一覧：書いた所を、書類の中の順（シート・ページごと）に、全部。値は書いた後のファイルを読み直したもの
     order = {f["id"]: i for i, f in enumerate(after_list)}
@@ -1331,11 +1460,13 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
             k = next((n for n, m in enumerate(re.finditer(r"［[^］]*］", d["label"])) if "▶" in m.group()), None)
             vals[k] = "☑" if d["value"] is True else "☐" if d["value"] is False else _say_value(d["value"])
         it = iter(range(10 ** 6))
-        return re.sub(r"［[^］]*］", lambda m: f"［{vals.get(next(it), ' ')}］", lab)
+        line = re.sub(r"［[^］]*］", lambda m: f"［{vals.get(next(it), ' ')}］", lab)
+        ids = "・".join(bare_id(d) for d in run)
+        return f"{run[0]['as']}：{line}（{ids}）" if run[0].get("as") else f"{ids}：{line}"
 
     def stem(d: dict) -> str | None:
         lab = d.get("label") or ""
-        return place(d) + re.sub(r"［[^］]*］", "［］", lab) if "［▶" in lab and lab.count("［") > 1 else None
+        return (place(d) + re.sub(r"［[^］]*］", "［］", lab) + "\0" + (d.get("as") or "")) if "［▶" in lab and lab.count("［") > 1 else None
 
     lines = [f"記入した内容（{len(told)} か所。書いた後のファイルを読み直した値）："] if told or not (result.get("placed") or result.get("circled")) else []
     group = None
@@ -1352,12 +1483,17 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         lines.append(f"- {joined(told[i:j]) if j - i > 1 else shown(d)}")
         i = j
     for pl in result.get("placed") or []:
-        lines.append(pl["say"])  # 置いた画像（本人の印影・署名）：何を、どこに
+        # 置いた画像（本人の印影・署名）：何を、どこに
+        lines.append(f"{said[pl['key']]}：{pl['say']}" if pl.get("key") in said else pl["say"])
     for c in result.get("circled") or []:  # 囲んだ所は、いつも伝える（どの字を囲んだかは、上の一覧の値からは分からない）
         where = c.get("sheet") or (f"{c['page']}ページ" if c.get("page") else "")
         lab = c.get("label") or ""
-        verb = "□で囲んだ（字の囲み線）" if c.get("style") == "border" else "○で囲んだ"
-        lines.append(f"- {verb}：{where + '・' if where else ''}{lab + '：' if lab and lab != c['text'] else ''}「{c['text']}」"
+        verb = "□で囲んだ（○ではなく、字の囲み線）" if c.get("style") == "border" else "○で囲んだ"
+        meaning = said.get(c.get("key"))
+        if meaning:
+            c["as"] = meaning
+        head = f"{meaning}：" if meaning else (f"近くの字「{lab}」：" if lab and lab != c["text"] else "")
+        lines.append(f"- {verb}：{where + '・' if where else ''}{head}「{c['text']}」"
                      + (f"（前後の字：「{c['around']}」）" if c.get("around") else "")
                      + (f"（{c['uncertain']}）" if c.get("uncertain") else "")
                      + (f"（{c['inside_word']}）" if c.get("inside_word") else ""))
@@ -1407,7 +1543,9 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         lines.append(_recalc_say(result["recalculated_cells"]))  # 書いた値から計算し直して変わったセル（金額・合計など）
     if notes:
         lines.append("本人に伝えること：" + "／".join(notes[:10]))
-    return {"written": told, "still_empty": [{"id": f["id"], "label": f.get("label", ""), **({"sheet": f["sheet"]} if "sheet" in f else {}),
+    # as のない書き込み：本人が確かめる書類なら、書いた値の意味を as で述べて書き直せる（対話が本人の確かめる手段なので）
+    without_as = [d["id"] for d in told if not d.get("as")] + [c.get("id") or c.get("key") for c in result.get("circled") or [] if not c.get("as")]
+    return {"written": told, "written_without_as": without_as, "still_empty": [{"id": f["id"], "label": f.get("label", ""), **({"sheet": f["sheet"]} if "sheet" in f else {}),
                                               **({"page": f["page"]} if "page" in f else {})} for f in empty[:50]],
             "still_empty_count": len(empty), "unchosen_choice_groups": len(unchosen), "agent_places_left": len(agent_left),
             "say_to_user": "\n".join(lines)}
@@ -1610,6 +1748,7 @@ def calculate(path: str, values: dict, password: str | None = None) -> dict:
     if k not in ("xlsx", "xls"):
         raise ApiError("試算は Excel の様式（.xlsx・.xlsm・.xls）です")
     _k, doc, _ = window(path, password)
+    values = _split_values(values, k)[0]  # as（述べた意味）は書くときのもの。試算にも同じ値の形を渡せるように
     try:
         r = xm.calculate(open_book(blob, name), doc, values)
     except EditError as e:

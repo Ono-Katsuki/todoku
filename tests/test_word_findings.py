@@ -218,7 +218,7 @@ def test_date_control_read_back_uses_the_date_format(tmp_path):
     r_ = api.fill(path, {"date": "2026-11-03"}, out)
     assert r_["read_back_ok"], r_["read_back_differences"]
     assert r_["written_as"] == {"date": "令和8年11月3日"}
-    assert "申請日：令和8年11月3日" in r_["say_to_user"]
+    assert "date（近くの字「申請日」）：令和8年11月3日" in r_["say_to_user"]
 
 
 # ---------------------------------------------------------------------- 6. 見出し
@@ -242,7 +242,7 @@ def test_labels_come_from_printed_text(tmp_path):
     out = str(tmp_path / "o.docx")
     r_ = api.fill(path, {"agree": True, "ninzu": "12", "T1.R1.C2": "東京都千代田区1-1"}, out)
     say = r_["say_to_user"]
-    assert "同意する：☑" in say and "人数：12" in say and "（見出しなし）" not in say and "：：" not in say
+    assert "agree（近くの字「同意する」）：☑" in say and "ninzu（近くの字「人数」）：12" in say and "（見出しなし）" not in say and "：：" not in say
     assert "東京都千代田区1-1" not in say.split("まだ空いている欄")[1]  # 書いた値を、ほかの欄の見出しにしない
     after = {f["id"]: f["label"] for f in api.fields(out)}
     assert after["T1.R2.C3"] == "電話"

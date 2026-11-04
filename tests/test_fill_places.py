@@ -169,4 +169,4 @@ def test_docx_first_empty_paragraph_takes_the_cell_label(tmp_path):
     first = next(f for f in api.fields(str(src)) if "初めの空の段落" in (f.get("why") or ""))
     assert first["label"] == "氏名"  # 行の見出し（印刷された字のまま）。「［　］」だけにしない
     r = api.fill(str(src), {first["id"]: "山田　花子"}, str(tmp_path / "b.docx"), overwrite=True)
-    assert "- 氏名：山田　花子" in r["say_to_user"], r["say_to_user"]
+    assert "（近くの字「氏名」）：山田　花子" in r["say_to_user"], r["say_to_user"]

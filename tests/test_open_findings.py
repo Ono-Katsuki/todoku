@@ -71,7 +71,7 @@ def test_odt_content_controls_fill_proof_readback(tmp_path):
     assert "showing-place-holder" not in xml and 'loext:checked="true"' in xml and "☒" in xml
     assert 'loext:current-date="2026-11-03T00:00:00Z"' in xml
     say = r["say_to_user"]
-    assert "人数：12" in say and "：：" not in say and "申請日：2026年11月3日" in say
+    assert "ninzu（近くの字「人数」）：12" in say and "：：" not in say and "date（近くの字「申請日」）：2026年11月3日" in say
     with pytest.raises(api.ApiError, match="選択肢"):
         api.fill(str(path), {"kubun": "廃止"}, str(tmp_path / "x.odt"))
 

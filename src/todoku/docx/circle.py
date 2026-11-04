@@ -1,15 +1,16 @@
 """Word（.docx）：本文の字（選択肢の「有」「2.更新」など）を○で囲む。
 
 指定（fill の値）：{"@c1": {"circle": 囲む字, "near": 近くの見出しの字, "occurrence": 何番目か, "pad": すき間（pt）,
-"style": "ellipse"（既定）か "border"}}。
+"style": "border"（既定）か "ellipse"}}。
 
-二つの書き方と、その確かさ（どちらも Word と LibreOffice で同じに表示される形だけを使う）：
-- "ellipse"（既定）：囲む字の直前に、字に結び付けた楕円の図形（wp:anchor・wps の ellipse・塗りなし）を入れる。横の位置は
-  「その字の位置から」（positionH relativeFrom="character"）、縦は「その行の上から」（positionV relativeFrom="line"）なので、
-  字が動けば○も一緒に動く。ただし Word はページの上の字の位置を保存しないので、字の幅（全角は字の大きさ、半角はその半分）
-  と行の中の字の高さは見積もり。字間の調整・文字グリッド・均等割り付けがあると、ずれることがある（結果に「確かめが要る」と添える）
-- "border"：囲む字だけの文字の要素に、四角い囲み線（w:bdr）を付ける。○ではなく□だが、字そのものの書式なので、位置は
-  いつも正しい（ずれない）。○でなくてもよいと本人が確かめたときに使う
+二つの書き方と、その確かさ：
+- "border"（既定）：囲む字だけの文字の要素に、四角い囲み線（w:bdr）を付ける。○ではなく□だが、字そのものの書式なので、どの描き手でも
+  位置はいつも正しい（ずれない）
+- "ellipse"（明示したときだけ）：囲む字の直前に、字に結び付けた楕円の図形（wp:anchor・wps の ellipse・塗りなし）を入れる。横は
+  relativeFrom="character"、縦は relativeFrom="line"（字を含む行からの位置）。行の中の字の高さは、行の高さの決まり（lineRule）・
+  字の上の余白（フォントの ascent。代わりのフォントで変わる）・文字グリッドで決まり、ファイルに保存されない。LibreOffice では
+  字より 1.5〜3 mm 上に出て、行の高さの決まりを変えると離れ方も変わる（2026-11 に確かめた）。ファイルの中の数では、どの描き手でも
+  合うようにはできないので、既定にしない（結果に「確かめが要る」と添える）
 1 字だけを囲む「囲い文字」（EQ フィールド）は、LibreOffice での表示が Word と違うので使わない。
 """
 
@@ -302,7 +303,7 @@ def find_in_filled(original: DocxDocument, filled: DocxDocument, spec: dict):
 def resolve(doc: DocxDocument, spec: dict, used: dict, original: DocxDocument | None = None) -> dict:
     """○の所：{id, part, para（段落）, start, end, text, style, ellipse（囲む字の左上からの pt：中心と半径）, size, label}。
     original：同じ書き込みで値を書く前の文書（あれば、○の所はその字で決める。書いた値で、近い・何番目かが変わらないように）。"""
-    style = spec.get("style", "ellipse")
+    style = spec.get("style", "border")
     if style not in ("ellipse", "border"):
         raise CircleError('style は "ellipse"（楕円の図形）か "border"（字の囲み線）です')
     p, a, b, _i = find_in_filled(original, doc, spec) if original is not None else find(doc, spec)

@@ -146,4 +146,4 @@ def test_say_to_user_names_the_widget_by_its_own_line(tmp_path):
     src = tmp_path / "a.pdf"
     src.write_bytes(_form_pdf(_GAP_ROWS, _GAP_WIDGETS))
     r = api.fill(str(src), {"name": "山田"}, str(tmp_path / "b.pdf"))
-    assert "氏名：山田" in r["say_to_user"] and "電話番号 （ ）：山田" not in r["say_to_user"], r["say_to_user"]
+    assert "name（近くの字「氏名」）：山田" in r["say_to_user"] and "電話番号 （ ）：山田" not in r["say_to_user"], r["say_to_user"]

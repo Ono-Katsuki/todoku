@@ -237,8 +237,8 @@ def test_xlsx_inline_blank_list_value_reads_back_as_cell_text(tmp_path):
 def test_docx_circle_ellipse_and_border(tmp_path):
     body = ('<w:tbl><w:tr><w:tc>' + p("障害支援区分の認定") + '</w:tc><w:tc>' + p("有・無") + '</w:tc></w:tr>'
             '<w:tr><w:tc>' + p("要介護認定") + '</w:tc><w:tc>' + p("有・無") + '</w:tc></w:tr></w:tbl>')
-    r, out = _write(tmp_path, make_docx(body), "t.docx", {"@c1": {"circle": "有", "near": "障害支援区分の認定"},
-                                                         "@c2": {"circle": "無", "near": "要介護認定", "style": "border"}})
+    r, out = _write(tmp_path, make_docx(body), "t.docx", {"@c1": {"circle": "有", "near": "障害支援区分の認定", "style": "ellipse"},
+                                                         "@c2": {"circle": "無", "near": "要介護認定"}})
     assert r["proof_ok"] and r["read_back_ok"], (r["unexpected"], r["read_back_differences"])
     xml = zipfile.ZipFile(out).read("word/document.xml")
     assert b'relativeFrom="character"' in xml and b'prst="ellipse"' in xml and b"<w:bdr " in xml
