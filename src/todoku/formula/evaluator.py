@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from fractions import Fraction
 from typing import Callable, Protocol
 
 from .parser import (
@@ -22,7 +23,8 @@ from .parser import (
     StructRef,
     Unary,
 )
-from ..limits import MAX_RANGE_CELLS
+from .. import limits
+from .lazyarr import FlatView, LazyArr, RangeArr, make as make_lazy, poly_binary, want_lazy
 from .dates import _CURRENT_1904
 from .values import (
     NAME,
@@ -35,6 +37,7 @@ from .values import (
     Unsupported,
     array_room,
     compare,
+    is_big,
     err,
     to_number,
     to_text,
@@ -93,9 +96,8 @@ class Evaluator:
     # -------------------------------------------------------------- 値の取り出し
     def materialize(self, rng: Rng) -> Arr:
         rng = self.clip(rng)
-        if (rng.r2 - rng.r1 + 1) * (rng.c2 - rng.c1 + 1) > MAX_RANGE_CELLS:
-            raise Unsupported(f"範囲が広すぎます（{rng.r2 - rng.r1 + 1:,} 行 × {rng.c2 - rng.c1 + 1:,} 列）。この数式は計算せず、Excel で開いたときに計算されます。"
-                              "範囲の中の字は read_window に sheet と rows を渡して読めます")
+        if (rng.r2 - rng.r1 + 1) * (rng.c2 - rng.c1 + 1) > limits.MAX_ARRAY_CELLS:
+            return RangeArr(self.ctx, rng)  # 広い範囲：リストに開かず、頼まれたマスだけ読む
         return Arr([[self.ctx.cell_value(rng.sheet, r, c) for c in range(rng.c1, rng.c2 + 1)]
                     for r in range(rng.r1, rng.r2 + 1)])
 
@@ -128,7 +130,9 @@ class Evaluator:
     def values(self, v) -> list:
         """引数を値の平らなリストにする（範囲・配列はすべてのセル）。"""
         if isinstance(v, Rng):
-            return [x for row in self.materialize(v).data for x in row]
+            v = self.materialize(v)
+        if isinstance(v, LazyArr):
+            return FlatView(v)  # 大きな配列：作らずに順に読む
         if isinstance(v, Arr):
             return [x for row in v.data for x in row]
         return [v]
@@ -184,16 +188,16 @@ class Evaluator:
             return Arr([[self._ev(x) for x in row] for row in node.rows])
         if isinstance(node, Unary):
             v = self.ev(node.operand)
-            return self.map1(v, lambda x: -to_number(x) if node.op == "-" else x)
+            return self.map1(v, lambda x: -to_number(x) if node.op == "-" else x, node.op if node.op == "-" else "+")
         if isinstance(node, Postfix):
             v = self.ev(node.operand)
-            return self.map1(v, lambda x: to_number(x) / 100)
+            return self.map1(v, lambda x: to_number(x) / 100, "%")
         if isinstance(node, Binary):
             if node.op == ":":
                 return self.range_op(node)
             a = self.ev(node.left)
             b = self.ev(node.right)
-            return self.map2(a, b, _BIN[node.op])
+            return self.map2(a, b, _BIN[node.op], node.op)
         if isinstance(node, Func):
             from .functions import call
 
@@ -212,15 +216,23 @@ class Evaluator:
         return Rng(a.sheet, min(a.r1, b.r1), min(a.c1, b.c1), max(a.r2, b.r2), max(a.c2, b.c2))
 
     # -------------------------------------------------------------- 配列への展開
-    def map1(self, v, f: Callable):
+    def map1(self, v, f: Callable, op: str = ""):
         if isinstance(v, Rng):
             v = self.materialize(v) if self.array else self.intersect(v)
         if isinstance(v, Arr):
             array_room(self, v.rows, v.cols)
-            return Arr([[_safe(f, x) for x in row] for row in v.data])
+            poly = None
+            if v.poly is not None:  # 単項の - と %：多項式のまま
+                poly = -v.poly if op == "-" else (v.poly.scaled(Fraction(1, 100)) if op == "%" else None)
+            if want_lazy(v, (v.rows, v.cols)):
+                at = v.at
+                return make_lazy(self, v.rows, v.cols, lambda i, j: _safe(f, at(i, j)), poly)
+            out = Arr([[_safe(f, x) for x in row] for row in v.data])
+            out.poly = poly
+            return out
         return _safe(f, v)
 
-    def map2(self, a, b, f: Callable):
+    def map2(self, a, b, f: Callable, op: str = ""):
         if isinstance(a, Rng):
             a = self.materialize(a) if self.array else self.intersect(a)
         if isinstance(b, Rng):
@@ -232,6 +244,21 @@ class Evaluator:
         rows = max(A.rows, B.rows)
         cols = max(A.cols, B.cols)
         array_room(self, rows, cols)
+        poly = poly_binary(op, a, b, rows, cols) if op and (A.poly is not None or B.poly is not None) else None
+
+        if is_big(rows, cols):
+            ar, ac, br, bc = A.rows, A.cols, B.rows, B.cols
+            aat, bat = A.at, B.at
+            na = err("#N/A")
+
+            def cell(r, c):  # 1 行・1 列の配列は広げる。足りない所は #N/A
+                rr, cc = (0 if ar == 1 else r), (0 if ac == 1 else c)
+                x = aat(rr, cc) if rr < ar and cc < ac else na
+                rr, cc = (0 if br == 1 else r), (0 if bc == 1 else c)
+                y = bat(rr, cc) if rr < br and cc < bc else na
+                return _safe2(f, x, y)
+
+            return make_lazy(self, rows, cols, cell, poly)
 
         def pick(X: Arr, r, c):
             rr = 0 if X.rows == 1 else r
@@ -240,7 +267,9 @@ class Evaluator:
                 return err("#N/A")
             return X.data[rr][cc]
 
-        return Arr([[_safe2(f, pick(A, r, c), pick(B, r, c)) for c in range(cols)] for r in range(rows)])
+        out = Arr([[_safe2(f, pick(A, r, c), pick(B, r, c)) for c in range(cols)] for r in range(rows)])
+        out.poly = poly
+        return out
 
 
 def _safe(f, x):

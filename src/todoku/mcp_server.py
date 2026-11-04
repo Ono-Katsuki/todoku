@@ -230,11 +230,14 @@ TOOLS = [
     {"name": "try_calculation",
      "description": "Excel の様式で、値の組から結果を試算する（ファイルは書かない）。values は fill_document と同じ {欄の id: 値}。"
                     "「区分Ⅱにしたらいくら？」のような問いに、書類を書き換えずに答えるため。入力規則に合わない値は断る。"
-                    "結果の say_to_user（変わる所の見出しと、前 → 後）を、会話で伝える。",
+                    "結果の say_to_user（変わる所の見出しと、前 → 後）を、会話で伝える。"
+                    "cells（[\"シート!A5\", …]）を渡すと、そのセルの計算結果を返す（動的配列の広がった先のマスも、そのマスだけ計算する）。"
+                    "とても大きな配列の集計が時間の中で終わらないときは、進んだ所を伝え、別のプロセスで続ける（同じ呼び出しをもう一度すると、進み具合か結果を返す）。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
-         "values": {"type": "object", "description": "{欄の id: 値}"}},
-         "required": ["path", "values"]}},
+         "values": {"type": "object", "description": "{欄の id: 値}"},
+         "cells": {"type": "array", "items": {"type": "string"}, "description": "結果を見たいセル（シート!番地）"}},
+         "required": ["path"]}},
     {"name": "view_page",
      "description": "PDF・XPS のページ、または画像のファイル（JPEG・PNG・GIF・BMP・TIFF・WebP・JPEG 2000 など。page は何枚目か）を画像で見る（スキャンした紙のように、字の情報がない画像だけのページを読むため）。"
                     "上と左の帯に、ページの左上からの mm の目盛りが付く。小さな字は region（[左, 上, 右, 下] mm）で拡大して読む。"
@@ -413,7 +416,7 @@ def call_tool(name: str, args: dict) -> dict:
         res = api.calc_model(args["path"], args.get("cell"), args.get("password"))
         return {"content": [_text(res)], "structuredContent": res}
     if name == "try_calculation":
-        res = api.calculate(args["path"], args.get("values") or {}, args.get("password"))
+        res = api.calculate(args["path"], args.get("values") or {}, args.get("password"), args.get("cells"))
         return {"content": [_text(res["say_to_user"]), _text(res)], "structuredContent": res}
     if name == "view_page":
         v = api.view_page(args["path"], args["page"], args.get("region"), args.get("marks"), args.get("password"), args.get("dpi"))

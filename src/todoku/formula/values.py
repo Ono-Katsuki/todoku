@@ -42,6 +42,19 @@ class Unsupported(Exception):
     """この計算エンジンが再現できない（＝検証できない）もの。"""
 
 
+class Unfinished(Unsupported):
+    """大きな配列の集計が、この呼び出しの時間の中で終わらなかった（どこまで進んだかと、続け方を伝える。控えから続きを計算できる）。"""
+
+    def __init__(self, what: str, done: int, total: int, key: str = ""):
+        pct = f"{done / total * 100:.2f}%" if total else "0%"
+        super().__init__(f"大きな配列の{what}が、この呼び出しの時間の中で終わりませんでした（{total:,} マスのうち {done:,} マス、{pct} まで計算しました）。"
+                         "try_calculation の cells にこのセルを渡すと、長い仕事として続きから計算します（途中の控えが残るので、やり直しになりません）")
+        self.what = what
+        self.done = done
+        self.total = total
+        self.key = key
+
+
 class Volatile(Exception):
     """TODAY() など、計算するたびに値が変わるもの。"""
 
@@ -71,9 +84,11 @@ class Rng:
 
 @dataclass
 class Arr:
-    """配列（{1,2;3,4} や範囲を計算した結果）。"""
+    """配列（{1,2;3,4} や範囲を計算した結果）。大きな配列は LazyArr（formula/lazyarr.py）で、マスの値を頼まれたときに計算する。"""
 
     data: list[list]
+    poly = None  # 行・列の番号の多項式で表せるとき（formula/lazyarr.py の Poly）
+    parts = None  # 同じマスの集まりに分けられるとき
 
     @property
     def rows(self) -> int:
@@ -83,31 +98,25 @@ class Arr:
     def cols(self) -> int:
         return len(self.data[0]) if self.data else 0
 
+    def at(self, i: int, j: int):
+        return self.data[i][j]
+
 
 BLANK = None  # 空白セル
 
 TEXT_MAX = 32767  # 1 つのセルの字の数の上限（Excel の仕様。これを超える字を返す数式は #VALUE!）
-_ARRAY_SMALL = 65536  # これ以下の配列は数えない
+LAZY_ABOVE = 65536  # これより大きな配列は、作らずに、頼まれたマスだけ計算する（LazyArr）
 
 
 def array_room(ev, rows: int, cols: int) -> None:
-    """rows 行 cols 列の配列を、作る前に確かめる。シートの大きさを超える配列は #NUM!（Excel の仕様）。
-    シートに入る大きさでも、limits.MAX_ARRAY_CELLS を超える配列と、1 回の計算で作る配列の合計が上限を超えるものは、
-    値を作らずに「計算しなかった」と伝える（Unsupported。Excel で開いたときに計算される）。"""
+    """rows 行 cols 列の配列を作ってよいか。シートの大きさを超える配列は #NUM!（Excel の仕様）。
+    シートに入る大きさなら、どんな大きさでもよい（大きな配列は LazyArr で、マスを作らない）。"""
     if rows > 1048576 or cols > 16384:
         raise ExcelError("#NUM!")
-    n = rows * cols
-    if n <= _ARRAY_SMALL:
-        return
-    from ..limits import MAX_ARRAY_CELLS, MAX_ARRAY_TOTAL
 
-    if n > MAX_ARRAY_CELLS:
-        raise Unsupported(f"配列が大きすぎます（{rows:,} 行 × {cols:,} 列）。この数式は計算せず、Excel で開いたときに計算されます")
-    ctx = ev.ctx
-    made = getattr(ctx, "array_cells", 0) + n
-    if made > MAX_ARRAY_TOTAL:
-        raise Unsupported(f"1 回の計算で作る配列のマスが {MAX_ARRAY_TOTAL:,} を超えます。この数式は計算せず、Excel で開いたときに計算されます")
-    ctx.array_cells = made
+
+def is_big(rows: int, cols: int) -> bool:
+    return rows * cols > LAZY_ABOVE
 
 
 # ---------------------------------------------------------------- 数値の扱い

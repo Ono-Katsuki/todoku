@@ -1082,6 +1082,10 @@ class WorksheetFunction:
         if isinstance(v, ExcelError):
             raise VbaError(1004, f"WorksheetFunction クラスの {name} プロパティを取得できません")
         if isinstance(v, Arr):
+            from ..limits import MAX_VBA_ARRAY
+
+            if v.rows * v.cols > MAX_VBA_ARRAY:
+                raise Unsupported(f"WorksheetFunction.{name} の結果の配列（{v.rows:,} 行 × {v.cols:,} 列）は、マクロの変数に入りません")
             out = VArray([1, 1], [v.rows, v.cols])
             for i, row in enumerate(v.data):
                 for j, x in enumerate(row):

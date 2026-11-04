@@ -458,6 +458,7 @@ def fields(path: str, password: str | None = None, encoding: str | None = None) 
         for sh in doc["sheets"]:
             for f in sh.get("fields", []):
                 out.append(_field(f, sheet=sh["name"]))
+            out += [{**p, "sheet": sh["name"]} for p in sh.get("range_places") or []]
     elif k == "pdf":
         for pg in doc["pages"]:
             for f in pg["fields"]:
@@ -2122,9 +2123,60 @@ def calc_model(path: str, cell: str | None = None, password: str | None = None) 
             "dynamic": m["dynamic"], "result_groups": xm.summary(m)}
 
 
+def calc_workbook(path: str, password: str | None, cells: list):
+    """計算するためのブック：大きなブックは、頼まれたセルに要る行だけ。"""
+    from .book import open_book
+
+    lz = lazy_open(path, password, built_ok=False)
+    if lz is not None and lz.kind == "xlsx":
+        return lz.calc_book(cells, dependents=True)[0]
+    blob, name, _k, _lock = _read(path, password)
+    return open_book(blob, name)
+
+
+def _calculate_cells(path: str, values: dict, cells: list, password: str | None) -> dict:
+    """頼まれたセルを計算する。大きな配列の集計が時間の中で終わらなければ、進んだ所を控えて、長い仕事として続ける
+    （もう一度同じ呼び出しをすると、進み具合か、結果を返す）。"""
+    from . import jobs
+    from .formula.lazyarr import ScanStore
+    from .xlsx import model as xm
+    from .xlsx.edit import EditError
+
+    rec = jobs.calc_status(path, values, cells)
+    if rec and rec.get("finished") and rec.get("results") is not None:
+        got = rec["results"]
+        job = {"finished": True}
+    else:
+        running = jobs.calc_running(rec)
+        store = ScanStore(dict((rec or {}).get("scans") or {}), frozen=running)
+        try:
+            got = xm.cell_values(calc_workbook(path, password, list(values) + list(cells)), values, cells, store)
+        except (EditError, ValueError) as e:
+            raise ApiError(str(e)) from None
+        job = None
+        if any(c.get("status") == "unfinished" for c in got):
+            rec = jobs.start_calc(path, password, values, cells, store.data)
+            job = {"key": rec.get("key"), "running": True, "finished": False}
+    lines = []
+    for c in got:
+        if c.get("status") == "ok":
+            lines.append(f"- {c['cell']}：{c['value']}" + (f"（配列 {c['spill']} のマス）" if c.get("spill") else "") + (f"。{c['note']}" if c.get("note") else ""))
+        elif c.get("status") == "unfinished":
+            pct = f"{c['done'] / c['total'] * 100:.2f}%" if c.get("total") else ""
+            lines.append(f"- {c['cell']}：まだ計算中です（{c['total']:,} マスのうち {c['done']:,} マス、{pct}。別のプロセスで続けています。"
+                         "同じ呼び出しをもう一度すると、進み具合か結果を返します）")
+        else:
+            lines.append(f"- {c['cell']}：計算できません（{c.get('why', '')}）")
+    out = {"cells": got, "say_to_user": "セルの計算結果（ファイルは書いていません）：\n" + "\n".join(lines)}
+    if job:
+        out["job"] = job
+    return out
+
+
 @_budgeted
-def calculate(path: str, values: dict, password: str | None = None) -> dict:
-    """値の組から、ファイルを書かずに結果を計算する（試算）。書き込みと同じ受け取り方・入力規則・計算エンジン。"""
+def calculate(path: str, values: dict, password: str | None = None, cells: list | None = None) -> dict:
+    """値の組から、ファイルを書かずに結果を計算する（試算）。書き込みと同じ受け取り方・入力規則・計算エンジン。
+    cells：結果を見たいセル（動的配列の広がった先のマスも。大きな配列の集計は長い仕事として続きから進む）。"""
     from .book import open_book
     from .xlsx import model as xm
     from .xlsx.edit import EditError
@@ -2133,6 +2185,8 @@ def calculate(path: str, values: dict, password: str | None = None) -> dict:
     if k not in _BOOKS:
         raise ApiError("試算は Excel の様式（.xlsx・.xlsm・.xls）です")
     values = _split_values(values, k)[0]  # as（述べた意味）は書くときのもの。試算にも同じ値の形を渡せるように
+    if cells:
+        return _calculate_cells(path, values, list(cells), password)
     lz = lazy_open(path, password, built_ok=False)
     try:
         if lz is not None and lz.kind == "xlsx":
@@ -2459,13 +2513,103 @@ def fields_range(path: str, rng: dict, only_empty: bool = False, limit: int | No
     """入力欄の、頼まれた範囲（数と、続きの頼み方つき）。"""
     from .lazy import RangeError
 
+    sheet = rng.get("sheet")
+    embed = re.fullmatch(r"E(\d+)!(.+)", str(sheet)) if sheet else None
+    if embed:
+        return _embed_range_fields(path, int(embed[1]), embed[2], rng, limit or 2000, password)
     doc = lazy_open(path, password, encoding, force=True)
     if doc is None:
         raise ApiError(f"ファイルが見つかりません: {path}")
     try:
-        return doc.fields(rng, only_empty, limit or 2000)
+        res = doc.fields(rng, only_empty, limit or 2000)
     except RangeError as e:
         raise ApiError(str(e)) from None
+    if sheet and rng.get("rows") and not getattr(doc, "large", False):
+        _add_range_fields(path, sheet, rng, res, limit or 2000, password, encoding)
+    return res
+
+
+def _rows_of(rng: dict) -> tuple[int, int]:
+    from .lazy.base import parse_range
+
+    a, b = parse_range(rng.get("rows"), "行")
+    return a or 1, b or 1048576
+
+
+def _expand_places(wb, sh, a: int, b: int, limit: int) -> tuple[list[dict], list[dict], int | None]:
+    """シート sh の範囲の所と、行 a〜b の分の 1 マスずつの欄。"""
+    from .xlsx import places as xp
+    from .xlsx import window as xw
+
+    sh.__dict__[xw._MEMO] = {}
+    try:
+        opts = xw._Options(wb)
+        lay = xw.Layout(wb, sh, opts.calc)
+        places = xp.place_docs(wb, sh, lay, opts)
+        got, more = xp.expand_fields(wb, sh, lay, opts, places, a, b, limit)
+    finally:
+        sh.__dict__.pop(xw._MEMO, None)
+    return places, got, more
+
+
+def _add_range_fields(path: str, sheet: str, rng: dict, res: dict, limit: int, password, encoding) -> None:
+    """頼まれた行にかかる範囲の所：その行の分を 1 マスずつの欄として足す（ほかの所は広げない）。"""
+    from .book import open_book
+
+    k, doc, _ = window(path, password, encoding)
+    if not isinstance(doc, dict):
+        return
+    sheets = [s for s in doc.get("sheets") or [] if s.get("name") == sheet and s.get("range_places")]
+    if not sheets:
+        return
+    a, b = _rows_of(rng)
+    blob, name, _k, _lock = _read(path, password)
+    wb = open_book(blob, name)
+    _places, got, more = _expand_places(wb, wb.sheet(sheet), a, b, limit)
+    have = {f.get("id") for f in res.get("fields") or []}
+    res.setdefault("fields", []).extend(f for f in got if f["id"] not in have)
+    res["range_places"] = sheets[0]["range_places"]
+    if more is not None:
+        res["next"] = {"sheet": sheet, "rows": f"{more}-{b}"}
+
+
+@_budgeted
+def _embed_range_fields(path: str, n: int, sheet: str, rng: dict, limit: int, password) -> dict:
+    """文書に埋め込んだ表の、行の範囲の欄（sheet は「E1!シート」）。"""
+    blob, name, k, _lock = _read(path, password)
+    doc = _word(blob, name, k)
+    e = next((x for x in getattr(doc, "embeds", []) or [] if x.get("n") == n), None)
+    wb = doc.embedded_book(e) if e is not None and hasattr(doc, "embedded_book") else None
+    if wb is None:
+        raise ApiError(f"埋め込み E{n} の表がありません")
+    try:
+        sh = wb.sheet(sheet)
+    except KeyError:
+        raise ApiError(f"埋め込み E{n} にシート「{sheet}」がありません") from None
+    a, b = _rows_of(rng)
+    from .xlsx import window as xw
+
+    sh.__dict__[xw._MEMO] = {}
+    try:
+        opts = xw._Options(wb)
+        lay = xw.Layout(wb, sh, opts.calc)
+        from .xlsx import places as xp
+
+        places = xp.place_docs(wb, sh, lay, opts)
+        got, more = xp.expand_fields(wb, sh, lay, opts, places, a, b, limit)
+        whole = [f for f in xw.fields_for(wb, sh, lay, opts) if f.get("cell")]
+    finally:
+        sh.__dict__.pop(xw._MEMO, None)
+
+    def in_rows(f):
+        m = re.match(r"[A-Z]+(\d+)", f["cell"])
+        return m is not None and a <= int(m[1]) <= b
+
+    out = [{**f, "id": f"E{n}!{f['id']}"} for f in whole if in_rows(f)] + [{**f, "id": f"E{n}!{f['id']}"} for f in got]
+    res = {"fields": out[:limit], "sheet": f"E{n}!{sheet}", "range_places": [{**p, "id": f"E{n}!{p['id']}"} for p in places], "next": None}
+    if more is not None or len(out) > limit:
+        res["next"] = {"sheet": f"E{n}!{sheet}", "rows": f"{more if more is not None else a}-{b}"}
+    return res
 
 
 @_budgeted

@@ -11,18 +11,20 @@ import bisect
 from collections import defaultdict
 
 from ..limits import MAX_DECLARED_CELLS, budget
+from .places import ONE_DECLARATION
 
 NARROW = 64  # これより幅の広い範囲は、列ごとに持たず、問われた列で見る
 
 
 class Readers:
     """セル (r, c) → {"cells": [読む数式の番地（first 個まで）], "n": 読む数式の数}。dict の get・in・[] と同じに使える。
-    places() は、範囲を実際のマスに広げた所（room まで）を返す（広げなかった範囲は note に控える）。"""
+    places() は、範囲を実際のマスに広げた所（room まで）を返す。1 マスずつにするには広すぎる範囲は、wide に範囲のまま持つ（xlsx/places.py）。"""
 
-    def __init__(self, first: int, room: int, note):
+    def __init__(self, first: int, room: int, note=None):
         self.first = first
         self.room = room
         self.note = note
+        self.wide: list[tuple[int, int, int, int]] = []  # 1 マスずつにしない範囲（places のあとで決まる）
         self.who: list[tuple[str, int, int]] = []  # 数式の順 → 数式のセル
         self.boxes: list[tuple[int, int, int, int, int]] = []
         self._seen: set = set()
@@ -117,16 +119,17 @@ class Readers:
         return v
 
     def places(self) -> list[tuple[int, int]]:
-        """範囲を実際のマスに広げた所（重なりは 1 つに）。小さな範囲から room まで広げ、広げなかった範囲は note に控える
-        （ファイルにセルのあるマスは get で答えられるので、広げなくても読む数式は分かる）。"""
+        """範囲を実際のマスに広げた所（重なりは 1 つに）。小さな範囲から room まで広げ、広げなかった範囲は wide に範囲のまま持つ
+        （範囲の所：xlsx/places.py。ファイルにセルのあるマスは get で答えられるので、広げなくても読む数式は分かる）。"""
+        self.wide = []
         room = self.room
         spans: dict[int, list[list[int]]] = defaultdict(list)  # 列 → 行の、重ならない区間（行の順）
         work = MAX_DECLARED_CELLS * 64  # 広げるために見る列の数の上限（幅の広い違う範囲が何百万も並ぶ、壊れた書類のため）
         same = {b[:4] for b in self.boxes}  # 同じ範囲を読む数式がいくつあっても、広げるのは 1 度
         for r1, c1, r2, c2 in sorted(same, key=lambda b: (b[2] - b[0] + 1) * (b[3] - b[1] + 1)):
             area = (r2 - r1 + 1) * (c2 - c1 + 1)
-            if area > room or work < c2 - c1 + 1:
-                self.note("数式の参照", r1, c1, r2, c2)
+            if area > min(room, ONE_DECLARATION) or work < c2 - c1 + 1:
+                self.wide.append((r1, c1, r2, c2))
                 continue
             work -= c2 - c1 + 1
             grow = 0
@@ -136,12 +139,16 @@ class Readers:
                 grow += added
                 saved.append((c, merged))
             if grow > room:
-                self.note("数式の参照", r1, c1, r2, c2)
+                self.wide.append((r1, c1, r2, c2))
                 continue
             room -= grow
             for c, merged in saved:
                 spans[c] = merged
-        return [(r, c) for c, ivs in spans.items() for a, b in ivs for r in range(a, b + 1)]
+        cells = [(r, c) for c, ivs in spans.items() for a, b in ivs for r in range(a, b + 1)]
+        if self.wide:  # 範囲の所の中のマスは、範囲の所として示す（二重に出さない）
+            wide = self.wide
+            cells = [x for x in cells if not any(a <= x[0] <= b and c <= x[1] <= d for a, c, b, d in wide)]
+        return cells
 
 
 def _insert(ivs: list[list[int]], a: int, b: int) -> tuple[list[list[int]], int]:

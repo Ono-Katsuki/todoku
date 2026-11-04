@@ -89,7 +89,8 @@ class OdtDocument:
         if self.office_text is None:
             raise OdfError("文書の本文（office:text）がありません")
         self.styles = Styles(self.pkg)
-        self.unread: list[str] = []  # 読まなかった所（広げなかった繰り返し）
+        self.unread: list[str] = []  # 読まなかった所
+        self.repeats: list[str] = []  # 同じ中身の繰り返し（1 つぶんだけ窓に出している所。中身はぜんぶ読んである）
         self._repeated = 0  # 繰り返しを広げたマスの数
         self.controls: list[Control] = []
         self.pictures: list[dict] = [{"n": i + 1, "stub": True} for i in range(p_.get("pictures", 0))]  # 絵（draw:image）：説明（svg:title・svg:desc）と飾りの印。段階とは別の注意に使う
@@ -258,7 +259,7 @@ class OdtDocument:
                         cells = sum(min(int(tc.get("table:number-columns-repeated", "1") or 1), 200) for tc in ch.els()
                                     if tc.tag in (_TABLE + "table-cell", _TABLE + "covered-table-cell"))
                         if self._repeated + rep * cells > MAX_REPEATED:
-                            self.unread.append(f"同じ中身を {rep} 回繰り返す表の行は、広げすぎになるので 1 行だけ読みました")
+                            self.repeats.append(f"同じ中身を {rep} 回繰り返す表の行は、窓に 1 行だけ出しています")
                             rep = 1
                         else:
                             self._repeated += rep * cells
@@ -278,7 +279,7 @@ class OdtDocument:
                 rep = min(int(tc.get("table:number-columns-repeated", "1") or 1), 200)
                 if rep > 1:
                     if self._repeated + rep > MAX_REPEATED:
-                        self.unread.append(f"同じ中身を {rep} 回繰り返す表のマスは、広げすぎになるので 1 つだけ読みました")
+                        self.repeats.append(f"同じ中身を {rep} 回繰り返す表のマスは、窓に 1 つだけ出しています")
                         rep = 1
                     else:
                         self._repeated += rep

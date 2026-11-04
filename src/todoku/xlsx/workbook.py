@@ -19,7 +19,6 @@ from ..formula.values import ExcelError, Unsupported
 from ..limits import MAX_DECLARED_CELLS, budget
 from ..zipraw import RawZip
 
-UNREAD_NOTES = 20  # 1 枚のシートで、広げなかった範囲を 1 つずつ伝える数
 
 NS = {
     "m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
@@ -245,7 +244,8 @@ class Sheet:
     row_heights: dict[int, float] = field(default_factory=dict)
     default_row_height: float = 15.0
     col_styles: dict[int, int] = field(default_factory=dict)  # 列の既定の書式（セル要素がないセルに効く）
-    unread: list[str] = field(default_factory=list)  # 広げなかった宣言（壊れた、とても広い範囲。窓と段階で伝える）
+    unread: list[str] = field(default_factory=list)  # 読めなかった所（窓と段階で伝える）
+    array_spans: list[tuple] = field(default_factory=list)  # 広い配列数式の範囲：(r1, c1, r2, c2, 親の (行, 列))。マスは作らない
     row_styles: dict[int, int] = field(default_factory=dict)
     comments: dict[tuple[int, int], str] = field(default_factory=dict)
     shapes: list[Shape] = field(default_factory=list)
@@ -353,19 +353,12 @@ class Sheet:
         out.sort()
         return out
 
-    def note_unread(self, what: str, r1: int, c1: int, r2: int, c2: int) -> None:
-        """広げなかった宣言を控える（同じものは 1 度だけ）。"""
-        note = (f"{self.name}：{what}の範囲 {addr(r1, c1)}:{addr(r2, c2)} は広すぎるので（壊れている可能性があります）、"
-                "ファイルにあるセルだけを見ました。セルのない所は欄として広げていません"
-                "（どのセルにも番地で書けます。read_window・list_fields に sheet と rows を渡すと、頼んだ行の範囲では欄として広げます）")
-        seen = self.__dict__.setdefault("_unread_seen", set())
-        if note in seen:
-            return
-        seen.add(note)
-        if len(seen) <= UNREAD_NOTES:
-            self.unread.append(note)
-        elif len(seen) == UNREAD_NOTES + 1:  # 宣言の数だけ控えない（残りは同じ種類の範囲）
-            self.unread.append(f"{self.name}：ほかにも、広すぎる範囲の宣言があります（セルのない所は欄として広げていません）")
+    def array_span_at(self, r: int, c: int) -> tuple[int, int] | None:
+        """広い配列数式（array_spans）のマスなら、親のセル。"""
+        for r1, c1, r2, c2, m in self.array_spans:
+            if r1 <= r <= r2 and c1 <= c <= c2:
+                return m
+        return None
 
     def in_print_area(self, r: int, c: int) -> bool:
         if not self.print_ranges:
@@ -780,8 +773,9 @@ class Workbook:
                 members = [(r, c) for r in range(r1, r2 + 1) for c in range(c1, c2 + 1)]
                 made += len(members)
             else:
+                # 広い配列数式：範囲のまま持つ（マスの値は頼まれたときに計算する：Sheet.array_span_at・Calc）
                 members = sorted(sh.existing_in(r1, c1, r2, c2))
-                sh.note_unread("配列数式", r1, c1, r2, c2)
+                sh.array_spans.append((r1, c1, r2, c2, (master.row, master.col)))
             for r, c in members:
                 if (r, c) == (master.row, master.col):
                     continue

@@ -31,11 +31,11 @@
 - TODOKU_MEMORY_LIMIT_MB（物理メモリの 1/4。2048 以上）  その別のプロセスのメモリ
 - TODOKU_WINDOW_CACHE_MB（256）        窓の控え（同じ書類を開き直さない）の大きさの合計
 - TODOKU_MAX_XFA_BLANK（10000）         XFA：データのないくり返し（occur の min・initial）を作る数（1 つの書類）。超える分は作らず、窓に事実として書く
-- TODOKU_MAX_DECLARED_CELLS（262144）  表計算：ファイルの宣言（入力規則・数式の参照・配列数式の範囲・繰り返し）から、セルの要素のない所まで
-                                        広げる数（1 ブック。超える範囲は、ファイルにあるセルだけを見て、広げなかったことを伝える）
-- TODOKU_MAX_RANGE_CELLS（16777216）    表計算：数式の 1 つの範囲を計算のために開く数（.xls の 1 シートまるごと）
-- TODOKU_MAX_ARRAY_CELLS（4194304）     表計算：数式が作る 1 つの配列のマスの数（SEQUENCE・EXPAND・配列どうしの計算）。超える数式は計算しないと伝える
-- TODOKU_MAX_ARRAY_TOTAL（268435456）   表計算：1 回の計算で作る配列のマスの合計
+- TODOKU_MAX_DECLARED_CELLS（262144）  表計算：ファイルの宣言（入力規則・数式の参照・配列数式の範囲・繰り返し）から、セルの要素のない所を 1 マスずつの欄として
+                                        一度に作る数（1 ブック）。超える範囲は「範囲の所」（xlsx/places.py）として同じ事実を持つ（読めない所は作らない）
+- TODOKU_MAX_ARRAY_CELLS（4194304）     表計算：数式の範囲を計算のために一度にリストに開く数。超える範囲は、頼まれたマスだけ読む（formula/lazyarr.py）
+- TODOKU_CALC_SECONDS（TODOKU_TIME_LIMIT の 1/4）  表計算：1 回の呼び出しで、式で答えられない大きな配列の集計を読み進める秒数。
+                                        終わらなければ、進んだ所と続け方を伝える（長い仕事：jobs.py）
 """
 
 from __future__ import annotations
@@ -90,9 +90,8 @@ MAX_VBA_BYTES = _env("TODOKU_MAX_VBA_BYTES_MB", 1024, MB)
 MAX_VBA_RANGE = _env("TODOKU_MAX_VBA_RANGE", 2_000_000)  # マクロが 1 度に書く範囲のマスの数（1 列まるごと 1,048,576 は書ける）
 MAX_XFA_BLANK = _env("TODOKU_MAX_XFA_BLANK", 10_000)
 MAX_DECLARED_CELLS = _env("TODOKU_MAX_DECLARED_CELLS", 262_144)
-MAX_RANGE_CELLS = _env("TODOKU_MAX_RANGE_CELLS", 16_777_216)
 MAX_ARRAY_CELLS = _env("TODOKU_MAX_ARRAY_CELLS", 4_194_304)
-MAX_ARRAY_TOTAL = _env("TODOKU_MAX_ARRAY_TOTAL", 268_435_456)
+CALC_SECONDS = _env("TODOKU_CALC_SECONDS", TIME_LIMIT / 4)
 
 STOPPED = "この書類は大きすぎるか、壊れているため止めました"
 
@@ -123,6 +122,7 @@ class Budget:
         self.items_total = items
         self.items_cap = MAX_ITEMS if items is None else items
         self.items = 0
+        self.calc_left: float = CALC_SECONDS  # 大きな配列の集計に使ってよい秒数の残り（長い仕事は無限）
 
     def allow_file(self, size: int) -> None:
         """大きなファイル：合計の上限を、ファイルの大きさに見合うだけ広げる（小さなファイルの爆弾は、いままでの上限で止まる）。"""
@@ -179,6 +179,14 @@ class Budget:
     def ops_exceeded(self) -> LimitExceeded:
         return LimitExceeded(f"PDF の描画の字句（数・名前・命令）が、1 回の呼び出しで {self.ops_total:,} 個を超えます"
                              "（部品が部品を何度も描くなど）", True)
+
+
+def scan_seconds(b: Budget) -> float:
+    return max(0.0, b.calc_left)
+
+
+def spend_scan(b: Budget, seconds: float) -> None:
+    b.calc_left -= seconds
 
 
 _CURRENT: contextvars.ContextVar[Budget | None] = contextvars.ContextVar("todoku_budget", default=None)

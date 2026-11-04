@@ -56,6 +56,27 @@ class RowEl:
     cells: list[CellEl] = field(default_factory=list)
 
 
+class _Sink(dict):
+    """読むときに作るマスの入力規則の控え：残さない。"""
+
+    def __missing__(self, key):
+        return {"cells": []}
+
+
+@dataclass
+class RepeatRange:
+    """同じ中身の行・列の繰り返しのうち、1 マスずつ作らない範囲（範囲の所。マスの値は読むときに作る）。"""
+
+    r1: int
+    c1: int
+    r2: int
+    c2: int
+    cols: list
+    dcs: object
+    col_style: dict
+    content: bool  # 中身がある（ないときは、枠・塗りなどの書式だけ）
+
+
 def para_text(el: El, data: bytes) -> str:
     """セルの中の段落（text:p）の字：ODF の空白の決まり（6.1.2）で作る。"""
     atoms: list = []
@@ -201,8 +222,7 @@ class OdsWorkbook:
         self.odf_formula: dict[tuple[str, int, int], str] = {}  # 元の数式（OpenFormula）
         self.value_type: dict[tuple[str, int, int], str] = {}  # office:value-type
         self.rows: dict[str, list[RowEl]] = {}  # シート → 行の要素（書き込みで使う）
-        self.unexpanded: list[str] = []  # 広げなかった、字のある繰り返し
-        self._repeated = 0  # 読んだセルの数（繰り返しを広げてよいのは、ブックで MAX_DECLARED_CELLS まで）
+        self._repeated = 0  # 1 マスずつ作ったセルの数（繰り返しを 1 マスずつ作るのは、ブックで MAX_DECLARED_CELLS まで。残りは範囲のまま：RepeatRange）
         self.null_date = dt.date(1899, 12, 30)
         cs = self.book.find("table:calculation-settings")
         if cs is not None:
@@ -410,15 +430,14 @@ class OdsWorkbook:
                     styled = styled or bool(s_.borders or s_.fill_color or not s_.locked)
             expand = n if (n <= BIG or meaningful or (styled and n <= 2000)) else 0
             if styled and not meaningful and n > 2000:
-                # 枠・塗り・保護の解除のある、中身のない行の長い繰り返し：広げない（窓の大きさを抑える）。広げなかったことは伝える
-                self.unexpanded.append(f"{name}：{r}行目から {n:,} 行（枠・塗りなどの書式だけの、中身のない行の繰り返し。"
-                                       "空の欄の候補として広げていません）")
+                # 枠・塗り・保護の解除のある、中身のない行の長い繰り返し：1 行ずつ作らず、範囲の所にする（窓の大きさを抑える）
+                self._repeat_range(sh, r, min(r + n - 1, 1048576), rec, dcs, col_style, content=False)
             if meaningful and n > 10000:
-                self.unexpanded.append(f"{name}：{r}行目から {n:,} 行（同じ中身を繰り返す行。最初の 10,000 行だけ読みました）")
                 expand = 10000
-            for k in range(min(expand, 1048577 - r)):  # シートの下端（1,048,576 行）より外は持たない
+            stop = min(expand, 1048577 - r)  # シートの下端（1,048,576 行）より外は持たない
+            for k in range(stop):
                 if k and self._repeated >= MAX_DECLARED_CELLS:
-                    self.unexpanded.append(f"{name}：{r}行目から {n:,} 行（同じ中身を繰り返す行。最初の {k:,} 行だけ読みました）")
+                    stop = k
                     break
                 rr = r + k
                 if hidden:
@@ -429,10 +448,15 @@ class OdsWorkbook:
                     sh.row_styles[rr] = self.style_index(dcs)
                 for cel in rec.cells:
                     self._cells(sh, cel, rr, dcs, col_style, validations, meaningful)
+            if meaningful and stop < n and r + stop <= 1048576:  # 同じ中身の残りの行：範囲のまま（マスの値は読むときに作る）
+                self._repeat_range(sh, r + stop, min(r + n - 1, 1048576), rec, dcs, col_style, content=True)
             r += n
         self.rows[name] = rows
         sh.max_row = max((rr for rr, _c in sh.cells), default=0)
         sh.max_col = max((cc for _r, cc in sh.cells), default=0)
+        for rg in sh.__dict__.get("repeat_ranges") or ():
+            if rg.content:
+                sh.max_row, sh.max_col = max(sh.max_row, rg.r2), max(sh.max_col, rg.c2)
         for d in validations.values():
             cells = [x for x in d["cells"] if x[0] == name]
             if cells:
@@ -445,6 +469,41 @@ class OdsWorkbook:
                 self._shape(sh, s, None)
         self._header_footer(sh, t)
 
+    def _repeat_range(self, sh: Sheet, r1: int, r2: int, rec: RowEl, dcs, col_style: dict, content: bool) -> None:
+        """同じ中身の行の繰り返しを、1 行ずつ作らず、範囲のまま持つ。"""
+        cols = [ce for ce in rec.cells if (_has_content(ce.el) or ce.el.get("table:style-name")) and ce.c0 <= 16384]
+        if not cols:
+            return
+        c2 = min(16384, max(ce.c0 + ce.n - 1 for ce in cols))
+        rng = RepeatRange(r1, min(ce.c0 for ce in cols), r2, c2, cols, dcs, col_style, content)
+        self._add_repeat(sh, rng)
+
+    def _repeat_cols(self, sh: Sheet, r: int, cel: CellEl, made: int, dcs, col_style: dict) -> None:
+        one = CellEl(cel.el, cel.c0 + made, cel.n - made, cel.covered)
+        self._add_repeat(sh, RepeatRange(r, one.c0, r, min(16384, one.c0 + one.n - 1), [one], dcs, col_style, True))
+
+    def _add_repeat(self, sh: Sheet, rng: "RepeatRange") -> None:
+        got = sh.__dict__.setdefault("repeat_ranges", [])
+        got.append(rng)
+        if "virtual_cell" not in sh.__dict__:
+            sh.__dict__["virtual_cell"] = lambda r, c: self._virtual_cell(sh, r, c)
+
+    def _virtual_cell(self, sh: Sheet, r: int, c: int, keep: bool = False):
+        """繰り返しの範囲の中のマスの値：読むときに作る（作ったマスは持たない）。"""
+        for rg in sh.__dict__.get("repeat_ranges") or ():
+            if rg.content and rg.r1 <= r <= rg.r2 and rg.c1 <= c <= rg.c2:
+                for ce in rg.cols:
+                    if ce.c0 <= c < ce.c0 + ce.n and _has_content(ce.el):
+                        tmp = Sheet(name=sh.name, path=sh.path)
+                        key = (sh.name, r, c)
+                        self._cell(tmp, ce.el, r, c, ce.el.get("table:style-name") or rg.dcs or rg.col_style.get(c), _Sink(), ce.covered)
+                        if not keep:
+                            self.shown.pop(key, None)
+                            self.odf_formula.pop(key, None)
+                            self.value_type.pop(key, None)
+                        return tmp.cells.get((r, c))
+        return None
+
     def _cells(self, sh: Sheet, cel: CellEl, r: int, row_dcs: str | None, col_style: dict, validations: dict,
                meaningful_row: bool) -> None:
         el = cel.el
@@ -453,12 +512,10 @@ class OdsWorkbook:
         n = cel.n
         if not content and n > BIG:
             return  # 広い範囲の、字のない書式だけのセル（行の終わりまでの塗りなど）は広げない
-        if content and n > 1024:
-            self.unexpanded.append(f"{sh.name}：{r}行目の {cel.c0} 列目から {n:,} 列（同じ中身。最初の 1,024 列だけ読みました）")
-            n = 1024
-        for k in range(n):
+        made = min(n, 1024) if content else n
+        for k in range(made):
             if k and self._repeated >= MAX_DECLARED_CELLS:
-                self.unexpanded.append(f"{sh.name}：{r}行目の {cel.c0} 列目から {n:,} 列（同じ中身。最初の {k:,} 列だけ読みました）")
+                made = k
                 break
             c = cel.c0 + k
             style = sname or row_dcs or col_style.get(c)
@@ -466,6 +523,8 @@ class OdsWorkbook:
                 continue  # 書式も中身もないセル（列・行の書式は、Sheet.style_of が使う）
             self._cell(sh, el, r, c, style, validations, cel.covered)
             self._repeated += 1
+        if content and made < n and cel.c0 + made <= 16384:  # 同じ中身の残りの列：範囲のまま
+            self._repeat_cols(sh, r, cel, made, row_dcs, col_style)
 
     def _cell(self, sh: Sheet, el: El, r: int, c: int, style: str | None, validations: dict, covered: bool) -> None:
         key = (sh.name, r, c)

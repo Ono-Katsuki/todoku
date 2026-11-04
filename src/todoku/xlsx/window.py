@@ -23,6 +23,7 @@ from ..formula.numfmt import format_value, is_date_format
 from ..formula.parser import NameNode, RefNode, addr, iter_refs, parse_cell
 from ..formula.values import ExcelError, Unsupported, is_number, to_text
 from ..limits import MAX_DECLARED_CELLS
+from .places import ONE_DECLARATION, Declared, markdown as places_markdown, place_docs
 from .readers import Readers
 from .workbook import Cell, Control, Sheet, Workbook
 
@@ -178,7 +179,7 @@ def reason_codes(reasons) -> list[str]:
 
 
 def _declared_room(wb: Workbook) -> int:
-    """1 枚のシートで、ファイルの宣言（入力規則・数式の参照）をセルの要素のない所まで広げてよい数。"""
+    """1 枚のシートで、ファイルの宣言（入力規則・数式の参照）を 1 マスずつの欄として作る数。超える宣言は範囲の所（xlsx/places.py）。"""
     return MAX_DECLARED_CELLS // max(len(wb.sheets), 1)
 
 
@@ -208,6 +209,7 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
                 add(m[0], m[1], "シート保護の中で編集できるセル")
     lim_r, lim_c = _used_limits(sh, wb)
     room = _declared_room(wb)
+    wide: list = []  # 1 マスずつにしない入力規則（範囲の所）
     for v in sh.validations:
         for r1, c1, r2, c2 in v.sqref:
             # 列全体などの広い範囲は、使っている範囲と印刷範囲（ファイルの作り）までに切る。切った外のセルは、
@@ -215,19 +217,20 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
             r2, c2 = min(r2, lim_r), min(c2, lim_c)
             if r2 < r1 or c2 < c1:
                 continue
-            if (r2 - r1 + 1) * (c2 - c1 + 1) <= room - len(out):
+            if (r2 - r1 + 1) * (c2 - c1 + 1) <= min(ONE_DECLARATION, room - len(out)):
                 for r in range(r1, r2 + 1):
                     for c in range(c1, c2 + 1):
                         add(r, c, "入力規則があるセル")
                 continue
-            # 範囲の宣言が壊れて（またははるか遠くのセル・結合のために）広い：ファイルにあるマスだけを見る。メモリは宣言の広さによらない
-            sh.note_unread("入力規則", r1, c1, r2, c2)
+            # 広い範囲：ファイルにあるマスは 1 つずつ。要素のない所は範囲のまま持つ（範囲の所。メモリは宣言の広さによらない）
+            wide.append(Declared(r1, c1, r2, c2, "validation", v))
             for r, c in sh.existing_in(r1, c1, r2, c2):
                 add(r, c, "入力規則があるセル")
     # 保護も入力規則もない様式の、枠で囲まれた空欄・色の付いた空欄は、ここでは入力欄にしない（ファイルが入力欄と宣言していない）。
     # 罫線の辺・塗り・大きさ・近くの字とその離れ方を事実（evidence）として添えて、「？」の所（Layout.agent：blank_box）として示す。
     # 数式が参照している定数・空白のセルも、ここでは入力欄にしない（数式が読むことは、ファイルの入力欄の宣言ではない）。
     # どの数式が読むか（formula_readers）を事実（referenced_by）として添え、空のセルは「？」の所（formula_ref）として示す
+    sh.__dict__["_wide_inputs"] = wide
     return out
 
 
@@ -245,7 +248,7 @@ def formula_readers(wb: Workbook, sh: Sheet) -> Readers:
     lim_r, lim_c = _used_limits(sh, wb)
     me = sh.name.lower()
     # 広げてよい数：ファイルに要素のないマスの分（要素のあるマスは、広げてもメモリは増えない）
-    out = Readers(READERS_MAX, _declared_room(wb) + len(sh.cells) + len(sh.merges), sh.note_unread)
+    out = Readers(READERS_MAX, _declared_room(wb) + len(sh.cells) + len(sh.merges))
 
     def boxes(ast, here: str, dr: int, dc: int, depth: int = 0):
         for ref in iter_refs(ast):
@@ -988,8 +991,7 @@ def _detect_tables(wb: Workbook, sh: Sheet, rows: dict[int, list[Anchor]]) -> li
         first, last = t.r1 + t.header_rows, t.r2 - t.totals_rows
         columns = range(t.c1, t.c2 + 1)
         if (last - first + 1) * len(columns) > _declared_room(wb):
-            # 宣言された範囲が広すぎる（壊れた宣言）：ファイルにある行と、見出しのある列だけを見る
-            sh.note_unread("テーブル", t.r1, t.c1, t.r2, t.c2)
+            # 広いテーブル：ファイルにある行と、見出しのある列を 1 マスずつ見る。空の所は範囲の所（xlsx/places.py）
             have = sh.existing_in(first, t.c1, last, t.c2)
             body = sorted({r for r, _c in have})
             columns = sorted({c for _r, c in have} | set(c for c in columns if heads.get(c))) if len(columns) > 1024 else columns
@@ -1203,6 +1205,7 @@ class Layout:
         self.looks = Looks(wb, calc)
         self.hidden_by_format: list[tuple[int, int]] = []
         self.inputs = input_cells(wb, sh)
+        self.wide_inputs = sh.__dict__.get("_wide_inputs") or []  # 範囲の所にする入力規則
         self.readers = formula_readers(wb, sh)  # セル → それを読む数式（事実。欄の宣言ではない）
         self.links = {}
         for s in wb.sheets:
@@ -1226,6 +1229,7 @@ class Layout:
         # 見出しを決める配置（rows）には入れず、読み順に「非表示」の印をつけて出す
         self.hidden_boxes: dict[int, list[Box]] = {}
         shown_sheet = sh.state not in ("hidden", "veryHidden")  # 非表示のシート（選択肢の元の表など）は、記入する所ではない
+        self.shown_sheet = shown_sheet
         for r, items in anchors(sh).items():
             for a in items:
                 if sh.is_hidden(a.r, a.c1):
@@ -2504,6 +2508,7 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
             item["note"] = sh.comments[(r, c)]
         cells.append(item)
     fields = _with_codes(fields_for(wb, sh, lay, opts))
+    places = place_docs(wb, sh, lay, opts)  # 1 マスずつにしない広い宣言（範囲の所）
     # 規則では入力欄と決められない空のマス（fields にも agent として入れてある）：番地・根拠・推定した見出しの一覧
     undecided = [{"cell": f["cell"], "column": f.get("label") or "", "decide": "agent", "provenance": AGENT,
                   "why": f["why"], "why_key": f["why_key"], "evidence": f["evidence"], "reason": f["why"]}
@@ -2544,6 +2549,7 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
                     **({"decorative": True} if getattr(s, "decorative", False) else {})} for s in sh.shapes],
         "notes": [{"cell": addr(*k), "text": t, "provenance": DET} for k, t in sorted(sh.comments.items())],
         "tables": _tables(wb, sh),
+        **({"range_places": places} if places else {}),
     }
 
 
@@ -2785,6 +2791,7 @@ def _md_sheet(sh: dict) -> list[str]:
     if extra:
         cells = [f["cell"] for f in extra if f.get("cell")]
         out += [f"- 見出しの見つからない編集できるセル {len(extra)} か所（空欄のままでよい補助のセルのことが多い）: " + _compact(cells), ""]
+    out += places_markdown(sh.get("range_places") or [])
     out += ["### 読み順（上から）", ""] + _md_reading(sh)
     out.append("")
     notes = sh.get("notes", [])

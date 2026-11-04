@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from ..formula.evaluator import Evaluator
 from ..formula.parser import Node, addr, iter_funcs, iter_refs
-from ..formula.values import Arr, ExcelError, Rng, Unsupported, is_number, to_15
+from ..formula.values import Arr, ExcelError, Rng, Unfinished, Unsupported, is_number, to_15
 from .workbook import Cell, Workbook
 
 
@@ -52,9 +52,10 @@ class Calc:
 
     overrides に値を入れると、そのセルの値を差し替えて再計算する（記入のシミュレーション）。
     再計算できない数式のセルは、保存されている値を使って計算を続ける。
+    scan_store：大きな配列の集計の控え（formula/lazyarr.ScanStore。長い仕事が続きから計算する）。
     """
 
-    def __init__(self, wb: Workbook, overrides: dict[tuple[str, int, int], object] | None = None):
+    def __init__(self, wb: Workbook, overrides: dict[tuple[str, int, int], object] | None = None, scan_store=None):
         self.wb = wb
         self.date1904 = wb.date1904
         self.overrides = overrides or {}
@@ -65,6 +66,10 @@ class Calc:
         self._frames: list[bool] = []  # 計算中のセルごとに「計算のたびに変わる値に依存したか」
         self._sheets = {s.name: s for s in wb.sheets}
         self._sheets_lower = {s.name.lower(): s for s in wb.sheets}
+        self.scan_store = scan_store  # 大きな配列の集計の控え
+        self.scan_seq: dict = {}  # 数式のセルごとの、集計の順の番号（呼び直しても同じ控えに当たるように）
+        self.calc_notes: dict = {}  # 計算の結果についての注（式で答えた和など）
+        self.unfinished: dict = {}  # 時間の中で終わらなかった集計：数式のセル → Unfinished
 
     # ------------------------------------------------------------ Context
     def _ext(self, sheet: str):
@@ -150,6 +155,19 @@ class Calc:
             return err(REF)
         return Rng(t.sheet, r1, c1, r2, c2)
 
+    def cells_in(self, sheet: str, r1: int, c1: int, r2: int, c2: int):
+        """範囲の中の、ファイルに要素のあるセルと差し替えたセル（行の順）。広い範囲を空のマスまで読まないため。読めないときは None。"""
+        if self._ext(sheet) is not None:
+            return None
+        sh = self._sheet(sheet)
+        if not hasattr(sh, "existing_in") or getattr(sh, "array_spans", None) or getattr(sh, "virtual_cell", None) is not None:
+            return None
+        have = set(sh.existing_in(r1, c1, r2, c2))
+        for (s, r, c) in self.overrides:
+            if s == sh.name and r1 <= r <= r2 and c1 <= c <= c2:
+                have.add((r, c))
+        return sorted(have)
+
     def cell_value(self, sheet: str, r: int, c: int):
         ext = self._ext(sheet)
         if ext is not None:
@@ -160,7 +178,13 @@ class Calc:
             return self.overrides[key]
         cell = sh.cells.get((r, c))
         if cell is None:
-            return None
+            spans = getattr(sh, "array_spans", None)
+            if spans:
+                return self._span_value(sh, r, c)  # 広い配列数式のマス：マスを作らず、頼まれたマスだけ
+            virtual = getattr(sh, "virtual_cell", None)
+            cell = virtual(r, c) if virtual is not None else None
+            if cell is None:
+                return None
         if not cell.has_formula:
             return cell.value
         v = self.memo[key] if key in self.memo else self._compute(cell, key)
@@ -195,7 +219,7 @@ class Calc:
             tainted = self._frames[-1]
             if isinstance(v, Arr):
                 self.memo[("__arr__", cell.sheet, cell.row, cell.col)] = v
-                v = v.data[0][0] if v.data and v.data[0] else ExcelError("#VALUE!")
+                v = v.at(0, 0) if v.rows and v.cols else ExcelError("#VALUE!")
             if isinstance(v, Rng):
                 v = ev.intersect(v)
             if v is None:
@@ -206,6 +230,10 @@ class Calc:
                 self.status[key] = ("volatile", "計算のたびに値が変わる関数（TODAY など）の結果を使っている")
             else:
                 self.status[key] = ("ok", "")
+        except Unfinished as e:
+            v = cell.value
+            self.status[key] = ("unsupported", str(e))
+            self.unfinished[key] = e
         except Unsupported as e:
             v = cell.value
             self.status[key] = ("unsupported", str(e))
@@ -221,6 +249,17 @@ class Calc:
         self.memo[key] = v
         return v
 
+    def _span_value(self, sh, r: int, c: int):
+        m = sh.array_span_at(r, c)
+        if m is None:
+            return None
+        master = sh.cells[m]
+        self.cell_value(sh.name, *m)
+        st = self.status.get((sh.name, *m), ("ok", ""))
+        if st[0] not in ("ok", "volatile"):
+            return None
+        return self._array_pick(master, Cell(sh.name, r, c))
+
     def _array_pick(self, master: Cell, cell: Cell):
         arr = self.memo.get(("__arr__", master.sheet, master.row, master.col))
         if not isinstance(arr, Arr):
@@ -231,7 +270,7 @@ class Calc:
         if arr.cols == 1:
             j = 0
         if i < arr.rows and j < arr.cols:
-            v = arr.data[i][j]
+            v = arr.at(i, j)
             return 0.0 if v is None else v
         return ExcelError("#N/A")
 

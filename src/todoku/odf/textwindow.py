@@ -21,6 +21,8 @@ def build(doc: OdtDocument) -> dict:
     win["kind"] = "fodt" if doc.pkg.flat else "odt"
     if doc.unread:
         win["unread"] = list(dict.fromkeys(doc.unread))
+    if doc.repeats:
+        win["repeats"] = list(dict.fromkeys(doc.repeats))
     win["kind_ja"] = "OpenDocument の文書（.fodt・1つの XML）" if doc.pkg.flat else "OpenDocument の文書（.odt）"
     win["source"]["note"] = "元のファイルが正本。書き込みは、書いた欄の部分だけを変える差分として適用する（ほかの部品はバイトのまま）。"
     win["notation"]["［P12.c5］"] += "（段落は、表のマスの段落も数える）"

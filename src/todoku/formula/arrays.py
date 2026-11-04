@@ -6,11 +6,13 @@ Microsoft の関数の説明（support.microsoft.com）の規則どおりに計�
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections import Counter
 from functools import cmp_to_key
 
 from .functions import EAGER, LAZY, S, _same_kind, _wild, fn, num
-from .values import NA, VALUE, Arr, ExcelError, Rng, array_room, compare, err, is_number, round_half_up, to_15, to_bool, to_number
+from .lazyarr import LazyArr, Poly, make, tick, want_lazy
+from .values import NA, VALUE, Arr, ExcelError, Rng, array_room, compare, err, is_big, is_number, round_half_up, to_15, to_bool, to_number, to_text
 
 CALC = "#CALC!"  # 空の配列（FILTER で何も残らないなど）
 
@@ -70,13 +72,32 @@ def f_sequence(ev, rows, cols=None, start=None, step=None):
     if r == 0 or c == 0:
         raise err(CALC)
     array_room(ev, r, c)
-    return Arr([[to_15(s + (i * c + j) * st) for j in range(c)] for i in range(r)])
+    poly = _sequence_poly(s, st, r, c)
+    if is_big(r, c):
+        return make(ev, r, c, lambda i, j: to_15(s + (i * c + j) * st), poly)
+    out = Arr([[to_15(s + (i * c + j) * st) for j in range(c)] for i in range(r)])
+    out.poly = poly
+    return out
+
+
+def _sequence_poly(s: float, st: float, r: int, c: int):
+    """SEQUENCE の値の多項式。マスの値は 15 桁に丸めるので、十進で 15 桁に入るときだけ。"""
+    from fractions import Fraction
+
+    a, d = Fraction(f"{s:.15g}"), Fraction(f"{st:.15g}")
+    if float(a) != s or float(d) != st or max(a.denominator, d.denominator) > 1 << 40:
+        return None
+    if (abs(a) + abs(d) * r * c) * max(a.denominator, d.denominator) >= 10 ** 15:
+        return None
+    return Poly.linear(a, d * c, d)
 
 
 @fn("FILTER")
 def f_filter(ev, array, include, if_empty=None):
     a = _grid(ev, array)
     inc = ev.grid(include)
+    if want_lazy(a, inc):
+        return _filter_big(ev, a, inc, if_empty)
     if inc.cols == 1 and inc.rows == a.rows:
         keep = [a.data[i] for i in range(a.rows) if _truthy(inc.data[i][0])]
         if keep:
@@ -90,6 +111,73 @@ def f_filter(ev, array, include, if_empty=None):
     if if_empty is None:
         raise err(CALC)
     return if_empty if isinstance(if_empty, (Arr, Rng)) else if_empty
+
+
+def _pick_rows(ev, a: Arr, rows: list[int]) -> Arr:
+    """行を選んだ配列（並べ替えも）：選んだ番号だけを持つ。"""
+    w = a.cols
+    if is_big(len(rows), w):
+        return make(ev, len(rows), w, lambda i, j: a.at(rows[i], j))
+    return Arr([[a.at(i, j) for j in range(w)] for i in rows])
+
+
+def _pick_cols(ev, a: Arr, cols: list[int]) -> Arr:
+    if is_big(a.rows, len(cols)):
+        return make(ev, a.rows, len(cols), lambda i, j: a.at(i, cols[j]))
+    return Arr([[a.at(i, j) for j in cols] for i in range(a.rows)])
+
+
+def _filter_big(ev, a: Arr, inc: Arr, if_empty):
+    t0: list = []
+    if inc.cols == 1 and inc.rows == a.rows:
+        keep = []
+        for i in range(a.rows):
+            if not i % 4096:
+                tick("FILTER", i, a.rows, t0)
+            if _truthy(inc.at(i, 0)):
+                keep.append(i)
+        if keep:
+            return _pick_rows(ev, a, keep)
+    elif inc.rows == 1 and inc.cols == a.cols:
+        keep = [j for j in range(a.cols) if _truthy(inc.at(0, j))]
+        if keep:
+            return _pick_cols(ev, a, keep)
+    else:
+        raise err(VALUE)
+    if if_empty is None:
+        raise err(CALC)
+    return if_empty
+
+
+def _digest(values) -> bytes:
+    import hashlib
+
+    h = hashlib.blake2b(digest_size=16)
+    for x in values:
+        h.update(repr(_ukey(x)).encode("utf-8", "surrogatepass"))
+        h.update(b"\0")
+    return h.digest()
+
+
+def _unique_big(ev, a: Arr, bc: bool, once: bool) -> Arr:
+    """行（か列）の全部を持たず、行ごとの指紋で比べる（行の数まで）。"""
+    n, w = (a.cols, a.rows) if bc else (a.rows, a.cols)
+    at = (lambda i, j: a.at(j, i)) if bc else a.at
+    count: dict[bytes, int] = {}
+    first: list[tuple[int, bytes]] = []
+    t0: list = []
+    for i in range(n):
+        if not i % 256:
+            tick("UNIQUE", i * w, n * w, t0)
+        k = _digest(at(i, j) for j in range(w))
+        if k not in count:
+            count[k] = 0
+            first.append((i, k))
+        count[k] += 1
+    keep = [i for i, k in first if not once or count[k] == 1]
+    if not keep:
+        raise err(CALC)
+    return _pick_cols(ev, a, keep) if bc else _pick_rows(ev, a, keep)
 
 
 def _ukey(x):
@@ -110,6 +198,8 @@ def f_unique(ev, array, by_col=None, exactly_once=None):
     a = _grid(ev, array)
     bc = _flag(ev, by_col)
     once = _flag(ev, exactly_once)
+    if want_lazy(a):
+        return _unique_big(ev, a, bc, once)
     items = _transpose(a.data) if bc else [list(r) for r in a.data]
     keys = [tuple(_ukey(x) for x in it) for it in items]
     count = Counter(keys)
@@ -170,6 +260,8 @@ def _sort_rows(rows: list[list], keys: list[tuple[list, int]]) -> list[list]:
 def f_sort(ev, array, sort_index=None, sort_order=None, by_col=None):
     a = _grid(ev, array)
     bc = _flag(ev, by_col)
+    if want_lazy(a):
+        return _sort_big(ev, a, bc, sort_index, sort_order)
     rows = _transpose(a.data) if bc else [list(r) for r in a.data]
     width = len(rows[0]) if rows else 0
     idxs = [int(to_number(x)) for x in ev.values(sort_index)] if sort_index is not None else [1]
@@ -180,6 +272,24 @@ def f_sort(ev, array, sort_index=None, sort_order=None, by_col=None):
         raise err(VALUE)
     out = _sort_rows(rows, [([r[i - 1] for r in rows], o) for i, o in zip(idxs, orders)])
     return Arr(_transpose(out) if bc else out)
+
+
+def _sort_big(ev, a: Arr, bc: bool, sort_index, sort_order) -> Arr:
+    """並べ替えの鍵の列だけを持ち、行は番号で並べる。"""
+    n, width = (a.cols, a.rows) if bc else (a.rows, a.cols)
+    idxs = [int(to_number(x)) for x in ev.values(sort_index)] if sort_index is not None else [1]
+    orders = [int(to_number(x)) for x in ev.values(sort_order)] if sort_order is not None else [1]
+    if len(orders) == 1 and len(idxs) > 1:
+        orders = orders * len(idxs)
+    if len(orders) != len(idxs) or any(i < 1 or i > width for i in idxs) or any(o not in (1, -1) for o in orders):
+        raise err(VALUE)
+    keys = []
+    t0: list = []
+    for k, (i, o) in enumerate(zip(idxs, orders)):
+        tick("SORT", k, len(idxs), t0)
+        keys.append(([a.at(x, i - 1) if not bc else a.at(i - 1, x) for x in range(n)], o))
+    order = _sort_rows(list(range(n)), keys)
+    return _pick_cols(ev, a, order) if bc else _pick_rows(ev, a, order)
 
 
 @fn("SORTBY")
@@ -196,6 +306,15 @@ def f_sortby(ev, array, *args):
         pairs.append((by, order))
     by_col = all(by.rows == 1 and by.cols == a.cols and a.cols > 1 for by, _o in pairs) and not \
         all(by.cols == 1 and by.rows == a.rows for by, _o in pairs)
+    if want_lazy(a):
+        n = a.cols if by_col else a.rows
+        keys = []
+        for by, order in pairs:
+            if (by_col and by.rows != 1) or (not by_col and by.cols != 1) or by.rows * by.cols != n:
+                raise err(VALUE)
+            keys.append(([by.at(0, k) if by_col else by.at(k, 0) for k in range(n)], order))
+        perm = _sort_rows(list(range(n)), keys)
+        return _pick_cols(ev, a, perm) if by_col else _pick_rows(ev, a, perm)
     rows = _transpose(a.data) if by_col else [list(r) for r in a.data]
     keys = []
     for by, order in pairs:
@@ -220,19 +339,69 @@ def _flatten(ev, array, ignore, scan_by_col) -> list:
     return out
 
 
+def _flat_positions(ev, a: Arr, ig: int, by_col: bool, room: int):
+    """平らにしたときの読み方：(個数, k → 値)。ignore のあるときは、残すマスの番号を持つ（シートに入る数まで）。"""
+    n = a.rows * a.cols
+    if by_col:
+        h = a.rows
+        at = lambda k: a.at(k % h, k // h)  # noqa: E731
+    else:
+        w = a.cols
+        at = lambda k: a.at(k // w, k % w)  # noqa: E731
+    if not ig:
+        if n > room:
+            raise err("#NUM!")
+        return n, at
+    keep = []
+    t0: list = []
+    for k in range(n):
+        if not k % 4096:
+            tick("TOCOL", k, n, t0)
+        x = at(k)
+        if not ((ig in (1, 3) and x is None) or (ig in (2, 3) and isinstance(x, ExcelError))):
+            keep.append(k)
+            if len(keep) > room:
+                raise err("#NUM!")
+    if not keep:
+        raise err(CALC)
+    return len(keep), lambda k: at(keep[k])
+
+
+def _flatten_big(ev, array, ignore, scan_by_col, room: int):
+    a = _grid(ev, array)
+    ig = _int(ev, ignore, 0)
+    if ig not in (0, 1, 2, 3):
+        raise err(VALUE)
+    return a, ig, _flat_positions(ev, a, ig, _flag(ev, scan_by_col), room)
+
+
+def _is_lazy_arg(ev, v) -> bool:
+    return isinstance(v, LazyArr) or (isinstance(v, Rng) and isinstance(ev.grid(v), LazyArr))
+
+
 @fn("TOCOL")
 def f_tocol(ev, array, ignore=None, scan_by_col=None):
+    if _is_lazy_arg(ev, array):
+        a, ig, (n, at) = _flatten_big(ev, array, ignore, scan_by_col, 1048576)
+        return make(ev, n, 1, lambda i, _j: at(i), None, None if ig else [("arr", a)])
     return Arr([[x] for x in _flatten(ev, array, ignore, scan_by_col)])
 
 
 @fn("TOROW")
 def f_torow(ev, array, ignore=None, scan_by_col=None):
+    if _is_lazy_arg(ev, array):
+        a, ig, (n, at) = _flatten_big(ev, array, ignore, scan_by_col, 16384)
+        return make(ev, 1, n, lambda _i, j: at(j), None, None if ig else [("arr", a)])
     return Arr([_flatten(ev, array, ignore, scan_by_col)])
 
 
 @fn("TRANSPOSE")
 def f_transpose(ev, array):
-    return Arr(_transpose(_grid(ev, array).data))
+    g = _grid(ev, array)
+    if want_lazy(g):
+        array_room(ev, g.cols, g.rows)
+        return make(ev, g.cols, g.rows, lambda i, j: g.at(j, i), g.poly.swapped() if g.poly is not None else None, [("arr", g)] if g.poly is None else None)
+    return Arr(_transpose(g.data))
 
 
 @fn("VSTACK")
@@ -240,6 +409,20 @@ def f_vstack(ev, *arrays):
     gs = [_grid(ev, a) for a in arrays]
     width = max(g.cols for g in gs)
     array_room(ev, sum(g.rows for g in gs), width)
+    if is_big(sum(g.rows for g in gs), width):
+        starts = []
+        at = 0
+        for g in gs:
+            starts.append(at)
+            at += g.rows
+        na = err(NA)
+
+        def cell(i, j):
+            k = bisect_right(starts, i) - 1
+            g = gs[k]
+            return g.at(i - starts[k], j) if j < g.cols else na
+
+        return make(ev, at, width, cell, None, [("arr", g) for g in gs] + [("const", na, sum(g.rows * (width - g.cols) for g in gs))])
     out = []
     for g in gs:
         for row in g.data:
@@ -252,6 +435,20 @@ def f_hstack(ev, *arrays):
     gs = [_grid(ev, a) for a in arrays]
     height = max(g.rows for g in gs)
     array_room(ev, height, sum(g.cols for g in gs))
+    if is_big(height, sum(g.cols for g in gs)):
+        starts = []
+        at = 0
+        for g in gs:
+            starts.append(at)
+            at += g.cols
+        na = err(NA)
+
+        def cell(i, j):
+            k = bisect_right(starts, j) - 1
+            g = gs[k]
+            return g.at(i, j - starts[k]) if i < g.rows else na
+
+        return make(ev, height, at, cell, None, [("arr", g) for g in gs] + [("const", na, sum((height - g.rows) * g.cols for g in gs))])
     out = [[] for _ in range(height)]
     for g in gs:
         for i in range(height):
@@ -272,6 +469,8 @@ def f_choosecols(ev, array, *nums):
         raise err(VALUE)
     cols = [_pick_index(int(to_number(x)), a.cols) for n_ in nums for x in ev.values(n_)]
     array_room(ev, a.rows, len(cols))
+    if want_lazy(a, (a.rows, len(cols))):
+        return _pick_cols(ev, a, cols)
     return Arr([[row[j] for j in cols] for row in a.data])
 
 
@@ -282,6 +481,8 @@ def f_chooserows(ev, array, *nums):
         raise err(VALUE)
     rows = [_pick_index(int(to_number(x)), a.rows) for n_ in nums for x in ev.values(n_)]
     array_room(ev, len(rows), a.cols)
+    if want_lazy(a, (len(rows), a.cols)):
+        return _pick_rows(ev, a, rows)
     return Arr([list(a.data[i]) for i in rows])
 
 
@@ -309,6 +510,10 @@ def _take_drop(ev, array, rows, cols, drop: bool):
     cc = _take_range(c, a.cols, drop)
     if len(rr) == 0 or len(cc) == 0:
         raise err(CALC)
+    if is_big(len(rr), len(cc)):
+        i0, j0 = rr.start, cc.start
+        poly = a.poly.substitute(i0, j0) if a.poly is not None else None
+        return make(ev, len(rr), len(cc), lambda i, j: a.at(i0 + i, j0 + j), poly)
     return Arr([[a.data[i][j] for j in cc] for i in rr])
 
 
@@ -331,14 +536,19 @@ def f_expand(ev, array, rows=None, cols=None, pad=None):
         raise err(VALUE)
     array_room(ev, r, c)
     p = S(ev, pad) if pad is not None else err(NA)
+    if is_big(r, c):
+        ar, ac, at = a.rows, a.cols, a.at
+        return make(ev, r, c, lambda i, j: at(i, j) if i < ar and j < ac else p, None, [("arr", a), ("const", p, r * c - ar * ac)])
     out = [list(a.data[i]) + [p] * (c - a.cols) if i < a.rows else [p] * c for i in range(r)]
     return Arr(out)
 
 
-def _vector(ev, v) -> list:
+def _vector(ev, v):
     g = _grid(ev, v)
     if g.rows != 1 and g.cols != 1:
         raise err(VALUE)
+    if want_lazy(g):
+        return ev.values(g)
     return [x for row in g.data for x in row]
 
 
@@ -350,6 +560,10 @@ def f_wraprows(ev, vector, count, pad=None):
         raise err("#NUM!")
     array_room(ev, (len(xs) + n - 1) // n, n)
     p = S(ev, pad) if pad is not None else err(NA)
+    if is_big((len(xs) + n - 1) // n, n):
+        m = len(xs)
+        r = (m + n - 1) // n
+        return make(ev, r, n, lambda i, j: xs[i * n + j] if i * n + j < m else p, None, [("arr", ev.grid(vector)), ("const", p, r * n - m)])
     rows = [xs[i:i + n] for i in range(0, len(xs), n)]
     rows[-1] = rows[-1] + [p] * (n - len(rows[-1]))
     return Arr(rows)
@@ -357,7 +571,80 @@ def f_wraprows(ev, vector, count, pad=None):
 
 @fn("WRAPCOLS")
 def f_wrapcols(ev, vector, count, pad=None):
-    return Arr(_transpose(f_wraprows(ev, vector, count, pad).data))
+    got = f_wraprows(ev, vector, count, pad)
+    if isinstance(got, LazyArr):
+        return f_transpose(ev, got)
+    return Arr(_transpose(got.data))
+
+
+# ================================================================ TEXTSPLIT・MAKEARRAY
+def _delims(ev, v) -> list[str]:
+    if v is None:
+        return []
+    return [to_text(x) for x in ev.values(v)] if isinstance(v, (Rng, Arr)) else [to_text(S(ev, v))]
+
+
+@fn("TEXTSPLIT")
+def f_textsplit(ev, text, col_delim=None, row_delim=None, ignore_empty=None, match_mode=None, pad_with=None):
+    """TEXTSPLIT：行と列の区切りで字を分ける。大きさは字の数で決まる（行ごとの字の並びだけを持つ）。"""
+    import re
+
+    t = to_text(S(ev, text))
+    cd, rd = _delims(ev, col_delim), _delims(ev, row_delim)
+    if not (cd or rd) or "" in cd + rd:
+        raise err(VALUE)
+    drop = _flag(ev, ignore_empty)
+    flags = re.I if _int(ev, match_mode, 0) == 1 else 0
+    pad = S(ev, pad_with) if pad_with is not None else err(NA)
+
+    def split(s: str, ds: list[str]) -> list[str]:
+        if not ds:
+            return [s]
+        parts = re.split("|".join(re.escape(d) for d in sorted(ds, key=len, reverse=True)), s, flags=flags)
+        return [p for p in parts if p] if drop else parts
+
+    lines = [split(line, cd) for line in split(t, rd)]
+    lines = [x for x in lines if x] if drop else lines
+    if not lines:
+        raise err(CALC)
+    cols = max(len(x) for x in lines)
+    array_room(ev, len(lines), cols)
+    if is_big(len(lines), cols):
+        return make(ev, len(lines), cols, lambda i, j: lines[i][j] if j < len(lines[i]) else pad)
+    if len(lines) == 1 and cols == 1:
+        return lines[0][0]
+    return Arr([x + [pad] * (cols - len(x)) for x in lines])
+
+
+@fn("MAKEARRAY", lazy=True)
+def f_makearray(ev, args):
+    """MAKEARRAY(行, 列, LAMBDA(r, c, 式))：マスの式を、頼まれたマスだけ計算する。"""
+    from .evaluator import Evaluator
+    from .functions import _param
+    from .parser import Func, NameNode
+
+    if len(args) != 3 or not isinstance(args[2], Func) or args[2].name != "LAMBDA" or len(args[2].args) != 3:
+        return err(VALUE)
+    rn, cn, body = args[2].args
+    if not isinstance(rn, NameNode) or not isinstance(cn, NameNode):
+        return err(VALUE)
+    r = _int(ev, ev.ev(args[0]))
+    c = _int(ev, ev.ev(args[1]))
+    if r < 1 or c < 1:
+        return err(VALUE)
+    array_room(ev, r, c)
+    base = dict(getattr(ev, "scope", None) or {})
+    rk, ck = _param(rn.name), _param(cn.name)
+
+    def cell(i, j):
+        sub = Evaluator(ev.ctx, ev.sheet, ev.row, ev.col, ev.dr, ev.dc, ev.array)
+        sub.scope = {**base, rk: float(i + 1), ck: float(j + 1)}
+        v = sub.ev(body)
+        return sub.scalar(v)
+
+    if is_big(r, c):
+        return make(ev, r, c, cell)
+    return Arr([[cell(i, j) for j in range(c)] for i in range(r)])
 
 
 # ================================================================ XLOOKUP・XMATCH
@@ -441,7 +728,7 @@ def f_xmatch(ev, key, look, match_mode=None, search_mode=None):
     g = _grid(ev, look)
     if g.rows != 1 and g.cols != 1:
         raise err(VALUE)
-    i = _xfind([x for row in g.data for x in row], S(ev, key), m, s)
+    i = _xfind(ev.values(g), S(ev, key), m, s)
     if i < 0:
         raise err(NA)
     return float(i + 1)
@@ -454,7 +741,7 @@ def f_xlookup(ev, key, look, ret, if_not_found=None, match_mode=None, search_mod
     if lg.rows != 1 and lg.cols != 1:
         raise err(VALUE)
     vertical = lg.cols == 1 and not (lg.rows == 1 and lg.cols > 1)
-    vals = [r[0] for r in lg.data] if vertical else list(lg.data[0])
+    vals = ev.values(lg) if isinstance(lg, LazyArr) else ([r[0] for r in lg.data] if vertical else list(lg.data[0]))
     rg = ev.grid(ret)
     if (vertical and rg.rows != len(vals)) or (not vertical and rg.cols != len(vals)):
         raise err(VALUE)
@@ -531,6 +818,21 @@ def broadcast(ev, f, args: list):
     rows = max(g.rows for g in multi.values())
     cols = max(g.cols for g in multi.values())
     array_room(ev, rows, cols)
+    if is_big(rows, cols):
+        def cell(r, c):
+            a = list(args)
+            for i, g in grids.items():
+                rr = 0 if g.rows == 1 else r
+                cc = 0 if g.cols == 1 else c
+                a[i] = g.at(rr, cc) if rr < g.rows and cc < g.cols else err(NA)
+            try:
+                return f(ev, *a)
+            except ExcelError as e:
+                return e
+            except ZeroDivisionError:
+                return err("#DIV/0!")
+
+        return make(ev, rows, cols, cell)
     out = []
     for r in range(rows):
         line = []

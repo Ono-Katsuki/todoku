@@ -101,7 +101,7 @@ def build_wb(wb: OdsWorkbook) -> dict:
             f["write_as"] = (f.get("write_as", "") + "。" if f.get("write_as") else "") + note
     doc["feeds_total"] = feeds_total
     doc["unknown_formulas"] = [f"{s}!{addr(r, c)}" for s, r, c in unknown]
-    doc["unread"] = [*wb.unexpanded, *(doc.get("unread") or [])]
+    doc["unread"] = list(doc.get("unread") or [])
     doc["macros"] = macro_info(wb.pkg, top(wb.pkg.tree(wb.part)))
     return doc
 

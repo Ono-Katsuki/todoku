@@ -350,6 +350,81 @@ def calculate(wb: Workbook, doc: dict, values: dict) -> dict:
             "warnings": list(plan_.warnings) + [i.message for i in issues if not i.blocking]}
 
 
+def cell_values(wb: Workbook, values: dict, cells: list, store=None) -> list[dict]:
+    """頼まれたセルの計算結果（ファイルは書かない）。動的配列のマスは、そのマスだけを計算する。集計が時間の中で終わらなければ、進んだ所を返す。"""
+    from .calc import Calc
+    from .edit import plan_inputs, resolve_target
+
+    targets = plan_inputs(wb, values).targets if values else {}
+
+    def run():
+        calc = Calc(wb, targets, store)
+        out = []
+        for name in cells:
+            s, r, c = resolve_target(wb, name)
+            v = calc.cell_value(s, r, c)
+            sh = wb.sheet(s)
+            where = spill_of(calc, sh, r, c)
+            if where is not None and sh.cells.get((r, c)) is None:
+                v = where["value"]
+            st, why = calc.status.get((s, r, c), ("ok", ""))
+            if where is not None and where.get("master"):
+                st, why = calc.status.get((s, *where["master"]), (st, why))
+            d: dict = {"cell": _key(s, r, c)}
+            un = calc.unfinished.get((s, r, c)) or (calc.unfinished.get((s, *where["master"])) if where and where.get("master") else None)
+            if un is not None:
+                d.update({"status": "unfinished", "why": why, "done": un.done, "total": un.total})
+            elif st in ("ok", "volatile"):
+                d.update({"status": "ok", "value": v.code if isinstance(v, ExcelError) else v})
+            else:
+                d.update({"status": st, "why": why})
+            if where is not None and where.get("range"):
+                d["spill"] = where["range"]
+            note = calc.calc_notes.get((s, r, c))
+            if note:
+                d["note"] = note
+            out.append(d)
+        return out
+
+    return _run_deep(run)
+
+
+def spill_of(calc, sh, r: int, c: int) -> dict | None:
+    """(r, c) に広がる配列（動的配列の親か、広がった先のマス）：{"master": 親, "range": 範囲, "value": このマスの値}。"""
+    from ..formula.values import Arr
+
+    cell = sh.cells.get((r, c))
+    candidates = []
+    if cell is not None and cell.has_formula and cell.array_master is None:
+        candidates = [cell]
+    elif cell is None or cell.array_master is not None:
+        if cell is not None and cell.array_master is not None:
+            candidates = [sh.cells[cell.array_master]]
+        else:
+            span = sh.array_span_at(r, c) if hasattr(sh, "array_span_at") else None
+            candidates = [sh.cells[span]] if span else [m for (mr, mc), m in sh.cells.items()
+                                                        if mr <= r and mc <= c and m.has_formula and m.array_master is None and getattr(m, "dynamic", False)]
+    for m in candidates:
+        calc.cell_value(m.sheet, m.row, m.col)
+        arr = calc.memo.get(("__arr__", m.sheet, m.row, m.col))
+        if not isinstance(arr, Arr):
+            continue
+        i, j = r - m.row, c - m.col
+        if i < arr.rows and j < arr.cols:
+            v = arr.at(i, j)
+            return {"master": (m.row, m.col), "range": f"{addr(m.row, m.col)}:{addr(m.row + arr.rows - 1, m.col + arr.cols - 1)}",
+                    "value": 0.0 if v is None else v}
+    return None
+
+
+def cells_for_job(path: str, password: str | None, values: dict, cells: list, store) -> list[dict]:
+    """長い仕事の本体：ファイルを開いて、頼まれたセルを時間の上限なしに計算する。"""
+    from .. import api
+
+    wb = api.calc_workbook(path, password, list(values) + list(cells))
+    return cell_values(wb, values, cells, store)
+
+
 def summary(m: dict, limit: int = 40) -> list[dict]:
     """結果（ほかの数式に使われない数式）を、シートと見出しでまとめる（同じ形の行は1つに）。"""
     groups: dict[tuple, dict] = {}

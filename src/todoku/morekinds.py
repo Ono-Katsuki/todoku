@@ -245,9 +245,6 @@ def grade(k: str, blob: bytes, name: str):
 
     if k == "xlsb":
         g = _grade_excel(blob, name)
-        for r in g.reasons:
-            if r.title == "広げていない範囲":
-                r.title = "読んでいない部分"
         g.write_reasons = [Reason("C", ".xlsb の空のセルは、レコードを足して書く",
                                   "空のセルはレコードを足し、位置の索引（binaryIndex）も直して、読み直して確かめます。Excel で開く確認は手元でできないので、"
                                   "提出の前に本人が Excel で開くか、.xlsx で保存し直したものに書きます。字数の変わる上書きと共有の字のセルの上書きはしません")]
@@ -255,18 +252,12 @@ def grade(k: str, blob: bytes, name: str):
         return g
     if k == "dbf":
         g = _grade_excel(blob, name)
-        for r in g.reasons:
-            if r.title == "広げていない範囲":
-                r.title = "読んでいない部分"
         g.write_reasons = [Reason("B", "項目の幅の中で上書きする", "字は項目の幅に入るものだけ（切り詰めません）、数は幅と小数の桁に合うものだけ書きます。件数と項目は増やしません。"
                                   "ファイルの大きさは変わらず、変わったのが書いた項目のバイトだけであることを照らします")]
         g.write = "B"
         return g
     if k in WORKBOOKS:
         g = _grade_excel(blob, name)
-        for r in g.reasons:
-            if r.title == "広げていない範囲":
-                r.title = "読んでいない部分"
         g.write_reasons = [Reason("D", f"{KIND_JA[k]}には書かない", WRITE_NOTE[k])]
         g.write = "D"
         return g

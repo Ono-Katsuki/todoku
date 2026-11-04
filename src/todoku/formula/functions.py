@@ -12,8 +12,10 @@ from decimal import ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_UP, Decimal
 from typing import Callable
 
 from .dates import date_to_serial, serial_parts, serial_to_date, weekday_sun0
+from . import bigagg
+from .lazyarr import LazyArr, Poly, make, want_lazy
 from .parser import Func, Missing, Node, iter_funcs
-from .values import DIV0, NA, NUM, REF, TEXT_MAX, VALUE, Arr, ExcelError, Rng, Unsupported, compare, dec15, err, is_number, parse_number, round_half_up, to_bool, to_number, to_text
+from .values import DIV0, NA, NUM, REF, TEXT_MAX, VALUE, Arr, ExcelError, Rng, Unsupported, compare, is_big, dec15, err, is_number, parse_number, round_half_up, to_bool, to_number, to_text
 
 EAGER: dict[str, Callable] = {}
 LAZY: dict[str, Callable] = {}
@@ -114,11 +116,15 @@ def _sum(xs):
 
 @fn("SUM")
 def f_sum(ev, *args):
+    if bigagg.any_big(ev, args):
+        return bigagg.total(ev, args)
     return _sum(_numbers(ev, args))
 
 
 @fn("PRODUCT")
 def f_product(ev, *args):
+    if bigagg.any_big(ev, args):
+        return bigagg.product(ev, args)
     p = 1.0
     xs = _numbers(ev, args)
     if not xs:
@@ -130,6 +136,8 @@ def f_product(ev, *args):
 
 @fn("AVERAGE")
 def f_average(ev, *args):
+    if bigagg.any_big(ev, args):
+        return bigagg.average(ev, args)
     xs = _numbers(ev, args)
     if not xs:
         raise err(DIV0)
@@ -138,18 +146,24 @@ def f_average(ev, *args):
 
 @fn("MIN")
 def f_min(ev, *args):
+    if bigagg.any_big(ev, args):
+        return bigagg.extreme(ev, args, False)
     xs = _numbers(ev, args)
     return min(xs) if xs else 0.0
 
 
 @fn("MAX")
 def f_max(ev, *args):
+    if bigagg.any_big(ev, args):
+        return bigagg.extreme(ev, args, True)
     xs = _numbers(ev, args)
     return max(xs) if xs else 0.0
 
 
 @fn("COUNT")
 def f_count(ev, *args):
+    if bigagg.any_big(ev, args):
+        return bigagg.count(ev, args)
     n = 0
     for a in args:
         if isinstance(a, (Rng, Arr)):
@@ -165,6 +179,8 @@ def f_count(ev, *args):
 
 @fn("COUNTA")
 def f_counta(ev, *args):
+    if bigagg.any_big(ev, args):
+        return bigagg.counta(ev, args)
     n = 0
     for a in args:
         if isinstance(a, (Rng, Arr)):
@@ -176,10 +192,14 @@ def f_counta(ev, *args):
 
 @fn("COUNTBLANK")
 def f_countblank(ev, rng):
+    if bigagg.any_big(ev, [rng]):
+        return bigagg.countblank(ev, rng)
     return float(sum(1 for x in ev.values(rng) if x is None or x == ""))
 
 
 def _large(ev, rng, k):
+    if bigagg.any_big(ev, [rng]):
+        return bigagg.kth(ev, rng, int(num(ev, k)), True)
     xs = sorted(_numbers(ev, [rng if isinstance(rng, (Rng, Arr)) else Arr([[rng]])]), reverse=True)
     i = int(num(ev, k))
     if i < 1 or i > len(xs):
@@ -188,6 +208,8 @@ def _large(ev, rng, k):
 
 
 def _small(ev, rng, k):
+    if bigagg.any_big(ev, [rng]):
+        return bigagg.kth(ev, rng, int(num(ev, k)), False)
     xs = sorted(_numbers(ev, [rng if isinstance(rng, (Rng, Arr)) else Arr([[rng]])]))
     i = int(num(ev, k))
     if i < 1 or i > len(xs):
@@ -209,21 +231,29 @@ def _var(xs: list[float], sample: bool) -> float:
 
 @fn("VAR VAR.S")
 def f_var(ev, *args):
+    if bigagg.any_big(ev, args):
+        return bigagg.variance(ev, args, True)
     return _var(_numbers(ev, args), True)
 
 
 @fn("VARP VAR.P")
 def f_varp(ev, *args):
+    if bigagg.any_big(ev, args):
+        return bigagg.variance(ev, args, False)
     return _var(_numbers(ev, args), False)
 
 
 @fn("STDEV STDEV.S")
 def f_stdev(ev, *args):
+    if bigagg.any_big(ev, args):
+        return math.sqrt(bigagg.variance(ev, args, True))
     return math.sqrt(_var(_numbers(ev, args), True))
 
 
 @fn("STDEVP STDEV.P")
 def f_stdevp(ev, *args):
+    if bigagg.any_big(ev, args):
+        return math.sqrt(bigagg.variance(ev, args, False))
     return math.sqrt(_var(_numbers(ev, args), False))
 
 
@@ -248,12 +278,17 @@ def f_subtotal(ev, kind, *refs):
             raise err(VALUE)
         rng = ev.clip(ref)
         sh = wb.sheet(rng.sheet) if wb is not None and wb.has_sheet(rng.sheet) else None
-        for r in range(rng.r1, rng.r2 + 1):
+        wide = sh is not None and rng.rows * rng.cols > (1 << 20)
+        have = sh.existing_in(rng.r1, rng.c1, rng.r2, rng.c2) if wide else None
+        by_row: dict[int, list[int]] = {}
+        for rc in have or ():
+            by_row.setdefault(rc[0], []).append(rc[1])
+        for r in (sorted(by_row) if wide else range(rng.r1, rng.r2 + 1)):
             if sh is not None and r in sh.hidden_rows:
                 filtered = sh.autofilter is not None and sh.autofilter[0] < r <= sh.autofilter[2]
                 if hide_manual or filtered:
                     continue
-            for c in range(rng.c1, rng.c2 + 1):
+            for c in (by_row[r] if wide else range(rng.c1, rng.c2 + 1)):
                 cell = sh.cells.get((r, c)) if sh is not None else None
                 if cell is not None and cell.ast is not None and any(
                         f in ("SUBTOTAL", "AGGREGATE") for f in iter_funcs(cell.ast)):
@@ -271,6 +306,8 @@ def f_sumproduct(ev, *args):
     for g in grids:
         if g.rows != r or g.cols != c:
             raise err(VALUE)
+    if any(isinstance(g, LazyArr) for g in grids):
+        return bigagg.sumproduct(ev, grids)
     total = 0.0
     for i in range(r):
         for j in range(c):
@@ -388,6 +425,10 @@ def _same_shape(ev, base: Rng | Arr, other):
 
 
 def _flat(g: Arr):
+    if isinstance(g, LazyArr):
+        from .lazyarr import FlatView
+
+        return FlatView(g)
     return [x for row in g.data for x in row]
 
 
@@ -404,6 +445,19 @@ def _lift(*crit_pos):
             grids = {i: ev.grid(args[i]) for i in multi}
             rows = max(g_.rows for g_ in grids.values())
             cols = max(g_.cols for g_ in grids.values())
+            if is_big(rows, cols):
+                def cell(r, c):
+                    a = list(args)
+                    for i, g_ in grids.items():
+                        rr = 0 if g_.rows == 1 else r
+                        cc = 0 if g_.cols == 1 else c
+                        a[i] = g_.at(rr, cc) if rr < g_.rows and cc < g_.cols else err(NA)
+                    try:
+                        return f(ev, *a)
+                    except ExcelError as e:
+                        return e
+
+                return make(ev, rows, cols, cell)
             out = []
             for r in range(rows):
                 line = []
@@ -425,12 +479,30 @@ def _lift(*crit_pos):
     return deco
 
 
+def _count_where(ev, pairs) -> float:
+    """大きな配列の、条件に合う数。"""
+    def step(s, _x):
+        s[0] += 1
+
+    return float(bigagg.where(ev, "条件の数え上げ", pairs, None, step, [0])[0])
+
+
+def _sum_step(s, v) -> None:
+    if isinstance(v, ExcelError):
+        raise v
+    if is_number(v):
+        s[0] += float(v)
+        s[1] += 1
+
+
 @fn("COUNTIF")
 @_lift(1)
 def f_countif(ev, rng, crit):
     if not isinstance(rng, (Rng, Arr)):
         raise err(VALUE)
     p = criteria(S(ev, crit))
+    if bigagg.any_big(ev, [rng]):
+        return _count_where(ev, [(rng, p)])
     return float(sum(1 for x in ev.values(rng) if p(x)))
 
 
@@ -439,6 +511,8 @@ def f_countif(ev, rng, crit):
 def f_countifs(ev, *args):
     if len(args) % 2:
         raise err(VALUE)
+    if bigagg.any_big(ev, args[::2]):
+        return _count_where(ev, [(args[i], criteria(S(ev, args[i + 1]))) for i in range(0, len(args), 2)])
     masks = None
     for i in range(0, len(args), 2):
         vals = ev.values(args[i])
@@ -461,6 +535,8 @@ def f_sumif(ev, rng, crit, sum_rng=None):
     p = criteria(S(ev, crit))
     keys = _flat(ev.grid(rng))
     vals = _flat(_same_shape(ev, rng, sum_rng)) if sum_rng is not None else keys
+    if not isinstance(keys, list) or not isinstance(vals, list):
+        return bigagg.where(ev, "条件の合計", [(rng, p)], vals, _sum_step, [0.0, 0])[0]
     total = 0.0
     for k, v in zip(keys, vals):
         if p(k):
@@ -476,10 +552,21 @@ def f_averageif(ev, rng, crit, avg_rng=None):
     p = criteria(S(ev, crit))
     keys = _flat(ev.grid(rng))
     vals = _flat(_same_shape(ev, rng, avg_rng)) if avg_rng is not None else keys
+    if not isinstance(keys, list) or not isinstance(vals, list):
+        got = bigagg.where(ev, "条件の平均", [(rng, p)], vals, _ignore_err_step, [0.0, 0])
+        if not got[1]:
+            raise err(DIV0)
+        return got[0] / got[1]
     xs = [float(v) for k, v in zip(keys, vals) if p(k) and is_number(v)]
     if not xs:
         raise err(DIV0)
     return _sum(xs) / len(xs)
+
+
+def _ignore_err_step(s, v) -> None:
+    if is_number(v):
+        s[0] += float(v)
+        s[1] += 1
 
 
 def _ifs_mask(ev, pairs):
@@ -502,6 +589,9 @@ def _ifs_mask(ev, pairs):
 def f_sumifs(ev, sum_rng, *args):
     if len(args) % 2:
         raise err(VALUE)
+    if bigagg.any_big(ev, [sum_rng, *args[::2]]):
+        pairs = [(args[i], criteria(S(ev, args[i + 1]))) for i in range(0, len(args), 2)]
+        return bigagg.where(ev, "条件の合計", pairs, ev.values(sum_rng), _sum_step, [0.0, 0])[0]
     vals = ev.values(sum_rng)
     mask = _ifs_mask(ev, [(args[i], args[i + 1]) for i in range(0, len(args), 2)])
     if len(mask) != len(vals):
@@ -520,6 +610,25 @@ def _xifs(kind):
     def f(ev, target, *args):
         if len(args) % 2:
             raise err(VALUE)
+        if bigagg.any_big(ev, [target, *args[::2]]):
+            pairs = [(args[i], criteria(S(ev, args[i + 1]))) for i in range(0, len(args), 2)]
+
+            def step(s, v):
+                if is_number(v):
+                    v = float(v)
+                    s[0] += v
+                    s[1] += 1
+                    s[2] = v if s[2] is None or v > s[2] else s[2]
+                    s[3] = v if s[3] is None or v < s[3] else s[3]
+
+            total, n, hi, lo = bigagg.where(ev, kind, pairs, ev.values(target), step, [0.0, 0, None, None])
+            if kind == "AVERAGEIFS":
+                if not n:
+                    raise err(DIV0)
+                return total / n
+            if not n:
+                return 0.0
+            return hi if kind == "MAXIFS" else lo
         vals = ev.values(target)
         mask = _ifs_mask(ev, [(args[i], args[i + 1]) for i in range(0, len(args), 2)])
         xs = [float(v) for m, v in zip(mask, vals) if m and is_number(v)]
@@ -706,8 +815,22 @@ def f_if(ev, args: list[Node]):
 
         def pick(src, i, j):
             if isinstance(src, Arr):
-                return src.data[min(i, src.rows - 1)][min(j, src.cols - 1)]
+                return src.at(min(i, src.rows - 1), min(j, src.cols - 1))
             return src
+
+        if want_lazy(c, (c.rows, c.cols)):
+            cat = c.at
+
+            def cell(i, j):
+                x = cat(i, j)
+                if isinstance(x, ExcelError):
+                    return x
+                try:
+                    return pick(t, i, j) if to_bool(x) else pick(f, i, j)
+                except ExcelError as e:
+                    return e
+
+            return make(ev, c.rows, c.cols, cell)
 
         out = []
         for i, row in enumerate(c.data):
@@ -761,6 +884,10 @@ def f_iferror(ev, args):
         return ev.ev(args[1]) if not isinstance(args[1], Missing) else 0.0
     if isinstance(v, Arr):
         alt = None
+        if want_lazy(v, (v.rows, v.cols)):
+            alt_v = ev.scalar(ev.ev(args[1]))
+            at = v.at
+            return make(ev, v.rows, v.cols, lambda i, j: (alt_v if isinstance(at(i, j), ExcelError) else at(i, j)), v.poly)
         out = []
         for row in v.data:
             r = []
@@ -796,6 +923,11 @@ def f_choose(ev, args):
 
 
 def _bools(ev, args):
+    if bigagg.any_big(ev, args):
+        n, yes = bigagg.bools(ev, args)
+        if not n:
+            raise err(VALUE)
+        return _Counted(n, yes)
     out = []
     for a in args:
         if isinstance(a, (Rng, Arr)):
@@ -811,6 +943,14 @@ def _bools(ev, args):
     return out
 
 
+class _Counted(list):
+    """大きな配列の真偽：all・any・sum が、数だけで答えられるように（リストの代わり）。"""
+
+    def __init__(self, n: int, yes: int):
+        super().__init__([True] * min(yes, 1) + [False] * min(n - yes, 1))
+        self.yes = yes
+
+
 @fn("AND")
 def f_and(ev, *args):
     return all(_bools(ev, args))
@@ -823,7 +963,8 @@ def f_or(ev, *args):
 
 @fn("XOR")
 def f_xor(ev, *args):
-    return sum(_bools(ev, args)) % 2 == 1
+    got = _bools(ev, args)
+    return (got.yes if isinstance(got, _Counted) else sum(got)) % 2 == 1
 
 
 @fn("NOT")
@@ -923,7 +1064,13 @@ def f_row(ev, ref=None):
         return float(ev.row)
     if isinstance(ref, Rng):
         if ev.array and ref.rows > 1:
-            return Arr([[float(r)] for r in range(ref.r1, ref.r2 + 1)])
+            r1 = ref.r1
+            poly = Poly.linear(r1, 1, 0)
+            if is_big(ref.rows, 1):
+                return make(ev, ref.rows, 1, lambda i, _j: float(r1 + i), poly)
+            out = Arr([[float(r)] for r in range(ref.r1, ref.r2 + 1)])
+            out.poly = poly
+            return out
         return float(ref.r1)
     raise err(VALUE)
 
@@ -935,7 +1082,9 @@ def f_column(ev, ref=None):
         return float(ev.col)
     if isinstance(ref, Rng):
         if ev.array and ref.cols > 1:
-            return Arr([[float(c) for c in range(ref.c1, ref.c2 + 1)]])
+            out = Arr([[float(c) for c in range(ref.c1, ref.c2 + 1)]])
+            out.poly = Poly.linear(ref.c1, 0, 1)
+            return out
         return float(ref.c1)
     raise err(VALUE)
 
@@ -1170,6 +1319,8 @@ def f_index(ev, ref, r=None, c=None, area=None):
     if rr == 0 and cc == 0:
         return g  # 配列ぜんぶ
     if rr == 0:
+        if want_lazy(g) and (g.cols > 1 or c is not None):
+            return make(ev, g.rows, 1, lambda i, _j: g.at(i, cc - 1), g.poly.substitute(j_fixed=cc - 1) if g.poly is not None else None)
         return Arr([[row[cc - 1]] for row in g.data]) if g.cols > 1 or c is not None else Arr([list(row) for row in g.data])
     if cc == 0:
         return Arr([list(g.data[rr - 1])]) if g.cols > 1 else g.data[rr - 1][0]
@@ -1254,12 +1405,17 @@ def f_mid(ev, x, start, n):
 @fn("CONCATENATE CONCAT")
 def f_concat(ev, *args):
     out = []
+    size = 0
     for a in args:
         if isinstance(a, (Rng, Arr)):
             for x in ev.values(a):
                 out.append(to_text(x))
+                size += len(out[-1])
+                if size > TEXT_MAX:
+                    raise err(VALUE)  # 字の数の上限を超えたら、残りを読むまでもなく #VALUE!
         else:
             out.append(to_text(a))
+            size += len(out[-1])
     return "".join(out)
 
 
@@ -1268,12 +1424,16 @@ def f_textjoin(ev, delim, ignore_empty, *args):
     d = to_text(S(ev, delim))
     ig = to_bool(S(ev, ignore_empty))
     parts = []
+    size = 0
     for a in args:
         for x in (ev.values(a) if isinstance(a, (Rng, Arr)) else [a]):
             t = to_text(x)
             if ig and t == "":
                 continue
             parts.append(t)
+            size += len(t) + len(d)
+            if size > TEXT_MAX + len(d):
+                raise err(VALUE)
     return d.join(parts)
 
 

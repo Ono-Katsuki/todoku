@@ -900,6 +900,7 @@ def window_info(doc, e: dict, xdoc: dict) -> dict:
                 continue
             fields.append({"id": f"E{e['n']}!{f['id']}", "sheet": sh["name"], "cell": f["cell"], "kind": f.get("kind"),
                            "label": f.get("label", ""), "value": f.get("value")})
+    places = [{**p, "id": f"E{e['n']}!{p['id']}", "sheet": sh["name"]} for sh in xdoc.get("sheets", []) for p in sh.get("range_places") or []]
     k = _writable_key(doc, e)
     if k is not None and k in _WRITABLE:
         ok, why = _WRITABLE[k]
@@ -909,7 +910,7 @@ def window_info(doc, e: dict, xdoc: dict) -> dict:
             while len(_WRITABLE) >= 64:
                 _WRITABLE.pop(next(iter(_WRITABLE)))
             _WRITABLE[k] = (ok, why)
-    return {"fields": fields, "writable": ok, "why": why}
+    return {"fields": fields, "writable": ok, "why": why, **({"range_places": places} if places else {})}
 
 
 # 書けるかの判断は、埋め込みの入れ物と表の絵のバイト列だけで決まるので、同じ中身なら覚えておいたものを使う

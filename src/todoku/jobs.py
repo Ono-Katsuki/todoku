@@ -1,4 +1,4 @@
-"""長い仕事（大きな書類の検査）：1 回の道具の呼び出しの時間（limits.TIME_LIMIT）に縛られない、別のプロセスの仕事。
+"""長い仕事（大きな書類の検査・大きな配列の集計）：1 回の道具の呼び出しの時間（limits.TIME_LIMIT）に縛られない、別のプロセスの仕事。
 
 - audit_document を呼ぶと、仕事を始めて（すでに動いていれば、その進み具合を）すぐ返す。終わるまで何度でも呼べる
 - 区切りごとに控え（state.json）を書くので、止まっても（PC を閉じた・メモリの上限など）次の呼び出しで続きから進む
@@ -102,6 +102,76 @@ def start(path: str, password: str | None = None, encoding: str | None = None, r
     return new
 
 
+# ---------------------------------------------------------------------- 大きな配列の集計（try_calculation の cells）
+def calc_key(path: str, values: dict, cells: list) -> str:
+    base = job_key(path, None)
+    what = json.dumps({"values": values, "cells": sorted(cells)}, ensure_ascii=False, sort_keys=True, default=str)
+    return "calc-" + hashlib.sha256(f"{base}|{what}".encode()).hexdigest()[:24]
+
+
+def calc_status(path: str, values: dict, cells: list) -> dict | None:
+    return load(calc_key(path, values, cells))
+
+
+def calc_running(rec: dict | None) -> bool:
+    return bool(rec) and not rec.get("finished") and _alive(rec.get("pid"))
+
+
+def start_calc(path: str, password: str | None, values: dict, cells: list, scans: dict | None = None) -> dict:
+    """集計の仕事を始める（動いていれば何もしない。止まった仕事は控えの続きから）。scans：ここまでの呼び出しで読み進めた控え。"""
+    key = calc_key(path, values, cells)
+    rec = load(key)
+    if rec and (rec.get("finished") or _alive(rec.get("pid"))):
+        return rec
+    new = dict(rec or {"key": key, "path": path, "kind": "calc", "values": values, "cells": cells, "started": time.time()})
+    merged = dict(new.get("scans") or {})
+    for k, v in (scans or {}).items():
+        if k not in merged or v.get("k", 0) > merged[k].get("k", 0):
+            merged[k] = v
+    new["scans"] = merged
+    new.pop("stopped", None)
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([here] + [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p])
+    proc = subprocess.Popen([sys.executable, "-m", "todoku.jobs", key], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, env=env, start_new_session=True)
+    new["pid"] = proc.pid
+    save(key, new)
+    proc.stdin.write(json.dumps({"path": path, "password": password}).encode())
+    proc.stdin.close()
+    return new
+
+
+def _run_calc(key: str, rec: dict, args: dict) -> int:
+    from .formula.lazyarr import ScanStore
+    from .xlsx import model as xm
+
+    os.nice(10)
+    rec["pid"] = os.getpid()
+    threading.Thread(target=_watch_memory, args=(key, rec), daemon=True).start()
+
+    def save_scans(data: dict) -> None:
+        rec["scans"] = data
+        save(key, rec)
+
+    store = ScanStore(rec.get("scans") or {})
+    store.on_save = save_scans
+    try:
+        b = limits.Budget(total=None)
+        b.calc_left = float("inf")
+        with limits.call_budget(b):
+            rec["results"] = xm.cells_for_job(args["path"], args.get("password"), rec.get("values") or {}, rec["cells"], store)
+        rec["scans"] = store.data
+        rec["finished"] = time.time()
+        save(key, rec)
+        return 0
+    except Exception as e:  # noqa: BLE001  仕事の失敗は、控えで伝える（次の呼び出しで、続きから）
+        rec["scans"] = store.data
+        rec["stopped"] = f"途中で問題が起きました（{type(e).__name__}）：{str(e)[:500]}"
+        save(key, rec)
+        return 1
+
+
 def _watch_memory(key: str, rec: dict) -> None:
     try:
         import resource
@@ -121,9 +191,11 @@ def _watch_memory(key: str, rec: dict) -> None:
 def run(key: str) -> int:
     from . import lazy
 
-    os.nice(10)
     args = json.loads(sys.stdin.read() or "{}")
     rec = load(key) or {"key": key}
+    if rec.get("kind") == "calc":
+        return _run_calc(key, rec, args)
+    os.nice(10)
     rec["pid"] = os.getpid()
     threading.Thread(target=_watch_memory, args=(key, rec), daemon=True).start()
     last = {"t": 0.0}

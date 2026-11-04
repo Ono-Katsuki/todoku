@@ -115,9 +115,10 @@ def test_declared_ranges_cost_no_memory(body):
     assert doc["sheets"][0]["name"] == "S"
 
 
-def test_declared_range_not_expanded_is_reported_and_small_one_still_is():
+def test_declared_range_is_a_place_and_small_one_still_is_cells():
     doc = build(Workbook(xlsx(cells(STRAY) + HUGE_DV), "t.xlsx"))
-    assert any("入力規則" in u and "広げていません" in u for u in doc["unread"])
+    assert not doc["unread"]
+    assert any("validation" in p["why_key"] for p in doc["sheets"][0]["range_places"])
     # 値も書式もないセルの入力規則でも、ふつうの広さなら欄（これまでと同じ）
     small = '<dataValidations count="1"><dataValidation type="whole" sqref="B3:B6"><formula1>1</formula1></dataValidation></dataValidations>'
     doc = build(Workbook(xlsx(cells('<row r="7"><c r="A7" s="1"/></row>') + small), "t.xlsx"))
@@ -125,19 +126,19 @@ def test_declared_range_not_expanded_is_reported_and_small_one_still_is():
     assert {"B3", "B4", "B5", "B6"} <= {f["cell"] for f in doc["sheets"][0]["fields"]}
 
 
-def test_unread_reaches_the_markdown_window(tmp_path):
+def test_range_place_reaches_the_markdown_window(tmp_path):
     p = tmp_path / "t.xlsx"
     p.write_bytes(xlsx(cells(STRAY) + HUGE_DV))
-    assert any("読んでいない部分" in text for _title, text in api.window(str(p))[2])
-    assert any(c["name"] == "読んでいない部分" and not c["ok"] for c in api.audit(str(p))["checks"])
-    assert any(r["title"] == "広げていない範囲" and r["grade"] == "C" for r in api.grade(str(p))["reasons"])
+    assert any("範囲の所" in text for _title, text in api.window(str(p))[2])
+    assert not any(c["name"] == "読んでいない部分" for c in api.audit(str(p))["checks"])
+    assert not any(r["title"] in ("広げていない範囲", "読んでいない部分") for r in api.grade(str(p))["reasons"])
 
 
-def test_huge_range_in_a_formula_is_unsupported_not_a_blow_up():
+def test_huge_range_in_a_formula_reads_only_the_cells_that_exist():
     wb = Workbook(xlsx(cells(SUM_ALL + STRAY)), "t.xlsx")
     calc = Calc(wb)
-    small_memory(lambda: calc.cell_value("S", 3, 1))
-    assert calc.status[("S", 3, 1)][0] == "unsupported" and "広すぎます" in calc.status[("S", 3, 1)][1]
+    assert small_memory(lambda: calc.cell_value("S", 3, 1)) == 0
+    assert calc.status[("S", 3, 1)][0] == "ok"
 
 
 def test_cover_answers_like_a_table_of_rows():
@@ -199,8 +200,9 @@ def test_ods_repeated_rows_and_cells_stop_at_the_budget(monkeypatch):
     blob = _ods('<table:table-row table:number-rows-repeated="1048576"><table:table-cell table:number-columns-repeated="16384" '
                 'office:value-type="string"><text:p>x</text:p></table:table-cell></table:table-row>')
     wb = odf_sheet.OdsWorkbook(blob, "t.ods")
-    assert len(wb.sheets[0].cells) <= 2001 and wb.unexpanded
-    assert any("読みました" in u for u in ods_build(blob, "t.ods")["unread"])
+    assert len(wb.sheets[0].cells) <= 2001 and wb.sheets[0].__dict__["repeat_ranges"]
+    doc = ods_build(blob, "t.ods")
+    assert not doc["unread"] and doc["sheets"][0]["range_places"][0]["why_key"] == ["repeat"]
 
 
 def test_ods_declared_span_and_blank_repeats_cost_no_memory():

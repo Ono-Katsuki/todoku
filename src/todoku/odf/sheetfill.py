@@ -379,8 +379,11 @@ class OdsProof:
 
 
 def _state(wb: OdsWorkbook, sheet: str, r: int, c: int):
-    cell = wb.sheet(sheet).cells.get((r, c))
+    sh = wb.sheet(sheet)
+    cell = sh.cells.get((r, c))
     key = (sheet, r, c)
+    if cell is None and sh.__dict__.get("repeat_ranges"):
+        cell = wb._virtual_cell(sh, r, c, keep=True)  # 繰り返しの範囲のマス（1 マスずつ作っていない所）
     if cell is None:
         return None
     v = cell.value.code if isinstance(cell.value, ExcelError) else cell.value

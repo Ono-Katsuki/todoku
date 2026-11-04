@@ -79,12 +79,11 @@ def test_readers_answers_like_cell_by_cell(seed):
 def test_readers_room_notes_wide_boxes_and_keeps_small():
     from todoku.xlsx.readers import Readers
 
-    notes = []
-    rd = Readers(5, 100, lambda *a: notes.append(a))
+    rd = Readers(5, 100)
     rd.add_box(1, 1, 5, 1, rd.add_formula("S", 1, 3))
     rd.add_box(1, 2, 1000, 2, rd.add_formula("S", 2, 3))
     assert sorted(rd.places()) == [(r, 1) for r in range(1, 6)]
-    assert notes and notes[0][0] == "数式の参照"
+    assert rd.wide == [(1, 2, 1000, 2)]  # 広い範囲は範囲の所（xlsx/places.py）
     assert rd.get((900, 2))["n"] == 1  # 広げなくても、読む数式は答えられる
 
 
@@ -193,16 +192,6 @@ def test_existing_in_uses_cells_and_merges_only():
     assert sh.existing_in(2, 2, 8, 2) == [(5, 2), (6, 2)]
 
 
-def test_unread_notes_are_capped():
-    from todoku.xlsx.workbook import UNREAD_NOTES, Sheet
-
-    sh = Sheet("S", "x")
-    for i in range(1, UNREAD_NOTES + 50):
-        sh.note_unread("入力規則", i, 1, i, 16384)
-        sh.note_unread("入力規則", i, 1, i, 16384)
-    assert len(sh.unread) == UNREAD_NOTES + 1
-
-
 # ====================================================================== 表計算の宣言
 @pytest.mark.parametrize("name", ["xlsx_array_ref_all", "xlsx_merge_plus_validation", "xlsx_lastcell_plus_formula_all", "xlsx_control_anchor_all",
                                   "xlsx_cols_many", "xlsx_table_all", "xlsx_chart_pt_idx", "xlsx_chart_ptcount", "xlsx_chart_multilvl_ptcount",
@@ -280,27 +269,11 @@ def test_arrays_over_the_sheet_are_num(text):
 
 
 @pytest.mark.parametrize("text", ["SEQUENCE(1048576,16384)", "EXPAND(1,1048576,16384,0)", "ROW(1:1048576)*COLUMN(A:XFD)", "WRAPROWS(SEQUENCE(2),16384000)"])
-def test_arrays_too_big_to_compute_are_not_computed(text):
-    from todoku.formula.values import ExcelError, Unsupported
+def test_arrays_that_fit_the_sheet_cost_no_memory(text):
+    from todoku.formula.values import Arr, ExcelError
 
-    try:
-        r = _calc(text)
-    except Unsupported as e:
-        assert "Excel で開いたときに計算" in str(e)
-        return
-    assert isinstance(r, ExcelError) and r.code == "#NUM!"
-
-
-def test_array_total_is_counted_per_calculation(monkeypatch):
-    from todoku.formula.evaluator import Evaluator
-    from todoku.formula.parser import parse
-    from todoku.formula.values import Unsupported
-
-    monkeypatch.setattr(limits, "MAX_ARRAY_TOTAL", 150_000)
-    ctx = _Ctx()
-    Evaluator(ctx, "S", 1, 1, 0, 0, True).ev(parse("SEQUENCE(100000)"))
-    with pytest.raises(Unsupported):
-        Evaluator(ctx, "S", 1, 1, 0, 0, True).ev(parse("SEQUENCE(100000)"))
+    r = _calc(text)
+    assert isinstance(r, Arr) or (isinstance(r, ExcelError) and r.code == "#NUM!")
 
 
 def test_small_arrays_are_unchanged():
@@ -365,7 +338,7 @@ def test_ods_hidden_columns_stop_at_the_sheet_edge(tmp_path):
 def test_odt_repeated_rows_are_bounded_and_reported(tmp_path):
     p = _case(tmp_path, "odt_rows_cols_amp", "odt")
     _k, doc, _parts = api.window(p)
-    assert doc.get("unread") and "繰り返す" in doc["unread"][0]
+    assert not doc.get("unread") and "繰り返す" in doc["repeats"][0]
 
 
 def test_hwpx_row_span_stops_at_the_table(tmp_path):
