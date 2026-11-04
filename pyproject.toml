@@ -3,6 +3,8 @@ name = "todoku"
 version = "0.2.0"
 description = "書類を、内容を一字も変えずにAIと支援技術に届ける変換・診断ツール"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "src/todoku/pdf/data/LICENSE-*.txt"]
 requires-python = ">=3.11"  # 字の性質は動いている Python の unicodedata から読む（chars.py）。README の「Python の版」
 dependencies = []
 

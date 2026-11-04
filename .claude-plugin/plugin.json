@@ -27,5 +27,6 @@
         "todoku-mcp"
       ]
     }
-  }
+  },
+  "license": "MIT"
 }
