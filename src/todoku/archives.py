@@ -252,6 +252,18 @@ _HOLD_MAX = 1 << 30  # 解いたフォルダを控える大きさの合計
 SLOW_SECONDS = 45  # 窓・段階で、中のファイルの形式を確かめるのに使う時間（呼び出しの時間の上限の前に、残りを path で指してもらう）
 
 
+SIBLING: contextvars.ContextVar = contextvars.ContextVar("todoku_sibling", default=None)  # 隣のファイルを読む関数（dBase のメモ）
+
+
+def use_sibling(reader) -> None:
+    """reader(語幹, 拡張子の並び) → (バイト, 名前) か None。ファイルの隣か、書庫の同じフォルダから読む。"""
+    SIBLING.set(reader)
+
+
+def current_password() -> str | None:
+    return _PW.get()
+
+
 def use_password(password: str | None) -> None:
     """この呼び出しのパスワード。パスワードのある書庫の控えは、呼び出しをまたいで残さない。"""
     if password is not None or _PW.get() is not None:
@@ -339,6 +351,15 @@ def _packed_extract(blob: bytes, m: AMember, k: str) -> bytes:
 
 def preflight(blob: bytes, k: str) -> None:
     """開く前に、パスワードを確かめる：見出しの暗号（要る・違う）と、パスワードを渡されたときは、いちばん小さな暗号のファイルを解いてみる（違う）。"""
+    if k == "mdb":
+        from .legacy.jet import check_password
+
+        err = check_password(blob, _PW.get())
+        if err == "need":
+            raise _ArcNeeds("このデータベースはパスワードで保護されています")
+        if err == "wrong":
+            raise _ArcWrong("パスワードが違います")
+        return
     if k not in PASSWORDED:
         return
     ms = _packed_members(blob, k)

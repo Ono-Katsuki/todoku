@@ -209,7 +209,7 @@ def test_wk1_cells(tmp_path):
     assert "氏名" in t and "Shift_JIS" in t
     _ok_audit(p)
     g = api.grade(p)
-    assert g["grade"] == "C" and g["write"]["grade"] == "D"  # 数式は字に直さない（保存された結果だけ）
+    assert g["grade"] == "C" and g["write"]["grade"] == "D"  # 読めない・Excel と意味の違う数式は保存された結果を読む
 
 
 def test_wk3_and_works_and_docuworks_are_named_with_next_step(tmp_path):
@@ -272,7 +272,7 @@ def test_dbf_read_as_table(tmp_path):
     t = api.read_table(p, "NAME", "a")
     assert t["rows"] == 2
     g = api.grade(p)
-    assert g["grade"] == "C" and g["write"]["grade"] == "D"
+    assert g["grade"] == "C" and g["write"]["grade"] == "B"
 
 
 def test_dbf_rejects_inconsistent_header_and_guesses_with_note(tmp_path):

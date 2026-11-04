@@ -5,7 +5,7 @@ from __future__ import annotations
 from .openkinds_base import OpenFormatError
 
 KIND_JA = {"xlsb": "Excel のバイナリのブック（.xlsb）"}
-KIND_JA.update({"xls2": "古い Excel（Excel 2〜4 の .xls。読むだけ）", "wk1": "Lotus 1-2-3（.wk1。読むだけ）", "dbf": "dBase（.dbf。読むだけ）",
+KIND_JA.update({"xls2": "古い Excel（Excel 2〜4 の .xls。読むだけ）", "wk1": "Lotus 1-2-3（.wk1。読むだけ）", "dbf": "dBase（.dbf。同じ幅の上書きだけ書ける）",
                 "mdb": "Access のデータベース（.mdb・.accdb。読むだけ）"})
 WORKBOOKS = frozenset({"xlsb", "xls2", "wk1", "dbf", "mdb"})  # xlsx と同じ窓・計算・表の取り出しを使うもの
 # 読むだけの形式：形式 → legacy の部品（build・grade・audit・KIND_JA を持つ。窓は readonlydoc の形）
@@ -48,7 +48,7 @@ def open_workbook(k: str, blob: bytes, name: str):
 
 
 def _write_note(k: str) -> str:
-    return ("すでに値のあるセルの上書き（レコードの大きさの変わらないもの）だけ書けます。空のセルには書けません（.xlsx で保存し直してもらえば書けます）"
+    return ("値のあるセルは大きさの変わらない上書き、空のセルはレコードを足して書きます（位置の索引も直します。Excel で開く確認は手元でできません）"
             if k == "xlsb" else WRITE_NOTE[k])
 
 
@@ -81,9 +81,9 @@ def window(k: str, blob: bytes, name: str):
         doc = xw.build(open_workbook(k, blob, name))
         doc["kind"] = k
         doc["kind_ja"] = KIND_JA[k]
-        if k == "xlsb":
-            _mark_xlsb_fields(doc)
-        else:
+        if k == "dbf":
+            _mark_dbf(doc, blob, name)
+        elif k != "xlsb":
             _mark_readonly(doc, k)
         return doc, xw.markdown_parts(doc)
     if k in SXO:
@@ -98,8 +98,26 @@ def window(k: str, blob: bytes, name: str):
 
 WRITE_NOTE = {"xls2": "Excel 2〜4 の形には書きません。Excel で .xlsx に保存し直してもらえば書けます",
               "wk1": "Lotus 1-2-3 の形には書きません。.xlsx か CSV に書き出してもらえば書けます",
-              "dbf": "dBase の形には書きません。CSV か .xlsx に書き出してもらえば書けます",
+              "dbf": "項目の幅の中の上書きだけ書きます（件数と項目は増やしません。メモ・絵の項目には書きません）",
               "mdb": "Access のデータベースには書きません。表を .xlsx か CSV に書き出してもらえば書けます"}
+
+
+def _mark_dbf(doc: dict, blob: bytes, name: str) -> None:
+    from .formula.parser import parse_cell
+    from .legacy.dbf import NO_WRITE, DbfWorkbook
+
+    wb = DbfWorkbook(blob, name)
+    for sh in doc["sheets"]:
+        for f in sh.get("fields", []):
+            try:
+                r, c = parse_cell(str(f.get("cell") or f["id"]).rsplit("!", 1)[-1])
+            except (ValueError, KeyError):
+                f["readonly"] = True
+                f["why"] = NO_WRITE
+                continue
+            if r == 1 or r not in wb.rowmap or not 1 <= c <= len(wb.fields_raw) or wb.fields_raw[c - 1][1] in "MGP":
+                f["readonly"] = True
+                f["why"] = WRITE_NOTE["dbf"]
 
 
 def _mark_readonly(doc: dict, k: str) -> None:
@@ -134,16 +152,6 @@ def _sxo_window(k: str, blob: bytes, name: str):
     return doc, parts
 
 
-def _mark_xlsb_fields(doc: dict) -> None:
-    from .xlsb.fill import CANT_GROW
-
-    for sh in doc["sheets"]:
-        for f in sh.get("fields", []):
-            if f.get("value") in (None, ""):
-                f["readonly"] = True
-                f["why"] = CANT_GROW
-
-
 def field_rows(k: str, doc: dict):
     if k in WORKBOOKS or k == "sxc":
         for sh in doc["sheets"]:
@@ -162,11 +170,25 @@ def summary(k: str, doc: dict) -> dict:
 
 def fill(k: str, blob: bytes, name: str, values: dict, force: bool = False) -> dict:
     if k == "xlsb":
+        import struct
+
+        from .xlsb.book import XlsbError
         from .xlsb.fill import XlsbWriteError, api_fill
 
         try:
             return api_fill(blob, name, values, force)
-        except XlsbWriteError as e:
+        except (XlsbWriteError, XlsbError) as e:
+            raise OpenFormatError(str(e)) from None
+        except (struct.error, IndexError) as e:
+            raise OpenFormatError(f"シートのレコードが壊れていて書けません（{e}）") from None
+    if k == "dbf":
+        import struct
+
+        from .legacy.dbf import DbfError, api_fill
+
+        try:
+            return api_fill(blob, name, values)
+        except (DbfError, struct.error, UnicodeEncodeError) as e:
             raise OpenFormatError(str(e)) from None
     if k in SXO:
         from .legacy.sxo import WRITE
@@ -178,6 +200,10 @@ def fill(k: str, blob: bytes, name: str, values: dict, force: bool = False) -> d
 def read_back(k: str, blob: bytes, name: str, keys: dict) -> dict:
     if k == "xlsb":
         from .xlsb.fill import read_cells
+
+        return read_cells(blob, name, keys)
+    if k == "dbf":
+        from .legacy.dbf import read_cells
 
         return read_cells(blob, name, keys)
     return {}
@@ -222,10 +248,19 @@ def grade(k: str, blob: bytes, name: str):
         for r in g.reasons:
             if r.title == "広げていない範囲":
                 r.title = "読んでいない部分"
-        g.write_reasons = [Reason("D", ".xlsb の空のセルには書けない",
-                                  "すでに値のあるセルの上書き（大きさの変わらないもの）だけ書けます。空のセルに書くとレコードの大きさが変わり、"
-                                  "シートの部品の中の位置を指す索引がずれるので、書きません。本人か発行元に .xlsx で保存し直してもらえば書けます")]
-        g.write = "D"
+        g.write_reasons = [Reason("C", ".xlsb の空のセルは、レコードを足して書く",
+                                  "空のセルはレコードを足し、位置の索引（binaryIndex）も直して、読み直して確かめます。Excel で開く確認は手元でできないので、"
+                                  "提出の前に本人が Excel で開くか、.xlsx で保存し直したものに書きます。字数の変わる上書きと共有の字のセルの上書きはしません")]
+        g.write = "C"
+        return g
+    if k == "dbf":
+        g = _grade_excel(blob, name)
+        for r in g.reasons:
+            if r.title == "広げていない範囲":
+                r.title = "読んでいない部分"
+        g.write_reasons = [Reason("B", "項目の幅の中で上書きする", "字は項目の幅に入るものだけ（切り詰めません）、数は幅と小数の桁に合うものだけ書きます。件数と項目は増やしません。"
+                                  "ファイルの大きさは変わらず、変わったのが書いた項目のバイトだけであることを照らします")]
+        g.write = "B"
         return g
     if k in WORKBOOKS:
         g = _grade_excel(blob, name)

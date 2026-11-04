@@ -2,6 +2,7 @@
 
 - .eml：標準の email で解く。本文は text/plain（なければ text/html の字）。charset は宣言のとおり（iso-2022-jp など）。添付は「a.eml!/名前」
 - .msg：複合ファイルの __substg1.0_XXXXYYYY のストリーム（XXXX がプロパティ、YYYY が型。001F は UTF-16、001E は 8 ビットの字、0102 はバイナリ）。
+  本文は PR_BODY、なければ PR_HTML、なければ PR_RTF_COMPRESSED（MS-OXRTFCP の LZ を解き、RTF の部品で字にする）。
   添付は __attach_version1.0_#NNNNNNNN の入れ物。8 ビットの字の文字コードは PR_INTERNET_CPID（0x3FDE）か PR_MESSAGE_CODEPAGE（0x3FFD）
 """
 
@@ -95,6 +96,81 @@ def read_eml(blob: bytes) -> Mail:
     return Mail(heads, body, att, notes)
 
 
+# MS-OXRTFCP 2.1.2.1：LZ の辞書の初めの字（207 字）
+_RTF_DICT = (b"{\\rtf1\\ansi\\mac\\deff0\\deftab720{\\fonttbl;}{\\f0\\fnil \\froman \\fswiss \\fmodern \\fscript \\fdecor MS Sans SerifSymbolArialTimes New RomanCourier"
+             b"{\\colortbl\\red0\\green0\\blue0\r\n\\par \\pard\\plain\\f0\\fs20\\b\\i\\u\\tab\\tx")
+_MAX_RTF = 64 * 1024 * 1024
+
+
+def _crc_table():
+    out = []
+    for i in range(256):
+        c = i
+        for _ in range(8):
+            c = (c >> 1) ^ 0xEDB88320 if c & 1 else c >> 1
+        out.append(c)
+    return out
+
+
+def rtf_decompress(d: bytes) -> bytes:
+    """PR_RTF_COMPRESSED（MS-OXRTFCP）：16 バイトの見出し（COMPSIZE・RAWSIZE・COMPTYPE・CRC）と、制御バイトつきの LZ（4 KB の輪の辞書）。"""
+    if len(d) < 16:
+        raise MailError("圧縮した RTF の見出しが短すぎます")
+    comp, raw, typ, crc = struct.unpack_from("<IIII", d, 0)
+    if typ == 0x414C454D:  # MELA：圧縮していない
+        return d[16:16 + raw]
+    if typ != 0x75465A4C:  # LZFu
+        raise MailError("圧縮した RTF の形（COMPTYPE）が読めません")
+    if raw > _MAX_RTF:
+        raise MailError("圧縮した RTF が大きすぎます")
+    end = min(len(d), comp + 4)
+    t = _crc_table()
+    c = 0
+    for b in d[16:end]:
+        c = t[(c ^ b) & 255] ^ (c >> 8)
+    if c != crc:
+        raise MailError("圧縮した RTF の CRC が合いません")
+    dic = bytearray(_RTF_DICT) + bytearray(4096 - len(_RTF_DICT))
+    wp = len(_RTF_DICT)
+    out = bytearray()
+    p = 16
+    while p < end:
+        ctl = d[p]
+        p += 1
+        for bit in range(8):
+            if p >= end:
+                break
+            if ctl >> bit & 1:
+                if p + 2 > end:
+                    raise MailError("圧縮した RTF が途中で終わっています")
+                v = d[p] << 8 | d[p + 1]
+                p += 2
+                off, ln = v >> 4, (v & 15) + 2
+                if off == wp:  # 終わりの印
+                    return bytes(out)
+                for k in range(ln):
+                    ch = dic[(off + k) & 4095]
+                    out.append(ch)
+                    dic[wp] = ch
+                    wp = (wp + 1) & 4095
+            else:
+                ch = d[p]
+                p += 1
+                out.append(ch)
+                dic[wp] = ch
+                wp = (wp + 1) & 4095
+            if len(out) > raw + 4096:
+                raise MailError("圧縮した RTF が宣言より長くなっています")
+    return bytes(out)
+
+
+def rtf_text(rtf: bytes) -> str:
+    """RTF の字（\\fromhtml の包みも、RTF として読めば本文の字になる。{\\*\\htmltag} のタグは字にしない）。"""
+    from ..rtf.document import RtfDocument, paragraphs
+
+    return "\n".join(p.text for p in paragraphs(RtfDocument(rtf, "本文.rtf")))
+
+
 def _prop_text(c, base: str, tag: int, cp: str) -> str | None:
     for typ, enc in (("001F", "utf-16-le"), ("001E", cp)):
         n = f"{base}__substg1.0_{tag:04X}{typ}"
@@ -141,7 +217,11 @@ def read_msg(blob: bytes) -> Mail:
             body = _html_text(h.decode(cp, "replace"))
             notes.append("本文は HTML だけなので、タグの間の字を読みました")
         elif c.has("__substg1.0_10090102"):
-            notes.append("本文は圧縮した RTF（PR_RTF_COMPRESSED）だけで、読んでいません")
+            try:
+                body = rtf_text(rtf_decompress(c.read("__substg1.0_10090102")))
+                notes.append("本文は RTF（PR_RTF_COMPRESSED）だけなので、RTF を解いて字を読みました")
+            except (MailError, ValueError, IndexError) as e:
+                notes.append(f"本文の圧縮した RTF（PR_RTF_COMPRESSED）を解けません（{e}）")
     atts, names = [], []
     stores = sorted({n.split("/")[0] for n in c.streams() if n.lower().startswith("__attach_version1.0_#")})
     for st in stores:

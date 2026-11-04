@@ -111,7 +111,7 @@ NEXT_STEP: dict[str, str] = {
                  "PDF を作るプリンター（Microsoft Print to PDF など）に印刷したものを開いてください",
     "works": "Microsoft Works の形は公開されていないので、とどくは読みません（Kingsoft の .wps は Word と同じ形なので読めます）。"
              "Works か LibreOffice で .docx か PDF に保存し直したものを開いてください",
-    "wk3": "とどくは .wk1 までを読みます。1-2-3 か LibreOffice で .xlsx か CSV に保存し直したものを開いてください",
+    "wk3": "とどくは .wk1 までを読みます（.wk3 以降の形には Lotus の公開の資料がないので、推測で読みません）。1-2-3 か LibreOffice で .xlsx か CSV に保存し直したものを開いてください",
 }
 
 
