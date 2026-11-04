@@ -257,7 +257,15 @@ def _expected(p, items) -> str | None:
             edits.append((a, b, box_mark(orig, on)))
         else:
             a, b = it["span"]
-            edits.append((a, b, str(value)))
+            if isinstance(value, dict):
+                # そろえ方を指定した書き込み：書き込みと同じ決まりで足した空白まで確かめる
+                from ..textwidth import AMBIGUOUS, gap_padding
+
+                lead, trail = gap_padding(text[a:b], str(value["value"]), value.get("align", "left"), context=text,
+                                          ambiguous_wide=AMBIGUOUS.get(value.get("ambiguous_width")))
+                edits.append((a, b, lead + str(value["value"]) + trail))
+            else:
+                edits.append((a, b, str(value)))
     out = text
     for a, b, v in sorted(edits, reverse=True):
         out = out[:a] + v + out[b:]

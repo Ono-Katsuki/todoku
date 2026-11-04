@@ -237,8 +237,8 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
         bottom = cell.y1 if cell is not None else lay.view.height
         right = cell.x1 if cell is not None else lay.right
         for o in (cell.lines if cell is not None else lay.free_lines):
-            if o is not ln and not o.vertical and o.y0 >= ln.y1 - 0.2 * sz and o.x0 < right and o.x1 > x0:
-                bottom = min(bottom, o.y0)
+            if o is not ln and not o.vertical and o.text.strip() and o.y0 >= ln.y1 - 0.2 * sz and o.x0 < right and o.x1 > x0:
+                bottom = min(bottom, o.y0)  # 空白だけの行は墨がないので、下の空きを狭めない
         for r in getattr(lay, "hs", []):
             if r.a - 1 <= x0 and r.b + 1 >= x0 + sz and ln.y1 <= r.pos < bottom:
                 bottom = r.pos

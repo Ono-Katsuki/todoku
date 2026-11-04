@@ -977,6 +977,8 @@ class Filler:
         if comb:
             d["Ff"] = FF_COMB
             d["MaxLen"] = len(comb)
+        elif "\n" in text or (multiline and len(layout_text(text, vx1 - vx0, vy1 - vy0, size, False, True, unit)[0]) > 1):
+            d["Ff"] = FF_MULTILINE  # 複数行に描いた欄：見た目を作り直すソフトで 1 行に潰れないように（読み直して書き直すときも）
         if align != "left":
             d["Q"] = {"center": 1, "right": 2}[align]  # 見た目を作り直すソフトも、同じそろえ方で
         if rot:

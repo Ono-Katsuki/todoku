@@ -7,10 +7,12 @@ import struct
 
 from test_activex import _cfb_tree
 
+from todoku import api
 from todoku.cfb import CFB
 from todoku.doc.book import FC_NAMES, DocFile
 from todoku.doc.fill import DocWriter, Edit
 from todoku.pdf.doc import PdfDocument
+from todoku.pdf.form import FF_MULTILINE, read_fields
 from todoku.pdf.pageimage import render
 
 
@@ -155,3 +157,60 @@ def test_zoomed_page_draws_only_the_opened_part_of_a_jpeg_in_its_own_place():
     vals = [r["rgb"][(r["h"] // 2 * W + x) * 3] for x in range(W)]
     edge = next(i for i, v in enumerate(vals) if v > 128)
     assert abs(edge - W / 5) <= 8
+
+
+def _pdf_text(ops: bytes, w: int = 595, h: int = 842) -> bytes:
+    objs = [b"<</Type/Catalog/Pages 2 0 R>>", b"<</Type/Pages/Kids[3 0 R]/Count 1>>",
+            f"<</Type/Page/Parent 2 0 R/MediaBox[0 0 {w} {h}]/Contents 4 0 R/Resources<</Font<</F 5 0 R>>>>>>".encode(),
+            b"<</Length %d>>stream\n" % len(ops) + ops + b"\nendstream",
+            b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>"]
+    out = bytearray(b"%PDF-1.4\n")
+    offs = []
+    for i, o in enumerate(objs, 1):
+        offs.append(len(out))
+        out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    x = len(out)
+    out += b"xref\n0 6\n0000000000 65535 f \n" + b"".join(b"%010d 00000 n \n" % o for o in offs)
+    out += b"trailer\n<</Size 6/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF\n" % x
+    return bytes(out)
+
+
+def test_below_anchor_is_not_stopped_by_a_line_of_only_spaces(tmp_path):
+    # マスの中に空白だけの行があっても、墨はないので「下に書く空きがありません」と断らない（窓は ↓余白 と示している）
+    ops = (b"1 w 100 500 300 100 re S BT /F 12 Tf 110 585 Td (Addr) Tj ET BT /F 12 Tf 110 570 Td ( ) Tj ET "
+           b"BT /F 12 Tf 110 510 Td (Tel) Tj ET")
+    p = tmp_path / "a.pdf"
+    p.write_bytes(_pdf_text(ops))
+    r = api.fill(str(p), {"@1": {"after": "Addr", "where": "below", "page": 1, "value": "Tokyo"}}, str(tmp_path / "o.pdf"))
+    assert r["proof_ok"] and r["read_back_ok"]
+
+
+def test_value_drawn_on_two_lines_is_a_multiline_field_and_audit_accepts_the_output(tmp_path):
+    # 2 行に描いた欄が 1 行の欄のままだと、見た目を作り直すソフトで 1 行に潰れ、書いた後の audit も「改行は書けません」になる
+    ops = b"1 w 100 500 300 100 re S BT /F 12 Tf 110 610 Td (Name) Tj ET"
+    p = tmp_path / "a.pdf"
+    p.write_bytes(_pdf_text(ops))
+    out = tmp_path / "o.pdf"
+    r = api.fill(str(p), {"@1": {"page": 1, "box": [40, 90, 130, 120], "value": "Yamada\nHanako"}}, str(out))
+    assert r["proof_ok"] and r["read_back_ok"]
+    a = api.audit(str(out))
+    bad = [c for c in a["checks"] if c["name"] == "全入力欄への書き込み" and not c["ok"]]
+    assert not bad, bad
+    doc = PdfDocument(out.read_bytes(), "o.pdf")
+    multi = [f for f in read_fields(doc) if f.flags & FF_MULTILINE]
+    assert multi
+
+
+def test_doc_paragraph_place_takes_align_like_docx(tmp_path):
+    # 説明書きのとおり、Word の段落の中の所は .doc でも align で書ける：空きの幅を保って、前後に半角の空白を足す
+    p = tmp_path / "a.doc"
+    p.write_bytes(plain_doc("申請日　　　　　　年\r"))
+    place = next(f["id"] for f in api.fields(str(p)) if f["id"].startswith("P"))
+    r = api.fill(str(p), {place: {"value": "8", "align": "right"}}, str(tmp_path / "o.doc"))
+    assert r["proof_ok"] and r["read_back_ok"], r
+    assert r["aligned"][place]["align"] == "right" and r["aligned"][place]["pad"][0] > 0
+    after = DocFile((tmp_path / "o.doc").read_bytes(), "o.doc")
+    assert " 8" in after.text
+    # 指定がなければ、これまでのまま
+    r = api.fill(str(p), {place: "8"}, str(tmp_path / "o2.doc"))
+    assert r["proof_ok"] and r["read_back_ok"] and "aligned" not in r
