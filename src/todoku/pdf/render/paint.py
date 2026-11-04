@@ -4,7 +4,9 @@
 字（9.4 の字の位置の計算と、字の形：埋め込んだ書体・代わりの書体・型 3 の字の手続き）、字の描き方（Tr：塗り・線・見えない・
 切り抜き）、網かけ（8.7.4.5 の型 2 軸・型 3 放射。sh と模様の塗り）、タイルの模様（8.7.3）、透け（ExtGState の CA・ca）、
 見える／見えない内容（8.11 Optional Content：既定の設定で OFF の内容は描かない）、注釈の見た目（12.5.5、/AP の N）。
-描けないもの（型 1・4〜7 の網かけ、透けのマスク SMask、重ね方 BM）は、近い形で描いて数を伝える（黙って捨てない）。
+線の調整（10.6.5）：水平・垂直の細い線と、塗りの細い四角は、縁を画素の境に合わせる（見る道具と同じ。罫線が薄くならない）。
+描けないもの（型 1・4〜7 の網かけ、透けのマスク SMask、重ね方 BM）は、近い形で描いて数を伝える（黙って捨てない）。読めない命令・
+見つからない書体と部品・開けない画像・見た目（/AP）のない欄も数えて伝える（pageimage.not_drawn）。
 """
 
 from __future__ import annotations
@@ -15,10 +17,10 @@ import time
 from ..content import tokens
 from ..fonts import load_font
 from ..objects import Name, PdfString, Stream
-from .canvas import (Canvas, Clip, fill_rows, flatten, inv, mul, paint, paint_fn, rect_rows, scale_of, scan,
+from .canvas import (Canvas, Clip, _rect_of, fill_rows, flatten, inv, mul, paint, paint_fn, rect_rows, scale_of, scan,
                      stroke_polys, transform_polys)
 from .colors import DCMYK, DRGB, GRAY, PatternCS, colorspace, function
-from .fontmap import glyphs_for
+from .fontmap import _decoded_name, glyphs_for
 from .image import draw_image, image_rgba
 
 IDENT = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
@@ -52,19 +54,6 @@ class GS:
         for k in GS.__slots__:
             setattr(g, k, getattr(self, k))
         return g
-
-
-def _font_name(name: str) -> str:
-    """書体の名前（PDF の名前はバイト列。日本の書体は Shift_JIS で書かれていることが多い：ＭＳ明朝 など）。"""
-    raw = name.encode("latin-1", "replace")
-    if raw.isascii():
-        return name
-    for enc in ("utf-8", "cp932"):
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return name
 
 
 def _rgb255(c) -> tuple[int, int, int]:
@@ -400,7 +389,7 @@ class Renderer:
             except LimitExceeded:
                 raise
             except (IndexError, ValueError, TypeError, ZeroDivisionError, KeyError, AttributeError, OverflowError):
-                pass
+                self.note(f"読めない描画の命令（{op}）")  # その命令だけ飛ばして続ける（黙って捨てない）
             stack.clear()
 
     # ------------------------------------------------------------------ 状態
@@ -455,9 +444,9 @@ class Renderer:
             return None, None
         g = glyphs_for(doc, fd, pf)
         if g.kind == "system":
-            self.subst[_font_name(pf.base or name)] = g.subst_name
+            self.subst[_decoded_name(pf.base or name)] = g.subst_name
         elif g.kind == "none":
-            self.missing_fonts.add(_font_name(pf.base or name))
+            self.missing_fonts.add(_decoded_name(pf.base or name))
         return g, pf
 
     # ------------------------------------------------------------------ 塗り・線・切り抜き
@@ -474,7 +463,7 @@ class Renderer:
             return
         self.stats["paths"] += 1
         subs = flatten(path, gs.ctm)
-        polys = [p for p, _c in subs if len(p) >= 2]
+        polys = [_snap_thin_rect(p) for p, _c in subs if len(p) >= 2]
         if not polys:
             return
         rows = fill_rows(polys, eo, gs.clip.rect, separate_rects=gs.ca >= 0.999 and gs.fpat is None and not eo)
@@ -487,12 +476,17 @@ class Renderer:
         m = gs.ctm
         sc = scale_of(m)
         wdev = gs.lw * sc
-        if wdev < 1.0:
-            # 1 画素より細い線（太さ 0 を含む）：画面の座標で 1 画素の線（8.4.3.2）
+        aligned = _axis_uniform(m)
+        if wdev < 1.0 or aligned:
+            # 1 画素より細い線（太さ 0 を含む）は、画面の座標で 1 画素の線（8.4.3.2）。軸にそろった行列の線は、画面の座標で作って
+            # 画素にそろえる（線の調整 10.6.5）
             subs = flatten(path, m)
             if gs.dash:
                 subs = [(p, c) for p, c in _dash_user(path, m, gs)]
-            polys = stroke_polys(subs, 1.0, gs.cap, gs.join, gs.miter, None, 0.0, 1.0)
+            w = max(1.0, wdev)
+            polys = _adjusted_strokes(subs, w, gs.cap) if aligned else None
+            if polys is None:
+                polys = stroke_polys(subs, w, gs.cap, gs.join, gs.miter, None, 0.0, 1.0)
         else:
             subs = flatten(path, m, keep=True)
             polys = stroke_polys(subs, gs.lw, gs.cap, gs.join, gs.miter, gs.dash, gs.phase, sc)
@@ -509,8 +503,6 @@ class Renderer:
             gs.clip = Clip(0, 0, 0, 0, {})
             return
         if len(polys) == 1:
-            from .canvas import _rect_of
-
             r = _rect_of(polys[0])
             if r is not None:
                 gs.clip = gs.clip.with_rect(*r)
@@ -521,6 +513,8 @@ class Renderer:
     def show(self, gs: GS, res: dict, s: bytes, tm, invisible: bool, text_clip, depth: int):
         pf, gl = gs.pf, gs.font
         if pf is None:
+            if not invisible and gs.tr not in (3, 7):
+                self.note("書体が見つからず描いていない字の並び")
             return tm
         fs, th = gs.fs, gs.th
         mode = gs.tr
@@ -544,7 +538,10 @@ class Renderer:
     def glyph(self, gs: GS, res: dict, gl, pf, code: bytes, text: str, m, mode: int, text_clip, w: float, depth: int):
         r = gl.lookup(code, text)
         if r is None:
-            if text and text.strip() and text != "�" or (gl.kind == "none" and code not in (b" ",)):
+            # 字の形が分からない字（代わりの書体に字がない・埋め込みでない書体で字が決まらない）：灰色の四角で示して数える。
+            # 埋め込んだ書体で字の決まらない符号は、見る道具でも .notdef（ふつうは何も描かない）
+            unknown = text == "�" and gl.kind in ("system", "none")
+            if (text and text.strip() and text != "�") or unknown or (gl.kind == "none" and code not in (b" ",)):
                 if mode not in (3, 7):
                     self.stats["glyphs_box"] += 1
                     self._box(gs, pf, m, w)
@@ -611,6 +608,7 @@ class Renderer:
         doc = self.doc
         xo = doc.resolve((doc.resolve(res.get("XObject")) or {}).get(name))
         if not isinstance(xo, Stream):
+            self.note(f"見つからない部品（{name}）")
             return
         if self.hidden(xo.dict.get("OC")):
             return
@@ -623,6 +621,8 @@ class Renderer:
                 self.problems.append(f"フォームの部品 {name} が自分自身を描いています")
                 return
             self.form(gs, xo, res, depth)
+        else:
+            self.note(f"描けない部品（{st or name}）")
 
     def form(self, gs: GS, xo: Stream, res: dict, depth: int, matrix=None) -> None:
         doc = self.doc
@@ -667,7 +667,8 @@ class Renderer:
 
             if isinstance(e, LimitExceeded):
                 raise
-            self.image_failed.append(f"{name}：{e}")
+            self.image_failed.append((name, str(e), _unit_square_box(m)))
+            self._undrawn_image(gs, m)
             return
         self.stats["images"] += 1
         fill = gs.fc
@@ -675,6 +676,14 @@ class Renderer:
             fill = (128, 128, 128)
             self.note("模様で塗る型抜きの画像")
         draw_image(self.cv, im, m, gs.clip, gs.ca, fill)
+
+    def _undrawn_image(self, gs: GS, m) -> None:
+        """開けない画像：その四角に灰色の枠と対角線を描く（白いままにしない：そこに中身があると見て分かるように）。"""
+        pts = [(m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]) for x, y in ((0, 0), (1, 0), (1, 1), (0, 1))]
+        subs = [(pts, True), ([pts[0], pts[2]], False), ([pts[1], pts[3]], False)]
+        polys = stroke_polys(subs, 1.0, 0, 0, 10.0, None, 0.0, 1.0)
+        if polys:
+            paint(self.cv, fill_rows(polys, False, gs.clip.rect), (150, 150, 150), 1.0, gs.clip)
 
     # ------------------------------------------------------------------ 網かけ・模様
     def shade(self, gs: GS, sh, rows, res: dict, matrix=None, alpha: float | None = None) -> None:
@@ -790,10 +799,9 @@ class Renderer:
         doc = self.doc
         nm, res, vals = pat
         p = doc.resolve((doc.resolve(res.get("Pattern")) or {}).get(nm.name))
-        if p is None:
-            return
         d = p.dict if isinstance(p, Stream) else p
         if not isinstance(d, dict):
+            self.note(f"見つからない模様（{nm.name}）")
             return
         pm = d.get("Matrix")
         pm = tuple(float(doc.resolve(v)) for v in doc.resolve(pm)) if isinstance(doc.resolve(pm), list) else IDENT
@@ -860,6 +868,84 @@ class Renderer:
             self.drawing.discard(key)
 
 
+def _axis_uniform(m) -> bool:
+    """行列が、軸にそろって（回転は 90 度ごと）縦横の拡大が同じか。"""
+    a, b, c, d = (abs(v) for v in m[:4])
+    sx, sy = max(a, b), max(c, d)
+    if sx <= 0 or sy <= 0 or abs(sx - sy) > 1e-3 * max(sx, sy):
+        return False
+    return (b < 1e-6 * sx and c < 1e-6 * sy) or (a < 1e-6 * sx and d < 1e-6 * sy)
+
+
+def _snap_span(a: float, b: float) -> tuple[float, float]:
+    """縁を画素の境に合わせる（最低 1 画素）。"""
+    a, b = float(round(a)), float(round(b))
+    return (a, b) if b > a else (a, a + 1.0)
+
+
+def _adjusted_strokes(subs, w: float, cap: int) -> list | None:
+    """線の調整（ISO 32000-1 10.6.5、ページを見る道具がふつう行う）：水平・垂直の線だけの図形を、縁を画素の境に合わせた四角に
+    する（細い罫線が 2 画素にまたがって薄くならない。ずれは半画素まで）。斜めや曲線のある図形は None（そのまま線にする）。
+    角は四角どうしの重なりで埋まる（線の角の形は、この太さでは見分けられない）。丸い端は四角で描く。"""
+    if w >= 3.0:  # 太い線は角・端の形が見えるので、ふつうの線で（縁はなめらか）
+        return None
+    eps = 1e-3
+    hw = w / 2
+    out: list = []
+    for pts, closed in subs:
+        ring = pts + [pts[0]] if closed and len(pts) > 1 else pts
+        if len(ring) == 1 or all(abs(p[0] - ring[0][0]) <= eps and abs(p[1] - ring[0][1]) <= eps for p in ring):
+            if cap != 0:  # 長さのない線：端の形だけ描く（8.4.3.3）
+                x0, x1 = _snap_span(ring[0][0] - hw, ring[0][0] + hw)
+                y0, y1 = _snap_span(ring[0][1] - hw, ring[0][1] + hw)
+                out.append([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+            continue
+        n = len(ring) - 1
+        for i in range(n):
+            (px, py), (qx, qy) = ring[i], ring[i + 1]
+            dx, dy = abs(qx - px), abs(qy - py)
+            if dx > eps and dy > eps:
+                return None
+            if dx <= eps and dy <= eps:
+                continue
+            # 端の伸ばし：角（前後に線が続く所）と、四角・丸の端は、太さの半分
+            before = hw if (closed or i > 0 or cap != 0) else 0.0
+            after = hw if (closed or i < n - 1 or cap != 0) else 0.0
+            if dy <= eps:
+                lo, hi = (px - before, qx + after) if px <= qx else (qx - after, px + before)
+                x0, x1 = _snap_span(lo, hi)
+                y0, y1 = _snap_span(py - hw, py + hw)
+            else:
+                lo, hi = (py - before, qy + after) if py <= qy else (qy - after, py + before)
+                y0, y1 = _snap_span(lo, hi)
+                x0, x1 = _snap_span(px - hw, px + hw)
+            out.append([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+    return out
+
+
+def _snap_thin_rect(p: list) -> list:
+    """塗りの細い四角（罫線を四角で塗る書類が多い）：細いほうの辺を画素に合わせる（線の調整 10.6.5。2 画素未満のときだけ）。"""
+    r = _rect_of(p)
+    if r is None:
+        return p
+    x0, y0, x1, y1 = r
+    thin_x, thin_y = 0 < x1 - x0 < 2.0, 0 < y1 - y0 < 2.0
+    if not (thin_x or thin_y):
+        return p
+    if thin_x:
+        x0, x1 = _snap_span(x0, x1)
+    if thin_y:
+        y0, y1 = _snap_span(y0, y1)
+    return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
+
+def _unit_square_box(m) -> tuple[float, float, float, float]:
+    """画像の単位の四角の、画素での外枠。"""
+    xs = [m[4], m[0] + m[4], m[2] + m[4], m[0] + m[2] + m[4]]
+    ys = [m[5], m[1] + m[5], m[3] + m[5], m[1] + m[3] + m[5]]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
 def _dash_user(path, m, gs):
     """細い線の破線：破線の長さは利用者の座標で（8.4.3.6）、線そのものは画面の座標で作る。"""
     from .canvas import _dash
@@ -909,6 +995,49 @@ def annotation_forms(doc, page: dict):
         rx0, ry0, rx1, ry1 = min(rect[0], rect[2]), min(rect[1], rect[3]), max(rect[0], rect[2]), max(rect[1], rect[3])
         sx, sy = (rx1 - rx0) / (bx1 - bx0), (ry1 - ry0) / (by1 - by0)
         out.append((ad, n, (sx, 0.0, 0.0, sy, rx0 - bx0 * sx, ry0 - by0 * sy)))
+    return out
+
+
+def _field_value(doc, ad: dict):
+    """欄の値（V。無ければ親の欄へさかのぼる：12.7.3.1 の継承）。"""
+    d, seen = ad, 0
+    while isinstance(d, dict) and seen < 16:
+        v = doc.resolve(d.get("V"))
+        if v is not None:
+            return v
+        d, seen = doc.resolve(d.get("Parent")), seen + 1
+    return None
+
+
+def appearance_notes(doc, page: dict) -> list[str]:
+    """/AP の見た目で描くので、そのとおりには分からないもの（文にして返す）：
+    - 見た目（/AP）のない欄と注釈：見る道具によっては値や辞書から見た目を作るが、ここでは描かない（12.5.5）
+    - NeedAppearances（12.7.2）：見る道具が欄の見た目を値から作り直すので、位置・大きさが /AP と違って見えることがある"""
+    missing: dict[str, int] = {}
+    n_widget = 0
+    for a in doc.resolve(page.get("Annots")) or []:
+        ad = doc.resolve(a)
+        if not isinstance(ad, dict):
+            continue
+        sub = getattr(ad.get("Subtype"), "name", "")
+        if sub in ("Popup", "Link") or int(doc.resolve(ad.get("F")) or 0) & 34:
+            continue
+        if sub == "Widget":
+            n_widget += 1
+        apd = doc.resolve(ad.get("AP"))
+        n = doc.resolve(apd.get("N")) if isinstance(apd, dict) else None
+        if n is not None:
+            continue
+        v = _field_value(doc, ad) if sub == "Widget" else True
+        if v in (None, b"", "", False) or getattr(v, "name", "") == "Off":
+            continue
+        k = "値の入った欄" if sub == "Widget" else f"注釈（{sub or '種類なし'}）"
+        missing[k] = missing.get(k, 0) + 1
+    out = [f"見た目（/AP）のない{k} {n} 個は描いていません。" for k, n in missing.items()]
+    af = doc.resolve(doc.root.get("AcroForm"))
+    if n_widget and isinstance(af, dict) and doc.resolve(af.get("NeedAppearances")) is True:
+        out.append("この書類は NeedAppearances が true なので、見る道具が欄の見た目を値から作り直します（この画像は /AP のままで、"
+                   "位置・大きさが違って見えることがあります）。")
     return out
 
 

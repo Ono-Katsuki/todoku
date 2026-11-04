@@ -459,6 +459,16 @@ def cid_inverse(ros: str) -> dict[str, int]:
     return inv
 
 
+@lru_cache(maxsize=1)
+def _aj1_full_width() -> dict[str, int]:
+    """Adobe-Japan1 の、全角の字形（CID 633 より後）の 字 → CID。"""
+    inv: dict[str, int] = {}
+    for cid, u in sorted(cid_table("Adobe-Japan1").items()):
+        if cid >= 633:
+            inv.setdefault(u, cid)
+    return inv
+
+
 def ros_name(info: dict | None, doc=None) -> str:
     if not isinstance(info, dict):
         return ""
@@ -730,10 +740,13 @@ class PdfFont:
                 cid = int.from_bytes(code, "big")
             if self.tounicode is not None:
                 text = self.tounicode.to_unicode(code)
-            if text is None and self.pre is not None and self.pre[0] != "identity":
-                text = decode_predefined(code, self.pre[0])
-                if cid is None and text:
-                    cid = self._cid_from_text(text, len(code))
+            if self.pre is not None and self.pre[0] != "identity":
+                # 幅（W）と字形は CID で決まる（9.7.4）：CID は CMap の符号から決める（ToUnicode の字からではない）
+                t = decode_predefined(code, self.pre[0])
+                if text is None:
+                    text = t
+                if cid is None and t:
+                    cid = self._cid_from_text(t, len(code))
             if text is None and cid is not None:
                 text = self._cid_text(cid)
             if text is None and cid is not None:
@@ -755,12 +768,24 @@ class PdfFont:
         return out
 
     def _cid_from_text(self, text: str, nbytes: int) -> int | None:
+        """定義済みの CMap（符号を字に直した text）→ CID。公式の表（glyphs.uni2cid）のある CMap はその表で、ほかは文字集合の
+        CID → 文字の表を逆に引く。1 つの字に CID がいくつもあるので、CMap が選ぶほうにする：Adobe-Japan1 の 231〜632 は半角の
+        字形の集まりで（半角のひらがな 516〜 など）、全角の字（East Asian Width の W・F）を定義済みの CMap が指すのは 633〜。"""
         if not self.ros:
             return None
-        inv = cid_inverse(self.ros.replace("Adobe-", "Adobe-", 1))
-        cid = inv.get(text)
-        if cid is not None and self.ros == "Adobe-Japan1" and not self.pre[3] and 1 <= cid <= 95:
-            cid += 230  # 比例幅でない CMap の半角の文字（AJ1 では 231〜325）
+        if len(text) == 1:
+            from .glyphs import uni2cid
+
+            name = getattr(self, "enc_name", "") or ""
+            cid = uni2cid(name[:-2] + "-H" if name.endswith("-V") else name).get(ord(text))
+            if cid:
+                return cid
+        cid = cid_inverse(self.ros).get(text)
+        if cid is not None and self.ros == "Adobe-Japan1":
+            if not self.pre[3] and 1 <= cid <= 95:
+                cid += 230  # 比例幅でない CMap の半角の文字（AJ1 では 231〜325）
+            elif 231 <= cid <= 632 and len(text) == 1 and unicodedata.east_asian_width(text) in ("W", "F"):
+                cid = _aj1_full_width().get(text, cid)
         return cid
 
     def _cid_text(self, cid: int) -> str | None:

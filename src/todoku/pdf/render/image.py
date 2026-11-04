@@ -1,15 +1,16 @@
 """画像を色（RGB）と透けで開き（ISO 32000-1 8.9・11.6.5）、ページの画素に写す（8.9.5 画像の座標：単位の四角）。
 
 圧縮を開くのは raster.py（CCITT・JPEG・Flate など）。ここでは色空間と Decode・SMask・Mask（型抜き・色で隠す）・
-ImageMask（塗りの色の型抜き）を扱い、写すときは、元の画像が画面の画素より細かければ箱の平均で縮めてから、
-各画素の中心を画像に戻して引く（細い線を落とさない）。
+ImageMask（塗りの色の型抜き）を扱い、写すときは、元の画像が画面の画素より細かければ面積の平均で画面の画素の数に縮めてから、
+各画素の中心を画像に戻して引く（細い線を落とさない）。マスクは画像と別の解像度のことがあるので、細かいほうに合わせる。
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from operator import add
+from itertools import repeat
+from operator import add, itemgetter, mul, rshift
 
 from ..objects import Name, Stream
 from ..raster import _CS_ABBR, _FILTER_ABBR, _KEY_ABBR, RasterError, image_gray, jpeg_gray
@@ -93,14 +94,46 @@ def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None
         sm = doc.resolve(d.get("SMask"))
         mk = doc.resolve(d.get("Mask"))
         if isinstance(sm, Stream):
-            a = image_gray(doc, sm, max(out.w * out.h, 1))
-            out.alpha = _resample(a.px, a.w, a.h, out.w, out.h)
+            a = image_gray(doc, sm, max_pixels)
+            _set_alpha(out, a.px, a.w, a.h, max_pixels, dct_pixels)
+            matte = doc.resolve(sm.dict.get("Matte"))
+            if isinstance(matte, list) and len(matte) == cs.n and (a.w, a.h) == (out.w, out.h):
+                _unmatte(out, cs.rgb([float(doc.resolve(v)) for v in matte]))
         elif isinstance(mk, Stream):
-            a = image_gray(doc, mk, max(out.w * out.h, 1))  # 型抜き：隠す所（既定は 1）が白
-            out.alpha = _resample(a.px.translate(_inv_table()), a.w, a.h, out.w, out.h)
+            a = image_gray(doc, mk, max_pixels)  # 型抜き：隠す所（既定は 1）が白
+            _set_alpha(out, a.px.translate(_inv_table()), a.w, a.h, max_pixels, dct_pixels)
         elif isinstance(mk, list) and len(mk) >= 2 * max(1, cs.n) and data and "DCTDecode" not in names:
             out.alpha = _color_key(data, d, w, h, cs, [int(doc.resolve(v)) for v in mk], out)
     return out
+
+
+def _set_alpha(out: RGBA, a: bytes, aw: int, ah: int, max_pixels: int, screen_pixels: int | None) -> None:
+    """透けのマスク（SMask・型抜きの Mask）を画像に付ける。マスクの解像度は画像と別に決まる（8.9.6.3・11.6.5.3）：
+    2×2 の黒の画像に細かなマスクで字の形を持たせる書類もあるので、細かいほうに合わせる（粗いほうへ間引くと字が消える）。
+    画面より大きなマスクだけ、画面の大きさの数倍まで箱の平均で縮める。"""
+    limit = min(max_pixels, screen_pixels or max_pixels)
+    if aw * ah > limit:
+        k = math.isqrt(aw * ah // max(1, limit)) + 1
+        a, aw, ah = box_down(a, aw, ah, 1, k, k)
+    W, H = max(out.w, aw), max(out.h, ah)
+    out.alpha = _resample(a, aw, ah, W, H)
+    if (W, H) != (out.w, out.h):
+        out.px = _resample(out.px, out.w, out.h, W, H, 3)
+        out.w, out.h = W, H
+
+
+def _unmatte(out: RGBA, matte) -> None:
+    """Matte（11.6.5.3）：画素の色は、マスクで Matte の色と混ぜてある。元の色に戻す：c = m + (c′ − m) / α。"""
+    mr, mg, mb = (int(v * 255 + 0.5) for v in matte)
+    px, al = bytearray(out.px), out.alpha
+    for i, av in enumerate(al):
+        if av in (0, 255):
+            continue
+        p = i * 3
+        px[p] = max(0, min(255, mr + (px[p] - mr) * 255 // av))
+        px[p + 1] = max(0, min(255, mg + (px[p + 1] - mg) * 255 // av))
+        px[p + 2] = max(0, min(255, mb + (px[p + 2] - mb) * 255 // av))
+    out.px = bytes(px)
 
 
 def _gray3(g: bytes) -> bytes:
@@ -111,11 +144,22 @@ def _gray3(g: bytes) -> bytes:
     return bytes(px)
 
 
-def _resample(px: bytes, w: int, h: int, W: int, H: int) -> bytes:
+def _resample(px: bytes, w: int, h: int, W: int, H: int, nc: int = 1) -> bytes:
+    """いちばん近い画素で W × H に（nc：1 画素の成分の数）。"""
     if (w, h) == (W, H):
         return bytes(px)
-    cols = [min(w - 1, x * w // W) for x in range(W)]
-    return b"".join(bytes(map(px.__getitem__, [min(h - 1, y * h // H) * w + c for c in cols])) for y in range(H))
+    cols = [min(w - 1, x * w // W) * nc + k for x in range(W) for k in range(nc)]
+    rows: dict[int, bytes] = {}  # 広げるときは同じ元の行が続く
+    out = []
+    for y in range(H):
+        sy = min(h - 1, y * h // H)
+        row = rows.get(sy)
+        if row is None:
+            base = sy * w * nc
+            rows = {sy: bytes(map(px.__getitem__, [base + c for c in cols]))}
+            row = rows[sy]
+        out.append(row)
+    return b"".join(out)
 
 
 _UNPACK: dict = {}
@@ -249,6 +293,67 @@ def box_down(px: bytes, w: int, h: int, nc: int, kx: int, ky: int) -> tuple[byte
     return bytes(out), W, H
 
 
+def _taps(n: int, N: int) -> list[tuple[int, int, int, int]]:
+    """n 個を N 個に縮める（倍率は 1〜2）：出力の 1 個が覆う元の 3 個までの (番号, 重み 0, 重み 1, 重み 2)。重みの和は 256。"""
+    r = n / N
+    out = []
+    for j in range(N):
+        s, e = j * r, (j + 1) * r
+        i = min(int(s), n - 1)
+        a = (min(e, i + 1) - s) / r
+        c = max(0.0, e - (i + 2)) / r
+        w0, w2 = int(a * 256 + 0.5), int(c * 256 + 0.5)
+        out.append((i, w0, 256 - w0 - w2, w2))
+    return out
+
+
+def area_down(px: bytes, w: int, h: int, nc: int, W: int, H: int) -> bytes:
+    """画素の平均で W × H に縮める（W ≤ w、H ≤ h）：まず整数の倍率の箱の平均、残りの 1〜2 倍を面積の重みで。"""
+    if (w, h) == (W, H):
+        return px
+    if nc == 3:
+        g = px[0::3]
+        if g == px[1::3] and g == px[2::3]:  # 灰色（スキャンの多く）は 1 成分で
+            return _gray3(area_down(g, w, h, 1, W, H))
+    kx, ky = max(1, w // W), max(1, h // H)
+    if kx > 1 or ky > 1:
+        px, w, h = box_down(px, w, h, nc, kx, ky)
+    if (w, h) == (W, H):
+        return px
+    # 横：列ごとの重み
+    rows: dict[int, bytes] = {}
+    if w != W:
+        tx = _taps(w, W)
+        ix = [[min(w - 1, t[0] + d) * nc + c for t in tx for c in range(nc)] for d in range(3)]
+        wx = [[t[1 + d] for t in tx for _c in range(nc)] for d in range(3)]
+        get = [itemgetter(*v) if len(v) > 1 else (lambda r, q=v[0]: (r[q],)) for v in ix]
+
+    def line(y: int) -> bytes:
+        row = rows.get(y)
+        if row is None:
+            row = px[y * w * nc:(y + 1) * w * nc]
+            if w != W:
+                a, b, c = (g_(row) for g_ in get)
+                row = bytes(map(rshift, map(add, map(add, map(mul, a, wx[0]), map(mul, b, wx[1])), map(mul, c, wx[2])), repeat(8)))
+            rows[y] = row
+        return row
+
+    if h == H:
+        return b"".join(line(y) for y in range(H))
+    out = []
+    for i, w0, w1, w2 in _taps(h, H):
+        a, b = line(i), line(min(h - 1, i + 1))
+        if w2:
+            c = line(min(h - 1, i + 2))
+            r = map(add, map(add, map(mul, a, repeat(w0)), map(mul, b, repeat(w1))), map(mul, c, repeat(w2)))
+        else:
+            r = map(add, map(mul, a, repeat(w0)), map(mul, b, repeat(w1)))
+        out.append(bytes(map(rshift, r, repeat(8))))
+        for y in [y for y in rows if y < i]:
+            del rows[y]
+    return b"".join(out)
+
+
 # ====================================================================== 写す
 def draw_image(cv: Canvas, img: RGBA, m, clip: Clip, alpha: float = 1.0, fill=(0, 0, 0)) -> int:
     """画像（単位の四角 → 画面の画素の行列 m）を描く。描いた画素の数を返す。"""
@@ -261,15 +366,15 @@ def draw_image(cv: Canvas, img: RGBA, m, clip: Clip, alpha: float = 1.0, fill=(0
     w, h = img.w, img.h
     px, al = img.px, img.alpha
     nc = 3
-    kx = int(w / max(du, 1e-9)) if du > 0 else 1
-    ky = int(h / max(dv, 1e-9)) if dv > 0 else 1
-    if kx >= 2 or ky >= 2:
-        kx, ky = max(1, kx), max(1, ky)
+    W_t, H_t = max(1, math.ceil(du - 1e-6)), max(1, math.ceil(dv - 1e-6))
+    if W_t < w or H_t < h:
+        # 画面より細かい画像：面積の平均で、ちょうど画面の画素の数に縮める（整数の倍率でないと、間引きで細い線が切れる）
+        W_t, H_t = min(W_t, w), min(H_t, h)
         if not img.stencil:
-            px, w2, h2 = box_down(px, w, h, nc, kx, ky)
+            px = area_down(px, w, h, nc, W_t, H_t)
         if al is not None:
-            al, w2, h2 = box_down(al, w, h, 1, kx, ky)
-        w, h = w2, h2
+            al = area_down(al, w, h, 1, W_t, H_t)
+        w, h = W_t, H_t
     im = inv(m)
     if im is None or w <= 0 or h <= 0:
         return 0

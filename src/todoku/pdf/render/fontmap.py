@@ -15,6 +15,7 @@ import os
 import struct
 from functools import lru_cache
 
+from ..fonts import decode_predefined
 from ..objects import Name, Stream
 from .fontprog import CFFOutlines, FontProgramError, TrueTypeOutlines, Type1Outlines, sfnt_tables
 
@@ -77,6 +78,19 @@ class SystemFace:
         if not g:
             return None
         return g
+
+
+def _decoded_name(name: str) -> str:
+    """書体の名前（PDF の名前はバイト列。日本の書体は Shift_JIS で書かれていることが多い：ＭＳ明朝 など）。"""
+    raw = name.encode("latin-1", "replace")
+    if raw.isascii():
+        return name
+    for enc in ("utf-8", "cp932"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return name
 
 
 def _style(tabs) -> tuple[bool, bool]:
@@ -222,8 +236,8 @@ class Glyphs:
 
     def _choose_substitute(self, desc) -> None:
         pf = self.pf
-        base = (pf.base or "").split("+")[-1]
-        flags = int(self.doc.resolve((desc or {}).get("Flags")) or 0) if isinstance(desc, dict) else 0
+        base = _decoded_name((pf.base or "").split("+")[-1])
+        flags =int(self.doc.resolve((desc or {}).get("Flags")) or 0) if isinstance(desc, dict) else 0
         weight = self.doc.resolve((desc or {}).get("FontWeight")) if isinstance(desc, dict) else None
         low = base.lower()
         bold = bool(flags & 0x40000) or (isinstance(weight, (int, float)) and weight >= 600) or "bold" in low \
@@ -236,7 +250,10 @@ class Glyphs:
         elif fam in ("ZapfDingbats",):
             kind = "dingbats"
         elif pf.composite and cjk:
-            serif = bool(flags & 2) or any(k in low for k in ("mincho", "ming", "song", "serif", "明朝"))
+            # 名前で分かれば名前で（MS-Gothic の FontDescriptor に Serif の印が立っていることがある）。分からなければ Flags
+            named_sans = any(k in low for k in ("gothic", "goth", "kaku", "sans", "ゴシック", "hei", "dotum", "gulim"))
+            named_serif = any(k in low for k in ("mincho", "ming", "song", "serif", "明朝", "batang"))
+            serif = named_serif or (bool(flags & 2) and not named_sans)
             kind = "cjk-serif" if serif else "cjk-sans"
         elif fam.startswith("Courier") or flags & 1:
             kind = "mono"
@@ -486,8 +503,10 @@ def _cid(pf, code: bytes, text: str) -> int:
         cid = pf.cmap.to_cid(code)
     elif pf.pre is not None and pf.pre[0] == "identity":
         cid = int.from_bytes(code, "big")
-    elif pf.pre is not None and text and text != _UNKNOWN:
-        cid = pf._cid_from_text(text, len(code))
+    elif pf.pre is not None:
+        # 定義済みの CMap：符号から字に直して CID を引く（ToUnicode の字からではない）
+        t = decode_predefined(code, pf.pre[0]) or (text if text != _UNKNOWN else "")
+        cid = pf._cid_from_text(t, len(code)) if t else None
     if cid is None:
         cid = int.from_bytes(code, "big")
     return cid

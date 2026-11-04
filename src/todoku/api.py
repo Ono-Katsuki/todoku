@@ -1639,9 +1639,36 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
     try:
         if dpi is not None and (isinstance(dpi, bool) or not isinstance(dpi, (int, float)) or not 10 <= dpi <= 1200):
             raise ApiError("dpi は 10〜1200 の数で指定してください（省くとページ全体は 100 dpi）")
-        return pview(doc, int(page), region, marks, written=_written_boxes(path, password, int(page)), dpi=dpi)
+        from .limits import LimitExceeded
+
+        problem = ""
+        try:
+            written = _written_boxes(path, password, int(page))
+        except LimitExceeded:
+            raise
+        except Exception as e:  # noqa: BLE001  窓を作れない書類でも、ページの画像は出す（青い枠だけ描けないと伝える）
+            written, problem = None, f"値の入った欄の青い枠は描けません（窓を作れません：{type(e).__name__}）"
+        v = pview(doc, int(page), region, marks, written=written, dpi=dpi)
+        if problem:
+            v["text"] += " " + problem + "。"
+            v["not_drawn"].append(problem)
+        return v
     except ValueError as e:
         raise ApiError(str(e)) from None
+
+
+def _pdf_window_doc(path: str, password: str | None) -> dict:
+    """PDF の窓の JSON だけ。窓の Markdown を作らない（描くのに要らないので、Markdown の組み立ての失敗で画像まで出せなくならない）。"""
+    import hashlib
+    import pickle
+
+    from .pdf.window import build
+
+    blob, name, _k, lock = _read(path, password)
+    key = (hashlib.sha256(blob).hexdigest(), name, None) if lock is None else None
+    if key is not None and key in _WINDOWS:
+        return pickle.loads(_WINDOWS[key][1])[1]
+    return build(_pdf(blob, name, lock))
 
 
 def _written_boxes(path: str, password: str | None, page: int) -> list[dict]:
@@ -1649,7 +1676,7 @@ def _written_boxes(path: str, password: str | None, page: int) -> list[dict]:
     from .pdf.layout import MM_PT
 
     out = []
-    k, doc, _ = window(path, password)
+    doc = _pdf_window_doc(path, password)
     for pg in doc.get("pages", []):
         if pg["number"] != page:
             continue

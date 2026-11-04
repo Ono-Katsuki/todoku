@@ -215,7 +215,7 @@ TOOLS = [
                     "ページは、字（埋め込みのフォントの字形）・線・画像・欄の見た目（/AP）を描く。書いた後のファイルを見ると、値の入った欄が青い枠で描かれ、値は文で返る。"
                     "書いた字が欄からはみ出す・つぶれる・横倒し・印刷された字に重なるなら、書いた見た目が正しくないので、書き直す（書いた後は、いつも見て確かめる）。"
                     "フォントが埋め込まれていない字は代わりのフォントで描き（結果の substituted）、使える字形がない字は灰色の四角になる。"
-                    "JBIG2・JPEG 2000 の画像は描けない（結果に書く）ので、その所は描けたと思わず、本人に伝える。置いた印影・署名の画像も、その位置に描く。画像の中の字は推測で埋めず、読めない所は本人に伝える。",
+                    "JBIG2・JPEG 2000 の画像は描けない（灰色の枠と対角線で示し、結果に書く）ので、その所は描けたと思わず、本人に伝える。そのとおりに描けなかったものは、結果の not_drawn に短く並ぶ。置いた印影・署名の画像も、その位置に描く。画像の中の字は推測で埋めず、読めない所は本人に伝える。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
          "page": {"type": "integer", "minimum": 1},
@@ -346,7 +346,7 @@ def call_tool(name: str, args: dict) -> dict:
     if name == "view_page":
         v = api.view_page(args["path"], args["page"], args.get("region"), args.get("marks"), args.get("password"), args.get("dpi"))
         return {"content": [_text(v["text"]), {"type": "image", "data": v["png_base64"], "mimeType": "image/png"}],
-                "structuredContent": {"text": v["text"], "width": v["width"], "height": v["height"]}}
+                "structuredContent": {"text": v["text"], "width": v["width"], "height": v["height"], "not_drawn": v["not_drawn"]}}
     if name == "grade_document":
         g = api.grade(args["path"], args.get("findings") or [], args.get("answered") or [], password=args.get("password"),
                       encoding=args.get("encoding"))

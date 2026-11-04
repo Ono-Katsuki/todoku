@@ -40,7 +40,7 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int | Non
     大きさ：dpi を指定すればその解像度。なければ、max_side を指定すれば長い辺をその画素に、どちらもなければ、ページ全体は
     100 dpi・範囲は長い辺 1600 画素（拡大して読む）。
     返す：{rgb: 画素（RGB）, w, h, scale（1 mm の画素）, origin_mm（画像の左上の mm）, skipped（描けなかった画像）, ...}。"""
-    from .render.paint import render_page
+    from .render.paint import appearance_notes, render_page
 
     pages = doc.pages()
     if not 1 <= page_no <= len(pages):
@@ -70,11 +70,13 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int | Non
     for f in getattr(rr, "annot_failed", []):
         if not any(f.split("：")[0] in x for x in annot_failed):
             annot_failed.append(f)
+    skipped = [f"{nm}（左 {x0 + b[0] / s:.0f}・上 {y0 + b[1] / s:.0f}・右 {x0 + b[2] / s:.0f}・下 {y0 + b[3] / s:.0f} mm）：{why}"
+               for nm, why, b in rr.image_failed]
     return {"rgb": cv.buf, "w": W, "h": H, "scale": s, "origin_mm": (x0, y0), "page_mm": (pw, ph),
-            "skipped": rr.image_failed, "view": view, "stamps": stamps, "annot_failed": annot_failed, "glyphs": len(cells),
+            "skipped": skipped, "view": view, "stamps": stamps, "annot_failed": annot_failed, "glyphs": len(cells),
             "user_unit": view.unit, "dpi": s * 25.4, "stats": dict(rr.stats), "substituted": dict(rr.subst),
             "missing_fonts": sorted(rr.missing_fonts), "approx": dict(rr.approx), "stopped": rr.stopped,
-            "problems": list(rr.problems)}
+            "problems": list(rr.problems), "no_appearance": appearance_notes(doc, page)}
 
 
 def _annot_pictures(doc, page: dict, stamps: list, failed: list | None = None, glyphs: list | None = None) -> list:
@@ -270,6 +272,10 @@ def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | No
     if r.get("annot_failed"):
         text += (" 見た目を描けなかった注釈があります（この画像には描いていないので、その所に見える印影・字などは、この画像からは"
                  "分かりません）：" + "／".join(r["annot_failed"][:5]))
+    if r.get("problems"):
+        text += " 描けなかった所：" + "／".join(r["problems"][:5])
+    if r.get("no_appearance"):
+        text += " " + " ".join(r["no_appearance"])
     if r.get("stamps"):
         text += (" このページに置かれた画像（印影・署名などの注釈）も描いています："
                  + "／".join(f"{m['id'] or m['kind']}（左 {m['box'][0]:.0f}・上 {m['box'][1]:.0f}・右 {m['box'][2]:.0f}・"
@@ -279,10 +285,26 @@ def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | No
                  + "／".join(f"{i}＝{m['id']}「{m['value']}」" for i, m in enumerate(written, 1)))
     if notes:
         text += " " + " ".join(notes)
-    return {"text": text, "png_base64": base64.b64encode(png).decode("ascii"), "width": w, "height": h}
+    return {"text": text, "png_base64": base64.b64encode(png).decode("ascii"), "width": w, "height": h,
+            "not_drawn": not_drawn(r)}
 
 
-_CAN = {"FlateDecode", "Fl", "ASCII85Decode", "A85", "ASCIIHexDecode", "AHx", "LZWDecode", "LZW", "RunLengthDecode", "RL",
+def not_drawn(r: dict) -> list[str]:
+    """このページで、そのとおりには描けなかったものの短い一覧（なければ空）。"""
+    st = r.get("stats", {})
+    out = [f"埋め込みのない書体 {k}（{v} で代わりに描いた）" for k, v in list(r.get("substituted", {}).items())[:6]]
+    if st.get("glyphs_box"):
+        out.append(f"字の形が分からない字 {st['glyphs_box']} 字（灰色の四角で示した）")
+    out += [f"{k} {v} か所（近い形で描いたか、飛ばした）" for k, v in r.get("approx", {}).items()]
+    out += [f"画像 {s}（灰色の枠と対角線で示した）" for s in r.get("skipped", [])[:8]]
+    out += [f"注釈の見た目 {s}" for s in r.get("annot_failed", [])[:8]]
+    out += list(r.get("no_appearance", [])) + list(r.get("problems", []))[:8]
+    if r.get("stopped"):
+        out.append("時間がかかりすぎるので途中で止めた（描いていない所がある）")
+    return out
+
+
+_CAN ={"FlateDecode", "Fl", "ASCII85Decode", "A85", "ASCIIHexDecode", "AHx", "LZWDecode", "LZW", "RunLengthDecode", "RL",
         "DCTDecode", "DCT", "CCITTFaxDecode", "CCF", "Crypt"}
 
 
