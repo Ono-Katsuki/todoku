@@ -639,14 +639,14 @@ def read_json(u: Rule, rd: Read, ix: RectIndex) -> dict:
 
 def rule_json(u: Rule, ix: RectIndex, labels: Labels, wb) -> dict:
     head = u.range
-    if u.kind in ("array", "dynamic_array"):
+    if u.kind in ("array", "dynamic_array", "array_cell"):
         body = "{=" + u.pattern_body() + "}"
     elif u.kind == "data_table":
         body = "データテーブル（What-If 分析）"
     else:
         body = u.pattern_body()
     d = {"id": u.id, "sheet": u.sheet, "range": u.range, "kind": u.kind, "cells": u.count,
-         "text": f"{head} = {body}", "formula": "=" + u.text if u.text else None, "a1": "=" + body if u.shape.ast is not None and u.kind == "formula" else None,
+         "text": f"{head} = {body}", "formula": "=" + u.text if u.text and u.kind != "data_table" else None, "a1": "=" + u.pattern_body() if u.shape.ast is not None else None,
          "r1c1": "=" + u.shape.r1c1 if u.shape.ast is not None else None}
     if u.shape.error:
         d["unreadable"] = u.shape.error

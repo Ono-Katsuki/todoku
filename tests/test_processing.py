@@ -771,6 +771,51 @@ def test_unknown_function_raises_for_those_outputs_and_says_why(tmp_path):
     assert m.UNREPRODUCIBLE[by["B1"]["id"]].endswith("WEBSERVICE")
 
 
+def test_single_cell_array_formulas_merge_into_one_rule(tmp_path):
+    rows = "".join(f'<row r="{r}"><c r="A{r}"><v>{r}</v></c><c r="B{r}"><f t="array" ref="B{r}">SUM(A$1:A{r}*2)</f><v>{r * (r + 1)}</v></c></row>' for r in range(1, 6))
+    path = put(tmp_path, raw_xlsx({"S": rows}))
+    mod = tmp_path / "m.py"
+    res = api.extract_processing(path, format="python", out_path=str(mod))
+    assert res["summary"]["rules"] == 1
+    d = res["rules"][0]
+    assert d["kind"] == "array_cell" and d["text"] == "B1:B5 = {=SUM(A$1:A{row}*2)}"
+    assert res["verification"]["stored"]["rate"] == "100%" and res["verification"]["evaluator"]["rate"] == "100%"
+    assert load_module(str(mod)).calculate({"S!A1": 11}, outputs=["S!B5"]) == {"S!B5": 50.0}
+
+
+_SLOW = """
+import json, os, sys, time
+from todoku import api
+t0 = time.time()
+r = api.extract_processing(sys.argv[1], format="python", out_path=sys.argv[2])
+print(json.dumps({"secs": time.time() - t0, "notes": r["verification"]["notes"], "status": [d["verification"]["status"] for d in r["rules"]], "why": [d["verification"].get("why") for d in r["rules"]]}, ensure_ascii=False))
+"""
+
+
+def test_time_limit_stops_verification_and_says_so(tmp_path):
+    rows = 60000
+    with zipfile.ZipFile(tmp_path / "t.xlsx", "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
+        src = zipfile.ZipFile(io.BytesIO(raw_xlsx({"S": ""})))
+        for n in src.namelist():
+            if not n.startswith("xl/worksheets"):
+                z.writestr(n, src.read(n))
+        with z.open("xl/worksheets/sheet1.xml", "w", force_zip64=True) as f:
+            f.write(b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>')
+            total = 0
+            for r in range(1, rows + 1):
+                total += 1
+                f.write(f'<row r="{r}"><c r="A{r}"><v>1</v></c><c r="B{r}"><f>SUM(A$1:A{r})</f><v>{total}</v></c></row>'.encode())
+            f.write(b"</sheetData></worksheet>")
+    p = subprocess.run([sys.executable, "-c", _SLOW, str(tmp_path / "t.xlsx"), str(tmp_path / "m.py")], capture_output=True, text=True, timeout=120,
+                       env={"PYTHONPATH": SRC, "PATH": "/usr/bin:/bin", "TODOKU_TIME_LIMIT": "6"})
+    assert p.returncode == 0, p.stderr[-1500:]
+    d = json.loads(p.stdout.strip().splitlines()[-1])
+    assert (tmp_path / "m.py").exists()
+    if d["status"] != ["proven"]:  # 速いパソコンでは全部計算し終わることもある
+        assert d["status"] == ["not_proven"] and "比べていない" in d["why"][0][0]
+        assert any("上限" in n for n in d["notes"])
+
+
 def test_every_mismatch_is_reported_per_rule(tmp_path):
     body = ('<row r="1"><c r="A1"><v>2</v></c><c r="B1"><f>A1*2</f><v>5</v></c></row>'
             '<row r="2"><c r="A2"><v>3</v></c><c r="B2"><f>A2*2</f><v>6</v></c></row>'
@@ -1014,3 +1059,10 @@ def test_mcp_tool(tmp_path):
     res = next(x for x in out if x.get("id") == 2)["result"]
     assert res["structuredContent"]["summary"]["rules"] == 14
     assert "規則 14" in res["content"][0]["text"]
+    mod = tmp_path / "m.py"
+    msgs[1]["params"]["arguments"].update(format="python", out_path=str(mod))
+    p = subprocess.run([sys.executable, "-m", "todoku.mcp_server"], input="\n".join(json.dumps(m) for m in msgs) + "\n", capture_output=True, text=True,
+                       env={"PYTHONPATH": SRC, "PATH": "/usr/bin:/bin"}, timeout=120)
+    out = [json.loads(x) for x in p.stdout.splitlines() if x.strip()]
+    res = next(x for x in out if x.get("id") == 2)["result"]["structuredContent"]
+    assert res["verification"]["stored"]["rate"] == "100%" and mod.exists()

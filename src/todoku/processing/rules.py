@@ -116,7 +116,7 @@ def build_blocks(sheets: list[SheetScan], shaper: Shaper) -> list[Rule]:
         by_key: dict[tuple, list[Rect]] = {}
         blocks: list[list[Rect]] = []
         for rc in sh.rects:
-            if rc.kind in ("formula",):
+            if rc.kind in ("formula", "array_cell"):
                 by_key.setdefault((rc.shape, rc.c1, rc.c2), []).append(rc)
             else:
                 blocks.append([rc])

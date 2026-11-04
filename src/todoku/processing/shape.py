@@ -140,7 +140,7 @@ class Shape:
     ast: Node | None
     r1c1: str  # 正規形（R1C1）
     error: str | None = None
-    array: bool = False  # 配列数式（1 つの数式が範囲を計算する。形は親のセルごと）
+    array: bool | str = False  # 配列数式（True：1 つの数式が範囲を計算する。"cell"：1 つのセルごとの配列数式）
 
     def text_at(self, r: int, c: int) -> str:
         """(r, c) のセルでの数式（相対の参照をずらす）。"""
@@ -159,15 +159,18 @@ class Shaper:
         self._plates: dict[str, tuple[bool, ...] | None] = {}  # 型紙 → 数字ごとの「行に連動するか」（読めない数式は None）
         self._keys: dict[tuple, int] = {}
         self._ast: dict[int, int] = {}  # 共有数式の親の構文木 → 形
+        self.declared = 0  # 配列数式・データテーブルの宣言で広げたマスの数（ブック全体。limits.MAX_DECLARED_CELLS まで）
 
-    def new(self, text: str, r: int, c: int, ast: Node | None, error: str | None, array: bool = False) -> int:
+    def new(self, text: str, r: int, c: int, ast: Node | None, error: str | None, array: bool | str = False) -> int:
         if ast is None:
             shown = text
             canon = "!" + text  # 読めない数式は、字がまったく同じものだけを同じ形にする
         else:
             shown = canon = render(ast, lambda n: r1c1(n, r, c))
-        if array:
-            canon = f"{{{canon}}}@{r},{c}"  # 配列数式は、親のセルごとに別の規則
+        if array == "cell":
+            canon = f"{{{canon}}}"  # 1 つのセルの配列数式：同じ形なら、ふつうの数式と同じく 1 つの規則にまとめる
+        elif array:
+            canon = f"{{{canon}}}@{r},{c}"  # 範囲の配列数式は、親のセルごとに別の規則
         got = self.by_canon.get(canon)
         if got is not None:
             return got
@@ -176,7 +179,7 @@ class Shaper:
         self.by_canon[canon] = sid
         return sid
 
-    def _parse(self, text: str, r: int, c: int, array: bool = False) -> int:
+    def _parse(self, text: str, r: int, c: int, array: bool | str = False) -> int:
         try:
             return self.new(text, r, c, parse(text), None, array)
         except Exception as e:  # noqa: BLE001  読めない数式は、読めないと規則に書く
@@ -199,19 +202,20 @@ class Shaper:
                     moving.add(m.start())
         return tuple(m.start() in moving for m in _DIG.finditer(text))
 
-    def of_text(self, text: str, r: int, c: int) -> int:
+    def of_text(self, text: str, r: int, c: int, array_cell: bool = False) -> int:
         """数式の字（= なし）→ 形の番号。"""
+        mark: bool | str = "cell" if array_cell else False
         plate_key = _DIG.sub("#", text)
         plate = self._plates.get(plate_key, False)
         if plate is False:
             plate = self._plates[plate_key] = self._plate(text)
         if plate is None:
-            return self._parse(text, r, c)
+            return self._parse(text, r, c, mark)
         runs = _DIG.findall(text)
         if len(runs) != len(plate):
-            return self._parse(text, r, c)
+            return self._parse(text, r, c, mark)
         ok = True
-        key: list = [plate_key, c]
+        key: list = [plate_key, c, mark]
         for moving, d in zip(plate, runs):
             if moving:
                 v = int(d)
@@ -222,11 +226,11 @@ class Shaper:
             else:
                 key.append(d)
         if not ok:
-            return self._parse(text, r, c)
+            return self._parse(text, r, c, mark)
         k = tuple(key)
         got = self._keys.get(k)
         if got is None:
-            got = self._keys[k] = self._parse(text, r, c)
+            got = self._keys[k] = self._parse(text, r, c, mark)
         return got
 
     def of_array(self, text: str, r: int, c: int) -> int:

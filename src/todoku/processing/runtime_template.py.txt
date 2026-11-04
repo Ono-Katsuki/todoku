@@ -320,7 +320,7 @@ class _Ctx:
             raise @@Unsupported@@(f"循環参照（{sheet}!{_a1(r, c)}）")
         self.visiting.add(key)
         try:
-            ev = @@Evaluator@@(self, sheet, r, c, r - u.at[0], c - u.at[1], False)
+            ev = @@Evaluator@@(self, sheet, r, c, r - u.at[0], c - u.at[1], u.kind == "array_cell")
             v = ev.run(u.ast)
             if isinstance(v, @@Arr@@):
                 v = v.data[0][0] if v.data and v.data[0] else @@ExcelError@@("#VALUE!")
@@ -598,7 +598,7 @@ def _dump(path, seconds, max_cells):
                 v, why = _value_of(ctx, u.sheet, r, c)
                 done[(index[u.sheet], r, c)] = {"u": why} if why is not None else ({"e": v.code} if isinstance(v, @@ExcelError@@) else v)
                 seen += 1
-                if seen % 256 == 0 and (time.monotonic() - t0 > seconds or seen >= max_cells):
+                if time.monotonic() - t0 > seconds or seen >= max_cells:
                     stopped = "時間かセルの数の上限"
                     break
             if stopped:

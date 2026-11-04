@@ -101,8 +101,10 @@ description: 申請書・届出・様式（Excel・Word・PDF・一太郎など�
 - Word の箇条書きの □（窓の `☐［P段落.b］`）はチェックの欄：`{"P12.b": true}`。差し込み（MERGEFIELD）などのフィールドの結果の字には書けない。
 - `audit_document`：この書類を全て正確に読み書きできるか（読み落とし・全欄への試しの書き込み・読み戻し）と段階。初めての様式や、結果が怪しいときに。
 - `grade_document`：読む段階（S〜F）・書く段階（A〜D）と、エージェントが確かめる問い（`agent_checks`）。窓を読んで答えを `findings` で渡す。
-- Excel の様式：`read_table`（見出しの列で表を行ごとに取り出す）・`explain_calculation`（入力欄と数式を分け、式を見出しで説明する）・
+- Excel の様式：`read_table`（見出しの列で表を行ごとに取り出す）・`explain_calculation`（1 つの値の説明：入力までさかのぼる）・
   `try_calculation`（書かずに試算する。「区分Ⅱにしたらいくら？」）・`run_macro`（ボタンのマクロ。「はい／いいえ」・入力の値は本人に聞いてから `answers` で）。
+- 計算の決まりを知りたいとき・同じ計算を繰り返すときは `extract_processing`：値から処理を推測せず、規則（「D3:D100000 = B{row}*C{row}」）・入力・参照表・出力・順番・分岐・マクロ・PDF の計算を受け取る。
+  `format: "python"` と `out_path` で、標準ライブラリだけで動く `calculate(inputs)` のモジュールを書き出す。`verification` の一致の割合と、規則ごとの `proven`／`not_proven` を見て、確かめられなかった規則は本人に伝える。
 - `view_page`：PDF のページを描いた画像で見る（スキャンした紙を読む・書いた後に確かめる。`region` で拡大、`dpi` で解像度）。
 
 ## スキャンした紙・ZIP

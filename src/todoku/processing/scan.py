@@ -10,7 +10,7 @@ from array import array
 from dataclasses import dataclass, field
 from xml.parsers import expat
 
-from ..formula.parser import parse_cell
+from ..formula.parser import addr, parse_cell
 from ..limits import MAX_DECLARED_CELLS
 from ..formula.values import ExcelError
 from .shape import Shaper
@@ -175,8 +175,10 @@ class _Feeder:
             occ.add(r, col)
             sh.formulas += 1
             if fk == "array":
-                self._array(r, col, ftext, ref, dyn)
-                continue
+                if dyn or not _single_cell(ref, r, col):
+                    self._array(r, col, ftext, ref, dyn)
+                    continue
+                fk = "array_cell"
             if fk == "dataTable":
                 self._data_table(r, col, ref, ftext)
                 continue
@@ -196,6 +198,8 @@ class _Feeder:
             elif fk == "bad":
                 sid = self.shaper.new(ftext, r, col, None, ftext)
                 ftext = None
+            elif fk == "array_cell":
+                sid = self.shaper.of_text(ftext, r, col, array_cell=True)
             else:
                 sid = self.shaper.of_text(ftext, r, col)
             sh.formula_cells += 1
@@ -232,8 +236,10 @@ class _Feeder:
     def _declared(self, ref, r: int, col: int) -> tuple[tuple[int, int, int, int], bool]:
         """宣言された範囲。広すぎる宣言（壊れた・悪意のあるファイル）は広げず、親のセルだけにする。"""
         r1, c1, r2, c2 = self._block(ref, r, col)
-        if (r2 - r1 + 1) * (c2 - c1 + 1) > MAX_DECLARED_CELLS or not (r1 <= r <= r2 and c1 <= col <= c2):
+        n = (r2 - r1 + 1) * (c2 - c1 + 1)
+        if self.shaper.declared + n > MAX_DECLARED_CELLS or not (r1 <= r <= r2 and c1 <= col <= c2):
             return (r, col, r, col), True
+        self.shaper.declared += n
         self.sh.max_row = max(self.sh.max_row, r2)
         self.sh.max_col = max(self.sh.max_col, c2)
         return (r1, c1, r2, c2), False
@@ -264,8 +270,22 @@ class _Feeder:
         self.sh.rects.extend(self.open.values())
         self.open.clear()
         for rc in self.sh.rects:
-            if rc.kind == "formula" and self.shaper.shapes[rc.shape].error:
-                rc.kind = "unreadable"
+            if rc.kind == "formula":
+                s = self.shaper.shapes[rc.shape]
+                if s.error:
+                    rc.kind = "unreadable"
+                elif s.array == "cell":
+                    rc.kind = "array_cell"
+
+
+def _single_cell(ref, r: int, col: int) -> bool:
+    if not ref:
+        return True
+    a = ref.split(":")
+    try:
+        return parse_cell(a[0]) == parse_cell(a[-1]) == (r, col)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _is_text_type(t) -> bool:
@@ -460,6 +480,11 @@ class BookSource:
         for (r, c) in sh.cells:
             by_row.setdefault(r, []).append(c)
         hidden = set(sh.hidden_rows)
+        spans: dict[tuple[int, int], list[int]] = {}  # 配列数式の親 → こぼれる範囲（読み手が ref を残さない形式のため、セルから決める）
+        for (r, c), cell in sh.cells.items():
+            if cell.array_master is not None:
+                b = spans.setdefault(tuple(cell.array_master), [*cell.array_master, *cell.array_master])
+                b[0], b[1], b[2], b[3] = min(b[0], r), min(b[1], c), max(b[2], r), max(b[3], c)
         for r in sorted(set(by_row) | hidden):
             out = []
             for c in sorted(by_row.get(r, ())):
@@ -467,8 +492,12 @@ class BookSource:
                 if cell.array_master is not None:
                     continue
                 if cell.has_formula or cell.parse_error:
-                    if cell.array_ref or cell.formula_kind == "array":
-                        out.append((c, "array", cell.formula or "", None, cell.array_ref, cell.dynamic, False, False))
+                    if cell.array_ref or cell.formula_kind == "array" or (r, c) in spans:
+                        ref = cell.array_ref
+                        if (r, c) in spans:
+                            b = spans[(r, c)]
+                            ref = f"{addr(b[0], b[1])}:{addr(b[2], b[3])}"
+                        out.append((c, "array", cell.formula or "", None, ref, cell.dynamic, False, False))
                     elif cell._shared_from is not None:
                         ast, dr, dc = cell._shared_from
                         out.append((c, "ast", (ast, r - dr, c - dc), None, None, False, False, False))

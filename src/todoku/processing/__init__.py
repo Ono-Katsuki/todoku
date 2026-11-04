@@ -182,6 +182,10 @@ def _condensed(res: dict, budget: int | None, written: str | None = None) -> dic
         keep.append(d)
         used += n
     head["rules"] = keep
+    mac = res.get("macros")
+    if mac and mac.get("procedures"):
+        head["macros"] = {"present": True, "note": "ソースと読み書きする所は、out_path の JSON か sheet で取れます",
+                          "procedures": [{"ref": p["ref"], **({"trigger": p["trigger"]} if p.get("trigger") else {})} for p in mac["procedures"]][:200]}
     head["rules_shown"] = len(keep)
     head["counts"] = {k: len(res.get(k) or []) for k in ("rules", "order", "inputs", "parameters", "lookup_tables", "named_ranges",
                                                           "conditional_formats", "data_validations", "not_expressible_by_cells")}

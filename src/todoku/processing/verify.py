@@ -80,7 +80,7 @@ def run_and_compare(gen: Generated, target: Path, src, internal: dict, res: dict
     sheets = internal["sheets"]
     t0 = time.monotonic()
     target.parent.mkdir(parents=True, exist_ok=True)
-    budget = max(limits.TIME_LIMIT * 0.6, 5.0)
+    budget = max(limits.TIME_LIMIT * 0.5, 2.0)  # 別のプロセスの計算は、呼び出しの時間の半分まで（残りで比べて返す）
     max_cells = max(limits.MEMORY_LIMIT // 2 // CELL_BYTES, 1024)
     with tempfile.TemporaryDirectory(prefix="todoku-verify-") as td:
         mod = Path(td) / "module_under_test.py"
@@ -142,6 +142,7 @@ def _compare(dump, run_err, src, internal, res, blob, name, k, Calc, _run_deep, 
 
     def body():
         calc = Calc(wb) if wb is not None else None
+        late = time.monotonic() + limits.TIME_LIMIT * 0.15  # ここまで（全体の時間の上限の手前）で、とどくの計算との比較をやめる
         it = lines()
         cur = next(it, None)
         for si, sh in enumerate(sheets):
@@ -179,7 +180,12 @@ def _compare(dump, run_err, src, internal, res, blob, name, k, Calc, _run_deep, 
                         st["stored_mismatch"] += 1
                         mism.append({"cell": f"{sheet}!{addr(r, c)}", "rule": u.id, "kind": "stored", "stored": plain(stored), "module": plain(module_v)})
                 # とどくの計算
-                if calc is not None:
+                if calc is not None and time.monotonic() > late:
+                    calc = None
+                    notes.append("時間の上限が近いので、とどくの計算との比較を途中でやめました（残りは保存された値とだけ比べました）")
+                if calc is None:
+                    st["evaluator_na"] += 1
+                else:
                     actual = calc.cell_value(sheet, r, c)
                     status = calc.status.get((sheet, r, c), ("ok", ""))[0]
                     if status == "ok" and not volatile:

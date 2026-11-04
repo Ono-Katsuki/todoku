@@ -233,6 +233,11 @@ class _Walker:
                     return _Range(sheet, f"{a}:{b}", _src(n))
                 return _Range(sheet, None, _src(n))
             return _Range(sheet, a, _src(n))
+        v = n.args[0].value
+        if isinstance(v, P.Binary) and v.op == "&" and len(n.args) == 1:  # Range("B" & i)：列だけ決まる
+            head = _lit(v.left)
+            if isinstance(head, str) and re.fullmatch(r"\$?[A-Za-z]{1,3}\$?", head):
+                return _Range(sheet, head.replace("$", "").upper() + "?", _src(n))
         return _Range(sheet, None, _src(n))
 
     def _cells_args(self, n: P.Call, sheet: _Sheet) -> _Range:
@@ -541,6 +546,11 @@ def analyse(wb, rules: list[Rule], ix: RectIndex, sheets) -> dict | None:
             elif m.kind in ("document", "form") and base.endswith("_click"):
                 trigger["event"] = proc.raw
                 trigger["when"] = f"ボタン「{proc.raw[:-6]}」を押したとき"
+                if home:
+                    trigger["sheet"] = home
+            elif m.kind in ("document", "form") and base.endswith("_change"):
+                trigger["event"] = proc.raw
+                trigger["when"] = f"部品「{proc.raw[:-7]}」の値を変えたとき"
                 if home:
                     trigger["sheet"] = home
             if base in buttons:
