@@ -339,6 +339,13 @@ class DocWriter:
                 wd += b"\x00"
             pages = []
             chunk: list = []
+            f0, lcb = fc["PlcfBteChpx"]
+            n = (lcb - 4) // 8
+            # 文字の書式の表は、元の終わりから足した字まで切れ目なく続ける：FKP の初めの字の位置が表の区切りと合わないと、
+            # Word は「ファイルを開こうとして、エラーが発生しました」で開かない（LibreOffice は開くので、実物の Word で見つけた）
+            prev_end = struct.unpack_from("<I", t, f0 + 4 * n)[0]
+            if prev_end < runs[0][0]:
+                runs.insert(0, (prev_end, runs[0][0], b""))
             for r in runs:
                 if chunk and not _fits(chunk + [r]):
                     pn = len(wd) // 512
