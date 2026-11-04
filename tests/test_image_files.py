@@ -586,3 +586,42 @@ def test_vp8_with_alpha_chunk(tmp_path):
     im.save(b, "WEBP", quality=90)
     fr = F.decode(b.getvalue())
     assert fr.notes and fr.rgb[3 * 39:3 * 40] == b"\xff\xff\xff"
+
+
+# ====================================================================== JPEG 2000・JBIG2 のファイル、縦横の解像度の違う画像
+@pytest.mark.skipif(not shutil.which("opj_compress"), reason="opj_compress がない")
+def test_jp2_file_opens_as_a_document_and_view_page_reports_resolution(tmp_path):
+    w, h = 400, 300
+    pgm = tmp_path / "a.pgm"
+    pgm.write_bytes(f"P5\n{w} {h}\n255\n".encode() + _gray(w, h))
+    out = tmp_path / "a.jp2"
+    r = subprocess.run(["opj_compress", "-i", str(pgm), "-o", str(out), "-n", "3"], capture_output=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    k, doc, _parts = api.window(str(out))
+    assert k == "image" and doc["format"] == "jp2" and doc["pages"][0]["width_px"] == w
+    v = api.view_page(str(out), 1)
+    assert v["width"] == w + 26 and v["not_drawn"] == []
+    assert api.grade(str(out))["grade"] == "E"
+
+
+def test_jbig2_file_with_file_header_opens():
+    import jbig2_encoder as E
+
+    rows = [[(x // 3 + y) % 2 for x in range(32)] for y in range(16)]
+    body = E.segment(0, 48, E.page_info(32, 16)) + E.segment(1, 38, E.generic_seg(rows))
+    blob = b"\x97JB2\r\n\x1a\n" + bytes([1]) + (1).to_bytes(4, "big") + body
+    fmt, frames = F.info(blob)
+    assert fmt == "jbig2" and (frames[0].w, frames[0].h) == (32, 16)
+    fr = F.decode(blob)
+    assert fr.rgb[0::3] == bytes(0 if v else 255 for r in rows for v in r)
+
+
+def test_fax_resolution_is_shown_in_paper_shape_with_a_true_ruler():
+    # 204×98 dpi：紙の上では 1 画素が縦に 2 倍。目盛りの 1 mm の画素が縦横で同じになる
+    d = _gray(204, 98)
+    tags = {282: (5, (204, 1)), 283: (5, (98, 1))}
+    blob = _tiff(204, 98, d, extra=tags)
+    v = S.view_frame(blob, 1)
+    assert "25×25 mm" in v["text"] or "26×25 mm" in v["text"]
+    w, h = v["width"] - 26, v["height"] - 26
+    assert abs(w - h) <= 2, (w, h)

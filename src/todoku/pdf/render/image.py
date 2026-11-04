@@ -152,6 +152,9 @@ def _jpx_rgba(doc, image, d: dict, res, max_pixels: int, screen_pixels: int | No
     nc = cs.n or 1
     if n < nc:
         planes = list(planes) + [planes[-1]] * (nc - n)
+    if cs.kind == "Indexed" and im.bits and im.bits[0] < 8:
+        top = (1 << im.bits[0]) - 1  # 面は 0〜255 に広げてあるので、添字に戻す
+        planes = [planes[0].translate(bytes((v * top + 127) // 255 for v in range(256)))]
     px = _planes_rgb(planes[:nc], cs, im.w, im.h)
     out = RGBA(im.w, im.h, px, None, False, list(im.notes), list(im.problems))
     smd = doc.resolve(d.get("SMaskInData")) if isinstance(image, Stream) else 0
@@ -194,10 +197,11 @@ def _planes_rgb(planes: list, cs, w: int, h: int) -> bytes:
         return bytes(out)
     cache: dict = {}
     out = bytearray()
+    rng = cs.ranges()
     for vals in zip(*planes):
         c = cache.get(vals)
         if c is None:
-            r, g, b = cs.rgb([v / 255 for v in vals])
+            r, g, b = cs.rgb([rng[i][0] + (rng[i][1] - rng[i][0]) * v / 255 for i, v in enumerate(vals)])
             c = bytes((int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5)))
             if len(cache) < 65536:
                 cache[vals] = c

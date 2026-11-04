@@ -108,14 +108,19 @@ def view_frame(blob: bytes, page: int, region: list | None = None, marks: list |
     crop_w, crop_h = max(1, sx1 - sx0), max(1, sy1 - sy0)
     rows = [fr.rgb[(y * fr.w + sx0) * 3:(y * fr.w + sx0 + crop_w) * 3] for y in range(sy0, sy0 + crop_h)]
     crop = b"".join(rows)
-    W, H = max(1, round(cw * k)), max(1, round(ch * k))
-    if W < crop_w and H < crop_h:
-        out = area_down(crop, crop_w, crop_h, 3, W, H)
-    elif W == crop_w and H == crop_h:
-        out = crop
-    else:
-        out = _nearest(crop, crop_w, crop_h, W, H)
-    s = W / (x1 - x0)  # 目盛りの 1 単位の出す画素
+    W = max(1, round(cw * k))
+    s = W / (x1 - x0)  # 目盛りの 1 単位の出す画素（縦横の解像度が違う画像は、紙の上の形にして見せる：目盛りが縦横とも合う）
+    H = max(1, round((y1 - y0) * s))
+    if H > MAX_SIDE:
+        s *= MAX_SIDE / H
+        W, H = max(1, round((x1 - x0) * s)), MAX_SIDE
+    out = crop
+    cw2, ch2 = crop_w, crop_h
+    if W < cw2 or H < ch2:  # 縮める向きは面積の平均で（細い線を落とさない）
+        cw2, ch2 = min(W, cw2), min(H, ch2)
+        out = area_down(out, crop_w, crop_h, 3, cw2, ch2)
+    if (cw2, ch2) != (W, H):
+        out = _nearest(out, cw2, ch2, W, H)
     r = {"rgb": out, "w": W, "h": H, "scale": s, "origin_mm": (x0, y0)}
     ticks = None if has_dpi else _pixel_ticks(s)
     png, w, h, notes = with_ruler(r, marks, ticks=ticks)
@@ -234,7 +239,9 @@ def to_pdf(blob: bytes) -> tuple[bytes, list[dict], list[str]]:
         if passthrough is not None:
             ncomp = _jpeg_components(blob)
             cs = {1: "/DeviceGray", 3: "/DeviceRGB", 4: "/DeviceCMYK"}.get(ncomp, "/DeviceRGB")
-            head = f"<</Type/XObject/Subtype/Image/Width {fw}/Height {fh}/BitsPerComponent 8/ColorSpace{cs}/Filter/DCTDecode/Length {len(passthrough)}>>".encode()
+            # Adobe の CMYK の JPEG は反転して保存される（Decode で戻す）
+            dec = "/Decode[1 0 1 0 1 0 1 0]" if ncomp == 4 and b"Adobe" in blob[:4096] else ""
+            head = f"<</Type/XObject/Subtype/Image/Width {fw}/Height {fh}/BitsPerComponent 8/ColorSpace{cs}{dec}/Filter/DCTDecode/Length {len(passthrough)}>>".encode()
             img = head + b"stream\n" + passthrough + b"\nendstream"
         else:
             gray = fr.rgb[0::3] == fr.rgb[1::3] and fr.rgb[1::3] == fr.rgb[2::3]

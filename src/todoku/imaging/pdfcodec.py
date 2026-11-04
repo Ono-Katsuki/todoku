@@ -54,7 +54,7 @@ def jpx(data: bytes, target_pixels: int | None, deadline: float | None, cache: b
     dig = hashlib.sha256(data).hexdigest()
     if cache:
         for key, (img, _n) in reversed(_CACHE.items()):
-            if key[:2] == ("jpx", dig) and (img.reduce == 0 or not target_pixels or img.w * img.h >= target_pixels):
+            if key[:2] == ("jpx", dig) and (img.reduce == 0 or img.at_limit or not target_pixels or img.w * img.h >= target_pixels):
                 _CACHE.move_to_end(key)
                 return img
     img = X.decode(data, target_pixels=target_pixels, deadline=deadline)

@@ -21,7 +21,7 @@ from ..limits import MAX_PIXELS, LimitExceeded
 from . import jpx_t1
 from .jpx_t1 import BYPASS, NEG, TERMALL
 
-MAX_T1_BYTES = 1_500_000  # 第 1 層で読むバイトの数の上限（測った速さは 1 MB で 7〜15 秒：A4・150 dpi を 20 秒ほどで開く大きさ）
+MAX_T1_BYTES = 3_000_000  # 第 1 層で読むバイトの数の上限（密な流れで 1 MB あたり 5 秒ほど：A4・150 dpi を 20 秒以内で開く大きさ。超えれば解像度を下げる）
 MAX_VALUES = 12_000_000  # 復号で持つ値の数の上限（メモリ：値 1 つに 40 バイトほど）
 
 
@@ -43,6 +43,8 @@ class Image:
     problems: list = field(default_factory=list)
     stopped: bool = False
     dpi: tuple | None = None  # (横, 縦) の 1 インチの画素（res の箱にあれば）
+    bits: list = field(default_factory=list)  # 成分ごとのビットの数
+    at_limit: bool = False  # 予算のために解像度を下げた（これより細かくは開かない）
 
 
 # ====================================================================== 箱（JP2）
@@ -1038,6 +1040,7 @@ def decode(data: bytes, target_pixels: int | None = None, reduce: int | None = N
         return sum(((_ceildiv(st.xsiz, 1 << rd) - _ceildiv(st.xo, 1 << rd)) * (_ceildiv(st.ysiz, 1 << rd) - _ceildiv(st.yo, 1 << rd)))
                    // (st.comps[c][2] * st.comps[c][3]) for c in range(st.csiz))
 
+    at_limit = False
     if reduce is None:
         rd = 0
         if target_pixels:
@@ -1047,7 +1050,8 @@ def decode(data: bytes, target_pixels: int | None = None, reduce: int | None = N
         while rd < max_reduce and (kept_bytes(rd) > max_t1_bytes or kept_vals(rd) > MAX_VALUES):
             rd += 1
         if rd > forced:
-            notes.append(f"時間とメモリの予算の中で開くため、解像度を {1 << rd} 分の 1 にしました")
+            at_limit = True
+            notes.append(f"時間とメモリの予算の中で開くため、解像度を {1 << rd} 分の 1 にしました（これより細かくは開きません）")
     else:
         rd = min(reduce, max_reduce)
     if kept_vals(rd) > MAX_VALUES * 2:
@@ -1112,7 +1116,9 @@ def decode(data: bytes, target_pixels: int | None = None, reduce: int | None = N
         _finish_tile(st, _t, comps, out_planes, sizes, rd)
         for tc, _rows, _top in comps:
             tc.res = None
-    return _finish_image(st, j2, out_planes, sizes, rd, notes, problems, stopped)
+    img = _finish_image(st, j2, out_planes, sizes, rd, notes, problems, stopped)
+    img.at_limit = at_limit
+    return img
 
 
 def _finish_tile(st: _Stream, tile: _Tile, comps: list, out_planes: list, sizes: list, rd: int) -> None:
@@ -1245,7 +1251,7 @@ def _finish_image(st: _Stream, j2: _JP2, planes: list, sizes: list, rd: int, not
         cs = "sRGB"
     if rd:
         notes.append(f"解像度の段を {rd} 段減らして開きました（元の {st.xsiz - st.xo}×{st.ysiz - st.yo} 画素 → {W}×{H} 画素）")
-    return Image(W, H, full, cs, alpha, rd, st.xsiz - st.xo, st.ysiz - st.yo, notes, problems, stopped, j2.dpi)
+    return Image(W, H, full, cs, alpha, rd, st.xsiz - st.xo, st.ysiz - st.yo, notes, problems, stopped, j2.dpi, [c[0] for c in st.comps])
 
 
 def info(data: bytes) -> dict:

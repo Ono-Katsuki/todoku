@@ -277,7 +277,7 @@ def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | No
     if r.get("stopped"):
         text += " 描くのに時間がかかりすぎるため、途中で止めました（描いていない所があります）。"
     if r.get("image_notes"):
-        text += " 画像の開き方：" + "／".join(r["image_notes"][:5]) + "（細かな字が読めないときは、region で範囲を狭めて拡大すると、細かな解像度で開きます）。"
+        text += " 画像の開き方：" + "／".join(r["image_notes"][:5]) + "（細かな字が読めないときは、region で範囲を狭めて拡大すると、予算の中で細かな解像度で開きます）。"
     if r["skipped"]:
         text += " 描けなかった画像：" + "／".join(r["skipped"][:5])
     if r.get("annot_failed"):

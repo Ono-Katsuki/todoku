@@ -423,3 +423,23 @@ def test_unknown_glyph_positions_are_reported_and_read_is_e(monkeypatch):
     assert "灰色の四角" in v["text"] and "推測で埋めず" in v["text"]
     g = grade_blob(pdf, "t.pdf")
     assert g.grade == "E", g.headline()
+
+
+def test_pptx_window_and_view_image(tmp_path):
+    p = tmp_path / "a.pptx"
+    ns = 'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+    slide = f"""<?xml version="1.0"?><p:sld {ns}><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>
+<p:pic><p:nvPicPr><p:cNvPr id="2" name="絵" descr="地図"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId1"/></p:blipFill><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="3600000" cy="1800000"/></a:xfrm></p:spPr></p:pic>
+</p:spTree></p:cSld></p:sld>"""
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("[Content_Types].xml", """<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>""")
+        z.writestr("_rels/.rels", """<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>""")
+        z.writestr("ppt/presentation.xml", f"""<?xml version="1.0"?><p:presentation {ns}><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>""")
+        z.writestr("ppt/_rels/presentation.xml.rels", """<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>""")
+        z.writestr("ppt/slides/slide1.xml", slide)
+        z.writestr("ppt/slides/_rels/slide1.xml.rels", """<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/></Relationships>""")
+        z.writestr("ppt/media/image1.png", _png())
+    _k, doc, _parts = api.window(str(p))
+    im = doc["images"][0]
+    assert im["id"] == "図1" and im["part"] == "ppt/media/image1.png" and im["size_mm"] == [100.0, 50.0] and im["alt"] == "地図"
+    assert base64.b64decode(api.view_image(str(p), "図1")["data_base64"]) == _png()

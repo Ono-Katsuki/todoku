@@ -601,12 +601,10 @@ def pdf_images(doc) -> list[dict]:
     for n, page in enumerate(doc.pages(), 1):
         pc = page_content(doc, page)
         view = View(doc, page)
-        k = 0
-        for p in pc.pictures:
+        for k, p in enumerate(pc.pictures, 1):
             x0, y0, x1, y1 = view.rect(p.x0, p.y0, p.x1, p.y1)
             if x1 <= 0 or y1 <= 0 or x0 >= view.width or y0 >= view.height:
                 continue
-            k += 1
             out.append({"id": f"p{n}.i{k}", "page": n, "pic": p, "where": f"{n} ページ", "format": "pdf",
                         "size_mm": [round((x1 - x0) / view.mm, 1), round((y1 - y0) / view.mm, 1)], "at_mm": [round(x0 / view.mm, 1), round(y0 / view.mm, 1)]})
         stamps: list = []
