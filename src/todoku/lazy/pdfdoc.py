@@ -13,9 +13,21 @@ import re
 from pathlib import Path
 
 from .. import limits
+from ..pdf.objects import Stream as _Stream
 from .base import LazyDoc, Page, RangeError, comma, parse_range
 
 SAMPLE_PAGES = 5
+
+
+def _needle(spec: dict) -> str | None:
+    """字の目印の、探す字（なければ None：枠で書く・形の違う指定は、いままでの書き込みが扱う）。"""
+    for k in ("cover", "after"):
+        if isinstance(spec.get(k), str) and spec[k].strip():
+            return spec[k]
+    c = spec.get("circle")
+    if isinstance(c, str) and c.strip():
+        return c
+    return None
 
 
 class _OnePage:
@@ -44,10 +56,14 @@ class PdfLazy(LazyDoc):
         self.path = path
         self.name = name
         self.password = password
-        blob, _n, k, lock = api._read(path, password)
+        from .filebytes import mapped_reads
+
+        with mapped_reads():
+            blob, _n, k, lock = api._read(path, password)
         self.blob = blob
         self.lock = lock
         self.doc = api._pdf(blob, name, lock)
+        self.doc.light = True
         self.page_list = self.doc.pages()
         self.fields_all = read_fields(self.doc)
         self.xw = _xfa_window(self.doc) if has_xfa(self.doc) else None
@@ -251,25 +267,104 @@ class PdfLazy(LazyDoc):
         return res
 
     # ------------------------------------------------------------------ 書く
-    def pages_for(self, values: dict) -> set[int]:
-        """書く所のページ。ページが決まらない目印の書き込みは、頼み方を伝える。"""
-        from .. import api
-
+    def pages_for(self, values: dict) -> tuple[dict, set[int]]:
+        """(書く値, 書く所のページ)。ページの添えられていない字の目印は、ページを順に配置して探し（進み具合を伝える）、ページを添えた値にする。"""
         pages: set[int] = set()
         by_name = {f.name: f for f in self.fields_all}
+        out = dict(values)
         for key, v in values.items():
             k = str(key)
             m = re.match(r"p(\d+)\.", k)
             if k.startswith("@"):
-                if not isinstance(v, dict) or v.get("page") is None:
-                    raise api.ApiError(f"{k}: 大きな PDF では、字を目印にした書き込みに page（ページの番号）を添えてください"
-                                       "（read_window に pages を渡して、書く所のページを確かめられます）")
-                pages.add(int(v["page"]))
+                if not isinstance(v, dict):
+                    pages.add(1)  # 形の違う値：いままでの書き込みが理由を伝える
+                    continue
+                if v.get("page") is None and _needle(v):
+                    v = self._locate_anchor(k, v)
+                    out[key] = v
+                if v.get("page") is not None:
+                    pages.add(int(v["page"]))
             elif k in by_name:
                 pages.update(w.page + 1 for w in by_name[k].widgets)
             elif m:
                 pages.add(int(m[1]))
-        return pages or {1}
+        return out, pages or {1}
+
+    def _locate_anchor(self, key: str, spec: dict) -> dict:
+        """字の目印のあるページを、ページを順に配置して探す。何回かの呼び出しに分かれても、控えの続きから探す（jobs の控えの所）。"""
+        from .. import api
+
+        needle = _needle(spec)
+        hits = self._find_text(needle)
+        if not hits:
+            raise api.ApiError(f"{key}: 「{needle}」が見つかりません（全 {len(self.page_list):,} ページを探しました。窓の字のとおりに指定してください）")
+        occ = spec.get("occurrence")
+        if occ is not None:
+            if not isinstance(occ, int) or not 1 <= occ <= len(hits):
+                raise api.ApiError(f"{key}: occurrence は 1〜{len(hits)} で指定してください")
+            page, within = hits[occ - 1]
+            return {**spec, "page": page, "occurrence": within}
+        if len(hits) > 1:
+            listing = "／".join(f"{i}番目：{p} ページ" for i, (p, _w) in enumerate(hits[:10], 1))
+            raise api.ApiError(f"{key}: 「{needle}」が {len(hits)} か所にあります。page か occurrence（何番目か）で1つに決めてください：{listing}")
+        return {**spec, "page": hits[0][0]}
+
+    def _find_text(self, needle: str) -> list[tuple[int, int]]:
+        """全部のページを探す：[(ページ, そのページの中の何番目か)]。控え（jobs の所）に進み具合を残すので、時間の上限で止まっても続きから探せる。"""
+        import hashlib
+        import json
+        import os
+        import time
+
+        from .. import jobs
+        from ..pdf.anchor import _lines, find_spans, page_content
+        from ..pdf.layout import PageLayout
+
+        st = os.stat(self.path)
+        key = hashlib.sha256(f"{self.path}|{st.st_size}|{st.st_mtime_ns}|{needle}".encode()).hexdigest()[:24]
+        memo = jobs.jobs_dir() / f"anchor-{key}.json"
+        hits: list[list[int]] = []
+        start = 1
+        try:
+            d = json.loads(memo.read_text(encoding="utf-8"))
+            hits, start = d["hits"], d["next"]
+        except (OSError, ValueError, KeyError):
+            pass
+        n = len(self.page_list)
+        last = time.monotonic()
+
+        def save(next_page: int) -> None:
+            tmp = memo.with_suffix(f".{os.getpid()}.tmp")
+            tmp.write_text(json.dumps({"hits": hits, "next": next_page}), encoding="utf-8")
+            os.replace(tmp, memo)
+
+        for p in range(start, n + 1):
+            pg = self.page_list[p - 1]
+            lay = PageLayout(self.doc, pg, page_content(self.doc, pg), p)
+            found = 0
+            for _c, ln in _lines(lay):
+                found += len(find_spans(ln.text, needle))
+            hits += [[p, i] for i in range(1, found + 1)]
+            limits.progress(f"「{needle[:20]}」を探しています（見つけた所 {len(hits)}）", p, n)
+            if time.monotonic() - last > 2.0:
+                last = time.monotonic()
+                save(p + 1)
+            self._lighten(p)
+        save(n + 1)
+        return [(h[0], h[1]) for h in hits]
+
+    def _lighten(self, p: int) -> None:
+        """全部のページをたどるとき：控えを手放し、写像を作り直す（常駐メモリがファイルの大きさに比例しないように）。"""
+        if p % 64:
+            return
+        self.doc.cache = {k: v for k, v in self.doc.cache.items() if not isinstance(v, _Stream)}
+        self.doc.objstm_cache = {}
+        from .filebytes import FileBytes
+
+        if isinstance(self.blob, FileBytes):
+            new = self.blob.fresh()
+            self.doc.blob = new
+            self.blob = new
 
     # ------------------------------------------------------------------ 段階：費用の小さな確かめは全部のページで
     def _font_gaps(self) -> list[str]:
@@ -347,6 +442,8 @@ class PdfLazy(LazyDoc):
                     state["problems"] += list(c.items)[:5] or [f"{p} ページ：{c.detail}"]
             state["next_page"] = p + 1
             limits.progress("ページを確かめています", p, n)
+            self._lay.clear()
+            self._lighten(p)
             return state
         state["checks"] = [{"name": "読み落とし（ページの文字）", "ok": not state["problems"], "agent": False, "items": list(state["problems"]),
                             "detail": f"全 {n:,} ページ・文字 {state['chars']:,} 字を、窓とは別の読み方（文字の命令を順に）で拾い、窓に出ていることを確かめました。"

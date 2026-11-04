@@ -109,8 +109,9 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
           anchored: dict[str, dict] | None = None, password: str | bytes | None = None) -> PdfProof:
     """anchored：見出しの字を目印にして書いた欄 → 目印（書いた順）。元の文書で同じ決め方で位置を決め直し、足した欄の位置と照らす。
     password：開くためのパスワードがかかったPDFのとき、そのパスワード（どちらのファイルも、それで開いて比べる）。"""
-    pr = PdfProof(hashlib.sha256(original).hexdigest(), hashlib.sha256(new).hexdigest(),
-                  new[:len(original)] == original, original_bytes=len(original), new_bytes=len(new))
+    from ..lazy.filebytes import same_prefix, sha256_hex
+
+    pr = PdfProof(sha256_hex(original), sha256_hex(new), same_prefix(new, original), original_bytes=len(original), new_bytes=len(new))
     if not pr.prefix_ok:
         pr.unexpected.append("元のバイト列が、新しいファイルの先頭と一致しません")
         return pr

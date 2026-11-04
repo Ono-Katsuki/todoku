@@ -19,9 +19,11 @@ class PdfDocument:
     def __init__(self, blob: bytes, filename: str = "", password: str | bytes | None = None):
         """password：開くためのパスワード（ユーザー）か、権限のパスワード（所有者）。空のパスワードで開けるPDFには要らない。
         要るのに渡されていなければ NeedsPassword、合わなければ WrongPassword（NeedsPassword の一種）。パスワードは持たない。"""
-        if not blob.lstrip()[:5] == b"%PDF-":
+        head = blob.lstrip()[:5] if isinstance(blob, (bytes, bytearray)) else blob[:1 << 16].lstrip()[:5]  # FileBytes：頭だけ
+        if not head == b"%PDF-":
             raise PdfError("PDFではありません")
         self.blob = blob
+        self.light = False  # 大きな PDF（lazy）：大きなストリームは控えない（メモリがファイルの大きさに比例しないように）
         self.filename = filename
         self.xref: dict[int, tuple] = {}  # 番号 → ("o", 位置, 世代) / ("s", ストリームの番号, 何番目)
         self.trailer: dict = {}
@@ -150,9 +152,11 @@ class PdfDocument:
         self.cache = {}
         self.objstm_cache = {}
         where: dict[int, int] = {}
-        for m in re.finditer(rb"(?<![\d])(\d{1,10})\s+(\d{1,5})\s+obj\b", self.blob):
-            self.xref[int(m[1])] = ("o", m.start(), int(m[2]))
-            where[int(m[1])] = m.start()
+        from ..lazy.filebytes import iter_matches
+
+        for start, m in iter_matches(re.compile(rb"(?<![\d])(\d{1,10})\s+(\d{1,5})\s+obj\b"), self.blob):
+            self.xref[int(m[1])] = ("o", start, int(m[2]))
+            where[int(m[1])] = start
         for num, ent in sorted(self.xref.items(), key=lambda kv: kv[1][1]):
             if ent[0] != "o":
                 continue
@@ -172,9 +176,9 @@ class PdfDocument:
                         where[onum] = ent[1]
             except Exception:  # noqa: BLE001
                 continue
-        for m in re.finditer(rb"trailer\s*<<", self.blob):
+        for start, m in iter_matches(re.compile(rb"trailer\s*<<"), self.blob):
             try:
-                tr = parse_object(Lexer(self.blob, m.end() - 2))
+                tr = parse_object(Lexer(self.blob, start + m.end() - m.start() - 2))
                 self.trailer.update(tr)
             except Exception:  # noqa: BLE001
                 pass
@@ -254,7 +258,8 @@ class PdfDocument:
         else:
             objs = self._objstm(ent[1])
             obj = objs[ent[2]] if ent[2] < len(objs) else None
-        self.cache[num] = obj
+        if not (self.light and isinstance(obj, Stream) and len(obj.raw) > 1 << 16):
+            self.cache[num] = obj
         return obj
 
     def _objstm(self, num: int) -> list:

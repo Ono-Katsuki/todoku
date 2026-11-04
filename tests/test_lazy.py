@@ -623,9 +623,11 @@ def test_pdf_fill_only_lays_out_touched_page(tmp_path, monkeypatch):
     assert r["proof_ok"] and r["read_back_ok"], r
     assert out.read_bytes().startswith(p.read_bytes())
     assert "9" in r["empty_fields_note"]
-    calls.clear()
-    with pytest.raises(api.ApiError, match="page"):
-        api.fill(str(p), {"@1": {"after": "Page 9 line 4", "value": "ABC"}}, str(tmp_path / "o2.pdf"))
+    # ページを添えなくても、ページを順に探して書く（2 か所以上なら、決め方を伝える）
+    r2 = api.fill(str(p), {"@1": {"after": "Page 9 line 4 text sample", "value": "ABC", "where": "below"}}, str(tmp_path / "o2.pdf"))
+    assert r2["proof_ok"] and r2["read_back_ok"] and "9" in r2["empty_fields_note"]
+    with pytest.raises(api.ApiError, match="か所にあります"):
+        api.fill(str(p), {"@1": {"after": "line 4 text sample", "value": "ABC"}}, str(tmp_path / "o3.pdf"))
 
 
 def test_pdf_grade_says_deferred_and_audit_steps(tmp_path):

@@ -78,15 +78,15 @@ def _read(path: str, password: str | None = None):
 
 
 def _read_file(p: Path) -> bytes:
-    """ファイルをメモリに読む。limits.MAX_FILE（メモリの上限の半分）より大きなファイルは読まない。分けて読める形式（lazy）は、ここを
-    通らない。.xlsx も PDF も大きなものは分けて読むので、ここに当たるのは丸ごと読むしかない形式だけ。そのときは次の手を伝える。"""
+    """ファイルをメモリに読む。limits.MAX_FILE（メモリの上限の半分）より大きなファイルは、読まずに写像（FileBytes）で返す。"""
     from . import limits
 
+    from .lazy.filebytes import MAP_MIN, FileBytes, mapping_on
+
     size = p.stat().st_size
-    if size > limits.MAX_FILE:
-        raise ApiError(f"ファイルが大きすぎるので、丸ごとメモリに読めません（{size / 1048576:,.0f} MB。メモリに読める大きさは "
-                       f"{limits.MAX_FILE / 1048576:,.0f} MB まで）。環境変数 TODOKU_MEMORY_LIMIT_MB・TODOKU_MAX_FILE_MB を大きくすると読めます")
     limits.budget().allow_file(size)
+    if size > limits.MAX_FILE or (mapping_on() and size >= MAP_MIN):
+        return FileBytes(p)  # 丸ごと読まない：触った所だけがメモリに載る（断らない。丸ごと要る処理が上限に当たったら、頼み直し方を伝える）
     return p.read_bytes()
 
 
@@ -225,7 +225,9 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
     from .pdf.window import _PAGE_SCOPE
 
     scope = _PAGE_SCOPE.get()  # 大きな PDF：書く所のページだけの窓
-    key = (hashlib.sha256(blob).hexdigest(), name, encoding, tuple(sorted(scope)) if scope is not None else None) if lock is None else None
+    from .lazy.filebytes import sha256_hex
+
+    key = (sha256_hex(blob), name, encoding, tuple(sorted(scope)) if scope is not None else None) if lock is None else None
     if key is not None and key in _WINDOWS:
         _WINDOWS[key] = _WINDOWS.pop(key)  # いちばん新しく使ったものにする
         return pickle.loads(_WINDOWS[key][1])  # 呼んだ側が変えても控えは変わらないよう、写しを返す
@@ -494,8 +496,10 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             # 大きな PDF：書く所のページだけを配置して、いままでの書き込みと証明を通す（増分更新なので、元のバイトはそのまま）
             from .pdf.window import page_scope
 
-            pages = lz.pages_for(values)
-            with page_scope(pages):
+            from .lazy.filebytes import mapped_reads
+
+            values, pages = lz.pages_for(values)
+            with page_scope(pages), mapped_reads(Path(out_path).expanduser().resolve().parent):
                 res = _fill(path, values, out_path, force, password, encoding, overwrite, temps)
             note = (f"大きな PDF なので、「まだ空いている欄」は書いたページ（{sorted(pages)[:20]}）の分だけです。"
                     "ほかのページの欄は list_fields に pages を渡すと分かります")
@@ -534,7 +538,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     if k in _arc.KINDS:
         raise ApiError("ZIP そのものには書けません。中のファイルを path に「" + path + "!/中の名前」で指定してください")
     _seal_supported(k, values)
-    result: dict = {"kind": k, "out_path": str(dst), "original_sha256": hashlib.sha256(src.read_bytes()).hexdigest()}
+    result: dict = {"kind": k, "out_path": str(dst), "original_sha256": _sha256_file(src)}
     if encoding:
         result["encoding"] = {"encoding": encoding, "chosen_by": "agent",
                               "detail": "エージェントが選んで指定した文字コードで読み、書いた所だけをその文字コードのバイトにしました"}
@@ -837,7 +841,9 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                 raise ApiError("保護し直したファイルを同じパスワードで解くと、書いた中身と一致しません（書き出していません）")
         new_blob = sealed
         result["password_protected"] = f"元と同じパスワードで保護したまま書き出しました（{lock.label}）"
-    result["new_sha256"] = hashlib.sha256(new_blob).hexdigest()
+    from .lazy.filebytes import sha256_hex
+
+    result["new_sha256"] = sha256_hex(new_blob)
     # 書き出す前に、同じフォルダの一時ファイルに書いて読み戻す（確かめてから、名前を付け替える：_publish）
     tmp = _temp_beside(dst, new_blob)
     _temps.append(tmp)  # 途中で止まっても、fill が消す
@@ -1047,13 +1053,28 @@ def _temp_beside(dst: Path, blob: bytes) -> Path:
     import os
     import tempfile
 
+    from .lazy.filebytes import FileBytes, write_out
+
     dst.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(blob, FileBytes) and blob._owned is not None and Path(blob.path).parent == dst.parent:
+        # 書いた結果の一時ファイル（元のバイトを流して写したもの）：もう一度写さず、名前を付け替える
+        fd, name = tempfile.mkstemp(prefix=f".{dst.stem}.", suffix=f".todoku-tmp{dst.suffix}", dir=dst.parent)
+        os.close(fd)
+        os.replace(blob.path, name)
+        blob.adopt_name(name)
+        return Path(name)
     fd, name = tempfile.mkstemp(prefix=f".{dst.stem}.", suffix=f".todoku-tmp{dst.suffix}", dir=dst.parent)
     with os.fdopen(fd, "wb") as f:
-        f.write(blob)
+        write_out(f, blob)
         f.flush()
         os.fsync(f.fileno())
     return Path(name)
+
+
+def _sha256_file(p: Path) -> str:
+    from .lazy.filebytes import sha256_file
+
+    return sha256_file(p)
 
 
 def _same_bytes(a: Path, b: Path) -> bool:
@@ -2109,7 +2130,7 @@ def _remember_hand_only(path: str, g, findings, answered) -> None:
     if not p.is_file():
         return
     try:
-        _HAND_ONLY[hashlib.sha256(_read_file(p)).hexdigest()] = hand
+        _HAND_ONLY[_sha256_file(p)] = hand
     except Exception:  # noqa: BLE001  控えられないだけ（書き込みの結果に「まだ確かめていない」と出る）
         return
     while len(_HAND_ONLY) > 64:

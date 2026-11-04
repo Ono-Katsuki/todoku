@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import re
 from dataclasses import dataclass, field
 
@@ -501,17 +503,37 @@ def _run_lang(doc, begin, fmt: str) -> tuple[str, str]:
     return "", ""
 
 
+_PARTIAL: contextvars.ContextVar = contextvars.ContextVar("todoku_docx_partial", default=None)
+
+
+@contextlib.contextmanager
+def partial_base(base: dict):
+    """この中で開く文書は、書類の一部（lazy/docxdoc）として読む：書き込みの試しの開き直しも、番号は書類全体と同じ。"""
+    tok = _PARTIAL.set(base)
+    try:
+        yield
+    finally:
+        _PARTIAL.reset(tok)
+
+
 class DocxDocument:
     kind = "docx"
 
-    def __init__(self, blob: bytes, filename: str = ""):
+    def __init__(self, blob: bytes, filename: str = "", base: dict | None = None):
+        """base：書類の一部だけを読むとき（lazy/docxdoc）の、その前までの数（段落・表・欄・埋め込み・グラフ・絵の番号、段落番号の数え）と、
+        読むヘッダーなどの部品（stories）。番号が書類全体を読んだときと同じになる。"""
         self.blob = blob
         self.filename = filename
         self.zip = RawZip(blob)
-        self.embeds: list[dict] = []  # 埋め込んだ OLE の部品（word/embeddings の部品）
-        self.charts: list[dict] = []  # グラフ（word/charts の部品）：本文の〔グラフ1〕の所
-        self.diagrams: list[dict] = []  # SmartArt（word/diagrams のデータの部品）：本文の〔SmartArt1〕の所
-        self.pictures: list[dict] = []  # 絵（a:blip・v:imagedata）：説明（代わりの字）と飾りの印。段階とは別の注意に使う
+        base = base or _PARTIAL.get() or {}
+        self.partial = bool(base)
+        self.para_base = base.get("para", 0)
+        self.table_base = base.get("table", 0)
+        self.control_names = list(base.get("control_names", ()))  # 前までの欄の名前（ctl{番号}・同じ名前の #2 を、全体と同じに決める）
+        self.embeds: list[dict] = [dict(e) for e in base.get("embeds", ())]  # 埋め込んだ OLE の部品（word/embeddings の部品）
+        self.charts: list[dict] = [{"n": i + 1, "stub": True} for i in range(base.get("charts", 0))]  # グラフ（word/charts の部品）：本文の〔グラフ1〕の所
+        self.diagrams: list[dict] = [{"n": i + 1, "stub": True} for i in range(base.get("diagrams", 0))]  # SmartArt（word/diagrams のデータの部品）：本文の〔SmartArt1〕の所
+        self.pictures: list[dict] = [{"n": i + 1, "stub": True} for i in range(base.get("pictures", 0))]  # 絵（a:blip・v:imagedata）：説明（代わりの字）と飾りの印。段階とは別の注意に使う
         self.main = self._main_part()
         self.parts: dict[str, tuple[bytes, Node]] = {}
         self.rels = self._rels(self.main)
@@ -539,6 +561,8 @@ class DocxDocument:
                     il = npr.find("ilvl")
                     self.style_num[sid] = (nid.get("val") if nid is not None else "", int(il.get("val")) if il is not None else 0)
         self.numbering = Numbering(self._load("word/numbering.xml"))
+        if base.get("counters"):
+            self.numbering.counters = {k: list(v) for k, v in base["counters"].items()}
         settings = self._load("word/settings.xml")
         self.protection = ""
         self.protection_enforced = False
@@ -557,8 +581,16 @@ class DocxDocument:
             kind = typ.rsplit("/", 1)[-1]
             if kind in ("header", "footer", "footnotes", "endnotes", "comments"):
                 name = _join(self.main, target)
+                if self.partial and name not in base.get("stories", ()):
+                    continue
                 if self.zip.has(name):
                     self.stories.append((kind, name, self._story(name)))
+        if self.partial:  # 前までの分の控え（番号のためだけ）を除く
+            self.embeds_all = self.embeds
+            self.embeds = [e for e in self.embeds if not e.get("stub")]
+            self.charts = [e for e in self.charts if not e.get("stub")]
+            self.diagrams = [e for e in self.diagrams if not e.get("stub")]
+            self.pictures = [e for e in self.pictures if not e.get("stub")]
 
     # ------------------------------------------------------------------ 部品
 

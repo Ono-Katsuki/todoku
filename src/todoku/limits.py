@@ -19,6 +19,7 @@
 - TODOKU_MAX_INFLATE_RATIO（200）      圧縮の比率の上限。ふつうの XML は 10〜100 倍で、deflate の理屈の上限は 1032 倍。爆弾はここで止まる
 - TODOKU_CONTEXT_BUDGET_CHARS（400000） 窓の全体を一度に返してよい大きさ（字）。およそ 20 万トークンの会話に入らなくなる大きさ。
                                         これを超える書類は、概要だけを返し、ページ・行の範囲で読む（lazy/）
+- TODOKU_LAZY_MIN_KB（4096）            分けて読む道（lazy）に入る、中身のバイトの下限。これより小さな Word・一太郎・.xls などは窓を作ってから分ける
 - TODOKU_PAGE_CHARS（60000）           範囲で読むときの 1 回の大きさ（字）。続きは cursor で読める（読み減らすだけで、読めない所は作らない）
 - TODOKU_MAX_PDF_OPS（200000000）     1 回の呼び出しで読む、PDF の描画の字句（数・名前・命令）の数の合計
 - TODOKU_MAX_PAGE_OPS（5000000）       1 ページ（とその部品）で読む、PDF の描画の字句の数
@@ -69,6 +70,7 @@ MAX_FILE = _env("TODOKU_MAX_FILE_MB", MEMORY_LIMIT / 2 / MB, MB)
 MAX_INFLATE_RATIO = _env("TODOKU_MAX_INFLATE_RATIO", 200)
 CONTEXT_BUDGET = _env("TODOKU_CONTEXT_BUDGET_CHARS", 400_000)
 PAGE_CHARS = _env("TODOKU_PAGE_CHARS", 60_000)
+LAZY_MIN_BYTES = _env("TODOKU_LAZY_MIN_KB", 4096, 1024)
 WINDOW_CACHE = _env("TODOKU_WINDOW_CACHE_MB", 256, MB)
 # マクロ（VBA）：1 つの文字列の長さ・1 つの配列の要素の数・1 回の実行で作る大きな値（1 MB 以上の文字列）の合計
 MAX_VBA_STRING = _env("TODOKU_MAX_VBA_STRING", 16 * MB)

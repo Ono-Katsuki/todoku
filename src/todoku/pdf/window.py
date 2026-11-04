@@ -981,10 +981,12 @@ def build(doc: PdfDocument, pages=None) -> dict:
     pages = pages if pages is not None else _PAGE_SCOPE.get()
     blob = doc.blob
     fields = read_fields(doc)
+    from ..lazy.filebytes import sha256_hex
+
     out = {
         "todoku": "0.2",
         "kind": "pdf",
-        "source": {"file": doc.filename, "sha256": hashlib.sha256(blob).hexdigest(), "bytes": len(blob),
+        "source": {"file": doc.filename, "sha256": sha256_hex(blob), "bytes": len(blob),
                    "note": "元のファイルが正本。書き込みは、元のバイト列の後ろに足す（増分更新）ので、元の部分は1バイトも変わらない。"},
         "provenance_legend": {DET: "AIを使わない決定的な処理で、ファイルから取り出した",
                               LAYOUT: "配置（罫線・空き・字の並び）から決定的に推定した入力欄。推定なので context と合わせて読む"},

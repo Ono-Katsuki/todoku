@@ -61,7 +61,9 @@ class Update:
         doc.verify_xref()  # 壊れた相互参照は、書く前に読み直す（足す相互参照に、すべての正しい位置を入れるため）
         # 新しい番号は、相互参照にある番号と、ファイルに書いてあるオブジェクトの番号（相互参照が壊れていて、後で読み直す
         # ことがある）の、どれとも重ならないようにする
-        scanned = max((int(m[1]) for m in re.finditer(rb"(?<![\d])(\d{1,10})\s+\d{1,5}\s+obj\b", doc.blob)), default=0)
+        from ..lazy.filebytes import iter_matches
+
+        scanned = max((int(m[1]) for _s, m in iter_matches(re.compile(rb"(?<![\d])(\d{1,10})\s+\d{1,5}\s+obj\b"), doc.blob)), default=0)
         self.next = max(doc.max_num, scanned) + 1
         self.objs: dict[int, tuple[int, object]] = {}  # 番号 → (世代, オブジェクト)
 
@@ -112,13 +114,14 @@ class Update:
 
     def build(self) -> bytes:
         orig = self.doc.blob
-        out = bytearray(orig)
-        if not out.endswith((b"\n", b"\r")):
+        out = bytearray()  # 後ろに足すバイト（元のバイトは写さない：大きな PDF は最後に流して写す）
+        if not orig.endswith((b"\n", b"\r")):
             out += b"\n"
+        base = len(orig)
         offsets: dict[int, tuple[int, int]] = {}
         for num in sorted(self.objs):
             gen, o = self.objs[num]
-            offsets[num] = (len(out), gen)
+            offsets[num] = (base + len(out), gen)
             out += f"{num} {gen} obj\n".encode() + self._body(num, gen, o) + b"\nendobj\n"
         prev = _startxref(orig)
         tr = self.doc.trailer
@@ -144,7 +147,7 @@ class Update:
             trailer["Prev"] = prev
         if packed or _uses_xref_stream(orig, prev):
             xnum = max(self.next, size)
-            offsets[xnum] = (len(out), 0)
+            offsets[xnum] = (base + len(out), 0)
             nums = sorted(set(offsets) | set(packed))
             index, rows = [], bytearray()
             for n in nums:
@@ -160,10 +163,10 @@ class Update:
                     rows += bytes([2]) + stm.to_bytes(4, "big") + idx.to_bytes(2, "big")
             d = dict(trailer)
             d.update({"Type": Name("XRef"), "Size": max(size, xnum + 1), "Index": index, "W": [1, 4, 2], "Length": len(rows)})
-            xref_pos = len(out)
+            xref_pos = base + len(out)
             out += f"{xnum} 0 obj\n".encode() + dumps(d) + b"\nstream\n" + bytes(rows) + b"\nendstream\nendobj\n"
         else:
-            xref_pos = len(out)
+            xref_pos = base + len(out)
             out += b"xref\n"
             if self.doc.repaired and 0 not in offsets:
                 out += b"0 1\n0000000000 65535 f\r\n"  # 元の表をたどらない、全部の表：0 番は空きの項目
@@ -180,7 +183,11 @@ class Update:
                 i = j + 1
             out += b"trailer\n" + dumps(trailer) + b"\n"
         out += f"startxref\n{xref_pos}\n%%EOF\n".encode()
-        return bytes(out)
+        from ..lazy.filebytes import FileBytes, appended_file
+
+        if isinstance(orig, FileBytes):
+            return appended_file(orig, out)  # 元のバイトを流して写した一時ファイル（写像で開く）
+        return bytes(orig) + bytes(out)
 
 
 def _startxref(blob: bytes) -> int:

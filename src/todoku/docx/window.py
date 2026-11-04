@@ -207,8 +207,8 @@ class Spots:
                 n += 1
                 self.para_index[id(p)] = n
         # 1) フォームの欄・コンテンツコントロール
-        used_names = set()
-        for k, c in enumerate(doc.controls, 1):
+        used_names = set(getattr(doc, "control_names", ()))
+        for k, c in enumerate(doc.controls, len(used_names) + 1):
             name = c.name or f"ctl{k}"
             base = name
             j = 2
@@ -219,7 +219,7 @@ class Spots:
             self.items[name] = {"id": name, "kind": c.kind, "source": c.source, "control": c, "para": c.para,
                                 "options": c.options or None, "provenance": DET}
         # 2) 表の空のマス
-        tno = 0
+        tno = getattr(doc, "table_base", 0)  # 書類の一部だけを読むとき（lazy）：表の番号は元の書類の番号
         for _kind, part, blocks in doc.all_blocks():
             for t in _tables(blocks):
                 tno += 1

@@ -88,9 +88,10 @@ def _is_built(path: str, name: str) -> bool:
     if k in ("csv", "tsv", "jsonl", "txt", "pdf"):
         return False
     if k == "pk":
+        from .docxdoc import word_main
         from .xlsxdoc import package_kind
 
-        return package_kind(path) != "xlsx"
+        return package_kind(path) != "xlsx" and word_main(path) is None
     return True
 
 
@@ -119,6 +120,14 @@ def _make(path: str, name: str, password: str | None, encoding: str | None) -> L
             from .xlsxdoc import XlsxLazy
 
             return XlsxLazy(path, name)
+        from .docxdoc import DocxLazy, word_main
+
+        main = word_main(path)
+        if main is not None:
+            try:
+                return DocxLazy(path, name, main)
+            except ValueError:  # 分けて読めない作り：窓を作る道で読む（読めないなら、その理由を伝える）
+                pass
     from .builtdoc import BuiltDoc
 
     return BuiltDoc(path, password, encoding)
