@@ -73,10 +73,12 @@ class _Ctx:
 class OdtDocument:
     kind = "odt"
 
-    def __init__(self, blob: bytes, filename: str = ""):
+    def __init__(self, blob: bytes, filename: str = "", partial: dict | None = None):
+        """partial：本文の一部だけの小さなパッケージを読むとき（lazy）：前までの数え（list_counters・outline_counter・pictures）と、マスターページを読むか（master）。"""
         self.blob = blob
         self.filename = filename
         self.pkg = OdfPackage(blob, filename)
+        p_ = partial or {}
         if self.pkg.kind not in ("odt", ""):
             raise OdfError(f"OpenDocument の文書ではありません（{self.pkg.mimetype}）")
         body = self.pkg.body()
@@ -85,14 +87,14 @@ class OdtDocument:
             raise OdfError("文書の本文（office:text）がありません")
         self.styles = Styles(self.pkg)
         self.controls: list[Control] = []
-        self.pictures: list[dict] = []  # 絵（draw:image）：説明（svg:title・svg:desc）と飾りの印。段階とは別の注意に使う
+        self.pictures: list[dict] = [{"n": i + 1, "stub": True} for i in range(p_.get("pictures", 0))]  # 絵（draw:image）：説明（svg:title・svg:desc）と飾りの印。段階とは別の注意に使う
         self.form_by_id: dict[str, Control] = {}
         self.radio_groups: dict[str, Control] = {}
         self.notes: list[tuple[str, list]] = []  # (footnotes / endnotes, ブロック)
         self.comments: list = []
         self.marks_raw: list[tuple[str, str, Para, int]] = []  # (名前, start/end/point, 段落, 字の位置)
-        self.list_counters: dict[str, list[int]] = {}
-        self.outline_counter = [0] * 11
+        self.list_counters: dict[str, list[int]] = {k: list(v) for k, v in p_.get("list_counters", {}).items()}
+        self.outline_counter = list(p_.get("outline_counter", [0] * 11))
         self.vba = None
         self.has_macros = self.pkg.has_macros
         settings = self.pkg.settings()
@@ -102,7 +104,8 @@ class OdtDocument:
         self._forms(self.office_text)
         self.body = self._blocks(self.office_text, self.part, None, False)
         self.stories: list[tuple[str, str, list]] = []
-        self._master_pages()
+        if partial is None or p_.get("master"):
+            self._master_pages()
         for kind, blocks in self.notes:
             self.stories.append((kind, self.part, blocks))
         if self.comments:

@@ -27,7 +27,7 @@ def _kind_for(path: str, name: str) -> str | None:
     with open(path, "rb") as f:
         head = f.read(4096)
     if head[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
-        return None  # 古い形式・暗号化：丸ごと読む（api.window）
+        return "cfb"  # 古い形式・暗号化：lazy/legacy で見分ける
     if head[:4] == b"%PDF":
         return "pdf"
     if head[:2] == b"PK":
@@ -89,9 +89,18 @@ def _is_built(path: str, name: str) -> bool:
         return False
     if k == "pk":
         from .docxdoc import word_main
+        from .parts import parts_kind
         from .xlsxdoc import package_kind
 
-        return package_kind(path) != "xlsx" and word_main(path) is None
+        return package_kind(path) != "xlsx" and word_main(path) is None and parts_kind(path) is None
+    if k == "cfb":
+        from .parts import cfb_kind
+
+        return cfb_kind(path) is None
+    if k == "json" or name.lower().endswith(".json"):
+        from .parts import json_lazy_ok
+
+        return not json_lazy_ok(path)
     return True
 
 
@@ -128,6 +137,11 @@ def _make(path: str, name: str, password: str | None, encoding: str | None) -> L
                 return DocxLazy(path, name, main)
             except ValueError:  # 分けて読めない作り：窓を作る道で読む（読めないなら、その理由を伝える）
                 pass
+    from .parts import make_lazy
+
+    got = make_lazy(k, path, name, password)
+    if got is not None:
+        return got
     from .builtdoc import BuiltDoc
 
     return BuiltDoc(path, password, encoding)
@@ -137,16 +151,20 @@ def clear() -> None:
     _CACHE.clear()
 
 
+_SHEET_REQ = ('sheet: "シート名", rows: "1-500"', "シートと行の範囲を分けて")
+_PARA_REQ = ('paragraphs: "1-200"', "段落の範囲を分けて")
+
+
 def smaller_request(tool: str, args: dict) -> str:
     """止まった呼び出しの、代わりに頼める小さな頼み方（行き止まりにしない）。"""
     path = str(args.get("path", ""))
     ext = os.path.splitext(path.split("!/")[-1])[1].lower()
-    what = {".pdf": ('pages: "1-20"', "ページを分けて"), ".xlsx": ('sheet: "シート名", rows: "1-500"', "シートと行の範囲を分けて"),
-            ".xlsm": ('sheet: "シート名", rows: "1-500"', "シートと行の範囲を分けて"),
+    what = {".pdf": ('pages: "1-20"', "ページを分けて"), ".xlsx": _SHEET_REQ, ".xlsm": _SHEET_REQ, ".xls": _SHEET_REQ, ".xlsb": _SHEET_REQ, ".ods": _SHEET_REQ,
             ".csv": ('rows: "1-500"', "行の範囲を分けて"), ".tsv": ('rows: "1-500"', "行の範囲を分けて"),
             ".jsonl": ('records: "1-500"', "行の範囲を分けて"), ".ndjson": ('records: "1-500"', "行の範囲を分けて"),
-            ".txt": ('paragraphs: "1-500"', "行の範囲を分けて"), ".docx": ('paragraphs: "1-200"', "段落の範囲を分けて"),
-            ".docm": ('paragraphs: "1-200"', "段落の範囲を分けて")}.get(ext, ('raw: true', "窓を作らずに、字のまま少しずつ"))
+            ".txt": ('paragraphs: "1-500"', "行の範囲を分けて"), ".docx": _PARA_REQ, ".docm": _PARA_REQ, ".doc": _PARA_REQ, ".jtd": _PARA_REQ, ".jtt": _PARA_REQ,
+            ".hwp": _PARA_REQ, ".hwpx": _PARA_REQ, ".odt": _PARA_REQ, ".pptx": _PARA_REQ, ".rtf": _PARA_REQ,
+            ".json": ('path: "/items/0"', "JSON Pointer で値を指して")}.get(ext, ('raw: true', "窓を作らずに、字のまま少しずつ"))
     if tool == "audit_document":
         return "検査は長い仕事として動かせます：audit_document に job: true を渡してください（1 回の呼び出しの時間に縛られず、止まっても控えの続きから進みます）"
     if tool == "fill_document":
@@ -154,8 +172,8 @@ def smaller_request(tool: str, args: dict) -> str:
                 "TODOKU_MEMORY_LIMIT_MB・TODOKU_TIME_LIMIT を大きくしても動きます")
     if tool == "read_table":
         return f"表の見出しまでの行を read_window に {what[0]} で読み、要る行の範囲を頼んでください"
-    if ext in (".docx", ".docm", ".pptx", ".odt", ".ods", ".hwpx", ".json", ".rtf", ".fodt", ".fods", ".html", ".htm", ".xml"):
-        return (f"{what[1]}読んでください：read_window に {what[0]} を渡します。窓を作るところで止まったときは、raw: true なら窓を作らずに"
+    if what[0] != "raw: true" and ext not in (".csv", ".tsv", ".jsonl", ".ndjson", ".txt"):
+        return (f"{what[1]}読んでください：read_window に {what[0]} を渡します。それでも窓を作るところで止まるときは、raw: true なら窓を作らずに"
                 "字のまま少しずつ読めます（欄は見つけません）。TODOKU_MEMORY_LIMIT_MB・TODOKU_TIME_LIMIT を大きくすれば、窓も作れます")
     return (f"{what[1]}読んでください：read_window に {what[0]} を渡します（読む量を減らせば読めます）。"
             "止まらないようにするには TODOKU_MEMORY_LIMIT_MB・TODOKU_TIME_LIMIT も大きくできます")

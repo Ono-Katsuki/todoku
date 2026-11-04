@@ -111,11 +111,12 @@ def _wstr(data: bytes, at: int) -> tuple[str, int]:
 class Hwp5Document:
     kind = "hwp"
 
-    def __init__(self, blob: bytes, filename: str = ""):
+    def __init__(self, blob: bytes, filename: str = "", partial: dict | None = None):
+        """partial：本文の一部だけを読むとき（lazy）：{"cfb": 開いた複合ファイル, "records": レコードのバイト列（None なら本文を読まない）, "part": 節, "pictures": 前までの絵の数}。"""
         self.blob = blob
         self.filename = filename
         try:
-            self.cfb = CFB(blob)
+            self.cfb = partial["cfb"] if partial else CFB(blob)
             head = self.cfb.read("FileHeader")
         except Exception as e:  # noqa: BLE001
             raise Hwp5Error(f"HWP 5 の入れ物（CFB）を読めません（{e}）") from None
@@ -139,7 +140,7 @@ class Hwp5Document:
             raise Hwp5Error("本文の節（BodyText/Section0）がありません")
         self.part = self.parts[0]
         self.controls: list[Control] = []
-        self.pictures: list[dict] = []
+        self.pictures: list[dict] = [{"n": i + 1, "stub": True} for i in range((partial or {}).get("pictures", 0))]
         self.notes: list[tuple[str, list]] = []
         self.comments: list = []
         self.headers: list[tuple[str, str, list]] = []
@@ -153,9 +154,14 @@ class Hwp5Document:
         self._docinfo()
         self.body: list = []
         self.raw_texts: list[str] = []  # 検査用：すべての PARA_TEXT の字（制御の字を除く）
-        for part in self.parts:
-            roots = tree(records(self._stream(part)))
-            self.body += self._paras(roots, part, None)
+        if partial is not None:
+            if partial.get("records") is not None:
+                self.part = partial.get("part", self.part)
+                self.body += self._paras(tree(records(partial["records"])), self.part, None)
+        else:
+            for part in self.parts:
+                roots = tree(records(self._stream(part)))
+                self.body += self._paras(roots, part, None)
         self.stories: list[tuple[str, str, list]] = []
         for kind, part, blocks in self.headers:
             self.stories.append((kind, part, blocks))

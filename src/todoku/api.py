@@ -2154,6 +2154,8 @@ def lazy_open(path: str, password: str | None = None, encoding: str | None = Non
 @_budgeted
 def read_range(path: str, rng: dict, max_chars=None, password: str | None = None, encoding: str | None = None):
     """窓の、頼まれた範囲：(Page, 書類)。rng：pages・sheet・rows・paragraphs・records・part・cursor。"""
+    import struct
+
     from .lazy import RangeError, clamp_chars
 
     if rng.get("raw"):
@@ -2166,6 +2168,8 @@ def read_range(path: str, rng: dict, max_chars=None, password: str | None = None
             return read_raw(str(p), rng.get("cursor"), clamp_chars(max_chars), encoding), None
         except RangeError as e:
             raise ApiError(str(e)) from None
+        except (ValueError, IndexError, struct.error) as e:
+            raise ApiError(broken_message(path, e)) from None
     doc = lazy_open(path, password, encoding, force=True)
     if doc is None:
         raise ApiError(f"ファイルが見つかりません: {path}")

@@ -208,8 +208,9 @@ class Spots:
                 self.para_index[id(p)] = n
         # 1) フォームの欄・コンテンツコントロール
         used_names = set(getattr(doc, "control_names", ()))
+        fixed = getattr(doc, "control_ids", None) or {}  # 書類の一部だけを読むとき（lazy）：全体の順で決めた名前
         for k, c in enumerate(doc.controls, len(used_names) + 1):
-            name = c.name or f"ctl{k}"
+            name = fixed.get(id(c)) or c.name or f"ctl{k}"
             base = name
             j = 2
             while name in used_names:

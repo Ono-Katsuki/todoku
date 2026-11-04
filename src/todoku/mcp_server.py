@@ -85,6 +85,7 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
                                                       "part": {"type": "integer", "minimum": 1, "default": 1},
                                                       "pages": _RANGE_SCHEMA, "rows": _RANGE_SCHEMA, "paragraphs": _RANGE_SCHEMA, "records": _RANGE_SCHEMA,
+                                                      "path_in": {"type": "string", "description": "大きな JSON の中の値の位置（JSON Pointer。例 /items/0）"},
                                                       "sheet": {"type": "string", "description": "Excel のシートの名前（rows と一緒に）"},
                                                       "cursor": {"type": "string", "description": "前の結果の next にある、続きの印"},
                                                       "max_chars": {"type": "integer", "minimum": 200, "description": "1 回に返す大きさ（字）"},
@@ -96,6 +97,7 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
                                                       "only_empty": {"type": "boolean", "default": False},
                                                       "pages": _RANGE_SCHEMA, "rows": _RANGE_SCHEMA, "paragraphs": _RANGE_SCHEMA, "records": _RANGE_SCHEMA,
+                                                      "path_in": {"type": "string", "description": "大きな JSON の中の値の位置（JSON Pointer。例 /items/0）"},
                                                       "sheet": {"type": "string"}, "cursor": {"type": "string"}, "limit": {"type": "integer", "minimum": 1}},
                      "required": ["path"]}},
     {"name": "fill_document",
@@ -343,7 +345,9 @@ def call_tool(name: str, args: dict) -> dict:
                 + ("（read_window で part を指定して続きを読めます）" if s["window_parts"] > 1 else ""))
         return {"content": [_text(head), _text(parts[0][1])], "structuredContent": s}
     if name == "read_window":
-        rng = {k: args[k] for k in ("pages", "sheet", "rows", "paragraphs", "records", "cursor", "raw") if args.get(k) not in (None, "", False)}
+        rng = {k: args[k] for k in ("pages", "sheet", "rows", "paragraphs", "records", "path_in", "cursor", "raw") if args.get(k) not in (None, "", False)}
+        if "path_in" in rng:
+            rng["path"] = rng.pop("path_in")
         large = api.lazy_open(args["path"], args.get("password"), args.get("encoding")) if not rng else None
         if rng or large is not None or args.get("max_chars"):
             if args.get("part") is not None and not rng:
@@ -356,7 +360,9 @@ def call_tool(name: str, args: dict) -> dict:
             raise api.ApiError(f"part は 1〜{len(parts)} です")
         return {"content": [_text(f"部分 {n}/{len(parts)}：{parts[n - 1][0]}"), _text(parts[n - 1][1])]}
     if name == "list_fields":
-        rng = {k: args[k] for k in ("pages", "sheet", "rows", "paragraphs", "records", "cursor") if args.get(k) not in (None, "")}
+        rng = {k: args[k] for k in ("pages", "sheet", "rows", "paragraphs", "records", "path_in", "cursor") if args.get(k) not in (None, "")}
+        if "path_in" in rng:
+            rng["path"] = rng.pop("path_in")
         if rng or args.get("limit") or api.lazy_open(args["path"], args.get("password"), args.get("encoding")) is not None:
             res = api.fields_range(args["path"], rng, bool(args.get("only_empty")), args.get("limit"), args.get("password"), args.get("encoding"))
             return {"content": [_text(res)], "structuredContent": res}

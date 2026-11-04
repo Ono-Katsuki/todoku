@@ -97,12 +97,14 @@ def _rfx(b, p: int = 0) -> tuple[int, int, int, int]:
 class XlsbWorkbook:
     kind = "xlsb"
 
-    def __init__(self, blob: bytes, filename: str = ""):
+    def __init__(self, blob: bytes, filename: str = "", strings: list[str] | None = None):
+        """strings：読んである共有文字列（lazy/sheetdocs：小さなブックごとに読み直さない）。"""
         self.filename = filename
         self.zip = RawZip(blob)
         self.sheets: list[Sheet] = []
         self.names: list[DefinedName] = []
-        self.shared_strings: list[str] = []
+        self.shared_strings: list[str] = strings if strings is not None else []
+        self._strings_given = strings is not None
         self.phonetic: dict = {}
         self.cell_sst: dict = {}
         self.rich_cells: dict = {}
@@ -349,6 +351,8 @@ class XlsbWorkbook:
         return None
 
     def _load_sst(self) -> None:
+        if self._strings_given:
+            return
         path = next((t for typ, t in self._rels(self.wb_path).values() if typ == "sharedStrings"), "xl/sharedStrings.bin")
         if not self.zip.has(path):
             return

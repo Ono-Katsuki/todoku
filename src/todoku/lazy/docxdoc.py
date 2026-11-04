@@ -20,7 +20,7 @@ import zlib
 from array import array
 
 from .. import limits
-from .base import LazyDoc, Page, RangeError, comma, parse_range
+from .blocks import STORY_JA, BlocksLazy
 from .textstream import Source
 from .xlsxdoc import Member, SeekableInflate, _no_doctype
 
@@ -29,7 +29,6 @@ KEEP_PART = 1 << 24  # 小さな文書に写す部品の大きさの上限（こ
 _COMPLEX = frozenset(("txbxContent", "sdt", "customXml", "moveTo", "AlternateContent", "ffData", "object", "OLEObject", "control",
                       "blip", "imagedata", "graphicData", "pict"))
 _STORY_KINDS = ("header", "footer", "footnotes", "endnotes", "comments")
-_STORY_JA = {"header": "ヘッダー", "footer": "フッター", "footnotes": "脚注", "endnotes": "文末脚注", "comments": "コメント"}
 
 
 def word_main(path: str) -> str | None:
@@ -56,14 +55,7 @@ def word_main(path: str) -> str | None:
         return None
 
 
-class _Chunk:
-    """1 つの小さな文書を読んだもの。"""
-
-    def __init__(self, doc, sp, by_para, units):
-        self.doc, self.sp, self.by_para, self.units = doc, sp, by_para, units
-
-
-class DocxLazy(LazyDoc):
+class DocxLazy(BlocksLazy):
     kind = "docx"
     streams = False
 
@@ -95,9 +87,6 @@ class DocxLazy(LazyDoc):
         self.head_xml = b""
         self.tail_xml = b""
         self.data_end = 0
-        self._cache: dict = {}
-        self._cache_order: list = []
-        self._extras = None
         h = DocxDocument(self._mini(b"", ()), name, base={"stories": ()})
         self._h = h
         self.protection = h.protection
@@ -420,7 +409,7 @@ class DocxLazy(LazyDoc):
             self._after_tree(h, blocks, -1)
             if self._story_has_objects:
                 self.object_stories.append(name)
-            self.chunks.append({"story": name, "kind": kind, "first": len(self.offs), "para": self.paragraphs, "base": base})
+            self.chunks.append({"story": name, "part": name, "kind": kind, "first": len(self.offs), "para": self.paragraphs, "base": base})
             self.story_list.append({"kind": kind, "part": name, "paragraphs": paras})
             self.paragraphs += paras
             self.tables += tables
@@ -447,40 +436,6 @@ class DocxLazy(LazyDoc):
         base["control_names"] = self.control_names[:base.pop("controls")]
         return base
 
-    def chunk(self, i: int) -> _Chunk:
-        got = self._cache.get(i)
-        if got is not None:
-            return got
-        from ..docx.document import iter_paras
-        from ..docx.window import Spots
-
-        d = self.chunk_doc(i)
-        sp = Spots(d)
-        by_para: dict[int, list[dict]] = {}
-        for it in sp.items.values():
-            q = it.get("para")
-            if q is not None:
-                by_para.setdefault(id(q), []).append(it)
-        units = []
-        for _kind, _part, blocks in d.all_blocks():
-            for b in blocks:
-                nums = [sp.para_index[id(q)] for q in iter_paras([b]) if id(q) in sp.para_index]
-                if nums:
-                    units.append((min(nums), max(nums), b))
-        units.sort(key=lambda u: u[0])
-        got = _Chunk(d, sp, by_para, units)
-        self._cache[i] = got
-        self._cache_order.append(i)
-        while len(self._cache_order) > 2:
-            self._cache.pop(self._cache_order.pop(0), None)
-        return got
-
-    def _chunk_at(self, para: int) -> int:
-        firsts = self.__dict__.get("_firsts")
-        if firsts is None:
-            firsts = self._firsts = [c["para"] for c in self.chunks]
-        return max(0, bisect.bisect_left(firsts, para) - 1)
-
     # ------------------------------------------------------------------ 概要
     def overview(self) -> dict:
         return {"bytes": self.size, "window_chars": self.est_chars, "paragraphs": self.paragraphs, "tables": self.tables,
@@ -504,71 +459,13 @@ class DocxLazy(LazyDoc):
             first = self.body_paragraphs
             where = []
             for s in self.story_list[:20]:
-                where.append(f"{_STORY_JA.get(s['kind'], s['kind'])}（{s['part']}）：段落 {first + 1}〜{first + s['paragraphs']}")
+                where.append(f"{STORY_JA.get(s['kind'], s['kind'])}（{s['part']}）：段落 {first + 1}〜{first + s['paragraphs']}")
                 first += s["paragraphs"]
             lines += ["", "## 本文のほかの部品", ""] + [f"- {w}" for w in where]
         return "\n".join(lines) + "\n"
 
-    # ------------------------------------------------------------------ 読む
-    def read(self, rng: dict, max_chars: int) -> Page:
-        from ..docx.window import _render_blocks
-
-        cur = rng.get("cursor")
-        if cur and str(cur).startswith("extras:"):
-            return self._read_extras(int(str(cur)[7:]), max_chars)
-        if rng.get("paragraphs") is None and cur and not str(cur).startswith("paragraphs:"):
-            raise RangeError(f"cursor「{cur}」はこの書類の続きの印ではありません（前の結果の next をそのまま渡してください）")
-        total = self.paragraphs
-        whole = False
-        if cur:
-            m = re.fullmatch(r"paragraphs:(\d+):(\d+)(:w)?", str(cur))
-            if not m:
-                raise RangeError(f"cursor「{cur}」はこの書類の続きの印ではありません")
-            a, b, whole = int(m[1]), int(m[2]), bool(m[3])
-        else:
-            a, b = parse_range(rng.get("paragraphs"), "段落")
-            whole = b is None
-            a = 1 if a is None else a
-            b = total if b is None else min(b, total)
-        if a > max(total, 1):
-            raise RangeError(f"段落 {a} はありません（全 {comma(total)} 段落）")
-        body: list[str] = []
-        size = 0
-        stop = None
-        i = self._chunk_at(a)
-        story_said = None
-        while i < len(self.chunks) and stop is None:
-            ch = self.chunks[i]
-            if ch["para"] >= b:
-                break
-            limits.progress("段落を読んでいます", ch["para"], total)
-            c = self.chunk(i)
-            if "story" in ch and story_said != i and (c.units and c.units[-1][1] >= a):
-                story_said = i
-                body.append(f"〔{_STORY_JA.get(ch['kind'], ch['kind'])}（{ch['story']}）〕")
-            for lo, hi, block in c.units:
-                if hi < a or lo > b:
-                    continue
-                lines: list[str] = []
-                plain: list[str] = []
-                _render_blocks([block], c.sp, c.by_para, lines, plain)
-                text = "\n".join(f"〔段落 {lo}" + (f"〜{hi}" if hi != lo else "") + f"〕{ln}" for ln in lines)
-                if body and size + len(text) > max_chars:
-                    stop = lo
-                    break
-                if text:
-                    body.append(text)
-                    size += len(text) + 1
-            i += 1
-        cov = f"段落 {a}〜{(stop - 1) if stop else b}（全 {comma(total)} 段落）"
-        if stop is None:
-            if whole and self._has_extras():
-                return Page("\n".join(body), cov, {"cursor": "extras:0"}, "埋め込み・グラフ・マクロ・画像の一覧の節", body)
-            return Page("\n".join(body), cov, None, "", body)
-        return Page("\n".join(body), cov, {"cursor": f"paragraphs:{stop}:{b}" + (":w" if whole else "")}, f"{comma(b - stop + 1)} 段落", body)
-
-    def _has_extras(self) -> bool:
-        return bool(self.objects_blocks or self.has_macros or self.pictures or self._image_parts())
+    def has_extras(self) -> bool:
+        return bool(self.objects_blocks or self.object_stories or self.has_macros or self.pictures or self._image_parts())
 
     def _image_parts(self) -> list[str]:
         from ..imaging.docimages import _IMG_EXT, _ext
@@ -590,9 +487,7 @@ class DocxLazy(LazyDoc):
         real += tuple(n for n in self.object_stories if n in real)
         return DocxDocument(self._mini(b"".join(parts), real), self.name, base={"stories": tuple(self.object_stories), "para": 0})
 
-    def _extras_lines(self) -> list[str]:
-        if self._extras is not None:
-            return self._extras
+    def _make_extras(self) -> list[str]:
         from ..docx.window import _embeds, _macros
         from ..docx.window import to_markdown
         from ..embeds.word import objects as _objects
@@ -609,61 +504,7 @@ class DocxLazy(LazyDoc):
         images = list_images("docx", self._mini(b"", ()), {"pictures": self.pictures})
         if images:
             lines += markdown(images).split("\n")
-        self._extras = lines
         return lines
-
-    def _read_extras(self, at: int, max_chars: int) -> Page:
-        text = "\n".join(self._extras_lines())
-        end = min(at + max_chars, len(text))
-        if end < len(text):
-            nl = text.rfind("\n", at, end)
-            if nl > at:
-                end = nl + 1
-        piece = text[at:end]
-        cov = f"埋め込み・グラフ・マクロ・画像の一覧の節 {at + 1:,}〜{end:,} 字（全 {len(text):,} 字）"
-        if end >= len(text):
-            return Page(piece, cov, None, "", [piece])
-        return Page(piece, cov, {"cursor": f"extras:{end}"}, f"{comma(len(text) - end)} 字", [piece])
-
-    # ------------------------------------------------------------------ 欄
-    def _chunk_fields(self, i: int) -> list[dict]:
-        from ..docx.window import build
-
-        return build(self.chunk_doc(i))["fields"]
-
-    def fields(self, rng: dict, only_empty: bool, limit: int) -> dict:
-        from ..api import _field
-
-        total = self.paragraphs
-        cur = rng.get("cursor")
-        if cur:
-            m = re.fullmatch(r"fields:(\d+):(\d+)", str(cur))
-            if not m:
-                raise RangeError(f"cursor「{cur}」はこの書類の続きの印ではありません")
-            start_chunk, b = int(m[1]), int(m[2])
-            a = 1
-        else:
-            a, b = parse_range(rng.get("paragraphs"), "段落")
-            a = 1 if a is None else a
-            b = total if b is None else min(b, total)
-            start_chunk = self._chunk_at(a)
-        out: list[dict] = []
-        i = start_chunk
-        while i < len(self.chunks) and self.chunks[i]["para"] < b:
-            limits.progress("欄を探しています", self.chunks[i]["para"], total)
-            for f in self._chunk_fields(i):
-                pn = _para_of(f)
-                if pn is not None and not a <= pn <= b:
-                    continue
-                d = _field(f)
-                if only_empty and d.get("value") not in (None, "", False):
-                    continue
-                out.append(d)
-            i += 1
-            if len(out) >= limit and i < len(self.chunks) and self.chunks[i]["para"] < b:
-                return {"fields": out, "total_paragraphs": total, "looked_paragraphs": f"{a}〜{self.chunks[i]['para']}",
-                        "next": {"cursor": f"fields:{i}:{b}"}, "remaining": f"{comma(b - self.chunks[i]['para'])} 段落"}
-        return {"fields": out, "total_paragraphs": total, "looked_paragraphs": f"{a}〜{b}", "next": None}
 
     # ------------------------------------------------------------------ 段階
     def grade(self):
@@ -754,14 +595,6 @@ class DocxLazy(LazyDoc):
         state["checks"] = checks
         state["done"] = True
         return state
-
-
-_P_ID = re.compile(r"P(\d+)\.")
-
-
-def _para_of(f: dict) -> int | None:
-    m = _P_ID.match(str(f.get("id")))
-    return int(m[1]) if m else None
 
 
 def _tag_end(buf: bytearray, pos: int) -> int:

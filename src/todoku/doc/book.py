@@ -117,7 +117,7 @@ def sprm_spans(grpprl: bytes):
 class DocFile:
     kind = "doc"
 
-    def __new__(cls, blob: bytes = b"", filename: str = "", cfb=None):
+    def __new__(cls, blob: bytes = b"", filename: str = "", cfb=None, partial=None):
         # Word 6.0/95（FIB の版 101〜104）の文書は、その形の読み方（word6.py）で読む
         if cls is DocFile and cfb is None:
             from .word6 import Word6File, is_word6
@@ -126,13 +126,16 @@ class DocFile:
                 return super().__new__(Word6File)
         return super().__new__(cls)
 
-    def __init__(self, blob: bytes, filename: str = "", cfb=None):
-        """cfb：ほかの文書に埋め込んだ文書（cfb.SubStorage）を読むとき。blob は外側のファイル。"""
+    def __init__(self, blob: bytes, filename: str = "", cfb=None, partial: dict | None = None):
+        """cfb：ほかの文書に埋め込んだ文書（cfb.SubStorage）を読むとき。blob は外側のファイル。
+        partial：字の範囲だけを読むとき（lazy）：{"range": (種類, 始め, 終わり), "embeds": 前までの控え, "pictures": 前までの絵の数}。"""
         self.blob = blob
         self.filename = filename
         self.cfb = cfb if cfb is not None else CFB(blob)
-        self.embeds: list[dict] = []  # 埋め込んだ OLE の部品（ObjectPool の入れ物）
-        self.pictures: list[dict] = []  # 絵：説明（代わりの字）と飾りの印。段階とは別の注意に使う（docx と同じ形）
+        self.partial = partial
+        p_ = partial or {}
+        self.embeds: list[dict] = [dict(e) for e in p_.get("embeds", ())]  # 埋め込んだ OLE の部品（ObjectPool の入れ物）
+        self.pictures: list[dict] = [{"n": i + 1, "stub": True} for i in range(p_.get("pictures", 0))]  # 絵：説明（代わりの字）と飾りの印。段階とは別の注意に使う（docx と同じ形）
         if not self.cfb.has("WordDocument"):
             raise DocError("Word の文書（WordDocument）がありません")
         self.wd = self.cfb.read("WordDocument")
@@ -169,7 +172,7 @@ class DocFile:
         self.pieces = self._pieces()
         self.papx = self._fkps("PlcfBtePapx", papx=True)
         self.chpx = self._fkps("PlcfBteChpx", papx=False)
-        self.text = self._text()
+        self.text = self._text() if not p_.get("no_text") else ""
         self.protection, self.protection_enforced = self._dop()
         self.has_macros = self.cfb.has("Macros/VBA/dir") or any(p.lower().startswith("macros/") for p in self.cfb.streams())
         self.controls: list[Control] = []
@@ -508,6 +511,14 @@ class DocFile:
                 bounds.append((kind, at, at + n))
             at += n
         self.body = []
+        if self.partial is not None:
+            kind, a, b = self.partial["range"]
+            blocks = self._blocks(a, b) if b > a else []
+            if kind == "body":
+                self.body = blocks
+            else:
+                self.stories.append((kind, kind, blocks))
+            return
         for kind, a, b in bounds:
             blocks = self._blocks(a, b)
             if kind == "body":

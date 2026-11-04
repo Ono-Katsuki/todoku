@@ -171,9 +171,10 @@ class _Supbook:
 class XlsWorkbook:
     kind = "xls"
 
-    def __init__(self, blob: bytes, filename: str = "", cfb=None, stream: str | None = None):
+    def __init__(self, blob: bytes, filename: str = "", cfb=None, stream: str | None = None, strings=None):
         """cfb：ほかの文書に埋め込んだブック（cfb.SubStorage）を読むとき。blob は外側のファイル。
-        stream：両方の形を持つブックで、Excel 95 の形（"Book"）を読むとき。ふつうは決めない（Workbook を読む）。"""
+        stream：両方の形を持つブックで、Excel 95 の形（"Book"）を読むとき。ふつうは決めない（Workbook を読む）。
+        strings：共有文字列を使うときに読む（lazy/xlsdoc.LazySst）。"""
         self.filename = filename
         self.cfb = cfb if cfb is not None else CFB(blob)
         self.zip = _ZipShim(blob)
@@ -188,8 +189,8 @@ class XlsWorkbook:
         self.data = self.cfb.read(name)
         self.sheets: list[Sheet] = []
         self.names: list[DefinedName] = []
-        self.shared_strings: list[str] = []
-        self.phonetic: dict[int, str] = {}
+        self.shared_strings: list[str] = strings if strings is not None else []
+        self.phonetic: dict[int, str] = strings.phonetic if strings is not None else {}
         self.cell_sst: dict[tuple[str, int, int], int] = {}
         self.styles: list[Style] = []
         self.dxfs: list[Dxf] = []
@@ -204,7 +205,7 @@ class XlsWorkbook:
         self._vba = None
         self.wb_path = name
         self._fonts: list[int] = []  # 色番号
-        self.sst_runs: dict[int, list[tuple[int, int]]] = {}  # 字ごとの書式（rgRun）のある共有文字列の番号 → [(ich, ifnt)]
+        self.sst_runs: dict[int, list[tuple[int, int]]] = strings.sst_runs if strings is not None else {}  # 字ごとの書式（rgRun）のある共有文字列の番号 → [(ich, ifnt)]
         # 字ごとの書式のある字のセル → 共有文字列の番号（LABELSST）か None（RSTRING）
         self.rich_cells: dict[tuple[str, int, int], int | None] = {}
         self._font_strike: list[bool] = []  # 取り消し線（FONT の grbit の fStrikeOut）

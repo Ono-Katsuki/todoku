@@ -55,12 +55,14 @@ class _ParaState:
 class HwpxDocument:
     kind = "hwpx"
 
-    def __init__(self, blob: bytes, filename: str = ""):
+    def __init__(self, blob: bytes, filename: str = "", partial: dict | None = None):
+        """partial：本文の一部だけの小さなパッケージを読むとき（lazy）：{"section": 読む節, "master": マスターページを読むか, 前までの数え}。"""
         self.blob = blob
         self.filename = filename
         self.pkg = HwpxPackage(blob, filename)
+        p_ = partial or {}
         self.controls: list[Control] = []
-        self.pictures: list[dict] = []
+        self.pictures: list[dict] = [{"n": i + 1, "stub": True} for i in range(p_.get("pictures", 0))]
         self.notes: list[tuple[str, list]] = []
         self.comments: list = []
         self.headers: list[tuple[str, str, list]] = []
@@ -73,12 +75,14 @@ class HwpxDocument:
         self.scripts = [(n, s) for n, s in self.pkg.scripts() if script_has_code(s)]
         self.has_macros = False  # Excel・Word のマクロ（VBA）はない。한글のマクロ（JScript）は scripts で示す
         self._header()
-        self.num_counters: dict[str, list[int]] = {}
-        self.outline_id = ""
+        self.num_counters: dict[str, list[int]] = {k: list(v) for k, v in p_.get("num_counters", {}).items()}
+        self.outline_id = p_.get("outline_id", "")
         self.body: list = []
         self.parts = list(self.pkg.sections)
         self.part = self.parts[0]
         for part in self.parts:
+            if partial is not None and part != p_.get("section"):
+                continue
             root = self.pkg.tree(part)
             sec = top(root)
             if L(sec) != "sec":
@@ -91,7 +95,7 @@ class HwpxDocument:
             self.stories.append((kind, self.part, blocks))
         if self.comments:
             self.stories.append(("comments", self.part, self.comments))
-        for name in [n for n in self.pkg.names if n.startswith("Contents/masterpage") and n.endswith(".xml")]:
+        for name in [n for n in self.pkg.names if n.startswith("Contents/masterpage") and n.endswith(".xml") and (partial is None or p_.get("master"))]:
             mp = top(self.pkg.tree(name))
             blocks = []
             for sl in mp.iter():

@@ -53,17 +53,21 @@ class PptxDocument:
 
     kind = "pptx"
 
-    def __init__(self, blob: bytes, filename: str = ""):
+    def __init__(self, blob: bytes, filename: str = "", partial: dict | None = None):
+        """partial：スライドの一部だけを読むとき（lazy）：{"slides": 読むスライドの番号, "pictures"・"charts"・"diagrams": 前までの数}。"""
         self.blob = blob
         self.filename = filename
+        self.partial = partial
         try:
             self.zip = RawZip(blob)
         except Exception as e:  # noqa: BLE001
             raise PptxError(f"ZIP として読めません：{e}") from None
+        p_ = partial or {}
         self.parts: dict[str, tuple[bytes, Node]] = {}
-        self.pictures: list[dict] = []  # {"n", "alt", "decorative", "slide", "name"}
-        self.charts: list[dict] = []
-        self.diagrams: list[dict] = []
+        self.pictures: list[dict] = [{"n": i + 1, "stub": True} for i in range(p_.get("pictures", 0))]  # {"n", "alt", "decorative", "slide", "name"}
+        self.charts: list[dict] = [{"n": i + 1, "stub": True} for i in range(p_.get("charts", 0))]
+        self.diagrams: list[dict] = [{"n": i + 1, "stub": True} for i in range(p_.get("diagrams", 0))]
+        self.slide_parts: list[str] = []
         self.unread: list[str] = []
         self.controls: list[Control] = []
         self.protection = ""
@@ -129,6 +133,9 @@ class PptxDocument:
                 self.unread.append(f"スライドの部品（{target or _rid(sid)}）がありません")
                 continue
             self._slide += 1
+            self.slide_parts.append(part)
+            if self.partial is not None and self._slide not in self.partial["slides"]:
+                continue
             sroot = self.load(part)
             sld = sroot.kids[0] if sroot.kids else None
             if sld is None:
