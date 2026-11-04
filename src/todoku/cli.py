@@ -341,6 +341,12 @@ def cmd_audit(a) -> int:
     """エージェントがこの書類を全て正確に読み書きできるかを確かめる。"""
     from .xlsx.audit import run
 
+    if not a.example:
+        from . import api
+
+        lz = api.lazy_open(a.file)
+        if lz is not None:
+            return _audit_lazy(a)
     blob = Path(a.file).read_bytes()
     k = _kind(a.file)
     if k == "pdf":
@@ -373,6 +379,39 @@ def cmd_audit(a) -> int:
     if a.json:
         Path(a.json).write_text(json.dumps(au.to_dict(), ensure_ascii=False, indent=1), encoding="utf-8")
     return 0 if au.ok else 1
+
+
+def _audit_lazy(a) -> int:
+    """大きな書類の検査：分けて読む道で（メモリは書類の大きさに比例しない。長い仕事と同じ手順を前で動かす）。"""
+    from . import lazy, limits
+
+    def report(text: str, done: int = 0, total: int = 0) -> None:
+        print(f"\r{text} {done:,}/{total:,}" if total else f"\r{text}", end="", file=sys.stderr, flush=True)
+
+    limits.set_progress_reporter(report)
+    with limits.call_budget(limits.Budget(total=None)):
+        doc = lazy.open_doc(a.file, None, None, force=True)
+        state = doc.audit_begin()
+        while not state.get("done"):
+            state = doc.audit_step(state)
+    limits.set_progress_reporter(None)
+    print(file=sys.stderr)
+    checks = state.get("checks") or []
+    ok = all(c.get("ok") for c in checks)
+    for c in checks:
+        mark = ("OK・判断はエージェント" if c.get("agent") else "OK") if c.get("ok") else "要確認"
+        print(f"[{mark}] {c['name']}: {c.get('detail', '')}")
+        items = list(c.get("items") or [])
+        for x in items[:8]:
+            print(f"      - {x}")
+        if len(items) > 8:
+            print(f"      … ほか {len(items) - 8} 件")
+    for x in state.get("still_deferred") or []:
+        print(f"[未確認] {x}")
+    print("結論:", "全て正確に読み書きできます" if ok and not state.get("still_deferred") else ("確かめた所は正確に読み書きできます（未確認の所があります）" if ok else "読み書きに確認が必要な点があります"))
+    if a.json:
+        Path(a.json).write_text(json.dumps(state.get("full") or {"checks": checks, "still_deferred": state.get("still_deferred") or []}, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+    return 0 if ok else 1
 
 
 def cmd_bake(a) -> int:

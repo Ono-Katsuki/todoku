@@ -814,6 +814,7 @@ def test_xlsx_rows_out_of_order_do_not_read_wrong_rows(tmp_path):
     with zipfile.ZipFile(p, "w") as z:
         for n, b in parts.items():
             z.writestr(n, b)
+    # 行の番号とセルの番地が食い違う行：行の範囲では読み違えるので、字のまま読む道を伝える（並びが違うだけの行は test_lazy_more で読む）
     res = mcp_server.tool_result("read_window", {"path": str(p), "sheet": "データ", "rows": "1-2"})
     assert res.get("isError") and "raw" in _text(res)
     assert "raw" in _text(res) and mcp_server.tool_result("read_window", {"path": str(p), "raw": True}).get("isError") is None

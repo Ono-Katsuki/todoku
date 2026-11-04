@@ -285,6 +285,11 @@ class OdsLazy(_SheetBook):
                     z.writestr(n, self._part(i))
         return buf.getvalue()
 
+    def rows_book(self, wanted):
+        from ..odf.sheet import OdsWorkbook
+
+        return OdsWorkbook(self._mini(wanted), self.name)
+
     def _part(self, info) -> bytes:
         cache = self.__dict__.setdefault("_parts", {})
         got = cache.get(info.filename)
@@ -467,6 +472,9 @@ class XlsbLazy(_SheetBook):
                 elif n in self.parts:
                     z.writestr(n, self.parts[n])
         return buf.getvalue()
+
+    def rows_book(self, wanted):
+        return self._book(wanted)
 
     def _book(self, wanted):
         from ..xlsb.book import XlsbWorkbook

@@ -33,14 +33,14 @@ CHECK_EVERY = 1 << 22  # 展開の状態を控える間隔（展開したバイ�
 
 
 def package_kind(path: str) -> str | None:
-    """ZIP の部品の名前だけで .xlsx か（丸ごと読まない）。ZIP64・同じ名前が 2 つの ZIP は、丸ごと読む道（いままでの確かめ）へ。"""
+    """ZIP の部品の名前だけで .xlsx か（丸ごと読まない）。同じ名前が 2 つの ZIP は、丸ごと読む道（いままでの確かめ）へ。ZIP64 も分けて読める（書くのは丸ごとの道）。"""
     try:
         with zipfile.ZipFile(path) as z:
             infos = z.infolist()
     except (zipfile.BadZipFile, OSError, ValueError):
         return None
     names = [i.filename for i in infos]
-    if len(set(names)) != len(names) or any(i.file_size >= 0xFFFFFFFF or i.compress_size >= 0xFFFFFFFF or i.header_offset >= 0xFFFFFFFF for i in infos):
+    if len(set(names)) != len(names):
         return None
     s = set(names)
     if "[Content_Types].xml" not in s or "mimetype" in s or not any(n.startswith("xl/") for n in s) or any(n.startswith(("word/", "ppt/")) for n in s):
@@ -252,6 +252,7 @@ class SheetIndex:
         self.formulas = 0
         self.max_col = 0
         self.ascending = True
+        self.ends: array | None = None  # 行の番号の順に並べ直したときの、行の終わりの位置
         self._scan()
 
     def _scan(self) -> None:
@@ -260,7 +261,8 @@ class SheetIndex:
         p.StartDoctypeDeclHandler = _no_doctype
         rows = self.rows
         offs = self.offs
-        state = {"in_data": False, "next_row": 1, "col": 0, "depth": 0}
+        state = {"in_data": False, "next_row": 1, "col": 0, "depth": 0, "row_s": ""}
+        self.odd = False
         kept = bytearray()
         size = self.m.size or 1
 
@@ -274,6 +276,8 @@ class SheetIndex:
                     i = 0
                     while i < len(ref) and ref[i] > "9":
                         i += 1
+                    if ref[i:] != state["row_s"]:
+                        self.odd = True
                     n = 0
                     for ch in ref[:i]:
                         n = n * 26 + ord(ch) - 64
@@ -294,6 +298,7 @@ class SheetIndex:
                 rows.append(num)
                 offs.append(p.CurrentByteIndex)
                 state["next_row"] = num + 1
+                state["row_s"] = str(num)
                 return
             if local == "sheetData" and state["depth"] == 2:
                 state["sheetdata_at"] = p.CurrentByteIndex
@@ -315,9 +320,9 @@ class SheetIndex:
             limits.progress(f"シート {self.m.name} の行の位置を調べています", total, size)
         p.Parse(b"", True)
         self.total = total
-        if not self.ascending:
-            # 行の番号が順に並んでいない（Excel は作らない形）：行の範囲で引けないので、丸ごと読む道へ（open_doc が None を返す）
-            raise ValueError(f"{self.m.name}：行の番号が順に並んでいないので、行の範囲では読めません。read_window の part か raw: true で読めます")
+        if self.odd:
+            # セルの番地が、行の番号と食い違う：行の範囲で引くと読み違えるので、丸ごと読む道へ（open_doc が None を返す）
+            raise ValueError(f"{self.m.name}：セルの番地が行の番号と合わないので、行の範囲では読めません。read_window の part か raw: true で読めます")
         at = state.get("sheetdata_at")
         if at is None:
             raise ValueError(f"{self.m.name}：sheetData がありません")
@@ -333,6 +338,14 @@ class SheetIndex:
         else:
             self.tail = self.reader.read(self.data_end, total)
         self.prefix = re.match(rb"<(\w+:)?", self.sheetdata_tag)[1] or b""
+        if not self.ascending:
+            # 行の番号が順に並んでいない（Excel は作らない形）：1 度だけ索引を番号の順に並べ直す。同じ番号の行は、ファイルの順に読む（読み手と同じく後ろが勝つ）
+            n = len(rows)
+            ends = [offs[k + 1] if k + 1 < n else self.data_end for k in range(n)]
+            order = sorted(range(n), key=lambda k: (rows[k], k))
+            self.rows = array("I", (rows[k] for k in order))
+            self.offs = array("Q", (offs[k] for k in order))
+            self.ends = array("Q", (ends[k] for k in order))
 
     def locate(self, a: int, b: int) -> tuple[int, int]:
         """行の番号の範囲 → 索引の位置の範囲 [i, j)。"""
@@ -341,6 +354,8 @@ class SheetIndex:
     def row_bytes(self, i: int, j: int) -> bytes:
         if i >= j:
             return b""
+        if self.ends is not None:
+            return b"".join(self.reader.read(self.offs[k], self.ends[k]) for k in range(i, j))
         end = self.offs[j] if j < len(self.offs) else self.data_end
         return self.reader.read(self.offs[i], end)
 
@@ -543,7 +558,13 @@ def _has_opaque(ast) -> bool:
 
 class XlsxLazy(LazyDoc):
     kind = "xlsx"
-    streams = True
+
+    @property
+    def streams(self) -> bool:
+        """書き込みも流して行えるか：ZIP64・行の番号が順でないシートは、丸ごとの道で書く（読むのは分けて）。"""
+        if any(i.file_size >= 0xFFFFFFFF or i.compress_size >= 0xFFFFFFFF or i.header_offset >= 0xFFFFFFFF for i in self.z.infolist()):
+            return False
+        return all(d["index"] is None or d["index"].ends is None for d in self.sheet_meta)
 
     def __init__(self, path: str, name: str):
         self.path = path
@@ -683,6 +704,10 @@ class XlsxLazy(LazyDoc):
                     xml += tail
                     z.writestr(n, bytes(xml))
         return buf.getvalue()
+
+    def rows_book(self, wanted: dict[int, list[tuple[int, int]]]):
+        """wanted の行だけの小さなブック（表の取り出しなど）。"""
+        return self.book(self.slice_blob(wanted))
 
     def book(self, blob: bytes):
         from ..xlsx.workbook import Workbook, sst_scope
@@ -914,9 +939,18 @@ class XlsxLazy(LazyDoc):
                 spec = value if isinstance(value, dict) else {}
                 near = spec.get("near") or spec.get("cell") or ""
                 m = re.fullmatch(r"(.+)!\$?([A-Za-z]+)\$?(\d+)", str(near))
+                self._anchored = True
                 if not m:
-                    problems.append(f"{k}: 大きなブックでは、字を目印にした書き込みに、近くのセルの番地を near（シート!B3）で添えてください"
-                                    "（read_window に sheet と rows を渡すと、番地が分かります）。番地で直接書くこともできます")
+                    # 字の目印：共有文字列と行をたどって、その字のあるセルの行を、小さなブックに入れる（1 つに決めるのは、いままでの書き込みの決まりで）
+                    needle = spec.get("old") or spec.get("circle") or ""
+                    if not isinstance(needle, str) or not needle:
+                        problems.append(f"{k}: 字を目印にした書き込みは {{\"old\": 元の字, \"new\": 書き換えた後の字}} の形です")
+                        continue
+                    hits = self._search_cells(needle)
+                    if not hits:
+                        problems.append(f"{k}: 「{needle}」のあるセルが見つかりません（全部のシートを探しました）")
+                    for si, rr in hits.items():
+                        rows.setdefault(si, set()).update(rr)
                     continue
                 si = names.get(m[1], lower.get(m[1].lower()))
                 if si is not None:
@@ -946,6 +980,82 @@ class XlsxLazy(LazyDoc):
                     rows[si].add(r1)
                     cells.add(_key(si, r1, c1))
         return rows, problems, cells
+
+    def _search_cells(self, needle: str) -> dict[int, set[int]]:
+        """字のあるセルの行：シート → 行の番号。共有文字列を探してから、行を順に読む（進み具合を伝える）。"""
+        from html import unescape
+
+        strs = self.strings
+        hit: set[int] = set()
+        if strs is not None:
+            for i in range(len(strs)):
+                if needle in strs[i]:
+                    hit.add(i)
+                if i % 65536 == 0:
+                    limits.progress("共有文字列を探しています", i, len(strs))
+        cell = re.compile(rb"<(?:\w+:)?c\b([^>]*?)(?:/>|>(.*?)</(?:\w+:)?c>)", re.S)
+        out: dict[int, set[int]] = {}
+        for si, d in enumerate(self.sheet_meta):
+            ix = d["index"]
+            if ix is None:
+                continue
+            n = len(ix.rows)
+            for i in range(0, n, 2048):
+                xml = ix.row_bytes(i, min(n, i + 2048))
+                limits.progress(f"シート「{d['name']}」を探しています", i, n)
+                for m in cell.finditer(xml):
+                    a = m[1]
+                    t = re.search(rb'\bt="(\w+)"', a)
+                    t = t[1] if t else b"n"
+                    if m[2] is None or t == b"n":
+                        continue
+                    found = False
+                    if t == b"s":
+                        v = re.search(rb"<(?:\w+:)?v>(\d+)<", m[2])
+                        found = bool(v) and int(v[1]) in hit
+                    elif t in (b"str", b"inlineStr"):
+                        found = needle in unescape(re.sub(rb"<[^>]*>", b"", m[2]).decode("utf-8", "replace"))
+                    if found:
+                        r = re.search(rb'\br="[A-Z]+(\d+)"', a)
+                        if r:
+                            out.setdefault(si, set()).add(int(r[1]))
+        return out
+
+    def _macro_plan(self) -> tuple[bool, dict[int, set[int]], str]:
+        """値を変えると動くマクロ：(動かせるか, 読むセルの行, 動かせない理由)。マクロが読み書きするセルが、ソースの字（Target とその行、字で書いた番地）だけで
+        決まるときだけ動かす。変数で決まる番地・表の端を探す処理などは、そのときの行を読まないと分からないので動かさず、そのことを伝える。"""
+        from ..macros import change_event_sheets, macro_info
+
+        if not any(n.lower().endswith("vbaproject.bin") for n in self.members):
+            return False, {}, ""
+        wb = self.book(self.slice_blob({}))
+        project = wb.vba
+        if project is None:
+            return False, {}, "マクロの入れ物を読めませんでした"
+        info = macro_info(project, True, {sh.code_name: sh.name for sh in wb.sheets if getattr(sh, "code_name", None)})
+        if not change_event_sheets(info):
+            return False, {}, ""
+        src = "\n".join(m["source"] for m in info["modules"])
+        code = "\n".join(ln.split("'", 1)[0] for ln in src.splitlines())
+        bad = re.search(r"\b(UsedRange|CurrentRegion|SpecialCells|AutoFilter|Offset|Resize|Find|Sort|Rows|Columns|Worksheets\.Count|Sheets\.Count)\b|\.End\s*\(", code)
+        if bad:
+            return False, {}, f"番地が実行のときに決まる処理（{bad[0]}）を使っています"
+        rows: set[int] = set()
+        for m in re.finditer(r"\bRange\s*\(([^)]*)\)", code):
+            lit = re.fullmatch(r"\s*\"\$?[A-Za-z]+\$?(\d+)(?::\$?[A-Za-z]+\$?(\d+))?\"\s*", m[1])
+            if not lit:
+                return False, {}, f"番地が実行のときに決まる処理（Range({m[1].strip()[:30]})）を使っています"
+            a, b = int(lit[1]), int(lit[2] or lit[1])
+            if b - a > 4096:
+                return False, {}, "マクロが読む範囲が広すぎます"
+            rows.update(range(a, b + 1))
+        for m in re.finditer(r"\bCells\s*\(([^,()]*(?:\([^()]*\))?[^,()]*),", code):
+            arg = m[1].strip()
+            if arg.isdigit():
+                rows.add(int(arg))
+            elif arg.lower().replace(" ", "") not in ("target.row",):
+                return False, {}, f"番地が実行のときに決まる処理（Cells({arg[:30]}, …)）を使っています"
+        return True, {si: set(rows) for si, d in enumerate(self.sheet_meta) if d["index"] is not None}, ""
 
     def _closure(self, rows: dict[int, set[int]], cells: set[int], warnings: list[str]):
         """書いたセルに連動する数式と、その計算に要る行を、小さなブックに入れる行に足す。入らないときは計算しない（開くときに計算する印）。"""
@@ -1054,24 +1164,30 @@ class XlsxLazy(LazyDoc):
         from ..xlsx.window import parse_span_id
         from ..zipraw import RawZip
 
+        self._anchored = False
         rows, problems, cells = self._touched(values)
         if problems:
             raise EditError("\n".join(problems))
         warnings: list[str] = []
+        run_macros, macro_rows, macro_why = self._macro_plan()
+        if run_macros:
+            for si, rr in macro_rows.items():
+                rows.setdefault(si, set()).update(rr)
+        elif macro_why:
+            warnings.append(f"セルの値を変えたときに動くマクロがあります。{macro_why}ので、大きなブックの範囲の書き込みでは動かしていません（本人が Excel で開いて入力し直すと動きます）。"
+                            "マクロが書くセルは読み直して確かめてください")
         wanted, opaque = self._closure(rows, cells, warnings)
         if isinstance(wanted, dict):
             spans = {si: [(x, x) if isinstance(x, int) else x for x in v] for si, v in wanted.items()}
         else:
             spans = {}
-        full_calc_needed = bool(warnings) or bool(opaque)
+        full_calc_needed = bool(warnings) or bool(opaque) or self._anchored or run_macros  # 字の目印・マクロが書いたセルに連動する数式は、開いたときに計算し直す
         mini = self.slice_blob(spans)
         wb = self.book(mini)
         cell_values = _group_span_ids(values)
         readback_values = {k: v for k, v in values.items() if not (isinstance(k, str) and "!" in k and not k.startswith("@") and parse_span_id(k))}
         with sst_scope(self.strings):
-            res = xfill(wb, cell_values, force=force, run_macros=False)
-        if wb.has_macros:
-            warnings.append("このブックにはマクロがあります。大きなブックの範囲の書き込みでは、セルの値を変えたときに動くマクロは動かしていません（本人が Excel で開いたときに動きます）")
+            res = xfill(wb, cell_values, force=force, run_macros=run_macros)
         with sst_scope(self.strings):
             pr = prove(mini, res.blob, res.allowed_inputs, {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"},
                        {(p.sheet, p.address) for p in res.patches if p.kind == "macro"}, rich=set(res.rich_cells))

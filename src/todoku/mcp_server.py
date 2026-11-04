@@ -215,6 +215,7 @@ TOOLS = [
          "sheet": {"type": "string", "description": "シートの名前（省くと、見出しのあるすべてのシート）"},
          "header_rows": {"type": "integer", "minimum": 1, "description": "見出しの行数（省くと自動）"},
          "out_path": {"type": "string", "description": "すべての行を書き出すファイル（.csv か .json）"},
+         "cursor": {"type": "string", "description": "大きなブックで、前の結果の next の続きを読むとき"},
          "limit": {"type": "integer", "minimum": 1, "description": f"out_path がないとき、結果に入れる行の数の上限（既定 {READ_TABLE_LIMIT}）。"
                    "超えた行は返さず、行の数（rows）と返した行の数（rows_returned）を返す"}},
          "required": ["path", "header"]}},
@@ -399,7 +400,7 @@ def call_tool(name: str, args: dict) -> dict:
         return {"content": [_text(head), _text(res)], "structuredContent": res, "isError": bool(res.get("error"))}
     if name == "read_table":
         res = api.read_table(args["path"], args["header"], args.get("sheet"), args.get("header_rows"), args.get("out_path"),
-                             args.get("password"))
+                             args.get("password"), args.get("cursor"))
         res.pop("all_rows", None) if args.get("out_path") else None
         limit = args.get("limit", READ_TABLE_LIMIT)
         if not args.get("out_path") and res["rows"] > limit:

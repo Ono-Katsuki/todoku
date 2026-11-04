@@ -427,6 +427,9 @@ class XlsLazy(XlsxLazy):
         data = self.mini_stream(wanted)
         return XlsWorkbook(self.cf.fb, self.name, cfb=_MiniCfb(self.stream_name, data, self.cf.cfb), strings=self.sst, stream=self.stream_name)
 
+    def rows_book(self, wanted):
+        return self.book_of(wanted)
+
     def _sheet_doc(self, si: int, a: int, b: int) -> dict:
         from ..xlsx.window import _MEMO, _Options
         from ..xlsx.window import _sheet_doc as xw_sheet

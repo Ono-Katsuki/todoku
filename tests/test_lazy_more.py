@@ -425,3 +425,150 @@ def test_big_file_is_not_refused_by_size(tmp_path, monkeypatch):
     z = tmp_path / "a.docx"
     z.write_bytes(_word_blob(_para(1)))
     assert api.fields(str(z))
+
+
+# ---------------------------------------------------------------------- 大きな .xlsx の残り
+def _xlsx(tmp_path, rows=30):
+    from test_lazy import _make_xlsx
+
+    return _make_xlsx(tmp_path / "a.xlsx", rows, second=False)
+
+
+def _rewrite(p, name, fn):
+    with zipfile.ZipFile(p) as z:
+        parts = {n: z.read(n) for n in z.namelist()}
+    parts[name] = fn(parts[name])
+    with zipfile.ZipFile(p, "w") as z:
+        for n, b in parts.items():
+            z.writestr(n, b)
+
+
+def test_xlsx_rows_out_of_order_read_by_number_and_written_whole(tmp_path):
+    p = _xlsx(tmp_path, 6)
+    # 3 行目と 5 行目の行をファイルの中で入れ替える
+    def swap(b):
+        x = b.decode()
+        rows = re.findall(r'<row r="\d+".*?</row>', x, re.S)
+        a, c = rows[2], rows[4]
+        return x.replace(a, "\0").replace(c, a).replace("\0", c).encode()
+
+    _rewrite(p, "xl/worksheets/sheet1.xml", swap)
+    lazy.clear()
+    doc = lazy.open_doc(str(p), force=True)
+    assert doc.streams is False  # 書くのは丸ごとの道
+    pg, _ = api.read_range(str(p), {"sheet": "データ", "rows": "5-5"})
+    k, win, _parts = api.window(str(p))
+    want = next(ln["text"] for ln in win["sheets"][0]["reading"] if ln.get("row") == 5)
+    assert want in pg.text
+    all_text = "\n".join(x.text for x in _follow(p, {"sheet": "データ"}, max_chars=400))
+    for ln in win["sheets"][0]["reading"]:
+        assert ln["text"] in all_text
+    r = api.fill(str(p), {"データ!H3": "書いた"}, str(tmp_path / "o.xlsx"))
+    assert r["proof_ok"] and r["read_back_ok"], r
+
+
+def test_xlsx_zip64_is_read_in_ranges(tmp_path):
+    p = _xlsx(tmp_path, 6)
+    with zipfile.ZipFile(p) as z:
+        parts = {i.filename: z.read(i) for i in z.infolist()}
+    q = tmp_path / "z64.xlsx"
+    with zipfile.ZipFile(q, "w", zipfile.ZIP_DEFLATED) as z:
+        for n, b in parts.items():
+            with z.open(n, "w", force_zip64=True) as f:
+                f.write(b)
+    from todoku.lazy.xlsxdoc import package_kind
+
+    assert package_kind(str(q)) == "xlsx"
+    lazy.clear()
+    pg, _ = api.read_range(str(q), {"sheet": "データ", "rows": "2-2"})
+    assert pg.text
+
+
+def test_xlsx_anchor_without_near_is_searched(tmp_path):
+    p = _xlsx(tmp_path, 40)
+    k, win, _parts = api.window(str(p))
+    text = str(next(c for c in re.findall(r"見出し[A-Z]", win["sheets"][0]["reading"][0]["text"])))
+    lazy.clear()
+    # 共有文字列にある字を、near なしで書き換える
+    r = api.fill(str(p), {"@1": {"old": text, "new": text + "改"}}, str(tmp_path / "o.xlsx"))
+    assert r["proof_ok"] and r["read_back_ok"], r
+    assert r.get("streamed") is True and r["rows_rewritten"] == 1
+    with pytest.raises(api.ApiError, match="見つかりません"):
+        api.fill(str(p), {"@1": {"old": "どこにもない字", "new": "x"}}, str(tmp_path / "o2.xlsx"))
+
+
+def test_read_table_lazy_same_as_whole(tmp_path, monkeypatch):
+    from todoku.book import open_book
+    from todoku.xlsx.tables import read as tread
+
+    p = _xlsx(tmp_path, 300)
+    monkeypatch.setattr(api, "TABLE_STEP", 37)
+    lazy.clear()
+    res = api.read_table(str(p), "見出しA")
+    whole = tread(open_book(p.read_bytes(), p.name), "見出しA")
+    assert res["rows"] == len(whole["rows"]) and res["columns"] == whole["columns"]
+    assert [r["_row"] for r in res["all_rows"]] == [r["_row"] for r in whole["rows"]]
+    assert res["all_rows"][-1] == whole["rows"][-1]
+    out = tmp_path / "t.csv"
+    res2 = api.read_table(str(p), "見出しA", out_path=str(out))
+    assert res2["rows"] == res["rows"] and len(out.read_text(encoding="utf-8").splitlines()) == res["rows"] + 1
+    monkeypatch.setattr(api, "TABLE_RETURN", 100)
+    part1 = api.read_table(str(p), "見出しA")
+    assert part1["rows"] == 100 and part1["next"]
+    part2 = api.read_table(str(p), "見出しA", cursor=part1["next"]["cursor"])
+    assert part2["all_rows"][0]["_row"] == part1["all_rows"][-1]["_row"] + 1
+
+
+def test_cli_audit_uses_the_lazy_path(tmp_path, capsys):
+    from todoku import cli
+
+    p = _xlsx(tmp_path, 30)
+    called = {}
+    real = lazy.open_doc
+
+    def spy(*a, **k):
+        called["lazy"] = True
+        return real(*a, **k)
+
+    __import__("todoku.lazy", fromlist=["x"]).open_doc = spy
+    try:
+        code = cli.main(["audit", str(p)])
+    finally:
+        __import__("todoku.lazy", fromlist=["x"]).open_doc = real
+    out = capsys.readouterr().out
+    assert called and "読み落とし" in out and code in (0, 1)
+
+
+def test_macro_plan_runs_only_when_cells_are_known(tmp_path, monkeypatch):
+    import todoku.macros as tm
+    from todoku.lazy import xlsxdoc
+
+    p = _xlsx(tmp_path, 10)
+    doc = lazy.open_doc(str(p), force=True)
+    doc.members["xl/vbaProject.bin"] = doc.members["xl/workbook.xml"]
+    monkeypatch.setattr(xlsxdoc.XlsxLazy, "slice_blob", lambda self, *a, **k: p.read_bytes())
+
+    class _B:
+        vba = object()
+        sheets: list = []
+
+    monkeypatch.setattr(xlsxdoc.XlsxLazy, "book", lambda self, blob: _B())
+    src = {"s": ""}
+    monkeypatch.setattr(tm, "macro_info", lambda *a, **k: {"modules": [{"source": src["s"]}], "events": [{"on_change": True}]})
+    monkeypatch.setattr(tm, "change_event_sheets", lambda info: {None: ["Worksheet_Change"]})
+    src["s"] = 'Private Sub Worksheet_Change(ByVal Target As Range)\nRange("B3").Value = Cells(Target.Row, 2).Value + Cells(5, 1).Value\nEnd Sub'
+    ok, rows, why = doc._macro_plan()
+    assert ok and not why and rows[0] >= {3, 5}
+    src["s"] = 'Sub Worksheet_Change(ByVal Target As Range)\nFor i = 1 To 9\nCells(i, 1).Value = 1\nNext\nEnd Sub'
+    ok, rows, why = doc._macro_plan()
+    assert not ok and "Cells(i" in why
+    src["s"] = 'Sub Worksheet_Change(ByVal Target As Range)\nx = Range("A1").End(xlUp).Row\nEnd Sub'
+    ok, rows, why = doc._macro_plan()
+    assert not ok and ".End" in why.replace(" ", "")
+
+
+def test_stop_names_a_smaller_request_for_every_old_format():
+    for name in ("a.xls", "a.doc", "a.jtd", "a.hwp", "a.pptx", "a.odt", "a.hwpx", "a.ods", "a.xlsb", "a.json", "a.rtf"):
+        hint = lazy.smaller_request("read_window", {"path": name})
+        assert "read_window" in hint and ("paragraphs" in hint or "rows" in hint or "path" in hint)
+        assert "raw: true" in hint

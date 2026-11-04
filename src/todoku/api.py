@@ -1807,7 +1807,7 @@ def audit_whole(path: str, password: str | None = None, encoding: str | None = N
 
 @_budgeted
 def read_table(path: str, header: str, sheet: str | None = None, header_rows: int | None = None,
-               out_path: str | None = None, password: str | None = None) -> dict:
+               out_path: str | None = None, password: str | None = None, cursor: str | None = None) -> dict:
     """Excel の表を、見出しの列で行ごとに取り出す（結合セルは画面どおりに範囲へ広げ、値ごとに元のセルを添える）。
     sheet を省くと、header のあるすべてのシートから。out_path（.csv か .json）を指すと、すべての行を書き出す。"""
     import csv
@@ -1818,6 +1818,10 @@ def read_table(path: str, header: str, sheet: str | None = None, header_rows: in
     from .xlsx.tables import TableError
     from .xlsx.tables import read as tread
 
+    lz = lazy_open(path, password, built_ok=False) if _member(path) is None else None
+    if lz is not None and hasattr(lz, "rows_book"):
+        # 大きなブック：行を少しずつ読む（見出しを見つけたら、見出しの行と次のかたまりの行だけの小さなブックで表を読む）
+        return _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, TableError, cursor)
     blob, name, k, lock = _read(path, password)
     if k not in _BOOKS:
         raise ApiError("表の取り出しは Excel（.xlsx・.xlsm・.xls）です（ほかの形式は窓で読めます）")
@@ -1847,6 +1851,131 @@ def read_table(path: str, header: str, sheet: str | None = None, header_rows: in
     else:
         out["all_rows"] = t["rows"]
     return out
+
+
+TABLE_STEP = 2048  # 大きなブックの表を読む、1 回の行の数
+TABLE_RETURN = 20000  # out_path なしで 1 回に返す行の数（続きは cursor）
+
+
+def _read_table_lazy(lz, path, header, sheet, header_rows, out_path, tread, TableError, cursor) -> dict:
+    """シートごとに行を順に読む。見つけた表の見出しの行を覚え、後ろのかたまりでは見出しの行も一緒に読むので、列の名前は同じ。"""
+    import csv
+    import json
+    import re
+
+    from . import limits
+
+    meta = lz.sheet_meta
+    dst = None
+    w = None
+    f = None
+    if out_path:
+        dst = Path(out_path).expanduser().resolve()
+        if dst == Path(path).expanduser().resolve():
+            raise ApiError("元のファイルは上書きしません。別の名前（out_path）を指定してください")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+    start_si, start_row = 0, 0
+    if cursor:
+        m = re.fullmatch(r"table:(\d+):(\d+)", str(cursor))
+        if not m:
+            raise ApiError(f"cursor「{cursor}」はこの表の続きの印ではありません")
+        start_si, start_row = int(m[1]), int(m[2])
+    columns: list[str] = []
+    first: list[dict] = []
+    all_rows: list[dict] = []
+    sheets_info: list[dict] = []
+    count = 0
+    nxt = None
+    json_rows = dst is not None and dst.suffix.lower() == ".json"
+    if dst is not None:
+        f = dst.open("w", encoding="utf-8", newline="")
+        if json_rows:
+            f.write('{"rows": [\n')
+    wrote_any = False
+    try:
+        for si, d in enumerate(meta):
+            if si < start_si or d["index"] is None or (sheet and d["name"] != sheet) or str(d.get("state", "")).startswith("non-worksheet"):
+                continue
+            ix = d["index"]
+            rows = ix.rows
+            i = 0
+            band: tuple[int, int] | None = None
+            info = None
+            while i < len(rows):
+                e = min(len(rows), i + TABLE_STEP)
+                ra, rb = rows[i], rows[e - 1]
+                limits.progress(f"シート「{d['name']}」の表を読んでいます", i, len(rows))
+                spans = [(ra, rb)]
+                if band is not None:
+                    spans.insert(0, band)
+                wb = lz.rows_book({si: spans})
+                try:
+                    t = tread(wb, header, d["name"], header_rows)
+                except TableError:
+                    i = e
+                    continue
+                inf = t["sheets"][0]
+                if band is None:
+                    band = tuple(inf["header_rows"])
+                    info = inf
+                    sheets_info.append(inf)
+                for c in t["columns"]:
+                    if c not in columns:
+                        columns.append(c)
+                for r in t["rows"]:
+                    if r["_row"] < ra or r["_row"] > rb or (si == start_si and r["_row"] <= start_row):
+                        continue
+                    count += 1
+                    if len(first) < 20:
+                        first.append(r)
+                    if f is not None:
+                        if json_rows:
+                            f.write((",\n" if wrote_any else "") + json.dumps(r, ensure_ascii=False))
+                            wrote_any = True
+                        else:
+                            if w is None:
+                                w = csv.writer(f, lineterminator="\n")
+                                w.writerow(["シート", "行"] + _table_cols(lz, si, band, tread, header, d["name"], header_rows))
+                            cols_now = _table_cols(lz, si, band, tread, header, d["name"], header_rows)
+                            w.writerow([r["_sheet"], r["_row"]] + [r.get(c, "") for c in cols_now])
+                    else:
+                        all_rows.append(r)
+                        if len(all_rows) >= TABLE_RETURN:
+                            nxt = {"cursor": f"table:{si}:{r['_row']}"}
+                            break
+                if nxt:
+                    break
+                i = e
+            del info
+            if nxt:
+                break
+    finally:
+        if f is not None:
+            if json_rows:
+                f.write("\n], " + json.dumps({"columns": columns, "sheets": sheets_info}, ensure_ascii=False)[1:] + "\n")
+            f.close()
+    if not sheets_info and not cursor:
+        if dst is not None:
+            dst.unlink(missing_ok=True)
+        raise ApiError(f"「{header}」のある表が見つかりません")
+    out = {"columns": columns, "rows": count, "sheets": sheets_info[:50], "sheet_count": len(sheets_info), "first_rows": first,
+           "check": "大きなブックなので、行を少しずつ読みました（表の全部の行を読んでいます）"}
+    if dst is not None:
+        out["out_path"] = str(dst)
+    else:
+        out["all_rows"] = all_rows
+    if nxt:
+        out["next"] = nxt
+        out["note"] = "行が多いので、ここまでを返しました。続きは cursor を渡してください（out_path に書き出すと、全部を 1 回で出せます）"
+    return out
+
+
+def _table_cols(lz, si, band, tread, header, sheet, header_rows) -> list[str]:
+    memo = lz.__dict__.setdefault("_table_cols", {})
+    key = (si, band, header, header_rows)
+    if key not in memo:
+        memo[key] = tread(lz.rows_book({si: [band]}), header, sheet, header_rows)["columns"]
+    return memo[key]
 
 
 @_budgeted
