@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from .. import chars
 from ..formula.numfmt import format_value, is_date_format
-from ..formula.parser import RefNode, addr, iter_refs, parse_cell
+from ..formula.parser import NameNode, RefNode, addr, iter_refs, parse_cell
 from ..formula.values import ExcelError, Unsupported, is_number, to_text
 from .workbook import Cell, Control, Sheet, Workbook
 
@@ -189,31 +189,55 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
                 for c in range(c1, c2 + 1):
                     add(r, c, "入力規則があるセル")
     # 保護も入力規則もない様式の、枠で囲まれた空欄・色の付いた空欄は、ここでは入力欄にしない（ファイルが入力欄と宣言していない）。
-    # 罫線の辺・塗り・大きさ・近くの字とその離れ方を事実（evidence）として添えて、「？」の所（Layout.agent：blank_box）として示す
-    # 数式が参照している定数・空白のセル（計算の入力）。同じセルを何度も見ない（結果は同じ）
-    looked: set[tuple[int, int]] = set()
-    areas: set[tuple[int, int, int, int]] = set()  # 見た範囲（同じ範囲を指す数式は多い）
-    for cell in sh.cells.values():
-        refs = list(iter_refs(cell.ast)) if cell.ast is not None else []
-        for ref in refs:
-            if not isinstance(ref, RefNode):
+    # 罫線の辺・塗り・大きさ・近くの字とその離れ方を事実（evidence）として添えて、「？」の所（Layout.agent：blank_box）として示す。
+    # 数式が参照している定数・空白のセルも、ここでは入力欄にしない（数式が読むことは、ファイルの入力欄の宣言ではない）。
+    # どの数式が読むか（formula_readers）を事実（referenced_by）として添え、空のセルは「？」の所（formula_ref）として示す
+    return out
+
+
+READERS_MAX = 20  # 1 つのセルについて、窓に番地を出す数式の数（窓の大きさを抑えるため。数は n にすべて数える）
+
+
+def formula_readers(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], dict]:
+    """シート sh のセル → それを読む数式（事実）：{"cells": [「シート!番地」…（READERS_MAX まで）], "n": 読む数式の数}。
+    ブックのすべてのシートの数式の参照を見る（名前の定義を通した参照も）。列全体（A:A）などの広い参照は、使っている範囲と
+    印刷範囲までに切る（その外は、値も書式もないセル）。読まれることは入力欄の宣言ではないので、ここでは欄と決めない。"""
+    memo = sh.__dict__.get(_MEMO)
+    if memo is not None and "readers" in memo:
+        return memo["readers"]
+    lim_r, lim_c = _used_limits(sh)
+    me = sh.name.lower()
+    out: dict[tuple[int, int], dict] = {}
+
+    def boxes(ast, here: str, dr: int, dc: int, depth: int = 0):
+        for ref in iter_refs(ast):
+            if isinstance(ref, RefNode):
+                if (ref.sheet or here).lower() == me:
+                    x = ref.shifted(dr, dc)
+                    yield min(x.r1, x.r2), min(x.c1, x.c2), max(x.r1, x.r2), max(x.c1, x.c2)
+            elif isinstance(ref, NameNode) and depth < 8 and hasattr(wb, "defined_name"):  # 名前の入れ子の深さ（安全のため）
+                d = wb.defined_name(ref.name, ref.sheet or here)
+                if d is not None and d.ast is not None:
+                    yield from boxes(d.ast, d.sheet_scope or here, 0, 0, depth + 1)
+
+    for s_ in wb.sheets:
+        for (r0, c0), cell in s_.cells.items():
+            if cell.ast is None or not cell.has_formula:
                 continue
-            ref = ref.shifted(cell.dr, cell.dc)
-            if ref.sheet and ref.sheet != sh.name:
-                continue
-            # 列全体（A:A）などの広い参照は、使っている範囲と印刷範囲までに切る（その外は、値も書式もないセル）
-            box = (ref.r1, ref.c1, min(ref.r2, lim_r), min(ref.c2, lim_c))
-            if box in areas:
-                continue
-            areas.add(box)
-            for r in range(box[0], box[2] + 1):
-                for c in range(box[1], box[3] + 1):
-                    if (r, c) in looked:
-                        continue
-                    looked.add((r, c))
-                    t = sh.cells.get((r, c))
-                    if t is None or (not t.has_formula and (t.value is None or is_number(t.value))):
-                        add(r, c, "数式が参照している値")
+            who = f"{s_.name}!{addr(r0, c0)}"
+            seen: set = set()
+            for r1, c1, r2, c2 in boxes(cell.ast, s_.name, cell.dr, cell.dc):
+                for r in range(max(r1, 1), min(r2, lim_r) + 1):
+                    for c in range(max(c1, 1), min(c2, lim_c) + 1):
+                        if (r, c) in seen:
+                            continue
+                        seen.add((r, c))
+                        d = out.setdefault((r, c), {"cells": [], "n": 0})
+                        d["n"] += 1
+                        if len(d["cells"]) < READERS_MAX:
+                            d["cells"].append(who)
+    if memo is not None:
+        memo["readers"] = out
     return out
 
 
@@ -663,6 +687,8 @@ AGENT_WHY = {
     # 表計算（Excel・OpenDocument）のマス
     "blank_box": "枠・塗り・結合のある空のマスで、ファイルが入力欄と宣言する印（入力規則・保護の中のロックの解除）がないもの"
                  "（罫線の辺・塗り・大きさ・近くの字とその離れ方は evidence）",
+    "formula_ref": "数式が読むセルで、ファイルが入力欄と宣言する印（入力規則・保護の中のロックの解除）がないもの"
+                   "（読む数式の番地は evidence の referenced_by。計算の入力か、計算に使う決まった値かは、ファイルからは決まらない）",
     "table_row": "表の行に入力欄があるのに、この列のセルには入力欄の印（入力規則・枠・ロックの解除）がないもの",
     "bullet_box": "印刷された箱の字（□・☐・❏ など。記入の箱か、箇条・見出しの印かは、字からは決まらない。字の Unicode の名前は facts）",
     "checked_box": "印刷された、印のついた箱の字（☑・☒。記入済みの箱か、飾りの字かは、字からは決まらない）",
@@ -1029,6 +1055,7 @@ class Layout:
         self.looks = Looks(wb, calc)
         self.hidden_by_format: list[tuple[int, int]] = []
         self.inputs = input_cells(wb, sh)
+        self.readers = formula_readers(wb, sh)  # セル → それを読む数式（事実。欄の宣言ではない）
         self.links = {}
         for s in wb.sheets:
             for ctl in s.controls:
@@ -1084,9 +1111,21 @@ class Layout:
                     if shown_sheet and (a.r, a.c1) not in self.links and \
                             not (sh.protected and wb.style(sh.style_of(a.r, a.c1)).locked):
                         ev = blank_marks(wb, sh, a)
-                        if ev is not None:
+                        read = self.readers.get((a.r, a.c1))
+                        if ev is not None or read is not None:
+                            ev = dict(ev or {})
+                            if read is not None:
+                                ev["referenced_by"] = read
                             self.agent.setdefault(a.r, []).append(
-                                Box(a.r, a.c1, a.r2, a.c2, "agent", cell, "", outside=outside, why=["blank_box"], evidence=ev))
+                                Box(a.r, a.c1, a.r2, a.c2, "agent", cell, "", outside=outside,
+                                    why=(["blank_box"] if len(ev) > ("referenced_by" in ev) else []) +
+                                    (["formula_ref"] if read is not None else []), evidence=ev))
+                    continue
+                elif self._ref_value(a, shown_sheet):
+                    # 数式が読む、数の入ったセル（入力欄の宣言はない）：「？」の所（いまの値を添える）。配置（rows）には入れない
+                    self.agent.setdefault(a.r, []).append(
+                        Box(a.r, a.c1, a.r2, a.c2, "agent", cell, display(wb, cell), outside=outside, why=["formula_ref"],
+                            evidence={**(blank_marks(wb, sh, a) or {}), "referenced_by": self.readers[(a.r, a.c1)]}))
                     continue
                 else:
                     b = Box(a.r, a.c1, a.r2, a.c2, "text", cell, display(wb, cell), outside=outside)
@@ -1105,6 +1144,16 @@ class Layout:
                 continue
             b = Box(r, c, r, c, "input", None, "", outside=not sh.in_print_area(r, c))
             self.rows.setdefault(r, []).append(b)
+        # 数式が読む、ファイルにセルの要素がない（値も書式もない）マス：「？」の所（formula_ref）。保護されたシートの
+        # ロックされたマス（Excel でも書けない）・非表示のシート・行・列・結合の中は除く
+        if shown_sheet:
+            for (r, c), read in self.readers.items():
+                if (r, c) in anchored or (r, c) in self.links or (r, c) in self.inputs or sh.is_hidden(r, c) or \
+                        sh.merged_at(r, c) is not None or (sh.protected and wb.style(sh.style_of(r, c)).locked):
+                    continue
+                self.agent.setdefault(r, []).append(
+                    Box(r, c, r, c, "agent", None, "", outside=not sh.in_print_area(r, c), why=["formula_ref"],
+                        evidence={"referenced_by": read}))
         # 結合セルの左上でないマスに残っている字（Excel の画面には出ないが、ファイルにある）：読み順に印をつけて出す
         if sh.merges:
             for (r, c), cell in sh.cells.items():
@@ -1181,6 +1230,13 @@ class Layout:
         self._next_row(0, (1, 1))
         self._agent_cells(under)
         self._agent_text_spans()
+
+    def _ref_value(self, a: "Anchor", shown_sheet: bool) -> bool:
+        """数式が読む、数の入ったセルで、入力欄の宣言のないもの（「？」の所。書けないセル・部品のつながり先は除く）。"""
+        cell = a.cell
+        return (shown_sheet and cell is not None and not cell.has_formula and is_number(cell.value)
+                and (a.r, a.c1) in self.readers and (a.r, a.c1) not in self.links
+                and not (self.sh.protected and self.wb.style(cell.style).locked))
 
     def _locked_slot(self, a: "Anchor") -> bool:
         """ロックされた空のマスが、見出しの欄の作りか：同じ行のすぐ左（4列以内、あいだは空）に見出しの字があり、
@@ -1699,7 +1755,7 @@ class Layout:
             if key:
                 text, between = key
                 # 補助のセル：数式が参照する値で、もう値の入っているもの（空の 1 桁ずつのマスは、数式が参照しても欄の並び）
-                helper = ("数式が参照している値" in self.inputs.get((target.r, target.c1), [])
+                helper = ((target.r, target.c1) in self.readers
                           and target.cell is not None and target.cell.value not in (None, "")) or any(
                     b.kind == "locked" and b.cell_ref in between for b in row)
                 if between and helper:
@@ -1836,7 +1892,7 @@ class Layout:
 
     def is_blank_row(self, r: int) -> bool:
         return all(not (b.kind == "input" and b.text) and not (b.kind == "check" and b.control.is_checked)
-                   for b in self.boxes(r))
+                   for b in self.boxes(r)) and not any(b.text for b in self.agent.get(r, []))
 
     def token(self, b: Box, mark: bool = False) -> str:
         if b.kind == "input":
@@ -1847,7 +1903,8 @@ class Layout:
         if b.kind == "check":
             return f"{b.text}［{'▶' if mark else ''}{b.ref}］"
         if b.kind == "agent":
-            return f"［{'▶' if mark else ''}{b.ref}？］"  # 規則では欄と決められない空のマス
+            inner = b.ref + (f"＝{b.text}" if b.text else "")
+            return f"［{'▶' if mark else ''}{inner}？］"  # 規則では欄と決められない所（数式が読む値のあるマスは、その値も）
         if b.kind == "locked":
             return f"［{'▶' if mark else ''}{b.ref}：保護されたセル］"  # 保護されたシートのロックされた欄（書けない）
         if b.blanks:
@@ -2094,6 +2151,16 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
             if not d["label"] and not rules:
                 f["unlabeled"] = True
             out.append(f)
+    for f in out:
+        # どの欄にも、そのセルを読む数式（事実）。入力欄かどうかは、これでは決めない
+        if f.get("cell") and "referenced_by" not in f:
+            try:
+                rc = parse_cell(f["cell"].split(":")[0])
+            except Exception:  # noqa: BLE001
+                continue
+            rb = lay.readers.get(rc) if f["id"].rsplit("!", 1)[0] == sh.name else None
+            if rb is not None:
+                f["referenced_by"] = rb
     return out
 
 
@@ -2130,6 +2197,9 @@ def evidence_text(ev: dict, before: str = "左") -> str:
         parts.append(f"上の字「{t}」（{x['rows']} 行上" + (f"・{x['mm']} mm あけて" if x.get("mm") else "") + "）")
     if ev.get("size_mm"):
         parts.append(f"大きさ {ev['size_mm']['w']}×{ev['size_mm']['h']} mm")
+    if ev.get("referenced_by"):
+        rb = ev["referenced_by"]
+        parts.append(f"数式 {'・'.join(rb['cells'][:3])}{' ほか' if rb['n'] > 3 else ''}（{rb['n']} 個）が読む")
     return "・".join(parts) or "印なし"
 
 
@@ -2137,7 +2207,8 @@ def _agent_field(wb: Workbook, sh: Sheet, lay: Layout, b: Box) -> dict:
     """規則では欄と決められない空のマスの欄（窓では［B5？］）。エージェントが窓を読んで判断し、書く所ならこの id で書く。"""
     d = lay.describe_agent(b)
     whys = list(dict.fromkeys(b.why))
-    f = {"id": f"{sh.name}!{b.cell_ref}", "cell": b.cell_ref, "kind": _field_kind(wb, b.cell, []), "value": None, **d,
+    value = None if b.cell is None or b.cell.value in (None, "") else b.cell.value
+    f = {"id": f"{sh.name}!{b.cell_ref}", "cell": b.cell_ref, "kind": _field_kind(wb, b.cell, []), "value": value, **d,
          "agent": True, "why": "・".join(AGENT_WHY[k] for k in whys), "why_key": whys,
          "evidence": dict(b.evidence), "evidence_text": evidence_text(b.evidence, lay.side("左")),
          "reason": [AGENT_WHY[k] for k in whys], "provenance": AGENT}
@@ -2188,7 +2259,8 @@ def _control_field(wb: Workbook, sh: Sheet, lay: Layout, b: Box, groups: dict, d
 
 # ====================================================================== 窓
 AGENT_CELLS_RULE = ("規則では入力欄と決められない空のマス。出すのは、ファイルの作りに印のある空のマスだけ"
-                    "（罫線で囲まれたもの［左右か上下の両方・下線］・塗り・結合のあるもの、入力欄のある表の行の空のマス）で、印のない空のマスは出さない。"
+                    "（罫線で囲まれたもの［左右か上下の両方・下線］・塗り・結合のあるもの、入力欄のある表の行の空のマス）と、"
+                    "数式が読むセル（空か数。［B5＝値？］はいまの値。読む数式は evidence の referenced_by）で、印のない空のマスは出さない。"
                     "入力規則のあるマス・保護されたシートでロックを外したマスは入力欄［B5］、保護されたシートのロックされたマス"
                     "（Excel でも書けない。見出しのすぐ右の欄の作りのものだけは［B5：保護されたセル］と出す）と非表示のシート・行・列は出さない。書く所かは、根拠（罫線・塗り・近くの字）と"
                     "その行を読んで判断し、書くなら入力欄と同じく番地で書く")
@@ -2544,7 +2616,8 @@ def _md_sheet(sh: dict) -> list[str]:
     if agent:
         out += [f"### 規則では決められない所（{len(agent)} か所。読み順では［B5？］・文字の中の［？］）", "",
                 "入力欄の印（入力規則・保護の中のロックの解除）がなく、規則では欄と決められない所です。出しているのは、"
-                "ファイルの作りに印のある空のマス（罫線で囲まれたもの［左右か上下の両方・下線］・塗り・結合のあるもの、入力欄のある表の行の空のマス）と、文字の中の空きだけです。"
+                "ファイルの作りに印のある空のマス（罫線で囲まれたもの［左右か上下の両方・下線］・塗り・結合のあるもの、入力欄のある表の行の空のマス）と、"
+                "数式が読むセル（空か数。［B5＝値？］はいまの値）と、文字の中の空きだけです。"
                 "書く所かは、根拠とその行（読み順）を読んで判断し、書くなら入力欄と同じく番地で書きます。"
                 "近くの字・推定した見出しは、JSON の窓の fields（evidence・label）にあります。", ""]
         weak = [dict(f, id=f["cell"]) for f in agent if f["kind"] == "inline" and f.get("weak")]
@@ -2872,6 +2945,8 @@ def _md_agent_cells(agent: list[dict]) -> list[str]:
         parts = []
         if "table_row" in whys:
             parts.append("表の行")
+        if "formula_ref" in whys:
+            parts.append("数式が読む")
         if borders:
             parts.append("罫線 " + "".join(borders))
         if fill:

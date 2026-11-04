@@ -136,7 +136,10 @@ def test_declared_inputs_carry_reason_codes():
         ws["B3"] = "=B2*2"
 
     f = _fields(_blob(build))
-    assert f["S!B1"]["reason_codes"] == ["validation"] and f["S!B2"]["reason_codes"] == ["formula_ref"]
+    assert f["S!B1"]["reason_codes"] == ["validation"]
+    # 数式の読むセルは宣言ではない：「？」の所で、読む数式は事実（referenced_by）
+    assert f["S!B2"]["agent"] and f["S!B2"]["reason_codes"] == ["formula_ref"]
+    assert f["S!B2"]["evidence"]["referenced_by"]["cells"] == ["S!B3"]
     # 選択肢の数・長さからは、欄の種類（○を付ける欄か）を決めない：見出しは左の字
     assert f["S!B1"]["options"] == ["甲", "乙"] and f["S!B1"]["label"] == "区分"
 

@@ -107,7 +107,10 @@ def test_whole_column_validation_and_wide_formula_refs_are_clipped_not_skipped()
 
     f = fields_of(doc_of(blob_of(build)))
     assert "入力規則があるセル" in f["S!A8"]["reason"] and "S!A9" not in f  # 使っている範囲（8 行目）までに切る
-    assert "数式が参照している値" in f["S!D8"]["reason"] and "S!D9" not in f
+    # 数式が読むことは入力欄の宣言ではない：「？」の所（formula_ref）で、読む数式の番地を事実として添える
+    d8 = f["S!D8"]
+    assert d8["agent"] and d8["reason_codes"] == ["formula_ref"] and "S!D9" not in f
+    assert d8["evidence"]["referenced_by"] == {"cells": ["S!E1"], "n": 1}
 
 
 def test_text_cell_gaps_are_agent_and_structural_blanks_are_rules():
