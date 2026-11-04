@@ -687,3 +687,18 @@ def test_numbers_says_number_cells_are_not_read(tmp_path):
         z.writestr("Index/Tables/Tile.iwa", b"")
     _k, doc, parts = api.window(_p(tmp_path, "a.numbers", out.getvalue()))
     assert "数・日付・計算の結果のマス" in "\n".join(x[1] for x in parts)
+
+
+def test_word6_warns_when_fonts_use_another_charset():
+    """Word 6.0/95 の字の文字コードを言語（lid）だけで決めていて、英語の文書のロシア語の字が別の字に化けていた（LibreOffice の読みと照らして発見）。"""
+    from todoku.doc.word6 import Word6File
+
+    d = Word6File.__new__(Word6File)
+    d.enc = "cp1252"
+    ffn = bytes([9, 0, 0, 0, 204, 0]) + b"Cyr\0" + bytes([9, 0, 0, 0, 0, 0]) + b"Lat\0"
+    d.wd = struct.pack("<H", len(ffn) + 2) + ffn
+    d.fc = {"SttbfFfn": (0, len(d.wd))}
+    note = d._font_charsets()
+    assert "cp1251" in note and "Cyr" in note
+    d.enc = "cp1251"
+    assert d._font_charsets() is None

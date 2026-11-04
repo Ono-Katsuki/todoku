@@ -48,6 +48,8 @@ FIB6 = {"StshfOrig": 0x58, "Stshf": 0x60, "PlcffndRef": 0x68, "PlcffndTxt": 0x70
         "Cmds": 0x118, "PlcMcr": 0x120, "SttbfMcr": 0x128, "PrDrvr": 0x130, "PrEnvPort": 0x138, "PrEnvLand": 0x140,
         "Wss": 0x148, "Dop": 0x150, "SttbfAssoc": 0x158, "Clx": 0x160}
 
+_CHS_CP = {128: "cp932", 129: "cp949", 134: "cp936", 136: "cp950", 161: "cp1253", 162: "cp1254", 163: "cp1258", 177: "cp1255", 178: "cp1256", 186: "cp1257",
+           204: "cp1251", 222: "cp874", 238: "cp1250"}  # FFN の chs → その文字セットの Windows の文字コード
 # lid（言語）→ その言語の Windows の ANSI の文字コード
 _LID_CP = {0x11: "cp932", 0x12: "cp949", 0x1E: "cp874", 0x01: "cp1256", 0x0D: "cp1255", 0x08: "cp1253", 0x1F: "cp1254",
            0x19: "cp1251", 0x22: "cp1251", 0x23: "cp1251", 0x02: "cp1251", 0x05: "cp1250", 0x0E: "cp1250", 0x15: "cp1250",
@@ -166,6 +168,7 @@ class Word6File(DocFile):
                 raise DocError(f"Word 6.0/95 の文書の表（{name}）が、ストリームの外を指しています")
         self.table = wd  # 表はすべて WordDocument の中
         self.table_name = "WordDocument"
+        self.charset_warning = self._font_charsets()
         self.data = b""
         self.lw = list(c)
         total = sum(c)
@@ -355,6 +358,27 @@ class Word6File(DocFile):
         return d
 
     # ------------------------------------------------------------------ 文字
+    def _font_charsets(self) -> str | None:
+        """書体の表（FFN の chs）に、文書の言語（lid）から決めた文字コードと違うものがあれば、その注。字は 8 ビットで、どの文字コードかは書体で決まるので、
+        言語が英語でも、ロシア語の書体の字は cp1251 で書かれている（窓の字が別の字に見える）。どの字がどの書体かまでは読まないので、推測で読み替えず、伝える。"""
+        f0, lcb = self.fc["SttbfFfn"]
+        wd = self.wd
+        if lcb <= 2:
+            return None
+        found: dict[str, list[str]] = {}
+        p, end = f0 + 2, f0 + lcb
+        while p + 6 < end:
+            cb = wd[p] + 1
+            cp = _CHS_CP.get(wd[p + 4])
+            if cp and cp != self.enc:
+                found.setdefault(cp, []).append(wd[p + 6:p + cb].split(b"\0")[0].decode("latin-1"))
+            p += cb
+        if not found:
+            return None
+        which = "・".join(f"{cp}（{'、'.join(n[:3])}）" for cp, n in found.items())
+        return (f"この文書の字は {self.enc} として読みましたが、書体の表に別の文字コード {which} があります。その書体の字は別の字に見えている"
+                "（字が化けている）かもしれません。LibreOffice か Word で .docx に保存し直してもらえば、確かに読めます")
+
     def _text6(self) -> tuple[str, list[int]]:
         """CP ごとの字（全角の字は最初の CP に置き、2 つ目の CP は「\\x00」）と、字のバイト数（1・2。2 つ目の CP は 0）。"""
         raw = bytearray()
@@ -505,6 +529,8 @@ def build(doc: Word6File) -> dict:
 
     win = wbuild(doc)
     win["unread_controls"] = getattr(doc, "unread_controls", 0)  # 状態を読めないチェックボックス・ドロップダウンの数
+    if doc.charset_warning:
+        win.setdefault("unread", []).append(doc.charset_warning)
     sp = Spots(doc)
     for f in win["fields"]:
         it = sp.items.get(f["id"])

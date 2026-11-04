@@ -389,6 +389,8 @@ class DocFile:
             return got
         out: dict = {}
         self.__dict__["_number_labels"] = out
+        if getattr(self, "word6", False):
+            return out  # Word 6.0/95 の段落番号は別の形（読まない）
         from .numbering import Numberer, read_lists
 
         try:
@@ -657,7 +659,7 @@ class DocFile:
     def _para(self, s: int, e: int) -> Para:
         p = Para(None, "doc", [])
         p.cp0, p.cp1 = s, e
-        sk = (self.partial or {}).get("skel")
+        sk = (getattr(self, "partial", None) or {}).get("skel")
         p.label = (sk if sk else self).number_labels().get(e, "")
         text = self.text
         stack: list[dict] = []
