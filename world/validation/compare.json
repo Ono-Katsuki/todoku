@@ -219,7 +219,7 @@
    "kind": "xlsx",
    "stratum": "sheet:A",
    "features": {
-    "error": "ValueError: Unable to read workbook: could not read strings from /private/tmp/claude-501/-Users-onokatsuki-Documents-GitHub-claude---/fdcc494c-06ce-4f3c-bc44-7cab0977bf2d/s",
+    "error": "ValueError: Unable to read workbook: could not read strings from （一時ファイル）",
     "seconds": 0.1,
     "peak_mb": 0
    },
@@ -241,7 +241,7 @@
      "segment_precision": null,
      "seconds": 0.4,
      "peak_mb": 0,
-     "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw ValueError with message: Unable to read workbook: could not read strings from /private/tmp/claud",
+     "error": "FileConversionException: File conversion failed after 1 attempts:\n - XlsxConverter threw ValueError with message: Unable to read workbook: could not read strings from （一時ファイル）",
      "conveys": {}
     },
     "naive": {
@@ -251,7 +251,7 @@
      "segment_precision": null,
      "seconds": 0.07,
      "peak_mb": 0,
-     "error": "ValueError: Unable to read workbook: could not read strings from /private/tmp/claude-501/-Users-onokatsuki-Documents-GitHub-claude---/fdcc494c-06ce-4f3c-bc44-7cab0977bf2d/s",
+     "error": "ValueError: Unable to read workbook: could not read strings from （一時ファイル）",
      "conveys": {}
     }
    }

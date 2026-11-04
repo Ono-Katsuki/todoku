@@ -7,6 +7,8 @@
   4. 埋め込まれたフォントのプログラムの cmap・グリフ名
   5. 単純なフォントは Encoding と Differences のグリフ名
 どれでも決まらない文字は「読めない文字」として数え、窓と検査に出す（黙って捨てない）。
+
+Helvetica の字幅は Adobe Core 14 AFM による。Copyright (c) 1985, 1987, 1989, 1990, 1997 Adobe Systems Incorporated. All Rights Reserved.
 """
 
 from __future__ import annotations

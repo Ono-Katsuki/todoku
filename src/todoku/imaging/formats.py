@@ -35,7 +35,7 @@ class Frame:
     notes: list = field(default_factory=list)
     problems: list = field(default_factory=list)
     window: tuple | None = None  # 開いた範囲（元の画素の [左, 上, 右, 下)。画素は w × h に縮んでいることがある）。None は全体
-    incomplete: bool = False  # 時間が来て途中まで（HEIC：同じ呼び出しをもう一度すると続きから）
+    incomplete: bool = False  # 時間が来て途中まで
 
 
 FORMAT_JA = {"emf": "EMF（メタファイル）", "wmf": "WMF（メタファイル）", "jpeg": "JPEG", "png": "PNG", "gif": "GIF", "bmp": "BMP", "tiff": "TIFF", "webp": "WebP", "jp2": "JPEG 2000", "j2k": "JPEG 2000（符号の流れ）",
@@ -80,6 +80,12 @@ def sniff(blob: bytes) -> str | None:
     if is_pict(blob):
         return "pict"
     return None
+
+
+def _needs_tool(f: str) -> str:
+    from ..legacy.convert_first import message
+
+    return message(f)
 
 
 def heif_brand(blob: bytes) -> str | None:
@@ -135,9 +141,7 @@ def info(blob: bytes) -> tuple[str, list[FrameInfo]]:
         fr = decode(blob)
         return f, [FrameInfo(fr.w, fr.h, fr.dpi)]
     if f in ("heic", "avif"):
-        from .heif import infos as heif_infos
-
-        return f, heif_infos(blob)
+        raise ImageError(_needs_tool(f))
     if f == "svg":
         from .svg import infos as svg_infos
 
@@ -153,7 +157,7 @@ def info(blob: bytes) -> tuple[str, list[FrameInfo]]:
 
 def decode(blob: bytes, index: int = 0, target_pixels: int | None = None, deadline: float | None = None, window: tuple | None = None) -> Frame:
     """index 番目のフレームを開く。target_pixels：画面に要る画素の数（JPEG・JPEG 2000 は、これより細かく開かない）。
-    window：要る範囲（元の画素の [左, 上, 右, 下)）。分けて開ける形式（JPEG・JPEG 2000・HEIC）は、そこだけを開いて Frame.window で知らせる。
+    window：要る範囲（元の画素の [左, 上, 右, 下)）。分けて開ける形式（JPEG・JPEG 2000）は、そこだけを開いて Frame.window で知らせる。
     ほかの形式は全体を返す（Frame.window は None）。"""
     f = sniff(blob)
     if f == "jpeg":
@@ -180,10 +184,8 @@ def decode(blob: bytes, index: int = 0, target_pixels: int | None = None, deadli
         from .metaraster import emf, wmf
 
         return emf(blob) if f == "emf" else wmf(blob)
-    if f in ("heic", "avif"):
-        from .heif import decode_frame
-
-        return decode_frame(blob, target_pixels, deadline, window)
+    if f in ("heic", "avif"):  # 書類の中に埋め込まれたものは not_drawn に出る（画像そのもののファイルは book.kind_of が別に分ける）
+        raise ImageError(_needs_tool(f))
     if f == "svg":
         from .svg import render as svg_render
 

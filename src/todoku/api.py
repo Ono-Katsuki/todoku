@@ -32,6 +32,12 @@ from . import archives as _arc  # noqa: E402
 KIND_JA.update(_arc.KIND_JA)
 
 
+def _needs_tool_message(k: str, name: str) -> str:
+    from .legacy.convert_first import message
+
+    return message(k, name)
+
+
 class ApiError(ValueError):
     pass
 
@@ -228,12 +234,14 @@ def _member_blob(path: str) -> tuple[bytes, str]:
     cur = Path(outer).name
     for m in chain:
         k = kind_of(blob, cur)
+        if k == "rar":
+            raise ApiError(_needs_tool_message(k, cur))
         if k not in _arc.KINDS:
             raise ApiError(f"「{m}」の外側のファイルは ZIP ではありません")
         try:
             blob = _arc.extract(blob, m, k, cur)
         except (NeedsPassword, WrongPassword):
-            raise  # 7z・RAR のパスワード：呼んだ側（_read_member）が、聞き直す形に直す
+            raise  # 7z のパスワード：呼んだ側（_read_member）が、聞き直す形に直す
         except ziparc.ArchiveError as e:
             raise ApiError(str(e)) from None
         cur = ziparc.base_name(m)
@@ -2183,6 +2191,8 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
     from .pdf.pageimage import view_page as pview
 
     blob, name, k, lock = _read(path, password)
+    if k in _open._more.NEEDS_TOOL:
+        raise ApiError(_needs_tool_message(k, name))
     if k == "image":
         from .imaging.standalone import view_frame
 
@@ -2277,6 +2287,8 @@ def to_pdf(path: str, out_path: str, overwrite: bool = False) -> dict:
     from .imaging.standalone import to_pdf as wrap
 
     blob, _name, k, _lock = _read(path)
+    if k in _open._more.NEEDS_TOOL:
+        raise ApiError(_needs_tool_message(k, _name))
     if k != "image":
         raise ApiError("to_pdf は画像のファイルを PDF に包む道具です（この書類はそのまま読み書きできます）")
     src, dst = Path(path).expanduser(), Path(out_path).expanduser()

@@ -1,6 +1,8 @@
 src/todoku/pdf/data/shaping.json.gz is derived from the Unicode Character Database 14.0.0
 (ArabicShaping.txt, IndicSyllabicCategory.txt, IndicPositionalCategory.txt, BidiMirroring.txt,
-BidiBrackets.txt, Scripts.txt) by scripts/make_shaping_data.py. The Unicode license follows.
+BidiBrackets.txt, Scripts.txt) by scripts/make_shaping_data.py.
+src/todoku/chars.py holds tables derived from the Unicode Character Database
+(Scripts.txt, BidiBrackets.txt, PropList.txt; scripts/make_chars.py). The Unicode license follows.
 
 UNICODE LICENSE V3
 

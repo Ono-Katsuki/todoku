@@ -1,4 +1,6 @@
-"""HWP 5（한글 97 の後の、한글の2進の形式。Hancom「한글 문서 파일 형식 5.0」）を読む（書かない）。
+"""본 제품은 한글과컴퓨터의 한/글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
+
+HWP 5（한글 97 の後の、한글の2進の形式。Hancom「한글 문서 파일 형식 5.0」）を読む（書かない）。
 
 - 入れ物は CFB（複合文書）。FileHeader（先頭 32 バイトが「HWP Document File」、その後ろに版と属性：bit0 圧縮・bit1 암호・
   bit2 배포용）、DocInfo（文字の形 CHAR_SHAPE・段落の形 PARA_SHAPE など）、BodyText/Section0 …（本文の節）

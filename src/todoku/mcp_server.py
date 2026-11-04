@@ -54,7 +54,7 @@ INSTRUCTIONS = (
     "選び、その名前を、そのファイルのどの道具にも encoding で渡してください。"
     "窓の「画像」の節で「説明（代わりの字）がありません」とある画像は、中身を字として読めません。申請に関わりそうなら view_image（PDF の"
     "ページ全体は view_page）で画像を見て読み、読めなければ、その位置（ページ・上下左右・近くの字）を本人に伝えてください。中身を推測で"
-    "埋めないでください。画像そのもののファイル（JPEG・PNG・TIFF・HEIC・AVIF・SVG など）も open_document で開き、view_page で見ます。計算の決まりを知りたいときは、値から推測せず extract_processing で規則として受け取ります。段階の alerts（アクセシビリティの注意）は、"
+    "埋めないでください。画像そのもののファイル（JPEG・PNG・TIFF・SVG など）も open_document で開き、view_page で見ます。RAR・HEIC・HEIF・AVIF は、とどくは解きません：open_document の needs_tool（format・why・next_step）に、別の道具のコマンドの例があります。入っている道具を確かめて使い、できたファイルをもう一度 open_document で開いてください。変換・展開したことは本人に伝えてください（書いたものは元の形式には戻りません）。計算の決まりを知りたいときは、値から推測せず extract_processing で規則として受け取ります。段階の alerts（アクセシビリティの注意）は、"
     "段階とは別に伝えてください。"
     "fill_document の結果の read_back_ok が false のときは、ファイルはもう書き出されていますが、書いた後のファイルを読み直した値が"
     "書いた値と違う欄があります（read_back_differences）。確かめずに本人に渡さず、違いを読んで直すか、そのことを本人に伝えてください。"
@@ -73,7 +73,7 @@ TOOLS = [
     {"name": "open_document",
      "description": "書類（Excel .xlsx/.xlsm/.xls・PDF・Word .docx/.docm/.doc・一太郎 .jtd）を開き、形式・入力欄の数・窓の分け方と、"
                     "窓（Markdown）の最初の部分を返す。한글の HWPX（.hwpx）は読む・書く、HWP 5（.hwp）は読むだけ"
-                    "（配布用・パスワードの HWP は読めない）。"
+                    "（配布用・パスワードの HWP は読めない。본 제품은 한글과컴퓨터의 한/글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.）。"
                     "ZIP は中のファイルの一覧を返す。中のファイルは、どの道具でも path に「a.zip!/中の名前」と指定して開く・書く"
                     "（書き出す out_path は ZIP。書いたファイルの部品だけを入れ替える）。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "書類のファイルのパス"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"}},
@@ -259,7 +259,7 @@ TOOLS = [
                     "ページは、字（埋め込みのフォントの字形）・線・画像・欄の見た目（/AP）を描く。書いた後のファイルを見ると、値の入った欄が青い枠で描かれ、値は文で返る。"
                     "書いた字が欄からはみ出す・つぶれる・横倒し・印刷された字に重なるなら、書いた見た目が正しくないので、書き直す（書いた後は、いつも見て確かめる）。"
                     "フォントが埋め込まれていない字は代わりのフォントで描き（結果の substituted）、使える字形がない字は灰色の四角になる。"
-                    "JBIG2・JPEG 2000 の画像も描く（JPEG 2000 は、画面に要る解像度で開き、そのことを結果に書く。細かな字は region で拡大：範囲に掛かる所だけを開くので、どの部分でも元の解像度まで開ける。HEIC・AVIF も範囲のタイルだけを開き、時間が足りないと途中まで返すので、結果のとおり同じ呼び出しをもう一度する）。開けない画像は灰色の枠と対角線で示して結果に書くので、その所は描けたと思わず、本人に伝える。そのとおりに描けなかったものは、結果の not_drawn に短く並ぶ。置いた印影・署名の画像も、その位置に描く。画像の中の字は推測で埋めず、読めない所は本人に伝える。",
+                    "JBIG2・JPEG 2000 の画像も描く（JPEG 2000 は、画面に要る解像度で開き、そのことを結果に書く。細かな字は region で拡大：範囲に掛かる所だけを開くので、どの部分でも元の解像度まで開ける。）。開けない画像は灰色の枠と対角線で示して結果に書くので、その所は描けたと思わず、本人に伝える。そのとおりに描けなかったものは、結果の not_drawn に短く並ぶ。置いた印影・署名の画像も、その位置に描く。画像の中の字は推測で埋めず、読めない所は本人に伝える。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
          "page": {"type": "integer", "minimum": 1},
@@ -308,7 +308,7 @@ _MORE = ("（ほかに CSV・TSV・JSON・JSON Lines・RTF・OpenDocument の文
          "PowerPoint .pptx・한글 .hwpx（読む・書く）と .hwp（HWP 5。読むだけ）も開けます。"
          "Excel .xlsb（読む。値のあるセルは同じ大きさの上書き、空のセルはレコードを足して書く）・dBase .dbf（読む。項目の幅の中の上書きを書ける）・古い PowerPoint .ppt・XPS .xps/.oxps・EPUB・メール .eml/.msg・Excel 2〜4・Word 1.x/2.0・"
          "Lotus .wk1・Access .mdb/.accdb・OpenOffice.org 1.x .sxw/.sxc・iWork .pages/.numbers/.key は読むだけ。"
-         "tar・.tar.gz・.gz（読む・書く）と LZH・7z・RAR（読むだけ。パスワードは password）は ZIP と同じく「a.tar!/中の名前」で中のファイルを指す。"
+         "tar・.tar.gz・.gz（読む・書く）と LZH・7z（読むだけ。パスワードは password）は ZIP と同じく「a.tar!/中の名前」で中のファイルを指す。RAR・HEIC・HEIF・AVIF は別の道具で展開・変換してから開く（結果の needs_tool に手順）。"
          "DocuWorks は読めないので、次の一手を返す）")
 for _t in TOOLS:
     if _t["name"] == "open_document":
@@ -358,6 +358,8 @@ def call_tool(name: str, args: dict) -> dict:
                     "下の概要を見て、要る所を read_window に範囲で頼んでください（読む量を分けるだけで、読めない所はありません）")
             return {"content": [_text(head), _text(lz.overview_text())], "structuredContent": s}
         _k, _doc, parts = api.window(path, pw, enc)
+        if s.get("needs_tool"):
+            return {"content": [_text(f"{s['kind_ja']}。中身は読んでいません。下の手順で変換・展開してから、できたファイルを開いてください"), _text(parts[0][1])], "structuredContent": s}
         head = (f"{s['kind_ja']}・入力欄 {s['fields']} か所（書ける欄 {s['writable_fields']}）・窓は {s['window_parts']} 部分"
                 + ("（read_window で part を指定して続きを読めます）" if s["window_parts"] > 1 else ""))
         return {"content": [_text(head), _text(parts[0][1])], "structuredContent": s}

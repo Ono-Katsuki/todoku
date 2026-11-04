@@ -30,7 +30,7 @@ with Severe Physical Disability*, ASSETS '26）
 - **答えは決定的な処理で出します。** 変換・書き込み・証明・検査に AI を使いません。同じ書類・同じ環境（書体）では同じ結果が出ます（PDF に書く字の字形は、このパソコンの書体から取るので、書体が違えば見た目が変わることがあります）。
   機微な書類を外に送りません。規則で決められない所だけを「？」の印でエージェントに示し、判断を任せます。
 - **Python だけで動きます。** 外部のライブラリも、Office も、LibreOffice も使いません。
-  ファイル形式は、公開されている仕様書（MS-XLS・MS-DOC・PDF 32000・XFA 3.3 など）から実装しました。
+  ファイル形式は、公開されている仕様書（MS-XLS・MS-DOC・PDF 32000・XFA 3.3 など）のあるものはそれから実装しました。一太郎は公開された書類を比べて形を推定し、Access（Jet の .mdb）は公開の仕様がないので、実物の構造を観察して実装しました。
 
 ## 使い方：MCP サーバーとして
 
@@ -138,7 +138,8 @@ PDF のフォームでは、計算の順（/CO）と欄のあいだの規則（`
 | Excel 2〜4・Lotus（.wk1）・dBase（.dbf）・Access（.mdb・.accdb） | 表をシートとして（窓・表の取り出し）。Lotus の数式は保存された結果だけ | 書けない | — |
 | Word 1.x・2.0・OpenOffice.org 1.x（.sxw・.sxc）・iWork（.pages・.numbers・.key） | 字（iWork は非公開の形を知られた範囲で：C。Word の高速保存は読まない：F） | 書けない | — |
 | テキスト（.txt） | 文字コード（CSV と同じ決め方）・すべての行（空の行・行の頭の空白もそのまま、「行番号｜字」） | 空欄・□・字を目印にした書き込み（Word と同じ欄の決め方。改行は書かない） | 書いた所の字のバイトのほかは、文字コード・BOM・改行まで1バイトも変えない |
-| 画像そのもののファイル（JPEG（算術符号・12 ビット・可逆も）・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2・EMF・WMF・PICT・SVG・HEIC・AVIF） | 自前で開き、`view_page`（page＝何枚目か）で画像を見せる。解像度の記録があれば mm の目盛り、なければ画素の目盛り。`region` で狭めれば、掛かる所だけを元の解像度で開く。HEIC は純粋な Python の HEVC で開くので遅く（12 MP で数十秒〜数分）、範囲のタイルだけを開き、途中までのときは同じ呼び出しで続きから進む。AVIF も純粋な Python の AV1 イントラで開く（タイルに分かれていない 16 MP を超えるものは、変換のしかたを伝える） | 直接は書けない。`to_pdf` で PDF に包み、PDF の枠（mm）に書く | PDF について証明する |
+| 画像そのもののファイル（JPEG（算術符号・12 ビット・可逆も）・PNG・GIF・BMP・TIFF・WebP・JPEG 2000・JBIG2・EMF・WMF・PICT・SVG） | 自前で開き、`view_page`（page＝何枚目か）で画像を見せる。解像度の記録があれば mm の目盛り、なければ画素の目盛り。`region` で狭めれば、掛かる所だけを元の解像度で開く。 | 直接は書けない。`to_pdf` で PDF に包み、PDF の枠（mm）に書く | PDF について証明する |
+| RAR・HEIC・HEIF・AVIF | 解かない（形式を見分けるだけ）。`open_document` の `needs_tool` に、理由と、別の道具のコマンドの例（`sips`・`magick`・`ffmpeg`・`bsdtar`・`unrar` など。OS ごと）を返す。できたファイルをもう一度開けば読める。段階は読む E（別の道具で変換してから読む） | 書けない。変換・展開してできたファイルに書く（元の形式には戻らない） | — |
 | 書類の中の画像（Word・Excel・PowerPoint・ODF・HWPX・.doc・.xls・RTF・PDF の注釈） | 窓に一覧（id・位置・大きさ・説明・部品の名前）を出し、`view_image` で渡す（PNG・JPEG はそのまま、ほかは PNG に。EMF・WMF は描く） | — | — |
 | スキャンした紙（画像だけの PDF のページ） | 画像（CCITT G3・G4、JPEG、Flate、JBIG2、JPEG 2000 など）を自前で開き、ページを描いた画像をエージェントに見せる（`view_page`。JPEG 2000 は画面に要る解像度で開き、そのことを伝える） | エージェントが画像を見て決めた枠（mm）に書く。書く前に枠を描いて確かめる | 元のファイルのバイト列は1つも変えない |
 | ZIP | 中のファイルを「a.zip!/中の名前」で、その形式のまま読む | 中のファイルに書き、ZIP はその部品だけを入れ替える | 書いた部品のほかはバイト一致 |
@@ -296,7 +297,7 @@ PropList.txt・字の文字の種類 Scripts.txt）だけを、版つきの小�
 
 集めた書類と仕様書は**リポジトリに含めません**（`corpus/` は `.gitignore`）。取得元の URL・掲載ページ・SHA-256 を
 [`sources/`](sources/) に記録してあり、同じものを取り直せます。取得は robots.txt に従い、1件ずつ間隔をあけて行いました。
-CAPTCHA や取得の制限は破っていません。
+ボット対策は破っていません。XFA 3.3 の仕様書は Internet Archive の写しから取得しました（再配布なし）。
 
 | 書類 | 取得元 |
 |---|---|
@@ -329,7 +330,7 @@ src/todoku/
   pptx/ txt/      PowerPoint・文字だけのファイル（窓と欄の決め方は Word と共通）
   hwpx/           한글（HWPX は読む・書く、HWP 5 は読むだけ。窓と欄の決め方は Word と共通）
   xlsb/           Excel のバイナリのブック（BIFF12 のレコード。ブックの形は xlsx と共通）
-  legacy/         読むだけの古い形式（.ppt・XPS・EPUB・LZH・メール・Excel 2〜4・Word 2・Lotus・dBase・Access・.sxw・iWork）
+  legacy/         読むだけの古い形式（.ppt・XPS・EPUB・LZH・メール・Excel 2〜4・Word 2・Lotus・dBase・Access・.sxw・iWork）と、別の道具の手順を返す形式（RAR・HEIC・AVIF）
   vba.py vbarun/  マクロのソースの抽出と、VBA の解釈実行（Excel を使わずにボタンの処理を動かす）
   processing/     処理の取り出し（extract_processing）：数式を規則に畳む・構造・マクロの静的な読み取り・PDF の計算・Python のモジュールの書き出しと確かめ
   activex.py ax*.py     ActiveX の部品（MS-OFORMS）
@@ -346,7 +347,11 @@ world/            世界調査のデータ（scripts/world_*.py が作る・読�
 
 ## ライセンス
 
-Apache License 2.0（`LICENSE`・`NOTICE`）。個人でも会社でも、自由に使えます。中に入れた他者のデータ（Adobe の文字の表・Unicode の表）は、それぞれのライセンスに従います（`THIRD_PARTY_NOTICES.md`）。
+Apache License 2.0（`LICENSE`・`NOTICE`）。個人でも会社でも、自由に使えます。中に入れた他者のデータ（Adobe の文字の表・Unicode の表・RFC 6386 の表・地図のデータなど）は、それぞれのライセンスに従います（`THIRD_PARTY_NOTICES.md`・`LICENSES/`）。
+
+본 제품은 한글과컴퓨터의 한/글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
+
+Microsoft、Excel、Word、PowerPoint、Access、一太郎、한글、Hancom、RAR、Adobe、PDF などは各社の商標または登録商標です。とどくはこれらの会社と提携しておらず、承認も受けていません。
 
 ## 大きな書類
 
