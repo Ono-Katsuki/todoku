@@ -117,6 +117,39 @@ def _limit(m: Member) -> int:
     return min(MAX_MEMBER, max(m.csize * MAX_RATIO, 1 << 20)) if m.csize else MAX_MEMBER
 
 
+_OTHER_METHODS = (9, 12, 14)  # ZIP の APPNOTE の圧縮の番号：9 Deflate64・12 BZIP2・14 LZMA
+
+
+def _other_method(method: int, data: bytes, cap: int, name: str) -> bytes:
+    """Deflate・無圧縮のほかの圧縮（読むだけ。書くときは、書いた項目を Deflate で入れ直す）。"""
+    import bz2
+    import lzma
+    import struct
+
+    from .legacy.sevenzip import SevenZipError, deflate64
+
+    try:
+        if method == 9:
+            return deflate64(data, cap)
+        if method == 12:
+            d = bz2.BZ2Decompressor()
+            raw = d.decompress(data, cap + 1)
+        else:
+            # APPNOTE 5.8.8：版（2 バイト）・性質の大きさ（2 バイト）・LZMA の性質（5 バイト）の後が LZMA の流れ（終わりの印つきのことがある）
+            _ver, psize = struct.unpack_from("<HH", data, 0)
+            props = data[4:4 + psize]
+            filt = lzma._decode_filter_properties(lzma.FILTER_LZMA1, props)
+            d = lzma.LZMADecompressor(format=lzma.FORMAT_RAW, filters=[filt])
+            raw = d.decompress(data[4 + psize:], cap + 1)
+        if len(raw) > cap:
+            raise ArchiveError(f"「{name}」は展開すると上限（{cap:,} バイト）を超えるので、取り出しません")
+        return raw
+    except ArchiveError:
+        raise
+    except (SevenZipError, OSError, EOFError, lzma.LZMAError, struct.error, ValueError) as x:
+        raise ArchiveError(f"「{name}」を取り出せません（{x}）") from None
+
+
 def _read(z: RawZip, m: Member) -> bytes:
     from .limits import LimitExceeded, inflate
 
@@ -138,6 +171,11 @@ def _read(z: RawZip, m: Member) -> bytes:
                     raise ArchiveError(f"「{name}」は展開すると圧縮したバイトの {MAX_RATIO:,} 倍を超え、展開して大きくなる ZIP として"
                                        "取り出しません") from None
                 raise
+            if zlib.crc32(raw) & 0xFFFFFFFF != e.crc:
+                raise ZipFormatError(f"{name}: CRCが一致しません")
+            return raw
+        if e.method in _OTHER_METHODS:
+            raw = _other_method(e.method, e.data, _limit(m), name)
             if zlib.crc32(raw) & 0xFFFFFFFF != e.crc:
                 raise ZipFormatError(f"{name}: CRCが一致しません")
             return raw

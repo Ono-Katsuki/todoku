@@ -161,6 +161,11 @@ def start(path: str, password: str | None = None, encoding: str | None = None, r
         return rec
     if rec and _alive(rec.get("pid")) and not restart:
         return rec
+    if rec and not restart:
+        # 仕事は止まっていた。読んだ後に終わったのかもしれない：古い控えで終わった結果を上書きして、やり直さない
+        rec = load(key) or rec
+        if rec.get("finished"):
+            return rec
     if restart:
         rec = None
         _state_path(key).unlink(missing_ok=True)

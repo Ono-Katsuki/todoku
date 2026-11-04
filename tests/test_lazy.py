@@ -333,10 +333,10 @@ def test_csv_grade_honest_and_audit_job(tmp_path):
     au = api.audit(str(p))
     assert au["job"]["key"]
     t0 = time.time()
-    while not au["job"]["finished"] and time.time() - t0 < 60:
+    while not au["job"]["finished"] and time.time() - t0 < 180:  # 仕事は優先度を下げて動く。ほかの重い処理と重なると遅い
         time.sleep(0.1)
         au = api.audit(str(p))
-    assert au["job"]["finished"] and au["ok"], au
+    assert au["job"]["finished"] and au["ok"], {"job": au["job"], "bad": [c for c in au.get("checks", []) if not c.get("ok")], "record": jobs.status(str(p))}
     assert any("別の読み方" in c["detail"] for c in au["checks"])
 
 

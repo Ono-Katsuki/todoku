@@ -30,3 +30,27 @@
 본 제품은 한글과컴퓨터의 한/글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
 
 試験の見本（`tests/fixtures/public/`）は、とどくのために作ったもので、CC0 です。
+
+## zlib の puff.c（Deflate64 を解く所：src/todoku/legacy/sevenzip.py の deflate64 と符号の表）
+
+符号の表の作り方と 1 字ずつ解く形が、zlib の contrib/puff/puff.c と同じ形に見えます。由来を記録で確かめられないので、派生として扱い、変更した版（Python で書き直し、Deflate64 の長さと距離に広げたもの。元の puff.c そのものではありません）として次の表示を残します。
+
+```
+Copyright (C) 2002-2013 Mark Adler, all rights reserved
+
+This software is provided 'as-is', without any express or implied
+warranty.  In no event will the author be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.
+```

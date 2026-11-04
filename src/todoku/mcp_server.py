@@ -319,7 +319,7 @@ _MORE = ("（ほかに CSV・TSV・JSON・JSON Lines・RTF・OpenDocument の文
          "PowerPoint .pptx・한글 .hwpx（読む・書く）と .hwp（HWP 5。読むだけ）も開けます。"
          "Excel .xlsb（読む。値のあるセルは同じ大きさの上書き、空のセルはレコードを足して書く）・dBase .dbf（読む。項目の幅の中の上書きを書ける）・古い PowerPoint .ppt・XPS .xps/.oxps・EPUB・メール .eml/.msg・Excel 2〜4・Word 1.x/2.0・"
          "Lotus .wk1・Access .mdb/.accdb・OpenOffice.org 1.x .sxw/.sxc・iWork .pages/.numbers/.key は読むだけ。"
-         "tar・.tar.gz・.gz（読む・書く）と LZH・7z（読むだけ。パスワードは password）は ZIP と同じく「a.tar!/中の名前」で中のファイルを指す。RAR・HEIC・HEIF・AVIF は別の道具で展開・変換してから開く（結果の needs_tool に手順）。"
+         "tar・.tar.gz・.gz（読む・書く）と .tar.bz2・.tar.xz・.bz2・.xz・LZH・7z（読むだけ。パスワードは password）は ZIP と同じく「a.tar!/中の名前」で中のファイルを指す。RAR・HEIC・HEIF・AVIF は別の道具で展開・変換してから開く（結果の needs_tool に手順）。"
          "DocuWorks は読めないので、次の一手を返す）")
 for _t in TOOLS:
     if _t["name"] == "open_document":
