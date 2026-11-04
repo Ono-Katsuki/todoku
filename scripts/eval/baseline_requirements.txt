@@ -1,0 +1,9 @@
+# 比べる道具（プロジェクトの依存にしない。setup_baselines.sh が別の venv に入れる）。実際の版は provenance.json に残す。
+markitdown[all]
+openpyxl
+xlrd
+pdfplumber
+pypdf
+python-docx
+pillow
+reportlab

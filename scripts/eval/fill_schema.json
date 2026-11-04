@@ -1,0 +1,27 @@
+{
+  "record": {
+    "file": "様式のファイル名",
+    "format": "pdf|docx|doc|xlsx|xls|その他",
+    "classification": "記入済み|一部|未記入|対象外",
+    "reason": "記入済みでないときの理由（短く）",
+    "places_written": 0,
+    "ask_applicant": [{"place": "欄", "why": "申請者に聞くこと"}],
+    "left_office_use": ["役所が書く欄"],
+    "remains_for_people": [{"type": "印刷|押印|自署|窓口|郵送|添付|その他", "place": "どこ", "why": "なぜ"}],
+    "refusals": [{"input": "書こうとしたもの", "reason": "道具の理由", "correct": true, "why": "正しい・正しくないと判断した理由"}],
+    "wrong_fixed": ["見つけて直したおかしい所（どう見つけ、どう直したか）"],
+    "wrong_left": ["最後の出力に残っているおかしい所"],
+    "attempts": 1,
+    "tool_problems": ["道具の問題（入力 → 出力 → 期待）"]
+  },
+  "review": {
+    "file": "様式のファイル名",
+    "pages_checked": [1],
+    "verdict": "ok|wrong",
+    "wrong_left": [{"page": 1, "what": "何がおかしいか", "seen_in": "poppler|view|pdfkit|すべて"}],
+    "missed_answerable": [{"page": 1, "place": "どの欄", "should_be": "何が入るべきか"}],
+    "renderer_disagreements": [{"page": 1, "what": "描き手ごとの違い"}],
+    "remains_for_people": [{"type": "印刷|押印|自署|窓口|郵送|添付|その他", "place": "どこ"}],
+    "cannot_judge": ["判断できなかった所"]
+  }
+}

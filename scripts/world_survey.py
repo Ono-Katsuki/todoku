@@ -453,14 +453,14 @@ def _read_results(path: Path) -> list[dict]:
     return out
 
 
-def regrade(jobs: int, only_ungraded: bool = False, only_grades: str = "") -> int:
+def regrade(jobs: int, only_ungraded: bool = False, only_grades: str = "", results: Path | None = None) -> int:
     """同じ標本（world/results.jsonl）を取り直して、段階だけを付け直す（道具を直したあと）。
     届いた書類だけを取り直す（届かなかった標本は、そのまま）。中身が前と変わっていれば changed に記録する。
     only_ungraded：届いたが段階を付けられなかった書類（対応していなかった形式など）だけ。
     only_grades：読む段階がこれ（「E,F」など）の書類だけ（only_ungraded と合わせると、どちらか）。"""
-    res_path = OUT / "results.jsonl"
+    res_path = results or OUT / "results.jsonl"
     old = _read_results(res_path)
-    new_path = OUT / "results.regrade.jsonl"
+    new_path = res_path.with_name("results.regrade.jsonl")
     done = {r["id"]: r for r in _read_results(new_path) if "id" in r}
     lock = threading.Lock()
 
@@ -505,11 +505,12 @@ def main(argv=None) -> int:
     ap.add_argument("--regrade", action="store_true", help="同じ標本を取り直して、段階だけを付け直す")
     ap.add_argument("--only-ungraded", action="store_true", help="--regrade で、段階を付けられなかった書類だけ")
     ap.add_argument("--only-grades", default="", help="--regrade で、読む段階がこれ（E,F など）の書類だけ")
+    ap.add_argument("--results", default="", help="--regrade で、結果のファイル（既定：world/results.jsonl。最終の評価では作業ツリーを汚さないよう外の写しを渡す）")
     a = ap.parse_args(argv)
     _graders = threading.Semaphore(a.graders)
     TMP.mkdir(parents=True, exist_ok=True)
     if a.regrade:
-        return regrade(a.jobs, a.only_ungraded, a.only_grades)
+        return regrade(a.jobs, a.only_ungraded, a.only_grades, Path(a.results) if a.results else None)
     want = {c for c in a.countries.split(",") if c}
     samples = [json.loads(x) for x in (OUT / "sample.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     samples = [s for s in samples if s["rank"] < a.rank and (not want or s["country"] in want)]
