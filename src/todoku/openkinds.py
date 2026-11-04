@@ -15,7 +15,7 @@ KIND_JA = {"csv": "CSV", "tsv": "TSV（タブ区切り）", "json": "JSON", "jso
            "fodt": "OpenDocument の文書（.fodt・1つの XML）", "fods": "OpenDocument の表計算（.fods・1つの XML）",
            "txt": "テキスト（.txt）", "pptx": "PowerPoint（.pptx）",
            "hwpx": "한글の文書（.hwpx）", "hwp": "한글の文書（.hwp・HWP 5）",
-           "markup": "HTML・XML（字だけを読む）"}
+           "markup": "HTML・XML（字だけを読む）", "image": "画像のファイル"}
 from . import morekinds as _more  # noqa: E402  古い・役所が今も配っている形式（.xlsb など）
 from .openkinds_base import OpenFormatError  # noqa: E402
 
@@ -98,6 +98,12 @@ def window(k: str, blob: bytes, name: str, encoding: str | None = None) -> tuple
 
             win = markup.build(blob, name, encoding)
             return win, markup.markdown_parts(win)
+        if k == "image":
+            from .imaging.standalone import build as ibuild
+            from .imaging.standalone import markdown_parts as iparts
+
+            win = ibuild(blob, name)
+            return win, iparts(win)
     except (ValueError, KeyError) as e:
         raise _err(e) from None
     raise OpenFormatError(f"この形式（{k}）は扱えません")
@@ -137,6 +143,10 @@ def summary(k: str, doc: dict) -> dict:
     elif k == "markup":
         d["format"] = doc.get("format")
         d["read_only"] = doc.get("note")
+    elif k == "image":
+        from .imaging.standalone import summary as isummary
+
+        d.update(isummary(doc))
     else:
         d["protection"] = doc.get("protection")
     return d
@@ -174,6 +184,9 @@ def fill(k: str, blob: bytes, name: str, values: dict, force: bool = False, enco
     if k == "markup":
         raise OpenFormatError("HTML・XML には書きません（とどくは字だけを読みます。タグのある字への書き込みを証明する方法を"
                               "作っていません）。書く必要があれば、本人に、Word・Excel・PDF など書ける形式の様式があるかを確かめてください")
+    if k == "image":
+        raise OpenFormatError("画像のファイルには直接書けません（画素に書いたことを証明する方法がありません）。to_pdf で PDF に包み、できた PDF に"
+                              "fill_document で枠（mm）を指定して書いてください（証明はその PDF について行います）")
     if k == "hwp":
         raise OpenFormatError("HWP 5（.hwp）には書けません。HWPX で保存し直せば書ける（한글の「다른 이름으로 저장」で .hwpx を選ぶ。"
                               "本人に、HWPX で保存し直したファイルを頼んでください）")
@@ -404,6 +417,10 @@ def audit_runner(k: str, encoding: str | None = None):
         from .markup import audit
 
         return audit
+    if k == "image":
+        from .imaging.standalone import audit
+
+        return audit
     raise OpenFormatError(f"この形式（{k}）は検査できません")
 
 
@@ -438,6 +455,10 @@ def grade(k: str, blob: bytes, name: str, encoding: str | None = None):
             from .markup import grade as mgrade
 
             return mgrade(blob, name, encoding)
+        if k == "image":
+            from .imaging.standalone import grade as igrade
+
+            return igrade(blob, name)
         if k == "pptx":
             from .pptx.document import PptxDocument
             from .pptx.window import build

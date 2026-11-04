@@ -73,9 +73,11 @@ class Renderer:
                       "images": 0, "paths": 0}
         self.subst: dict[str, str] = {}  # PDF の書体の名前 → 代わりに描いた書体
         self.missing_fonts: set[str] = set()
+        self.box_places: list = []  # 字の形が分からない字の位置（画素。はじめの数十個）
         self.problems: list[str] = []
         self.approx: dict[str, int] = {}
         self.image_failed: list[str] = []
+        self.image_notes: list[str] = []  # 画像の開き方の知らせ（JPEG 2000 の解像度など）
         self._oc_off = self._oc_config()
 
     # ------------------------------------------------------------------ 見える／見えない内容
@@ -537,13 +539,22 @@ class Renderer:
 
     def glyph(self, gs: GS, res: dict, gl, pf, code: bytes, text: str, m, mode: int, text_clip, w: float, depth: int):
         r = gl.lookup(code, text)
+        if r is None and text and text != "�" and text.strip():
+            # 字（ToUnicode など）は分かるが、字の形がない：このパソコンのどれかの書体で描く（字が読めるように）
+            from .fontmap import any_face_glyph
+
+            r = any_face_glyph(text)
+            if r is not None:
+                self.stats["glyphs_fallback"] = self.stats.get("glyphs_fallback", 0) + 1
         if r is None:
-            # 字の形が分からない字（代わりの書体に字がない・埋め込みでない書体で字が決まらない）：灰色の四角で示して数える。
+            # 字の形が分からない字（どの書体にも字がない・埋め込みでない書体で字が決まらない）：灰色の四角で示して数え、位置を伝える。
             # 埋め込んだ書体で字の決まらない符号は、見る道具でも .notdef（ふつうは何も描かない）
             unknown = text == "�" and gl.kind in ("system", "none")
             if (text and text.strip() and text != "�") or unknown or (gl.kind == "none" and code not in (b" ",)):
                 if mode not in (3, 7):
                     self.stats["glyphs_box"] += 1
+                    if len(self.box_places) < 40:
+                        self.box_places.append((m[4], m[5]))
                     self._box(gs, pf, m, w)
             return
         key, ops, gmat = r
@@ -661,7 +672,7 @@ class Renderer:
         dev = abs(m[0] * m[3] - m[1] * m[2])
         # JPEG は逆 DCT で 1/2・1/4・1/8 に縮めて開ける（縮めても面積の平均）：画面の 2 倍まで。ほかは開いてから箱の平均で縮める
         try:
-            im = image_rgba(self.doc, img, 16_000_000, res, int(max(250_000, dev * 2)))
+            im = image_rgba(self.doc, img, 16_000_000, res, int(max(250_000, dev * 2)), self.deadline)
         except Exception as e:  # noqa: BLE001
             from ...limits import LimitExceeded
 
@@ -671,6 +682,8 @@ class Renderer:
             self._undrawn_image(gs, m)
             return
         self.stats["images"] += 1
+        self.image_notes += [f"{name}：{n}" for n in im.notes if f"{name}：{n}" not in self.image_notes]
+        self.problems += [f"{name}：{n}" for n in im.problems if f"{name}：{n}" not in self.problems]
         fill = gs.fc
         if im.stencil and gs.fpat is not None:
             fill = (128, 128, 128)

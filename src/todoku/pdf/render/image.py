@@ -1,6 +1,6 @@
 """画像を色（RGB）と透けで開き（ISO 32000-1 8.9・11.6.5）、ページの画素に写す（8.9.5 画像の座標：単位の四角）。
 
-圧縮を開くのは raster.py（CCITT・JPEG・Flate など）。ここでは色空間と Decode・SMask・Mask（型抜き・色で隠す）・
+圧縮を開くのは raster.py（CCITT・JPEG・JBIG2・JPEG 2000・Flate など）。ここでは色空間と Decode・SMask・Mask（型抜き・色で隠す）・
 ImageMask（塗りの色の型抜き）を扱い、写すときは、元の画像が画面の画素より細かければ面積の平均で画面の画素の数に縮めてから、
 各画素の中心を画像に戻して引く（細い線を落とさない）。マスクは画像と別の解像度のことがあるので、細かいほうに合わせる。
 """
@@ -8,7 +8,7 @@ ImageMask（塗りの色の型抜き）を扱い、写すときは、元の画�
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import repeat
 from operator import add, itemgetter, mul, rshift
 
@@ -25,6 +25,8 @@ class RGBA:
     px: bytes  # w*h*3（R G B）。stencil のときは空
     alpha: bytes | None  # w*h（0＝透ける〜255＝不透明）
     stencil: bool = False  # 型抜き（ImageMask）：alpha の所を、塗りの色で塗る
+    notes: list = field(default_factory=list)  # 開き方の知らせ（解像度を下げたなど）
+    problems: list = field(default_factory=list)  # 描けなかった所
 
 
 def _image_dict(doc, image):
@@ -48,19 +50,28 @@ def _inv_table() -> bytes:
     return bytes(255 - i for i in range(256))
 
 
-def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None, dct_pixels: int | None = None) -> RGBA:
+def _shrink(g, screen_pixels: int | None):
+    """画面より十分大きな白黒の画像（JBIG2・CCITT の 600 dpi のスキャンなど）は、色の面に広げる前に箱の平均で縮める（メモリ）。"""
+    if not screen_pixels or g.w * g.h <= 4 * screen_pixels:
+        return g.px, g.w, g.h
+    k = math.isqrt(g.w * g.h // screen_pixels)
+    return box_down(g.px, g.w, g.h, 1, k, k)
+
+
+def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None, dct_pixels: int | None = None,
+               deadline: float | None = None) -> RGBA:
     """PDF の画像（XObject の Stream か、埋め込みの (辞書, データ)）→ RGBA。"""
     d, inline = _image_dict(doc, image)
     flt = d.get("Filter")
     names = [getattr(x, "name", "") for x in (flt if isinstance(flt, list) else [flt] if flt is not None else [])]
     w, h = int(d.get("Width") or 0), int(d.get("Height") or 0)
-    if w <= 0 or h <= 0:
+    if (w <= 0 or h <= 0) and "JPXDecode" not in names:
         raise RasterError("画像の大きさが分かりません")
     if d.get("ImageMask") is True:
-        g = image_gray(doc, image, max_pixels)  # 塗る所が 0（黒）
-        return RGBA(g.w, g.h, b"", g.px.translate(_inv_table()), True)
-    if "JBIG2Decode" in names or "JPXDecode" in names:
-        raise RasterError(f"この画像の圧縮（{'JBIG2' if 'JBIG2Decode' in names else 'JPEG 2000'}）は、まだ開けません")
+        g = image_gray(doc, image, max_pixels, deadline)  # 塗る所が 0（黒）
+        return RGBA(g.w, g.h, b"", g.px.translate(_inv_table()), True, g.notes, g.problems)
+    if "JPXDecode" in names:
+        return _jpx_rgba(doc, image, d, res, max_pixels, dct_pixels, deadline)
     cs = colorspace(doc, d.get("ColorSpace"), res)
     dec = d.get("Decode")
     dec = [float(doc.resolve(v)) for v in dec] if isinstance(dec, list) else None
@@ -79,9 +90,17 @@ def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None
                 tab.append(bytes((int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5))))
             px = b"".join(map(tab.__getitem__, px[0::3]))
         out = RGBA(im.w, im.h, px, None)
-    elif "CCITTFaxDecode" in names:
-        g = image_gray(doc, image, max_pixels)
-        out = RGBA(g.w, g.h, _gray3(g.px), None)
+    elif "CCITTFaxDecode" in names or "JBIG2Decode" in names:
+        g = image_gray(doc, image, max_pixels, deadline)
+        px, gw, gh = _shrink(g, dct_pixels)
+        if cs.n == 1 and cs.kind not in ("DeviceGray", "CalGray", "ICCBased"):
+            # Indexed・Separation の 1 ビットの画像：0 と 1 の色で塗る（濃さは 0 か 255）
+            c0, c1 = [cs.rgb([v]) for v in (0, 1)]
+            tab = [bytes(int((c0[k] + (c1[k] - c0[k]) * v / 255) * 255 + 0.5) for k in range(3)) for v in range(256)]
+            rgb = b"".join(map(tab.__getitem__, px))
+        else:
+            rgb = _gray3(px)
+        out = RGBA(gw, gh, rgb, None, False, g.notes, g.problems)
     else:
         if isinstance(image, Stream):
             data = doc.decode(image)
@@ -94,17 +113,100 @@ def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None
         sm = doc.resolve(d.get("SMask"))
         mk = doc.resolve(d.get("Mask"))
         if isinstance(sm, Stream):
-            a = image_gray(doc, sm, max_pixels)
+            a = image_gray(doc, sm, max_pixels, deadline)
             _set_alpha(out, a.px, a.w, a.h, max_pixels, dct_pixels)
             matte = doc.resolve(sm.dict.get("Matte"))
             if isinstance(matte, list) and len(matte) == cs.n and (a.w, a.h) == (out.w, out.h):
                 _unmatte(out, cs.rgb([float(doc.resolve(v)) for v in matte]))
         elif isinstance(mk, Stream):
-            a = image_gray(doc, mk, max_pixels)  # 型抜き：隠す所（既定は 1）が白
+            a = image_gray(doc, mk, max_pixels, deadline)  # 型抜き：隠す所（既定は 1）が白
             _set_alpha(out, a.px.translate(_inv_table()), a.w, a.h, max_pixels, dct_pixels)
         elif isinstance(mk, list) and len(mk) >= 2 * max(1, cs.n) and data and "DCTDecode" not in names:
             out.alpha = _color_key(data, d, w, h, cs, [int(doc.resolve(v)) for v in mk], out)
     return out
+
+
+def _jpx_rgba(doc, image, d: dict, res, max_pixels: int, screen_pixels: int | None, deadline: float | None) -> RGBA:
+    """JPXDecode（ISO 32000-1 7.4.9）：ColorSpace があれば JP2 の色の指定より優先、なければ JP2 の箱で決める。Decode は無視する。
+    SMaskInData（表 89）：1・2 なら、JP2 の透けの成分を透けとして使う。SMask の Stream があれば、そちらを使う。"""
+    from ..raster import image_gray as _ig
+    from ..raster import jpx_image
+
+    if isinstance(image, Stream):
+        data = doc.decode(image)
+    else:
+        data = doc.decode(Stream({"Filter": d["Filter"]}, image[1]), decrypt=False)
+    target = min(max_pixels, screen_pixels or max_pixels)
+    # 画面の 2 倍の screen_pixels のうち、解像度の段は画面の画素を下回らないところまで下げる
+    im = jpx_image(doc, data, max(1, target // 2), deadline)
+    planes = im.planes
+    n = len(planes)
+    cs_obj = d.get("ColorSpace")
+    if cs_obj is not None:
+        cs = colorspace(doc, cs_obj, res)
+    else:
+        name = {"gray": "DeviceGray", "sRGB": "DeviceRGB", "CMYK": "DeviceCMYK"}.get(im.colorspace or "")
+        if name is None:
+            name = "DeviceGray" if n < 3 else "DeviceCMYK" if n == 4 and im.colorspace == "CMYK" else "DeviceRGB"
+        cs = colorspace(doc, Name(name), res)
+    nc = cs.n or 1
+    if n < nc:
+        planes = list(planes) + [planes[-1]] * (nc - n)
+    if cs.kind == "Indexed" and im.bits and im.bits[0] < 8:
+        top = (1 << im.bits[0]) - 1  # 面は 0〜255 に広げてあるので、添字に戻す
+        planes = [planes[0].translate(bytes((v * top + 127) // 255 for v in range(256)))]
+    px = _planes_rgb(planes[:nc], cs, im.w, im.h)
+    out = RGBA(im.w, im.h, px, None, False, list(im.notes), list(im.problems))
+    smd = doc.resolve(d.get("SMaskInData")) if isinstance(image, Stream) else 0
+    if isinstance(image, Stream):
+        sm = doc.resolve(d.get("SMask"))
+        if isinstance(sm, Stream):
+            a = _ig(doc, sm, max_pixels, deadline)
+            _set_alpha(out, a.px, a.w, a.h, max_pixels, screen_pixels)
+        elif smd in (1, 2) and im.alpha is not None:
+            out.alpha = bytes(im.alpha)
+        else:
+            mk = doc.resolve(d.get("Mask"))
+            if isinstance(mk, Stream):
+                a = _ig(doc, mk, max_pixels, deadline)
+                _set_alpha(out, a.px.translate(_inv_table()), a.w, a.h, max_pixels, screen_pixels)
+    return out
+
+
+def _planes_rgb(planes: list, cs, w: int, h: int) -> bytes:
+    """8 ビットの成分の面 → RGB（w*h*3）。"""
+    nc = len(planes)
+    if nc == 1:
+        p = planes[0]
+        if cs.kind in ("DeviceGray", "CalGray") or (cs.kind == "ICCBased" and cs.n == 1):
+            return _gray3(p)
+        tab = []
+        for v in range(256):
+            r, g, b = cs.rgb([v if cs.kind == "Indexed" else v / 255])
+            tab.append(bytes((int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5))))
+        return b"".join(map(tab.__getitem__, p))
+    if nc == 3 and cs.kind in ("DeviceRGB", "CalRGB", "ICCBased"):
+        out = bytearray(w * h * 3)
+        out[0::3], out[1::3], out[2::3] = planes[0], planes[1], planes[2]
+        return bytes(out)
+    if nc == 4 and cs.kind in ("DeviceCMYK", "ICCBased"):
+        out = bytearray(w * h * 3)
+        k_ = planes[3]
+        for i in range(3):
+            out[i::3] = bytes([(255 - a) * (255 - k) // 255 for a, k in zip(planes[i], k_)])
+        return bytes(out)
+    cache: dict = {}
+    out = bytearray()
+    rng = cs.ranges()
+    for vals in zip(*planes):
+        c = cache.get(vals)
+        if c is None:
+            r, g, b = cs.rgb([rng[i][0] + (rng[i][1] - rng[i][0]) * v / 255 for i, v in enumerate(vals)])
+            c = bytes((int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5)))
+            if len(cache) < 65536:
+                cache[vals] = c
+        out += c
+    return bytes(out)
 
 
 def _set_alpha(out: RGBA, a: bytes, aw: int, ah: int, max_pixels: int, screen_pixels: int | None) -> None:

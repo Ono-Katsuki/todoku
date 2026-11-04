@@ -143,6 +143,22 @@ def _cmaps_of(tabs):
     return _cmaps(tabs.get("cmap", b""))
 
 
+def any_face_glyph(text: str):
+    """字（Unicode）が分かっているときに、このパソコンのどれかの書体の字形：(形の鍵, 輪郭, 字形の単位 → em の行列) か None。
+    字の形そのものは元の書体と違うが、字は同じ（エージェントが読める）。"""
+    if not text or text == _UNKNOWN or not text.strip():
+        return None
+    for kind in ("cjk-sans", "sans", "fallback", "serif", "symbol", "dingbats"):
+        f = system_face(kind)
+        if f is None:
+            continue
+        g = f.lookup(text)
+        if g is not None:
+            o = f.outl
+            return ((f.path, g), o.glyph(g), o.glyph_matrix(g) if isinstance(o, CFFOutlines) else o.matrix)
+    return None
+
+
 def system_face(kind: str) -> SystemFace | None:
     """書体の種類（sans・serif・mono・cjk-sans など、末尾 -bold は太字）の、このパソコンにある書体。"""
     env = os.environ.get("TODOKU_RENDER_FONT_" + kind.upper().replace("-", "_"))

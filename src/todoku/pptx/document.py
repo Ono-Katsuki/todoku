@@ -209,6 +209,9 @@ class PptxDocument:
         media = _join(part, target) if target else ""
         pic = {"n": len(self.pictures) + 1, "alt": alt, "decorative": deco, "slide": self._slide,
                "name": (c.get("name") or "") if c is not None else "", "media": media if self.zip.has(media) else ""}
+        ext = next((e for e in node.iter("ext") if (e.get("cx") or "").isdigit() and (e.get("cy") or "").isdigit()), None)
+        if ext is not None:
+            pic["size_mm"] = [round(int(ext.get("cx")) / 36000, 1), round(int(ext.get("cy")) / 36000, 1)]  # EMU → mm
         self.pictures.append(pic)
         mark = f"〔図: {alt}〕" if alt else ("" if deco else f"〔図{pic['n']}（説明なし）〕")
         pic["para"] = Para(node, part, [Seg(mark, "other", None)] if mark else [])

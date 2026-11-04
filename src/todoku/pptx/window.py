@@ -31,7 +31,8 @@ def build(doc: PptxDocument) -> dict:
         if lines:
             win["stories"].append({"kind": TEMPLATE, "part": part, "reading": lines, "_plain": plain, "template": True})
     win["pictures"] = [{"id": f"図{p['n']}", "alt": p["alt"] or None, "decorative": p["decorative"],
-                        "where": f"スライド {p['slide']}" + (f"の「{p['name']}」" if p["name"] else "")} for p in doc.pictures]
+                        "where": f"スライド {p['slide']}" + (f"の「{p['name']}」" if p["name"] else ""), "media": p.get("media", ""),
+                        **({"size_mm": p["size_mm"]} if p.get("size_mm") else {})} for p in doc.pictures]
     win["unread"] = list(doc.unread)
     return win
 

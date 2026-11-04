@@ -6,10 +6,12 @@
 - 相互参照の番号がずれた PDF でもページを見つける。ページが1つもない PDF は F（理由つき）
 - ページの外の欄の候補は出さない
 - 読む段階は入力欄の見つけ方で下げない。字に直せない字が行の頭の印だけなら注意（alerts）、本文の字なら E
-- 開けない圧縮の画像だけのページは E（書類はスキャン）
+- 開けない圧縮の画像だけのページは E（書類はスキャン）。JBIG2・JPEG 2000 は開けるので、ほかのスキャンと同じ
 """
 
 from __future__ import annotations
+
+import pytest
 
 import zlib
 
@@ -193,9 +195,9 @@ def test_unmappable_body_text_is_e_with_places():
     assert "経済" in g.reasons[0].where[0]
 
 
-def test_scan_with_undecodable_compression_is_e():
-    # 画像だけのページで、画像の圧縮が JBIG2（todoku は開けない）：書類はスキャンなので E。書く所は確かめられないので D
-    img = b"<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /JBIG2Decode /Length 4 >>\nstream\n\x00\x00\x00\x00\nendstream"
+def _scan_with_filter(flt: bytes) -> bytes:
+    img = (b"<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /" + flt
+           + b" /Length 4 >>\nstream\n\x00\x00\x00\x00\nendstream")
     content = b"q 595 0 0 842 0 0 cm /Im1 Do Q"
     objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /XObject << /Im1 5 0 R >> >> /Contents 4 0 R >>",
@@ -208,8 +210,22 @@ def test_scan_with_undecodable_compression_is_e():
     xref = len(out)
     out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode() + b"".join(f"{o:010d} 00000 n \n".encode() for o in offs)
     out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
-    g = grade_blob(bytes(out), "s.pdf")
-    assert g.grade == "E" and "JBIG2Decode" in g.reasons[0].detail and g.write == "D", g.headline()
+    return bytes(out)
+
+
+def test_scan_with_undecodable_compression_is_e():
+    # 画像だけのページで、画像の圧縮が規格にない名前：書類はスキャンなので E。書く所は確かめられないので D
+    g = grade_blob(_scan_with_filter(b"FooDecode"), "s.pdf")
+    assert g.grade == "E" and "FooDecode" in g.reasons[0].detail and g.write == "D", g.headline()
+
+
+@pytest.mark.parametrize("flt", [b"JBIG2Decode", b"JPXDecode"])
+def test_scan_in_jbig2_or_jpeg2000_is_read_with_view_page(flt):
+    # JBIG2・JPEG 2000 のスキャン：ほかのスキャンと同じ。読む E（view_page で見て読む）、書く B（枠で書く）
+    g = grade_blob(_scan_with_filter(flt), "s.pdf")
+    assert g.grade == "E" and g.write == "B", g.headline()
+    assert "view_page" in g.reasons[0].detail
+    assert not any("開けない" in r.title or "開けない" in r.detail for r in list(g.reasons) + list(g.write_reasons))
 
 
 def test_csv_with_nul_in_values_is_still_data():

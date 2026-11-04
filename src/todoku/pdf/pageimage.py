@@ -76,7 +76,8 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int | Non
             "skipped": skipped, "view": view, "stamps": stamps, "annot_failed": annot_failed, "glyphs": len(cells),
             "user_unit": view.unit, "dpi": s * 25.4, "stats": dict(rr.stats), "substituted": dict(rr.subst),
             "missing_fonts": sorted(rr.missing_fonts), "approx": dict(rr.approx), "stopped": rr.stopped,
-            "problems": list(rr.problems), "no_appearance": appearance_notes(doc, page)}
+            "problems": list(rr.problems), "no_appearance": appearance_notes(doc, page), "image_notes": list(rr.image_notes),
+            "box_places": [(round(x0 + px / s), round(y0 + py / s)) for px, py in rr.box_places]}
 
 
 def _annot_pictures(doc, page: dict, stamps: list, failed: list | None = None, glyphs: list | None = None) -> list:
@@ -173,8 +174,9 @@ def _box(img, W, H, x0, y0, x1, y1, color) -> None:
         img[(y * W + x0) * 3:(y * W + x1) * 3] = line
 
 
-def with_ruler(r: dict, marks: list | None = None, written: list | None = None) -> tuple[bytes, int, int, list[str]]:
-    """目盛り（10 mm ごとに数、5 mm ごとに短い線）を上と左の帯に付け、marks（{box:[左,上,右,下] mm, label}）を赤で描く。"""
+def with_ruler(r: dict, marks: list | None = None, written: list | None = None, ticks: tuple | None = None) -> tuple[bytes, int, int, list[str]]:
+    """目盛り（10 mm ごとに数、5 mm ごとに短い線）を上と左の帯に付け、marks（{box:[左,上,右,下] mm, label}）を赤で描く。
+    ticks：(短い線の間隔, 数の間隔)。解像度の分からない画像は、単位を画素にして渡す。"""
     M = 26  # 帯の幅（画素）
     W, H, s = r["w"], r["h"], r["scale"]
     ox, oy = r["origin_mm"]
@@ -184,15 +186,18 @@ def with_ruler(r: dict, marks: list | None = None, written: list | None = None) 
         img[((y + M) * TW + M) * 3:((y + M) * TW + M + W) * 3] = r["rgb"][y * W * 3:(y + 1) * W * 3]
     gray = (150, 150, 150)
     step = 10 if s >= 3 else 20 if s >= 1.5 else 50
-    first = int(ox // 5 + 1) * 5
-    for mm in range(first, int(ox + W / s) + 1, 5):
+    tick = 5
+    if ticks:
+        tick, step = ticks
+    first = int(ox // tick + 1) * tick
+    for mm in range(first, int(ox + W / s) + 1, tick):
         X = M + int((mm - ox) * s)
         long_ = mm % step == 0
         _box(img, TW, TH, X, M - (10 if long_ else 5), X + 1, M, gray if not long_ else (0, 0, 0))
         if long_:
             _text(img, TW, TH, X + 2, 2, str(mm))
-    first = int(oy // 5 + 1) * 5
-    for mm in range(first, int(oy + H / s) + 1, 5):
+    first = int(oy // tick + 1) * tick
+    for mm in range(first, int(oy + H / s) + 1, tick):
         Y = M + int((mm - oy) * s)
         long_ = mm % step == 0
         _box(img, TW, TH, M - (10 if long_ else 5), Y, M, Y + 1, gray if not long_ else (0, 0, 0))
@@ -259,14 +264,20 @@ def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | No
         subs = r["substituted"]
         text += (" 埋め込まれていない書体は、このパソコンの書体で代わりに描いています（字の形・幅が、作った人の画面と少し違う"
                  "ことがあります）：" + "／".join(f"{k} → {v}" for k, v in list(subs.items())[:6]))
+    if st.get("glyphs_fallback"):
+        text += (f" 書体に字の形がない字 {st['glyphs_fallback']} 字は、字（ToUnicode など）が分かるので、このパソコンの別の書体で描いています"
+                 "（字は同じで、形が元と違います）。")
     if st.get("glyphs_box"):
         miss = r.get("missing_fonts") or []
-        text += (f" 字の形が分からない字 {st['glyphs_box']} 字は、字の位置に灰色の四角で示しています（字の形は描けていません。"
-                 "その字は窓で読みます）" + (f"。代わりの書体が見つからない書体：{'・'.join(miss[:5])}" if miss else "") + "。")
+        text += (f" 字の形が分からない字 {st['glyphs_box']} 字は、字の位置に灰色の四角で示しています（字の形も字も分かりません。この画像でも読めません。"
+                 "その所の中身は推測で埋めず、本人に伝えてください）" + (f"。代わりの書体が見つからない書体：{'・'.join(miss[:5])}" if miss else "")
+                 + "。位置（左・上 mm）：" + "／".join(f"{x}・{y}" for x, y in _places(r)) + "。")
     if r.get("approx"):
         text += (" 仕様どおりには描けず、近い形で描いたもの：" + "・".join(f"{k} {v} か所" for k, v in r["approx"].items()) + "。")
     if r.get("stopped"):
         text += " 描くのに時間がかかりすぎるため、途中で止めました（描いていない所があります）。"
+    if r.get("image_notes"):
+        text += " 画像の開き方：" + "／".join(r["image_notes"][:5]) + "（細かな字が読めないときは、region で範囲を狭めて拡大すると、予算の中で細かな解像度で開きます）。"
     if r["skipped"]:
         text += " 描けなかった画像：" + "／".join(r["skipped"][:5])
     if r.get("annot_failed"):
@@ -289,12 +300,23 @@ def view_page(doc, page_no: int, region_mm: list | None = None, marks: list | No
             "not_drawn": not_drawn(r)}
 
 
+def _places(r: dict) -> list:
+    """字の形が分からない字の位置（同じ所を除く）。"""
+    seen: list = []
+    for p in r.get("box_places") or []:
+        if p not in seen:
+            seen.append(p)
+    return seen[:12]
+
+
 def not_drawn(r: dict) -> list[str]:
     """このページで、そのとおりには描けなかったものの短い一覧（なければ空）。"""
     st = r.get("stats", {})
     out = [f"埋め込みのない書体 {k}（{v} で代わりに描いた）" for k, v in list(r.get("substituted", {}).items())[:6]]
+    if st.get("glyphs_fallback"):
+        out.append(f"書体に字の形がない字 {st['glyphs_fallback']} 字（ToUnicode の字を、別の書体の形で描いた）")
     if st.get("glyphs_box"):
-        out.append(f"字の形が分からない字 {st['glyphs_box']} 字（灰色の四角で示した）")
+        out.append(f"字の形が分からない字 {st['glyphs_box']} 字（灰色の四角で示した。位置（左・上 mm）：" + "／".join(f"{x}・{y}" for x, y in _places(r)) + "）")
     out += [f"{k} {v} か所（近い形で描いたか、飛ばした）" for k, v in r.get("approx", {}).items()]
     out += [f"画像 {s}（灰色の枠と対角線で示した）" for s in r.get("skipped", [])[:8]]
     out += [f"注釈の見た目 {s}" for s in r.get("annot_failed", [])[:8]]
@@ -304,12 +326,12 @@ def not_drawn(r: dict) -> list[str]:
     return out
 
 
-_CAN ={"FlateDecode", "Fl", "ASCII85Decode", "A85", "ASCIIHexDecode", "AHx", "LZWDecode", "LZW", "RunLengthDecode", "RL",
-        "DCTDecode", "DCT", "CCITTFaxDecode", "CCF", "Crypt"}
+_CAN = {"FlateDecode", "Fl", "ASCII85Decode", "A85", "ASCIIHexDecode", "AHx", "LZWDecode", "LZW", "RunLengthDecode", "RL",
+        "DCTDecode", "DCT", "CCITTFaxDecode", "CCF", "Crypt", "JBIG2Decode", "JPXDecode"}
 
 
 def unreadable_images(doc, page: dict) -> list[str]:
-    """ページの画像のうち、todoku が開けない圧縮（JBIG2・JPEG 2000 など）のもの（画像の名前：圧縮）。"""
+    """ページの画像のうち、PDF の規格にない名前の圧縮のもの（画像の名前：圧縮）。規格の圧縮はどれも開ける。"""
     from .objects import Stream
 
     out = []
