@@ -228,14 +228,14 @@ def _binary_book_notes(blob: bytes | None, kind: str) -> list[dict]:
         return []
     try:
         return _xls_pivots(blob)
-    except Exception:  # noqa: BLE001  定義を読めないことは、処理の取り出しを止める理由にならない
-        return []
+    except Exception as e:  # noqa: BLE001  定義を読めないことは、処理の取り出しを止める理由にならない。ただし黙らない
+        return [{"kind": "pivot_table", "expressible_by_cells": False, "note": f"ピボットの定義を読めませんでした（{type(e).__name__}）"}]
 
 
 def _xls_pivots(blob: bytes) -> list[dict]:
-    """.xls の SXVIEW（MS-XLS 2.4.313）：場所と名前。"""
+    """.xls のピボットの定義（xls.pivot。[MS-XLS] から）。"""
     from ..cfb import CFB
-    from ..xls.book import records
+    from ..xls.pivot import views
 
     c = CFB(blob)
     names = {n.lower(): n for n in c.streams()}
@@ -243,17 +243,16 @@ def _xls_pivots(blob: bytes) -> list[dict]:
     if key is None:
         return []
     out = []
-    for t, b in records(c.read(key)):
-        if t == 0x00B0 and len(b) >= 44:  # SXVIEW
-            r1, r2, c1, c2 = struct.unpack_from("<HHHH", b, 0)
-            cch = struct.unpack_from("<H", b, 40)[0]
-            name = ""
-            if cch and cch != 0xFFFF:
-                flags = b[44] if len(b) > 44 else 0
-                raw = b[45:45 + cch * (2 if flags & 1 else 1)]
-                name = raw.decode("utf-16-le", "replace") if flags & 1 else raw.decode("latin-1")
-            out.append({"kind": "pivot_table", "name": name, "location": rect_text(r1 + 1, c1 + 1, r2 + 1, c2 + 1),
-                        "expressible_by_cells": False, "note": _NOT_FORMULA + "（.xls のピボットは場所と名前だけを読みます）"})
+    for v in views(c, c.read(key)):
+        r1, c1, r2, c2 = v.pop("location")
+        v.pop("counts", None)
+        src = v.get("source")
+        if src and "ref" in src:
+            a_, b_, c_, d_ = src["ref"]
+            src["ref"] = rect_text(a_ + 1, b_ + 1, c_ + 1, d_ + 1)
+        rec = {"kind": "pivot_table", **v, "location": rect_text(r1 + 1, c1 + 1, r2 + 1, c2 + 1),
+               "expressible_by_cells": False, "note": _NOT_FORMULA}
+        out.append({k: x for k, x in rec.items() if x not in (None, [], "")})
     return out
 
 
