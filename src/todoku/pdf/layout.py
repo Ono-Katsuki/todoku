@@ -52,6 +52,7 @@ CHECKED_GLYPHS = set(_chars.CHECKED_BOXES) | set(_chars.MAYBE_CHECKED)  # ▣ �
 #      Sentence_Terminal の後ろの行末・左右の空きが等しい中央そろえの行の両側・段落の 1 字下げ）は除く
 #   4. チェックの箱の字（□ など。どれも「？」：箱か箇条の印かは決めない。記入済みの箱の字 ☑ ■ などは、書き換えられない所として）
 #   5. 下線の罫線：マスの縁でも表の中の線でもない横線で、すぐ上に字のないもの（線の上の 1 行の帯）
+# 行の所（2・3）は行のもの：書く四角は行の帯（line_band）で、字は行の基線に行の字の大きさで 1 行に書く。上下の空きは事実（room_mm）。
 # 所は事実（位置・大きさ mm・周りの字とその離れ mm）と一緒に示し、書く所かどうか（意味）はエージェントが決める。
 # 規則の欄（窓の［p1.t…］）と「？」（［p1.g…？］）の違いも作りで決める：描かれた空欄（空のマス・下線の罫線・下線の字・
 # かっこの中）は規則の欄、字の間の空き（空白・点線・ダッシュ・行の前後の空き）・箱の字・空のマスの並びは「？」。
@@ -247,6 +248,7 @@ class Spot:
     anchor: tuple | None = None  # id を決める位置（作りの位置：マスの左上・空きの始まりと行の上。pt）
     facts: dict = field(default_factory=dict)  # 窓に示す事実（mm・字・離れ）
     write_size_from: str = ""  # 既定の字の大きさの出どころ（default_size）
+    baseline: float | None = None  # 行の所：書く字の基線（見た目の y、pt。行の字と同じ基線に書く）
 
 
 def _agent(sp: "Spot", why: str = "") -> "Spot":
@@ -915,12 +917,13 @@ class PageLayout:
                 return
             x0, x1 = lb + pad[lk], rb - pad[rk]
             if wide_gap(rb - lb, sz) and x1 > x0:
-                y0, y1 = self._band(ln, cell, x0, x1)
+                y0, y1, base = line_band(ln)
                 sp = _agent(Spot("text" if cell is not None else "inline", (x0, y0, x1, y1), "［　］", GAP_WHY["blank_line"], line_text=text, blank=(0, n),
                                  cell=cell, size=sz, host=ln, at=(0, n), shape="blank_line", anchor=(lb, ln.y0),
-                                 write_size_from="行の字の大きさ"))
+                                 write_size_from="行の字の大きさ", baseline=base))
                 sp.facts = {"rect_mm": self._rect_mm(sp.rect), "width_mm": self._mm(rb - lb), "width_em": round((rb - lb) / sz, 1),
-                            "bound": {"kind": f"{lk}・{rk}", "text": " ／ ".join(t for t in (lt, rt) if t), "mm": 0.0}}
+                            "bound": {"kind": f"{lk}・{rk}", "text": " ／ ".join(t for t in (lt, rt) if t), "mm": 0.0},
+                            "room_mm": self._room(ln, cell, x0, x1)}
                 self.spots.append(sp)
             return
         rtl = bool(getattr(ln, "rtl", False))
@@ -946,6 +949,7 @@ class PageLayout:
         # 中央そろえ（左右の空きが等しい）は、両側に描かれた端（マスの縁・罫線・字）があるときだけ見る：ページの字の端までの空きは、
         # 描かれた端ではないので、ページの中ほどに置いた見出し（「(申請者)住所」）を中央そろえとは言えない
         align = lk != "page" and rk != "page"
+        band0, band1, base = line_band(ln)  # 所は行のもの：書く四角は行の帯（基線と字の高さ）。上下の空きは事実（room_mm）に
         for blank in gap_blanks(padded, lead, trail, width, align=align):
             a, b = blank
             a0, b0 = a - lead, b - lead
@@ -962,8 +966,7 @@ class PageLayout:
                     anchor, bound = (ln.x1, ln.y0), {"kind": rk, "text": rt, "mm": self._mm(right_room)}
                 if x1 <= x0:
                     continue
-                y0, y1 = self._band(ln, cell, x0, x1)
-                rect = (x0, y0, x1, y1)
+                rect = (x0, band0, x1, band1)
                 if any(k.cell is cell and k.shape in ("lead", "trail") and all(abs(u - v) <= 0.5 for u, v in zip(k.rect, rect))
                        for k in self.spots):
                     continue  # 同じマスのほかの行の前後の空きと同じ四角（縦に並ぶ行の左の、同じ空き）：同じ所は 1 つ
@@ -972,28 +975,28 @@ class PageLayout:
                 if at[1] <= at[0]:
                     continue
                 x0, _, x1, _ = ln.span_rect(*at)
-                rect, anchor, bound = (x0, ln.y0, x1, ln.y1), (x0, ln.y0), None
+                rect, anchor, bound = (x0, band0, x1, band1), (x0, ln.y0), None
                 if why == "placeholder":
                     # PDF の字は消せない：伏せ字の上を白い下地の欄で覆って書く（元の字は残る）。覆う四角は字の箱より少し大きく
-                    rect = (x0 - 0.3, ln.y0 - 0.1 * sz, x1 + 0.3, ln.y1 + 0.1 * sz)
+                    rect = (x0 - 0.3, band0, x1 + 0.3, band1)
             if rect[2] <= rect[0]:
                 continue  # 空きがまったくない（縁や次の字に接している）
             orig = text[at[0]:at[1]]
             shown = text[:at[0]] + (orig if orig.strip(" 　") else "") + "［　］" + text[at[1]:]
             if why == "placeholder":
                 shown = text[:at[0]] + "［　］" + text[at[1]:]
-            # マスの中の行の前後の空きは、行と行の間の帯（行より高いこともある四角）：字の欄（text）として書く。行の中の空きは inline
+            # マスの中の行の前後の空きは字の欄（text）として書く。行の中の空きは inline（どちらも行の帯に、行の基線で書く）
             kind = "text" if why in ("lead", "trail") and cell is not None else "inline"
             sp = Spot(kind, rect, label_text(shown), GAP_WHY.get(why, "空き"), line_text=text, blank=at, cell=cell,
                       size=sz, host=ln, at=at, shape=why, anchor=anchor, write_size_from="行の字の大きさ",
-                      cover=orig if why == "placeholder" else "")
+                      cover=orig if why == "placeholder" else "", baseline=base)
             if not blank.structural:
                 _agent(sp)
             # 幅は測った空き（行の前後の空きは、端から字までの空き。書く所の四角は、端と字から少し離したもの）
             w = (left_room if on_left else right_room) if why in ("lead", "trail") else rect[2] - rect[0]
             facts = {"rect_mm": self._rect_mm(rect), "width_mm": self._mm(w), "width_em": round(w / sz, 1),
                      "before": text[:at[0]].rstrip(" 　")[-12:], "after": text[at[1]:].lstrip(" 　")[:12],
-                     "line": text.strip(" 　")}
+                     "line": text.strip(" 　"), "room_mm": self._room(ln, cell, rect[0], rect[2])}
             if why in ("connector", "leader", "dash", "placeholder"):
                 facts["glyph"] = orig[:1]
                 facts["count"] = len(orig)
@@ -1006,21 +1009,27 @@ class PageLayout:
             sp.facts = facts
             self.spots.append(sp)
 
-    def _band(self, ln: Line, cell: Cell | None, x0: float, x1: float) -> tuple[float, float]:
-        """行の前後の空き（x0〜x1）の上下：マスの中では、その横の範囲にかかる上下のほかの行の字（なければマスの縁）まで。
-        マスの外の行は、行の高さだけ（上下に描かれた端がない）。"""
-        if cell is None:
-            return ln.y0, ln.y1
-        pad = TEXT_PAD * ln.size
-        top, bottom = cell.y0, cell.y1
-        for o in cell.lines:
+    def _room(self, ln: Line, cell: Cell | None, x0: float, x1: float) -> dict:
+        """行の所（x0〜x1）の上下の空き（mm）：その横の範囲にかかる上下のほかの行の字・横の罫線まで（マスの中はマスの縁まで）。
+        書く四角にはしない事実（広い所に書くなら box か where: below で）。上下に何もなければ、ページの端まで。"""
+        top, bottom = (cell.y0, cell.y1) if cell is not None else (0.0, self.view.height)
+        y0, y1 = ln.y0, ln.y1
+        for o in (cell.lines if cell is not None else self.free_lines):
             if o is ln or not o.text.strip(" \u3000") or min(o.x1, x1) - max(o.x0, x0) <= 0:
                 continue
-            if o.y1 <= ln.y0 + pad:
-                top = max(top, o.y1 + pad)
-            elif o.y0 >= ln.y1 - pad:
-                bottom = min(bottom, o.y0 - pad)
-        return min(top, ln.y0), max(bottom, ln.y1)
+            if o.y1 <= (y0 + y1) / 2:
+                top = max(top, o.y1)
+            elif o.y0 >= (y0 + y1) / 2:
+                bottom = min(bottom, o.y0)
+        if cell is None:
+            for h in self.hs:
+                if min(h.b, x1) - max(h.a, x0) <= 0:
+                    continue
+                if h.pos <= y0:
+                    top = max(top, h.pos)
+                elif h.pos >= y1:
+                    bottom = min(bottom, h.pos)
+        return {"above": self._mm(max(0.0, y0 - top)), "below": self._mm(max(0.0, bottom - y1))}
 
     def _room_facts(self) -> None:
         """字のあるマスの、字の下・上の空き（1 字ぶん以上）：欄にはせず、窓の印「［↓余白 n mm］」「［↑余白 n mm］」で示す
@@ -1166,6 +1175,17 @@ class PageLayout:
     def _label_for(self, first: Cell, last: Cell) -> tuple[str, str, str]:
         """マス（または並び）の見出し：(見出し, 左の字, 上の字)。周りの字は _neighbours（facts と同じもの）。"""
         return self._label_of(self._neighbours((first.x0, first.y0, last.x1, last.y1)))
+
+
+def line_band(ln: Line) -> tuple[float, float, float | None]:
+    """行の所の、書く四角の上下と基線：(上, 下, 基線)。行のいちばん大きな字（ルビなどの小さな字を除く：基線と字の高さは本文の字）の
+    高さに、字の下がり（ディセンダー）が切れないよう上下に字の大きさの 1/10 を足したもの。縦に読む行は、基線なし。"""
+    main = [c for c in ln.chars if c.size >= ln.size - 0.01] or ln.chars
+    pad = 0.1 * ln.size
+    if ln.vertical:
+        return ln.y0 - pad, ln.y1 + pad, None
+    bases = sorted(c.base for c in main)
+    return min(c.y0 for c in main) - pad, max(c.y1 for c in main) + pad, bases[len(bases) // 2]
 
 
 def _rtl_cell(c: Cell) -> bool:

@@ -11,9 +11,9 @@
 断るのは、はっきり重なるときだけ（いまのエージェントは書く所を正しく決め、書いた後のページを view_page で見て確かめるので、
 きわどい所は、所と位置（mm）を添えて知らせ、エージェントが見て決める）：
 - 断る：(a) とどくが置いた字の墨が、印刷された字の墨（circle.INK）に大きく重なる（小さいほうの面の 1/4 以上）
-        (c) 同じ書き込みで書いた値どうしが大きく重なる・○の線が、書いた値の墨を髪の毛の太さより深く切る
+        (c) 同じ書き込みで書いた値どうしの墨が重なる（字の面の四角 written_ink で比べる）・○の線が、書いた値の墨を髪の毛の太さより深く切る
 - 知らせる（warnings）：字の面（circle.face）に少しかかる・罫線に触れる／横切る（○の線も）・曲線（「見本」の印など）に
-  かかる・画像（スキャン）に重なる（画像に描かれた罫線・字は確かめられない）・書いた値どうしが少しかかる
+  かかる・画像（スキャン）に重なる（画像に描かれた罫線・字は確かめられない）
 （覆って書く所（cover）は、覆う字に重なってよい）
 作り手の決めたフォームの欄（AcroForm）の中の字は、欄の位置を作り手が決めたので、(a)・(b) は見ない。
 """
@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import math
+import unicodedata
 
 from .content import Interpreter, apply, mul
 from .layout import View
@@ -110,8 +111,8 @@ def appearance_glyphs(doc, ad: dict) -> list:
     return [g for g in pc.glyphs if not g.invisible and g.text.strip()]
 
 
-def ink_box(g, view: View) -> tuple[float, float, float, float] | None:
-    """字の墨の四角（見た目の座標）。"""
+def ink_box(g, view: View, up_ratio: float = INK_UP, down_ratio: float = 0.0) -> tuple[float, float, float, float] | None:
+    """字の墨の四角（見た目の座標）：基線から上に up_ratio 字ぶん、下に down_ratio 字ぶん。"""
     ln = math.hypot(g.dx, g.dy)
     adv = g.adv or ln
     if ln <= 0 or adv <= 0 or g.size <= 0:
@@ -121,10 +122,18 @@ def ink_box(g, view: View) -> tuple[float, float, float, float] | None:
     side = min(INK_SIDE * g.size, 0.25 * adv)
     p0 = (g.ox + ux * side, g.oy + uy * side)
     p1 = (g.ox + ux * (adv - side), g.oy + uy * (adv - side))
-    up = INK_UP * g.size
-    corners = [p0, p1, (p0[0] + vx * up, p0[1] + vy * up), (p1[0] + vx * up, p1[1] + vy * up)]
+    up, dn = up_ratio * g.size, down_ratio * g.size
+    corners = [(p[0] + vx * k, p[1] + vy * k) for p in (p0, p1) for k in (up, -dn)]
     vs = [view.pt(x, y) for x, y in corners]
     return min(p[0] for p in vs), min(p[1] for p in vs), max(p[0] for p in vs), max(p[1] for p in vs)
+
+
+def written_ink(g, view: View) -> tuple[float, float, float, float] | None:
+    """書いたものどうしを比べる墨の四角：字の面の高さ（全角の字は字の箱いっぱいに近い：基線の少し下から 0.84 字ぶん上まで。
+    ほかの字は基線から大文字の高さまで）。INK_UP の四角（下線・罫線に触れたとしないための低い四角）で比べると、行の間が 1 字に
+    満たない 2 つの値の、実際に重なる字を見のがす。"""
+    wide = any(unicodedata.east_asian_width(ch) in ("W", "F") for ch in g.text)
+    return ink_box(g, view, 0.84, 0.08) if wide else ink_box(g, view, 0.72)
 
 
 def _overlap(r, s, eps: float = EPS) -> bool:
@@ -146,6 +155,17 @@ def _inside(kind: str, g, x: float, y: float) -> float:
         return -d
     cx, cy, a, b = g
     return ((x - cx) / a) ** 2 + ((y - cy) / b) ** 2 - 1.0
+
+
+def rule_touches_shape(rule, horizontal: bool, kind: str, g, lw: float) -> bool:
+    """罫線（線の太さの帯）が、囲みの線の外側の縁に触れるか（横切らなくても、太い線の縁に触れるだけで）。"""
+    from .circle import touches
+
+    h, e = rule.width / 2, lw / 2
+    band = (rule.a, rule.pos - h, rule.b, rule.pos + h) if horizontal else (rule.pos - h, rule.a, rule.pos + h, rule.b)
+    if kind == "border":
+        return g[0] - e <= band[2] and band[0] <= g[2] + e and g[1] - e <= band[3] and band[1] <= g[3] + e
+    return touches((g[0], g[1], g[2] + e, g[3] + e), band)
 
 
 def _rule_crosses_shape(rule, horizontal: bool, kind: str, g, lw: float) -> bool:
@@ -219,9 +239,11 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
             if not isinstance(wd, dict):
                 continue
             n = w.page + 1
-            boxes = [b for b in (ink_box(g, view_of(n)) for g in appearance_glyphs(new, wd)) if b]
+            gs = appearance_glyphs(new, wd)
+            boxes = [b for b in (ink_box(g, view_of(n)) for g in gs) if b]
             if boxes:
-                items.setdefault(n, []).append((f.name, "text", boxes, f.name in created))
+                items.setdefault(n, []).append((f.name, "text", boxes, f.name in created,
+                                                [b for b in (written_ink(g, view_of(n)) for g in gs) if b]))
     for p in patches:
         if p.kind == "circle" and p.circle:
             sd = p.circle
@@ -276,6 +298,12 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
                                      "書き直してください（box で枠を決めて書けます）")
                 else:
                     cross = next(((r, hz) for r, hz in rules if _rule_crosses_shape(r, hz, it[1], it[2], it[3])), None)
+                    touch = None if cross is not None else next(
+                        ((r, hz) for r, hz in rules if rule_touches_shape(r, hz, it[1], it[2], it[3])), None)
+                    if touch is not None:
+                        notes.append(f"{name}：{'四角' if it[1] == 'border' else '○'}の線が、ページの{'横' if touch[1] else '縦'}の罫線"
+                                     f"（{'上' if touch[1] else '左'} {touch[0].pos / mm:.1f} mm の線）に触れる見込みです（{where(ob)}）。"
+                                     "view_page で見て確かめてください（pad・box で小さくできます）")
                     if cross is not None:
                         alt = "box（○の外枠、mm）" if it[1] == "border" else "\"style\": \"border\"（字に沿った四角）か box（○の外枠、mm）"
                         notes.append(f"{name}：{'四角' if it[1] == 'border' else '○'}の線が、ページの{'横' if cross[1] else '縦'}の罫線に"
@@ -297,8 +325,9 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
                 if a[1] != "text" and b[1] != "text":
                     continue  # ○どうしは circle.resolve が確かめる
                 if a[1] == "text" and b[1] == "text":
-                    clear = next((x for x in a[2] for y in b[2] if _ovl_ratio(x, y) >= CLEAR), None)
-                    hit = clear or next((x for x in a[2] for y in b[2] if _overlap(x, y)), None)
+                    # 書いたものどうしは、墨が少しでも重なれば断る（字の面の四角で比べる）
+                    clear = next((x for x in a[4] for y in b[4] if _overlap(x, y)), None)
+                    hit = clear
                 else:
                     t, s_ = (a, b) if a[1] == "text" else (b, a)
                     clear = next((x for x in t[2] if x[2] - x[0] > 2 * HAIR and x[3] - x[1] > 2 * HAIR and
