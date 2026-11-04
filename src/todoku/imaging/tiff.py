@@ -200,7 +200,7 @@ def _undiff(row: bytearray, n: int, bits: int) -> None:
 
 
 # ---------------------------------------------------------------------- 開く
-def decode(blob: bytes, index: int, target_pixels: int | None = None) -> Frame:
+def decode(blob: bytes, index: int, target_pixels: int | None = None, deadline: float | None = None, window: tuple | None = None) -> Frame:
     e, pages = _pages(blob)
     if not 0 <= index < len(pages):
         raise ImageError(f"TIFF：ページは {len(pages)} 枚です")
@@ -288,7 +288,14 @@ def decode(blob: bytes, index: int, target_pixels: int | None = None) -> Frame:
         elif comp == 34712:
             from . import jpx
 
-            im = jpx.decode(raw)
+            if len(offs) == 1:  # 全体が 1 つの JPEG 2000：解像度と範囲を選んで開ける（予算は開く分に掛かる）
+                from .formats import _jpx_frame, shown_rect, stored_rect
+
+                im = jpx.decode(raw, target_pixels=target_pixels, deadline=deadline, window=stored_rect(window, w, h, orient) if window else None)
+                fr = _jpx_frame(im)
+                rgb, ow, oh = orient_rgb(fr.rgb, fr.w, fr.h, orient)
+                return Frame(ow, oh, rgb, _dpi(t), notes + fr.notes, problems + fr.problems, shown_rect(im.window, w, h, orient) if im.window else None)
+            im = jpx.decode(raw, max_t1_bytes=10**12, deadline=deadline)  # 区画に分かれたもの：区画を並べるので、解像度は下げない
             if jpeg_rgb is None:
                 jpeg_rgb = bytearray(b"\xff" * (w * h * 3))
             ps = im.planes if len(im.planes) >= 3 else [im.planes[0]] * 3
