@@ -218,10 +218,12 @@ def test_as_equal_to_a_kind_candidate_chooses_the_kind_and_kind_says_both():
     from todoku.api import _split_values
 
     cands = {"p1.m1-1": ["comb", "text"]}
-    v, said = _split_values({"p1.m1-1": {"as": "text", "value": "100"}}, "pdf", cands)
-    assert v == {"p1.m1-1": {"as": "text", "value": "100"}} and not said
+    v, said = _split_values({"p1.m1-1": {"as": "text", "value": "100"}}, "pdf", cands)  # 以前の書き方
+    assert v == {"p1.m1-1": {"kind": "text", "value": "100"}} and not said
     v, said = _split_values({"p1.m1-1": {"kind": "text", "as": "郵便番号", "value": "100"}}, "pdf", cands)
-    assert v == {"p1.m1-1": {"as": "text", "value": "100"}} and said == {"p1.m1-1": "郵便番号"}
+    assert v == {"p1.m1-1": {"kind": "text", "value": "100"}} and said == {"p1.m1-1": "郵便番号"}
+    v, said = _split_values({"p1.m1-1": {"kind": "comb", "as": "text", "value": "100"}}, "pdf", cands)  # kind があれば as は意味
+    assert v == {"p1.m1-1": {"kind": "comb", "value": "100"}} and said == {"p1.m1-1": "text"}
     v, said = _split_values({"p1.t1-1": {"as": "text", "value": "100"}}, "pdf", cands)  # 種類の候補のない欄の as は意味
     assert v == {"p1.t1-1": "100"} and said == {"p1.t1-1": "text"}
     v, said = _split_values({"S!B1": {"as": "text", "value": "100"}}, "xlsx")

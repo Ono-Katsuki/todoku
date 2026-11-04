@@ -372,17 +372,17 @@ ALIGNS = ("left", "center", "right")
 
 
 def layout_options(key: str, value) -> tuple[dict, object]:
-    """書く値の、置き方の指定：{"value": 値, "align": "left"|"center"|"right", "pad_mm": 余白（mm）}（"as" と一緒でもよい）。
-    返す：({"align", "pad_mm"} のうち指定のあったもの, 値（"as" があれば {"as", "value"} のまま））。指定がなければ ({}, 値)。"""
+    """書く値の、置き方の指定：{"value": 値, "align": "left"|"center"|"right", "pad_mm": 余白（mm）}（"kind" と一緒でもよい）。
+    返す：({"align", "pad_mm"} のうち指定のあったもの, 値（"kind" があれば {"kind", "value"} のまま））。指定がなければ ({}, 値)。"""
     if not (isinstance(value, dict) and ("align" in value or "pad_mm" in value)):
         return {}, value
-    if set(value) - {"value", "align", "pad_mm", "as"} or "value" not in value:
+    if set(value) - {"value", "align", "pad_mm", "kind", "as"} or "value" not in value:
         raise FillError(f'{key}: 置き方を決めて書くときは {{"value": 値, "align": "left"|"center"|"right", "pad_mm": 余白}} の形で'
                         "指定してください")
     opts = {k: value[k] for k in ("align", "pad_mm") if k in value}
     check_layout_options(key, opts)
-    rest = {k: v for k, v in value.items() if k in ("as", "value")}
-    return opts, (rest if "as" in rest else rest["value"])
+    rest = {k: v for k, v in value.items() if k in ("kind", "as", "value")}
+    return opts, (rest if len(rest) > 1 else rest["value"])
 
 
 def check_layout_options(key: str, opts: dict) -> None:
@@ -1614,18 +1614,21 @@ def _state_readback(doc: PdfDocument, fld: FormField, p: Patch) -> list[dict]:
 
 def as_kind(sd: dict, value):
     """種類が形だけでは決まらない欄（kind_candidates のある欄）に、値からどの種類で書くかを決める。
-    - {"as": 種類, "value": 値}：その種類で書く（種類は kind_candidates のどれか）
+    - {"kind": 種類, "value": 値}：その種類で書く（種類は kind_candidates のどれか）。"as" は書いた値の意味で、種類ではない
+      （以前の書き方 {"as": 種類, "value": 値} は、"kind" がなく "as" が種類の候補とちょうど同じ字のときだけ、種類として受ける）
     - はい／いいえ（true / false）：チェックの印（候補に checkbox があるとき）
     - 字：候補に text があり、既定の種類がチェックの印なら、文字の欄として書く（「1」「レ」などをマスに書く）。
-      既定が1字ずつ書く欄（comb）なら、1字ずつマスに書く（1つの欄として書くときは {"as": "text", …}）
+      既定が1字ずつ書く欄（comb）なら、1字ずつマスに書く（1つの欄として書くときは {"kind": "text", …}）
     返す値：(書く欄の情報, 書く値)。"""
     cands = sd.get("kind_candidates") or []
-    if isinstance(value, dict) and "as" in value:
-        want = value.get("as")
+    if isinstance(value, dict) and "kind" not in value and "as" in value and value["as"] not in cands and "value" in value:
+        return as_kind(sd, value["value"])  # as は書いた値の意味（種類の指定ではない）
+    if isinstance(value, dict) and ("kind" in value or "as" in value):
+        want = value.get("kind", value.get("as"))
         if not cands or want not in cands:
             raise FillError(f"{sd['id']}: 「{want}」としては書けません（書ける種類：{'・'.join(cands) or sd['kind']}）")
         if "value" not in value:
-            raise FillError(f'{sd["id"]}: {{"as": 種類, "value": 書く値}} の形で指定してください')
+            raise FillError(f'{sd["id"]}: {{"kind": 種類, "value": 書く値}} の形で指定してください')
         return {**sd, "kind": want}, value["value"]
     if not cands:
         return sd, value

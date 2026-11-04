@@ -313,11 +313,11 @@ def test_ambiguous_kinds_and_alternatives_are_offered_not_decided():
     assert prove(blob, res.blob, {comb["id"]}).ok
     got = {f["id"]: f["value"] for f in build(PdfDocument(res.blob, "s.pdf"))["pages"][0]["fields"]}
     assert got[comb["id"]] == "1000001"
-    # 1つの欄として（{"as": "text"}）：マスの仕切りの線が字にかかるので、位置を添えて知らせる（placement。断らない）
-    res = fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"as": "text", "value": "100-0001"}})
+    # 1つの欄として（{"kind": "text"}）：マスの仕切りの線が字にかかるので、位置を添えて知らせる（placement。断らない）
+    res = fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"kind": "text", "value": "100-0001"}})
     assert any("罫線がかかる見込み" in w for w in res.warnings), res.warnings
     with pytest.raises(FillError, match="としては書けません"):
-        fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"as": "checkbox", "value": True}})
+        fill(PdfDocument(blob, "s.pdf"), {comb["id"]: {"kind": "checkbox", "value": True}})
     # 日付の空欄は字の間の空き：描かれた空欄ではないので「？」
     assert all(f.get("agent") for f in fields if f["kind"] == "inline")
     # 行の終わりの後ろの 1 字ぶん以上の空き（ページの字の端まで）も所。字を目印にしても書ける

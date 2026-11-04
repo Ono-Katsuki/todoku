@@ -217,7 +217,10 @@ class XlsWorkbook:
         self.biff = 8
         self.biff5_encoding = "cp1252"
         self.dual_format = bool({n.lower() for n in self.cfb.streams()} >= {"workbook", "book"})
-        self._load()
+        try:
+            self._load()
+        except IndexError as e:  # 記録が宣言より短い（b[pos] が記録の外）：struct.error と同じ、壊れた記録
+            raise struct.error(str(e)) from None
 
     # ------------------------------------------------------------------ xlsx と同じ問い合わせ
     @property

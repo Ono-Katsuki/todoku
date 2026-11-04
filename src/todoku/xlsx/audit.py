@@ -691,6 +691,8 @@ def run(blob: bytes, filename: str = "", example: bytes | None = None) -> Audit:
     au.checks += check_reading(wb, doc)
     links = {(ctl.link_cell[0], ctl.link_cell[1], ctl.link_cell[2]) for s in wb.sheets for ctl in s.controls if ctl.link_cell}
     au.checks.append(check_markdown(doc, links))
+    if doc.get("unread"):
+        au.checks.append(Check("読んでいない部分", False, "広すぎる宣言の範囲は、ファイルにあるセルだけを見ました", doc["unread"]))
     from ..embeds.audit import excel_checks
 
     au.checks += excel_checks(wb, doc)  # グラフ・SmartArt・埋め込みの読み落とし

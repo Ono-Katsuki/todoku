@@ -1107,6 +1107,8 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
     write: list[Reason] = []
     sheet_input_reasons(doc, reasons, write)
     reasons += unshown_reasons(doc)
+    for u in doc.get("unread") or []:  # 広すぎる宣言（壊れた範囲）：セルのない所を欄として広げていない。エージェントが確かめる所
+        reasons.append(Reason("C", "広げていない範囲", u))
     vr = verify(wb)
     rep = vr.summary()
     if rep["unsupported"]:

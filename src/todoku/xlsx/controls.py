@@ -166,7 +166,7 @@ def items_of(wb: Workbook, sh: Sheet, ctl: Control, calc=None) -> list[str]:
     if not ctl.fmla_range:
         return []
     from ..formula.parser import parse
-    from ..formula.values import to_text
+    from ..formula.values import ExcelError, to_text
     from .calc import Calc
 
     calc = calc or Calc(wb)
@@ -175,10 +175,12 @@ def items_of(wb: Workbook, sh: Sheet, ctl: Control, calc=None) -> list[str]:
 
         f = ctl.fmla_range.lstrip("=")
         v = Evaluator(calc, sh.name, 1, 1).ev(parse(f))
+        if isinstance(v, ExcelError):
+            return []
         g = Evaluator(calc, sh.name, 1, 1).grid(v)
     except Exception:  # noqa: BLE001
         return []
-    return [to_text(x) if x is not None else "" for row in g.data for x in row]
+    return [str(x) if isinstance(x, ExcelError) else to_text(x) if x is not None else "" for row in g.data for x in row]
 
 
 def state(ctl: Control) -> tuple:

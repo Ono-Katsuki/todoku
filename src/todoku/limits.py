@@ -19,6 +19,9 @@
 - TODOKU_TIME_LIMIT（120）             1 回の呼び出しの秒数（MCP サーバー：別のプロセスで動かし、超えたら止める）
 - TODOKU_MEMORY_LIMIT_MB（2048）       その別のプロセスのメモリ
 - TODOKU_WINDOW_CACHE_MB（256）        窓の控え（同じ書類を開き直さない）の大きさの合計
+- TODOKU_MAX_DECLARED_CELLS（262144）  表計算：ファイルの宣言（入力規則・数式の参照・配列数式の範囲・繰り返し）から、セルの要素のない所まで
+                                        広げる数（1 ブック。超える範囲は、ファイルにあるセルだけを見て、広げなかったことを伝える）
+- TODOKU_MAX_RANGE_CELLS（16777216）    表計算：数式の 1 つの範囲を計算のために開く数（.xls の 1 シートまるごと）
 """
 
 from __future__ import annotations
@@ -53,6 +56,8 @@ MAX_VBA_STRING = _env("TODOKU_MAX_VBA_STRING", 16 * MB)
 MAX_VBA_ARRAY = _env("TODOKU_MAX_VBA_ARRAY", 10_000_000)
 MAX_VBA_BYTES = _env("TODOKU_MAX_VBA_BYTES_MB", 1024, MB)
 MAX_VBA_RANGE = _env("TODOKU_MAX_VBA_RANGE", 2_000_000)  # マクロが 1 度に書く範囲のマスの数（1 列まるごと 1,048,576 は書ける）
+MAX_DECLARED_CELLS = _env("TODOKU_MAX_DECLARED_CELLS", 262_144)
+MAX_RANGE_CELLS = _env("TODOKU_MAX_RANGE_CELLS", 16_777_216)
 
 STOPPED = "この書類は大きすぎるか、壊れているため止めました"
 

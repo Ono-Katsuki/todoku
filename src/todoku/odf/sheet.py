@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from ..formula.dates import date_to_serial
 from ..formula.parser import parse
 from ..formula.values import ExcelError, Unsupported
+from ..limits import MAX_DECLARED_CELLS
 from ..xlsx.workbook import Cell, DefinedName, Shape, Sheet, Style, Validation
 from .formula import OdfFormulaError, cell_address, range_address, to_excel
 from .numstyle import excel_format
@@ -201,6 +202,7 @@ class OdsWorkbook:
         self.value_type: dict[tuple[str, int, int], str] = {}  # office:value-type
         self.rows: dict[str, list[RowEl]] = {}  # シート → 行の要素（書き込みで使う）
         self.unexpanded: list[str] = []  # 広げなかった、字のある繰り返し
+        self._repeated = 0  # 読んだセルの数（繰り返しを広げてよいのは、ブックで MAX_DECLARED_CELLS まで）
         self.null_date = dt.date(1899, 12, 30)
         cs = self.book.find("table:calculation-settings")
         if cs is not None:
@@ -415,6 +417,9 @@ class OdsWorkbook:
                 self.unexpanded.append(f"{name}：{r}行目から {n:,} 行（同じ中身を繰り返す行。最初の 10,000 行だけ読みました）")
                 expand = 10000
             for k in range(expand):
+                if k and self._repeated >= MAX_DECLARED_CELLS:
+                    self.unexpanded.append(f"{name}：{r}行目から {n:,} 行（同じ中身を繰り返す行。最初の {k:,} 行だけ読みました）")
+                    break
                 rr = r + k
                 if hidden:
                     sh.hidden_rows.add(rr)
@@ -452,11 +457,15 @@ class OdsWorkbook:
             self.unexpanded.append(f"{sh.name}：{r}行目の {cel.c0} 列目から {n:,} 列（同じ中身。最初の 1,024 列だけ読みました）")
             n = 1024
         for k in range(n):
+            if k and self._repeated >= MAX_DECLARED_CELLS:
+                self.unexpanded.append(f"{sh.name}：{r}行目の {cel.c0} 列目から {n:,} 列（同じ中身。最初の {k:,} 列だけ読みました）")
+                break
             c = cel.c0 + k
             style = sname or row_dcs or col_style.get(c)
             if not content and not sname and not el.get("table:content-validation-name"):
                 continue  # 書式も中身もないセル（列・行の書式は、Sheet.style_of が使う）
             self._cell(sh, el, r, c, style, validations, cel.covered)
+            self._repeated += 1
 
     def _cell(self, sh: Sheet, el: El, r: int, c: int, style: str | None, validations: dict, covered: bool) -> None:
         key = (sh.name, r, c)

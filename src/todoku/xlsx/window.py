@@ -21,6 +21,7 @@ from .. import chars
 from ..formula.numfmt import format_value, is_date_format
 from ..formula.parser import NameNode, RefNode, addr, iter_refs, parse_cell
 from ..formula.values import ExcelError, Unsupported, is_number, to_text
+from ..limits import MAX_DECLARED_CELLS
 from .workbook import Cell, Control, Sheet, Workbook
 
 DET = "deterministic"
@@ -174,6 +175,11 @@ def reason_codes(reasons) -> list[str]:
     return [REASON_CODES.get(r) or inv.get(r) or "other" for r in (reasons or [])]
 
 
+def _declared_room(wb: Workbook) -> int:
+    """1 枚のシートで、ファイルの宣言（入力規則・数式の参照）をセルの要素のない所まで広げてよい数。"""
+    return MAX_DECLARED_CELLS // max(len(wb.sheets), 1)
+
+
 def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
     """入力欄の候補と、そう判断した理由。"""
     out: dict[tuple[int, int], list[str]] = {}
@@ -199,14 +205,23 @@ def input_cells(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], list[str]]:
             if (m[0], m[1]) not in sh.cells and not wb.style(sh.style_of(m[0], m[1])).locked:
                 add(m[0], m[1], "シート保護の中で編集できるセル")
     lim_r, lim_c = _used_limits(sh, wb)
+    room = _declared_room(wb)
     for v in sh.validations:
         for r1, c1, r2, c2 in v.sqref:
             # 列全体などの広い範囲は、使っている範囲と印刷範囲（ファイルの作り）までに切る。切った外のセルは、
             # 値も書式もない（Excel の画面では空の所）ので、欄としては出さない（範囲そのものは validations に出す）
             r2, c2 = min(r2, lim_r), min(c2, lim_c)
-            for r in range(r1, r2 + 1):
-                for c in range(c1, c2 + 1):
-                    add(r, c, "入力規則があるセル")
+            if r2 < r1 or c2 < c1:
+                continue
+            if (r2 - r1 + 1) * (c2 - c1 + 1) <= room - len(out):
+                for r in range(r1, r2 + 1):
+                    for c in range(c1, c2 + 1):
+                        add(r, c, "入力規則があるセル")
+                continue
+            # 範囲の宣言が壊れて（またははるか遠くのセル・結合のために）広い：ファイルにあるマスだけを見る。メモリは宣言の広さによらない
+            sh.note_unread("入力規則", r1, c1, r2, c2)
+            for r, c in sh.existing_in(r1, c1, r2, c2):
+                add(r, c, "入力規則があるセル")
     # 保護も入力規則もない様式の、枠で囲まれた空欄・色の付いた空欄は、ここでは入力欄にしない（ファイルが入力欄と宣言していない）。
     # 罫線の辺・塗り・大きさ・近くの字とその離れ方を事実（evidence）として添えて、「？」の所（Layout.agent：blank_box）として示す。
     # 数式が参照している定数・空白のセルも、ここでは入力欄にしない（数式が読むことは、ファイルの入力欄の宣言ではない）。
@@ -225,6 +240,7 @@ def formula_readers(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], dict]:
     if memo is not None and "readers" in memo:
         return memo["readers"]
     lim_r, lim_c = _used_limits(sh, wb)
+    room = _declared_room(wb)
     me = sh.name.lower()
     out: dict[tuple[int, int], dict] = {}
 
@@ -246,15 +262,22 @@ def formula_readers(wb: Workbook, sh: Sheet) -> dict[tuple[int, int], dict]:
             who = f"{s_.name}!{addr(r0, c0)}"
             seen: set = set()
             for r1, c1, r2, c2 in boxes(cell.ast, s_.name, cell.dr, cell.dc):
-                for r in range(max(r1, 1), min(r2, lim_r) + 1):
-                    for c in range(max(c1, 1), min(c2, lim_c) + 1):
-                        if (r, c) in seen:
-                            continue
-                        seen.add((r, c))
-                        d = out.setdefault((r, c), {"cells": [], "n": 0})
-                        d["n"] += 1
-                        if len(d["cells"]) < READERS_MAX:
-                            d["cells"].append(who)
+                r1, c1, r2, c2 = max(r1, 1), max(c1, 1), min(r2, lim_r), min(c2, lim_c)
+                if r2 < r1 or c2 < c1:
+                    continue
+                if (r2 - r1 + 1) * (c2 - c1 + 1) <= room - len(out):
+                    places = ((r, c) for r in range(r1, r2 + 1) for c in range(c1, c2 + 1))
+                else:  # 広い宣言：ファイルにあるマスだけ（入力規則と同じ）
+                    sh.note_unread("数式の参照", r1, c1, r2, c2)
+                    places = sh.existing_in(r1, c1, r2, c2)
+                for k in places:
+                    if k in seen:
+                        continue
+                    seen.add(k)
+                    d = out.setdefault(k, {"cells": [], "n": 0})
+                    d["n"] += 1
+                    if len(d["cells"]) < READERS_MAX:
+                        d["cells"].append(who)
     if memo is not None:
         memo["readers"] = out
     return out
@@ -947,6 +970,15 @@ def _detect_tables(wb: Workbook, sh: Sheet, rows: dict[int, list[Anchor]]) -> li
             return m is None
         return m is not None and (m[0], m[1], m[2], m[3]) == (r, c1, r, c2)
 
+    # 表の行は、ファイルにある行までを見る。列全体の書式（col）は下へ無限に続くので、その書式だけで閉じて見える行を追い続けない
+    last_row = max(max(rows, default=0), sh.max_row, max(sh.row_styles, default=0))
+    room = _declared_room(wb)
+
+    def body_row(rr: int, spans: tuple) -> bool:
+        if rr > last_row or (rr not in rows and rr not in sh.row_styles and len(closed) >= room):
+            return False
+        return all(split_ok(rr, c1, c2) and is_closed(rr, c1, c2) for c1, c2 in spans)
+
     used: set[tuple[int, tuple]] = set()
     for r in sorted(rows):
         run: list[Anchor] = []
@@ -968,7 +1000,7 @@ def _detect_tables(wb: Workbook, sh: Sheet, rows: dict[int, list[Anchor]]) -> li
             body = []
             rr = r + 1
             # 下の行も同じ列割りで、すべてのマスが閉じている（縦と横の罫線が中で交わる：2 列 × 2 行から格子）
-            while all(split_ok(rr, c1, c2) and is_closed(rr, c1, c2) for c1, c2 in spans):
+            while body_row(rr, spans):
                 body.append(rr)
                 used.add((rr, spans))
                 rr += 1
@@ -981,6 +1013,53 @@ def _detect_tables(wb: Workbook, sh: Sheet, rows: dict[int, list[Anchor]]) -> li
 
 
 # ====================================================================== 配置
+def _in_any(rects: list[tuple[int, int, int, int]], r: int, c: int) -> bool:
+    return any(r1 <= r <= r2 and c1 <= c <= c2 for r1, c1, r2, c2 in rects)
+
+
+class _Cover:
+    """行 → 上の行から続く結合のマス。結合の行の数だけ表を作らない（壊れた結合は 1 つで何万行も宣言する）。
+    低い結合は行の索引で、高い結合は範囲のままで引く（答えは、足した順。_covers・Sheet.merged_at と同じ作り）。"""
+
+    def __init__(self) -> None:
+        self._all: list[tuple[int, object]] = []  # （足した順, マス）
+        self._rows: dict[int, list[tuple[int, object]]] = {}
+        self._tall: list[tuple[int, object]] = []
+
+    def add(self, b) -> None:
+        if b.r2 <= b.r:
+            return
+        item = (len(self._all), b)
+        self._all.append(item)
+        if b.r2 - b.r < 64:
+            for rr in range(b.r + 1, b.r2 + 1):
+                self._rows.setdefault(rr, []).append(item)
+        else:
+            self._tall.append(item)
+
+    def get(self, r: int, default=None) -> list:
+        low = self._rows.get(r, ())
+        high = [i for i in self._tall if i[1].r < r <= i[1].r2]
+        if not low and not high:
+            return [] if default is None else default
+        return [b for _n, b in sorted((*low, *high), key=lambda i: i[0])]
+
+    def boxes(self) -> list:
+        return [b for _n, b in self._all]
+
+    def low_rows(self) -> dict[int, list]:
+        return {r: [b for _n, b in items] for r, items in self._rows.items()}
+
+    def tall_boxes(self) -> list:
+        return [b for _n, b in self._tall]
+
+    def drop(self, gone) -> None:
+        keep = [b for _n, b in self._all if not gone(b)]
+        self.__init__()
+        for b in keep:
+            self.add(b)
+
+
 @dataclass
 class Box:
     r: int
@@ -1096,7 +1175,7 @@ class Layout:
                     if lc and lc[0] == sh.name:
                         self.links[(lc[1], lc[2])] = ctl
         self.rows: dict[int, list[Box]] = {}
-        self.cover: dict[int, list[Box]] = {}  # 上の行から続く結合セル（その行で始まらないもの）
+        self.cover = _Cover()  # 上の行から続く結合セル（その行で始まらないもの）
         # 規則では欄と決められない空のマス（kind "agent"）。見出しを決める配置（rows）には入れず、読み順と欄の一覧にだけ出す
         # （入れると、ほかの欄の見出しの探し方が変わる）
         self.agent: dict[int, list[Box]] = {}
@@ -1129,8 +1208,7 @@ class Layout:
                             wb.style(sh.style_of(a.r, a.c1)).locked and self._locked_slot(a):
                         b = Box(a.r, a.c1, a.r2, a.c2, "locked", cell, "", outside=outside)
                         self.rows.setdefault(a.r, []).append(b)
-                        for rr in range(a.r + 1, a.r2 + 1):
-                            self.cover.setdefault(rr, []).append(b)
+                        self.cover.add(b)
                         continue
                     # 空のマス：罫線・塗り・結合（ファイルの作り）があれば、欄かもしれない所としてエージェントに示す。
                     # 保護されたシートのロックされたセル（Excel でも書けない）・部品のつながり先は除く
@@ -1160,8 +1238,7 @@ class Layout:
                         if not shown_sheet:  # 非表示のシートには、規則では決められない所を出さない（記入する所ではない）
                             b.blanks = [x for x in b.blanks if x[2] is None]
                 self.rows.setdefault(a.r, []).append(b)
-                for rr in range(a.r + 1, a.r2 + 1):
-                    self.cover.setdefault(rr, []).append(b)
+                self.cover.add(b)
         # 入力欄なのに、ファイルにセルの要素がない（値も書式もない）マス：入力規則・数式の参照で決まった欄。
         # 配置のマス（anchors）にないので、ここで入力欄として足す（足さないと、窓の欄の一覧にも読み順にも出ない）
         anchored = {(a.r, a.c1) for items in anchors(sh).values() for a in items}
@@ -1190,7 +1267,7 @@ class Layout:
                     self.hidden_boxes.setdefault(r, []).append(
                         Box(r, c, r, c, "formula" if cell.has_formula else "text", cell, display(wb, cell),
                             outside=not sh.in_print_area(r, c), hidden="merge"))
-        under = set()
+        under: list[tuple[int, int, int, int]] = []
         from .controls import CHOICE_KINDS, VALUE_KINDS
 
         self.control_items: dict[str, list[str]] = {}
@@ -1223,13 +1300,14 @@ class Layout:
             else:
                 self.rows.setdefault(r, []).append(Box(r, c, r, c, "check", None, self.control_mark(ctl), ctl))
             (r1, c1), (r2, c2) = ctl.anchor, ctl.anchor_to or ctl.anchor
-            for rr in range(r1, r2 + 1):
-                for cc in range(c1, c2 + 1):
-                    under.add((rr, cc))
+            under.append((r1, c1, r2, c2))
         for r, items in self.rows.items():
-            # チェックボックスの下に敷かれた空欄（クリックできるようにロックを外してあるもの）は、欄として数えない
-            self.rows[r] = [b for b in items if not (b.kind == "input" and b.control is None and not b.text
-                                                     and (b.r, b.c1) in under)]
+            # チェックボックスの下に敷かれた空欄（クリックできるようにロックを外してあるもの）は、欄として数えない。
+            # 部品の範囲はマスの表に広げない（壊れた部品は、シート全体を覆うと宣言することがある）
+            here = [u for u in under if u[0] <= r <= u[2]]
+            if here:
+                self.rows[r] = [b for b in items if not (b.kind == "input" and b.control is None and not b.text
+                                                         and any(u[1] <= b.c1 <= u[3] for u in here))]
         if sh.cond_rules:
             for r in list(self.rows):
                 keep = []
@@ -1247,8 +1325,7 @@ class Layout:
                     keep.append(b)
                 self.rows[r] = keep
             hidden = set(self.hidden_by_format)
-            for r in list(self.cover):
-                self.cover[r] = [b for b in self.cover[r] if (b.r, b.c1) not in hidden]
+            self.cover.drop(lambda b: (b.r, b.c1) in hidden)
         for r in self.rows:
             self.rows[r].sort(key=lambda b: (b.c1, b.kind != "check"))
         # 列ごとの控えを、配置が決まったここで作る（見出しを探すあいだの仮のマスを入れない）
@@ -1286,15 +1363,15 @@ class Layout:
                 last[r] = max(c, last.get(r, 0))
         return last.get(a.r, 0) > a.c2 and blank_marks(self.wb, self.sh, a) is not None
 
-    def _agent_cells(self, under: set) -> None:
+    def _agent_cells(self, under: list[tuple[int, int, int, int]]) -> None:
         """規則では欄と決められない空のマス（kind "agent"）を整える：部品の下に敷かれたマスを除き、表の行の入力欄の印のない
         マス（undecided_cells）を足し、判断の材料に、近くの字（同じ行の左・同じ列の上）とその離れ方を添える。"""
         sh = self.sh
         for r in list(self.agent):
-            self.agent[r] = [b for b in self.agent[r] if (b.r, b.c1) not in under]
+            self.agent[r] = [b for b in self.agent[r] if not _in_any(under, b.r, b.c1)]
         have = {(b.r, b.c1): b for bs in self.agent.values() for b in bs}
         for (r, c), _col in undecided_cells(self.wb, sh, self.inputs).items():
-            if (r, c) in under or (r, c) in self.links:
+            if _in_any(under, r, c) or (r, c) in self.links:
                 continue
             b = have.get((r, c))
             if b is None:
@@ -1372,19 +1449,27 @@ class Layout:
         idx = self.__dict__.get("_rows_by_col")
         if idx is None:
             sets: dict[int, set] = {}
-            for rows in (self.rows, self.cover):
+            for rows in (self.rows, self.cover.low_rows()):
                 for r_, items in rows.items():
                     for x in items:
                         for c in range(x.c1, min(x.c2, x.c1 + 255) + 1):
                             sets.setdefault(c, set()).add(r_)
-            idx = self.__dict__["_rows_by_col"] = {c: sorted(v) for c, v in sets.items()}
+            tall: dict[int, list[Box]] = {}  # 高い結合で続く行は、行の表にせず、結合の範囲のまま見る
+            for x in self.cover.tall_boxes():
+                for c in range(x.c1, min(x.c2, x.c1 + 255) + 1):
+                    tall.setdefault(c, []).append(x)
+            idx = self.__dict__["_rows_by_col"] = ({c: sorted(v) for c, v in sets.items()}, tall)
+        by_col, tall = idx
         best = 0
         for c in range(span[0], span[1] + 1):
-            xs = idx.get(c)
+            xs = by_col.get(c)
             if xs:
                 i = bisect.bisect_right(xs, rr) - 1
                 if i >= 0 and xs[i] > best:
                     best = xs[i]
+            for x in tall.get(c, ()):
+                if x.r < rr and min(rr, x.r2) > best:
+                    best = min(rr, x.r2)
         return best
 
     def _above_box(self, b: Box) -> Box | None:
@@ -1393,14 +1478,13 @@ class Layout:
         if idx is None:
             idx = {}
             seen = set()
-            for rows in (self.rows, self.cover):
-                for items in rows.values():
-                    for x in items:
-                        if id(x) in seen or x.kind == "check":
-                            continue
-                        seen.add(id(x))
-                        for c in range(x.c1, min(x.c2, x.c1 + 255) + 1):
-                            idx.setdefault(c, []).append(x)
+            for items in [*self.rows.values(), self.cover.boxes()]:
+                for x in items:
+                    if id(x) in seen or x.kind == "check":
+                        continue
+                    seen.add(id(x))
+                    for c in range(x.c1, min(x.c2, x.c1 + 255) + 1):
+                        idx.setdefault(c, []).append(x)
             for c in idx:
                 idx[c].sort(key=lambda x: x.r2)
             self.__dict__["_col_index"] = idx
@@ -1482,7 +1566,7 @@ class Layout:
         r2 = (ctl.anchor_to or ctl.anchor)[0]
         if ctl.link_cell and ctl.link_cell[0] == self.sh.name and r1 <= ctl.link_cell[1] <= r2:
             return ctl.link_cell[1]
-        if r1 == r2:
+        if r1 >= r2:  # 1 行の部品（終わりが始まりより上の、壊れた位置も）
             return r1
         c = ctl.anchor[1]
         best = None
@@ -2304,6 +2388,7 @@ def build(wb: Workbook) -> dict:
     from ..embeds.excel import add_to_window
 
     add_to_window(wb, doc)  # グラフ（charts）と埋め込み（objects）：読むだけ
+    doc["unread"] = [u for sh in wb.sheets for u in sh.unread]
     return doc
 
 
@@ -2565,6 +2650,7 @@ def _md_head(doc: dict) -> list[str]:
     line = summary_line(doc["macros"])
     if line:
         out.append("- " + line)
+    out += [f"- **読んでいない部分**：{u}" for u in doc.get("unread") or []]
     out.append("")
     return out
 

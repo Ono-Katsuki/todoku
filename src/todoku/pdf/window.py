@@ -1110,7 +1110,7 @@ def _facts_text(f: dict) -> str:
     if shape == "cell" and fa.get("size_mm"):
         head += f" {fa['size_mm'][0]}×{fa['size_mm'][1]}mm"
     elif shape == "cells":
-        head += f" {fa.get('cells')} マス（各 {fa['cell_mm'][0]}×{fa['cell_mm'][1]} mm。1 字ずつ書くか、{{\"as\": \"text\"}} で 1 つの欄に）"
+        head += f" {fa.get('cells')} マス（各 {fa['cell_mm'][0]}×{fa['cell_mm'][1]} mm。1 字ずつ書くか、{{\"kind\": \"text\", \"as\": \"郵便番号\", \"value\": …}} で 1 つの欄に）"
         if f.get("cell_ids"):
             head += "：" + "・".join(f"［{x}］" for x in f["cell_ids"])
     elif shape == "underline":
@@ -1241,7 +1241,7 @@ def _grid_blocks(fields: list[dict]) -> tuple[list[tuple[dict, list[str]]], set[
                          for y in ys if any(_id_xy(f["id"])[1] == y for f in members)}
                 shown = (f"［p{pg}.m{xs[0]}-{{y}}？］（y は各行の y）" if combs == every and all(c.startswith(f"p{pg}.m{xs[0]}-") for c in combs)
                          else "・".join(f"［{c}？］" for c in sorted(combs, key=lambda c: [int(v) for v in re.findall(r"\d+", c)])))
-                lines.append("  - 横に続くマスの並び（1 字ずつ書く。{\"as\": \"text\"} で 1 つの欄に。並びとマスは重なるので、書けるのは"
+                lines.append("  - 横に続くマスの並び（1 字ずつ書く。{\"kind\": \"text\", \"as\": \"郵便番号\", \"value\": …} で 1 つの欄に。並びとマスは重なるので、書けるのは"
                              "どちらか一方）：" + shown)
                 used.update(combs)
             other = sorted({f["alternative_to"] for f in members if f.get("alternative_to") and f["alternative_to"] not in combs})

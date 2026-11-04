@@ -48,8 +48,8 @@ def _ref_cells(wb: Workbook, node, sheet: str, idx: _Index, depth: int = 0):
     """参照が指す（入力欄か数式の）セル。"""
     if isinstance(node, RefNode):
         sh = node.sheet or sheet
-        if wb.sheet(sh) is None:
-            return
+        if not wb.has_sheet(sh):
+            return  # ないシートへの参照（#REF!）：つながるセルはない
         r1, c1, r2, c2 = node.r1, node.c1, node.r2, node.c2
         if node.kind == "cols":
             r1, r2 = 1, 1 << 20

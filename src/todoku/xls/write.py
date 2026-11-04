@@ -122,9 +122,17 @@ class XlsEditor:
                         self.sheet_at[sh.name] = (start, j)
                         break
 
+    def _span(self, sheet: str) -> tuple[int, int]:
+        """シートの記録の [BOF, EOF]。ファイルの中に見つからないシート（BOUNDSHEET の位置が合わない・EOF がない）には書けない。"""
+        got = self.sheet_at.get(sheet)
+        if got is None:
+            raise XlsWriteError(f"シート「{sheet}」の記録がファイルの中で見つかりません（始まりや終わりの印が合いません）。"
+                                "壊れているので、このシートには書けません")
+        return got
+
     def _find(self, sheet: str, r0: int, c0: int):
         """(レコードの番号, 複数セルのレコードなら列の位置) を返す。なければ None。"""
-        a, z = self.sheet_at[sheet]
+        a, z = self._span(sheet)
         depth = 0
         for j in range(a, z + 1):
             rec = self.recs[j]
@@ -285,7 +293,7 @@ class XlsEditor:
     def _obj_at(self, sheet: str, shape_id: str) -> list[int]:
         """シートの OBJ のうち FtCmo の id が shape_id のものと、すぐ後ろに続く CONTINUE の、レコードの番号。
         シートの中に埋め込んだグラフ（BOF〜EOF）の中の OBJ は、番号の数え方が別なので見ない。"""
-        a, z = self.sheet_at[sheet]
+        a, z = self._span(sheet)
         depth = 0
         for j in range(a, z + 1):
             rec = self.recs[j]
@@ -319,7 +327,7 @@ class XlsEditor:
 
     def _insert(self, sheet: str, r0: int, c0: int, new: Rec) -> None:
         """セルのレコードがないセル：同じ行の、列の順の位置に差し込む。行のレコードもなければ作る。"""
-        a, z = self.sheet_at[sheet]
+        a, z = self._span(sheet)
         if self.biff == 5:
             dim = next((self.recs[j].b for j in range(a, z + 1) if self.recs[j].t == T_DIMENSIONS), None)
             if dim is None or len(dim) < 8:
@@ -366,7 +374,7 @@ class XlsEditor:
                     raise XlsWriteError(f"{sheet}!R{r0 + 1}C{c0 + 1}：この行には行のレコード（ROW）がありません。Excel 5.0/95 のブックに"
                                         "行を足す書き込みは、行のまとまり（DBCELL）の区切り方を確かめていないので、しません")
                 self._insert_row(sheet, r0)
-                a, z = self.sheet_at[sheet]
+                a, z = self._span(sheet)
                 return self._insert(sheet, r0, c0, new)
             # この行の最初のセル：前の行の最後のセルの次（なければ ROW の並びの後）
             if prev_rows_last_cell is not None and prev_rows_last_cell > row_rec:
@@ -382,7 +390,7 @@ class XlsEditor:
         self._row_span(sheet, r0, c0)
 
     def _insert_row(self, sheet: str, r0: int) -> None:
-        a, z = self.sheet_at[sheet]
+        a, z = self._span(sheet)
         at = None
         for j in range(a, z + 1):
             rec = self.recs[j]
@@ -399,7 +407,7 @@ class XlsEditor:
         self._shift(sheet, 1)
 
     def _row_span(self, sheet: str, r0: int, c0: int) -> None:
-        a, z = self.sheet_at[sheet]
+        a, z = self._span(sheet)
         for j in range(a, z + 1):
             rec = self.recs[j]
             if rec.t == T_ROW and struct.unpack_from("<H", rec.b, 0)[0] == r0:
@@ -477,7 +485,9 @@ class XlsEditor:
         recs = list(self.recs)
         if not self.sst_new:
             return recs
-        i = next(k for k, r in enumerate(recs) if r.t == T_SST)
+        i = next((k for k, r in enumerate(recs) if r.t == T_SST), None)
+        if i is None:
+            raise XlsWriteError("文字列の表（SST）がファイルの中で見つかりません。壊れているので、字を書けません")
         j = i + 1
         while j < len(recs) and recs[j].t == T_CONTINUE:
             j += 1

@@ -8,6 +8,8 @@
 - ほかの段落：その段落の区切りの w:sectPr のページの幅（w:pgSz）から左右の余白（w:pgMar）・段組みの分・段落の字下げを引いた幅
 字の大きさは文字の要素の書式とスタイル（circle.run_size）。文書のグリッドで字を並べる設定（w:docGrid の linesAndChars・
 snapToChars）は、全角の字の送りを、グリッドの字の送り（既定の字の大きさ + w:charSpace / 4096 pt）にそろえる。
+字の囲み線（w:bdr。○の既定の書き方も）は、囲みの左右に、線の太さ（w:sz。1/8 pt）と字との間（w:space。pt）の分だけ幅を足す
+（同じ囲み線の字が続く所は 1 つの囲み。ECMA-376 第1部 17.3.2.4）。囲み線を付けただけで字の変わらない段落も見る。
 テキストボックスの中の段落は、幅が分からないので見ない。
 """
 
@@ -217,6 +219,10 @@ def wrap_warnings(before, after, rename: dict | None = None) -> list[str]:
         return []
     index = {id(p.node): i for i, p in enumerate(pa)}
     written: dict[int, list[str]] = {}
+    edges = {i: (_border_extra(after, a), _border_extra(before, b)) for i, (a, b) in enumerate(zip(pa, pb))}
+    for i, (ea, eb) in edges.items():
+        if ea != eb:
+            written.setdefault(i, [])  # 囲み線が変わった段落（○の既定の書き方は、書いた所の印を置かない）
     for name, (q, _x, _y) in _bookmarks(after).items():
         i = index.get(id(q.node))
         if i is not None:
@@ -224,7 +230,8 @@ def wrap_warnings(before, after, rename: dict | None = None) -> list[str]:
     out = []
     for i, names in sorted(written.items()):
         a, b = pa[i], pb[i]
-        if _in_textbox(a) or a.text == b.text:
+        ea, eb = edges[i]
+        if _in_textbox(a) or (a.text == b.text and ea == eb):
             continue
         sizes_a = _sizes(after, a)
         sizes_b = _sizes(before, b)
@@ -243,12 +250,66 @@ def wrap_warnings(before, after, rename: dict | None = None) -> list[str]:
         sa = _snap(sizes_a, a.text, pitch)
         sb = _snap(sizes_b, b.text, pitch)
         got = wraps(b.text, a.text, avail, lambda k, s=sb: s[k] if k < len(s) else size,
-                    lambda k, s=sa: s[k] if k < len(s) else size, first)
+                    lambda k, s=sa: s[k] if k < len(s) else size, first,
+                    extra_before=lambda k: eb[k] if k < len(eb) else 0.0, extra_after=lambda k: ea[k] if k < len(ea) else 0.0)
         if got is None:
             continue
-        place = "・".join(dict.fromkeys((rename or {}).get(n, n) for n in names))
+        place = "・".join(dict.fromkeys((rename or {}).get(n, n) for n in names)) or "字を囲んだ段落"
         out.append(say(place, a.text, got[0], got[1],
-                       f"{basis} 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイント" + ("・文書のグリッド" if pitch else ""), got[2]))
+                       f"{basis} 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイント" + ("・文書のグリッド" if pitch else "")
+                       + ("・字の囲み線" if any(ea) else ""), got[2]))
+    return out
+
+
+def _border_styles(doc) -> dict:
+    """スタイル → (basedOn, 囲み線の要素)。"""
+    memo = getattr(doc, "_wrap_border_styles", None)
+    if memo is not None:
+        return memo
+    out = {}
+    root = doc._load("word/styles.xml") if hasattr(doc, "_load") else None
+    top = root.kids[0] if root is not None and root.kids else None
+    for st in (top.findall("style") if top is not None else []):
+        b, rp = st.find("basedOn"), st.find("rPr")
+        out[st.get("styleId") or ""] = (b.get("val") if b is not None else None, rp.find("bdr") if rp is not None else None)
+    try:
+        doc._wrap_border_styles = out
+    except AttributeError:
+        pass
+    return out
+
+
+def _run_border(doc, p, run) -> tuple[float, str] | None:
+    """文字の要素の囲み線：(左右それぞれに足す幅（pt）, 同じ囲みかを見る印)。文字の要素の書式 → 文字のスタイル → 段落のスタイル。"""
+    rpr = run.find("rPr") if run is not None else None
+    bd = rpr.find("bdr") if rpr is not None else None
+    if bd is None:
+        styles = _border_styles(doc)
+        rs = rpr.find("rStyle") if rpr is not None else None
+        for sid in (rs.get("val") if rs is not None else None, p.style or None):
+            seen = 0
+            while sid and bd is None and seen < 20:
+                sid, bd = styles.get(sid, (None, None))
+                seen += 1
+            if bd is not None:
+                break
+    if bd is None or bd.get("val") in (None, "nil", "none"):
+        return None
+    return _tw(bd.get("sz")) / 8 + _tw(bd.get("space")), f'{bd.get("val")}/{bd.get("sz")}/{bd.get("space")}/{bd.get("color")}'
+
+
+def _border_extra(doc, p) -> list[float]:
+    """段落の字ごとの、囲み線で足す幅（pt）：同じ囲み線の字が続く所の、最初の字に左の分、最後の字に右の分。"""
+    pos = p.positions()
+    marks = [_run_border(doc, p, p.segs[pos[k][0]].run if k < len(pos) else None) for k in range(len(p.text))]
+    out = [0.0] * len(marks)
+    for k, m in enumerate(marks):
+        if m is None:
+            continue
+        if k == 0 or marks[k - 1] is None or marks[k - 1][1] != m[1]:
+            out[k] += m[0]
+        if k + 1 == len(marks) or marks[k + 1] is None or marks[k + 1][1] != m[1]:
+            out[k] += m[0]
     return out
 
 

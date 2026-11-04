@@ -420,8 +420,8 @@ def _insert_spec(key: str, v: dict, k: str) -> dict:
 def _split_values(values: dict, k: str, kinds: dict | None = None) -> tuple[dict, dict]:
     """書く値から、エージェントが述べた意味（as：「生年月日」など）を分ける。返す：(形式ごとの書き手に渡す値, {鍵: 述べた意味})。
     as は対話で伝えるためのもので、書類には書かない。とどくは字の意味を決めないので、as を確かめも直しもしない。
-    PDF の kind_candidates のある欄で、as の字がその候補と同じときは、書く種類の指定（pdf/fill.py の as_kind。窓の {"as": "text"}）。
-    種類と意味の両方を言うときは {"kind": 種類, "as": 意味, "value": 値}。
+    PDF の kind_candidates のある欄で書く種類を決めるのは kind：{"kind": 種類, "as": 意味, "value": 値}（pdf/fill.py の as_kind）。
+    以前の書き方 {"as": 種類, "value": 値} は、kind がなく、as の字が候補とちょうど同じときだけ、種類として受ける。
     {"value": 値} だけになった指定は、値そのものと同じ。@ の字の前・後ろの差し込み（before・after）も、ここで形式の書き方に直す。"""
     kinds = kinds or {}
     out: dict = {}
@@ -429,13 +429,13 @@ def _split_values(values: dict, k: str, kinds: dict | None = None) -> tuple[dict
     for key, v in values.items():
         if isinstance(v, dict):
             v = dict(v)
-            if "as" in v and not (k == "pdf" and v["as"] in (kinds.get(key) or ())):
+            if "as" in v and not (k == "pdf" and "kind" not in v and v["as"] in (kinds.get(key) or ())):
                 a = v.pop("as")
                 if not isinstance(a, str) or not a.strip():
                     raise ApiError(f'{key}: as は、書いた値の意味を字で指定してください（例 {{"value": …, "as": "生年月日"}}）')
                 said[key] = a.strip()
-            if k == "pdf" and "kind" in v:
-                v["as"] = v.pop("kind")
+            if k == "pdf" and "as" in v:  # 以前の書き方：as が種類の候補と同じ字
+                v["kind"] = v.pop("as")
             if isinstance(key, str) and key.startswith("@"):
                 if ("before" in v or "after" in v) and not any(x in v for x in ("circle", "seal", "signature", "cover")):
                     v = _insert_spec(key, v, k)
@@ -1195,6 +1195,11 @@ def _circle_word(blob: bytes, name: str, circ: dict, result: dict, original: byt
         if dc.UNCERTAIN not in w:
             w.append(dc.UNCERTAIN)
         result["warnings"] = w
+    # 字の囲み線は字の幅を広げるので、付けただけで行が折り返すことがある（値を書いたときと同じに伝える）
+    wrapped = _wrap_word("docx", blob, out, name)
+    if wrapped:
+        result["wrap"] = list(result.get("wrap") or []) + wrapped
+        result["warnings"] = list(result.get("warnings") or []) + wrapped
     result["anchored"] = {**(result.get("anchored") or {}), **{key_: sd["id"] for key_, sd in sds}}
     return out
 

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from ..formula.parser import Node, addr, parse, parse_cell, unparse
 from ..formula.values import ExcelError, Unsupported
+from ..limits import MAX_DECLARED_CELLS
 from ..zipraw import RawZip
 
 NS = {
@@ -238,6 +239,7 @@ class Sheet:
     row_heights: dict[int, float] = field(default_factory=dict)
     default_row_height: float = 15.0
     col_styles: dict[int, int] = field(default_factory=dict)  # 列の既定の書式（セル要素がないセルに効く）
+    unread: list[str] = field(default_factory=list)  # 広げなかった宣言（壊れた、とても広い範囲。窓と段階で伝える）
     row_styles: dict[int, int] = field(default_factory=dict)
     comments: dict[tuple[int, int], str] = field(default_factory=dict)
     shapes: list[Shape] = field(default_factory=list)
@@ -324,6 +326,19 @@ class Sheet:
 
     def is_hidden(self, r: int, c: int) -> bool:
         return r in self.hidden_rows or c in self.hidden_cols
+
+    def existing_in(self, r1: int, c1: int, r2: int, c2: int) -> list[tuple[int, int]]:
+        """範囲の中で、ファイルに実際にあるマス（セルの要素と結合の左上）。宣言された範囲の広さによらず、ファイルの大きさで済む。"""
+        out = [k for k in self.cells if r1 <= k[0] <= r2 and c1 <= k[1] <= c2]
+        return out + [(m[0], m[1]) for m in self.merges
+                      if r1 <= m[0] <= r2 and c1 <= m[1] <= c2 and (m[0], m[1]) not in self.cells]
+
+    def note_unread(self, what: str, r1: int, c1: int, r2: int, c2: int) -> None:
+        """広げなかった宣言を控える（同じものは 1 度だけ）。"""
+        note = (f"{self.name}：{what}の範囲 {addr(r1, c1)}:{addr(r2, c2)} は広すぎるので（壊れている可能性があります）、"
+                "ファイルにあるセルだけを見ました。セルのない所は欄として広げていません")
+        if note not in self.unread:
+            self.unread.append(note)
 
     def in_print_area(self, r: int, c: int) -> bool:
         if not self.print_ranges:
@@ -610,7 +625,7 @@ class Workbook:
         for c in cols if cols is not None else []:
             lo, hi = int(c.get("min")), int(c.get("max"))
             w = c.get("width")
-            for i in range(lo, min(hi, lo + 16384) + 1):
+            for i in range(lo, min(hi, 16384) + 1):  # 列はシートの右端まで（壊れた max で、列の表を広げない）
                 if w is not None:
                     sh.col_widths[i] = float(w)
                 if c.get("style") not in (None, "0"):
@@ -712,16 +727,23 @@ class Workbook:
                 cell._shared_from = (m.ast, cell.dr, cell.dc)  # 文字列は必要になったときに作る
             else:
                 cell.formula = m.formula
+        made = 0  # 配列数式の範囲の宣言だけで作ったセル（ファイルに要素のないマス）の数
         for master, (r1, c1, r2, c2) in array_refs:
-            for r in range(r1, r2 + 1):
-                for c in range(c1, c2 + 1):
-                    if (r, c) == (master.row, master.col):
-                        continue
-                    member = sh.cells.get((r, c))
-                    if member is None:
-                        member = Cell(sh.name, r, c)
-                        sh.cells[(r, c)] = member
-                    member.array_master = (master.row, master.col)
+            if (r2 - r1 + 1) * (c2 - c1 + 1) + made <= MAX_DECLARED_CELLS:
+                members = [(r, c) for r in range(r1, r2 + 1) for c in range(c1, c2 + 1)]
+                made += len(members)
+            else:
+                members = sorted(sh.existing_in(r1, c1, r2, c2))
+                sh.note_unread("配列数式", r1, c1, r2, c2)
+            for r, c in members:
+                if (r, c) == (master.row, master.col):
+                    continue
+                member = sh.cells.get((r, c))
+                if member is None:
+                    member = Cell(sh.name, r, c)
+                    sh.cells[(r, c)] = member
+                    sh.max_row, sh.max_col = max(sh.max_row, r), max(sh.max_col, c)
+                member.array_master = (master.row, master.col)
         mc = root.find(M + "mergeCells")
         for m in mc if mc is not None else []:
             a = m.get("ref").split(":")

@@ -101,7 +101,7 @@ def build_wb(wb: OdsWorkbook) -> dict:
             f["write_as"] = (f.get("write_as", "") + "。" if f.get("write_as") else "") + note
     doc["feeds_total"] = feeds_total
     doc["unknown_formulas"] = [f"{s}!{addr(r, c)}" for s, r, c in unknown]
-    doc["unread"] = list(wb.unexpanded)
+    doc["unread"] = [*wb.unexpanded, *(doc.get("unread") or [])]
     doc["macros"] = macro_info(wb.pkg, top(wb.pkg.tree(wb.part)))
     return doc
 
@@ -118,8 +118,6 @@ def markdown_parts(doc: dict) -> list[tuple[str, str]]:
         extra.append(f"- todoku では計算し直せない数式が {len(doc['unknown_formulas'])} 個あります（"
                      + "、".join(doc["unknown_formulas"][:8]) + ("ほか" if len(doc["unknown_formulas"]) > 8 else "")
                      + "）。この数式の元になるセルに書くと、保存された計算結果が古いままになります。")
-    for u in doc.get("unread") or []:
-        extra.append(f"- **読んでいない部分**：{u}")
     out = []
     for i, (title, text) in enumerate(parts):
         lines = text.split("\n")

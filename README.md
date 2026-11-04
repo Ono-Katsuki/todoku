@@ -237,7 +237,7 @@ PDF・Word・Excel・PowerPoint・OpenDocument・RTF の画像ごとに、説明
 
 ```sh
 uv sync
-uv run pytest          # 2,300 件以上のテスト
+uv run pytest          # 2,900 件以上のテスト
 uv run python scripts/audit_corpus.py corpus/wide   # 集めた様式の一括検査（様式は fetch で取得）
 ```
 

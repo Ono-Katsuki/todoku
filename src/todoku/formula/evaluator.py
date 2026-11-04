@@ -22,6 +22,7 @@ from .parser import (
     StructRef,
     Unary,
 )
+from ..limits import MAX_RANGE_CELLS
 from .dates import _CURRENT_1904
 from .values import (
     NAME,
@@ -90,6 +91,8 @@ class Evaluator:
     # -------------------------------------------------------------- 値の取り出し
     def materialize(self, rng: Rng) -> Arr:
         rng = self.clip(rng)
+        if (rng.r2 - rng.r1 + 1) * (rng.c2 - rng.c1 + 1) > MAX_RANGE_CELLS:
+            raise Unsupported(f"範囲が広すぎます（{rng.r2 - rng.r1 + 1:,} 行 × {rng.c2 - rng.c1 + 1:,} 列）")
         return Arr([[self.ctx.cell_value(rng.sheet, r, c) for c in range(rng.c1, rng.c2 + 1)]
                     for r in range(rng.r1, rng.r2 + 1)])
 

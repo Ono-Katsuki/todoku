@@ -25,9 +25,10 @@ def _latin(ch: str) -> bool:
 
 
 def count_lines(text: str, avail: float, size_at: Callable[[int], float] | float, first_indent: float = 0.0,
-                tab: float = 0.0) -> int:
+                tab: float = 0.0, extra_at: Callable[[int], float] | None = None) -> int:
     """字の並び text を幅 avail（pt）に並べたときの行の数（改行 \\n・\\v は行を分ける）。size_at：字の番号 → 字の大きさ（pt）。
-    first_indent：段落の 1 行目の字下げ（pt。ぶら下げは負）。tab：タブの間隔（pt。0 ならタブは字の大きさ 1 つ分）。"""
+    first_indent：段落の 1 行目の字下げ（pt。ぶら下げは負）。tab：タブの間隔（pt。0 ならタブは字の大きさ 1 つ分）。
+    extra_at：字の番号 → その字に足す幅（pt。字を囲む線など。なければ足さない）。"""
     if avail <= 0:
         return 1
     size = (lambda i: float(size_at)) if not callable(size_at) else size_at  # noqa: E731
@@ -47,6 +48,8 @@ def count_lines(text: str, avail: float, size_at: Callable[[int], float] | float
             w = step - (x % step) if step > 0 else s
         else:
             w = 0.5 * s * cells(ch, wide)
+        if extra_at is not None:
+            w += extra_at(i)
         if _latin(ch):
             if word_start is None:
                 word_start, word_w = x, 0.0
@@ -70,12 +73,12 @@ NARROW = 0.88  # ほかのソフト（LibreOffice など）で幅が狭く測ら
 
 
 def wraps(before: str, after: str, avail: float, size_before, size_after, first_indent: float = 0.0,
-          tab: float = 0.0) -> tuple[int, int, bool] | None:
+          tab: float = 0.0, extra_before=None, extra_after=None) -> tuple[int, int, bool] | None:
     """書く前と書いた後の行の数と、見積もりの幅で増えるか（True）・幅に近く、少し狭く測るソフトでは増えるか（False）。
     増えないときは None。"""
     for k, sure in ((1.0, True), (NARROW, False)):
-        nb = count_lines(before, avail * k, size_before, first_indent * k, tab)
-        na = count_lines(after, avail * k, size_after, first_indent * k, tab)
+        nb = count_lines(before, avail * k, size_before, first_indent * k, tab, extra_before)
+        na = count_lines(after, avail * k, size_after, first_indent * k, tab, extra_after)
         if na > nb:
             return nb, na, sure
     return None
