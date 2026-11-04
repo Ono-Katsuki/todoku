@@ -210,7 +210,12 @@ def _read_member(path: str, password: str | None):
     try:
         blob, name = _member_blob(path)
         plain, lock = unlock(blob, password)
-        _arc.preflight(plain, kind_of(plain, name))
+        try:
+            _arc.preflight(plain, kind_of(plain, name))
+        except _arc.ArchiveError as e:
+            if isinstance(e, (NeedsPassword, WrongPassword)):
+                raise
+            # 壊れた書庫：窓・段階の所で、理由を添えて伝える
     except NeedsPassword as e:
         raise PasswordNeeded(f"{e}。本人にパスワードを聞いて、password に入れてもう一度呼んでください"
                              "（パスワードは、結果にも記録にも残しません）") from None
