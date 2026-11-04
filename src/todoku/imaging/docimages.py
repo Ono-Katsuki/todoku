@@ -485,7 +485,12 @@ def _as_output(data: bytes, fmt_hint: str, region: list | None = None) -> dict:
 
         fr = emf(data) if fmt_hint == "emf" or data[40:44] == b" EMF" else wmf(data)
         return _encode(fr, region)
-    if sn in ("png", "jpeg") and len(data) <= MAX_BYTES and region is None:
+    plain = True
+    if sn == "jpeg":
+        from .formats import jpeg_plain
+
+        plain = jpeg_plain(data)  # 算術符号・12 ビット・可逆は、ふつうの道具で見られないので描いて渡す
+    if sn in ("png", "jpeg") and plain and len(data) <= MAX_BYTES and region is None:
         try:
             from .formats import info
 

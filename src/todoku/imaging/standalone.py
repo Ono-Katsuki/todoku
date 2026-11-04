@@ -284,9 +284,10 @@ def to_pdf(blob: bytes) -> tuple[bytes, list[dict], list[str]]:
 
 
 def _jpeg_upright(blob: bytes) -> bool:
-    from .formats import _jpeg_meta
+    """そのまま PDF に入れられる JPEG か：向きが正しく、PDF の DCTDecode が扱える符号化（算術符号・12 ビット・可逆は画素で入れる）。"""
+    from .formats import _jpeg_meta, jpeg_plain
 
-    return _jpeg_meta(blob)[3] == 1
+    return _jpeg_meta(blob)[3] == 1 and jpeg_plain(blob)
 
 
 def _jpeg_components(blob: bytes) -> int:

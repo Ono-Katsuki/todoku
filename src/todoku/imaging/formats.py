@@ -279,6 +279,14 @@ def _jpeg_meta(blob: bytes) -> tuple[int, int, tuple | None, int]:
     return w, h, dpi, orient
 
 
+def jpeg_plain(blob: bytes) -> bool:
+    """ふつうの見る道具・PDF（DCTDecode）がそのまま扱える JPEG か：ハフマンの 8 ビット（ベースライン・拡張の順次・プログレッシブ）。"""
+    for m, seg in _jpeg_segments(blob):
+        if 0xC0 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):
+            return m in (0xC0, 0xC1, 0xC2) and seg[:1] == b"\x08"
+    return False
+
+
 def _jpeg_info(blob: bytes) -> FrameInfo:
     w, h, dpi, orient = _jpeg_meta(blob)
     if not w or not h:
