@@ -175,7 +175,7 @@ def test_rows_and_cols_mm_match_the_plain_sum():
     sh.hidden_rows.update({10, 600})
     sh.col_widths.update({2: 20.0, 100: 3.0})
     sh.hidden_cols.add(5)
-    for a, b in ((1, 5), (1, _SUM_NEAR + 5), (2, 1000), (499, 501 + _SUM_NEAR)):
+    for a, b in ((1, 5), (1, _SUM_NEAR + 5), (2, 3 * _SUM_NEAR), (499, 501 + _SUM_NEAR)):
         assert rows_mm(sh, a, b) == pytest.approx(sum(row_mm(sh, r) for r in range(a, b + 1)))
         assert cols_mm(wb, sh, a, b) == pytest.approx(sum(col_mm(wb, sh, c) for c in range(a, b + 1)))
 

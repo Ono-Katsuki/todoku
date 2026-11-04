@@ -344,7 +344,7 @@ def row_mm(sh: Sheet, r: int) -> float:
     return float(sh.row_heights.get(r, sh.default_row_height or 15.0)) * PT_MM
 
 
-_SUM_NEAR = 64  # これより長い行・列の並びの大きさは、1 つずつ足さず、控えから求める（表の行ごとに、遠い見出しまで足し直さないように）
+_SUM_NEAR = 1024  # これより長い行・列の並びの大きさは、1 つずつ足さず、控えから求める（表の行ごとに、遠い見出しまで足し直さないように）
 
 
 def rows_mm(sh: Sheet, a: int, b: int) -> float:
