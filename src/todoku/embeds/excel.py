@@ -60,7 +60,7 @@ def sheet_contents(wb, sh) -> tuple[list[Chart], list[dict]]:
     kind = getattr(wb, "kind", "xlsx")
     if kind == "xls":
         return _xls(wb, sh)
-    if kind == "ods":
+    if kind in ("ods", "xlsb", "xls2", "wk1", "dbf", "mdb"):  # .xlsb の図（BrtDrawing の先）は読まず、シートの unread に書く
         # OpenDocument の表計算：OOXML の部品（drawing・oleObject）はない。シートの図形・グラフ（draw:frame）は、
         # odf/sheet.py がシートの shapes として読んで窓に出す
         return [], []
