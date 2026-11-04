@@ -40,19 +40,22 @@ class Widget:
     mk_caption: str = ""
     flags: int = 0  # 注釈の印（/F）：1 Invisible・2 Hidden・4 Print・32 NoView（ISO 32000-1 12.5.3）
     states: tuple = ()  # 見た目（/AP /N）にある「入」の状態の名前（Off を除く。チェック・ラジオ）
+    drawn: bool = False  # とどくが値をページの描画に描いた欄（pagedraw）：欄そのものは隠してあるが、値はページに見える
 
     @property
     def on_screen(self) -> bool:
         """画面に出る部品か：ページにあり、隠す印（Hidden）も画面に出さない印（NoView）もない。"""
-        return self.page >= 0 and not self.flags & (ANNOT_HIDDEN | ANNOT_NOVIEW)
+        return self.drawn or (self.page >= 0 and not self.flags & (ANNOT_HIDDEN | ANNOT_NOVIEW))
 
     @property
     def printed(self) -> bool:
         """紙に印刷される部品か：ページにあり、隠す印（Hidden）がなく、印刷する印（Print）がある（/F がなければ印刷されない）。"""
-        return self.page >= 0 and not self.flags & ANNOT_HIDDEN and bool(self.flags & ANNOT_PRINT)
+        return self.drawn or (self.page >= 0 and not self.flags & ANNOT_HIDDEN and bool(self.flags & ANNOT_PRINT))
 
     def why_unseen(self) -> str:
         why = []
+        if self.drawn:
+            return ""
         if self.page < 0:
             why.append("どのページにもありません")
         if self.flags & ANNOT_HIDDEN:
@@ -195,6 +198,13 @@ def _txt(doc, v) -> str:
     return "" if v is None else str(v)
 
 
+def _drawn(doc, wd) -> bool:
+    """値をページに描いた欄か：描いた字が値と一致するときだけ（一致しなければ、隠した欄として扱う）。"""
+    from .pagedraw import value_problem, widget_drawn
+
+    return widget_drawn(doc, wd) is not None and value_problem(doc, wd) is None
+
+
 def read_fields(doc) -> list[FormField]:
     af = doc.resolve(doc.root.get("AcroForm"))
     if not isinstance(af, dict):
@@ -269,7 +279,8 @@ def read_fields(doc) -> list[FormField]:
             f.widgets.append(Widget(w if isinstance(w, Ref) else None, page,
                                     (min(rect[0], rect[2]), min(rect[1], rect[3]), max(rect[0], rect[2]), max(rect[1], rect[3])),
                                     on, st.name if isinstance(st, Name) else None, bool(flags & 2),
-                                    _txt(doc, mk.get("CA")) if isinstance(mk, dict) else "", flags, tuple(states)))
+                                    _txt(doc, mk.get("CA")) if isinstance(mk, dict) else "", flags, tuple(states),
+                                    _drawn(doc, wd)))
         out.append(f)
 
     for r in doc.resolve(af.get("Fields")) or []:

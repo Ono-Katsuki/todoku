@@ -1,8 +1,9 @@
 """PDFに書き込む：元のバイト列の後ろに、変えたオブジェクトと新しいオブジェクトを足す（増分更新）。
 
 - フォームの欄（AcroForm）：値（/V）と見た目（/AP）を書く。チェック・ラジオは状態（/AS）も
-- 配置から見つけた欄（印刷用のPDF）：同じ名前のフォームの欄を、その位置に足す（見た目つき）
-  元のページの描画（コンテンツストリーム）は1バイトも変えない。値は機械で読める（/V）ので、読み戻せる
+- 配置から見つけた所（印刷用のPDF）：書いた字を、ページの描画の後ろに足し、値の控えとして同じ名前の隠した欄を足す（pagedraw.py）。
+  どのビューアーでも同じ字が見える。元のページの描画（コンテンツストリーム）は1バイトも変えない。値は機械で読める（/V）ので、読み戻せる
+  電子署名のある PDF と、権限の設定がページの描画の変更を許さない PDF は、見える欄（値と見た目）として足す（_may_draw_on_page）
 - 文字の見た目は、欧文は Helvetica、日本語は平成角ゴシック（UniJIS-UCS2-HW-H）、ハングル・中国語も対応する字形の集まりで描く
 """
 
@@ -13,7 +14,7 @@ import re
 from dataclasses import dataclass, field
 
 from .doc import PdfDocument
-from . import glyphs
+from . import glyphs, pagedraw
 from .form import FF_COMB, FF_EDIT, FF_MULTILINE, FF_MULTISELECT, FormField, read_fields
 from .layout import View
 from .objects import Name, PdfError, PdfString, Ref, Stream, dumps, text_string
@@ -501,6 +502,21 @@ class Filler:
         from .signatures import read as read_signatures
 
         self.sigs = read_signatures(doc)  # 電子署名：固定された欄・認証の署名が許す変更
+        self.draw_on_page = self._may_draw_on_page()  # 書いた字をページの描画に足すか（文書の事実で決める）
+        self.drawn: dict[int, list] = {}  # ページ → ページに描く値の (欄の名前, XObject, x, y)
+
+    def _may_draw_on_page(self) -> bool:
+        """書いた字をページの描画に足してよいか（文書の事実で決める）：
+        - 電子署名のある PDF：署名のあとにページの描画を変えると、署名の確かめで、記入より重い変更と扱われることがある
+          （Acrobat の扱いは、ここでは確かめていない）。フォームの欄として足す
+        - 権限の設定がページの描画の変更を許していない（暗号の辞書の P のビット 4）：描画は変えず、欄として足して知らせる"""
+        if self.sigs.signed or self.sigs.docmdp is not None:
+            return False
+        dec = self.doc.decryptor
+        if dec is not None:
+            if any(op == "modify" for op, _what in dec.restrictions()):
+                return False
+        return True
 
     # ------------------------------------------------------------------ 共通の資源
     def font(self, key: str) -> Ref:
@@ -586,6 +602,7 @@ class Filler:
                 wd["AS"] = Name(st) if on else Name("Off")
                 expect.append((w.ref.num if w.ref is not None else None, wd["AS"].name))
                 self._ensure_state_ap(wd, w, st, check=True)
+                self._redraw_state(wd, wd["AS"].name)
             p = Patch(f.name, "control", on)
             p.expect = {"V": fd["V"].name, "AS": expect}
             self.patches.append(p)
@@ -676,6 +693,15 @@ class Filler:
             vw, vh = _view_box(rot, x1 - x0, y1 - y0)  # 描く向きの幅と高さ（欄を 90・270 度回したときは入れ替わる）
             size = da_size or max(6.0 / unit, min(12.0 / unit, vh * 0.65))
             comb = None
+            pinned = False
+            if shown and not multiline and not (f.flags & FF_COMB) and pagedraw.widget_drawn(self.doc, wd) is None:
+                # 作り手の欄（字の見た目を使わないビューアーでも欠けないように）：入らない字は小さくし、自動の大きさは決まった大きさに
+                size, pinned = _fit_redrawn(shown, size, vw, vh, _da_auto(da), unit)
+                if pdfkit_needs(shown, size, "" if all(ord(c) < 0x80 for c in shown) else "J") > vw:
+                    msg = (f"{f.name}: この欄は狭く、読める大きさでは Mac のプレビューや iPhone などの標準の表示（欄の見た目を使わず描き直す）で"
+                           "字の終わりが欠けて見えることがあります（ファイルの中の値は正しい）。短く書けないか確かめてください")
+                    if msg not in self.warnings:
+                        self.warnings.append(msg)
             if f.flags & FF_COMB and f.maxlen:
                 cw = vw / f.maxlen
                 # 使うマスは書く字の分だけ（/MaxLen の宣言の数だけ作らない。超える字は text_appearance が断る）
@@ -687,8 +713,13 @@ class Filler:
                                         align={1: "center", 2: "right"}.get(f.q, "left"))  # /Q（0 左・1 中央・2 右）
             except FillError as e:
                 raise FillError(f"{f.name}: {e}" + ("" if multiline or comb else "（1 行の欄なので、折り返して書けません）")) from None
+            drawn = pagedraw.widget_drawn(self.doc, wd)
+            if drawn is not None:
+                # とどくがページに描いた値を直す：ページが描く XObject の中身を入れ替える（元のストリームはそのまま）
+                self.up.put(drawn, self.up.objs.pop(ap.num)[1])
+                ap = drawn
             wd["AP"] = {"N": ap}
-            self._set_da(fd, wd, da, s, keys, bool(shown))
+            self._set_da(fd, wd, da, s, keys, bool(shown), fixed=pinned)
             if shown and not calc:
                 self._report_size(f.name, s, da_size, unit)
         p = Patch(f.name, "input", text)
@@ -801,19 +832,28 @@ class Filler:
         v = self.doc.resolve(af.get("DA")) if isinstance(af, dict) else None
         return bytes(v).decode("latin-1") if isinstance(v, (bytes, PdfString)) else ""
 
-    def _set_da(self, fd: dict, wd: dict, da: str, s: float, keys: set, drawn: bool) -> None:
+    def _redraw_state(self, wd: dict, state: str) -> None:
+        """とどくがページに描いたチェックの印：描く XObject の中身を、いまの状態の見た目にする。"""
+        drawn = pagedraw.widget_drawn(self.doc, wd)
+        if drawn is None:
+            return
+        ap = self.doc.resolve(wd.get("AP"))
+        src = self.doc.resolve(self.doc.resolve(ap.get("N")).get(state))
+        self.up.put(drawn, Stream({k: v for k, v in src.dict.items() if k != "Length"}, self.doc.decode(src)))
+
+    def _set_da(self, fd: dict, wd: dict, da: str, s: float, keys: set, drawn: bool, fixed: bool = False) -> None:
         """見た目を作り直すビューアー（NeedAppearances・欄を選んだとき）が、描いた大きさと同じ大きさで描くように、/DA の字の
         大きさを、見た目に描いた大きさにする。元が自動（0）なら 0 のまま（ビューアーが欄に収まる大きさにする）。"""
         orig = _da_size(da)
         m = re.search(r"([\d.]+)\s+Tf", da or "")
-        auto = m is not None and _num(m[1]) == 0
+        auto = m is not None and _num(m[1]) == 0 and not fixed
         if keys - {"Helv"}:
             # 日本語などは Helvetica では描けないので、欄の書体の指定も合わせる
             cjk = _da_key(keys)
             wd["DA"] = PdfString(f"/{cjk} {'0' if auto else _pt(s)} Tf 0 g".encode())
             fd["DA"] = wd["DA"]
             return
-        if not drawn or auto or orig is None or abs(orig - s) < 0.005:
+        if not drawn or auto or ((orig is None or abs(orig - s) < 0.005) and not fixed):
             return
         new = _da_resize(da, s)
         if new is not None:
@@ -926,8 +966,7 @@ class Filler:
                  "V": Name("Yes") if on else Name("Off"), "AS": Name("Yes") if on else Name("Off"),
                  "AP": {"N": {"Yes": yes, "Off": off}}, "MK": {"CA": PdfString(b"4"), **({"R": rot} if rot else {})},
                  "DA": PdfString(b"/ZaDb 0 Tf 0 g")}
-            ref = self.up.new(d)
-            self._attach(page_no, ref)
+            self._place(page_no, d, yes if on else off, spot["id"], state=True)
             self.patches.append(Patch(spot["id"], "control", on, page_no))
             return
         if isinstance(value, (list, tuple, dict, set)):
@@ -985,10 +1024,7 @@ class Filler:
             d["MK"] = {"R": rot}
         if cover:
             d.setdefault("MK", {})["BG"] = [1]  # 見た目を作り直すソフトでも、下地は白
-        if QUARTZ_NOTE not in self.warnings:
-            self.warnings.append(QUARTZ_NOTE)
-        ref = self.up.new(d)
-        self._attach(page_no, ref)
+        self._place(page_no, d, ap, spot["id"], state=False)
         p_ = Patch(spot["id"], "input", text, page_no, shown=text)
         # 書いた枠（ページの左上からの mm）・字の大きさ・そろえ方：エージェントが view_page で見て確かめ、違えば box・align で書き直す
         p_.rect_mm = {"page": page_no, "x": round(vx0 / view.mm, 1), "y": round(vy0 / view.mm, 1),
@@ -997,24 +1033,44 @@ class Filler:
                       "box_mm": [round(v / view.mm, 1) for v in (vx0, vy0, vx1, vy1)]}  # view_page の marks にそのまま渡せる
         self.patches.append(p_)
 
-    def _attach(self, page_no: int, ref: Ref, field: bool = True) -> None:
-        self.page_annots.setdefault(page_no, []).append(ref)
-        if field:
-            self.new_fields.append(ref)
+    def _place(self, page_no: int, d: dict, ap: Ref, name: str, state: bool) -> None:
+        """足した所を、文書に置く。ページに描くとき：欄は隠して（値の控え）、ap の字をページの描画に足す。
+        state：チェックの印（描くものを状態の見た目の写しにして、直して書き直すときに中身だけを入れ替える）。"""
+        if not self.draw_on_page:
+            if not state and QUARTZ_NOTE not in self.warnings:
+                self.warnings.append(QUARTZ_NOTE)
+            self._attach(page_no, self.up.new(d))
+            return
+        drawn = ap
+        if state:
+            src = self.up.objs[ap.num][1]
+            drawn = self.up.new(Stream(dict(src.dict), src.raw))
+        d["F"] = pagedraw.ANNOT_HIDDEN
+        d[pagedraw.KEY] = drawn
+        self._attach(page_no, self.up.new(d))
+        self.drawn.setdefault(page_no, []).append((name, drawn, d["Rect"][0], d["Rect"][1]))
 
-    # ------------------------------------------------------------------ 仕上げ
-    def _draw_circles(self) -> None:
-        """○：ページの描画の前に「q」、後ろに楕円のストリームを足す（元のストリームは変えない）。"""
+    def _draw_page_values(self) -> None:
+        """○と書いた字：ページの描画の前に「q」、後ろに描くストリームを足す（元のストリームは変えない）。"""
         from . import circle as _circle
 
-        for page_no, circles in sorted(self.circles.items()):
+        for page_no in sorted(set(self.circles) | set(self.drawn)):
             page = self.pages[page_no - 1]
             pref = page["_ref"]
             depth = _circle.open_depth(self.doc.page_content(page))
-            data = _circle.ops(View(self.doc, page), circles, depth)
+            data = _circle.ops(View(self.doc, page), self.circles.get(page_no, []), depth)
+            pd = self.up.get(pref)
+            items = self.drawn.get(page_no, [])
+            if items:
+                res = dict(self.doc.resolve(page.get("Resources")) or {})
+                xo = dict(self.doc.resolve(res.get("XObject")) or {})
+                ops, names = pagedraw.draw_ops(items, xo)
+                data += ops
+                xo.update(names)
+                res["XObject"] = xo
+                pd["Resources"] = res
             pre = self.up.new(Stream({}, _circle.PREFIX))
             post = self.up.new(Stream({}, data))
-            pd = self.up.get(pref)
             cur = self.doc.resolve(pd.get("Contents"))
             if isinstance(cur, list):
                 old = list(cur)
@@ -1024,6 +1080,12 @@ class Filler:
                 old = [pd.get("Contents")]
             pd["Contents"] = [pre] + old + [post]
 
+    def _attach(self, page_no: int, ref: Ref, field: bool = True) -> None:
+        self.page_annots.setdefault(page_no, []).append(ref)
+        if field:
+            self.new_fields.append(ref)
+
+    # ------------------------------------------------------------------ 仕上げ
     def _used_gids(self, key: str) -> list[int]:
         """書いた見た目のストリームで、書体 key で描いた字形（Tj・TJ の 2 バイトずつ）。"""
         from .objects import Lexer
@@ -1111,8 +1173,8 @@ class Filler:
         for k in list(self.dr_fonts):
             if k == "TdkE" or k.startswith("TdkX"):
                 self._embed_font(k)
-        if self.circles:
-            self._draw_circles()
+        if self.circles or self.drawn:
+            self._draw_page_values()
         for page_no, refs in self.page_annots.items():
             pref = self.pages[page_no - 1]["_ref"]
             pd = up.get(pref)
@@ -1160,11 +1222,46 @@ class Filler:
         return up.build()
 
 
-# 書いた字はフォームの欄（値と見た目）として足す。Apple の PDF の描画（Mac のプレビュー・iPhone などの標準の表示）は見た目を使わず、
-# 値から自分で描き直すので、狭い欄では字の終わりが欠けて見える（実物のプレビューで確かめた。Poppler は見た目のとおり）
-QUARTZ_NOTE = ("書いた字は PDF のフォームの欄として足しました。Mac のプレビューや iPhone などの標準の表示では、欄の見た目を使わず描き直すので、"
-               "狭い欄の字の終わりが欠けて見えることがあります（ファイルの中の値は正しい）。"
-               "確かめや印刷は、欄の見た目を使う表示（Acrobat など）で行ってください")
+# ページの描画に足せない文書（電子署名のある PDF など：_may_draw_on_page）では、書いた字はフォームの欄（値と見た目）として足す。
+# Apple の PDF の描画（Mac のプレビュー・iPhone などの標準の表示）は見た目を使わず値から描き直すので、狭い欄では字の終わりが欠けて見える
+QUARTZ_NOTE = ("この PDF は電子署名か権限の設定があるので、ページの描画は変えず、書いた字をフォームの欄として足しました。"
+               "Mac のプレビューや iPhone などの標準の表示では、欄の見た目を使わず描き直すので、狭い欄の字の終わりが欠けて見えることが"
+               "あります（ファイルの中の値は正しい）。確かめや印刷は、欄の見た目を使う表示（Acrobat など）で行ってください")
+
+
+# 字の見た目を使わず /V から描き直すビューアー（Apple の PDFKit）で、1 行の文字の欄が 1 行で描かれる幅（Pt）：
+# 字の幅 × 1.2 ＋ 4（横の余白）。入らないと語の切れ目で折り返し、2 行目は描かれない。tests/audit_findings/pdfkit/ladder.py で測った、
+# 字と大きさを変えた欄のどれも、この幅なら欠けない値（書類の集まりで合わせた値ではない）
+REDRAW_SCALE, REDRAW_PAD = 1.2, 4.0
+REDRAW_AUTO_HEIGHT = 0.8  # 自動の大きさ（/DA の 0）で PDFKit が選ぶ字の大きさの、欄の高さに対する比（同じ所で測った）
+
+
+def pdfkit_needs(text: str, size: float, da_font: str = "") -> float:
+    """PDFKit がこの字を 1 行で描くのに要る欄の幅。字の幅は、和文の書体に置き換わるときの幅の上限（どの字も 1 字ぶんまで）。"""
+    try:
+        w = text_width(text, size) if all(ord(c) < 0x80 for c in text) and da_font in ("", "Helv") else len(text) * size
+    except FillError:
+        w = len(text) * size
+    return w * REDRAW_SCALE + REDRAW_PAD
+
+
+def _da_auto(da: str) -> bool:
+    m = re.search(r"([\d.]+)\s+Tf", da or "")
+    return m is not None and _num(m[1]) == 0
+
+
+def _fit_redrawn(text: str, size: float, w: float, h: float, auto: bool, unit: float = 1.0) -> tuple[float, bool]:
+    """元からある 1 行の欄：見た目を描き直すビューアーでも欠けない字の大きさ。返す：(大きさ, /DA に大きさを書くか)。
+    読める大きさ（MIN_READABLE_PT）より小さくはしない（そこまで小さくしても入らなければ、大きさはそのまま）。"""
+    font = "" if all(ord(c) < 0x80 for c in text) else "J"
+    pinned = auto and pdfkit_needs(text, h * REDRAW_AUTO_HEIGHT, font) > w
+    s = size
+    floor = MIN_READABLE_PT / unit
+    while s > floor and pdfkit_needs(text, s, font) > w:
+        s = max(floor, s - 0.5)
+    if pdfkit_needs(text, s, font) > w:
+        return size, pinned
+    return s, pinned or s < size
 
 
 def _da_key(keys: set[str]) -> str:

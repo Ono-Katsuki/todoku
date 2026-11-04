@@ -204,7 +204,8 @@ def test_shrunk_text_writes_the_used_size_into_da(tmp_path):
 
 
 def test_auto_size_da_stays_auto(tmp_path):
-    r, out = _api(tmp_path, {"name": "Alexander Hamilton Jr"}, name_da="/Helv 0 Tf 0 g")
+    # 字に十分な幅がある欄。狭い欄は、描き直すビューアーで欠けないよう決まった大きさにする（test_pdf_drawn）
+    r, out = _api(tmp_path, {"name": "Alexander Hamilton Jr"}, name_rect="100 700 500 720", name_da="/Helv 0 Tf 0 g")
     assert r["proof_ok"] and r["read_back_ok"]
     doc = PdfDocument(out.read_bytes())
     assert bytes(doc.resolve(_field(out.read_bytes(), "name").ref)["DA"]).decode() == "/Helv 0 Tf 0 g"

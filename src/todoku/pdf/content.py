@@ -240,10 +240,14 @@ class Interpreter:
     def __init__(self, doc):
         self.doc = doc
         self.out = PageContent()
+        self.written_forms: set[int] = set()
 
     def run_page(self, page: dict) -> PageContent:
         res = self.doc.resolve(page.get("Resources")) or {}
         data = self.doc.page_content(page)
+        from .pagedraw import verified_refs
+
+        self.written_forms = verified_refs(self.doc, page)  # とどくが書いた値（欄の値として読む）：印刷された字として読まない
         self._run(data, res, _GS(), depth=0, owner="page")
         self.out.unmapped = sum(f.unmapped for f in self._fonts_used.values()) if hasattr(self, "_fonts_used") else 0
         return self.out
@@ -629,7 +633,9 @@ class Interpreter:
                     if isinstance(xo, Stream):
                         st = getattr(xo.dict.get("Subtype"), "name", "")
                         key = xo.num or id(xo)
-                        if st == "Form" and key in drawing:
+                        if st == "Form" and xo.num in self.written_forms:
+                            pass
+                        elif st == "Form" and key in drawing:
                             out.problems.append(f"フォームの部品 {name} が自分自身を描いています（その所は描きません）")
                         elif st == "Form":
                             m = xo.dict.get("Matrix")

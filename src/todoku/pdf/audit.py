@@ -31,8 +31,11 @@ def raw_chars(doc: PdfDocument, page: dict) -> list[str]:
     """ページの文字の命令を、並べずに順に読む（窓とは別の読み方）。ActualText の範囲は、その文字にする。"""
     from ..limits import LimitExceeded
 
+    from .pagedraw import verified_refs
+
     out: list[str] = []
     drawing: set = set()
+    written = verified_refs(doc, page)  # とどくが書いた値（欄の値として読む）：窓と同じく、印刷された字として数えない
 
     def run(data: bytes, res: dict, depth: int):
         if depth > 12:
@@ -87,7 +90,7 @@ def raw_chars(doc: PdfDocument, page: dict) -> list[str]:
             elif op == "Do" and stack and isinstance(stack[-1], Name):
                 xo = doc.resolve(xobjs.get(stack[-1].name)) if isinstance(xobjs, dict) else None
                 if isinstance(xo, Stream) and getattr(xo.dict.get("Subtype"), "name", "") == "Form" \
-                        and (xo.num or id(xo)) not in drawing:  # 自分を描く部品は、描いている途中にもう一度描かない
+                        and xo.num not in written and (xo.num or id(xo)) not in drawing:  # 自分を描く部品は、描いている途中にもう一度描かない
                     drawing.add(xo.num or id(xo))
                     try:
                         run(doc.decode(xo), doc.resolve(xo.dict.get("Resources")) or res, depth + 1)

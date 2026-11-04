@@ -4,6 +4,8 @@
 - 新しい相互参照の各項目が、正しい位置の「n g obj」を指す（修復なしに開ける）
 - 書き換えたオブジェクトは、許した変更（ページの注釈の一覧に足す・フォームの欄の値と見た目・欄の一覧に足す・書体を足す）だけ
 - 足したオブジェクトは、欄・見た目・書体だけで、どれも書き換えたオブジェクトからたどれる
+- ページの描画に足した字（pagedraw）：足したストリームが、足した欄から決め直した描き方とバイト一致で、値と描いた字が合い、
+  ページの資源の差は足した XObject の項目だけ。元の描画のストリームは一覧にそのまま残る（○と同じ確かめ）
 - 本人の印影・署名の画像を置いたとき（本人が同意したときだけ）：足してよいのは、スタンプの注釈・その見た目・画像（と透け）だけ。
   どれも、元の文書と本人の画像から決め直した置き方（seal.verify）と同じで、画像は本人の画像と一致する
   （JPEG はファイルのバイト列、PNG は開いた画素とアルファ）。確かめていないスタンプ・画像が足されていれば、想定外とする
@@ -36,6 +38,8 @@ class PdfProof:
     stamps: list = field(default_factory=list)  # 確かめた、置いた画像（印影・署名）の名前
     page_contents: dict = field(default_factory=dict)  # ○を描いたページ → (前に足したストリーム, 後ろに足したストリーム) の番号
     circles: list = field(default_factory=list)  # 確かめた○の名前
+    drawn: list = field(default_factory=list)  # ページの描画に描いたと確かめた値の欄の名前
+    added_nums: set = field(default_factory=set)  # 足したオブジェクトの番号
 
     @property
     def ok(self) -> bool:
@@ -50,7 +54,7 @@ class PdfProof:
                    f"datasets で変わったのは {self.xfa.get('data_changes', 0)} か所。")
         return xfa + (f"元のファイル {self.original_bytes:,} バイトは先頭からバイト一致のまま、後ろに {self.new_bytes - self.original_bytes:,} バイトを足しました"
                 f"（足したオブジェクト {self.objects_added}・書き換えたオブジェクト {self.objects_changed}）。"
-                + (("変わったのは書いた欄とその見た目" + ("、置いた画像（本人の画像と一致）" if self.stamps else "") + (f"、○ {len(self.circles)} つ（ページの描画の後ろに足した楕円）" if self.circles else "") + "だけです")
+                + (("変わったのは書いた欄とその見た目" + ("、置いた画像（本人の画像と一致）" if self.stamps else "") + (f"、○ {len(self.circles)} つ（ページの描画の後ろに足した楕円）" if self.circles else "") + (f"、書いた字 {len(self.drawn)} か所（元の描画はそのまま、その後ろに足した描画）" if self.drawn else "") + "だけです")
                    if not self.unexpected else f"想定外の変更 {len(self.unexpected)} 件"))
 
     # 書き込みの証明を、ほかの形式と同じ形で使えるように
@@ -136,6 +140,7 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
         elif num in a.xref and a.xref[num] != ent:
             pr.unexpected.append(f"オブジェクト {num} の置き場所が変わっています")
     pr.objects_added = len(added)
+    pr.added_nums = set(added)
     pr.objects_changed = len(changed)
     from .xfaproof import check as check_xfa
 
@@ -184,6 +189,7 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
         verified = _check_anchored(a, b, anchored, pr)
     if pr.page_contents and not anchored:
         verified = _check_circles(a, b, [], pr)
+    _check_drawn_placed(b, pr)
     for num in sorted(seal_objs - verified):
         what = "ページの描画" if _kind(b.get(num)) == "content" else "スタンプの注釈か画像"
         pr.unexpected.append(f"足したオブジェクト {num}（{what}）は、置くと言った画像・○として確かめられません")
@@ -417,14 +423,25 @@ def _check_circles(a: PdfDocument, b: PdfDocument, circles: list, pr: PdfProof, 
     verified: set[int] = set()
     pages = a.pages()
     nums = {pg["_ref"].num: n for n, pg in enumerate(pages, 1) if pg.get("_ref") is not None}
+    from . import pagedraw
+
+    new_pages = b.pages()
     for pnum, (pre, post) in pr.page_contents.items():
         n = nums.get(pnum)
         want = by_page.pop(n, None) if n is not None else None
-        if not want:
+        items = pagedraw.items_of(b, new_pages[n - 1], pr.added_nums) if n is not None else []
+        if not want and not items:
             pr.unexpected.append(f"ページ（オブジェクト {pnum}）の描画が変わっていますが、○を描くと言っていません")
             continue
+        want = want or []
         page = pages[n - 1]
-        expect = circle.ops(View(a, page), want, circle.open_depth(a.page_content(page)))
+        old_res = a.resolve(page.get("Resources")) or {}
+        old_xo = a.resolve(old_res.get("XObject")) or {}
+        ops, names = pagedraw.draw_ops(items, old_xo)
+        expect = circle.ops(View(a, page), want, circle.open_depth(a.page_content(page))) + ops
+        if not _resources_only_added(a, b, old_res, b.resolve(new_pages[n - 1].get("Resources")) or {}, names):
+            pr.unexpected.append(f"{n} ページの資源（/Resources）が、足した描画の分のほかにも変わっています")
+            continue
         got_pre, got_post = b.get(pre), b.get(post)
         if not (isinstance(got_pre, Stream) and b.decode(got_pre) == circle.PREFIX):
             pr.unexpected.append(f"{n} ページの描画の前に足したストリームが、「q」だけではありません")
@@ -434,9 +451,44 @@ def _check_circles(a: PdfDocument, b: PdfDocument, circles: list, pr: PdfProof, 
             continue
         verified |= {pre, post}
         pr.circles += [sd["id"] for sd in want]
+        pr.drawn += [it[0] for it in items]
     for n in by_page:
         pr.unexpected.append(f"{n} ページに○を描くと言いましたが、描画が変わっていません")
     return verified
+
+
+def _resources_only_added(a, b, old: dict, new: dict, names: dict) -> bool:
+    """ページの資源の差が、足した描画の XObject の項目だけか。"""
+    if {k: _norm(v) for k, v in old.items() if k != "XObject"} != {k: _norm(v) for k, v in new.items() if k != "XObject"}:
+        return False
+    oxo, nxo = a.resolve(old.get("XObject")) or {}, b.resolve(new.get("XObject")) or {}
+    want = dict(oxo)
+    want.update(names)
+    return _norm(want) == _norm(nxo)
+
+
+def _check_drawn_placed(b: PdfDocument, pr: PdfProof) -> None:
+    """足した「値をページに描いた欄」が、どれも実際にページに描かれ、値と描いた字が合い、隠す印だけで隠してあるか。"""
+    from . import pagedraw
+
+    done = set(pr.drawn)
+    for num in sorted(pr.added_nums):
+        o = b.get(num)
+        if not isinstance(o, dict) or pagedraw.widget_drawn(b, o) is None:
+            continue
+        t = o.get("T")
+        name = decode_field_name(t)
+        why = pagedraw.value_problem(b, o)
+        if why:
+            pr.unexpected.append(f"欄 {name}：{why}")
+        if name not in done:
+            pr.unexpected.append(f"欄 {name}：値を描いたはずのページの描画に、描かれていません")
+
+
+def decode_field_name(t) -> str:
+    from .objects import decode_text
+
+    return decode_text(t) if isinstance(t, (bytes, PdfString)) else ""
 
 
 def _check_encryption(a: PdfDocument, b: PdfDocument, pr: PdfProof) -> None:
@@ -505,6 +557,13 @@ def _collect(doc, o, reach: set[int], allowed: set[int], depth: int = 0) -> None
 
 def _check_change(a, b, num, old, cur, pr: PdfProof) -> str | None:
     """書き換えたオブジェクトの差が、許した変更だけかを確かめる。書き換えた欄の名前（あれば）を返す。"""
+    if isinstance(old, Stream) and isinstance(cur, Stream):
+        # とどくがページに描いた値を、直して書き直した（描く XObject の中身だけ）
+        if num in _drawn_nums(b):
+            _check_glyphs(b, num, cur, pr)
+            return None
+        pr.unexpected.append(f"オブジェクト {num}（ストリーム）が書き換えられています")
+        return None
     if isinstance(old, list) and isinstance(cur, list):
         if _norm(cur[:len(old)]) != _norm(old):
             pr.unexpected.append(f"オブジェクト {num}（一覧）：元の項目が変わっています（足すだけのはず）")
@@ -516,7 +575,9 @@ def _check_change(a, b, num, old, cur, pr: PdfProof) -> str | None:
     diff = {k for k in keys if _norm(old.get(k)) != _norm(cur.get(k))}
     t = getattr(old.get("Type"), "name", "")
     if t == "Page" or ("Contents" in old and "MediaBox" in old) or (t == "" and "Annots" in diff and "Contents" in old):
-        bad = diff - {"Annots", "Contents"}
+        bad = diff - {"Annots", "Contents", "Resources"}
+        if "Resources" in diff and "Contents" not in diff:
+            bad = bad | {"Resources"}  # 資源は、足した描画の分だけ（中身は _check_circles で照らす）
         if bad:
             pr.unexpected.append(f"ページ（オブジェクト {num}）の {sorted(bad)} が変わっています")
         if "Contents" in diff:
@@ -582,6 +643,20 @@ def _check_change(a, b, num, old, cur, pr: PdfProof) -> str | None:
         return None
     pr.unexpected.append(f"オブジェクト {num} の {sorted(diff)} が変わっています")
     return None
+
+
+def _drawn_nums(b: PdfDocument) -> set[int]:
+    from . import pagedraw
+    from .form import read_fields
+
+    out = set()
+    for f in read_fields(b):
+        for w in f.widgets:
+            wd = b.resolve(w.ref) if w.ref is not None else (b.resolve(f.ref) if f.ref is not None else None)
+            ref = pagedraw.widget_drawn(b, wd)
+            if ref is not None:
+                out.add(ref.num)
+    return out
 
 
 def _full_name(doc, num, o) -> str | None:
