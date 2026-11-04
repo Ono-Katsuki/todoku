@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from ..cfb import CFB
 from ..formula.numfmt import BUILTIN
-from ..formula.parser import parse
+from ..formula.parser import addr, parse
 from ..formula.values import ExcelError, Unsupported
 from ..xlsx.workbook import (Cell, CondRule, Control, DefinedName, Dxf, Sheet, Style, Validation, _area_ranges,
                              _header_text)
@@ -79,6 +79,9 @@ class Seg:
             self.pos += take
             n -= take
         return bytes(out)
+
+    def at_end(self) -> bool:
+        return self.pi + 1 >= len(self.parts) and self._avail() == 0
 
     def u8(self) -> int:
         return self.read(1)[0]
@@ -514,6 +517,8 @@ class XlsWorkbook:
         r.u32()
         unique = r.u32()
         for i in range(unique):
+            if r.at_end():
+                break  # 宣言の数より字が少ない（Excel は開く）。字の途中で切れていれば Seg が止める。番号が外を指せば LABELSST で止まる
             cch = r.u16()
             flags = r.u8()
             runs = r.u16() if flags & 0x08 else 0
@@ -576,7 +581,11 @@ class XlsWorkbook:
                     self._put(sh, r, c0 + k, x, _rk(v))
             elif t == 0x00FD:  # LABELSST
                 r, c, x, isst = struct.unpack_from("<HHHI", b, 0)
-                s = self.shared_strings[isst] if isst < len(self.shared_strings) else ""
+                if isst < len(self.shared_strings):
+                    s = self.shared_strings[isst]
+                else:
+                    s = None  # 字がない：空のセルに見せないで、読めなかった所として伝える
+                    sh.unread.append(f"{addr(r + 1, c + 1)} の字は読めません（共有文字列の番号 {isst} が、表の {len(self.shared_strings)} 個の外です）")
                 self._put(sh, r, c, x, s)
                 if isst in self.phonetic:
                     self.cell_sst[(sh.name, r + 1, c + 1)] = isst
@@ -820,7 +829,6 @@ class XlsWorkbook:
                 f2 = self.decoder.decode(f[1], base=origin, rel=True)
         except Exception:  # noqa: BLE001
             f1 = f1 or "#REF!"
-        from ..formula.parser import addr
 
         v = Validation(sqref=ranges, type=typ, operator=_DV_OP.get((flags >> 20) & 0x0F),
                        formula1=f1, formula2=f2, allow_blank=bool(flags & 0x100), prompt=strs[2],
@@ -936,7 +944,6 @@ class XlsWorkbook:
 
 
 def _a1(r: int, c: int) -> str:
-    from ..formula.parser import addr
 
     return addr(r + 1, c + 1)
 

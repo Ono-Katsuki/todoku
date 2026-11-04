@@ -255,8 +255,8 @@ class Biff234Workbook(XlsbWorkbook):
                     sh = None
                 continue
             try:
-                if t == 0x001E:  # FORMAT
-                    s = b[2:] if self.biff == 4 else b
+                if t in (0x001E, 0x041E):  # FORMAT（BIFF2・3 は 0x001E、BIFF4 は 0x041E で、先頭に 2 バイト多い）
+                    s = b[2:] if t == 0x041E else b
                     self._fmts.append(self._text(s[1:1 + s[0]]) if s else "General")
                 elif t in (0x0031, 0x0231):
                     self._fonts.append(0)

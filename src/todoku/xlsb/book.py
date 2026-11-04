@@ -42,6 +42,7 @@ _CF_TYPE = {1: "cellIs", 3: "colorScale", 4: "dataBar", 5: "top10", 6: "iconSet"
 _CF_TEMPLATE = {1: "expression", 7: "uniqueValues", 8: "containsText", 9: "containsBlanks", 10: "notContainsBlanks", 11: "containsErrors", 12: "notContainsErrors",
                 25: "aboveAverage", 26: "aboveAverage", 27: "duplicateValues", 29: "aboveAverage", 30: "aboveAverage"}
 LISTPART = 661
+BEGIN_FRT, END_FRT = 35, 36  # BrtFRTBegin・BrtFRTEnd（MS-XLSB 2.4）：あいだのレコードは、同じ番号でも別の意味（番号 1 は空のセルではない）
 C_AUTHOR, C_BEGIN, C_TEXT = 632, 635, 637
 
 _ST = {0: "visible", 1: "hidden", 2: "veryHidden"}
@@ -49,6 +50,25 @@ _ST = {0: "visible", 1: "hidden", 2: "veryHidden"}
 
 class XlsbError(ValueError):
     pass
+
+
+def sheet_records(data: bytes):
+    """シートの部品のレコード。後の版の機能の枠（BrtFRTBegin〜End）の中は返さず、行とセルのレコードは
+    BrtBeginSheetData〜End の中のものだけを返す（Excel は枠の中に番号 1 のレコードを書く。セルと読むと、最後の行の値を消してしまう）。"""
+    frt = 0
+    inside = False
+    for rid, p, ln in records(data):
+        if rid == BEGIN_FRT:
+            frt += 1
+        elif rid == END_FRT:
+            frt = max(0, frt - 1)
+        elif frt:
+            pass
+        elif rid == BEGIN_DATA or rid == END_DATA:
+            inside = rid == BEGIN_DATA
+            yield rid, p, ln
+        elif inside or not (rid == ROW or rid in CELLS or rid == SHR or rid == ARR):
+            yield rid, p, ln
 
 
 def records(data: bytes):
@@ -404,7 +424,7 @@ class XlsbWorkbook:
         cf_ranges: list = []
         cf_bad = 0
         last_formula = None
-        for rid, p, ln in records(data):
+        for rid, p, ln in sheet_records(data):
             b = data[p:p + ln]
             if rid == ROW:
                 row = struct.unpack_from("<I", b, 0)[0]

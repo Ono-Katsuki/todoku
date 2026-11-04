@@ -78,7 +78,8 @@ class RepeatRange:
 
 
 def para_text(el: El, data: bytes) -> str:
-    """セルの中の段落（text:p）の字：ODF の空白の決まり（6.1.2）で作る。"""
+    """セルの中の段落（text:p）の字：ODF の空白の決まり（6.1.2）で作る。ただし終わりの空白は残す：決まりでは無視するものだが、
+    LibreOffice はセルの終わりの空白をこの形で書き、開いても字として残す（Excel も同じ）。セルの字を黙って変えない。"""
     atoms: list = []
 
     def walk(n: El) -> None:
@@ -129,8 +130,6 @@ def para_text(el: El, data: bytes) -> str:
             at_start = False
             if a[0] == "x":
                 out.append(("\x00" if a[1] == "" else "") + a[1])
-    while out and out[-1] == " ":
-        out.pop()
     return "".join(out).replace("\x00", "")
 
 
@@ -559,7 +558,7 @@ class OdsWorkbook:
             cell.value = _bool(el.get("office:boolean-value"))
         elif vt == "string":
             sv = el.get("office:string-value")
-            cell.value = sv if sv is not None else text
+            cell.value = sv if sv else text  # 空の office:string-value に字の段落があれば、見えている字が値（calcext のない保存の #DIV/0! など）
             cell.t = "str"
         elif has_text and text:
             cell.value = text

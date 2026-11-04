@@ -71,6 +71,8 @@ def scan_sheet(data: bytes):
             if cur:
                 cur.end = start
             cur = None
+        elif data_end is not None or begin is None:
+            pass  # データの区切りの外の番号は、行・セルではない（book.sheet_records）
         elif rid == ROW:
             if cur:
                 cur.end = start
@@ -260,6 +262,8 @@ def cell_positions(data: bytes) -> dict[tuple[int, int], int]:
     for rid, p, ln in records(data):
         start = prev
         prev = p + ln
+        if rid == END_DATA:
+            break
         if rid == ROW:
             row = struct.unpack_from("<I", data, p)[0]
         elif rid in CELLS and rid != C_BLANK:
@@ -326,16 +330,19 @@ def prove_sheet(old: bytes, new: bytes, written: set[tuple[int, int]], value_spa
     i = 0
     row = -1
     prev = 0
+    past_data = False  # BrtEndSheetData より後の同じ番号は、行・セルではない（book.sheet_records）
     for rid, p, ln in records(old):
         start = prev
         prev = p + ln
         raw = old[start:prev]
-        if rid == ROW:
+        if rid == END_DATA:
+            past_data = True
+        if rid == ROW and not past_data:
             row = struct.unpack_from("<I", old, p)[0]
         # 足したレコード（書いたセル・足した行）を飛ばす
         while i < len(new_recs):
             nr = new_recs[i]
-            if rid in CELLS and rid == C_BLANK and (row, struct.unpack_from("<I", old, p)[0]) in written:
+            if rid in CELLS and rid == C_BLANK and not past_data and (row, struct.unpack_from("<I", old, p)[0]) in written:
                 break
             if nr[0] == rid and new[nr[1]:nr[2] + nr[3]] == raw:
                 break
@@ -352,7 +359,7 @@ def prove_sheet(old: bytes, new: bytes, written: set[tuple[int, int]], value_spa
             problems.append(f"元のレコード（型 {rid}・位置 {start}）がなくなっています")
             return problems
         nr = new_recs[i]
-        if rid == C_BLANK and (row, struct.unpack_from("<I", old, p)[0]) in written:
+        if rid == C_BLANK and not past_data and (row, struct.unpack_from("<I", old, p)[0]) in written:
             i += 1
             continue
         got = new[nr[1]:nr[2] + nr[3]]
@@ -408,6 +415,8 @@ def prove_index(old_ix: bytes, new_ix: bytes, new_sheet: bytes, old_sheet: bytes
     for rid, p, ln in records(new_sheet):
         s = prev
         prev = p + ln
+        if rid == END_DATA:
+            break
         if rid == ROW:
             row = struct.unpack_from("<I", new_sheet, p)[0]
             starts[s] = (rid, row, None)
