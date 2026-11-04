@@ -175,7 +175,7 @@ def plan(doc: JtdFile, values: dict, *, force: bool = False):
             else:
                 it = sp.items.get(key)
                 if it is None:
-                    raise FillError(f"{key}: そのような欄はありません")
+                    raise FillError(f"{key}: そのような欄はありません{sp.items.hint(key)}")
                 fid = key
                 p = it["para"]
                 us = para_units(doc, p)

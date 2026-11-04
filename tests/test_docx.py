@@ -129,18 +129,19 @@ def test_only_structural_blanks_are_rules_and_word_patterns_are_agent():
             + p("https://example.jp/__icsFiles/a.docx"))
     win = build(DocxDocument(make_docx(body), "b.docx"))
     by = {f["id"]: f for f in win["fields"]}
-    assert all(by[i].get("agent") and "1 字ぶん以上の空白" in by[i]["why"] for i in ("P1.1", "P1.2", "P1.3"))
-    assert not by["P2.1"].get("agent") and not by["P3.1"].get("agent")  # 「＿＿＿＿」・下線を引いた空白
-    assert by["P4.1"].get("agent") and "1 字ぶん以上の空白" in by["P4.1"]["why"]  # 段落の終わりの空白の並び：前は出さなかった
-    assert by["P5.1"].get("agent") and "下線を引いた短い空白" in by["P5.1"]["why"]  # 2字の下線：前は出さなかった
-    assert by["P6.1"].get("agent") and "URL" in by["P6.1"]["why"]  # 英数字にはさまれた「__」は名前の一部のことも
+    assert all(by[i].get("agent") and "1 字ぶん以上の空白" in by[i]["why"] for i in ("P1.c2", "P1.c3", "P1.c4"))
+    assert not by["P2.c2"].get("agent") and not by["P3.c2"].get("agent")  # 「＿＿＿＿」・下線を引いた空白
+    assert by["P4.c3"].get("agent") and "1 字ぶん以上の空白" in by["P4.c3"]["why"]  # 段落の終わりの空白の並び：前は出さなかった
+    assert by["P5.c2"].get("agent") and "下線を引いた短い空白" in by["P5.c2"]["why"]  # 2字の下線：前は出さなかった
+    assert by["P6.c19"].get("agent") and "URL" in by["P6.c19"]["why"]  # 英数字にはさまれた「__」は名前の一部のことも
     md = to_markdown(win)
     # 「？」の所の印は、元の空白をそのまま中に入れる（全角の空白 2 つの空き・半角の空白 2 つの下線）
-    assert "令和［P1.1？　　］年［P1.2？　　］月［P1.3？　　］日" in md and "氏名［P2.1］" in md
-    assert "番号［P5.1？  ］" in md and "連絡先［P4.1？　　］" in md
+    assert "令和［P1.c2？　　］年［P1.c3？　　］月［P1.c4？　　］日" in md and "氏名［P2.c2］" in md
+    # 空白の並びの始めの 1 字は、元の字のまま所の外に残す（gap_interior。前の字にくっつけない）
+    assert "番号 ［P5.c2？ ］" in md and "連絡先　［P4.c3？　］" in md
     # 「？」の所も id で書け、証明と読み戻しが通る
     blob = make_docx(body)
-    vals = {"P1.1": "8", "P1.2": "4", "P1.3": "1", "P2.1": "山田", "P4.1": "03", "P5.1": "12"}
+    vals = {"P1.c2": "8", "P1.c3": "4", "P1.c4": "1", "P2.c2": "山田", "P4.c3": "03", "P5.c2": "12"}
     res = fill(DocxDocument(blob, "b.docx"), vals)
     assert prove(blob, res.blob, {x.id: x.value for x in res.patches}).ok
     got = {f["id"]: f["value"] for f in build(DocxDocument(res.blob, "b.docx"))["fields"]}
@@ -153,19 +154,20 @@ def test_checked_marks_are_checkbox_candidates():
     blob = make_docx(body)
     win = build(DocxDocument(blob, "m.docx"))
     by = {f["id"]: f for f in win["fields"]}
-    assert by["P1.1"]["kind"] == "checkbox" and by["P1.1"].get("agent") and by["P1.1"]["value"] is True
-    assert by["P1.2"]["kind"] == "checkbox" and not by["P1.2"].get("agent") and by["P1.2"]["value"] is False
-    assert by["P2.1"].get("agent") and by["P3.1"].get("agent") and "箇条の印" in by["P2.1"]["why"]
+    assert by["P1.c0"]["kind"] == "checkbox" and by["P1.c0"].get("agent") and by["P1.c0"]["value"] is True
+    # □ も、ほかの箱の字と同じく「？」の候補（箱の字の使い方は字の形では決まらない：chars.py）。印のない箱なので値は False
+    assert by["P1.c2"]["kind"] == "checkbox" and by["P1.c2"].get("agent") and by["P1.c2"]["value"] is False
+    assert by["P2.c0"].get("agent") and by["P3.c0"].get("agent") and "箇条の印" in by["P2.c0"]["why"]
     md = to_markdown(win)
-    assert "☑［P1.1？］ 新規" in md and "■［P2.1？］ 申請者の情報" in md
-    res = fill(DocxDocument(blob, "m.docx"), {"P1.1": False, "P1.2": True, "P2.1": False, "P3.1": True})
+    assert "☑［P1.c0？］ 新規" in md and "■［P2.c0？］ 申請者の情報" in md
+    res = fill(DocxDocument(blob, "m.docx"), {"P1.c0": False, "P1.c2": True, "P2.c0": False, "P3.c0": True})
     assert prove(blob, res.blob, {x.id: x.value for x in res.patches}).ok
     after = build(DocxDocument(res.blob, "m.docx"))
-    # 「申請者の情報」「確認した」の後ろ（P2.a1・P3.a1）も、見出しの後ろの候補（印の箱があっても落とさない）。書いたのは印だけ
-    got = {f["id"]: f["value"] for f in after["fields"] if not f["id"].endswith(".a1")}
-    assert got == {"P1.1": False, "P1.2": True, "P2.1": False, "P3.1": True}, got
+    # 「申請者の情報」「確認した」の後ろ（P2.c6・P3.c4）も、見出しの後ろの候補（印の箱があっても落とさない）。書いたのは印だけ
+    got = {f["id"]: f["value"] for f in after["fields"] if f["kind"] == "checkbox"}
+    assert got == {"P1.c0": False, "P1.c2": True, "P2.c0": False, "P3.c0": True}, got
     text = "\n".join(ln for st in after["stories"] for ln in st["reading"])
-    assert "☐［P1.1］ 新規" in text and "☑［P1.2］ 変更" in text and "☐［P2.1］ 申請者の情報" in text
+    assert "☐［P1.c0］ 新規" in text and "☑［P1.c2］ 変更" in text and "☐［P2.c0］ 申請者の情報" in text
 
 
 def test_label_beside_ruled_cell_is_kept_as_alternative():
@@ -174,7 +176,7 @@ def test_label_beside_ruled_cell_is_kept_as_alternative():
     win = build(DocxDocument(make_docx(body), "t.docx"))
     by = {f["id"]: f for f in win["fields"]}
     assert not by["T1.R1.C2"].get("agent")
-    assert by["P1.a1"].get("agent") and by["P1.a1"]["alternative_to"] == "T1.R1.C2"
+    assert by["P1.c2"].get("agent") and by["P1.c2"]["alternative_to"] == "T1.R1.C2"
     assert "T1.R1.C2 の代わりの所" in to_markdown(win)
 
 
@@ -184,7 +186,7 @@ def test_empty_paragraph_in_cell_with_long_text_is_a_candidate():
     body = '<w:tbl><w:tr><w:tc>' + p(long) + '<w:p/></w:tc><w:tc>' + p("備考") + '</w:tc></w:tr></w:tbl>'
     win = build(DocxDocument(make_docx(body), "n.docx"))
     cand = [f for f in win["fields"] if f.get("agent") and "マスのほかの字が長く" in f["why"]]
-    assert [f["id"] for f in cand] == ["P2.a1"], win["fields"]
+    assert [f["id"] for f in cand] == ["P2.c0"], win["fields"]
 
 
 @pytest.mark.corpus
@@ -214,8 +216,8 @@ def test_anchored_write_where_rules_found_nothing():
     lines = [ln for st in build(DocxDocument(res.blob, "a.docx"))["stories"] for ln in st["reading"]]
     # 書いた値の前後に残った全角の空白 1 つ（1 字ぶんの空き）も「？」の所。中に 1 字ぶん以上の空きのある段落なので、
     # 段落の後ろ（「殿」の後ろ）は示さない（書く前と同じ。字の意味では決めず、空きのある段落の形で決める）
-    assert "茨城県［P9.1？　］［P9.w1＝土浦］［P9.2？　］農林事務所長［P9.3？　］殿" in lines, lines
-    assert "第３条［P11.1？　］訓練は年［P11.w1＝２］回以上行う。" in lines, lines
+    assert "茨城県［P9.c3？　］［P9.w1＝土浦］［P9.c3.2？　］農林事務所長［P9.c9？　］殿" in lines, lines
+    assert "第３条［P11.c3？　］訓練は年［P11.w1＝２］回以上行う。" in lines, lines
     # 決まらないときは、候補を添えて断る
     with pytest.raises(FillError, match="2 か所にあります"):
         fill(DocxDocument(blob, "a.docx"), {"@1": {"old": "年１回", "new": "年２回"}})

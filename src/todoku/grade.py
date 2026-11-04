@@ -407,7 +407,7 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
         n = sum(k for _w, k in body)
         reasons.append(Reason("E", "字に直せない本文の字",
                               f"{n} 字は、フォントに文字の対応がなく、字に直せません（窓では �）。その所の中身は、ページを画像として"
-                              "見て読みます（todoku の view_page は画像だけを描き、字は描かないので、PDF を描ける別の道具で見ます）。"
+                              "見て読みます（view_page で描いたページを見る。字に直せない字は、埋め込みのフォントの字形のまま描くので、見た形から読む）。"
                               "中身を推測で埋めないでください", [w for w, _k in body][:12]))
     flagged: dict[str, Reason] = {}
     for p in win["pages"]:
@@ -453,8 +453,8 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
         # 字を組み立てて（シェーピング）描く文字：書けるが、証明はとどく自身の組み立てと照らすだけで、見た目そのものは確かめない
         write.append(Reason("B", "字を組み立てて書く文字（見た目は画像で確かめる）",
                             "この書類の文字（アラビア文字・インド系の文字など）は、字を組み立てて（シェーピング）描きます。"
-                            "字の並びは、とどくの字の組み立てで確かめますが、見た目そのものは確かめていません。書いた欄は view_page で"
-                            "ページの画像を見て確かめます", sh[:12]))
+                            "字の並びは、とどくの字の組み立てで確かめますが、見た目そのものは証明していません。書いた欄は view_page で"
+                            "描いたページ（書いた字も字形で描く）を見て、字の形とつながりが正しいかを確かめます", sh[:12]))
     from .pdf.signatures import write_reasons as _sig_reasons
 
     write += _sig_reasons(doc)  # 変更を許さない電子署名（DocMDP P=1）は書けない
@@ -732,9 +732,8 @@ def _numbering_reasons(doc) -> list[Reason]:
 
     bad = []
     for p in iter_paras(getattr(doc, "body", []) or []):
-        m = re.search(r"番号の書式「([^」]*)」は再現できません", getattr(p, "label", "") or "")
-        if m:
-            bad.append((m[1], (_words(p) or "")[:20]))
+        for fmt in getattr(p, "number_unshown", None) or []:  # 読んだときに決めた事実（窓の字は見ない）
+            bad.append((fmt, (_words(p) or "")[:20]))
     if not bad:
         return []
     names = "・".join(sorted({f for f, _t in bad}))
@@ -962,8 +961,24 @@ def _unverifiable_rules(wb) -> list[str]:
     return out
 
 
-_SHEET_MARKS = {"入力規則があるセル", "シート保護の中で編集できるセル"}  # ファイルの作りとして入力欄の印になっているもの
-_SHEET_BOXED = {"枠のある空欄", "色の付いた空欄"}  # 罫線・塗りと、近くの見出しから推定したもの（印ではない）
+# 段階は、窓の欄の理由の符号（reason_codes）で決める。理由の字（reason：本人・エージェント向けの説明の文）は比べない
+# （説明の字を直しても段階が変わらないように）。符号：
+#   validation（入力規則のあるセル）・unlocked（シート保護の中で編集できるセル）：ファイルの作りとして入力欄の印
+#   border（枠のある空欄）・fill（色の付いた空欄）：罫線・塗りと近くの見出しから推定したもの（印ではない）
+#   formula_ref（数式が参照している値）：数式の入力から推定したもの
+_SHEET_MARKS = {"validation", "unlocked"}
+_SHEET_BOXED = {"border", "fill"}  # 以前の版の窓の鍵（いまの窓は、枠・塗りのある空欄を「？」の所 blank_box にする）
+
+
+def reason_codes(f: dict) -> set[str]:
+    """欄の理由の符号：窓が出した reason_codes（xlsx.window.REASON_CODES）。古い控えの窓で符号がなければ、窓と同じ対応で作る。"""
+    if f.get("reason_codes") is not None:
+        return set(f["reason_codes"])
+    from .xlsx.window import reason_codes as _codes
+
+    return set(_codes(f.get("reason", [])))
+
+
 _CONTROL_KINDS = ("checkbox", "radio", "select", "multiselect", "spin", "option", "combo")
 
 
@@ -983,7 +998,7 @@ def sheet_input_reasons(doc: dict, reasons: list, write: list, protect: str = "�
                 continue
             if f.get("unlabeled"):
                 continue
-            why = set(f.get("reason", []))
+            why = reason_codes(f)
             if f["kind"] == "inline":
                 inline.append(f["id"])
             elif why & _SHEET_MARKS or ((f["kind"] in _CONTROL_KINDS or f.get("activex")) and not f.get("undecided")):
@@ -1172,7 +1187,7 @@ def _grade_word6(doc) -> Grade:
         write.append(Reason("B", "配置から推定した入力欄",
                             f"入力欄 {len(fields)} か所のうち {len(layout)} か所は、フォームの欄ではなく、空のマスや空白・下線から推定しました",
                             [f["id"] for f in layout[:12]]))
-    unread = sum(t.count("状態は読めません") for st in win["stories"] for t in st["reading"])
+    unread = win.get("unread_controls", 0)  # 読んだときに数えた数（窓の字は数えない）
     if unread:
         reasons.append(Reason("C", "状態の読めないフォームの欄",
                               f"チェックボックス・ドロップダウンのフォームの欄 {unread} か所は、Word 6.0/95 の欄のデータの形が仕様書にないので、"

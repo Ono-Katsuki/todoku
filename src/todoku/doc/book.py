@@ -687,6 +687,17 @@ class DocFile:
         ctl = Control(kind, "formfield", "", None, "doc", p)
         ctl.begin_cp = f["begin"]
         props = self.char_props(f["begin"])
+        if props["pic"] is None:
+            # FFData の位置（sprmCPicLocation, sprmCFData）：Word は欄の始めの字（0x13）に置くが、LibreOffice が書き出す .doc は、
+            # 欄の命令の中の 0x01 の字に置く（区切りの字 0x14 のないこともある）。始めの字になければ、命令の中の 0x01 の字と、
+            # 区切りの字を、この順に見る
+            end = f["begin"] + 1 + len(f["instr"])
+            for cp in [f["begin"] + 1 + i for i, ch in enumerate(f["instr"]) if ch == "\x01"] + \
+                    ([f["sep"]] if f.get("sep") is not None else [end]):
+                got = self.char_props(cp)
+                if got["pic"] is not None:
+                    props = got
+                    break
         if props["pic"] is not None:
             ff = parse_ffdata(self.data, props["pic"])
             if ff:

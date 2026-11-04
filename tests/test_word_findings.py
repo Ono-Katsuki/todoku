@@ -170,7 +170,7 @@ def test_bullet_proof_catches_change_of_other_definition(tmp_path):
 def test_plain_text_box_still_writable(tmp_path):
     path = write(tmp_path, docx(p(r("□申請者と同じ　□別住所"))))
     out = str(tmp_path / "o.docx")
-    r_ = api.fill(path, {"P1.1": True}, out)
+    r_ = api.fill(path, {"P1.c0": True}, out)
     assert r_["proof_ok"] and r_["read_back_ok"]
     assert DocxDocument(open(out, "rb").read()).body[0].text.startswith("■申請者と同じ")
 

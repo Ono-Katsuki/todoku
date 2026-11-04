@@ -1,5 +1,5 @@
-"""書く所の見つけ方（72 の様式の試し書きから）：見出しは印刷された字そのまま・字間を空けた見出しは所にしない・
-弱い候補の印・見落としていた所（マスの中の上の行の下の空き、行の頭の空き、空の段落など）。"""
+"""書く所の見つけ方（72 の様式の試し書きから）：見出しは印刷された字そのまま・見落としていた所（マスの中の上の行の下の空き、
+行の頭の空き、空の段落など）。PDF は、字間を空けた見出しの字の間も 1 字ぶん以上の空きなら所（形は facts）、弱い候補の印はない。"""
 
 from __future__ import annotations
 
@@ -58,12 +58,13 @@ def test_docx_first_empty_paragraph_in_cell_and_head_of_date_chain():
     by, md = _docx_win(body)
     first = [f for f in by.values() if f.get("agent") and "初めの空の段落" in (f.get("why") or "")]
     assert first, by
-    # 「年　　月　　日」で始まる段落の、初めの字の前（年を書く所）。2 字の「氏　　名」には出さない
-    heads = [f for f in by.values() if "初めの字の前" in (f.get("why") or "")]
-    assert len(heads) == 1 and heads[0]["label"].startswith("［"), heads
-    # 字間を空けた 4 字以上の並び：id にせず〔字間〕
-    assert "重　度　訪　問　介　護〔字間〕" in md
-    assert not any("重" in (f.get("label") or "") and f.get("agent") for f in by.values())
+    # 「年　　月　　日」の初めの字の前は、所にしない（後ろの所の数で決めていた決まりをやめた）
+    assert not any("初めの字の前" in (f.get("why") or "") for f in by.values())
+    # 字間を空けた並び（重　度　訪　問　介　護）の字の間も、隠さずに「？」の所にし、並びの字数を事実（facts の chain）で示す。
+    # 見出しか書く所かは、エージェントが判断する
+    spaced = [f for f in by.values() if f.get("agent") and "重" in (f.get("label") or "")]
+    assert spaced and all((f.get("facts") or {}).get("chain", {}).get("len") == 6 for f in spaced), spaced
+    assert "〔字間〕" not in md
 
 
 def test_xlsx_head_of_date_chain_and_spaced_heading():
@@ -96,12 +97,14 @@ def _pdf_win(lines, rules: bytes = b""):
     return pg["fields"], "\n".join(pg["reading"]), to_markdown(win)
 
 
-def test_pdf_spaced_heading_is_a_mark_not_places_but_two_letter_gap_stays():
+def test_pdf_spaced_heading_gaps_are_places_with_the_shape_as_a_fact():
     fields, reading, md = _pdf_win([(60, 700, 10, "重　度　訪　問　介　護"), (60, 660, 10, "第　　　号"),
                                     (60, 620, 10, "年　　月　　日"), (400, 580, 10, "備考")])
-    # 4 字以上を同じ空白でつないだ並び：字の間は所（id）にせず、元の空白のまま「〔字間〕」の印
-    assert "重　度　訪　問　介　護〔字間〕" in reading, reading
-    assert "〔字間〕" in md and "字間を空けた見出しの形" in md
+    # 1 字ずつを同じ空白でつないだ並び（字間を空けた見出しの形）：字の間も 1 字ぶん以上の空き。見出しかどうか（形の意味）は
+    # 決めず、形を facts の spaced と窓の「字間を空けた形」で示す。並びの長さで所にするかを変えない
+    spaced = [f for f in fields if f.get("shape") == "gap" and f["facts"]["line"] == "重　度　訪　問　介　護"]
+    assert len(spaced) == 5 and all(f["agent"] and f["facts"]["spaced"] for f in spaced), spaced
+    assert "〔字間〕" not in reading and "字間を空けた形" in md
     # 2 字・3 字の並び（「第　　号」「年　　月　　日」）は、これまでどおり「？」の所
     assert any(f.get("agent") and f["label"].startswith("第") for f in fields), fields
     assert sum(1 for f in fields if f.get("agent") and "年" in f["label"] and "月" in f["label"]) >= 2
@@ -112,26 +115,32 @@ def test_pdf_band_below_top_line_and_free_line_room_are_offered():
     # 葛飾区の様式：上の行「〒　…　電話番号」、右下に「(日中連絡先)」。住所は〒の行の下の、左の空きに書く
     fields, reading, _md = _pdf_win([(62, 628, 10, "〒"), (300, 628, 10, "電話番号"), (300, 603, 10, "(日中連絡先)"),
                                      (60, 500, 10, "申請者　　住　　所"), (500, 460, 10, "以上")], rules)
-    band = [f for f in fields if "上の行" in (f.get("why") or "")]
-    assert band and band[0]["rect"][0] < 70 and band[0]["rect"][2] < 300, fields
-    room = [f for f in fields if "行の右の余白" in (f.get("why") or "")]
-    assert room and room[0]["rect"][0] > 150, fields
+    # 「〒」と「電話番号」は同じ高さの 1 つの行：その間の 1 字ぶん以上の空き（住所を書く所）
+    post = next(f for f in fields if f.get("shape") == "gap" and f["facts"]["before"] == "〒")
+    assert post["rect"][0] < 80 and post["rect"][2] <= 300 and post["facts"]["after"] == "電話番号", post
+    # 下の行「(日中連絡先)」の前の空き（マスの縁まで）：上下は、上の行の字からマスの縁まで（行と行の間の帯）
+    head = next(f for f in fields if f.get("shape") == "lead" and f["facts"]["line"] == "(日中連絡先)")
+    assert head["facts"]["bound"]["kind"] == "cell" and head["rect"][3] - head["rect"][1] > 10, head
+    # マスの外の行の終わりの後ろ（ページの字の端まで）の空きも所
+    room = [f for f in fields if f.get("shape") == "trail" and f["facts"]["line"].startswith("申請者")]
+    assert room and room[0]["rect"][0] > 150 and room[0]["facts"]["bound"]["kind"] == "page", fields
 
 
 def test_pdf_lead_room_before_year_is_not_taken_for_an_indent():
     # マスの中：上の行「年　　月　　日」は右に寄せてあり、下の行「申請日…」が左から始まる（3 字ぶん以上の差：字下げではない）
     rules = b"0.8 w 60 640 m 260 640 l S 60 600 m 260 600 l S 60 640 m 60 600 l S 260 640 m 260 600 l S\n"
     fields, reading, _md = _pdf_win([(110, 625, 10, "年　　月　　日"), (62, 605, 10, "申請日　　年　月　日")], rules)
-    lead = [f for f in fields if "行の頭の前" in (f.get("why") or "") and f["rect"][2] <= 110]
+    lead = [f for f in fields if f.get("shape") == "lead" and f["rect"][2] <= 110]
     assert lead, fields
 
 
-def test_pdf_weak_candidates_keep_ids_and_are_listed_compactly():
+def test_pdf_narrow_gaps_are_not_ranked_but_measured():
+    # 1 字ぶんちょうどの空き（「区分　１　２」）も、ほかの空きと同じ所：弱い・強いの順は付けず、測った幅（mm・字）を示す
     fields, reading, md = _pdf_win([(60, 700, 10, "区分　１　２　３　４　５"), (400, 660, 10, "備考")])
-    weak = [f for f in fields if f.get("weak")]
-    assert weak and all(f.get("agent") for f in weak)
-    assert all(f"［{f['id']}？" in reading for f in weak)  # 読み順には、ほかの所と同じ印で出ている
-    assert "弱い候補" in md
+    gaps = [f for f in fields if f.get("shape") == "gap"]
+    assert len(gaps) == 5 and not any(f.get("weak") for f in fields)
+    assert all(f["facts"]["width_em"] == 1.0 and f"［{f['id']}？" in reading for f in gaps)
+    assert "弱い候補" not in md and "1.0字" in md
 
 
 def test_pdf_circle_occurrence_counts_among_near_candidates(tmp_path):

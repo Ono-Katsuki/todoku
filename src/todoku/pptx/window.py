@@ -1,6 +1,6 @@
 """PowerPoint の窓：Word の窓と同じ書き方（スライドごとの節に、字を上から。表は行ごとに ｜ で区切り、入力欄は［］）。
 
-入力欄の推定も Word と同じ（docx/window.py の Spots：表の空のマス T1.R2.C3・段落の中の空欄 P12.1・□・「？」の所）。
+入力欄の推定も Word と同じ（docx/window.py の Spots：表の空のマス T1.R2.C3・段落の中の空欄 P12.c5・□・「？」の所）。
 段落の番号は、スライドの順に（スライド・そのノート）数える。スライドの型（レイアウト・マスター）の、プレースホルダーでない
 図形の字は、すべてのスライドに出る字として別の節に出す（欄にはしない）。
 """
@@ -21,7 +21,7 @@ def build(doc: PptxDocument) -> dict:
     win["kind_ja"] = "PowerPoint（.pptx）"
     win["source"]["note"] = ("元のファイルが正本。書き込みは、書いた段落のあるスライドの部品だけを、書いた字の差分として変える"
                              "（ほかの部品は、圧縮したバイトのまま）。")
-    win["notation"]["［P12.1］"] = "段落の中の空欄（スライドの順に数えた 12 番目の段落の1つ目）"
+    win["notation"]["［P12.c5］"] += "（段落は、スライドの順に数える）"
     win["slides"] = [{"n": s["n"], "part": s["part"], "hidden": s["hidden"], "notes": s["notes"]} for s in doc.slides]
     sp = Spots(doc)
     for part, blocks in doc.templates:

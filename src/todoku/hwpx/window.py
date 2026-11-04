@@ -24,7 +24,7 @@ def build(doc: HwpxDocument) -> dict:
     win["source"]["note"] = ("元のファイルが正本。書き込みは、書いた欄のある本文の節（Contents/sectionN.xml）の、その段落だけを変える差分として"
                              "適用する（ほかの部品はバイトのまま）。字を変えた段落は、한글の行の配置の控え（hp:linesegarray）を除き、"
                              "한글が開くときに配置し直す")
-    win["notation"]["［P12.1］"] = "段落の中の空欄（12番目の段落の1つ目。表のマス・図形の中の段落も数える）"
+    win["notation"]["［P12.c5］"] += "（段落は、表のマス・図形の中の段落も数える）"
     win["notation"]["［名前］"] = "누름틀（クリックして書く欄）・フォームの部品。値がなければ、案内の字を placeholder に示す"
     sp = Spots(doc)
     for f in win["fields"]:

@@ -1,8 +1,8 @@
 """PDF の窓の書く所を、字の意味（語の表）でなく、字の形と測った空きだけで示す（どの言語の書類にも同じ決め方）。
 
-- 空き：1.5 字ぶん以上の測った空き（行の中では 2 字以上の空白）。前後の字を、そのまま添えて「？」の候補にする
-  （中華民國・韓国・中国の日付と住所、点線「Name ......」「Nom : ……」「नाम ......」、下線の字、かっこ「[ ] Yes」）
-- 字間を空けた見出し（「氏　　名」）は、前に空きがないか中央の 2 字のとき、字の間を空欄にしない
+- 空き：1 字ぶん（1 em）以上の測った空き（行の中では全角の空白か 2 字以上の半角の空白）。前後の字を、そのまま添えて「？」の
+  候補にする（中華民國・韓国・中国の日付と住所、点線「Name ......」「Nom : ……」「नाम ......」、下線の字、かっこ「[ ] Yes」）
+- 字間を空けた見出し（「氏　　名」）の字の間も、1 字ぶん以上の空きなら所（形は facts の spaced。見出しかはエージェントが見る）
 - 右から左へ書く行（アラビア文字）は、読む順の行の頭が右
 - フォームの欄（AcroForm）のある書類：本物の欄に重なる・すぐ隣に接する所は、別の所として示さない
 - ルビは漢字の行にだけつなぐ。タイ文字の折り返しは空白なしでつなぐ。キリル文字は語の切れ目で折り返す
@@ -45,13 +45,16 @@ def test_gaps_by_geometry_in_any_language():
 
 def test_spaced_headings_are_offered_with_their_own_key():
     assert evenly_spaced("氏　　名") and evenly_spaced("事　業　所") and not evenly_spaced("：　　～　　：")
-    # 字間を空けた見出しの形（「氏　　名」と「第　　号」「年　　月　　日」は形が同じ）は落とさず、spaced の「？」
-    assert [x.why for x in gap_blanks("氏　　名")] == ["spaced"] and [x.why for x in gap_blanks("事　業　所")] == ["spaced"] * 2
-    assert [x.why for x in gap_blanks("　　　氏　　名　　　", 3, 3)] == ["spaced"]  # 中央にそろえた見出し：前後の空きは示さない
-    # 前に空きのある並び（右にそろえた日付）は、字の間も空欄の並び
+    # 字間を空けた見出しの形（「氏　　名」と「第　　号」「年　　月　　日」は形が同じ）：形では分けない。どれも 1 字ぶん以上の空き
+    assert [x.why for x in gap_blanks("氏　　名")] == ["gap"] and [x.why for x in gap_blanks("事　業　所")] == ["gap"] * 2
+    # 行の中に空きのある行は、左右の空きが等しくても、前後の空きも所（中央そろえとして除くのは、行の中に空きのない行だけ）
+    assert [x.why for x in gap_blanks("　　　氏　　名　　　", 3, 3)] == ["lead", "gap", "trail"]
     assert [x.why for x in gap_blanks("　　　年　　月　　日", 3, 0)] == ["lead", "gap", "gap"]
-    # 点線・ダッシュだけの長い行も、落とさず decor の「？」
-    assert [x.why for x in gap_blanks("..............................")] == ["decor"]
+    # 点線だけの行も点線の並び（同じ字の 2 字以上）。線の字（罫線素片 U+2500）だけの行は、字で描いた線
+    assert [x.why for x in gap_blanks("..............................")] == ["leader"]
+    assert gap_blanks("────────────────") == []
+    # 1 字だけの点線・ダッシュ（「…」「―」）は句読点・区切りの記号：所にしない
+    assert gap_blanks("以下…") == [] and gap_blanks("03―1234") == []
     # 中央にそろえた見出し（左右の空きがほぼ同じで、行の中に空欄がない）：前後の空きは示さない
     assert gap_blanks("　　　申請書　　　", 3, 3) == []
     # 文の終わりの字で終わる行の後ろは、文の終わりの余白
@@ -71,8 +74,7 @@ def _row(text: str, x: float, y: float, size: float, em: float, word_gap: float)
 
 
 def _gap_places(blob: bytes) -> list[dict]:
-    return [f for pg in window(blob)["pages"] for f in pg["fields"]
-            if f["kind"] == "inline" and f.get("why", "").startswith("空白の並び")]
+    return [f for pg in window(blob)["pages"] for f in pg["fields"] if f.get("shape") == "gap"]
 
 
 def test_word_spaces_in_justified_paragraphs_are_not_places():
@@ -94,16 +96,18 @@ def test_one_ideographic_space_between_units_is_a_place():
     # 半角の空白の字の並びでも、字の位置を動かしただけでも、測った幅で「？」の所にする
     lines = ["40 700 m 400 700 l S", "40 640 m 400 640 l S", "40 640 m 40 700 l S", "400 640 m 400 700 l S",
              "40 670 m 400 670 l S", "120 640 m 120 700 l S"]
-    g = _row("氏 名", 50, 680, 12, 1000, 1.0)  # 字間を空けた見出し（マスの縁に接する 2 字）：所にしない
+    g = _row("氏 名", 50, 680, 12, 1000, 1.0)  # 字間を空けた見出し（マスの縁に接する 2 字）：所（形は facts の spaced）
     g += _row("第 号", 300, 680, 12, 1000, 1.0)  # 字の位置を動かしただけの 1 em の空き
     g += [("令", 200, 650), ("和", 212, 650), ("　", 224, 650), ("年", 236, 650)]  # U+3000 の字で描いた空き
     g += [(" ", 248 + 3 * k, 650) for k in range(4)] + [("月", 260, 650)]  # 半角の空白の字（0.25 em）4 つの空き
     g += _row(" 日", 272, 650, 12, 1000, 1.0)
     blob = glyphs_pdf(g, {"　": 1000, " ": 250}, extra="\n".join(lines))
     places = _gap_places(blob)
-    hints = sorted(f["why"].split("。")[-1] for f in places)
-    assert len(places) == 4, hints  # 第□号・令和□年・年□月・月□日
-    assert not any("「氏」" in h for h in hints), hints
+    hints = sorted((f["facts"]["before"], f["facts"]["after"]) for f in places)
+    assert len(places) == 5, hints  # 氏□名・第□号・令和□年・年□月・月□日
+    assert all(f["facts"]["width_em"] >= 1 for f in places)
+    shi = next(f for f in places if f["facts"]["before"] == "氏")
+    assert shi["facts"]["spaced"] and shi["agent"], shi
     # 1 em に届かない空き（0.6 em）は所にしない
     blob = glyphs_pdf(_row("第 号", 300, 680, 12, 1000, 0.6), extra="\n".join(lines))
     assert not _gap_places(blob)
@@ -131,10 +135,11 @@ def test_only_closed_curves_are_circles_and_shadowed_squares_are_left_to_the_age
     for path in (zero, tiny):
         pg = window(glyphs_pdf(g, extra=path))["pages"][0]
         assert [c["text"] for c in pg["circled"]] == ["有"] and not pg["maybe_circled"], (path, pg["circled"])
-    # 影のついた四角（❏）はチェックの箱にも箇条の印にも使う：チェックの印の所だが「？」。□ は規則のチェックの印
+    # 箱の字はどれも同じ扱い（❏ と □ を使い方で分けない）。字と Unicode の名前は facts に
     pg = window(glyphs_pdf([("❏", 40, 700), ("A", 52, 700), ("□", 40, 680), ("B", 52, 680)]))["pages"][0]
     boxes = {f["label"]: f for f in pg["fields"] if f["kind"] == "checkbox"}
-    assert boxes["A"].get("agent") and not boxes["B"].get("agent"), boxes
+    assert boxes["A"].get("agent") and boxes["B"].get("agent"), boxes  # どの箱の字も「？」（箱か箇条の印かは決めない）
+    assert boxes["A"]["facts"]["char_name"].startswith("U+274F") and boxes["B"]["facts"]["char"] == "□"
 
 
 def test_rtl_line_head_is_on_the_right():
@@ -147,7 +152,7 @@ def test_rtl_line_head_is_on_the_right():
     blob = glyphs_pdf([(ch, 300 + 7 * k, 685) for k, ch in enumerate(word)], {ch: 583 for ch in set(word)}, extra="\n".join(lines))
     w = window(blob)["pages"][0]
     assert w["reading"][0].startswith("الاسم")
-    heads = [f for f in w["fields"] if f["kind"] == "inline" and "行の頭の前" in f.get("why", "")]
+    heads = [f for f in w["fields"] if f.get("shape") == "lead"]
     assert not heads, heads  # 行の頭（右）はマスの縁に接している
 
 
@@ -167,7 +172,7 @@ def test_places_next_to_real_form_fields_are_kept_as_agent_places():
             if vov >= 0.5 * h and gap <= r["rect"][3] - r["rect"][1]:
                 assert f.get("agent"), (f, r)
                 assert f.get("alternative_to") in real or "フォームの欄 " in f["why"], f
-    fam = [f for f in layout if f.get("label") == "Family name"]
+    fam = [f for f in layout if f.get("shape") == "trail" and f["facts"]["line"].startswith("Family name")]
     # 見出しの右の余白は、欄 family に 1 字ぶん（10pt）に足りない 7.8pt だけかかる：重なりではなく「すぐ隣」。
     # 「？」で理由に欄の名前を添えるが、同じ所の別の読み方（alternative_to）にはしない
     assert fam and not fam[0].get("alternative_to") and fam[0]["agent"] and "フォームの欄 family" in fam[0]["why"], fam

@@ -23,12 +23,7 @@ BY_NAME = {e["file"]: e for e in ENTRIES}
 LIMIT = 100 * 1024
 
 # 見つかっている不具合（直ったら XPASS になる。strict ではないので、直した人のテストは落ちない）
-KNOWN = {
-    ("audit", "form.doc"): "LibreOffice が書き出した .doc で、確かめ（audit）の「全入力欄への書き込み」が通らない"
-                           "（FFData のない欄・選択肢にない値の試し）。段階は書く段階 B のまま",
-    ("fill", "form.doc"): "小さな .doc（ストリームが 4096 バイト未満でミニストリームにある）の FORMTEXT に書くと、"
-                          "「小さなストリームの大きさを変えるには…」で断る",
-}
+KNOWN: dict = {}
 
 
 def _ids(entries, key):

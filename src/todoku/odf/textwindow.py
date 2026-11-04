@@ -21,7 +21,7 @@ def build(doc: OdtDocument) -> dict:
     win["kind"] = "fodt" if doc.pkg.flat else "odt"
     win["kind_ja"] = "OpenDocument の文書（.fodt・1つの XML）" if doc.pkg.flat else "OpenDocument の文書（.odt）"
     win["source"]["note"] = "元のファイルが正本。書き込みは、書いた欄の部分だけを変える差分として適用する（ほかの部品はバイトのまま）。"
-    win["notation"]["［P12.1］"] = "段落の中の空欄（12番目の段落の1つ目。表のマスの段落も数える）"
+    win["notation"]["［P12.c5］"] += "（段落は、表のマスの段落も数える）"
     sp = Spots(doc)
     for f in win["fields"]:
         it = sp.items.get(f["id"]) or {}

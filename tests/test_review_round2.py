@@ -178,7 +178,10 @@ def test_docx_shadowed_squares_are_question_not_rule_checkboxes():
     shadow = [it for it in boxes if it["label"] in ("はい", "いいえ")]
     plain = [it for it in boxes if it["label"] in ("新規", "変更")]
     assert len(shadow) == 2 and all(it["provenance"] == AGENT and it["why_key"] == "bullet_box" for it in shadow)
-    assert len(plain) == 2 and all(it["provenance"] == LAYOUT for it in plain)
+    # □ も、影つきの四角と同じく「？」の候補（箱の字が記入の箱か見出しの印かは、字の形では決まらない：chars.py）。
+    # 違いは事実として残る：影つきの四角は理由の鍵 bullet_box
+    assert len(plain) == 2 and all(it["provenance"] == AGENT for it in plain)
+    assert LAYOUT not in {it["provenance"] for it in boxes}
 
 
 # ====================================================================== 囲んだ所は、いつも伝える

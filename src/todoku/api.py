@@ -329,13 +329,51 @@ def fields(path: str, password: str | None = None, encoding: str | None = None) 
     return out
 
 
+_SIDE_JA = {"left": ("左", "列"), "right": ("右", "列"), "above": ("上", "行")}
+
+
+def far_label(f: dict) -> str | None:
+    """表計算の欄の見出しが、すぐ隣のマスの字でないとき（離れた所の字）：見出しにせず、番地と、いちばん近い字とその離れ方で
+    示す字（「B12（左に 3 列あけて『氏名』）」）。すぐ隣のマスの字が見出しなら None。どれを見出しとして読むかはエージェント。"""
+    near = f.get("near")
+    lab = f.get("label") or ""
+    if not isinstance(near, dict) or not near or not lab:
+        return None
+    gap = {s: (v.get("cols") if s != "above" else v.get("rows")) for s, v in near.items() if isinstance(v, dict) and s in _SIDE_JA}
+    if any(g == 0 and (near[s].get("label") or "") and (near[s].get("label") or "") in lab for s, g in gap.items()):
+        return None  # すぐ隣のマスの字が見出しにある
+    sides = [(near[s].get("mm", 0) or 0, s) for s, g in gap.items() if isinstance(g, int)]
+    if not sides:
+        return None
+    _mm, s = min(sides)
+    ja, unit = _SIDE_JA[s]
+    v = near[s]
+    if lab not in {str(x.get("label") or x.get("text") or "") for x in near.values() if isinstance(x, dict)} \
+            or "表の" in str(f.get("label_method") or ""):
+        return None  # 見出しが、離れた 1 つの字そのものではない（表の行・列の見出し：窓が罫線の表の作りから決めた見出し）
+    cell = str(f["id"]).rsplit("!", 1)[-1]
+    how = f"{ja}のすぐ隣" if gap[s] == 0 else f"{ja}に {gap[s]} {unit}あけて"
+    t = str(v.get("label") or v.get("text") or "")
+    t = t if len(t) <= 40 else t[:40] + "…"  # 字のすべては nearest_text と near に（ここは対話で読み上げる短い形）
+    return f"{cell}（{how}『{t}』）"
+
+
 def _field(f: dict, **where) -> dict:
     d = {"id": f["id"], "label": f.get("label", ""), "kind": f.get("kind", ""), "value": f.get("value")}
+    far = far_label(f) if where.get("sheet") is not None else None
+    if far:
+        # 離れた所の字を、欄の見出しとして示さない：番地と、いちばん近い字・その離れ方（近くの字の事実は near）
+        d["label"], d["nearest_text"] = far, f.get("label", "")
     for key in ("options", "maxlen", "format", "readonly", "protected", "confidence", "context", "boxes", "write_as",
                 "options_depend_on", "unit", "rules", "agent", "why", "placeholder", "cover", "kind_candidates",
                 "alternative_to", "group", "why_not", "label_printed", "text_before", "options_labels", "export_value",
-                "hidden", "hidden_why", "not_printed", "not_printed_why"):
+                "hidden", "hidden_why", "not_printed", "not_printed_why", "legacy_id", "why_code", "reason_codes",
+                "row_label", "column_label", "column_label_partial", "label_clipped", "neighbours", "facts", "near",
+                "label_method", "section", "input_reason_codes", "spans", "blanks", "shape", "size", "size_from", "cell_ids"):
         if f.get(key) not in (None, "", [], False):
+            d[key] = f[key]
+    for key in ("row_label_gap", "column_label_gap"):  # 数の事実（0 も、すぐ隣という事実）
+        if isinstance(f.get(key), int) and not isinstance(f.get(key), bool):
             d[key] = f[key]
     d.update({k: v for k, v in where.items() if v is not None})
     return d
@@ -388,6 +426,14 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         labels = {f["id"]: f.get("label", "") for f in before}  # 白紙のときの見出し（対話で伝える一覧に使う）
         printed = {f["id"] for f in before if f.get("label_printed")}  # 見出しが文書に印刷される字の欄
         result["_inline"] = {f["id"] for f in before if f.get("kind") == "inline"}  # 文字の中に空欄のあるマス（書く前の窓）
+        # 古い数え順の名前（Word と同じ窓の形式の P12.1・P12.a1）：同じ所を指すと決まるもの（legacy_id）だけ、いまの名前に直して書く
+        now_ids = {f["id"] for f in before}
+        alias = {f["legacy_id"]: f["id"] for f in before if f.get("legacy_id")}
+        renamed = {k_: alias[k_] for k_ in values if k_ not in now_ids and k_ in alias and alias[k_] not in values}
+        if renamed:
+            values = {renamed.get(k_, k_): v for k_, v in values.items()}
+            readback_values = dict(values)
+            result["renamed_ids"] = renamed
     except ApiError:
         labels, printed = {}, set()
     if k in ("xlsx", "xls"):
@@ -398,7 +444,16 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
 
         circ = {k_: v for k_, v in values.items() if _is_circle(v)}
         cell_values = {k_: v for k_, v in values.items() if k_ not in circ}
-        readback_values = {k_: v for k_, v in readback_values.items() if k_ not in circ}
+        from .xlsx.edit import _group_span_ids
+        from .xlsx.window import parse_span_id
+
+        try:
+            # マスの文字の中の所の id（「シート!B3@5」）は、セルごとに {位置: 値} にまとめて書く。読み戻しは、書いた後のセルの字で
+            cell_values = _group_span_ids(cell_values)
+        except EditError as e:
+            raise ApiError(str(e)) from None
+        readback_values = {k_: v for k_, v in readback_values.items() if k_ not in circ
+                           and not (isinstance(k_, str) and "!" in k_ and not k_.startswith("@") and parse_span_id(k_))}
         wb = open_book(blob, name)
         if cell_values or not circ:
             try:
@@ -1301,6 +1356,31 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         same = len({place(f) for f in nxt[:10]}) == 1
         head = f"続きの空欄（{place(nxt[0]).rstrip('・')}）：" if same and place(nxt[0]) else "続きの空欄："
         lines.append(head + "、".join(name(f) if same else f"{place(f)}{name(f)}" for f in nxt[:10]) + ("ほか" if len(nxt) > 10 else ""))
+    # 選んでいない選択肢（チェックボックス・ラジオボタン）と、残っている「？」の所：数と、どこにあるか（一つずつは並べない）
+    groups: dict = {}
+    for f in after_list:
+        if f.get("kind") not in ("checkbox", "radio") or f.get("readonly") or f.get("filled"):
+            continue
+        key = (place(f), f.get("group") or f.get("context") or f["id"])  # 同じ組（ラジオの組・同じ行の選択肢）
+        on = f.get("value") not in (None, "", False) or f["id"] in written_ids or f.get("alternative_to") in written_ids
+        groups[key] = groups.get(key, False) or on
+    unchosen = [k_ for k_, on in groups.items() if not on]
+    agent_left = [f for f in after_list if f.get("agent") and f.get("value") in (None, "") and not f.get("readonly")
+                  and f.get("kind") not in ("checkbox", "radio") and not covered(f)]
+
+    def by_where(keys: list[str]) -> str:
+        cnt: dict = {}
+        for w in keys:
+            cnt[w] = cnt.get(w, 0) + 1
+        named = [(w, n) for w, n in cnt.items() if w]
+        return "（" + "、".join(f"{w} {n}" for w, n in named[:6]) + ("ほか" if len(named) > 6 else "") + "）" if len(named) > 1 else ""
+
+    if unchosen:
+        lines.append(f"選んでいない選択肢（チェックボックス・ラジオボタン）：{len(unchosen)} 組"
+                     + by_where([w.rstrip("・") for w, _g in unchosen]))
+    if agent_left:
+        lines.append(f"規則では決められない「？」の所：{len(agent_left)} か所"
+                     + by_where([place(f).rstrip("・") for f in agent_left]) + "（書く所かは、窓を読んで判断する）")
     if result.get("recalculated_cells"):
         from .xlsx.readback import say as _recalc_say
 
@@ -1309,7 +1389,8 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         lines.append("本人に伝えること：" + "／".join(notes[:10]))
     return {"written": told, "still_empty": [{"id": f["id"], "label": f.get("label", ""), **({"sheet": f["sheet"]} if "sheet" in f else {}),
                                               **({"page": f["page"]} if "page" in f else {})} for f in empty[:50]],
-            "still_empty_count": len(empty), "say_to_user": "\n".join(lines)}
+            "still_empty_count": len(empty), "unchosen_choice_groups": len(unchosen), "agent_places_left": len(agent_left),
+            "say_to_user": "\n".join(lines)}
 
 
 @_budgeted
@@ -1525,10 +1606,10 @@ def calculate(path: str, values: dict, password: str | None = None) -> dict:
 
 @_budgeted
 def view_page(path: str, page: int, region: list | None = None, marks: list | None = None,
-              password: str | None = None) -> dict:
+              password: str | None = None, dpi: float | None = None) -> dict:
     """PDF のページの画像（スキャンした紙のページを、エージェントが見て読み、書く所を mm の枠で決めるため）。
     todoku が書き込んだ欄（p ページ.w 番号など）は、青い枠で描き、id と値を添える。欄・注釈の見た目（/AP）の字は、見た目の
-    とおりの位置・大きさ・向きで、字ごとの四角と基線として描く（pdf/pageimage.py）。"""
+    とおりの位置・大きさ・向きで描く（pdf/pageimage.py）。dpi：解像度（省くとページ全体は 100 dpi。画素の数の上限は pageimage のとおり）。"""
     from .pdf.pageimage import view_page as pview
 
     blob, name, k, lock = _read(path, password)
@@ -1536,7 +1617,9 @@ def view_page(path: str, page: int, region: list | None = None, marks: list | No
         raise ApiError("view_page は PDF のページの画像です（ほかの形式は窓で読めます）")
     doc = _pdf(blob, name, lock)
     try:
-        return pview(doc, int(page), region, marks, written=_written_boxes(path, password, int(page)))
+        if dpi is not None and (isinstance(dpi, bool) or not isinstance(dpi, (int, float)) or not 10 <= dpi <= 1200):
+            raise ApiError("dpi は 10〜1200 の数で指定してください（省くとページ全体は 100 dpi）")
+        return pview(doc, int(page), region, marks, written=_written_boxes(path, password, int(page)), dpi=dpi)
     except ValueError as e:
         raise ApiError(str(e)) from None
 

@@ -262,7 +262,7 @@ def test_write_dynamic_form_and_proof():
     ("Zip[0]", "12a45", "書式 text{99999}"),
     ("Note[0]", "x", "データに結びつかない"),
     ("Total[0]", "3", "計算"),
-    ("Member[0]", "maybe", "はい／いいえ"),
+    ("Member[0]", "maybe", "true / false"),
     ("Gender[0]", "X", "選択肢にありません"),
 ])
 def test_write_refuses_constraint_violations(key, value, why):

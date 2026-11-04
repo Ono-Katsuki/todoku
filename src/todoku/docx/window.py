@@ -3,10 +3,13 @@
 入力欄：
 - 旧来のフォームの欄（FORMTEXT・FORMCHECKBOX・FORMDROPDOWN）とコンテンツコントロール（名前は欄の名前・タグ）
 - 表の空のマス（左か上のマスの文字を見出しにする）：T{表}.R{行}.C{列}
-- 段落の中の空欄（下線を引いた空白、下線の字「＿＿＿」、かっこの中の空白「（　）」「[ ]」）とチェックの箱の字（☐ □ など）：P{段落}.{番号}
-- 字の形と並びだけで見つけた所（1 字ぶん以上の空白の並び（wide_space）・点線・ダッシュの並び）と、チェック済みの印らしい字（☑・■・✓）は、
-  同じ P{段落}.{番号} の並びで、規則では決めない所（「？」）として示す（字の意味は見ない。エージェントが前後の字から判断する）
-- 規則の型に合わない、書き込む所かもしれない所：P{段落}.a{番号}（「？」）。すぐ隣の欄の代わりの所は alternative_to で示す
+- 段落の中の空欄（下線を引いた空白、下線の字「＿＿＿」、かっこの中の空白「（　）」「[ ]」）とチェックの箱の字（☐ □ など）：P{段落}.c{字数}
+- 字の形と並びだけで見つけた所（1 字ぶん以上の空白の並び（wide_space）・点線・ダッシュの並び）と、チェック済みの印らしい字（☑・■・✓）、
+  規則の型に合わない、書き込む所かもしれない所は、同じ名前の決まりで、規則では決めない所（「？」）として示す
+  （字の意味は見ない。エージェントが前後の字から判断する）。すぐ隣の欄の代わりの所は alternative_to で示す
+- 名前の字数：段落の頭からその所までにある、空白でも所でもない字の数（_name_places。数え順の番号ではないので、
+  ほかの所が増えても減っても、前の所に書いた後も変わらない）。古い数え順の名前（P12.1・P12.a1）は、決まるときだけ受ける（Items）
+- 表のマスの見出しは、左・上のマスの字をそのまま（row_label・column_label）と、間のマスの数（row_label_gap・column_label_gap）で示す
 書き込んだ欄は、見えないしおり（_todoku_…）で囲み、書いた後も同じ名前で読めるようにする。
 埋め込んだ Excel の表は、Excel の窓と同じ読み方で節に出し、書くときの欄の名前（E1!Sheet1!C4）と、
 Word が表示・印刷に使う表の絵を描き直せるか（描き直せなければ、その理由）を添える。
@@ -21,7 +24,7 @@ import re
 
 from .. import chars
 from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, label_tail, norm_label, shown_gap, wide_space
-from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, SPACED_MARK, SPACED_NOTE, chain_head, heading_gap, one_wide_space, weak_line, weak_space
+from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, one_wide_space, place_facts
 from ..xlsx.window import gap_interior
 from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
 
@@ -161,15 +164,43 @@ def _option_stops(text: str) -> list[int]:
     return sorted(out)
 
 
+class Items(dict):
+    """欄の名前 → 欄の情報。get は、古い数え順の名前（P12.1・P12.a1）も、どの数え方でも同じ所を指すとき（その段落に
+    その並びの所が 1 つだけのとき）だけ受ける（legacy：古い名前 → いまの名前）。いくつもあって決まらない古い名前は受けず、
+    hint で、いまの名前を示す。"""
+
+    def __init__(self):
+        super().__init__()
+        self.legacy: dict[str, str] = {}
+        self.ambiguous: set[str] = set()
+
+    def get(self, key, default=None):
+        if dict.__contains__(self, key):
+            return dict.__getitem__(self, key)
+        new = self.legacy.get(key) if isinstance(key, str) else None
+        return dict.__getitem__(self, new) if new is not None and dict.__contains__(self, new) else default
+
+    def hint(self, key) -> str:
+        """欄が見つからないときに添える字：古い名前なら、いまの名前（同じ段落の所）。"""
+        m = re.fullmatch(r"(P\d+)\.a?\d+", str(key))
+        if not m:
+            return ""
+        now = [k for k in self if k.startswith(m[1] + ".c")]
+        if not now:
+            return ""
+        why = "いくつもあって決まらない古い番号です" if key in self.ambiguous else "古い数え方の番号です"
+        return (f"（{why}。段落の中の所の名前は、その所の前にある字の数で決まります（P段落.c字数）。"
+                f"この段落の所：{'・'.join(now[:20])}）")
+
+
 class Spots:
     """文書の入力欄の一覧（名前 → 欄の情報）。窓と書き込みで同じものを使う。"""
 
     def __init__(self, doc: DocxDocument):
         self.doc = doc
-        self.items: dict[str, dict] = {}
+        self.items: Items = Items()
         self.para_index: dict[int, int] = {}
         self.ranges: dict = {}
-        self.spaced_marks: dict[int, set] = {}  # 字間を空けた見出しの並びの終わり（id(段落) → 位置）：窓に「〔字間〕」
         self._texts: dict[int, str] = {}  # 段落の字（id(段落) → 字）。見出しを作るたびに Para.text を作り直さない
         self.marks =doc.marks() if hasattr(doc, "marks") else _bookmarks(doc)
         # todoku が書いたマス（しおりのあるマス）：ほかの欄の見出しにしない
@@ -207,16 +238,16 @@ class Spots:
                         if not c.paras():
                             continue
                         label, rl, cl = _cell_label(t, c, self.written_cells)
+                        nb = cell_neighbours(t, c, self.written_cells)  # 左・上のマスの字（そのまま）と、間のマスの数
                         fid = f"T{tno}.R{c.row + 1}.C{c.col + 1}"
                         if not label:
                             # 見出しの見つからない空のマス：桁のマスのこともあれば、飾りのマスのこともある（エージェントが判断）
                             self.items[fid] = {"id": fid, "kind": "cell", "source": "layout", "cell": c, "para": c.paras()[0],
                                                "label": "", "provenance": AGENT, "why": AGENT_WHY["empty_cell"],
-                                               "why_key": "empty_cell", "shade": c.shade}
+                                               "why_key": "empty_cell", "shade": c.shade, "neighbours": nb}
                             continue
                         self.items[fid] = {"id": fid, "kind": "cell", "source": "layout", "cell": c, "para": c.paras()[0],
-                                           "label": label, "row_label": rl, "column_label": cl, "provenance": LAYOUT,
-                                           "shade": c.shade}
+                                           "label": label, "provenance": LAYOUT, "shade": c.shade, "neighbours": nb}
         # 3) 段落の中の空欄と □（空のマスとして欄にした段落は除く）
         cell_paras = {id(q) for it in self.items.values() if it.get("kind") == "cell" for q in it["cell"].paras()}
         marks_of: dict[int, list[tuple[str, int, int]]] = {}  # 段落ごとの、書き込み済みの欄（しおり）。1 度だけ集める
@@ -240,7 +271,7 @@ class Spots:
                     # 箇条書きの印の □（段落番号の定義の字）：チェックの欄。書くと、この段落の印だけを ■・☑ にする。
                     # 見出しは、次の箱の字か 1 字ぶん以上の空白の並び（wide_space）までの字（そのまま）
                     end = stops[0] if stops and stops[0] > 0 else len(text)
-                    opt = norm_label(text[:end])[:40]
+                    opt = norm_label(text[:end])  # 切らない（長い項目も、字のとおり）
                     self.items[bullet_id] = {"id": bullet_id, "kind": "checkbox", "source": "layout", "para": p,
                                              "bullet": getattr(p, "bullet", None), "label": opt, "provenance": LAYOUT,
                                              "filled": bm is not None}
@@ -254,98 +285,82 @@ class Spots:
                 for a, b, why in para_spans(p, text):
                     if has_field and any(fmask[a:b]):
                         continue
-                    hg = heading_gap(text, a, b) if why == "spaced" else None
-                    if hg is not None:
-                        # 1 字ずつを同じ空白でつないだ 4 字以上の並び（字間を空けた見出しの形）の字の間：所（id）にはせず、
-                        # 元の空白のまま窓に出し、並びの後ろに「〔字間〕」の印を付ける（書くなら old/new で書ける）
-                        self.spaced_marks.setdefault(id(p), set()).add(hg[1])
-                        continue
                     if why in ("gap", "short_underline") and has_field and _touches_field(p, a, b):
                         continue  # フォームの欄にすぐ接する空白は、欄の字の飾り（欄はその id で書く）
                     spans.append((a, b, "inline", why))
-                # 書き込み済みの欄（しおり）は、その番号を持ったまま（4 で作る）。残りの空欄に、しおりの番号を除いた番号を
-                # 位置の順に割り当てる（元の白紙のときと同じ id になる：P16.1 に書いた後も、P16.2・P16.3 はそのまま）。
-                # 字の並びから推定した所（理由の鍵のある所）も、同じ番号の並びで P段落.番号 とし、窓に「？」をつけて示す
-                mark_k: dict[int, tuple[int, int]] = {}
-                mark_ka: dict[int, tuple[int, int]] = {}
+                # 書き込み済みの欄（しおり）は、その名前を持ったまま（4 で作る）。残りの所の名前は、すべて集めてから
+                # 字の位置で決める（_name_places：P段落.c字数。数え順の番号にしない）
                 mine = marks_of.get(id(p), [])
-                for name, x, y in mine:
-                    mm = re.fullmatch(rf"P{pi}\.(a?)(\d+)", name)
-                    if mm:
-                        (mark_ka if mm[1] else mark_k)[int(mm[2])] = (x, y)
                 written = [(x, y) for _n, x, y in mine]
                 if written:
                     spans = [t for t in spans if not _overlaps(t[0], t[1], written)]
-                free_k = (n for n in itertools.count(1) if n not in mark_k)
+                placed: list[tuple[dict, str]] = []  # (所, 古い番号の並び："" は P段落.番号、"a" は P段落.a番号)
                 for a, b, kind, why in sorted(spans, key=lambda t: t[:3]):
-                    k = next(free_k)
-                    fid = f"P{pi}.{k}"
                     if kind == "checkbox":
                         # 見出しは、箱の字の後ろから、次の箱の字か 1 字ぶん以上の空白の並び（wide_space）までの字（そのまま。字の意味では切らない）。
                         # 後ろに字がなければ、前の字
-                        opt = text[b:min(_option_end(text, b, stops), b + 200)]
-                        label = norm_label(opt)[:40] or norm_label(text[max(0, a - 200):a])[-30:]
+                        # 字は切らない。ただし区切りのないとても長い段落では、前後 LABEL_WINDOW 字まで（作る時間の上限。label_clipped）
+                        end = _option_end(text, b, stops)
+                        opt = text[b:min(end, b + LABEL_WINDOW)]
+                        label = norm_label(opt)
+                        clipped = end > b + LABEL_WINDOW
+                        if not label:
+                            # 後ろに字がなければ、前の字：前の箱の字の後ろから（1 字ぶん以上の空きの前は含めない：label_tail）
+                            start = max((x + 1 for x in stops if x < a and (text[x] in BOX or text[x] in CHECKED)), default=0)
+                            label = norm_label(label_tail(text[max(start, a - LABEL_WINDOW):a]).strip(" 　"))
+                            clipped = start < a - LABEL_WINDOW
                     else:
                         label = self._label(p, a, b)
                     edges = (False, False)
                     if kind == "inline":
                         # 空白だけの長い空き：書いた字が見出しにくっつかないよう、端の 1 字を残した中に書く（窓の所も中だけ）
                         a, b, edges = gap_interior(text, a, b)
-                    it = {"id": fid, "kind": kind, "source": "layout", "para": p, "span": (a, b), "label": label, "provenance": LAYOUT}
+                    it = {"kind": kind, "source": "layout", "para": p, "span": (a, b), "label": label, "provenance": LAYOUT}
+                    if kind == "checkbox" and clipped:
+                        it["label_clipped"] = True
                     if any(edges):
                         it["kept_edges"] = edges
                     if why is not None:
                         it.update(provenance=AGENT, why=WORD_WHY[why], why_key=why)
                         if one_wide_space(text[a:b]):
                             it["why"] += f"。{ONE_WIDE_SPACE_WHY}"  # いちばん狭い空き：エージェントが順を決める目安
-                            if weak_space(text, a, b):
-                                it["weak"] = "one_space"  # 弱い候補（消さずに順を下げる）
-                        if why == "decor":
-                            it["weak"] = "decor"
                         if why == "checked_mark":
                             it["checked"] = True
-                    self.items[fid] = it
-                # 規則では決められない所：窓に「？」をつけて示し、エージェントが読んで判断する（id は P段落.a番号）
-                if any(s_.field is not None for s_ in p.segs):
-                    continue
-                if not text.strip(" \u3000") == "" and not "".join(
-                        s_.text for s_ in p.segs if not s_.hidden and s_.kind in ("t", "sym", "tab")).strip(" \u3000\t"):
-                    continue  # 図・埋め込みの印だけの段落（窓のために作った字だけ）
-                free_ka = (n for n in itertools.count(1) if n not in mark_ka)
-                found_agent = agent_blanks(text, [(x, y) for x, y, _k, _w in spans] + written)
-                # 見出しのあるマスの中の空の段落（「〒」の下の行に住所を書くなど）。マスのほかの字が長いもの（説明の文のこともある）も、
-                # 理由を分けて示す（字数では決めない）
-                c = p.cell
-                if c is not None and not text.strip(" \u3000") and not spans and not written:
-                    others = [q.text.strip(" \u3000") for q in c.paras() if q is not p and q.text.strip(" \u3000")]
-                    before = [q for q in c.paras()[:c.paras().index(p)] if q.text.strip(" \u3000")] if p in c.paras() else []
-                    if others and before:
-                        found_agent = [(0, len(text), "next_line" if all(len(o) <= 16 for o in others) else "next_line_long")]
-                    elif others:
-                        # マスの初めの空の段落（後ろの段落にだけ字がある：「（空）／個人番号」の空の 1 行目に氏名を書くなど）
-                        found_agent = [(0, len(text), "first_line")]
-                head = chain_head(text)
-                if head is not None and sum(1 for a, _b, _k, w in spans if a >= head[1] and w is not None) >= 2 \
-                        and not any(a < head[1] or a == b == 0 for a, b, _k, _w in spans) and not written \
-                        and not any(a < head[1] for a, _b, _w in found_agent):
-                    # 「年　　月　　日」で始まる段落：初めの字の前（後ろに「？」の所が 2 つ以上あるときだけ：「氏　名」の 1 つの空きでは出さない）
-                    found_agent = sorted(found_agent + [(head[0], head[1], "chain_head")])
-                for a, b, why in found_agent:
-                    if has_field and any(fmask[a:max(a + 1, b)]):
-                        continue
-                    fid = f"P{pi}.a{next(free_ka)}"
-                    label = self._label(p, a, b)
-                    if why in ("first_line", "next_line", "next_line_long") and c is not None and c.table is not None:
-                        # マスの中の空の段落：段落の字は空欄だけ（「［　］」）なので、ほかのマスの欄と同じく、表の行・列の見出し
-                        label = _cell_label(c.table, c, self.written_cells)[0] or label
-                    it = {"id": fid, "kind": "inline", "source": "layout", "para": p, "span": (a, b),
-                          "label": label, "provenance": AGENT, "why": WORD_WHY[why], "why_key": why}
-                    if why == "placeholder":
-                        it["placeholder"] = text[a:b]
-                    alt = self._beside_cell_field(p, why)
-                    if alt:
-                        it["alternative_to"] = alt
-                    self.items[fid] = it
+                    placed.append((it, ""))
+                # 規則では決められない所：窓に「？」をつけて示し、エージェントが読んで判断する
+                # （フォームの欄のある段落・図や埋め込みの印だけの段落（窓のために作った字だけ）は、探さない）
+                found_agent = []
+                look = not has_field and (text.strip(" \u3000") == "" or "".join(
+                    s_.text for s_ in p.segs if not s_.hidden and s_.kind in ("t", "sym", "tab")).strip(" \u3000\t"))
+                if look:
+                    found_agent = agent_blanks(text, [(x, y) for x, y, _k, _w in spans] + written)
+                    # 見出しのあるマスの中の空の段落（「〒」の下の行に住所を書くなど）。マスのほかの字が長いもの（説明の文のこともある）も、
+                    # 理由を分けて示す（字数では決めない）
+                    c = p.cell
+                    if c is not None and not text.strip(" \u3000") and not spans and not written:
+                        others = [q.text.strip(" \u3000") for q in c.paras() if q is not p and q.text.strip(" \u3000")]
+                        before = [q for q in c.paras()[:c.paras().index(p)] if q.text.strip(" \u3000")] if p in c.paras() else []
+                        if others and before:
+                            found_agent = [(0, len(text), "next_line" if all(len(o) <= 16 for o in others) else "next_line_long")]
+                        elif others:
+                            # マスの初めの空の段落（後ろの段落にだけ字がある：「（空）／個人番号」の空の 1 行目に氏名を書くなど）
+                            found_agent = [(0, len(text), "first_line")]
+                    for a, b, why in found_agent:
+                        if has_field and any(fmask[a:max(a + 1, b)]):
+                            continue
+                        label = self._label(p, a, b)
+                        if why in ("first_line", "next_line", "next_line_long") and c is not None and c.table is not None:
+                            # マスの中の空の段落：段落の字は空欄だけ（「［　］」）なので、ほかのマスの欄と同じく、表の行・列の見出し
+                            label = _cell_label(c.table, c, self.written_cells)[0] or label
+                        it = {"kind": "inline", "source": "layout", "para": p, "span": (a, b),
+                              "label": label, "provenance": AGENT, "why": WORD_WHY[why], "why_key": why}
+                        if why == "placeholder":
+                            it["placeholder"] = text[a:b]
+                        alt = self._beside_cell_field(p, why)
+                        if alt:
+                            it["alternative_to"] = alt
+                        placed.append((it, "a"))
+                self._name_places(p, pi, text, placed, mine)
         # 3') マスの中の見出し（「住所」「住所：」「所在地　〒」）の後ろ：すぐ右のマスに欄があれば、値はそちらに書くことが多い。
         # 消さずに残し、どちらに書くかはエージェントが窓を読んで決める（alternative_to：代わりの欄。規則の欄を先に）
         in_cell: dict[int, list[str]] = {}
@@ -373,6 +388,54 @@ class Spots:
                 label = _cell_label(p.cell.table, p.cell, self.written_cells)[0]  # 書き込み済みのマスも、表の行・列の見出しで示す
             self.items[name] = {"id": name, "kind": kind, "source": "layout", "para": p, "span": (a, b), "filled": True,
                                 "label": label, "provenance": LAYOUT}
+
+    def _name_places(self, p: Para, pi: int, text: str, placed: list[tuple[dict, str]], mine: list) -> None:
+        """段落の中の所に、位置から決まる名前を付ける：P{段落}.c{n}。n は、段落の頭からその所の始めまでにある、
+        空白でも所（空欄・箱の字・書き込み済みの所）でもない字の数（＝その所の前にある、印刷された字の数）。
+        - 名前は数え順の番号ではないので、ほかの所が増えても減っても（字の並びから推定する所の決まりが変わっても）、
+          前にある印刷された字が変わらない限り同じ。書き込んだ所の字は数えないので、前の所に書いた後も同じ
+        - 同じ n の所が並ぶとき（字をはさまずに続く空欄）は、2 つ目から P{段落}.c{n}.2、.3 …（位置の順）
+        - 書き込み済みの所（しおり）の名前は使わない（その名前は、しおりの所のまま）
+        古い名前（P{段落}.{番号}・P{段落}.a{番号}：数え順の番号）は、その段落にその並びの所が 1 つだけのとき（どの数え方でも
+        同じ所を指すとき）だけ、legacy として受ける（Items.get）。"""
+        if not placed:
+            return
+        cover = bytearray(len(text) + 1)
+        for it, _cls in placed:
+            a, b = it["span"]
+            cover[a:b] = b"\x01" * (b - a)
+        for _n, x, y in mine:
+            cover[x:y] = b"\x01" * (max(0, min(y, len(text)) - x))
+        # prefix[i]：text[:i] の中の、空白でも所でもない字の数
+        prefix = [0] * (len(text) + 1)
+        n = 0
+        for i, ch in enumerate(text):
+            if not cover[i] and not ch.isspace() and not chars.is_space(ch):
+                n += 1
+            prefix[i + 1] = n
+        taken = {name for name, _x, _y in mine}
+        order = sorted(placed, key=lambda t: (t[0]["span"][0], t[0]["span"][1], t[1]))
+        next_j: dict[str, int] = {}  # 同じ字数の所の、次に試す番号（同じ字数の所がとても多い段落でも、1 回ずつ進む）
+        for it, _cls in order:
+            base = f"P{pi}.c{prefix[it['span'][0]]}"
+            j = next_j.get(base, 1)
+            fid = base if j == 1 else f"{base}.{j}"
+            while fid in taken or fid in self.items:
+                j += 1
+                fid = f"{base}.{j}"
+            next_j[base] = j + 1
+            taken.add(fid)
+            it["id"] = fid
+            self.items[fid] = it
+        # 古い名前：数え順の番号（書き込み済みの番号は除いた）。その並びの所が段落に 1 つだけのときだけ受ける
+        for cls in ("", "a"):
+            same = [it for it, c in sorted(placed, key=lambda t: (t[0]["span"][0], t[0]["span"][1])) if c == cls]
+            olds = [name for name, _x, _y in mine if re.fullmatch(rf"P{pi}\.{cls}\d+", name)]
+            if len(same) == 1 and not olds:
+                self.items.legacy[f"P{pi}.{cls}1"] = same[0]["id"]
+            elif same:
+                for k in range(1, len(same) + len(olds) + 1):
+                    self.items.ambiguous.add(f"P{pi}.{cls}{k}")
 
     def _beside_cell_field(self, p: Para, why: str) -> str | None:
         """マスの中の字（「住所：」「住所」）の後ろの所で、すぐ右のマスが空のマスの欄（そこに書くことが多い）：その規則の欄の id。
@@ -466,6 +529,11 @@ class Spots:
         return None
 
 
+# 段落の中の所の名前の決まり（Word と同じ窓を使う形式すべて：.doc・.rtf・.odt・.jtd・.hwpx・.txt・.pptx）
+PLACE_ID_NOTE = ("段落の中の所（12番目の段落の、前に印刷された字が 5 字ある所）。名前は位置で決まり、数え順の番号ではない：c の後ろの数は、"
+                 "段落の頭からその所までにある、空白でも所でもない字の数（字をはさまず続く所は .c5.2・.c5.3）。ほかの所が増えても減っても、"
+                 "前の所に書いた後も変わらない")
+
 LABEL_WINDOW = 300  # 空欄の見出しに使う、空欄の前後の字の数（ふつうの段落はまるごと入る長さ。長い段落でも、見出しの長さと作る時間は空欄の数に比例するだけ）
 
 
@@ -531,8 +599,11 @@ class WriteError(ValueError):
 def resolve_write(sp: "Spots", spec: dict, used: dict | None = None) -> dict:
     """エージェントが字で指した書き込み → 欄の情報（段落・位置・id「P段落.w番号」・書く字）。書き込みと証明で同じものを使う。
 
-    spec：{"old": 段落の中の元の字, "new": 書き換えた後の字, "near": 近くの欄の id（同じ表の行か、前後 3 段落にしぼる）,
-    "occurrence": 何番目か（しぼった中の、文書の順。1 から）}。old と new の前後の同じ字は、元の字と書式のまま残し、
+    spec：{"old": 段落の中の元の字, "new": 書き換えた後の字, "near": 近くの欄の id, "near_paras": 段落の数,
+    "occurrence": 何番目か（しぼった中の、文書の順。1 から）}。
+    near でしぼる範囲（距離の決まった数は持たない。広さを変えるのはエージェント）：
+    - near_paras を指定したとき：near の欄の段落の前後 near_paras 段落（0 なら同じ段落だけ）
+    - 指定しないとき：near の欄が表のマスにあれば同じ表の同じ行（文書の作り）、なければ同じ話（本文・ヘッダー・脚注などの、同じ部分）old と new の前後の同じ字は、元の字と書式のまま残し、
     違う所だけを書き換える。元の字が見つからない・いくつもあって決まらないときは、候補を添えて断る。
     used：同じ書き込みの中で、もう使った番号と範囲（段落の番号 → [(番号, 始め, 終わり)]）。"""
     old, new = spec.get("old"), spec.get("new")
@@ -542,9 +613,15 @@ def resolve_write(sp: "Spots", spec: dict, used: dict | None = None) -> dict:
         raise WriteError("old・new は、1つの段落の中の字にしてください（段落・行の区切りは書けません）")
     if old == new:
         raise WriteError("old と new が同じです")
-    paras = [(sp.para_index[id(q)], q) for _k, _part, blocks in sp.doc.all_blocks() for q in iter_paras(blocks)]
-    hits = [(n, q, m.start()) for n, q in paras for m in re.finditer(re.escape(old), q.text)]
+    paras = [(sp.para_index[id(q)], q, (_k, _part)) for _k, _part, blocks in sp.doc.all_blocks() for q in iter_paras(blocks)]
+    story = {id(q): st for _n, q, st in paras}
+    hits = [(n, q, m.start()) for n, q, _st in paras for m in re.finditer(re.escape(old), q.text)]
     near = spec.get("near")
+    span_n = spec.get("near_paras")
+    if span_n is not None and (isinstance(span_n, bool) or not isinstance(span_n, int) or span_n < 0):
+        raise WriteError("near_paras は 0 以上の整数（near の欄の段落の前後の段落の数）で指定してください")
+    if span_n is not None and not near:
+        raise WriteError("near_paras は near（近くの欄の id）と一緒に指定してください")
     if near:
         it = sp.items.get(str(near))
         if it is None:
@@ -554,9 +631,11 @@ def resolve_write(sp: "Spots", spec: dict, used: dict | None = None) -> dict:
         c0 = q0.cell if q0 is not None else None
 
         def close(n: int, q: Para) -> bool:
+            if span_n is not None:
+                return n0 is not None and abs(n - n0) <= span_n
             if c0 is not None:
                 return q.cell is not None and q.cell.table is c0.table and q.cell.row == c0.row
-            return n0 is not None and abs(n - n0) <= 3
+            return q0 is not None and story.get(id(q)) == story.get(id(q0))
 
         hits = [h for h in hits if close(h[0], h[1])]
     if not hits:
@@ -661,10 +740,14 @@ def _tables(blocks):
             yield from _tables(b.boxes)
 
 
-def _cell_label(t: Table, c: Cell, written: set | None = None) -> tuple[str, str, str]:
-    """表の空のマスの見出し：同じ行の左のマス（行の見出し）と、上のマス（列の見出し）。列の見出しは、そのマスの列の幅を
-    すべて覆うマスだけ（結合して2列にまたがるマスの上の、1列だけのマスは、その列の見出しではない）。
-    todoku が書いたマス（written：書き込みのしおりのあるマス）は、見出しにしない（書いた値は、印刷された見出しではない）。"""
+def cell_neighbours(t: Table, c: Cell, written: set | None = None) -> dict:
+    """表のマスの、見出しになりうる隣のマス（事実だけ。どれを見出しとして読むかはエージェント）：
+    - row_label：同じ行で、左にある、いちばん近い字のあるマスの字（印刷される字のとおり。切らない）と、
+      row_label_gap：そのマスとの間にある、字のないマスの列の数（すぐ左なら 0）
+    - column_label：上にある、いちばん近い字のあるマス（このマスの列を含むマス）の字と、column_label_gap：間の行の数（すぐ上なら 0）。
+      上のマスがこのマスの列の幅をすべては覆わない（結合して 2 列にまたがるマスの上の、1 列だけのマス）ときは、
+      column_label_partial（覆う列だけの見出しかもしれない）
+    todoku が書いたマス（written：書き込みのしおりのあるマス）の字は、印刷された見出しではないので使わない。"""
     written = written or set()
     row = t.rows[c.row]
     left = None
@@ -680,12 +763,28 @@ def _cell_label(t: Table, c: Cell, written: set | None = None) -> tuple[str, str
                 break
         if up is not None:
             break
-    if up is not None and (id(up) in written or not _printed(up) or c.col + c.span > up.col + up.span):
+    if up is not None and (id(up) in written or not _printed(up)):
         up = None
-    rl = norm_label(_printed(left)) if left else ""
-    cl = norm_label(_printed(up)) if up else ""
-    adjacent_left = left is not None and left.col + left.span == c.col
-    if rl and cl and rl != cl and not (adjacent_left and up is not None and c.row - up.row > 2):
+    out: dict = {}
+    if left is not None:
+        out["row_label"] = _printed(left)
+        out["row_label_gap"] = c.col - (left.col + left.span)
+    if up is not None:
+        out["column_label"] = _printed(up)
+        out["column_label_gap"] = c.row - up.row - 1
+        if c.col + c.span > up.col + up.span:
+            out["column_label_partial"] = True
+    return out
+
+
+def _cell_label(t: Table, c: Cell, written: set | None = None) -> tuple[str, str, str]:
+    """表の空のマスの見出し：(見出し, 行の見出し, 列の見出し)。見出しは、いつも同じ決まりで作る：
+    行の見出し（左のマス）と列の見出し（上のマス。このマスの列の幅をすべて覆うものだけ）の両方があれば「行／列」、
+    片方だけならその字。距離・覆い方で片方を落とすことはしない（距離は cell_neighbours の事実として窓に出す）。"""
+    nb = cell_neighbours(t, c, written)
+    rl = norm_label(nb.get("row_label", ""))
+    cl = "" if nb.get("column_label_partial") else norm_label(nb.get("column_label", ""))
+    if rl and cl and rl != cl:
         return f"{rl}／{cl}", rl, cl
     return rl or cl, rl, cl
 
@@ -747,12 +846,12 @@ def build(doc: DocxDocument) -> dict:
         "kind": getattr(doc, "kind", "docx"),
         "source": {"file": doc.filename, "sha256": hashlib.sha256(doc.blob).hexdigest(), "bytes": len(doc.blob),
                    "note": "元のファイルが正本。書き込みは、書いた欄の部分だけを変える差分として適用する。"},
-        "notation": {"［T1.R3.C2］": "表の空のマス（1つ目の表の3行目・2列目）", "［P12.1］": "段落の中の空欄（12番目の段落の1つ目）",
-                     "［P12.a1？］": "規則では決められない、書き込む所かもしれない所（エージェントが読んで判断する。書くなら id を指定する。"
-                                    "書かなければ何も変わらない。［P12.a1？＝○○］は、伏せ字の○○を書き換える所）",
-                     "［P12.1？］": "段落の中の、字の並び（年・月・日などの字）から推定した空欄。規則では決めないので、エージェントが判断する",
-                     "［P12.1？　］": GAP_TOKEN_NOTE, SPACED_MARK: SPACED_NOTE,
-                     "■［P12.1？］": "チェック済みの印らしい字（☑・■・✓ など。■ は箇条の印のこともある）。チェックの欄なら True / False で書く",
+        "notation": {"［T1.R3.C2］": "表の空のマス（1つ目の表の3行目・2列目）",
+                     "［P12.c5］": PLACE_ID_NOTE,
+                     "［P12.c5？］": "規則では決められない、書き込む所かもしれない所（字の形と並びだけで見つけた所。エージェントが読んで判断する。"
+                                    "書くなら id を指定する。書かなければ何も変わらない。［P12.c5？＝○○］は、伏せ字の○○を書き換える所）",
+                     "［P12.c5？　］": GAP_TOKEN_NOTE,
+                     "■［P12.c5？］": "チェック済みの印らしい字（☑・■・✓ など。■ は箇条の印のこともある）。チェックの欄なら true / false で書く",
                      "［名前＝値］": "入力欄といまの値", "☐［…］ / ☑": "チェック", " ｜ ": "表のマスの区切り"},
         "protection": {"edit": doc.protection, "enforced": doc.protection_enforced},
         "macros": _macros(doc),
@@ -779,6 +878,7 @@ def build(doc: DocxDocument) -> dict:
         for line in st["reading"]:
             for m in re.finditer(r"［([^］＝？]+)？?[ 　]*(?:＝[^］]*)?］", line):  # 「？」の所の印は、元の空白を中に入れる
                 contexts.setdefault(m[1], line)
+    legacy_of = {new: old for old, new in sp.items.legacy.items()}  # いまの名前 → 受ける古い数え順の名前
     for it in sp.items.values():
         c = it.get("control")
         kind = it["kind"]
@@ -796,6 +896,14 @@ def build(doc: DocxDocument) -> dict:
              "provenance": it["provenance"], "value": sp.value(it), "context": contexts.get(it["id"], "")}
         if printed or (c is None and label):
             d["label_printed"] = True  # 見出しは文書に印刷される字（欄の名前・タグではない）
+        if c is None and "span" in it and it.get("para") is not None and it["id"] not in sp.marks:
+            # 段落の中の所の事実（所の字・字数・幅の目安・前後の字・字間を空けた並びの字数。xlsx.window.place_facts）
+            q = it["para"]
+            d["facts"] = place_facts(sp._texts.get(id(q)) or q.text, *it["span"])
+        if it["id"] in legacy_of:
+            d["legacy_id"] = legacy_of[it["id"]]  # 古い数え順の名前（その段落にこの並びの所が 1 つだけなので、同じ所を指す）
+        if c is not None and c.para is not None and c.para.cell is not None and c.para.cell.table is not None:
+            d.update(cell_neighbours(c.para.cell.table, c.para.cell, sp.written_cells))  # マスの中の欄：左・上のマスの字（事実）
         if c is not None and c.source == "activex":
             from ..axfile import word_describe
 
@@ -818,18 +926,15 @@ def build(doc: DocxDocument) -> dict:
         if it.get("provenance") == AGENT:
             d["agent"] = True
             d["why"] = it["why"]
+            if it.get("why_key"):
+                d["why_code"] = it["why_key"]  # 理由の符号（字の説明 why は変わることがある。判断・段階はこの符号で）
             if it.get("placeholder"):
                 d["placeholder"] = it["placeholder"]
             if it.get("alternative_to"):
                 d["alternative_to"] = it["alternative_to"]  # 同じ値を書く、代わりの欄（どちらか一方に書く）
-            if it.get("weak") or it.get("why_key") == "decor":
-                d["weak"] = it.get("weak") or "decor"
         if it.get("filled") or (it["id"] in sp.marks and c is None):
             d["filled"] = True  # todoku が書き込んだ所（書き直すには元の様式に書く）
-        if it.get("row_label"):
-            d["row_label"] = it["row_label"]
-        if it.get("column_label"):
-            d["column_label"] = it["column_label"]
+        d.update(it.get("neighbours") or {})  # 表のマス：左・上のマスの字（そのまま）と、間のマスの数（row_label_gap・column_label_gap）
         if it.get("shade") and it["shade"] not in ("auto", "FFFFFF"):
             d["shaded"] = it["shade"]
         if c is not None and c.lock in ("contentLocked", "sdtContentLocked"):
@@ -954,13 +1059,14 @@ def printed_label(sp: "Spots", it: dict) -> str:
     head = label_tail(re.split(r"\x00|\t|\n", "".join(out))[-1])
     trim = "".join(ch for ch in set(head) if chars.is_space(ch) or chars.is_label_colon(ch))
     head = norm_label(head.strip(" 　")).rstrip(trim)  # 見出しのあとのコロン（: ： ﹕ など）と空白を除く
-    if len(head) > 30:
-        head = head[-30:]
     if head:
         return head
     cell = p.cell
     if cell is not None and cell.table is not None:
-        return _cell_label(cell.table, cell, sp.written_cells)[0]
+        # 段落の頭の欄：いちばん近い見出しのマスの字をそのまま（同じ行の左のマスがあればそれ、なければ上のマス）。
+        # 2 つをつないで 1 つの見出しにはしない（両方の字と間のマスの数は、欄の row_label・column_label に出す）
+        nb = cell_neighbours(cell.table, cell, sp.written_cells)
+        return norm_label(nb.get("row_label") or nb.get("column_label") or "")
     return ""
 
 
@@ -1061,8 +1167,6 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
                 edits.append((a, b, ("☑" if v else "☐") + f"［{name}］"))
             else:
                 edits.append((a, b, f"［{name}＝{v}］" if v not in (None, "") else f"［{name}］"))
-    for e in sorted(getattr(sp, "spaced_marks", {}).get(id(p), ())):  # 埋め込みの読み方（欄なし）には印もない
-        edits.append((e, e, SPACED_MARK))  # 字間を空けた見出しの並びの後ろ（字の間の空白は、元のまま）
     edits.sort()
     out, at = [], 0
     for a, b, rep in edits:
@@ -1139,8 +1243,7 @@ def to_markdown(doc: dict) -> str:
     out.append("")
     if doc["fields"]:
         out += [f"## 入力欄（{len(doc['fields'])} か所）", "", "| 欄 | 見出し | 種類 | いまの値 |", "|---|---|---|---|"]
-        weak = [f for f in doc["fields"] if f.get("weak") and f.get("value") in (None, "", False) and not f.get("filled")]
-        for f in [f for f in doc["fields"] if not any(f is w for w in weak)]:
+        for f in doc["fields"]:
             k = KIND_JA.get(f["kind"], f["kind"])
             if f.get("options"):
                 k += ": " + "／".join(map(str, f["options"][:15]))
@@ -1158,8 +1261,6 @@ def to_markdown(doc: dict) -> str:
             vs = ("☑ あり" if v else "☐ なし") if f["kind"] == "checkbox" else ("" if v in (None, "") else str(v))
             out.append(f"| {_md(f['id'])} | {_md(f['label'])} | {_md(k)} | {_md(vs)} |")
         out.append("")
-        if weak:
-            out += [weak_line(weak), ""]
     for st in doc["stories"]:
         out += [f"## {STORY_JA.get(st['kind'], st['kind'])}（{st['part']}）", ""]
         for line in st["reading"]:

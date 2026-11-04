@@ -6,6 +6,10 @@
 記入例で描き足された線（○で囲んだ印・チェックの印）も、入力欄のそばにあるかを調べる。
 
 記入例の「記入例」の印や、「〜してください」の説明の文は、書き込まれた値ではないので数えない（別に数える）。
+
+評価用の目安：この照らし合わせは、とどくの見つけ方を開発のときに測る道具（cli の example・xlsx/audit の記入例の検査）で、
+エージェントに渡す窓・書き込みには使わない。説明の文・記入例の印を見分ける語の表（_is_note・_notes の「記入例」「ください」
+など）と、様式の版が同じかの割合（same_version の 65%）は、測るための目安で、書類の決まり（仕様）から決めたものではない。
 """
 
 from __future__ import annotations
@@ -58,7 +62,7 @@ class ExampleCheck:
 
     @property
     def same_version(self) -> bool:
-        """照らしたどのページも、白紙の字の 65% 以上が記入例の同じ位置にある（様式の版が同じ）。"""
+        """照らしたどのページも、白紙の字の 65% 以上が記入例の同じ位置にある（様式の版が同じ）。65% は評価用の目安。"""
         return bool(self.page_kept) and min(k for _p, k in self.page_kept) >= 0.65
 
     @property
@@ -141,6 +145,7 @@ def _run(cs: list[Ch], page: int) -> Run:
 
 
 def _is_note(r: Run) -> bool:
+    """記入例の説明の文・印か（評価用の目安：語の表で見分ける。窓・書き込みには使わない）。"""
     t = r.text
     return any(w in t for w in ("記入例", "記載例", "作成例", "見本", "（例）", "(例)")) or \
         ("ください" in t and len(t) >= 10) or (t.endswith("。") and len(t) >= 20) or \

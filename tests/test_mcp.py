@@ -89,12 +89,12 @@ def test_fill_result_can_be_told_in_dialogue(tmp_path):
     src = tmp_path / "s.docx"
     orig = make_docx(SAMPLE_BODY)  # zip の時刻が入るので、作り直さずに比べる
     src.write_bytes(orig)
-    r = api.fill(str(src), {"T1.R1.C2": "とどく花子", "P2.1": "8"}, str(tmp_path / "out.docx"))
+    r = api.fill(str(src), {"T1.R1.C2": "とどく花子", "P2.c2": "8"}, str(tmp_path / "out.docx"))
     assert r["proof_ok"] and r["read_back_ok"]
-    assert {d["id"]: d["value"] for d in r["written"]} == {"T1.R1.C2": "とどく花子", "P2.1": "8"}
+    assert {d["id"]: d["value"] for d in r["written"]} == {"T1.R1.C2": "とどく花子", "P2.c2": "8"}
     assert "- 氏名：とどく花子" in r["say_to_user"] and "- 令和［8］年 月 日" in r["say_to_user"], r["say_to_user"]
     assert "まだ空いている欄" in r["say_to_user"]
-    assert r["still_empty_count"] >= 1 and all(not e["id"].startswith(("T1.R1.C2", "P2.1")) for e in r["still_empty"])
+    assert r["still_empty_count"] >= 1 and all(not e["id"].startswith(("T1.R1.C2", "P2.c2")) for e in r["still_empty"])
 
 
 def test_say_to_user_lists_everything_written_by_place_and_joins_split_fields():

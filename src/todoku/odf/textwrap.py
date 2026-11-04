@@ -13,7 +13,10 @@ from __future__ import annotations
 from ..wrapcheck import say, wraps
 from .sheet import _columns, _pt
 
+# マスの余白（fo:padding）が書かれていないときに仮に置く値：LibreOffice の既定の 0.097 cm（ODF の仕様では、書かれていない
+# padding は 0。どちらで描くかはソフトによるので、見積もりの元に「仮に」と書く）
 _DEFAULT_PAD = 0.097 * 28.3465
+_DEFAULT_SIZE = 12.0  # 字の大きさが書かれていないときに仮に置く値（LibreOffice の既定。ODF の仕様の値ではない）
 
 
 def _len(v: str | None) -> float | None:
@@ -33,8 +36,8 @@ def _size(doc, p, run) -> float:
             return v
     v = st.prop(p.part, "paragraph", p.style or None, "style:text-properties", "fo:font-size")
     if v and v.endswith("%"):
-        return 12.0 * float(v[:-1]) / 100
-    return _len(v) or 12.0
+        return _DEFAULT_SIZE * float(v[:-1]) / 100
+    return _len(v) or _DEFAULT_SIZE
 
 
 def _sizes(doc, p) -> list[float]:
@@ -53,7 +56,7 @@ def _indents(doc, p) -> tuple[float, float, float]:
     return get("fo:margin-left"), get("fo:margin-right"), get("fo:text-indent")
 
 
-def _cell_width(doc, p) -> float | None:
+def _cell_width(doc, p, facts: dict | None = None) -> float | None:
     c = p.cell
     if c is None or c.table is None or c.table.node is None:
         return None
@@ -72,6 +75,8 @@ def _cell_width(doc, p) -> float | None:
     pl = _len(st.prop(p.part, "table-cell", style, "style:table-cell-properties", "fo:padding-left"))
     pr = _len(st.prop(p.part, "table-cell", style, "style:table-cell-properties", "fo:padding-right"))
     dflt = _DEFAULT_PAD if pad is None else pad
+    if facts is not None:
+        facts["pad_assumed"] = pad is None and (pl is None or pr is None)
     return w - (dflt if pl is None else pl) - (dflt if pr is None else pr)
 
 
@@ -113,9 +118,11 @@ def wrap_warnings(before, after) -> list[str]:
         if a.text == b.text:
             continue
         sa, sb = _sizes(after, a), _sizes(before, b)
-        size = max(sa) if sa else 12.0
+        size = max(sa) if sa else _DEFAULT_SIZE
         left, right, first = _indents(after, a)
-        width, basis = _cell_width(after, a), "表のマスの幅"
+        facts: dict = {}
+        width = _cell_width(after, a, facts)
+        basis = "表のマスの幅" + ("（マスの余白は書かれていないので、仮に LibreOffice の既定の 0.097 cm）" if facts.get("pad_assumed") else "")
         if width is None:
             if a.cell is not None:
                 continue

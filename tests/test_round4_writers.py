@@ -217,12 +217,12 @@ def test_odt_written_text_does_not_inherit_strike_or_colour(tmp_path):
     r, xml = _odt_fill(tmp_path, body, {"P1.1": "大阪", "P2.1": "03", "P3.1": "12"})
     assert r["proof_ok"] and r["read_back_ok"], r
     assert not r.get("written_formatting"), r.get("written_formatting")
-    assert any("P1.1" in w and "取り消し線" in w and "字の色" in w for w in r["warnings"])
+    assert any("P1.c3" in w and "取り消し線" in w and "字の色" in w for w in r["warnings"])
     assert 'style:text-line-through-style="none"' in xml and 'style:use-window-font-color="true"' in xml
     assert 'fo:background-color="transparent"' in xml
     # 字の大きさ（14pt の span）は、外の span のまま
     # （空白だけの長い空きは、見出しにくっつかないよう、初めの 1 字を残して中に書く）
-    assert '<text:span text:style-name="T1">　<text:bookmark-start text:name="_todoku_P1.1"/><text:span text:style-name="todoku_w' in xml
+    assert '<text:span text:style-name="T1">　<text:bookmark-start text:name="_todoku_P1.c3"/><text:span text:style-name="todoku_w' in xml
 
 
 def test_odt_proof_catches_other_style_change(tmp_path):
@@ -268,7 +268,7 @@ def test_rtf_written_text_does_not_inherit(tmp_path, fmt, name):
     r = api.fill(str(path), {"P1.1": "大阪"}, str(tmp_path / "o.rtf"))
     assert r["proof_ok"] and r["read_back_ok"], r
     assert not r.get("written_formatting"), r.get("written_formatting")
-    assert any("P1.1" in w and name in w for w in r["warnings"]), r["warnings"]
+    assert any("P1.c3" in w and name in w for w in r["warnings"]), r["warnings"]
     from todoku.rtf.fill import written_formatting
 
     assert written_formatting((tmp_path / "o.rtf").read_bytes()) == []
@@ -299,7 +299,7 @@ def test_pptx_written_text_drops_strike_and_white(tmp_path):
     r, xml = _pptx_fill(tmp_path, pm.sp(para), {"P1.1": "山田"})
     assert r["proof_ok"] and r["read_back_ok"], r
     assert not r.get("written_formatting")
-    assert any("P1.1" in w and "取り消し線" in w for w in r["warnings"])
+    assert any("P1.c3" in w and "取り消し線" in w for w in r["warnings"])
     assert '<a:rPr lang="ja-JP" sz="1400" strike="noStrike"><a:latin typeface="Meiryo"/></a:rPr><a:t>山田</a:t>' in xml
 
 
@@ -317,8 +317,8 @@ def test_pptx_written_formatting_detects_bad_run():
     b = a.replace(b"x", b"x")
     b = pm.make([pm.sp('<a:p><a:r><a:rPr lang="ja-JP"/><a:t>氏名：</a:t></a:r><a:r><a:rPr lang="ja-JP" strike="dblStrike"/>'
                        '<a:t>山田</a:t></a:r></a:p>')])
-    got = written_formatting(a, b, {"P1.1": "山田"})
-    assert got and got[0]["id"] == "P1.1" and "取り消し線" in got[0]["formatting"]
+    got = written_formatting(a, b, {"P1.c3": "山田"})
+    assert got and got[0]["id"] == "P1.c3" and "取り消し線" in got[0]["formatting"]
 
 
 # ---------------------------------------------------------------------- A3. HWPX

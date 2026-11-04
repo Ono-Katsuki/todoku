@@ -250,10 +250,12 @@ def test_two_anchors_in_one_cell_both_apply(tmp_path):
 
 # ====================================================================== C3 読み戻しのはい・いいえ
 def test_readback_bool_uses_writer_vocabulary():
-    assert api._writer_bool("xlsx", "有") is True and api._writer_bool("xlsx", "☑") is True
-    assert api._writer_bool("xlsx", "ON") is True and api._writer_bool("xlsx", "無") is False
-    assert api._writer_bool("pdf", "レ") is True and api._writer_bool("pdf", "○") is True
-    assert api._writer_bool("docx", "■") is True
+    # 書き手と同じ読み方（inputcheck.checkbox_state）：true / false と、宣言した状態の値（箱の字・PDF の Off）だけ。
+    # 言葉（有・無・ON・レ・○）は、書き手が受けないので、読み戻しでも「はい／いいえ」と読まない
+    assert api._writer_bool("xlsx", "TRUE") is True and api._writer_bool("xlsx", "false") is False
+    assert api._writer_bool("xlsx", "有") is None and api._writer_bool("xlsx", "ON") is None
+    assert api._writer_bool("pdf", "Off") is False and api._writer_bool("pdf", "レ") is None
+    assert api._writer_bool("docx", "■") is True and api._writer_bool("docx", "☐") is False
     assert api._writer_bool("pdf", "たぶん") is None
 
 
