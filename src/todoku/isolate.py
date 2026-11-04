@@ -319,7 +319,7 @@ def soft_call(fn, name: str, args: dict) -> dict:
             why = None
             if time.monotonic() - t0 > limits.TIME_LIMIT:
                 why = _TIME()
-            elif rss_bytes() > limits.MEMORY_LIMIT:
+            elif rss_bytes() > limits.MEMORY_LIMIT / 2 and (limits.release_memory() or rss_bytes() > limits.MEMORY_LIMIT):
                 why = _MEMORY()
             if why:
                 _SoftStop.reason = why
@@ -372,11 +372,16 @@ def _watchdog() -> None:
             except (ValueError, OSError):
                 pass
     parent = os.getppid()
-    scale = 1 if sys.platform == "darwin" else 1024  # ru_maxrss：macOS はバイト、Linux は KB
 
     def watch():
+        next_release = 0.0
         while True:
-            if resource is not None and resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * scale > cap:
+            used = rss_bytes()
+            if used > cap / 2 and time.monotonic() >= next_release:  # 使い終えた大きなメモリを返してから数え直す
+                next_release = time.monotonic() + 0.5
+                limits.release_memory()
+                used = rss_bytes()
+            if used > cap:
                 os._exit(EXIT_MEMORY)
             if os.getppid() != parent:
                 os._exit(0)
@@ -409,6 +414,7 @@ def serve(req: int, res: int) -> int:
         _BUSY["since"] = time.monotonic()
         r = mcp_server.tool_result(msg["name"], msg.get("args") or {})
         _BUSY["since"] = None
+        limits.release_memory()  # 次の呼び出しまで、大きなメモリを持ち続けない
         _send(res, {"result": r})
 
 

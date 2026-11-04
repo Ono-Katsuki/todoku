@@ -133,9 +133,14 @@ def _budgeted(fn):
     @functools.wraps(fn)
     def run(*a, **k):
         import struct
+        import xml.etree.ElementTree as ET
+        import xml.parsers.expat as expat
+        import zlib
 
         from .cfb import CfbError
         from .limits import call_budget
+        from .pdf.crypto import NeedsPassword as PdfNeedsPassword
+        from .pdf.objects import PdfError
         from .xls.book import XlsError
 
         try:
@@ -146,6 +151,13 @@ def _budgeted(fn):
             raise ApiError(broken_message(a[0] if a else k.get("path"), e)) from None
         except XlsError as e:
             raise ApiError(str(e)) from None  # 読めないブック：本人に分かる言葉（例外の種類の名前は見せない）
+        except (zlib.error, ET.ParseError, expat.ExpatError) as e:
+            # 壊れた圧縮・XML（形式の読み方の入口で分かる、ファイルの壊れ）：種類の名前を添えて、壊れていることを伝える
+            raise ApiError(f"{broken_message(a[0] if a else k.get('path'), e)}（{type(e).__name__}）") from None
+        except PdfError as e:
+            if isinstance(e, PdfNeedsPassword):
+                raise
+            raise ApiError(f"PDF が壊れていて読めません：{e}") from None
 
     return run
 

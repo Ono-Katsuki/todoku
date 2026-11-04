@@ -391,7 +391,7 @@ def box_down(px: bytes, w: int, h: int, nc: int, kx: int, ky: int) -> tuple[byte
     rowlen = w * nc
     kk = kx * ky
     out = bytearray(W * H * nc)
-    div = [v // kk for v in range(256 * kk)]
+    div = [v // kk for v in range(256 * kk)] if kk <= 1024 else None  # 表は小さな箱だけ（大きな箱で表を作ると、箱の広さ × 256 の場所を取る）
     for Y in range(H):
         acc = None
         for r in range(ky):
@@ -408,7 +408,7 @@ def box_down(px: bytes, w: int, h: int, nc: int, kx: int, ky: int) -> tuple[byte
                         acc[c] = list(map(add, acc[c], part))
         o = Y * W * nc
         for c in range(nc):
-            out[o + c:o + W * nc:nc] = bytes(map(div.__getitem__, acc[c]))
+            out[o + c:o + W * nc:nc] = bytes(map(div.__getitem__, acc[c])) if div is not None else bytes([v // kk for v in acc[c]])
     return bytes(out), W, H
 
 

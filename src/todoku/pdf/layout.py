@@ -1251,39 +1251,44 @@ def _in_bands(bands: dict[int, list[int]], wide: list[int], a: int, b: int) -> s
 
 
 class _RectIndex:
-    """四角の升目の索引：重なりうる所（入れた順）だけを比べる（線の交わりが何千とあるページでも、所どうしを総当たりしない）。"""
-
-    CELL = 16.0
-    BIG = 256  # これより多くの升にかかる大きな四角は、別に持ち、いつも比べる
+    """四角の索引：重なりうる所（入れた順）だけを比べる（線の交わりが何千とあるページでも、所どうしを総当たりしない）。
+    四角は大きさの桁（2 の冪）ごとの升目に置くので、大小の四角が混ざっても、1 つの四角は 4 升までに収まる。"""
 
     def __init__(self):
         self.items: list = []
-        self.grid: dict[tuple[int, int], list[int]] = {}
-        self.big: list[int] = []
-
-    def _cells(self, r):
-        c = self.CELL
-        return (math.floor(r[0] / c), math.floor(r[1] / c), math.floor(r[2] / c), math.floor(r[3] / c))
+        self.grids: dict[int, dict[tuple[int, int], list[int]]] = {}
+        self.odd: list[int] = []  # 無限大など、升目に置けない四角：いつも比べる
 
     def add(self, s) -> None:
         i = len(self.items)
         self.items.append(s)
-        x0, y0, x1, y1 = self._cells(s.rect)
-        if (x1 - x0 + 1) * (y1 - y0 + 1) > self.BIG:
-            self.big.append(i)
+        r = s.rect
+        if not math.isfinite(r[0] + r[1] + r[2] + r[3]):
+            self.odd.append(i)
             return
-        for x in range(x0, x1 + 1):
-            for y in range(y0, y1 + 1):
-                self.grid.setdefault((x, y), []).append(i)
+        level = math.frexp(max(r[2] - r[0], r[3] - r[1], 1.0))[1]
+        cell = 2.0 ** level
+        grid = self.grids.setdefault(level, {})
+        for x in range(math.floor(r[0] / cell), math.floor(r[2] / cell) + 1):
+            for y in range(math.floor(r[1] / cell), math.floor(r[3] / cell) + 1):
+                grid.setdefault((x, y), []).append(i)
 
     def touching(self, r) -> list:
-        x0, y0, x1, y1 = self._cells(r)
-        if (x1 - x0 + 1) * (y1 - y0 + 1) > self.BIG:
-            return self.items  # 大きな四角：入れたものを順に全部（数えるほどしかない）
-        found = set(self.big)
-        for x in range(x0, x1 + 1):
-            for y in range(y0, y1 + 1):
-                found.update(self.grid.get((x, y), ()))
+        if not math.isfinite(r[0] + r[1] + r[2] + r[3]):
+            return self.items
+        found = set(self.odd)
+        for level, grid in self.grids.items():
+            cell = 2.0 ** level
+            x0, x1 = math.floor(r[0] / cell), math.floor(r[2] / cell)
+            y0, y1 = math.floor(r[1] / cell), math.floor(r[3] / cell)
+            if (x1 - x0 + 1) * (y1 - y0 + 1) > len(grid):  # 升目が多い：ある升目だけを見る
+                for (x, y), ids in grid.items():
+                    if x0 <= x <= x1 and y0 <= y <= y1:
+                        found.update(ids)
+            else:
+                for x in range(x0, x1 + 1):
+                    for y in range(y0, y1 + 1):
+                        found.update(grid.get((x, y), ()))
         return [self.items[i] for i in sorted(found)]
 
 

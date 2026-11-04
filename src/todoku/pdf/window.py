@@ -22,7 +22,7 @@ from ..xlsx.window import GAP_TOKEN_NOTE, label_text, shown_gap, with_label_keys
 from .content import page_content
 from .doc import PdfDocument
 from .form import FormField, Widget, has_xfa, read_fields
-from .layout import OLD_ID, PLACE_ID, Cell, Line, PageLayout, Spot, _overlap
+from .layout import OLD_ID, PLACE_ID, Cell, Line, PageLayout, Spot, _overlap, _RectIndex
 
 DET = "deterministic"
 LAYOUT = "layout"
@@ -626,14 +626,20 @@ def _inherit_ids(spots: list[Spot], written: list[tuple], number: int) -> None:
     （書いた書類を開き直しても、同じ名前で書き直せる）。どの所とも決まらない欄（重なる所が 2 つ以上・ない）は、名前を移さない
     （その欄は、フォームの欄として窓に出る）。字を目印にした所（w）・印影（s）・○（c）は、所の名前にしない。"""
     pat = re.compile(rf"p{number}\.(?:{OLD_ID}|{PLACE_ID})")
+    index = None  # 書いた欄ごとに、すべての所と比べない（書いた欄の数 × 所の数にならないように）
+    ids: set = set()
     for f, r in written:
         if not pat.fullmatch(f.name):
             continue
-        hits = [sp for sp in spots if _iou(sp.rect, r) > 0.5]
-        if len(hits) == 1 and hits[0].id != f.name:
-            taken = any(sp.id == f.name for sp in spots)
-            if not taken:
-                hits[0].id = f.name
+        if index is None:
+            index = _RectIndex()
+            for sp in spots:
+                index.add(sp)
+            ids = {sp.id for sp in spots}
+        hits = [sp for sp in index.touching(r) if _iou(sp.rect, r) > 0.5]
+        if len(hits) == 1 and hits[0].id != f.name and f.name not in ids:
+            hits[0].id = f.name
+            ids.add(f.name)
 
 
 def _beside_widget(rect, r) -> bool:

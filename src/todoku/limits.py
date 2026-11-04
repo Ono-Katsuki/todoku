@@ -252,6 +252,32 @@ def progress(text: str, done: int = 0, total: int = 0) -> None:
         fn(text, done, total)
 
 
+def release_memory() -> None:
+    """使い終えた大きなメモリを OS に返す（macOS の malloc は、大きな塊を自分の控えに残し、常駐に数えられたままになる）。"""
+    global _RELEASE
+    if _RELEASE is None:
+        import ctypes
+        import sys
+
+        _RELEASE = lambda: None  # noqa: E731
+        try:
+            if sys.platform == "darwin":
+                fn = ctypes.CDLL("libSystem.dylib").malloc_zone_pressure_relief
+                fn.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+                fn.restype = ctypes.c_size_t
+                _RELEASE = lambda: fn(None, 0)
+            elif sys.platform.startswith("linux"):
+                trim = ctypes.CDLL(None).malloc_trim
+                trim.argtypes = [ctypes.c_size_t]
+                _RELEASE = lambda: trim(0)
+        except (OSError, AttributeError):
+            pass
+    _RELEASE()
+
+
+_RELEASE = None
+
+
 def check_output(n: int, what: str = "", part: int | None = None) -> None:
     """展開して n バイトになるか（展開の前に、出てくる大きさが分かるとき）。上限を超えるなら LimitExceeded。"""
     b = budget()
