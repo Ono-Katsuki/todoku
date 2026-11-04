@@ -23,7 +23,7 @@ from .parser import (
     StructRef,
     Unary,
 )
-from .. import limits
+from ..limits import MAX_ARRAY_CELLS
 from .lazyarr import FlatView, LazyArr, RangeArr, make as make_lazy, poly_binary, want_lazy
 from .dates import _CURRENT_1904
 from .values import (
@@ -96,7 +96,7 @@ class Evaluator:
     # -------------------------------------------------------------- 値の取り出し
     def materialize(self, rng: Rng) -> Arr:
         rng = self.clip(rng)
-        if (rng.r2 - rng.r1 + 1) * (rng.c2 - rng.c1 + 1) > limits.MAX_ARRAY_CELLS:
+        if (rng.r2 - rng.r1 + 1) * (rng.c2 - rng.c1 + 1) > MAX_ARRAY_CELLS:
             return RangeArr(self.ctx, rng)  # 広い範囲：リストに開かず、頼まれたマスだけ読む
         return Arr([[self.ctx.cell_value(rng.sheet, r, c) for c in range(rng.c1, rng.c2 + 1)]
                     for r in range(rng.r1, rng.r2 + 1)])

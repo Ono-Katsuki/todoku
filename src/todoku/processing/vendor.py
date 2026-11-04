@@ -20,8 +20,8 @@ class VendorError(RuntimeError):
 
 PKG = "todoku"
 # 上から順に定義する（下の方の定数が上の定義を使う）
-ORDER = ["formula.values", "formula.dates", "formula.parser", "formula.locale_fmt", "formula.numfmt", "formula.evaluator",
-         "formula.functions", "formula.arrays"]
+ORDER = ["formula.values", "formula.dates", "formula.parser", "formula.locale_fmt", "formula.numfmt", "formula.lazyarr", "formula.evaluator",
+         "formula.bigagg", "formula.functions", "formula.arrays"]
 BUILTIN = set(dir(builtins))
 
 

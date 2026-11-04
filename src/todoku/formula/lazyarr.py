@@ -20,7 +20,6 @@ from collections.abc import Sequence
 from fractions import Fraction
 from typing import Callable
 
-from .. import limits
 from . import values as _values
 from .values import Arr, ExcelError, Rng, Unfinished, is_number
 
@@ -500,12 +499,23 @@ def _key(ev, tag: str, total: int) -> str:
     return f"{ev.sheet}!{ev.row},{ev.col}#{n}:{tag}:{total}"
 
 
-def _clock():
-    """いまの呼び出しの、計算に使ってよい時間の残り（秒）を持つもの。"""
-    b = limits.budget()
-    if b is limits._LOOSE:  # 呼び出しの外：計算ごとに持ち時間
-        return limits.Budget()
-    return b
+class _Clock:
+    """計算に使ってよい時間の見張り。ふだんは上限なし（とどくの中では limits.CalcClock に替わる。書き出したモジュールはこのまま）。"""
+
+    def current(self):
+        return None
+
+    def left(self, b) -> float:
+        return math.inf
+
+    def spend(self, b, seconds: float) -> None:
+        pass
+
+    def progress(self, text: str, done: int, total: int) -> None:
+        pass
+
+
+CLOCK = [_Clock()]
 
 
 def scan(ev, what: str, total: int, item: Callable, step: Callable, state: list, positions=None) -> list:
@@ -524,8 +534,9 @@ def scan(ev, what: str, total: int, item: Callable, step: Callable, state: list,
     n = total if positions is None else len(positions)
     if store.frozen:
         raise Unfinished(what, start if positions is None else _spot(positions, start, total), total, key)
-    clock = _clock()
-    left = limits.scan_seconds(clock)
+    watch = CLOCK[0]
+    clock = watch.current()
+    left = watch.left(clock)
     t0 = time.monotonic()
     k = start
     try:
@@ -540,15 +551,15 @@ def scan(ev, what: str, total: int, item: Callable, step: Callable, state: list,
             k = stop
             now = time.monotonic()
             if now - t0 > left:
-                limits.spend_scan(clock, now - t0)
+                watch.spend(clock, now - t0)
                 store.put(key, {"k": k, "state": state, "total": total, "what": what})
                 raise Unfinished(what, k if positions is None else _spot(positions, k, total), total, key)
             if store.on_save is not None:
                 store.put(key, {"k": k, "state": state, "total": total, "what": what})
-            limits.progress(f"大きな配列の{what}", k, n)
+            watch.progress(f"大きな配列の{what}", k, n)
     except StopScan:
         pass
-    limits.spend_scan(clock, time.monotonic() - t0)
+    watch.spend(clock, time.monotonic() - t0)
     store.put(key, {"k": n, "state": state, "total": total, "what": what, "done": True})
     return state
 
@@ -563,10 +574,19 @@ class StopScan(Exception):
 
 def tick(what: str, done: int, total: int, t0: list) -> None:
     """控えをとらない、長い繰り返しの時間の見張り（FILTER・UNIQUE など。計算し直せば同じ所まで来る）。t0：[始めた時刻, 持ち時間]。"""
+    watch = CLOCK[0]
     if not t0:
-        clock = _clock()
-        t0 += [time.monotonic(), limits.scan_seconds(clock), clock]
+        clock = watch.current()
+        t0 += [time.monotonic(), watch.left(clock), clock]
     if time.monotonic() - t0[0] > t0[1]:
-        limits.spend_scan(t0[2], time.monotonic() - t0[0])
+        watch.spend(t0[2], time.monotonic() - t0[0])
         raise Unfinished(what, done, total)
-    limits.progress(f"大きな配列の{what}", done, total)
+    watch.progress(f"大きな配列の{what}", done, total)
+
+
+try:  # とどくの中：呼び出しの予算で時間を見る（書き出したモジュールには入らない）
+    from ..limits import CalcClock
+
+    CLOCK[0] = CalcClock()
+except ImportError:
+    pass

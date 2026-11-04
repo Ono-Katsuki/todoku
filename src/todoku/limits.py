@@ -181,14 +181,6 @@ class Budget:
                              "（部品が部品を何度も描くなど）", True)
 
 
-def scan_seconds(b: Budget) -> float:
-    return max(0.0, b.calc_left)
-
-
-def spend_scan(b: Budget, seconds: float) -> None:
-    b.calc_left -= seconds
-
-
 _CURRENT: contextvars.ContextVar[Budget | None] = contextvars.ContextVar("todoku_budget", default=None)
 _LOOSE = Budget()  # 呼び出しの外：1 回の展開の上限だけ
 
@@ -302,6 +294,23 @@ def release_memory() -> None:
 
 
 _RELEASE = None
+
+
+class CalcClock:
+    """大きな配列の集計に使ってよい時間：1 回の呼び出しの予算で数える（呼び出しの外は、集計ごとに持ち時間。formula/lazyarr.py）。"""
+
+    def current(self) -> Budget:
+        b = budget()
+        return Budget() if b is _LOOSE else b
+
+    def left(self, b: Budget) -> float:
+        return max(0.0, b.calc_left)
+
+    def spend(self, b: Budget, seconds: float) -> None:
+        b.calc_left -= seconds
+
+    def progress(self, text: str, done: int, total: int) -> None:
+        progress(text, done, total)
 
 
 def check_output(n: int, what: str = "", part: int | None = None) -> None:

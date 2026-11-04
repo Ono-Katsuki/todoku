@@ -11,7 +11,7 @@ from __future__ import annotations
 import bisect
 from fractions import Fraction
 
-from .. import limits
+from ..limits import MAX_ARRAY_CELLS
 from .lazyarr import FlatView, LazyArr, closed_float, constant_stats, exact_doubles, scan, stats_of
 from .values import DIV0, NUM, Arr, ExcelError, Rng, err, is_number, to_number
 
@@ -22,7 +22,7 @@ def any_big(ev, args) -> bool:
             return True
         if isinstance(a, Rng):
             r = ev.clip(a)
-            if r.rows * r.cols > limits.MAX_ARRAY_CELLS:
+            if r.rows * r.cols > MAX_ARRAY_CELLS:
                 return True
     return False
 
