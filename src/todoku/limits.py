@@ -23,6 +23,8 @@
                                         頼まれたときに読む（embed_lazy）。表計算の宣言も、1 マスずつ書いて入らないものは範囲の所にする（xlsx/places.py）
 - TODOKU_LAZY_MIN_KB（4096）            分けて読む道（lazy）に入る、中身のバイトの下限。これより小さな Word・一太郎・.xls などは窓を作ってから分ける
 - TODOKU_PAGE_CHARS（60000）           範囲で読むときの 1 回の大きさ（字）。続きは cursor で読める（読み減らすだけで、読めない所は作らない）
+- TODOKU_RESULT_CHARS（25000）         list_fields の 1 回の結果の大きさ（字）。Claude Code の既定の上限は 25,000 トークン（MAX_MCP_OUTPUT_TOKENS）で、
+                                        日本語の字はおよそ 1 字 1 トークン以下なので、字で同じ数に置く。入らない分は、頼み方を添えて分ける（mcp_server）
 - TODOKU_MAX_PDF_OPS（200000000）     1 回の呼び出しで読む、PDF の描画の字句（数・名前・命令）の数の合計
 - TODOKU_MAX_PAGE_OPS（5000000）       1 ページ（とその部品）で読む、PDF の描画の字句の数
 - TODOKU_MAX_PIXELS（100000000）       1 つの画像を画素に開く大きさ（幅 × 高さ）
@@ -83,6 +85,7 @@ ITEMS_PER_FILE_BYTE = 4  # 本物の書類の項目は、ファイルのバイ�
 MAX_INFLATE_RATIO = _env("TODOKU_MAX_INFLATE_RATIO", 200)
 CONTEXT_BUDGET = _env("TODOKU_CONTEXT_BUDGET_CHARS", 400_000)
 PAGE_CHARS = _env("TODOKU_PAGE_CHARS", 60_000)
+RESULT_CHARS = _env("TODOKU_RESULT_CHARS", 25_000)
 LAZY_MIN_BYTES = _env("TODOKU_LAZY_MIN_KB", 4096, 1024)
 WINDOW_CACHE = _env("TODOKU_WINDOW_CACHE_MB", 256, MB)
 # マクロ（VBA）：1 つの文字列の長さ・1 つの配列の要素の数・1 回の実行で作る大きな値（1 MB 以上の文字列）の合計

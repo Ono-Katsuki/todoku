@@ -20,7 +20,7 @@ import re
 import sys
 import traceback
 
-from . import api
+from . import api, limits
 
 PROTOCOL = "2025-06-18"
 INSTRUCTIONS = (
@@ -100,17 +100,23 @@ TOOLS = [
      "description": "入力欄の一覧を JSON で返す：id（書き込むときの名前）・label（見出し）・kind（種類）・options（選択肢）・value（いまの値）・readonly（書けない欄）・context（その行）。"
                     "大きな書類は範囲で頼む（read_window と同じ pages・sheet・rows・paragraphs・records。空のマスは only_empty）。結果の next で続きを頼める。"
                     "kind が range の項目は「範囲の所」：入力規則や数式の参照が広いとき、空のセルをまとめて 1 つで示す（id は S!C5:C40000。count が空のセルの数）。"
-                    "中のどのマスも番地（S!C7）で書ける。sheet と rows を渡すと、その行の分を 1 マスずつの欄で返す（文書に埋め込んだ表は sheet に「E1!シート」）。",
+                    "中のどのマスも番地（S!C7）で書ける。sheet と rows を渡すと、その行の分を 1 マスずつの欄で返す（文書に埋め込んだ表は sheet に「E1!シート」）。"
+                    "結果が大きいときは、書くのに要る事実を残して、根拠の事実（near・evidence・why など）を省き、省いたものと頼み方を omitted に書く。"
+                    "ids（id のリスト）を渡すと、その欄の事実をすべて返す。detail: true なら、どの欄の事実も省かず、分けて返す（next で続く）。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
                                                       "only_empty": {"type": "boolean", "default": False},
                                                       "pages": _RANGE_SCHEMA, "rows": _RANGE_SCHEMA, "paragraphs": _RANGE_SCHEMA, "records": _RANGE_SCHEMA,
                                                       "path_in": {"type": "string", "description": "大きな JSON の中の値の位置（JSON Pointer。例 /items/0）"},
-                                                      "sheet": {"type": "string"}, "cursor": {"type": "string"}, "limit": {"type": "integer", "minimum": 1}},
+                                                      "sheet": {"type": "string"}, "cursor": {"type": "string"}, "limit": {"type": "integer", "minimum": 1},
+                                                      "ids": {"type": "array", "items": {"type": "string"}, "description": "この欄の事実（near・evidence・why なども）をすべて返す"},
+                                                      "detail": {"type": "boolean", "default": False, "description": "どの欄の事実も省かず、大きければ分けて返す"},
+                                                      "skip": {"type": "integer", "minimum": 0, "description": "同じ頼み方の結果の、はじめのこの数の欄を飛ばす（結果の next に入っているのを、そのまま渡す）"}},
                      "required": ["path"]}},
     {"name": "fill_document",
      "description": "入力欄に書き込み、out_path に書き出す（元のファイルは変えない）。values は {欄の id: 値}。"
                     "結果は、変わったのが書いた欄（とその計算結果・見た目）だけであることの証明と、書き込み後のファイルを読み直した結果。"
                     "本人は書類を開いて確かめないので、結果の say_to_user（書いた所の見出しと値・まだ空いている欄・本人に伝えること）を、対話でそのまま本人に伝えて確かめる。"
+                    "欄のない所にも書ける：印刷された選択肢の字を○で囲める（Excel・PDF・Word。詳しくは help の circle）、印刷された字を書き換えられる（old/new。詳しくは help の text）。印を付けられないと本人に伝える前に、これを確かめる。"
                     "\n【値】チェックは true/false（JSON の真偽値）か、その欄が宣言した状態の値（PDF の状態の名前・XFA の値・箱の字）だけ："
                     "「はい」「あり」「有」などの言葉は受けないので、本人の答えを true/false に直して書く。"
                     "本人が確かめる書類ではいつも意味 as を添える：{欄の id: {\"value\": 値, \"as\": \"生年月日\"}}（書類には書かれない。@ の書き込み・○にも。as のなかった所は written_without_as）。"
@@ -123,7 +129,7 @@ TOOLS = [
                     "字の前・後ろに足す {\"before\" か \"after\": 字, \"value\": 値}（PDF の after は見出しの右の空き、\"where\": \"below\" で下。\"page\"）。"
                     "PDF の枠 {\"page\": ページ, \"box\": [左, 上, 右, 下]（mm）, \"value\": 値}。PDF の伏せ字（「○○」）の上 {\"cover\": \"○○\", \"value\": 値}（元の字は消さない）。"
                     "\n【○で囲む】{\"@c1\": {\"circle\": 囲む字, \"near\": 近くの見出し}}：窓は印刷された選択肢（有・無など）を欄として並べないので、字を読んで選ぶ。"
-                    "同じ字がいくつもあれば near か occurrence で 1 つに決める。決まらなければ候補を示して断る。PDF は楕円（字に触れるなら断るので style・box を決める）、Excel（.xlsx）は楕円の図形、"
+                    "同じ字がいくつもあれば near か occurrence（Excel は cell でも）で 1 つに決める。決まらなければ候補を示して断る。PDF は楕円（字に触れるなら断るので style・box を決める）、Excel（.xlsx）は楕円の図形、"
                     "Word（.docx）は既定で字の四角い囲み線。古い .xls・.doc には描けない。Excel・Word の位置は見積もりなので uncertain を本人に伝える。"
                     "\n【本人の印影・署名の画像】本人に、どの書類のどこにどの画像を置くかを伝えて同意を得たときだけ {\"@1\": {\"seal\" か \"signature\": 画像のパス, \"consent\": true, \"page\": ページ, \"box\": [左, 上, 右, 下]（mm）}}"
                     "（PDF のみ。consent: true がなければ置かない。字を目印に cover・after でも置ける）。実印・自署（手書き）が求められる所では受け付けられないことがある：様式の注意書きを読んで本人に伝える。"
@@ -132,7 +138,7 @@ TOOLS = [
                     "\n【書いた後】PDF の重なりは、はっきりしたものだけ断り、きわどい所は warnings に所と位置（mm）を添えて知らせる。書いた PDF を view_page で見て、warnings の所を一つずつ確かめ、読みにくければ box・style を変えて書き直す。"
                     "Excel・Word などは描いて確かめられないので、say_to_user の見出しと値・折り返し／はみ出し／「####」の警告（wrap・fit）・○の uncertain を確かめる。"
                     "\n【ほかの形式】.odt・.rtf・.txt・.pptx・.hwpx は Word と同じ、.ods は Excel と同じ。CSV・TSV は「R3.C2」、JSON は JSON Pointer、JSON Lines は「L行/名前」。HWP 5 には書けない。"
-                    "\n【詳しい書き方】help に話題（id・text・pdf・align・as・seal・circle・formats・all）を渡すと、書き込まずに説明だけを返す（そのときの path・out_path は空の字、values は {} でよい）。",
+                    "\n【詳しい書き方】help に話題（id：欄の id の読み方・text：字の書き換えと差し込み・pdf：PDF の欄のない所・align：字の置き方・as：値の意味・seal：印影と署名・circle：○で囲む・formats：ほかの形式・all：すべて）を渡すと、書き込まずに説明だけを返す（そのときの path・out_path は空の字、values は {} でよい）。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"}, "out_path": {"type": "string", "description": "書き出すファイルのパス（元と別の名前）"},
          "values": {"type": "object", "description": "{欄の id: 値}。本人が確かめる書類では、値に意味を添える {欄の id: {\"value\": 値, \"as\": \"生年月日\"}}。"
@@ -143,7 +149,7 @@ TOOLS = [
                                                       "印刷された字を○で囲むときは {\"@c1\": {\"circle\": 囲む字, \"near\": 近くの見出し}}"},
          "force": {"type": "boolean", "default": False, "description": "保護された欄にも書く（本人が了承したときだけ）"},
          "overwrite": _OVERWRITE,
-         "help": {"type": "string", "enum": [*FILL_TOPICS, "all"], "description": "書き込まずに、この話題の詳しい書き方だけを返す"}},
+         "help": {"type": "string", "enum": [*FILL_TOPICS, "all"], "description": "書き込まずに、この話題の詳しい書き方だけを返す（circle は○で囲む、text は字の書き換え）"}},
          "required": ["path", "out_path", "values"]}},
     {"name": "audit_document",
      "description": "大きな書類では長い仕事として動く（すぐ返り、呼ぶたびに進み具合・ここまでの結果を返す。止まっても控えの続きから進む。job: true で大きさによらず長い仕事に、restart: true で始めから）。この書類を、エージェントが全て正確に読み書きできるかを確かめる（窓とは別の読み方で読み落としがないか、全入力欄に書けるか、書いた値が読み戻せるか）。"
@@ -305,6 +311,135 @@ def _score(check: dict) -> str:
     return "書く段階" if check.get("score") == "write" else "読む段階"
 
 
+# list_fields の結果が limits.RESULT_CHARS に入らないときに省く事実：どれを見出しとして読むか・書く所かを決める根拠。書くのに要る事実
+# （id・label・kind・options・value・context・readonly・rules・boxes など）は、ここに挙げないので、いつも残る。省いた事実は ids・detail で取れる
+_FIELD_DETAIL = ("near", "evidence", "why", "facts", "neighbours", "reason_codes", "input_reason_codes", "why_code", "label_method", "label_key")
+_FIELD_RANGE = ("pages", "sheet", "rows", "paragraphs", "records", "path_in", "cursor")
+
+
+def _size(obj) -> int:
+    return len(_text(obj)["text"])
+
+
+def _fields_range_args(args: dict) -> dict:
+    rng = {k: args[k] for k in _FIELD_RANGE if args.get(k) not in (None, "")}
+    if "path_in" in rng:
+        rng["path"] = rng.pop("path_in")
+    return rng
+
+
+def _take_fields(fl: list[dict], room: int) -> int:
+    """room 字に入る、はじめの欄の数（進むように、少なくとも 1 つ）。"""
+    empty = _size({"fields": []})
+    used = n = 0
+    for f in fl:
+        used += _size({"fields": [f]}) - empty
+        if used > room and n:
+            break
+        n += 1
+    return n
+
+
+def _ask_again(args: dict, rng: dict, **more) -> dict:
+    """同じ頼み方を、次の呼び出しの引数として（next にそのまま入れる）。"""
+    ask = {("path_in" if k == "path" else k): v for k, v in rng.items()}
+    ask.update({k: args[k] for k in ("only_empty", "limit", "detail") if args.get(k)})
+    ask.update(more)
+    return ask
+
+
+def _fit_fields(res: dict, args: dict, rng: dict) -> dict | None:
+    """list_fields の結果を limits.RESULT_CHARS に収める（MCP の結果の形だけ。api.fields の中身は変えない）。そのままで入るなら None。
+    順に：見た行の空のマスの一覧を切る → 根拠の事実を省く → 分けて返す。どれも、省いたことと頼み方を同じ結果に書く。"""
+    skip = int(args.get("skip") or 0)
+    detail = bool(args.get("detail"))
+    budget = limits.RESULT_CHARS
+    if not skip and _size(res) <= budget:
+        return None
+    rest = {k: v for k, v in res.items() if k != "fields"}
+    fl = res.get("fields") or []
+    told: dict = {}
+    blanks = rest.get("blank_cells_in_range")
+    if blanks and _size(blanks) > budget // 4:
+        keep = max(1, (budget // 4) * len(blanks) // _size(blanks))
+        rest["blank_cells_in_range"] = blanks[:keep]
+        told["blank_cells_in_range"] = (f"見た行の空のマスの番地のはじめの {keep} 個だけを返しました（全 {rest.get('blank_cell_count', len(blanks))} 個は、どれも番地で書けます）。"
+                                        "rows を狭めて頼むと、その行の番地が返ります")
+    if not detail and _size({**rest, "fields": fl}) > budget:
+        counts: dict[str, int] = {}
+        for f in fl:
+            for k in _FIELD_DETAIL:
+                if k in f:
+                    counts[k] = counts.get(k, 0) + 1
+        if counts:
+            fl = [{k: v for k, v in f.items() if k not in _FIELD_DETAIL} for f in fl]
+            first = next((f["id"] for f in fl if "id" in f), "欄の id")
+            told["detail"] = {"count_by_name": counts,
+                             "how": f"結果が大きいので、根拠の事実（{'・'.join(counts)}）を省きました。ほかの事実は省いていません。list_fields に同じ path と ids: "
+                                    f"{json.dumps([first], ensure_ascii=False)} のように id を渡すと、その欄の事実をすべて返します"
+                                    + ("（範囲で頼んだ欄は、同じ範囲も渡す）" if rng else "")
+                                    + "。detail: true なら、すべての欄の事実を分けて返します（next で続く）"}
+    total = len(fl)
+    fl = fl[skip:]
+    shown = {"omitted": told, **rest}  # 省いたことを先頭に
+    n = _take_fields(fl, budget - _size(shown) - 200)  # 200：下の、分けたことの知らせの分
+    shown["fields"] = fl[:n]
+    shown["fields_total"], shown["fields_returned"] = total, n
+    if skip + n < total:
+        shown["next"] = _ask_again(args, rng, skip=skip + n)
+        told["more_fields"] = f"一度に入らないので、{total} か所のうち {skip + 1}〜{skip + n} か所目を返しました。結果の next をそのまま渡すと続きが読めます"
+    elif rest.get("next"):
+        ask = {("path_in" if k == "path" else k): v for k, v in rest["next"].items()}
+        shown["next"] = {**ask, **{k: args[k] for k in ("only_empty", "limit", "detail") if args.get(k)}}
+    if not told:
+        del shown["omitted"]
+    return shown
+
+
+def _fields_by_id(args: dict, rng: dict) -> dict:
+    """頼まれた id の欄の事実をすべて（省かない）。一度に入らない分は next の ids で続く。"""
+    pw, enc = args.get("password"), args.get("encoding")
+    want = list(dict.fromkeys(str(x) for x in args["ids"]))
+    found: dict = {}
+    if rng or api.lazy_open(args["path"], pw, enc) is not None:
+        ask: dict | None = rng
+        while ask is not None:
+            res = api.fields_range(args["path"], ask, False, args.get("limit"), pw, enc)
+            found.update({f.get("id"): f for f in res.get("fields") or [] if f.get("id") in want})
+            ask = res.get("next") if len(found) < len(want) else None
+    else:
+        found = {f.get("id"): f for f in api.fields(args["path"], pw, enc) if f.get("id") in want}
+    fl = [found[i] for i in want if i in found]
+    missing = [i for i in want if i not in found]
+    out: dict = {"not_found": missing, "not_found_how": "list_fields の id のとおりに渡してください。範囲で頼んで知った欄は、同じ範囲（sheet・rows・pages など）も渡します"} if missing else {}
+    n = _take_fields(fl, limits.RESULT_CHARS - _size(out) - _size({"next": {"ids": want}}))  # next の ids が入る分
+    out["fields"] = fl[:n]
+    if n < len(fl):
+        out["next"] = {**{("path_in" if k == "path" else k): v for k, v in rng.items()}, "ids": [f["id"] for f in fl[n:]]}
+    return out
+
+
+def _list_fields(args: dict) -> dict:
+    pw, enc = args.get("password"), args.get("encoding")
+    rng = _fields_range_args(args)
+    if args.get("ids"):
+        res = _fields_by_id(args, rng)
+        return {"content": [_text(res)], "structuredContent": res}
+    if rng or args.get("limit") or api.lazy_open(args["path"], pw, enc) is not None:
+        res = api.fields_range(args["path"], rng, bool(args.get("only_empty")), args.get("limit"), pw, enc)
+        shown = _fit_fields(res, args, rng)
+        if shown is None and args.get("detail") and res.get("next"):
+            shown = {**res, "next": {**res["next"], "detail": True}}  # 続きも省かずに
+        return {"content": [_text(shown or res)], "structuredContent": shown or res}
+    fl = api.fields(args["path"], pw, enc)
+    if args.get("only_empty"):
+        fl = [f for f in fl if f.get("value") in (None, "", False)]
+    shown = _fit_fields({"fields": fl}, args, rng)
+    if shown is not None:
+        return {"content": [_text(shown)], "structuredContent": shown}
+    return {"content": [_text(fl)], "structuredContent": {"fields": fl}}
+
+
 def call_tool(name: str, args: dict) -> dict:
     if name == "open_document":
         path = args["path"]
@@ -338,16 +473,7 @@ def call_tool(name: str, args: dict) -> dict:
             raise api.ApiError(f"part は 1〜{len(parts)} です")
         return {"content": [_text(f"部分 {n}/{len(parts)}：{parts[n - 1][0]}"), _text(parts[n - 1][1])]}
     if name == "list_fields":
-        rng = {k: args[k] for k in ("pages", "sheet", "rows", "paragraphs", "records", "path_in", "cursor") if args.get(k) not in (None, "")}
-        if "path_in" in rng:
-            rng["path"] = rng.pop("path_in")
-        if rng or args.get("limit") or api.lazy_open(args["path"], args.get("password"), args.get("encoding")) is not None:
-            res = api.fields_range(args["path"], rng, bool(args.get("only_empty")), args.get("limit"), args.get("password"), args.get("encoding"))
-            return {"content": [_text(res)], "structuredContent": res}
-        fl = api.fields(args["path"], args.get("password"), args.get("encoding"))
-        if args.get("only_empty"):
-            fl = [f for f in fl if f.get("value") in (None, "", False)]
-        return {"content": [_text(fl)], "structuredContent": {"fields": fl}}
+        return _list_fields(args)
     if name == "fill_document":
         if args.get("help"):
             return {"content": [_text(fill_help(str(args["help"])))]}
