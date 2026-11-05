@@ -9,6 +9,7 @@ import json
 import math
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -169,6 +170,33 @@ def load_json(path, default=None):
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return default
+
+
+# ---------------------------------------------------------------------- LibreOffice の設定
+USER_LO_FONTS = Path.home() / "Library/Application Support/LibreOffice/4/user/fonts"
+
+
+def lo_profile(path, recalc: bool = False) -> str:
+    """LibreOffice の、この評価だけの設定を作る（本人の設定と混ざらない）。日本語の環境の表示にする。recalc は読み込むときに必ず計算し直す。
+    この Mac の LibreOffice はシステムの書体を使わず、日本語の字は本人の設定の user/fonts（Noto Sans JP）から描く。新しい設定にはそれがなく、字が OpenSymbol に
+    落ちて絵に出ない（字は PDF にあるのに描かれない）ので、書体を写す。ないときは止める：日本語の出ない絵で確かめても意味がないため。"""
+    p = Path(path) / "user"
+    f = p / "registrymodifications.xcu"
+    if f.exists():
+        return str(path)
+    fonts = sorted(USER_LO_FONTS.glob("*.[to]tf")) if USER_LO_FONTS.is_dir() else []
+    if not fonts:
+        raise SystemExit(f"LibreOffice の日本語の書体が見つかりません（{USER_LO_FONTS}）。Noto Sans JP を入れてから動かしてください")
+    (p / "fonts").mkdir(parents=True, exist_ok=True)
+    for x in fonts:
+        shutil.copy(x, p / "fonts" / x.name)
+    items = ['<item oor:path="/org.openoffice.Setup/L10N"><prop oor:name="ooSetupSystemLocale" oor:op="fuse"><value>ja-JP</value></prop></item>']
+    if recalc:
+        items += ['<item oor:path="/org.openoffice.Office.Calc/Formula/Load"><prop oor:name="OOXMLRecalcMode" oor:op="fuse"><value>0</value></prop></item>',
+                  '<item oor:path="/org.openoffice.Office.Calc/Formula/Load"><prop oor:name="ODFRecalcMode" oor:op="fuse"><value>0</value></prop></item>']
+    f.write_text('<?xml version="1.0" encoding="UTF-8"?>\n<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" '
+                 'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n' + "\n".join(items) + "\n</oor:items>\n", encoding="utf-8")
+    return str(path)
 
 
 # ---------------------------------------------------------------------- 字の比べ

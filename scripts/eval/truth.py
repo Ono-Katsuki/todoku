@@ -16,7 +16,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from common import Heavy, atomic_json, last_json, load_json, norm, run_watched
+from common import Heavy, atomic_json, last_json, lo_profile, load_json, norm, run_watched
 
 CONTAINER = Path.home() / "Library/Containers/com.microsoft.Excel/Data/todoku_eval"
 EXCEL_APP = "Microsoft Excel"
@@ -209,18 +209,8 @@ class LibreOffice:
         self.base = Path(base)
         self.plain = self.base / "lo_profile_plain"
         self.recalc = self.base / "lo_profile_recalc"
-        # 日本語の環境の表示にする（既定の日付の形が変わる）。_recalc は読み込むときに必ず計算し直す
-        locale = '<item oor:path="/org.openoffice.Setup/L10N"><prop oor:name="ooSetupSystemLocale" oor:op="fuse"><value>ja-JP</value></prop></item>\n'
-        recalc = ('<item oor:path="/org.openoffice.Office.Calc/Formula/Load"><prop oor:name="OOXMLRecalcMode" oor:op="fuse"><value>0</value></prop></item>\n'
-                  '<item oor:path="/org.openoffice.Office.Calc/Formula/Load"><prop oor:name="ODFRecalcMode" oor:op="fuse"><value>0</value></prop></item>\n')
-        for prof, body in ((self.plain, locale), (self.recalc, locale + recalc)):
-            p = prof / "user"
-            if not (p / "registrymodifications.xcu").exists():
-                p.mkdir(parents=True, exist_ok=True)
-                (p / "registrymodifications.xcu").write_text(
-                    '<?xml version="1.0" encoding="UTF-8"?>\n<oor:items xmlns:oor="http://openoffice.org/2001/registry" '
-                    'xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n'
-                    + body + "</oor:items>\n", encoding="utf-8")
+        lo_profile(self.plain)
+        lo_profile(self.recalc, recalc=True)
 
     def convert(self, src: Path, to: str, outdir: Path, recalc: bool = False, limit_s: float = 180) -> dict:
         outdir.mkdir(parents=True, exist_ok=True)

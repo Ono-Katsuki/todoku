@@ -32,7 +32,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from common import ROOT, atomic_json, doc_id, guard_path, load_json, md_table, pct, run_watched, walk_files, wilson  # noqa: E402
+from common import ROOT, atomic_json, doc_id, guard_path, lo_profile, load_json, md_table, pct, run_watched, walk_files, wilson  # noqa: E402
 
 FILL_KINDS = {".pdf": 1, ".xlsx": 1, ".xlsm": 1, ".xls": 1, ".docx": 1, ".doc": 1, ".jtd": 1, ".rtf": 1, ".odt": 1, ".ods": 1}
 APPLICANT = {
@@ -317,6 +317,7 @@ def main() -> int:
         base = out / a.set
         base.mkdir(parents=True, exist_ok=True)
         a.lo_profile = out / "lo_profile"
+        lo_profile(a.lo_profile)
         schema = json.loads((HERE / "fill_schema.json").read_text(encoding="utf-8"))
         forms = forms_of(a.root, a.limit, a.seed)
         print(f"{a.set}：様式 {len(forms)} 件", flush=True)
