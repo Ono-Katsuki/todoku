@@ -265,3 +265,21 @@ def test_read_window_returns_text_in_structured_content(tmp_path):
     for args in ({"pages": 1}, {"max_chars": 1000}, {"pages": 1, "max_chars": 1000}):
         sc = m.call_tool("read_window", {"path": str(p), **args})["structuredContent"]
         assert "Printed words" in sc["text"], args
+
+
+# ---------------------------------------------------------------- ○の位置
+def test_long_word_in_a_narrow_row_gets_a_rounded_outline_not_an_ellipse_over_the_lines(tmp_path):
+    """長い語の楕円は、左右の線か上下の線まで届く。字に沿った角の丸い囲みなら線のあいだに収まる。"""
+    rules = ("0.5 w 103 700 m 103 722 l S 254 700 m 254 722 l S 103 722 m 254 722 l S 103 700 m 254 700 l S\n"
+             "BT /F1 10 Tf 110 707 Td (Severe home visit care service) Tj ET\n")
+    blob = build(rules, "<< /Font << /F1 2 0 R >> >>", [HELV])
+    src, out = tmp_path / "a.pdf", tmp_path / "o.pdf"
+    src.write_bytes(blob)
+    r = api.fill(str(src), {"@c1": {"circle": "Severe home visit care service"}}, str(out))
+    assert r["proof_ok"] and r["read_back_ok"], r["read_back_differences"]
+    c = r["circled"][0]
+    assert c.get("rounded") and not any("横切" in w or "かかる" in w or "触れ" in w for w in r["warnings"]), r["warnings"]
+    assert "角の丸い" in r["say_to_user"]
+    # 読み戻しは、書くときと同じ決め方で、言った字を囲むかを見る
+    x0, y0, x1, y1 = c["border_pt"]
+    assert x0 > 103 and x1 < 254 and y0 > 842 - 722 and y1 < 842 - 700

@@ -843,8 +843,10 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                                      if p.circle.get("inside_word") else {}),
                                   **({"loose": True} if p.circle.get("loose") else {}),  # ほかの字の縁に触れる（知らせて描いた）
                                   "style": p.circle.get("style", "ellipse"),
-                                  "how": ("ページに字を囲む四角の線を描いた" if p.circle.get("style") == "border"
+                                  "how": ("ページに字に沿った角の丸い囲みを描いた（長い語で、楕円は隣の線まで届くため）" if p.circle.get("rounded")
+                                          else "ページに字を囲む四角の線を描いた" if p.circle.get("style") == "border"
                                           else "ページに楕円を描いた"),
+                                  **({"rounded": True} if p.circle.get("rounded") else {}),
                                   "ellipse_pt": p.circle["ellipse"],
                                   **({"box_mm": p.circle["box_mm"]} if p.circle.get("box_mm") else {}),
                                   **({"border_pt": p.circle["border"]} if p.circle.get("border") else {}),
@@ -1814,6 +1816,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         where = c.get("sheet") or (f"{c['page']}ページ" if c.get("page") else "")
         lab = c.get("label") or ""
         verb = ("図形の上に字を書いた" if c.get("style") == "mark" else
+                "角の丸い囲み（細長い○）で囲んだ" if c.get("rounded") else
                 "□で囲んだ（○ではなく、字の囲み線）" if c.get("style") == "border" else "○で囲んだ")
         meaning = said.get(c.get("key"))
         if meaning:

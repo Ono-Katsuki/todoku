@@ -179,7 +179,9 @@ def _rule_crosses_shape(rule, horizontal: bool, kind: str, g, lw: float) -> bool
     else:
         cx, cy, a, b = g
         x0, y0, x1, y1 = cx - a, cy - b, cx + a, cy + b
-        r = min(a, b)
+        # 楕円の式の値の、縁からの距離に対する変わり方は、線に直交する向きの半径で決まる（縦の線は a、横の線は b。細長い楕円で小さい方の
+        # 半径を使うと、縦の線を横切る深さを大きく見積もり、隣の列まで届く○を見のがす）
+        r = b if horizontal else a
         tol_in, tol_out = -((lw / 2 + EPS) / r) * 2, ((lw / 2 + EPS) / r) * 2
     if horizontal:
         if not (y0 < rule.pos < y1):

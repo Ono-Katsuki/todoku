@@ -512,6 +512,24 @@ def border(rect, size: float, others: list, page: tuple[float, float] | None, pa
     return None, blocker
 
 
+ROUND = 0.35  # 角の丸い囲みの角の半径（囲みの高さに対する比）
+
+
+def _rounded_fit(rect, size: float, others: list, page, pad, avoid):
+    """字に沿った、角の丸い囲み（外枠の四角）：角の丸みが字の箱の角を切らないよう、左右に角の半径だけ広げる。罫線を横切る・ほかの字に
+    触れるなら None。囲みの判定は四角のまま（丸い角の外側まで見るので、きびしい側）。"""
+    r, _hit = border(rect, size, others, page, pad, avoid=avoid)
+    if r is None:
+        return None
+    dx = ROUND * (r[3] - r[1])
+    g = (r[0] - dx, r[1], r[2] + dx, r[3])
+    if page is not None and (g[0] < 0 or g[2] > page[0]):
+        return None
+    if avoid("border", g) or any(hits("border", g, o, line_width(size)) for o in others):
+        return None
+    return g
+
+
 def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None) -> dict:
     """○で囲む所を決める（書き込みと証明で同じ決め方）。返す：{id, page, text, style, ellipse（楕円のとき。見た目の座標）,
     border（四角の囲み線のとき）, label, context, size}。"""
@@ -580,6 +598,12 @@ def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None
             g, hit = fit(rect, size, others, page, pad, avoid=av, strict=st)
             if g is not None:
                 break
+        rounded = False
+        if style == "ellipse" and (g is None or av is None):
+            # 長い語など、どの楕円も罫線を横切る（隣の列・行まで届く）：字に沿った、角の丸い囲みにする（細長い○）
+            r_ = _rounded_fit(rect, size, others, page, pad, avoid)
+            if r_ is not None:
+                g, style, rounded = r_, "border", True
         loose = None
         if g is None:
             # 字の面には触れる所しかない：字の墨（INK）を切らないものなら描き、触れる字と位置を知らせる
@@ -639,6 +663,8 @@ def resolve(doc, spec: dict, layouts: dict, used: dict, taken: set | None = None
         out["inside_word"] = True  # occurrence で指した、字の並びの中の字（「【都】道府県」）
     if style == "border":
         out["border"] = [round(v, 3) for v in g]
+    if box is None and rounded:
+        out["rounded"] = True
     return out
 
 
@@ -707,6 +733,18 @@ def _seg(p, q) -> str:
             f"{x1:.3f} {y1:.3f} c\n")
 
 
+def _rounded_path(x0: float, y0: float, x1: float, y1: float) -> str:
+    """角の丸い四角の線（ページの座標。読み戻しの外枠は四角と同じ）。"""
+    x0, x1, y0, y1 = min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1)
+    r = ROUND * min(x1 - x0, y1 - y0)
+    q = K * r
+    return (f"{x0 + r:.3f} {y0:.3f} m\n" + _seg((x0 + r, y0), (x1 - r, y0))
+            + f"{x1 - r + q:.3f} {y0:.3f} {x1:.3f} {y0 + r - q:.3f} {x1:.3f} {y0 + r:.3f} c\n" + _seg((x1, y0 + r), (x1, y1 - r))
+            + f"{x1:.3f} {y1 - r + q:.3f} {x1 - r + q:.3f} {y1:.3f} {x1 - r:.3f} {y1:.3f} c\n" + _seg((x1 - r, y1), (x0 + r, y1))
+            + f"{x0 + r - q:.3f} {y1:.3f} {x0:.3f} {y1 - r + q:.3f} {x0:.3f} {y1 - r:.3f} c\n" + _seg((x0, y1 - r), (x0, y0 + r))
+            + f"{x0:.3f} {y0 + r - q:.3f} {x0 + r - q:.3f} {y0:.3f} {x0 + r:.3f} {y0:.3f} c\n")
+
+
 def _beside_run(chars: list, start: float, sign: int) -> tuple[str, float] | None:
     """同じ行の字（近い順）の、ひと続きの字とすき間。空白か記号（□・○ などの選択肢の印。Unicode の S*）か、1 字ぶんより広いすき間で切る。"""
     out: list = []
@@ -760,7 +798,7 @@ def description(sd: dict) -> str | None:
     字を読めない所に枠で描いた○（unread）は、何も言わない。"""
     if sd.get("unread") or not sd.get("text"):
         return None
-    return f"{'□' if sd.get('style') == 'border' else '○'}（選択：{sd['text']}）"
+    return f"{'□' if sd.get('style') == 'border' and not sd.get('rounded') else '○'}（選択：{sd['text']}）"
 
 
 def one(view: View, sd: dict, mcid: int | None = None, said_key: str | None = None, describe: bool = False) -> bytes:
@@ -781,6 +819,8 @@ def one(view: View, sd: dict, mcid: int | None = None, said_key: str | None = No
         x0, y0, x1, y1 = view.back_rect(*sd["border"])
         pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
         path = f"{x0:.3f} {y0:.3f} m\n" + "".join(_seg(p, q) for p, q in zip(pts, pts[1:]))
+        if sd.get("rounded"):
+            path = _rounded_path(x0, y0, x1, y1)
         return (b"q\n" + head + b" /TdkStyle /border" + tail + b">> BDC\n"
                 + f"0 G {lw} w [] 0 d 0 J 0 j\n{path}h S\n".encode() + said + b"EMC\nQ\n")
     cx, cy, a, b = sd["ellipse"]
