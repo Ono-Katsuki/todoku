@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import re
 import struct
 from dataclasses import dataclass, field
 
@@ -141,6 +142,8 @@ class DocFillResult:
     blob: bytes
     patches: list = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # 本文の外（テキストボックス・ヘッダーなど）に書いた所：しおりを置けないので、書いた段落の字で読み戻す。{id: 書いた字（足した空白を含む）}
+    outside: dict = field(default_factory=dict)
 
 
 class DocWriter:
@@ -521,6 +524,7 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
     problems = []
     warnings: list[str] = []
     used: dict = {}
+    outside: dict = {}
     embed_values = {k: v for k, v in values.items() if is_embed_key(k)}
     if embed_values:
         # 埋め込んだ Excel の表（E1!Sheet1!C4）：ブックと、Word が表示・印刷に使う表の絵を書き直す
@@ -622,6 +626,8 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                 else:
                     a = b = p.cp1  # マスの終わりの印（0x07）の前
                 w.add(Edit(a, b, text, p.cp1 if a == b else a, mark))
+                if w.story_of(a) != "text":
+                    outside[key] = text
                 # 空のマスには字の間の空きがない：そろえ方は効かない（足す空白 0 を結果に示し、api が警告する）
                 patches.append(Patch(key, "input", text, "doc", align={**opts, "pad": [0, 0]} if opts else None))
             elif kind == "checkbox":
@@ -658,6 +664,8 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                     if b - a != sum(units(c) for c in p.text[a0:b0]) or -1 in cps[a0:b0]:
                         raise FillError(f"{key}: 空欄が、書き換えられない部分にかかっています")
                 w.add(Edit(a, b, pad[0] + text + pad[1], a, mark))
+                if w.story_of(a) != "text":
+                    outside[key] = pad[0] + text + pad[1]
                 patches.append(Patch(key, "input", text, "doc", anchor=anchor, key=given if anchor else "",
                                      align={**opts, "pad": [len(pad[0]), len(pad[1])]} if opts else None))
             else:
@@ -681,7 +689,22 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
         warnings.append("古い Word（.doc）の ActiveX の部品の控えの絵（Data の絵）は描き直していません。"
                         "Word で部品を読み込むと書いた値で表示されますが、ActiveX を止めた Word やプレビュー・"
                         "印刷では、古い絵のまま見えることがあります")
-    return DocFillResult(blob, patches, warnings)
+    return DocFillResult(blob, patches, warnings, outside)
+
+
+def read_back_outside(blob: bytes, filename: str, outside: dict) -> dict:
+    """本文の外に書いた所の読み戻し：書いた後のファイルの同じ番号の段落に、書いた字があれば {id: 字}（なければ入れない）。"""
+    from ..docx.document import iter_paras
+
+    sp = Spots(DocFile(blob, filename))
+    paras = {sp.para_index[id(p)]: p for _k, _p, blocks in sp.doc.all_blocks() for p in iter_paras(blocks) if id(p) in sp.para_index}
+    out = {}
+    for key, text in outside.items():
+        m = re.match(r"P(\d+)\.", key)
+        p = paras.get(int(m[1])) if m else None
+        if p is not None and text in p.text:
+            out[key] = text
+    return out
 
 
 def written_formatting(blob: bytes, name: str = "") -> list[dict]:

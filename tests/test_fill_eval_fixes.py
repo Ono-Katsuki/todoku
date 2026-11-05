@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import struct
+
 import pytest
 
 from pdfmini import build
@@ -149,3 +151,84 @@ def test_middle_dots_are_not_line_chars():
     """字の高さの中ほどに描かれる点（中点の並び）・ダッシュは字に重なるので、線の字にしない。"""
     assert chars.is_low_line_char("_") and chars.is_low_line_char(".") and chars.is_low_line_char("…")
     assert not chars.is_low_line_char("・") and not chars.is_low_line_char("·") and not chars.is_low_line_char("-")
+
+
+# ---------------------------------------------------------------- 読み戻しの誤検出
+def _doc(body: str, box: str = "") -> bytes:
+    """本文とテキストボックスの流れを持つ Word 97 の文書。"""
+    from test_round8_office import plain_doc
+
+    blob = plain_doc(body + box)
+    if not box:
+        return blob
+    from todoku.cfb import CFB
+    from test_round8_office import _cfb_tree
+
+    cfb = CFB(blob)
+    wd = bytearray(cfb.read("WordDocument"))
+    struct.pack_into("<i", wd, 64 + 4 * 3, len(body))
+    struct.pack_into("<i", wd, 64 + 4 * 9, len(box))
+    return _cfb_tree({"WordDocument": bytes(wd), "1Table": cfb.read("1Table")})
+
+
+def test_doc_align_padding_is_not_a_difference(tmp_path):
+    src, out = tmp_path / "a.doc", tmp_path / "o.doc"
+    src.write_bytes(_doc("Name: ______________________ end\r"))
+    fid = next(f["id"] for f in api.fields(str(src)) if f.get("kind") == "inline")
+    r = api.fill(str(src), {fid: {"value": "Hanako", "align": "center"}}, str(out))
+    assert r["proof_ok"] and r["read_back_ok"], r["read_back_differences"]
+    assert any(d["id"] == fid and d["value"] == "Hanako" for d in r["written"])
+
+
+def test_padding_helper_keeps_real_differences():
+    assert api._only_added_padding("  novembro  ", "novembro", [2, 2])
+    assert not api._only_added_padding("  novembre  ", "novembro", [2, 2])  # 字が違う
+    assert not api._only_added_padding(" novembro  ", "novembro", [2, 2])  # 足した字数と違う
+    assert not api._only_added_padding("  novembro  ", "novembro", None)  # align なし
+
+
+def test_doc_textbox_write_reads_back(tmp_path, monkeypatch):
+    src, out = tmp_path / "a.doc", tmp_path / "o.doc"
+    src.write_bytes(_doc("Body text\r", "Name: ______________________ end\r"))
+    fid = next(f["id"] for f in api.fields(str(src)) if f.get("kind") == "inline" and f["id"].startswith("P2."))
+    r = api.fill(str(src), {fid: "Hanako"}, str(out))
+    assert r["proof_ok"] and r["read_back_ok"], r["read_back_differences"]
+    # 本当に違うとき（段落に書いた字がない）は通さない
+    from todoku.doc import fill as dfill
+
+    monkeypatch.setattr(dfill, "read_back_outside", lambda *a, **k: {})
+    bad = api.fill(str(src), {fid: "Hanako"}, str(tmp_path / "o2.doc"))
+    assert not bad["read_back_ok"] and bad["read_back_differences"][0]["id"] == fid
+
+
+def test_read_back_outside_finds_only_the_written_text():
+    from todoku.doc.fill import read_back_outside
+
+    blob = _doc("Body text\r", "Name: Hanako end\r")
+    assert read_back_outside(blob, "a.doc", {"P2.c6": "Hanako"}) == {"P2.c6": "Hanako"}
+    assert read_back_outside(blob, "a.doc", {"P2.c6": "Taro"}) == {}
+    assert read_back_outside(blob, "a.doc", {"P1.c6": "Hanako"}) == {}  # 別の段落
+
+
+def test_xlsx_text_in_a_date_formatted_cell_reads_back():
+    """字のある日付の表示形式のセルに字として書いた所：セルの字が書いた字と同じなら合う。違う字は合わない。"""
+    from types import SimpleNamespace
+
+    from todoku.xlsx import readback as rb
+
+    cell = SimpleNamespace(value="令和8年11月10日", style=0, schema_error=False)
+    sh = SimpleNamespace(cells={(1, 1): cell})
+    wb = SimpleNamespace(sheet=lambda n: sh, style=lambda s: SimpleNamespace(num_fmt="yyyy-mm-dd"), date1904=False,
+                         sheet_names=["S"])
+    import todoku.xlsx.edit as ed
+    import todoku.xlsx.window as win
+
+    orig = (ed.resolve_target, ed.interpret_input, win.display)
+    ed.resolve_target = lambda w, k: ("S", 1, 1)
+    ed.interpret_input = lambda *a, **k: (46336.0, [])
+    win.display = lambda w, c: c.value
+    try:
+        assert rb.check(wb, {"S!A1": "令和8年11月10日"})["S!A1"][0] is True
+        assert rb.check(wb, {"S!A1": "令和8年11月11日"})["S!A1"][0] is False
+    finally:
+        ed.resolve_target, ed.interpret_input, win.display = orig

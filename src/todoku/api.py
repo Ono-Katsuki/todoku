@@ -676,6 +676,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         result["encoding"] = {"encoding": encoding, "chosen_by": "agent",
                               "detail": "エージェントが選んで指定した文字コードで読み、書いた所だけをその文字コードのバイトにしました"}
     readback_values = dict(values)  # 読み戻しで確かめる、欄の id → 書いた値
+    outside_written: dict = {}  # .doc の本文の外に書いた所
     told = None  # 本人に伝える、書いた所（ほかの形式は読み戻しの値と同じ）
     rest_fields = None  # まだ空いている欄を数える、欄の一覧（なければ、書いた後のファイルの欄）
     try:
@@ -949,6 +950,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                     result["page_growth"], said_ = grown
                     result["warnings"].append(said_)
             anchored = {(p.key or p.id): p.id for p in res.patches if getattr(p, "anchor", None)}
+            outside_written = getattr(res, "outside", None) or {}
             aligned = {p.id: p.align for p in res.patches if getattr(p, "align", None)}
             if aligned:
                 # 空きの中にそろえて書いた所：そろえ方と、空きの幅を保つために前・後ろに足した半角の空白の字数（証明で確かめた）。
@@ -1004,6 +1006,20 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか
     after_list = fields(str(tmp), password, encoding)
     after = {f["id"]: f.get("value") for f in after_list}
+    if k == "doc" and outside_written:
+        # .doc の本文の外（テキストボックスなど）：しおりを置けないので、窓の id は書いた所に結びつかない。同じ段落の字で確かめる
+        from .doc.fill import read_back_outside
+
+        back = read_back_outside(written_plain, name, outside_written)
+        for key_, text_ in outside_written.items():
+            v_ = readback_values.get(key_)
+            if key_ in back:
+                after[key_] = v_ if str(v_) in text_ else text_  # 足した空白を除いた値で照らす
+                for f_ in after_list:
+                    if f_["id"] == key_:
+                        f_["value"] = after[key_]
+            else:
+                after.pop(key_, None)
     if k in ("docx", "doc") and any(is_embed_key(x) for x in readback_values):
         after.update(_embed_read_back(new_blob, name, k, [x for x in readback_values if is_embed_key(x)]))
     xl_back: dict = {}  # Excel：書いた所の (読み戻しが合うか, 見えている字)。日付・数は、ブックの数え方と表示形式でそろえて比べる
@@ -1081,6 +1097,12 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             ok = want is not None and bool(g) == want
         else:
             ok = str(g) == str(v) or _num_equal(g, v)
+            if not ok and _only_added_padding(g, v, ((result.get("aligned") or {}).get(key) or {}).get("pad")):
+                ok = True
+                g = str(v)
+                for f_ in after_list:
+                    if f_["id"] == key:
+                        f_["value"] = g
         if not ok:
             mismatch.append({"id": key, "written": v, "read_back": g})
     if k == "pdf":
@@ -1818,7 +1840,8 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         lines.append(head + "、".join(name(f) if same else f"{place(f)}{name(f)}" for f in nxt[:10]) + ("ほか" if len(nxt) > 10 else ""))
     # 今回書いていないのに値の入っている欄（様式の既定の選択・前の書き込みの値）：本人の答えかのように見えるので、事実として伝える
     present = [f for f in after_list if not covered(f) and not f.get("readonly") and not f.get("agent")
-               and f.get("kind") not in ("button", "picture", "range") and f.get("value") not in (None, "", False, "Off")]
+               and f.get("kind") not in ("button", "picture", "range") and f.get("value") not in (None, "", False, "Off")
+               and not (f.get("kind") == "inline" and re.search(r"[ 　]{2,}", str(f["value"])))]  # 印刷の字の空欄がまだ空いている所
     if present:
         def shown_present(f: dict) -> str:
             v = "☑" if f["value"] is True else _say_value(f["value"])
@@ -1971,6 +1994,11 @@ def run_macro(path: str, macro: str, out_path: str, answers: list | None = None,
     finally:
         tmp.unlink(missing_ok=True)
     return out
+
+
+def _only_added_padding(got, written, pad) -> bool:
+    """読み戻した字と書いた字の違いが、align で足した半角の空白（字数は pad のとおり）だけか。字が 1 つでも違えば偽。"""
+    return bool(pad) and isinstance(got, str) and got == " " * pad[0] + str(written) + " " * pad[1]
 
 
 def _num_equal(a, b) -> bool:
