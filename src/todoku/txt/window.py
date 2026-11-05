@@ -42,7 +42,9 @@ def mark(fid: str, kind: str, covered: str) -> str:
         from ..xlsx.window import shown_gap
 
         return f"［{fid}？{shown_gap(covered)}］"  # 空白だけの所は、元の空白を印の中に（「［P12.1？　］」）
-    return f"［{fid}］"
+    from ..xlsx.window import kept_chars
+
+    return f"{kept_chars(covered)}［{fid}］"  # 下線の字などは消さずに残す
 
 
 def build(doc: TxtDocument) -> dict:

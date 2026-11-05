@@ -136,7 +136,7 @@ def test_only_structural_blanks_are_rules_and_word_patterns_are_agent():
     assert by["P6.c19"].get("agent") and "URL" in by["P6.c19"]["why"]  # 英数字にはさまれた「__」は名前の一部のことも
     md = to_markdown(win)
     # 「？」の所の印は、元の空白をそのまま中に入れる（全角の空白 2 つの空き・半角の空白 2 つの下線）
-    assert "令和［P1.c2？　　］年［P1.c3？　　］月［P1.c4？　　］日" in md and "氏名［P2.c2］" in md
+    assert "令和［P1.c2？　　］年［P1.c3？　　］月［P1.c4？　　］日" in md and "氏名＿＿＿＿［P2.c2］" in md
     # 空白の並びの始めの 1 字は、元の字のまま所の外に残す（gap_interior。前の字にくっつけない）
     assert "番号 ［P5.c2？ ］" in md and "連絡先　［P4.c3？　］" in md
     # 「？」の所も id で書け、証明と読み戻しが通る

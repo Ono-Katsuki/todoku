@@ -674,20 +674,27 @@ def inline_blanks(text: str) -> list[tuple[int, int]]:
 
 
 def blank_token(text: str, a: int, b: int, why, mark: bool = False) -> str:
-    """窓で、文字の中の所 text[a:b] の代わりに出す字：規則の空欄は［　］、規則では決めない所は［？］（mark：書く所に ▶）。
-    チェックの箱の字（☐ □ など）は、字を消さずに、字のあとに［　］をつける（「☐［　］Male」）。"""
+    """窓で、文字の中の所 text[a:b] に出す字：規則の空欄は［　］、規則では決めない所は［？］（mark：書く所に ▶）。
+    元の字は消さない：チェックの箱の字（☐ □ など）と、規則の空欄の下線の字は、字のあとに印をつける（「☐［　］Male」「＿＿＿［　］」）。
+    規則では決めない所の字（点線・空白など）は、印の中に入れる（「［？……］」）。"""
     m = "▶" if mark else ""
-    box = text[a:b] if b - a == 1 and text[a:b] in chars.BOXES else ""
+    covered = text[a:b]
+    box = covered if b - a == 1 and covered in chars.BOXES else ""
     if why is None:
-        return f"{box}［{m or '　'}］"
-    return f"{box}［{m}？{shown_gap(text[a:b])}］"
+        return f"{box or kept_chars(covered)}［{m or '　'}］"
+    return f"{box}［{m}？{'' if box else shown_gap(covered)}］"
+
+
+def kept_chars(covered: str) -> str:
+    """印の外に残す、所の元の字：空白だけの所は印に置き換わるので ""、ほか（下線の字など）はそのまま。"""
+    return "" if all(unicodedata.category(ch) == "Zs" for ch in covered) else covered
 
 
 def shown_gap(covered: str) -> str:
-    """「？」の所の印の中に、その所の元の空白の字をそのまま入れる（「［P1.1？　］」は全角の空白 1 つ、「［P1.1？  ］」は半角の
-    空白 2 つの空き）。空きの大きさ（1 字ぶんちょうどか、もっと広いか）を、エージェントが印から読めるようにする。空白だけの所
-    （Unicode の Zs）のときだけで、ほかの字（点線・ダッシュなど）の所は ""。"""
-    return covered if covered and all(unicodedata.category(ch) == "Zs" for ch in covered) else ""
+    """「？」の所の印の中に、その所の元の字をそのまま入れる（「［P1.1？　］」は全角の空白 1 つ、「［P1.1？  ］」は半角の空白 2 つの
+    空き、「［P1.1？……］」は点線）。窓は書類の字を一字も変えないので、所の字も消さない。空きの大きさ（1 字ぶんちょうどか、
+    もっと広いか）も、エージェントが印から読める。"""
+    return covered or ""
 
 
 def one_wide_space(covered: str) -> bool:
@@ -695,8 +702,8 @@ def one_wide_space(covered: str) -> bool:
     return covered == "　"
 
 
-GAP_TOKEN_NOTE = ("「？」の所が空白だけの空きなら、その元の空白を印の中にそのまま入れる（「？　」は全角の空白 1 つ、「？　　」は"
-                  "2 つ、「？  」は半角の空白 2 つの空き）。空きの大きさを比べる目安")
+GAP_TOKEN_NOTE = ("「？」の所の元の字を印の中にそのまま入れる（「？　」は全角の空白 1 つ、「？　　」は 2 つ、「？  」は半角の空白 2 つの空き、"
+                  "「？……」は点線）。空きの大きさを比べる目安")
 
 ONE_WIDE_SPACE_WHY ="空きは 1 つの全角空白（1 字ぶんちょうど。語の区切りのこともある、いちばん狭い空き）"
 

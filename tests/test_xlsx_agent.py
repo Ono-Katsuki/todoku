@@ -224,7 +224,8 @@ def test_gap_token_keeps_the_spaces_and_labels_use_the_one_em_rule():
     # 「？」の所の印は、元の空白をそのまま中に入れる（全角の空白 1 つの空きと、もっと広い空きを、印から見分けられる）
     assert window.blank_token("第　号", 1, 2, "gap") == "［？　］"
     assert window.blank_token("A  B", 1, 3, "gap") == "［？  ］"
-    assert window.blank_token("A……B", 1, 3, "leader") == "［？］"  # 空白でない所は、字を入れない
+    assert window.blank_token("A……B", 1, 3, "leader") == "［？……］"  # 点線も、元の字を印の中に残す
+    assert window.blank_token("A＿＿B", 1, 3, None) == "＿＿［　］"  # 規則の空欄の下線の字は、印の前に残す
     assert window.blank_token("（　）", 1, 2, None) == "［　］"
     # 見出しの切り方も、窓の空きと同じ 1 em の決まり（全角の空白 1 つ・半角の空白 2 つ）。字間を空けた見出しはまとめる
     assert window.label_tail("１　目的") == "目的" and window.label_tail("Name  Date") == "Date"

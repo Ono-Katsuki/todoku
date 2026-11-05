@@ -23,7 +23,7 @@ import itertools
 import re
 
 from .. import chars
-from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, label_tail, label_text, shown_gap, wide_space
+from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, kept_chars, label_tail, label_text, shown_gap, wide_space
 from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, one_wide_space, place_facts
 from ..xlsx.window import gap_interior, with_label_keys
 from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
@@ -887,7 +887,7 @@ def build(doc: DocxDocument) -> dict:
     contexts = {}
     for st in out["stories"]:
         for line in st["reading"]:
-            for m in re.finditer(r"［([^］＝？]+)？?[ 　]*(?:＝[^］]*)?］", line):  # 「？」の所の印は、元の空白を中に入れる
+            for m in re.finditer(r"［([^］＝？]+)(?:？[^］＝]*)?(?:＝[^］]*)?］", line):  # 「？」の所の印は、元の字（空白・点線など）を中に入れる
                 contexts.setdefault(m[1], line)
     legacy_of = {new: old for old, new in sp.items.legacy.items()}  # いまの名前 → 受ける古い数え順の名前
     for it in sp.items.values():
@@ -1176,10 +1176,10 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
             elif it["kind"] == "checkbox":
                 edits.append((a, b, f"☐［{name}］"))
             elif it.get("provenance") == AGENT:
-                # 空白だけの所は、元の空白をそのまま印の中に入れる（「［P1.1？　］」：全角の空白 1 つの空き。shown_gap）
+                # 所の元の字（空白・点線など）を、そのまま印の中に入れる（「［P1.1？　］」：全角の空白 1 つの空き。shown_gap）
                 edits.append((a, b, f"［{name}？＝{text[a:b]}］" if it.get("placeholder") else f"［{name}？{shown_gap(text[a:b])}］"))
             else:
-                edits.append((a, b, f"［{name}］"))
+                edits.append((a, b, f"{kept_chars(text[a:b])}［{name}］"))  # 下線の字などは消さずに残す
             continue
         c: Control | None = it.get("control")
         if c is not None:

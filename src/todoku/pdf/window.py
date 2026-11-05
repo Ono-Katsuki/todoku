@@ -69,7 +69,7 @@ def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, ci
             # 空欄の字（下線の字「＿＿＿」など）は消さずに残し、その後ろに印を置く（空白だけの空欄は印に置き換える）
             keep = text[a:b] if text[a:b].strip(" \u3000") else ""
             # 「？」の所で空白だけのものは、行の空白（測った空きから作った字）をそのまま印の中に入れる（「［p1.a1？　］」）
-            gap = shown_gap(text[a:b]) if q else ""
+            gap = shown_gap(text[a:b]) if q and not keep else ""
             edits.append((a, b, f"{keep}［{name(sp)}{q}{gap}］"))
     edits.sort(key=lambda e: (e[0], e[1]))
     out, at = [], 0

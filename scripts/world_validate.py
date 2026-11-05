@@ -372,7 +372,8 @@ def segments(text: str) -> set:
 
 
 _ID = (r"(?:▶)?(?:p\d+\.[\w.]+|[A-Z]{1,3}\d+(?::[A-Z]{1,3}\d+)?(?:〜[A-Z]{1,3}\d+)?|T\d+(?:\.[A-Z]?\d+)*|P\d+(?:\.\w+)*|E\d+[^］〉]*"
-       r"|[^［］!]{1,40}![A-Z]{1,3}\d+(?::[A-Z]{1,3}\d+)?|[→↓↑←][^］]*)？?")
+       r"|[^［］!]{1,40}![A-Z]{1,3}\d+(?::[A-Z]{1,3}\d+)?|[→↓↑←][^］]*)")
+_BARE_ID, _ID = _ID, _ID + "？?"
 
 
 def strip_todoku(md: str) -> str:
@@ -384,6 +385,7 @@ def strip_todoku(md: str) -> str:
             continue
         out.append(ln)
     t = "\n".join(out)
+    t = re.sub(r"［" + _BARE_ID + r"？([^］＝]+)］", r"\1", t)  # 「？」の所の印の中の、元の字（空白・点線など）
     t = re.sub(r"［" + _ID + r"＝(.*?)］", r"\1", t)
     t = re.sub(r"〈" + _ID + r"＝(.*?)〉", r"\1", t)
     t = re.sub(r"［" + _ID + r"］", "", t)
