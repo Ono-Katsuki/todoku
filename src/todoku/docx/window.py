@@ -1213,8 +1213,9 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
     t = "".join(out)
     from .fontfacts import marks as font_marks, normal_color
 
-    if any(s.look is not None for s in p.segs):
-        head_, tail_ = font_marks(p, normal_color(sp.doc))
+    doc_ = getattr(sp, "doc", None)  # 埋め込みの文書の中身（欄を数えない読み方）には文書がないので、印を付けない
+    if doc_ is not None and any(s.look is not None for s in p.segs):
+        head_, tail_ = font_marks(p, normal_color(doc_))
         t = head_ + t + tail_
     hid = p.hidden_text().strip()
     if hid:

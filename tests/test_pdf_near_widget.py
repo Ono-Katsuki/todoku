@@ -45,7 +45,7 @@ def test_box_before_a_real_text_field_is_kept_as_agent():
     assert boxes, pg["fields"]
     assert all(f["agent"] and not f.get("alternative_to") for f in boxes), boxes
     text = "\n".join(pg["reading"])
-    assert f"☐［{boxes[0]['id']}？］" in text, text
+    assert f"□［{boxes[0]['id']}？］" in text, text  # 印刷された箱の字のまま
     # 欄から離れた「□はい」も箱の字（箱か箇条の印かは決めない「？」）。欄の名前は添えない
     yes = [f for f in pg["fields"] if f["source"] == "layout" and f["kind"] == "checkbox" and f not in boxes]
     assert yes and yes[0].get("agent") and "フォームの欄" not in yes[0]["why"], yes

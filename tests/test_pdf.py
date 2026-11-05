@@ -184,7 +184,7 @@ def test_sample_form_window():
     assert [f["kind"] for f in pg["fields"]].count("checkbox") == 2
     assert [f for f in pg["fields"] if f["kind"] == "inline"], "令和　年　月　日 の空欄"
     text = "\n".join(pg["reading"])
-    assert "申請書" in text and "☐［" in text
+    assert "申請書" in text and "□［" in text  # 印刷された箱の字のまま
 
 
 def test_sample_form_fill_prove_readback():

@@ -239,7 +239,8 @@ def probe_docx(p: str) -> dict:
             t = "".join((x.text or "") for x in r.findall(W + "t"))
             if pr is None or not t.strip():
                 continue
-            if pr.find(W + "strike") is not None or pr.find(W + "dstrike") is not None:
+            # w:val="0" は線なし（線を打ち消す指定）なので、取り消し線に数えない
+            if any(e is not None and e.get(W + "val", "1") not in ("0", "false", "off") for e in (pr.find(W + "strike"), pr.find(W + "dstrike"))):
                 strike.append(t)
             c = pr.find(W + "color")
             if c is not None and c.get(W + "val") not in (None, "auto", "000000", "FFFFFF"):
