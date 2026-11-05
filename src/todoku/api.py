@@ -808,6 +808,11 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         from .pdf.fill import appearance_readback
 
         pdf_ap_diff = appearance_readback(_pdf(res.blob, name, lock), res.patches)
+        from .pdf import inkcheck
+
+        ink_bad, ink_notes = inkcheck.check(_pdf(blob, name, lock), _pdf(res.blob, name, lock), res.patches)
+        pdf_ap_diff += ink_bad
+        result["warnings"] += [x for x in ink_notes if x not in result["warnings"]]
         if res.structure:
             # 文書の構造の木（タグ）に足した所：読み上げでどの字の隣に読まれるか（位置から決めた事実）
             result["structure"] = [{"id": e.id, "page": e.page, "next_to": e.near, "how": e.how, "gap_pt": e.gap_pt} for e in res.structure]

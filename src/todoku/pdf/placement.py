@@ -12,6 +12,7 @@
 きわどい所は、所と位置（mm）を添えて知らせ、エージェントが見て決める）：
 - 断る：(a) とどくが置いた字の墨が、印刷された字の墨（circle.INK）に大きく重なる（小さいほうの面の 1/4 以上）
         (c) 同じ書き込みで書いた値どうしの墨が重なる（字の面の四角 written_ink で比べる）・○の線が、書いた値の墨を髪の毛の太さより深く切る
+        (d) 字の墨が、欄の四角（見た目のフォームの切り抜き）かページの外に出る（出た所は描かれず、字が欠ける）
 - 知らせる（warnings）：字の面（circle.face）に少しかかる・罫線に触れる／横切る（○の線も）・曲線（「見本」の印など）に
   かかる・画像（スキャン）に重なる（画像に描かれた罫線・字は確かめられない）
 （覆って書く所（cover）は、覆う字に重なってよい）
@@ -30,6 +31,7 @@ INK_UP = 0.7  # 基線から上の墨の高さ（字の大きさに対する比�
 INK_SIDE = 0.06  # 字の送りの幅の両端から、内側に入れる幅（字の大きさに対する比：字の左右の余白）
 EPS = 0.15  # 重なりとみなす、食い込みの下限（pt）：座標の丸めの分
 CLEAR = 0.25  # はっきり重なるとみなす、重なりの面積の比（小さいほうの面に対して）
+CUT = 0.6  # 字の墨が四角を出たとみなす幅（pt）：字の面の四角は目安なので、丸めより少し広く
 HAIR = 0.3  # 髪の毛の太さ（pt）：○の線がこれより深く書いた値の墨を切るときは断る
 
 
@@ -241,6 +243,16 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
             n = w.page + 1
             gs = appearance_glyphs(new, wd)
             boxes = [b for b in (ink_box(g, view_of(n)) for g in gs) if b]
+            faces = [b for b in (written_ink(g, view_of(n)) for g in gs) if b]
+            if faces:
+                v = view_of(n)
+                rx0, ry0, rx1, ry1 = v.rect(*w.rect)
+                x0, y0, x1, y1 = min(b[0] for b in faces), min(b[1] for b in faces), max(b[2] for b in faces), max(b[3] for b in faces)
+                pos = f"{n}ページ（左 {x0 / v.mm:.1f}・上 {y0 / v.mm:.1f}・右 {x1 / v.mm:.1f}・下 {y1 / v.mm:.1f} mm）"
+                if x0 < rx0 - CUT or y0 < ry0 - CUT or x1 > rx1 + CUT or y1 > ry1 + CUT:
+                    problems.append(f"{f.name}：書いた字が、欄の四角を出て欠けます（{pos}）。もっと広い所に書いてください")
+                elif x1 > CUT and y1 > CUT and (x0 < -CUT or y0 < -CUT or x1 > v.width + CUT or y1 > v.height + CUT):
+                    problems.append(f"{f.name}：書いた字が、ページの外に出て欠けます（{pos}）。別の所に書いてください")
             if boxes:
                 items.setdefault(n, []).append((f.name, "text", boxes, f.name in created,
                                                 [b for b in (written_ink(g, view_of(n)) for g in gs) if b]))
