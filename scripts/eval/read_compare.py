@@ -5,7 +5,7 @@
   displayed    画面の字（日付・和暦・数の形式）。セルごとに、画面の字が値の境目つきで出力にあるか
   formula      数式の値（再計算した値、または再計算と同じ保存された値）が出力にあるか
   stale_mut    保存された値をわざと変えた写し：出力が、変えた値を印なしで出すか（古い値の見分け。作った試験で、とどくの得意な形）
-  merged_rows  縦の結合の値が、結合の 2 行目以降の行まで届くか（その行の字と同じ行に出るか）
+  merged_rows  縦の結合の値が、結合の 2 行目以降の行まで届くか（その行の字と同じ行に出るか。窓がまとめた行は言明のとおりに広げて見る）
   hidden       非表示のシート・行・列の字に印があるか（hidden_leak は印なしで見える字として出した数）
   strike/color/furigana  取り消し線・字の色の印、ふりがなの字
   shapes       図形・テキストボックスの字
@@ -49,10 +49,10 @@ COLOR = re.compile(r"色[:：]|字の色|赤字|赤い字|color|#[0-9a-f]{6}", r
 CHECK_ON = re.compile(r"☑|☒|✓|✔|\[x\]", re.I)
 CHECK_OFF = re.compile(r"☐|\[ \]")
 SCAN = re.compile(r"画像|image|スキャン|scan", re.I)
-STALE = re.compile(r"保存された値と合わない|古い値|stale", re.I)
+STALE = re.compile(r"保存された値と合わない|古い値|stale|文字の並び順で結果が変わる", re.I)
 VOLATILE = re.compile(r"\b(TODAY|NOW|RAND|RANDBETWEEN|OFFSET|INDIRECT|CELL|INFO)\s*\(", re.I)
-_TODOKU_META = ("### 入力欄", "## 入力欄", "### 規則では決められない所", "## 規則では決められない所", "### 画像", "## この窓の目次")
-_TODOKU_NOTE = ("- 非表示", "- シート保護", "- 印刷範囲", "- 文字に直せない字", "- フォームの欄はありません", "- 書き方：", "- 行は「", "- **文字コード", "- 名前「")
+_TODOKU_META = ("### 入力欄", "## 入力欄", "### 規則では決められない所", "## 規則では決められない所", "### 画像", "## この窓の目次", "### ふりがな")
+_TODOKU_NOTE = ("- 非表示", "- シート保護", "- 印刷範囲", "- 文字に直せない字", "- フォームの欄はありません", "- 書き方：", "- 行は「", "- **文字コード", "- 名前「", "- 文字の並び順で")
 
 
 def todoku_content(md: str) -> str:
@@ -75,6 +75,49 @@ def todoku_content(md: str) -> str:
 
 
 _ID = r"(?:▶)?[^［］〈〉〔〕＝？\s]*?(?:\d|\})"
+_COLLAPSED = re.compile(r"^- (\d+)〜(\d+): (\d+)(?:〜(\d+))?行目と同じ形の(?:\d+行1組|行)が \d+ (?:行|組)続きます（(.*)$")
+_ROW_LINE = re.compile(r"^- (\d+): (.*)$")
+
+
+def expand_collapsed(md: str) -> str:
+    """窓が読み順で「同じ形の行が続く」とまとめた所を、窓の言明のとおりに行へ広げる。言明が違っていれば（字の違う行があれば）、
+    その字は正解と合わないので、再現率に落ち度として出る。広げないときの数も char_literal に残す。"""
+    out, rows, last = [], {}, None
+    for ln in md.splitlines():
+        if ln.startswith("#"):
+            rows = {} if ln.startswith("## ") else rows
+            last = None
+        m = _ROW_LINE.match(ln)
+        c = _COLLAPSED.match(ln)
+        if m:
+            rows[int(m[1])] = last = int(m[1])
+            rows[last] = m[2]
+        elif c:
+            a, b, r0, r1 = int(c[1]), int(c[2]), int(c[3]), int(c[4] or c[3])
+            per = r1 - r0 + 1
+            for x in range(a, b + 1):
+                t = rows.get(r0 + (x - a) % per)
+                if t:
+                    out.append(f"- {x}: {t}")
+            vals = re.findall(r"[A-Z]+\d+＝([^、）]*)", c[5])  # 字の違う列の値
+            out.extend(f"- {v}" for v in vals)
+            last = None
+            continue
+        elif last is not None and ln.strip() and not ln.startswith("- "):
+            rows[last] += " " + ln  # マスの字の改行で続く行
+        elif ln.startswith("- "):
+            last = None
+        out.append(ln)
+    return "\n".join(out)
+
+
+_FONT_MARK = re.compile(r"〔(?:取り消し線|字の色 #[0-9A-Fa-f]{6}|・)+〕")
+_FONT_PART = re.compile(r"〔うち[^〕]*〕")
+
+
+def drop_font_marks(t: str) -> str:
+    """字の書式の印（窓の説明の字）を、字の再現率の比べから除く。印の確かめは Hay で別に見る。"""
+    return _FONT_PART.sub("", _FONT_MARK.sub("", t))
 
 
 def clean_todoku(md: str) -> str:
@@ -216,7 +259,8 @@ def score_sheet(t: dict, hay: Hay, raw_text: str) -> dict:
                 color_ok += any(COLOR.search(ln) for ln in hay.lines_with(val))
             if c.get("ph") and norm(c["ph"]) not in norm(val):
                 ph_n += 1
-                ph_ok += norm(c["ph"]) in hay.nospace
+                # ふりがなのかたまりごと（probes が \x01 で区切る）に出力にあるか
+                ph_ok += all(norm(x) in hay.nospace for x in c["ph"].split("\x01") if norm(x))
         checked = 0
         for ref in sp.get("merges") or []:
             if checked >= 300:
@@ -290,14 +334,27 @@ def score_pdf(t: dict, hay: Hay, raw_text: str) -> dict:
             "scan_flag": {"n": 1 if empty else 0, "ok": 1 if empty and SCAN.search(raw_text) else 0}}
 
 
+def _recall_units(t: dict) -> list:
+    """字の比べの単位。PDF の pdftotext -layout は、離れた列の字を空白 1 つでつなぐ（縦書きの「受給資格」と隣の「所持」が「受 所」になる）ので、
+    空白をまたぐ 2 字の並びは、本当に並んだ字とは限らない。どの道具にも同じに、空白で切って数える。"""
+    units = t.get("units") or []
+    return [w for u in units for w in u.split()] if t.get("kind") == "pdf" else units
+
+
 def score_tool(t: dict, out_text: str, tool: str, res: dict) -> dict:
+    literal = None
+    chars_out = len(out_text)
     if tool == "todoku":
-        content = clean_todoku(todoku_content(out_text))
+        literal = recalls(_recall_units(t), drop_font_marks(clean_todoku(todoku_content(out_text))))
+        out_text = expand_collapsed(out_text)
+        content = drop_font_marks(clean_todoku(todoku_content(out_text)))
         out_text = clean_todoku(out_text)
     else:
         content = out_text
-    r = recalls(t.get("units") or [], content)
-    s = {"tool": tool, "opened": "error" not in res, "error": res.get("error"), "seconds": res.get("seconds"), **r, "chars_out": len(out_text)}
+    r = recalls(_recall_units(t), content)
+    s = {"tool": tool, "opened": "error" not in res, "error": res.get("error"), "seconds": res.get("seconds"), **r, "chars_out": chars_out}
+    if literal is not None:
+        s["char_literal"], s["bigram_literal"] = literal["char"], literal["bigram"]
     if not s["opened"]:
         return s
     hay = Hay(out_text)
@@ -456,7 +513,10 @@ def summarize(recs: list[dict]) -> dict:
             with_ref = [s for s in ss if s.get("ref_chars")]
             mean = lambda key: round(sum((s.get(key) if s.get("opened") else 0) or 0 for s in with_ref) / len(with_ref), 4) if with_ref else None  # noqa: E731
             d = {"docs": len(ss), "opened": len(opened), "char": mean("char"), "bigram": mean("bigram"), "exact_read": sum(1 for s in ss if s.get("exact_read")),
-                 "docs_with_text": len(with_ref), "seconds_total": round(sum(s.get("seconds") or 0 for s in ss), 1), "cat": {}}
+                 "docs_with_text": len(with_ref), "seconds_total": round(sum(s.get("seconds") or 0 for s in ss), 1), "cat": {},
+                 "chars_out_total": sum(s.get("chars_out") or 0 for s in ss)}
+            if any("char_literal" in s for s in ss):
+                d["char_literal"] = mean("char_literal")
             for c in CATS:
                 ns = [s["cat"][c] for s in opened if c in (s.get("cat") or {}) and s["cat"][c]["n"]]
                 na = sum(1 for s in ss if c in (s.get("cat") or {}) and s["cat"][c]["n"])
@@ -494,6 +554,7 @@ def markdown(s: dict, label: str) -> str:
         L += [f"## {k}（{kd['docs']} 件）", ""]
         rows = [["開けた"] + [f"{kd['tools'][t]['opened']}/{kd['tools'][t]['docs']}" for t in tools],
                 ["字の再現率（字のある書類の平均。開けないと 0）"] + [kd["tools"][t]["char"] for t in tools],
+                ["字の再現率（窓が「同じ形の行」とまとめた所を広げない）"] + [kd["tools"][t].get("char_literal", "—") for t in tools],
                 ["2 字の並びの再現率"] + [kd["tools"][t]["bigram"] for t in tools],
                 ["正確に読めた（定義は上の説明）"] + [f"{kd['tools'][t]['exact_read']}/{kd['tools'][t]['docs_with_text']}" for t in tools]]
         if any("vs_todoku_window_char" in kd["tools"][t] for t in tools):

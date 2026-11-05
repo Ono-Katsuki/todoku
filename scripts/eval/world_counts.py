@@ -3,7 +3,7 @@
 
 - 届く：調査の標本を凍結した版で付け直した段階（読む S・A・B／書く A・B）。層（国 × 形式の群 × ドメインの出典）の中は選ばれる確率の逆数の重みの比の推定、
   分散はブロックでまとめた線形化（scripts/world_portal.py と同じ）。国は層の枠の大きさで重み付け。区間は Korn & Graubard (1998)：有効な標本の大きさ n* = p(1-p)/var
-  （n を超えない）に Clopper-Pearson を当てる。
+  をデザインの自由度で直し（n を超えない）、Clopper-Pearson を当てる（common.py の stratified_estimate。portal と同じ関数）。
 - 新しく届く：標本の無作為な一部で、比べる道具ととどくを同じ定義（read_compare.py の exact_read・write_compare.py の write_ok）で動かす。
   new＝とどくは通り、どの比べる道具も通らない書類の割合。lost＝比べる道具のどれかは通り、とどくは通らない割合。正味 ＝ new − lost。枠 × 割合で数にする。
 - 数は Common Crawl が集めた範囲の中の推定で、政府の書類の全部ではない（下限）。枠の推定（exact でない層）の誤差は、区間に入っていない。
@@ -30,7 +30,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
-from common import ROOT, atomic_json, doc_id, korn_graubard, load_json, md_table  # noqa: E402
+from common import ROOT, atomic_json, doc_id, load_json, md_table, stratified_estimate  # noqa: E402
 
 W = ROOT / "world"
 READ_OK, WRITE_OK = set("SAB"), set("AB")
@@ -153,16 +153,12 @@ def cmd_mock(a) -> int:
 
 
 def est(cells: list[tuple]) -> dict:
-    """cells：(枠 N, 割合 p, 分散 v, 件数 n)。件数のある層だけで重みを付ける（portal と同じ）。"""
-    cells = [c for c in cells if c[3] > 0 and c[0] > 0 and c[1] is not None]
-    tot = sum(c[0] for c in cells)
-    if not tot:
+    """cells：(枠 N, 割合 p, 分散 v, 件数 n, 集落の数 k)。件数のある層だけで重みを付ける（portal と同じ関数）。"""
+    e = stratified_estimate(cells)
+    if e is None:
         return {"count": None, "ci": [None, None], "p": None, "n": 0, "frame": 0}
-    p = sum(N / tot * pp for N, pp, _v, _n in cells)
-    var = sum((N / tot) ** 2 * v for N, _p, v, _n in cells)
-    kg = korn_graubard(p, var, sum(c[3] for c in cells))
-    lo, hi = kg["ci"]
-    return {"count": round(tot * p), "ci": [round(tot * lo), round(tot * hi)], "p": kg["p"], "p_ci": kg["ci"], "n": kg["n"], "n_eff": kg["n_eff"], "frame": tot}
+    tot, p, (lo, hi) = e["frame"], e["p"], e["ci"]
+    return {"count": round(tot * p), "ci": [round(tot * lo), round(tot * hi)], "p": p, "p_ci": e["ci"], "n": e["n"], "n_eff": e["n_eff"], "frame": tot}
 
 
 def cmd_estimate(a) -> int:
@@ -214,9 +210,9 @@ def cmd_estimate(a) -> int:
                                 "base_write": wp.ratio([(w, b, int(s["write_base"])) for w, b, s in wr]),
                                 "new_write": wp.ratio([(w, b, int(s["write_todoku"] and not s["write_base"])) for w, b, s in wr]),
                                 "lost_write": wp.ratio([(w, b, int(s["write_base"] and not s["write_todoku"])) for w, b, s in wr])})
-                for k, (p, v, n) in est_map.items():
-                    cells[k].append((N, p, v, n))
-                    world_cells[k].append((N, p, v, n))
+                for k, tup in est_map.items():
+                    cells[k].append((N, *tup))
+                    world_cells[k].append((N, *tup))
         if not frame:
             continue
         frame_world += frame

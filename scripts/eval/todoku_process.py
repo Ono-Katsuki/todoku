@@ -23,6 +23,7 @@ try:
     o = {"formula_cells": (r.get("summary") or {}).get("formula_cells"), "rules": (r.get("summary") or {}).get("rules"),
          "stored_compared": st.get("compared"), "stored_match": st.get("match"), "stored_rate": st.get("rate"), "evaluator_compared": ev.get("compared"),
          "evaluator_match": ev.get("match"), "rules_proven": v.get("rules_proven"), "rules_not_proven": v.get("rules_not_proven"),
+         "explanation_check": {k: (r.get("explanation_check") or {}).get(k) for k in ("rules", "checked", "unchecked", "failed", "ok")},
          "mismatch_count": v.get("mismatch_count"), "rule_status": statuses, "unknown_functions": r.get("unknown_functions") or [],
          "external_references": len(r.get("external_references") or []), "not_expressible": len(r.get("not_expressible_by_cells") or []),
          "macros": bool((r.get("macros") or {}).get("procedures")) if isinstance(r.get("macros"), dict) else bool(r.get("macros")),

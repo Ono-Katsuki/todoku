@@ -94,12 +94,17 @@ class Rule:
     def ref(self) -> str:
         return f"{self.sheet}!{self.range}"
 
+    def ref_pattern(self, n: RefNode) -> str:
+        """形の構文木の参照を、この規則の書き方にする。形はほかの規則と分け合うので、はじめて見たセルからこの規則の左上へ
+        ずらしてから書く（ずらさないと、1 行だけの規則の番地がほかの規則の所を指す）。"""
+        s = self.shape
+        many_r, many_c = self.moves()
+        return pattern(n.shifted(self.origin[0] - s.r, self.origin[1] - s.c), self.origin[0], self.origin[1], many_r, many_c)
+
     def pattern_body(self) -> str:
         if self.shape.ast is None:
             return self.text
-        many_r, many_c = self.moves()
-        s = self.shape
-        return render(s.ast, lambda n: pattern(n, s.r, s.c, many_r, many_c))
+        return render(self.shape.ast, self.ref_pattern)
 
     def moves(self) -> tuple[bool, bool]:
         """(行に連動するか, 列に連動するか)。配列数式は 1 つの式なので、どちらも連動しない。"""
@@ -227,7 +232,6 @@ def analyse_reads(rules: list[Rule], sheets: list[SheetScan], wb) -> None:
         s = u.shape
         if s.ast is None:
             continue
-        many_r, many_c = u.moves()
         is_array = u.kind in ("array", "dynamic_array")
         seen: dict = {}
         lookups = lookup_args(s.ast)
@@ -265,7 +269,7 @@ def analyse_reads(rules: list[Rule], sheets: list[SheetScan], wb) -> None:
             fixed = bool(name) or is_array
             absolute = fixed or ((node.abs_r1 or node.kind == "cols") and (node.abs_r2 or node.kind == "cols")
                                       and (node.abs_c1 or node.kind == "rows") and (node.abs_c2 or node.kind == "rows"))
-            pat = ref_text(node) if fixed else pattern(node, s.r, s.c, many_r, many_c)
+            pat = ref_text(node) if fixed else u.ref_pattern(node)
             seen[k] = Read(node, sh_name, (s.r, s.c), None, name, absolute, external, missing, pat,
                            bounds.get(sh_name, (0, 0)), fixed=fixed)
             u.reads.append(seen[k])

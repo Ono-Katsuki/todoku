@@ -4,7 +4,7 @@
   その下の行が見出しの続きかどうかは規則では決めず、下の数行をそのまま返す（エージェントが読んで header_rows で決める）。列の名前は、見出しの行を上から下へ「／」でつなぐ（「サービスコード／種類」）。
   結合した見出しの下にいくつもの列があるときは、列の文字を添えて分ける（「算定項目（D）」）。
 - 値：Excel の画面に出る字（表示形式どおり）。結合したセルは、範囲のすべてのセルに同じ値を入れる（画面の見た目どおり）。
-  値ごとに、元のセルの番地を添える（結合の左上）。
+  値ごとに、元のセルの番地を添える（結合の左上）。縦に結合した値には、行の _merged に結合の範囲を添える（どの行にかかる値かの事実）。
 - 見出しの行より下の、字の入った行をすべて返す（表の後ろの注などもそのまま。どこまでが表かはエージェントが決める）。
 - 返さなかった行は、黙って消さない：シートごとの omitted_rows に、数と行の番号（範囲）を書く。表計算の使っている範囲の中の、見出しの列に字のない行は
   「行」として返さないが、見出しのない列にだけ値のある行は、値があることも分けて書く。
@@ -69,7 +69,7 @@ def _gaps(first: int, last: int, taken: list[int]) -> list[list[int]]:
 
 
 def _grid(wb, sh):
-    """(行, 列) → (画面の字, 元のセルの番地)。結合は範囲に広げる。"""
+    """(行, 列) → (画面の字, 元のセルの番地, 縦の結合の範囲か None)。結合は範囲に広げる。"""
     from .window import display
 
     g = {}
@@ -95,11 +95,12 @@ def _grid(wb, sh):
                 cs = sorted({m[1]} | {x for x in cols_there if m[1] <= x <= m[3]})
             else:
                 rs, cs = range(m[0], m[2] + 1), range(m[1], m[3] + 1)
+            tall = f"{addr(m[0], m[1])}:{addr(m[2], m[3])}" if m[2] > m[0] else None
             for rr in rs:
                 for cc in cs:
-                    g[(rr, cc)] = (text, src)
+                    g[(rr, cc)] = (text, src, tall)
         else:
-            g[(r, c)] = (text, src)
+            g[(r, c)] = (text, src, None)
     return g
 
 
@@ -121,8 +122,8 @@ def read(wb, header: str, sheet: str | None = None, header_rows: int | None = No
         records = getattr(sh, "records", None)
         heads = {k: x for k, x in g.items() if k[0] == 1} if records is not None else g  # データベースの見出しは、1 行目の列の名前だけ（値の中の同じ字を見出しにしない）
         # 字が見出しと同じセルを先に選ぶ（表題「…サービスコード表」の中の字に引っかからないように）。なければ、字を含むセル
-        hits = sorted((r, c) for (r, c), (t, _s) in heads.items() if _norm(t) == want) or \
-            sorted((r, c) for (r, c), (t, _s) in heads.items() if want in _norm(t))
+        hits = sorted((r, c) for (r, c), (t, *_x) in heads.items() if _norm(t) == want) or \
+            sorted((r, c) for (r, c), (t, *_x) in heads.items() if want in _norm(t))
         if not hits:
             continue
         top, hc = hits[0]
@@ -184,13 +185,18 @@ def read(wb, header: str, sheet: str | None = None, header_rows: int | None = No
         for r in sorted(by_row):
             rec = {}
             src = {}
+            tall = {}
             for c in sorted(by_row[r]):
                 if c in names:
                     rec[names[c]] = g[(r, c)][0]
                     src[names[c]] = g[(r, c)][1]
+                    if g[(r, c)][2]:
+                        tall[names[c]] = g[(r, c)][2]
             if rec or records is not None:
                 kept.add(r)
                 extra = {"_unread": bad_rows[r]} if r in bad_rows else {}
+                if tall:
+                    extra["_merged"] = tall
                 rows.append({"_sheet": sh.name, "_row": r, **rec, "_cells": src, **extra})
         if records is None:  # 返さなかった行：使っている範囲の中の、値のない行と、見出しのない列にだけ値のある行
             other = sorted({r for (r, _c) in g if r > band[-1]} - kept)

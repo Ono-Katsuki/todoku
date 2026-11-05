@@ -21,7 +21,7 @@ from ..formula.parser import (
 from ..formula.values import ExcelError
 from .rules import Read, RectIndex, Rule, key_text, read_rects, rect_text
 from .scan import SheetScan
-from .shape import pattern, render
+from .shape import render
 
 LISTED = 64  # 1 つの入力について示す規則の数（数は n にすべて数える）
 TABLE_INLINE_CELLS = 400  # 参照表の中身を結果にそのまま入れるマスの数（超える表は、はじめの行と read_table の頼み方）
@@ -173,9 +173,7 @@ class Labels:
 
 # ---------------------------------------------------------------- 分岐
 def expr(node: Node, u: Rule) -> str:
-    s = u.shape
-    many_r, many_c = u.moves()
-    return render(node, lambda n: pattern(n, s.r, s.c, many_r, many_c))
+    return render(node, u.ref_pattern)
 
 
 BRANCHING = {"IF", "IFS", "SWITCH", "IFERROR", "IFNA", "CHOOSE"}

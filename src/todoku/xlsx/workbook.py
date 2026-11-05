@@ -439,6 +439,7 @@ class Workbook:
         self.sst_path: str | None = None  # 共有文字列の部品（字ごとの書式を読み直すのに使う：xlsx/richtext）
         self.phonetic: dict[int, str] = {}  # 共有文字列の番号 → ふりがなを当てた読み（PHONETIC 関数の値）
         self._last_sst: int | None = None
+        self._sst_runs: dict[int, list] = {}  # 共有文字列の番号 → 字ごとの書式（取り消し線・字の色のあるものだけ）
         self.cell_sst: dict[tuple[str, int, int], int] = {}  # 共有文字列を使うセル → 番号
         self.styles: list[Style] = []
         self.dxfs: list[Dxf] = []
@@ -581,6 +582,17 @@ class Workbook:
             ph = _phonetic_text(si)
             if ph is not None:
                 self.phonetic[i] = ph
+            runs = _font_runs(si)
+            if runs is not None:
+                self._sst_runs[i] = runs
+
+    def sst_font_runs(self, i: int) -> list | None:
+        """共有文字列 i の字ごとの書式 [(字, 取り消し線, 色)]（xlsx/fontfacts.py）。色は "RRGGBB"、セルの書式のままなら None。"""
+        runs = self._sst_runs.get(i)
+        if runs is None:
+            return None
+        pal = getattr(self, "palette", None)
+        return [(t, s, _color(c, pal) if c is not None else None) for t, s, c in runs]
 
     def _palette(self, styles_root: ET.Element) -> Palette:
         """ブックの色の表：テーマの部品（ブックの関係 theme）の色と、styles.xml の色番号の表（<colors><indexedColors>）。"""
@@ -714,6 +726,8 @@ class Workbook:
                 cell.value = self._cell_value(cell.t, v, c)
                 if self._last_sst is not None:
                     self.cell_sst[(sh.name, r, col)] = self._last_sst
+                if c.get("ph") in ("1", "true"):  # ふりがなを画面に出すセル（ECMA-376 18.3.1.4 の ph）
+                    sh.__dict__.setdefault("phonetic_shown", set()).add((r, col))
                 if f is not None:
                     kind = f.get("t", "normal")
                     cell.formula_kind = kind
@@ -942,7 +956,7 @@ class Workbook:
         text = v.text
         if t == "s":
             i = int(text)
-            if i in self.phonetic:
+            if i in self.phonetic or i in self._sst_runs:
                 self._last_sst = i
             return self.shared_strings[i] if i < len(self.shared_strings) else ""
         if t == "b":
@@ -1045,6 +1059,25 @@ def _group_items(grp: ET.Element):
             yield from _group_items(sub)
         elif st == "graphicFrame":
             yield "chart", sub
+
+
+def _font_runs(si: ET.Element) -> list | None:
+    """字ごとの書式のうち、取り消し線か字の色を指定したものがある文字列の [(字, 取り消し線, 色の要素)]。ほかは None。"""
+    runs = []
+    seen = False
+    for child in si:
+        tag = child.tag.split("}")[-1]
+        if tag == "t":
+            runs.append((_unxml(child.text or ""), None, None))
+        elif tag == "r":
+            t = child.find(M + "t")
+            pr = child.find(M + "rPr")
+            st = pr.find(M + "strike") if pr is not None else None
+            col = pr.find(M + "color") if pr is not None else None
+            strike = None if pr is None else (st is not None and st.get("val", "1") not in ("0", "false"))
+            seen = seen or bool(strike) or col is not None
+            runs.append((_unxml(t.text or "") if t is not None else "", strike, col))
+    return runs if seen else None
 
 
 def _phonetic_text(el: ET.Element) -> str | None:

@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
+
 import bisect
 import functools
 import hashlib
@@ -1208,6 +1211,25 @@ def _ax_control_info(ctl: Control) -> dict:
     return d
 
 
+# 行の範囲だけを読む窓（lazy/xlsxdoc.py）：None はシート全部。"rows" は頼まれた行の範囲（読み順の行をまとめない）、"walk" は続きを順に読むとき
+_VIEW: contextvars.ContextVar = contextvars.ContextVar("todoku_window_view", default=None)
+
+
+@contextlib.contextmanager
+def partial_view(kind: str):
+    tok = _VIEW.set(kind)
+    try:
+        yield
+    finally:
+        _VIEW.reset(tok)
+
+
+def wb_default_color(wb) -> str:
+    from .fontfacts import _rgb
+
+    return _rgb(wb.style(0).font_color)
+
+
 class Layout:
     """1枚のシートの、目に見える配置。"""
 
@@ -1216,6 +1238,7 @@ class Layout:
 
         self.wb = wb
         self.sh = sh
+        self._normal_color: str | None = None
         self.looks = Looks(wb, calc)
         self.hidden_by_format: list[tuple[int, int]] = []
         self.inputs = input_cells(wb, sh)
@@ -2053,12 +2076,22 @@ class Layout:
         return all(not (b.kind == "input" and b.text) and not (b.kind == "check" and b.control.is_checked)
                    for b in self.boxes(r)) and not any(b.text for b in self.agent.get(r, []))
 
+    def merge_mark(self, b: Box) -> str:
+        """縦に結合したマスの、結合の範囲（どの行にかかる値かの事実）。"""
+        return f"〔{addr(b.r, b.c1)}:{addr(b.r2, b.c2)}〕" if b.r2 > b.r else ""
+
     def token(self, b: Box, mark: bool = False) -> str:
+        head, tail = self.font_marks(b.cell) if b.cell is not None and b.kind in ("input", "formula", "text", "agent") and b.text else ("", "")
+        if tail or head:
+            return head + self._token(b, mark) + tail
+        return self._token(b, mark)
+
+    def _token(self, b: Box, mark: bool = False) -> str:
         if b.kind == "input":
             inner = b.ref + (f"＝{b.text}" if b.text else "")
             return f"［{'▶' if mark else ''}{inner}］"
         if b.kind == "formula":
-            return f"〈{b.cell_ref}＝{b.text}〉"
+            return f"〈{b.cell_ref}＝{b.text}〉{self.merge_mark(b)}"
         if b.kind == "check":
             return f"{b.text}［{'▶' if mark else ''}{b.ref}］"
         if b.kind == "agent":
@@ -2075,21 +2108,27 @@ class Layout:
                 parts.append(blank_token(t, a, z, k, mark))
                 at = z
             parts.append(t[at:])
-            return f"〔{b.cell_ref}〕" + "".join(parts).replace("\n", " ").strip()
-        return b.text.replace("\n", " ").strip()
+            return f"〔{b.cell_ref}〕" + "".join(parts).replace("\n", " ").strip() + self.merge_mark(b)
+        t = b.text.replace("\n", " ").strip()
+        return t + self.merge_mark(b) if t else t
+
+    def carried(self, r: int) -> list[Box]:
+        """上の行から続く結合のマスで、この行にかかる字（左の見出しだけでなく、右や途中の列の結合も）。"""
+        return [b for b in self.cover.get(r, []) if b.kind in ("text", "formula", "input") and b.text and b.text.strip()]
 
     def line(self, r: int, mark_box: Box | None = None, include_outside: bool = True) -> str:
         own = self.boxes(r)
         if r in self.agent:
             own = sorted(own + self.agent[r], key=lambda b: (b.c1, b.kind != "check"))
         own = [b for b in own if include_outside or not b.outside]
-        first = min((b.c1 for b in own), default=10 ** 6)
-        carried = [b for b in self.cover.get(r, []) if b.kind == "text" and b.c2 < first]
-        parts = [f"（{label_text(b.text)}）" for b in sorted(carried, key=lambda b: b.c1)]
         own = [b for b in own if b.kind != "formula" or b.text]
-        inside = [self.token(b, b is mark_box) for b in own if not b.outside]
-        outside = [self.token(b, b is mark_box) for b in own if b.outside]
-        s = " ｜ ".join(p for p in parts + inside if p)
+        # 結合のマスは、かかるどの行でも、その列の位置に（　）で示す（どの行の値かを、エージェントが推し量らなくてよいように）
+        items = [(b.c1, f"（{label_text(b.text)}）", b.outside) for b in self.carried(r) if include_outside or not b.outside]
+        items += [(b.c1, self.token(b, b is mark_box), b.outside) for b in own]
+        items.sort(key=lambda x: x[0])
+        inside = [t for _c, t, o in items if not o and t]
+        outside = [t for _c, t, o in items if o and t]
+        s = " ｜ ".join(inside)
         if outside:
             s += ("　" if s else "") + "〔印刷範囲外〕" + " ｜ ".join(outside)
         for how, mark in (("row", "〔非表示〕"), ("merge", "〔結合の下に隠れた字〕"), ("format", "〔条件付き書式でいまは見えない〕")):
@@ -2102,9 +2141,22 @@ class Layout:
     def hidden_token(self, b: Box) -> str:
         """非表示の行・列のマスの字：番地をつけて示す（画面には出ないので、どこの字かが分かるように）。"""
         t = b.text.replace("\n", " ").strip()
+        head, tail = self.font_marks(b.cell) if t else ("", "")
         if b.kind == "formula":
-            return f"〈{b.cell_ref}＝{t}〉"
-        return f"〔{b.cell_ref}〕{t}" if t else ""
+            return f"{head}〈{b.cell_ref}＝{t}〉{tail}"
+        return f"{head}〔{b.cell_ref}〕{t}{tail}" if t else ""
+
+    def font_marks(self, cell) -> tuple[str, str]:
+        """取り消し線・ふつうと違う字の色の印（xlsx/fontfacts.py）。字そのものは変えない。"""
+        from .fontfacts import marks, normal_color
+
+        if self._normal_color is None:
+            # 行の範囲だけを読むときは、シート全部を見ていないので、ブックの既定の字の色を「ふつう」とする（印が消えない向き）
+            self._normal_color = wb_default_color(self.wb) if _VIEW.get() is not None else normal_color(self.wb, self.sh)
+        got = marks(self.wb, cell, self._normal_color)
+        if got[0] or got[1]:
+            self.sh.__dict__["_has_font_marks"] = True
+        return got
 
     def content_key(self, r: int) -> tuple[tuple, list[Box]]:
         """行の中身：(マスの並び（位置・種類・印刷範囲・非表示・チェックの状態と、上から続く見出しの字）, 並びの順のマス)。
@@ -2114,8 +2166,9 @@ class Layout:
                      key=lambda b: (b.c1, b.kind, b.hidden))
         struct = tuple((b.kind, b.c1, b.c2, b.outside, b.hidden,
                         bool(b.control is not None and b.control.is_checked) if b.kind == "check" else None) for b in row)
-        carried = tuple(sorted((b.c1, b.c2, b.text) for b in self.cover.get(r, []) if b.kind == "text"))
-        return (struct, carried), row
+        carried = tuple(sorted((b.c1, b.c2, b.text) for b in self.carried(r)))
+        fonts = tuple(self.font_marks(b.cell) if b.cell is not None and b.text else ("", "") for b in row)
+        return (struct, carried, fonts), row
 
 
 # ====================================================================== 入力欄
@@ -2443,7 +2496,8 @@ def build(wb: Workbook) -> dict:
                      "〈AF35＝値〉": "計算結果（数式）",
                      "［B5：保護されたセル］": "見出しの欄だが、シートの保護でロックされていて書けない（パスワードが要る）",
                      "☐［BA116］ / ☑［BA116］": "チェックボックス（［］はつながっているセル）",
-                     "（法人名）": "上の行から続く、縦に結合された見出し", "［▶…］": "いま説明している欄",
+                     "（法人名）": "上の行から続く、縦に結合されたマスの字（その行にかかる値。列の位置に置く）",
+                     "法人名〔A5:A9〕": "縦に結合されたマスの字と、結合の範囲（A5〜A9 の行にかかる）", "［▶…］": "いま説明している欄",
                      "〔印刷範囲外〕": "画面には出るが印刷されない",
                      "〔非表示〕〔C5〕値": "非表示の行・列にある字（画面には出ないが、ファイルにある）",
                      "〔結合の下に隠れた字〕〔C5〕値": "結合セルの左上でないマスに残っている字（画面には出ないが、ファイルにある）",
@@ -2469,6 +2523,9 @@ def build(wb: Workbook) -> dict:
 
     add_to_window(wb, doc)  # グラフ（charts）と埋め込み（objects）：読むだけ
     doc["unread"] = [u for sh in wb.sheets for u in sh.unread]
+    if any(sh.__dict__.pop("_has_font_marks", False) for sh in wb.sheets):
+        doc["notation"]["〔取り消し線〕・〔字の色 #FF0000〕"] = ("字の書式の事実：後ろの値に取り消し線がある・字の色がシートのふつうの色と違う。"
+                                                       "〔うち取り消し線：「字」〕はセルの字の一部の書式（意味は決めない）")
     return doc
 
 
@@ -2551,6 +2608,7 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
         "undecided": undecided,
         "unshown_formats": unshown,  # 再現できない表示形式のセル（窓には元の値と〔表示形式「…」は再現できません〕を出す）
         "reading": reading(lay),
+        **_sheet_text_facts(wb, sh),
         "hidden_by_format": [addr(*k) for k in lay.hidden_by_format],
         "validations": [{"sqref": v.sqref_text, **_rule_dict(v), "provenance": DET} for v in sh.validations],
         "cells": cells,
@@ -2566,6 +2624,21 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
         "tables": _tables(wb, sh),
         **({"range_places": places} if places else {}),
     }
+
+
+def _sheet_text_facts(wb: Workbook, sh: Sheet) -> dict:
+    """ふりがなと、文字の並び順で結果が変わる数式（どちらも、あるときだけ）。"""
+    from .fontfacts import furigana
+    from .textorder import text_order_cells
+
+    out: dict = {}
+    fu = furigana(wb, sh)
+    if fu:
+        out["furigana"] = fu
+    order = text_order_cells(wb, sh)
+    if order:
+        out["text_order_lookups"] = order
+    return out
 
 
 def _split_spans(text: str, blanks: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -2620,6 +2693,10 @@ def _tables(wb: Workbook, sh: Sheet) -> list[dict]:
     return out
 
 
+# 読み順で同じ形の行をまとめたことの断りに添える、1 行ずつ読む道
+COLLAPSE_HINT = "　1 行ずつは read_window の sheet・rows で読めます"
+
+
 def reading(lay: Layout) -> list[dict]:
     """行を上から（非表示の行・列の字は印をつけて）。同じ形の空欄の行（または2〜4行で1組の行）が続くところは1行にまとめる。
 
@@ -2639,9 +2716,9 @@ def reading(lay: Layout) -> list[dict]:
 
     def differ(tmpl: int, x: int) -> list[Box] | None:
         """行 x の、組の行 tmpl と字の違うマス（並びが違えば None）。違ってよいのは、文字と計算結果のマスだけ。"""
-        (s1, c1), b1 = key(tmpl)
-        (s2, c2), b2 = key(x)
-        if s1 != s2 or c1 != c2:
+        (s1, c1, f1), b1 = key(tmpl)
+        (s2, c2, f2), b2 = key(x)
+        if s1 != s2 or c1 != c2 or f1 != f2:  # 字の書式の印が違う行は、まとめない
             return None
         out_ = []
         for p, q in zip(b1, b2):
@@ -2651,6 +2728,8 @@ def reading(lay: Layout) -> list[dict]:
                 out_.append(q)
         return out_
 
+    if _VIEW.get() == "rows":  # 行の範囲を頼まれたときは、まとめずに 1 行ずつ出す（まとめた行に届く道）
+        return [{"row": r, "text": texts[r]} for r in rows if texts[r]]
     i = 0
     while i < len(rows):
         r = rows[i]
@@ -2705,9 +2784,9 @@ def reading(lay: Layout) -> list[dict]:
             vals = "、".join(f"{d.cell_ref}＝{d.text.replace(chr(10), ' ').strip()}" for d in diffs)
             item["differs"] = [{"cell": d.cell_ref, "text": d.text} for d in diffs]
             item["text"] = (f"{what}が {n} {'行' if per == 1 else '組'}続きます（入力欄はすべて空欄。"
-                            f"字が違うのは {col} 列だけで、ほかの字は同じ：{vals}）")
+                            f"字が違うのは {col} 列だけで、ほかの字（非表示の列も）は同じ：{vals}）{COLLAPSE_HINT}")
         else:
-            item["text"] = f"{what}が {n} {'行' if per == 1 else '組'}続きます（字もすべて同じで、入力欄はすべて空欄）"
+            item["text"] = f"{what}が {n} {'行' if per == 1 else '組'}続きます（字（非表示の列も）もすべて同じで、入力欄はすべて空欄）{COLLAPSE_HINT}"
         out.append(item)
         i += per * (n + 1)
     return out
@@ -2779,6 +2858,8 @@ def _md_sheet(sh: dict) -> list[str]:
                     "Excel の見える字ではなく、元の値を〔表示形式「…」は再現できません：元の値 …〕と出しています")
     if info:
         out += ["- " + "／".join(info), ""]
+    if sh.get("text_order_lookups"):
+        out += [_md_text_order(sh["text_order_lookups"]), ""]
     fields = sh.get("fields", [])
     main = [f for f in fields if not f.get("unlabeled") and not f.get("agent")]
     if main:
@@ -2825,7 +2906,27 @@ def _md_sheet(sh: dict) -> list[str]:
         for h in sh.get("header_footer", []):
             out.append(f"- ヘッダー・フッター: {_md(h)}")
         out.append("")
+    out += _md_furigana(sh)
     return out + sheet_markdown(sh)
+
+
+TEXT_ORDER_NOTE = ("文字の並び順で結果が変わる数式 {n} か所（{cells}。{funcs}の近似一致で文字を探す）：文字の順は Excel の動く環境（OS・言語）で決まるので、"
+                   "同じファイルでも環境で別の行を選び、#N/A にもなります。窓の値はファイルに保存された値で、計算し直した値とは違うことがあります。"
+                   "それを読む数式も同じです。どの値が正しいかは、ファイルからは決まりません：金額などに関わるなら、本人か提出先に確かめます")
+
+
+def _md_text_order(items: list[dict]) -> str:
+    funcs = "・".join(dict.fromkeys(x["function"] for x in items))
+    return "- " + TEXT_ORDER_NOTE.format(n=len(items), cells=_compact([x["cell"] for x in items]), funcs=funcs)
+
+
+def _md_furigana(sh: dict) -> list[str]:
+    fu = sh.get("furigana")
+    if not fu:
+        return []
+    # 1 行にまとめる（番地は JSON の窓の furigana に。読み順のマスには番地がないので、字を添える）
+    items = [f"{'★' if d['shown'] else ''}「{_md(_clip(label_text(d['text']), 16))}」{'・'.join(d['reading'])}" for d in fu]
+    return ["### ふりがな（ファイルに保存された読み。同じ字と読みは 1 つに。★ は画面にも出る）", "", "- " + "、".join(items), ""]
 
 
 def _md_reading(sh: dict) -> list[str]:

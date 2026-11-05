@@ -279,12 +279,41 @@ def clopper_pearson(x: float, n: float, alpha: float = 0.05) -> list:
     return [round(lo, 5), round(hi, 5)]
 
 
-def korn_graubard(p: float, var: float, n: float, alpha: float = 0.05) -> dict:
-    """Korn & Graubard (1998)：分散から有効な標本の大きさ n* = p(1-p)/var（n を超えない）を出し、Clopper-Pearson の区間を当てる。
-    分散が 0（どの層も 0% か 100%）のときは n* = n。"""
-    n_eff = min(p * (1 - p) / var, n) if var > 0 and 0 < p < 1 else n
+def t_ppf(q: float, df: float) -> float:
+    """t 分布の分位点（q > 0.5）。分布関数は不完全ベータ関数から。"""
+    lo, hi = 0.0, 1e7
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        cdf = 1 - 0.5 * betainc(df / 2, 0.5, df / (df + mid * mid))
+        if cdf < q:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def korn_graubard(p: float, var: float, n: float, alpha: float = 0.05, df: float | None = None) -> dict:
+    """Korn & Graubard (1998)：分散から有効な標本の大きさ n* = p(1-p)/var を出し、デザインの自由度 df があれば
+    n* × (t[n-1] / t[df])^2 に直して（n を超えない）、Clopper-Pearson の区間を当てる。分散が 0（どの層も 0% か 100%）のときは n* = n。"""
+    n_eff = p * (1 - p) / var if var > 0 and 0 < p < 1 else n
+    if var > 0 and 0 < p < 1 and df is not None and df >= 1 and n > 1:
+        n_eff *= (t_ppf(1 - alpha / 2, n - 1) / t_ppf(1 - alpha / 2, df)) ** 2
+    n_eff = min(n_eff, n)
     ci = clopper_pearson(p * n_eff, n_eff, alpha)
-    return {"p": round(p, 5), "ci": ci, "n": n, "n_eff": round(n_eff, 1)}
+    return {"p": round(p, 5), "ci": ci, "n": n, "n_eff": round(n_eff, 1), **({"df": df} if df is not None else {})}
+
+
+def stratified_estimate(cells: list[tuple], alpha: float = 0.05) -> dict | None:
+    """層別の推定と Korn & Graubard の区間（世界のポータル・最終の評価の数で同じもの）。
+    cells：(層の大きさ N, 割合 p, 分散 v, 件数 n, 集落の数 k)。件数のない層は除く。df ＝ 集落の数 − 層の数。層がなければ None。"""
+    cells = [c for c in cells if c[3] > 0 and c[0] > 0 and c[1] is not None]
+    tot = sum(c[0] for c in cells)
+    if not tot:
+        return None
+    p = sum(c[0] / tot * c[1] for c in cells)
+    var = sum((c[0] / tot) ** 2 * c[2] for c in cells)
+    df = sum(c[4] - 1 for c in cells)
+    return {**korn_graubard(p, var, sum(c[3] for c in cells), alpha, df), "frame": tot}
 
 
 # ---------------------------------------------------------------------- 表

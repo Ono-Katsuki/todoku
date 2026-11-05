@@ -1179,6 +1179,13 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
                               f"{rep['mismatch']} 個のセルで、保存された計算結果が、Excel の規則で計算し直した値と違います（窓に出ているのは"
                               f"保存された値。Excel で開くと計算し直した値になります）。{saved}どちらの値で読むかは、保存したアプリと where の"
                               "値を見て判断します", where))
+    order = [f"{sh['name']}!{x['cell']}" for sh in doc.get("sheets") or [] for x in sh.get("text_order_lookups") or []]
+    if order:
+        # 文字の順は Excel の環境で決まるので、値がファイルからは決まらない（窓の xlsx/textorder.py の説明と同じ事実）
+        reasons.append(Reason("C", "文字の並び順で結果が変わる数式",
+                              f"{len(order)} 個のセルは、近似一致で文字を探す数式で、結果が Excel の動く環境（OS・言語）で変わることがあります"
+                              "（別の行を選ぶ・#N/A になる）。窓に出ているのは保存された値です。どの値が正しいかはファイルからは決まらないので、"
+                              "金額などに関わるなら本人か提出先に確かめます", order))
     unchecked = _unverifiable_rules(wb)
     if unchecked:
         write.append(Reason("B", "確かめられない入力規則",

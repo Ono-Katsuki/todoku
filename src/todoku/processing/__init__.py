@@ -89,6 +89,17 @@ def model(src, blob: bytes | None, k: str) -> dict:
         "not_expressible_by_cells": extras.not_cell_processing(blob, wb, k),
         "limits": LIMITS,
     }
+    from .consistency import check
+
+    # 説明の字（text・a1・reads）と数式が同じ所を指すかを、説明の字を解析し直して確かめる（確かめた数も結果に残す）
+    out["explanation_check"] = check(out["rules"], {u.id: u.origin for u in rules}, S.LISTED)
+    book = getattr(src, "wb", None)
+    if book is not None:  # 行を少しずつ読む大きなブックでは、数式を一度に読まないので見ない
+        from ..xlsx.textorder import text_order_cells
+
+        order = [{"sheet": sh.name, **x} for sh in book.sheets if hasattr(sh, "cells") for x in text_order_cells(book, sh)]
+        if order:
+            out["text_order_lookups"] = order
     out["_internal"] = {"rules": rules, "sheets": sheets, "ix": ix, "shaper": shaper}
     return out
 
@@ -106,6 +117,11 @@ def _say(res: dict) -> str:
         lines.append(f"とどくが計算できない関数：{'、'.join(res['unknown_functions'])}。")
     if res.get("not_expressible_by_cells"):
         lines.append(f"セルの数式で書けない処理：{len(res['not_expressible_by_cells'])} 個。")
+    if res.get("text_order_lookups"):
+        lines.append(f"文字の並び順で結果が変わる数式：{len(res['text_order_lookups'])} か所（text_order_lookups。近似一致で文字を探すので、Excel の環境で値が変わることがあります）。")
+    ec = res.get("explanation_check") or {}
+    if ec.get("failed"):
+        lines.append(f"説明の字が数式と合わない規則が {ec['failed']} 個あります（explanation_check.failures）。その規則は text・a1 でなく formula を読んでください。")
     return "\n".join(lines)
 
 
@@ -171,7 +187,7 @@ def _only_sheet(res: dict, sheet: str) -> dict:
 def _condensed(res: dict, budget: int | None, written: str | None = None) -> dict:
     """大きすぎて 1 度に返せないときの要約。全部は out_path（JSON）かシートごと（sheet）に取れる。"""
     budget = budget or 400000
-    head = {k: res[k] for k in ("kind", "summary", "cycles", "unknown_functions", "cross_sheet_flow", "limits", "say_to_user", "python", "verification", "streamed", "only_sheet") if k in res}
+    head = {k: res[k] for k in ("kind", "summary", "cycles", "unknown_functions", "cross_sheet_flow", "limits", "say_to_user", "python", "verification", "explanation_check", "text_order_lookups", "streamed", "only_sheet") if k in res}
     keep = []
     used = len(json.dumps(head, ensure_ascii=False))
     room = budget // 2

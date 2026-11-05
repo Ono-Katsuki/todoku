@@ -828,7 +828,10 @@ class XlsxLazy(LazyDoc):
         k = min(k, j)
         ra = ix.rows[i]
         rb = ix.rows[k - 1]
-        sh = self._sheet_doc(si, ra, rb)
+        from ..xlsx.window import partial_view
+
+        with partial_view("walk" if walk else "rows"):  # 行の範囲を頼まれたら、読み順の行をまとめない（まとめた行に届く道）
+            sh = self._sheet_doc(si, ra, rb)
         lines, last_done = _trim_sheet(sh, ra, rb, si == 0 and ra == ix.rows[0], ra == ix.rows[0], max_chars, _md_sheet)
         xml_bytes = max(ix.offs[k] if k < len(ix.offs) else ix.data_end, ix.offs[i] + 1) - ix.offs[i]
         chars = sum(len(x) + 1 for x in lines)
@@ -1526,7 +1529,8 @@ class _scan_budget:
 def _trim_sheet(sh: dict, a: int, b: int, first_sheet: bool, first_page: bool, max_chars: int, md) -> tuple[list[str], int]:
     """シートの窓を、頼まれた行に絞り、字の数が max_chars に入るように行を切り詰める。(Markdown の行, 読み終えた最後の行)。"""
     all_lines = sh.get("reading", [])
-    reading = [ln for ln in all_lines if _line_rows(ln)[1] >= a]
+    # 頼まれた範囲の後ろの行は読んでいない（小さなブックに行がない）ので、その行の字を窓に出さない
+    reading = [ln for ln in all_lines if _line_rows(ln)[1] >= a and _line_rows(ln)[0] <= b]
     before = [dict(ln, text="〔シートのはじめの行（見出しの手がかり）〕" + ln.get("text", "")) for ln in all_lines if _line_rows(ln)[1] < a][:1]
     fields = [f for f in sh.get("fields", []) if _in_rows(f, a, b)]
     keep = dict(sh)

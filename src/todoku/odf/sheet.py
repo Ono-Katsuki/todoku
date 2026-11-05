@@ -77,7 +77,7 @@ class RepeatRange:
     content: bool  # 中身がある（ないときは、枠・塗りなどの書式だけ）
 
 
-def para_text(el: El, data: bytes) -> str:
+def para_text(el: El, data: bytes, reading: bool = False) -> str:
     """セルの中の段落（text:p）の字：ODF の空白の決まり（6.1.2）で作る。ただし終わりの空白は残す：決まりでは無視するものだが、
     LibreOffice はセルの終わりの空白をこの形で書き、開いても字として残す（Excel も同じ）。セルの字を黙って変えない。"""
     atoms: list = []
@@ -99,7 +99,7 @@ def para_text(el: El, data: bytes) -> str:
             elif t in MARKS:
                 continue
             elif t == _T + "ruby":
-                base = k.find("text:ruby-base")
+                base = k.find("text:ruby-text" if reading else "text:ruby-base")  # reading：ルビを当てた読み（PHONETIC・窓のふりがな）
                 if base is not None:
                     walk(base)
             elif t == _OFFICE + "annotation" or t in SHAPES:
@@ -133,10 +133,10 @@ def para_text(el: El, data: bytes) -> str:
     return "".join(out).replace("\x00", "")
 
 
-def cell_text(el: El, data: bytes) -> str:
+def cell_text(el: El, data: bytes, reading: bool = False) -> str:
     """セルの見える字：段落ごとに改行でつなぐ。"""
     paras = [k for k in el.els() if k.tag in (_T + "p", _T + "h")]
-    return "\n".join(para_text(p, data) for p in paras)
+    return "\n".join(para_text(p, data, reading) for p in paras)
 
 
 def _bool(v: str | None) -> bool:
@@ -298,7 +298,8 @@ class OdsWorkbook:
         fmt, kind = excel_format(nel, self.pkg.xml(self._num_part(ds)), lambda n: st.number_style(part, n))
         s = Style(fmt or "General", protect not in ("none", ""), "hidden" in protect or "formula-hidden" in protect,
                   _color(st.prop(part, "table-cell", name, "style:text-properties", "fo:color")),
-                  _color(prop("fo:background-color")), _borders(prop))
+                  _color(prop("fo:background-color")), _borders(prop),
+                  (st.prop(part, "table-cell", name, "style:text-properties", "style:text-line-through-style") or "none") != "none")
         idx = len(self.styles)
         self.styles.append(s)
         self.style_names.append(name)
@@ -542,6 +543,11 @@ class OdsWorkbook:
         vt = el.get("office:value-type")
         cvt = el.get("calcext:value-type")
         text = cell_text(el, self.data)
+        if any(k.tag == _T + "ruby" for k in el.iter()):
+            # ルビのあるセル：読みを共有文字列のふりがなと同じ形で控える（xlsx/fontfacts.py の furigana）
+            n = len(self.phonetic)
+            self.phonetic[n] = cell_text(el, self.data, reading=True)
+            self.cell_sst[(sh.name, r, c)] = n
         has_text = any(k.tag in (_T + "p", _T + "h") for k in el.els())
         self._cell_links(sh, el, r, c)
         if vt in ("float", "percentage", "currency"):

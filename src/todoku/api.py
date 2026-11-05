@@ -2394,6 +2394,11 @@ def calculate(path: str, values: dict, password: str | None = None, cells: list 
     if r["not_computed"]:
         lines.append(f"計算し直せなかった所 {len(r['not_computed'])} か所（Excel で開いたときに計算されます）："
                      + "、".join(x["cell"] for x in r["not_computed"][:10]))
+    order = [f"{sh.get('name')}!{x['cell']}" for sh in (doc.get("sheets") or [] if isinstance(doc, dict) else []) for x in sh.get("text_order_lookups") or []]
+    if order:
+        r["text_order_lookups"] = order
+        lines.append(f"文字の並び順で結果が変わる数式が {len(order)} か所あります（{'、'.join(order[:6])}{' ほか' if len(order) > 6 else ''}）："
+                     "この試算の値は、Excel の環境（OS・言語）によっては別の値になります")
     r["say_to_user"] = "\n".join(lines)
     return r
 

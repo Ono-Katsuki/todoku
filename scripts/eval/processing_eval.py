@@ -34,7 +34,9 @@ def summarize(recs: list[dict]) -> dict:
     return {"docs": len(recs), "failed": [{"path": r["path"], "why": r["todoku"].get("error")} for r in recs if r.get("todoku", {}).get("error")],
             "docs_with_formulas": len(with_f), "formula_cells": sum(r["todoku"].get("formula_cells") or 0 for r in with_f),
             "xml_formula_cells": sum(r.get("baseline", {}).get("xml_formula_cells") or 0 for r in with_f),
-            "stored_compared": stored_c, "stored_match": stored_m, "rules": rules, "rules_proven": proven, "rule_status": dict(status),
+            "stored_compared": stored_c, "stored_match": stored_m, "rules": rules, "rules_proven": proven,
+            "explanation_rules_checked": sum((r["todoku"].get("explanation_check") or {}).get("checked") or 0 for r in with_f),
+            "explanation_rules_failed": sum((r["todoku"].get("explanation_check") or {}).get("failed") or 0 for r in with_f), "rule_status": dict(status),
             "unknown_functions": dict(unknown), "docs_reporting_unknown": sum(1 for r in with_f if r["todoku"].get("unknown_functions")),
             "not_proven_why": why.most_common(10), "explain_ok": sum(1 for r in with_f if r["todoku"].get("explain_ok")),
             "baseline_formula_text_cells": sum(r.get("baseline", {}).get("openpyxl_formula_text_cells") or 0 for r in with_f)}
@@ -46,6 +48,7 @@ def markdown(s: dict, label: str) -> str:
             ["計算して保存された値と合う", pct(s["stored_match"], s["stored_compared"], 2), "計算しない"],
             ["規則（同じ形をまとめたもの）", f"{s['rules']:,}", "まとめない"],
             ["確かめられた規則（proven）", pct(s["rules_proven"], s["rules"]), "—"],
+            ["説明の字が数式と合わない規則（text・a1・reads を解析し直して比べる）", f"{s['explanation_rules_failed']} / {s['explanation_rules_checked']}", "—"],
             ["計算できない関数を言った書類", f"{s['docs_reporting_unknown']}（{', '.join(s['unknown_functions']) or 'なし'}）", "言わない（計算しないので関係しない）"],
             ["explain_calculation が動いた", f"{s['explain_ok']} / {s['docs_with_formulas']}", "—"]]
     L = [f"# 処理の取り出し（{label}）", "", md_table(["", "とどく", "比べる道具"], rows), "", f"規則の結果：{s['rule_status']}", ""]

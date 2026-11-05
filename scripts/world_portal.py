@@ -6,21 +6,24 @@ world/sample.jsonl（標本）・world/results.jsonl（測った結果）。結�
 - 層（国 × 形式の群）の中の割合は、選ばれる確率の逆数で重みを付けた比の推定。分散は、索引のブロック（集落）ごとに
   まとめた線形化の推定（同じブロックの書類は似ているため）。
 - 国の値は、層の大きさ（枠の推定の数）で重みを付けて合わせる（層別の推定。分散は層ごとの和）。区間は、分散から出した
-  有効な標本の大きさのウィルソン区間（Korn & Graubard 1998）。
+  有効な標本の大きさ（デザインの自由度で直したもの）に当てた Clopper-Pearson の区間（Korn & Graubard 1998）。
+  計算は scripts/eval/common.py の stratified_estimate（最終の評価の数と同じ関数）。
 使い方: PYTHONPATH=src .venv/bin/python scripts/world_portal.py
 """
 
 from __future__ import annotations
 
 import json
-import math
+import sys
 import urllib.parse
 from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent / "eval"))
+from common import stratified_estimate  # noqa: E402
+
 W = ROOT / "world"
-Z = 1.959964
 FIRST_PASS = 20  # 1回目に測る標本の順番（world_survey.py の --rank）
 
 POP = json.loads((W / "population.json").read_text(encoding="utf-8"))["countries"]
@@ -47,20 +50,10 @@ def form_class(r: dict) -> str:
     return "none"
 
 
-def wilson(k: float, n: float) -> list:
-    if not n:
-        return [None, None]
-    p = k / n
-    d = 1 + Z * Z / n
-    c = (p + Z * Z / (2 * n)) / d
-    h = Z * math.sqrt(max(p * (1 - p) / n + Z * Z / (4 * n * n), 0)) / d
-    return [round(max(0, c - h), 4), round(min(1, c + h), 4)]
-
-
-def ratio(rows: list[tuple[float, str, int]]) -> tuple[float | None, float, int]:
-    """rows：(重み, 集落, 当たり 0/1)。重み付きの割合・集落でまとめた線形化の分散・件数。"""
+def ratio(rows: list[tuple[float, str, int]]) -> tuple[float | None, float, int, int]:
+    """rows：(重み, 集落, 当たり 0/1)。重み付きの割合・集落でまとめた線形化の分散・件数・集落の数。"""
     if not rows:
-        return None, 0.0, 0
+        return None, 0.0, 0, 0
     sw = sum(w for w, _c, _y in rows)
     p = sum(w * y for w, _c, y in rows) / sw
     by = defaultdict(float)
@@ -68,22 +61,15 @@ def ratio(rows: list[tuple[float, str, int]]) -> tuple[float | None, float, int]
         by[c] += w * (y - p)
     k = len(by)
     var = (k / (k - 1)) * sum(v * v for v in by.values()) / (sw * sw) if k > 1 else 0.0
-    return p, var, len(rows)
+    return p, var, len(rows), k
 
 
-def combine(cells: list[tuple[float, float | None, float, int]]) -> dict:
-    """cells：(層の大きさ N, 割合 p, 分散 v, 件数 n)。層別の推定と、有効な標本の大きさのウィルソン区間。"""
-    cells = [c for c in cells if c[3] > 0 and c[0] > 0]
-    tot = sum(c[0] for c in cells)
-    if not tot:
+def combine(cells: list[tuple[float, float | None, float, int, int]]) -> dict:
+    """cells：(層の大きさ N, 割合 p, 分散 v, 件数 n, 集落の数 k)。層別の推定と Korn & Graubard の区間（Clopper-Pearson）。"""
+    e = stratified_estimate(cells)
+    if e is None:
         return {"p": None, "ci": [None, None], "n": 0}
-    p = sum(N / tot * pp for N, pp, _v, _n in cells)
-    var = sum((N / tot) ** 2 * v for N, _p, v, _n in cells)
-    # 正規近似のままだと、どの層も 0% か 100% のとき分散が 0 になり、区間の幅が 0 になる（Korn & Graubard 1998）
-    n_all = sum(c[3] for c in cells)
-    n_eff = min(p * (1 - p) / var, n_all) if var > 0 else n_all
-    lo, hi = wilson(p * n_eff, n_eff)
-    return {"p": round(p, 4), "ci": [lo, hi], "n": n_all}
+    return {"p": round(e["p"], 4), "ci": [round(x, 4) for x in e["ci"]], "n": e["n"]}
 
 
 def _ungraded_why(r: dict) -> str:
@@ -149,8 +135,8 @@ def main() -> int:
                 "write_ok": ratio([(wt(r), str(r["block"]), int(r["write"] in ("A", "B"))) for r in graded]),
                 "forms_writable": ratio([(wt(r), str(r["block"]), int(r["write"] in "AB")) for r in forms]),
             }
-            for k, (p, v, n) in est.items():
-                cells[k].append((N, p, v, n))
+            for k, tup in est.items():
+                cells[k].append((N, *tup))
             g = fams.setdefault(fam, {"frame": 0, "exact": True, "pool": 0, "planned": 0, "sampled": 0, "reached": 0,
                                       "graded": 0, "forms": 0, "live": 0, "truncated": 0, "read": Counter(), "write": Counter(),
                                       "outcomes": Counter()})

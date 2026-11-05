@@ -97,11 +97,13 @@ def probe_xlsx(p: str) -> dict:
     if "xl/sharedStrings.xml" in names:
         for si in ET.fromstring(z.read("xl/sharedStrings.xml")).findall(M + "si"):
             ss.append(text_no_rph(si))
-            ss_ph.append("".join((t.text or "") for ph in si.findall(M + "rPh") for t in ph.findall(M + "t")))
+            ss_ph.append("\x01".join((t.text or "") for ph in si.findall(M + "rPh") for t in ph.findall(M + "t")))
             strike, color = False, False
             for r in si.findall(M + "r"):
                 pr = r.find(M + "rPr")
-                if pr is not None:
+                run_t = r.find(M + "t")
+                # 字のない字の並び（改行だけなど）の書式は、画面に出ないので数えない
+                if pr is not None and run_t is not None and (run_t.text or "").strip():
                     st = pr.find(M + "strike")
                     strike = strike or (st is not None and st.get("val", "1") not in ("0", "false"))
                     color = color or _color_ok(pr.find(M + "color"))
@@ -226,8 +228,10 @@ def probe_docx(p: str) -> dict:
                 t = "".join((x.text or "") for x in pp.iter(W + "t"))
                 if t.strip():
                     textbox.append(t)
+        tb_t = {id(x) for tb in root.iter(W + "txbxContent") for x in tb.iter(W + "t")}
         for pp in root.iter(W + "p"):
-            own = "".join((x.text or "") for x in pp.iter(W + "t"))
+            # 段落の字：図形を留めた段落の中のテキストボックスの字は、テキストボックスの段落として別に数える（2 度数えない）
+            own = "".join((x.text or "") for x in pp.iter(W + "t") if id(x) not in tb_t)
             if own.strip() and id(pp) not in in_tb:
                 paras.append(own)
         for r in root.iter(W + "r"):
