@@ -790,6 +790,9 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         if res.denied:
             # 作り手の権限の設定が許していない書き込み（断らずに書き、本人に伝える：pdf/fill.py の _permissions）
             result["permissions_denied"] = list(res.denied)
+        if res.redraw_cut:
+            # /V から描き直す表示（Mac のプレビュー・iPhone など）で字の終わりが欠ける欄：違う値に見えるので、事実として返す
+            result["viewers_differ"] = list(res.redraw_cut)
         # 字を組み立てて（シェーピング）描いた欄：証明は、とどく自身の組み立てと照らすだけで、見た目そのものは確かめていない。
         # 書く段階 B として、エージェントに書いた欄の画像を確かめてもらう
         from .pdf.glyphs import shaped as _shaped
@@ -1813,6 +1816,17 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         same = len({place(f) for f in nxt[:10]}) == 1
         head = f"続きの空欄（{place(nxt[0]).rstrip('・')}）：" if same and place(nxt[0]) else "続きの空欄："
         lines.append(head + "、".join(name(f) if same else f"{place(f)}{name(f)}" for f in nxt[:10]) + ("ほか" if len(nxt) > 10 else ""))
+    # 今回書いていないのに値の入っている欄（様式の既定の選択・前の書き込みの値）：本人の答えかのように見えるので、事実として伝える
+    present = [f for f in after_list if not covered(f) and not f.get("readonly") and not f.get("agent")
+               and f.get("kind") not in ("button", "picture", "range") and f.get("value") not in (None, "", False, "Off")]
+    if present:
+        def shown_present(f: dict) -> str:
+            v = "☑" if f["value"] is True else _say_value(f["value"])
+            return f"{place(f)}{name(dict(f, value=v))}：{v}"
+
+        result["values_not_written_now"] = [{"id": f["id"], "label": f.get("label", ""), "value": f["value"]} for f in present[:50]]
+        lines.append(f"今回は書いていないのに値の入っている欄：{len(present)} か所（様式にもとからある既定の値か、前の書き込みの値。"
+                     "本人の答えとして確かめてください）：" + "、".join(shown_present(f) for f in present[:15]) + ("ほか" if len(present) > 15 else ""))
     if ranges:
         lines.append("ほかに、空のセルをまとめて示している範囲の所 " + "、".join(f"{f['id']}（{f['count']:,} 個）" for f in ranges[:5])
                      + (f" など {len(ranges)} か所" if len(ranges) > 5 else "") + "（list_fields に sheet と rows を渡すと、1 マスずつの欄で返します）")

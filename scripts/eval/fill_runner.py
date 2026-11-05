@@ -193,7 +193,11 @@ def fill_one(form: str, a, base: Path, schema: dict, applicant: str) -> dict:
             fills = [c for c in calls if c.get("tool") == "fill_document"]
             written = [c for c in fills if not c.get("is_error") and str(c.get("out_path")) == str(out_path)]
             last = written[-1] if written else {}
-            atomic_json(review_dir / "written.json", {"values": last.get("values"), "say_to_user": last.get("say_to_user"), "warnings": last.get("warnings"), "written_rects": last.get("written_rects")})
+            # 同じ出力へ何度か書いたとき：値は全部の書き込みを合わせる（確かめ役が、最後の 1 回だけと照らさないように）
+            merged = {}
+            for c in written:
+                merged.update(c.get("values") or {})
+            atomic_json(review_dir / "written.json", {"values": merged or last.get("values"), "say_to_user": last.get("say_to_user"), "warnings": last.get("warnings"), "written_rects": last.get("written_rects")})
             if (review_dir / "pages.json").exists():
                 prompt = (HERE / "review_prompt.md").read_text(encoding="utf-8").format(REVIEW_DIR=review_dir, REVIEW_PATH=review_path, APPLICANT=applicant,
                                                                                          SCHEMA=json.dumps(schema["review"], ensure_ascii=False, indent=1))
