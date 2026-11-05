@@ -15,7 +15,8 @@
         (d) 字の墨が、欄の四角（見た目のフォームの切り抜き）かページの外に出る（出た所は描かれず、字が欠ける）
 - 知らせる（warnings）：字の面（circle.face）に少しかかる・罫線に触れる／横切る（○の線も）・曲線（「見本」の印など）に
   かかる・画像（スキャン）に重なる（画像に描かれた罫線・字は確かめられない）
-（覆って書く所（cover）は、覆う字に重なってよい）
+（覆って書く所（cover）は、覆う字に重なってよい。線の代わりに印刷された字（下線の字・基線の点線。PageLayout.line_glyphs）は書く場所で、
+上に書いても字を隠さないので、どちらも見ない）
 作り手の決めたフォームの欄（AcroForm）の中の字は、欄の位置を作り手が決めたので、(a)・(b) は見ない。
 """
 
@@ -291,13 +292,15 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
             placed = it[1] != "text" or it[3]  # とどくが置いたもの（作り手の欄の中の字は、(a)・(b) を見ない）
             if placed:
                 if it[1] == "text" and name not in covers:
-                    clear = next(((c, b) for b in it[2] for c in lay.chars if not c.text.isspace()
-                                  and _ovl_ratio(b, _circle.face(c, _circle.INK)) >= CLEAR), None)
+                    # 線の代わりに印刷された字（下線の字・点線）は書く場所：上に書いても字を隠さない
+                    lines = lay.line_glyphs()
+                    printed = [c for c in lay.chars if not c.text.isspace() and id(c) not in lines]
+                    clear = next(((c, b) for b in it[2] for c in printed
+                                  if _ovl_ratio(b, _circle.face(c, _circle.INK)) >= CLEAR), None)
                     if clear is not None:
                         problems.append(f"{name}：書いた字が、印刷された字「{clear[0].text}」の上に重なります（{where(clear[1])}）")
                     else:
-                        hit = next(((c, b) for b in it[2] for c in lay.chars if not c.text.isspace()
-                                    and _overlap(b, _circle.face(c))), None)
+                        hit = next(((c, b) for b in it[2] for c in printed if _overlap(b, _circle.face(c))), None)
                         if hit is not None:
                             notes.append(f"{name}：書いた字が、印刷された字「{hit[0].text}」の縁に少しかかる見込みです"
                                          f"（{where(hit[1])}）。view_page で見て確かめてください")

@@ -305,7 +305,7 @@ def box_base_size(view) -> float:
 
 def _resolve_box(doc, spec: dict, used, layouts, taken_names) -> dict:
     """{"page": ページ, "box": [左, 上, 右, 下]（ページの左上からの mm）, "value": 書く字}：エージェントがページの画像
-    （view_page）を見て決めた枠に書く。枠の中にページの字があれば断る（字は消せない）。"""
+    （view_page）を見て決めた枠に書く。枠の中にページの字があれば断る（字は消せない。線の代わりの字は別）。"""
     from .layout import View
 
     pages = doc.pages()
@@ -326,7 +326,9 @@ def _resolve_box(doc, spec: dict, used, layouts, taken_names) -> dict:
     if n not in layouts:
         layouts[n] = PageLayout(doc, pages[n - 1], page_content(doc, pages[n - 1]), n)
     lay = layouts[n]
-    inside = [c for c in lay.chars if not c.text.isspace() and x0 < (c.x0 + c.x1) / 2 < x1 and y0 < (c.y0 + c.y1) / 2 < y1]
+    lines = lay.line_glyphs()  # 線の代わりに印刷された字（下線の字・点線）は書く場所で、上に書いても字を隠さない
+    inside = [c for c in lay.chars if not c.text.isspace() and id(c) not in lines
+              and x0 < (c.x0 + c.x1) / 2 < x1 and y0 < (c.y0 + c.y1) / 2 < y1]
     if inside:
         raise AnchorError(f"枠の中に、ページの字（「{''.join(c.text for c in inside[:6])}」）があります")
     sz = min(box_base_size(view), (y1 - y0) * 0.75)

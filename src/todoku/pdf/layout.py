@@ -277,6 +277,35 @@ def place_id(page: int, sp: "Spot", mm: float) -> str:
 
 
 class PageLayout:
+    def line_glyphs(self) -> set[int]:
+        """線の代わりに印刷された字（id）：下線の字・基線の点線の字が、同じ行で続く並び（1 字ぶん以上の幅。点線は 2 字以上。
+        1 字だけの点は句読点）。基線か基線の下に描かれ、上に書く字を隠さないので、書く場所になる（重なりとして断らない）。"""
+        cached = getattr(self, "_line_glyphs", None)
+        if cached is not None:
+            return cached
+        out: set[int] = set()
+        low = [c for c in self.chars if c.text and not c.vertical and all(_chars.is_low_line_char(ch) for ch in c.text)]
+        low.sort(key=lambda c: (round(c.y0, 1), c.x0))
+        run: list = []
+
+        def flush() -> None:
+            if not run:
+                return
+            wide = run[-1].x1 - run[0].x0 >= (EM_SPACE - EM_ROUND) * run[0].size
+            connector = any(_chars.is_connector(ch) for ch in run[0].text)
+            if wide and (connector or sum(len(c.text) for c in run) >= DASH_MIN):
+                out.update(id(c) for c in run)
+
+        for c in low:
+            if run and abs(c.y0 - run[-1].y0) < 0.5 and c.x0 - run[-1].x1 < 0.5 * c.size:
+                run.append(c)
+            else:
+                flush()
+                run = [c]
+        flush()
+        self._line_glyphs = out
+        return out
+
     def __init__(self, doc, page: dict, pc: PageContent, number: int, widgets=None):
         self.doc = doc
         self.page = page

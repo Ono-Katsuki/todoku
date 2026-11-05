@@ -86,6 +86,20 @@ CERTAIN_EMPTY_BOXES: frozenset[str] = frozenset()
 BULLET_LIKE_BOXES = EMPTY_BOXES
 
 
+def _low_leader(ch: str) -> bool:
+    """点線の字のうち、基線の高さに描かれる字か（Unicode の名前：MIDDLE・MIDLINE は字の高さの中ほど、VERTICAL・PRESENTATION は縦書き用）。"""
+    name = unicodedata.name(ch, "")
+    return not any(w in name for w in ("MIDDLE", "MIDLINE", "VERTICAL", "PRESENTATION", "MONGOLIAN"))
+
+
+LOW_LEADERS = frozenset(ch for ch in LEADERS if _low_leader(ch))
+
+
+def is_low_line_char(ch: str) -> bool:
+    """線の代わりに印刷する字で、基線か基線の下に描かれる字か：下線の字（Pc）と基線の点線の字。上に書く字を隠さない形の事実。"""
+    return is_connector(ch) or ch in LOW_LEADERS
+
+
 def is_bullet_like_box(ch: str) -> bool:
     """印のない箱の字か（どれも箇条・見出しの印のこともある：規則のチェックの欄にせず「？」にする字）。"""
     return ch in EMPTY_BOXES
