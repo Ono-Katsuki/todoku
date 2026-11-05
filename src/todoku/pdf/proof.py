@@ -757,6 +757,8 @@ def _check_change(a, b, num, old, cur, pr: PdfProof) -> str | None:
         return None
     if "FT" in old or getattr(old.get("Subtype"), "name", "") == "Widget" or "Kids" in old and "T" in old:
         bad = diff - ALLOWED_FIELD_KEYS
+        if "Rect" in bad and _rect_only_widened(a, old, cur):
+            bad = bad - {"Rect"}  # 見えない四角を横に広げただけ（fill._widen_for_redraw）
         if bad:
             pr.unexpected.append(f"欄（オブジェクト {num}）の {sorted(bad)} が変わっています")
         from .objects import decode_text
@@ -785,6 +787,21 @@ def _check_change(a, b, num, old, cur, pr: PdfProof) -> str | None:
         return None
     pr.unexpected.append(f"オブジェクト {num} の {sorted(diff)} が変わっています")
     return None
+
+
+def _rect_only_widened(a: PdfDocument, old: dict, cur: dict) -> bool:
+    """欄の四角の違いが、枠も下地もない部品を横に広げただけか（上下は同じで、元の四角を含む）。"""
+    ro, rc = a.resolve(old.get("Rect")), cur.get("Rect")
+    if not (isinstance(ro, list) and isinstance(rc, list) and len(ro) == 4 and len(rc) == 4):
+        return False
+    if not all(isinstance(a.resolve(v), (int, float)) for v in ro) or not all(isinstance(v, (int, float)) for v in rc):
+        return False
+    ro = [a.resolve(v) for v in ro]
+    mk = a.resolve(old.get("MK"))
+    if isinstance(mk, dict) and any(a.resolve(mk.get(k)) for k in ("BC", "BG", "R")):
+        return False
+    return (ro[1] == rc[1] and ro[3] == rc[3] and min(rc[0], rc[2]) <= min(ro[0], ro[2]) + 1e-3
+            and max(rc[0], rc[2]) >= max(ro[0], ro[2]) - 1e-3)
 
 
 def _drawn_nums(b: PdfDocument) -> set[int]:

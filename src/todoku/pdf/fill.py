@@ -54,6 +54,8 @@ class FillResult:
     # 作り手の権限の設定（暗号の辞書の P）が許していないのに行った書き込み：[{"op": 操作の名前, "what": 説明}]（_permissions）
     denied: list[dict] = field(default_factory=list)
     structure: list = field(default_factory=list)  # 構造の木に足した所（structadd.Placed）：読み手にどこで読まれるかの事実
+    # /V から描き直す表示（PDFKit）で字の終わりが欠ける欄（広げられなかったもの）：[{"id", "value", "width_mm", "needs_mm"}]
+    redraw_cut: list = field(default_factory=list)
 
 
 # ====================================================================== 増分更新
@@ -554,6 +556,8 @@ class Filler:
         self.layouts: dict = {}  # ページの字の並び（チェックの印の左右の字）
         self.structure: list = []  # 構造の木に足した所（structadd.Placed）
         self.struct_why: list[str] = []  # 構造の木に足せなかった理由
+        self.redraw_cut: list[dict] = []  # 描き直す表示で字の終わりが欠ける欄（広げられなかったもの）
+        self.widened: dict[int, tuple] = {}  # 四角を広げた部品の番号 → (元の幅, 広げた幅)
 
     # ------------------------------------------------------------------ 共通の資源
     def font(self, key: str) -> Ref:
@@ -734,11 +738,22 @@ class Filler:
             if shown and not multiline and not (f.flags & FF_COMB) and pagedraw.widget_drawn(self.doc, wd) is None:
                 # 作り手の欄（字の見た目を使わないビューアーでも欠けないように）：入らない字は小さくし、自動の大きさは決まった大きさに
                 size, pinned = _fit_redrawn(shown, size, vw, vh, _da_auto(da), unit)
-                if pdfkit_needs(shown, size, "" if all(ord(c) < 0x80 for c in shown) else "J") > vw:
-                    msg = (f"{f.name}: この欄は狭く、読める大きさでは Mac のプレビューや iPhone などの標準の表示（欄の見た目を使わず描き直す）で"
-                           "字の終わりが欠けて見えることがあります（ファイルの中の値は正しい）。短く書けないか確かめてください")
+                try:
+                    size = layout_text(shown, vw, vh, size, _q_center(f.q), False, unit)[1]  # 見た目に描く大きさ
+                except FillError:
+                    pass  # 入らないことは text_appearance が断る
+                font = "" if all(ord(c) < 0x80 for c in shown) else "J"
+                needs = pdfkit_needs(shown, size, font)
+                if needs > vw and not self._widen_for_redraw(f, w, wd, rot, needs, shown):
+                    self.redraw_cut.append({"id": f.name, "value": shown, "width_mm": round(vw * unit * 25.4 / 72, 1),
+                                            "needs_mm": round(needs * unit * 25.4 / 72, 1)})
+                    msg = (f"{f.name}: この欄は幅 {vw * unit * 25.4 / 72:.1f} mm で、Mac のプレビューや iPhone などの標準の表示（欄の見た目を使わず"
+                           f"描き直す）には {needs * unit * 25.4 / 72:.1f} mm 要ります。そこでは「{shown}」の終わりが欠けて、違う値に見えます"
+                           "（ファイルの中の値は正しい）。短く書けないか確かめ、書けなければ本人に伝えてください")
                     if msg not in self.warnings:
                         self.warnings.append(msg)
+                x0, y0, x1, y1 = self._rect_of(w, wd)
+                vw, vh = _view_box(rot, x1 - x0, y1 - y0)
             if f.flags & FF_COMB and f.maxlen:
                 cw = vw / f.maxlen
                 # 使うマスは書く字の分だけ（/MaxLen の宣言の数だけ作らない。超える字は text_appearance が断る）
@@ -763,6 +778,48 @@ class Filler:
         p = Patch(f.name, "input", text)
         p.shown = shown
         self.patches.append(p)
+
+    @staticmethod
+    def _rect_of(w, wd: dict):
+        """部品の四角（書く途中で広げたら、広げた後のもの）。"""
+        r = wd.get("Rect")
+        if isinstance(r, list) and len(r) == 4 and all(isinstance(v, (int, float)) for v in r):
+            return min(r[0], r[2]), min(r[1], r[3]), max(r[0], r[2]), max(r[1], r[3])
+        return w.rect
+
+    def _widen_for_redraw(self, f: FormField, w, wd: dict, rot: int, needs: float, shown: str) -> bool:
+        """/AP を使わず /V から描き直す表示（PDFKit）は、幅が足りないと字の終わりを描かない。見えない四角（枠も下地もない部品）なら、
+        字の置かれる位置を変えず、横の空いている方へ四角だけを広げて、どの表示でも字が全部出るようにする。
+        広げられるのは：回していない 1 行の欄で、ほかの部品に重ならず、ページの内側に収まるとき。広げた事実は warnings で伝える。"""
+        mk = self.doc.resolve(wd.get("MK"))
+        if rot or (isinstance(mk, dict) and any(self.doc.resolve(mk.get(k)) for k in ("BC", "BG"))):
+            return False
+        x0, y0, x1, y1 = w.rect
+        grow = needs - (x1 - x0) + 0.01
+        if f.q == 1:
+            nx0, nx1 = x0 - grow / 2, x1 + grow / 2
+        elif f.q == 2:
+            nx0, nx1 = x0 - grow, x1
+        else:
+            nx0, nx1 = x0, x1 + grow
+        pg = getattr(w, "page", None)
+        if not (isinstance(pg, int) and 0 <= pg < len(self.pages)):
+            return False
+        mb = [self.doc.resolve(v) for v in (self.doc.resolve(self.pages[pg].get("CropBox") or self.pages[pg].get("MediaBox")) or [])]
+        if len(mb) == 4 and all(isinstance(v, (int, float)) for v in mb) and (nx0 < min(mb[0], mb[2]) or nx1 > max(mb[0], mb[2])):
+            return False
+        for other in self.fields:
+            for ow in other.widgets:
+                if ow is w or getattr(ow, "page", None) != pg or not ow.rect:
+                    continue
+                a0, b0, a1, b1 = ow.rect
+                if nx0 < a1 and a0 < nx1 and y0 < b1 and b0 < y1:
+                    return False
+        wd["Rect"] = [round(nx0, 3), y0, round(nx1, 3), y1]
+        self.widened[w.ref.num if w.ref is not None else f.ref.num] = (round(x1 - x0, 3), round(nx1 - nx0, 3))
+        self.warnings.append(f"{f.name}: 欄の四角（字の見えない部分）を横に {grow * 25.4 / 72:.1f} mm 広げました。「{shown}」の位置は変わらず、"
+                             "見た目を使わず描き直す表示（Mac のプレビュー・iPhone など）でも字が欠けないようにするためです")
+        return True
 
     def _set_choice(self, f: FormField, fd: dict, value, js: dict, display, allow_hidden: bool, hidden_ok: bool) -> None:
         """一覧から選ぶ欄（コンボ・リスト）：値（/V）・選んだ番号（/I、ISO 32000-1 12.7.4.4）・見た目を合わせて書く。
@@ -891,10 +948,14 @@ class Filler:
             wd["DA"] = PdfString(f"/{cjk} {'0' if auto else _pt(s)} Tf 0 g".encode())
             fd["DA"] = wd["DA"]
             return
-        if not drawn or auto or ((orig is None or abs(orig - s) < 0.005) and not fixed):
+        if not drawn:
             return
-        new = _da_resize(da, s)
-        if new is not None:
+        # 見た目を作り直すビューアーは /DA の書体で値を描く。元の書体が埋め込まれていない・部分集合で字の割り当てが違うと、
+        # 値は正しいのに別の字や×の四角に見える（とどくが描いた字とも違う）。描いた書体（Helvetica）に合わせる（色はそのまま）
+        new = _da_refont(da, "Helv")
+        if not (auto or ((orig is None or abs(orig - s) < 0.005) and not fixed)):
+            new = _da_resize(new or da, s)
+        if new is not None and new != da:
             wd["DA"] = PdfString(new.encode("latin-1"))
 
     def _widget_rot(self, wd) -> int:
@@ -1363,6 +1424,8 @@ QUARTZ_NOTE = ("この PDF は電子署名か権限の設定があるので、�
 # 字の幅 × 1.2 ＋ 4（横の余白）。入らないと語の切れ目で折り返し、2 行目は描かれない。tests/audit_findings/pdfkit/ladder.py で測った、
 # 字と大きさを変えた欄のどれも、この幅なら欠けない値（書類の集まりで合わせた値ではない）
 REDRAW_SCALE, REDRAW_PAD = 1.2, 4.0
+# 短い値は、比より決まった余白で欠ける：「01」は 6.5pt でも 9pt でも、字の幅 ＋ 7pt の欄で初めて 2 字とも出た。同じ所で測った、短い値の下限
+REDRAW_MIN_ROOM = 8.0
 REDRAW_AUTO_HEIGHT = 0.8  # 自動の大きさ（/DA の 0）で PDFKit が選ぶ字の大きさの、欄の高さに対する比（同じ所で測った）
 
 
@@ -1372,7 +1435,11 @@ def pdfkit_needs(text: str, size: float, da_font: str = "") -> float:
         w = text_width(text, size) if all(ord(c) < 0x80 for c in text) and da_font in ("", "Helv") else len(text) * size
     except FillError:
         w = len(text) * size
-    return w * REDRAW_SCALE + REDRAW_PAD
+    return max(w * REDRAW_SCALE + REDRAW_PAD, w + REDRAW_MIN_ROOM)
+
+
+def _q_center(q) -> bool:
+    return q == 1
 
 
 def _da_auto(da: str) -> bool:
@@ -1425,6 +1492,14 @@ def _da_size(da: str) -> float | None:
 def _pt(s: float) -> str:
     """字の大きさを /DA に書く形に（10.0 → 10、7.5 → 7.5）。"""
     return f"{round(s, 2):g}"
+
+
+def _da_refont(da: str, key: str) -> str | None:
+    """/DA の書体の名前（Tf の命令の名前）だけを key にした指定。Tf の命令がなければ None。"""
+    m = re.search(r"/[^\s/\[\]<>()]+(\s+[\d.]+\s+Tf)", da or "")
+    if not m:
+        return None
+    return da[:m.start()] + f"/{key}" + m[1] + da[m.end():]
 
 
 def _da_resize(da: str, s: float) -> str | None:
@@ -1626,7 +1701,7 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
         if probs:
             raise FillError("書いた所が、ほかの字や線に重なるので、書き出していません：\n" + "\n".join(probs[:12]))
         f.warnings += [x for x in notes if x not in f.warnings]
-    return FillResult(blob, f.patches, f.warnings, denied=denied, structure=f.structure)
+    return FillResult(blob, f.patches, f.warnings, denied=denied, structure=f.structure, redraw_cut=f.redraw_cut)
 
 
 def _natural_size(spot: dict, text: str, unit: float) -> float | None:
@@ -1992,7 +2067,7 @@ def _fill_xfa(f: Filler, xf, values: dict, force: bool) -> None:
         x = xf.by_id[key]
         acro = f.by_name.get(key)
         if acro is not None and acro.kind not in ("button", "signature"):
-            # 静的なフォーム：PDF の欄の値（決まった形）と見た目（書式で整えた字）も同じにする
+            # 静的なフォーム：PDF の欄の値と見た目（書式で整えた字）も同じにする
             if x.kind == "checkbox":
                 val, disp = bool(shown), None
             elif x.kind == "radio":
@@ -2004,6 +2079,10 @@ def _fill_xfa(f: Filler, xf, values: dict, force: bool) -> None:
                 if x.kind == "radio" and not raw:
                     _radio_off(f, acro)
                 else:
+                    # 欄の値（/V）：XFA を読まず /V から描き直す表示（PDFKit）に、書式どおりの字が出るよう、文字の欄は見せる字を入れる。
+                    # 決まった形の値は XFA のデータに残る（XFA を読むソフトは、そちらを使う）
+                    if acro.kind == "text" and disp and not (acro.maxlen and len(disp) > acro.maxlen):
+                        val = disp
                     f.set_field(acro, val, True, display=disp, calc=True)
                     f.patches.pop()
             except FillError as e:

@@ -331,7 +331,9 @@ def test_static_form_writes_data_and_pdf_field():
     assert pr.ok, pr.unexpected
     after = PdfDocument(res.blob)
     acro_v = {f.name: f.value_text() for f in read_fields(after)}
-    assert acro_v[ID + "LastName[0]"] == "Ito" and acro_v[ID + "Birth[0]"] == "1990-04-01"
+    assert acro_v[ID + "LastName[0]"] == "Ito"
+    # /V は見せる字（XFA を読まず /V から描き直す表示にも、書式どおりの字が出る）。決まった形の値は XFA のデータに
+    assert acro_v[ID + "Birth[0]"] == "04/01/1990"
     birth = next(f for f in read_fields(after) if f.name == ID + "Birth[0]")
     ap = after.resolve(after.resolve(after.resolve(birth.widgets[0].ref)["AP"])["N"])
     assert b"04/01/1990".hex().upper().encode() in after.decode(ap)  # 見た目は、XFA の見た目の書式で整えた字
