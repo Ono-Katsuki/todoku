@@ -90,3 +90,15 @@ def test_bad_specs_are_refused(tmp_path, spec, word):
     with pytest.raises(api.ApiError) as e:
         api.fill(str(src), {"@m1": spec}, str(tmp_path / "b.xlsx"), overwrite=True)
     assert word in str(e.value)
+
+
+def test_checkbox_caption_is_in_the_reading_order():
+    from types import SimpleNamespace
+
+    from todoku.xlsx.window import Box, Layout
+
+    lay = Layout.__new__(Layout)
+    ctl = SimpleNamespace(text="A.\\r\\n   Nombre comercial".replace("\\r\\n", "\r\n"), link_cell=None, link=None, name="Check Box 1")
+    b = Box(1, 1, 1, 1, "check", None, "☐", ctl)
+    assert lay._token(b).endswith("A. Nombre comercial") and lay._token(b).startswith("☐［")
+    assert "Nombre" not in lay._token(Box(1, 1, 1, 1, "check", None, "☐", SimpleNamespace(text="", link_cell=None, link=None, name="C")))

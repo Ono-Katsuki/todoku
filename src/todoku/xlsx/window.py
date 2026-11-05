@@ -2100,7 +2100,9 @@ class Layout:
         if b.kind == "formula":
             return f"〈{b.cell_ref}＝{b.text}〉{self.merge_mark(b)}"
         if b.kind == "check":
-            return f"{b.text}［{'▶' if mark else ''}{b.ref}］"
+            # 部品の面の字（チェックボックスの字「A. Nombre comercial」）：書類の字なので、読み順にも出す
+            cap = " ".join((getattr(b.control, "text", "") or "").split())
+            return f"{b.text}［{'▶' if mark else ''}{b.ref}］" + (cap if cap and cap not in b.text else "")
         if b.kind == "agent":
             inner = b.ref + (f"＝{b.text}" if b.text else "")
             return f"［{'▶' if mark else ''}{inner}？］"  # 規則では欄と決められない所（数式が読む値のあるマスは、その値も）
