@@ -283,3 +283,29 @@ def test_long_word_in_a_narrow_row_gets_a_rounded_outline_not_an_ellipse_over_th
     # 読み戻しは、書くときと同じ決め方で、言った字を囲むかを見る
     x0, y0, x1, y1 = c["border_pt"]
     assert x0 > 103 and x1 < 254 and y0 > 842 - 722 and y1 < 842 - 700
+
+
+def test_after_label_writes_on_the_printed_line(tmp_path):
+    """見出しのすぐ後ろが下線の字でも、見出しの右に書ける（下線の先に字があれば、そこまで）。"""
+    src, out = tmp_path / "a.pdf", tmp_path / "o.pdf"
+    src.write_bytes(_printed([(60, 700, "Name ______________________________ Age")]))
+    r = api.fill(str(src), {"@1": {"after": "Name", "value": "Hanako"}}, str(out))
+    assert r["proof_ok"] and r["read_back_ok"]
+    rect = r["written_rects"]["@1"]
+    assert rect["x"] + rect["w"] < (60 + 170) * 25.4 / 72 + 40  # 「Age」の手前まで
+    with pytest.raises(api.ApiError):  # 字の上（「Name」と「Age」が続く行）は断る
+        src.write_bytes(_printed([(60, 700, "Name Age")]))
+        api.fill(str(src), {"@1": {"after": "Name", "value": "Hanako Yamada Hanako"}}, str(tmp_path / "o2.pdf"))
+
+
+def test_circle_said_text_uses_an_embedded_font_when_needed(tmp_path):
+    """囲んだ字が標準の書体にないとき（キリル文字）：透明な字の書体の中身も書く（順序の誤りで、書体が空のまま証明で断られていた）。"""
+    from test_pdf_scripts import glyphs_pdf
+
+    word = "\u0434\u0430\u043d\u0456"
+    blob = glyphs_pdf([(ch, 100 + 8 * k, 700) for k, ch in enumerate(word)], {ch: 600 for ch in word})
+    src, out = tmp_path / "a.pdf", tmp_path / "o.pdf"
+    src.write_bytes(blob)
+    r = api.fill(str(src), {"@c1": {"circle": word, "style": "border"}}, str(out))
+    assert r["proof_ok"], r["unexpected"]
+    assert r["read_back_ok"], r["read_back_differences"]

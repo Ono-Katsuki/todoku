@@ -185,11 +185,14 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
     elif where == "right":
         x0 = ln.span_rect(i, j)[2] + 0.3 * sz
         rb = cell.x1 if cell is not None else lay.right
-        rest = re.search(r"\S", text[j:])
-        if rest:
-            rb = min(rb, ln.span_rect(j + rest.start(), j + rest.start() + 1)[0])  # 同じ行の、見出しの後ろの字
+        # 見出しの後ろの字。線の代わりに印刷された字（下線の字・点線の並び）は書く場所なので、その先の字まで
+        lines = lay.line_glyphs()
+        beyond = [c for c in ln.chars if not c.text.isspace() and id(c) not in lines and c.x0 >= ln.span_rect(i, j)[2] - 0.5]
+        if beyond:
+            rb = min(rb, min(c.x0 for c in beyond))
         for o in (cell.lines if cell is not None else lay.free_lines):
-            if o is not ln and not o.vertical and o.y0 < ln.y1 - 0.2 * sz and o.y1 > ln.y0 + 0.2 * sz and o.x0 >= x0 - 0.5:
+            if (o is not ln and not o.vertical and o.y0 < ln.y1 - 0.2 * sz and o.y1 > ln.y0 + 0.2 * sz and o.x0 >= x0 - 0.5
+                    and not all(c.text.isspace() or id(c) in lines for c in o.chars)):
                 rb = min(rb, o.x0)
         for r in lay.vs:
             if r.a - 1 <= ln.y0 and r.b + 1 >= ln.y1 and x0 <= r.pos < rb:
@@ -246,8 +249,9 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
         if rect[3] - rect[1] < 0.9 * sz or rect[2] - rect[0] < 1.5 * sz:
             raise AnchorError(f"「{after}」の下に、書く空きがありません")
     # 空いている所に、ほかの字がないこと（覆って書くときは、上で確かめた）
-    inside = [] if where == "cover" else [c for c in lay.chars if not c.text.isspace() and rect[0] < (c.x0 + c.x1) / 2 < rect[2]
-                                          and rect[1] < (c.y0 + c.y1) / 2 < rect[3]]
+    line_chars = lay.line_glyphs()  # 線の代わりに印刷された字は書く場所
+    inside = [] if where == "cover" else [c for c in lay.chars if not c.text.isspace() and id(c) not in line_chars
+                                           and rect[0] < (c.x0 + c.x1) / 2 < rect[2] and rect[1] < (c.y0 + c.y1) / 2 < rect[3]]
     if inside:
         side = {"right": "右", "before": "左", "below": "下"}[where]
         raise AnchorError(f"「{after}」の{side}の所に、ほかの字（「{''.join(c.text for c in inside[:6])}」）があります")

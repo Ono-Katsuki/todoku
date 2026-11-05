@@ -1340,11 +1340,12 @@ class Filler:
     def finish(self) -> bytes:
         doc = self.doc
         up = self.up
+        # 先にページの描画を作る：○が示す透明な字（_said_form）も埋め込む書体を使うので、書体の中身はそのあとで書く
+        if self.circles or self.drawn:
+            self._draw_page_values()
         for k in list(self.dr_fonts):
             if k == "TdkE" or k.startswith("TdkX"):
                 self._embed_font(k)
-        if self.circles or self.drawn:
-            self._draw_page_values()
         for page_no, refs in self.page_annots.items():
             pref = self.pages[page_no - 1]["_ref"]
             pd = up.get(pref)
