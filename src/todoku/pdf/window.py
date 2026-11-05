@@ -91,10 +91,11 @@ def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, ci
 
 
 def _box_glyph(sp: Spot, orig: str) -> str:
-    """チェックの印の字：印刷された記入済みの印（☑・■・✓）は、元の字のまま出す（■ は箇条の印のこともあるので、☑ に変えない）。"""
+    """チェックの印の字：印刷された字（□・❑・☑・■・✓ など）は、元の字のまま出す（窓は字を変えない。■ は箇条の印のこともあるので、☑ に
+    変えない）。字のない印（描いた四角）は、いまの状態の字。"""
     from .layout import CHECKED_GLYPHS
 
-    if orig and orig in CHECKED_GLYPHS:
+    if orig and orig.strip() and (orig in CHECKED_GLYPHS or not sp.checked):
         return orig
     return "☑" if sp.checked else "☐"
 
@@ -389,7 +390,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     for f, w, r in ws:
         if f.name in emitted or f.name in out_ids:
             continue
-        d = {"id": f.name, "page": number, "kind": f.kind, "label": f.tu or _near_label(lay, r) or f.name.split(".")[-1],
+        caption = next((w.mk_caption for w in f.widgets if w.mk_caption), "") if f.kind == "button" else ""  # ボタンの面の字（/MK の CA）
+        d = {"id": f.name, "page": number, "kind": f.kind, "label": f.tu or caption or _near_label(lay, r) or f.name.split(".")[-1],
              "name": f.name, "rect": [round(v, 1) for v in r], "provenance": DET, "source": "acroform",
              "value": f.value_text() if f.kind not in ("checkbox",) else f.checked}
         if f.tu:

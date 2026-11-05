@@ -35,7 +35,7 @@ def mark(fid: str, kind: str, covered: str) -> str:
     if kind == "checked":
         return f"{covered}［{fid}？］"
     if kind == "checkbox":
-        return f"☐［{fid}］"
+        return f"{covered or '☐'}［{fid}］"
     if kind == "placeholder":
         return f"［{fid}？＝{covered}］"
     if kind == "agent":

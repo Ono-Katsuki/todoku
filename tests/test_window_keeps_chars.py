@@ -71,3 +71,34 @@ def test_text_file_keeps_leaders(tmp_path):
     k, _d, parts = api.window(str(src))
     text = "".join(x if isinstance(x, str) else str(x) for x in parts)
     assert ".........." in text and "＿＿＿＿" in text
+
+
+def test_word_box_glyph_stays_the_printed_char():
+    win = build(DocxDocument(_docx(_p("□ はい ❑ いいえ")), "a.docx"))
+    md = to_markdown(win)
+    assert "□［" in md and "❑［" in md
+
+
+def test_word_control_shows_its_prompt_text_as_a_sample():
+    sdt = ('<w:p><w:sdt><w:sdtPr><w:alias w:val="d"/><w:showingPlcHdr/><w:date/></w:sdtPr><w:sdtContent><w:r><w:t>From</w:t></w:r></w:sdtContent></w:sdt>'
+           '<w:r><w:t xml:space="preserve"> to x</w:t></w:r></w:p>')
+    md = to_markdown(build(DocxDocument(_docx(sdt), "a.docx")))
+    assert "（見本の字「From」）" in md
+    assert "＝From" not in md  # 値としては見せない
+
+
+def test_pdf_printed_box_glyph_and_button_caption():
+    import pdfmini
+    from todoku.pdf.doc import PdfDocument
+    from todoku.pdf.window import _box_glyph, build as pbuild
+
+    class S:
+        checked = False
+
+    assert _box_glyph(S, "❑") == "❑" and _box_glyph(S, "") == "☐"
+    S.checked = True
+    assert _box_glyph(S, "☑") == "☑" and _box_glyph(S, "") == "☑" and _box_glyph(S, "□") == "☑"
+    w = "<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (R1) /Rect [100 700 160 720] /F 4 /MK << /CA (Reset) >> >>"
+    blob = pdfmini.build("", "<< >>", [w], annots="/Annots [2 0 R]", acroform="/AcroForm << /Fields [2 0 R] >>")
+    f = pbuild(PdfDocument(blob))["pages"][0]["fields"][0]
+    assert f["label"] == "Reset"

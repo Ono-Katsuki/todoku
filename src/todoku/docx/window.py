@@ -1174,7 +1174,7 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
             if it["kind"] == "checkbox" and it.get("provenance") == AGENT:
                 edits.append((a, b, f"{text[a:b]}［{name}？］"))  # チェック済みの印らしい字：元の字のまま（■ は箇条の印のことも）
             elif it["kind"] == "checkbox":
-                edits.append((a, b, f"☐［{name}］"))
+                edits.append((a, b, f"{text[a:b] or '☐'}［{name}］"))  # 箱の字は元の字のまま
             elif it.get("provenance") == AGENT:
                 # 所の元の字（空白・点線など）を、そのまま印の中に入れる（「［P1.1？　］」：全角の空白 1 つの空き。shown_gap）
                 edits.append((a, b, f"［{name}？＝{text[a:b]}］" if it.get("placeholder") else f"［{name}？{shown_gap(text[a:b])}］"))
@@ -1193,6 +1193,9 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
                 continue
             if c.kind == "checkbox":
                 edits.append((a, b, ("☑" if v else "☐") + f"［{name}］"))
+            elif v in (None, "") and getattr(c, "placeholder", False) and text[a:b].strip():
+                # 空の欄に見えている見本の字（Word の「ここに入力」など。値ではないが、書類の字）
+                edits.append((a, b, f"［{name}］（見本の字「{text[a:b]}」）"))
             else:
                 edits.append((a, b, f"［{name}＝{v}］" if v not in (None, "") else f"［{name}］"))
     edits.sort()
