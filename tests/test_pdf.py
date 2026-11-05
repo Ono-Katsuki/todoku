@@ -358,3 +358,26 @@ def test_printed_checked_mark_is_shown_as_a_candidate():
     assert f["agent"] and f["readonly"] and f["value"] is True and f["facts"]["char"] == "■"
     assert any(f"■［{f['id']}？］有" in ln for ln in pg["reading"]), pg["reading"]
     assert audit(blob, "m.pdf").ok
+
+
+def test_special_format_with_a_mask_string_is_not_a_number():
+    """AFSpecial_* の引数は番号とは限らない（'+65 9999 9999'）：開けて、形をそのまま伝える。"""
+    from todoku.pdf import acrojs
+
+    assert acrojs.special_kind([]) == 0 and acrojs.special_kind([2]) == 2 and acrojs.special_kind(["3"]) == 3
+    assert acrojs.special_kind(["+65 9999 9999"]) is None and acrojs.special_kind([7]) is None and acrojs.special_kind([1.5]) is None
+    assert acrojs.commit_pair({"K": "AFSpecial_Keystroke('+65 9999 9999');"}, "+65 1234 5678")[1] == "+65 1234 5678"
+
+
+def test_window_opens_field_with_a_mask_string_format():
+    import pdfmini
+    from todoku.pdf.doc import PdfDocument
+    from todoku.pdf.window import build
+
+    for call, want in (("AFSpecial_Format('+65 9999 9999');", "書類の決めた形（+65 9999 9999）"),
+                       ("AFSpecial_Keystroke(7);", "書類の決めた形（7）"), ("AFSpecial_Format(2);", "電話番号")):
+        w = ("<< /Type /Annot /Subtype /Widget /FT /Tx /T (tel) /Rect [100 700 300 716] /F 4 /DA (/Helv 12 Tf 0 g) "
+             f"/AA << /F << /S /JavaScript /JS ({call}) >> >> >>")
+        blob = pdfmini.build("", "<< >>", [w], annots="/Annots [2 0 R]", acroform="/AcroForm << /Fields [2 0 R] >>")
+        f = build(PdfDocument(blob))["pages"][0]["fields"][0]
+        assert f["format"] == want

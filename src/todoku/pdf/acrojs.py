@@ -97,6 +97,26 @@ def parse_call(js: str):
     return m[1], _args(m[2])
 
 
+SPECIAL_NAMES = ("郵便番号（5桁）", "郵便番号（9桁）", "電話番号", "社会保障番号")
+
+
+def special_kind(args) -> int | None:
+    """AFSpecial_* の引数が、決まった形の番号（0〜3）なら、その番号。引数がなければ 0。
+    字の形（'+65 9999 9999' のような字の並び）やほかの番号なら None：形を決めつけない。"""
+    if not args:
+        return 0
+    a = args[0]
+    if isinstance(a, str):
+        a = a.strip()
+        if not a.isascii() or not a.isdigit():
+            return None
+    try:
+        k = int(a)
+    except (TypeError, ValueError):
+        return None
+    return k if k in range(len(SPECIAL_NAMES)) and float(args[0]) == k else None
+
+
 def known(js: str) -> bool:
     p = parse_call(js)
     return p is not None and p[0] in KNOWN
@@ -300,14 +320,14 @@ def commit_pair(js: dict[str, str], value) -> tuple[str, str]:
         nd, sep = (list(args) + [2, 0])[:2]
         out = format_number(x * 100, int(nd), int(sep), 0) + "%"
         raw = _plain(x)
-    elif fn in ("AFSpecial_Format", "AFSpecial_Keystroke"):
-        kind = int(args[0]) if args else 0
+    elif fn in ("AFSpecial_Format", "AFSpecial_Keystroke") and special_kind(args) is not None:
+        kind = special_kind(args)
         digits = re.sub(r"\D", "", text.translate(str.maketrans("０１２３４５６７８９", "0123456789")))
         need = {0: 5, 1: 9, 2: 10, 3: 9}.get(kind)
         if kind == 2 and len(digits) == 7:
             need = 7
         if need is None or len(digits) != need:
-            raise JsError(f"「{text}」は、この欄の形（{['郵便番号（5桁）', '郵便番号（9桁）', '電話番号', '社会保障番号'][kind] if kind < 4 else ''}）に合いません")
+            raise JsError(f"「{text}」は、この欄の形（{SPECIAL_NAMES[kind]}）に合いません")
         out = {0: digits, 1: f"{digits[:5]}-{digits[5:]}", 3: f"{digits[:3]}-{digits[3:5]}-{digits[5:]}",
                2: (f"({digits[:3]}) {digits[3:6]}-{digits[6:]}" if len(digits) == 10 else f"{digits[:3]}-{digits[3:]}")}[kind]
         raw = digits

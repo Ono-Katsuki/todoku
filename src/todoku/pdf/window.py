@@ -452,7 +452,9 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                 elif k2 in ("F", "K") and p_ and p_[0].startswith("AFPercent"):
                     d["format"] = "百分率"
                 elif k2 in ("F", "K") and p_ and p_[0].startswith("AFSpecial"):
-                    d["format"] = ["郵便番号（5桁）", "郵便番号（9桁）", "電話番号", "社会保障番号"][int(p_[1][0]) if p_[1] else 0]
+                    kind_ = acrojs.special_kind(p_[1])
+                    # 番号でない引数（'+65 9999 9999' など）は、書類の決めた形のまま伝える（字の意味は決めつけない）
+                    d["format"] = acrojs.SPECIAL_NAMES[kind_] if kind_ is not None else f"書類の決めた形（{p_[1][0] if p_[1] else ''}）"
                 elif k2 == "C":
                     d["calculated"] = src[:200]
                 elif not (p_ and p_[0] in acrojs.KNOWN):
