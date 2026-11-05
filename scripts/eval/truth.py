@@ -193,6 +193,10 @@ class Excel:
         if self.used and not self.was_running and self.notice is None:
             try:
                 self._osa("if (count of workbooks) = 0 then quit", 30)
+                left = parse_ss(self._osa("get name of workbooks", 15)) if subprocess.run(["pgrep", "-x", EXCEL_APP], capture_output=True).returncode == 0 else None
+                if left:
+                    # 自分が開いたブックは閉じた。残っているものは（立ち上げのときの白紙の Book1 など）閉じない
+                    self.notice = f"Excel が動いたまま：開いているブック {left}。評価が開いたものではないので閉じていない"
             except (RuntimeError, ExcelBlocked):
                 pass
         try:

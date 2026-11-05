@@ -156,6 +156,8 @@ def main() -> int:
          f"版：{prov.get('tag')}（{prov.get('commit')}）。動かした日：{prov.get('started')}。道具の版は provenance.json。", ""]
     if a.dry_run:
         L += ["**ここの数はすべて開発の書類（dev）。最終の結果ではない。**", ""]
+    if not prov.get("pdfkit_tool"):
+        L += ["**注意：PDFKit の道具（pkr）なしで動いた。PDF の「値が入った」は文字認識でなく画素の変化で数え（pypdf の日本語は描けないものとして数えた）、確かめ役は PDFKit の絵を見ていない。**", ""]
     L += ["## 読む（開発の書類ととっておいた書類を並べて）", "", read_side_by_side(out, sets),
           "形式ごとの細かい表：read/<組>/summary.md。「比べる道具」の列は、特徴ごと・形式ごとに、いちばんよい道具を選んで足したもの（1 つの道具の成績ではない。比べる道具に有利）。", "",
           "## 書く", "", write_side_by_side(out, sets), "消えたものの内訳：write/<組>/summary.md。", "",

@@ -77,6 +77,10 @@ def one(path: str, a, base: Path) -> dict:
                         c["ocr_text"] = text[:80]
                         c["landed"] = norm(val) in norm(text)
                         c["checked_by"] = "ocr"
+                if k == "pdf" and tool == "pypdf" and c.get("checked_by") != "ocr" and not c.get("xfa") and not val.isascii():
+                    # 文字認識がないと、FreeText の枠の線だけで「画素が変わった」になる。pypdf の注釈・欄は Helvetica で描くので日本語の字は出ない（文字認識のある回で確かめた）
+                    c["landed"] = False
+                    c["checked_by"] = "rule"
                 r["write_ok"] = bool(c.get("landed")) and not c.get("lost") and not c.get("error")
             else:
                 r["write_ok"] = False
