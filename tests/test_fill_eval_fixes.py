@@ -232,3 +232,36 @@ def test_xlsx_text_in_a_date_formatted_cell_reads_back():
         assert rb.check(wb, {"S!A1": "令和8年11月11日"})["S!A1"][0] is False
     finally:
         ed.resolve_target, ed.interpret_input, win.display = orig
+
+
+# ---------------------------------------------------------------- 結果の大きさ
+def _many_fields_pdf() -> bytes:
+    widgets = [f"<< /Type /Annot /Subtype /Widget /FT /Tx /T (f{i}) /F 4 /Rect [100 {800 - 7 * i} 300 {806 - 7 * i}] /DA (/Helv 6 Tf) /P 1 0 R >>"
+               for i in range(100)]
+    refs = " ".join(f"{i + 3} 0 R" for i in range(100))
+    return build("", "<< >>", [HELV] + widgets, annots=f"/Annots [{refs}]",
+                 acroform=f"/AcroForm << /Fields [{refs}] /DR << /Font << /Helv 2 0 R >> >> >>")
+
+
+def test_list_fields_limit_counts_fields_within_a_page(tmp_path):
+    from todoku import mcp_server as m
+
+    p = tmp_path / "m.pdf"
+    p.write_bytes(_many_fields_pdf())
+    got, ask, seen = [], {"pages": 1, "limit": 3}, 0
+    while ask is not None and seen < 60:
+        sc = m.call_tool("list_fields", {"path": str(p), **ask})["structuredContent"]
+        assert len(sc["fields"]) <= 3
+        got += [f["id"] for f in sc["fields"]]
+        ask, seen = sc.get("next"), seen + 1
+    assert len(got) == 100 == len(set(got))  # 続きで全部読める
+
+
+def test_read_window_returns_text_in_structured_content(tmp_path):
+    from todoku import mcp_server as m
+
+    p = tmp_path / "t.pdf"
+    p.write_bytes(_printed([(100, 700, "Printed words on the page")]))
+    for args in ({"pages": 1}, {"max_chars": 1000}, {"pages": 1, "max_chars": 1000}):
+        sc = m.call_tool("read_window", {"path": str(p), **args})["structuredContent"]
+        assert "Printed words" in sc["text"], args

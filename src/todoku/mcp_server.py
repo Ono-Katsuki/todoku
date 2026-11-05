@@ -362,10 +362,11 @@ def _fit_fields(res: dict, args: dict, rng: dict) -> dict | None:
     skip = int(args.get("skip") or 0)
     detail = bool(args.get("detail"))
     budget = limits.RESULT_CHARS
-    if not skip and _size(res) <= budget:
+    limit = int(args.get("limit") or 0)
+    fl = res.get("fields") or []
+    if not skip and _size(res) <= budget and not (limit and len(fl) > limit):
         return None
     rest = {k: v for k, v in res.items() if k != "fields"}
-    fl = res.get("fields") or []
     told: dict = {}
     blanks = rest.get("blank_cells_in_range")
     if blanks and _size(blanks) > budget // 4:
@@ -391,11 +392,13 @@ def _fit_fields(res: dict, args: dict, rng: dict) -> dict | None:
     fl = fl[skip:]
     shown = {"omitted": told, **rest}  # 省いたことを先頭に
     n = _take_fields(fl, budget - _size(shown) - 200)  # 200：下の、分けたことの知らせの分
+    if limit:
+        n = min(n, limit)  # 頼まれた数まで（範囲の読みはページ・行の単位で集めるので、ここで欄の数にそろえる）
     shown["fields"] = fl[:n]
     shown["fields_total"], shown["fields_returned"] = total, n
     if skip + n < total:
         shown["next"] = _ask_again(args, rng, skip=skip + n)
-        told["more_fields"] = f"一度に入らないので、{total} か所のうち {skip + 1}〜{skip + n} か所目を返しました。結果の next をそのまま渡すと続きが読めます"
+        told["more_fields"] = f"{'limit の数まで' if limit and n == limit else '一度に入らないので'}、{total} か所のうち {skip + 1}〜{skip + n} か所目を返しました。結果の next をそのまま渡すと続きが読めます"
     elif rest.get("next"):
         ask = {("path_in" if k == "path" else k): v for k, v in rest["next"].items()}
         shown["next"] = {**ask, **{k: args[k] for k in ("only_empty", "limit", "detail") if args.get(k)}}
@@ -668,9 +671,10 @@ def _read_window(args: dict) -> dict:
         most = max(limits.RESULT_CHARS - 1000, 200)
         page, doc = api.read_range(args["path"], rng, min(clamp_chars(args.get("max_chars") or most), most), args.get("password"), args.get("encoding"))
         cut = _cut_text("", page.text, page.footer(), at, ask, page.next, prior)
+        # 本文も structuredContent に：structuredContent があると content を見せないクライアントで、covered・next だけになる
         if cut is None:
-            return {"content": [_text(page.text), _text(page.footer())], "structuredContent": page.to_dict()}
-        sc = {**page.to_dict(), "next": cut["next"], "done": cut["next"] is None}
+            return {"content": [_text(page.text), _text(page.footer())], "structuredContent": {"text": page.text, **page.to_dict()}}
+        sc = {"text": cut["piece"], **page.to_dict(), "next": cut["next"], "done": cut["next"] is None}
         if cut["remaining"]:
             sc["remaining"] = f"この所の残り {cut['remaining']}" + (f"と {page.remaining}" if page.remaining else "")
         return {"content": [_text(cut["piece"]), _text(cut["foot"])], "structuredContent": sc}
@@ -684,7 +688,8 @@ def _read_window(args: dict) -> dict:
     if cut is None:
         return {"content": [_text(head), _text(parts[n - 1][1])]}
     return {"content": [_text(head), _text(cut["piece"]), _text(cut["foot"])],
-            "structuredContent": {"part": n, "parts": len(parts), "remaining": cut["remaining"], "next": cut["next"], "done": cut["next"] is None}}
+            "structuredContent": {"text": cut["piece"], "part": n, "parts": len(parts), "remaining": cut["remaining"], "next": cut["next"],
+                                  "done": cut["next"] is None}}
 
 
 def call_tool(name: str, args: dict) -> dict:
