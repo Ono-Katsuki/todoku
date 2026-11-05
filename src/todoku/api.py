@@ -904,6 +904,8 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         from .docx.fill import FillError
 
         circ = {k_: v for k_, v in values.items() if _is_circle(v)}
+        if any("on_shape" in v for v in circ.values()):
+            raise ApiError("図形に字を重ねる書き方（on_shape）は、いまは Excel（.xlsx）だけです")
         if circ and k == "doc":
             raise ApiError("古い Word（.doc）には、○の図形を足す書き方をまだ作っていません（図形を足したことを証明できないため）。"
                            "代わりに、字の前に「○」を足す（例：「○有・無」）か、選ばない字を消して書き直す書き方があります。"
@@ -1335,8 +1337,8 @@ def _fill_member(path: str, values: dict, out_path: str, force: bool, password: 
 
 
 def _is_circle(v) -> bool:
-    """○で囲む指定（{"circle": 囲む字, …}）か。"""
-    return isinstance(v, dict) and "circle" in v
+    """○で囲む指定（{"circle": 囲む字, …}）か、Excel の図形に字を重ねる指定（{"on_shape": 図形の番号, …}）か。"""
+    return isinstance(v, dict) and ("circle" in v or "on_shape" in v)
 
 
 def _circle_excel(blob: bytes, name: str, k: str, circ: dict, result: dict) -> bytes:
@@ -1367,18 +1369,22 @@ def _circle_excel(blob: bytes, name: str, k: str, circ: dict, result: dict) -> b
     bad = xc.prove(blob, out, name, [(sd["id"], circ[key_]) for key_, sd in sds])
     result["unexpected"] = list(result.get("unexpected") or []) + bad
     result["proof_ok"] = bool(result.get("proof_ok", True)) and not bad
-    result["proof"] = (result.get("proof") or "") + (f"○ {len(sds)} つは、シートの図形に楕円を足しただけです（ほかの部品はバイト一致）"
+    marks_ = sum(1 for _k, sd in sds if sd.get("style") == "mark")
+    result["proof"] = (result.get("proof") or "") + ((f"○ {len(sds) - marks_} つは、シートの図形に楕円を足しただけです（ほかの部品はバイト一致）" if len(sds) > marks_ else "")
+                                                     + (f"図形に重ねた字 {marks_} つは、字だけの図形を足しただけです（元の図形とほかの部品はバイト一致）" if marks_ else "")
                                                      if not bad else f"○の書き込みで想定外の変更 {len(bad)} 件")
     result["circled"] = [{"key": key_, "id": sd["id"], "sheet": sd["sheet"], "cell": sd["cell"], "text": sd["text"],
                           "label": sd["label"], "context": sd["context"], "around": sd.get("around"), "style": sd.get("style", "ellipse"),
-                          "how": ("シートの図形に四角を足した（○ではなく□。Excel にはセルの字の一部を囲む罫線がないため、図形で囲んだ）"
+                          "how": (f"図形 {sd.get('on_shape')} と同じ位置・大きさの、字だけの図形を足した" if sd.get("style") == "mark" else
+                                  "シートの図形に四角を足した（○ではなく□。Excel にはセルの字の一部を囲む罫線がないため、図形で囲んだ）"
                                   if sd.get("style") == "border" else "シートの図形に楕円を足した"),
                           "ellipse_pt": sd["ellipse"], "error_mm": sd.get("error_mm"),
-                          "uncertain": "位置は見積もり。印刷か画面で確かめが要る" + (f"：{'・'.join(sd['notes'])}" if sd["notes"] else "")}
+                          **({"on_shape": sd["on_shape"]} if sd.get("style") == "mark" else
+                             {"uncertain": "位置は見積もり。印刷か画面で確かめが要る" + (f"：{'・'.join(sd['notes'])}" if sd["notes"] else "")})}
                          for key_, sd in sds]
     w = list(result.get("warnings") or [])
     w += _both_circled(wb, [sd for _k, sd in sds])
-    if xc.UNCERTAIN not in w:
+    if xc.UNCERTAIN not in w and any(sd.get("style") != "mark" for _k, sd in sds):
         w.append(xc.UNCERTAIN)
     result["warnings"] = w
     result["anchored"] = {**(result.get("anchored") or {}), **{key_: sd["id"] for key_, sd in sds}}
@@ -1782,7 +1788,8 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
     for c in result.get("circled") or []:  # 囲んだ所は、いつも伝える（どの字を囲んだかは、上の一覧の値からは分からない）
         where = c.get("sheet") or (f"{c['page']}ページ" if c.get("page") else "")
         lab = c.get("label") or ""
-        verb = "□で囲んだ（○ではなく、字の囲み線）" if c.get("style") == "border" else "○で囲んだ"
+        verb = ("図形の上に字を書いた" if c.get("style") == "mark" else
+                "□で囲んだ（○ではなく、字の囲み線）" if c.get("style") == "border" else "○で囲んだ")
         meaning = said.get(c.get("key"))
         if meaning:
             c["as"] = meaning

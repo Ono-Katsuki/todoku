@@ -471,6 +471,8 @@ def resolve(wb, spec: dict, used: dict) -> dict:
     """○の位置：{id, sheet, row, col, text, ellipse（シートの左上からの pt）, label, notes}。書き込み・証明・読み戻しで同じ決め方。"""
     if getattr(wb, "kind", "xlsx") == "xls":
         raise CircleError("古い Excel（.xls）のシートには、○の図形を足す書き方をまだ作っていません")
+    if "on_shape" in spec:
+        return _resolve_mark(wb, spec, used)
     sh, r, c, text, a, b = find(wb, spec)
     lay = layout(wb, sh, r, c, text)
     gl, notes = lay.glyphs, list(lay.notes)
@@ -547,6 +549,67 @@ def resolve(wb, spec: dict, used: dict) -> dict:
             "style": style, "around": _around(text, a, b), "error_mm": round(max(ex, ey) * mm, 2)}
 
 
+def _resolve_mark(wb, spec: dict, used: dict) -> dict:
+    """図形の上に字を重ねる：{"on_shape": 図形の番号（窓の「字のない図形 2129」）, "sheet": シート, "mark": 書く字}。
+    元の図形は変えず、同じ位置・同じ大きさの、字だけの図形を足す。位置はファイルの値の写しなので、見積もりの誤差はない。"""
+    extra = set(spec) - {"on_shape", "sheet", "mark"}
+    if extra:
+        raise CircleError(f"分からない指定があります（{'・'.join(sorted(extra))}）。使えるのは on_shape・sheet・mark です")
+    sid, mark = str(spec["on_shape"]), spec.get("mark")
+    if not isinstance(mark, str) or not mark.strip() or "\n" in mark or len(mark) > 4:
+        raise CircleError('"mark" に、図形の上に書く字（4 字まで）を指定してください（どの字が合うかは本人に確かめてください）')
+    if spec.get("sheet") not in (None, "") and spec["sheet"] not in [s.name for s in wb.sheets]:
+        raise CircleError(f"シート「{spec['sheet']}」がありません")
+    hits = [(sh, s) for sh in wb.sheets for s in sh.shapes if getattr(s, "sid", "") == sid and spec.get("sheet") in (None, "", sh.name)]
+    if not hits:
+        raise CircleError(f"図形の番号 {sid} の図形がありません（窓の「字のない図形」の番号を指定してください）")
+    if len(hits) > 1:
+        raise CircleError(f"図形の番号 {sid} はシート {'・'.join(h[0].name for h in hits)} にあります。\"sheet\" で 1 つに決めてください")
+    sh, s = hits[0]
+    if s.kind not in ("shape", "text") or s.text:
+        raise CircleError(f"図形 {sid} は字のない図形ではないので、印を重ねません")
+    if s.grouped or s.frm is None or (s.to is None and s.ext is None):
+        raise CircleError(f"図形 {sid} の位置がファイルから決まりません（グループの中の図形など）ので、印を重ねられません")
+    w, h = (s.ext[0] / EMU, s.ext[1] / EMU) if s.ext else (
+        sum(col_pt(wb, sh, k) for k in range(s.frm[0] + 1, s.to[0] + 1)) + (s.to[1] - s.frm[1]) / EMU,
+        sum(row_pt(sh, k) for k in range(s.frm[2] + 1, s.to[2] + 1)) + (s.to[3] - s.frm[3]) / EMU)
+    if w <= 0 or h <= 0:
+        raise CircleError(f"図形 {sid} の大きさがありません")
+    part = drawing_part(wb, sh)
+    if re.search(rb'descr="' + re.escape(f"図形 {sid} に重ねた字".encode()), wb.zip.read(part) if part else b""):
+        raise CircleError(f"図形 {sid} には、とどくが書いた印がもうあります")
+    if (sh.name, sid) in used.setdefault("marked", set()):
+        raise CircleError(f"図形 {sid} に 2 回書こうとしています")
+    used["marked"].add((sh.name, sid))
+    x = sum(col_pt(wb, sh, k) for k in range(1, s.frm[0] + 1)) + s.frm[1] / EMU
+    y = sum(row_pt(sh, k) for k in range(1, s.frm[2] + 1)) + s.frm[3] / EMU
+    e = (x + w / 2, y + h / 2, w / 2, h / 2)
+    k = 1 + sum(1 for q in used.get("all", []) if q[2] == sh.name) + _existing(wb, sh)
+    used.setdefault("all", []).append((k, e, sh.name))
+    r, c = s.frm[2] + 1, s.frm[0] + 1
+    near = _text(wb, sh.cells.get((r, c))).strip() or _row_label(wb, sh, r, c)
+    return {"id": f"{sh.name}!○{k}", "sheet": sh.name, "row": r, "col": c, "cell": addr(r, c), "text": mark, "ellipse": [round(v, 3) for v in e],
+            "label": " ".join(near.split())[:30], "context": " ".join(near.split())[:60], "notes": [], "size": max(4.0, min(72.0, min(w, h) * 0.8)),
+            "style": "mark", "around": None, "error_mm": 0.0, "on_shape": sid, "frm": s.frm, "to": s.to, "ext": s.ext}
+
+
+def _mark_xml(sd: dict, shape_id: int, x_: str, a: str) -> bytes:
+    def cell(tag: str, v: tuple) -> str:
+        return (f"<{x_}{tag}><{x_}col>{v[0]}</{x_}col><{x_}colOff>{v[1]}</{x_}colOff><{x_}row>{v[2]}</{x_}row><{x_}rowOff>{v[3]}</{x_}rowOff></{x_}{tag}>")
+
+    two = sd["to"] is not None
+    w, h = round(sd["ellipse"][2] * 2 * EMU), round(sd["ellipse"][3] * 2 * EMU)
+    head = cell("from", sd["frm"]) + (cell("to", sd["to"]) if two else f'<{x_}ext cx="{w}" cy="{h}"/>')
+    kind = "twoCellAnchor" if two else "oneCellAnchor"
+    return (f"<{x_}{kind}>{head}"
+            f'<{x_}sp macro="" textlink=""><{x_}nvSpPr><{x_}cNvPr id="{shape_id}" name="{TAG} {_esc(sd["id"])}" descr="図形 {_esc(sd["on_shape"])} に重ねた字「{_esc(sd["text"])}」"/>'
+            f'<{x_}cNvSpPr txBox="1"/></{x_}nvSpPr><{x_}spPr><{a}xfrm><{a}off x="0" y="0"/><{a}ext cx="{w}" cy="{h}"/></{a}xfrm>'
+            f'<{a}prstGeom prst="rect"><{a}avLst/></{a}prstGeom><{a}noFill/><{a}ln><{a}noFill/></{a}ln></{x_}spPr>'
+            f'<{x_}txBody><{a}bodyPr wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" anchor="ctr"/><{a}lstStyle/><{a}p><{a}pPr algn="ctr"/><{a}r>'
+            f'<{a}rPr lang="ja-JP" sz="{round(sd["size"] * 100)}"><{a}solidFill><{a}srgbClr val="000000"/></{a}solidFill></{a}rPr><{a}t>{_esc(sd["text"])}</{a}t></{a}r></{a}p></{x_}txBody>'
+            f"</{x_}sp><{x_}clientData/></{x_}{kind}>").encode("utf-8")
+
+
 def _row_label(wb, sh, r: int, c: int) -> str:
     """同じ行の左の、字のあるセル（見出し）。"""
     for k in range(c - 1, 0, -1):
@@ -586,6 +649,8 @@ def _anchor_cell(wb, sh, x: float, y: float) -> tuple[int, float, int, float]:
 
 
 def anchor_xml(wb, sh, sd: dict, shape_id: int, prefix: str = "xdr:", a: str = "a:") -> bytes:
+    if sd.get("style") == "mark":
+        return _mark_xml(sd, shape_id, prefix, a)
     cx, cy, ra, rb = sd["ellipse"]
     lw = max(0.6, min(1.2, 0.07 * sd["size"]))
     x, y = cx - ra, cy - rb
@@ -786,6 +851,15 @@ def read_back(blob: bytes, name: str, circled: list[dict]) -> list[dict]:
     out = []
     for c in circled:
         sh = wb.sheet(c["sheet"])
+        if c.get("style") == "mark":
+            # 図形の上の字：足した図形の字と位置が、元の図形と同じか
+            mine = next((s for s in sh.shapes if s.name == f"{TAG} {c['id']}"), None)
+            base = next((s for s in sh.shapes if s.sid == c.get("on_shape")), None)
+            if mine is None or base is None:
+                out.append({"id": c["id"], "written": f"印「{c['text']}」", "read_back": "書いた後のブックに、印か元の図形が見つかりません"})
+            elif mine.text != c["text"] or (mine.frm, mine.to) != (base.frm, base.to):
+                out.append({"id": c["id"], "written": f"印「{c['text']}」", "read_back": f"字「{mine.text}」・位置 {mine.frm} が、元の図形の位置 {base.frm} と違います"})
+            continue
         part = drawing_part(wb, sh)
         xml = wb.zip.read(part) if part else b""
         m = re.search(rb"<(?:\w+:)?oneCellAnchor>((?:(?!</(?:\w+:)?oneCellAnchor>).)*?name=\"" + re.escape(f"{TAG} {_esc(c['id'])}".encode())

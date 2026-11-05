@@ -2625,7 +2625,7 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
                      for c in sh.controls],
         "shapes": [{"kind": s.kind, "name": s.name, "text": s.text, "alt": s.alt,
                     "anchor": addr(*s.anchor) if s.anchor else None, "provenance": DET,
-                    **({"decorative": True} if getattr(s, "decorative", False) else {})} for s in sh.shapes],
+                    **({"decorative": True} if getattr(s, "decorative", False) else {}), **_shape_place(sh, s)} for s in sh.shapes],
         "notes": [{"cell": addr(*k), "text": t, "provenance": DET} for k, t in sorted(sh.comments.items())],
         "links": [{"cell": c, "target": t, "provenance": DET} for c, t in sh.hyperlinks if t],
         "tables": _tables(wb, sh),
@@ -2901,8 +2901,16 @@ def _md_sheet(sh: dict) -> list[str]:
         out += ["### リンク（マスと、その先。ファイルに書かれた先のまま）", ""] + [f"- {x['cell']} → {_md(x['target'])}" for x in sh["links"]] + [""]
     notes = sh.get("notes", [])
     shapes = [s for s in sh.get("shapes", []) if s["text"] or s["alt"] or s["kind"] == "picture"]
-    if notes or shapes or sh.get("header_footer"):
+    bare = [s for s in sh.get("shapes", []) if s["kind"] in ("shape", "text") and not s["text"] and not s["alt"]]
+    if notes or shapes or bare or sh.get("header_footer"):
         out += ["### 図形・メモ・ヘッダー", ""]
+        for s in bare[:BARE_SHAPES_SHOWN]:
+            out.append("- " + _md(_bare_shape_line(s)))
+        if len(bare) > BARE_SHAPES_SHOWN:
+            out.append(f"- 字のない図形は、ほかに {len(bare) - BARE_SHAPES_SHOWN} 個あります")
+        if any(s.get("shape_id") for s in bare):
+            out.append("- 字のない図形が何かは、種類・大きさ・位置と同じ行の字から判断してください。図形の上に字を重ねて書くときは "
+                       f'{{"@m1": {{"on_shape": 図形の番号, "sheet": "{_md(sh.get("name", ""))}", "mark": 書く字}}}}（help の circle）')
         for s in shapes:
             desc = s["text"] or s["alt"] or ("（飾り）" if s.get("decorative") else
                                               "**説明（代わりの字）がありません**" if s["kind"] == "picture" else "（文字も代替テキストもありません）")
@@ -2915,6 +2923,63 @@ def _md_sheet(sh: dict) -> list[str]:
         out.append("")
     out += _md_furigana(sh)
     return out + sheet_markdown(sh)
+
+
+BARE_SHAPES_SHOWN = 40  # 字のない図形を 1 シートに並べる数（線や飾りの多いシートで、窓が図形で埋まらないように）
+
+
+def _bare_shape_line(s: dict) -> str:
+    """字のない図形の事実の 1 行（何の図形かは決めない）。"""
+    bits = []
+    if s.get("geometry"):
+        bits.append(f"種類 {s['geometry']}")
+    if s.get("size_mm"):
+        bits.append(f"大きさ {s['size_mm'][0]}×{s['size_mm'][1]} mm")
+    if s.get("offset_mm"):
+        bits.append(f"マスの左から {s['offset_mm'][0]} mm・上から {s['offset_mm'][1]} mm")
+    if s.get("fill"):
+        bits.append("塗り " + (s["fill"] if s["fill"] == "なし" else f"#{s['fill']}"))
+    if s.get("line"):
+        bits.append("線 " + (s["line"] if s["line"] == "なし" else f"#{s['line']}"))
+    if s.get("grouped"):
+        bits.append("グループの中の図形（位置はグループの位置）")
+    if s.get("near"):
+        bits.append(f"同じ行の字（{s['near_cell']}）「{s['near']}」")
+    where = s["anchor"] or "位置がファイルにない"
+    if s.get("to") and s["to"] != s["anchor"]:
+        where += f"〜{s['to']}"
+    return f"字のない図形 {s.get('shape_id', '')}「{s.get('name', '')}」（{where}）：" + "、".join(bits)
+
+
+def _shape_place(sh, s) -> dict:
+    """図形の種類・大きさ・位置の事実。同じ行の字：図形の左上の行から右下の行まで、図形の列から右へ見て最初の字。"""
+    out: dict = {}
+    if getattr(s, "sid", ""):
+        out["shape_id"] = s.sid
+    if getattr(s, "geom", ""):
+        out["geometry"] = s.geom
+    if getattr(s, "ext", None):
+        out["size_mm"] = [round(v / 36000, 1) for v in s.ext]
+    if getattr(s, "fill", ""):
+        out["fill"] = s.fill
+    if getattr(s, "line", ""):
+        out["line"] = s.line
+    if getattr(s, "grouped", False):
+        out["grouped"] = True
+    frm, to = getattr(s, "frm", None), getattr(s, "to", None)
+    if frm:
+        out["offset_mm"] = [round(frm[1] / 36000, 1), round(frm[3] / 36000, 1)]
+    if to:
+        out["to"] = addr(to[2] + 1, to[0] + 1)
+    if frm and s.kind in ("shape", "text") and not s.text:
+        for r in range(frm[2] + 1, (to[2] if to else frm[2]) + 2):
+            c = next((k for k in range(frm[0] + 1, frm[0] + 61) if isinstance(getattr(sh.cells.get((r, k)), "value", None), str)
+                      and sh.cells[(r, k)].value.strip()), None)
+            if c is not None:
+                out["near"] = " ".join(sh.cells[(r, c)].value.split())[:40]
+                out["near_cell"] = addr(r, c)
+                break
+    return out
 
 
 TEXT_ORDER_NOTE = ("文字の並び順で結果が変わる数式 {n} か所（{cells}。{funcs}の近似一致で文字を探す）：文字の順は Excel の動く環境（OS・言語）で決まるので、"

@@ -166,6 +166,14 @@ class Shape:
     alt: str
     anchor: tuple[int, int] | None  # (row, col) 左上
     decorative: bool = False  # 飾りと印を付けた図（説明は要らない）
+    sid: str = ""  # 図形の番号（cNvPr の id）
+    geom: str = ""  # 図形の種類（prstGeom の prst：rect・ellipse など）
+    frm: tuple | None = None  # 左上：(列, 列の中の EMU, 行, 行の中の EMU)。列と行は 0 から
+    to: tuple | None = None  # 右下（twoCellAnchor のとき）。同じ形
+    ext: tuple | None = None  # 大きさ (cx, cy)（EMU。ファイルに書かれていれば）
+    fill: str = ""  # 塗り（"FFFFFF" か "なし"。ファイルに直に書かれた色だけ）
+    line: str = ""  # 線の色（同じ）
+    grouped: bool = False  # グループの中の図形（位置はグループの位置）
 
 
 @dataclass
@@ -1000,6 +1008,9 @@ class Workbook:
             frm = anchor.find(_q("xdr:from"))
             if frm is not None:
                 pos = (int(frm.find(_q("xdr:row")).text) + 1, int(frm.find(_q("xdr:col")).text) + 1)
+            spot = _anchor_cell(frm), _anchor_cell(anchor.find(_q("xdr:to")))
+            top_ext = anchor.find(_q("xdr:ext"))
+            direct = set(map(id, anchor))
             for kind, el in _drawing_items(anchor):
                 nv = el.find(".//" + _q("xdr:cNvPr"))
                 name = nv.get("name", "") if nv is not None else ""
@@ -1009,7 +1020,8 @@ class Workbook:
                     line = "".join(t.text or "" for t in p.iter(_q("a:t")))
                     texts.append(line)
                 text = "\n".join(texts).strip()
-                sh.shapes.append(Shape(kind, name, text, alt, pos, decorative=_decorative(nv)))
+                sh.shapes.append(Shape(kind, name, text, alt, pos, decorative=_decorative(nv), sid=nv.get("id", "") if nv is not None else "",
+                                       frm=spot[0], to=spot[1], grouped=id(el) not in direct, **_shape_facts(el, top_ext)))
 
     # -------------------------------------------------------------- 名前
     def defined_name(self, name: str, sheet: str | None) -> DefinedName | None:
@@ -1022,6 +1034,42 @@ class Workbook:
             if d.name.lower() == low and d.sheet_scope is None:
                 return d
         return None
+
+
+def _anchor_cell(el) -> tuple | None:
+    """xdr:from・xdr:to → (列, 列の中の EMU, 行, 行の中の EMU)。"""
+    if el is None:
+        return None
+    try:
+        return tuple(int(el.find(_q(f"xdr:{t}")).text) for t in ("col", "colOff", "row", "rowOff"))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _direct_color(el) -> str:
+    """塗り・線の要素の、直に書かれた色（srgbClr）。塗りなしは「なし」。テーマの色などは ""（決めつけない）。"""
+    if el is None:
+        return ""
+    if el.find(_q("a:noFill")) is not None:
+        return "なし"
+    c = el.find(_q("a:solidFill") + "/" + _q("a:srgbClr"))
+    return (c.get("val") or "").upper() if c is not None else ""
+
+
+def _shape_facts(el, top_ext) -> dict:
+    """図形の事実：種類・大きさ・塗り・線（図形の spPr に直に書かれたものだけ）。"""
+    sp = el.find(_q("xdr:spPr"))
+    if sp is None:
+        return {}
+    g = sp.find(_q("a:prstGeom"))
+    ln = sp.find(_q("a:ln"))
+    e = sp.find(_q("a:xfrm") + "/" + _q("a:ext"))
+    if e is None:
+        e = top_ext
+    ext = None
+    if e is not None and (e.get("cx") or "").isdigit() and (e.get("cy") or "").isdigit():
+        ext = (int(e.get("cx")), int(e.get("cy")))
+    return {"geom": g.get("prst", "") if g is not None else "", "ext": ext, "fill": _direct_color(sp), "line": _direct_color(ln)}
 
 
 def _decorative(nv) -> bool:
