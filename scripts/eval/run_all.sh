@@ -95,7 +95,8 @@ done
 [[ -x "$OUT/tools/pkr" ]] && PKR="$OUT/tools/pkr"
 PKR_ARG=(); [[ -n "$PKR" ]] && PKR_ARG=(--pkr "$PKR")
 
-"$PY" "$SCRIPT_DIR/provenance.py" --out "$OUT" --tag "$TAG" --commit "$HEAD_SHA" --baseline-python "$BPY" --todoku-python "$TODOKU_PY" ${PKR:+--pkr "$PKR"} $( (( DRY )) && print -- --dry-run ) || exit 2
+DRY_ARG=(); (( DRY )) && DRY_ARG=(--dry-run)
+"$PY" "$SCRIPT_DIR/provenance.py" --out "$OUT" --tag "$TAG" --commit "$HEAD_SHA" --baseline-python "$BPY" --todoku-python "$TODOKU_PY" $PKR_ARG $DRY_ARG || exit 2
 
 step() {  # step 名前 命令...：印があれば飛ばす。失敗したら止める（もう一度動かせば、その段階の続きから）
   local name="$1"; shift
@@ -165,6 +166,6 @@ fi
 
 # ---------------------------------------------------------------------- まとめ
 rm -f "$OUT/.done/report"
-step report "$PY" "$SCRIPT_DIR/report.py" --out "$OUT" $( (( DRY )) && print -- --dry-run )
+step report "$PY" "$SCRIPT_DIR/report.py" --out "$OUT" $DRY_ARG
 [[ -z "$(git status --porcelain)" ]] || print "注意：評価のあいだに作業ツリーが変わった：$(git status --porcelain | head -5)"
 print "終わり：$OUT/report.md"

@@ -160,7 +160,7 @@ def fill_one(form: str, a, base: Path, schema: dict, applicant: str) -> dict:
                                                                                SCHEMA=json.dumps(schema["record"], ensure_ascii=False, indent=1))
         mcp = {"mcpServers": {"todoku": {"command": a.todoku_python, "args": ["-I", str(HERE / "fill_mcp.py"), str(ROOT / "src"), str(sandbox), str(log), str(a.lo_profile)],
                                          "env": {"EVAL_LOCK": os.environ.get("EVAL_LOCK", "")}}}}
-        allowed = [f"Read(//{str(sandbox).lstrip('/')}/**)", f"Edit(//{str(sandbox).lstrip('/')}/**)", "Write", "mcp__todoku__*"]
+        allowed = [f"Read(//{str(sandbox).lstrip('/')}/**)", f"Edit(//{str(sandbox).lstrip('/')}/**)", "mcp__todoku__*"]
         cmd = claude_cmd(prompt, sandbox, a.model, mcp, ROOT / "skills" / "shinsei" / "SKILL.md", "Read,Write", allowed)
         tr = d / "fill_transcript.jsonl"
         for attempt in range(2):
@@ -197,7 +197,7 @@ def fill_one(form: str, a, base: Path, schema: dict, applicant: str) -> dict:
             if (review_dir / "pages.json").exists():
                 prompt = (HERE / "review_prompt.md").read_text(encoding="utf-8").format(REVIEW_DIR=review_dir, REVIEW_PATH=review_path, APPLICANT=applicant,
                                                                                          SCHEMA=json.dumps(schema["review"], ensure_ascii=False, indent=1))
-                allowed = [f"Read(//{str(review_dir).lstrip('/')}/**)", f"Edit(//{str(review_dir).lstrip('/')}/**)", "Write"]
+                allowed = [f"Read(//{str(review_dir).lstrip('/')}/**)", f"Edit(//{str(review_dir).lstrip('/')}/**)"]
                 cmd = claude_cmd(prompt, review_dir, a.model, None, None, "Read,Write", allowed)
                 tr = d / "review_transcript.jsonl"
                 state["review_run"] = run_agent(cmd, review_dir, tr, a.review_limit)
