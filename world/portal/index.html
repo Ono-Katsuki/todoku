@@ -1,11 +1,13 @@
+<!doctype html>
+<html lang="ja">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>とどく 世界調査</title>
+<title>とどく</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=BIZ+UDPMincho:wght@400;700&display=swap">
 <style>
-/* 冒頭は作者の言葉と論文の札。その下に、地図 → 国の一覧 → 壁の理由 → 書類を探す → 方法。様式の紙と青インクの色 */
+/* 冒頭は私の言葉と論文の札。その下に、いちばん伝えたいこと → Claude との開発 → 1 円、1 バイト → 世界地図 → 詳しい結果 → 次に広げること → 使い方。様式の紙と青インクの色 */
 :root {
   --paper: #f4f6f8; --ink: #17202b; --muted: #5b6878; --line: #c9d2dc; --slip: #ffffff; --pen: #1f4fb8;
   --none: #e3e8ee;          /* 調べていない国 */
@@ -230,7 +232,7 @@ tr.unr td { color: var(--muted); }
 .opening .slip a { color: var(--nibi); text-decoration: none; font-size: .66rem; font-variant-numeric: tabular-nums; }
 .opening .slip a:hover { color: var(--usuzumi); }
 /* 墨のにじみ：一点から広がる円の中だけが見え、ぼけが引いて輪郭を結ぶ */
-.opening .ln, .opening .who, .opening .slip {
+.opening .ln, .opening .hl, .opening .who, .opening .slip {
   -webkit-mask-image: radial-gradient(circle at var(--ox, 50%) var(--oy, 50%), #000 calc(var(--ink) - 40%), transparent var(--ink));
           mask-image: radial-gradient(circle at var(--ox, 50%) var(--oy, 50%), #000 calc(var(--ink) - 40%), transparent var(--ink));
 }
@@ -238,7 +240,8 @@ tr.unr td { color: var(--muted); }
 .opening .ln:nth-child(1) { animation-delay: .35s; --ox: 18%; }
 .opening .ln:nth-child(2) { animation-delay: 1.05s; --ox: 72%; }
 .opening .ln:nth-child(3) { animation-delay: 1.75s; --ox: 40%; }
-.opening .who { --ink: 0%; animation: bleed 1.6s ease 2.7s both; }
+.opening .hl { --ink: 0%; animation: bleed 1.6s ease 2.5s both; }
+.opening .who { --ink: 0%; animation: bleed 1.6s ease 2.9s both; }
 .opening .slip { --ink: 0%; animation: bleed 2.2s cubic-bezier(.3, .1, .2, 1) calc(3.1s + var(--i) * .22s) both; }
 @keyframes bleed {
   0%   { --ink: 0%; filter: blur(9px); opacity: .2; }
@@ -255,9 +258,9 @@ tr.unr td { color: var(--muted); }
 .stage-ctl button:focus-visible, .opening a:focus-visible { outline: 1px solid var(--usuzumi); outline-offset: 4px; }
 #op-replay { display: none; }
 .opening.done #op-skip { display: none; } .opening.done #op-replay { display: inline-block; }
-.opening.done .ln, .opening.done .who, .opening.done .slip, .opening.done .cue { animation: none; --ink: 140%; filter: none; opacity: 1; }
+.opening.done .ln, .opening.done .hl, .opening.done .who, .opening.done .slip, .opening.done .cue { animation: none; --ink: 140%; filter: none; opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
-  .opening .ln, .opening .who, .opening .slip, .opening .cue { animation: none !important; --ink: 140%; filter: none; opacity: 1; }
+  .opening .ln, .opening .hl, .opening .who, .opening .slip, .opening .cue { animation: none !important; --ink: 140%; filter: none; opacity: 1; }
   .stage-ctl { display: none; }
 }
 @media (max-width: 860px) {
@@ -277,17 +280,71 @@ tr.unr td { color: var(--muted); }
   .slip { --tilt: 0deg !important; }
   .bar { grid-template-columns: minmax(0, 9em) 1fr auto; }
 }
+
+/* ---- 頭の言葉・節の見出しの大きな字・表の小さい版 ---- */
+.opening .hl { margin-top: 22px; display: grid; gap: 10px; }
+.opening .hl p { margin: 0; text-wrap: balance; word-break: auto-phrase; }
+.opening .q2 { font-family: var(--display); font-weight: 700; color: var(--shiro); font-size: clamp(1.05rem, .85rem + 1vw, 1.5rem); line-height: 1.6; }
+.opening .claim { font-family: var(--display); color: var(--shiro); font-size: clamp(1.05rem, .85rem + 1vw, 1.5rem); line-height: 1.6; margin-top: 6px !important; }
+.opening .tagline { font-family: var(--display); color: color-mix(in srgb, var(--shiro) 86%, var(--sumi)); font-size: clamp(.98rem, .9rem + .5vw, 1.2rem); }
+.opening .tname { color: var(--usuzumi); font-size: .86rem; }
+.opening .tname b { color: var(--shiro); font-family: var(--display); font-size: 1.05rem; letter-spacing: .1em; }
+.opening .voice .who figcaption a { color: var(--nibi); }
+.saybig { font-family: var(--display); font-weight: 700; font-size: clamp(1.5rem, 1.1rem + 2vw, 2.4rem); line-height: 1.5; margin: 0; text-wrap: balance; word-break: auto-phrase; }
+.saybig.second { font-size: clamp(1.15rem, .95rem + 1.2vw, 1.7rem); margin-top: 10px; color: var(--pen); }
+.intro { font-family: var(--display); font-size: 1.1rem; margin: 20px 0 6px; }
+.first .burden { margin-top: 22px; margin-bottom: 0; }
+.minor { font-size: 1rem; margin: 30px 0 10px; }
+table.small { min-width: 0; }
+td.big { font-size: 1.15rem; font-weight: 700; white-space: nowrap; }
+td.win { color: var(--pen); }
+caption { caption-side: top; text-align: left; font-size: .8rem; color: var(--muted); padding: 10px 10px 2px; }
+.cnote { font-size: .8rem; color: var(--muted); margin: 8px 0 0; max-width: 60em; }
+.office-q { margin: 26px 0 0; padding: 4px 0 4px 16px; border-left: 3px solid var(--pen); font-family: var(--display); font-weight: 700; font-size: clamp(1.05rem, .95rem + .6vw, 1.3rem); line-height: 1.7; word-break: auto-phrase; }
+.cmd.rule { margin: 14px 0; }
+.talks { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.talk { background: var(--slip); border: 1px solid var(--line); border-radius: 3px; padding: 14px 16px; font-size: .86rem; min-width: 0; display: grid; gap: 6px; align-content: start; }
+.talk time { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.talk p { margin: 0; }
+.talk .me { font-weight: 700; }
+.talk .me::before { content: "私  "; color: var(--pen); font-size: .72rem; white-space: pre; }
+.talk .cl::before { content: "Claude  "; color: var(--muted); font-size: .72rem; white-space: pre; }
+.talk .cm { font-size: .74rem; color: var(--muted); overflow-wrap: anywhere; }
+.talk code { color: var(--ink); }
+.how.three { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.stages { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.stage { background: var(--slip); border: 1px solid var(--line); border-radius: 3px; padding: 14px 18px; min-width: 0; }
+.stage h3 { margin: 0 0 8px; font-family: var(--display); font-size: 1.05rem; }
+.stage dl { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stage dt { font-size: .78rem; color: var(--muted); }
+.stage dd { margin: 0; font-size: 1.5rem; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+.stage dd small { display: block; font-size: .7rem; font-weight: 400; color: var(--muted); }
+.fold { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+.fold > summary { cursor: pointer; font-weight: 700; color: var(--pen); }
+.fold > summary + * { margin-top: 12px; }
+.conds { margin: 0; padding: 0 0 0 1.1em; display: grid; gap: 6px; font-size: .88rem; max-width: 62em; }
+#band { margin-top: 18px; }
+.nb { display: inline-block; }
+td .ci { display: inline-block; line-height: 1.3; }
+.panel .tablebox th, .panel .tablebox td { padding: 5px 6px; letter-spacing: 0; }
+.stage dd { color: var(--ink); }
 </style>
 
 <section class="opening" id="opening" aria-label="冒頭：私の言葉と、まわりの研究">
-  <p class="kicker">とどく ／ 世界調査</p>
+  <p class="kicker">とどく ／ Built with Claude: Japan 2026</p>
   <div class="orbit">
       <div class="voice">
         <blockquote><span class="ln">エージェントが全て正確に</span><span class="ln">読み書きできないと、</span><span class="ln"><em>申請で困るのは私</em>だからね。</span></blockquote>
+        <div class="hl">
+          <p class="q2"><span class="nb">行政手続きは 1 円、1 バイト</span><span class="nb">ずれると困る世界だから</span></p>
+          <p class="claim"><span class="nb">エージェントがアクセスできないことは</span> <span class="nb">アクセシビリティの問題</span></p>
+          <p class="tagline">エージェントにとどけば、私にとどく。</p>
+          <p class="tname"><b>とどく</b>：行政書類を正確に読み書きするための MCP</p>
+        </div>
         <figure class="who">
           <p class="prop">多くの道具の画面を一つずつ使えるようにするのではなく、そのすべてに届く、ひとつの自然言語の入口を用意する。</p>
           <p class="orig" lang="en">“rather than adapting many specialized interfaces, provide a single natural-language entry point through which the user can reach all of them.”</p>
-          <figcaption><span>小野克樹「Reconfiguration of Ability」ASSETS '26</span> <span>§5.7 デザインへの示唆（日本語訳）</span></figcaption>
+          <figcaption><span>Katsuki Ono（小野克樹）. Reconfiguration of Ability: An Autoethnography of LLM-Mediated Development by a Developer with Severe Physical Disability.</span> <span>The 28th International ACM SIGACCESS Conference on Computers and Accessibility (ASSETS '26).</span> <span>§5.7 デザインへの示唆（日本語訳）</span> <a href="https://doi.org/10.1145/3797867.3828990">doi:10.1145/3797867.3828990</a></figcaption>
         </figure>
       </div>
       <aside class="slip s1" style="--i:0;--fx:-1;--fy:-1"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
@@ -308,42 +365,22 @@ tr.unr td { color: var(--muted); }
         <p>312 のアプリを 16 か月追い、画像に説明（代わりの字）がない問題を調べた。</p><p class="so">とどくは、説明のない画像を、段階とは別の注意として示す。</p><a href="https://doi.org/10.1145/3491102.3502143">doi:10.1145/3491102.3502143</a></aside>
   </div>
   <div class="stage-ctl"><button type="button" id="op-skip">スキップ</button><button type="button" id="op-replay">もう一度</button></div>
-  <a class="cue" href="#h-map">下へ ↓</a>
+  <a class="cue" href="#h-first">下へ ↓</a>
 </section>
 
 <div class="wrap">
-  <header>
-    <p class="lead">行政の負担や、公的なページのアクセシビリティを外から測った研究はたくさんある。この調査は、申請する私の言葉から始めて、政府の公開書類を AI エージェントが正確に読めるか、書けるかを、国ごとに測る。</p>
-  </header>
-
-  <section aria-label="調査の規模">
-    <div class="band" id="band">
-      <div><b class="num" id="b-countries">—</b><span>国と地域（政府の書類が収集にある所）</span></div>
-      <div><b class="num" id="b-sampled">—</b><span>選んだ書類</span></div>
-      <div><b class="num" id="b-graded">—</b><span>取得して段階を付けた書類</span><small id="b-ungraded"></small></div>
-      <div><b class="num live" id="b-progress">—</b><span id="b-progress-l">予定に対する進み</span></div>
-    </div>
-  </section>
-
-  <section aria-labelledby="h-how">
-    <h2 id="h-how">とどくで、どう届くようにしたか</h2>
-    <p class="sub why-me">私は、自分で申請する当事者で、障害福祉の事業所の代表で、とどくの開発者です。頭につけたスイッチ 1 つで、開発・研究・経営をしています。申請する側と支える側の両方にいたから、根っこが同じ壁（行政の書類を、AI が全部正確に読み書きできない）だと見えました。そして開発者だから、その壁を越える道を自分で作れました。</p>
-    <p class="sub">行政の書類に苦労するのは、寝たきりの人だけではありません。目が見えずに読み上げで使う人、手が不自由な人、高齢の人、日本語が母語でない人、読み書きに困難のある人、仕事や介護で窓口に行けない人、毎月の書類を扱う事業所の人。誰にとっても重い作業で、その重さは、余裕のない人ほど大きくのしかかります。下の図は、その一つの例として、私の場合を測ったものです。</p>
-    <p class="sub">壁は様式の側にあり、なくすことはできません。とどくは、書類を変えずに、AI エージェントが全てを正確に読み書きできる道をつくります。どの段階も AI を使わない決まった処理で、同じ書類と同じ環境（入っている書体など）からは、必ず同じ結果が出ます。数は、この調査で段階を付けた書類のものです。</p>
+  <section aria-labelledby="h-first" class="first">
+    <h2 id="h-first" class="saybig"><span class="nb">Claude があれば、</span><span class="nb">寝たきりも開発者になれる。</span></h2>
+    <p class="saybig second"><span class="nb">私は、私の視点から、</span><span class="nb">自分の力で、</span><span class="nb">Claude と課題を解決する。</span></p>
+    <p class="intro">寝たきりの開発者、経営者、研究者。</p>
+    <p class="sub why-me">入力は頭のスイッチひとつ。1,000 字に 1 時間以上かかります（ASSETS '26 §4.1）。開発も、研究も、経営も、このスイッチでしています。</p>
     <figure class="burden" aria-labelledby="burden-cap">
-      <figcaption id="burden-cap"><b>例：区に出す 1 通の申請書</b>　東京都中央区の「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）に、架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合を測りました。2 ページで、入力欄の候補は 196 か所です。</figcaption>
-      <ul class="walls">
-        <li><b>重いと、諦める。</b>良さそうな助成を見つけても、私も諦めることがあります。使える制度を、手続きの重さのために使わない人がいることは、行政の負担の研究でも繰り返し示されています（Currie 2006・Herd &amp; Moynihan 2018）。</li>
-        <li><b>探すだけで重い。</b>様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。</li>
-        <li><b>印刷して手で書く前提。</b>入力欄のない印刷用の PDF で、紙に書いて窓口か郵送で出します。ペンを持てない私には書けません。</li>
-        <li><b>そもそも、私が使う iPad では Office の書類も崩れて扱えません。</b>iPad の Excel は、マクロ（VBA）も動かせません。</li>
-        <li><b>署名は手書きの欄。</b>とどくは、私が同意すれば署名の画像を置けます。ただし、画像の署名を区が認めるかは様式しだいです。</li>
-      </ul>
+      <figcaption id="burden-cap"><b>例：区に出す 1 通の申請書</b>　東京都中央区の「障害福祉サービス申請書（新規・更新）」に、架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合です。2 ページで、入力欄の候補は 196 か所あります。</figcaption>
       <div class="brow">
         <span class="blab">頭のスイッチで<br>字を入れたとしたら</span>
         <span class="btrack"><span class="bfill hand" style="--w: 100%" title="158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）"></span></span>
         <span class="bval"><b>9 分 30 秒</b>より長い</span>
-        <span class="bmore">＋ 196 か所から書く欄を探して移る操作（測れていないので含めていません）</span>
+        <span class="bmore">＋ 196 か所から書く欄を探して移る操作（含めていません）</span>
       </div>
       <div class="brow">
         <span class="blab">とどく ＋<br>エージェント</span>
@@ -352,20 +389,289 @@ tr.unr td { color: var(--muted); }
       </div>
       <p class="bnote">とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで <b>0.3 秒</b>。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
     </figure>
-    <ol class="how">
-      <li><h3>制度と様式を探す</h3>
-        <p>「私が使える制度を探して、申請書を書いて」の一言から、エージェントが制度の案内・要綱と様式を探してきます（robots.txt を守り、間をあけて取得）。当たるかどうか分からない条件は、推測で決めずに伝えます。</p></li>
-      <li><h3>開いて、一字も変えずに読む</h3>
-        <p>PDF・Excel・Word・一太郎・CSV・ZIP など <b class="num" id="how-kinds">—</b> の形式の書類 <b class="num" id="how-docs">—</b> 件を、元の内容を一字も変えずに読める「窓」にしました。Office も外部のライブラリも使わず、仕様書のある形式は公開の仕様書から、一太郎は公開された書類を比べて形を推定し、Jet（.mdb）は公開の仕様がないので実物の構造を観察して実装しています。一部の部品は公開の実装（libjpeg・libwebp・HarfBuzz・OpenJPEG）に基づきます。</p></li>
-      <li><h3>書く所を見つける。迷う所は「？」でエージェントに</h3>
-        <p>入力欄は、フォームの欄・入力規則・罫線・下線など、ファイルの構造から規則で見つけます。言葉の一致では決めません。規則で決められない所は、根拠を添えて「？」の印で示し、エージェントが判断します（<b class="num" id="how-agent">—</b> 件の書類）。</p></li>
-      <li><h3>紙のままの壁を越える</h3>
-        <p>文字の情報がないスキャンのページ（<b class="num" id="how-scan">—</b> 件の書類）は、ページを画像にしてエージェントが見て読み、目盛りの枠で書きます。ZIP は中のファイルを開き、押印・自署は、申請する人が同意したときだけ、その人の印影の画像を置きます。</p></li>
-      <li><h3>書いて、証明する</h3>
-        <p>書いたら、前と後のファイルを読み直して、変わったのが書いた所だけであることを機械で証明し、書いた値を読み戻します。部分標本 <b class="num" id="how-audited">—</b> 件で全ての欄に書き、<b class="num" id="how-auditok">—</b> 件で全てを正確に読み書きできました。残りは、とどくの直す所として数えています。</p></li>
-      <li><h3>対話で伝える</h3>
-        <p>私は、書類を Word や Acrobat で開きません。とどくは書類を開かずに読み書きするので、私は iPad から会話するだけです。書いた所の見出しと値・まだ空いている欄・私が決めることを、エージェントが会話でそのまま伝え、私が確かめます。</p></li>
+  </section>
+
+  <section aria-labelledby="h-dev">
+    <h2 id="h-dev">Claude との開発</h2>
+    <p class="sub">方針と判断は私が伝え、実装と検証は Claude Code とサブエージェントが並行して進めました。とどくは、Python の標準の機能だけで動きます。</p>
+    <div class="band">
+      <div><b class="num">439</b><span>コミット</span></div>
+      <div><b class="num">4,257</b><span>テスト（最後の全体テスト）</span></div>
+      <div><b class="num">0</b><span>外部ライブラリ</span></div>
+    </div>
+    <h3 class="minor">私の指示と、Claude の返答（履歴の原文）</h3>
+    <div class="talks">
+      <div class="talk"><time>11/03 06:28</time><p class="me">壊してない証明として書き込み除くとバイト一致する？</p><p class="cl">実物の書類で「書いた所を除くとバイト一致か」を測る検証を書いています。</p><p class="cm"><code>b2a5e6d</code> 証明を強める：書いた所を除くとバイト一致を確かめる（Excel のシート・.doc の本文・CSV の後ろの行）</p></div>
+      <div class="talk"><time>11/03 11:02</time><p class="me">ベンチ最適化でなく汎化性が大切だよ。</p><p class="cl">規則で決めるのは、ファイルの構造から確実に分かることだけにします。</p><p class="cm"><code>90b6af3</code> PDF の配置の推定：決め打ちの選別をやめ、迷う所はエージェントに候補として示す</p></div>
+      <div class="talk"><time>11/04 20:09</time><p class="me">処理は処理として取れる方が嬉しい</p><p class="cl">値を計算して渡すだけでなく、処理そのものを渡します。</p><p class="cm"><code>ec728a4</code> 処理を処理として取り出す extract_processing</p></div>
+    </div>
+    <h3 class="minor">直し方はいつも同じ</h3>
+    <ol class="how three">
+      <li><h3>実物の書類でバグを見つける</h3><p>公開の様式を読んで書いて、自作の見本では出ない誤りを見つけます。</p></li>
+      <li><h3>別のエージェントが確かめる</h3><p>見つけたエージェントとは別のエージェントが、同じ誤りが本当に起きるかを確かめます。</p></li>
+      <li><h3>直す</h3><p>その様式に合わせるのでなく、一般的な原因を直します。</p></li>
     </ol>
+  </section>
+
+  <section aria-labelledby="h-yen">
+    <h2 id="h-yen">1 円、1 バイト</h2>
+    <p class="sub why-me">Claude Code は、もう書けます。とどくが渡すのは、ずれていないと言い切れることです。</p>
+    <h3 class="minor">1 バイト：同じ 20 通で比べました</h3>
+    <div class="tablebox"><table class="small">
+      <thead><tr><th></th><th class="num">ただの Claude Code</th><th class="num">＋ とどく</th></tr></thead>
+      <tbody>
+        <tr><td>元の PDF をそのまま残す</td><td class="num big">0/16</td><td class="num big win">16/16</td></tr>
+        <tr><td>変わったのは書いた所だけと証明</td><td class="num big">なし</td><td class="num big win">20/20</td></tr>
+      </tbody>
+    </table></div>
+    <h3 class="minor">1 円：データと処理を、分けて渡す</h3>
+    <p class="sub">計算を、憶測させないためです。とどくは書類の中の計算の決まりを、値でなく処理として取り出し、保存された値と照らしてから渡します。</p>
+    <div class="band">
+      <div><b class="num">105,256</b><span>数式のセル（新潟県の公開様式）</span></div>
+      <div><b class="num">203</b><span>規則にまとめた</span></div>
+      <div><b class="num live">105,256 / 105,256</b><span>保存された値と一致</span></div>
+    </div>
+    <div class="cmd rule"><code>AC13:AC1213 = ROUNDDOWN(ROUND(L*P,0),0)*AA</code></div>
+    <div class="tablebox"><table class="small">
+      <caption>試算の例（架空の値：重度訪問介護、処遇改善加算Ⅰ、総単位数 123,457、2 か月。ファイルは書き換えない）</caption>
+      <thead><tr><th>計算の順番</th><th class="num">見込額</th></tr></thead>
+      <tbody>
+        <tr><td><b>様式の決まりどおり</b></td><td class="num big win">84,692 円</td></tr>
+        <tr><td>全部掛けてから、最後に切り捨てる</td><td class="num">84,691 円</td></tr>
+        <tr><td>先に切り捨ててから、月数を掛ける</td><td class="num">84,690 円</td></tr>
+      </tbody>
+    </table></div>
+    <p class="cnote">下の 2 行は比べるために計算した順番で、様式にはありません。順番を憶測すると、1 円、2 円ずれます。</p>
+    <blockquote class="office-q"><span class="nb">私たちの事業所の請求の計算を、</span><span class="nb">数か月かけて自分で作りました。</span><span class="nb">だから知っています。</span><span class="nb">一円ずれると、通りません。</span></blockquote>
+  </section>
+
+  <section aria-labelledby="h-map">
+    <h2 id="h-map">世界地図</h2>
+    <p class="sub why-me">アクセシビリティは、一人で作るものじゃない。とどくは、世界の行政書類が、エージェントにどこまで届くかを評価します。</p>
+    <div class="stages" id="stages">
+      <div class="stage"><h3>読む段階</h3><dl>
+        <div><dt>届く</dt><dd class="num" id="w-read-reach">●</dd></div>
+        <div><dt>新しく届く</dt><dd class="num" id="w-read-new">●</dd></div></dl></div>
+      <div class="stage"><h3>書く段階</h3><dl>
+        <div><dt>届く</dt><dd class="num" id="w-write-reach">●</dd></div>
+        <div><dt>新しく届く</dt><dd class="num" id="w-write-new">●</dd></div></dl></div>
+    </div>
+    <p class="metric-note" id="w-note">● は確定の集計が入ると、数に変わります。単位は書類の件数の推定（国ごとの書類の数 × 届く割合）で、「新しく届く」は、ふだんの道具では届かず、とどくで届く分です。</p>
+    <div class="band" id="band">
+      <div><b class="num" id="b-countries">—</b><span>国と地域（政府の書類が収集にある所）</span></div>
+      <div><b class="num" id="b-sampled">—</b><span>選んだ書類</span></div>
+      <div><b class="num" id="b-graded">—</b><span>取得して段階を付けた書類</span><small id="b-ungraded"></small></div>
+    </div>
+    <p class="sub" style="margin-top:18px">各国の政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って<b>正確に扱える書類の割合</b>です。色は、黄（少ない）から緑・青を経て紫（多い）へ、5 段階で示します。国を選ぶと、内訳が出ます。<span id="map-status"></span></p>
+    <div class="tabs" role="group" aria-label="地図に示す値">
+      <button type="button" id="t-read" data-m="read_ok" aria-pressed="true">読む</button>
+      <button type="button" id="t-write" data-m="write_ok" aria-pressed="false">書く</button>
+      <button type="button" id="t-forms" data-m="forms_writable" aria-pressed="false">申請の様式に書く</button>
+      <button type="button" id="t-reach" data-m="reach" aria-pressed="false">取得できる</button>
+      <button type="button" class="cnt" hidden data-m="read_count" aria-pressed="false">読む：届く数</button>
+      <button type="button" class="cnt" hidden data-m="read_new" aria-pressed="false">読む：新しく届く数</button>
+      <button type="button" class="cnt" hidden data-m="write_count" aria-pressed="false">書く：届く数</button>
+      <button type="button" class="cnt" hidden data-m="write_new" aria-pressed="false">書く：新しく届く数</button>
+    </div>
+    <div class="mapgrid">
+      <div class="mapbox">
+        <svg id="map" viewBox="0 0 960 500" role="img" aria-label="国ごとの地図"></svg>
+        <div class="legend" id="legend"></div>
+        <p class="metric-note" id="metric-note"></p>
+      </div>
+      <aside class="panel" id="panel" aria-live="polite"><p class="sub" style="margin:0">地図か一覧から国を選んでください。</p></aside>
+    </div>
+
+    <h3 class="minor" id="h-table">国の一覧</h3>
+    <p class="sub">割合のあとの括弧は 95% 区間です。</p>
+    <div class="tablebox"><table id="table">
+      <thead><tr>
+        <th><button type="button" data-k="name">国</button></th>
+        <th class="num"><button type="button" data-k="n">選んだ</button></th>
+        <th class="num"><button type="button" data-k="reach">取得</button></th>
+        <th class="num"><button type="button" data-k="read_ok">読む S〜B</button></th>
+        <th>読む段階の内訳</th>
+        <th class="num"><button type="button" data-k="write_ok">書く A・B</button></th>
+        <th>書く段階の内訳</th>
+        <th class="num"><button type="button" data-k="forms_writable">様式に書く</button></th>
+      </tr></thead><tbody></tbody>
+    </table></div>
+    <button type="button" class="more" id="t-all" hidden></button>
+
+    <details class="fold" id="fold-why"><summary>段階の理由</summary>
+      <p class="sub">段階は、ファイルの構造の規則だけで決めています。キーワードでは決めません。規則で決められない所は、エージェントが確かめる所として数えます。</p>
+      <div class="reasons">
+        <div><h3 style="font-size:.95rem;margin:0 0 8px">読む</h3><div class="bars" id="r-read"></div></div>
+        <div><h3 style="font-size:.95rem;margin:0 0 8px">書く</h3><div class="bars" id="r-write"></div></div>
+        <div><h3 style="font-size:.95rem;margin:0 0 8px">取得の内訳</h3><div class="bars" id="r-reach"></div></div>
+      </div>
+    </details>
+
+    <details class="fold" id="fold-docs"><summary id="h-docs">書類を探す</summary>
+      <p class="sub">選んだ書類のひとつひとつの結果です。書類そのものは置いていません。元の公開場所へのリンクだけです（収集のあとで消えた書類もあります）。</p>
+      <div class="filters">
+        <label for="f-c">国<select id="f-c"><option value="">すべて</option></select></label>
+        <label for="f-g">形式の群<select id="f-g"><option value="">すべて</option><option value="pdf">PDF</option><option value="sheet">表計算</option><option value="text">文書</option><option value="csv">CSV</option></select></label>
+        <label for="f-r">読む段階<select id="f-r"><option value="">すべて</option></select></label>
+        <label for="f-w">書く段階<select id="f-w"><option value="">すべて</option></select></label>
+        <label for="f-fc">入力欄<select id="f-fc"><option value="">すべて</option><option value="marked">作り手の印がある様式</option><option value="inferred">推定の欄だけ</option><option value="none">欄なし</option></select></label>
+        <label for="f-o">取得<select id="f-o"><option value="">すべて</option><option value="ok">取得できた</option><option value="no">取得できない</option></select></label>
+        <label for="f-q">ファイル名・サイト<input id="f-q" type="search" placeholder="例：form、申請、antrag"></label>
+        <label for="f-s">並び順<select id="f-s">
+          <option value="read-hi">読むスコアが高い順</option><option value="read-lo">読むスコアが低い順</option>
+          <option value="write-hi">書くスコアが高い順</option><option value="write-lo">書くスコアが低い順</option>
+          <option value="fields">欄の多い順</option><option value="country">国の順</option></select></label>
+      </div>
+      <p class="count" id="count"></p>
+      <div class="docs" id="docs"></div>
+      <button type="button" class="more" id="more" hidden>さらに 20 件</button>
+    </details>
+
+    <details class="fold"><summary id="h-method">調査の方法</summary>
+      <div class="method">
+        <div><h3>母集団と標本</h3><p>国連の加盟 193 か国の、政府のサイトにある PDF・表計算・文書・CSV の書類です。政府のサイトは、国のドメインの政府用の区分（gov.br・go.jp・lg.jp・gouv.fr・gob.mx など。Public Suffix List と各国の登録機関の規則が根拠）と、米国の .gov などの国の政府のドメイン、Wikidata にある省庁・政府の機関・自治体の公式のサイトで決めました。書類は、Common Crawl の 2026 年 10 月の収集（CC-MAIN-2026-43）の中から選びます。収集の索引を区切りごとに無作為に選び、その中の政府のサイトの書類を候補にして、国 × 形式の群の層ごとに 20 件を無作為に選びました（選ばれる確率を記録）。表計算・文書は数が少ないので、候補が 20 件に届くまで区切りを無作為に足して読みました（国ごとに 120 まで）。国は選び出さず、193 か国のすべての結果を地図に示しています。</p></div>
+        <div><h3>分析の単位</h3><p>主の単位は書類（ファイル）です。段階がファイルごとに付くためです。同じ中身の書類は 1 件に数えます。書く段階の理由は入力欄ごとにも数えます。</p></div>
+        <div><h3>測ること</h3><p>書類の全体を取得できたか、読む段階 S〜F、書く段階 A〜D、その理由。すべて決定的な処理です。Common Crawl は大きな書類を途中で切って保存するので、切れた書類は、そのままスコアを付けず、政府のサイトから取り直しました。10% の部分標本では、全欄に書いて、書いた所のほかはバイト一致することを確かめました。</p></div>
+        <div><h3>数字の読み方</h3><p>数字が表すのは「Common Crawl が集めた、政府のサイトの書類」で、政府の書類の全体の中では下限です。Common Crawl は、リンクの多いページや HTML を先に集めます。Office の書類は PDF よりずっと少なく、標本の少ない国・形式は区間が広くなります。政府のドメインの一覧は、国のドメインに政府用の区分のない国（ドイツ・オランダなど）では Wikidata によります。切れた書類で取り直せなかったものは分母から除いています。</p></div>
+        <div><h3>取り方</h3><p>書類は Common Crawl の保存庫から、その記録だけを取りました。保存庫への要求は一度に一つ、間をあけ、混んでいるときは待ちました。政府のサイトに行くのは切れた書類を取り直すときだけで、サイトの決まりを守り、同じサイトには 2 秒以上の間をあけました。書類はスコアを付けたあとに消し、URL・SHA-256・結果だけを残しています。</p></div>
+      </div>
+    </details>
+  </section>
+
+  <section aria-labelledby="h-detail">
+    <h2 id="h-detail">詳しい結果</h2>
+    <p class="sub">ここの数は、すべて固定版 <code>eval-freeze-1</code>（コミット 26f4332）の評価です。「開発用」は開発に使った書類、「評価用」は固定するまで開かなかった書類（都と多摩、世界）です。</p>
+
+    <h3 class="minor">読む</h3>
+    <div class="tablebox"><table>
+      <thead><tr><th rowspan="2"></th><th colspan="2">開発用</th><th colspan="2">評価用：都と多摩</th><th colspan="2">評価用：世界</th></tr>
+      <tr><th class="num">とどく</th><th class="num">比べる道具</th><th class="num">とどく</th><th class="num">比べる道具</th><th class="num">とどく</th><th class="num">比べる道具</th></tr></thead>
+      <tbody>
+<tr><td>開けた</td><td class="num">78/78<br><span class="ci">100.0%</span></td><td class="num">74/78<br><span class="ci">94.9%</span></td><td class="num">100/100<br><span class="ci">100.0%</span></td><td class="num">95/100<br><span class="ci">95.0%</span></td><td class="num">552/557<br><span class="ci">99.1%</span></td><td class="num">494/557<br><span class="ci">88.7%</span></td></tr>
+<tr><td>正確に読めた（字がある書類）</td><td class="num">70/77<br><span class="ci">90.9%</span></td><td class="num">64/77<br><span class="ci">83.1%</span></td><td class="num">91/99<br><span class="ci">91.9%</span></td><td class="num">88/99<br><span class="ci">88.9%</span></td><td class="num">368/529<br><span class="ci">69.6%</span></td><td class="num">409/529<br><span class="ci">77.3%</span></td></tr>
+<tr><td>画面の字（日付・数の形式）</td><td class="num">98/98<br><span class="ci">100.0%</span></td><td class="num">57/98<br><span class="ci">58.2%</span></td><td class="num">—</td><td class="num">—</td><td class="num">930/931<br><span class="ci">99.9%</span></td><td class="num">1,352/1,773<br><span class="ci">76.3%</span></td></tr>
+<tr><td>数式の値</td><td class="num">15/15<br><span class="ci">100.0%</span></td><td class="num">15/15<br><span class="ci">100.0%</span></td><td class="num">179/179<br><span class="ci">100.0%</span></td><td class="num">179/179<br><span class="ci">100.0%</span></td><td class="num">687/687<br><span class="ci">100.0%</span></td><td class="num">658/687<br><span class="ci">95.8%</span></td></tr>
+<tr><td>結合が各行に届く</td><td class="num">662/672<br><span class="ci">98.5%</span></td><td class="num">668/672<br><span class="ci">99.4%</span></td><td class="num">500/520<br><span class="ci">96.2%</span></td><td class="num">520/520<br><span class="ci">100.0%</span></td><td class="num">89/93<br><span class="ci">95.7%</span></td><td class="num">83/93<br><span class="ci">89.2%</span></td></tr>
+<tr><td>非表示のシートの印</td><td class="num">—</td><td class="num">—</td><td class="num">5/5<br><span class="ci">100.0%</span></td><td class="num">5/5<br><span class="ci">100.0%</span></td><td class="num">6/6<br><span class="ci">100.0%</span></td><td class="num">6/6<br><span class="ci">100.0%</span></td></tr>
+<tr><td>非表示の字の印</td><td class="num">—</td><td class="num">—</td><td class="num">27/27<br><span class="ci">100.0%</span></td><td class="num">27/27<br><span class="ci">100.0%</span></td><td class="num">871/871<br><span class="ci">100.0%</span></td><td class="num">1,281/1,281<br><span class="ci">100.0%</span></td></tr>
+<tr><td>字の色</td><td class="num">—</td><td class="num">—</td><td class="num">6/117<br><span class="ci">5.1%</span></td><td class="num">115/117<br><span class="ci">98.3%</span></td><td class="num">70/1,169<br><span class="ci">6.0%</span></td><td class="num">845/876<br><span class="ci">96.5%</span></td></tr>
+<tr><td>ふりがな</td><td class="num">999/1,024<br><span class="ci">97.6%</span></td><td class="num">30/1,024<br><span class="ci">2.9%</span></td><td class="num">698/713<br><span class="ci">97.9%</span></td><td class="num">77/711<br><span class="ci">10.8%</span></td><td class="num">—</td><td class="num">—</td></tr>
+<tr><td>図形・テキストボックスの字</td><td class="num">53/53<br><span class="ci">100.0%</span></td><td class="num">15/51<br><span class="ci">29.4%</span></td><td class="num">178/227<br><span class="ci">78.4%</span></td><td class="num">211/220<br><span class="ci">95.9%</span></td><td class="num">389/487<br><span class="ci">79.9%</span></td><td class="num">220/333<br><span class="ci">66.1%</span></td></tr>
+<tr><td>チェックボックスの状態</td><td class="num">78/78<br><span class="ci">100.0%</span></td><td class="num">14/78<br><span class="ci">17.9%</span></td><td class="num">2/2<br><span class="ci">100.0%</span></td><td class="num">0/2<br><span class="ci">0.0%</span></td><td class="num">2,429/2,528<br><span class="ci">96.1%</span></td><td class="num">2,528/2,625<br><span class="ci">96.3%</span></td></tr>
+<tr><td>PDF の欄の値</td><td class="num">2/2<br><span class="ci">100.0%</span></td><td class="num">2/2<br><span class="ci">100.0%</span></td><td class="num">—</td><td class="num">—</td><td class="num">74/80<br><span class="ci">92.5%</span></td><td class="num">103/103<br><span class="ci">100.0%</span></td></tr>
+<tr><td>字のないページを伝える</td><td class="num">1/1<br><span class="ci">100.0%</span></td><td class="num">1/1<br><span class="ci">100.0%</span></td><td class="num">1/1<br><span class="ci">100.0%</span></td><td class="num">0/1<br><span class="ci">0.0%</span></td><td class="num">36/36<br><span class="ci">100.0%</span></td><td class="num">35/35<br><span class="ci">100.0%</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="cnote">書類は開発用 78 件、都と多摩 100 件、世界 557 件。「比べる道具」は MarkItDown・python-docx・pdfplumber・pypdf・xlrd・openpyxl のうち、特徴ごと・形式ごとに最もよい道具を選んで足したものです（1 つの道具の成績ではなく、比べる道具に有利）。分母は道具ごとの値のまま足したので、道具によって違うことがあります。</p>
+
+    <h3 class="minor">字の再現率</h3>
+    <div class="tablebox"><table>
+      <thead><tr><th rowspan="2">形式</th><th colspan="2">開発用</th><th colspan="2">評価用：都と多摩</th><th colspan="2">評価用：世界</th></tr>
+      <tr><th class="num">とどく</th><th class="num">最良の道具</th><th class="num">とどく</th><th class="num">最良の道具</th><th class="num">とどく</th><th class="num">最良の道具</th></tr></thead>
+      <tbody>
+<tr><td>doc</td><td class="num">1.0</td><td class="num">0.0</td><td class="num">1.0</td><td class="num">0.0</td><td class="num">0.7412</td><td class="num">0.0</td></tr>
+<tr><td>docx</td><td class="num">0.9999</td><td class="num">0.9991</td><td class="num">0.9877</td><td class="num">1.0</td><td class="num">0.8449</td><td class="num">0.9903</td></tr>
+<tr><td>pdf</td><td class="num">0.9999</td><td class="num">0.9577</td><td class="num">0.9999</td><td class="num">0.9859</td><td class="num">0.9869</td><td class="num">0.9927</td></tr>
+<tr><td>xls</td><td class="num">1.0</td><td class="num">1.0</td><td class="num">1.0</td><td class="num">1.0</td><td class="num">0.8749</td><td class="num">0.9891</td></tr>
+<tr><td>xlsx</td><td class="num">0.9997</td><td class="num">1.0</td><td class="num">1.0</td><td class="num">1.0</td><td class="num">0.9997</td><td class="num">0.9959</td></tr>
+      </tbody>
+    </table></div>
+    <p class="cnote">とどくの窓が「同じ形の行が続く」とまとめた所は、窓の言明のとおりに広げて数えます。広げない数との違いは世界の xlsx だけで、広げないと 0.9838 です。広げたことで「正確に読めた」に入った書類は世界の 2 件です。</p>
+
+    <h3 class="minor">書く（書けた＋何も消えない、日本語の値）</h3>
+    <div class="tablebox"><table>
+      <thead><tr><th rowspan="2">形式</th><th colspan="2">開発用</th><th colspan="2">評価用：都と多摩</th><th colspan="2">評価用：世界</th></tr>
+      <tr><th class="num">とどく</th><th>最良の道具</th><th class="num">とどく</th><th>最良の道具</th><th class="num">とどく</th><th>最良の道具</th></tr></thead>
+      <tbody>
+<tr><td>doc</td><td class="num">2/3<br><span class="ci">66.7%</span></td><td>書けない</td><td class="num">4/5<br><span class="ci">80.0%</span></td><td>書けない</td><td class="num">40/42<br><span class="ci">95.2%</span></td><td>書けない</td></tr>
+<tr><td>docx</td><td class="num">14/14<br><span class="ci">100.0%</span></td><td>python-docx 14/14</td><td class="num">12/12<br><span class="ci">100.0%</span></td><td>python-docx 12/12</td><td class="num">62/64<br><span class="ci">96.9%</span></td><td>python-docx 54/64</td></tr>
+<tr><td>pdf（XFA）</td><td class="num">—</td><td>—</td><td class="num">—</td><td>—</td><td class="num">12/12<br><span class="ci">100.0%</span></td><td>pypdf 12/12</td></tr>
+<tr><td>pdf（フォームの欄）</td><td class="num">1/1<br><span class="ci">100.0%</span></td><td>pypdf_overlay 1/1</td><td class="num">—</td><td>—</td><td class="num">47/59<br><span class="ci">79.7%</span></td><td>pypdf_overlay 48/59</td></tr>
+<tr><td>pdf（欄のない PDF）</td><td class="num">41/42<br><span class="ci">97.6%</span></td><td>pypdf_overlay 42/42</td><td class="num">70/71<br><span class="ci">98.6%</span></td><td>pypdf_overlay 67/71</td><td class="num">196/231<br><span class="ci">84.8%</span></td><td>pypdf_overlay 207/231</td></tr>
+<tr><td>pdf（署名あり）</td><td class="num">1/1<br><span class="ci">100.0%</span></td><td>pypdf 0/1</td><td class="num">1/1<br><span class="ci">100.0%</span></td><td>pypdf 0/1</td><td class="num">1/1<br><span class="ci">100.0%</span></td><td>pypdf 0/1</td></tr>
+<tr><td>xls</td><td class="num">4/4<br><span class="ci">100.0%</span></td><td>書けない</td><td class="num">5/5<br><span class="ci">100.0%</span></td><td>書けない</td><td class="num">7/7<br><span class="ci">100.0%</span></td><td>書けない</td></tr>
+<tr><td>xlsx</td><td class="num">9/9<br><span class="ci">100.0%</span></td><td>openpyxl 0/9</td><td class="num">6/6<br><span class="ci">100.0%</span></td><td>openpyxl 0/6</td><td class="num">16/17<br><span class="ci">94.1%</span></td><td>openpyxl 0/17</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3 class="minor">処理の取り出し</h3>
+    <div class="tablebox"><table>
+      <thead><tr><th></th><th class="num">開発用</th><th class="num">評価用：都と多摩</th><th class="num">評価用：世界</th></tr></thead>
+      <tbody>
+        <tr><td>数式のある書類</td><td class="num">1 / 13</td><td class="num">1 / 11</td><td class="num">9 / 26</td></tr>
+        <tr><td>数式のセル</td><td class="num">42</td><td class="num">752</td><td class="num">846</td></tr>
+        <tr><td>計算した値が保存された値と合う</td><td class="num">40/40</td><td class="num">705/705</td><td class="num">830/830</td></tr>
+        <tr><td>確かめられた規則</td><td class="num">40/42</td><td class="num">497/513</td><td class="num">193/199</td></tr>
+        <tr><td>計算できないと伝えた関数</td><td class="num">なし</td><td class="num">UNICODE</td><td class="num">YEARFRAC・SEARCHB</td></tr>
+      </tbody>
+    </table></div>
+    <p class="cnote">処理を取り出せなかった書類は、どの組も 0 件です。比べる道具（openpyxl）は数式の字を読むもので、計算と規則へのまとめは行いません。</p>
+
+    <h3 class="minor">白紙からの記入</h3>
+    <div class="tablebox"><table>
+      <thead><tr><th></th><th class="num">評価用：都と多摩</th><th class="num">評価用：世界</th></tr></thead>
+      <tbody>
+        <tr><td><b>記入済み</b>（エージェント＋証明＋確認役。95% 区間）</td><td class="num"><b>55/100</b><br><span class="ci">45〜64%</span></td><td class="num"><b>23/48</b><br><span class="ci">34〜62%</span></td></tr>
+        <tr><td>証明が通った（出力のある様式）</td><td class="num">100/100</td><td class="num">47/47</td></tr>
+        <tr><td>読み戻しが通った</td><td class="num">100/100</td><td class="num">47/47</td></tr>
+        <tr><td>エージェントが記入済みと報告</td><td class="num">96</td><td class="num">38</td></tr>
+        <tr><td>確認役が ok とした</td><td class="num">64/100</td><td class="num">29/47</td></tr>
+        <tr><td>確認役の指摘が残った（所／様式）</td><td class="num">73／31</td><td class="num">23／13</td></tr>
+        <tr><td>答えられるのに空いていた所（確認役）</td><td class="num">7</td><td class="num">10</td></tr>
+        <tr><td>申請者に聞く所</td><td class="num">911</td><td class="num">587</td></tr>
+        <tr><td>道具が書くのを断った回数（うち、断らなくてよかった回数）</td><td class="num">75（7）</td><td class="num">43（24）</td></tr>
+        <tr><td>見ないで行えた（記録で確認）</td><td class="num">96/100</td><td class="num">40/50</td></tr>
+        <tr><td>1 様式の時間（記入／確認、分）</td><td class="num">2.3／1.1</td><td class="num">2.2／0.9</td></tr>
+      </tbody>
+    </table></div>
+    <p class="cnote">確認役は AI で、書いた結果の絵を見て厳しめに判定します（人の二重確認ではありません）。様式は種で選びました。世界は結果を見る前に 100 件から 50 件に減らし、対象外の 2 件を除いて 48 件です。申請者は架空の人で、情報にない欄は聞く所として空きます。人の手が残る所は、都と多摩で印刷 100・窓口 98・添付 87・自署 51・押印 22・郵送 3（ほかにその他 100）、世界で自署 45・添付 42・印刷 42・窓口 39・押印 6・郵送 4（ほかにその他 48）様式です。</p>
+
+    <h3 class="minor">ただの Claude Code との比較（都と多摩の同じ 20 通）</h3>
+    <div class="tablebox"><table class="small">
+      <thead><tr><th></th><th class="num">ただの Claude Code</th><th class="num">＋ とどく</th></tr></thead>
+      <tbody>
+        <tr><td><b>記入済み</b>（95% 区間）</td><td class="num"><b>9/20</b><br><span class="ci">26〜66%</span></td><td class="num"><b>10/20</b><br><span class="ci">30〜70%</span></td></tr>
+        <tr><td>元の PDF をそのまま残す</td><td class="num">0/16</td><td class="num">16/16</td></tr>
+        <tr><td>変わったのは書いた所だけと証明</td><td class="num">なし</td><td class="num">20/20</td></tr>
+        <tr><td>書類の部品が消えた様式</td><td class="num">1</td><td class="num">0</td></tr>
+        <tr><td>日本語が読める PDF（Poppler／PDFKit の描画）</td><td class="num">16／15</td><td class="num">16／16</td></tr>
+        <tr><td>確認役の指摘が残った（所／様式）</td><td class="num">19／7</td><td class="num">27／10</td></tr>
+        <tr><td>答えられるのに空いていた所</td><td class="num">3</td><td class="num">0</td></tr>
+        <tr><td>1 通の平均の時間</td><td class="num">162 秒</td><td class="num">124 秒</td></tr>
+      </tbody>
+    </table></div>
+    <p class="cnote">記入済みの数の差は統計的に区別できません（両方が記入済み 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9。McNemar の正確検定 p = 1.0）。とどくの価値は、数を増やすことより、書いたものを証明できることにあります。確認役には、どちらの結果かを伏せました。</p>
+
+    <h3 class="minor">実験の条件</h3>
+    <ul class="conds">
+      <li>道具の版：markitdown 0.1.9・openpyxl 3.1.5・pypdf 6.21.4・pdfplumber 0.11.10・python-docx 1.2.0・xlrd 2.0.2。正解は Poppler 26.10.0・LibreOffice 26.8.1・Excel 16.114・ファイルの XML から作りました（書類ごとに記録）。Word は動かしていません。</li>
+      <li>とどくに有利な条件：変えた保存値の試験（表には載せていません）、比べる道具を Python のライブラリに限ったこと（LibreOffice で変換してから読む手順は入っていません）。</li>
+      <li>比べる道具に有利な条件：書く欄はとどくが選んで教えました（欄を見つける力は比べていません）。比べる道具の読み方は、使い慣れた人が書く形にしました。「比べる道具」の列は形式ごとの最良です。</li>
+      <li>試運転（開発の書類 95 件）のあとで測り方を変え、評価用の書類を開く前に固定しました。同じコミットで、試運転で見つけた直しも入れています。開発用の数がよく見える理由の一つになりえます。</li>
+      <li>Office の書類の絵は LibreOffice の描画で、日本語は Noto Sans JP で描きました。字の幅が実物と違うので、はみ出しの判断は参考です。</li>
+    </ul>
+
+    <h3 class="minor">固定のあとに入れた改善（<code>eval-freeze-1</code> から 25 コミット。上の数には含みません）</h3>
+    <ul class="conds">
+      <li><b>書体の埋め込み</b>：PDF に足す字を、同梱の書体（Noto Sans JP、OFL）から部分埋め込みするのを既定に。固定版の 20 通の比較では、PDF 16 通で日本語の書体を埋め込んでいませんでした。</li>
+      <li><b>見えない字を防ぐ描画の確かめ</b>：書いた後に描いて、画素が変わらなければ読み戻しの違いとして返し、明るさの比が低ければ知らせます。</li>
+      <li><b>書いた字を見える形に</b>：高さの足りない所で切られる字、一覧にない部品、NeedAppearances、枠の設定、描き直す表示での字の違いに対応。</li>
+      <li><b>Word の字の書式</b>：.docx・.doc の取り消し線と字の色を窓で伝えます（上の「字の色」の数は、この改善の前のものです）。</li>
+      <li><b>窓の字を元のまま</b>：印刷された箱の字（❑・□）、点線・下線の字、欄の見本の字、Excel のチェックボックスの面の字を伝えます。字のない図形は事実として示し、その上に書けます。</li>
+      <li><b>○の位置</b>：長い語の○を、線のあいだに収め、収まらなければ字に沿った角の丸い囲みにします。</li>
+      <li><b>読み戻しと伝え方</b>：読み戻しの誤検出（足した空白・.doc のテキストボックス・日付のセル）を直し、今回書いていないのに値の入っている欄を会話で伝えます。</li>
+      <li><b>結果の大きさ</b>：open_document・list_fields・read_window・extract_processing の結果を上限に収め、省いた事実は続きで取れます。</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="h-next">
+    <h2 id="h-next">次に広げること</h2>
+    <ul class="conds">
+      <li>Acrobat と、実機のスクリーンリーダー（NVDA・JAWS など）での確かめ。</li>
+      <li>Word の○を図形で置くときの、描き手による位置の違い。</li>
+      <li>一部のビューアーでの読み上げの順と、書いた値へのタブでの移動。</li>
+      <li>世界の確定の数を地図に入れる。固定後の改善を含めて、評価をもう一度回す。</li>
+    </ul>
   </section>
 
   <section aria-labelledby="h-use">
@@ -382,94 +688,24 @@ tr.unr td { color: var(--muted); }
         <p>あとは、ふだんの言葉で頼むだけです。</p>
         <ul class="say"><li>「住んでいる区で使える子育ての助成を探して、申請書を書いて」</li><li>「この様式に、去年と同じ事業所の情報を入れて」</li><li>「この Excel の計算のきまりを説明して。区分Ⅱにしたらいくら？」</li></ul></li>
       <li><h3>iPad から使う</h3>
-        <p>とどくと書類はパソコンの上に置いたまま、Claude Code の Remote Control で iPad から話しかけます。パソコンで <code>/remote-control</code> を実行し、iPad の Claude アプリか claude.ai/code からそのセッションにつなぎます。iPad で書類を開く必要はありません（パソコンは付けたままにします。Pro・Max・Team・Enterprise などのプランで使えます）。</p></li>
+        <p>とどくと書類はパソコンの上に置いたまま、Claude Code の <a href="https://code.claude.com/docs/en/remote-control" rel="noopener noreferrer">Remote Control</a> で iPad から話しかけます。パソコンで <code>/remote-control</code> を実行し、iPad の Claude アプリか claude.ai/code からそのセッションにつなぎます。iPad で書類を開く必要はありません。</p></li>
+    </ol>
+    <h3 class="minor">とどくが、すること</h3>
+    <ol class="how">
+      <li><h3>制度と様式を探す</h3><p>「私が使える制度を探して、申請書を書いて」の一言から、エージェントが制度の案内と様式を探してきます。</p></li>
+      <li><h3>開いて、一字も変えずに読む</h3><p>PDF・Excel・Word・一太郎・CSV・ZIP などの書類を、元の内容を一字も変えずに読める「窓」にします。Office も外部のライブラリも使いません。</p></li>
+      <li><h3>書く所を見つける</h3><p>入力欄は、フォームの欄・入力規則・罫線・下線など、ファイルの構造から規則で見つけます。規則で決められない所は、根拠を添えて「？」の印で示し、エージェントが判断します。</p></li>
+      <li><h3>紙の書類も</h3><p>文字の情報がないスキャンのページは、ページを画像にしてエージェントが見て読み、目盛りの枠で書きます。</p></li>
+      <li><h3>書いて、証明する</h3><p>前と後のファイルを読み直して、変わったのが書いた所だけであることを機械で証明し、書いた値を読み戻します。</p></li>
+      <li><h3>対話で伝える</h3><p>私は、書類を Word や Acrobat で開きません。書いた所の見出しと値・まだ空いている欄・私が決めることを、エージェントが会話で伝え、私が確かめます。</p></li>
     </ol>
     <details class="other">
       <summary>ほかの MCP 対応のエージェントで使う</summary>
       <p>リポジトリ（<a href="https://github.com/Ono-Katsuki/todoku" rel="noopener noreferrer">github.com/Ono-Katsuki/todoku</a>）を手元に置き、エージェントの MCP の設定に次を足します。</p>
       <div class="cmd"><code id="cmd3">{ "mcpServers": { "todoku": { "command": "uv", "args": ["run", "--quiet", "--directory", "&lt;リポジトリの場所&gt;", "todoku-mcp"] } } }</code><button type="button" class="copy" data-for="cmd3">コピー</button></div>
     </details>
-  </section>
-
-  <section aria-labelledby="h-map">
-    <h2 id="h-map">世界地図</h2>
-    <p class="sub">各国の政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って<b>正確に扱える書類の割合</b>です。申請の様式だけの割合ではありません。色は、黄（少ない）から緑・青を経て紫（多い）へ、届く書類の割合を 5 段階で示します。上のボタンで、何を見るか（読める・書ける・様式に書ける・取得できる）を切り替えられます。国を選ぶと、右に内訳が出ます。</p>
-    <div class="tabs" role="group" aria-label="地図に示す値">
-      <button type="button" id="t-read" data-m="read_ok" aria-pressed="true">正確に読める</button>
-      <button type="button" id="t-write" data-m="write_ok" aria-pressed="false">書ける</button>
-      <button type="button" id="t-forms" data-m="forms_writable" aria-pressed="false">申請の様式に書ける</button>
-      <button type="button" id="t-reach" data-m="reach" aria-pressed="false">取得できる</button>
-    </div>
-    <div class="mapgrid">
-      <div class="mapbox">
-        <svg id="map" viewBox="0 0 960 500" role="img" aria-label="国ごとの割合の地図"></svg>
-        <div class="legend" id="legend"></div>
-        <p class="metric-note" id="metric-note"></p>
-      </div>
-      <aside class="panel" id="panel" aria-live="polite"><p class="sub" style="margin:0">地図か一覧から国を選んでください。</p></aside>
-    </div>
-  </section>
-
-  <section aria-labelledby="h-table">
-    <h2 id="h-table">国の一覧</h2>
-    <p class="sub">割合のあとの括弧は 95% 区間です。標本の少ない国は区間が広くなります。</p>
-    <div class="tablebox"><table id="table">
-      <thead><tr>
-        <th><button type="button" data-k="name">国</button></th>
-        <th class="num"><button type="button" data-k="n">選んだ</button></th>
-        <th class="num"><button type="button" data-k="reach">届く</button></th>
-        <th class="num"><button type="button" data-k="read_ok">読む S〜B</button></th>
-        <th>読む段階の内訳</th>
-        <th class="num"><button type="button" data-k="write_ok">書ける</button></th>
-        <th>書く段階の内訳</th>
-        <th class="num"><button type="button" data-k="forms_writable">様式に書ける</button></th>
-      </tr></thead><tbody></tbody>
-    </table></div>
-    <button type="button" class="more" id="t-all" hidden></button>
-  </section>
-
-  <section aria-labelledby="h-why">
-    <h2 id="h-why">スコアを下げた理由</h2>
-    <p class="sub">スコアは、ファイルの構造の規則だけで決めています。キーワードでは決めません。規則で決められない所は、エージェントが確かめる所として数えます。</p>
-    <div class="reasons">
-      <div><h3 style="font-size:.95rem;margin:0 0 8px">読む</h3><div class="bars" id="r-read"></div></div>
-      <div><h3 style="font-size:.95rem;margin:0 0 8px">書く</h3><div class="bars" id="r-write"></div></div>
-      <div><h3 style="font-size:.95rem;margin:0 0 8px">届かなかった理由</h3><div class="bars" id="r-reach"></div></div>
-    </div>
-  </section>
-
-  <section aria-labelledby="h-docs">
-    <h2 id="h-docs">書類を探す</h2>
-    <p class="sub">選んだ書類のひとつひとつの結果です。書類そのものは置いていません。元の公開場所へのリンクだけです（収集のあとで消えた書類もあります）。</p>
-    <div class="filters">
-      <label for="f-c">国<select id="f-c"><option value="">すべて</option></select></label>
-      <label for="f-g">形式の群<select id="f-g"><option value="">すべて</option><option value="pdf">PDF</option><option value="sheet">表計算</option><option value="text">文書</option><option value="csv">CSV</option></select></label>
-      <label for="f-r">読む段階<select id="f-r"><option value="">すべて</option></select></label>
-      <label for="f-w">書く段階<select id="f-w"><option value="">すべて</option></select></label>
-      <label for="f-fc">入力欄<select id="f-fc"><option value="">すべて</option><option value="marked">作り手の印がある様式</option><option value="inferred">推定の欄だけ</option><option value="none">欄なし</option></select></label>
-      <label for="f-o">届いたか<select id="f-o"><option value="">すべて</option><option value="ok">取得できた</option><option value="no">取得できない</option></select></label>
-      <label for="f-q">ファイル名・サイト<input id="f-q" type="search" placeholder="例：form、申請、antrag"></label>
-      <label for="f-s">並び順<select id="f-s">
-        <option value="read-hi">読むスコアが高い順</option><option value="read-lo">読むスコアが低い順</option>
-        <option value="write-hi">書くスコアが高い順</option><option value="write-lo">書くスコアが低い順</option>
-        <option value="fields">欄の多い順</option><option value="country">国の順</option></select></label>
-    </div>
-    <p class="count" id="count"></p>
-    <div class="docs" id="docs"></div>
-    <button type="button" class="more" id="more" hidden>さらに 20 件</button>
-  </section>
-
-  <section aria-labelledby="h-method">
-    <h2 id="h-method">方法と限界</h2>
-    <div class="method">
-      <div><h3>母集団と標本</h3><p>国連の加盟 193 か国の、政府のサイトにある PDF・表計算・文書・CSV の書類です。政府のサイトは、国のドメインの政府用の区分（gov.br・go.jp・lg.jp・gouv.fr・gob.mx など。Public Suffix List と各国の登録機関の規則が根拠）と、米国の .gov などの国の政府のドメイン、Wikidata にある省庁・政府の機関・自治体の公式のサイトで決めました。書類は、Common Crawl の 2026 年 10 月の収集（CC-MAIN-2026-43）の中から選びます。収集の索引を区切りごとに無作為に選び、その中の政府のサイトの書類を候補にして、国 × 形式の群の層ごとに 20 件を無作為に選びました（選ばれる確率を記録）。表計算・文書は数が少ないので、候補が 20 件に届くまで区切りを無作為に足して読みました（国ごとに 120 まで）。国は選び出さず、193 か国のすべての結果（測った・書類が収集にない・ドメインが見つからない）を地図に示しています。</p></div>
-      <div><h3>分析の単位</h3><p>主の単位は書類（ファイル）です。段階がファイルごとに付くためです。同じ中身の書類は 1 件に数えます。書く段階の理由は入力欄ごとにも数えます。書類の数だけでなく、字数や欄の数でも偏りを確かめます。</p></div>
-      <div><h3>測ること</h3><p>書類の全体を取得できたか、読む段階 S〜F、書く段階 A〜D、その理由。すべて決定的な処理です。Common Crawl は大きな書類を途中で切って保存するので、切れた書類は、そのままスコアを付けず、robots.txt が許すときだけ政府のサイトから取り直しました。10% の部分標本では、全欄に書いて、書いた所のほかはバイト一致することを証明しました。</p></div>
-      <div><h3>限界</h3><p>数字が表すのは「Common Crawl が集めた、政府のサイトの書類」です。Common Crawl は、リンクの多いページや HTML を先に集め、robots.txt で断られたサイトやログインの奥は集めません。Office の書類は PDF よりずっと少なく、標本の少ない国・形式は区間が広くなります。政府のドメインの一覧は、国のドメインに政府用の区分のない国（ドイツ・オランダなど）では Wikidata に頼るため、載っていない機関・自治体は入りません。切れた書類で取り直せなかったものは分母から除いているので、大きな書類が少なめに数えられます。段階の妥当性は、人の評価者 2 人による一致度（κ）で確かめる予定です。</p></div>
-      <div><h3>礼儀</h3><p>書類は政府のサーバーからでなく、Common Crawl の保存庫から、その記録だけを取りました（Common Crawl は集めるときに robots.txt を守っています）。保存庫への要求は一度に一つ、間をあけ、混んでいるときは待ちました。政府のサイトに行くのは、切れた書類を取り直すときだけで、robots.txt を RFC 9309 のとおりに読んで守り、同じサイトには 2 秒以上の間をあけました。ボット対策やログインは破りません。書類はスコアを付けたあとに消し、URL・SHA-256・結果だけを残しています。</p></div>
-    </div>
     <div class="refs">
-      <span>Moynihan, Herd &amp; Harvey (2015) JPART · Herd &amp; Moynihan (2018) · Currie (2006) · Goodwin et al. (2011) JITP · Singanamalla et al. (2020) IMC · Kumar &amp; Wang (2024) ASSETS · Foppiano (2026) WAC · Fok et al. (2022) CHI · Hackett &amp; Parmanto (2009) · Vigo, Brown &amp; Conway (2013) W4A · Brown, Cai &amp; DasGupta (2001) · Korn &amp; Graubard (1998) · Cohen (1960) · Thelwall &amp; Stuart (2006) · Partridge &amp; Allman (2016) · Ono (2026) ASSETS</span>
+      <span>Moynihan, Herd &amp; Harvey (2015) JPART · Herd &amp; Moynihan (2018) · Goodwin et al. (2011) JITP · Singanamalla et al. (2020) IMC · Kumar &amp; Wang (2024) ASSETS · Fok et al. (2022) CHI · Hackett &amp; Parmanto (2009) · Vigo, Brown &amp; Conway (2013) W4A · Brown, Cai &amp; DasGupta (2001) · Korn &amp; Graubard (1998) · Ono (2026) ASSETS</span>
       <span>書類：Common Crawl（CC-MAIN-2026-43）· 政府のドメイン：Public Suffix List · Wikidata（CC0）</span>
       <span>地図の国境：Made with Natural Earth（public domain）。world-atlas 2.0.2（ISC）Copyright 2013-2019 Michael Bostock</span>
     </div>
@@ -498,7 +734,7 @@ tr.unr td { color: var(--muted); }
   const READ_JA = { S: "素で問題ない", A: "規則だけで正確", B: "エージェントが読めば正確", C: "工夫して変換", D: "解釈が必要", E: "得意でない形式", F: "アクセスできない" };
   const WRITE_JA = { A: "そのまま書ける", B: "解析して書く", C: "画面から入力", D: "書けない" };
   const FAM_JA = { pdf: "PDF", sheet: "表計算", text: "文書", csv: "CSV" };
-  const OUT_JA = { ok: "取得できた", robots: "robots.txt で禁止", captcha: "ボット対策", login: "ログインが必要", html: "ウェブページが返った",
+  const OUT_JA = { ok: "取得できた", "disallowed": "サイトの決まりで取得しない", captcha: "ボット対策", login: "ログインが必要", html: "ウェブページが返った",
     too_large: "25MB を超える", error: "接続できない", empty: "空のファイル", truncated: "保存が途中で切れていて、取り直せない",
     cc_error: "保存庫から取れない", digest_mismatch: "保存の中身が索引と合わない" };
   const UNR_JA = { no_documents: "政府のサイトは収集にあるが書類がない", not_in_crawl: "政府のドメインが収集にない", no_domains: "政府のドメインが見つからない" };
@@ -507,7 +743,11 @@ tr.unr td { color: var(--muted); }
     read_ok: { label: "正確に読める書類の割合", note: "取りに行けた書類のうち、AI エージェントが中身を正確に読めるもの（読む段階 S・A・B）。" },
     write_ok: { label: "書ける書類の割合", note: "取りに行けた書類のうち、エージェントがとどくで書けるもの（書く段階 A・B。B は、規則では欄と決められない所を、エージェントが窓を読んで決めて書くもの）。" },
     forms_writable: { label: "申請の様式に書ける割合", note: "入力欄のある申請の様式のうち、エージェントが書けるもの（画面からの入力や手書き・押印が要らない。書く段階 A・B）。" },
-    reach: { label: "取得できる書類の割合", note: "選んだ書類のうち、全体を取得できたもの（Common Crawl の保存から。保存が途中で切れていたものは、robots.txt が許せば政府のサイトから取り直した）。" },
+    read_count: { label: "読む段階で届く書類の数（推定）", path: ["read", "reach"], note: "国ごとの書類の数 × 読む段階で届く割合。" },
+    read_new: { label: "読む段階で新しく届く書類の数（推定）", path: ["read", "new"], note: "ふだんの道具では届かず、とどくで届く分。" },
+    write_count: { label: "書く段階で届く書類の数（推定）", path: ["write", "reach"], note: "国ごとの書類の数 × 書く段階で届く割合。" },
+    write_new: { label: "書く段階で新しく届く書類の数（推定）", path: ["write", "new"], note: "ふだんの道具では届かず、とどくで届く分。" },
+    reach: { label: "取得できる書類の割合", note: "選んだ書類のうち、全体を取得できたもの（Common Crawl の保存から。保存が途中で切れていたものは、政府のサイトから取り直した）。" },
   };
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const pct = p => p == null ? "—" : (p * 100).toFixed(0) + "%";
@@ -529,7 +769,15 @@ tr.unr td { color: var(--muted); }
   // ---------------------------------------------------------------- 地図
   // 割合を5段に分け、段ごとにはっきり違う明るさの色で塗る（なめらかな濃淡だと、近い値の国が見分けにくい）
   const BINS = [[0, .2, "0–20%"], [.2, .4, "20–40%"], [.4, .6, "40–60%"], [.6, .8, "60–80%"], [.8, 1.01, "80–100%"]];
-  const color = p => css(`--q${BINS.findIndex(([a, b]) => p >= a && p < b) + 1 || 5}`);
+  const COUNT_BINS = [[0, 100, "100 件未満"], [100, 1e3, "100〜1,000"], [1e3, 1e4, "1,000〜1 万"], [1e4, 1e5, "1 万〜10 万"], [1e5, Infinity, "10 万件以上"]];
+  const bins = () => METRIC[metric].path ? COUNT_BINS : BINS;
+  const color = p => css(`--q${bins().findIndex(([a, b]) => p >= a && p < b) + 1 || 5}`);
+  // 地図に示す値：割合か、確定の集計が入ったあとの数（countries[cc].counts）
+  function mv(c) {
+    const m = METRIC[metric];
+    if (m.path) { const v = c.counts?.[m.path[0]]?.[m.path[1]]; return { v, text: v == null ? "—" : v.toLocaleString() + " 件", extra: "" }; }
+    const x = c[metric]; return { v: x.p, text: pct(x.p), extra: `${ci(x.ci)} n=${x.n}` };
+  }
   function drawMap() {
     const svg = d3.select("#map");
     svg.selectAll("*").remove();
@@ -550,7 +798,7 @@ tr.unr td { color: var(--muted); }
       .attr("d", path)
       .attr("fill", f => {
         const cc = byIso[f.id];
-        if (cc) { const v = DATA.countries[cc][metric]; return v && v.p != null ? color(v.p) : css("--none"); }
+        if (cc) { const v = mv(DATA.countries[cc]).v; return v != null ? color(v) : css("--none"); }
         if (unr[f.id]) return DATA.unreached[unr[f.id]].outcome === "no_domains" ? css("--line") : "url(#hatch)";
         return css("--none");
       })
@@ -558,7 +806,7 @@ tr.unr td { color: var(--muted); }
       .attr("role", f => byIso[f.id] ? "button" : null)
       .attr("aria-label", f => {
         const cc = byIso[f.id];
-        if (cc) { const c = DATA.countries[cc]; return `${c.name} ${pct(c[metric].p)}`; }
+        if (cc) { const c = DATA.countries[cc]; return `${c.name} ${mv(c).text}`; }
         if (unr[f.id]) return `${DATA.unreached[unr[f.id]].name}：${DATA.unreached[unr[f.id]].why}`;
         return null;
       })
@@ -566,17 +814,17 @@ tr.unr td { color: var(--muted); }
       .on("keydown", (e, f) => { if ((e.key === "Enter" || e.key === " ") && byIso[f.id]) { e.preventDefault(); select(byIso[f.id]); } })
       .append("title").text(f => {
         const cc = byIso[f.id];
-        if (cc) { const c = DATA.countries[cc], v = c[metric]; return `${c.name}：${pct(v.p)}${ci(v.ci)} n=${v.n}`; }
+        if (cc) { const c = DATA.countries[cc], v = mv(c); return `${c.name}：${v.text}${v.extra}`; }
         if (unr[f.id]) return `${DATA.unreached[unr[f.id]].name}：${DATA.unreached[unr[f.id]].why}`;
         return f.properties.name;
       });
     const lg = document.getElementById("legend");
-    lg.innerHTML = BINS.map(([a, , label], i) => `<span><span class="sw" style="background:var(--q${i + 1})"></span>${label}</span>`).join("") +
+    lg.innerHTML = bins().map(([a, , label], i) => `<span><span class="sw" style="background:var(--q${i + 1})"></span>${label}</span>`).join("") +
       `<span><span class="sw" style="background:repeating-linear-gradient(45deg,${css("--hatch")} 0 2px,transparent 2px 5px);border:1px solid ${css("--line")}"></span>政府の書類が収集にない</span>` +
       `<span><span class="sw" style="background:${css("--line")}"></span>政府のドメインが見つからない</span>` +
       `<span><span class="sw" style="background:${css("--none")}"></span>まだ測っていない</span>`;
     document.getElementById("metric-note").textContent = METRIC[metric].label + "：" + METRIC[metric].note +
-      "国の値は、PDF・表計算・文書・CSV の割合を、その国の政府のサイトにある数（収集の索引から推定）に合わせて足し合わせたものです（選んだ数の偏りを直すため）。マルタは地図では小さすぎるので、下の一覧で見てください。";
+      (METRIC[metric].path ? "" : "国の値は、PDF・表計算・文書・CSV の割合を、その国の政府のサイトにある数（収集の索引から推定）に合わせて足し合わせたものです（選んだ数の偏りを直すため）。") + "マルタは地図では小さすぎるので、下の一覧で見てください。";
   }
 
   function select(cc) {
@@ -587,16 +835,17 @@ tr.unr td { color: var(--muted); }
     document.getElementById("panel").innerHTML =
       `<h3>${esc(c.name)}</h3><div class="src">${esc(c.source)}</div>
        <dl>
-         <dt>届く</dt><dd>${pct(c.reach.p)} <span class="ci">${ci(c.reach.ci)}</span></dd>
+         <dt>取得</dt><dd>${pct(c.reach.p)} <span class="ci">${ci(c.reach.ci)}</span></dd>
          <dt>読む S〜B</dt><dd>${pct(c.read_ok.p)} <span class="ci">${ci(c.read_ok.ci)}</span></dd>
-         <dt>書ける</dt><dd>${pct(c.write_ok.p)} <span class="ci">${ci(c.write_ok.ci)}</span></dd>
-         <dt>様式に書ける</dt><dd>${pct(c.forms_writable.p)} <span class="ci">${ci(c.forms_writable.ci)}</span>（様式 ${c.forms_writable.n} 件）</dd>
+         <dt>書く A・B</dt><dd>${pct(c.write_ok.p)} <span class="ci">${ci(c.write_ok.ci)}</span></dd>
+         <dt>様式に書く</dt><dd>${pct(c.forms_writable.p)} <span class="ci">${ci(c.forms_writable.ci)}</span>（様式 ${c.forms_writable.n} 件）</dd>
+         ${c.counts ? `<dt>読む：届く／新しく</dt><dd>${c.counts.read.reach.toLocaleString()}／${c.counts.read.new.toLocaleString()} 件</dd><dt>書く：届く／新しく</dt><dd>${c.counts.write.reach.toLocaleString()}／${c.counts.write.new.toLocaleString()} 件</dd>` : ""}
        </dl>
        <div style="font-size:.78rem;color:var(--muted)">読む段階</div>${stackHtml(c.read, READ, "g", READ_JA)}${stackLabels(c.read, READ, "g", READ_JA)}
        <div style="font-size:.78rem;color:var(--muted)">書く段階</div>${stackHtml(c.write, WRITE, "w", WRITE_JA)}${stackLabels(c.write, WRITE, "w", WRITE_JA)}
        <div class="tablebox" style="margin-top:6px"><table style="min-width:0;font-size:.76rem"><thead><tr><th>群</th><th class="num">枠（推定）</th><th class="num">選んだ</th><th class="num">段階</th><th class="num">S〜B</th></tr></thead><tbody>${fams}</tbody></table></div>
        <p style="margin:10px 0 0"><a href="#h-docs" id="see-docs">この国の書類を見る</a></p>`;
-    document.getElementById("see-docs").addEventListener("click", () => { document.getElementById("f-c").value = cc; page = 1; renderDocs(); });
+    document.getElementById("see-docs").addEventListener("click", () => { document.getElementById("fold-docs").open = true; document.getElementById("f-c").value = cc; page = 1; renderDocs(); });
     drawMap();
   }
 
@@ -704,17 +953,18 @@ tr.unr td { color: var(--muted); }
     document.getElementById("b-countries").textContent = T.countries;
     document.getElementById("b-sampled").textContent = T.sampled.toLocaleString();
     document.getElementById("b-graded").textContent = T.graded.toLocaleString();
-    const reason = (t) => ([...T.top_read_reasons, ...(T.top_write_reasons || [])].find(([k]) => k === t) || [, 0])[1];
-    const setN = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = Number(v || 0).toLocaleString(); };
-    setN("how-docs", T.graded); setN("how-kinds", Object.keys(T.kinds || {}).length || 10);
-    setN("how-agent", reason("規則では決められない所")); setN("how-scan", reason("画像だけのページ"));
-    setN("how-audited", T.audited); setN("how-auditok", T.audit_ok);
-    const ug = Object.entries(T.ungraded || {}).sort((a, b) => b[1] - a[1]);
-    if (ug.length) document.getElementById("b-ungraded").textContent =
-      `ほかに取得して段階を付けられなかった書類 ${ug.reduce((s, x) => s + x[1], 0).toLocaleString()} 件（${ug.map(([k, n]) => `${k} ${n}`).join("・")}）。割合の分母には入れていません`;
-    const prog = T.sampled / T.planned;
-    document.getElementById("b-progress").textContent = prog >= 0.999 ? "完了" : pct(prog);
-    document.getElementById("b-progress-l").textContent = prog >= 0.999 ? `予定 ${T.planned.toLocaleString()} 件` : `予定 ${T.planned.toLocaleString()} 件に対する進み（集計中）`;
+    const ugn = Object.values(T.ungraded || {}).reduce((x, y) => x + y, 0);
+    if (ugn) document.getElementById("b-ungraded").textContent = `ほかに段階を付けなかった書類 ${ugn.toLocaleString()} 件は、割合の分母に入れていません`;
+    // 世界の確定の数：data.json の final と countries[cc].counts が入ると、● が数に変わり、数の地図が選べるようになる。なければ ● のまま
+    const F = d.final;
+    if (F) {
+      const put = (id, x) => { if (x && x.n != null) document.getElementById(id).innerHTML = x.n.toLocaleString() + (x.ci ? `<small>95% 区間 ${x.ci[0].toLocaleString()}〜${x.ci[1].toLocaleString()}</small>` : ""); };
+      put("w-read-reach", F.read?.reach); put("w-read-new", F.read?.new); put("w-write-reach", F.write?.reach); put("w-write-new", F.write?.new);
+      document.getElementById("w-note").textContent = `${F.version || ""} の集計。単位は書類の件数の推定（国ごとの書類の数 × 届く割合）で、Common Crawl の収集の中の値です。「新しく届く」は、ふだんの道具では届かず、とどくで届く分です。`;
+      if (Object.values(d.countries).some(c => c.counts)) document.querySelectorAll(".tabs .cnt").forEach(b => { b.hidden = false; });
+    } else {
+      document.getElementById("map-status").textContent = "いま地図に出している割合は、確定の集計の前のものです。";
+    }
     const fsel = document.getElementById("f-c");
     Object.entries(d.countries).sort((a, b) => a[1].name.localeCompare(b[1].name, "ja"))
       .forEach(([cc, c]) => fsel.insertAdjacentHTML("beforeend", `<option value="${cc}">${esc(c.name)}</option>`));
