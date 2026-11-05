@@ -703,6 +703,9 @@ def call_tool(name: str, args: dict) -> dict:
             return {"content": [_text(f"{s['kind_ja']}。中身は読んでいません。下の手順で変換・展開してから、できたファイルを開いてください"), _text(parts[0][1])], "structuredContent": s}
         head = (f"{s['kind_ja']}・入力欄 {s['fields']} か所（書ける欄 {s['writable_fields']}）・窓は {s['window_parts']} 部分"
                 + ("（read_window で part を指定して続きを読めます）" if s["window_parts"] > 1 else ""))
+        cut = _cut_text(head, parts[0][1], "", 0, {"part": 1}, {"part": 2} if len(parts) > 1 else None)  # 最初の部分が結果の上限に入らないとき
+        if cut is not None:
+            return {"content": [_text(head), _text(cut["piece"]), _text(cut["foot"])], "structuredContent": {**s, "next": cut["next"]}}
         return {"content": [_text(head), _text(parts[0][1])], "structuredContent": s}
     if name == "read_window":
         return _read_window(args)

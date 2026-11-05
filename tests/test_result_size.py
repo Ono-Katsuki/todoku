@@ -340,6 +340,25 @@ def test_long_line_is_cut_without_losing_characters(tmp_path, small, monkeypatch
     assert "".join(r["content"][1]["text"] for r in pages) == parts[0][1]
 
 
+def test_open_document_first_part_fits_and_read_window_continues(tmp_path, small):
+    p = _text_book(tmp_path / "a.xlsx")
+    _k, _d, parts = api.window(p)
+    r = mcp_server.tool_result("open_document", {"path": p})
+    assert _chars(r) <= small
+    assert r["structuredContent"]["window_parts"] == 1  # 部分の数は変わらない
+    pages = [r]
+    while pages[-1]["structuredContent"].get("next"):
+        pages.append(_rw(p, **pages[-1]["structuredContent"]["next"]))
+    assert "".join(x["content"][1]["text"] for x in pages) == parts[0][1]
+
+
+def test_open_document_that_fits_is_unchanged(tmp_path):
+    p = _text_book(tmp_path / "a.xlsx", rows=5)
+    r = mcp_server.tool_result("open_document", {"path": p})
+    assert r["content"][1]["text"] == api.window(p)[2][0][1]
+    assert r["structuredContent"] == api.summary(p)
+
+
 def _range_walk(p, **args):
     pages = [_rw(p, **args)]
     while pages[-1]["structuredContent"].get("next"):
