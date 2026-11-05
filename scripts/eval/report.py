@@ -10,7 +10,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from common import load_json, md_table, pct  # noqa: E402
-from read_compare import CAT_JA, CATS  # noqa: E402
+from read_compare import CAT_JA, CATS, EXACT  # noqa: E402
 
 SET_JA = {"dev": "開発に使った書類", "tama": "とっておいた書類（都・多摩）", "world": "とっておいた書類（世界）"}
 
@@ -76,6 +76,39 @@ def read_side_by_side(out: Path, sets: list[str]) -> str:
     return md_table(head, [op, ex, *rows]) + "\n"
 
 
+def char_side_by_side(out: Path, sets: list[str]) -> str:
+    """字の再現率を形式ごとに：とどくの広げた数と広げない数（char_literal）を横に並べる。比べる道具は形式ごとの最良。広げる数だけで「正確に読めた」に入った書類も数える。"""
+    data = {s: load_json(out / "read" / s / "summary.json") for s in sets}
+    sets = [s for s in sets if data[s]]
+    if not sets:
+        return ""
+    kinds = sorted({k for s in sets for k in data[s]["by_kind"]})
+    rows = []
+    for k in kinds:
+        row = [k]
+        for s in sets:
+            kd = data[s]["by_kind"].get(k)
+            if not kd:
+                row += ["—", "—", "—"]
+                continue
+            t = kd["tools"].get("todoku") or {}
+            base = [v["char"] for n, v in kd["tools"].items() if n != "todoku" and v.get("char") is not None]
+            row += [t.get("char", "—"), t.get("char_literal", "—"), max(base) if base else "—"]
+        rows.append(row)
+    only = ["広げたから「正確に読めた」に入った書類"]
+    for s in sets:
+        n = 0
+        for f in sorted((out / "read" / s / "scores").glob("*.json")):
+            t = ((load_json(f) or {}).get("tools") or {}).get("todoku") or {}
+            if t.get("exact_read") and ((t.get("char_literal") or 0) < EXACT or (t.get("bigram_literal") or 1) < EXACT):
+                n += 1
+        only += [n, "", ""]
+    head = ["字の再現率"]
+    for s in sets:
+        head += [f"{SET_JA.get(s, s)}：とどく（広げる）", "とどく（広げない）", "比べる道具（最良）"]
+    return md_table(head, [*rows, only]) + "\n"
+
+
 def write_side_by_side(out: Path, sets: list[str]) -> str:
     data = {s: load_json(out / "write" / s / "summary.json") for s in sets}
     sets = [s for s in sets if data[s]]
@@ -111,6 +144,30 @@ def processing_side_by_side(out: Path, sets: list[str]) -> str:
             ["計算できないと言った関数"] + [", ".join(data[s]["unknown_functions"]) or "なし" for s in sets],
             ["処理の取り出しが失敗した書類"] + [len(data[s]["failed"]) for s in sets]]
     return md_table(["", *[SET_JA.get(s, s) for s in sets]], rows) + "\n比べる道具（openpyxl）は数式の字を読むだけで、計算も、規則へのまとめもしない。\n"
+
+
+CHANGED_AFTER_DRY_RUN = """## 試運転のあとで変えた測り方
+
+試運転（コミット cd8be5e、開発の書類 95 件）の結果を見て、測り方をコミット 1f294a4 で変えた。変えると決めるのに見たのは開発の書類だけで、とっておいた書類を開く前に凍結した。同じコミットで、試運転で見つかった道具の直し（窓の結合・字の書式・ふりがな・文字の並び順など）も入れた。開発の書類の数が、とっておいた書類より良く見える理由の一つになりうる。
+
+**とどくの数だけに効く変更（とどくに有利）**
+- **まとめた行を広げる：とどくだけ。** 窓の「同じ形の行が続く」を言明のとおりに行へ広げてから数える（字の再現率・2 字の並び・セルごとの特徴のすべて）。比べる道具の出力は広げない。言明が違えば字が合わず落ち度に出るが、エージェントが窓をそのまま読んだときの字ではない。広げない字の数（char_literal・bigram_literal）を上の表に横に並べた。セルごとの特徴（画面の字・結合が各行に届くなど）には、広げない数がない。
+- 窓の説明の字を比べから除く：字の書式の印（〔取り消し線〕〔字の色 …〕など）、「### ふりがな」の節、「- 文字の並び順で」の断り。
+- 古い値の印の語に「文字の並び順で結果が変わる」を足した（とどくの窓の語。比べる道具はこの語を出さない）。
+
+**どの道具にも同じに効く変更**
+- PDF の字の比べの単位を、pdftotext の空白で切る（空白をまたぐ 2 字の並びを数えない。2 字の並びの数が上がる向き）。
+- .docx のテキストボックスの字を 2 度数えていたのを直した（図形を留めた段落の字からテキストボックスの字を除く。正解の字が減る）。
+- 取り消し線・字の色の正解：字のない字の並び（改行だけなど）の書式を数えない（画面に出ないため。分母が減る）。
+- ふりがな：かたまりごとに出力にあるかを見る（つないだ 1 つの字で見ない）。
+
+**数えるものを足した変更**
+- 処理の表に「説明の字が数式と合わない規則」を足した。世界の数の区間に、デザインの自由度の補正を足した（Korn & Graubard）。
+
+**正解の作り方**
+- 変更のあとの開発の書類の確かめ（凍結の前。--no-excel）では、正解を作り直さず、試運転の正解に新しい probes.py を当て直しただけだった（Excel・LibreOffice の表示の字は試運転のまま。.docx の字の単位だけ取り直した）。その数は、ここには載せていない。
+- ここの数は、凍結の版で、新しい出力先に、開発の書類も含めて正解を最初から作り直したもの（provenance.json のコミット）。
+"""
 
 
 LIMITS = """## 偏りと限り
@@ -160,7 +217,7 @@ def main() -> int:
         L += ["**ここの数はすべて開発の書類（dev）。最終の結果ではない。**", ""]
     if not prov.get("pdfkit_tool"):
         L += ["**注意：PDFKit の道具（pkr）なしで動いた。PDF の「値が入った」は文字認識でなく画素の変化で数え（pypdf の日本語は描けないものとして数えた）、確かめ役は PDFKit の絵を見ていない。**", ""]
-    L += ["## 読む（開発の書類ととっておいた書類を並べて）", "", read_side_by_side(out, sets),
+    L += ["## 読む（開発の書類ととっておいた書類を並べて）", "", read_side_by_side(out, sets), char_side_by_side(out, sets),
           "形式ごとの細かい表：read/<組>/summary.md。「比べる道具」の列は、特徴ごと・形式ごとに、いちばんよい道具を選んで足したもの（1 つの道具の成績ではない。比べる道具に有利）。", "",
           "## 書く", "", write_side_by_side(out, sets), "消えたものの内訳：write/<組>/summary.md。", "",
           "## 処理の取り出し", "", processing_side_by_side(out, sets), ""]
@@ -174,8 +231,12 @@ def main() -> int:
             L += [f"注意（{s}）：{n['excel_notice']}", ""]
     fill = out / "fill" / "summary.md"
     L += [fill.read_text(encoding="utf-8") if fill.exists() else "## 記入\n\n（結果がない）\n", ""]
+    plan = load_json(out / "fill_plan.json") or {}
+    for s, p in plan.items():  # 開く前に決めた、記入する様式の選び方。全部を記入していない組は、そう書く
+        done = sum(1 for d in (out / "fill" / s).iterdir() if d.is_dir()) if (out / "fill" / s).exists() else 0
+        L += [f"記入の選び方（{SET_JA.get(s, s)}）：{p.get('how')}。種 {p.get('seed')}（開く前に記録：{p.get('recorded')}）。いま記入を始めた様式 {done} 件。選ばれなかった様式は記入していない。", ""]
     cnt = out / "world" / "counts.md"
-    L += [cnt.read_text(encoding="utf-8") if cnt.exists() else "## 世界地図の数\n\n（結果がない）\n", "", LIMITS]
+    L += [cnt.read_text(encoding="utf-8") if cnt.exists() else "## 世界地図の数\n\n（結果がない）\n", "", CHANGED_AFTER_DRY_RUN, "", LIMITS]
     (out / "report.md").write_text("\n".join(str(x) for x in L), encoding="utf-8")
     print(f"→ {out / 'report.md'}")
     return 0
