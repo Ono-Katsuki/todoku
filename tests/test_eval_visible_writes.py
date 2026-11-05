@@ -99,13 +99,15 @@ def test_need_appearances_is_cleared_when_every_other_widget_is_drawn(tmp_path):
     assert doc.resolve(doc.resolve(doc.root["AcroForm"]).get("NeedAppearances")) is False
 
 
-def test_need_appearances_stays_on_a_signed_document(tmp_path, monkeypatch):
+def test_need_appearances_stays_on_a_signed_document():
     # 電子署名のある文書は、フォームの辞書を変えない（知らせるだけ）
+    from types import SimpleNamespace
+
     from todoku.pdf import fill as fill_mod
 
     blob = pdfmini.build("", "<< >>", [_widget()], annots="/Annots [2 0 R]", acroform="/AcroForm << /Fields [2 0 R] /NeedAppearances true >>")
     f = fill_mod.Filler(PdfDocument(blob))
-    f.patches.append(object())
+    f.patches.append(SimpleNamespace(id="a"))
     assert f.clear_need_appearances() is True
     f.sigs.signed = True
     assert f.clear_need_appearances() is False
