@@ -187,7 +187,8 @@ def resolve_write(doc, spec: dict, used: dict | None = None, layouts: dict | Non
         rb = cell.x1 if cell is not None else lay.right
         # 見出しの後ろの字。線の代わりに印刷された字（下線の字・点線の並び）は書く場所なので、その先の字まで
         lines = lay.line_glyphs()
-        beyond = [c for c in ln.chars if not c.text.isspace() and id(c) not in lines and c.x0 >= ln.span_rect(i, j)[2] - 0.5]
+        rest = re.search(r"\S", text[j:])
+        beyond =[c for c in ln.chars if not c.text.isspace() and id(c) not in lines and c.x0 >= ln.span_rect(i, j)[2] - 0.5]
         if beyond:
             rb = min(rb, min(c.x0 for c in beyond))
         for o in (cell.lines if cell is not None else lay.free_lines):
