@@ -41,16 +41,17 @@ class Widget:
     flags: int = 0  # 注釈の印（/F）：1 Invisible・2 Hidden・4 Print・32 NoView（ISO 32000-1 12.5.3）
     states: tuple = ()  # 見た目（/AP /N）にある「入」の状態の名前（Off を除く。チェック・ラジオ）
     drawn: bool = False  # とどくが値をページの描画に描いた欄（pagedraw）：欄そのものは隠してあるが、値はページに見える
+    listed: bool = True  # ページの注釈の一覧（/Annots）に入っている部品か。/P でページが分かっても、一覧になければビューアーは描かない
 
     @property
     def on_screen(self) -> bool:
         """画面に出る部品か：ページにあり、隠す印（Hidden）も画面に出さない印（NoView）もない。"""
-        return self.drawn or (self.page >= 0 and not self.flags & (ANNOT_HIDDEN | ANNOT_NOVIEW))
+        return self.drawn or (self.page >= 0 and self.listed and not self.flags & (ANNOT_HIDDEN | ANNOT_NOVIEW))
 
     @property
     def printed(self) -> bool:
         """紙に印刷される部品か：ページにあり、隠す印（Hidden）がなく、印刷する印（Print）がある（/F がなければ印刷されない）。"""
-        return self.drawn or (self.page >= 0 and not self.flags & ANNOT_HIDDEN and bool(self.flags & ANNOT_PRINT))
+        return self.drawn or (self.page >= 0 and self.listed and not self.flags & ANNOT_HIDDEN and bool(self.flags & ANNOT_PRINT))
 
     def why_unseen(self) -> str:
         why = []
@@ -58,6 +59,8 @@ class Widget:
             return ""
         if self.page < 0:
             why.append("どのページにもありません")
+        elif not self.listed:
+            why.append("どのページの注釈の一覧（/Annots）にも入っていません")
         if self.flags & ANNOT_HIDDEN:
             why.append("隠す印（/F の Hidden）があります")
         if self.flags & ANNOT_NOVIEW:
@@ -264,6 +267,7 @@ def read_fields(doc) -> list[FormField]:
                 continue
             rect = [float(doc.resolve(x)) for x in doc.resolve(wd.get("Rect")) or [0, 0, 0, 0]]
             page = annot_page.get(w.num, -1) if isinstance(w, Ref) else -1
+            listed = not isinstance(w, Ref) or w.num in annot_page
             if page < 0 and isinstance(wd.get("P"), Ref):
                 page = next((i for i, p in enumerate(pages) if p.get("_ref") == wd["P"]), -1)
             ap = doc.resolve(wd.get("AP")) or {}
@@ -280,7 +284,7 @@ def read_fields(doc) -> list[FormField]:
                                     (min(rect[0], rect[2]), min(rect[1], rect[3]), max(rect[0], rect[2]), max(rect[1], rect[3])),
                                     on, st.name if isinstance(st, Name) else None, bool(flags & 2),
                                     _txt(doc, mk.get("CA")) if isinstance(mk, dict) else "", flags, tuple(states),
-                                    _drawn(doc, wd)))
+                                    _drawn(doc, wd), listed))
         out.append(f)
 
     for r in doc.resolve(af.get("Fields")) or []:

@@ -330,7 +330,8 @@ def layout_text(text: str, w: float, h: float, size: float, center: bool = False
     pad = min(3.0, 0.2 * w)
     while s >= 4.0 / unit - 1e-9:
         lines = wrap(text, s, w - pad) if multiline else [str(text)]
-        if multiline and len(lines) * s * 1.15 > h + 0.5:
+        # 1 行の欄も高さを見る：見た目のフォームは BBox（欄の四角）で切り抜かれる（ISO 32000-1 8.10.2）ので、高さを越えた字は欠けて描かれる
+        if len(lines) * s * 1.15 > h + 0.5:
             s -= 0.5
             continue
         if all(text_width(line, s) <= w - pad for line in lines):
@@ -405,11 +406,12 @@ def check_layout_options(key: str, opts: dict) -> None:
 def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, size: float, dr_fonts: dict, *,
                     center: bool = False, comb: list | None = None, rot: int = 0, multiline: bool = True,
                     cover: bool = False, align: str = "left", unit: float = 1.0,
-                    pad: float | None = None, baseline: float | None = None) -> tuple[Ref, float]:
+                    pad: float | None = None, baseline: float | None = None, frame: bytes = b"") -> tuple[Ref, float]:
     """align：枠の中の左右のそろえ方（既定は左）。pad：枠の端と字のあいだの余白（pt。既定は 1.5pt か幅の 1/10 の小さいほう）。
     baseline：字の基線の、枠の下の端からの高さ（pt。行の所は行の字と同じ基線に書く。省くと、枠の上下の中ほどにそろえる）。
     cover：欄の下地を白く塗ってから書く（伏せ字の「○○」の上に書くときに、下の字を覆う。元の字は消さない）。
-    rot：欄の回転（/MK の R）。描く向きの座標（vw×vh）で字を並べ、BBox も同じ大きさにして、Matrix で Rect の向きに回す。"""
+    rot：欄の回転（/MK の R）。描く向きの座標（vw×vh）で字を並べ、BBox も同じ大きさにして、Matrix で Rect の向きに回す。
+    frame：字の前に描く、欄の下地と枠（/MK の BG・BC。mk_frame）。"""
     vw, vh = _view_box(rot, rect_w, rect_h)
     bg = f"q\n1 g\n0 0 {vw:.2f} {vh:.2f} re\nf\nQ\n".encode() if cover else b""
     if comb:
@@ -419,7 +421,7 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
         if len(chars) > len(comb):
             raise FillError(f"「{value}」は {len(chars)} 字です（この欄は {len(comb)} 字まで）")
         s = min(size, min(b[3] - b[1] for b in comb) * 0.7)
-        ops = bytearray(b"/Tx BMC\nq\n")
+        ops = bytearray(frame + b"/Tx BMC\nq\n")
         x_origin = comb[0][0]
         y_top = min(b[1] for b in comb)
         for ch, b in zip(chars, comb):
@@ -437,11 +439,45 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
     leading = s * 1.15
     block = leading * (len(lines) - 1) + s
     y = baseline if baseline is not None else (vh + block) / 2 - s * 0.8
+    if baseline is not None:
+        # 行の基線にそろえても、字が枠（BBox：描く所の切り抜き）を出ない高さに収める（字の箱は基線の下に 0.12、上に 0.88 字ぶん）
+        y = max(min(y, vh - s * 0.88), s * 0.12 + leading * (len(lines) - 1))
     align = "center" if center else align
     aw = vw - 2 * pad
-    ops = bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, aw if align in ("center", "right") else None,
+    ops = frame + bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, aw if align in ("center", "right") else None,
                                           align) + b"Q\nEMC\n"
     return _ap(update, vw, vh, ops, fonts_used(lines), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
+
+
+def _color_op(c, stroke: bool) -> str | None:
+    """/MK の色（1 灰・3 RGB・4 CMYK。空は色なし）→ 色の命令。"""
+    ops = {1: ("g", "G"), 3: ("rg", "RG"), 4: ("k", "K")}
+    if not isinstance(c, list) or len(c) not in ops or not all(isinstance(v, (int, float)) for v in c):
+        return None
+    return " ".join(f"{float(v):g}" for v in c) + " " + ops[len(c)][1 if stroke else 0]
+
+
+def mk_frame(doc, wd: dict, vw: float, vh: float, comb_cells: int = 0) -> bytes:
+    """欄の下地と枠の描画：/MK の BG・BC と /BS の W（ISO 32000-1 12.5.6.19）。見た目を描き直すビューアーと同じものを、
+    とどくの見た目にも描く（描かないと、書いた欄から枠や下地が消える）。comb_cells：1 字ずつの枠の数（仕切りも描く）。"""
+    mk = doc.resolve(wd.get("MK"))
+    if not isinstance(mk, dict):
+        return b""
+    bs = doc.resolve(wd.get("BS"))
+    bw = doc.resolve(bs.get("W")) if isinstance(bs, dict) else None
+    bw = float(bw) if isinstance(bw, (int, float)) and not isinstance(bw, bool) and bw >= 0 else 1.0
+    out = ""
+    bg = _color_op([doc.resolve(v) for v in doc.resolve(mk.get("BG")) or []], False)
+    if bg:
+        out += f"q\n{bg}\n0 0 {vw:.2f} {vh:.2f} re\nf\nQ\n"
+    bc = _color_op([doc.resolve(v) for v in doc.resolve(mk.get("BC")) or []], True)
+    if bc and bw > 0:
+        out += f"q\n{bc}\n{bw:g} w\n{bw / 2:g} {bw / 2:g} {vw - bw:.2f} {vh - bw:.2f} re\nS\n"
+        for i in range(1, comb_cells):
+            x = vw * i / comb_cells
+            out += f"{x:.2f} 0 m\n{x:.2f} {vh:.2f} l\nS\n"
+        out += "Q\n"
+    return out.encode()
 
 
 def check_appearance(update: Update, w: float, h: float, dr_fonts: dict, char: str = "4", rot: int = 0,
@@ -711,7 +747,8 @@ class Filler:
                 # 1 行の欄（Multiline の印なし）は折り返さない：見た目を作り直すビューアーも 1 行で描くので、1 行に収まる大きさにする
                 ap, s = text_appearance(self.up, x1 - x0, y1 - y0, shown, size, self.fonts_for(keys | {"Helv"}),
                                         comb=comb, rot=rot, multiline=multiline, unit=unit,
-                                        align={1: "center", 2: "right"}.get(f.q, "left"))  # /Q（0 左・1 中央・2 右）
+                                        align={1: "center", 2: "right"}.get(f.q, "left"),  # /Q（0 左・1 中央・2 右）
+                                        frame=mk_frame(self.doc, wd, vw, vh, f.maxlen if comb else 0))
             except FillError as e:
                 raise FillError(f"{f.name}: {e}" + ("" if multiline or comb else "（1 行の欄なので、折り返して書けません）")) from None
             drawn = pagedraw.widget_drawn(self.doc, wd)
@@ -1256,7 +1293,8 @@ class Filler:
                 arr.extend(refs)
             else:
                 pd["Annots"] = list(annots or []) + refs
-        if self.new_fields or self.dr_fonts:
+        clear_na = self.clear_need_appearances()
+        if self.new_fields or self.dr_fonts or clear_na:
             root_ref = doc.trailer["Root"]
             af_ref = doc.root.get("AcroForm")
             if isinstance(af_ref, Ref):
@@ -1291,7 +1329,25 @@ class Filler:
                     fonts.setdefault(k, r)
             if "DA" not in af:
                 af["DA"] = PdfString(b"/Helv 0 Tf 0 g")
+            if clear_na:
+                af["NeedAppearances"] = False
         return up.build()
+
+    def clear_need_appearances(self) -> bool:
+        """NeedAppearances を false にしてよいか：とどくが描いて確かめた見た目のまま見せる。書類のほかの部品がみな見た目（/AP）を
+        持つときだけ（作り直しに頼る部品があれば、そのまま残して知らせる）。電子署名・権限の設定のある文書と XFA は変えない。"""
+        if not self.patches or not self.draw_on_page or not _need_appearances(self.doc) or _xfa_form(self.doc) is not None:
+            return False
+        written = {p.id for p in self.patches}
+        for f in self.fields:
+            if f.name in written:
+                continue
+            for w in f.widgets:
+                wd = self.doc.resolve(w.ref) if w.ref is not None else self.doc.resolve(f.ref)
+                ap = self.doc.resolve(wd.get("AP")) if isinstance(wd, dict) else None
+                if not (isinstance(ap, dict) and self.doc.resolve(ap.get("N")) is not None):
+                    return False
+        return True
 
 
 # ページの描画に足せない文書（電子署名のある PDF など：_may_draw_on_page）では、書いた字はフォームの欄（値と見た目）として足す。
@@ -1551,7 +1607,7 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
     note = f.sigs.note()
     if note and f.patches:
         f.warnings.insert(0, note)
-    if f.patches and _need_appearances(doc):
+    if f.patches and _need_appearances(doc) and not f.clear_need_appearances():
         f.warnings.append("この PDF は、開くときにビューアーが欄の見た目を作り直す設定です（AcroForm の NeedAppearances が true）。"
                           "とどくが描いて確かめた見た目ではなく、ビューアーが値から描き直した見た目で表示・印刷されます"
                           "（字の大きさ・折り返し・書体が変わることがあります）。書いた値（/V）は確かめたとおりです")

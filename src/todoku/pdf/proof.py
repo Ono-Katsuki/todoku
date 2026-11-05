@@ -747,6 +747,8 @@ def _check_change(a, b, num, old, cur, pr: PdfProof) -> str | None:
         return None
     if "Fields" in old or "Fields" in cur:
         bad = diff - {"Fields", "DR", "DA"} - pr.xfa_keys
+        if "NeedAppearances" in bad and a.resolve(old.get("NeedAppearances")) is True and b.resolve(cur.get("NeedAppearances")) is False:
+            bad = bad - {"NeedAppearances"}  # とどくが描いた見た目のまま見せる（fill.clear_need_appearances）
         if bad:
             pr.unexpected.append(f"フォーム（AcroForm）の {sorted(bad)} が変わっています")
         of, cf = old.get("Fields"), cur.get("Fields")

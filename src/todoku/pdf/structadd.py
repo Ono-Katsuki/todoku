@@ -140,6 +140,8 @@ class Tree:
             d = self.doc.resolve(cur)
             if not isinstance(d, dict):
                 return None
+            if getattr(d.get("Type"), "name", "") == "StructTreeRoot":
+                return out  # 更新を重ねた文書で、/P が前の版の根を指している（木の形は /K でたどれる）
             out.append((cur, d))
             cur = d.get("P")
         return None
