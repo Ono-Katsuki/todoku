@@ -1335,8 +1335,10 @@ class Filler:
 
     def clear_need_appearances(self) -> bool:
         """NeedAppearances を false にしてよいか：とどくが描いて確かめた見た目のまま見せる。書類のほかの部品がみな見た目（/AP）を
-        持つときだけ（作り直しに頼る部品があれば、そのまま残して知らせる）。電子署名・権限の設定のある文書と XFA は変えない。"""
-        if not self.patches or not self.draw_on_page or not _need_appearances(self.doc) or _xfa_form(self.doc) is not None:
+        持つときだけ（作り直しに頼る部品があれば、そのまま残して知らせる）。電子署名のある文書と XFA は変えない
+        （権限の設定は変えてよい：ページの描画ではなく、書いた欄の見せ方の指定なので）。"""
+        if (not self.patches or self.sigs.signed or self.sigs.docmdp is not None or not _need_appearances(self.doc)
+                or _xfa_form(self.doc) is not None):
             return False
         written = {p.id for p in self.patches}
         for f in self.fields:
