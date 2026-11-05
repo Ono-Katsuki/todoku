@@ -111,7 +111,7 @@ description: 申請書・届出・様式（Excel・Word・PDF・一太郎など�
 - Excel の様式：`read_table`（見出しの列で表を行ごとに取り出す）・`explain_calculation`（1 つの値の説明：入力までさかのぼる）・
   `try_calculation`（書かずに試算する。「区分Ⅱにしたらいくら？」）・`run_macro`（ボタンのマクロ。「はい／いいえ」・入力の値は本人に聞いてから `answers` で）。
 - 計算の決まりを知りたいとき・同じ計算を繰り返すときは `extract_processing`：値から処理を推測せず、規則（「D3:D100000 = B{row}*C{row}」）・入力・参照表・出力・順番・分岐・マクロ・PDF の計算を受け取る。
-  `format: "python"` と `out_path` で、標準ライブラリだけで動く `calculate(inputs)` のモジュールを書き出す。`verification` の一致の割合と、規則ごとの `proven`／`not_proven` を見て、確かめられなかった規則は本人に伝える。
+  `format: "python"` と `out_path` で、標準ライブラリだけで動く `calculate(inputs)` のモジュールを書き出す。`verification` の一致の割合と、規則ごとの `proven`／`not_proven` を見て、確かめられなかった規則は本人に伝える。結果が大きいときは規則を 1 行にして分けて返すので、`omitted` の頼み方（`next`・`ids`・`section`）で続きと詳細を取る。
 - `view_page`：PDF のページを描いた画像で見る（スキャンした紙を読む・書いた後に確かめる。`region` で拡大、`dpi` で解像度）。
 
 ## スキャンした紙・ZIP

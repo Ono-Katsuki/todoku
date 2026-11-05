@@ -28,6 +28,11 @@ LIMITS = {
 }
 
 
+# 大きくて全部を返せないときも残す、判断の土台
+HEAD_KEYS = ("kind", "summary", "cycles", "unknown_functions", "cross_sheet_flow", "limits", "say_to_user", "python", "verification",
+             "explanation_check", "text_order_lookups", "streamed", "only_sheet")
+
+
 def _source(path: str, blob: bytes, name: str, k: str, password: str | None):
     """(読み口, 流して読んでいるか)。"""
     from .scan import BookSource, XlsxSource
@@ -128,10 +133,18 @@ def _say(res: dict) -> str:
 def extract(path: str, blob: bytes, name: str, k: str, password: str | None = None, fmt: str = "json",
             out_path: str | None = None, sheet: str | None = None, overwrite: bool = False, budget_chars: int | None = None) -> dict:
     """api.extract_processing の中身。blob は読んだファイルの中身。"""
+    return extract_both(path, blob, name, k, password, fmt, out_path, sheet, overwrite, budget_chars)[1]
+
+
+def extract_both(path: str, blob: bytes, name: str, k: str, password: str | None = None, fmt: str = "json",
+                 out_path: str | None = None, sheet: str | None = None, overwrite: bool = False,
+                 budget_chars: int | None = None) -> tuple[dict, dict]:
+    """(省かない全部, extract の返す形)。MCP は、結果の上限に合わせて全部から選ぶので、要約する前のものも受け取る。"""
     if k == "pdf":
         from . import pdfcalc
 
-        return pdfcalc.extract(blob, name, password, fmt, out_path, overwrite)
+        res = pdfcalc.extract(blob, name, password, fmt, out_path, overwrite)
+        return res, res
     src, streaming = _source(path, blob, name, k, password)
     res = model(src, blob, k)
     internal = res.pop("_internal")
@@ -167,10 +180,10 @@ def extract(path: str, blob: bytes, name: str, k: str, password: str | None = No
             raise ProcessingError(f"書き出す先「{target.name}」には、すでにファイルがあります（書き出していません）。"
                                   "置き換えてよいと本人が言ったときだけ overwrite に true を入れるか、別の名前を指定してください")
         target.write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
-        res = _condensed(res, budget_chars, written=str(target))
-    elif budget_chars is not None and len(json.dumps(res, ensure_ascii=False)) > budget_chars:
-        res = _condensed(res, budget_chars)
-    return res
+        return {**res, "out_path": str(target)}, _condensed(res, budget_chars, written=str(target))
+    if budget_chars is not None and len(json.dumps(res, ensure_ascii=False)) > budget_chars:
+        return res, _condensed(res, budget_chars)
+    return res, res
 
 
 def _only_sheet(res: dict, sheet: str) -> dict:
@@ -187,7 +200,7 @@ def _only_sheet(res: dict, sheet: str) -> dict:
 def _condensed(res: dict, budget: int | None, written: str | None = None) -> dict:
     """大きすぎて 1 度に返せないときの要約。全部は out_path（JSON）かシートごと（sheet）に取れる。"""
     budget = budget or 400000
-    head = {k: res[k] for k in ("kind", "summary", "cycles", "unknown_functions", "cross_sheet_flow", "limits", "say_to_user", "python", "verification", "explanation_check", "text_order_lookups", "streamed", "only_sheet") if k in res}
+    head = {k: res[k] for k in HEAD_KEYS if k in res}
     keep = []
     used = len(json.dumps(head, ensure_ascii=False))
     room = budget // 2

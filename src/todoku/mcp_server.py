@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import traceback
+from pathlib import Path
 
 from . import api, limits
 
@@ -86,7 +87,8 @@ TOOLS = [
      "description": "窓（Markdown）を返す。ふつうの書類は part 番目の部分（1から）。大きな書類は範囲で頼む：PDF は pages（\"1-20\"）、"
                     "Excel・OpenDocument の表は sheet と rows（\"1-500\"）、CSV・TSV は rows、JSON Lines は records、JSON は path_in（JSON Pointer）、.txt・Word・一太郎・한글・PowerPoint・OpenDocument の文書・RTF は paragraphs（行・段落の範囲）。"
                     "どの書類でも範囲で読める。結果には、読んだ範囲・残り・続きの頼み方（next）が付く。next をそのまま渡していけば、"
-                    "全部を読める（読む量を分けるだけで、読めない所はない）。max_chars で 1 回の大きさ（字）を変えられる。",
+                    "全部を読める（読む量を分けるだけで、読めない所はない）。max_chars で 1 回の大きさ（字）を変えられる（結果の上限 TODOKU_RESULT_CHARS を超える分は上限に収める）。"
+                    "部分の番号は変わらない。1 つの部分が結果の上限に入らないときは、部分の中を分けて返す（next の cursor で同じ部分の続きを読む）。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
                                                       "part": {"type": "integer", "minimum": 1, "default": 1},
                                                       "pages": _RANGE_SCHEMA, "rows": _RANGE_SCHEMA, "paragraphs": _RANGE_SCHEMA, "records": _RANGE_SCHEMA,
@@ -218,12 +220,18 @@ TOOLS = [
                     "規則の順番と循環、IF・IFS・SWITCH の分岐、配列数式（展開しない）、外部参照、TODAY・OFFSET・INDIRECT（静的に分からない所）、隠れたシート・行、シートのあいだの流れ、"
                     "マクロ（ソース・読み書きするセル・いつ動くか）、条件付き書式・入力規則、ピボット・Power Query（セルの数式で書けない処理としての定義）、PDF の計算の順と欄のあいだの規則（独自の JavaScript は計算せずそのまま）。"
                     "format=\"python\" で、標準ライブラリだけで動く calculate(inputs) -> dict のモジュールを out_path に書き出す。書き出す前に、別のプロセスで動かして保存された値・とどくの計算と全セルを比べ、"
-                    "一致の割合・すべての不一致・規則ごとの確かめの結果（verification）を返す。計算の規則を知りたいときはこの道具を使う。1 つの値の説明は explain_calculation、値を変えた試算は try_calculation。",
+                    "一致の割合・すべての不一致・規則ごとの確かめの結果（verification）を返す。計算の規則を知りたいときはこの道具を使う。1 つの値の説明は explain_calculation、値を変えた試算は try_calculation。"
+                    "結果が上限（TODOKU_RESULT_CHARS）に入らないときは、判断の土台（summary・verification・python・say_to_user・limits など）と、規則の id・sheet・range・text を残す。"
+                    "入らない規則は next をそのまま渡すと続く（全規則をたどれる。続きは規則だけで、書き出しも確かめもしない）。省いたものと頼み方は omitted に書く。"
+                    "規則の詳細（reads・a1・r1c1 など）は ids に規則の id、入力・参照表などの節は section に節の名前（どちらも入らなければ next で続く）、シートごとは sheet、全部を 1 つのファイルでは out_path の JSON。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
          "format": {"type": "string", "enum": ["json", "python"], "description": "json（既定）か python"},
          "out_path": {"type": "string", "description": "python：書き出すモジュール（.py。必須）。json：全部を書き出す .json（大きなブックのとき）"},
          "sheet": {"type": "string", "description": "このシートの規則・入力だけを返す"},
+         "ids": {"type": "array", "items": {"type": "string"}, "description": "この規則（R1 など）の事実をすべて返す。結果が大きくて省いた詳細を取るとき。format・out_path とは一緒に使わない"},
+         "section": {"type": "string", "description": "結果の 1 つの節（inputs・lookup_tables・rules など。omitted.sections の名前）を省かずに返す。format・out_path とは一緒に使わない"},
+         "skip": {"type": "integer", "minimum": 0, "description": "続きの位置（前の結果の next をそのまま渡す）"},
          "overwrite": _OVERWRITE},
          "required": ["path"]}},
     {"name": "view_page",
@@ -440,6 +448,245 @@ def _list_fields(args: dict) -> dict:
     return {"content": [_text(fl)], "structuredContent": {"fields": fl}}
 
 
+# extract_processing の結果が limits.RESULT_CHARS に入らないときも、規則ごとに残す事実。ほかの事実は ids・section・out_path で取れる
+_RULE_BRIEF = ("id", "sheet", "range", "text", "exception_count", "unreadable")
+
+
+def _brief_rule(d: dict) -> dict:
+    out = {k: d[k] for k in _RULE_BRIEF if k in d}
+    if "kind" in d and d["kind"] != "formula":  # 配列数式・データテーブルなど
+        out["kind"] = d["kind"]
+    st = (d.get("verification") or {}).get("status")
+    if st and st != "proven":
+        out["verification"] = st
+    return out
+
+
+def _take_rules(rules: list[dict], room: int) -> list[dict]:
+    """room 字に入る、はじめの規則（進むように、少なくとも 1 つ。1 つで入らない text は切り、切ったことを書く）。"""
+    empty = _size({"rules": []})
+    used = 0
+    out: list[dict] = []
+    for d in rules:
+        b = _brief_rule(d)
+        n = _size({"rules": [b]}) - empty
+        if used + n > room:
+            if out:
+                break
+            text = str(b.get("text") or "")
+            b["text"] = text[:max(0, len(text) - (n - room) - 100)]
+            b["text_cut"] = f"長いので切りました（全 {len(text):,} 字）。ids で頼むと全部を返します"
+            n = _size({"rules": [b]}) - empty
+        out.append(b)
+        used += n
+    return out
+
+
+def _shrink(v, room: int):
+    """room 字に入るよう一覧をはじめの要素だけにした値と、切った数え。辞書は中の一覧を切る。入らなければ (None, None)。"""
+    if isinstance(v, list) and v:
+        keep = max(1, room * len(v) // _size(v))
+        while keep > 1 and _size(v[:keep]) > room:
+            keep = keep * 3 // 4
+        return (v[:keep], {"shown": keep, "total": len(v)}) if _size(v[:keep]) <= room else (None, None)
+    if isinstance(v, dict):
+        out = dict(v)
+        cut: dict = {}
+        for k in sorted(out, key=lambda k: -_size(out[k])):
+            if _size(out) <= room:
+                break
+            if isinstance(out[k], list) and out[k]:
+                part, c = _shrink(out[k], max(100, room - (_size(out) - _size(out[k]))))
+                out[k], cut[k] = ([], {"shown": 0, "total": len(v[k])}) if part is None else (part, c)
+        return (out, cut) if _size(out) <= room else (None, None)
+    return None, None
+
+
+def _rule_checks(res: dict, room: int) -> dict | None:
+    """確かめられなかった規則（format="python" の結果）。続きの呼び出しでは確かめないので、はじめの結果で全部を伝える。入らなければ、書き出しの隣のファイルに。"""
+    bad = {d["id"]: {k: v for k, v in d["verification"].items() if k != "counts"} for d in res.get("rules") or []
+           if (d.get("verification") or {}).get("status") not in (None, "proven")}
+    if not bad:
+        return None
+    if _size(bad) <= room:
+        return {"not_proven": bad}
+    target = Path(res["python"]["out_path"])
+    side = target.with_name(target.name + ".rules_verification.json")
+    side.write_text(json.dumps(bad, ensure_ascii=False, indent=0), encoding="utf-8")
+    return {"not_proven_count": len(bad), "file": str(side), "how": "規則ごとの確かめの結果（status・why）は、すべてこのファイルにあります"}
+
+
+def _fit_processing(res: dict, args: dict, skip: int, say_len: int) -> dict:
+    """extract_processing の全部の結果を limits.RESULT_CHARS に収める（MCP の結果の形だけ。api の結果は変えない）。
+    順に：節を省く → 規則を 1 行にする → 分けて返す。どれも、省いたことと頼み方を同じ結果に書く。"""
+    from .processing import HEAD_KEYS
+
+    budget = limits.RESULT_CHARS - say_len
+    rules = res.get("rules") or []
+    ask_sheet = {"sheet": args["sheet"]} if args.get("sheet") else {}
+    told: dict = {}
+    head: dict = {}
+    if not skip:
+        head = {k: res[k] for k in (*HEAD_KEYS, "xfa", "note", "out_path") if k in res}
+        for k in sorted(head, key=lambda k: -_size(head[k])):  # 土台の値でも、大きすぎるものは切るか節に回す（規則の分を空ける）
+            if _size(head) <= budget // 3 or k == "say_to_user":
+                continue
+            small, cut = _shrink(head[k], budget // 6)
+            if small is None:
+                del head[k]
+            else:
+                head[k] = small
+                told.setdefault("cut", {})[k] = {"lists": cut, "how": f'section: "{k}" で全部を返します'}
+        sections = {k: {"chars": _size(v), **({"count": len(v)} if isinstance(v, (list, dict)) else {})}
+                    for k, v in res.items() if k != "rules" and k not in head and v not in (None, [], {}, "", False)}
+        if sections:
+            told["sections"] = {"names": sections,
+                                "how": '結果が大きいので、この節は返していません。同じ path と section: "節の名前" を渡すと、省かずに返します（入らなければ next で続く）'}
+        told["all"] = (f"全部は JSON に書き出してあります：{res['out_path']}" if res.get("out_path") else
+                       "全部を 1 つのファイルにするには、format を省いて（json）out_path に .json を渡します。sheet を渡すと、そのシートの規則・入力だけになります")
+        checks = _rule_checks(res, budget // 8)
+        if checks:
+            told["rule_verification"] = checks
+    counts: dict[str, int] = {}
+    for d in rules:
+        for k in d:
+            if k not in _RULE_BRIEF and k != "kind":
+                counts[k] = counts.get(k, 0) + 1
+    if counts:
+        first = rules[skip if skip < len(rules) else 0].get("id", "R1")
+        told["rule_detail"] = {"count_by_name": counts,
+                               "how": f"規則は 1 行の text と id・シート・範囲だけを返しました（{'・'.join(counts)} を省いています）。同じ path と ids: "
+                                      f"{json.dumps([first], ensure_ascii=False)} のように規則の id を渡すと、その規則の事実をすべて返します。"
+                                      'すべての規則の詳細は section: "rules"'}
+    shown = {"omitted": told, **head, **({"only_sheet": args["sheet"]} if ask_sheet else {})}
+    room = budget - _size(shown) - _size({"next": {"skip": len(rules), **ask_sheet}, "rules_total": len(rules), "rules_returned": len(rules)}) - 300
+    piece = _take_rules(rules[skip:], max(room, 200))  # 300：下の、分けたことの知らせの分
+    shown["rules"] = piece
+    shown["rules_total"], shown["rules_returned"] = len(rules), len(piece)
+    if skip + len(piece) < len(rules):
+        shown["next"] = {"skip": skip + len(piece), **ask_sheet}
+        told["more_rules"] = (f"一度に入らないので、{len(rules)} 個のうち {skip + 1}〜{skip + len(piece)} 個目の規則を返しました。"
+                              "結果の next をそのまま渡すと続きが読めます（書き出しも確かめも繰り返しません）")
+    return shown
+
+
+def _slice_json(obj: dict, label: str, ask: dict, skip: int) -> dict:
+    """省かない値を、JSON の字の位置で分けて返す（つなげると元の JSON。1 つの値がどんなに大きくても入る）。"""
+    text = _text(obj)["text"]
+    budget = limits.RESULT_CHARS
+    if not skip and len(text) <= budget:
+        return {"content": [_text(text)], "structuredContent": obj}
+    if skip > len(text):
+        raise api.ApiError(f"skip は {len(text):,} までです（前の結果の next をそのまま渡してください）")
+    end = min(skip + max(budget - _size(ask) - 400, 200), len(text))  # 400：下の、読んだ範囲と続きの知らせの分
+    if end < len(text):
+        nl = text.rfind("\n", skip, end)
+        if nl > skip:
+            end = nl + 1
+    cover = f"{label}の JSON の {skip + 1:,}〜{end:,} 字目（全 {len(text):,} 字。つなげると元の JSON）"
+    nxt = {**ask, "skip": end} if end < len(text) else None
+    tail = f"続きは next：{json.dumps(nxt, ensure_ascii=False)}" if nxt else "これで終わりです"
+    return {"content": [_text(f"{cover}。{tail}"), _text(text[skip:end])],
+            "structuredContent": {"covered": cover, "remaining": f"{len(text) - end:,} 字", "next": nxt, "done": nxt is None}}
+
+
+def _extract_processing(args: dict) -> dict:
+    ids, section, skip = args.get("ids"), args.get("section"), int(args.get("skip") or 0)
+    if (ids or section or skip) and (args.get("format") == "python" or args.get("out_path")):
+        raise api.ApiError("ids・section・skip は、取り出した結果の続きや詳細を読むためのものです。format と out_path を省いて頼んでください（書き出しと確かめは繰り返しません）")
+    if ids and section:
+        raise api.ApiError("ids か section のどちらかで頼んでください")
+    res, old = api.extract_processing_both(args["path"], args.get("format") or "json", args.get("out_path"), args.get("sheet"),
+                                           bool(args.get("overwrite")), args.get("password"))
+    ask_sheet = {"sheet": args["sheet"]} if args.get("sheet") else {}
+    if ids:
+        want = list(dict.fromkeys(str(x) for x in ids))
+        ask = {"ids": want, **ask_sheet}
+        if _size(ask) > limits.RESULT_CHARS // 2:
+            raise api.ApiError('一度に頼む ids が多すぎます。すべての規則の詳細は section: "rules" で頼んでください')
+        by = {d.get("id"): d for d in res.get("rules") or []}
+        out: dict = {"rules": [by[i] for i in want if i in by]}
+        missing = [i for i in want if i not in by]
+        if missing:
+            out["not_found"] = missing
+            out["not_found_how"] = "規則の id（rules の id のとおり）を渡してください。sheet を渡したときは、そのシートの規則だけを探します"
+        return _slice_json(out, "規則", ask, skip)
+    if section:
+        if section not in res:
+            raise api.ApiError(f"節「{section}」はありません（ある節：{'・'.join(res)}）")
+        return _slice_json({section: res[section]}, f"節「{section}」", {"section": section, **ask_sheet}, skip)
+    say = old.get("say_to_user", "")
+    if not skip and len(say) + _size(old) <= limits.RESULT_CHARS:
+        return {"content": [_text(say), _text(old)], "structuredContent": old}
+    shown = _fit_processing(res, args, skip, 0 if skip else len(say))
+    return {"content": [_text(shown)] if skip else [_text(say), _text(shown)], "structuredContent": shown}
+
+
+_CUT = re.compile(r"cut:(\d+):(.*)", re.S)  # 1 回に入らなかった所の続き：cut:読んだ字の数:その所を頼んだときの cursor
+
+
+def _cut_text(head: str, text: str, tail: str, at: int, ask: dict, then: dict | None, prior: str = "") -> dict | None:
+    """窓の 1 回の結果を limits.RESULT_CHARS に収める：字の位置で分ける（部分の番号・範囲の決まりは変えない。つなげると元の字のとおり）。
+    そのままで入るなら None。ask：同じ所を頼む引数。then：この所を読み終えたあとの next。tail：読み終えたときの知らせ。prior：この所を頼んだときの cursor。"""
+    budget = limits.RESULT_CHARS
+    if not at and len(head) + len(text) + len(tail) <= budget:
+        return None
+    if at > len(text):
+        raise api.ApiError("cursor がこの所の字の数を超えています（前の結果の next をそのまま渡してください）")
+    # 500：下の、読んだ範囲と続きの知らせの分
+    end = min(at + max(budget - len(head) - len(tail) - _size(ask) - len(prior) - 500, 200), len(text))
+    if end < len(text):
+        nl = text.rfind("\n", at, end)
+        if nl > at:
+            end = nl + 1
+    more = end < len(text)
+    nxt = {**ask, "cursor": f"cut:{end}:{prior}"} if more else then
+    cover = f"この所の {at + 1:,}〜{end:,} 字目（全 {len(text):,} 字）を読みました。"
+    foot = (f"（{cover}続きは read_window に {json.dumps(nxt, ensure_ascii=False)} を渡してください）" if more
+            else f"（{cover}この所はここまでです）" + tail)
+    return {"piece": text[at:end], "foot": foot, "next": nxt, "remaining": f"{len(text) - end:,} 字" if more else ""}
+
+
+def _read_window(args: dict) -> dict:
+    from .lazy import clamp_chars
+
+    at, prior = 0, ""
+    m = _CUT.fullmatch(str(args.get("cursor") or ""))
+    if m:  # 同じ所を、もとの cursor で読み直して、続きの字から返す
+        at, prior = int(m[1]), m[2]
+        args = {**args, "cursor": prior}
+    rng = {k: args[k] for k in ("pages", "sheet", "rows", "paragraphs", "records", "path_in", "cursor", "raw") if args.get(k) not in (None, "", False)}
+    ask = {k: v for k, v in rng.items() if k != "cursor"}  # 分けた続きを頼む引数（read_window の引数の名前のまま）
+    ask.update({k: args[k] for k in ("part", "max_chars") if args.get(k) is not None})
+    if "path_in" in rng:
+        rng["path"] = rng.pop("path_in")
+    large = api.lazy_open(args["path"], args.get("password"), args.get("encoding")) if not rng else None
+    if rng or large is not None or args.get("max_chars"):
+        if args.get("part") is not None and not rng:
+            rng["part"] = args["part"]
+        # 範囲の 1 回の大きさは結果の上限まで（API の既定 limits.PAGE_CHARS は変えない。続きの cursor は字の位置や行で決まり、大きさによらない）
+        most = max(limits.RESULT_CHARS - 1000, 200)
+        page, doc = api.read_range(args["path"], rng, min(clamp_chars(args.get("max_chars") or most), most), args.get("password"), args.get("encoding"))
+        cut = _cut_text("", page.text, page.footer(), at, ask, page.next, prior)
+        if cut is None:
+            return {"content": [_text(page.text), _text(page.footer())], "structuredContent": page.to_dict()}
+        sc = {**page.to_dict(), "next": cut["next"], "done": cut["next"] is None}
+        if cut["remaining"]:
+            sc["remaining"] = f"この所の残り {cut['remaining']}" + (f"と {page.remaining}" if page.remaining else "")
+        return {"content": [_text(cut["piece"]), _text(cut["foot"])], "structuredContent": sc}
+    _k, _doc, parts = api.window(args["path"], args.get("password"), args.get("encoding"))
+    n = int(args.get("part", 1))
+    if not 1 <= n <= len(parts):
+        raise api.ApiError(f"part は 1〜{len(parts)} です")
+    head = f"部分 {n}/{len(parts)}：{parts[n - 1][0]}"
+    then = {"part": n + 1} if n < len(parts) else None
+    cut = _cut_text(head, parts[n - 1][1], f"次は read_window に part: {n + 1} を渡してください" if then else "", at, {"part": n}, then)
+    if cut is None:
+        return {"content": [_text(head), _text(parts[n - 1][1])]}
+    return {"content": [_text(head), _text(cut["piece"]), _text(cut["foot"])],
+            "structuredContent": {"part": n, "parts": len(parts), "remaining": cut["remaining"], "next": cut["next"], "done": cut["next"] is None}}
+
+
 def call_tool(name: str, args: dict) -> dict:
     if name == "open_document":
         path = args["path"]
@@ -458,20 +705,7 @@ def call_tool(name: str, args: dict) -> dict:
                 + ("（read_window で part を指定して続きを読めます）" if s["window_parts"] > 1 else ""))
         return {"content": [_text(head), _text(parts[0][1])], "structuredContent": s}
     if name == "read_window":
-        rng = {k: args[k] for k in ("pages", "sheet", "rows", "paragraphs", "records", "path_in", "cursor", "raw") if args.get(k) not in (None, "", False)}
-        if "path_in" in rng:
-            rng["path"] = rng.pop("path_in")
-        large = api.lazy_open(args["path"], args.get("password"), args.get("encoding")) if not rng else None
-        if rng or large is not None or args.get("max_chars"):
-            if args.get("part") is not None and not rng:
-                rng["part"] = args["part"]
-            page, doc = api.read_range(args["path"], rng, args.get("max_chars"), args.get("password"), args.get("encoding"))
-            return {"content": [_text(page.text), _text(page.footer())], "structuredContent": page.to_dict()}
-        _k, _doc, parts = api.window(args["path"], args.get("password"), args.get("encoding"))
-        n = int(args.get("part", 1))
-        if not 1 <= n <= len(parts):
-            raise api.ApiError(f"part は 1〜{len(parts)} です")
-        return {"content": [_text(f"部分 {n}/{len(parts)}：{parts[n - 1][0]}"), _text(parts[n - 1][1])]}
+        return _read_window(args)
     if name == "list_fields":
         return _list_fields(args)
     if name == "fill_document":
@@ -522,9 +756,7 @@ def call_tool(name: str, args: dict) -> dict:
         res = api.calculate(args["path"], args.get("values") or {}, args.get("password"), args.get("cells"))
         return {"content": [_text(res["say_to_user"]), _text(res)], "structuredContent": res}
     if name == "extract_processing":
-        res = api.extract_processing(args["path"], args.get("format") or "json", args.get("out_path"), args.get("sheet"),
-                                     bool(args.get("overwrite")), args.get("password"))
-        return {"content": [_text(res.get("say_to_user", "")), _text(res)], "structuredContent": res}
+        return _extract_processing(args)
     if name == "view_page":
         v = api.view_page(args["path"], args["page"], args.get("region"), args.get("marks"), args.get("password"), args.get("dpi"))
         return {"content": [_text(v["text"]), {"type": "image", "data": v["png_base64"], "mimeType": "image/png"}],
