@@ -56,6 +56,8 @@ class FillResult:
     structure: list = field(default_factory=list)  # 構造の木に足した所（structadd.Placed）：読み手にどこで読まれるかの事実
     # /V から描き直す表示（PDFKit）で字の終わりが欠ける欄（広げられなかったもの）：[{"id", "value", "width_mm", "needs_mm"}]
     redraw_cut: list = field(default_factory=list)
+    # 埋め込まずに描いた書体：[{"font", "kind"（standard14・cjk_predefined）, "ids"}]（_fonts_not_embedded）
+    fonts_not_embedded: list = field(default_factory=list)
 
 
 # ====================================================================== 増分更新
@@ -1702,7 +1704,35 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
         if probs:
             raise FillError("書いた所が、ほかの字や線に重なるので、書き出していません：\n" + "\n".join(probs[:12]))
         f.warnings += [x for x in notes if x not in f.warnings]
-    return FillResult(blob, f.patches, f.warnings, denied=denied, structure=f.structure, redraw_cut=f.redraw_cut)
+    fne = _fonts_not_embedded(f.patches)
+    cjk = [x for x in fne if x["kind"] == "cjk_predefined"]
+    if cjk:
+        f.warnings.append(f"{'・'.join(x['font'] for x in cjk)} の字は、書体を埋め込まず、開くソフトが持つ書体で描きます（PDF の仕様で決まった字の集まりを指す形）。"
+                          "その言語の書体がないソフト・環境では、字が出なかったり別の字形になったりすることがあります（ファイルの中の値は正しい）。"
+                          "相手の環境で見えるかは確かめていません")
+    return FillResult(blob, f.patches, f.warnings, denied=denied, structure=f.structure, redraw_cut=f.redraw_cut, fonts_not_embedded=fne)
+
+
+def _fonts_not_embedded(patches: list) -> list[dict]:
+    """書いた字のうち、書体を埋め込まずに描いたもの（事実）：standard14 は PDF の仕様でどのソフトも代わりを持つ書体（Helvetica）、
+    cjk_predefined は定義済みの CMap で字の集まりを指し、字形はソフトの持つ書体に頼るもの（平成角ゴシックなど）。埋め込んだ書体は入れない。"""
+    names = {v[0]: v[1] for v in CJK.values()}
+    names.update({"Helv": "Helvetica", "TdkL": "Helvetica"})
+    got: dict[str, list[str]] = {}
+    for p in patches:
+        text = p.shown if p.shown is not None else p.value
+        if p.kind not in ("input", "calc", "xfa") or not isinstance(text, str) or not text or glyphs.shaped(text):
+            continue
+        try:
+            keys = {k for k, _r in runs_for(text)}
+        except FillError:
+            continue
+        for k in keys & set(names):
+            ids = got.setdefault(names[k], [])
+            if p.id not in ids:
+                ids.append(p.id)
+    cjk = {v[1] for v in CJK.values()}
+    return [{"font": n, "kind": "cjk_predefined" if n in cjk else "standard14", "ids": ids[:50]} for n, ids in got.items()]
 
 
 def _natural_size(spot: dict, text: str, unit: float) -> float | None:

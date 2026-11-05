@@ -791,6 +791,8 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         if res.denied:
             # 作り手の権限の設定が許していない書き込み（断らずに書き、本人に伝える：pdf/fill.py の _permissions）
             result["permissions_denied"] = list(res.denied)
+        if res.fonts_not_embedded:
+            result["fonts_not_embedded"] = list(res.fonts_not_embedded)
         if res.redraw_cut:
             # /V から描き直す表示（Mac のプレビュー・iPhone など）で字の終わりが欠ける欄：違う値に見えるので、事実として返す
             result["viewers_differ"] = list(res.redraw_cut)

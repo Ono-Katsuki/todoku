@@ -309,3 +309,22 @@ def test_circle_said_text_uses_an_embedded_font_when_needed(tmp_path):
     r = api.fill(str(src), {"@c1": {"circle": word, "style": "border"}}, str(out))
     assert r["proof_ok"], r["unexpected"]
     assert r["read_back_ok"], r["read_back_differences"]
+
+
+# ---------------------------------------------------------------- 埋め込まない書体の事実
+def test_fonts_not_embedded_are_reported(tmp_path):
+    src, out = tmp_path / "a.pdf", tmp_path / "o.pdf"
+    src.write_bytes(_form("100 700 400 716"))
+    r = api.fill(str(src), {"f": "山田 Hanako"}, str(out))
+    got = {x["font"]: x for x in r["fonts_not_embedded"]}
+    assert got["HeiseiKakuGo-W5"]["kind"] == "cjk_predefined" and got["HeiseiKakuGo-W5"]["ids"] == ["f"]
+    assert got["Helvetica"]["kind"] == "standard14"
+    assert "埋め込まず" in r["say_to_user"]
+
+
+def test_latin_only_writes_do_not_warn_about_cjk_fonts(tmp_path):
+    src, out = tmp_path / "a.pdf", tmp_path / "o.pdf"
+    src.write_bytes(_form("100 700 400 716"))
+    r = api.fill(str(src), {"f": "Hanako"}, str(out))
+    assert [x["kind"] for x in r["fonts_not_embedded"]] == ["standard14"]
+    assert "埋め込まず" not in r["say_to_user"]
