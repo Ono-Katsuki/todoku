@@ -198,7 +198,8 @@ def test_wrap_breaks_cyrillic_at_spaces(embedding_font):
     assert all(w in ("Иванов", "Пётр", "Сергеевич") for ln in lines for w in ln.split()), lines
 
 
-def test_cjk_glyph_set_follows_document_language():
+def test_cjk_glyph_set_follows_document_language(monkeypatch):
+    monkeypatch.setenv("TODOKU_PDF_FONT", "")  # 同梱の書体にない字が通る経路
     assert glyphs.order_for_lang("zh-Hant-TW")[0] == "Adobe-CNS1"
     assert glyphs.order_for_lang("zh-TW")[0] == "Adobe-CNS1"
     assert glyphs.order_for_lang("zh-CN")[0] == "Adobe-GB1"

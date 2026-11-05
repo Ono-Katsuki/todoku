@@ -4,7 +4,8 @@
 - 配置から見つけた所（印刷用のPDF）：書いた字を、ページの描画の後ろに足し、値の控えとして同じ名前の隠した欄を足す（pagedraw.py）。
   どのビューアーでも同じ字が見える。元のページの描画（コンテンツストリーム）は1バイトも変えない。値は機械で読める（/V）ので、読み戻せる
   電子署名のある PDF と、権限の設定がページの描画の変更を許さない PDF は、見える欄（値と見た目）として足す（_may_draw_on_page）
-- 文字の見た目は、欧文は Helvetica、日本語は平成角ゴシック（UniJIS-UCS2-HW-H）、ハングル・中国語も対応する字形の集まりで描く
+- 文字の見た目は、同梱の書体（Noto Sans JP）に字形のある字は、それを埋め込んで描く。ない字は、欧文は Helvetica、ハングル・中国語などは
+  定義済みの CMap の字形の集まりで描く（glyphs.choose）
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from dataclasses import dataclass, field
 
 from .doc import PdfDocument
 from . import glyphs, pagedraw
+from .embedfont import BUNDLED_KEY
 from .form import FF_COMB, FF_EDIT, FF_MULTILINE, FF_MULTISELECT, FormField, read_fields
 from .layout import View
 from .objects import Name, PdfError, PdfString, Ref, Stream, dumps, text_string
@@ -560,6 +562,7 @@ class Filler:
         self.struct_why: list[str] = []  # 構造の木に足せなかった理由
         self.redraw_cut: list[dict] = []  # 描き直す表示で字の終わりが欠ける欄（広げられなかったもの）
         self.widened: dict[int, tuple] = {}  # 四角を広げた部品の番号 → (元の幅, 広げた幅)
+        self.pdfa = is_pdfa(doc)  # PDF/A と名乗る文書か
 
     # ------------------------------------------------------------------ 共通の資源
     def font(self, key: str) -> Ref:
@@ -576,7 +579,7 @@ class Filler:
                 self.dr_fonts[key] = self.up.new(font)
             elif key == "ZaDb":
                 self.dr_fonts[key] = self.up.new(dict(ZADB))
-            elif key == "TdkE" or key.startswith("TdkX"):
+            elif key == "TdkE" or key == BUNDLED_KEY or key.startswith("TdkX"):
                 self.dr_fonts[key] = self.up.new({})  # 埋め込む書体：使った字形が決まってから、仕上げで中身を書く（_embed_font）
             else:
                 ros = next(r for r, v in CJK.items() if v[0] == key)
@@ -946,8 +949,12 @@ class Filler:
         auto = m is not None and _num(m[1]) == 0 and not fixed
         if keys - {"Helv"}:
             # 日本語などは Helvetica では描けないので、欄の書体の指定も合わせる
-            cjk = _da_key(keys)
-            wd["DA"] = PdfString(f"/{cjk} {'0' if auto else _pt(s)} Tf 0 g".encode())
+            # （色は元の指定のまま。Tf の命令がなければ黒で）
+            name = self._da_name(_da_key(keys))
+            size_text = "0" if auto else _pt(s)
+            new = _da_refont(da, name)
+            new = re.sub(r"([\d.]+)(\s+Tf)", lambda m: size_text + m[2], new, count=1) if new else f"/{name} {size_text} Tf 0 g"
+            wd["DA"] = PdfString(new.encode("latin-1"))
             fd["DA"] = wd["DA"]
             return
         if not drawn:
@@ -1123,7 +1130,7 @@ class Filler:
                 self.warnings.append(f"{spot['id']}: 枠の幅に入らないので {wrapped} 行に折り返しました（字 {s * unit:.1f} pt）。"
                                      "折り返したくなければ、もっと幅のある枠を box で決めてください")
         keys = fonts_used([text]) or {"Helv"}
-        da_font = _da_key(keys)
+        da_font = self._da_name(_da_key(keys))
         d = {**widget, "FT": Name("Tx"), "Rect": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)],
              "V": text_string(text), "DA": PdfString(f"/{da_font} {s:.1f} Tf 0 g".encode()), "AP": {"N": ap}}
         if comb:
@@ -1302,6 +1309,36 @@ class Filler:
                     stack.append(val)
         return out
 
+    def _embed_bundled(self) -> None:
+        """TdkB：書いた見た目が使う字（CID）だけを、同梱の書体から埋め込む。PDF/A の文書には CIDSet も（PDF/A-1 の決まり）。"""
+        from .embedfont import bundled_objects, compress
+
+        t0, cid, desc, data, tu, c2g, cidset = bundled_objects(sorted(set(self._used_gids(BUNDLED_KEY))))
+        flate = {"Filter": Name("FlateDecode")}
+        desc["FontFile2"] = self.up.new(Stream({"Length1": len(data), **flate}, compress(data)))
+        if self.pdfa:
+            desc["CIDSet"] = self.up.new(Stream(dict(flate), compress(cidset)))
+        cid["FontDescriptor"] = self.up.new(desc)
+        cid["CIDToGIDMap"] = self.up.new(Stream(dict(flate), compress(c2g)))
+        t0["DescendantFonts"] = [self.up.new(cid)]
+        t0["ToUnicode"] = self.up.new(Stream(dict(flate), compress(tu)))
+        self.up.put(self.dr_fonts[BUNDLED_KEY], t0)
+
+    def _da_name(self, key: str) -> str:
+        """/DA と AcroForm の /DR で、書体 key を指す名前。埋め込む書体は、この書き込みで使った字だけの部分集合なので、前の書き込みが
+        同じ名前で /DR に置いた書体（別の部分集合）とは別の名前にする（元の書体は変えない。前に書いた欄の /DA も変えない）。"""
+        if key not in (BUNDLED_KEY, "TdkE"):
+            return key
+        af = self.doc.resolve(self.doc.root.get("AcroForm"))
+        dr = self.doc.resolve(af.get("DR")) if isinstance(af, dict) else None
+        fonts = self.doc.resolve(dr.get("Font")) if isinstance(dr, dict) else None
+        fonts = fonts if isinstance(fonts, dict) else {}
+        name, n = key, 1
+        while name in fonts:
+            n += 1
+            name = f"{key}{n}"
+        return name
+
     def _embed_font(self, key: str = "TdkE") -> None:
         """TdkE：書いた見た目が使う字形（GID）だけを、このパソコンの TrueType の書体から埋め込む。
         TdkX…：字を組み立てて描いた書体（shape.py）。ToUnicode は、字形が表す元の字（合字なら合わせた字）にする
@@ -1346,7 +1383,9 @@ class Filler:
         if self.circles or self.drawn:
             self._draw_page_values()
         for k in list(self.dr_fonts):
-            if k == "TdkE" or k.startswith("TdkX"):
+            if k == BUNDLED_KEY:
+                self._embed_bundled()
+            elif k == "TdkE" or k.startswith("TdkX"):
                 self._embed_font(k)
         for page_no, refs in self.page_annots.items():
             pref = self.pages[page_no - 1]["_ref"]
@@ -1367,7 +1406,7 @@ class Filler:
                 cat = up.get(root_ref)
                 af = cat["AcroForm"]
             else:
-                af = {"Fields": [], "DA": PdfString(b"/Helv 0 Tf 0 g")}
+                af = {"Fields": [], "DA": PdfString(f"/{self._default_da_font()} 0 Tf 0 g".encode())}
                 cat = up.get(root_ref)
                 cat["AcroForm"] = up.new(af)
             if self.new_fields:
@@ -1390,12 +1429,16 @@ class Filler:
                     fonts = {}
                     dr["Font"] = fonts
                 for k, r in self.dr_fonts.items():
-                    fonts.setdefault(k, r)
+                    fonts.setdefault(self._da_name(k), r)
             if "DA" not in af:
-                af["DA"] = PdfString(b"/Helv 0 Tf 0 g")
+                af["DA"] = PdfString(f"/{self._default_da_font()} 0 Tf 0 g".encode())
             if clear_na:
                 af["NeedAppearances"] = False
         return up.build()
+
+    def _default_da_font(self) -> str:
+        """フォームの既定の /DA の書体：/DR に置いた書体（描いていない Helvetica を指さない）。"""
+        return self._da_name(_da_key(set(self.dr_fonts) - {"ZaDb"}))
 
     def clear_need_appearances(self) -> bool:
         """NeedAppearances を false にしてよいか：とどくが描いて確かめた見た目のまま見せる。書類のほかの部品がみな見た目（/AP）を
@@ -1433,10 +1476,12 @@ REDRAW_AUTO_HEIGHT = 0.8  # 自動の大きさ（/DA の 0）で PDFKit が選�
 
 
 def pdfkit_needs(text: str, size: float, da_font: str = "") -> float:
-    """PDFKit がこの字を 1 行で描くのに要る欄の幅。字の幅は、和文の書体に置き換わるときの幅の上限（どの字も 1 字ぶんまで）。"""
-    try:
-        w = text_width(text, size) if all(ord(c) < 0x80 for c in text) and da_font in ("", "Helv") else len(text) * size
-    except FillError:
+    """PDFKit がこの字を 1 行で描くのに要る欄の幅。PDFKit は /DA の埋め込んだ書体を使わず、欧文を Helvetica で描く（/DA が Helvetica でも
+    同梱の書体でも同じ幅に描いた。ladder.py と同じ形で測った）ので、欧文は Helvetica の幅で。そのほかは、和文の書体に置き換わるときの
+    幅の上限（どの字も 1 字ぶんまで）。"""
+    if all(ord(c) < 0x80 for c in text) and da_font in ("", "Helv"):
+        w = sum(glyphs.helv_width(c) for c in text) * size / 1000.0
+    else:
         w = len(text) * size
     return max(w * REDRAW_SCALE + REDRAW_PAD, w + REDRAW_MIN_ROOM)
 
@@ -1466,7 +1511,7 @@ def _fit_redrawn(text: str, size: float, w: float, h: float, auto: bool, unit: f
 
 def _da_key(keys: set[str]) -> str:
     """欄の書体の指定（/DA）にする書体：見た目を作り直すソフトが使うので、日本語などの書体を先に（欧文の拡張の TdkL は最後）。"""
-    for k in ("TdkJ", "TdkK", "TdkG", "TdkC", "TdkE"):
+    for k in (BUNDLED_KEY, "TdkJ", "TdkK", "TdkG", "TdkC", "TdkE"):
         if k in keys:
             return k
     for k in sorted(keys):
@@ -1568,8 +1613,17 @@ def fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: bool
 
     lang = doc.resolve(doc.root.get("Lang")) if hasattr(doc, "root") and isinstance(doc.root, dict) else None
     lang = decode_text(lang) if isinstance(lang, (bytes, PdfString)) else ""
-    with glyphs.cjk_order(lang):
+    with glyphs.cjk_order(lang), glyphs.embed_first(is_pdfa(doc)):
         return _fill(doc, values, force=force, placement=placement)
+
+
+def is_pdfa(doc) -> bool:
+    """文書が PDF/A と名乗っているか（Catalog の /Metadata の pdfaid。ISO 19005）。"""
+    try:
+        st = doc.resolve(doc.root.get("Metadata"))
+        return isinstance(st, Stream) and b"pdfaid" in doc.decode(st)
+    except Exception:  # noqa: BLE001  読めないメタデータは、名乗っていないものとして扱う
+        return False
 
 
 def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: bool = True) -> FillResult:
@@ -1704,24 +1758,36 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
         if probs:
             raise FillError("書いた所が、ほかの字や線に重なるので、書き出していません：\n" + "\n".join(probs[:12]))
         f.warnings += [x for x in notes if x not in f.warnings]
-    fne = _fonts_not_embedded(f.patches)
+    fne = _fonts_not_embedded(f.patches, set(f.by_name))
+    if BUNDLED_KEY in f.dr_fonts and glyphs.first_order() != glyphs.ORDER[0] \
+            and any("\u4e00" <= c <= "\u9fff" for p in f.patches if isinstance(p.value, str) for c in p.value):
+        f.warnings.append("この書類の言語は日本語ではありませんが、同梱の書体（Noto Sans JP）に字形のある漢字は、日本語の字形で描きました。"
+                          "同じ字でも、言語によって形が少し違うことがあります（字そのものは同じで、読み上げ・検索の字も同じ）")
     cjk = [x for x in fne if x["kind"] == "cjk_predefined"]
     if cjk:
         f.warnings.append(f"{'・'.join(x['font'] for x in cjk)} の字は、書体を埋め込まず、開くソフトが持つ書体で描きます（PDF の仕様で決まった字の集まりを指す形）。"
                           "その言語の書体がないソフト・環境では、字が出なかったり別の字形になったりすることがあります（ファイルの中の値は正しい）。"
                           "相手の環境で見えるかは確かめていません")
+    if fne and f.pdfa:
+        f.warnings.append(f"この PDF は PDF/A と名乗っていますが、{'・'.join(x['font'] for x in fne)} の字は書体を埋め込めませんでした"
+                          "（同梱の書体にもこのパソコンの書体にも字形がありません）。PDF/A の決まりに合わなくなります")
     return FillResult(blob, f.patches, f.warnings, denied=denied, structure=f.structure, redraw_cut=f.redraw_cut, fonts_not_embedded=fne)
 
 
-def _fonts_not_embedded(patches: list) -> list[dict]:
+def _fonts_not_embedded(patches: list, acro_names: set | None = None) -> list[dict]:
     """書いた字のうち、書体を埋め込まずに描いたもの（事実）：standard14 は PDF の仕様でどのソフトも代わりを持つ書体（Helvetica）、
-    cjk_predefined は定義済みの CMap で字の集まりを指し、字形はソフトの持つ書体に頼るもの（平成角ゴシックなど）。埋め込んだ書体は入れない。"""
+    cjk_predefined は定義済みの CMap で字の集まりを指し、字形はソフトの持つ書体に頼るもの（平成角ゴシックなど）。埋め込んだ書体は入れない。
+    xfa_template は、PDF の欄のない XFA の欄：とどくは見た目を描かず、開くソフトが様式の書体で描く。"""
     names = {v[0]: v[1] for v in CJK.values()}
     names.update({"Helv": "Helvetica", "TdkL": "Helvetica"})
     got: dict[str, list[str]] = {}
+    xfa_only: list[str] = []
     for p in patches:
         text = p.shown if p.shown is not None else p.value
         if p.kind not in ("input", "calc", "xfa") or not isinstance(text, str) or not text or glyphs.shaped(text):
+            continue
+        if p.kind == "xfa" and acro_names is not None and p.id not in acro_names:
+            xfa_only.append(p.id)
             continue
         try:
             keys = {k for k, _r in runs_for(text)}
@@ -1732,7 +1798,10 @@ def _fonts_not_embedded(patches: list) -> list[dict]:
             if p.id not in ids:
                 ids.append(p.id)
     cjk = {v[1] for v in CJK.values()}
-    return [{"font": n, "kind": "cjk_predefined" if n in cjk else "standard14", "ids": ids[:50]} for n, ids in got.items()]
+    out = [{"font": n, "kind": "cjk_predefined" if n in cjk else "standard14", "ids": ids[:50]} for n, ids in got.items()]
+    if xfa_only:
+        out.append({"font": "XFA の様式の書体", "kind": "xfa_template", "ids": xfa_only[:50]})
+    return out
 
 
 def _natural_size(spot: dict, text: str, unit: float) -> float | None:

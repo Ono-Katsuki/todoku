@@ -10,8 +10,22 @@
 | 文字の性質の表（Scripts, BidiBrackets, PropList） | `src/todoku/chars.py` | Unicode Character Database | Unicode License（同上） |
 | VP8 の復号の表 | `src/todoku/imaging/webp_vp8.py` | RFC 6386 §20.26。Copyright (c) 2010, 2011, Google Inc. | BSD 3-Clause（`LICENSES/LICENSE-webm.txt`） |
 | Helvetica などの字幅 | `src/todoku/pdf/glyphs.py`, `src/todoku/pdf/fonts.py` | Adobe Core 14 AFM | Helvetica の字幅は Adobe Core 14 AFM による。Copyright (c) 1985, 1987, 1989, 1990, 1997 Adobe Systems Incorporated. All Rights Reserved. |
+| PDF に足す字の書体（Noto Sans JP Regular） | `src/todoku/pdf/data/NotoSansJP-Regular.ttf.gz` | 下の「同梱の書体」 | SIL Open Font License 1.1（`LICENSES/LICENSE-NotoSansJP-OFL.txt`）。Copyright 2014-2021 Adobe, with Reserved Font Name 'Source' |
 | 世界地図の国境 | `world/portal/countries-110m.json` | world-atlas 2.0.2。Copyright 2013-2019 Michael Bostock。元のデータは Natural Earth（public domain）。Made with Natural Earth. | ISC（`LICENSES/LICENSE-world-atlas.txt`）。Natural Earth は public domain |
 | 政府のドメインの一覧 | `world/domains.json` | Public Suffix List の抜き出し。Wikidata | Public Suffix List は MPL-2.0（`LICENSES/LICENSE-MPL-2.0.txt`）。Wikidata は CC0 |
+
+## 同梱の書体
+
+- 書体：Noto Sans JP Regular（静的な TrueType、glyf 形式。字形 17,808、Unicode の字 16,732）。書体のファイルの fsType は 0（埋め込みの制限なし）
+- 取得元：Google Fonts の配布（`https://fonts.google.com/download/list?family=Noto+Sans+JP` の一覧の `static/NotoSansJP-Regular.ttf`、v57）
+  `https://fonts.gstatic.com/s/notosansjp/v57/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFBEj75vY0rw-oME.ttf`。2026-11-05 に取得
+- sha256（元の .ttf、5,731,428 バイト）：`6255ea4692e97ef27330304fb96fd650f9111f868cd585fcf2802d42823930e5`
+- 同梱の形：元のファイルを gzip しただけで、中身は変えていません（`gzip -dc` で上の sha256 に戻ります）
+- ライセンスの原文：`https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/OFL.txt` と同じ配布の一覧の `OFL.txt`。全文を `LICENSES/LICENSE-NotoSansJP-OFL.txt` と
+  `src/todoku/pdf/data/LICENSE-NotoSansJP-OFL.txt`（パッケージの中の写し）に置きました
+- OFL 1.1 の扱い：書体だけを単体で売りません（条件 1）。写しごとに著作権の表示とライセンスを添えます（条件 2）。
+  「Source」の名前（Reserved Font Name）を使う改変版を作りません（条件 3。同梱の書体は改変していません）。書体は OFL のままで配ります（条件 5）。とどくのコードの Apache-2.0 は書体には及びません
+- PDF に埋め込んだ部分集合：OFL は埋め込みを認めています。「作った文書には、OFL に従う決まりは及ばない」（前文・条件 5）ので、とどくが書き出した PDF は OFL の対象になりません
 
 ## 他者の実装に基づく部品
 

@@ -10,3 +10,6 @@ Helvetica の字幅は Adobe Core 14 AFM による。Copyright (c) 1985, 1987, 1
 This software is based in part on the work of the Independent JPEG Group.
 
 This product includes code derived from libwebp (BSD 3-Clause), HarfBuzz (MIT) and OpenJPEG (BSD 2-Clause). See THIRD_PARTY_NOTICES.md and LICENSES/.
+
+This product bundles the Noto Sans JP font (src/todoku/pdf/data/NotoSansJP-Regular.ttf.gz), licensed under the SIL Open Font License, Version 1.1 (LICENSES/LICENSE-NotoSansJP-OFL.txt).
+Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.

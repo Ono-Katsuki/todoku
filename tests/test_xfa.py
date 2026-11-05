@@ -336,7 +336,9 @@ def test_static_form_writes_data_and_pdf_field():
     assert acro_v[ID + "Birth[0]"] == "04/01/1990"
     birth = next(f for f in read_fields(after) if f.name == ID + "Birth[0]")
     ap = after.resolve(after.resolve(after.resolve(birth.widgets[0].ref)["AP"])["N"])
-    assert b"04/01/1990".hex().upper().encode() in after.decode(ap)  # 見た目は、XFA の見た目の書式で整えた字
+    from todoku.pdf.glyphs import appearance_text
+
+    assert appearance_text(after, ap)[0] == "04/01/1990"  # 見た目は、XFA の見た目の書式で整えた字
     page = {f["id"]: f for f in build(after)["pages"][0]["fields"]}
     assert page[ID + "Member[0]"]["value"] is True
     au = audit(blob, "static.pdf")

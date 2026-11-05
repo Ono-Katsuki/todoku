@@ -166,7 +166,8 @@ def test_acrojs_formats():
     assert simple_calculate('AFSimple_Calculate("SUM", new Array ("a", "b"));', {"a": "1,000", "b": 2}.get) == 1002
 
 
-def test_font_runs():
+def test_font_runs(monkeypatch):
+    monkeypatch.setenv("TODOKU_PDF_FONT", "")  # 埋め込まない経路（同梱の書体にない字が通る経路）
     assert runs_for("Tel 03（1234）") == [("Helv", "Tel 03"), ("TdkJ", "（"), ("Helv", "1234"), ("TdkJ", "）")]
     assert runs_for("김") == [("TdkK", "김")]
     with pytest.raises(FillError):

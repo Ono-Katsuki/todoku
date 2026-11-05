@@ -208,7 +208,7 @@ def test_auto_size_da_stays_auto(tmp_path):
     r, out = _api(tmp_path, {"name": "Alexander Hamilton Jr"}, name_rect="100 700 500 720", name_da="/Helv 0 Tf 0 g")
     assert r["proof_ok"] and r["read_back_ok"]
     doc = PdfDocument(out.read_bytes())
-    assert bytes(doc.resolve(_field(out.read_bytes(), "name").ref)["DA"]).decode() == "/Helv 0 Tf 0 g"
+    assert bytes(doc.resolve(_field(out.read_bytes(), "name").ref)["DA"]).decode() == "/TdkB 0 Tf 0 g"
 
 
 def test_single_line_field_is_never_wrapped(tmp_path):

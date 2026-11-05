@@ -121,8 +121,9 @@ def test_undrawable_text_is_refused_with_reason(tmp_path, no_embed):
         api.fill(src, {"family": "Παπαδόπουλος"}, str(tmp_path / "o.pdf"))
 
 
-def test_proof_catches_a_glyph_outside_the_supplement(tmp_path):
+def test_proof_catches_a_glyph_outside_the_supplement(tmp_path, monkeypatch):
     """見た目の字が、書体の宣言した補遺の外の CID になるもの（白く抜ける）を、証明が見つける。"""
+    monkeypatch.setenv("TODOKU_PDF_FONT", "")  # 埋め込まない経路
     doc = PdfDocument(build_all())
     res = fill(doc, {"family": "漢"})
     bad = res.blob.replace("漢".encode("utf-16-be").hex().upper().encode(), "ş".encode("utf-16-be").hex().upper().encode())

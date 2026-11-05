@@ -136,7 +136,7 @@ def test_rot_matrix_maps_view_box_exactly_onto_rect():
 def test_comb_appearance_on_rotated_field_uses_view_box():
     doc = PdfDocument(_pdf())
     up = Update(doc)
-    fonts = {"Helv": up.new({})}
+    fonts = {"TdkB": up.new({})}
     comb = [(i * 20.0, 0, (i + 1) * 20.0, 30.0) for i in range(5)]  # 描く向き：幅 100・高さ 30
     ref, _s = text_appearance(up, 30.0, 100.0, "12345", 10, fonts, comb=comb, rot=90)
     st = up.objs[ref.num][1]
@@ -286,7 +286,7 @@ def test_user_unit_seal_size_and_small_text_warning(tmp_path):
     w = r["placed"][0]["box_mm"][2] - r["placed"][0]["box_mm"][0]
     assert abs(w - 12) < 0.1 and "横 12 mm・縦 12 mm" in r["placed"][0]["say"]
     # 小さな枠に長い字：知らせる字の大きさは、紙の上の pt（ページの座標の大きさ × 2）
-    r = api.fill(str(src), {"@1": {"page": 1, "box": [20, 20, 60, 23], "value": "ABCDEFGHIJKLMNOPQRSTUVWXYZ"}},
+    r = api.fill(str(src), {"@1": {"page": 1, "box": [20, 20, 60, 23], "value": "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGH"}},
                  str(tmp_path / "o2.pdf"))
     doc = PdfDocument((tmp_path / "o2.pdf").read_bytes())
     s = float(bytes(_widget(doc, "p1.w1")["DA"]).decode().split()[1])

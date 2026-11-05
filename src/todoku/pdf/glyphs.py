@@ -1,6 +1,7 @@
 """PDF に書く字を、どの書体で描くか決め、描いた見た目（/AP のストリーム）を読み直して、どの字も描ける字形かを確かめる。
 
-書体は埋め込まない（増分更新を小さく保つ）。描けるのは、仕様で字形が決まっている所だけ：
+字形のある字は、語や言語によらず、同梱の書体（Noto Sans JP。embedfont）から使った字形だけを埋め込んで描く。同梱の書体にない字は
+次の順。埋め込まない書体で描けるのは、仕様で字形が決まっている所だけ：
 - Helvetica（標準の 14 書体）：WinAnsiEncoding の字と、標準の 14 書体の字形の表（Adobe Core14 AFM の 315 字形）にある
   ラテン文字の拡張（ş ğ İ ł ę ř ő ű ă ć Č など）。拡張の字は、/Differences で字形の名前を指した別の書体（TdkL）で描く
 - CID フォント（平成角ゴシックなど）：定義済みの CMap（UniJIS-UCS2-HW-H など、Adobe の公開資料の対応表）で決まる CID が、
@@ -209,6 +210,8 @@ ORDER = ("Adobe-Japan1", "Adobe-Korea1", "Adobe-GB1", "Adobe-CNS1")
 _LANG_ROS = {"ja": "Adobe-Japan1", "ko": "Adobe-Korea1", "zh-hant": "Adobe-CNS1", "zh-tw": "Adobe-CNS1", "zh-hk": "Adobe-CNS1",
              "zh-mo": "Adobe-CNS1", "zh-hans": "Adobe-GB1", "zh-cn": "Adobe-GB1", "zh-sg": "Adobe-GB1", "zh": "Adobe-GB1"}
 _order = contextvars.ContextVar("todoku_cjk_order", default=ORDER)
+# 埋め込まない書体を避ける文書か（PDF/A：書体をすべて埋め込む決まり）。このときは、このパソコンの書体を先に試す
+_embed_first = contextvars.ContextVar("todoku_embed_first", default=False)
 
 
 def order_for_lang(lang: str) -> tuple[str, ...]:
@@ -238,8 +241,33 @@ def cjk_order(lang: str):
         _order.reset(token)
 
 
+def first_order() -> str:
+    """いまの書類の言語で先に選ぶ字形の集まり。"""
+    return _order.get()[0]
+
+
+@contextlib.contextmanager
+def embed_first(on: bool):
+    """この中で描く字は、埋め込まない書体より、このパソコンの書体を先に試す（fill が PDF/A の文書で包む）。"""
+    token = _embed_first.set(on)
+    try:
+        yield
+    finally:
+        _embed_first.reset(token)
+
+
 def choose(ch: str) -> tuple[str, bytes, float]:
-    """字 → (書体の資源の名前, 描く文字コード, 幅（1000 分の 1）)。描けなければ GlyphError。"""
+    """字 → (書体の資源の名前, 描く文字コード, 幅（1000 分の 1）)。描けなければ GlyphError。
+    同梱の書体に字形があれば、それで描く。なければ、これまでの順（Helvetica・定義済みの CMap・このパソコンの書体）。"""
+    from .embedfont import BUNDLED_KEY, bundled_glyph
+
+    b = bundled_glyph(ch)
+    if b is not None:
+        return BUNDLED_KEY, b[0], b[1]
+    if _embed_first.get():
+        e = _embedded(ch)
+        if e is not None:
+            return e
     if ord(ch) > 0xFFFF:
         raise GlyphError(f"「{ch}」（U+{ord(ch):X}）は、この PDF に描けません：基本多言語面の外の字で、"
                          "埋め込まない書体の CMap（UCS-2）では指せません")
@@ -409,6 +437,7 @@ class _FontInfo:
         self.ros = ""
         self.sup = 0
         self.cmap = ""
+        self.c2g = None
         if not isinstance(fd, dict):
             self.problem = "書体の辞書がありません"
             return
@@ -476,11 +505,15 @@ class _FontInfo:
 
         desc = doc.resolve(cf.get("FontDescriptor"))
         ff = doc.resolve(desc.get("FontFile2")) if isinstance(desc, dict) else None
-        if getattr(doc.resolve(cf.get("Subtype")), "name", "") != "CIDFontType2" or ff is None                 or getattr(doc.resolve(cf.get("CIDToGIDMap")), "name", "") != "Identity":
+        c2g = doc.resolve(cf.get("CIDToGIDMap"))
+        if getattr(doc.resolve(cf.get("Subtype")), "name", "") != "CIDFontType2" or ff is None \
+                or not (getattr(c2g, "name", "") == "Identity" or isinstance(c2g, Stream)):
             self.problem = f"書体 {self.name} の埋め込みの形を、ここでは確かめられません"
             return
         try:
-            self.tt = TrueType("", doc.decode(ff))
+            self.c2g = doc.decode(c2g) if isinstance(c2g, Stream) else None
+            cache = doc.__dict__.setdefault("_tdk_embedded_fonts", {})
+            self.tt = cache.get(ff.num) or cache.setdefault(ff.num, TrueType("", doc.decode(ff)))
         except Exception as e:  # noqa: BLE001
             self.problem = f"埋め込んだ書体 {self.name} を読めません（{e}）"
             return
@@ -510,6 +543,8 @@ class _FontInfo:
         if self.kind == "embedded":
             for i in range(0, len(s) - 1, 2):
                 g = int.from_bytes(s[i:i + 2], "big")
+                if self.c2g is not None:  # 字ごとの CID（同梱の書体）→ 字形の番号
+                    g = int.from_bytes(self.c2g[2 * g:2 * g + 2], "big")
                 ch = (self.tu.to_unicode(s[i:i + 2]) if self.tu is not None else None) or "�"
                 if g == 0 or g >= self.tt.num:
                     probs.append(f"「{ch}」の字形の番号 {g} が、埋め込んだ書体 {self.name} にありません")

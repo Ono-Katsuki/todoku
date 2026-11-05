@@ -9,6 +9,7 @@ import pytest
 from pdfmini import build
 from todoku import api, chars
 from todoku.pdf import fill as F
+from todoku.pdf import glyphs
 from todoku.pdf.content import page_content
 from todoku.pdf.doc import PdfDocument
 from todoku.pdf.fill import fill
@@ -47,10 +48,10 @@ def test_da_font_follows_the_drawn_font():
     res = fill(PdfDocument(blob), {"f": "YAMADA"})
     assert prove(blob, res.blob, {"f"}).ok
     da = _da(res.blob)
-    assert "/F5" not in da and "/Helv 9 Tf" in da and "0 0 0 rg" in da  # 色と大きさはそのまま
+    assert "/F5" not in da and "/TdkB 9 Tf" in da and "0 0 0 rg" in da  # 色と大きさはそのまま
     doc = PdfDocument(res.blob)
     fonts = doc.resolve(doc.resolve(doc.resolve(doc.root["AcroForm"])["DR"])["Font"])
-    assert doc.resolve(fonts["Helv"])["BaseFont"].name == "Helvetica"
+    assert doc.resolve(fonts["TdkB"])["BaseFont"].name.endswith("+NotoSansJP-Regular")
 
 
 def test_narrow_invisible_field_is_widened_so_redrawing_viewers_show_every_digit():
@@ -69,7 +70,8 @@ def test_short_values_need_the_measured_room():
     w = F.text_width("01", 6.5)
     assert F.pdfkit_needs("01", 6.5) >= w + 7
     long = "1234567890123456"
-    assert F.pdfkit_needs(long, 10) == F.text_width(long, 10) * F.REDRAW_SCALE + F.REDRAW_PAD
+    helv = sum(glyphs.helv_width(c) for c in long) * 10 / 1000  # PDFKit は欧文を Helvetica で描き直す
+    assert F.pdfkit_needs(long, 10) == helv * F.REDRAW_SCALE + F.REDRAW_PAD
 
 
 def test_narrow_field_not_widened_over_another_field_and_the_fact_is_told(tmp_path):
@@ -312,7 +314,8 @@ def test_circle_said_text_uses_an_embedded_font_when_needed(tmp_path):
 
 
 # ---------------------------------------------------------------- 埋め込まない書体の事実
-def test_fonts_not_embedded_are_reported(tmp_path):
+def test_fonts_not_embedded_are_reported(tmp_path, monkeypatch):
+    monkeypatch.setenv("TODOKU_PDF_FONT", "")  # 埋め込まない経路（同梱の書体にない字が通る経路）
     src, out = tmp_path / "a.pdf", tmp_path / "o.pdf"
     src.write_bytes(_form("100 700 400 716"))
     r = api.fill(str(src), {"f": "山田 Hanako"}, str(out))
@@ -322,7 +325,8 @@ def test_fonts_not_embedded_are_reported(tmp_path):
     assert "埋め込まず" in r["say_to_user"]
 
 
-def test_latin_only_writes_do_not_warn_about_cjk_fonts(tmp_path):
+def test_latin_only_writes_do_not_warn_about_cjk_fonts(tmp_path, monkeypatch):
+    monkeypatch.setenv("TODOKU_PDF_FONT", "")
     src, out = tmp_path / "a.pdf", tmp_path / "o.pdf"
     src.write_bytes(_form("100 700 400 716"))
     r = api.fill(str(src), {"f": "Hanako"}, str(out))

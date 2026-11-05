@@ -165,12 +165,22 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
     # 足した書体の、字の対応（ToUnicode の CMap）のストリーム
     tounicode = {o["ToUnicode"].num for o in (b.get(n) for n in added)
                  if isinstance(o, dict) and _kind(o) == "font" and isinstance(o.get("ToUnicode"), Ref)}
+    # 足した書体の、CID から字形への対応（CIDToGIDMap）と、使う CID の印（CIDSet）のストリーム
+    font_maps = set()
+    for n in added:
+        o = b.get(n)
+        if isinstance(o, dict) and isinstance(o.get("CIDToGIDMap"), Ref):
+            font_maps.add(o["CIDToGIDMap"].num)
+        if isinstance(o, dict) and isinstance(o.get("CIDSet"), Ref):
+            font_maps.add(o["CIDSet"].num)
     for num in added:
         o = b.get(num)
         if num not in reach and not _is_xref(o):
             pr.unexpected.append(f"足したオブジェクト {num} が、どこからも使われていません")
         kind = "xfa" if num in xfa_done else ("font" if num in tounicode and isinstance(o, Stream)
                                               and b"begincmap" in b.decode(o) else _kind(o))
+        if num in font_maps and isinstance(o, Stream) and set(o.dict) <= {"Filter", "Length"}:
+            kind = "font"
         if kind == "appearance":
             _check_glyphs(b, num, o, pr)
         if kind is None:

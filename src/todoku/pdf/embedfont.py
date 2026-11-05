@@ -1,8 +1,12 @@
-"""PDF に書く字のうち、埋め込まない書体（Helvetica・平成角ゴシックなど）の字形にない字（Ğ のほかの Λ ό ς・ễ ư など）を、
-このパソコンにある TrueType の書体から、書いた字の字形だけを埋め込んで描く（ISO 32000-1 9.7.4・9.9、CIDFontType2・Identity-H）。
+"""PDF に書く字を、書いた字の字形だけを埋め込んで描く（ISO 32000-1 9.7.4・9.9、CIDFontType2・Identity-H）。
 
-- 書体のファイル：環境変数 TODOKU_PDF_FONT（空にすると埋め込まない）、なければ OS の決まった場所の Arial・DejaVu Sans・
-  Liberation Sans の順。見つからなければ埋め込まず、その字は理由を添えて断る（glyphs.choose）
+- 同梱の書体（TdkB）：data/NotoSansJP-Regular.ttf.gz（SIL OFL 1.1。THIRD_PARTY_NOTICES.md）。字形のある字は、語や言語によらず
+  これで描く（glyphs.choose）。最初に要るときに初めて読む。字形を 2 つ以上の字が分け合う（「〜」U+301C と「～」U+FF5E など）ので、
+  字形の番号でなく字ごとに CID を決め（cmap の字を小さい順に並べた番号）、CIDToGIDMap のストリームで字形につなぐ。
+  これで ToUnicode が書いた字そのものになる（読み上げ・検索・読み戻しで別の字にならない）
+- 同梱の書体にない字のうち、埋め込まない書体（Helvetica・平成角ゴシックなど）の字形にもない字は、このパソコンの TrueType の書体（TdkE）で。
+  書体のファイル：環境変数 TODOKU_PDF_FONT（空にすると、同梱の書体も含めて埋め込まない）、なければ OS の決まった場所の Arial・
+  DejaVu Sans・Liberation Sans の順。見つからなければ、その字は理由を添えて断る（glyphs.choose）
 - 書体の埋め込みの許し（OS/2 の fsType、OpenType の仕様）：Restricted License・ビットマップだけ・部分の埋め込み不可のものは使わない
 - 部分の埋め込み：字形の番号（GID）は元のまま（CIDToGIDMap /Identity）、使う字形（と、組み合わせの字形の部品）の中身だけを残し、
   ほかは空にする。この書体（TdkE）では字の並べ替え・合字をしないので、結合の字（Mn・Mc・Me）・右から左の字は使わない
@@ -12,12 +16,14 @@
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import os
 import struct
 import unicodedata
 import zlib
 from functools import lru_cache
+from pathlib import Path
 
 def windows_fonts_dir() -> str:
     """Windows の書体のフォルダ（%WINDIR%\\Fonts。Windows が C: 以外にあっても）。末尾に区切りの字をつける。"""
@@ -149,7 +155,16 @@ class TrueType:
         struct.pack_into(">I", head, 8, 0)  # checkSumAdjustment（あとで決める）
         struct.pack_into(">h", head, 50, 1)  # indexToLocFormat：long
         post = struct.pack(">IIhhIIIII", 0x00030000, 0, 0, 0, 0, 0, 0, 0, 0)  # 字形の名前を持たない形（format 3）
-        tabs = {"head": bytes(head), "hhea": self.t["hhea"], "maxp": self.t["maxp"], "hmtx": self.t["hmtx"],
+        # 使わない字形の幅は 0 に（表の長さは字形の数のまま。圧縮でほとんど消える。PDF の幅は /W にある）
+        n_hm = struct.unpack_from(">H", self.t["hhea"], 34)[0]
+        hmtx = bytearray(len(self.t["hmtx"]))
+        for g in keep:
+            if g < n_hm:
+                hmtx[4 * g:4 * g + 4] = self.t["hmtx"][4 * g:4 * g + 4]
+            else:
+                o = 4 * n_hm + 2 * (g - n_hm)
+                hmtx[o:o + 2] = self.t["hmtx"][o:o + 2]
+        tabs = {"head": bytes(head), "hhea": self.t["hhea"], "maxp": self.t["maxp"], "hmtx": bytes(hmtx),
                 "loca": struct.pack(f">{len(loca)}I", *loca), "glyf": bytes(glyf), "post": post}
         for k in ("cvt ", "fpgm", "prep", "OS/2"):
             if k in self.t:
@@ -224,6 +239,48 @@ def _pick(env: str | None) -> TrueType | None:
     return None
 
 
+BUNDLED_FILE = Path(__file__).parent / "data" / "NotoSansJP-Regular.ttf.gz"
+BUNDLED_KEY = "TdkB"  # 同梱の書体の資源の名前
+
+
+@lru_cache(maxsize=1)
+def _read_bundled() -> TrueType | None:
+    try:
+        return TrueType(BUNDLED_FILE.name[:-3], gzip.decompress(BUNDLED_FILE.read_bytes()))
+    except (OSError, EOFError, ValueError, struct.error, zlib.error):
+        return None
+
+
+@lru_cache(maxsize=1)
+def _bundled_cids() -> dict[int, int]:
+    """同梱の書体の字 → CID（cmap の字を小さい順に並べた 1 からの番号。字ごとに違う番号）。"""
+    font = _read_bundled()
+    return {u: i + 1 for i, u in enumerate(sorted(font.cmap))} if font is not None else {}
+
+
+def bundled_font() -> TrueType | None:
+    """同梱の書体（TODOKU_PDF_FONT を空にしたときは、埋め込まない）。"""
+    return None if os.environ.get("TODOKU_PDF_FONT") == "" else _read_bundled()
+
+
+@lru_cache(maxsize=65536)
+def _bundled_glyph(ch: str) -> tuple[bytes, float] | None:
+    font = _read_bundled()
+    if font is None or not usable(ch):
+        return None
+    g = font.gid(ch)
+    if g is None:
+        return None
+    return _bundled_cids()[ord(ch)].to_bytes(2, "big"), font.width(g)
+
+
+def bundled_glyph(ch: str) -> tuple[bytes, float] | None:
+    """同梱の書体で描ける字なら (描く文字コード（CID の 2 バイト）, 幅（1000 分の 1）)。字形がなければ None。"""
+    if os.environ.get("TODOKU_PDF_FONT") == "":
+        return None
+    return _bundled_glyph(ch)
+
+
 def usable(ch: str) -> bool:
     """埋め込んだ書体で、並べ替え・合字なしに1字ずつ描ける字か（結合の字・右から左の字は除く）。"""
     if unicodedata.category(ch) in ("Mn", "Mc", "Me", "Cf", "Cc", "Co", "Cs", "Cn"):
@@ -231,12 +288,31 @@ def usable(ch: str) -> bool:
     return unicodedata.bidirectional(ch) not in ("R", "AL", "RLE", "RLO", "RLI", "AN", "NSM")
 
 
-def font_objects(font: TrueType, gids: dict[int, str]) -> tuple[dict, dict, dict, bytes, bytes]:
-    """gids：使う字形の番号 → 字。(Type0 の辞書, CIDFontType2 の辞書, FontDescriptor, 埋め込む書体の中身, ToUnicode の CMap)。
-    参照はつながずに返す。"""
+def bundled_objects(cids: list[int]) -> tuple[dict, dict, dict, bytes, bytes, bytes, bytes]:
+    """同梱の書体で、使った CID だけの書体。(Type0, CIDFontType2, FontDescriptor, 書体の中身, ToUnicode, CIDToGIDMap, CIDSet)。"""
+    font = _read_bundled()
+    by_cid = {c: u for u, c in _bundled_cids().items()}
+    chars = {c: chr(by_cid[c]) for c in cids if c in by_cid}
+    gid_of = {c: font.cmap[ord(ch)] for c, ch in chars.items()}
+    t0, cid, desc, sub, tu = font_objects(font, chars, gid_of)
+    last = max(chars, default=0)
+    c2g = bytearray(2 * (last + 1))
+    bits = bytearray(last // 8 + 1)
+    bits[0] = 0x80  # CID 0（.notdef）
+    for c, g in gid_of.items():
+        c2g[2 * c:2 * c + 2] = g.to_bytes(2, "big")
+        bits[c // 8] |= 0x80 >> (c % 8)
+    return t0, cid, desc, sub, tu, bytes(c2g), bytes(bits)
+
+
+def font_objects(font: TrueType, gids: dict[int, str], gid_of: dict[int, int] | None = None) -> tuple[dict, dict, dict, bytes, bytes]:
+    """gids：使う CID → 字。gid_of：CID → 字形の番号（省くと CID が字形の番号。CIDToGIDMap /Identity）。
+    (Type0 の辞書, CIDFontType2 の辞書, FontDescriptor, 埋め込む書体の中身, ToUnicode の CMap)。参照はつながずに返す
+    （gid_of があるときの CIDToGIDMap は呼ぶ側が差し替える）。"""
     from .objects import Name, PdfString
 
-    sub = font.subset(set(gids))
+    glyph = gid_of or {g: g for g in gids}
+    sub = font.subset(set(glyph.values()))
     tag = "".join(chr(65 + b % 26) for b in hashlib.sha256(repr(sorted(gids)).encode() + font.name.encode()).digest()[:6])
     base = Name(f"{tag}+{font.name}")
     sc = 1000.0 / font.upem
@@ -245,7 +321,7 @@ def font_objects(font: TrueType, gids: dict[int, str]) -> tuple[dict, dict, dict
             "Descent": round(font.descent * sc), "CapHeight": round(font.cap * sc), "StemV": 80}
     w: list = []
     for g in sorted(gids):
-        w += [g, [round(font.width(g), 1)]]
+        w += [g, [round(font.width(glyph[g]), 1)]]
     cid = {"Type": Name("Font"), "Subtype": Name("CIDFontType2"), "BaseFont": base,
            "CIDSystemInfo": {"Registry": PdfString(b"Adobe"), "Ordering": PdfString(b"Identity"), "Supplement": 0},
            "DW": 1000, "W": w, "CIDToGIDMap": Name("Identity")}
