@@ -63,7 +63,7 @@ def one(path: str, a, base: Path) -> dict:
                     r["signature_after"] = make_signed.verify(out, w)
                     if not r["signature_after"].get("valid"):
                         c.setdefault("lost", {})["signature"] = "無効になった"
-                if k == "pdf" and a.pkr and c.get("visible"):
+                if k == "pdf" and a.pkr and c.get("visible") and not c.get("xfa"):
                     # 描いた絵を文字認識で読む：FreeText の枠だけが描かれて字がない、字化けする、を見分ける（Vision はとどくと関係がない）
                     png = w / "crop.png"
                     run_watched([a.baseline_python, "-I", HERE / "baseline_write.py", "crop", out, pick.get("page", 1), json.dumps(pick.get("rect")), png], limit_s=180)
@@ -93,6 +93,8 @@ def form_class(rec: dict) -> str:
         return rec["kind"]
     if (rec.get("signed_before") or {}).get("valid"):
         return "pdf（署名あり）"
+    if any((r.get("check") or {}).get("xfa") for r in rec["runs"].values()):
+        return "pdf（XFA）"
     return "pdf（フォームの欄）" if (rec.get("target") or {}).get("name") else "pdf（欄のない PDF）"
 
 

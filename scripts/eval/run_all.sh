@@ -132,6 +132,9 @@ for s in $SETS; do
   step "read_$s" "$PY" "$SCRIPT_DIR/read_compare.py" --files "$L" --out "$OUT/read/$s" $COMMON --label "$s" $PKR_ARG
   step "write_$s" "$PY" "$SCRIPT_DIR/write_compare.py" --files "$L" --out "$OUT/write/$s" $COMMON --label "$s" $PKR_ARG
   step "processing_$s" "$PY" "$SCRIPT_DIR/processing_eval.py" --files "$L" --out "$OUT/processing/$s" $COMMON --label "$s"
+  if (( ! SKIP_FILL )); then  # 計算の説明の確かめ（エージェントを使う）
+    step "explain_$s" "$PY" "$SCRIPT_DIR/explain_check.py" --processing "$OUT/processing/$s" --out "$OUT/explain/$s" $COMMON --n "$( (( DRY )) && print 1 || print 5 )" --model "$MODEL"
+  fi
 done
 
 # ---------------------------------------------------------------------- 記入（見ないで）

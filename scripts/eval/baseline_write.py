@@ -206,6 +206,19 @@ def do_check(a):
             got = bk.sheet_by_name(sh).cell_value(int(m.group(2)) - 1, col - 1)
             o["landed"] = val in str(got)
             o["lost"] = {}
+        elif kind == "doc":
+            # 古い Word：LibreOffice で字にして、値があるかを見る（比べる道具はこの形式に書けない）
+            import os
+            import subprocess
+            import tempfile
+
+            d = tempfile.mkdtemp(prefix="todoku_doc_")
+            subprocess.run(["soffice", f"-env:UserInstallation=file://{d}/prof", "--headless", "--norestore", "--convert-to", "txt:Text (encoded):UTF8", "--outdir", d, out],
+                           capture_output=True, timeout=180)
+            f = os.path.join(d, os.path.splitext(os.path.basename(out))[0] + ".txt")
+            o["landed"] = os.path.exists(f) and val in open(f, encoding="utf-8", errors="replace").read()
+            o["lost"] = {}
+            o["checked_by"] = "libreoffice"
         elif kind == "pdf":
             import pypdf
 
@@ -227,10 +240,18 @@ def do_check(a):
             o["ink"] = pdf_ink(p, out, tg.get("page", 1), tg.get("rect"))
             ink = o["ink"].get("pixels_in_rect") if tg.get("rect") else o["ink"].get("pixels_changed")
             o["visible"] = bool(ink)
+            o["xfa"] = ia["xfa"]
+            if ia["xfa"]:  # Poppler は XFA の様式を描かないので、値がデータにあるかで確かめる
+                af = rb.trailer["/Root"]["/AcroForm"].get_object()
+                x = af["/XFA"]
+                x = x.get_object() if hasattr(x, "get_object") else x
+                blobs = [e.get_object().get_data() for e in list(x)[1::2]] if isinstance(x, list) else [x.get_data()]
+                o["value_in_xfa"] = any(val.encode("utf-8") in b for b in blobs)
+                ink = o["value_in_xfa"] or (rb.get_fields() or {}).get(tg.get("name"), {}).get("/V") == val
             if tg.get("name"):
                 v = (rb.get_fields() or {}).get(tg["name"], {}).get("/V")
                 o["field_value_ok"] = str(v) == val
-            o["landed"] = bool(o["visible"])
+            o["landed"] = bool(ink)
     except Exception as e:  # noqa: BLE001
         o["error"] = f"{type(e).__name__}: {str(e)[:200]}"
     return o

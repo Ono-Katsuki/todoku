@@ -15,6 +15,7 @@ A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
 XDR = "{http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing}"
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 W14 = "{http://schemas.microsoft.com/office/word/2010/wordml}"
+MC = "{http://schemas.openxmlformats.org/markup-compatibility/2006}"
 MAX_CELLS = 300_000
 
 DATE_IDS = set(range(14, 23)) | set(range(45, 48))
@@ -182,7 +183,7 @@ def probe_xlsx(p: str) -> dict:
             if tgt not in names:
                 continue
             if ty == "drawing":
-                dr = ET.fromstring(z.read(tgt))
+                dr = drop_fallback(ET.fromstring(z.read(tgt)))
                 for sp in dr.iter(XDR + "sp"):
                     t = "".join((x.text or "") for x in sp.iter(A + "t"))
                     if t.strip():
@@ -200,6 +201,15 @@ def probe_xlsx(p: str) -> dict:
     return {"kind": "xlsx", "sheets": sheets, "shapes": shapes, "checkboxes": checks, "comments": comments, "truncated_cells": total >= MAX_CELLS}
 
 
+def drop_fallback(root):
+    """mc:AlternateContent の Fallback（同じ図形の古い形）を除く。Choice と同じ字が 2 度数えられるのを防ぐ。"""
+    for parent in list(root.iter()):
+        for ch in list(parent):
+            if ch.tag == MC + "Fallback":
+                parent.remove(ch)
+    return root
+
+
 def probe_docx(p: str) -> dict:
     z = zipfile.ZipFile(p)
     names = set(z.namelist())
@@ -208,7 +218,7 @@ def probe_docx(p: str) -> dict:
     for part in parts:
         if part not in names:
             continue
-        root = ET.fromstring(z.read(part))
+        root = drop_fallback(ET.fromstring(z.read(part)))
         in_tb = set()
         for tb in root.iter(W + "txbxContent"):
             for pp in tb.iter(W + "p"):

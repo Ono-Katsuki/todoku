@@ -64,6 +64,10 @@ def todoku_content(md: str) -> str:
             skip = ln.startswith(_TODOKU_META)
             # シートの見出しは本文に入れない（シート名の字で再現率が上がらないように）
             continue
+        if skip and ln.startswith("|") and ln.count("|") >= 5 and not ln.startswith(("|---", "| 欄 |")):
+            # 「規則では決められない所」の表の最後の列（いまの値）：読み順で「［？］」や「同じ形の行」にまとめた字は、ここに元のまま出る
+            out.append(ln.rstrip().rstrip("|").rsplit("|", 1)[-1])
+            continue
         if not started or skip or ln.startswith(_TODOKU_NOTE):
             continue
         out.append(ln)
@@ -90,11 +94,10 @@ def recalls(units: list[str], out: str) -> dict:
     ref = collections.Counter("".join(u))
     got = collections.Counter(norm(out))
     tot = sum(ref.values())
+    # 2 字の並び：正解は単位の中だけ（表のマス・段落・PDF の字のかたまり）。出力は改行をまたいで数える（行の分け方の違いを、読み落としに数えない）
     a = collections.Counter(x[k:k + 2] for x in u for k in range(len(x) - 1))
-    b = collections.Counter()
-    for ln in out.splitlines():
-        t = norm(ln)
-        b.update(t[k:k + 2] for k in range(len(t) - 1))
+    t = norm(out)
+    b = collections.Counter(t[k:k + 2] for k in range(len(t) - 1))
     btot = sum(a.values())
     return {"char": round(1 - sum((ref - got).values()) / tot, 5) if tot else None,
             "bigram": round(1 - sum((a - b).values()) / btot, 5) if btot else None, "ref_chars": tot}

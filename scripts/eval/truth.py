@@ -277,7 +277,8 @@ def build(path: str, kind: str, did: str, base: Path, py: str, excel: Excel, lo:
             t["notes"].append("作り（結合・非表示・字の書式・図形）は LibreOffice で .xlsx に変えたものから読んだ")
         t["probes"] = probes(py, pr_src, "xlsx", w / "probes.json") if pr_src.exists() else {"error": "変えられない"}
         names = [s["name"] for s in (t["probes"] or {}).get("sheets", [])]
-        got = excel.read(str(src)) if excel is not None else None
+        # 作りを読めない書類（パスワードなど）は Excel に渡さない：確認の画面を出さないため
+        got = excel.read(str(src)) if excel is not None and not (t["probes"] or {}).get("error") else None
         if got and got.get("sheets"):
             t["engine"] = "excel"
             t["sheets"] = got["sheets"]
@@ -289,8 +290,11 @@ def build(path: str, kind: str, did: str, base: Path, py: str, excel: Excel, lo:
             has_f = any("f" in c for s in (t["probes"] or {}).get("sheets", []) for c in s.get("cells", {}).values())
             fresh = lo.sheets_csv(src, names, w, recalc=True) if has_f else plain
             t["sheets"] = [{"name": n, "display": plain.get(n, {}), "fresh": fresh.get(n, plain.get(n, {}))} for n in (names or list(plain))]
+        # 字の比べの正解は、見えるシートの字（非表示のシートは画面にない。印は別の項目で数える）。非表示の行・列は残す
+        hidden = {s["name"] for s in (t["probes"] or {}).get("sheets", []) if s.get("state") != "visible"}
         for s in t["sheets"]:
-            t["units"] += list(s["display"].values())
+            if s["name"] not in hidden:
+                t["units"] += list(s["display"].values())
     elif kind in ("docx", "doc"):
         pr_src = src
         if kind == "doc":
@@ -307,7 +311,8 @@ def build(path: str, kind: str, did: str, base: Path, py: str, excel: Excel, lo:
         r = run_watched(["pdftotext", "-layout", "-enc", "UTF-8", src, "-"], limit_s=180)
         txt = r["stdout"] if r["returncode"] == 0 else ""
         t["pages_text_chars"] = [len(norm(pg)) for pg in txt.split("\f")]
-        t["units"] = [ln for ln in txt.splitlines() if ln.strip()]
+        # 字のかたまりに分ける：-layout は同じ高さの別の列を 1 行に並べるので、列をまたぐ 2 字の並びを正解にしない
+        t["units"] = [u for ln in txt.splitlines() for u in re.split(r"[ 　]{2,}", ln) if u.strip()]
         if pkr:
             ocr = _ocr(src, w, pkr, (t["probes"] or {}).get("pages") or 1)
             if ocr is not None:

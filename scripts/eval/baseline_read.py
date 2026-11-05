@@ -189,6 +189,10 @@ def read_docx(p):
 
     d = docx.Document(p)
     lines = []
+    for parent in list(d.element.body.iter()):  # 同じ図形の古い形（Fallback）は読まない
+        for ch in list(parent):
+            if ch.tag == "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback":
+                parent.remove(ch)
 
     def walk(el, depth=0):
         for ch in el:
