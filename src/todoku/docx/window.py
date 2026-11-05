@@ -884,6 +884,9 @@ def build(doc: DocxDocument) -> dict:
     from ..embeds.word import objects as _objects
 
     out["objects"] = _objects(doc, shown={e["n"] for e in out["embeds"]})  # グラフ・SmartArt・Excel の表のほかの埋め込み（読むだけ）
+    if any(m in line for st in out["stories"] for line in st["reading"] for m in ("〔取り消し線", "〔字の色", "〔うち取り消し線", "〔うち字の色")):
+        out["notation"]["〔取り消し線〕・〔字の色 #FF0000〕"] = ("字の書式の事実：段落の字に取り消し線がある・字の色が文書のふつうの色と違う。"
+                                                                 "〔うち…：「字」〕は段落の一部の字。意味（無効・注意など）は決めない")
     contexts = {}
     for st in out["stories"]:
         for line in st["reading"]:
@@ -1208,6 +1211,11 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
         at = b
     out.append(text[at:])
     t = "".join(out)
+    from .fontfacts import marks as font_marks, normal_color
+
+    if any(s.look is not None for s in p.segs):
+        head_, tail_ = font_marks(p, normal_color(sp.doc))
+        t = head_ + t + tail_
     hid = p.hidden_text().strip()
     if hid:
         t += f"〔非表示の文字: {hid}〕"

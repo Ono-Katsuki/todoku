@@ -335,6 +335,7 @@ class Word6File(DocFile):
         pc = self.piece_of(cp)
         if pc is not None:
             ops += self._prm_sprms(pc)
+        strike_, ico_ = False, 0
         for sp, op in ops:
             if sp == 92 and op:
                 # 0・1 はその値。128 はスタイルの値、129 はその逆（スタイルの非表示は読まないので、非表示でないとみなす）
@@ -343,6 +344,10 @@ class Word6File(DocFile):
                 d["deleted"] = bool(op[0])
             elif sp == 94 and op:
                 d["underline"] = bool(op[0])
+            elif sp == 87 and op:  # sprmCFStrike。値の読み方は 92 と同じ（スタイルの字の書式は読まない）
+                strike_ = op[0] in (1, 129)
+            elif sp == 98 and op:  # sprmCIco（Word 6 の色の番号。Word 97 と同じ表）
+                ico_ = op[0]
             elif sp == 68 and len(op) >= 4:
                 d["pic"] = struct.unpack_from("<I", op, 0)[0]
                 d["spec"] = True
@@ -357,6 +362,9 @@ class Word6File(DocFile):
                 d["ole"] = bool(op[0])
             elif sp == 73 and op and op[0]:
                 raise DocError(f"位置 {cp} の字は、文書と違う文字コード（chse）で書かれています。この形は確かめていないので、読むのをやめました")
+        from .book import ICO
+
+        d["look"] = (strike_, ICO.get(ico_))
         return d
 
     # ------------------------------------------------------------------ 文字

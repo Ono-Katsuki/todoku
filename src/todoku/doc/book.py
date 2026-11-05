@@ -116,6 +116,29 @@ def sprm_spans(grpprl: bytes):
         i += size
 
 
+ICO = {1: "000000", 2: "0000FF", 3: "00FFFF", 4: "00FF00", 5: "FF00FF", 6: "FF0000", 7: "FFFF00", 8: "FFFFFF", 9: "000080", 10: "008080",
+       11: "008000", 12: "800080", 13: "800000", 14: "808000", 15: "808080", 16: "C0C0C0"}  # MS-DOC 2.9.119 Ico
+
+
+def apply_look(look: tuple, ops) -> tuple:
+    """取り消し線（sprmCFStrike 0x0837・sprmCFDStrike 0x2A53）と字の色（sprmCIco 0x2A42・sprmCCv 0x6870）を足す。
+    取り消し線の値：0・1 はその値、0x80 はスタイルのまま、0x81 はスタイルの逆（MS-DOC 2.9.32 Bool8）。"""
+    strike, color = look
+    for sp, op in ops:
+        if sp in (0x0837, 0x2A53) and op:
+            strike = {0: False, 1: True, 0x80: strike, 0x81: not strike}.get(op[0], strike)
+        elif sp == 0x2A42 and op:
+            color = ICO.get(op[0], "000000") if op[0] else "000000"  # 0 は自動
+        elif sp == 0x6870 and len(op) >= 4:
+            color = "000000" if op[3] == 0xFF else f"{op[0]:02X}{op[1]:02X}{op[2]:02X}"  # 4 バイト目 0xFF は自動（MS-DOC 2.9.40 COLORREF）
+    return strike, color
+
+
+def _merge_style(under: tuple, over: tuple) -> tuple:
+    """段落のスタイルの上に字のスタイル：字のスタイルが決めたものが勝つ（色のない字のスタイルは、段落のスタイルの色のまま）。"""
+    return (over[0] or under[0], over[1] if over[1] is not None else under[1])
+
+
 class DocFile:
     kind = "doc"
 
@@ -506,7 +529,40 @@ class DocFile:
                 d["spec"] = bool(op[0]) if op else False
             elif sp == 0x0806:
                 d["data"] = bool(op[0]) if op else False
+        d["look"] = self._char_look(fc)
         return d
+
+    def _style_look(self, istd, seen: int = 0) -> tuple:
+        """スタイル（基のスタイルも）の字の書式の、取り消し線と字の色。"""
+        memo = self.__dict__.setdefault("_style_looks", {})
+        if istd in memo:
+            return memo[istd]
+        from .wrap import _styles
+
+        st = _styles(self)
+        if istd not in st or seen > 20:
+            return (False, None)
+        base, _papx, chpx = st[istd]
+        got = (False, None) if base == 0x0FFF or base == istd else self._style_look(base, seen + 1)
+        memo[istd] = got = apply_look(got, sprms(chpx or b""))
+        return got
+
+    def _char_look(self, fc: int) -> tuple:
+        """字の書式の事実（取り消し線か, 字の色）：段落のスタイル → 字のスタイル（sprmCIstd）→ 字の書式の順（MS-DOC 2.6.1）。"""
+        direct = self.__dict__.setdefault("_chpx_ops", {})
+        grp = self._lookup(self.chpx, fc)
+        ops = direct.get(grp)
+        if ops is None:
+            ops = direct[grp] = list(sprms(grp))
+        starts = self.__dict__.get("_papx_starts")
+        if starts is None:
+            starts = self.__dict__["_papx_starts"] = sorted(self.__dict__.get("papx_istd", {}))
+        i = bisect.bisect_right(starts, fc) - 1
+        look = self._style_look(self.__dict__.get("papx_istd", {}).get(starts[i]) if i >= 0 else 0)
+        for sp, op in ops:
+            if sp == 0x4A30 and len(op) >= 2:
+                look = _merge_style(look, self._style_look(struct.unpack_from("<H", op, 0)[0]))
+        return apply_look(look, ops)
 
     # ------------------------------------------------------------------ 文書の保護
     def _dop(self) -> tuple[str, bool]:
@@ -762,17 +818,17 @@ class DocFile:
             elif o == 0x28 and props["symbol"] and props["spec"]:
                 code = props["symbol"][1]
                 code2 = code + 0xF000 if code < 0xF000 else code
-                p.segs.append(Seg(WINGDINGS.get(code2, "◆"), "sym", CPRef(cp), None, hidden, props["underline"]))
+                p.segs.append(Seg(WINGDINGS.get(code2, "◆"), "sym", CPRef(cp), None, hidden, props["underline"], look=props.get("look")))
             elif o < 0x20 and o not in (0x09,):
                 pass
             else:
                 # 同じ書式の字はまとめる
                 if p.segs and p.segs[-1].kind == "t" and p.segs[-1].hidden == hidden and \
                         p.segs[-1].underline == props["underline"] and p.segs[-1].node.s + len(p.segs[-1].text) == cp \
-                        and p.segs[-1].field is None and not stack:
+                        and p.segs[-1].field is None and not stack and p.segs[-1].look == props.get("look"):
                     p.segs[-1].text += ch.replace("\xa0", " ")
                 else:
-                    p.segs.append(Seg(ch.replace("\xa0", " "), "t", CPRef(cp), None, hidden, props["underline"]))
+                    p.segs.append(Seg(ch.replace("\xa0", " "), "t", CPRef(cp), None, hidden, props["underline"], look=props.get("look")))
             cp += 1
         return p
 

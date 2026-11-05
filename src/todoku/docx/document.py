@@ -44,6 +44,7 @@ class Seg:
     hidden: bool = False
     underline: bool = False
     field: "Control | None" = None
+    look: tuple | None = None  # 字の書式の事実（取り消し線か, 字の色 "RRGGBB" か None）：docx/fontfacts.py。ない形式は None
 
 
 @dataclass
@@ -692,6 +693,55 @@ class DocxDocument:
         self._lang_styles = out
         return out
 
+    def font_styles(self) -> dict:
+        """字の書式の決まり方の材料：スタイルごとの (基のスタイル, 取り消し線, 字の色)・既定の段落スタイル・文書の既定。"""
+        memo = self.__dict__.get("_font_styles")
+        if memo is not None:
+            return memo
+        out: dict = {"styles": {}, "para_default": "", "default": (None, None)}
+        root = self._load("word/styles.xml")
+        top = root.kids[0] if root is not None and root.kids else None
+        if top is not None:
+            dd = top.find("docDefaults")
+            rd = dd.find("rPrDefault") if dd is not None else None
+            out["default"] = _look_of(rd.find("rPr") if rd is not None else None)
+            for st in top.findall("style"):
+                b = st.find("basedOn")
+                out["styles"][st.get("styleId") or ""] = (b.get("val") or "" if b is not None else "", *_look_of(st.find("rPr")))
+                if st.get("type") == "paragraph" and st.get("default") in ("1", "true", "on"):
+                    out["para_default"] = st.get("styleId") or ""
+        self.__dict__["_font_styles"] = out
+        self.__dict__["_look_memo"] = {}
+        return out
+
+    def run_look(self, rpr, para_style: str) -> tuple:
+        """字の書式の事実（取り消し線か, 字の色）：文書の既定 → 段落のスタイル → 字のスタイル → 字の書式の順で、近いものが勝つ
+        （ISO 29500-1 17.7.2。スタイルの取り消し線の打ち消し合いは見ない）。表のスタイルの字の書式は見ない。"""
+        fs = self.font_styles()
+        rs = rpr.find("rStyle") if rpr is not None else None
+        rstyle = rs.get("val") or "" if rs is not None else ""
+        memo = self.__dict__["_look_memo"]
+        base = memo.get((para_style, rstyle))
+        if base is None:
+            strike, color = fs["default"]
+
+            def walk(sid: str) -> None:
+                nonlocal strike, color
+                chain: list = []
+                while sid in fs["styles"] and sid not in chain and len(chain) < 32:
+                    chain.append(sid)
+                    sid = fs["styles"][sid][0]
+                for x in reversed(chain):
+                    _b, s_, c_ = fs["styles"][x]
+                    strike = strike if s_ is None else s_
+                    color = color if c_ is None else c_
+
+            walk(para_style or fs["para_default"])
+            walk(rstyle)
+            base = memo[(para_style, rstyle)] = (bool(strike), color)
+        s_, c_ = _look_of(rpr)
+        return (base[0] if s_ is None else s_, base[1] if c_ is None else c_)
+
     # ------------------------------------------------------------------ 本文
     def _story(self, part: str) -> list:
         root = self._load(part)
@@ -800,7 +850,12 @@ class DocxDocument:
         for ch in node.kids:
             loc = ch.local
             if loc == "r":
+                n0 = len(p.segs)
                 self._run(ch, p, part, st, deleted)
+                if len(p.segs) > n0:
+                    look = self.run_look(ch.find("rPr"), p.style)
+                    for s in p.segs[n0:]:
+                        s.look = look
             elif loc in ("hyperlink", "smartTag", "customXml", "ins", "moveTo", "fldSimple", "bdo", "dir"):
                 n0 = len(p.segs)
                 self._inline(ch, p, part, st, deleted)
@@ -1171,6 +1226,24 @@ class DocxDocument:
         yield "body", self.main, self.body
         for kind, part, blocks in self.stories:
             yield kind, part, blocks
+
+
+def _look_of(rpr) -> tuple:
+    """字の書式の要素の、取り消し線（w:strike・w:dstrike）と字の色（w:color の val。auto は黒）：指定がなければ None。"""
+    if rpr is None:
+        return None, None
+    strike = None
+    for name in ("strike", "dstrike"):
+        el = rpr.find(name)
+        if el is not None:
+            on = el.get("val", "true") not in ("0", "false", "off")
+            strike = on or bool(strike)
+    c = rpr.find("color")
+    color = None
+    if c is not None:
+        v = (c.get("val") or "").upper()
+        color = "000000" if v == "AUTO" else v if len(v) == 6 and all(ch in "0123456789ABCDEF" for ch in v) else None
+    return strike, color
 
 
 def _mark_result(segs: list, instr: str, node: Node, part: str, p: Para, locked: bool) -> None:
