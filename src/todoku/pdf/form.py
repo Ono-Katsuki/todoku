@@ -254,7 +254,7 @@ def read_fields(doc) -> list[FormField]:
             bad_opts += [bytes(r) for r in raws if isinstance(r, (bytes, PdfString)) and text_unreadable(bytes(r))]
         ml = h.get("MaxLen")
         f = FormField(name or f"（名前のない欄 {getattr(ref, 'num', '')}）", ft, int(h.get("Ff") or 0), h.get("V"),
-                      _txt(doc, node.get("TU")), opts, int(ml) if isinstance(ml, (int, float)) else None,
+                      _txt(doc, node.get("TdkLabel") or node.get("TU")), opts, int(ml) if isinstance(ml, (int, float)) else None,
                       ref=ref if isinstance(ref, Ref) else None, da=_txt(doc, h.get("DA")), q=int(h.get("Q") or 0))
         f.bad_opts = bad_opts  # 文字列の決まり（PDFDocEncoding・UTF-16BE）で読めない選択肢（元のバイト列）
         widgets = kids if kids else [ref]

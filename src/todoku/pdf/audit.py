@@ -359,7 +359,7 @@ def raw_circles(doc: PdfDocument, page: dict) -> dict[str, tuple[str, tuple[floa
     楕円は 4 つのベジエ曲線で描くので、制御点の外枠が楕円の外枠。窓の座標の換算（View）も circle.drawn も通さない。"""
     data = doc.page_content(page)
     out = {}
-    for m in re.finditer(rb"/TdkCircle\s*\(([^)]*)\)([^>]*)>>\s*BDC(.*?)EMC", data, re.S):
+    for m in re.finditer(rb"/TdkCircle\s*\(([^)]*)\)(.*?)>>\s*BDC(.*?)EMC", data, re.S):
         nums: list[float] = []
         pts: list[tuple[float, float]] = []
         for t in _NUM_OR_OP.finditer(m[3]):

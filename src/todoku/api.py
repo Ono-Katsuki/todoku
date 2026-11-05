@@ -808,6 +808,9 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         from .pdf.fill import appearance_readback
 
         pdf_ap_diff = appearance_readback(_pdf(res.blob, name, lock), res.patches)
+        if res.structure:
+            # 文書の構造の木（タグ）に足した所：読み上げでどの字の隣に読まれるか（位置から決めた事実）
+            result["structure"] = [{"id": e.id, "page": e.page, "next_to": e.near, "how": e.how, "gap_pt": e.gap_pt} for e in res.structure]
         xfa_written = {p.id: p.value for p in res.patches if p.kind == "xfa"}
         if xfa_written:
             # XFA の欄：窓に出る値（日付・数は決まった形、選択肢はデータの値）で読み戻す

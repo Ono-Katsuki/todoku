@@ -107,6 +107,8 @@ def test_after_label_uses_the_empty_cell_to_the_right(tmp_path, closed):
     from todoku.pdf.doc import PdfDocument
 
     doc = PdfDocument(open(out, "rb").read())
-    w = next(doc.resolve(a) for a in doc.resolve(doc.pages()[0]["Annots"]))
+    from todoku.pdf import pagedraw
+
+    w = next(wd for _r, wd in pagedraw.records(doc))  # 値の控えは、注釈でなく /Fields にある
     x0, y0, x1, y1 = (float(v) for v in w["Rect"])
     assert 94 < x0 < 97 and 297 < x1 < 300 and 700 <= y0 and y1 <= 720

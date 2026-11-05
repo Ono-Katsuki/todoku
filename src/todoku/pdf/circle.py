@@ -19,7 +19,7 @@
 
 書き方：ページの描画（/Contents）の前に「q」だけのストリームを、後ろに○を描くストリームを足す（増分の保存）。後ろの
 ストリームは、元の描画の q の残り（閉じていない q）を Q で戻してから、ページの初めの座標で描く。元のストリームは1バイトも
-変えない。○は印（/Artifact、TdkCircle の名前つき）の中に描くので、証明（proof.py）と読み戻しで、どれを足したかが分かる。
+変えない。○は印（/Span、TdkCircle の名前つき。囲んだ字を透明な字で添える（pagedraw）。署名のある文書は /Artifact のまま）の中に描くので、証明（proof.py）と読み戻しで、どれを足したかが分かる。
 四角の囲み線も曲線（まっすぐな 3 次ベジエ曲線）で描くので、窓は罫線（マス）と読まない。
 """
 
@@ -707,29 +707,93 @@ def _seg(p, q) -> str:
             f"{x1:.3f} {y1:.3f} c\n")
 
 
-def ops(view: View, circles: list[dict], depth: int) -> bytes:
-    """後ろに足すストリーム：閉じていない q を戻し（前に足した q の分も）、ページの初めの座標で楕円（四角の囲み線）を描く。"""
-    out = bytearray(b"Q\n" * (depth + 1))
-    for sd in circles:
-        lw = line_width(sd["size"])
-        if sd.get("style") == "border":
-            x0, y0, x1, y1 = view.back_rect(*sd["border"])
-            pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
-            path = f"{x0:.3f} {y0:.3f} m\n" + "".join(_seg(p, q) for p, q in zip(pts, pts[1:]))
-            out += (f"q\n/Artifact <</Type /Layout /{TAG} ({sd['id']}) /TdkStyle /border>> BDC\n0 G {lw} w [] 0 d 0 J 0 j\n"
-                    f"{path}h S\nEMC\nQ\n").encode()
+def _beside_run(chars: list, start: float, sign: int) -> tuple[str, float] | None:
+    """同じ行の字（近い順）の、ひと続きの字とすき間。空白か記号（□・○ などの選択肢の印。Unicode の S*）か、1 字ぶんより広いすき間で切る。"""
+    out: list = []
+    first_gap = None
+    prev = start
+    for c in chars:
+        gap = (c.x0 - prev) if sign > 0 else (prev - c.x1)
+        if first_gap is None:
+            first_gap = gap
+        elif gap > c.size:
+            break
+        if unicodedata.category(c.text[0])[0] == "S" if c.text else False:
+            if out:
+                break
+            prev = c.x1 if sign > 0 else c.x0  # 印の次の字から（「□ 男」の □）
+            first_gap = None
             continue
-        cx, cy, a, b = sd["ellipse"]
-        px, py = view.back(cx, cy)
-        ra, rb = (b, a) if view.rot in (90, 270) else (a, b)
-        out += (f"q\n/Artifact <</Type /Layout /{TAG} ({sd['id']})>> BDC\n0 G {lw} w [] 0 d 0 J 0 j\n"
-                f"{px + ra:.3f} {py:.3f} m\n"
-                f"{px + ra:.3f} {py + K * rb:.3f} {px + K * ra:.3f} {py + rb:.3f} {px:.3f} {py + rb:.3f} c\n"
-                f"{px - K * ra:.3f} {py + rb:.3f} {px - ra:.3f} {py + K * rb:.3f} {px - ra:.3f} {py:.3f} c\n"
-                f"{px - ra:.3f} {py - K * rb:.3f} {px - K * ra:.3f} {py - rb:.3f} {px:.3f} {py - rb:.3f} c\n"
-                f"{px + K * ra:.3f} {py - rb:.3f} {px + ra:.3f} {py - K * rb:.3f} {px + ra:.3f} {py:.3f} c\n"
-                f"h S\nEMC\nQ\n").encode()
-    return bytes(out)
+        out.append(c)
+        prev = c.x1 if sign > 0 else c.x0
+    if not out:
+        return None
+    if sign < 0:
+        out.reverse()
+    return "".join(c.text for c in out), max(0.0, first_gap or 0.0)
+
+
+def check_said(lay: PageLayout, rect) -> str | None:
+    """チェックの印の後ろに読み手に伝える字：印と同じ行の、左右の字（位置の事実だけ。どちらの字の印かは決めつけない）。
+    片側だけ、または片側がもう一方の 2 倍より遠いときは近い側だけ。字がなければ None。"""
+    x0, y0, x1, y1 = rect
+    cy = (y0 + y1) / 2
+    row = [c for c in lay.chars if not c.text.isspace() and c.y0 < cy < c.y1 and not (x0 <= c.cx <= x1)]
+    right = _beside_run(sorted((c for c in row if c.cx > x1), key=lambda c: c.x0), x1, 1)
+    left = _beside_run(sorted((c for c in row if c.cx < x0), key=lambda c: -c.x1), x0, -1)
+    if right and left:
+        if right[1] * 2 < left[1]:
+            left = None
+        elif left[1] * 2 < right[1]:
+            right = None
+    parts = ([f"左の字：{left[0]}"] if left else []) + ([f"右の字：{right[0]}"] if right else [])
+    return f"（{'、'.join(parts)}）" if parts else None
+
+
+def closing(depth: int) -> bytes:
+    """後ろに足すストリームの初め：閉じていない q を戻す（前に足した q の分も）。ページの初めの座標に戻る。"""
+    return b"Q\n" * (depth + 1)
+
+
+def description(sd: dict) -> str | None:
+    """○が示すものを読み手に伝える字。囲んだ字（resolve が字の箱から決め、read_back が書いた後の字で確かめる）だけを使う。
+    字を読めない所に枠で描いた○（unread）は、何も言わない。"""
+    if sd.get("unread") or not sd.get("text"):
+        return None
+    return f"{'□' if sd.get('style') == 'border' else '○'}（選択：{sd['text']}）"
+
+
+def one(view: View, sd: dict, mcid: int | None = None, said_key: str | None = None, describe: bool = False) -> bytes:
+    """○を 1 つ描く命令。describe=False：飾りの印（/Artifact。署名のある文書で、これまでと同じ形）。
+    describe：読み手に見える印（/Span）に、番号（タグのある PDF）をつける。said_key：○が示す字を透明に描くフォーム（pagedraw）。
+    楕円の線だけの範囲の /ActualText は、測ったどの読み手も読まなかった（字がないと読まれない）ので、透明な字を置く。"""
+    lw = line_width(sd["size"])
+    if describe:
+        head = f"/Span <</{TAG} ({sd['id']})".encode()
+    else:
+        head = f"/Artifact <</Type /Layout /{TAG} ({sd['id']})".encode()
+    tail = f" /MCID {mcid}".encode() if mcid is not None and describe else b""
+    said = b""
+    if said_key:
+        x0, y0, x1, y1 = view.back_rect(*sd["rect"])
+        said = f"q\n1 0 0 1 {x0:.3f} {y0:.3f} cm\n/{said_key} Do\nQ\n".encode()
+    if sd.get("style") == "border":
+        x0, y0, x1, y1 = view.back_rect(*sd["border"])
+        pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
+        path = f"{x0:.3f} {y0:.3f} m\n" + "".join(_seg(p, q) for p, q in zip(pts, pts[1:]))
+        return (b"q\n" + head + b" /TdkStyle /border" + tail + b">> BDC\n"
+                + f"0 G {lw} w [] 0 d 0 J 0 j\n{path}h S\n".encode() + said + b"EMC\nQ\n")
+    cx, cy, a, b = sd["ellipse"]
+    px, py = view.back(cx, cy)
+    ra, rb = (b, a) if view.rot in (90, 270) else (a, b)
+    return (b"q\n" + head + tail + b">> BDC\n"
+            + (f"0 G {lw} w [] 0 d 0 J 0 j\n"
+               f"{px + ra:.3f} {py:.3f} m\n"
+               f"{px + ra:.3f} {py + K * rb:.3f} {px + K * ra:.3f} {py + rb:.3f} {px:.3f} {py + rb:.3f} c\n"
+               f"{px - K * ra:.3f} {py + rb:.3f} {px - ra:.3f} {py + K * rb:.3f} {px - ra:.3f} {py:.3f} c\n"
+               f"{px - ra:.3f} {py - K * rb:.3f} {px - K * ra:.3f} {py - rb:.3f} {px:.3f} {py - rb:.3f} c\n"
+               f"{px + K * ra:.3f} {py - rb:.3f} {px + ra:.3f} {py - K * rb:.3f} {px + ra:.3f} {py:.3f} c\n"
+               f"h S\n").encode() + said + b"EMC\nQ\n")
 
 
 PREFIX = b"q\n"
@@ -743,7 +807,7 @@ def drawn(doc, page_no: int) -> list[tuple[str, str, tuple[float, float, float, 
     view = View(doc, pg)
     data = doc.page_content(pg)
     out = []
-    for m in re.finditer(rb"/" + TAG.encode() + rb"\s*\(([^)]*)\)([^>]*)>>\s*BDC(.*?)EMC", data, re.S):
+    for m in re.finditer(rb"/" + TAG.encode() + rb"\s*\(([^)]*)\)(.*?)>>\s*BDC(.*?)EMC", data, re.S):
         pts, stack = [], []
         lw = 0.0
         for kind, val in tokens(m[3]):

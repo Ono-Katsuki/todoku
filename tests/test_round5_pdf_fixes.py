@@ -56,7 +56,10 @@ def _pdf(rotate: int = 0, widget: str | None = None, user_unit: float | None = N
 
 
 def _widget(doc: PdfDocument, name: str) -> dict:
-    for a in doc.resolve(doc.pages()[0].get("Annots")) or []:
+    from todoku.pdf import pagedraw
+
+    # 値の控えは、注釈でなく /Fields にある
+    for a in list(doc.resolve(doc.pages()[0].get("Annots")) or []) + [r for r, _wd in pagedraw.records(doc)]:
         d = doc.resolve(a)
         t = d.get("T")
         if t is not None and bytes(t).decode("latin-1") == name:

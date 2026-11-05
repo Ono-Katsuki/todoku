@@ -47,6 +47,7 @@ class Glyph:
     adv: float = 0.0  # フォントの決める、この字の送りの幅（ページ上の長さ。字間・語間の調整は含まない）
     fontbase: str = ""  # 書体の名前（BaseFont）
     embedded: bool = False  # 書体のプログラムを埋め込んだ書体か
+    mc: tuple | None = None  # 内側の番号つきの印：(持ち主, MCID)。持ち主は "page" か StructParents の番号（structadd）
 
     @property
     def cx(self) -> float:
@@ -307,6 +308,8 @@ class Interpreter:
             th = gs.th
             items = f.decode(s)
             mcid = mc_stack[-1][0] if mc_stack else None
+            chain_ = outer + tuple(m[3] for m in mc_stack)
+            mc_ = next(((m.owner, m.mcid) for m in reversed(chain_) if m.mcid is not None and m.owner is not None), None)
             for code, text, w, is_space, vpos, vwidth in items:
                 trm = mul((fs * th, 0, 0, fs, 0, gs.rise), mul(tm, gs.ctm))
                 if f.vertical:
@@ -339,7 +342,7 @@ class Interpreter:
                                         f.vertical, gs.tr in (3, 7), gs.font, gs.fill, mcid,
                                         legacy=legacy_text(f.legacy, text),
                                         adv=((fx - ox) ** 2 + (fy - oy) ** 2) ** 0.5,
-                                        fontbase=f.base, embedded=getattr(f, "embedded", False)))
+                                        fontbase=f.base, embedded=getattr(f, "embedded", False), mc=mc_))
 
         def adjust(v):
             nonlocal tm
@@ -714,7 +717,7 @@ class Interpreter:
                                                max(g.y1 for g in gl), g0.size, g0.ox, g0.oy, gl[-1].ox + gl[-1].dx - g0.ox,
                                                gl[-1].oy + gl[-1].dy - g0.oy, g0.vertical, g0.invisible, g0.font, g0.color,
                                                mcid=mcid, actual=True, legacy=any(g.legacy for g in gl), adv=sum(g.adv for g in gl),
-                                               fontbase=g0.fontbase, embedded=g0.embedded)
+                                               fontbase=g0.fontbase, embedded=g0.embedded, mc=g0.mc)
                                 del out.glyphs[first:]
                                 out.glyphs.append(merged)
             except LimitExceeded:

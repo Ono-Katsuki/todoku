@@ -53,6 +53,7 @@ class FillResult:
     unverified: list[str] = field(default_factory=list)
     # 作り手の権限の設定（暗号の辞書の P）が許していないのに行った書き込み：[{"op": 操作の名前, "what": 説明}]（_permissions）
     denied: list[dict] = field(default_factory=list)
+    structure: list = field(default_factory=list)  # 構造の木に足した所（structadd.Placed）：読み手にどこで読まれるかの事実
 
 
 # ====================================================================== 増分更新
@@ -429,11 +430,13 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
             ops += text_ops([ch], s, lx, ly, s)
         ops += b"Q\nEMC\n"
         return _ap(update, vw, vh, bytes(ops), fonts_used(chars), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
-    lines, s = layout_text(str(value), vw, vh, size, center, multiline, unit)
+    given = pad is not None
+    pad = min(1.5, 0.1 * vw) if pad is None else min(pad, 0.45 * vw)
+    # 余白を決めたとき（pad_mm）：その余白の内側に収める（入らなければ小さくするか、断る）。枠の端を字が越えないように
+    lines, s = layout_text(str(value), vw - 2 * pad if given else vw, vh, size, center, multiline, unit)
     leading = s * 1.15
     block = leading * (len(lines) - 1) + s
     y = baseline if baseline is not None else (vh + block) / 2 - s * 0.8
-    pad = min(1.5, 0.1 * vw) if pad is None else min(pad, 0.45 * vw)
     align = "center" if center else align
     aw = vw - 2 * pad
     ops = bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, aw if align in ("center", "right") else None,
@@ -441,12 +444,19 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
     return _ap(update, vw, vh, ops, fonts_used(lines), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
 
 
-def check_appearance(update: Update, w: float, h: float, dr_fonts: dict, char: str = "4", rot: int = 0) -> Ref:
-    """チェックの印の見た目。w・h は欄の Rect の幅と高さ、rot は欄の回転（/MK の R）：印も欄の向きに回して描く。"""
+def check_appearance(update: Update, w: float, h: float, dr_fonts: dict, char: str = "4", rot: int = 0,
+                     said: str | None = None) -> Ref:
+    """チェックの印の見た目。w・h は欄の Rect の幅と高さ、rot は欄の回転（/MK の R）：印も欄の向きに回して描く。
+    said：読み手に伝える字（印の示す字）。"""
     vw, vh = _view_box(rot, w, h)
     s = min(vw, vh) * 0.8
     ops = f"q\nBT\n0 g\n/ZaDb {s:.2f} Tf\n{(vw - s * 0.85) / 2:.2f} {(vh - s * 0.75) / 2:.2f} Td\n({char}) Tj\nET\nQ\n".encode()
-    return _ap(update, vw, vh, ops, {"ZaDb"}, dr_fonts, _rot_matrix(rot, w, h))
+    fonts = {"ZaDb"}
+    if said:
+        # 印の示す字を、透明な字で印の枠の中に（見た目の中に置くので、印を消して書き直すと一緒に消える）
+        ops += pagedraw.said_ops(text_ops, said, vw, vh)
+        fonts |= fonts_used([said])
+    return _ap(update, vw, vh, ops, fonts, dr_fonts, _rot_matrix(rot, w, h))
 
 
 def empty_appearance(update: Update, w: float, h: float, rot: int = 0) -> Ref:
@@ -502,21 +512,12 @@ class Filler:
         from .signatures import read as read_signatures
 
         self.sigs = read_signatures(doc)  # 電子署名：固定された欄・認証の署名が許す変更
-        self.draw_on_page = self._may_draw_on_page()  # 書いた字をページの描画に足すか（文書の事実で決める）
-        self.drawn: dict[int, list] = {}  # ページ → ページに描く値の (欄の名前, XObject, x, y)
-
-    def _may_draw_on_page(self) -> bool:
-        """書いた字をページの描画に足してよいか（文書の事実で決める）：
-        - 電子署名のある PDF：署名のあとにページの描画を変えると、署名の確かめで、記入より重い変更と扱われることがある
-          （Acrobat の扱いは、ここでは確かめていない）。フォームの欄として足す
-        - 権限の設定がページの描画の変更を許していない（暗号の辞書の P のビット 4）：描画は変えず、欄として足して知らせる"""
-        if self.sigs.signed or self.sigs.docmdp is not None:
-            return False
-        dec = self.doc.decryptor
-        if dec is not None:
-            if any(op == "modify" for op, _what in dec.restrictions()):
-                return False
-        return True
+        self.draw_on_page = pagedraw.may_draw(doc, self.sigs)  # 書いた字をページの描画に足すか（文書の事実で決める）
+        self.drawn: dict[int, list] = {}  # ページ → ページに描く値（pagedraw.Item）
+        self.drawn_labels: dict[str, str] = {}  # 欄の名前 → 窓の見出し（構造の木の、隣に入れる要素を探す）
+        self.layouts: dict = {}  # ページの字の並び（チェックの印の左右の字）
+        self.structure: list = []  # 構造の木に足した所（structadd.Placed）
+        self.struct_why: list[str] = []  # 構造の木に足せなかった理由
 
     # ------------------------------------------------------------------ 共通の資源
     def font(self, key: str) -> Ref:
@@ -956,11 +957,22 @@ class Filler:
         x0, y0, x1, y1 = view.back_rect(vx0, vy0, vx1, vy1)
         w, h = x1 - x0, y1 - y0
         rot = view.rot
-        widget = {"Type": Name("Annot"), "Subtype": Name("Widget"), "T": text_string(spot["id"]),
-                "TU": text_string(spot.get("label") or spot["id"]), "F": 4, "P": page_ref}
+        self.drawn_labels[spot["id"]] = spot.get("label") or ""
+        widget = {"Type": Name("Annot"), "Subtype": Name("Widget"), "T": text_string(spot["id"]), "F": 4, "P": page_ref}
+        # 欄の説明（/TU）：読み手に読まれる字なので、窓の空きの印（［　］）と長い空白を除く（窓のための、位置の印つきの見出しは /TdkLabel に）
+        label = spot.get("label") or ""
+        tu = pagedraw.clean_label(label)
+        if tu:
+            widget["TU"] = text_string(tu)
+        if label and label != tu:
+            widget[pagedraw.LABEL] = text_string(label)
         if k == "checkbox":
             on = _as_bool(value)
-            yes = check_appearance(self.up, w, h, self.fonts_for({"ZaDb"}), rot=rot)  # 回したページでは、印も見た目の向きに
+            said = None
+            if self.draw_on_page:
+                # 印が示す字を、読み手に伝える（印の見た目の中に。書き直して印を消すと、説明も消える）
+                said = self._check_said(page_no, spot, on)
+            yes = check_appearance(self.up, w, h, self.fonts_for({"ZaDb"} | (fonts_used([said]) if said else set())), rot=rot, said=said)  # 回したページでは、印も見た目の向きに
             off = empty_appearance(self.up, w, h, rot)
             d = {**widget, "FT": Name("Btn"), "Rect": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)],
                  "V": Name("Yes") if on else Name("Off"), "AS": Name("Yes") if on else Name("Off"),
@@ -1004,8 +1016,9 @@ class Filler:
                                  f"（{MIN_READABLE_PT:g} pt 未満）。短く書けないか確かめてください{_wider_hint(spot, view)}")
         elif text and s < 0.6 * size:
             self.warnings.append(f"{spot['id']}: 欄に収めるため、字を {s * unit:.1f} pt に小さくしました（元の大きさ {size * unit:.1f} pt）")
+        inner_w = (vx1 - vx0) - 2 * min(pad_pt, 0.45 * (vx1 - vx0)) if pad_pt is not None else vx1 - vx0
         if multiline and not comb:
-            wrapped = len(layout_text(text, vx1 - vx0, vy1 - vy0, size, False, True, unit)[0])
+            wrapped = len(layout_text(text, inner_w, vy1 - vy0, size, False, True, unit)[0])
             if wrapped > text.count("\n") + 1:
                 self.warnings.append(f"{spot['id']}: 枠の幅に入らないので {wrapped} 行に折り返しました（字 {s * unit:.1f} pt）。"
                                      "折り返したくなければ、もっと幅のある枠を box で決めてください")
@@ -1016,7 +1029,7 @@ class Filler:
         if comb:
             d["Ff"] = FF_COMB
             d["MaxLen"] = len(comb)
-        elif "\n" in text or (multiline and len(layout_text(text, vx1 - vx0, vy1 - vy0, size, False, True, unit)[0]) > 1):
+        elif "\n" in text or (multiline and len(layout_text(text, inner_w, vy1 - vy0, size, False, True, unit)[0]) > 1):
             d["Ff"] = FF_MULTILINE  # 複数行に描いた欄：見た目を作り直すソフトで 1 行に潰れないように（読み直して書き直すときも）
         if align != "left":
             d["Q"] = {"center": 1, "right": 2}[align]  # 見た目を作り直すソフトも、同じそろえ方で
@@ -1033,8 +1046,41 @@ class Filler:
                       "box_mm": [round(v / view.mm, 1) for v in (vx0, vy0, vx1, vy1)]}  # view_page の marks にそのまま渡せる
         self.patches.append(p_)
 
+    def _check_said(self, page_no: int, spot: dict, on: bool) -> str | None:
+        """チェックの印の説明。ページの字の位置だけから（印の同じ行の左右の字）。字がなければ何も言わず、知らせる。"""
+        from . import circle as _circle
+
+        lay = _circle.layout(self.doc, page_no, self.layouts)
+        said = _circle.check_said(lay, spot["rect"])
+        if said is not None:
+            try:
+                runs_for(said)
+            except FillError:
+                said = None  # 描ける書体がない字
+        if said is None and on:
+            self.warnings.append(f"{spot['id']}: チェックの印と同じ行に読める字がないので、どの選択肢の印かは、読み上げでは伝わりません（ページのこの位置を伝えてください）")
+        return said
+
+    def _said_form(self, view: View, sd: dict, key: str) -> Ref | None:
+        """○が囲んだ字を、透明な字で描くフォーム。○の枠の中に。描ける書体がなければ None。"""
+        from . import circle as _circle
+
+        text = _circle.description(sd)
+        x0, y0, x1, y1 = view.back_rect(*sd["rect"])
+        w, h = x1 - x0, y1 - y0
+        vw, vh = _view_box(view.rot, w, h)
+        try:
+            ops = pagedraw.said_ops(text_ops, text, vw, vh)
+            ref = _ap(self.up, vw, vh, ops, fonts_used([text]), self.fonts_for(fonts_used([text])), _rot_matrix(view.rot, w, h))
+        except FillError:
+            sd["said_failed"] = True
+            self.warnings.append(f"{sd['id']}: 囲んだ字を描ける書体がないので、読み上げでは、どの字を囲んだかが伝わりません")
+            return None
+        self.up.objs[ref.num][1].dict[pagedraw.SAID_KEY] = True
+        return ref
+
     def _place(self, page_no: int, d: dict, ap: Ref, name: str, state: bool) -> None:
-        """足した所を、文書に置く。ページに描くとき：欄は隠して（値の控え）、ap の字をページの描画に足す。
+        """足した所を、文書に置く。ページに描くとき：字をページの描画に足し、値の控えは /Fields にだけ置く（注釈にしない。pagedraw）。
         state：チェックの印（描くものを状態の見た目の写しにして、直して書き直すときに中身だけを入れ替える）。"""
         if not self.draw_on_page:
             if not state and QUARTZ_NOTE not in self.warnings:
@@ -1047,25 +1093,42 @@ class Filler:
             drawn = self.up.new(Stream(dict(src.dict), src.raw))
         d["F"] = pagedraw.ANNOT_HIDDEN
         d[pagedraw.KEY] = drawn
-        self._attach(page_no, self.up.new(d))
-        self.drawn.setdefault(page_no, []).append((name, drawn, d["Rect"][0], d["Rect"][1]))
+        self.new_fields.append(self.up.new(d))
+        r = d["Rect"]
+        self.drawn.setdefault(page_no, []).append(pagedraw.Item(name, drawn, r[0], r[1], r[2], r[3]))
 
     def _draw_page_values(self) -> None:
-        """○と書いた字：ページの描画の前に「q」、後ろに描くストリームを足す（元のストリームは変えない）。"""
-        from . import circle as _circle
+        """○と書いた字：ページの描画の前に「q」、後ろに描くストリームを足す（元のストリームは変えない）。
+        タグのある文書では、足した字を構造の木にも足す（structadd）。"""
+        from . import circle as _circle, structadd
 
+        adder = None
         for page_no in sorted(set(self.circles) | set(self.drawn)):
             page = self.pages[page_no - 1]
             pref = page["_ref"]
+            view = View(self.doc, page)
             depth = _circle.open_depth(self.doc.page_content(page))
-            data = _circle.ops(View(self.doc, page), self.circles.get(page_no, []), depth)
             pd = self.up.get(pref)
             items = self.drawn.get(page_no, [])
-            if items:
-                res = dict(self.doc.resolve(page.get("Resources")) or {})
-                xo = dict(self.doc.resolve(res.get("XObject")) or {})
-                ops, names = pagedraw.draw_ops(items, xo)
-                data += ops
+            res = dict(self.doc.resolve(page.get("Resources")) or {})
+            xo = dict(self.doc.resolve(res.get("XObject")) or {})
+            first, why = structadd.first_mcid(self.doc, page) if self.draw_on_page else (None, None)
+            if why and why not in self.struct_why:
+                self.struct_why.append(why)
+            circles = self.circles.get(page_no, [])
+            data, names, seq = pagedraw.page_ops(view, depth, circles, items, xo, first, self.draw_on_page,
+                                                 lambda sd, key: self._said_form(view, sd, key))
+            if self.draw_on_page:
+                for sd in circles:
+                    if _circle.description(sd) is None:
+                        self.warnings.append(f"{sd['id']}: 囲んだ字を読めないので、読み上げでは、どの字を囲んだかが伝わりません")
+            if seq:
+                labels = {it.name: self.drawn_labels.get(it.name, "") for it in items}
+                for e in seq:
+                    e["label"] = labels.get(e["id"]) or next((sd.get("text") for sd in circles if sd["id"] == e["id"]), "")
+                adder = adder or structadd.Adder(self.up, self.doc)
+                adder.add_page(page_no, page, seq)
+            if names:
                 xo.update(names)
                 res["XObject"] = xo
                 pd["Resources"] = res
@@ -1079,6 +1142,15 @@ class Filler:
             else:
                 old = [pd.get("Contents")]
             pd["Contents"] = [pre] + old + [post]
+        if adder is not None:
+            adder.finish()
+            self.structure = adder.placed
+            msg = structadd.note(adder.placed)
+            if msg:
+                self.warnings.append(msg)
+        for why in self.struct_why:
+            self.warnings.append(f"この PDF のタグ（文書の構造の木）には、書いた字を足せませんでした（{why}）。字はページに描いてあり、値は読めますが、"
+                                 "木を読む読み手（Mac のプレビューの読み上げなど）には読まれません")
 
     def _attach(self, page_no: int, ref: Ref, field: bool = True) -> None:
         self.page_annots.setdefault(page_no, []).append(ref)
@@ -1496,7 +1568,7 @@ def _fill(doc: PdfDocument, values: dict, *, force: bool = False, placement: boo
         if probs:
             raise FillError("書いた所が、ほかの字や線に重なるので、書き出していません：\n" + "\n".join(probs[:12]))
         f.warnings += [x for x in notes if x not in f.warnings]
-    return FillResult(blob, f.patches, f.warnings, denied=denied)
+    return FillResult(blob, f.patches, f.warnings, denied=denied, structure=f.structure)
 
 
 def _natural_size(spot: dict, text: str, unit: float) -> float | None:
@@ -1674,7 +1746,7 @@ def appearance_readback(doc: PdfDocument, patches: list[Patch]) -> list[dict]:
     from .glyphs import appearance_text, widget_appearance
 
     by = {x.name: x for x in read_fields(doc)}
-    out = []
+    out = pagedraw.read_back(doc, patches)
     for p in patches:
         fld = by.get(p.id)
         if fld is not None and p.expect:

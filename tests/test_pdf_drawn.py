@@ -298,9 +298,9 @@ def test_permission_modify_denied_keeps_field():
 
     f = F.Filler(res_doc)
     res_doc.decryptor = Dec()
-    assert f._may_draw_on_page() is False
+    assert pagedraw.may_draw(f.doc, f.sigs) is False
     res_doc.decryptor = None
-    assert f._may_draw_on_page() is True
+    assert pagedraw.may_draw(f.doc, f.sigs) is True
 
 
 def test_existing_tight_field_fits_redrawing_viewers():
@@ -339,7 +339,7 @@ def test_fit_redrawn_floor_keeps_size_when_it_cannot_fit():
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl が要る")
 def test_even_page_content_on_signed_pdf_leaves_signature_bytes_verifying(tmp_path, monkeypatch):
     """（方針の材料）署名のある PDF にページの描画を足しても、増分なので openssl の検証は通る。とどくが欄のままにするのは、ビューアーの扱いのため。"""
-    monkeypatch.setattr(F.Filler, "_may_draw_on_page", lambda self: True)
+    monkeypatch.setattr(pagedraw, "may_draw", lambda d, s=None: True)
     blob, br, cert = _signed(tmp_path)
     src = tmp_path / "signed.pdf"
     src.write_bytes(blob)

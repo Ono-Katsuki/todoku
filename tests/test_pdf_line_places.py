@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from todoku.pdf import pagedraw
 from todoku.pdf.audit import run as audit
 from todoku.pdf.doc import PdfDocument
 from todoku.pdf.fill import fill, FillError
@@ -30,7 +31,7 @@ def _baseline_of(blob: bytes, name: str, page: int = 0) -> tuple[list[float], fl
     """書いた欄の字の基線（見た目の y の一覧）と、字の大きさ。"""
     doc = PdfDocument(blob, "t.pdf")
     view = View(doc, doc.pages()[page])
-    for a in doc.resolve(doc.pages()[page].get("Annots")) or []:
+    for a in [r for r, _wd in pagedraw.records(doc)]:  # 値の控えは、注釈でなく /Fields にある
         ad = doc.resolve(a)
         if str(getattr(ad.get("T"), "text", ad.get("T"))) == name or name in str(ad.get("T")):
             gs = appearance_glyphs(doc, ad)

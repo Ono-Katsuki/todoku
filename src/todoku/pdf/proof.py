@@ -5,7 +5,9 @@
 - 書き換えたオブジェクトは、許した変更（ページの注釈の一覧に足す・フォームの欄の値と見た目・欄の一覧に足す・書体を足す）だけ
 - 足したオブジェクトは、欄・見た目・書体だけで、どれも書き換えたオブジェクトからたどれる
 - ページの描画に足した字（pagedraw）：足したストリームが、足した欄から決め直した描き方とバイト一致で、値と描いた字が合い、
-  ページの資源の差は足した XObject の項目だけ。元の描画のストリームは一覧にそのまま残る（○と同じ確かめ）
+  ページの資源の差は足した XObject の項目だけ。元の描画のストリームは一覧にそのまま残る（○と同じ確かめ）。値の控えの欄は隠してあり、注釈に入っていない
+- 文書の構造の木に足した要素（structadd）：足した要素は、足したストリームの番号ごとに 1 つ、その番号だけを持つ /Span で、親の /K に入り、
+  ParentTree の一覧のその番号が指す。元の要素の /K・一覧の項目は 1 つも変わらず、並びの間に足しただけ
 - 本人の印影・署名の画像を置いたとき（本人が同意したときだけ）：足してよいのは、スタンプの注釈・その見た目・画像（と透け）だけ。
   どれも、元の文書と本人の画像から決め直した置き方（seal.verify）と同じで、画像は本人の画像と一致する
   （JPEG はファイルのバイト列、PNG は開いた画素とアルファ）。確かめていないスタンプ・画像が足されていれば、想定外とする
@@ -38,6 +40,7 @@ class PdfProof:
     stamps: list = field(default_factory=list)  # 確かめた、置いた画像（印影・署名）の名前
     page_contents: dict = field(default_factory=dict)  # ○を描いたページ → (前に足したストリーム, 後ろに足したストリーム) の番号
     circles: list = field(default_factory=list)  # 確かめた○の名前
+    struct_expect: dict = field(default_factory=dict)  # (ページのオブジェクトの番号, 番号) → 足したストリームから決まる範囲（structadd）
     drawn: list = field(default_factory=list)  # ページの描画に描いたと確かめた値の欄の名前
     added_nums: set = field(default_factory=set)  # 足したオブジェクトの番号
 
@@ -54,7 +57,7 @@ class PdfProof:
                    f"datasets で変わったのは {self.xfa.get('data_changes', 0)} か所。")
         return xfa + (f"元のファイル {self.original_bytes:,} バイトは先頭からバイト一致のまま、後ろに {self.new_bytes - self.original_bytes:,} バイトを足しました"
                 f"（足したオブジェクト {self.objects_added}・書き換えたオブジェクト {self.objects_changed}）。"
-                + (("変わったのは書いた欄とその見た目" + ("、置いた画像（本人の画像と一致）" if self.stamps else "") + (f"、○ {len(self.circles)} つ（ページの描画の後ろに足した楕円）" if self.circles else "") + (f"、書いた字 {len(self.drawn)} か所（元の描画はそのまま、その後ろに足した描画）" if self.drawn else "") + "だけです")
+                + (("変わったのは書いた欄とその見た目" + ("、置いた画像（本人の画像と一致）" if self.stamps else "") + (f"、○ {len(self.circles)} つ（ページの描画の後ろに足した楕円）" if self.circles else "") + (f"、書いた字 {len(self.drawn)} か所（元の描画はそのまま、その後ろに足した描画）" if self.drawn else "") + (f"、文書の構造の木に足した要素 {len(self.struct_expect)}" if self.struct_expect else "") + "だけです")
                    if not self.unexpected else f"想定外の変更 {len(self.unexpected)} 件"))
 
     # 書き込みの証明を、ほかの形式と同じ形で使えるように
@@ -190,6 +193,7 @@ def prove(original: bytes, new: bytes, allowed_fields: set[str] | None = None,
     if pr.page_contents and not anchored:
         verified = _check_circles(a, b, [], pr)
     _check_drawn_placed(b, pr)
+    _check_struct(a, b, pr)
     for num in sorted(seal_objs - verified):
         what = "ページの描画" if _kind(b.get(num)) == "content" else "スタンプの注釈か画像"
         pr.unexpected.append(f"足したオブジェクト {num}（{what}）は、置くと言った画像・○として確かめられません")
@@ -423,7 +427,8 @@ def _check_circles(a: PdfDocument, b: PdfDocument, circles: list, pr: PdfProof, 
     verified: set[int] = set()
     pages = a.pages()
     nums = {pg["_ref"].num: n for n, pg in enumerate(pages, 1) if pg.get("_ref") is not None}
-    from . import pagedraw
+    from . import pagedraw, structadd
+    from .glyphs import appearance_text
 
     new_pages = b.pages()
     for pnum, (pre, post) in pr.page_contents.items():
@@ -437,8 +442,24 @@ def _check_circles(a: PdfDocument, b: PdfDocument, circles: list, pr: PdfProof, 
         page = pages[n - 1]
         old_res = a.resolve(page.get("Resources")) or {}
         old_xo = a.resolve(old_res.get("XObject")) or {}
-        ops, names = pagedraw.draw_ops(items, old_xo)
-        expect = circle.ops(View(a, page), want, circle.open_depth(a.page_content(page))) + ops
+        may = pagedraw.may_draw(a)
+        first = structadd.first_mcid(a, page)[0] if may else None
+        new_res_ = b.resolve(new_pages[n - 1].get("Resources")) or {}
+        new_xo_ = b.resolve(new_res_.get("XObject")) or {}
+
+        def said(sd, key, new_xo_=new_xo_):
+            # ○の透明な字：足した書体で、囲んだ字を言うフォームだけ。なければ、説明なしの形で照らす（描ける書体がなかったとき）
+            ref = new_xo_.get(key)
+            if not isinstance(ref, Ref) or ref.num not in pr.added_nums:
+                return None
+            st = b.resolve(ref)
+            if not pagedraw.is_said_form(b, st) or appearance_text(b, st)[0] != circle.description(sd):
+                pr.unexpected.append(f"○ {sd['id']}：足した透明な字が、囲んだ字と違います")
+            return ref
+
+        expect, names, seq = pagedraw.page_ops(View(a, page), circle.open_depth(a.page_content(page)), want, items, old_xo, first, may, said)
+        for e in seq:
+            pr.struct_expect[(pnum, e["mcid"])] = e
         if not _resources_only_added(a, b, old_res, b.resolve(new_pages[n - 1].get("Resources")) or {}, names):
             pr.unexpected.append(f"{n} ページの資源（/Resources）が、足した描画の分のほかにも変わっています")
             continue
@@ -481,8 +502,121 @@ def _check_drawn_placed(b: PdfDocument, pr: PdfProof) -> None:
         why = pagedraw.value_problem(b, o)
         if why:
             pr.unexpected.append(f"欄 {name}：{why}")
+        if b.resolve(o.get("F")) != pagedraw.ANNOT_HIDDEN:
+            pr.unexpected.append(f"欄 {name}：値の控えの欄が、隠す印だけになっていません")
+        if any(isinstance(x, Ref) and x.num == num for pg in b.pages() for x in (b.resolve(pg.get("Annots")) or [])):
+            pr.unexpected.append(f"欄 {name}：値の控えの欄が、ページの注釈に入っています")
         if name not in done:
             pr.unexpected.append(f"欄 {name}：値を描いたはずのページの描画に、描かれていません")
+
+
+def _check_struct(a: PdfDocument, b: PdfDocument, pr: PdfProof) -> None:
+    """足した構造の要素：足したストリームの番号ごとに 1 つ、その番号だけを持ち、親の /K に入り、ParentTree の一覧のその番号が指す。
+    Alt・ActualText は持たない。"""
+    from . import structadd
+
+    tree = structadd.Tree(b)
+    seen: set = set()
+    for num in sorted(pr.added_nums):
+        o = b.get(num)
+        if not (isinstance(o, dict) and getattr(o.get("Type"), "name", "") == "StructElem"):
+            continue
+        s = getattr(o.get("S"), "name", "")
+        if s == "Document":
+            old = structadd.tree_of(a)
+            if not (isinstance(o.get("P"), Ref) and old.ref is not None and o["P"].num == old.ref.num):
+                pr.unexpected.append(f"足した文書の要素（オブジェクト {num}）が、木の根の下にありません")
+            continue
+        k = b.resolve(o.get("K"))
+        pg = o.get("Pg")
+        e = pr.struct_expect.get((pg.num, k)) if isinstance(pg, Ref) and isinstance(k, int) else None
+        if s != "Span" or e is None:
+            pr.unexpected.append(f"足した構造の要素（オブジェクト {num}）が、足した描画の番号の範囲として確かめられません")
+            continue
+        seen.add((pg.num, k))
+        if o.get("ActualText") is not None:
+            pr.unexpected.append(f"足した構造の要素（オブジェクト {num}）に ActualText があります")
+        if o.get("Alt") is not None:
+            pr.unexpected.append(f"足した構造の要素（オブジェクト {num}）に Alt があります")
+        page = b.get(pg.num)
+        key = b.resolve(page.get("StructParents")) if isinstance(page, dict) else None
+        arr = b.resolve(tree.entries.get(key)) if isinstance(key, int) else None
+        if not (isinstance(arr, list) and 0 <= k < len(arr) and isinstance(arr[k], Ref) and arr[k].num == num):
+            pr.unexpected.append(f"足した構造の要素（オブジェクト {num}）を、ページの一覧（ParentTree）の番号 {k} が指していません")
+        par = b.resolve(o.get("P"))
+        kids = b.resolve(par.get("K")) if isinstance(par, dict) else None
+        kids = kids if isinstance(kids, list) else [par.get("K") if isinstance(par, dict) else None]
+        if not any(isinstance(x, Ref) and x.num == num for x in kids):
+            pr.unexpected.append(f"足した構造の要素（オブジェクト {num}）が、親の要素の /K に入っていません")
+        if not tree.chain(o.get("P") if isinstance(o.get("P"), Ref) else None) and getattr(o.get("P"), "num", None) != (tree.ref.num if tree.ref else None):
+            pr.unexpected.append(f"足した構造の要素（オブジェクト {num}）の親から、木の根へたどれません")
+    for k in sorted(set(pr.struct_expect) - seen):
+        pr.unexpected.append(f"足した描画の番号 {k[1]}（{pr.struct_expect[k]['id']}）の要素が、構造の木にありません")
+
+
+def _only_inserted(old: list, cur: list, added: set[int]) -> bool:
+    """cur が、old の項目をそのままの順に持ち、ほかは足したオブジェクトへの参照（か、一覧の埋め草の null）だけか。"""
+    rest = [x for x in cur if not (isinstance(x, Ref) and x.num in added) and x is not None]
+    return _norm(rest) == _norm([x for x in old if x is not None])
+
+
+def _check_struct_change(a, b, num, old: dict, cur: dict, diff: set, pr: PdfProof) -> bool:
+    """構造の木の元のオブジェクトの書き換え：足すだけか。構造の木のオブジェクトなら True。"""
+    t = getattr(old.get("Type"), "name", "")
+    if t == "StructTreeRoot":
+        bad = diff - {"ParentTree", "ParentTreeNextKey", "K"}
+        if bad:
+            pr.unexpected.append(f"文書の構造の木の根の {sorted(bad)} が変わっています")
+        if "K" in diff and not _kids_only_inserted(a, b, old.get("K"), cur.get("K"), pr.added_nums):
+            pr.unexpected.append("文書の構造の木の根の要素が変わっています（足すだけのはず）")
+        if "ParentTree" in diff and isinstance(old.get("ParentTree"), dict):
+            _check_nums(a, b, old["ParentTree"], cur.get("ParentTree"), pr)
+        elif "ParentTree" in diff and old.get("ParentTree") is not None:
+            pr.unexpected.append("文書の構造の木の一覧（ParentTree）が差し替えられています")
+        return True
+    if t == "StructElem" or ("S" in old and "P" in old):
+        if diff - {"K"}:
+            pr.unexpected.append(f"構造の要素（オブジェクト {num}）の {sorted(diff - {'K'})} が変わっています")
+        elif not _kids_only_inserted(a, b, old.get("K"), cur.get("K"), pr.added_nums):
+            pr.unexpected.append(f"構造の要素（オブジェクト {num}）の中身が変わっています（足すだけのはず）")
+        return True
+    if "Nums" in old or "Limits" in old:
+        if diff - {"Nums", "Limits"}:
+            pr.unexpected.append(f"構造の一覧（オブジェクト {num}）の {sorted(diff - {'Nums', 'Limits'})} が変わっています")
+        _check_nums(a, b, old, cur, pr)
+        return True
+    return False
+
+
+def _kids_only_inserted(a, b, old, cur, added: set[int]) -> bool:
+    ol = a.resolve(old) if isinstance(old, Ref) else old
+    if isinstance(old, Ref) and isinstance(ol, list) and isinstance(cur, Ref) and cur.num == old.num:
+        return True  # /K が別のオブジェクトの一覧：その一覧の書き換えとして照らす（_check_change の一覧の所）
+    ol = old if not isinstance(ol, list) else ol
+    ol = ol if isinstance(ol, list) else ([] if ol is None else [ol])
+    cl = cur if isinstance(cur, list) else ([] if cur is None else [cur])
+    return _only_inserted(ol, cl, added)
+
+
+def _check_nums(a, b, old: dict, cur, pr: PdfProof) -> None:
+    """ParentTree の葉：元の鍵の値はそのまま（葉の中に直接ある一覧は、足すだけ）。鍵は足すだけ。"""
+    if not isinstance(cur, dict):
+        pr.unexpected.append("文書の構造の木の一覧（ParentTree）の形が変わっています")
+        return
+    on = a.resolve(old.get("Nums")) or []
+    cn = b.resolve(cur.get("Nums")) or []
+    cm = {cn[i]: cn[i + 1] for i in range(0, len(cn) - 1, 2)}
+    for i in range(0, len(on) - 1, 2):
+        k, v = on[i], on[i + 1]
+        w = cm.get(k)
+        if isinstance(v, list) and isinstance(w, list):
+            if not _only_inserted(v, w, pr.added_nums):
+                pr.unexpected.append(f"文書の構造の木の一覧の鍵 {k} の項目が変わっています（足すだけのはず）")
+        elif _norm(w) != _norm(v):
+            pr.unexpected.append(f"文書の構造の木の一覧の鍵 {k} が変わっています（足すだけのはず）")
+    for k in cm:
+        if not any(on[i] == k for i in range(0, len(on) - 1, 2)) and not (isinstance(cm[k], Ref) and cm[k].num in pr.added_nums):
+            pr.unexpected.append(f"文書の構造の木の一覧の鍵 {k} が、足した一覧を指していません")
 
 
 def decode_field_name(t) -> str:
@@ -527,11 +661,13 @@ def _kind(o) -> str | None:
             return "field"
         if t in ("Font", "FontDescriptor"):
             return "font"
+        if t == "StructElem" or "Nums" in o:
+            return "struct"  # 文書の構造の木に足したもの（_check_struct）
         if "Fields" in o:
             return "acroform"
         return None
     if isinstance(o, list):
-        return "array" if all(isinstance(x, Ref) for x in o) else None
+        return "array" if all(isinstance(x, Ref) or x is None for x in o) else None
     return None
 
 
@@ -565,7 +701,7 @@ def _check_change(a, b, num, old, cur, pr: PdfProof) -> str | None:
         pr.unexpected.append(f"オブジェクト {num}（ストリーム）が書き換えられています")
         return None
     if isinstance(old, list) and isinstance(cur, list):
-        if _norm(cur[:len(old)]) != _norm(old):
+        if _norm(cur[:len(old)]) != _norm(old) and not _only_inserted(old, cur, pr.added_nums):
             pr.unexpected.append(f"オブジェクト {num}（一覧）：元の項目が変わっています（足すだけのはず）")
         return None
     if not isinstance(old, dict) or not isinstance(cur, dict):
@@ -576,6 +712,8 @@ def _check_change(a, b, num, old, cur, pr: PdfProof) -> str | None:
     t = getattr(old.get("Type"), "name", "")
     if t == "Page" or ("Contents" in old and "MediaBox" in old) or (t == "" and "Annots" in diff and "Contents" in old):
         bad = diff - {"Annots", "Contents", "Resources"}
+        if "StructParents" in bad and old.get("StructParents") is None and isinstance(cur.get("StructParents"), int):
+            bad = bad - {"StructParents"}  # 文書の構造の木に足した字のある、番号のなかったページ
         if "Resources" in diff and "Contents" not in diff:
             bad = bad | {"Resources"}  # 資源は、足した描画の分だけ（中身は _check_circles で照らす）
         if bad:
@@ -599,6 +737,8 @@ def _check_change(a, b, num, old, cur, pr: PdfProof) -> str | None:
             oa, ca = old.get("Annots"), cur.get("Annots")
             if isinstance(oa, list) and (not isinstance(ca, list) or _norm(ca[:len(oa)]) != _norm(oa)):
                 pr.unexpected.append(f"ページ（オブジェクト {num}）の注釈の一覧で、元の注釈が変わっています")
+        return None
+    if _check_struct_change(a, b, num, old, cur, diff, pr):
         return None
     if t == "Catalog":
         bad = diff - {"AcroForm"}
