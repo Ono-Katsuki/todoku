@@ -4,11 +4,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>とどく</title>
 <script>
-// 言語：?lang= → 保存した選択 → 日本語。保存が使えなくても動く
+// 言語：?lang= → 保存した選択 → ブラウザの言語（日本語でなければ英語。分からなければ日本語）。保存が使えなくても動く
 (() => {
   let l = null;
   try { l = new URLSearchParams(location.search).get("lang"); } catch (e) {}
   if (l !== "en" && l !== "ja") { try { l = localStorage.getItem("todoku-lang"); } catch (e) { l = null; } }
+  if (l !== "en" && l !== "ja") { try { const b = (navigator.languages && navigator.languages[0]) || navigator.language; l = b && !/^ja\b/i.test(b) ? "en" : "ja"; } catch (e) { l = "ja"; } }
   window.__todokuLang = l === "en" ? "en" : "ja";
   if (window.__todokuLang === "en") document.documentElement.lang = "en";
 })();
