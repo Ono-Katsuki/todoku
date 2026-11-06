@@ -618,16 +618,20 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     allowed = res.allowed_inputs
     allowed_c = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"}  # 部品 → 書いた状態
     pr = prove(wb.zip.original, res.blob, allowed, allowed_c, {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
+    from ..limits import CALC_SECONDS
+    from .reach import prove_whole, seeds_of
+
+    scope = prove_whole(wb, res.blob, wb.filename, seeds_of(res), pr.cell_changes, res.full_calc_on_load, CALC_SECONDS)
     n_ctl = sum(1 for _, f in fields if f["kind"] in ("checkbox", "radio", "select", "multiselect", "spin"))
     na = (f"（選択肢が空の欄 {len(not_applicable):,} か所は、いまの状態ではExcelでも選べないので除外。"
           "ほかの欄の値で選択肢が決まるものや、選択肢の参照先が壊れているもの）" if not_applicable else "")
     if hidden_fmt:
         na += (f"（書式で字が見えないセル {len(hidden_fmt):,} か所は、書いても印刷されないので書き込みを断る決まりのため除外："
                + "、".join(hidden_fmt[:5]) + ("ほか" if len(hidden_fmt) > 5 else "") + "）")
-    out.append(Check("全入力欄への書き込み", pr.ok and not res.unverified and not skipped,
+    out.append(Check("全入力欄への書き込み", pr.ok and not scope.problems and not res.unverified and not skipped,
                      f"入力欄 {len(fields) - n_ctl:,} か所とフォームの部品 {n_ctl} 個のうち {len(targets):,} に試しの値を書き込み{na}。"
-                     f"{pr.headline()}",
-                     [*pr.unexpected, *pr.lint_errors, *res.unverified, *skipped]))
+                     f"{pr.headline()}。{scope.sentence()}",
+                     [*pr.unexpected, *scope.problems[:20], *pr.lint_errors, *res.unverified, *skipped]))
     # 読み戻し：書き込み後のファイルを読み直して、書いた値とチェックの状態がそのとおりかを確かめる
     after = open_book(res.blob, wb.filename)
     got = {}

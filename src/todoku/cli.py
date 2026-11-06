@@ -232,6 +232,11 @@ def _write_fill(wb: Workbook, values: dict, out_path: Path, strict: bool) -> int
     allowed_controls = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"}  # 部品 → 書いた状態
     pr = prove(wb.zip.original, res.blob, allowed, allowed_controls,
                {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
+    from .xlsx.reach import prove_whole, seeds_of
+
+    scope = prove_whole(wb, res.blob, out_path.name, seeds_of(res), pr.cell_changes, res.full_calc_on_load)
+    pr.unexpected += scope.problems
+    print(scope.sentence())
     for w in res.warnings:
         print(f"注意: {w}")
     for u in res.unverified:
