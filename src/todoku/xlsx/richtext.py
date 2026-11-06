@@ -100,12 +100,23 @@ def _cell_span(xml: bytes, prefix: bytes, a: str):
     return m
 
 
+def _part(wb, path: str) -> bytes:
+    """部品の字（1 冊に 1 回だけ展開する。セルごとに展開し直すと、書く欄の多い書類で展開の合計の上限に当たる）。書き換えた部品は、書き換えた後の字。"""
+    entry = wb.zip.get(path)
+    if entry.modified:
+        return entry.read()
+    memo = wb.__dict__.setdefault("_richtext_parts", {})
+    if path not in memo:
+        memo[path] = entry.read()
+    return memo[path]
+
+
 def cell_rst(wb, sheet: str, r: int, c: int) -> Rst | None:
     """.xlsx のセルの字（共有文字列か、セルの中の字）の <si>・<is> を読む。字のセルでなければ None。"""
     from ..formula.parser import addr
 
     sh = wb.sheet(sheet)
-    xml = wb.zip.read(sh.path)
+    xml = _part(wb, sh.path)
     pm = re.search(rb"<(\w+:)?sheetData\b", xml)
     prefix = (pm[1] if pm else None) or b""
     m = _cell_span(xml, prefix, addr(r, c))
@@ -131,7 +142,7 @@ def cell_rst(wb, sheet: str, r: int, c: int) -> Rst | None:
             sst = src.wrap_open + src.si_xml(i_) + src.wrap_close
             vm = {1: b"0"}
         else:
-            sst = wb.zip.read(path)
+            sst = _part(wb, path)
         sm = re.search(rb"<(\w+:)?sst\b", sst)
         sp = (sm[1] if sm else None) or b""
         q = re.escape(sp)

@@ -157,9 +157,14 @@ def both_controls_checked(wb, controls: dict) -> list[str]:
 
 
 def _formats(wb):
+    """ブックの書式の一覧（1 冊に 1 回だけ読む。欄ごとに部品を展開し直すと、書く欄の多い書類で展開の合計の上限に当たる）。"""
     from ..sheetpic import _xls_formats, _xlsx_formats
 
-    return (_xls_formats(wb) if getattr(wb, "kind", "xlsx") == "xls" else _xlsx_formats(wb))[0]
+    got = getattr(wb, "_cellcheck_formats", None)
+    if got is None:
+        got = (_xls_formats(wb) if getattr(wb, "kind", "xlsx") == "xls" else _xlsx_formats(wb))[0]
+        wb._cellcheck_formats = got
+    return got
 
 
 def _mdw(wb) -> int:
