@@ -2173,8 +2173,10 @@ class Layout:
         signature は数を「#」にまとめるので、それだけで比べると値の違う行も同じとみなし、その値が窓から消える。"""
         row = sorted(list(self.boxes(r)) + self.agent.get(r, []) + self.hidden_boxes.get(r, []),
                      key=lambda b: (b.c1, b.kind, b.hidden))
+        # 部品の面の字（チェックボックスの字）も行の字：違う行をまとめると、面の字が窓から消える
         struct = tuple((b.kind, b.c1, b.c2, b.outside, b.hidden,
-                        bool(b.control is not None and b.control.is_checked) if b.kind == "check" else None) for b in row)
+                        bool(b.control is not None and b.control.is_checked) if b.kind == "check" else None,
+                        (getattr(b.control, "text", "") or "") if b.kind == "check" else None) for b in row)
         carried = tuple(sorted((b.c1, b.c2, b.text) for b in self.carried(r)))
         fonts = tuple(self.font_marks(b.cell) if b.cell is not None and b.text else ("", "") for b in row)
         return (struct, carried, fonts), row
