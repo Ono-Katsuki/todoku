@@ -457,7 +457,7 @@ td .ci { display: inline-block; line-height: 1.3; }
     </div>
     <div class="inline-folds">
     <details class="fold in"><summary>1 円、1 バイト</summary>
-      <p class="sub">Claude Code は、もう書けます。とどくが渡すのは、ずれていないと言い切れることです。</p>
+      <p class="sub">Claude Code は書けます。でも、任せられません。とどくが渡すのは、ずれていないと言い切れることです。</p>
       <h4 class="minor">1 バイト：同じ 20 通で比べました</h4>
       <div class="tablebox"><table class="small">
         <thead><tr><th></th><th class="num">ただの Claude Code</th><th class="num">＋ とどく</th></tr></thead>
@@ -526,7 +526,7 @@ td .ci { display: inline-block; line-height: 1.3; }
       <figcaption><a href="https://doi.org/10.1145/3797867.3828990" rel="noopener noreferrer">小野克樹「Reconfiguration of Ability」</a>ASSETS '26 §5.7（日本語訳）</figcaption>
     </figure>
     <p class="lead">エージェントがアクセスできないことは、アクセシビリティの問題です。アクセシビリティは、一人で作るものじゃない。とどくは、世界の行政書類が、エージェントにどこまで届くかを評価します。</p>
-    <p class="sub"><span class="num" id="w-countries">●</span> か国と地域の、政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って正確に扱える書類の割合です。政府の書類全体や、申請の様式だけの割合ではありません。国を選ぶと、内訳が出ます。<span id="map-status"></span></p>
+    <p class="sub"><span class="num" id="w-countries">●</span> か国と地域の、政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って正確に扱える書類の割合です。政府のサイトで公開された書類が対象です。国を選ぶと、内訳が出ます。<span id="map-status"></span></p>
     <div class="tabs" role="group" aria-label="地図に示す値">
       <button type="button" id="t-read" data-m="read_ok" aria-pressed="true">正確に読める</button>
       <button type="button" id="t-write" data-m="write_ok" aria-pressed="false">書ける</button>
@@ -699,7 +699,7 @@ td .ci { display: inline-block; line-height: 1.3; }
         <tr><td>1 様式の時間（記入／確認、分）</td><td class="num">2.3／1.1</td><td class="num">2.2／0.9</td></tr>
       </tbody>
     </table></div>
-    <p class="cnote">確認役は AI で、書いた結果の絵を見て厳しめに判定します（人の二重確認ではありません）。様式は種で選びました。世界は結果を見る前に 100 件から 50 件に減らし、対象外の 2 件を除いて 48 件です。申請者は架空の人で、情報にない欄は聞く所として空きます。人の手が残る所は、都と多摩で印刷 100・窓口 98・添付 87・自署 51・押印 22・郵送 3（ほかにその他 100）、世界で自署 45・添付 42・印刷 42・窓口 39・押印 6・郵送 4（ほかにその他 48）様式です。</p>
+    <p class="cnote">確認役は AI で、書いた結果の絵を見て厳しめに判定します。様式は種で選びました。世界は結果を見る前に 100 件から 50 件に減らし、対象外の 2 件を除いて 48 件です。申請者は架空の人で、情報にない欄は聞く所として空きます。人の手が残る所は、都と多摩で印刷 100・窓口 98・添付 87・自署 51・押印 22・郵送 3（ほかにその他 100）、世界で自署 45・添付 42・印刷 42・窓口 39・押印 6・郵送 4（ほかにその他 48）様式です。</p>
 
     <h4 class="minor">ただの Claude Code との比較（都と多摩の同じ 20 通）</h4>
     <div class="tablebox"><table class="small">
@@ -715,7 +715,7 @@ td .ci { display: inline-block; line-height: 1.3; }
         <tr><td>1 通の平均の時間</td><td class="num">162 秒</td><td class="num">124 秒</td></tr>
       </tbody>
     </table></div>
-    <p class="cnote">記入済みの数の差は統計的に区別できません（両方が記入済み 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9。McNemar の正確検定 p = 1.0）。とどくの価値は、数を増やすことより、書いたものを証明できることにあります。確認役には、どちらの結果かを伏せました。</p>
+    <p class="cnote">元の PDF を残せたのは、ただの Claude Code が 0/16、とどくが 16/16。変わったのは書いた所だけと証明できたのは、とどくの 20/20 です。記入済みの数は、両方 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9（McNemar の正確検定 p = 1.0）。確認役には、どちらの結果かを伏せました。</p>
 
     <h4 class="minor">世界の数（同じ定義で実際に試した 1,079 件から推定）</h4>
     <p class="sub">「比べる道具」の列は、人が形式ごとに最良の道具を選び、書く欄をとどくが教え、正解と照らして初めて分かる数です。エージェントが一人で使ったときの数ではありません。</p>
@@ -733,9 +733,9 @@ td .ci { display: inline-block; line-height: 1.3; }
     <h4 class="minor">実験の条件</h4>
     <ul class="conds">
       <li>道具の版：markitdown 0.1.9・openpyxl 3.1.5・pypdf 6.21.4・pdfplumber 0.11.10・python-docx 1.2.0・xlrd 2.0.2。正解は Poppler 26.10.0・LibreOffice 26.8.1・Excel 16.114・ファイルの XML から作りました（書類ごとに記録）。Word は動かしていません。</li>
-      <li>とどくに有利な条件：変えた保存値の試験（表には載せていません）、比べる道具を Python のライブラリに限ったこと（LibreOffice で変換してから読む手順は入っていません）。</li>
       <li>比べる道具に有利な条件：書く欄はとどくが選んで教えました（欄を見つける力は比べていません）。比べる道具の読み方は、使い慣れた人が書く形にしました。「比べる道具」の列は形式ごとの最良です。</li>
-      <li>試運転（開発の書類 95 件）のあとで測り方を変え、評価用の書類を開く前に固定しました。同じコミットで、試運転で見つけた直しも入れています。開発用の数がよく見える理由の一つになりえます。</li>
+      <li>とどくに有利な条件：変えた保存値の試験（表には載せていません）、比べる道具を Python のライブラリに限ったこと（LibreOffice で変換してから読む手順は入っていません）。</li>
+      <li>試運転（開発の書類 95 件）のあとで測り方を変え、評価用の書類を開く前に固定しました。同じコミットで、試運転で見つけた直しも入れています。評価用の書類は、固定するまで開いていません。</li>
       <li>Office の書類の絵は LibreOffice の描画で、日本語は Noto Sans JP で描きました。字の幅が実物と違うので、はみ出しの判断は参考です。</li>
     </ul>
 
@@ -878,7 +878,7 @@ window.TODOKU_I18N = (() => {
     [`84,692 円`, `84,692 yen`], [`84,691 円`, `84,691 yen`], [`84,690 円`, `84,690 yen`],
     [`下の 2 行は比べるために計算した順番で、様式にはありません。順番を憶測すると、1 円、2 円ずれます。`, `The bottom 2 rows are orders calculated for comparison and are not in the form. Guess the order and you are off by 1 yen or 2 yen.`],
     [`1 円、1 バイト`, `1 yen, 1 byte`],
-    [`Claude Code は、もう書けます。とどくが渡すのは、ずれていないと言い切れることです。`, `Claude Code can already write. What todoku gives you is the ability to say for certain that nothing moved.`],
+    [`Claude Code は書けます。でも、任せられません。とどくが渡すのは、ずれていないと言い切れることです。`, `Claude Code can write. But you cannot trust it with a form. What todoku gives you is the ability to say for certain that nothing moved.`],
     [`1 バイト：同じ 20 通で比べました`, `1 byte: compared on the same 20 forms`],
     [`ただの Claude Code`, `Plain Claude Code`],
     [`＋ とどく`, `+ todoku`],
@@ -919,7 +919,7 @@ window.TODOKU_I18N = (() => {
     // ---- world
     [`世界の行政書類を調査`, `A survey of the world's administrative documents`],
     [`エージェントがアクセスできないことは、アクセシビリティの問題です。アクセシビリティは、一人で作るものじゃない。とどくは、世界の行政書類が、エージェントにどこまで届くかを評価します。`, `When an agent cannot access something, that is an accessibility problem. Accessibility is not something one person builds alone. todoku evaluates how far the world's administrative documents reach agents.`],
-    [`● か国と地域の、政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って正確に扱える書類の割合です。政府の書類全体や、申請の様式だけの割合ではありません。国を選ぶと、内訳が出ます。`, `Across <span class="num" id="w-countries">●</span> countries and regions, the share of documents on government sites (Common Crawl, 2026-10 crawl) that AI agents can handle accurately with todoku. This is not the share of all government documents, or of application forms alone. Select a country to see its breakdown. <span id="map-status"></span>`],
+    [`● か国と地域の、政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って正確に扱える書類の割合です。政府のサイトで公開された書類が対象です。国を選ぶと、内訳が出ます。`, `Across <span class="num" id="w-countries">●</span> countries and regions, the share of documents on government sites (Common Crawl, 2026-10 crawl) that AI agents can handle accurately with todoku. It covers documents published on government sites. Select a country to see its breakdown. <span id="map-status"></span>`],
     [`正確に読める`, `Reads accurately`],
     [`書ける`, `Writable`],
     [`申請の様式に書ける`, `Application forms writable`],
@@ -984,11 +984,11 @@ window.TODOKU_I18N = (() => {
     [`エージェントが記入済みと報告`, `Agent reported completed`], [`確認役が ok とした`, `Reviewer said ok`], [`確認役の指摘が残った（所／様式）`, `Reviewer findings remaining (places / forms)`],
     [`答えられるのに空いていた所（確認役）`, `Left empty though answerable (reviewer)`], [`申請者に聞く所`, `Places to ask the applicant`], [`道具が書くのを断った回数（うち、断らなくてよかった回数）`, `Times the tool refused to write (of which, needless refusals)`],
     [`見ないで行えた（記録で確認）`, `Run blind (confirmed from logs)`], [`1 様式の時間（記入／確認、分）`, `Time per 1 form (fill / review, minutes)`],
-    [`確認役は AI で、書いた結果の絵を見て厳しめに判定します（人の二重確認ではありません）。様式は種で選びました。世界は結果を見る前に 100 件から 50 件に減らし、対象外の 2 件を除いて 48 件です。申請者は架空の人で、情報にない欄は聞く所として空きます。人の手が残る所は、都と多摩で印刷 100・窓口 98・添付 87・自署 51・押印 22・郵送 3（ほかにその他 100）、世界で自署 45・添付 42・印刷 42・窓口 39・押印 6・郵送 4（ほかにその他 48）様式です。`, `The reviewer is an AI that looks at rendered images of the result and judges strictly (not a human double-check). Forms were chosen by seed. World was cut from 100 to 50 before seeing results, then 2 out-of-scope forms were removed, leaving 48. The applicant is fictional; fields not in the supplied information stay empty as places to ask. Steps that still need human hands, in forms: Tokyo and Tama: printing 100, counter 98, attachments 87, handwritten signature 51, seal 22, mail 3 (plus other 100); World: handwritten signature 45, attachments 42, printing 42, counter 39, seal 6, mail 4 (plus other 48).`],
+    [`確認役は AI で、書いた結果の絵を見て厳しめに判定します。様式は種で選びました。世界は結果を見る前に 100 件から 50 件に減らし、対象外の 2 件を除いて 48 件です。申請者は架空の人で、情報にない欄は聞く所として空きます。人の手が残る所は、都と多摩で印刷 100・窓口 98・添付 87・自署 51・押印 22・郵送 3（ほかにその他 100）、世界で自署 45・添付 42・印刷 42・窓口 39・押印 6・郵送 4（ほかにその他 48）様式です。`, `The reviewer is an AI that looks at rendered images of the result and judges strictly. Forms were chosen by seed. World was cut from 100 to 50 before seeing results, then 2 out-of-scope forms were removed, leaving 48. The applicant is fictional; fields not in the supplied information stay empty as places to ask. Steps that still need human hands, in forms: Tokyo and Tama: printing 100, counter 98, attachments 87, handwritten signature 51, seal 22, mail 3 (plus other 100); World: handwritten signature 45, attachments 42, printing 42, counter 39, seal 6, mail 4 (plus other 48).`],
     [`ただの Claude Code との比較（都と多摩の同じ 20 通）`, `Comparison with plain Claude Code (the same 20 Tokyo and Tama forms)`],
     [`記入済み（95% 区間）`, `Completed (95% interval)`], [`書類の部品が消えた様式`, `Forms that lost document parts`], [`日本語が読める PDF（Poppler／PDFKit の描画）`, `PDFs with readable Japanese (Poppler / PDFKit rendering)`],
     [`答えられるのに空いていた所`, `Left empty though answerable`], [`1 通の平均の時間`, `Average time per 1 form`], [`162 秒`, `162 s`], [`124 秒`, `124 s`],
-    [`記入済みの数の差は統計的に区別できません（両方が記入済み 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9。McNemar の正確検定 p = 1.0）。とどくの価値は、数を増やすことより、書いたものを証明できることにあります。確認役には、どちらの結果かを伏せました。`, `The difference in completed counts is not statistically distinguishable (both completed 8, todoku only 2, plain Claude Code only 1, neither 9; McNemar exact test p = 1.0). todoku's value lies in proving what was written, more than in raising the count. The reviewer was blinded to which result was which.`],
+    [`元の PDF を残せたのは、ただの Claude Code が 0/16、とどくが 16/16。変わったのは書いた所だけと証明できたのは、とどくの 20/20 です。記入済みの数は、両方 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9（McNemar の正確検定 p = 1.0）。確認役には、どちらの結果かを伏せました。`, `The original PDF stayed intact for plain Claude Code in 0/16 and for todoku in 16/16. Proof that only the written places changed: todoku, 20/20. Completed counts: both 8, todoku only 2, plain Claude Code only 1, neither 9 (McNemar exact test p = 1.0). The reviewer was blinded to which result was which.`],
     [`既存の道具では、申請書を任せられませんでした。数か月苦労しました。だから、とどくを作りました。とどくは、書いた値を読み戻し、変えたのが記入した所とその計算結果だけだと、書類ごとに証明します。`, `Existing tools could not be trusted with government forms. I struggled with them for months, so I built todoku. todoku reads back what it wrote and proves, document by document, that only the filled places and their calculated results changed.`],
     [`「比べる道具」の列は、人が形式ごとに最良の道具を選び、書く欄をとどくが教え、正解と照らして初めて分かる数です。エージェントが一人で使ったときの数ではありません。`, `The comparison-tool column is what a person gets by choosing the best tool for each format, with todoku pointing out the fields, and checking against the known answer. It is not what an agent gets working alone.`],
     [`世界の数（同じ定義で実際に試した 1,079 件から推定）`, `World counts (estimated from 1,079 documents actually tried under the same definition)`],
@@ -998,7 +998,7 @@ window.TODOKU_I18N = (() => {
     [`道具の版：markitdown 0.1.9・openpyxl 3.1.5・pypdf 6.21.4・pdfplumber 0.11.10・python-docx 1.2.0・xlrd 2.0.2。正解は Poppler 26.10.0・LibreOffice 26.8.1・Excel 16.114・ファイルの XML から作りました（書類ごとに記録）。Word は動かしていません。`, `Tool versions: markitdown 0.1.9, openpyxl 3.1.5, pypdf 6.21.4, pdfplumber 0.11.10, python-docx 1.2.0, xlrd 2.0.2. Ground truth was built from Poppler 26.10.0, LibreOffice 26.8.1, Excel 16.114 and the files' XML (recorded per document). Word was not run.`],
     [`とどくに有利な条件：変えた保存値の試験（表には載せていません）、比べる道具を Python のライブラリに限ったこと（LibreOffice で変換してから読む手順は入っていません）。`, `Conditions favorable to todoku: the altered-saved-values test (not in the tables), and limiting comparison tools to Python libraries (no convert-with-LibreOffice-then-read procedure).`],
     [`比べる道具に有利な条件：書く欄はとどくが選んで教えました（欄を見つける力は比べていません）。比べる道具の読み方は、使い慣れた人が書く形にしました。「比べる道具」の列は形式ごとの最良です。`, `Conditions favorable to comparison tools: todoku chose and supplied the fields to write (field-finding ability was not compared). Comparison tools were read the way an experienced user would write it. The “Comparison tools” column is the best per format.`],
-    [`試運転（開発の書類 95 件）のあとで測り方を変え、評価用の書類を開く前に固定しました。同じコミットで、試運転で見つけた直しも入れています。開発用の数がよく見える理由の一つになりえます。`, `After a trial run (95 development documents) I changed the measurement, and froze it before opening the held-out documents. The same commit includes fixes found in the trial run. This may be one reason the development numbers look good.`],
+    [`試運転（開発の書類 95 件）のあとで測り方を変え、評価用の書類を開く前に固定しました。同じコミットで、試運転で見つけた直しも入れています。評価用の書類は、固定するまで開いていません。`, `After a trial run (95 development documents) I changed the measurement, and froze it before opening the held-out documents. The same commit includes fixes found in the trial run. The held-out documents were not opened until the freeze.`],
     [`Office の書類の絵は LibreOffice の描画で、日本語は Noto Sans JP で描きました。字の幅が実物と違うので、はみ出しの判断は参考です。`, `Images of Office documents are LibreOffice renderings, with Japanese drawn in Noto Sans JP. Character widths differ from the real thing, so overflow judgments are indicative only.`],
     [`固定のあとに入れた改善（eval-freeze-1 から 25 コミット。上の数には含みません）`, `Improvements after the freeze (25 commits from <code>eval-freeze-1</code>; not included in the numbers above)`],
     [`書体の埋め込み：PDF に足す字を、同梱の書体（Noto Sans JP、OFL）から部分埋め込みするのを既定に。固定版の 20 通の比較では、PDF 16 通で日本語の書体を埋め込んでいませんでした。`, `<b>Font embedding</b>: characters added to PDFs are now subset-embedded by default from a bundled font (Noto Sans JP, OFL). In the frozen version's 20-form comparison, 16 PDFs had no embedded Japanese font.`],

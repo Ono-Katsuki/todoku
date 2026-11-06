@@ -1,6 +1,6 @@
 # todoku
 
-**Claude Code can already fill in a government form. todoku proves nothing but what it wrote has changed.**
+**Claude Code can fill in a government form. But you cannot trust it with one. todoku proves nothing but what it wrote has changed.**
 
 Existing tools could not be trusted with government forms. I struggled with them for months, so I built todoku. todoku reads back what it wrote and proves, document by document, that only the filled places and their calculated results changed.
 
