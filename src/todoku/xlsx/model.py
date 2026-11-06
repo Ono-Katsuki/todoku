@@ -384,6 +384,10 @@ def cell_values(wb: Workbook, values: dict, cells: list, store=None) -> list[dic
             note = calc.calc_notes.get((s, r, c))
             if note:
                 d["note"] = note
+            if calc.kept and d["status"] == "ok":
+                # 読まなかった行を読む数式は、保存された値を使った（計算の範囲を伝える）
+                used = "、".join(_key(*k) for k in sorted(calc.kept)[:5]) + (f" ほか {len(calc.kept) - 5} か所" if len(calc.kept) > 5 else "")
+                d["note"] = (d.get("note", "") + "。" if d.get("note") else "") + f"次の数式は計算し直さず、保存された値を使いました：{used}"
             out.append(d)
         return out
 

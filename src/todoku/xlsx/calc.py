@@ -8,7 +8,7 @@ import threading
 from dataclasses import dataclass, field
 
 from ..formula.evaluator import Evaluator
-from ..formula.parser import Node, addr, iter_funcs, iter_refs
+from ..formula.parser import NameNode, Node, RefNode, addr, iter_funcs, iter_refs
 from ..formula.values import Arr, ExcelError, Rng, Unfinished, Unsupported, is_number, to_15
 from .workbook import Cell, Workbook
 
@@ -53,6 +53,8 @@ class Calc:
 
     overrides に値を入れると、そのセルの値を差し替えて再計算する（記入のシミュレーション）。
     再計算できない数式のセルは、保存されている値を使って計算を続ける。
+    大きなブックの「要る行だけの小さなブック」（wb.loaded_rows）では、入れていない行を読む数式も再計算できない数式とする（kept）：
+    入れていない行は空ではない。空として計算すると、値が 0 に化ける。
     scan_store：大きな配列の集計の控え（formula/lazyarr.ScanStore。長い仕事が続きから計算する）。
     """
 
@@ -71,6 +73,8 @@ class Calc:
         self.scan_seq: dict = {}  # 数式のセルごとの、集計の順の番号（呼び直しても同じ控えに当たるように）
         self.calc_notes: dict = {}  # 計算の結果についての注（式で答えた和など）
         self.unfinished: dict = {}  # 時間の中で終わらなかった集計：数式のセル → Unfinished
+        self.loaded = getattr(wb, "loaded_rows", None)
+        self.kept: set = set()  # 小さなブックに入れていない行を読むので、保存された値のままにした数式のセル
 
     # ------------------------------------------------------------ Context
     def _ext(self, sheet: str):
@@ -203,9 +207,16 @@ class Calc:
             v = self._array_pick(master, cell) if st[0] in ("ok", "volatile") else cell.value
             self.status[key] = st
             self.memo[key] = v
+            if (master.sheet, mr, mc) in self.kept:
+                self.kept.add(key)
             return v
         if cell.ast is None:
             self.status[key] = ("unsupported", cell.parse_error or "数式を読めませんでした")
+            self.memo[key] = cell.value
+            return cell.value
+        if self.loaded is not None and self._reads_unloaded(cell):
+            self.kept.add(key)
+            self.status[key] = ("unsupported", "読んでいない行を読む数式です（大きなブックなので、要る行だけを読みました）")
             self.memo[key] = cell.value
             return cell.value
         if key in self.visiting:
@@ -249,6 +260,33 @@ class Calc:
             self._frames.pop()
         self.memo[key] = v
         return v
+
+    def _reads_unloaded(self, cell: Cell) -> bool:
+        """数式が、小さなブックに入れていない行を読むか。読む行を決められないもの（INDIRECT・OFFSET・表・読めない名前）は、読むとする。"""
+
+        def walk(ast: Node, here: str, dr: int, dc: int, seen: frozenset) -> bool:
+            if any(str(f).upper() in ("INDIRECT", "OFFSET") for f in iter_funcs(ast)):
+                return True
+            for ref in iter_refs(ast):
+                if isinstance(ref, RefNode):
+                    n = ref.shifted(dr, dc)
+                    if not self.loaded.covers(n.sheet or here, n.r1, n.r2):
+                        return True
+                elif isinstance(ref, NameNode):
+                    if ref.name.lower() in seen:
+                        continue
+                    try:
+                        got = self.resolve_name(ref.name, ref.sheet, here)
+                    except Unsupported:
+                        return True
+                    # 名前の中の相対の参照は使う所で決まる：絶対の参照のときだけ行が決まる
+                    if got is not None and (_has_relative(got[0]) or walk(got[0], got[1], 0, 0, seen | {ref.name.lower()})):
+                        return True
+                else:
+                    return True
+            return False
+
+        return walk(cell.ast, cell.sheet, cell.dr, cell.dc, frozenset())
 
     def _span_value(self, sh, r: int, c: int):
         m = sh.array_span_at(r, c)
@@ -362,6 +400,8 @@ def recalc(wb: Workbook, overrides: dict[tuple[str, int, int], object]):
                 continue
             after = new.cell_value(cell.sheet, cell.row, cell.col)
             st = new.status.get(key, ("ok", ""))
+            if key in new.kept:
+                continue  # 読んでいない行を読む数式は、書かない（連動するかは、下で）
             if st[0] in ("unsupported", "cycle"):
                 if _depends_on(wb, cell, overrides):
                     problems[key] = st[1]
@@ -372,6 +412,17 @@ def recalc(wb: Workbook, overrides: dict[tuple[str, int, int], object]):
                 # 動的配列の結果の大きさが変わる：こぼれる範囲（とその外のセル）が変わるので、ここでは書かずに
                 # Excelで開いたときに計算し直させる
                 problems[key] = "動的配列の結果の大きさが変わる（こぼれる範囲が変わる）"
+        # 書かなかった数式のうち、書いた値に連動するもの：いまの値は書いた値を反映していない（連動しないものは、保存された値のままで正しい）
+        moved = set(overrides) | set(changed)
+        rest = {k: wb.sheet(k[0]).cells[k[1:]] for k in new.kept if k not in overrides}
+        while rest:
+            hit = [k for k, cell in rest.items() if _reads_any(cell, moved)]
+            if not hit:
+                break
+            for k in hit:
+                problems[k] = new.status[k][1]
+                moved.add(k)
+                del rest[k]
         # こぼれる範囲が変わる動的配列の、ほかのセルも書かない
         for (sh_name, r, c), why in list(problems.items()):
             m = wb.sheet(sh_name).cells.get((r, c))
@@ -403,6 +454,23 @@ def _depends_on(wb: Workbook, cell: Cell, overrides) -> bool:
         return True
     for ref in iter_refs(cell.ast):
         return True
+    return False
+
+
+def _has_relative(ast: Node) -> bool:
+    return any(isinstance(r, RefNode) and not (r.abs_r1 and r.abs_r2) for r in iter_refs(ast))
+
+
+def _reads_any(cell: Cell, keys: set) -> bool:
+    """数式の参照の中に keys（シート, 行, 列）のセルがあるか（名前・表は、ここでは見ない）。"""
+    if cell.ast is None:
+        return False
+    for ref in iter_refs(cell.ast):
+        if isinstance(ref, RefNode):
+            n = ref.shifted(cell.dr, cell.dc)
+            sheet = (n.sheet or cell.sheet).lower()
+            if any(k[0].lower() == sheet and n.r1 <= k[1] <= n.r2 and n.c1 <= k[2] <= n.c2 for k in keys):
+                return True
     return False
 
 

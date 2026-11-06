@@ -400,11 +400,39 @@ def _clip_sqref(tail: bytes, a: int, b: int) -> bytes:
     return _SQREF.sub(clip, tail)
 
 
+class LoadedRows:
+    """小さなブックに入れた行。数式がここにない行を読むなら、空（0）として計算してはいけない（xlsx/calc.py の Calc.kept）。"""
+
+    def __init__(self):
+        self.sheets: dict[str, tuple] = {}  # シートの名前（小文字）→ (索引, 入れた行の索引の位置の範囲の並び)
+
+    def add(self, name: str, ix, spans: list[tuple[int, int]]) -> None:
+        self.sheets[name.lower()] = (ix, spans)
+
+    def covers(self, sheet: str, r1: int, r2: int) -> bool:
+        """シートの r1〜r2 行のうち、ファイルにある行をみな入れたか。知らないシート（外部のブックなど）は、ここでは決めない。"""
+        got = self.sheets.get(sheet.lower())
+        if got is None:
+            return True
+        ix, spans = got
+        i, j = ix.locate(r1, r2)
+        if i >= j:
+            return True
+        k = bisect.bisect_right(spans, (i, float("inf"))) - 1
+        return k >= 0 and spans[k][0] <= i and j <= spans[k][1]
+
+
+class _Slice(bytes):
+    """小さなブックの中身。loaded：入れた行（book で開くブックに渡す）。"""
+
+    loaded: LoadedRows | None = None
+
+
 class FormulaIndex:
     """数式の依存の索引（書くときに初めて作る）：どのセルの値が変わると、どの数式が読むか。"""
 
     def __init__(self, doc: "XlsxLazy"):
-        from ..formula.parser import iter_refs, parse
+        from ..formula.parser import RefNode, iter_refs, parse
 
         self.single: dict[int, array] = {}  # (シート, 行, 列) の鍵 → 数式の番号
         self.ranges: list[tuple[int, int, int, int, int, int]] = []  # (シート, r1, c1, r2, c2, 数式の番号)
@@ -427,6 +455,8 @@ class FormulaIndex:
                 out = []
                 opaque = _has_opaque(ast)
                 for ref in iter_refs(ast):
+                    if not isinstance(ref, RefNode):
+                        continue  # 名前・表：依存は決められない（opaque）。一緒に書かれた参照は、依存として数える
                     out.append((ref.sheet, ref.r1, ref.c1, ref.r2, ref.c2, getattr(ref, "abs_r1", True), getattr(ref, "abs_c1", True),
                                 getattr(ref, "abs_r2", True), getattr(ref, "abs_c2", True)))
                 got = (out, opaque)
@@ -697,6 +727,7 @@ class XlsxLazy(LazyDoc):
         parts = self._base_parts()
         meta = self.sheet_meta
         by_path = {d["path"]: (si, d) for si, d in enumerate(meta) if d["index"] is not None}
+        loaded = LoadedRows()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
             for n in self.members:
                 if n in parts:
@@ -711,9 +742,16 @@ class XlsxLazy(LazyDoc):
                     if ix.self_closed:
                         open_tag = open_tag[:-2].rstrip() + b">"
                     xml += open_tag
+                    spans = []
                     for a, b in _merge_ranges(wanted.get(si, [])):
                         i, j = ix.locate(a, b)
                         xml += ix.row_bytes(i, j)
+                        if i < j:
+                            if spans and spans[-1][1] == i:  # 間にファイルの行のない範囲は、続きとして
+                                spans[-1] = (spans[-1][0], j)
+                            else:
+                                spans.append((i, j))
+                    loaded.add(d["name"], ix, spans)
                     close = b"</" + ix.prefix + b"sheetData>"
                     if ix.self_closed:
                         xml += close
@@ -724,7 +762,9 @@ class XlsxLazy(LazyDoc):
                         tail = _clip_sqref(tail, 1, 0)  # 読まないシート：広げない
                     xml += tail
                     z.writestr(n, bytes(xml))
-        return buf.getvalue()
+        out = _Slice(buf.getvalue())
+        out.loaded = loaded
+        return out
 
     def rows_book(self, wanted: dict[int, list[tuple[int, int]]]):
         """wanted の行だけの小さなブック（表の取り出しなど）。"""
@@ -734,7 +774,9 @@ class XlsxLazy(LazyDoc):
         from ..xlsx.workbook import Workbook, sst_scope
 
         with sst_scope(self.strings):
-            return Workbook(blob, self.name)
+            wb = Workbook(blob, self.name)
+        wb.loaded_rows = getattr(blob, "loaded", None)
+        return wb
 
     # ------------------------------------------------------------------ 概要
     def overview(self) -> dict:
@@ -1375,8 +1417,8 @@ class XlsxLazy(LazyDoc):
                             "detail": f"全部のシートの {total_rows:,} 行・値のあるセル {state['cells']:,} か所を、窓の読み手と別の読み方で読み、同じ値であることを確かめました"}]
         cross = state["formulas_cross"]
         state["checks"].append({"name": "数式の計算結果", "ok": not state.get("formula_problems"), "agent": False, "items": state.get("formula_problems", []),
-                                "detail": f"同じ区切りの行だけを読む数式 {state['formulas_ok']:,} 個を計算し直し、保存された値と同じことを確かめました"
-                                          + (f"。計算し直せない・保存された値のない数式 {state['formulas_other']:,} 個" if state["formulas_other"] else "")
+                                "detail": f"同じ区切りの行を読む数式 {state['formulas_ok']:,} 個を計算し直し（読む先の数式がほかの区切りを読むなら、その保存された値を使って）、保存された値と同じことを確かめました"
+                                          + (f"。計算し直せない・開くたびに変わる・保存された値のない数式 {state['formulas_other']:,} 個" if state["formulas_other"] else "")
                                           + (f"。ほかの区切りの行を読む数式 {cross:,} 個は、保存された値のままで、照らしていません（書いて連動するときは、依存の閉包で計算し直します）" if cross else "")})
         if state["unshown"]:
             state["checks"].append({"name": "表示形式", "ok": True, "agent": True, "items": [],
@@ -1387,8 +1429,8 @@ class XlsxLazy(LazyDoc):
         return state
 
     def _audit_formulas(self, wb, sh, ra: int, rb: int, state: dict, name: str) -> None:
-        """同じ区切りの行だけを読む数式を計算し直して、保存された値と照らす。ほかの行を読む数式は、照らさなかったと数える。"""
-        from ..formula.parser import iter_refs
+        """区切りの行を読む数式を計算し直して、保存された値と照らす（読む先の数式がほかの区切りを読むなら、その保存された値を使う）。
+        ほかの区切りの行を読む数式は、照らさなかったと数える。"""
         from ..xlsx.calc import Calc, _run_deep, values_equal
 
         cells = [c for c in sh.cells.values() if c.has_formula]
@@ -1397,26 +1439,18 @@ class XlsxLazy(LazyDoc):
         calc = Calc(wb)
         bad = state.setdefault("formula_problems", [])
 
-        def inside(c) -> bool:
-            if c.ast is None:
-                return False
-            dr = getattr(c, "dr", 0) or 0
-            for ref in iter_refs(c.ast):
-                if ref.sheet not in (None, sh.name) or ref.r1 + dr < ra or ref.r2 + dr > rb:
-                    return False
-            return True
-
         def run():
             for c in cells:
-                if not inside(c):
-                    state["formulas_cross"] += 1
-                    continue
-                if c.value is None:
+                key = (sh.name, c.row, c.col)
+                try:
+                    got = calc.cell_value(*key)
+                except Exception:  # noqa: BLE001  計算できない数式は、数えて伝える
                     state["formulas_other"] += 1
                     continue
-                try:
-                    got = calc.cell_value(sh.name, c.row, c.col)
-                except Exception:  # noqa: BLE001  計算できない数式は、数えて伝える
+                if key in calc.kept:
+                    state["formulas_cross"] += 1
+                    continue
+                if c.value is None or calc.status.get(key, ("ok", ""))[0] != "ok":  # 計算し直せない・開くたびに変わる（TODAY など）
                     state["formulas_other"] += 1
                     continue
                 if values_equal(c.value, got):
