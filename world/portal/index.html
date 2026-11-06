@@ -492,9 +492,9 @@ td .ci { display: inline-block; line-height: 1.3; }
       <button type="button" id="t-write" data-m="write_ok" aria-pressed="false">書ける</button>
       <button type="button" id="t-forms" data-m="forms_writable" aria-pressed="false">申請の様式に書ける</button>
       <button type="button" id="t-reach" data-m="reach" aria-pressed="false">取得できる</button>
-      <button type="button" class="cnt" hidden data-m="read_count" aria-pressed="false">読む：届く数</button>
+      <button type="button" class="cnt" hidden data-m="read_count" aria-pressed="false">読む：正確に読める数</button>
       <button type="button" class="cnt" hidden data-m="read_new" aria-pressed="false">読む：新しく届く数</button>
-      <button type="button" class="cnt" hidden data-m="write_count" aria-pressed="false">書く：届く数</button>
+      <button type="button" class="cnt" hidden data-m="write_count" aria-pressed="false">書く：正確に書ける数</button>
       <button type="button" class="cnt" hidden data-m="write_new" aria-pressed="false">書く：新しく届く数</button>
     </div>
     <div class="mapgrid">
@@ -523,14 +523,14 @@ td .ci { display: inline-block; line-height: 1.3; }
     </table></div>
     <button type="button" class="more" id="t-all" hidden></button>
     <div class="stages" id="stages">
-      <div class="stage"><h4>読む段階</h4><dl>
-        <div><dt>届く</dt><dd class="num" id="w-read-reach">●</dd></div>
+      <div class="stage"><h4>読む</h4><dl>
+        <div><dt>正確に読める</dt><dd class="num" id="w-read-reach">●</dd></div>
         <div><dt>新しく届く</dt><dd class="num" id="w-read-new">●</dd></div></dl></div>
-      <div class="stage"><h4>書く段階</h4><dl>
-        <div><dt>届く</dt><dd class="num" id="w-write-reach">●</dd></div>
+      <div class="stage"><h4>書く</h4><dl>
+        <div><dt>正確に書ける</dt><dd class="num" id="w-write-reach">●</dd></div>
         <div><dt>新しく届く</dt><dd class="num" id="w-write-new">●</dd></div></dl></div>
     </div>
-      <p class="metric-note" id="w-note">● は確定の集計が入ると、数に変わります。単位は書類の件数の推定（国ごとの書類の数 × 届く割合）で、「新しく届く」は、ふだんの道具では届かず、とどくで届く分です。</p>
+      <p class="metric-note" id="w-note">● は確定の集計が入ると、数に変わります。</p>
     <div class="band" id="band">
       <div><span class="v num" id="b-countries">●</span><span>国と地域（政府の書類が収集にある所）</span></div>
       <div><span class="v num" id="b-sampled">—</span><span>選んだ書類</span></div>
@@ -681,6 +681,18 @@ td .ci { display: inline-block; line-height: 1.3; }
     </table></div>
     <p class="cnote">記入済みの数の差は統計的に区別できません（両方が記入済み 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9。McNemar の正確検定 p = 1.0）。とどくの価値は、数を増やすことより、書いたものを証明できることにあります。確認役には、どちらの結果かを伏せました。</p>
 
+    <h4 class="minor">世界の数（同じ定義で実際に試した 1,079 件から推定）</h4>
+    <div class="tablebox"><table>
+      <thead><tr><th></th><th class="num">読む</th><th class="num">書く</th></tr></thead>
+      <tbody>
+<tr><td>とどくで通る</td><td class="num">2,196,131<br><span class="ci">1,862,792〜2,499,442</span></td><td class="num">1,822,350<br><span class="ci">1,515,378〜2,122,403</span></td></tr>
+<tr><td>比べる道具のどれかで通る</td><td class="num">2,458,866<br><span class="ci">1,922,916〜2,878,899</span></td><td class="num">1,840,925<br><span class="ci">1,547,590〜2,127,105</span></td></tr>
+<tr><td>とどくだけ通る（新しく届く）</td><td class="num">34,563<br><span class="ci">17,366〜61,435</span></td><td class="num">76,953<br><span class="ci">38,896〜135,667</span></td></tr>
+<tr><td>比べる道具だけ通る</td><td class="num">297,298<br><span class="ci">57,270〜824,918</span></td><td class="num">95,528<br><span class="ci">32,447〜214,266</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="cnote">区間は 95%。比べる道具は、書類ごとに形式に合う複数の道具のどれか 1 つでも通れば「通る」とします（比べる道具に有利）。書くは英数字の値で数えます。とどくの価値は、通る数より、変わったのが書いた所だけと証明できることにあります。「比べる道具だけ通る」のうち読むの 57% は、基準をわずかに下回った 1 件の書類の重みです。比べた結果の原因はまだ調べています。Excel は使っていません。読むの 1 件（ルーマニアの大きな Excel）は採点が終わらず、とどくも比べる道具も通らないと数えています。この件の遅さは固定後に調べています。</p>
+
     <h4 class="minor">実験の条件</h4>
     <ul class="conds">
       <li>道具の版：markitdown 0.1.9・openpyxl 3.1.5・pypdf 6.21.4・pdfplumber 0.11.10・python-docx 1.2.0・xlrd 2.0.2。正解は Poppler 26.10.0・LibreOffice 26.8.1・Excel 16.114・ファイルの XML から作りました（書類ごとに記録）。Word は動かしていません。</li>
@@ -695,7 +707,7 @@ td .ci { display: inline-block; line-height: 1.3; }
       <li><b>書体の埋め込み</b>：PDF に足す字を、同梱の書体（Noto Sans JP、OFL）から部分埋め込みするのを既定に。固定版の 20 通の比較では、PDF 16 通で日本語の書体を埋め込んでいませんでした。</li>
       <li><b>見えない字を防ぐ描画の確かめ</b>：書いた後に描いて、画素が変わらなければ読み戻しの違いとして返し、明るさの比が低ければ知らせます。</li>
       <li><b>書いた字を見える形に</b>：高さの足りない所で切られる字、一覧にない部品、NeedAppearances、枠の設定、描き直す表示での字の違いに対応。</li>
-      <li><b>Word の字の書式</b>：.docx・.doc の取り消し線と字の色を窓で伝えます（上の「字の色」の数は、この改善の前のものです）。</li>
+      <li><b>Word の字の書式</b>：.docx・.doc の取り消し線と字の色を窓で伝えます。上の「字の色」の差は Word の分で、固定版は Word の色を伝えていませんでした（Excel は 都と多摩 6/6・世界 70/71）。比べる道具の色は、比較のために書いた読み出しのスクリプトが取り出したものです。</li>
       <li><b>窓の字を元のまま</b>：印刷された箱の字（❑・□）、点線・下線の字、欄の見本の字、Excel のチェックボックスの面の字を伝えます。字のない図形は事実として示し、その上に書けます。</li>
       <li><b>○の位置</b>：長い語の○を、線のあいだに収め、収まらなければ字に沿った角の丸い囲みにします。</li>
       <li><b>読み戻しと伝え方</b>：読み戻しの誤検出（足した空白・.doc のテキストボックス・日付のセル）を直し、今回書いていないのに値の入っている欄を会話で伝えます。</li>
@@ -703,11 +715,11 @@ td .ci { display: inline-block; line-height: 1.3; }
     </ul>
     </details>
     <details class="fold"><summary><h3 id="h-next">次に広げること</h3></summary>
-    <p class="next">Acrobat と実機のスクリーンリーダー（NVDA・JAWS など）で確かめます。Word の○を図形で置くときの描き手による位置の違い、一部のビューアーでの読み上げの順と書いた値へのタブでの移動を整えます。世界の確定の数を地図に入れ、固定後の改善を含めて評価をもう一度回します。</p>
+    <p class="next">Acrobat と実機のスクリーンリーダー（NVDA・JAWS など）で確かめます。Word の○を図形で置くときの描き手による位置の違い、一部のビューアーでの読み上げの順と書いた値へのタブでの移動を整えます。固定後の改善を含めて評価をもう一度回します。</p>
     </details>
     <details class="fold"><summary><h3 id="h-method">方法</h3></summary>
     <div class="method">
-      <div><h4>母集団と標本</h4><p>国連の加盟 193 か国の、政府のサイトにある PDF・表計算・文書・CSV の書類です。政府のサイトは、国のドメインの政府用の区分（gov.br・go.jp・lg.jp・gouv.fr・gob.mx など。Public Suffix List と各国の登録機関の規則が根拠）と、米国の .gov などの国の政府のドメイン、Wikidata にある省庁・政府の機関・自治体の公式のサイトで決めました。書類は、Common Crawl の 2026 年 10 月の収集（CC-MAIN-2026-43）の中から選びます。収集の索引を区切りごとに無作為に選び、その中の政府のサイトの書類を候補にして、国 × 形式の群の層ごとに 20 件を無作為に選びました（選ばれる確率を記録）。表計算・文書は数が少ないので、候補が 20 件に届くまで区切りを無作為に足して読みました（国ごとに 120 まで）。国は選び出さず、193 か国のすべての結果を地図に示しています。</p></div>
+      <div><h4>母集団と標本</h4><p>国連の加盟 193 か国（そのうち、政府の書類の枠があり段階を付けられたのは 185 か国）の、政府のサイトにある PDF・表計算・文書・CSV の書類です。政府のサイトは、国のドメインの政府用の区分（gov.br・go.jp・lg.jp・gouv.fr・gob.mx など。Public Suffix List と各国の登録機関の規則が根拠）と、米国の .gov などの国の政府のドメイン、Wikidata にある省庁・政府の機関・自治体の公式のサイトで決めました。書類は、Common Crawl の 2026 年 10 月の収集（CC-MAIN-2026-43）の中から選びます。収集の索引を区切りごとに無作為に選び、その中の政府のサイトの書類を候補にして、国 × 形式の群の層ごとに 20 件を無作為に選びました（選ばれる確率を記録）。表計算・文書は数が少ないので、候補が 20 件に届くまで区切りを無作為に足して読みました（国ごとに 120 まで）。国は選び出さず、193 か国のすべての結果を地図に示しています。</p></div>
       <div><h4>分析の単位</h4><p>主の単位は書類（ファイル）です。段階がファイルごとに付くためです。同じ中身の書類は 1 件に数えます。書く段階の理由は入力欄ごとにも数えます。</p></div>
       <div><h4>測ること</h4><p>書類の全体を取得できたか、読む段階 S〜F、書く段階 A〜D、その理由。すべて決定的な処理です。Common Crawl は大きな書類を途中で切って保存するので、切れた書類は、そのままスコアを付けず、政府のサイトから取り直しました。10% の部分標本では、全欄に書いて、書いた所のほかはバイト一致することを確かめました。</p></div>
       <div><h4>数字の読み方</h4><p>数字が表すのは「Common Crawl が集めた、政府のサイトの書類」で、政府の書類の全体の中では下限です。Common Crawl は、リンクの多いページや HTML を先に集めます。Office の書類は PDF よりずっと少なく、標本の少ない国・形式は区間が広くなります。政府のドメインの一覧は、国のドメインに政府用の区分のない国（ドイツ・オランダなど）では Wikidata によります。切れた書類で取り直せなかったものは分母から除いています。国の値は、PDF・表計算・文書・CSV の割合を、その国の政府のサイトにある数（収集の索引から推定）に合わせて足し合わせたものです（選んだ数の偏りを直すため）。</p></div>
@@ -778,12 +790,12 @@ td .ci { display: inline-block; line-height: 1.3; }
   const outJa = o => OUT_JA[o] || (String(o).startsWith("http_") ? "HTTP " + String(o).slice(5) : String(o));
   const METRIC = {
     read_ok: { label: "正確に読める書類の割合", note: "取りに行けた書類のうち、AI エージェントが中身を正確に読めるもの（読む段階 S・A・B）。" },
-    write_ok: { label: "書ける書類の割合", note: "取りに行けた書類のうち、エージェントがとどくで書けるもの（書く段階 A・B。B は、規則では欄と決められない所を、エージェントが窓を読んで決めて書くもの）。" },
+    write_ok: { label: "書ける書類の割合", note: "取りに行けた書類のうち、エージェントがとどくで書けるもの（書く段階 A・B。B は、規則では欄と決められない所を、エージェントが窓を読んで決めて書くもの）。段階はファイルの作りからの判定で、実際に書いて試した数は「正確に書ける数」です。" },
     forms_writable: { label: "申請の様式に書ける割合", note: "入力欄のある申請の様式のうち、エージェントが書けるもの（画面からの入力や手書き・押印が要らない。書く段階 A・B）。" },
-    read_count: { label: "読む段階で届く書類の数（推定）", path: ["read", "reach"], note: "国ごとの書類の数 × 読む段階で届く割合。" },
-    read_new: { label: "読む段階で新しく届く書類の数（推定）", path: ["read", "new"], note: "ふだんの道具では届かず、とどくで届く分。" },
-    write_count: { label: "書く段階で届く書類の数（推定）", path: ["write", "reach"], note: "国ごとの書類の数 × 書く段階で届く割合。" },
-    write_new: { label: "書く段階で新しく届く書類の数（推定）", path: ["write", "new"], note: "ふだんの道具では届かず、とどくで届く分。" },
+    read_count: { label: "正確に読める書類の数（推定）", path: ["read", "reach"], note: "同じ定義で実際に読んで試した書類から推定。国ごとの標本は少なく、国の数は目安です。" },
+    read_new: { label: "読むで新しく届く書類の数（推定）", path: ["read", "new"], note: "比べた道具のどれでも通らず、とどくで通る分。国ごとの標本は少なく、国の数は目安です。" },
+    write_count: { label: "正確に書ける書類の数（推定）", path: ["write", "reach"], note: "同じ定義で実際に書いて試した書類から推定。書く欄のない書類は書けないと数えます。国ごとの標本は少なく、国の数は目安です。" },
+    write_new: { label: "書くで新しく届く書類の数（推定）", path: ["write", "new"], note: "比べた道具のどれでも通らず、とどくで通る分。国ごとの標本は少なく、国の数は目安です。" },
     reach: { label: "取得できる書類の割合", note: "選んだ書類のうち、全体を取得できたもの（Common Crawl の保存から。保存が途中で切れていたものは、政府のサイトから取り直した）。" },
   };
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -876,7 +888,7 @@ td .ci { display: inline-block; line-height: 1.3; }
          <dt>読む S〜B</dt><dd>${pct(c.read_ok.p)} <span class="ci">${ci(c.read_ok.ci)}</span></dd>
          <dt>書く A・B</dt><dd>${pct(c.write_ok.p)} <span class="ci">${ci(c.write_ok.ci)}</span></dd>
          <dt>様式に書く</dt><dd>${pct(c.forms_writable.p)} <span class="ci">${ci(c.forms_writable.ci)}</span>（様式 ${c.forms_writable.n} 件）</dd>
-         ${c.counts ? `<dt>読む：届く／新しく</dt><dd>${c.counts.read.reach.toLocaleString()}／${c.counts.read.new.toLocaleString()} 件</dd><dt>書く：届く／新しく</dt><dd>${c.counts.write.reach.toLocaleString()}／${c.counts.write.new.toLocaleString()} 件</dd>` : ""}
+         ${c.counts ? `<dt>読む：正確に／新しく</dt><dd>${c.counts.read.reach.toLocaleString()}／${c.counts.read.new.toLocaleString()} 件</dd><dt>書く：正確に／新しく</dt><dd>${c.counts.write.reach.toLocaleString()}／${c.counts.write.new.toLocaleString()} 件</dd>` : ""}
        </dl>
        <div style="font-size:.78rem;color:var(--muted)">読む段階</div>${stackHtml(c.read, READ, "g", READ_JA)}${stackLabels(c.read, READ, "g", READ_JA)}
        <div style="font-size:.78rem;color:var(--muted)">書く段階</div>${stackHtml(c.write, WRITE, "w", WRITE_JA)}${stackLabels(c.write, WRITE, "w", WRITE_JA)}
@@ -1010,7 +1022,7 @@ td .ci { display: inline-block; line-height: 1.3; }
       document.getElementById("b-countries").textContent = T.countries;
       const put = (id, x) => { if (x && x.n != null) document.getElementById(id).innerHTML = x.n.toLocaleString() + (x.ci ? `<small>95% 区間 ${x.ci[0].toLocaleString()}〜${x.ci[1].toLocaleString()}</small>` : ""); };
       put("w-read-reach", F.read?.reach); put("w-read-new", F.read?.new); put("w-write-reach", F.write?.reach); put("w-write-new", F.write?.new);
-      document.getElementById("w-note").textContent = `${F.version || ""} の集計。単位は書類の件数の推定（国ごとの書類の数 × 届く割合）で、Common Crawl の収集の中の値です。「新しく届く」は、ふだんの道具では届かず、とどくで届く分です。`;
+      document.getElementById("w-note").textContent = `${F.version || ""} の集計。単位は書類の件数の推定で、Common Crawl の収集の中の値です（政府の書類の全部ではありません）。無作為に選んだ 1,079 件を同じ定義で実際に読み書きして推定しました。書く欄のない書類は書けないと数えます。「新しく届く」は、比べた道具のどれでも通らず、とどくで通る分です。`;
       if (Object.values(d.countries).some(c => c.counts)) document.querySelectorAll(".tabs .cnt").forEach(b => { b.hidden = false; });
     } else {
       document.getElementById("map-status").textContent = "いま地図に出している割合は、確定の集計の前のものです。● は確定の集計が入ると、数に変わります。";
