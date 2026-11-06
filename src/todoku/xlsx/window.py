@@ -2629,7 +2629,10 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
                      for c in sh.controls],
         "shapes": [{"kind": s.kind, "name": s.name, "text": s.text, "alt": s.alt,
                     "anchor": addr(*s.anchor) if s.anchor else None, "provenance": DET,
-                    **({"decorative": True} if getattr(s, "decorative", False) else {}), **_shape_place(sh, s)} for s in sh.shapes],
+                    **({"decorative": True} if getattr(s, "decorative", False) else {}), **_shape_place(sh, s)} for s in sh.shapes]
+                  # 押すだけの部品・ラベル・枠の面の字（欄ではないが、シートに見えている字）
+                  + [{"kind": "部品", "name": c.name, "text": " ".join(c.text.split()), "alt": "", "anchor": addr(*c.anchor) if c.anchor else None,
+                      "provenance": DET} for c in sh.controls if c.kind in ("Button", "Label", "GBox") and (c.text or "").strip()],
         "notes": [{"cell": addr(*k), "text": t, "provenance": DET} for k, t in sorted(sh.comments.items())],
         "links": [{"cell": c, "target": t, "provenance": DET} for c, t in sh.hyperlinks if t],
         "tables": _tables(wb, sh),

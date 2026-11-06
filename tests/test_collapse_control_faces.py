@@ -57,3 +57,17 @@ def test_rows_with_the_same_face_may_still_collapse(tmp_path):
     src = tmp_path / "a.xlsx"
     src.write_bytes(_xlsx(["同じ面"] * 5))
     assert "同じ形の行が" in _window(src)
+
+
+def test_button_face_is_in_the_window(tmp_path):
+    blob = _xlsx(["同じ面"])
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(blob)) as zi, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zo:
+        for it in zi.infolist():
+            b = zi.read(it.filename)
+            if it.filename.endswith(".vml"):
+                b = b.replace(b'ObjectType="Checkbox"', b'ObjectType="Button"').replace("同じ面".encode(), "印刷する".encode())
+            zo.writestr(it, b)
+    src = tmp_path / "a.xlsx"
+    src.write_bytes(out.getvalue())
+    assert "印刷する" in _window(src)
