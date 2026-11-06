@@ -35,6 +35,14 @@ def _plain(s: str) -> str:
     return re.sub(r"\\([\\(),;])", r"\1", s).strip()
 
 
+def eq_chars(instr: str) -> str:
+    """ファイルの字として窓に出す字（検査で照らす）：見える字とふりがな。EQ でない・読めない形（窓には命令のままの説明を出す）は空。"""
+    got = eq_text(instr)
+    if got is None or got[1] is None:
+        return ""
+    return got[0] + got[1]
+
+
 def eq_text(instr: str) -> tuple[str, str | None] | None:
     """(見える字, ふりがな)。EQ でなければ None。ふりがなの形でなければ (命令のままの説明, None)。"""
     s = instr.replace("\x13", "").replace("\x14", "").replace("\x15", "").strip()

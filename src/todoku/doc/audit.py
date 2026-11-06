@@ -21,6 +21,7 @@ from ..cfb import CFB
 from ..docx.document import WINGDINGS, iter_paras
 from ..docx.window import Spots, box_mark, build, markdown_parts
 from ..xlsx.audit import AUDIT_BOXES, Audit, Check, count_chars
+from ..eqfield import eq_chars
 from .book import CP_PAD, DocFile
 from .fill import SHIFT, FillError, fill
 
@@ -30,22 +31,25 @@ BOXES = AUDIT_BOXES
 def raw_chars(doc: DocFile) -> list[str]:
     """ピースの表から直接（段落や表に分けずに）文字を拾う。フィールドの命令の文字と、制御の字は除く。"""
     out = []
-    depth = []
+    depth = []  # 開いているフィールド：[命令か結果か, 命令の字]
     text = doc.text
     for cp, ch in enumerate(text):
         o = ord(ch)
         if ch == CP_PAD:
             continue
         if o == 0x13:
-            depth.append("instr")
+            depth.append(["instr", []])
             continue
         if o == 0x14 and depth:
-            depth[-1] = "result"
+            depth[-1][0] = "result"
             continue
         if o == 0x15 and depth:
-            depth.pop()
+            f = depth.pop()
+            if f[0] == "instr":
+                out.extend(eq_chars("".join(f[1])))  # 結果の字のない EQ フィールド（ふりがな）：命令の中の字が見える字
             continue
-        if depth and depth[-1] == "instr":
+        if depth and depth[-1][0] == "instr":
+            depth[-1][1].append(ch)
             continue
         if o < 0x20:
             continue

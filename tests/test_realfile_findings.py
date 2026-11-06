@@ -501,6 +501,37 @@ def test_doc_eq_ruby_shows_base_text(tmp_path):
     assert "氏漢字（かんじ）名" in t
 
 
+def test_doc_audit_counts_the_ruby_it_shows(tmp_path):
+    """窓に出したふりがなは命令の中の字：検査の別の読み方でも数える（「元にないのに窓に出ています」にしない）。"""
+    text = "氏\x13 EQ \\o\\ad(\\s\\up 9(かんじ),漢字)\x15名\r"
+    from todoku.doc.audit import raw_chars
+    from todoku.doc.book import DocFile
+
+    assert "".join(raw_chars(DocFile(_doc97(text), "a.doc"))) == "氏漢字かんじ名"
+    assert "氏漢字（かんじ）名" in "\n".join(x[1] for x in api.window(_p(tmp_path, "a.doc", _doc97(text)))[2])
+
+
+def test_doc_field_with_a_result_counts_only_the_result():
+    from todoku.doc.audit import raw_chars
+    from todoku.doc.book import DocFile
+
+    text = "a\x13 EQ \\f(1,2)\x14RESULT\x15b\r"
+    assert "".join(raw_chars(DocFile(_doc97(text), "a.doc"))) == "aRESULTb"
+
+
+def test_docx_audit_counts_the_ruby_it_shows(tmp_path):
+    from test_docx import make_docx
+
+    body = ('<w:p><w:r><w:t>氏</w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r>'
+            '<w:r><w:instrText xml:space="preserve"> EQ \\o\\ad(\\s\\up 9(かんじ),漢字)</w:instrText></w:r>'
+            '<w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:t>名</w:t></w:r></w:p>')
+    p = _p(tmp_path, "a.docx", make_docx(body))
+    t = "\n".join(x[1] for x in api.window(p)[2])
+    assert "氏漢字（かんじ）名" in t
+    c = next(x for x in api.audit_whole(p)["checks"] if x["name"] == "読み落とし（文書の文字）")
+    assert c["ok"], c["items"]
+
+
 def test_rtf_eq_ruby_shows_base_text(tmp_path):
     rtf = (rb"{\rtf1\ansi\deff0{\fonttbl{\f0 MS Mincho;}}\pard a"
            rb"{\field{\*\fldinst EQ \\o\\al(\\s\\up 10(\u12363?),\u28450?\u23383?)}{\fldrslt {}}}"

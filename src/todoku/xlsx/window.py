@@ -2329,6 +2329,10 @@ class Layout:
                 parts.append(blank_token(t, a, z, k, mark))
                 at = z
             parts.append(t[at:])
+            # 表示形式が足した字（"〔"@"〕" など）も、見えているとおりに
+            i = b.text.find(t)
+            if i >= 0:
+                parts = [b.text[:i], *parts, b.text[i + len(t):]]
             return f"〔{b.cell_ref}〕" + "".join(parts).replace("\n", " ").strip() + self.merge_mark(b)
         t = b.text.replace("\n", " ").strip()
         return t + self.merge_mark(b) if t else t

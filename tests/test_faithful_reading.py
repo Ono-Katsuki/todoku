@@ -331,3 +331,19 @@ def test_portal_and_eval_use_same_interval():
     # デザインの自由度が小さいほど、区間は広い（Korn & Graubard の補正）
     wide, plain = korn_graubard(0.3, 0.01, 200, df=4), korn_graubard(0.3, 0.01, 200)
     assert wide["n_eff"] < plain["n_eff"] and wide["ci"][0] < plain["ci"][0] and wide["ci"][1] > plain["ci"][1]
+
+
+def test_blank_in_a_cell_keeps_the_characters_of_its_number_format(tmp_path):
+    """表示形式が足した字（"〔"@"〕"）：文字の中の空欄を印に置き換えても、見えている字を窓から落とさない。"""
+    openpyxl = pytest.importorskip("openpyxl")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "S"
+    ws["A1"] = "○○養生した試験"
+    ws["A1"].number_format = '"〔"@"〕"'
+    p = tmp_path / "a.xlsx"
+    wb.save(p)
+    t = "\n".join(x[1] for x in api.window(str(p))[2])
+    assert "〔A1〕〔［？○○］養生した試験〕" in t, t
+    c = next(x for x in api.audit_whole(str(p))["checks"] if x["name"] == "読み落とし（Markdown の窓）")
+    assert c["ok"], c["items"]

@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
+from ..eqfield import eq_chars
 from ..xlsx.audit import AUDIT_BOXES, Audit, Check, count_chars
 from .document import WINGDINGS, DocxDocument
 from .fill import FillError, fill
@@ -22,12 +23,38 @@ from .window import build, markdown_parts
 BOXES = AUDIT_BOXES
 
 
+def _unxml(t: str) -> str:
+    return t.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&apos;", "'").replace("&amp;", "&")
+
+
+def _eq_fields(xml: bytes) -> list[str]:
+    """結果の字のない EQ フィールド（古い形のふりがな）の字：命令の中の字が見える字。"""
+    out = []
+    stack: list[dict] = []
+    for m in re.finditer(rb'<w:fldChar\b[^>]*?w:fldCharType="(\w+)"|<w:instrText\b[^>]*>(.*?)</w:instrText>|<w:(?:t|delText)(?:\s[^>]*)?>', xml, re.S):
+        if m[1] == b"begin":
+            stack.append({"instr": [], "text": False})
+        elif m[1] == b"end":
+            if stack:
+                f = stack.pop()
+                if not f["text"] and eq_chars("".join(f["instr"])):
+                    out.append(eq_chars("".join(f["instr"])))
+        elif m[2] is not None:
+            if stack:
+                stack[-1]["instr"].append(_unxml(m[2].decode("utf-8", "replace")))
+        elif m[1] is None:
+            for f in stack:
+                f["text"] = True
+    return out
+
+
 def raw_texts(doc: DocxDocument) -> list[str]:
     """文字の要素（w:t）と記号（w:sym）を、XML から直接拾う。AlternateContent の代わりの中身（Fallback）は除く。"""
     out = []
     for _kind, part, _blocks in doc.all_blocks():
         xml = doc.xml(part)
         xml = re.sub(rb"<mc:Fallback\b.*?</mc:Fallback>", b"", xml, flags=re.S)
+        out += _eq_fields(xml)
         xml = re.sub(rb"<w:instrText\b[^>]*>.*?</w:instrText>", b"", xml, flags=re.S)
         for m in re.finditer(rb"<(?:w|m):(?:t|delText)(?:\s[^>]*)?>(.*?)</(?:w|m):(?:t|delText)>|<w:sym\b([^>]*)/>", xml, re.S):
             if m[1] is not None:
