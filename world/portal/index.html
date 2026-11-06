@@ -148,6 +148,11 @@ button, select, input { font: inherit; color: inherit; }
   .opening .slip { justify-self: stretch !important; text-align: left !important; max-width: none; }
 }
 
+@media (min-width: 861px) and (max-width: 1320px) {   /* 中央の言葉に押されて横の列が細くなる幅：言葉を上に、論文は同じ幅で下に並べる */
+  .opening .orbit { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 56px 44px; max-width: 1180px; }
+  .opening .voice { flex: 0 0 100%; }
+  .opening .slip { flex: 0 1 min(30%, 340px); max-width: none; justify-self: auto !important; text-align: left !important; align-self: flex-start; }
+}
 @media (max-width: 860px) {
   .opening .orbit { grid-template-columns: 1fr 1fr; grid-template-areas: "q q" "a b" "c d" "e f" "g h"; }
   .opening .voice { padding: 8px 0 12px; }
