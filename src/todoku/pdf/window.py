@@ -138,29 +138,19 @@ def _face_text(doc: PdfDocument, f: FormField, w: Widget) -> str:
         return ""
     if f.kind == "button" and w.mk_caption:
         return " " + w.mk_caption
-    from .glyphs import appearance_text, widget_appearance
-    from .objects import Stream
-
-    got: list[str] = []
-    seen: set[int] = set()
-
-    def walk(st, depth: int) -> None:
-        if not isinstance(st, Stream) or depth > 8 or id(st) in seen:
-            return
-        seen.add(id(st))
-        got.append(appearance_text(doc, st)[0])
-        res = doc.resolve(st.dict.get("Resources"))
-        xo = doc.resolve(res.get("XObject")) if isinstance(res, dict) else None
-        for x in (xo.values() if isinstance(xo, dict) else ()):
-            sub = doc.resolve(x)
-            if isinstance(sub, Stream) and getattr(doc.resolve(sub.dict.get("Subtype")), "name", "") == "Form":  # 画像の中身は字ではない
-                walk(sub, depth + 1)
+    from .glyphs import widget_appearance
 
     try:
-        walk(widget_appearance(doc, doc.resolve(w.ref) if w.ref is not None else None), 0)
+        st = widget_appearance(doc, doc.resolve(w.ref) if w.ref is not None else None)
+        if st is None:
+            return ""
+        # 面の見た目を 1 枚のページとして読む（ページと同じ読み方：入れ子のフォーム・画像・書体の決まり）
+        box = doc.resolve(st.dict.get("BBox")) or [0, 0, 1000, 1000]
+        face = {"Contents": st, "Resources": st.dict.get("Resources") or {}, "MediaBox": [doc.resolve(v) for v in box]}
+        lines = PageLayout(doc, face, page_content(doc, face), 1).all_lines()
+        text = " ".join(" ".join(ln.text.split()) for ln in lines if ln.text.strip() and "\ufffd" not in ln.text)
     except Exception:  # noqa: BLE001  面の字が読めないだけ（欄の印は出す）
         return ""
-    text = " ".join(" ".join(got).split())
     return f" {text}" if text else ""
 
 
