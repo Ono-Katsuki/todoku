@@ -847,6 +847,7 @@ class PageLayout:
                     combs.append(_agent(sp))
                 run = [c] if c is not None else []
         self.spots += combs
+        pics = [r for r in (self.view.rect(p.x0, p.y0, p.x1, p.y1) for p in self.pc.pictures) if (r[2] - r[0]) * (r[3] - r[1]) > 4]
         for c in cells:
             rect = (c.x0, c.y0, c.x1, c.y1)
             nb = self._neighbours(rect)
@@ -862,6 +863,8 @@ class PageLayout:
                         and o.x1 <= c.x1 + 0.5 and o.y0 >= c.y0 - 0.5 and o.y1 <= c.y1 + 0.5)
             if inner:
                 facts["inner_cells"] = inner  # 中にある、もっと小さなマスの数（入れ物のマス）
+            if any(min(c.x1, r[2]) > max(c.x0, r[0]) and min(c.y1, r[3]) > max(c.y0, r[1]) for r in pics):
+                facts["on_image"] = True  # 字はないが、画像が重なるマス（紋章・写真・スキャン）。空いているかは絵を見ないと分からない
             sp.facts = {**facts, **self._facts_nb(nb)}
             self.spots.append(sp)
 

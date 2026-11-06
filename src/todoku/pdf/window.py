@@ -1232,6 +1232,8 @@ def _facts_text(f: dict) -> str:
         parts.append(f"塗り {fa['fill']}")
     if fa.get("inner_cells"):
         parts.append(f"中に小さなマス {fa['inner_cells']} 個")
+    if fa.get("on_image"):
+        parts.append("画像が重なる（空いているかは view_page で）")
     st = _size_text(f)
     if st:
         parts.append(st)
