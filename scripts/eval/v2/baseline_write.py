@@ -15,9 +15,11 @@ v1 からの違い：「消えた」（lost）を、書類の中身だけで数�
   baseline_write.py check <元> <出力> <kind> <欄の JSON> <値>
     とどくを使わずに、値が入ったか・何が消えたかを確かめる"""
 
+import atexit
 import io
 import json
 import re
+import shutil
 import sys
 import time
 import zipfile
@@ -196,6 +198,7 @@ def pdf_ink(a_path, b_path, page, rect):
     from PIL import Image, ImageChops
 
     d = tempfile.mkdtemp(prefix="todoku_ink_")
+    atexit.register(shutil.rmtree, d, ignore_errors=True)
     dpi = 100
     ims = []
     for name, src in (("a", a_path), ("b", b_path)):
@@ -265,6 +268,7 @@ def do_check(a):
             import tempfile
 
             d = tempfile.mkdtemp(prefix="todoku_doc_")
+            atexit.register(shutil.rmtree, d, ignore_errors=True)
             subprocess.run(["soffice", f"-env:UserInstallation=file://{d}/prof", "--headless", "--norestore", "--convert-to", "txt:Text (encoded):UTF8", "--outdir", d, out],
                            capture_output=True, timeout=180)
             f = os.path.join(d, os.path.splitext(os.path.basename(out))[0] + ".txt")
@@ -327,7 +331,9 @@ def do_crop(a):
     pdf, page, rect, out = a
     rect = json.loads(rect)
     dpi = 300
-    pre = os.path.join(tempfile.mkdtemp(prefix="todoku_crop_"), "p")
+    d = tempfile.mkdtemp(prefix="todoku_crop_")
+    atexit.register(shutil.rmtree, d, ignore_errors=True)
+    pre = os.path.join(d, "p")
     subprocess.run(["pdftoppm", "-r", str(dpi), "-f", str(page), "-l", str(page), "-png", "-singlefile", pdf, pre], check=False, capture_output=True, timeout=120)
     im = Image.open(pre + ".png")
     if rect:
