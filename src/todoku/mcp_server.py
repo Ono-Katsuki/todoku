@@ -801,7 +801,10 @@ def call_tool(name: str, args: dict) -> dict:
             lines.insert(0, (f"検査は止まりました：{job['stopped']}" if job.get("stopped") else f"検査は別のプロセスで動いています：{at}。") +
                          "もう一度 audit_document を呼ぶと、進み具合と結果が分かります（止まっていれば、控えの続きから進みます）")
         else:
-            lines.append("結論: " + ("全て正確に読み書きできます" if au["ok"] else "読み書きに確認が必要な点があります"))
+            lines.append("結論: " + (("確かめた所は正確です（未確認の所があります）" if au.get("deferred") else "全て正確に読み書きできます") if au["ok"] else "読み書きに確認が必要な点があります"))
+        wp = au.get("written_proof")
+        if wp and wp.get("note"):
+            lines.insert(0, wp["note"])
         g = au.get("grade")
         if g:
             lines.append(g["headline"])

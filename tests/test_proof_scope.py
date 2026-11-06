@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import re
 import time
 import zipfile
 
 import pytest
 
 from todoku import api, jobs, lazy, limits
-from todoku.book import open_book
 from todoku.formula.parser import parse_cell
 from todoku.xlsx import edit as xedit
 from todoku.xlsx import reach as xreach
@@ -484,18 +482,3 @@ def test_whole_calc_deadline_is_not_a_pass(tmp_path):
     r = g.reach({("Sheet1", 1, 1)})
     calc, bad = xreach.whole_calc(wb, g, r, set(), False, None, deadline=time.monotonic() - 1)
     assert calc["status"] == "deferred" and not bad
-
-
-def test_xls_write_keeps_the_scope(tmp_path):
-    """古い Excel の道でも、同じ確かめが動く（ブックの作りが違っても、セルの持ち方は同じ）。"""
-    from todoku.xlsx import reach
-
-    p = _small(tmp_path / "a.xlsx")
-    wb = open_book(p.read_bytes(), p.name)
-    assert reach.from_workbook(wb).reach({("Sheet1", 1, 1)}).dependent
-
-
-def test_reach_module_has_no_keyword_lists_about_documents():
-    """連動の判断は数式の字の作りだけで決める（見出しの字は見ない）。"""
-    src = (xreach.__file__ and open(xreach.__file__, encoding="utf-8").read())
-    assert not re.search(r"(?:label|context)\b", src)

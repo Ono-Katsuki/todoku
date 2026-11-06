@@ -664,14 +664,14 @@ def prove_whole(wb, new_blob: bytes, name: str, seeds: set, changes: list[dict],
     reach = graph.reach(seeds)
     s = changes_scope(wb, graph, reach, changes)
     s.note_cells(graph, seeds)
+    s.marked = full_calc
     try:
         wb_new = open_book(new_blob, name)
-    except LimitExceeded:
+        s.marked = has_full_calc_mark(wb_new) or full_calc
+        s.calc, bad = whole_calc(wb_new, graph, reach, s.changed, s.marked, lambda: wb, None if seconds is None else time.monotonic() + seconds)
+    except LimitExceeded:  # この呼び出しの予算に入らない：長い仕事で確かめる
         s.calc = {"status": "deferred"}
         return s
-    marked = has_full_calc_mark(wb_new) or full_calc
-    s.calc, bad = whole_calc(wb_new, graph, reach, s.changed, marked, lambda: wb, None if seconds is None else time.monotonic() + seconds)
-    s.marked = marked
     s.problems += bad
     return s
 
