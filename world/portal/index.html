@@ -424,9 +424,9 @@ td .ci { display: inline-block; line-height: 1.3; }
         <li><b>探すだけで重い。</b>様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。</li>
         <li><b>印刷して手で書く前提。</b>入力欄のない印刷用の PDF で、紙に書いて窓口か郵送で出します。ペンを持てない私には書けません。</li>
         <li><b>そもそも、私が使う iPad では Office の書類も崩れて扱えません。</b>iPad の Excel は、マクロ（VBA）も動かせません。</li>
-        <li><b>署名は手書きの欄。</b>とどくは、私が同意すれば署名の画像を置けます。ただし、画像の署名を区が認めるかは様式しだいです。</li>
+        <li><b>署名は手書きの欄。</b>とどくは、私が同意すれば署名の画像を置けます。画像の署名を受け付けるかは、様式ごとに決まっています。</li>
       </ul>
-      <p class="bnote">頭のスイッチで字を入れたとしたら：158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）。＋ 196 か所から書く欄を探して移る操作（測れていないので含めていません）。</p>
+      <p class="bnote">頭のスイッチで字を入れたとしたら：158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）。＋ 196 か所から書く欄を探して移る操作（この時間は足していません）。</p>
       <p class="bnote">とどく ＋ エージェント：私が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）。</p>
       <p class="bnote">とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで 0.3 秒。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
     </details>
@@ -855,8 +855,8 @@ window.TODOKU_I18N = (() => {
     [`探すだけで重い。様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。`, `<b>Finding it is already heavy.</b> Forms differ by ward and are scattered. To find this 1 form, even an agent took 6 searches across 4 sites (Tokyo, Meguro City, Shinjuku City, Chuo City), and no filled-in example existed anywhere. Entering search terms 1 character at a time with a head switch is a big job on its own.`],
     [`印刷して手で書く前提。入力欄のない印刷用の PDF で、紙に書いて窓口か郵送で出します。ペンを持てない私には書けません。`, `<b>It assumes printing and handwriting.</b> A print-only PDF with no input fields, written on paper and filed at the counter or by mail. I cannot hold a pen, so I cannot write it.`],
     [`そもそも、私が使う iPad では Office の書類も崩れて扱えません。iPad の Excel は、マクロ（VBA）も動かせません。`, `<b>On the iPad I use, Office documents break and cannot be handled in the first place.</b> Excel on iPad cannot run macros (VBA) either.`],
-    [`署名は手書きの欄。とどくは、私が同意すれば署名の画像を置けます。ただし、画像の署名を区が認めるかは様式しだいです。`, `<b>The signature is a handwriting field.</b> With my consent, todoku can place an image of my signature. Whether the ward accepts an image signature depends on the form.`],
-    [`頭のスイッチで字を入れたとしたら：158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）。＋ 196 か所から書く欄を探して移る操作（測れていないので含めていません）。`, `Typing with a head switch would take: longer than 158 characters × 3.6 seconds for 1 character (Ono, ASSETS '26 §4.1: over 1 hour per 1,000 characters). + finding and moving to the right fields among 196 places (not measured, so not included).`],
+    [`署名は手書きの欄。とどくは、私が同意すれば署名の画像を置けます。画像の署名を受け付けるかは、様式ごとに決まっています。`, `<b>The signature is a handwriting field.</b> With my consent, todoku can place an image of my signature. Each form sets whether an image signature is accepted.`],
+    [`頭のスイッチで字を入れたとしたら：158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）。＋ 196 か所から書く欄を探して移る操作（この時間は足していません）。`, `Typing with a head switch would take: longer than 158 characters × 3.6 seconds for 1 character (Ono, ASSETS '26 §4.1: over 1 hour per 1,000 characters). + finding and moving to the right fields among 196 places (this time is not added).`],
     [`とどく ＋ エージェント：私が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）。`, `todoku + agent: the 1 sentence I ask: 2–3 minutes (Ono, ASSETS '26 §4.3).`],
     [`とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで 0.3 秒。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。`, `todoku writes the 22 places, proves that only those changed, and reads them back in 0.3 seconds. I check by reading what the agent tells me it wrote, in conversation. The typing time is a lower bound derived from my paper (over 1 hour per 1,000 characters; 2–3 minutes per 1 request).`],
     // ---- trust
