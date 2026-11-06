@@ -414,3 +414,62 @@ def test_right_align_with_large_pad_stays_inside_or_is_refused():
         assert start + text_width(line, size) <= vw - pad + 0.01
     with pytest.raises(FillError):
         fill(PdfDocument(blob), {s["id"]: {"value": "H" * 3000, "align": "right", "pad_mm": 20}})
+
+
+def _two_pages_with_lists_in_the_leaf(shared: bool = False) -> bytes:
+    """ページの要素の一覧が ParentTree の葉の中に直接ある、2 ページの文書（実物によくある形）。
+    shared：どのページも同じ StructParents で、一覧を 1 つで分け合う（これも実物にある形）。"""
+    objs = {1: "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 3 0 R /MarkInfo << /Marked true >> >>",
+            2: "<< /Type /Pages /Kids [4 0 R 5 0 R] /Count 2 >>",
+            3: "<< /Type /StructTreeRoot /K 6 0 R /ParentTree 7 0 R /ParentTreeNextKey 2 >>",
+            4: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 10 0 R /Resources << /Font << /F1 12 0 R >> >> /StructParents 0 >>",
+            5: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 11 0 R /Resources << /Font << /F1 12 0 R >> >> /StructParents 1 >>",
+            6: "<< /Type /StructElem /S /Document /P 3 0 R /K [8 0 R 9 0 R] >>",
+            7: "<< /Nums [0 [8 0 R 8 0 R] 1 [9 0 R 9 0 R]] >>",
+            8: "<< /Type /StructElem /S /P /P 6 0 R /Pg 4 0 R /K [0 1] >>",
+            9: "<< /Type /StructElem /S /P /P 6 0 R /Pg 5 0 R /K [0 1] >>",
+            10: stream(TAGGED_PAGE).decode("latin-1"), 11: stream(TAGGED_PAGE).decode("latin-1"), 12: HELV}
+    if shared:
+        objs[5] = objs[5].replace("/StructParents 1", "/StructParents 0")
+        objs[3] = objs[3].replace("/ParentTreeNextKey 2", "/ParentTreeNextKey 1")
+        objs[7] = "<< /Nums [0 [8 0 R 8 0 R]] >>"
+    out = bytearray(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
+    offs = []
+    for n in sorted(objs):
+        offs.append(len(out))
+        out += f"{n} 0 obj\n{objs[n]}\nendobj\n".encode("latin-1")
+    x = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode() + b"".join(f"{o:010d} 00000 n \n".encode() for o in offs)
+    out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n".encode()
+    return bytes(out)
+
+
+def test_every_page_keeps_its_added_elements_when_the_lists_are_in_the_leaf():
+    """葉の中の一覧を、ページごとに元の葉から作り直すと、前のページで足した要素が一覧から消える（読み上げに届かない）。"""
+    blob = _two_pages_with_lists_in_the_leaf()
+    per_page = [next(fd["id"] for fd in pg["fields"]) for pg in build_window(PdfDocument(blob))["pages"]]
+    assert len(per_page) == 2
+    res, doc = write(blob, {i: "Hanako" for i in per_page})
+    tree = structadd.Tree(doc)
+    for n, page in enumerate(doc.pages()):
+        arr = doc.resolve(tree.entries[n])
+        sp = pagedraw.spans(doc, page)
+        assert sp, n
+        for s in sp:
+            assert doc.resolve(arr[s["mcid"]])["K"] == s["mcid"], (n, s)
+
+
+def test_pages_sharing_one_list_get_different_numbers():
+    """どのページも同じ StructParents の文書：ページごとに同じ番号をつけると、後のページの要素が前のページの要素を一覧から消す。"""
+    blob = _two_pages_with_lists_in_the_leaf(shared=True)
+    per_page = [next(fd["id"] for fd in pg["fields"]) for pg in build_window(PdfDocument(blob))["pages"]]
+    res, doc = write(blob, {i: "Hanako" for i in per_page})
+    arr = doc.resolve(structadd.Tree(doc).entries[0])
+    for page in doc.pages():
+        sp = pagedraw.spans(doc, page)
+        assert sp
+        for s in sp:
+            e = doc.resolve(arr[s["mcid"]])
+            assert e["K"] == s["mcid"] and e["Pg"].num == page["_ref"].num
+    mine = [s["mcid"] for page in doc.pages() for s in pagedraw.spans(doc, page)]
+    assert len(mine) == len(set(mine))

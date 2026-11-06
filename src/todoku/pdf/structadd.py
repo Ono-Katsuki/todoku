@@ -168,9 +168,10 @@ def open_marks(data: bytes) -> int:
     return d
 
 
-def first_mcid(doc, page: dict) -> tuple[int | None, str | None]:
+def first_mcid(doc, page: dict, taken: dict | None = None) -> tuple[int | None, str | None]:
     """このページで足す字に最初につける番号。返す：(番号 | None, 足せない理由 | None)。タグのない文書は (None, None)。
-    書き込みと証明が同じ決め方で使う（元の文書で決まる）。"""
+    書き込みと証明が同じ決め方で使う（元の文書で決まる）。
+    taken：同じ StructParents のページがある文書（一覧を 1 つで分け合う）で、前のページが足した番号の続き（ページの順に呼ぶ。note_taken）。"""
     tree = tree_of(doc)
     if not tree.present:
         return None, None
@@ -193,10 +194,18 @@ def first_mcid(doc, page: dict) -> tuple[int | None, str | None]:
         arr = doc.resolve(tree.entries[key])
         if not isinstance(arr, list):
             return None, "ページの要素の一覧（ParentTree の値）が一覧ではありません"
-        n = max(n, len(arr))
+        n = max(n, len(arr), (taken or {}).get(key, 0))
     elif page.get("StructParents") is not None and not isinstance(key, int):
         return None, "ページの StructParents が整数ではありません"
     return n, None
+
+
+def note_taken(doc, page: dict, seq: list[dict], taken: dict) -> None:
+    """このページで足した番号を控える（first_mcid の taken）。"""
+    key = doc.resolve(page.get("StructParents"))
+    nums = [e["mcid"] for e in seq if e.get("mcid") is not None]
+    if isinstance(key, int) and nums:
+        taken[key] = max(taken.get(key, 0), max(nums) + 1)
 
 
 def marked_chars(doc, page: dict) -> list[tuple]:
@@ -330,10 +339,10 @@ class Adder:
         if isinstance(cur, list):
             # 一覧が葉の中に直接あるとき：葉の中の一覧を書き換える
             for path in tree.leaves:
-                nums = self.doc.resolve(path[-1][1].get("Nums")) or []
+                node = self._pt_node(path[-1])  # 書き換えた後の葉から読む：元の葉から作り直すと、前のページで足した項目を失う
+                nums = self.doc.resolve(node.get("Nums")) or []
                 for i in range(0, len(nums), 2):
                     if self.doc.resolve(nums[i]) == key:
-                        node = self._pt_node(path[-1])
                         arr = list(nums[i + 1])
                         new_nums = list(nums)
                         new_nums[i + 1] = arr

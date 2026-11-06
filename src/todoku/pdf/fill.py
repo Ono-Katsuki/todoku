@@ -1210,6 +1210,7 @@ class Filler:
         from . import circle as _circle, structadd
 
         adder = None
+        taken: dict = {}
         for page_no in sorted(set(self.circles) | set(self.drawn)):
             page = self.pages[page_no - 1]
             pref = page["_ref"]
@@ -1219,7 +1220,7 @@ class Filler:
             items = self.drawn.get(page_no, [])
             res = dict(self.doc.resolve(page.get("Resources")) or {})
             xo = dict(self.doc.resolve(res.get("XObject")) or {})
-            first, why = structadd.first_mcid(self.doc, page) if self.draw_on_page else (None, None)
+            first, why = structadd.first_mcid(self.doc, page, taken) if self.draw_on_page else (None, None)
             if why and why not in self.struct_why:
                 self.struct_why.append(why)
             circles = self.circles.get(page_no, [])
@@ -1230,6 +1231,7 @@ class Filler:
                     if _circle.description(sd) is None:
                         self.warnings.append(f"{sd['id']}: 囲んだ字を読めないので、読み上げでは、どの字を囲んだかが伝わりません")
             if seq:
+                structadd.note_taken(self.doc, page, seq, taken)
                 labels = {it.name: self.drawn_labels.get(it.name, "") for it in items}
                 for e in seq:
                     e["label"] = labels.get(e["id"]) or next((sd.get("text") for sd in circles if sd["id"] == e["id"]), "")

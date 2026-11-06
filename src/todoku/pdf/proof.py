@@ -441,7 +441,8 @@ def _check_circles(a: PdfDocument, b: PdfDocument, circles: list, pr: PdfProof, 
     from .glyphs import appearance_text
 
     new_pages = b.pages()
-    for pnum, (pre, post) in pr.page_contents.items():
+    taken: dict = {}  # 書き込みと同じくページの順に（同じ StructParents のページの番号の続き：structadd.first_mcid）
+    for pnum, (pre, post) in sorted(pr.page_contents.items(), key=lambda t: nums.get(t[0], 0)):
         n = nums.get(pnum)
         want = by_page.pop(n, None) if n is not None else None
         items = pagedraw.items_of(b, new_pages[n - 1], pr.added_nums) if n is not None else []
@@ -453,7 +454,7 @@ def _check_circles(a: PdfDocument, b: PdfDocument, circles: list, pr: PdfProof, 
         old_res = a.resolve(page.get("Resources")) or {}
         old_xo = a.resolve(old_res.get("XObject")) or {}
         may = pagedraw.may_draw(a)
-        first = structadd.first_mcid(a, page)[0] if may else None
+        first = structadd.first_mcid(a, page, taken)[0] if may else None
         new_res_ = b.resolve(new_pages[n - 1].get("Resources")) or {}
         new_xo_ = b.resolve(new_res_.get("XObject")) or {}
 
@@ -468,6 +469,7 @@ def _check_circles(a: PdfDocument, b: PdfDocument, circles: list, pr: PdfProof, 
             return ref
 
         expect, names, seq = pagedraw.page_ops(View(a, page), circle.open_depth(a.page_content(page)), want, items, old_xo, first, may, said)
+        structadd.note_taken(a, page, seq, taken)
         for e in seq:
             pr.struct_expect[(pnum, e["mcid"])] = e
         if not _resources_only_added(a, b, old_res, b.resolve(new_pages[n - 1].get("Resources")) or {}, names):
