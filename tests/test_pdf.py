@@ -226,14 +226,25 @@ def test_sample_form_audit():
 
 # ====================================================================== 公開の様式
 @pytest.mark.corpus
-@pytest.mark.parametrize("name", ["r9kojinnbanngoukinyuuyousi.pdf", "400747.pdf", "FUNDING-REQUEST-FORM.pdf",
-                                  "tamen_siharai-92.pdf"])
+@pytest.mark.parametrize("name", ["r9kojinnbanngoukinyuuyousi.pdf", "400747.pdf", "FUNDING-REQUEST-FORM.pdf"])
 def test_corpus_audit(name):
     path = next((p for p in CORPUS if Path(p).name == name), None)
     if path is None:
         pytest.skip(name)
     au = audit(Path(path).read_bytes(), name)
     assert au.ok, [(c.name, c.detail, c.items[:3]) for c in au.checks if not c.ok]
+
+
+@pytest.mark.corpus
+def test_corpus_audit_flags_page_mostly_covered_by_an_image():
+    # 7 ページは画像が 62% を覆う。字の情報だけでは全部を読んだと言えないので、検査は見て確かめる所として知らせる。ほかの確かめは通る
+    path = next((p for p in CORPUS if Path(p).name == "tamen_siharai-92.pdf"), None)
+    if path is None:
+        pytest.skip("tamen_siharai-92.pdf")
+    au = audit(Path(path).read_bytes(), "tamen_siharai-92.pdf")
+    failed = [c for c in au.checks if not c.ok]
+    assert [c.name for c in failed] == ["窓の字を信用できない所"], [(c.name, c.detail) for c in failed]
+    assert any("7 ページ：ページの大半が画像" in i for i in failed[0].items)
 
 
 def test_anchored_write_beside_a_label():
