@@ -310,7 +310,6 @@ def xreach_stale(b: bytes) -> bytes:
     return out.getvalue()
 
 
-@pytest.mark.xfail(strict=True, reason="書き手が、連動しない数式も計算と違えば書いている（次の修正で直す）")
 def test_an_already_different_unconnected_formula_does_not_fail(tmp_path):
     """連動しない数式の保存された値が、元から計算と違うとき：書き込みの誤りではない。別に数え、値はそのまま。"""
     body = ('<row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>5</v></c></row>'
@@ -320,6 +319,40 @@ def test_an_already_different_unconnected_formula_does_not_fail(tmp_path):
     assert res["proof_ok"], res["unexpected"]
     assert res["proof_scope"]["recalculated"]["others_already_different"] == 1
     assert Workbook((tmp_path / "o.xlsx").read_bytes()).sheet("S").cells[(2, 3)].value == 11
+
+
+def test_writer_leaves_unconnected_time_formula_and_no_cache_alone(tmp_path):
+    """連動しない TODAY・計算結果の保存されていない数式は、書いた行にあっても 1 バイトも変えない。"""
+    body = ('<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>TODAY()</f><v>46000</v></c><c r="C1"><f>D1*2</f></c><c r="D1"><v>3</v></c></row>')
+    p = _book(tmp_path / "a.xlsx", {"S": body})
+    res = api.fill(str(p), {"S!A1": 10}, str(tmp_path / "o.xlsx"))
+    assert res["proof_ok"], res["unexpected"]
+    assert res["recalculated"] == {}
+    with zipfile.ZipFile(tmp_path / "o.xlsx") as z:
+        xml = z.read("xl/worksheets/sheet1.xml").decode()
+    assert '<c r="B1"><f>TODAY()</f><v>46000</v></c><c r="C1"><f>D1*2</f></c>' in xml
+
+
+def test_reader_of_a_formula_that_cannot_be_calculated_is_not_written_from_the_old_value(tmp_path):
+    """計算できない数式を読む数式：古い値から計算した値を書かない。書いた値を反映していないと伝える。"""
+    body = ('<row r="1"><c r="A1"><v>1</v></c></row>'
+            '<row r="2"><c r="B2"><f>_xlfn.NOSUCHFUNCTION(A1)</f><v>5</v></c><c r="C2"><f>B2+1</f><v>7</v></c></row>')
+    p = _book(tmp_path / "a.xlsx", {"S": body})
+    res = api.fill(str(p), {"S!A1": 10}, str(tmp_path / "o.xlsx"))
+    assert res["recalculated"] == {}
+    assert any("C2" in x for x in res["stale_formulas"]) and any("B2" in x for x in res["stale_formulas"])
+    assert Workbook((tmp_path / "o.xlsx").read_bytes()).sheet("S").cells[(2, 3)].value == 7
+
+
+def test_warning_names_only_connected_formulas_that_cannot_be_calculated(tmp_path):
+    """連動しない、計算できない数式を「連動する」と言わない。開いたときに計算し直す印も付けない。"""
+    body = ('<row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c></row>'
+            '<row r="2"><c r="C2"><f>_xlfn.NOSUCHFUNCTION(B1)</f><v>5</v></c></row>')
+    p = _book(tmp_path / "a.xlsx", {"S": body})
+    res = api.fill(str(p), {"S!A1": 10}, str(tmp_path / "o.xlsx"))
+    assert not res.get("stale_formulas")
+    with zipfile.ZipFile(p) as a, zipfile.ZipFile(tmp_path / "o.xlsx") as b:
+        assert a.read("xl/workbook.xml") == b.read("xl/workbook.xml")
 
 
 # ------------------------------------------------------------------ 大きなブックの道

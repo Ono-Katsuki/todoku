@@ -357,6 +357,10 @@ class Graph:
                                     fire(f)
         return out
 
+    def readers(self, keys) -> set[int]:
+        """keys のセルを読む数式の結果のセル（連動の連動まで）。"""
+        return self._closure(keys)
+
     def reach(self, written) -> Reach:
         """written：書いたセル (シート, 行, 列) の並び。"""
         keys = {k for k in (self.key(*w) for w in written) if k is not None}

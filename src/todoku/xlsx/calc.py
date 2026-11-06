@@ -388,7 +388,12 @@ def verify(wb: Workbook) -> VerifyReport:
 
 
 def recalc(wb: Workbook, overrides: dict[tuple[str, int, int], object]):
-    """値を差し替えたときに、値が変わる数式セルを返す。"""
+    """値を差し替えたときに、値が変わる数式セルを返す。計算するのは、書いた値に連動する数式と、連動を決められない数式だけ（xlsx/reach.py）。
+    連動しない数式は、保存された値が計算と違っていても書かない（書いた値のせいで変わったのではない。開くたびに変わるだけの TODAY なども同じ）。"""
+    from .reach import from_workbook
+
+    graph = from_workbook(wb)
+    reach = graph.reach(overrides)
 
     def run():
         new = Calc(wb, overrides)
@@ -398,13 +403,19 @@ def recalc(wb: Workbook, overrides: dict[tuple[str, int, int], object]):
             key = (cell.sheet, cell.row, cell.col)
             if key in overrides:
                 continue
+            kind = reach.kind(graph.key(*key))
+            if kind not in ("dependent", "dynamic"):
+                continue
             after = new.cell_value(cell.sheet, cell.row, cell.col)
             st = new.status.get(key, ("ok", ""))
             if key in new.kept:
-                continue  # 読んでいない行を読む数式は、書かない（連動するかは、下で）
-            if st[0] in ("unsupported", "cycle"):
-                if _depends_on(wb, cell, overrides):
+                # 読んでいない行を読む数式は、書かない。連動するなら、いまの値は書いた値を反映していない
+                # （連動を決められない数式は、開いたときに計算し直す印に任せる：lazy/xlsxdoc の _closure）
+                if kind == "dependent":
                     problems[key] = st[1]
+                continue
+            if st[0] in ("unsupported", "cycle"):
+                problems[key] = st[1]
                 continue
             if not values_equal(cell.value, after):
                 changed[key] = after
@@ -412,17 +423,6 @@ def recalc(wb: Workbook, overrides: dict[tuple[str, int, int], object]):
                 # 動的配列の結果の大きさが変わる：こぼれる範囲（とその外のセル）が変わるので、ここでは書かずに
                 # Excelで開いたときに計算し直させる
                 problems[key] = "動的配列の結果の大きさが変わる（こぼれる範囲が変わる）"
-        # 書かなかった数式のうち、書いた値に連動するもの：いまの値は書いた値を反映していない（連動しないものは、保存された値のままで正しい）
-        moved = set(overrides) | set(changed)
-        rest = {k: wb.sheet(k[0]).cells[k[1:]] for k in new.kept if k not in overrides}
-        while rest:
-            hit = [k for k, cell in rest.items() if _reads_any(cell, moved)]
-            if not hit:
-                break
-            for k in hit:
-                problems[k] = new.status[k][1]
-                moved.add(k)
-                del rest[k]
         # こぼれる範囲が変わる動的配列の、ほかのセルも書かない
         for (sh_name, r, c), why in list(problems.items()):
             m = wb.sheet(sh_name).cells.get((r, c))
@@ -431,6 +431,13 @@ def recalc(wb: Workbook, overrides: dict[tuple[str, int, int], object]):
                     cc = wb.sheet(k2[0]).cells.get(k2[1:])
                     if k2[0] == sh_name and cc is not None and cc.array_master == (r, c):
                         problems[k2] = why
+        # 計算し直せなかった数式を読む数式：古い値から計算した値なので、書かない
+        if problems:
+            late = graph.readers({graph.key(*k) for k in problems})
+            for k2 in list(changed):
+                if k2 not in problems and graph.key(*k2) in late:
+                    problems[k2] = "読む先の数式を計算し直せませんでした"
+                    del changed[k2]
         return changed, problems
 
     return _run_deep(run)
@@ -448,30 +455,8 @@ def _spill_changes(calc: "Calc", master: Cell) -> bool:
     return (rows, cols) != (r2 - r1 + 1, c2 - c1 + 1)
 
 
-def _depends_on(wb: Workbook, cell: Cell, overrides) -> bool:
-    """再計算できない数式が、書き換えたセルに依存しているかを（保守的に）調べる。"""
-    if cell.ast is None:
-        return True
-    for ref in iter_refs(cell.ast):
-        return True
-    return False
-
-
 def _has_relative(ast: Node) -> bool:
     return any(isinstance(r, RefNode) and not (r.abs_r1 and r.abs_r2) for r in iter_refs(ast))
-
-
-def _reads_any(cell: Cell, keys: set) -> bool:
-    """数式の参照の中に keys（シート, 行, 列）のセルがあるか（名前・表は、ここでは見ない）。"""
-    if cell.ast is None:
-        return False
-    for ref in iter_refs(cell.ast):
-        if isinstance(ref, RefNode):
-            n = ref.shifted(cell.dr, cell.dc)
-            sheet = (n.sheet or cell.sheet).lower()
-            if any(k[0].lower() == sheet and n.r1 <= k[1] <= n.r2 and n.c1 <= k[2] <= n.c2 for k in keys):
-                return True
-    return False
 
 
 def used_functions(wb: Workbook) -> dict[str, int]:
