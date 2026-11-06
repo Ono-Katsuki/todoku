@@ -5,6 +5,7 @@ v1 からの違い：「消えた」（lost）を、書類の中身だけで数�
   W3 alternate_content：workbook.xml の x15ac:absPath（作った人の PC のパスの控え）を数えない。シート・図形の中のものは数える。
   W4 printer_settings をやめ、ページの設定（pageSetup・pageMargins・printOptions）を数える。
   W5 formula_cached_values：<v></v>（空）を保存された値に数えない。v1 は空でも数え、openpyxl が値を全部消しても lost にならなかった（比べる道具に有利だった）。
+  W7 .doc の確かめ：LibreOffice の .txt で値が見えないときは .docx に変えて本文の XML も見る。
   W6 .xls の確かめ：xlrd を ignore_workbook_corruption=True で開く（元のファイルからこの OLE の警告が出る書類がある）。
   baseline_write.py write <道具> <元> <出力> <kind> <欄の JSON> <値>
     openpyxl      読み込み（.xlsm は keep_vba）→セルに代入→保存
@@ -79,6 +80,27 @@ def write_docx(p, out, tg, val):
     import docx
 
     d = docx.Document(p)
+    mp = re.match(r"P(\d+)\.c(\d+)$", tg.get("id") or "")
+    if mp:  # 段落の中の空欄（文書の順の段落の番号と、前の字数）。同じ所に字を入れる
+        ps = list(d.element.body.iter(W + "p"))
+        n, off = int(mp.group(1)) - 1, int(mp.group(2))
+        if n >= len(ps):
+            raise ValueError("同じ所を指せない欄（段落がない）")
+        pos = 0
+        ts = list(ps[n].iter(W + "t"))
+        for t in ts:
+            ln = len(t.text or "")
+            if pos + ln >= off:
+                t.text = (t.text or "")[: off - pos] + val + (t.text or "")[off - pos:]
+                t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                d.save(out)
+                return {"method": "inline"}
+            pos += ln
+        if off == pos and not ts:
+            ps[n].append(docx.oxml.parse_xml('<w:r xmlns:w="%s"><w:t>%s</w:t></w:r>' % (W[1:-1], val)))
+            d.save(out)
+            return {"method": "inline_empty"}
+        raise ValueError("同じ所を指せない欄（段落の字が足りない）")
     m = re.match(r"T(\d+)\.R(\d+)\.C(\d+)$", tg.get("id") or "")
     if m:
         cell = d.tables[int(m.group(1)) - 1].rows[int(m.group(2)) - 1].cells[int(m.group(3)) - 1]
@@ -109,7 +131,15 @@ def do_write(a):
 
             wb = openpyxl.load_workbook(p, keep_vba=p.lower().endswith("xlsm"))
             sh, addr = tg["id"].rsplit("!", 1)
-            wb[sh][addr.split(":")[0]] = val
+            cell = wb[sh][addr.split(":")[0]]
+            if tg.get("kind") == "inline":  # マスの字の中の最初の空欄に入れる
+                old = str(cell.value or "")
+                new = re.sub(r"　+|[ ]{2,}", lambda _m: val, old, count=1)
+                if new == old:
+                    raise ValueError("同じ所を指せない欄（空欄がない）")
+                cell.value = new
+            else:
+                cell.value = val
             wb.save(out)
         elif kind == "docx" and tool == "python-docx":
             o.update(write_docx(p, out, tg, val))
@@ -239,6 +269,13 @@ def do_check(a):
                            capture_output=True, timeout=180)
             f = os.path.join(d, os.path.splitext(os.path.basename(out))[0] + ".txt")
             o["landed"] = os.path.exists(f) and val in open(f, encoding="utf-8", errors="replace").read()
+            if not o["landed"]:  # W7：LibreOffice の .txt の書き出しは、表の中身を落とす書類がある（KR-text-001）。.docx に変えて本文の XML も見る
+                subprocess.run(["soffice", f"-env:UserInstallation=file://{d}/prof", "--headless", "--norestore", "--convert-to", "docx", "--outdir", d, out],
+                               capture_output=True, timeout=180)
+                f = os.path.join(d, os.path.splitext(os.path.basename(out))[0] + ".docx")
+                if os.path.exists(f):
+                    body = zipfile.ZipFile(f).read("word/document.xml").decode("utf-8", "replace")
+                    o["landed"] = val in re.sub(r"<[^>]+>", "", body)
             o["lost"] = {}
             o["checked_by"] = "libreoffice"
         elif kind == "pdf":

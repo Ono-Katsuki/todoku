@@ -29,6 +29,7 @@ assert Path(common.__file__).parent == V2
 # ほかの試験が読む v1 の同じ名前の部品と混ざらないように、名前の表から外す（ここでは手元の参照を使う）
 for m in ("common", "truth", "read_compare", "runner", "stage2_select", "write_compare", "make_signed"):
     sys.modules.pop(m, None)
+WC = None  # write_compare は下で読む
 sys.path.remove(str(V2))
 
 BPY = os.environ.get("TODOKU_BASELINE_PY", "/private/tmp/claude-501/-Users-onokatsuki-Documents-GitHub-claude---/fdcc494c-06ce-4f3c-bc44-7cab0977bf2d/scratchpad/m/ev/baseline_venv/bin/python")
@@ -606,3 +607,206 @@ def test_jp_forms_page_list_fixed_and_refusal_rule():
     assert not jf.REFUSED.match("http_404")
     html = b'<a href="a.pdf">x</a><a href="/b.XLSX">y</a><a href="c.html">z</a>'
     assert jf.links_of("https://x.example/d/p.html", html, "text/html") == ["https://x.example/b.XLSX", "https://x.example/d/a.pdf"]
+
+
+# ---------------------------------------------------------------- 追加の直し（R7〜R9・inline の所・選び直し）
+SRC = Path(common.ROOT) / "src"
+
+
+def test_radio_marks_count_as_state():
+    assert RC.checks([{"checked": True}, {"checked": False}], "◉［r1＝A］ ｜ ○［r2］")["ok"] == 2
+    assert RC.checks([{"checked": True}, {"checked": False}], "☑ ☐")["ok"] == 2  # 比べる道具の印も同じ
+    assert RC.checks([{"checked": True}], "○［r1］")["ok"] == 0  # 状態が違えば落ちる
+
+
+def test_decoder_keeps_literal_bar_and_blank_places():
+    win = "## 本文\n\n- 区分｜種別 の順に書く［P1.c10？］\n- a ｜ b\n- 氏名（［P2.c3］）を書く\n- ab（［　］）cd\n- ［P1.c2？…］続き\n"
+    t = RC.clean_todoku(RC.todoku_content(win))
+    assert "区分｜種別" in t and "a   b" in t.replace("｜", "X")
+    assert "ab（　）cd" in t
+    assert "…続き" in t and "P1.c2" not in t and "P2.c3" not in t and "［" not in t
+    # 本当に欠けた字は、これでも落ちる
+    assert RC.recalls(["区分｜種別"], RC.clean_todoku(RC.todoku_content("## 本文\n\n- 区分 種別\n")))["char"] < 1
+
+
+def test_merged_row_matches_through_blank_place():
+    h = RC.Hay(RC.clean_todoku("- 5: 結合 ｜ ab（［　］）cd\n"))
+    assert any("ab( )cd" in ln and "結合" in ln for ln in h.lines)
+
+
+def test_form_mark_inside_word_does_not_break_bigrams_but_printed_box_stays():
+    assert RC.recalls(["YesNo"], RC.clean_todoku(RC.drop_ctrl_marks("Yes☐［Check14］No")))["bigram"] == 1.0
+    assert RC.recalls(["YesNo"], RC.clean_todoku("Yes☐［Check14］No"))["bigram"] < 1.0  # 直す前の形
+    assert "☐" in RC.drop_ctrl_marks("☐［P3.c1？］ はい") and "☐" in RC.drop_ctrl_marks("☐［p1.t10-20］")
+    assert "◉" not in RC.drop_ctrl_marks("◉［r1＝A］")
+    assert RC.CHECK_OFF.search("☐［Check14］")  # 状態の数えは元の字のまま
+
+
+@need_base
+def test_inline_places_picked_only_when_no_other_and_all_tools_measured(tmp_path):
+    code = """
+import docx, openpyxl, sys
+d = docx.Document(); d.add_paragraph("氏名（　　　　）を書く"); d.save(sys.argv[1] + "/a.docx")
+wb = openpyxl.Workbook(); ws = wb.active; ws.title = "S"; ws["A1"] = "氏名（　　　　）"; wb.save(sys.argv[1] + "/b.xlsx")
+"""
+    subprocess.run([BPY, "-I", "-c", code, str(tmp_path)], check=True, timeout=60)
+    tw = [sys.executable, "-I", str(V2 / "todoku_write.py"), str(SRC)]
+    for name, tool, kind in (("a.docx", "python-docx", "docx"), ("b.xlsx", "openpyxl", "xlsx")):
+        p = str(tmp_path / name)
+        pick = json.loads(subprocess.run([*tw, p, "pick"], capture_output=True, text=True, timeout=120).stdout.splitlines()[-1])
+        assert pick["id"] and pick["inline"] is True, pick  # 前の定義では「書ける欄がない」
+        out = str(tmp_path / ("t_" + name))
+        res = json.loads(subprocess.run([*tw, p, "fill", out, pick["id"], "TEST-12345"], capture_output=True, text=True, timeout=120).stdout.splitlines()[-1])
+        assert not res.get("error") and res.get("proof_ok") is True and Path(out).exists(), res
+        chk = subprocess.run([BPY, "-I", str(V2 / "baseline_write.py"), "check", p, out, kind, json.dumps(pick), "TEST-12345"], capture_output=True, text=True, timeout=120)
+        assert json.loads(chk.stdout.splitlines()[-1])["landed"] is True
+        o2 = str(tmp_path / ("b_" + name))
+        w = json.loads(subprocess.run([BPY, "-I", str(V2 / "baseline_write.py"), "write", tool, p, o2, kind, json.dumps(pick), "TEST-12345"], capture_output=True, text=True, timeout=120).stdout.splitlines()[-1])
+        assert not w.get("error"), w
+        chk = subprocess.run([BPY, "-I", str(V2 / "baseline_write.py"), "check", p, o2, kind, json.dumps(pick), "TEST-12345"], capture_output=True, text=True, timeout=120)
+        assert json.loads(chk.stdout.splitlines()[-1])["landed"] is True
+
+
+@need_base
+def test_rule_cell_chosen_before_inline_and_dark_cell_skipped(tmp_path):
+    code = """
+import sys
+from reportlab.pdfgen import canvas
+from reportlab.lib.colors import black, white
+c = canvas.Canvas(sys.argv[1])
+c.drawString(72, 760, "Name"); c.setFillColor(black); c.rect(150, 750, 300, 24, stroke=1, fill=1)
+c.setFillColor(black); c.drawString(72, 700, "City"); c.setFillColor(white); c.rect(150, 690, 300, 24, stroke=1, fill=1)
+c.save()
+"""
+    p = tmp_path / "k.pdf"
+    subprocess.run([BPY, "-I", "-c", code, str(p)], check=True, timeout=60)
+    tw = [sys.executable, "-I", str(V2 / "todoku_write.py"), str(SRC), str(p), "pick"]
+    pick = json.loads(subprocess.run(tw, capture_output=True, text=True, timeout=120).stdout.splitlines()[-1])
+    assert pick["inline"] is False and pick["rect"][1] > 100  # 黒いマス（上）でなく白いマス（下）
+    again = json.loads(subprocess.run([*tw, json.dumps([pick["id"]])], capture_output=True, text=True, timeout=120).stdout.splitlines()[-1])
+    assert again["id"] != pick["id"] and again["inline"] is True  # 断られたら次の所へ。黒いマスには戻らない
+
+
+def _load_wc():
+    sys.path.insert(0, str(V2))
+    for m in ("common", "make_signed", "write_compare"):
+        sys.modules.pop(m, None)
+    try:
+        return importlib.import_module("write_compare")
+    finally:
+        sys.path.remove(str(V2))
+        for m in ("common", "make_signed", "write_compare"):
+            sys.modules.pop(m, None)
+
+
+def test_refused_place_is_repicked_for_every_tool(tmp_path, monkeypatch):
+    wc = _load_wc()
+    calls = []
+
+    def fake(cmd, **kw):
+        c = [str(x) for x in cmd]
+        calls.append(c)
+        if "pick" in c:
+            i = c.index("pick")
+            done = json.loads(c[i + 1]) if len(c) > i + 1 else []
+            pid = "narrow" if not done else "wide"
+            return {"stdout": json.dumps({"id": pid, "kind": "text", "inline": False}), "returncode": 0}
+        if "fill" in c:
+            pid = c[c.index("fill") + 2]
+            if pid == "narrow":
+                return {"stdout": json.dumps({"error": "ApiError: 入りきりません"}), "returncode": 0}
+            Path(c[c.index("fill") + 1]).write_bytes(b"x")
+            return {"stdout": json.dumps({"proof_ok": True}), "returncode": 0}
+        if "write" in c:
+            Path(c[c.index("write") + 3]).write_bytes(b"x")
+            return {"stdout": json.dumps({"tool": c[c.index("write") + 1], "target": c[c.index("write") + 5]}), "returncode": 0}
+        if "check" in c:
+            return {"stdout": json.dumps({"landed": True, "lost": {}}), "returncode": 0}
+        return {"stdout": "{}", "returncode": 0}
+
+    monkeypatch.setattr(wc, "run_watched", fake)
+    doc = tmp_path / "a.docx"
+    doc.write_bytes(b"x")
+
+    class A:
+        todoku_python = sys.executable
+        baseline_python = sys.executable
+        todoku_src = "s"
+        pkr = None
+
+    rec = wc.one(str(doc), A, tmp_path / "o")
+    assert rec["pick_refused"] == ["narrow"] and rec["target"]["id"] == "wide"
+    wr = [c for c in calls if "write" in c]
+    assert wr and all(json.loads(c[c.index("write") + 5])["id"] == "wide" for c in wr)  # 比べる道具も同じ所
+    assert rec["runs"]["todoku:ascii"]["write_ok"] and rec["runs"]["python-docx:ascii"]["write_ok"]
+
+
+def test_unverified_file_is_inspected_but_never_write_ok(tmp_path, monkeypatch):
+    wc = _load_wc()
+
+    def fake(cmd, **kw):
+        c = [str(x) for x in cmd]
+        if "pick" in c:
+            return {"stdout": json.dumps({"id": "A", "kind": "text"}), "returncode": 0}
+        if "fill" in c:
+            o = Path(c[c.index("fill") + 1])
+            wc.unverified_file(o).write_bytes(b"x")
+            return {"stdout": json.dumps({"proof_ok": False}), "returncode": 0}
+        if "check" in c:
+            return {"stdout": json.dumps({"landed": True, "lost": {}}), "returncode": 0}
+        return {"stdout": "{}", "returncode": 0}
+
+    monkeypatch.setattr(wc, "run_watched", fake)
+    monkeypatch.setitem(wc.TOOLS, "docx", ())
+    doc = tmp_path / "a.docx"
+    doc.write_bytes(b"x")
+
+    class A:
+        todoku_python = sys.executable
+        baseline_python = sys.executable
+        todoku_src = "s"
+        pkr = None
+
+    r = wc.one(str(doc), A, tmp_path / "o")["runs"]["todoku:ascii"]
+    assert r["unverified"] is True and r["check"]["landed"] is True and r["write_ok"] is False
+
+
+def test_previous_definition_kept_beside():
+    run = {"todoku:ascii": {"write_ok": True}, "openpyxl:ascii": {"write_ok": False}}
+    d = RN.one_score({"tools": {"todoku": {"opened": True}}}, {"target": {"inline": True}, "runs": run})
+    assert d["write_todoku"] is True and d["write_todoku_prev"] is False
+    d = RN.one_score({"tools": {"todoku": {"opened": True}}}, {"target": {"inline": False}, "runs": run})
+    assert d["write_todoku_prev"] is True
+
+
+@need_base
+def test_color_not_normal_counts_beside(tmp_path):
+    code = """
+import docx, sys
+from docx.shared import RGBColor
+d = docx.Document()
+r = d.add_paragraph().add_run("ふつうの色の長い本文の字の並び"); r.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+r = d.add_paragraph().add_run("赤い字"); r.font.color.rgb = RGBColor(0xFF, 0, 0)
+d.save(sys.argv[1])
+"""
+    x, o = tmp_path / "c.docx", tmp_path / "p.json"
+    subprocess.run([BPY, "-I", "-c", code, str(x)], check=True, timeout=60)
+    subprocess.run([BPY, "-I", str(V2 / "probes.py"), str(x), "docx", str(o)], check=True, timeout=60)
+    pr = json.loads(o.read_text())
+    assert pr["color_normal"] == "333333"
+    cat = RC.score_docx({"probes": pr}, RC.Hay("赤い字 色:FF0000"), "")
+    assert cat["color"]["n"] == 2 and cat["color_not_normal"] == {"n": 1, "ok": 1}
+
+
+@need_base
+@need_lo
+def test_doc_check_finds_value_in_table_and_rejects_absent(tmp_path):
+    """.doc の確かめ（W7）。値がないときは落ちる。"""
+    x = tmp_path / "t.docx"
+    subprocess.run([BPY, "-I", "-c", "import docx,sys; d=docx.Document(); t=d.add_table(rows=1,cols=1); t.cell(0,0).text='TEST-12345'; d.save(sys.argv[1])", str(x)], check=True, timeout=60)
+    subprocess.run(["soffice", f"-env:UserInstallation=file://{tmp_path}/prof", "--headless", "--norestore", "--convert-to", "doc:MS Word 97", "--outdir", str(tmp_path), str(x)], capture_output=True, timeout=180)
+    doc = str(tmp_path / "t.doc")
+    tg = json.dumps({"id": "T1.R1.C1"})
+    for val, want in (("TEST-12345", True), ("ABSENT-999", False)):
+        r = subprocess.run([BPY, "-I", str(V2 / "baseline_write.py"), "check", doc, doc, "doc", tg, val], capture_output=True, text=True, timeout=400)
+        assert json.loads(r.stdout.splitlines()[-1])["landed"] is want

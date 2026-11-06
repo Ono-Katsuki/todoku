@@ -216,6 +216,7 @@ def probe_docx(p: str) -> dict:
     z = zipfile.ZipFile(p)
     names = set(z.namelist())
     paras, textbox, checks, strike, color, hidden, ruby = [], [], [], [], [], [], []
+    color_vals, chars_by_color = [], {}
     parts = ["word/document.xml"] + sorted(n for n in names if re.fullmatch(r"word/(header|footer|footnotes|endnotes)\d*\.xml", n))
     for part in parts:
         if part not in names:
@@ -237,7 +238,12 @@ def probe_docx(p: str) -> dict:
         for r in root.iter(W + "r"):
             pr = r.find(W + "rPr")
             t = "".join((x.text or "") for x in r.findall(W + "t"))
-            if pr is None or not t.strip():
+            if not t.strip():
+                continue
+            _c = pr.find(W + "color") if pr is not None else None
+            _cv = (_c.get(W + "val") if _c is not None else None) or "auto"
+            chars_by_color[_cv] = chars_by_color.get(_cv, 0) + len(t)
+            if pr is None:
                 continue
             # w:val="0" は線なし（線を打ち消す指定）なので、取り消し線に数えない
             if any(e is not None and e.get(W + "val", "1") not in ("0", "false", "off") for e in (pr.find(W + "strike"), pr.find(W + "dstrike"))):
@@ -245,6 +251,7 @@ def probe_docx(p: str) -> dict:
             c = pr.find(W + "color")
             if c is not None and c.get(W + "val") not in (None, "auto", "000000", "FFFFFF"):
                 color.append(t)
+                color_vals.append(c.get(W + "val"))
             if pr.find(W + "vanish") is not None:
                 hidden.append(t)
         for rb in root.iter(W + "rt"):
@@ -259,7 +266,7 @@ def probe_docx(p: str) -> dict:
             if st is None:
                 st = ck.find(W + "default")
             checks.append({"label": "", "checked": st is not None and st.get(W + "val") not in ("0", "false")})
-    return {"kind": "docx", "paragraphs": paras, "textboxes": textbox, "checkboxes": checks, "strike": strike, "color": color, "hidden": hidden, "ruby": ruby}
+    return {"kind": "docx", "paragraphs": paras, "textboxes": textbox, "checkboxes": checks, "strike": strike, "color": color, "color_vals": color_vals, "color_normal": max(chars_by_color, key=chars_by_color.get) if chars_by_color else None, "hidden": hidden, "ruby": ruby}
 
 
 def probe_pdf(p: str) -> dict:

@@ -31,6 +31,10 @@ TOOLS = {"xlsx": ("openpyxl",), "docx": ("python-docx",), "pdf": ("pypdf", "pypd
 VALUES = {"ja": "山田花子", "ascii": "TEST-12345"}
 
 
+def unverified_file(out: Path) -> Path:
+    return out.with_name(f"{out.stem}.unverified{out.suffix}")
+
+
 def one(path: str, a, base: Path) -> dict:
     guard_path(path)
     k = kind_of(path)
@@ -46,6 +50,27 @@ def one(path: str, a, base: Path) -> dict:
     if not pick.get("id"):
         rec["skip"] = pick.get("error") or "書ける欄がない"
         return rec
+    # とどくが書くのを断った所（狭いマス・重なる所）は比べにならないので、次の所を選ぶ（3 回まで）。全部断られたら最初の所のまま（書けないと数える）
+    first, refused = pick, []
+    for _ in range(3):
+        probe = w / f"probe{src.suffix}"
+        val = "12345" if pick.get("kind") == "number" else VALUES["ascii"]
+        res = last_json(run_watched([*tw, "fill", probe, pick["id"], val], limit_s=300))
+        probe.unlink(missing_ok=True)
+        unverified_file(probe).unlink(missing_ok=True)
+        if not str(res.get("error") or "").startswith("ApiError"):
+            break
+        refused.append(pick["id"])
+        nxt = last_json(run_watched([*tw, "pick", json.dumps(refused)], limit_s=300))
+        if not nxt.get("id"):
+            pick = first
+            break
+        pick = nxt
+    else:
+        pick = first
+    rec["target"] = pick
+    if refused:
+        rec["pick_refused"] = refused
     tgt = json.dumps(pick, ensure_ascii=False)
     sig_before = make_signed.verify(src, w) if k == "pdf" else None
     for vname, val in VALUES.items():
@@ -59,6 +84,11 @@ def one(path: str, a, base: Path) -> dict:
             else:
                 res = last_json(run_watched([a.baseline_python, "-I", HERE / "baseline_write.py", "write", tool, src, out, k, tgt, val], limit_s=300))
             r = {"tool": tool, "value": vname, **res}
+            # 道具が確かめられず別の名前（.unverified）に置いたファイルも、中を確かめて記録する。提出してはいけないと本人に伝えるファイルなので write_ok にはしない
+            unv = unverified_file(out)
+            if not out.exists() and unv.exists():
+                r["unverified"] = True
+                out = unv
             if out.exists() and not res.get("error"):
                 r["check"] = last_json(run_watched([a.baseline_python, "-I", HERE / "baseline_write.py", "check", src, out, k, tgt, val], limit_s=300))
                 c = r["check"]
@@ -84,11 +114,12 @@ def one(path: str, a, base: Path) -> dict:
                     # 文字認識がないと、FreeText の枠の線だけで「画素が変わった」になる。pypdf の注釈・欄は Helvetica で描くので日本語の字は出ない（文字認識のある回で確かめた）
                     c["landed"] = False
                     c["checked_by"] = "rule"
-                r["write_ok"] = bool(c.get("landed")) and not c.get("lost") and not c.get("error")
+                r["write_ok"] = bool(c.get("landed")) and not c.get("lost") and not c.get("error") and not r.get("unverified")
             else:
                 r["write_ok"] = False
             rec["runs"][f"{tool}:{vname}"] = r
             out.unlink(missing_ok=True)
+            unv.unlink(missing_ok=True)
     rec["signed_before"] = sig_before
     return rec
 
