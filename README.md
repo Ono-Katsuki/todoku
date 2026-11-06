@@ -2,7 +2,7 @@
 
 **Claude Code は、もう申請書を書ける。とどくは、1 バイトもずれていないと証明する。**
 
-行政書類を AI エージェントが正確に読み書きするための MCP サーバーです。`dependencies = []`。Office も LibreOffice も要りません。
+行政書類を AI エージェントが正確に読み書きするための MCP サーバー。`dependencies = []`。Office も LibreOffice も不要。
 
 ```text
 証明：元のファイル 110,831 バイトは先頭からバイト一致のまま、後ろに 18,121 バイトを足しました
@@ -13,18 +13,18 @@ $ head -c 110831 hino_yogu_filled.pdf | cmp - hino_yogu.pdf && echo 一致
 一致
 ```
 
-エージェントの報告を信じる必要はありません。`cmp` で確かめられます。
+エージェントの報告を信じる必要はない。`cmp` で検証できる。
 
 ## 30 秒で入れる
 
-Claude Code の中で（[uv](https://docs.astral.sh/uv/) が要ります）：
+Claude Code で実行する（[uv](https://docs.astral.sh/uv/) が必要）。
 
 ```text
 /plugin marketplace add Ono-Katsuki/todoku
 /plugin install todoku@todoku
 ```
 
-あとは頼むだけです。
+あとは自然言語で頼む。
 
 ```text
 この様式に、私のことを書いて
@@ -33,20 +33,20 @@ Claude Code の中で（[uv](https://docs.astral.sh/uv/) が要ります）：
 
 ## 「書けた」と「正確に書けた」は違う
 
-同じ申請書を、同じ指示で、同じ Claude に書かせました（公開の様式 20 通、値は架空。実験の詳細は `scripts/eval/` と `world/portal/`）。
+同じ申請書、同じ指示、同じ Claude で比較した（公開の様式 20 通、値は架空。詳細は `scripts/eval/` と `world/portal/`）。
 
 | | ただの Claude Code | Claude Code + とどく |
 |---|---|---|
 | 元の PDF をそのまま残す | 0/16 | **16/16** |
 | 変わったのは書いた所だけと証明 | なし | **20/20** |
 
-ある PDF は、Poppler では正しく見えました。Apple PDFKit で開くと、氏名の欄は「16」でした。報告は「記入済み」です。
+ある PDF は Poppler では正しく表示された。Apple PDFKit で開くと、氏名の欄は「16」。報告は「記入済み」だった。
 
-とどくは PDF を増分で保存して、元のバイトに触れません。書いたら読み戻し、描いて、画素が変わったことまで確かめます。
+とどくは PDF を増分保存し、元のバイトに触れない。書いた後は読み戻し、描画して、画素の変化まで確かめる。
 
 ## データと処理を、分けて渡す
 
-値だけを渡すと、計算はエージェントの憶測になります。`extract_processing` は、計算のきまりをそのまま取り出します。
+値だけを渡せば、計算はエージェントの憶測になる。`extract_processing` は計算の規則をそのまま取り出す。
 
 ```text
 新潟県の処遇改善計画書（公開の Excel）
@@ -56,7 +56,7 @@ Claude Code の中で（[uv](https://docs.astral.sh/uv/) が要ります）：
 ROUNDDOWN(ROUND(L × P, 0), 0) × AA
 ```
 
-順番を憶測すると、1 円ずれます。
+順番を憶測すれば、1 円ずれる。
 
 | 計算の順番（値は架空） | 見込額 |
 |---|---|
@@ -64,20 +64,20 @@ ROUNDDOWN(ROUND(L × P, 0), 0) × AA
 | 全部掛けてから、最後に切り捨てる | 84,691 円 |
 | 先に切り捨ててから、月数を掛ける | 84,690 円 |
 
-`format: "python"` で、標準ライブラリだけで動く `calculate(inputs) -> dict` として書き出すこともできます。
+`format: "python"` なら、標準ライブラリだけで動く `calculate(inputs) -> dict` として書き出す。
 
-## 中身はすべて自前
+## 中身はすべて自前実装
 
-- **ファイル形式：** PDF（構文・暗号・フォント・XFA・増分の保存）、Excel（.xlsx・.xls・.xlsb）、Word（.docx・.doc）、一太郎、HWP／HWPX、ODF、RTF、PowerPoint、CSV、JSON、ZIP など。公開の仕様書のあるものは仕様書から実装しました。
-- **数式エンジン：** Excel と同じ規則（有効数字 15 桁、1900 年のうるう年、和暦の表示形式）で計算します。VBA も動かせます。
-- **決定的：** 読む・書く・証明・検査に AI を使いません。規則で決められない所は `？` で示して、判断をエージェントに渡します。事実は道具が出し、判断はエージェントがします。
-- **MCP の道具 14 個：** `open_document`・`read_window`・`list_fields`・`fill_document`・`audit_document`・`extract_processing`・`try_calculation`・`run_macro` など。大きな書類は範囲で読み、読めない所を作りません。
+- **ファイル形式：** PDF（構文・暗号・フォント・XFA・増分の保存）、Excel（.xlsx・.xls・.xlsb）、Word（.docx・.doc）、一太郎、HWP／HWPX、ODF、RTF、PowerPoint、CSV、JSON、ZIP など。公開仕様のある形式は仕様書から実装した。
+- **数式エンジン：** Excel と同じ規則（有効数字 15 桁、1900 年のうるう年、和暦の表示形式）で計算する。VBA も実行する。
+- **決定的：** 読む・書く・証明・検査に AI を使わない。規則で決められない所は `？` で示す。事実は道具が出し、判断はエージェントが下す。
+- **MCP の道具 14 個：** `open_document`・`read_window`・`list_fields`・`fill_document`・`audit_document`・`extract_processing`・`try_calculation`・`run_macro` など。大きな書類は範囲で読む。読めない所は作らない。
 
 約 14 万行・298 ファイル・テスト 4,000 件超。
 
 ## 実物で測った
 
-開発に使わず、固定するまで開かなかった書類で、版を固定して測りました（`eval-freeze-1`）。比べる道具は MarkItDown・openpyxl・python-docx・pdfplumber など、形式ごとに一番よいものです。
+版を固定し（`eval-freeze-1`）、固定まで開かなかった書類で測定した。比較対象は MarkItDown・openpyxl・python-docx・pdfplumber など、形式ごとの最良値。
 
 | | とどく | 比べる道具 |
 |---|---|---|
@@ -86,21 +86,21 @@ ROUNDDOWN(ROUND(L × P, 0), 0) × AA
 | 図形・テキストボックスの字（世界） | **389/487** | 220/487 |
 | 古い Word .doc の字（都・多摩） | **1.0** | 0.0 |
 
-185 か国の政府のサイトから無作為に選んだ 8,500 件を調査し、そのうち 1,079 件を実際に読み書きして推定しました。**正確に書ける文書は推定約 182 万件**です。全カテゴリの表、区間、方法は `world/portal/` にあります。評価のコードは `scripts/eval/` にあります。
+185 か国の政府サイトから無作為に 8,500 件を抽出して調査し、うち 1,079 件を実際に読み書きして推定した。**正確に書ける文書は推定約 182 万件**。全カテゴリの表・区間・方法は `world/portal/`、評価コードは `scripts/eval/`。
 
 ## 作った人
 
 > エージェントがアクセスできないことは、アクセシビリティの問題です。
 
-私は寝たきりの開発者で、経営者で、研究者です。話せず、手も使えません。入力は頭のスイッチひとつです。千字書くのに一時間以上かかります。
+私は寝たきりの開発者で、経営者で、研究者だ。話せない。手も使えない。入力は頭のスイッチひとつ。千字書くのに一時間以上かかる。
 
-このリポジトリは、そのスイッチで Claude と会話して、1 週間で作りました。実物の書類でバグを見つけ、別のエージェントが確かめ、直す。その繰り返しです。
+このリポジトリは、そのスイッチで Claude と会話して、1 週間で作った。実物の書類でバグを見つけ、別のエージェントが確かめ、直す。その繰り返しだ。
 
 > Claude があれば、寝たきりも開発者になれる。
 
 論文：Katsuki Ono, [*Reconfiguration of Ability: An Autoethnography of LLM-Mediated Development by a Developer with Severe Physical Disability*](https://doi.org/10.1145/3797867.3828990), ASSETS '26
 
-Built with Claude: Japan 2026 の応募作品です（開発期間 2026 年 11 月 2 日〜8 日）。
+Built with Claude: Japan 2026 応募作品（開発期間 2026 年 11 月 2 日〜8 日）。
 
 ---
 
