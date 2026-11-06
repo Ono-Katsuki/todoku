@@ -93,3 +93,12 @@ def test_doc_sprms():
     assert apply_look((False, "FF0000"), [(0x2A42, bytes([0]))])[1] == "000000"
     assert apply_look((False, None), [(0x6870, struct.pack("<BBBB", 0x12, 0xAB, 0xCD, 0))])[1] == "12ABCD"
     assert apply_look((False, "FF0000"), [(0x6870, bytes([0, 0, 0, 0xFF]))])[1] == "000000"
+
+
+def test_normal_color_other_than_black_is_stated():
+    md = _md(f"<w:p>{_r('ふつうの字です。とても長い本文です。', _c('231F20'))}</w:p>")
+    assert "字の色 #231F20 は" in md and "〔字の色" not in md.split("## ")[-1]
+
+
+def test_black_normal_color_is_not_stated():
+    assert "この文書のふつうの字の色" not in _md(f"<w:p>{_r('ふつうの字です。')}</w:p>")

@@ -887,6 +887,14 @@ def build(doc: DocxDocument) -> dict:
     if any(m in line for st in out["stories"] for line in st["reading"] for m in ("〔取り消し線", "〔字の色", "〔うち取り消し線", "〔うち字の色")):
         out["notation"]["〔取り消し線〕・〔字の色 #FF0000〕"] = ("字の書式の事実：段落の字に取り消し線がある・字の色が文書のふつうの色と違う。"
                                                                  "〔うち…：「字」〕は段落の一部の字。意味（無効・注意など）は決めない")
+    from ..xlsx.fontfacts import AUTO
+    from .fontfacts import normal_color
+
+    normal = normal_color(doc)
+    if normal != AUTO:
+        # 黒でない色がふつうの文書：印の付かない字が黒とは限らないので、ふつうの色そのものを伝える
+        out["normal_font_color"] = normal
+        out["notation"][f"字の色 #{normal}"] = "この文書のふつうの字の色（黒ではない。この色の字には印を付けない）"
     contexts = {}
     for st in out["stories"]:
         for line in st["reading"]:
