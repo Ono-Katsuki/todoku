@@ -275,7 +275,7 @@ def f_subtotal(ev, kind, *refs):
     rows: list[list] = []
     for ref in refs:
         if not isinstance(ref, Rng):
-            raise err(VALUE)
+            raise ref if isinstance(ref, ExcelError) else err(VALUE)
         rng = ev.clip(ref)
         sh = wb.sheet(rng.sheet) if wb is not None and wb.has_sheet(rng.sheet) else None
         wide = sh is not None and rng.rows * rng.cols > (1 << 20)
@@ -479,6 +479,13 @@ def _lift(*crit_pos):
     return deco
 
 
+def _raise_ref_errors(*refs) -> None:
+    """範囲を受ける引数そのものがエラー（#REF! など）なら、そのエラーを返す。"""
+    for x in refs:
+        if isinstance(x, ExcelError):
+            raise x
+
+
 def _count_where(ev, pairs) -> float:
     """大きな配列の、条件に合う数。"""
     def step(s, _x):
@@ -499,7 +506,7 @@ def _sum_step(s, v) -> None:
 @_lift(1)
 def f_countif(ev, rng, crit):
     if not isinstance(rng, (Rng, Arr)):
-        raise err(VALUE)
+        raise rng if isinstance(rng, ExcelError) else err(VALUE)
     p = criteria(S(ev, crit))
     if bigagg.any_big(ev, [rng]):
         return _count_where(ev, [(rng, p)])
@@ -511,6 +518,7 @@ def f_countif(ev, rng, crit):
 def f_countifs(ev, *args):
     if len(args) % 2:
         raise err(VALUE)
+    _raise_ref_errors(*args[::2])
     if bigagg.any_big(ev, args[::2]):
         return _count_where(ev, [(args[i], criteria(S(ev, args[i + 1]))) for i in range(0, len(args), 2)])
     masks = None
@@ -530,8 +538,9 @@ def f_countifs(ev, *args):
 @fn("SUMIF")
 @_lift(1)
 def f_sumif(ev, rng, crit, sum_rng=None):
+    _raise_ref_errors(sum_rng)
     if not isinstance(rng, (Rng, Arr)):
-        raise err(VALUE)
+        raise rng if isinstance(rng, ExcelError) else err(VALUE)
     p = criteria(S(ev, crit))
     keys = _flat(ev.grid(rng))
     vals = _flat(_same_shape(ev, rng, sum_rng)) if sum_rng is not None else keys
@@ -549,6 +558,7 @@ def f_sumif(ev, rng, crit, sum_rng=None):
 
 @fn("AVERAGEIF")
 def f_averageif(ev, rng, crit, avg_rng=None):
+    _raise_ref_errors(rng, avg_rng)
     p = criteria(S(ev, crit))
     keys = _flat(ev.grid(rng))
     vals = _flat(_same_shape(ev, rng, avg_rng)) if avg_rng is not None else keys
@@ -572,6 +582,7 @@ def _ignore_err_step(s, v) -> None:
 def _ifs_mask(ev, pairs):
     mask = None
     for rng, crit in pairs:
+        _raise_ref_errors(rng)
         vals = ev.values(rng)
         p = criteria(S(ev, crit))
         m = [p(x) for x in vals]
@@ -589,6 +600,7 @@ def _ifs_mask(ev, pairs):
 def f_sumifs(ev, sum_rng, *args):
     if len(args) % 2:
         raise err(VALUE)
+    _raise_ref_errors(sum_rng, *args[::2])
     if bigagg.any_big(ev, [sum_rng, *args[::2]]):
         pairs = [(args[i], criteria(S(ev, args[i + 1]))) for i in range(0, len(args), 2)]
         return bigagg.where(ev, "条件の合計", pairs, ev.values(sum_rng), _sum_step, [0.0, 0])[0]
@@ -610,6 +622,7 @@ def _xifs(kind):
     def f(ev, target, *args):
         if len(args) % 2:
             raise err(VALUE)
+        _raise_ref_errors(target, *args[::2])
         if bigagg.any_big(ev, [target, *args[::2]]):
             pairs = [(args[i], criteria(S(ev, args[i + 1]))) for i in range(0, len(args), 2)]
 
@@ -1330,7 +1343,7 @@ def f_index(ev, ref, r=None, c=None, area=None):
 @fn("OFFSET")
 def f_offset(ev, ref, rows, cols, h=None, w=None):
     if not isinstance(ref, Rng):
-        raise err(VALUE)
+        raise ref if isinstance(ref, ExcelError) else err(VALUE)
     dr, dc = int(num(ev, rows)), int(num(ev, cols))
     hh = int(num(ev, h)) if h is not None else ref.rows
     ww = int(num(ev, w)) if w is not None else ref.cols
@@ -1831,7 +1844,7 @@ def f_hyperlink(ev, link, friendly=None):
 def f_phonetic(ev, ref):
     """PHONETIC：セルの文字に付いているふりがな。ふりがながなければ、文字そのもの。"""
     if not isinstance(ref, Rng):
-        raise err(VALUE)
+        raise ref if isinstance(ref, ExcelError) else err(VALUE)
     wb = getattr(ev.ctx, "wb", None)
     out = []
     for r in range(ref.r1, ref.r2 + 1):

@@ -197,3 +197,14 @@ def test_dynamic_array_spill_change_is_left_to_excel():
     res = fill(Workbook(_array_book()), {"S!A4": 4})  # SEQUENCE(4)：こぼれる範囲が C1:C4 に広がる
     assert any("C1" in u and "動的配列" in u for u in res.unverified), res.unverified
     assert res.full_calc_on_load
+
+
+@pytest.mark.parametrize("expr", [
+    'COUNTIF(#REF!,"a")', 'COUNTIFS(#REF!,"a")', 'SUMIF(#REF!,"a")', 'SUMIFS(A1:A2,#REF!,"a")',
+    'AVERAGEIF(#REF!,"a")', 'AVERAGEIFS(A1:A2,#REF!,"a")', 'MAXIFS(A1:A2,#REF!,"a")', 'MINIFS(#REF!,A1:A2,"a")', 'AVERAGEIFS(#REF!,A1:A2,"a")',
+    "SUBTOTAL(9,#REF!)", "OFFSET(#REF!,1,1)",
+])
+def test_reference_argument_error_passes_through(expr):
+    """消えた参照を読む関数は #VALUE! でなく #REF! を返す（Excel の保存値と同じ）。"""
+    v = ev(expr, array=False)
+    assert isinstance(v, ExcelError) and v.code == "#REF!", v
