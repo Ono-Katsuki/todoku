@@ -1,0 +1,3417 @@
+{
+"crawl": "CC-MAIN-2026-43",
+"seed": 20261107,
+"n_total": 900,
+"k_min": 2,
+"pool_min": 50,
+"m_min": 4,
+"m_max": 30,
+"extra_cap": 120,
+"block_budget": 2600,
+"strata_all": 566,
+"strata_used": 288,
+"frame_all": 3358926,
+"frame_used": 3345942,
+"frame_share": 0.99613,
+"countries_used": 161,
+"countries_all": 185,
+"first_blocks": 1076,
+"allocation": [
+{
+"country": "AD",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 59,
+"pool": 59,
+"n": 2
+},
+{
+"country": "AE",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 2070,
+"pool": 2070,
+"n": 2
+},
+{
+"country": "AE",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 846,
+"pool": 846,
+"n": 2
+},
+{
+"country": "AF",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 489,
+"pool": 489,
+"n": 2
+},
+{
+"country": "AL",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 4647,
+"pool": 4647,
+"n": 3
+},
+{
+"country": "AM",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 2089,
+"pool": 2089,
+"n": 2
+},
+{
+"country": "AM",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 71,
+"pool": 71,
+"n": 2
+},
+{
+"country": "AO",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 169,
+"pool": 169,
+"n": 2
+},
+{
+"country": "AR",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 25736,
+"pool": 3722,
+"n": 5
+},
+{
+"country": "AR",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 152,
+"pool": 117,
+"n": 2
+},
+{
+"country": "AR",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 152,
+"pool": 56,
+"n": 2
+},
+{
+"country": "AT",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 15938,
+"pool": 3940,
+"n": 4
+},
+{
+"country": "AT",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 10428,
+"pool": 436,
+"n": 3
+},
+{
+"country": "AT",
+"family": "text",
+"domain_source": "suffix",
+"frame": 80,
+"pool": 76,
+"n": 2
+},
+{
+"country": "AU",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 45620,
+"pool": 4083,
+"n": 7
+},
+{
+"country": "AU",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 7233,
+"pool": 2350,
+"n": 3
+},
+{
+"country": "AU",
+"family": "text",
+"domain_source": "suffix",
+"frame": 305,
+"pool": 63,
+"n": 2
+},
+{
+"country": "AZ",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1321,
+"pool": 1321,
+"n": 2
+},
+{
+"country": "BA",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 4291,
+"pool": 4291,
+"n": 3
+},
+{
+"country": "BA",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 1245,
+"pool": 1245,
+"n": 2
+},
+{
+"country": "BA",
+"family": "text",
+"domain_source": "suffix",
+"frame": 59,
+"pool": 59,
+"n": 2
+},
+{
+"country": "BB",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 106,
+"pool": 106,
+"n": 2
+},
+{
+"country": "BD",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 6215,
+"pool": 4839,
+"n": 3
+},
+{
+"country": "BE",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1534,
+"pool": 1534,
+"n": 2
+},
+{
+"country": "BE",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 9633,
+"pool": 462,
+"n": 3
+},
+{
+"country": "BF",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 128,
+"pool": 128,
+"n": 2
+},
+{
+"country": "BG",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 6542,
+"pool": 5772,
+"n": 3
+},
+{
+"country": "BG",
+"family": "sheet",
+"domain_source": "wikidata",
+"frame": 1338,
+"pool": 1181,
+"n": 2
+},
+{
+"country": "BG",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 423,
+"pool": 373,
+"n": 2
+},
+{
+"country": "BN",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1428,
+"pool": 1428,
+"n": 2
+},
+{
+"country": "BO",
+"family": "csv",
+"domain_source": "suffix",
+"frame": 265,
+"pool": 265,
+"n": 2
+},
+{
+"country": "BO",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 2881,
+"pool": 2881,
+"n": 2
+},
+{
+"country": "BO",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 61,
+"pool": 61,
+"n": 2
+},
+{
+"country": "BR",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 149719,
+"pool": 5552,
+"n": 17
+},
+{
+"country": "BR",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 17797,
+"pool": 2063,
+"n": 4
+},
+{
+"country": "BS",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 296,
+"pool": 296,
+"n": 2
+},
+{
+"country": "BT",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 610,
+"pool": 610,
+"n": 2
+},
+{
+"country": "BW",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 58,
+"pool": 58,
+"n": 2
+},
+{
+"country": "BW",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 347,
+"pool": 347,
+"n": 2
+},
+{
+"country": "BY",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 3519,
+"pool": 2603,
+"n": 2
+},
+{
+"country": "CA",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 6859,
+"pool": 1399,
+"n": 3
+},
+{
+"country": "CA",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 20168,
+"pool": 762,
+"n": 4
+},
+{
+"country": "CG",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 112,
+"pool": 112,
+"n": 2
+},
+{
+"country": "CH",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 9043,
+"pool": 3697,
+"n": 3
+},
+{
+"country": "CH",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 3118,
+"pool": 690,
+"n": 2
+},
+{
+"country": "CH",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 84,
+"pool": 53,
+"n": 2
+},
+{
+"country": "CH",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 114,
+"pool": 77,
+"n": 2
+},
+{
+"country": "CI",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 228,
+"pool": 228,
+"n": 2
+},
+{
+"country": "CL",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 16015,
+"pool": 7868,
+"n": 4
+},
+{
+"country": "CL",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 3828,
+"pool": 600,
+"n": 2
+},
+{
+"country": "CL",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 116,
+"pool": 57,
+"n": 2
+},
+{
+"country": "CL",
+"family": "text",
+"domain_source": "suffix",
+"frame": 165,
+"pool": 81,
+"n": 2
+},
+{
+"country": "CM",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 483,
+"pool": 483,
+"n": 2
+},
+{
+"country": "CN",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 27974,
+"pool": 1652,
+"n": 5
+},
+{
+"country": "CN",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 435,
+"pool": 73,
+"n": 2
+},
+{
+"country": "CO",
+"family": "csv",
+"domain_source": "suffix",
+"frame": 2768,
+"pool": 409,
+"n": 2
+},
+{
+"country": "CO",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 61109,
+"pool": 9033,
+"n": 8
+},
+{
+"country": "CO",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 193,
+"pool": 193,
+"n": 2
+},
+{
+"country": "CO",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 1759,
+"pool": 260,
+"n": 2
+},
+{
+"country": "CO",
+"family": "text",
+"domain_source": "suffix",
+"frame": 582,
+"pool": 86,
+"n": 2
+},
+{
+"country": "CR",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 3278,
+"pool": 3278,
+"n": 2
+},
+{
+"country": "CR",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 84,
+"pool": 84,
+"n": 2
+},
+{
+"country": "CR",
+"family": "text",
+"domain_source": "suffix",
+"frame": 257,
+"pool": 257,
+"n": 2
+},
+{
+"country": "CU",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 283,
+"pool": 283,
+"n": 2
+},
+{
+"country": "CU",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 107,
+"pool": 107,
+"n": 2
+},
+{
+"country": "CV",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 204,
+"pool": 204,
+"n": 2
+},
+{
+"country": "CY",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 569,
+"pool": 569,
+"n": 2
+},
+{
+"country": "CZ",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 10660,
+"pool": 5826,
+"n": 3
+},
+{
+"country": "CZ",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 64125,
+"pool": 965,
+"n": 8
+},
+{
+"country": "CZ",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 154,
+"pool": 84,
+"n": 2
+},
+{
+"country": "CZ",
+"family": "text",
+"domain_source": "suffix",
+"frame": 384,
+"pool": 210,
+"n": 2
+},
+{
+"country": "CZ",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 2931,
+"pool": 157,
+"n": 2
+},
+{
+"country": "DE",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 725,
+"pool": 725,
+"n": 2
+},
+{
+"country": "DE",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 69982,
+"pool": 3773,
+"n": 9
+},
+{
+"country": "DE",
+"family": "sheet",
+"domain_source": "wikidata",
+"frame": 250,
+"pool": 52,
+"n": 2
+},
+{
+"country": "DJ",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 64,
+"pool": 64,
+"n": 2
+},
+{
+"country": "DK",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 774,
+"pool": 244,
+"n": 2
+},
+{
+"country": "DM",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 159,
+"pool": 159,
+"n": 2
+},
+{
+"country": "DO",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 6731,
+"pool": 6731,
+"n": 3
+},
+{
+"country": "DO",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 312,
+"pool": 312,
+"n": 2
+},
+{
+"country": "DZ",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 156,
+"pool": 156,
+"n": 2
+},
+{
+"country": "DZ",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 1598,
+"pool": 1598,
+"n": 2
+},
+{
+"country": "EC",
+"family": "csv",
+"domain_source": "suffix",
+"frame": 809,
+"pool": 361,
+"n": 2
+},
+{
+"country": "EC",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 25486,
+"pool": 11376,
+"n": 5
+},
+{
+"country": "EC",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 381,
+"pool": 170,
+"n": 2
+},
+{
+"country": "EE",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 1493,
+"pool": 1111,
+"n": 2
+},
+{
+"country": "EG",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 592,
+"pool": 592,
+"n": 2
+},
+{
+"country": "EG",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 64,
+"pool": 64,
+"n": 2
+},
+{
+"country": "ES",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 4286,
+"pool": 1680,
+"n": 3
+},
+{
+"country": "ES",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 36665,
+"pool": 379,
+"n": 6
+},
+{
+"country": "ES",
+"family": "sheet",
+"domain_source": "wikidata",
+"frame": 9062,
+"pool": 336,
+"n": 3
+},
+{
+"country": "ET",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 359,
+"pool": 359,
+"n": 2
+},
+{
+"country": "FI",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 14467,
+"pool": 1054,
+"n": 3
+},
+{
+"country": "FJ",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 194,
+"pool": 194,
+"n": 2
+},
+{
+"country": "FR",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 10857,
+"pool": 1881,
+"n": 3
+},
+{
+"country": "FR",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 186870,
+"pool": 798,
+"n": 20
+},
+{
+"country": "FR",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 441,
+"pool": 76,
+"n": 2
+},
+{
+"country": "FR",
+"family": "text",
+"domain_source": "suffix",
+"frame": 1075,
+"pool": 186,
+"n": 2
+},
+{
+"country": "GB",
+"family": "csv",
+"domain_source": "suffix",
+"frame": 1561,
+"pool": 88,
+"n": 2
+},
+{
+"country": "GB",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 144298,
+"pool": 8146,
+"n": 16
+},
+{
+"country": "GB",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 14585,
+"pool": 1274,
+"n": 4
+},
+{
+"country": "GB",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 30466,
+"pool": 1718,
+"n": 5
+},
+{
+"country": "GB",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 1520,
+"pool": 191,
+"n": 2
+},
+{
+"country": "GE",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 2104,
+"pool": 2104,
+"n": 2
+},
+{
+"country": "GE",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 199,
+"pool": 199,
+"n": 2
+},
+{
+"country": "GE",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 53,
+"pool": 53,
+"n": 2
+},
+{
+"country": "GE",
+"family": "text",
+"domain_source": "suffix",
+"frame": 156,
+"pool": 156,
+"n": 2
+},
+{
+"country": "GE",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 54,
+"pool": 54,
+"n": 2
+},
+{
+"country": "GH",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1169,
+"pool": 1169,
+"n": 2
+},
+{
+"country": "GH",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 446,
+"pool": 446,
+"n": 2
+},
+{
+"country": "GM",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 198,
+"pool": 198,
+"n": 2
+},
+{
+"country": "GN",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 210,
+"pool": 210,
+"n": 2
+},
+{
+"country": "GR",
+"family": "csv",
+"domain_source": "suffix",
+"frame": 179,
+"pool": 96,
+"n": 2
+},
+{
+"country": "GR",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 6156,
+"pool": 3306,
+"n": 3
+},
+{
+"country": "GR",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 7376,
+"pool": 698,
+"n": 3
+},
+{
+"country": "GT",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 12318,
+"pool": 12318,
+"n": 3
+},
+{
+"country": "GT",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 180,
+"pool": 180,
+"n": 2
+},
+{
+"country": "GT",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 329,
+"pool": 329,
+"n": 2
+},
+{
+"country": "GT",
+"family": "text",
+"domain_source": "suffix",
+"frame": 73,
+"pool": 73,
+"n": 2
+},
+{
+"country": "GY",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 117,
+"pool": 117,
+"n": 2
+},
+{
+"country": "HK",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 11672,
+"pool": 8433,
+"n": 3
+},
+{
+"country": "HN",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 966,
+"pool": 966,
+"n": 2
+},
+{
+"country": "HR",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 7767,
+"pool": 774,
+"n": 3
+},
+{
+"country": "HR",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 189,
+"pool": 72,
+"n": 2
+},
+{
+"country": "HT",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 230,
+"pool": 230,
+"n": 2
+},
+{
+"country": "HU",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 4897,
+"pool": 2644,
+"n": 3
+},
+{
+"country": "HU",
+"family": "sheet",
+"domain_source": "wikidata",
+"frame": 431,
+"pool": 234,
+"n": 2
+},
+{
+"country": "HU",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 210,
+"pool": 114,
+"n": 2
+},
+{
+"country": "ID",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 21050,
+"pool": 2522,
+"n": 4
+},
+{
+"country": "ID",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 305,
+"pool": 146,
+"n": 2
+},
+{
+"country": "IE",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1372,
+"pool": 1372,
+"n": 2
+},
+{
+"country": "IE",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 4929,
+"pool": 1590,
+"n": 3
+},
+{
+"country": "IL",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1937,
+"pool": 1937,
+"n": 2
+},
+{
+"country": "IN",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 82450,
+"pool": 10262,
+"n": 10
+},
+{
+"country": "IN",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 1974,
+"pool": 686,
+"n": 2
+},
+{
+"country": "IQ",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 251,
+"pool": 251,
+"n": 2
+},
+{
+"country": "IR",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 151,
+"pool": 151,
+"n": 2
+},
+{
+"country": "IR",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 92,
+"pool": 59,
+"n": 2
+},
+{
+"country": "IS",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 991,
+"pool": 442,
+"n": 2
+},
+{
+"country": "IT",
+"family": "csv",
+"domain_source": "suffix",
+"frame": 113,
+"pool": 53,
+"n": 2
+},
+{
+"country": "IT",
+"family": "csv",
+"domain_source": "wikidata",
+"frame": 18199,
+"pool": 428,
+"n": 4
+},
+{
+"country": "IT",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 10386,
+"pool": 4876,
+"n": 3
+},
+{
+"country": "IT",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 112555,
+"pool": 2494,
+"n": 13
+},
+{
+"country": "JM",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 398,
+"pool": 398,
+"n": 2
+},
+{
+"country": "JO",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 2550,
+"pool": 2550,
+"n": 2
+},
+{
+"country": "JP",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 338463,
+"pool": 12680,
+"n": 35
+},
+{
+"country": "JP",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 18029,
+"pool": 4951,
+"n": 4
+},
+{
+"country": "KE",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 5988,
+"pool": 5988,
+"n": 3
+},
+{
+"country": "KE",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 167,
+"pool": 167,
+"n": 2
+},
+{
+"country": "KG",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 663,
+"pool": 663,
+"n": 2
+},
+{
+"country": "KG",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 118,
+"pool": 118,
+"n": 2
+},
+{
+"country": "KH",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 829,
+"pool": 829,
+"n": 2
+},
+{
+"country": "KI",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 159,
+"pool": 159,
+"n": 2
+},
+{
+"country": "KN",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 88,
+"pool": 88,
+"n": 2
+},
+{
+"country": "KR",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 20343,
+"pool": 1879,
+"n": 4
+},
+{
+"country": "KR",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 638,
+"pool": 319,
+"n": 2
+},
+{
+"country": "KR",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 208,
+"pool": 75,
+"n": 2
+},
+{
+"country": "KW",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 591,
+"pool": 591,
+"n": 2
+},
+{
+"country": "KZ",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 457,
+"pool": 457,
+"n": 2
+},
+{
+"country": "KZ",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 2418,
+"pool": 2418,
+"n": 2
+},
+{
+"country": "KZ",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 899,
+"pool": 899,
+"n": 2
+},
+{
+"country": "LA",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 487,
+"pool": 487,
+"n": 2
+},
+{
+"country": "LB",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1090,
+"pool": 1090,
+"n": 2
+},
+{
+"country": "LK",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 5237,
+"pool": 5237,
+"n": 3
+},
+{
+"country": "LR",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 215,
+"pool": 215,
+"n": 2
+},
+{
+"country": "LT",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 77,
+"pool": 77,
+"n": 2
+},
+{
+"country": "LT",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 996,
+"pool": 290,
+"n": 2
+},
+{
+"country": "LU",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 1404,
+"pool": 1269,
+"n": 2
+},
+{
+"country": "LV",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 4119,
+"pool": 4119,
+"n": 2
+},
+{
+"country": "LV",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 104,
+"pool": 104,
+"n": 2
+},
+{
+"country": "LV",
+"family": "text",
+"domain_source": "suffix",
+"frame": 116,
+"pool": 116,
+"n": 2
+},
+{
+"country": "LY",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 186,
+"pool": 186,
+"n": 2
+},
+{
+"country": "MA",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 2077,
+"pool": 2077,
+"n": 2
+},
+{
+"country": "MA",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 99,
+"pool": 80,
+"n": 2
+},
+{
+"country": "MC",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 153,
+"pool": 153,
+"n": 2
+},
+{
+"country": "MD",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 3510,
+"pool": 2336,
+"n": 2
+},
+{
+"country": "ME",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 666,
+"pool": 666,
+"n": 2
+},
+{
+"country": "ME",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 2199,
+"pool": 2199,
+"n": 2
+},
+{
+"country": "ME",
+"family": "text",
+"domain_source": "suffix",
+"frame": 204,
+"pool": 204,
+"n": 2
+},
+{
+"country": "MG",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 382,
+"pool": 382,
+"n": 2
+},
+{
+"country": "MH",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 458,
+"pool": 458,
+"n": 2
+},
+{
+"country": "MK",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 3112,
+"pool": 3112,
+"n": 2
+},
+{
+"country": "MK",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 74,
+"pool": 74,
+"n": 2
+},
+{
+"country": "MN",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1523,
+"pool": 1523,
+"n": 2
+},
+{
+"country": "MR",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 137,
+"pool": 137,
+"n": 2
+},
+{
+"country": "MU",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 72,
+"pool": 72,
+"n": 2
+},
+{
+"country": "MV",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1037,
+"pool": 1037,
+"n": 2
+},
+{
+"country": "MW",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 58,
+"pool": 58,
+"n": 2
+},
+{
+"country": "MX",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 119307,
+"pool": 21649,
+"n": 14
+},
+{
+"country": "MX",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 1509,
+"pool": 1457,
+"n": 2
+},
+{
+"country": "MX",
+"family": "text",
+"domain_source": "suffix",
+"frame": 294,
+"pool": 58,
+"n": 2
+},
+{
+"country": "MY",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 11271,
+"pool": 3988,
+"n": 3
+},
+{
+"country": "MY",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 163,
+"pool": 163,
+"n": 2
+},
+{
+"country": "MY",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 138,
+"pool": 52,
+"n": 2
+},
+{
+"country": "MZ",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 360,
+"pool": 360,
+"n": 2
+},
+{
+"country": "NA",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 148,
+"pool": 148,
+"n": 2
+},
+{
+"country": "NG",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 2223,
+"pool": 2223,
+"n": 2
+},
+{
+"country": "NI",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 511,
+"pool": 511,
+"n": 2
+},
+{
+"country": "NL",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 3106,
+"pool": 157,
+"n": 2
+},
+{
+"country": "NO",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 7502,
+"pool": 1513,
+"n": 3
+},
+{
+"country": "NP",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 1502,
+"pool": 626,
+"n": 2
+},
+{
+"country": "NR",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 214,
+"pool": 214,
+"n": 2
+},
+{
+"country": "NZ",
+"family": "csv",
+"domain_source": "suffix",
+"frame": 297,
+"pool": 88,
+"n": 2
+},
+{
+"country": "NZ",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 22298,
+"pool": 6783,
+"n": 4
+},
+{
+"country": "OM",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 564,
+"pool": 564,
+"n": 2
+},
+{
+"country": "PA",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1174,
+"pool": 1174,
+"n": 2
+},
+{
+"country": "PA",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 395,
+"pool": 395,
+"n": 2
+},
+{
+"country": "PE",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 26441,
+"pool": 9585,
+"n": 5
+},
+{
+"country": "PH",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 21859,
+"pool": 8135,
+"n": 4
+},
+{
+"country": "PH",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 101,
+"pool": 86,
+"n": 2
+},
+{
+"country": "PK",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 3481,
+"pool": 3481,
+"n": 2
+},
+{
+"country": "PK",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 233,
+"pool": 233,
+"n": 2
+},
+{
+"country": "PL",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 39854,
+"pool": 8873,
+"n": 6
+},
+{
+"country": "PL",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 36413,
+"pool": 1286,
+"n": 6
+},
+{
+"country": "PL",
+"family": "text",
+"domain_source": "suffix",
+"frame": 1197,
+"pool": 266,
+"n": 2
+},
+{
+"country": "PL",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 854,
+"pool": 125,
+"n": 2
+},
+{
+"country": "PT",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 3550,
+"pool": 3550,
+"n": 2
+},
+{
+"country": "PT",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 10741,
+"pool": 3188,
+"n": 3
+},
+{
+"country": "PT",
+"family": "sheet",
+"domain_source": "wikidata",
+"frame": 85,
+"pool": 85,
+"n": 2
+},
+{
+"country": "PW",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 297,
+"pool": 297,
+"n": 2
+},
+{
+"country": "PY",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 5011,
+"pool": 5011,
+"n": 3
+},
+{
+"country": "PY",
+"family": "text",
+"domain_source": "suffix",
+"frame": 60,
+"pool": 60,
+"n": 2
+},
+{
+"country": "QA",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 495,
+"pool": 495,
+"n": 2
+},
+{
+"country": "RO",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 9889,
+"pool": 2206,
+"n": 3
+},
+{
+"country": "RS",
+"family": "csv",
+"domain_source": "suffix",
+"frame": 100,
+"pool": 74,
+"n": 2
+},
+{
+"country": "RS",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 8215,
+"pool": 6197,
+"n": 3
+},
+{
+"country": "RS",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 1482,
+"pool": 1389,
+"n": 2
+},
+{
+"country": "RS",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 192,
+"pool": 142,
+"n": 2
+},
+{
+"country": "RU",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 1249,
+"pool": 279,
+"n": 2
+},
+{
+"country": "RU",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 220,
+"pool": 189,
+"n": 2
+},
+{
+"country": "RW",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 280,
+"pool": 280,
+"n": 2
+},
+{
+"country": "SA",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1312,
+"pool": 1267,
+"n": 2
+},
+{
+"country": "SA",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 191,
+"pool": 191,
+"n": 2
+},
+{
+"country": "SC",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 78,
+"pool": 78,
+"n": 2
+},
+{
+"country": "SD",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 253,
+"pool": 253,
+"n": 2
+},
+{
+"country": "SE",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 15257,
+"pool": 1017,
+"n": 4
+},
+{
+"country": "SG",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 996,
+"pool": 996,
+"n": 2
+},
+{
+"country": "SG",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 53,
+"pool": 53,
+"n": 2
+},
+{
+"country": "SI",
+"family": "csv",
+"domain_source": "wikidata",
+"frame": 2392,
+"pool": 660,
+"n": 2
+},
+{
+"country": "SI",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 2195,
+"pool": 640,
+"n": 2
+},
+{
+"country": "SI",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 244,
+"pool": 175,
+"n": 2
+},
+{
+"country": "SK",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 30894,
+"pool": 867,
+"n": 5
+},
+{
+"country": "SK",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 2319,
+"pool": 256,
+"n": 2
+},
+{
+"country": "SL",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 188,
+"pool": 188,
+"n": 2
+},
+{
+"country": "SM",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 83,
+"pool": 83,
+"n": 2
+},
+{
+"country": "SN",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 249,
+"pool": 249,
+"n": 2
+},
+{
+"country": "SO",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 90,
+"pool": 90,
+"n": 2
+},
+{
+"country": "SS",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 55,
+"pool": 55,
+"n": 2
+},
+{
+"country": "SV",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 2282,
+"pool": 2282,
+"n": 2
+},
+{
+"country": "SY",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 262,
+"pool": 262,
+"n": 2
+},
+{
+"country": "TH",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 23322,
+"pool": 3390,
+"n": 4
+},
+{
+"country": "TH",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 984,
+"pool": 921,
+"n": 2
+},
+{
+"country": "TH",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 183,
+"pool": 105,
+"n": 2
+},
+{
+"country": "TL",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 311,
+"pool": 311,
+"n": 2
+},
+{
+"country": "TM",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 123,
+"pool": 123,
+"n": 2
+},
+{
+"country": "TN",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1123,
+"pool": 1123,
+"n": 2
+},
+{
+"country": "TN",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 1375,
+"pool": 1375,
+"n": 2
+},
+{
+"country": "TO",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 201,
+"pool": 201,
+"n": 2
+},
+{
+"country": "TR",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 10724,
+"pool": 2934,
+"n": 3
+},
+{
+"country": "TR",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 2323,
+"pool": 958,
+"n": 2
+},
+{
+"country": "TT",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 779,
+"pool": 779,
+"n": 2
+},
+{
+"country": "TW",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 31165,
+"pool": 4125,
+"n": 5
+},
+{
+"country": "TW",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 32857,
+"pool": 1872,
+"n": 5
+},
+{
+"country": "TW",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 1676,
+"pool": 222,
+"n": 2
+},
+{
+"country": "TW",
+"family": "text",
+"domain_source": "suffix",
+"frame": 4796,
+"pool": 631,
+"n": 3
+},
+{
+"country": "TW",
+"family": "text",
+"domain_source": "wikidata",
+"frame": 1376,
+"pool": 100,
+"n": 2
+},
+{
+"country": "TZ",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 2957,
+"pool": 2957,
+"n": 2
+},
+{
+"country": "UA",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 29372,
+"pool": 1721,
+"n": 5
+},
+{
+"country": "UA",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 1029,
+"pool": 262,
+"n": 2
+},
+{
+"country": "UA",
+"family": "sheet",
+"domain_source": "suffix",
+"frame": 8823,
+"pool": 517,
+"n": 3
+},
+{
+"country": "UA",
+"family": "text",
+"domain_source": "suffix",
+"frame": 15019,
+"pool": 880,
+"n": 4
+},
+{
+"country": "UG",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 1352,
+"pool": 1352,
+"n": 2
+},
+{
+"country": "UG",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 54,
+"pool": 54,
+"n": 2
+},
+{
+"country": "US",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 822436,
+"pool": 7134,
+"n": 82
+},
+{
+"country": "US",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 35161,
+"pool": 292,
+"n": 6
+},
+{
+"country": "US",
+"family": "text",
+"domain_source": "suffix",
+"frame": 3739,
+"pool": 79,
+"n": 2
+},
+{
+"country": "UY",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 5222,
+"pool": 4197,
+"n": 3
+},
+{
+"country": "UY",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 422,
+"pool": 422,
+"n": 2
+},
+{
+"country": "UZ",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 357,
+"pool": 249,
+"n": 2
+},
+{
+"country": "VC",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 119,
+"pool": 119,
+"n": 2
+},
+{
+"country": "VE",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 883,
+"pool": 823,
+"n": 2
+},
+{
+"country": "VN",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 13109,
+"pool": 2809,
+"n": 3
+},
+{
+"country": "VN",
+"family": "text",
+"domain_source": "suffix",
+"frame": 425,
+"pool": 91,
+"n": 2
+},
+{
+"country": "WS",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 186,
+"pool": 186,
+"n": 2
+},
+{
+"country": "ZA",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 18357,
+"pool": 15586,
+"n": 4
+},
+{
+"country": "ZA",
+"family": "pdf",
+"domain_source": "wikidata",
+"frame": 733,
+"pool": 733,
+"n": 2
+},
+{
+"country": "ZA",
+"family": "text",
+"domain_source": "suffix",
+"frame": 57,
+"pool": 54,
+"n": 2
+},
+{
+"country": "ZM",
+"family": "pdf",
+"domain_source": "suffix",
+"frame": 541,
+"pool": 541,
+"n": 2
+}
+],
+"blocks": {
+"AD:wikidata": {
+"docs": 2,
+"blocks_total": 5,
+"first": 4
+},
+"AE:suffix": {
+"docs": 4,
+"blocks_total": 14,
+"first": 4
+},
+"AF:suffix": {
+"docs": 2,
+"blocks_total": 10,
+"first": 4
+},
+"AL:suffix": {
+"docs": 3,
+"blocks_total": 22,
+"first": 4
+},
+"AM:wikidata": {
+"docs": 4,
+"blocks_total": 29,
+"first": 4
+},
+"AO:suffix": {
+"docs": 2,
+"blocks_total": 4,
+"first": 4
+},
+"AR:suffix": {
+"docs": 7,
+"blocks_total": 205,
+"first": 7
+},
+"AR:wikidata": {
+"docs": 2,
+"blocks_total": 39,
+"first": 4
+},
+"AT:suffix": {
+"docs": 6,
+"blocks_total": 124,
+"first": 6
+},
+"AT:wikidata": {
+"docs": 3,
+"blocks_total": 967,
+"first": 4
+},
+"AU:suffix": {
+"docs": 9,
+"blocks_total": 349,
+"first": 9
+},
+"AU:wikidata": {
+"docs": 3,
+"blocks_total": 93,
+"first": 4
+},
+"AZ:suffix": {
+"docs": 2,
+"blocks_total": 25,
+"first": 4
+},
+"BA:suffix": {
+"docs": 5,
+"blocks_total": 19,
+"first": 5
+},
+"BA:wikidata": {
+"docs": 2,
+"blocks_total": 23,
+"first": 4
+},
+"BB:suffix": {
+"docs": 2,
+"blocks_total": 2,
+"first": 2
+},
+"BD:suffix": {
+"docs": 3,
+"blocks_total": 38,
+"first": 4
+},
+"BE:suffix": {
+"docs": 2,
+"blocks_total": 23,
+"first": 4
+},
+"BE:wikidata": {
+"docs": 3,
+"blocks_total": 638,
+"first": 4
+},
+"BF:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+},
+"BG:wikidata": {
+"docs": 7,
+"blocks_total": 34,
+"first": 7
+},
+"BN:suffix": {
+"docs": 2,
+"blocks_total": 6,
+"first": 4
+},
+"BO:suffix": {
+"docs": 4,
+"blocks_total": 14,
+"first": 4
+},
+"BO:wikidata": {
+"docs": 2,
+"blocks_total": 6,
+"first": 4
+},
+"BR:suffix": {
+"docs": 17,
+"blocks_total": 811,
+"first": 17
+},
+"BR:wikidata": {
+"docs": 4,
+"blocks_total": 259,
+"first": 4
+},
+"BS:suffix": {
+"docs": 2,
+"blocks_total": 2,
+"first": 2
+},
+"BT:suffix": {
+"docs": 2,
+"blocks_total": 5,
+"first": 4
+},
+"BW:suffix": {
+"docs": 2,
+"blocks_total": 1,
+"first": 1
+},
+"BW:wikidata": {
+"docs": 2,
+"blocks_total": 9,
+"first": 4
+},
+"BY:suffix": {
+"docs": 2,
+"blocks_total": 40,
+"first": 4
+},
+"CA:suffix": {
+"docs": 3,
+"blocks_total": 147,
+"first": 4
+},
+"CA:wikidata": {
+"docs": 4,
+"blocks_total": 786,
+"first": 4
+},
+"CG:wikidata": {
+"docs": 2,
+"blocks_total": 7,
+"first": 4
+},
+"CH:suffix": {
+"docs": 5,
+"blocks_total": 73,
+"first": 5
+},
+"CH:wikidata": {
+"docs": 4,
+"blocks_total": 135,
+"first": 4
+},
+"CI:suffix": {
+"docs": 2,
+"blocks_total": 6,
+"first": 4
+},
+"CL:suffix": {
+"docs": 8,
+"blocks_total": 61,
+"first": 8
+},
+"CL:wikidata": {
+"docs": 2,
+"blocks_total": 189,
+"first": 4
+},
+"CM:suffix": {
+"docs": 2,
+"blocks_total": 4,
+"first": 4
+},
+"CN:suffix": {
+"docs": 5,
+"blocks_total": 510,
+"first": 5
+},
+"CN:wikidata": {
+"docs": 2,
+"blocks_total": 177,
+"first": 4
+},
+"CO:suffix": {
+"docs": 14,
+"blocks_total": 205,
+"first": 14
+},
+"CO:wikidata": {
+"docs": 2,
+"blocks_total": 13,
+"first": 4
+},
+"CR:suffix": {
+"docs": 6,
+"blocks_total": 27,
+"first": 6
+},
+"CU:suffix": {
+"docs": 2,
+"blocks_total": 9,
+"first": 4
+},
+"CU:wikidata": {
+"docs": 2,
+"blocks_total": 16,
+"first": 4
+},
+"CV:wikidata": {
+"docs": 2,
+"blocks_total": 6,
+"first": 4
+},
+"CY:suffix": {
+"docs": 2,
+"blocks_total": 5,
+"first": 4
+},
+"CZ:suffix": {
+"docs": 7,
+"blocks_total": 55,
+"first": 7
+},
+"CZ:wikidata": {
+"docs": 10,
+"blocks_total": 2295,
+"first": 10
+},
+"DE:suffix": {
+"docs": 2,
+"blocks_total": 19,
+"first": 4
+},
+"DE:wikidata": {
+"docs": 11,
+"blocks_total": 566,
+"first": 11
+},
+"DJ:wikidata": {
+"docs": 2,
+"blocks_total": 4,
+"first": 4
+},
+"DK:wikidata": {
+"docs": 2,
+"blocks_total": 96,
+"first": 4
+},
+"DM:suffix": {
+"docs": 2,
+"blocks_total": 2,
+"first": 2
+},
+"DO:suffix": {
+"docs": 5,
+"blocks_total": 23,
+"first": 5
+},
+"DZ:suffix": {
+"docs": 2,
+"blocks_total": 4,
+"first": 4
+},
+"DZ:wikidata": {
+"docs": 2,
+"blocks_total": 27,
+"first": 4
+},
+"EC:suffix": {
+"docs": 9,
+"blocks_total": 67,
+"first": 9
+},
+"EE:wikidata": {
+"docs": 2,
+"blocks_total": 40,
+"first": 4
+},
+"EG:suffix": {
+"docs": 2,
+"blocks_total": 17,
+"first": 4
+},
+"EG:wikidata": {
+"docs": 2,
+"blocks_total": 29,
+"first": 4
+},
+"ES:suffix": {
+"docs": 3,
+"blocks_total": 76,
+"first": 4
+},
+"ES:wikidata": {
+"docs": 9,
+"blocks_total": 2882,
+"first": 9
+},
+"ET:suffix": {
+"docs": 2,
+"blocks_total": 7,
+"first": 4
+},
+"FI:wikidata": {
+"docs": 3,
+"blocks_total": 415,
+"first": 4
+},
+"FJ:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+},
+"FR:suffix": {
+"docs": 7,
+"blocks_total": 176,
+"first": 7
+},
+"FR:wikidata": {
+"docs": 20,
+"blocks_total": 6973,
+"first": 20
+},
+"GB:suffix": {
+"docs": 23,
+"blocks_total": 534,
+"first": 23
+},
+"GB:wikidata": {
+"docs": 6,
+"blocks_total": 345,
+"first": 6
+},
+"GE:suffix": {
+"docs": 6,
+"blocks_total": 18,
+"first": 6
+},
+"GE:wikidata": {
+"docs": 4,
+"blocks_total": 13,
+"first": 4
+},
+"GH:suffix": {
+"docs": 2,
+"blocks_total": 14,
+"first": 4
+},
+"GH:wikidata": {
+"docs": 2,
+"blocks_total": 28,
+"first": 4
+},
+"GM:wikidata": {
+"docs": 2,
+"blocks_total": 6,
+"first": 4
+},
+"GN:suffix": {
+"docs": 2,
+"blocks_total": 4,
+"first": 4
+},
+"GR:suffix": {
+"docs": 5,
+"blocks_total": 56,
+"first": 5
+},
+"GR:wikidata": {
+"docs": 3,
+"blocks_total": 319,
+"first": 4
+},
+"GT:suffix": {
+"docs": 7,
+"blocks_total": 23,
+"first": 7
+},
+"GT:wikidata": {
+"docs": 2,
+"blocks_total": 13,
+"first": 4
+},
+"GY:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+},
+"HK:suffix": {
+"docs": 3,
+"blocks_total": 42,
+"first": 4
+},
+"HN:suffix": {
+"docs": 2,
+"blocks_total": 6,
+"first": 4
+},
+"HR:wikidata": {
+"docs": 5,
+"blocks_total": 296,
+"first": 5
+},
+"HT:suffix": {
+"docs": 2,
+"blocks_total": 2,
+"first": 2
+},
+"HU:wikidata": {
+"docs": 7,
+"blocks_total": 56,
+"first": 7
+},
+"ID:suffix": {
+"docs": 6,
+"blocks_total": 253,
+"first": 6
+},
+"IE:suffix": {
+"docs": 2,
+"blocks_total": 8,
+"first": 4
+},
+"IE:wikidata": {
+"docs": 3,
+"blocks_total": 94,
+"first": 4
+},
+"IL:suffix": {
+"docs": 2,
+"blocks_total": 16,
+"first": 4
+},
+"IN:suffix": {
+"docs": 10,
+"blocks_total": 237,
+"first": 10
+},
+"IN:wikidata": {
+"docs": 2,
+"blocks_total": 171,
+"first": 4
+},
+"IQ:suffix": {
+"docs": 2,
+"blocks_total": 5,
+"first": 4
+},
+"IR:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+},
+"IR:wikidata": {
+"docs": 2,
+"blocks_total": 46,
+"first": 4
+},
+"IS:wikidata": {
+"docs": 2,
+"blocks_total": 68,
+"first": 4
+},
+"IT:suffix": {
+"docs": 5,
+"blocks_total": 64,
+"first": 5
+},
+"IT:wikidata": {
+"docs": 17,
+"blocks_total": 1349,
+"first": 17
+},
+"JM:wikidata": {
+"docs": 2,
+"blocks_total": 26,
+"first": 4
+},
+"JO:suffix": {
+"docs": 2,
+"blocks_total": 9,
+"first": 4
+},
+"JP:suffix": {
+"docs": 35,
+"blocks_total": 834,
+"first": 30
+},
+"JP:wikidata": {
+"docs": 4,
+"blocks_total": 109,
+"first": 4
+},
+"KE:suffix": {
+"docs": 3,
+"blocks_total": 25,
+"first": 4
+},
+"KE:wikidata": {
+"docs": 2,
+"blocks_total": 13,
+"first": 4
+},
+"KG:suffix": {
+"docs": 4,
+"blocks_total": 30,
+"first": 4
+},
+"KH:suffix": {
+"docs": 2,
+"blocks_total": 12,
+"first": 4
+},
+"KI:suffix": {
+"docs": 2,
+"blocks_total": 1,
+"first": 1
+},
+"KN:suffix": {
+"docs": 2,
+"blocks_total": 4,
+"first": 4
+},
+"KR:suffix": {
+"docs": 6,
+"blocks_total": 331,
+"first": 6
+},
+"KR:wikidata": {
+"docs": 2,
+"blocks_total": 60,
+"first": 4
+},
+"KW:suffix": {
+"docs": 2,
+"blocks_total": 5,
+"first": 4
+},
+"KZ:suffix": {
+"docs": 4,
+"blocks_total": 8,
+"first": 4
+},
+"KZ:wikidata": {
+"docs": 2,
+"blocks_total": 27,
+"first": 4
+},
+"LA:suffix": {
+"docs": 2,
+"blocks_total": 6,
+"first": 4
+},
+"LB:suffix": {
+"docs": 2,
+"blocks_total": 7,
+"first": 4
+},
+"LK:suffix": {
+"docs": 3,
+"blocks_total": 21,
+"first": 4
+},
+"LR:suffix": {
+"docs": 2,
+"blocks_total": 4,
+"first": 4
+},
+"LT:suffix": {
+"docs": 2,
+"blocks_total": 2,
+"first": 2
+},
+"LT:wikidata": {
+"docs": 2,
+"blocks_total": 103,
+"first": 4
+},
+"LU:wikidata": {
+"docs": 2,
+"blocks_total": 33,
+"first": 4
+},
+"LV:suffix": {
+"docs": 4,
+"blocks_total": 30,
+"first": 4
+},
+"LV:wikidata": {
+"docs": 2,
+"blocks_total": 14,
+"first": 4
+},
+"LY:suffix": {
+"docs": 2,
+"blocks_total": 5,
+"first": 4
+},
+"MA:suffix": {
+"docs": 2,
+"blocks_total": 5,
+"first": 4
+},
+"MA:wikidata": {
+"docs": 2,
+"blocks_total": 37,
+"first": 4
+},
+"MC:wikidata": {
+"docs": 2,
+"blocks_total": 13,
+"first": 4
+},
+"MD:wikidata": {
+"docs": 2,
+"blocks_total": 45,
+"first": 4
+},
+"ME:suffix": {
+"docs": 4,
+"blocks_total": 3,
+"first": 3
+},
+"ME:wikidata": {
+"docs": 2,
+"blocks_total": 23,
+"first": 4
+},
+"MG:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+},
+"MH:wikidata": {
+"docs": 2,
+"blocks_total": 2,
+"first": 2
+},
+"MK:suffix": {
+"docs": 2,
+"blocks_total": 19,
+"first": 4
+},
+"MK:wikidata": {
+"docs": 2,
+"blocks_total": 5,
+"first": 4
+},
+"MN:suffix": {
+"docs": 2,
+"blocks_total": 17,
+"first": 4
+},
+"MR:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+},
+"MU:wikidata": {
+"docs": 2,
+"blocks_total": 9,
+"first": 4
+},
+"MV:suffix": {
+"docs": 2,
+"blocks_total": 8,
+"first": 4
+},
+"MW:suffix": {
+"docs": 2,
+"blocks_total": 2,
+"first": 2
+},
+"MX:suffix": {
+"docs": 16,
+"blocks_total": 169,
+"first": 16
+},
+"MX:wikidata": {
+"docs": 2,
+"blocks_total": 31,
+"first": 4
+},
+"MY:suffix": {
+"docs": 5,
+"blocks_total": 84,
+"first": 5
+},
+"MY:wikidata": {
+"docs": 2,
+"blocks_total": 21,
+"first": 4
+},
+"MZ:suffix": {
+"docs": 2,
+"blocks_total": 6,
+"first": 4
+},
+"NA:suffix": {
+"docs": 2,
+"blocks_total": 1,
+"first": 1
+},
+"NG:suffix": {
+"docs": 2,
+"blocks_total": 27,
+"first": 4
+},
+"NI:suffix": {
+"docs": 2,
+"blocks_total": 6,
+"first": 4
+},
+"NL:wikidata": {
+"docs": 2,
+"blocks_total": 588,
+"first": 4
+},
+"NO:wikidata": {
+"docs": 3,
+"blocks_total": 148,
+"first": 4
+},
+"NP:wikidata": {
+"docs": 2,
+"blocks_total": 72,
+"first": 4
+},
+"NR:suffix": {
+"docs": 2,
+"blocks_total": 1,
+"first": 1
+},
+"NZ:suffix": {
+"docs": 6,
+"blocks_total": 100,
+"first": 6
+},
+"OM:suffix": {
+"docs": 2,
+"blocks_total": 8,
+"first": 4
+},
+"PA:suffix": {
+"docs": 2,
+"blocks_total": 12,
+"first": 4
+},
+"PA:wikidata": {
+"docs": 2,
+"blocks_total": 4,
+"first": 4
+},
+"PE:suffix": {
+"docs": 5,
+"blocks_total": 82,
+"first": 5
+},
+"PH:suffix": {
+"docs": 4,
+"blocks_total": 80,
+"first": 4
+},
+"PH:wikidata": {
+"docs": 2,
+"blocks_total": 64,
+"first": 4
+},
+"PK:suffix": {
+"docs": 2,
+"blocks_total": 15,
+"first": 4
+},
+"PK:wikidata": {
+"docs": 2,
+"blocks_total": 27,
+"first": 4
+},
+"PL:suffix": {
+"docs": 8,
+"blocks_total": 137,
+"first": 8
+},
+"PL:wikidata": {
+"docs": 8,
+"blocks_total": 851,
+"first": 8
+},
+"PT:suffix": {
+"docs": 2,
+"blocks_total": 28,
+"first": 4
+},
+"PT:wikidata": {
+"docs": 5,
+"blocks_total": 105,
+"first": 5
+},
+"PW:wikidata": {
+"docs": 2,
+"blocks_total": 2,
+"first": 2
+},
+"PY:suffix": {
+"docs": 5,
+"blocks_total": 25,
+"first": 5
+},
+"QA:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+},
+"RO:wikidata": {
+"docs": 3,
+"blocks_total": 135,
+"first": 4
+},
+"RS:suffix": {
+"docs": 7,
+"blocks_total": 40,
+"first": 7
+},
+"RS:wikidata": {
+"docs": 2,
+"blocks_total": 32,
+"first": 4
+},
+"RU:wikidata": {
+"docs": 4,
+"blocks_total": 137,
+"first": 4
+},
+"RW:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+},
+"SA:suffix": {
+"docs": 2,
+"blocks_total": 31,
+"first": 4
+},
+"SA:wikidata": {
+"docs": 2,
+"blocks_total": 17,
+"first": 4
+},
+"SC:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+},
+"SD:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+},
+"SE:wikidata": {
+"docs": 4,
+"blocks_total": 406,
+"first": 4
+},
+"SG:suffix": {
+"docs": 2,
+"blocks_total": 28,
+"first": 4
+},
+"SG:wikidata": {
+"docs": 2,
+"blocks_total": 11,
+"first": 4
+},
+"SI:wikidata": {
+"docs": 6,
+"blocks_total": 103,
+"first": 6
+},
+"SK:wikidata": {
+"docs": 7,
+"blocks_total": 1080,
+"first": 7
+},
+"SL:suffix": {
+"docs": 2,
+"blocks_total": 4,
+"first": 4
+},
+"SM:wikidata": {
+"docs": 2,
+"blocks_total": 8,
+"first": 4
+},
+"SN:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+},
+"SO:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+},
+"SS:suffix": {
+"docs": 2,
+"blocks_total": 1,
+"first": 1
+},
+"SV:suffix": {
+"docs": 2,
+"blocks_total": 10,
+"first": 4
+},
+"SY:suffix": {
+"docs": 2,
+"blocks_total": 4,
+"first": 4
+},
+"TH:suffix": {
+"docs": 6,
+"blocks_total": 209,
+"first": 6
+},
+"TH:wikidata": {
+"docs": 2,
+"blocks_total": 32,
+"first": 4
+},
+"TL:suffix": {
+"docs": 2,
+"blocks_total": 7,
+"first": 4
+},
+"TM:suffix": {
+"docs": 2,
+"blocks_total": 10,
+"first": 4
+},
+"TN:suffix": {
+"docs": 2,
+"blocks_total": 6,
+"first": 4
+},
+"TN:wikidata": {
+"docs": 2,
+"blocks_total": 30,
+"first": 4
+},
+"TO:suffix": {
+"docs": 2,
+"blocks_total": 2,
+"first": 2
+},
+"TR:suffix": {
+"docs": 3,
+"blocks_total": 108,
+"first": 4
+},
+"TR:wikidata": {
+"docs": 2,
+"blocks_total": 73,
+"first": 4
+},
+"TT:suffix": {
+"docs": 2,
+"blocks_total": 6,
+"first": 4
+},
+"TW:suffix": {
+"docs": 10,
+"blocks_total": 230,
+"first": 10
+},
+"TW:wikidata": {
+"docs": 7,
+"blocks_total": 521,
+"first": 7
+},
+"TZ:suffix": {
+"docs": 2,
+"blocks_total": 19,
+"first": 4
+},
+"UA:suffix": {
+"docs": 12,
+"blocks_total": 514,
+"first": 12
+},
+"UA:wikidata": {
+"docs": 2,
+"blocks_total": 117,
+"first": 4
+},
+"UG:suffix": {
+"docs": 2,
+"blocks_total": 12,
+"first": 4
+},
+"UG:wikidata": {
+"docs": 2,
+"blocks_total": 9,
+"first": 4
+},
+"US:suffix": {
+"docs": 84,
+"blocks_total": 3552,
+"first": 30
+},
+"US:wikidata": {
+"docs": 6,
+"blocks_total": 3586,
+"first": 6
+},
+"UY:suffix": {
+"docs": 3,
+"blocks_total": 37,
+"first": 4
+},
+"UY:wikidata": {
+"docs": 2,
+"blocks_total": 15,
+"first": 4
+},
+"UZ:wikidata": {
+"docs": 2,
+"blocks_total": 46,
+"first": 4
+},
+"VC:suffix": {
+"docs": 2,
+"blocks_total": 2,
+"first": 2
+},
+"VE:suffix": {
+"docs": 2,
+"blocks_total": 32,
+"first": 4
+},
+"VN:suffix": {
+"docs": 5,
+"blocks_total": 142,
+"first": 5
+},
+"WS:suffix": {
+"docs": 2,
+"blocks_total": 1,
+"first": 1
+},
+"ZA:suffix": {
+"docs": 6,
+"blocks_total": 35,
+"first": 6
+},
+"ZA:wikidata": {
+"docs": 2,
+"blocks_total": 30,
+"first": 4
+},
+"ZM:suffix": {
+"docs": 2,
+"blocks_total": 3,
+"first": 3
+}
+}
+}
