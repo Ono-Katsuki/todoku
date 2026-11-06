@@ -524,8 +524,8 @@ def _format_date(x: float, sec: str, loc: Loc = Loc(), numerals: int = 0, db: in
             out.append(num(by % 100, 2) if len(t) == 2 else num(by, 4))
         elif low.startswith("m"):
             # 直前が h か直後が s なら「分」
-            prev = next((g[1].lower() for g in reversed(groups[:idx]) if g[0] == "code" and g[1].strip() and g[1][0].isalpha()), "")
-            nxt = next((g[1].lower() for g in groups[idx + 1:] if g[0] == "code" and g[1].strip() and g[1][0].isalpha()), "")
+            prev = next((g[1].lstrip("[").lower() for g in reversed(groups[:idx]) if g[0] == "code" and g[1].strip() and g[1].lstrip("[")[:1].isalpha()), "")
+            nxt = next((g[1].lstrip("[").lower() for g in groups[idx + 1:] if g[0] == "code" and g[1].strip() and g[1].lstrip("[")[:1].isalpha()), "")
             if (prev.startswith("h") or nxt.startswith("s")) and len(t) <= 2:
                 out.append(num(mi, 2) if len(t) >= 2 else num(mi))
             elif len(t) <= 2:
@@ -575,7 +575,13 @@ def _format_date(x: float, sec: str, loc: Loc = Loc(), numerals: int = 0, db: in
             else:
                 out.append(num(n, 2) if len(t) >= 2 else num(n))
         elif t.startswith("["):
-            raise Unsupported(f"経過時間の表示形式: {sec}")
+            # 経過時間（ECMA-376 第1部 18.8.31）：[h]・[m]・[s] は、24 時間・60 分で折り返さない通しの数
+            el = re.fullmatch(r"(?i)\[(h+|m+|s+)\]", t)
+            if el is None:
+                raise Unsupported(f"経過時間の表示形式: {sec}")
+            total = int(math.floor(x)) * 86400 + whole
+            n = total // {"h": 3600, "m": 60, "s": 1}[el[1][0].lower()]
+            out.append(num(n, len(el[1])) if len(el[1]) >= 2 else num(n))
         elif t.isascii() and t.isalpha():
             raise Unsupported(f"日付の表示形式の記号「{t}」")
         else:
