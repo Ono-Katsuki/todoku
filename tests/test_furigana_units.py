@@ -51,3 +51,7 @@ def test_stored_reading_is_not_cut_where_it_shares_kana_with_the_text(tmp_path):
 
 def test_each_stored_unit_is_shown(tmp_path):
     assert "ネンゴウ・センタク" in _window(tmp_path, False)
+
+
+def test_furigana_of_a_hidden_sheet_is_in_the_window(tmp_path):
+    assert "ネンゴウ・センタク" in _window(tmp_path, True)

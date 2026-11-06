@@ -2845,7 +2845,7 @@ def _md_sheet(sh: dict) -> list[str]:
                "ここから作られる選択肢は、各入力欄の「選択肢」に展開してあります。中身は次のとおりです。", ""]
         if sh.get("reading"):
             out += ["### 読み順（上から。非表示のシート）", ""] + _md_reading(sh) + [""]
-        return out + sheet_markdown(sh)
+        return out + _md_furigana(sh) + sheet_markdown(sh)
     out = [f"## シート「{sh['name']}」", ""]
     info = []
     if sh.get("right_to_left"):
