@@ -373,6 +373,16 @@ def row_mm(sh: Sheet, r: int) -> float:
 
 def rows_mm(sh: Sheet, a: int, b: int) -> float:
     """行 a〜b の高さの合計（mm）。高さの指定のある行と非表示の行だけの控えで求める（離れた行まで 1 つずつ足さない：行の数によらない）。"""
+    return _mm_between(_rows_table(sh), a, b)
+
+
+def _mm_between(table: tuple, a: int, b: int) -> float:
+    """行・列の控え（_rows_table・_cols_table）から、a〜b の長さの合計（mm）。"""
+    _, keys, total, base = table
+    return (b - a + 1) * base + total[bisect.bisect_right(keys, b)] - total[bisect.bisect_left(keys, a)]
+
+
+def _rows_table(sh: Sheet) -> tuple:
     got = sh.__dict__.get("_rows_mm")
     if got is None or got[0] != (len(sh.row_heights), len(sh.hidden_rows)):
         base = float(sh.default_row_height or 15.0) * PT_MM
@@ -381,12 +391,15 @@ def rows_mm(sh: Sheet, a: int, b: int) -> float:
         for r in rows:
             total.append(total[-1] + row_mm(sh, r) - base)
         got = sh.__dict__["_rows_mm"] = ((len(sh.row_heights), len(sh.hidden_rows)), rows, total, base)
-    _, rows, total, base = got
-    return (b - a + 1) * base + total[bisect.bisect_right(rows, b)] - total[bisect.bisect_left(rows, a)]
+    return got
 
 
 def cols_mm(wb: Workbook, sh: Sheet, a: int, b: int) -> float:
     """列 a〜b の幅の合計（mm）。幅の指定のある列と非表示の列だけの控えで求める。"""
+    return _mm_between(_cols_table(wb, sh), a, b)
+
+
+def _cols_table(wb: Workbook, sh: Sheet) -> tuple:
     got = sh.__dict__.get("_cols_mm")
     if got is None or got[0] != (len(sh.col_widths), len(sh.hidden_cols)):
         base = col_mm(wb, sh, 0)  # 列 0 はないので、幅の指定のない列の幅
@@ -395,8 +408,7 @@ def cols_mm(wb: Workbook, sh: Sheet, a: int, b: int) -> float:
         for c in cols:
             total.append(total[-1] + col_mm(wb, sh, c) - base)
         got = sh.__dict__["_cols_mm"] = ((len(sh.col_widths), len(sh.hidden_cols)), cols, total, base)
-    _, cols, total, base = got
-    return (b - a + 1) * base + total[bisect.bisect_right(cols, b)] - total[bisect.bisect_left(cols, a)]
+    return got
 
 
 def span_mm(wb: Workbook, sh: Sheet, r1: int, c1: int, r2: int, c2: int) -> dict:
@@ -1163,6 +1175,142 @@ class Box:
         return addr(self.r, self.c1)
 
 
+def _placed_fact(t: str, ref: str, cols: int, r2: int, c2: int, r: int, c1: int, rows_t, cols_t) -> dict:
+    """見出しの字の事実：字のまま・探す鍵・番地・広さと、(r, c1) のマスからの離れ方（上なら rows と mm、左なら cols_between と mm）。"""
+    d: dict = {"text": t, "label": label_text(t), "key": label_key(t), "cell": ref, "cols": cols}
+    if r2 < r:
+        d["rows"] = r - r2
+        d["mm"] = round(_mm_between(rows_t(), r2 + 1, r - 1), 1)
+    elif c2 < c1:
+        d["rows"] = 0
+        d["cols_between"] = c1 - c2 - 1
+        d["mm"] = round(_mm_between(cols_t(), c2 + 1, c1 - 1), 1)
+    return d
+
+
+class _HeaderNodes:
+    """1 枚のシートの「上に続く見出し」の並びの控え：段ごとに (字, 番地, 広さ, 終わりの行, 右の列, 次の段の番号。なければ -1) の
+    1 つの表にする。上へたどる道は、同じ行・同じ列の範囲から先は同じなので、欄ごとに写さず、続きを分け合う。
+    番号で指し、入れ子にしないので、何段あっても写す（pickle）ときに深くならない。行と列の長さの控えも持ち、シートは持たない。"""
+
+    __slots__ = ("nodes", "rows", "cols")
+
+    def __init__(self, rows: tuple, cols: tuple):
+        self.nodes: list[tuple] = []
+        self.rows = rows
+        self.cols = cols
+
+    def facts(self, node: int, r: int, c1: int) -> list[dict]:
+        out = []
+        rows_t, cols_t = (lambda: self.rows), (lambda: self.cols)
+        while node >= 0:
+            t, ref, cols, r2, c2, node = self.nodes[node]
+            out.append(_placed_fact(t, ref, cols, r2, c2, r, c1, rows_t, cols_t))
+        return out
+
+
+class _LazyHeader:
+    """近くの字の header の値（まだ作っていない）：どの段から、どのマスから見た離れ方か。"""
+
+    __slots__ = ("nodes", "node", "r", "c1")
+
+    def __init__(self, nodes: _HeaderNodes, node: int, r: int, c1: int):
+        self.nodes, self.node, self.r, self.c1 = nodes, node, r, c1
+
+    def __getstate__(self):
+        return self.nodes, self.node, self.r, self.c1
+
+    def __setstate__(self, st):
+        self.nodes, self.node, self.r, self.c1 = st
+
+    def make(self) -> list[dict]:
+        return self.nodes.facts(self.node, self.r, self.c1)
+
+
+class _Near(dict):
+    """欄の near（近くの字の事実）。header の並びだけ、値を読まれたときに作る：何千行も字の続く列の欄が何万とあるシートでも、
+    読まれない欄の分は作らない（範囲で読むときは、頼まれた行の欄しか読まれない）。読む側からは、ふつうの辞書と同じ
+    （JSON にしても同じバイトになる。読み手の C の JSON も、dict の子クラスは items() で読む）。写す（pickle）ときは、作らないまま写す。"""
+
+    __slots__ = ()
+
+    def _fill(self) -> None:
+        got = dict.get(self, "header")
+        if isinstance(got, _LazyHeader):
+            dict.__setitem__(self, "header", got.make())
+
+    def __getitem__(self, key):
+        if key == "header":
+            self._fill()
+        return dict.__getitem__(self, key)
+
+    def get(self, key, default=None):
+        if key == "header":
+            self._fill()
+        return dict.get(self, key, default)
+
+    def __iter__(self):  # 定義すると、dict(x)・{**x} が keys() と [] で読む（中の値をそのまま写さない）
+        return dict.__iter__(self)
+
+    def items(self):
+        self._fill()
+        return dict.items(self)
+
+    def values(self):
+        self._fill()
+        return dict.values(self)
+
+    def pop(self, *a):
+        self._fill()
+        return dict.pop(self, *a)
+
+    def popitem(self):
+        self._fill()
+        return dict.popitem(self)
+
+    def setdefault(self, key, default=None):
+        self._fill()
+        return dict.setdefault(self, key, default)
+
+    def copy(self):
+        self._fill()
+        return dict(dict.items(self))
+
+    def __eq__(self, other):
+        if not isinstance(other, dict):
+            return NotImplemented
+        self._fill()
+        if isinstance(other, _Near):
+            other._fill()
+        return dict.__eq__(self, other)
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        return eq if eq is NotImplemented else not eq
+
+    __hash__ = None
+
+    def __or__(self, other):
+        return self.copy() | other
+
+    def __ror__(self, other):
+        return other | self.copy()
+
+    def __repr__(self):
+        self._fill()
+        return dict.__repr__(self)
+
+    def __reduce_ex__(self, protocol):
+        return _near_from_items, (list(dict.items(self)),)
+
+
+def _near_from_items(items: list) -> _Near:
+    n = _Near()
+    for k, v in items:
+        dict.__setitem__(n, k, v)
+    return n
+
+
 def _is_marker(t: str) -> bool:
     """項目の番号・記号だけの字（「①」「(2)」「ア.」「Ⅳ」）か。字の種類（数・1 字の字・かっこ・区切り）だけで見て、語は見ない。"""
     t = t.strip()
@@ -1772,73 +1920,132 @@ class Layout:
         たどる（段の数・見出しの幅の目安で打ち切らない。表題のような広い字も、そのまま事実として出す）。
         いちばん近い段は、行の中のほかのマスまで覆う字（その列だけの見出しではない）なら、見出しなしとする。
         テーブル（リストオブジェクト）の本体のマスは、テーブルの見出しの行の字（ファイルが見出しと決めている字）だけ。"""
+        got = self._table_header(target)
+        if got is not None:
+            return got
+        out: list[tuple[str, Box | None]] = []
+        i = self._header_top(target, phrase)
+        while i >= 0:
+            node = self._header_nodes().nodes[i]
+            out.append((node[0], self.__dict__["_header_boxes"][i]))
+            i = node[5]
+        return out
+
+    def _table_header(self, target: Box) -> list[tuple[str, Box | None]] | None:
+        """テーブル（リストオブジェクト）の本体のマスの見出し（ないなら []）。テーブルの本体でなければ None。"""
         t = self._list_table(target.r, target.c1)
-        if t is not None and t.header_rows:
-            hr = t.r1 + t.header_rows - 1
-            cell = self.sh.cells.get((hr, target.c1))
-            v = cell.value if cell is not None and isinstance(cell.value, str) and cell.value.strip() else None
-            if v is None and target.c1 - t.c1 < len(t.columns):
-                v = t.columns[target.c1 - t.c1] or None
-            if not v:
-                return []
-            hb = next((x for x in self._cand(hr, (target.c1, target.c1)) if x.kind == "text"), None)
-            return [(v, hb)]
+        if t is None or not t.header_rows:
+            return None
+        hr = t.r1 + t.header_rows - 1
+        cell = self.sh.cells.get((hr, target.c1))
+        v = cell.value if cell is not None and isinstance(cell.value, str) and cell.value.strip() else None
+        if v is None and target.c1 - t.c1 < len(t.columns):
+            v = t.columns[target.c1 - t.c1] or None
+        if not v:
+            return []
+        hb = next((x for x in self._cand(hr, (target.c1, target.c1)) if x.kind == "text"), None)
+        return [(v, hb)]
+
+    def _header_top(self, target: Box, phrase: list[Box]) -> int:
+        """いちばん近い段の番号（_HeaderNodes の表。見出しがなければ -1）。その先の段は _header_tail が分け合う。"""
         others = [b for b in self.boxes(target.r) if b not in phrase and b.kind != "check"]
         lo = min(b.c1 for b in phrase) if phrase else target.c1
         hi = max(b.c2 for b in phrase) if phrase else target.c2
-        out: list[tuple[str, Box | None]] = []
         r = target.r - 1
         shape = self.shape(target.r)
         span = (target.c1, target.c2)
         # 何行はなれていても見る（行の数の目安で打ち切らない。離れ方は near に出す）。列の範囲にマスのない行はとばす
         while r > 0:
-            if not out:
-                # 表の本体の行（同じ形）と、同じ列割りの欄が上に続く行（表の列）は、数えずに上へ。続く所の上まで、まとめて飛ぶ
-                r = self._skip_up(r, shape, span)
-                if r <= 0:
-                    break
+            # 表の本体の行（同じ形）と、同じ列割りの欄が上に続く行（表の列）は、数えずに上へ。続く所の上まで、まとめて飛ぶ
+            r = self._skip_up(r, shape, span)
+            if r <= 0:
+                break
             r = self._next_row(r, span)
             if r <= 0:
                 break
             cand = self._cand(r, span)
-            if not out and any(b.kind == "input" for b in cand):
+            if any(b.kind == "input" for b in cand):
                 break  # すぐ上に別の入力欄がある：この欄の見出しは上にはない
             texts = [b for b in cand if _text(b)]
-            if out and any(b.kind in ("input", "formula") or (b.kind == "text" and not isinstance(b.cell.value, str))
-                           for b in cand):
-                break  # 上に続く見出しは、欄や数値をまたがない
             if not texts:
                 r -= 1
                 continue
             h = texts[0]
-            if not out:
-                covered = [o for o in others if o.c1 <= h.c2 and o.c2 >= h.c1 and not (lo <= o.c1 and o.c2 <= hi)
-                           and not (o.kind == "formula" and not o.text)]
-                if covered:
-                    break
-            if all(x is not h for _t, x in out):
-                out.append((h.cell.value, h))
+            covered = [o for o in others if o.c1 <= h.c2 and o.c2 >= h.c1 and not (lo <= o.c1 and o.c2 <= hi)
+                       and not (o.kind == "formula" and not o.text)]
+            if covered:
+                break
+            return self._header_node(h)
+        return -1
+
+    def _header_node(self, h: Box) -> int:
+        """見出しのマス h の段の番号。次の段は、h の上の行と h の列の範囲だけで決まる（どの欄から来ても同じ）。"""
+        memo = self.__dict__.setdefault("_header_node_of", {})
+        got = memo.get(id(h))
+        if got is None:
+            got = memo[id(h)] = self._add_node(h, self._header_tail(h.r - 1, (h.c1, h.c2)))
+        return got
+
+    def _add_node(self, h: Box, next_node: int) -> int:
+        nodes = self._header_nodes().nodes
+        nodes.append((h.cell.value, h.ref if h.control is None else h.cell_ref, h.c2 - h.c1 + 1, h.r2, h.c2, next_node))
+        self.__dict__["_header_boxes"].append(h)
+        return len(nodes) - 1
+
+    def _header_nodes(self) -> _HeaderNodes:
+        got = self.__dict__.get("_header_store")
+        if got is None:
+            got = self.__dict__["_header_store"] = _HeaderNodes(_rows_table(self.sh), _cols_table(self.wb, self.sh))
+            self.__dict__["_header_boxes"] = []
+        return got
+
+    def _header_tail(self, r: int, span: tuple[int, int]) -> int:
+        """行 r から上へ、列の範囲 span で続く見出しの先頭の段の番号（なければ -1）。欄・数式・数のある行に当たるか、シートの上まで
+        たどる（行の数の目安で打ち切らない）。同じ行と列の範囲からの答えは同じなので、たどった所をすべて控え、次からは続きを分け合う。
+        たどる先の行は欄のある行より必ず上で、見出しを探すあいだ置いたマス（describe_agent）の行に入らない。"""
+        memo = self.__dict__.setdefault("_header_tails", {})
+        walked: list[tuple[tuple, Box | None]] = []  # (たどった所, その所で見つけた見出し)
+        tail = -1
+        while r > 0:
+            key = (r, span)
+            got = memo.get(key)
+            if got is not None:
+                tail = got
+                break
+            r = self._next_row(r, span)
+            if r <= 0:
+                walked.append((key, None))
+                break
+            cand = self._cand(r, span)
+            if any(b.kind in ("input", "formula") or (b.kind == "text" and not isinstance(b.cell.value, str)) for b in cand):
+                walked.append((key, None))
+                break  # 上に続く見出しは、欄や数値をまたがない
+            texts = [b for b in cand if _text(b)]
+            if not texts:
+                walked.append((key, None))
+                r -= 1
+                continue
+            h = texts[0]
+            walked.append((key, h))
             span = (h.c1, h.c2)
             r = h.r - 1
-        return out
+        node_of = self.__dict__.setdefault("_header_node_of", {})
+        for key, h in reversed(walked):
+            if h is not None:
+                known = node_of.get(id(h))
+                # 同じ h へは、h の上の行と列の範囲だけで決まる続きが付く（どの道から来ても同じ）
+                tail = known if known is not None else node_of.setdefault(id(h), self._add_node(h, tail))
+            memo[key] = tail
+        return tail
 
     def _fact(self, x: Box | None, target: Box, text: str | None = None) -> dict:
         """近くの字の事実：印刷された字のまま（text）・探す鍵（key）・番地・広さ（cols）・target からの離れ方
         （上なら rows と mm、左なら cols_between と mm）。"""
         t = text if text is not None else (x.cell.value if x is not None and x.cell is not None else "")
-        d: dict = {"text": t, "label": label_text(t), "key": label_key(t)}
         if x is None:
-            return d
-        d["cell"] = x.ref if x.control is None else x.cell_ref
-        d["cols"] = x.c2 - x.c1 + 1
-        if x.r2 < target.r:
-            d["rows"] = target.r - x.r2
-            d["mm"] = round(rows_mm(self.sh, x.r2 + 1, target.r - 1), 1)
-        elif x.c2 < target.c1:
-            d["rows"] = 0
-            d["cols_between"] = target.c1 - x.c2 - 1
-            d["mm"] = round(cols_mm(self.wb, self.sh, x.c2 + 1, target.c1 - 1), 1)
-        return d
+            return {"text": t, "label": label_text(t), "key": label_key(t)}
+        return _placed_fact(t, x.ref if x.control is None else x.cell_ref, x.c2 - x.c1 + 1, x.r2, x.c2, target.r, target.c1,
+                            lambda: _rows_table(self.sh), lambda: _cols_table(self.wb, self.sh))
 
     def describe(self, target: Box, options: list | None = None) -> dict:
         """入力欄（またはチェックボックス）の見出しと、判断の材料。見出しは、印刷された字をそのまま使う：
@@ -1905,8 +2112,10 @@ class Layout:
                     item = t + item
                 elif t not in secs:
                     secs.append(t)
-        chain = self.header_chain(target, phrase)
-        heads = [label_text(chain[0][0])] if chain else []
+        table_chain = self._table_header(target)  # テーブルの本体のマスの見出し。それ以外は、上へたどる（段の事実は読まれたときに作る）
+        top = self._header_top(target, phrase) if table_chain is None else -1
+        heads = ([label_text(table_chain[0][0])] if table_chain else
+                 [label_text(self._header_nodes().nodes[top][0])] if top >= 0 else [])
         parts = list(secs)
         between_text = None  # 前の字が、あいだの別の欄の見出しのとき（見出しにせず、別に示す）
         near = self._near_text(target)
@@ -1984,8 +2193,11 @@ class Layout:
             near["right"] = {"text": rt[0].cell.value, "label": label_text(rt[0].cell.value), "key": label_key(rt[0].cell.value), "cell": rt[0].cell_ref,
                              "cols": rt[0].c1 - target.c2 - 1,
                              "mm": round(cols_mm(self.wb, self.sh, target.c2 + 1, rt[0].c1 - 1), 1)}
-        if chain:
-            near["header"] = [self._fact(x, target, t) for t, x in chain]  # 上に続く見出しの並び（近い順。何段でも）
+        # 上に続く見出しの並び（近い順。何段でも）
+        if table_chain:
+            near["header"] = [self._fact(x, target, t) for t, x in table_chain]
+        elif top >= 0:
+            near = _near_from_items([*near.items(), ("header", _LazyHeader(self._header_nodes(), top, target.r, target.c1))])
         if sec_boxes:
             near["section"] = [self._fact(x, target) for x in sec_boxes]  # 区分の見出し（縦の結合・上から続く行の字）
         if near:

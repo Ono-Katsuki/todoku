@@ -3,6 +3,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>とどく</title>
+<script>
+// 言語：?lang= → 保存した選択 → ブラウザの言語（日本語でなければ英語。分からなければ日本語）。保存が使えなくても動く
+(() => {
+  let l = null;
+  try { l = new URLSearchParams(location.search).get("lang"); } catch (e) {}
+  if (l !== "en" && l !== "ja") { try { l = localStorage.getItem("todoku-lang"); } catch (e) { l = null; } }
+  if (l !== "en" && l !== "ja") { try { const b = (navigator.languages && navigator.languages[0]) || navigator.language; l = b && !/^ja\b/i.test(b) ? "en" : "ja"; } catch (e) { l = "ja"; } }
+  window.__todokuLang = l === "en" ? "en" : "ja";
+  if (window.__todokuLang === "en") document.documentElement.lang = "en";
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=BIZ+UDPMincho:wght@400;700&display=swap">
@@ -137,6 +148,11 @@ button, select, input { font: inherit; color: inherit; }
   .opening .slip { justify-self: stretch !important; text-align: left !important; max-width: none; }
 }
 
+@media (min-width: 861px) and (max-width: 1320px) {   /* 中央の言葉に押されて横の列が細くなる幅：言葉を上に、論文は同じ幅で下に並べる */
+  .opening .orbit { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 56px 44px; max-width: 1180px; }
+  .opening .voice { flex: 0 0 100%; }
+  .opening .slip { flex: 0 1 min(30%, 340px); max-width: none; justify-self: auto !important; text-align: left !important; align-self: flex-start; }
+}
 @media (max-width: 860px) {
   .opening .orbit { grid-template-columns: 1fr 1fr; grid-template-areas: "q q" "a b" "c d" "e f" "g h"; }
   .opening .voice { padding: 8px 0 12px; }
@@ -325,12 +341,35 @@ td .ci { display: inline-block; line-height: 1.3; }
 .slip p.so { color: var(--muted); font-size: .8rem; }
 .slip a { font-size: .72rem; color: var(--muted); word-break: break-all; }
 
+/* ---- 言語の切り替え ---- */
+.lang-switch { position: absolute; top: 4px; right: 12px; z-index: 2; display: flex; align-items: center; font-size: .76rem; color: var(--nibi); }
+.lang-switch button { background: none; border: 0; min-height: 44px; padding: 4px 8px; color: var(--usuzumi); cursor: pointer; }
+.lang-switch button:hover { color: var(--shiro); }
+.lang-switch button[aria-pressed="true"] { color: var(--shiro); font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
+.lang-switch button:focus-visible { outline: 1px solid var(--usuzumi); outline-offset: -4px; }
+@media (max-width: 860px) { .opening .kicker { top: 52px; } }
+/* 英語のときだけ：字の幅に合わせる。論文の引用は英語の原文を本文に出すので、重ねて出さない */
+:root[lang="en"]:not(.i18n-ready) body { visibility: hidden; }
+:root[lang="en"] .opening .kicker { letter-spacing: .2em; }
+:root[lang="en"] .opening .orbit { gap: 56px 56px; }
+:root[lang="en"] .opening .voice blockquote { letter-spacing: 0; font-size: clamp(1.4rem, .9rem + 1.4vw, 1.9rem); line-height: 1.4; }
+@media (min-width: 861px) { :root[lang="en"] .mapgrid { grid-template-columns: minmax(0, 1fr) 340px; } }
+:root[lang="en"] .panel .src { word-break: normal; overflow-wrap: anywhere; }
+:root[lang="en"] .panel dl { grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); }
+:root[lang="en"] .panel .tablebox table { font-size: .72rem !important; }
+:root[lang="en"] .panel .tablebox th { white-space: normal; font-size: .68rem; }
+:root[lang="en"] .panel .tablebox th, :root[lang="en"] .panel .tablebox td { padding-inline: 4px; }
+:root[lang="en"] .opening .cue, :root[lang="en"] .stage-ctl button { letter-spacing: .1em; }
+:root[lang="en"] .orig { display: none; }
+:root[lang="en"] .talk .me::before { content: "Me  "; }
+
 .foot { text-align: center; font-size: .72rem; letter-spacing: .1em; color: var(--muted); padding: 0 20px 28px; }
 @media (max-width: 860px) { .mapgrid { grid-template-columns: 1fr; } }
 @media (max-width: 480px) { .bar { grid-template-columns: minmax(0, 9em) 1fr auto; } }
 </style>
 
 <section class="opening" id="opening" aria-label="冒頭：私の言葉と、まわりの研究">
+  <div class="lang-switch" role="group" aria-label="言語 / Language"><button type="button" data-lang="ja" lang="ja" aria-pressed="true">日本語</button><span aria-hidden="true">/</span><button type="button" data-lang="en" lang="en" aria-pressed="false">English</button></div>
   <p class="kicker">とどく ／ Built with Claude: Japan 2026</p>
   <div class="orbit">
       <div class="voice">
@@ -758,6 +797,289 @@ td .ci { display: inline-block; line-height: 1.3; }
 <footer class="foot">とどく ／ Built with Claude: Japan 2026</footer>
 
 <script>
+// 日本語と英語の切り替え。HTML の本文は日本語のまま。読み込みの直後に日本語の字を英語の字に対応づけ、切り替えで入れ替える（地図・選択・折りたたみの状態は触らない）
+window.TODOKU_I18N = (() => {
+  const EN = new Map([
+    // ---- attributes
+    [`冒頭：私の言葉と、まわりの研究`, `Opening: my words and the surrounding research`],
+    [`地図に示す値`, `Value shown on the map`],
+    [`国ごとの地図`, `Map by country`],
+    [`例：form、申請、antrag`, `e.g. form, application, antrag`],
+    // ---- opening
+    [`とどく ／ Built with Claude: Japan 2026`, `todoku / Built with Claude: Japan 2026`],
+    [`エージェントが全て正確に読み書きできないと、申請で困るのは私だからね。`, `<span class="ln">If an agent can't read</span><span class="ln">and write everything accurately,</span><span class="ln"><em>I'm the one who suffers</em> when I apply.</span>`],
+    [`エージェントにとどけば、私にとどく。`, `If it reaches the agent, it reaches me.`],
+    [`多くの道具の画面を一つずつ使えるようにするのではなく、そのすべてに届く、ひとつの自然言語の入口を用意する。`, `“rather than adapting many specialized interfaces, provide a single natural-language entry point through which the user can reach all of them.”`],
+    [`小野克樹「Reconfiguration of Ability」`, `Katsuki Ono, “Reconfiguration of Ability”`],
+    [`§5.7 デザインへの示唆（日本語訳）`, `§5.7 Design implications`],
+    [`ASSETS '26 §5.7（日本語訳）`, ` ASSETS '26 §5.7`],
+    [`The 28th International ACM SIGACCESS Conference on Computers and Accessibility (ASSETS '26) §5.7 デザインへの示唆（日本語訳）`, `The 28th International ACM SIGACCESS Conference on Computers and Accessibility (ASSETS '26) §5.7 Design implications`],
+    [`Goodwin ほか`, `Goodwin et al.`], [`Singanamalla ほか`, `Singanamalla et al.`], [`Fok ほか`, `Fok et al.`],
+    [`行政の手続きの重さは、調べる手間・書類をそろえて書く手間・気持ちの負担の3つに分けられる。`, `The weight of administrative procedures splits into 3 parts: finding out, gathering and writing the documents, and the emotional burden.`],
+    [`とどくが軽くするのは、このうちの「書く」重さ。`, `todoku lightens the “writing” part.`],
+    [`手続きの重さは偶然ではない。法律を変えなくても、書類を重くすれば、制度を使える人は減る。`, `The weight of procedures is no accident. Without changing any law, heavier paperwork means fewer people can use a program.`],
+    [`だから、書類そのものの重さを測る。`, `So I measure the weight of the documents themselves.`],
+    [`192 か国の政府のサイトを、障害のある人が使えるかという基準で、国ごとに測った。`, `Measured the government sites of 192 countries, country by country, on whether people with disabilities can use them.`],
+    [`この調査も、国ごとに比べる。`, `This survey also compares by country.`],
+    [`政府のサイト 135,408 件のうち、よく見られる上位の一覧に載るのは 1 割に満たない。目立つ所だけ調べても分からない。`, `Of 135,408 government sites, fewer than 1 in 10 appear on top-sites lists. Checking only the prominent ones tells you little.`],
+    [`この調査は、政府のサイトの書類から無作為に選ぶ。`, `This survey samples at random from documents on government sites.`],
+    [`約 2 万件の論文の PDF を層に分けて選び、支援技術で読めるかを調べた。`, `Stratified about 20,000 paper PDFs and tested whether assistive technology can read them.`],
+    [`この調査も、書類を層に分けて選ぶ。`, `This survey also stratifies its documents.`],
+    [`入口のページだけを調べても、サイト全体が使えるかは分からない。`, `Checking only the entry page does not tell you whether the whole site is usable.`],
+    [`この調査は、入口でなく書類そのものを開く。`, `This survey opens the documents themselves, not the entry page.`],
+    [`自動の検査ツールだけでは、見つかる問題はおよそ 10 のうち 4。`, `Automated checking tools alone find about 4 in 10 problems.`],
+    [`とどくは検査で終わらず、実際に書いて、変わったのが書いた所だけかを証明する。`, `todoku does not stop at checking: it actually writes, then proves that only the written places changed.`],
+    [`312 のアプリを 16 か月追い、画像に説明（代わりの字）がない問題を調べた。`, `Followed 312 apps for 16 months and studied images missing descriptions (alternative text).`],
+    [`とどくは、説明のない画像を、段階とは別の注意として示す。`, `todoku reports images without descriptions as alerts, separate from the grade.`],
+    [`スキップ`, `Skip`], [`もう一度`, `Replay`], [`下へ ↓`, `Down ↓`],
+    // ---- intro
+    [`Claude があれば、寝たきりも開発者になれる。`, `With Claude, even someone bedridden can become a developer.`],
+    [`私は、私の視点から、自分の力で、Claude と課題を解決する。`, `Using my own perspective and my own ability, I solve problems with Claude.`],
+    [`寝たきりの開発者、経営者、研究者。入力は頭のスイッチひとつ。`, `I am a bedridden developer, business owner and researcher. My only input is a single head switch.`],
+    [`とどく：行政書類を正確に読み書きするための MCP`, `todoku: an MCP server for reading and writing administrative documents accurately`],
+    [`使い方`, `How to use`],
+    // ---- what changes
+    [`実際に何が変わるか`, `What actually changes`],
+    [`頭のスイッチで文字入力`, `Typing with a head switch`],
+    [`約9分30秒以上`, `~9 min 30 s+`],
+    [`欄を探す操作は含まない`, `Excludes finding the fields`],
+    [`とどくの書類処理`, `todoku's document processing`],
+    [`0.3秒`, `0.3 s`],
+    [`依頼・確認の時間は別`, `Asking and checking are separate`],
+    [`私が頼むのは 1 文。2〜3 分です。`, `I ask in 1 sentence. That takes 2–3 minutes.`],
+    [`東京都中央区の申請書に、架空の値で 22 か所を書いた場合。`, `Writing 22 places on an application from Chuo City, Tokyo, with fictional values.`],
+    [`私が区に出す 1 通の申請書`, `The 1 application I file with my ward`],
+    [`東京都中央区「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）。2 ページ・入力欄の候補 196 か所。架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合。`, `Chuo City, Tokyo: “Disability Welfare Service Application (new/renewal)” (benefit application for severe-disability home care and similar services). 2 pages, 196 candidate input places. 22 places written (158 characters and 2 seals) with a fictional person's values.`],
+    [`探すだけで重い。様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。`, `<b>Finding it is already heavy.</b> Forms differ by ward and are scattered. To find this 1 form, even an agent took 6 searches across 4 sites (Tokyo, Meguro City, Shinjuku City, Chuo City), and no filled-in example existed anywhere. Entering search terms 1 character at a time with a head switch is a big job on its own.`],
+    [`印刷して手で書く前提。入力欄のない印刷用の PDF で、紙に書いて窓口か郵送で出します。ペンを持てない私には書けません。`, `<b>It assumes printing and handwriting.</b> A print-only PDF with no input fields, written on paper and filed at the counter or by mail. I cannot hold a pen, so I cannot write it.`],
+    [`そもそも、私が使う iPad では Office の書類も崩れて扱えません。iPad の Excel は、マクロ（VBA）も動かせません。`, `<b>On the iPad I use, Office documents break and cannot be handled in the first place.</b> Excel on iPad cannot run macros (VBA) either.`],
+    [`署名は手書きの欄。とどくは、私が同意すれば署名の画像を置けます。ただし、画像の署名を区が認めるかは様式しだいです。`, `<b>The signature is a handwriting field.</b> With my consent, todoku can place an image of my signature. Whether the ward accepts an image signature depends on the form.`],
+    [`頭のスイッチで字を入れたとしたら：158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）。＋ 196 か所から書く欄を探して移る操作（測れていないので含めていません）。`, `Typing with a head switch would take: longer than 158 characters × 3.6 seconds for 1 character (Ono, ASSETS '26 §4.1: over 1 hour per 1,000 characters). + finding and moving to the right fields among 196 places (not measured, so not included).`],
+    [`とどく ＋ エージェント：私が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）。`, `todoku + agent: the 1 sentence I ask: 2–3 minutes (Ono, ASSETS '26 §4.3).`],
+    [`とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで 0.3 秒。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。`, `todoku writes the 22 places, proves that only those changed, and reads them back in 0.3 seconds. I check by reading what the agent tells me it wrote, in conversation. The typing time is a lower bound derived from my paper (over 1 hour per 1,000 characters; 2–3 minutes per 1 request).`],
+    // ---- trust
+    [`信頼できる理由`, `Why it can be trusted`],
+    [`書いた場所以外は変えない。`, `Nothing changes except where it writes.`],
+    [`読み書きの正確さを、実際の書類で検証する。`, `Read and write accuracy is verified on real documents.`],
+    [`行政手続きは 1 円、1 バイトずれると困る世界だから`, `Because in administrative procedures, being off by 1 yen or 1 byte is a real problem`],
+    [`元の PDF をそのまま残す`, `Keeps the original PDF intact`],
+    [`ただの Claude Code 0/16。同じ 20 通で比べました。`, `Plain Claude Code: 0/16. Compared on the same 20 forms.`],
+    [`計算`, `Calculation`],
+    [`セルすべて一致`, `cells, all matching`],
+    [`新潟県の公開様式`, `Public form, Niigata Prefecture`],
+    [`私たちの事業所の請求の計算を、数か月かけて自分で作りました。だから知っています。一円ずれると、通りません。`, `I spent months building our office's billing calculation myself. So I know: one yen off, and it does not go through.`],
+    [`試算の例（架空の値：重度訪問介護、処遇改善加算Ⅰ、総単位数 123,457、2 か月。ファイルは書き換えない）`, `Sample calculation (fictional values: severe-disability home care, care-worker pay improvement addition I, 123,457 total units, 2 months. The file is not rewritten.)`],
+    [`計算の順番`, `Order of calculation`], [`見込額`, `Estimate`],
+    [`様式の決まりどおり`, `As the form defines it`],
+    [`全部掛けてから、最後に切り捨てる`, `Multiply everything, then round down`],
+    [`先に切り捨ててから、月数を掛ける`, `Round down first, then multiply by months`],
+    [`84,692 円`, `84,692 yen`], [`84,691 円`, `84,691 yen`], [`84,690 円`, `84,690 yen`],
+    [`下の 2 行は比べるために計算した順番で、様式にはありません。順番を憶測すると、1 円、2 円ずれます。`, `The bottom 2 rows are orders calculated for comparison and are not in the form. Guess the order and you are off by 1 yen or 2 yen.`],
+    [`1 円、1 バイト`, `1 yen, 1 byte`],
+    [`Claude Code は、もう書けます。とどくが渡すのは、ずれていないと言い切れることです。`, `Claude Code can already write. What todoku gives you is the ability to say for certain that nothing moved.`],
+    [`1 バイト：同じ 20 通で比べました`, `1 byte: compared on the same 20 forms`],
+    [`ただの Claude Code`, `Plain Claude Code`],
+    [`＋ とどく`, `+ todoku`],
+    [`変わったのは書いた所だけと証明`, `Proof that only the written places changed`],
+    [`なし`, `none`],
+    [`1 円：データと処理を、分けて渡す`, `1 yen: data and processing, handed over separately`],
+    [`計算を、憶測させないためです。とどくは書類の中の計算の決まりを、値でなく処理として取り出し、保存された値と照らしてから渡します。`, `So that the calculation is never a guess. todoku extracts a document's calculation rules as processing, not as values, and checks them against the saved values before handing them over.`],
+    [`数式のセル（新潟県の公開様式）`, `formula cells (public form, Niigata Prefecture)`],
+    [`規則にまとめた`, `rules, consolidated`],
+    [`保存された値と一致`, `match the saved values`],
+    [`とどくで、どう届くようにしたか`, `How todoku makes documents reachable`],
+    [`とどくは、書類を変えずに、AI エージェントが全てを正確に読み書きできる道をつくります。どの段階も AI を使わない決まった処理で、同じ書類と同じ環境（入っている書体など）からは、必ず同じ結果が出ます。数は、この調査で段階を付けた書類のものです。`, `todoku builds a path for AI agents to read and write everything accurately, without changing the document. Every step is fixed processing with no AI: the same document in the same environment (installed fonts and so on) always gives the same result. The counts are from the documents graded in this survey.`],
+    [`制度と様式を探す`, `Find the program and the form`],
+    [`「私が使える制度を探して、申請書を書いて」の一言から、エージェントが制度の案内・要綱と様式を探してきます。当たるかどうか分からない条件は、推測で決めずに伝えます。`, `From one line, “Find a program I can use and write the application,” the agent finds the program's guidance, rules and form. Eligibility conditions it cannot determine are reported, not guessed.`],
+    [`開いて、一字も変えずに読む`, `Open and read without changing a character`],
+    [`PDF・Excel・Word・一太郎・CSV・ZIP などの書類を、元の内容を一字も変えずに読める「窓」にします。Office も外部のライブラリも使いません。この調査では、— の形式の書類 — 件を開いて段階を付けました。`, `PDF, Excel, Word, Ichitaro, CSV, ZIP and other documents become a readable “window” without changing a single character of the original. No Office, no external libraries. In this survey, I opened and graded <span class="num" id="how-docs">—</span> documents in <span class="num" id="how-kinds">—</span> formats.`],
+    [`書く所を見つける。迷う所は「？」でエージェントに`, `Find where to write. Uncertain places go to the agent as “?”`],
+    [`入力欄は、フォームの欄・入力規則・罫線・下線など、ファイルの構造から規則で見つけます。言葉の一致では決めません。規則で決められない所は、根拠を添えて「？」の印で示し、エージェントが判断します（— 件の書類）。`, `Input places are found by rules from the file's structure: form fields, validation rules, ruled lines, underlines. Never by matching words. Places rules cannot decide are marked “?” with the evidence, and the agent judges them (<span class="num" id="how-agent">—</span> documents).`],
+    [`紙のままの壁を越える`, `Get past the paper wall`],
+    [`文字の情報がないスキャンのページ（— 件の書類）は、ページを画像にしてエージェントが見て読み、目盛りの枠で書きます。ZIP は中のファイルを開き、押印・自署は、申請する人が同意したときだけ、その人の印影の画像を置きます。`, `Scanned pages with no character data (<span class="num" id="how-scan">—</span> documents) are rendered as images for the agent to view and read, then written using a measured grid. ZIPs are opened file by file. For seals and signatures, an image of the applicant's own seal is placed only with the applicant's consent.`],
+    [`書いて、証明する`, `Write, then prove`],
+    [`書いたら、前と後のファイルを読み直して、変わったのが書いた所だけであることを機械で証明し、書いた値を読み戻します。部分標本 — 件で全ての欄に書き、— 件で全てを正確に読み書きできました。`, `After writing, the before and after files are reread, it is mechanically proved that only the written places changed, and the written values are read back. In a subsample of <span class="num" id="how-audited">—</span> documents, every field was written; <span class="num" id="how-auditok">—</span> were read and written entirely accurately.`],
+    [`対話で伝える`, `Report in conversation`],
+    [`私は、書類を Word や Acrobat で開きません。とどくは書類を開かずに読み書きするので、私は iPad から会話するだけです。書いた所の見出しと値・まだ空いている欄・私が決めることを、エージェントが会話でそのまま伝え、私が確かめます。`, `I do not open documents in Word or Acrobat. todoku reads and writes without opening them, so I only converse from my iPad. The agent tells me the labels and values it wrote, the fields still empty, and what I need to decide, directly in conversation, and I check.`],
+    // ---- how to use
+    [`Claude Code に入れて、自然な言葉で頼む。`, `Add it to Claude Code and ask in natural language.`],
+    [`Claude Code と、Python の道具 uv を入れます。`, `Install <a href="https://code.claude.com/docs/ja/quickstart" rel="noopener noreferrer">Claude Code</a> and the Python tool <a href="https://docs.astral.sh/uv/" rel="noopener noreferrer">uv</a>.`],
+    [`Claude Code で、次の 2 行を順に打ちます。`, `In Claude Code, enter these 2 lines in order.`],
+    [`コピー`, `Copy`],
+    [`あとは、ふだんの言葉で頼むだけです。`, `Then just ask in everyday words.`],
+    [`「住んでいる区で使える子育ての助成を探して、申請書を書いて」`, `“Find childcare support I can use in my ward and write the application.”`],
+    [`「この様式に、去年と同じ事業所の情報を入れて」`, `“Fill in this form with the same office details as last year.”`],
+    [`「この Excel の計算のきまりを説明して。区分Ⅱにしたらいくら？」`, `“Explain how this Excel sheet calculates. What if I choose category II?”`],
+    [`Mac や PC の Claude Code に入れておき、iPad からはリモート操作で話しかけます。iPad で書類を開く必要はありません。書類は手元のパソコンの中で扱い、外に送りません。`, `Install it in Claude Code on a Mac or PC, and talk to it by remote control from an iPad. No need to open documents on the iPad. Documents are handled on your own computer and are not sent out.`],
+    [`ほかの MCP 対応のエージェントで使う`, `Use with other MCP-capable agents`],
+    [`リポジトリ（github.com/Ono-Katsuki/todoku）を手元に置き、エージェントの MCP の設定に次を足します。`, `Clone the repository (<a href="https://github.com/Ono-Katsuki/todoku" rel="noopener noreferrer">github.com/Ono-Katsuki/todoku</a>) and add this to the agent's MCP settings.`],
+    [`{ "mcpServers": { "todoku": { "command": "uv", "args": ["run", "--quiet", "--directory", "<リポジトリの場所>", "todoku-mcp"] } } }`, `{ "mcpServers": { "todoku": { "command": "uv", "args": ["run", "--quiet", "--directory", "&lt;repository path&gt;", "todoku-mcp"] } } }`],
+    // ---- world
+    [`世界の行政書類を調査`, `A survey of the world's administrative documents`],
+    [`エージェントがアクセスできないことは、アクセシビリティの問題です。アクセシビリティは、一人で作るものじゃない。とどくは、世界の行政書類が、エージェントにどこまで届くかを評価します。`, `When an agent cannot access something, that is an accessibility problem. Accessibility is not something one person builds alone. todoku evaluates how far the world's administrative documents reach agents.`],
+    [`● か国と地域の、政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って正確に扱える書類の割合です。政府の書類全体や、申請の様式だけの割合ではありません。国を選ぶと、内訳が出ます。`, `Across <span class="num" id="w-countries">●</span> countries and regions, the share of documents on government sites (Common Crawl, 2026-10 crawl) that AI agents can handle accurately with todoku. This is not the share of all government documents, or of application forms alone. Select a country to see its breakdown. <span id="map-status"></span>`],
+    [`正確に読める`, `Reads accurately`],
+    [`書ける`, `Writable`],
+    [`申請の様式に書ける`, `Application forms writable`],
+    [`取得できる`, `Retrievable`],
+    [`読む：正確に読める数`, `Read: count read accurately`],
+    [`書く：正確に書ける数`, `Write: count written accurately`],
+    [`地図か一覧から国を選んでください。`, `Select a country on the map or in the list.`],
+    [`国の一覧`, `Countries`],
+    [`割合のあとの括弧は 95% 区間です。標本の少ない国は区間が広くなります。`, `Parentheses after a share give the 95% interval. Countries with small samples have wider intervals.`],
+    [`国`, `Country`], [`選んだ`, `Sampled`], [`取得`, `Retrieved`], [`読む S〜B`, `Read S–B`], [`読む段階の内訳`, `Read grade breakdown`],
+    [`書く A・B`, `Write A, B`], [`書く段階の内訳`, `Write grade breakdown`], [`様式に書く`, `Forms writable`],
+    [`読む`, `Read`], [`書く`, `Write`],
+    [`正確に書ける`, `Writes accurately`],
+    [`● は確定の集計が入ると、数に変わります。`, `● becomes a number once the final tally is in.`],
+    [`国と地域（政府の書類が収集にある所）`, `countries and regions (with government documents in the crawl)`],
+    [`選んだ書類`, `documents sampled`],
+    [`取得して段階を付けた書類`, `documents retrieved and graded`],
+    [`書類を探す`, `Find documents`],
+    [`選んだ書類のひとつひとつの結果です。書類そのものは置いていません。元の公開場所へのリンクだけです（収集のあとで消えた書類もあります）。`, `Results for each sampled document. The documents themselves are not hosted here, only links to where they were published (some have disappeared since the crawl).`],
+    [`すべて`, `All`], [`形式の群`, `Format group`], [`表計算`, `Spreadsheet`], [`文書`, `Document`], [`読む段階`, `Read grade`], [`書く段階`, `Write grade`],
+    [`入力欄`, `Input fields`], [`作り手の印がある様式`, `Form with author-marked fields`], [`推定の欄だけ`, `Inferred fields only`], [`欄なし`, `No fields`],
+    [`取得できた`, `Retrieved`], [`取得できない`, `Not retrieved`], [`ファイル名・サイト`, `File name / site`], [`並び順`, `Sort`],
+    [`読むスコアが高い順`, `Read score, high to low`], [`読むスコアが低い順`, `Read score, low to high`], [`書くスコアが高い順`, `Write score, high to low`], [`書くスコアが低い順`, `Write score, low to high`],
+    [`欄の多い順`, `Most fields first`], [`国の順`, `By country`], [`さらに 20 件`, `20 more`],
+    [`段階の理由`, `Reasons for grades`],
+    [`段階は、ファイルの構造の規則だけで決めています。キーワードでは決めません。規則で決められない所は、エージェントが確かめる所として数えます。`, `Grades are decided only by rules on the file's structure. Never by keywords. Places rules cannot decide are counted as places for the agent to check.`],
+    [`取得の内訳`, `Retrieval breakdown`],
+    // ---- development
+    [`Claude との開発`, `Developing with Claude`],
+    [`方針と判断は私が伝え、実装と検証は Claude Code とサブエージェントが並行して進めました。とどくは、Python の標準の機能だけで動きます。`, `I gave the direction and the decisions; Claude Code and subagents did the implementation and verification in parallel. todoku runs on the Python standard library alone.`],
+    [`コミット`, `commits`], [`テスト（最後の全体テスト）`, `tests (last full run)`], [`外部ライブラリ`, `external libraries`],
+    [`私の指示と、Claude の返答（履歴の原文）`, `My instructions and Claude's replies (translated from the original history)`],
+    [`壊してない証明として書き込み除くとバイト一致する？`, `As proof nothing broke, is it byte-identical apart from what was written?`],
+    [`実物の書類で「書いた所を除くとバイト一致か」を測る検証を書いています。`, `I am writing a check that measures, on real documents, whether files are byte-identical apart from the written places.`],
+    [`b2a5e6d 証明を強める：書いた所を除くとバイト一致を確かめる（Excel のシート・.doc の本文・CSV の後ろの行）`, `<code>b2a5e6d</code> Strengthen the proof: confirm byte identity apart from the written places (Excel sheets, .doc body, trailing CSV rows)`],
+    [`ベンチ最適化でなく汎化性が大切だよ。`, `Generality matters, not optimizing for the benchmark.`],
+    [`規則で決めるのは、ファイルの構造から確実に分かることだけにします。`, `Rules will decide only what the file's structure makes certain.`],
+    [`90b6af3 PDF の配置の推定：決め打ちの選別をやめ、迷う所はエージェントに候補として示す`, `<code>90b6af3</code> PDF layout inference: drop hard-coded selection; show uncertain places to the agent as candidates`],
+    [`処理は処理として取れる方が嬉しい`, `I'd like processing to be extractable as processing`],
+    [`値を計算して渡すだけでなく、処理そのものを渡します。`, `Rather than only computing and passing values, I will hand over the processing itself.`],
+    [`ec728a4 処理を処理として取り出す extract_processing`, `<code>ec728a4</code> Extract processing as processing: extract_processing`],
+    // ---- detailed results
+    [`詳しい結果`, `Detailed results`],
+    [`ここの数は、すべて固定版 eval-freeze-1（コミット 26f4332）の評価です。「開発用」は開発に使った書類、「評価用」は固定するまで開かなかった書類（都と多摩、世界）です。`, `All numbers here evaluate the frozen version <code>eval-freeze-1</code> (commit 26f4332). “Development” means documents used in development; “Held-out” means documents not opened before the freeze (Tokyo and Tama, World).`],
+    [`開発用`, `Development`], [`評価用：都と多摩`, `Held-out: Tokyo and Tama`], [`評価用：世界`, `Held-out: World`],
+    [`とどく`, `todoku`], [`比べる道具`, `Comparison tools`], [`最良の道具`, `Best tool`], [`形式`, `Format`],
+    [`開けた`, `Opened`], [`正確に読めた（字がある書類）`, `Read accurately (documents with text)`], [`画面の字（日付・数の形式）`, `Displayed text (date and number formats)`],
+    [`数式の値`, `Formula values`], [`結合が各行に届く`, `Merged cells reach each row`], [`非表示のシートの印`, `Hidden-sheet markers`], [`非表示の字の印`, `Hidden-text markers`],
+    [`字の色`, `Text color`], [`ふりがな`, `Furigana`], [`図形・テキストボックスの字`, `Text in shapes and text boxes`], [`チェックボックスの状態`, `Checkbox state`],
+    [`PDF の欄の値`, `PDF field values`], [`字のないページを伝える`, `Reports pages with no text`],
+    [`書類は開発用 78 件、都と多摩 100 件、世界 557 件。「比べる道具」は MarkItDown・python-docx・pdfplumber・pypdf・xlrd・openpyxl のうち、特徴ごと・形式ごとに最もよい道具を選んで足したものです（1 つの道具の成績ではなく、比べる道具に有利）。分母は道具ごとの値のまま足したので、道具によって違うことがあります。`, `Documents: 78 development, 100 Tokyo and Tama, 557 World. “Comparison tools” takes the best of MarkItDown, python-docx, pdfplumber, pypdf, xlrd and openpyxl per feature and per format, and sums them (not the score of 1 tool, and favorable to the comparison tools). Denominators are summed from each tool's own values, so they can differ by tool.`],
+    [`字の再現率`, `Character recall`],
+    [`とどくの窓が「同じ形の行が続く」とまとめた所は、窓の言明のとおりに広げて数えます。広げない数との違いは世界の xlsx だけで、広げないと 0.9838 です。広げたことで「正確に読めた」に入った書類は世界の 2 件です。`, `Where todoku's window summarizes “rows of the same shape continue,” I expand as the window states and count that. The only difference from the unexpanded count is World xlsx: 0.9838 unexpanded. Expansion moved 2 World documents into “read accurately.”`],
+    [`書く（書けた＋何も消えない、日本語の値）`, `Write (written + nothing lost, Japanese values)`],
+    [`書けない`, `Cannot write`],
+    [`pdf（XFA）`, `pdf (XFA)`], [`pdf（フォームの欄）`, `pdf (form fields)`], [`pdf（欄のない PDF）`, `pdf (PDF with no fields)`], [`pdf（署名あり）`, `pdf (signed)`],
+    [`処理の取り出し`, `Processing extraction`],
+    [`数式のある書類`, `Documents with formulas`], [`数式のセル`, `Formula cells`], [`計算した値が保存された値と合う`, `Computed values match saved values`], [`確かめられた規則`, `Rules verified`], [`計算できないと伝えた関数`, `Functions reported as not computable`],
+    [`処理を取り出せなかった書類は、どの組も 0 件です。比べる道具（openpyxl）は数式の字を読むもので、計算と規則へのまとめは行いません。`, `Documents whose processing could not be extracted: 0 in every set. The comparison tool (openpyxl) reads formula text; it does not compute or reduce to rules.`],
+    [`白紙からの記入`, `Filling from blank`],
+    [`記入済み（エージェント＋証明＋確認役。95% 区間）`, `Completed (agent + proof + reviewer; 95% interval)`], [`証明が通った（出力のある様式）`, `Proof passed (forms with output)`], [`読み戻しが通った`, `Read-back passed`],
+    [`エージェントが記入済みと報告`, `Agent reported completed`], [`確認役が ok とした`, `Reviewer said ok`], [`確認役の指摘が残った（所／様式）`, `Reviewer findings remaining (places / forms)`],
+    [`答えられるのに空いていた所（確認役）`, `Left empty though answerable (reviewer)`], [`申請者に聞く所`, `Places to ask the applicant`], [`道具が書くのを断った回数（うち、断らなくてよかった回数）`, `Times the tool refused to write (of which, needless refusals)`],
+    [`見ないで行えた（記録で確認）`, `Run blind (confirmed from logs)`], [`1 様式の時間（記入／確認、分）`, `Time per 1 form (fill / review, minutes)`],
+    [`確認役は AI で、書いた結果の絵を見て厳しめに判定します（人の二重確認ではありません）。様式は種で選びました。世界は結果を見る前に 100 件から 50 件に減らし、対象外の 2 件を除いて 48 件です。申請者は架空の人で、情報にない欄は聞く所として空きます。人の手が残る所は、都と多摩で印刷 100・窓口 98・添付 87・自署 51・押印 22・郵送 3（ほかにその他 100）、世界で自署 45・添付 42・印刷 42・窓口 39・押印 6・郵送 4（ほかにその他 48）様式です。`, `The reviewer is an AI that looks at rendered images of the result and judges strictly (not a human double-check). Forms were chosen by seed. World was cut from 100 to 50 before seeing results, then 2 out-of-scope forms were removed, leaving 48. The applicant is fictional; fields not in the supplied information stay empty as places to ask. Steps that still need human hands, in forms: Tokyo and Tama: printing 100, counter 98, attachments 87, handwritten signature 51, seal 22, mail 3 (plus other 100); World: handwritten signature 45, attachments 42, printing 42, counter 39, seal 6, mail 4 (plus other 48).`],
+    [`ただの Claude Code との比較（都と多摩の同じ 20 通）`, `Comparison with plain Claude Code (the same 20 Tokyo and Tama forms)`],
+    [`記入済み（95% 区間）`, `Completed (95% interval)`], [`書類の部品が消えた様式`, `Forms that lost document parts`], [`日本語が読める PDF（Poppler／PDFKit の描画）`, `PDFs with readable Japanese (Poppler / PDFKit rendering)`],
+    [`答えられるのに空いていた所`, `Left empty though answerable`], [`1 通の平均の時間`, `Average time per 1 form`], [`162 秒`, `162 s`], [`124 秒`, `124 s`],
+    [`記入済みの数の差は統計的に区別できません（両方が記入済み 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9。McNemar の正確検定 p = 1.0）。とどくの価値は、数を増やすことより、書いたものを証明できることにあります。確認役には、どちらの結果かを伏せました。`, `The difference in completed counts is not statistically distinguishable (both completed 8, todoku only 2, plain Claude Code only 1, neither 9; McNemar exact test p = 1.0). todoku's value lies in proving what was written, more than in raising the count. The reviewer was blinded to which result was which.`],
+    [`世界の数（同じ定義で実際に試した 1,079 件から推定）`, `World counts (estimated from 1,079 documents actually tried under the same definition)`],
+    [`とどくで通る`, `Pass with todoku`], [`比べる道具のどれかで通る`, `Pass with any comparison tool`], [`とどくだけ通る（新しく届く）`, `Pass with todoku only (newly reachable)`], [`比べる道具だけ通る`, `Pass with comparison tools only`],
+    [`区間は 95%。比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。「比べる道具だけ通る」の読むの 57% は、基準をわずかに下回った 1 件の書類の重みです。読むの 1 件（大きな Excel）は採点が終わらず、とどくも比べる道具も通らないと数えました。とどくはこの数に加えて、変わったのが書いた所だけと証明します。`, `Intervals are 95%. A document counts as “pass” for comparison tools if any 1 tool passes it (a count favorable to the comparison tools). 57% of “Pass with comparison tools only” under Read is the weight of 1 document that fell just below the threshold. 1 Read document (a large Excel file) did not finish scoring and was counted as passing neither todoku nor the comparison tools. On top of these counts, todoku proves that only the written places changed.`],
+    [`実験の条件`, `Experimental conditions`],
+    [`道具の版：markitdown 0.1.9・openpyxl 3.1.5・pypdf 6.21.4・pdfplumber 0.11.10・python-docx 1.2.0・xlrd 2.0.2。正解は Poppler 26.10.0・LibreOffice 26.8.1・Excel 16.114・ファイルの XML から作りました（書類ごとに記録）。Word は動かしていません。`, `Tool versions: markitdown 0.1.9, openpyxl 3.1.5, pypdf 6.21.4, pdfplumber 0.11.10, python-docx 1.2.0, xlrd 2.0.2. Ground truth was built from Poppler 26.10.0, LibreOffice 26.8.1, Excel 16.114 and the files' XML (recorded per document). Word was not run.`],
+    [`とどくに有利な条件：変えた保存値の試験（表には載せていません）、比べる道具を Python のライブラリに限ったこと（LibreOffice で変換してから読む手順は入っていません）。`, `Conditions favorable to todoku: the altered-saved-values test (not in the tables), and limiting comparison tools to Python libraries (no convert-with-LibreOffice-then-read procedure).`],
+    [`比べる道具に有利な条件：書く欄はとどくが選んで教えました（欄を見つける力は比べていません）。比べる道具の読み方は、使い慣れた人が書く形にしました。「比べる道具」の列は形式ごとの最良です。`, `Conditions favorable to comparison tools: todoku chose and supplied the fields to write (field-finding ability was not compared). Comparison tools were read the way an experienced user would write it. The “Comparison tools” column is the best per format.`],
+    [`試運転（開発の書類 95 件）のあとで測り方を変え、評価用の書類を開く前に固定しました。同じコミットで、試運転で見つけた直しも入れています。開発用の数がよく見える理由の一つになりえます。`, `After a trial run (95 development documents) I changed the measurement, and froze it before opening the held-out documents. The same commit includes fixes found in the trial run. This may be one reason the development numbers look good.`],
+    [`Office の書類の絵は LibreOffice の描画で、日本語は Noto Sans JP で描きました。字の幅が実物と違うので、はみ出しの判断は参考です。`, `Images of Office documents are LibreOffice renderings, with Japanese drawn in Noto Sans JP. Character widths differ from the real thing, so overflow judgments are indicative only.`],
+    [`固定のあとに入れた改善（eval-freeze-1 から 25 コミット。上の数には含みません）`, `Improvements after the freeze (25 commits from <code>eval-freeze-1</code>; not included in the numbers above)`],
+    [`書体の埋め込み：PDF に足す字を、同梱の書体（Noto Sans JP、OFL）から部分埋め込みするのを既定に。固定版の 20 通の比較では、PDF 16 通で日本語の書体を埋め込んでいませんでした。`, `<b>Font embedding</b>: characters added to PDFs are now subset-embedded by default from a bundled font (Noto Sans JP, OFL). In the frozen version's 20-form comparison, 16 PDFs had no embedded Japanese font.`],
+    [`見えない字を防ぐ描画の確かめ：書いた後に描いて、画素が変わらなければ読み戻しの違いとして返し、明るさの比が低ければ知らせます。`, `<b>Rendering check against invisible text</b>: after writing, it renders; if the pixels did not change it returns a read-back difference, and it alerts on low contrast.`],
+    [`書いた字を見える形に：高さの足りない所で切られる字、一覧にない部品、NeedAppearances、枠の設定、描き直す表示での字の違いに対応。`, `<b>Making written text visible</b>: handles text clipped where height is short, widgets not in the list, NeedAppearances, field border settings, and text differences in viewers that redraw.`],
+    [`Word の字の書式：.docx・.doc の取り消し線と字の色を窓で伝えます。上の「字の色」の差は Word の分で、固定版は Word の色を伝えていませんでした（Excel は 都と多摩 6/6・世界 70/71）。比べる道具の色は、比較のために書いた読み出しのスクリプトが取り出したものです。`, `<b>Word text formatting</b>: the window reports strikethrough and text color for .docx and .doc. The “Text color” gap above is from Word: the frozen version did not report Word colors (Excel: Tokyo and Tama 6/6, World 70/71). The comparison tools' colors came from a readout script written for this comparison.`],
+    [`窓の字を元のまま：印刷された箱の字（❑・□）、点線・下線の字、欄の見本の字、Excel のチェックボックスの面の字を伝えます。字のない図形は事実として示し、その上に書けます。`, `<b>Window text as in the original</b>: reports printed box characters (❑, □), dotted and underline characters, sample text in fields, and the caption text on Excel checkboxes. Shapes without text are shown as facts and can be written on.`],
+    [`○の位置：長い語の○を、線のあいだに収め、収まらなければ字に沿った角の丸い囲みにします。`, `<b>Circle position</b>: a circle around a long word is fitted between the lines; if it does not fit, it becomes a rounded enclosure following the text.`],
+    [`読み戻しと伝え方：読み戻しの誤検出（足した空白・.doc のテキストボックス・日付のセル）を直し、今回書いていないのに値の入っている欄を会話で伝えます。`, `<b>Read-back and reporting</b>: fixes false read-back detections (added spaces, .doc text boxes, date cells), and reports in conversation fields that hold values not written this time.`],
+    [`結果の大きさ：open_document・list_fields・read_window・extract_processing の結果を上限に収め、省いた事実は続きで取れます。`, `<b>Result size</b>: results of open_document, list_fields, read_window and extract_processing fit within limits; omitted facts can be fetched as a continuation.`],
+    [`次に広げること`, `What comes next`],
+    [`Acrobat と実機のスクリーンリーダー（NVDA・JAWS など）で確かめます。Word の○を図形で置くときの描き手による位置の違い、一部のビューアーでの読み上げの順と書いた値へのタブでの移動を整えます。固定後の改善を含めて評価をもう一度回します。`, `Verify in Acrobat and on real screen readers (NVDA, JAWS and others). Fix renderer-dependent positions when circles are placed as shapes in Word, and reading order and tabbing to written values in some viewers. Rerun the evaluation including the post-freeze improvements.`],
+    // ---- method
+    [`方法`, `Method`],
+    [`母集団と標本`, `Population and sample`],
+    [`国連の加盟 193 か国（そのうち、政府の書類の枠があり段階を付けられたのは 185 か国）の、政府のサイトにある PDF・表計算・文書・CSV の書類です。政府のサイトは、国のドメインの政府用の区分（gov.br・go.jp・lg.jp・gouv.fr・gob.mx など。Public Suffix List と各国の登録機関の規則が根拠）と、米国の .gov などの国の政府のドメイン、Wikidata にある省庁・政府の機関・自治体の公式のサイトで決めました。書類は、Common Crawl の 2026 年 10 月の収集（CC-MAIN-2026-43）の中から選びます。収集の索引を区切りごとに無作為に選び、その中の政府のサイトの書類を候補にして、国 × 形式の群の層ごとに 20 件を無作為に選びました（選ばれる確率を記録）。表計算・文書は数が少ないので、候補が 20 件に届くまで区切りを無作為に足して読みました（国ごとに 120 まで）。国は選び出さず、193 か国のすべての結果を地図に示しています。`, `PDF, spreadsheet, document and CSV files on the government sites of the 193 UN member states (185 of them with a frame of government documents that could be graded). Government sites were defined by the government subdivisions of national domains (gov.br, go.jp, lg.jp, gouv.fr, gob.mx and others, based on the Public Suffix List and each registry's rules), national government domains such as the US .gov, and official sites of ministries, government agencies and municipalities in Wikidata. Documents are chosen from Common Crawl's 2026-10 crawl (CC-MAIN-2026-43). Sections of the crawl index were chosen at random, the government-site documents in them became candidates, and 20 were chosen at random per stratum of country × format group (selection probabilities recorded). Spreadsheets and documents are scarce, so I added random sections until candidates reached 20 (up to 120 per country). No countries were cherry-picked: the map shows results for all 193.`],
+    [`分析の単位`, `Unit of analysis`],
+    [`主の単位は書類（ファイル）です。段階がファイルごとに付くためです。同じ中身の書類は 1 件に数えます。書く段階の理由は入力欄ごとにも数えます。`, `The main unit is the document (file), because grades are assigned per file. Documents with identical content count as 1. Write-grade reasons are also counted per input field.`],
+    [`測ること`, `What is measured`],
+    [`書類の全体を取得できたか、読む段階 S〜F、書く段階 A〜D、その理由。すべて決定的な処理です。Common Crawl は大きな書類を途中で切って保存するので、切れた書類は、そのままスコアを付けず、政府のサイトから取り直しました。10% の部分標本では、全欄に書いて、書いた所のほかはバイト一致することを確かめました。`, `Whether the whole document could be retrieved, read grade S–F, write grade A–D, and the reasons. All deterministic processing. Common Crawl truncates large documents when saving, so truncated documents were not scored as they were but re-fetched from the government site. In a 10% subsample, every field was written and everything outside the written places was confirmed byte-identical.`],
+    [`数字の読み方`, `How to read the numbers`],
+    [`数字が表すのは「Common Crawl が集めた、政府のサイトの書類」で、政府の書類の全体の中では下限です。Common Crawl は、リンクの多いページや HTML を先に集めます。Office の書類は PDF よりずっと少なく、標本の少ない国・形式は区間が広くなります。政府のドメインの一覧は、国のドメインに政府用の区分のない国（ドイツ・オランダなど）では Wikidata によります。切れた書類で取り直せなかったものは分母から除いています。国の値は、PDF・表計算・文書・CSV の割合を、その国の政府のサイトにある数（収集の索引から推定）に合わせて足し合わせたものです（選んだ数の偏りを直すため）。`, `The numbers describe “documents on government sites collected by Common Crawl,” a lower bound within all government documents. Common Crawl collects heavily linked pages and HTML first. Office documents are far scarcer than PDFs, and countries and formats with small samples have wider intervals. For countries whose national domain has no government subdivision (Germany, the Netherlands and others), the government domain list relies on Wikidata. Truncated documents that could not be re-fetched are excluded from the denominators. A country's value combines its PDF, spreadsheet, document and CSV shares, weighted by the number on that country's government sites (estimated from the crawl index), to correct for sampling imbalance.`],
+    [`取り方`, `How documents were fetched`],
+    [`書類は Common Crawl の保存庫から、その記録だけを取りました。保存庫への要求は一度に一つ、間をあけ、混んでいるときは待ちました。政府のサイトに行くのは切れた書類を取り直すときだけで、サイトの決まりを守り、同じサイトには 2 秒以上の間をあけました。書類はスコアを付けたあとに消し、URL・SHA-256・結果だけを残しています。`, `Documents were fetched from Common Crawl's archive, that record only. Requests to the archive went one at a time, spaced out, waiting when busy. Government sites were visited only to re-fetch truncated documents, following each site's rules, with at least 2 seconds between requests to the same site. Documents were deleted after scoring; only the URL, SHA-256 and results are kept.`],
+    [`書類：Common Crawl（CC-MAIN-2026-43）· 政府のドメイン：Public Suffix List · Wikidata（CC0）`, `Documents: Common Crawl (CC-MAIN-2026-43) · Government domains: Public Suffix List · Wikidata (CC0)`],
+    [`地図の国境：Made with Natural Earth（public domain）。world-atlas 2.0.2（ISC）Copyright 2013-2019 Michael Bostock`, `Map borders: Made with Natural Earth (public domain). world-atlas 2.0.2 (ISC) Copyright 2013-2019 Michael Bostock`],
+    [`論文`, `Papers`],
+  ]);
+  const norm = s => s.replace(/\s+/g, " ").trim();
+  const JP = /[\u3040-\u30fa\u30fc-\u30ff\u3400-\u9fff]/;  // 中黒（・）は記号として扱う
+  const FULLWIDTH = /[（）／〜・：]/;
+  const asciiPunct = s => s.replace(/（/g, " (").replace(/）/g, ")").replace(/／/g, " / ").replace(/〜/g, "–").replace(/・/g, ", ").replace(/：/g, ": ");
+  const root = document.documentElement;
+  const binds = [], missing = [], listeners = [];
+  let lang = "ja";
+  const onlyChildEl = el => el.childElementCount === 1 && ![...el.childNodes].some(n => n.nodeType === 3 && n.nodeValue.trim());
+  function bindAttrs(el) {
+    for (const a of ["aria-label", "title", "placeholder"]) {
+      const v = el.getAttribute(a);
+      if (!v) continue;
+      if (EN.has(norm(v))) binds.push(l => el.setAttribute(a, l === "en" ? EN.get(norm(v)) : v));
+      else if (JP.test(v)) missing.push(a + ": " + v);
+    }
+  }
+  function walk(el) {
+    for (const n of [...el.childNodes]) {
+      if (n.nodeType === 3) {
+        const t = norm(n.nodeValue);
+        if (!t) continue;
+        const ja = n.nodeValue, lead = /^\s*/.exec(ja)[0];
+        if (EN.has(t)) { const en = lead + EN.get(t); binds.push(l => { n.nodeValue = l === "en" ? en : ja; }); }
+        else if (JP.test(t)) missing.push(t);
+        else if (FULLWIDTH.test(t)) { const en = asciiPunct(ja).trim(); binds.push(l => { n.nodeValue = l === "en" ? en : ja; }); }
+      } else if (n.nodeType === 1 && n.tagName !== "SCRIPT" && n.tagName !== "STYLE" && !n.classList.contains("lang-switch")) {
+        bindAttrs(n);
+        const k = norm(n.textContent);
+        if (!onlyChildEl(n) && EN.has(k) && !n.querySelector("input,select,textarea,button,svg,aside,div,p,ul,ol,table,section")) { const ja = n.innerHTML, en = EN.get(k); binds.push(l => { n.innerHTML = l === "en" ? en : ja; }); }
+        else walk(n);
+      }
+    }
+  }
+  const JA_TITLE = document.title;
+  function paint() {
+    root.lang = lang;
+    document.title = lang === "en" ? "todoku" : JA_TITLE;
+    binds.forEach(b => b(lang));
+    document.querySelectorAll(".lang-switch button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+  }
+  function set(l) {
+    if (l === lang) return;
+    lang = l;
+    paint();
+    listeners.forEach(f => f());
+    try { localStorage.setItem("todoku-lang", l); } catch (e) {}
+    try { const u = new URL(location.href); if (u.searchParams.has("lang")) { u.searchParams.set("lang", l); history.replaceState(history.state, "", u); } } catch (e) {}
+  }
+  try {
+    walk(document.body);
+    document.querySelectorAll(".lang-switch button").forEach(b => b.addEventListener("click", () => set(b.dataset.lang)));
+    if (window.__todokuLang === "en") { lang = "en"; paint(); }
+  } finally { root.classList.add("i18n-ready"); }
+  return { get lang() { return lang; }, tr: (ja, en) => lang === "en" ? en : ja, onChange: f => listeners.push(f), missing };
+})();
+</script>
+<script>
 // 冒頭の上映：スキップ（すぐ完成した形に）と、もう一度
 (() => {
   const op = document.getElementById("opening");
@@ -774,16 +1096,25 @@ td .ci { display: inline-block; line-height: 1.3; }
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
 <script>
 (function () {
+  const I18N = window.TODOKU_I18N, tr = I18N.tr, isEn = () => I18N.lang === "en";
   const READ = ["S", "A", "B", "C", "D", "E", "F"];
   const WRITE = ["A", "B", "C", "D"];
   const READ_JA = { S: "素で問題ない", A: "規則だけで正確", B: "エージェントが読めば正確", C: "工夫して変換", D: "解釈が必要", E: "得意でない形式", F: "アクセスできない" };
   const WRITE_JA = { A: "そのまま書ける", B: "解析して書く", C: "画面から入力", D: "書けない" };
   const FAM_JA = { pdf: "PDF", sheet: "表計算", text: "文書", csv: "CSV" };
+  const READ_EN = { S: "Fine as is", A: "Accurate by rules alone", B: "Accurate when an agent reads it", C: "Needs clever conversion", D: "Needs interpretation", E: "Poorly suited format", F: "Not accessible" };
+  const WRITE_EN = { A: "Writes as is", B: "Parse, then write", C: "Entry via the screen", D: "Cannot write" };
+  const FAM_EN = { pdf: "PDF", sheet: "Spreadsheet", text: "Document", csv: "CSV" };
+  const readNames = () => isEn() ? READ_EN : READ_JA, writeNames = () => isEn() ? WRITE_EN : WRITE_JA, famName = g => (isEn() ? FAM_EN : FAM_JA)[g];
   const OUT_JA = { ok: "取得できた", "disallowed": "サイトの決まりで取得しない", captcha: "ボット対策", login: "ログインが必要", html: "ウェブページが返った",
     too_large: "25MB を超える", error: "接続できない", empty: "空のファイル", truncated: "保存が途中で切れていて、取り直せない",
     cc_error: "保存庫から取れない", digest_mismatch: "保存の中身が索引と合わない" };
   const UNR_JA = { no_documents: "政府のサイトは収集にあるが書類がない", not_in_crawl: "政府のドメインが収集にない", no_domains: "政府のドメインが見つからない" };
-  const outJa = o => OUT_JA[o] || (String(o).startsWith("http_") ? "HTTP " + String(o).slice(5) : String(o));
+  const OUT_EN = { ok: "Retrieved", "disallowed": "Not fetched, per site rules", captcha: "Bot protection", login: "Login required", html: "A web page came back",
+    too_large: "Over 25MB", error: "Cannot connect", empty: "Empty file", truncated: "Saved copy truncated, cannot be re-fetched",
+    cc_error: "Cannot get from the archive", digest_mismatch: "Saved content does not match the index" };
+  const UNR_EN = { no_documents: "Government sites in the crawl, but no documents", not_in_crawl: "Government domains not in the crawl", no_domains: "No government domains found" };
+  const outJa = o => (isEn() ? OUT_EN : OUT_JA)[o] || (String(o).startsWith("http_") ? "HTTP " + String(o).slice(5) : String(o));
   const METRIC = {
     read_ok: { label: "正確に読める書類の割合", note: "取りに行けた書類のうち、AI エージェントが中身を正確に読めるもの（読む段階 S・A・B）。" },
     write_ok: { label: "書ける書類の割合", note: "取りに行けた書類のうち、エージェントがとどくで書けるもの（書く段階 A・B。B は、規則では欄と決められない所を、エージェントが窓を読んで決めて書くもの）。段階はファイルの作りからの判定で、実際に書いて試した数は「正確に書ける数」です。" },
@@ -794,9 +1125,72 @@ td .ci { display: inline-block; line-height: 1.3; }
     write_new: { label: "書くで新しく届く書類の数（推定）", path: ["write", "new"], note: "比べた道具のどれでも通らず、とどくで通る分。国ごとの標本は少なく、国の数は目安です。" },
     reach: { label: "取得できる書類の割合", note: "選んだ書類のうち、全体を取得できたもの（Common Crawl の保存から。保存が途中で切れていたものは、政府のサイトから取り直した）。" },
   };
+  const METRIC_EN = {
+    read_ok: { label: "Share of documents read accurately", note: "Of the documents that could be fetched, those whose content AI agents read accurately (read grades S, A, B)." },
+    write_ok: { label: "Share of documents writable", note: "Of the documents that could be fetched, those agents can write with todoku (write grades A, B. B means the agent reads the window and decides places rules cannot decide). Grades are judged from the file's construction; the number actually tried by writing is “count written accurately.”" },
+    forms_writable: { label: "Share of application forms writable", note: "Of application forms with input fields, those agents can write (no screen entry, handwriting or seal needed; write grades A, B)." },
+    read_count: { label: "Count of documents read accurately (estimate)", note: "Estimated from documents actually read under the same definition. Per-country samples are small, so country counts are rough." },
+    read_new: { label: "Documents newly reachable for reading (estimate)", note: "Those passing with todoku and with none of the compared tools. Per-country samples are small, so country counts are rough." },
+    write_count: { label: "Count of documents written accurately (estimate)", note: "Estimated from documents actually written under the same definition. Documents with no fields to write count as not writable. Per-country samples are small, so country counts are rough." },
+    write_new: { label: "Documents newly reachable for writing (estimate)", note: "Those passing with todoku and with none of the compared tools. Per-country samples are small, so country counts are rough." },
+    reach: { label: "Share of documents retrievable", note: "Of the sampled documents, those retrieved whole (from Common Crawl's saved copies; truncated copies were re-fetched from the government site)." },
+  };
+  const metricText = () => (isEn() ? METRIC_EN : METRIC)[metric];
+  // ---- data.json の日本語の理由を英語に（対応のないものは日本語のまま出さず数える）
+  const REASON_EN = {
+    "OCR の字（画像の上の見えない字）": "OCR text (invisible text over an image)", "XFA のスクリプト": "XFA scripts", "XFA のフォームの欄": "XFA form fields",
+    "データそのもの": "Plain data", "ページがない": "No pages", "マクロ": "Macros", "マクロの処理": "Macro processing",
+    "ルビとして基の字につないだ字": "Characters joined to base text as ruby", "中身が画像の文書": "Document whose content is an image",
+    "保存された値と合わない数式": "Formulas not matching saved values", "値の中の NUL": "NUL in values", "再現できない段落番号": "Paragraph numbers not reproducible",
+    "再現できない表示形式": "Display formats not reproducible", "前の字のない結合の記号": "Combining marks with no preceding character", "印刷・表示だけのマクロ": "Print- or display-only macros",
+    "図形で描いた字かもしれない所（字の情報がない）": "Possibly text drawn as shapes (no character data)", "変更履歴": "Tracked changes", "外字（私用の符号の字）": "Gaiji (private-use characters)",
+    "大きなブック": "Large workbook", "字に直せない本文の字": "Body glyphs not convertible to characters", "字の対応がないかもしれないフォント": "Fonts possibly lacking a character map",
+    "字の符号が Unicode でない": "Character codes not Unicode", "字の符号が Unicode でない書体かもしれない": "Fonts whose codes may not be Unicode", "文字コードを規則では決められない": "Encoding undecidable by rules",
+    "書き方の問題": "Syntax problems", "画像だけのシート": "Image-only sheet", "画像だけのページ": "Image-only pages", "画像だけの文書": "Image-only document", "確かめられない数式": "Formulas that cannot be verified",
+    "窓の読み落とし": "Content missing from the window", "説明のない図（タグ付きの PDF）": "Figures without descriptions (tagged PDF)", "説明のない本文の画像": "Body images without descriptions",
+    "重なって描かれた行": "Lines drawn overlapping", "重ね書きとして1字にした字": "Overprinted characters merged into 1", "開けない": "Cannot open",
+    "XFA のフォーム": "XFA form", "フォームの欄": "Form fields", "フォームの部品": "Form widgets", "保護されたセルの欄": "Fields in protected cells", "印のある入力欄": "Marked input fields",
+    "印のある欄がない": "No marked fields", "印のない入力欄": "Unmarked input fields", "埋め込んだ表": "Embedded tables", "変更を許さない電子署名": "Digital signature forbidding changes",
+    "字を組み立てて書く文字（見た目は画像で確かめる）": "Characters composed from parts (check appearance by image)", "文字の中の空欄": "Blanks within text", "書けない埋め込みの表": "Embedded tables that cannot be written",
+    "枠・塗りから推定した入力欄": "Fields inferred from borders and fills", "権限の設定が記入・変更を許していない": "Permissions forbid filling or changes", "欄をページごとに見つける": "Fields found page by page",
+    "欄を範囲ごとに見つける": "Fields found range by range", "画面から動かすマクロ": "Macros run from the screen", "見出しのない欄": "Fields without labels", "規則では決められない所": "Places rules cannot decide",
+    "配置から推定した入力欄": "Fields inferred from layout", "重なった入力規則": "Overlapping validation rules", "電子署名": "Digital signature",
+  };
+  const unmapped = I18N.unmapped = new Set();
+  function reasonName(s) {
+    if (!isEn()) return s;
+    if (REASON_EN[s]) return REASON_EN[s];
+    const m = /^組み込みの表示形式（番号 ([\d・]+)）は、開く PC の地域の設定で見え方が変わる$/.exec(s);
+    if (m) return `Built-in display format (no. ${m[1].replace(/・/g, ", ")}) looks different depending on the regional settings of the PC opening it`;
+    unmapped.add(s);
+    return s;
+  }
+  I18N.reasonName = reasonName;
+  // ---- 国の名前（英語は Intl.DisplayNames。なければ地図のデータの名前、それもなければコード）
+  const REGION = (() => { try { return new Intl.DisplayNames(["en"], { type: "region" }); } catch (e) { return null; } })();
+  const NAME_FIX = { CD: "DR Congo", CG: "Republic of the Congo", HK: "Hong Kong", MM: "Myanmar" };
+  const enNames = {};
+  function enName(cc, iso) {
+    if (enNames[cc]) return enNames[cc];
+    let n = NAME_FIX[cc];
+    if (!n) { try { const x = REGION && REGION.of(cc); if (x && x !== cc) n = x; } catch (e) {} }
+    if (!n && iso && topo) { const g = topo.objects.countries.geometries.find(f => f.id === iso); n = g && g.properties.name; }
+    return enNames[cc] = n || cc;
+  }
+  const cname = (cc, c) => isEn() ? enName(cc, c.iso) : c.name;
+  const docCountry = cc => { const c = DATA.countries[cc]; return c ? cname(cc, c) : cc; };
+  const unrName = (cc, u) => cname(cc, u);
+  const unrWhy = u => {
+    if (!isEn()) return u.why;
+    const m = /^政府のサイトは収集にあるが、書類が見つからない（索引のブロック (\d+) を読んだ）$/.exec(u.why);
+    if (m) return `Government sites are in the crawl, but no documents were found (index blocks read: ${m[1]})`;
+    unmapped.add(u.why);
+    return u.why;
+  };
+  const sourceName = s => !isEn() ? s : s.replace(/^政府のドメイン：/, "Government domains: ").replace(/Wikidata の政府の機関・自治体のサイト ([\d,]+)/, "government agency and municipal sites in Wikidata: $1").replace(/＋/g, " + ").replace(/・/g, ", ");
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const pct = p => p == null ? "—" : (p * 100).toFixed(0) + "%";
-  const ci = c => (c && c[0] != null) ? `（${(c[0] * 100).toFixed(0)}〜${(c[1] * 100).toFixed(0)}）` : "";
+  const ci = c => (c && c[0] != null) ? tr(`（${(c[0] * 100).toFixed(0)}〜${(c[1] * 100).toFixed(0)}）`, `(${(c[0] * 100).toFixed(0)}–${(c[1] * 100).toFixed(0)})`) : "";
   const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 
   let DATA = null, metric = "read_ok", selected = null, topo = null;
@@ -804,8 +1198,8 @@ td .ci { display: inline-block; line-height: 1.3; }
   function stackHtml(dist, order, prefix, names) {
     const n = order.reduce((s, k) => s + (dist[k] || 0), 0);
     if (!n) return '<div class="stack"></div>';
-    return '<div class="stack" role="img" aria-label="' + order.filter(k => dist[k]).map(k => `${k} ${dist[k]}件`).join("、") + '">' +
-      order.map(k => dist[k] ? `<i style="width:${dist[k] / n * 100}%;background:var(--${prefix}${k})" title="${k} ${esc(names[k])} ${dist[k]}件"></i>` : "").join("") + "</div>";
+    return '<div class="stack" role="img" aria-label="' + order.filter(k => dist[k]).map(k => tr(`${k} ${dist[k]}件`, `${k} ${dist[k]}`)).join(tr("、", ", ")) + '">' +
+      order.map(k => dist[k] ? `<i style="width:${dist[k] / n * 100}%;background:var(--${prefix}${k})" title="${k} ${esc(names[k])} ${dist[k]}${tr("件", "")}"></i>` : "").join("") + "</div>";
   }
   function stackLabels(dist, order, prefix, names) {
     return '<div class="stacklbl">' + order.filter(k => dist[k]).map(k => `<span><span class="sw" style="background:var(--${prefix}${k})"></span>${k} ${esc(names[k])} ${dist[k]}</span>`).join("") + "</div>";
@@ -815,13 +1209,14 @@ td .ci { display: inline-block; line-height: 1.3; }
   // 割合を5段に分け、段ごとにはっきり違う明るさの色で塗る（なめらかな濃淡だと、近い値の国が見分けにくい）
   const BINS = [[0, .2, "0–20%"], [.2, .4, "20–40%"], [.4, .6, "40–60%"], [.6, .8, "60–80%"], [.8, 1.01, "80–100%"]];
   const COUNT_BINS = [[0, 100, "100 件未満"], [100, 1e3, "100〜1,000"], [1e3, 1e4, "1,000〜1 万"], [1e4, 1e5, "1 万〜10 万"], [1e5, Infinity, "10 万件以上"]];
-  const bins = () => METRIC[metric].path ? COUNT_BINS : BINS;
+  const COUNT_LABELS_EN = ["Under 100", "100–1,000", "1,000–10,000", "10,000–100,000", "100,000 or more"];
+  const bins = () => METRIC[metric].path ? COUNT_BINS.map((b, i) => isEn() ? [b[0], b[1], COUNT_LABELS_EN[i]] : b) : BINS;
   const color = p => css(`--q${bins().findIndex(([a, b]) => p >= a && p < b) + 1 || 5}`);
   // 地図に示す値：割合か、確定の集計が入ったあとの数（countries[cc].counts）
   function mv(c) {
     const m = METRIC[metric];
-    if (m.path) { const v = c.counts?.[m.path[0]]?.[m.path[1]]; return { v, text: v == null ? "—" : v.toLocaleString() + " 件", extra: "" }; }
-    const x = c[metric]; return { v: x.p, text: pct(x.p), extra: `${ci(x.ci)} n=${x.n}` };
+    if (m.path) { const v = c.counts?.[m.path[0]]?.[m.path[1]]; return { v, text: v == null ? "—" : v.toLocaleString() + tr(" 件", " documents"), extra: "" }; }
+    const x = c[metric]; return { v: x.p, text: pct(x.p), extra: tr(`${ci(x.ci)} n=${x.n}`, ` ${ci(x.ci)} n=${x.n}`) };
   }
   function drawMap() {
     const svg = d3.select("#map");
@@ -851,45 +1246,46 @@ td .ci { display: inline-block; line-height: 1.3; }
       .attr("role", f => byIso[f.id] ? "button" : null)
       .attr("aria-label", f => {
         const cc = byIso[f.id];
-        if (cc) { const c = DATA.countries[cc]; return `${c.name} ${mv(c).text}`; }
-        if (unr[f.id]) return `${DATA.unreached[unr[f.id]].name}：${DATA.unreached[unr[f.id]].why}`;
+        if (cc) { const c = DATA.countries[cc]; return `${cname(cc, c)} ${mv(c).text}`; }
+        if (unr[f.id]) return `${unrName(unr[f.id], DATA.unreached[unr[f.id]])}${tr("：", ": ")}${unrWhy(DATA.unreached[unr[f.id]])}`;
         return null;
       })
       .on("click", (e, f) => { if (byIso[f.id]) select(byIso[f.id]); })
       .on("keydown", (e, f) => { if ((e.key === "Enter" || e.key === " ") && byIso[f.id]) { e.preventDefault(); select(byIso[f.id]); } })
       .append("title").text(f => {
         const cc = byIso[f.id];
-        if (cc) { const c = DATA.countries[cc], v = mv(c); return `${c.name}：${v.text}${v.extra}`; }
-        if (unr[f.id]) return `${DATA.unreached[unr[f.id]].name}：${DATA.unreached[unr[f.id]].why}`;
+        if (cc) { const c = DATA.countries[cc], v = mv(c); return `${cname(cc, c)}${tr("：", ": ")}${v.text}${v.extra}`; }
+        if (unr[f.id]) return `${unrName(unr[f.id], DATA.unreached[unr[f.id]])}${tr("：", ": ")}${unrWhy(DATA.unreached[unr[f.id]])}`;
         return f.properties.name;
       });
     const lg = document.getElementById("legend");
     lg.innerHTML = bins().map(([a, , label], i) => `<span><span class="sw" style="background:var(--q${i + 1})"></span>${label}</span>`).join("") +
-      `<span><span class="sw" style="background:repeating-linear-gradient(45deg,${css("--hatch")} 0 2px,transparent 2px 5px);border:1px solid ${css("--line")}"></span>政府の書類が収集にない</span>` +
-      `<span><span class="sw" style="background:${css("--line")}"></span>政府のドメインが見つからない</span>` +
-      `<span><span class="sw" style="background:${css("--none")}"></span>まだ測っていない</span>`;
-    document.getElementById("metric-note").textContent = METRIC[metric].label + "：" + METRIC[metric].note +
-      "マルタは地図では小さすぎるので、下の一覧で見てください。";
+      `<span><span class="sw" style="background:repeating-linear-gradient(45deg,${css("--hatch")} 0 2px,transparent 2px 5px);border:1px solid ${css("--line")}"></span>${tr("政府の書類が収集にない", "No government documents in the crawl")}</span>` +
+      `<span><span class="sw" style="background:${css("--line")}"></span>${tr("政府のドメインが見つからない", "No government domains found")}</span>` +
+      `<span><span class="sw" style="background:${css("--none")}"></span>${tr("まだ測っていない", "Not measured yet")}</span>`;
+    document.getElementById("metric-note").textContent = metricText().label + tr("：", ": ") + metricText().note +
+      tr("マルタは地図では小さすぎるので、下の一覧で見てください。", " Malta is too small on the map; see the list below.");
   }
 
   function select(cc) {
     selected = cc;
     const c = DATA.countries[cc];
     const fams = Object.entries(c.families).map(([g, f]) =>
-      `<tr><td>${FAM_JA[g]}</td><td class="num">${f.frame.toLocaleString()}</td><td class="num">${f.sampled}</td><td class="num">${f.graded}</td><td class="num">${pct(f.graded ? READ.slice(0, 3).reduce((s, k) => s + (f.read[k] || 0), 0) / f.graded : null)}</td></tr>`).join("");
+      `<tr><td>${famName(g)}</td><td class="num">${f.frame.toLocaleString()}</td><td class="num">${f.sampled}</td><td class="num">${f.graded}</td><td class="num">${pct(f.graded ? READ.slice(0, 3).reduce((s, k) => s + (f.read[k] || 0), 0) / f.graded : null)}</td></tr>`).join("");
     document.getElementById("panel").innerHTML =
-      `<h3>${esc(c.name)}</h3><div class="src">${esc(c.source)}</div>
+      `<h3>${esc(cname(cc, c))}</h3><div class="src">${esc(sourceName(c.source))}</div>
        <dl>
-         <dt>取得</dt><dd>${pct(c.reach.p)} <span class="ci">${ci(c.reach.ci)}</span></dd>
-         <dt>読む S〜B</dt><dd>${pct(c.read_ok.p)} <span class="ci">${ci(c.read_ok.ci)}</span></dd>
-         <dt>書く A・B</dt><dd>${pct(c.write_ok.p)} <span class="ci">${ci(c.write_ok.ci)}</span></dd>
-         <dt>様式に書く</dt><dd>${pct(c.forms_writable.p)} <span class="ci">${ci(c.forms_writable.ci)}</span>（様式 ${c.forms_writable.n} 件）</dd>
-         ${c.counts ? `<dt>読む：正確に／新しく</dt><dd>${c.counts.read.reach.toLocaleString()}／${c.counts.read.new.toLocaleString()} 件</dd><dt>書く：正確に／新しく</dt><dd>${c.counts.write.reach.toLocaleString()}／${c.counts.write.new.toLocaleString()} 件</dd>` : ""}
+         <dt>${tr("取得", "Retrieved")}</dt><dd>${pct(c.reach.p)} <span class="ci">${ci(c.reach.ci)}</span></dd>
+         <dt>${tr("読む S〜B", "Read S–B")}</dt><dd>${pct(c.read_ok.p)} <span class="ci">${ci(c.read_ok.ci)}</span></dd>
+         <dt>${tr("書く A・B", "Write A, B")}</dt><dd>${pct(c.write_ok.p)} <span class="ci">${ci(c.write_ok.ci)}</span></dd>
+         <dt>${tr("様式に書く", "Forms writable")}</dt><dd>${pct(c.forms_writable.p)} <span class="ci">${ci(c.forms_writable.ci)}</span>${tr(`（様式 ${c.forms_writable.n} 件）`, ` (${c.forms_writable.n} forms)`)}</dd>
+         ${c.counts ? tr(`<dt>読む：正確に／新しく</dt><dd>${c.counts.read.reach.toLocaleString()}／${c.counts.read.new.toLocaleString()} 件</dd><dt>書く：正確に／新しく</dt><dd>${c.counts.write.reach.toLocaleString()}／${c.counts.write.new.toLocaleString()} 件</dd>`,
+           `<dt>Read: accurate / new</dt><dd>${c.counts.read.reach.toLocaleString()} / ${c.counts.read.new.toLocaleString()} documents</dd><dt>Write: accurate / new</dt><dd>${c.counts.write.reach.toLocaleString()} / ${c.counts.write.new.toLocaleString()} documents</dd>`) : ""}
        </dl>
-       <div style="font-size:.78rem;color:var(--muted)">読む段階</div>${stackHtml(c.read, READ, "g", READ_JA)}${stackLabels(c.read, READ, "g", READ_JA)}
-       <div style="font-size:.78rem;color:var(--muted)">書く段階</div>${stackHtml(c.write, WRITE, "w", WRITE_JA)}${stackLabels(c.write, WRITE, "w", WRITE_JA)}
-       <div class="tablebox" style="margin-top:6px"><table style="min-width:0;font-size:.76rem"><thead><tr><th>群</th><th class="num">枠（推定）</th><th class="num">選んだ</th><th class="num">段階</th><th class="num">S〜B</th></tr></thead><tbody>${fams}</tbody></table></div>
-       <p style="margin:10px 0 0"><a href="#h-docs" id="see-docs">この国の書類を見る</a></p>`;
+       <div style="font-size:.78rem;color:var(--muted)">${tr("読む段階", "Read grade")}</div>${stackHtml(c.read, READ, "g", readNames())}${stackLabels(c.read, READ, "g", readNames())}
+       <div style="font-size:.78rem;color:var(--muted)">${tr("書く段階", "Write grade")}</div>${stackHtml(c.write, WRITE, "w", writeNames())}${stackLabels(c.write, WRITE, "w", writeNames())}
+       <div class="tablebox" style="margin-top:6px"><table style="min-width:0;font-size:.76rem"><thead><tr><th>${tr("群", "Group")}</th><th class="num">${tr("枠（推定）", "Frame (est.)")}</th><th class="num">${tr("選んだ", "Sampled")}</th><th class="num">${tr("段階", "Graded")}</th><th class="num">${tr("S〜B", "S–B")}</th></tr></thead><tbody>${fams}</tbody></table></div>
+       <p style="margin:10px 0 0"><a href="#h-docs" id="see-docs">${tr("この国の書類を見る", "See this country's documents")}</a></p>`;
     document.getElementById("see-docs").addEventListener("click", () => { document.getElementById("f-c").value = cc; page = 1; renderDocs(); });
     drawMap();
   }
@@ -898,34 +1294,37 @@ td .ci { display: inline-block; line-height: 1.3; }
   let sortKey = "read_ok", sortDir = -1, allCountries = false;
   function renderTable() {
     const all = Object.entries(DATA.countries);
-    const pending = all.filter(([, c]) => !c.reach.n).map(([, c]) => c.name).sort((a, b) => a.localeCompare(b, "ja"));
-    const rows = all.filter(([, c]) => c.reach.n).map(([cc, c]) => ({ cc, c, name: c.name, n: c.reach.n,
+    const pending = all.filter(([, c]) => !c.reach.n).map(([cc, c]) => cname(cc, c)).sort((a, b) => a.localeCompare(b, I18N.lang));
+    const rows = all.filter(([, c]) => c.reach.n).map(([cc, c]) => ({ cc, c, name: cname(cc, c), n: c.reach.n,
       reach: c.reach.p ?? -1, read_ok: c.read_ok.p ?? -1, write_ok: c.write_ok.p ?? -1, forms_writable: c.forms_writable.p ?? -1 }));
-    rows.sort((a, b) => (typeof a[sortKey] === "string" ? a[sortKey].localeCompare(b[sortKey], "ja") : a[sortKey] - b[sortKey]) * sortDir);
+    rows.sort((a, b) => (typeof a[sortKey] === "string" ? a[sortKey].localeCompare(b[sortKey], I18N.lang) : a[sortKey] - b[sortKey]) * sortDir);
     const tb = document.querySelector("#table tbody");
     const btn = document.getElementById("t-all");
     btn.hidden = rows.length <= 10 && !pending.length;
-    btn.textContent = allCountries ? "先頭の 10 か国だけ表示" : `すべての国を表示（測った${DATA.final ? " " + rows.length + " か" : ""}国と、まだの国・書類が収集にない国）`;
+    btn.textContent = tr(allCountries ? "先頭の 10 か国だけ表示" : `すべての国を表示（測った${DATA.final ? " " + rows.length + " か" : ""}国と、まだの国・書類が収集にない国）`,
+      allCountries ? "Show only the first 10 countries" : `Show all countries (${DATA.final ? "the " + rows.length + " " : ""}measured, plus those not yet measured or with no documents in the crawl)`);
     const visible = allCountries ? rows : rows.slice(0, 10);
     tb.innerHTML = visible.map(({ cc, c }) =>
-      `<tr><td><a href="#h-map" data-cc="${cc}">${esc(c.name)}</a></td><td class="num">${c.reach.n}</td>
+      `<tr><td><a href="#h-map" data-cc="${cc}">${esc(cname(cc, c))}</a></td><td class="num">${c.reach.n}</td>
        <td class="num">${pct(c.reach.p)}<br><span class="ci">${ci(c.reach.ci)}</span></td>
        <td class="num">${pct(c.read_ok.p)}<br><span class="ci">${ci(c.read_ok.ci)}</span></td>
-       <td>${stackHtml(c.read, READ, "g", READ_JA)}</td>
+       <td>${stackHtml(c.read, READ, "g", readNames())}</td>
        <td class="num">${pct(c.write_ok.p)}<br><span class="ci">${ci(c.write_ok.ci)}</span></td>
-       <td>${stackHtml(c.write, WRITE, "w", WRITE_JA)}</td>
-       <td class="num">${pct(c.forms_writable.p)}<br><span class="ci">${c.forms_writable.n ? "様式 " + c.forms_writable.n : ""}</span></td></tr>`).join("") +
-      (!allCountries ? "" : pending.length ? `<tr class="unr"><td>まだ測っていない ${pending.length} か国</td><td colspan="7">枠はあり、標本をまだ測っていません：${pending.map(esc).join("・")}</td></tr>` : "") +
-      Object.entries(Object.values(DATA.unreached).reduce((m, u) => ((m[u.outcome] ||= []).push(u.name), m), {}))
-        .filter(() => allCountries).map(([o, names]) => `<tr class="unr"><td>${esc(UNR_JA[o] || o)} ${names.length} か国</td><td colspan="7">${names.map(esc).join("・")}</td></tr>`).join("");
+       <td>${stackHtml(c.write, WRITE, "w", writeNames())}</td>
+       <td class="num">${pct(c.forms_writable.p)}<br><span class="ci">${c.forms_writable.n ? tr("様式 " + c.forms_writable.n, c.forms_writable.n + " forms") : ""}</span></td></tr>`).join("") +
+      (!allCountries ? "" : pending.length ? tr(`<tr class="unr"><td>まだ測っていない ${pending.length} か国</td><td colspan="7">枠はあり、標本をまだ測っていません：${pending.map(esc).join("・")}</td></tr>`,
+        `<tr class="unr"><td>Not measured yet: ${pending.length} countries</td><td colspan="7">Frame exists, sample not measured yet: ${pending.map(esc).join(", ")}</td></tr>`) : "") +
+      Object.entries(Object.entries(DATA.unreached).reduce((m, [cc, u]) => ((m[u.outcome] ||= []).push(unrName(cc, u)), m), {}))
+        .filter(() => allCountries).map(([o, names]) => tr(`<tr class="unr"><td>${esc(UNR_JA[o] || o)} ${names.length} か国</td><td colspan="7">${names.map(esc).join("・")}</td></tr>`,
+          `<tr class="unr"><td>${esc(UNR_EN[o] || o)}: ${names.length} countries</td><td colspan="7">${names.map(esc).join(", ")}</td></tr>`)).join("");
     tb.querySelectorAll("a[data-cc]").forEach(a => a.addEventListener("click", () => select(a.dataset.cc)));
   }
   // コピーのボタン（使えないときは、字を選んだ状態にする）
   document.querySelectorAll(".copy").forEach(b => b.addEventListener("click", () => {
     const el = document.getElementById(b.dataset.for);
     const text = el.textContent;
-    const done = () => { b.textContent = "コピーしました"; setTimeout(() => { b.textContent = "コピー"; }, 1600); };
-    const select = () => { const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); b.textContent = "選びました"; };
+    const done = () => { b.textContent = tr("コピーしました", "Copied"); setTimeout(() => { b.textContent = tr("コピー", "Copy"); }, 1600); };
+    const select = () => { const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); b.textContent = tr("選びました", "Selected"); };
     try { navigator.clipboard.writeText(text).then(done, select); } catch (e) { select(); }
   }));
   document.getElementById("t-all").addEventListener("click", () => { allCountries = !allCountries; renderTable(); });
@@ -958,23 +1357,23 @@ td .ci { display: inline-block; line-height: 1.3; }
       "read-hi": (a, b) => r(a) - r(b), "read-lo": (a, b) => (r(b) === 99 ? -1 : r(a) === 99 ? 1 : r(b) - r(a)),
       "write-hi": (a, b) => w(a) - w(b), "write-lo": (a, b) => (w(b) === 99 ? -1 : w(a) === 99 ? 1 : w(b) - w(a)),
       "fields": (a, b) => (b.f || 0) - (a.f || 0),
-      "country": (a, b) => (DATA.countries[a.c]?.name || a.c).localeCompare(DATA.countries[b.c]?.name || b.c, "ja"),
+      "country": (a, b) => docCountry(a.c).localeCompare(docCountry(b.c), I18N.lang),
     }[key];
     return cmp ? [...list].sort(cmp) : list;
   }
   function renderDocs() {
     const list = sortDocs(filtered());
-    document.getElementById("count").textContent = `${list.length.toLocaleString()} 件`;
+    document.getElementById("count").textContent = `${list.length.toLocaleString()}${tr(" 件", " documents")}`;
     const shown = list.slice(0, 10 + (page - 1) * 20);
     document.getElementById("docs").innerHTML = shown.map(d => {
-      const chips = d.r ? `<span class="chip" style="background:var(--g${d.r})" title="読む ${d.r} ${esc(READ_JA[d.r])}"><span>${d.r}<br><small>読む</small></span></span>` +
-        `<span class="chip" style="background:var(--w${d.w})" title="書く ${d.w} ${esc(WRITE_JA[d.w])}"><span>${d.w}<br><small>書く</small></span></span>`
+      const chips = d.r ? `<span class="chip" style="background:var(--g${d.r})" title="${tr("読む", "Read")} ${d.r} ${esc(readNames()[d.r])}"><span>${d.r}<br><small>${tr("読む", "Read")}</small></span></span>` +
+        `<span class="chip" style="background:var(--w${d.w})" title="${tr("書く", "Write")} ${d.w} ${esc(writeNames()[d.w])}"><span>${d.w}<br><small>${tr("書く", "Write")}</small></span></span>`
         : `<span class="chip o">${esc(outJa(d.o))}${d.e ? "<br>" + esc(d.e) : ""}</span>`;
-      const kind = (d.k ? esc(d.k) : esc(d.d)) + (d.s === "live" ? "・政府のサイトから取り直し" : "");
-      const rs = d.rr.length || d.wr.length ? `<div class="rs">${d.rr.map(esc).join("・")}${d.wr.length ? " ／ 書く：" + d.wr.map(esc).join("・") : ""}</div>` : "";
+      const kind = (d.k ? esc(d.k) : esc(d.d)) + (d.s === "live" ? tr("・政府のサイトから取り直し", ", re-fetched from the government site") : "");
+      const rs = d.rr.length || d.wr.length ? `<div class="rs">${d.rr.map(reasonName).map(esc).join(tr("・", ", "))}${d.wr.length ? tr(" ／ 書く：", " / Write: ") + d.wr.map(reasonName).map(esc).join(tr("・", ", ")) : ""}</div>` : "";
       return `<div class="doc"><div class="chips">${chips}</div><div style="min-width:0">
-        <div class="t">${esc(d.t || "（題名なし）")}</div>
-        <div class="m">${esc(DATA.countries[d.c]?.name || d.c)} · ${esc(FAM_JA[d.g])} · ${kind}${d.p ? " · " + esc(d.p) : ""}${d.th.length ? " · 分類：" + d.th.map(esc).join("、") : ""}${d.f ? " · 欄 " + d.f : ""}</div>
+        <div class="t">${esc(d.t || tr("（題名なし）", "(untitled)"))}</div>
+        <div class="m">${esc(docCountry(d.c))} · ${esc(famName(d.g))} · ${kind}${d.p ? " · " + esc(d.p) : ""}${d.th.length ? tr(" · 分類：", " · Category: ") + d.th.map(esc).join(tr("、", ", ")) : ""}${d.f ? tr(" · 欄 ", " · Fields ") + d.f : ""}</div>
         ${rs}<a href="${esc(d.u)}" rel="noopener noreferrer">${esc(d.u.length > 110 ? d.u.slice(0, 110) + "…" : d.u)}</a></div></div>`;
     }).join("");
     document.getElementById("more").hidden = shown.length >= list.length;
@@ -998,13 +1397,13 @@ td .ci { display: inline-block; line-height: 1.3; }
   openTo(location.hash);
 
   // ---------------------------------------------------------------- 読み込み
-  Promise.all([fetch("data.json").then(r => r.json()), fetch("countries-110m.json").then(r => r.json())]).then(([d, t]) => {
-    DATA = d; topo = t;
-    const T = d.total;
+  // 言語が変わると、字の入る所を入れ直す（地図の値・選んだ国・並び順・絞り込みはそのまま）
+  function fillText() {
+    const d = DATA, T = d.total;
     document.getElementById("b-sampled").textContent = T.sampled.toLocaleString();
     document.getElementById("b-graded").textContent = T.graded.toLocaleString();
     const ugn = Object.values(T.ungraded || {}).reduce((x, y) => x + y, 0);
-    if (ugn) document.getElementById("b-ungraded").textContent = `ほかに段階を付けなかった書類 ${ugn.toLocaleString()} 件は、割合の分母に入れていません`;
+    if (ugn) document.getElementById("b-ungraded").textContent = tr(`ほかに段階を付けなかった書類 ${ugn.toLocaleString()} 件は、割合の分母に入れていません`, `A further ${ugn.toLocaleString()} documents were not graded and are not in the share denominators`);
     // 6 段階の中の数（理由の数は、その理由が付いた書類の件数）
     const reason = (list, t) => (list.find(([k]) => k === t) || [, 0])[1];
     const setN = (id, v) => { document.getElementById(id).textContent = Number(v || 0).toLocaleString(); };
@@ -1016,24 +1415,39 @@ td .ci { display: inline-block; line-height: 1.3; }
     if (F) {
       document.getElementById("w-countries").textContent = T.countries;
       document.getElementById("b-countries").textContent = T.countries;
-      const put = (id, x) => { if (x && x.n != null) document.getElementById(id).innerHTML = x.n.toLocaleString() + (x.ci ? `<small>95% 区間 ${x.ci[0].toLocaleString()}〜${x.ci[1].toLocaleString()}</small>` : ""); };
+      const put = (id, x) => { if (x && x.n != null) document.getElementById(id).innerHTML = x.n.toLocaleString() + (x.ci ? tr(`<small>95% 区間 ${x.ci[0].toLocaleString()}〜${x.ci[1].toLocaleString()}</small>`, `<small>95% interval ${x.ci[0].toLocaleString()}–${x.ci[1].toLocaleString()}</small>`) : ""); };
       put("w-read-reach", F.read?.reach); put("w-write-reach", F.write?.reach);
-      document.getElementById("w-note").textContent = `${F.version || ""} の集計。無作為に選んだ 1,079 件を実際に読み書きして確かめた推定です（Common Crawl の収集の中の値。書く欄のない書類は書けないと数えます）。`;
+      document.getElementById("w-note").textContent = tr(`${F.version || ""} の集計。無作為に選んだ 1,079 件を実際に読み書きして確かめた推定です（Common Crawl の収集の中の値。書く欄のない書類は書けないと数えます）。`,
+        `${F.version || ""} tally. Estimated from 1,079 randomly chosen documents actually read and written (values within the Common Crawl crawl; documents with no fields to write count as not writable).`);
       if (Object.values(d.countries).some(c => c.counts)) document.querySelectorAll(".tabs .cnt").forEach(b => { b.hidden = false; });
     } else {
-      document.getElementById("map-status").textContent = "いま地図に出している割合は、確定の集計の前のものです。● は確定の集計が入ると、数に変わります。";
+      document.getElementById("map-status").textContent = tr("いま地図に出している割合は、確定の集計の前のものです。● は確定の集計が入ると、数に変わります。", "The shares now on the map predate the final tally. ● becomes a number once the final tally is in.");
     }
-    const fsel = document.getElementById("f-c");
-    Object.entries(d.countries).sort((a, b) => a[1].name.localeCompare(b[1].name, "ja"))
-      .forEach(([cc, c]) => fsel.insertAdjacentHTML("beforeend", `<option value="${cc}">${esc(c.name)}</option>`));
-    READ.forEach(k => document.getElementById("f-r").insertAdjacentHTML("beforeend", `<option value="${k}">${k} ${READ_JA[k]}</option>`));
-    WRITE.forEach(k => document.getElementById("f-w").insertAdjacentHTML("beforeend", `<option value="${k}">${k} ${WRITE_JA[k]}</option>`));
-    bars("r-read", T.top_read_reasons);
-    bars("r-write", T.top_write_reasons);
+    // 選択肢は「すべて」を残して作り直し、選んでいた値を戻す
+    const refill = (id, html) => { const s = document.getElementById(id), v = s.value; while (s.options.length > 1) s.remove(1); s.insertAdjacentHTML("beforeend", html); s.value = v; };
+    refill("f-c", Object.entries(d.countries).sort((a, b) => cname(a[0], a[1]).localeCompare(cname(b[0], b[1]), I18N.lang))
+      .map(([cc, c]) => `<option value="${cc}">${esc(cname(cc, c))}</option>`).join(""));
+    refill("f-r", READ.map(k => `<option value="${k}">${k} ${readNames()[k]}</option>`).join(""));
+    refill("f-w", WRITE.map(k => `<option value="${k}">${k} ${writeNames()[k]}</option>`).join(""));
+    const reasons = list => list.map(([t, n]) => [reasonName(t), n]);
+    bars("r-read", reasons(T.top_read_reasons));
+    bars("r-write", reasons(T.top_write_reasons));
     bars("r-reach", Object.entries(T.outcomes).filter(([o]) => o !== "ok" && o !== "frame_empty").sort((a, b) => b[1] - a[1]).map(([o, n]) => [outJa(o), n]));
-    renderTable(); renderDocs(); drawMap();
+    renderTable(); renderDocs();
+    if (selected) select(selected); else drawMap();
+  }
+  let loadError = null;
+  const showLoadError = () => {
+    document.getElementById("panel").innerHTML = tr(`<p>結果のデータを読み込めませんでした（${esc(loadError.message)}）。ページを開き直してください。</p>`,
+      `<p>Could not load the result data (${esc(loadError.message)}). Reopen the page.</p>`);
+  };
+  I18N.onChange(() => { if (DATA) fillText(); else if (loadError) showLoadError(); });
+  Promise.all([fetch("data.json").then(r => r.json()), fetch("countries-110m.json").then(r => r.json())]).then(([d, t]) => {
+    DATA = d; topo = t;
+    fillText();
   }).catch(e => {
-    document.getElementById("panel").innerHTML = `<p>結果のデータを読み込めませんでした（${esc(e.message)}）。ページを開き直してください。</p>`;
+    loadError = e;
+    showLoadError();
   });
 })();
 </script>
