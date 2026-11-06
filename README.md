@@ -4,6 +4,8 @@
 
 行政書類を AI エージェントが正確に読み書きするための MCP サーバー。`dependencies = []`。Office も LibreOffice も不要。
 
+**[ポータル：世界の調査と全結果](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)**
+
 ```text
 証明：元のファイル 110,831 バイトは先頭からバイト一致のまま、後ろに 18,121 バイトを足しました
 ```
@@ -35,7 +37,7 @@ Claude Code で実行する（[uv](https://docs.astral.sh/uv/) が必要）。
 
 ## 「書けた」と「正確に書けた」は違う
 
-同じ申請書、同じ指示、同じ Claude で比較した（公開の様式 20 通、値は架空。詳細は `scripts/eval/` と `world/portal/`）。
+同じ申請書、同じ指示、同じ Claude で比較した（公開の様式 20 通、値は架空。詳細は [ポータル](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH) と `scripts/eval/`）。
 
 | | ただの Claude Code | Claude Code + とどく |
 |---|---|---|
@@ -88,7 +90,7 @@ ROUNDDOWN(ROUND(L × P, 0), 0) × AA
 | 図形・テキストボックスの字（世界） | **389/487** | 220/487 |
 | 古い Word .doc の字（都・多摩） | **1.0** | 0.0 |
 
-185 か国の政府サイトから無作為に 8,500 件を抽出して調査し、うち 1,079 件を実際に読み書きして推定した。**正確に書ける文書は推定約 182 万件**。全カテゴリの表・区間・方法は `world/portal/`、評価コードは `scripts/eval/`。
+185 か国の政府サイトから無作為に 8,500 件を抽出して調査し、うち 1,079 件を実際に読み書きして推定した。**正確に書ける文書は推定約 182 万件**。全カテゴリの表・区間・方法は [ポータル](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)、評価コードは `scripts/eval/`。
 
 ## 作った人
 

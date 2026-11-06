@@ -4,6 +4,8 @@
 
 An MCP server that lets AI agents read and write administrative documents accurately. `dependencies = []`. No Office. No LibreOffice.
 
+**[Portal: world survey and full results](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)** (in Japanese)
+
 ```text
 Proof: the original 110,831 bytes are unchanged from the start of the file; 18,121 bytes were appended.
 ```
@@ -35,7 +37,7 @@ Explain how this Excel sheet calculates the amount. What if I choose category II
 
 ## "Filled in" is not "filled in correctly"
 
-Same form, same prompt, same Claude. 20 public forms, fictional values. Details in `scripts/eval/` and `world/portal/`.
+Same form, same prompt, same Claude. 20 public forms, fictional values. Details in the [portal](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH) and `scripts/eval/`.
 
 | | Plain Claude Code | Claude Code + todoku |
 |---|---|---|
@@ -88,7 +90,7 @@ Version frozen (`eval-freeze-1`), then measured on documents not opened before t
 | Text in shapes and text boxes (world) | **389/487** | 220/487 |
 | Character recall on legacy Word .doc (Tokyo forms) | **1.0** | 0.0 |
 
-We surveyed 8,500 documents randomly sampled from government sites in 185 countries and estimated from 1,079 of them, actually read and written. **An estimated 1.82 million documents can be written accurately.** All categories, intervals and methods are in `world/portal/`; the evaluation code is in `scripts/eval/`.
+We surveyed 8,500 documents randomly sampled from government sites in 185 countries and estimated from 1,079 of them, actually read and written. **An estimated 1.82 million documents can be written accurately.** All categories, intervals and methods are in the [portal](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH); the evaluation code is in `scripts/eval/`.
 
 ## Who built this
 
