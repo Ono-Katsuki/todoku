@@ -43,7 +43,30 @@
 
 본 제품은 한글과컴퓨터의 한/글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
 
-試験の見本（`tests/fixtures/public/`）は、とどくのために作ったもので、CC0 です。
+## 公開の解説を参照した形式
+
+仕様の公開されていない形式は、次の解説で知られている形と、実物の観察から読み手を書きました。これらのプロジェクトのファイルは同梱していません。
+
+| 部品 | 参照した解説 | 解説の元のライセンス |
+|---|---|---|
+| `src/todoku/legacy/jet.py`（Access の .mdb・.accdb） | [mdbtools](https://github.com/mdbtools/mdbtools) の HACKING（ページの形）・[Jackcess](https://github.com/jahlborn/jackcess)（ページの形・パスワードの欄の形） | mdbtools は LGPL（libmdb）と GPL（道具）。Jackcess は Apache-2.0 |
+| `src/todoku/legacy/iwork.py`（Pages・Numbers・Keynote） | Sean Patrick O'Brien「iWork 2013 File Format」・[keynote-parser](https://github.com/psobot/keynote-parser) | keynote-parser は MIT |
+| `src/todoku/legacy/sevenzip.py`（.7z） | 7-Zip の 7zFormat.txt（LZMA SDK） | public domain |
+
+実物の確かめに使った Access のファイル（Jackcess のテストのファイルなど）は、リポジトリに入れていません（`tests/test_jet_real_shapes.py` は同じ形を自分で作って確かめます）。
+
+## 試験の見本（`tests/fixtures/`）
+
+どれもテストのために作ったもので、他者の書類ではありません。個人情報は含みません。
+
+| ファイル | 作り方 |
+|---|---|
+| `public/` | `scripts/fixtures/make_public.py` で作った架空の書類。CC0（`public/MANIFEST.json`） |
+| `kami_meisai.xlsx` | `scripts/make_fixtures.py` で作った架空の様式 |
+| `date1904.xls` | `tests/test_sheet_findings.py` の `_build` で作ったブックを、LibreOffice で Excel 97 の形式にしたもの |
+| `r4_general.xls`・`r4_general.ods`・`r4_rich.xls` | 試験のために合成し、LibreOffice で保存したブック（`tests/test_round4_sheet_fixes.py`） |
+| `scan_box.jpg` | 160×96 の白地に黒い枠を描いただけの画像（`tests/test_scan.py`） |
+| `ppmd/ppmd_restart.7z`・`ppmd/ppmd_small.7z` | 試験のために作った書庫（`ppmd_restart.7z` は 7zz で、中身はテストの乱数で作ったデータ。`tests/test_sevenzip.py`） |
 
 ## zlib の puff.c（Deflate64 を解く所：src/todoku/legacy/sevenzip.py の deflate64 と符号の表）
 
