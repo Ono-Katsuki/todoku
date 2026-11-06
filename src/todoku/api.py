@@ -509,10 +509,12 @@ def far_label(f: dict) -> str | None:
     if not isinstance(near, dict) or not near or not lab:
         return None
     # あいだのマスの数：左右は cols（あいだの列の数）。上は rows（行の番号の差：すぐ上の行は 1）から 1 を引いた、あいだの行の数
+    # 左右と上の字だけを見る（header の並びは字の位置の事実で、ここでは読まない。読まなければ作らない：xlsx/window.py の _Near）
+    sides_near = {s: near[s] for s in near if s not in ("header", "section")}
     gap = {s: (v.get("cols") if s != "above" else (v["rows"] - 1 if isinstance(v.get("rows"), int) else None))
-           for s, v in near.items() if isinstance(v, dict) and s in _SIDE_JA and not v.get("fields_between")}
+           for s, v in sides_near.items() if isinstance(v, dict) and s in _SIDE_JA and not v.get("fields_between")}
     # あいだに空の欄をはさむ字（表の格子の見出し・1 桁ずつのマスの見出し）は、離れた字として言い換えない（method に欄の番地）
-    if any(isinstance(v, dict) and v.get("fields_between") and (v.get("label") or "") == lab for v in near.values()):
+    if any(isinstance(v, dict) and v.get("fields_between") and (v.get("label") or "") == lab for v in sides_near.values()):
         return None
     if any(g == 0 and (near[s].get("label") or "") and (near[s].get("label") or "") in lab for s, g in gap.items()):
         return None  # すぐ隣のマスの字が見出しにある
@@ -523,7 +525,7 @@ def far_label(f: dict) -> str | None:
     _mm, s = min(sides)
     ja, unit = _SIDE_JA[s]
     v = near[s]
-    if lab not in {str(x.get("label") or x.get("text") or "") for x in near.values() if isinstance(x, dict)}:
+    if lab not in {str(x.get("label") or x.get("text") or "") for x in sides_near.values() if isinstance(x, dict)}:
         return None  # 見出しが、離れた 1 つの字そのものではない（区分と見出しをつないだ見出し・字にはさまれた欄の並び）
     cell = str(f["id"]).rsplit("!", 1)[-1]
     how = f"{ja}のすぐ隣" if gap[s] == 0 else f"{ja}に {gap[s]} {unit}あけて"
