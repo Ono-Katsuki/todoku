@@ -541,6 +541,18 @@ class PageLayout:
                           "OCR の字はエージェントが画像と照らして確かめる（スキャンの画像の上に、文字の認識で作った見えない字が"
                           "重ねてあります。認識の誤りがあっても、字の情報からは分かりません）",
                           [f"{self.number}ページ（見えない字 {len(on)} 字）"])
+        else:
+            # 字はあるが、ページの大半が画像で、字の面積より広い（スキャンに「CamScanner」の字だけ、など）。画像の中に字があるかは、字の情報からは
+            # 分からない（OCR の字があるページは上の印）。規則では決められないので、見て確かめる所として伝える
+            page_area = max(1e-6, self.view.width * self.view.height)
+            pic_area = sum(max(0.0, min(r[2], self.view.width) - max(r[0], 0.0)) * max(0.0, min(r[3], self.view.height) - max(r[1], 0.0))
+                           for r in (self.view.rect(p.x0, p.y0, p.x1, p.y1) for p in self.pc.pictures))
+            text_area = sum((c.x1 - c.x0) * (c.y1 - c.y0) for c in self.chars if not c.text.isspace())
+            if text_area > 0 and pic_area > page_area / 2 and pic_area > text_area:
+                self.flag("C", "ページの大半が画像（字はわずか）",
+                          "ページの半分より広く画像が覆い、字の面積より広いページです。画像の中に字があるかは、字の情報からは分かりません"
+                          "（スキャンかもしれません）。view_page でページの画像を見て確かめる。窓の字だけで全部を読んだことにしない",
+                          [f"{self.number}ページ（画像 {100 * min(1.0, pic_area / page_area):.0f}%・字 {sum(1 for c in self.chars if not c.text.isspace())} 字）"])
         orphan = [self.where(ln.x0, ln.y0, ln.text) for ln in self.all_lines() if getattr(ln, "orphans", None)]
         if orphan:
             self.flag("C", "前の字のない結合の記号",
