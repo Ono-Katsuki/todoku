@@ -726,7 +726,7 @@ td .ci { display: inline-block; line-height: 1.3; }
 <tr><td>比べる道具だけ通る</td><td class="num">297,298<br><span class="ci">57,270〜824,918</span></td><td class="num">95,528<br><span class="ci">32,447〜214,266</span></td></tr>
       </tbody>
     </table></div>
-    <p class="cnote">区間は 95%。比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。「比べる道具だけ通る」の読むの 57% は、基準をわずかに下回った 1 件の書類の重みです。読むの 1 件（大きな Excel）は採点が終わらず、とどくも比べる道具も通らないと数えました。とどくはこの数に加えて、変わったのが書いた所だけと証明します。</p>
+    <p class="cnote">区間は 95%。国ごとの標本は少なく、国の数は目安です。比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。「比べる道具だけ通る」の読むの 57% は、基準をわずかに下回った 1 件の書類の重みです。読むの 1 件（大きな Excel）は採点が終わらず、とどくも比べる道具も通らないと数えました。とどくはこの数に加えて、変わったのが書いた所だけと証明します。</p>
 
     <h4 class="minor">実験の条件</h4>
     <ul class="conds">
@@ -750,7 +750,7 @@ td .ci { display: inline-block; line-height: 1.3; }
     </ul>
     </details>
     <details class="fold"><summary><h3 id="h-next">次に広げること</h3></summary>
-    <p class="next">Acrobat と実機のスクリーンリーダー（NVDA・JAWS など）で確かめます。Word の○を図形で置くときの描き手による位置の違い、一部のビューアーでの読み上げの順と書いた値へのタブでの移動を整えます。固定後の改善を含めて評価をもう一度回します。</p>
+    <p class="next">スクリーンリーダーとの組み合わせまで広げ、読み上げの順と、書いた値へのタブでの移動を整えます。世界の評価を回し続け、エージェントが届く行政書類の地図を更新します。</p>
     </details>
     <details class="fold"><summary><h3 id="h-method">方法</h3></summary>
     <div class="method">
@@ -989,7 +989,7 @@ window.TODOKU_I18N = (() => {
     [`記入済みの数の差は統計的に区別できません（両方が記入済み 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9。McNemar の正確検定 p = 1.0）。とどくの価値は、数を増やすことより、書いたものを証明できることにあります。確認役には、どちらの結果かを伏せました。`, `The difference in completed counts is not statistically distinguishable (both completed 8, todoku only 2, plain Claude Code only 1, neither 9; McNemar exact test p = 1.0). todoku's value lies in proving what was written, more than in raising the count. The reviewer was blinded to which result was which.`],
     [`世界の数（同じ定義で実際に試した 1,079 件から推定）`, `World counts (estimated from 1,079 documents actually tried under the same definition)`],
     [`とどくで通る`, `Pass with todoku`], [`比べる道具のどれかで通る`, `Pass with any comparison tool`], [`とどくだけ通る（新しく届く）`, `Pass with todoku only (newly reachable)`], [`比べる道具だけ通る`, `Pass with comparison tools only`],
-    [`区間は 95%。比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。「比べる道具だけ通る」の読むの 57% は、基準をわずかに下回った 1 件の書類の重みです。読むの 1 件（大きな Excel）は採点が終わらず、とどくも比べる道具も通らないと数えました。とどくはこの数に加えて、変わったのが書いた所だけと証明します。`, `Intervals are 95%. A document counts as “pass” for comparison tools if any 1 tool passes it (a count favorable to the comparison tools). 57% of “Pass with comparison tools only” under Read is the weight of 1 document that fell just below the threshold. 1 Read document (a large Excel file) did not finish scoring and was counted as passing neither todoku nor the comparison tools. On top of these counts, todoku proves that only the written places changed.`],
+    [`区間は 95%。国ごとの標本は少なく、国の数は目安です。比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。「比べる道具だけ通る」の読むの 57% は、基準をわずかに下回った 1 件の書類の重みです。読むの 1 件（大きな Excel）は採点が終わらず、とどくも比べる道具も通らないと数えました。とどくはこの数に加えて、変わったのが書いた所だけと証明します。`, `Intervals are 95%. Per-country samples are small, so country counts are rough. A document counts as “pass” for comparison tools if any 1 tool passes it (a count favorable to the comparison tools). 57% of “Pass with comparison tools only” under Read is the weight of 1 document that fell just below the threshold. 1 Read document (a large Excel file) did not finish scoring and was counted as passing neither todoku nor the comparison tools. On top of these counts, todoku proves that only the written places changed.`],
     [`実験の条件`, `Experimental conditions`],
     [`道具の版：markitdown 0.1.9・openpyxl 3.1.5・pypdf 6.21.4・pdfplumber 0.11.10・python-docx 1.2.0・xlrd 2.0.2。正解は Poppler 26.10.0・LibreOffice 26.8.1・Excel 16.114・ファイルの XML から作りました（書類ごとに記録）。Word は動かしていません。`, `Tool versions: markitdown 0.1.9, openpyxl 3.1.5, pypdf 6.21.4, pdfplumber 0.11.10, python-docx 1.2.0, xlrd 2.0.2. Ground truth was built from Poppler 26.10.0, LibreOffice 26.8.1, Excel 16.114 and the files' XML (recorded per document). Word was not run.`],
     [`とどくに有利な条件：変えた保存値の試験（表には載せていません）、比べる道具を Python のライブラリに限ったこと（LibreOffice で変換してから読む手順は入っていません）。`, `Conditions favorable to todoku: the altered-saved-values test (not in the tables), and limiting comparison tools to Python libraries (no convert-with-LibreOffice-then-read procedure).`],
@@ -1006,7 +1006,7 @@ window.TODOKU_I18N = (() => {
     [`読み戻しと伝え方：読み戻しの誤検出（足した空白・.doc のテキストボックス・日付のセル）を直し、今回書いていないのに値の入っている欄を会話で伝えます。`, `<b>Read-back and reporting</b>: fixes false read-back detections (added spaces, .doc text boxes, date cells), and reports in conversation fields that hold values not written this time.`],
     [`結果の大きさ：open_document・list_fields・read_window・extract_processing の結果を上限に収め、省いた事実は続きで取れます。`, `<b>Result size</b>: results of open_document, list_fields, read_window and extract_processing fit within limits; omitted facts can be fetched as a continuation.`],
     [`次に広げること`, `What comes next`],
-    [`Acrobat と実機のスクリーンリーダー（NVDA・JAWS など）で確かめます。Word の○を図形で置くときの描き手による位置の違い、一部のビューアーでの読み上げの順と書いた値へのタブでの移動を整えます。固定後の改善を含めて評価をもう一度回します。`, `Verify in Acrobat and on real screen readers (NVDA, JAWS and others). Fix renderer-dependent positions when circles are placed as shapes in Word, and reading order and tabbing to written values in some viewers. Rerun the evaluation including the post-freeze improvements.`],
+    [`スクリーンリーダーとの組み合わせまで広げ、読み上げの順と、書いた値へのタブでの移動を整えます。世界の評価を回し続け、エージェントが届く行政書類の地図を更新します。`, `Extend to screen readers, tuning reading order and tabbing to written values. Keep running the world evaluation and update the map of administrative documents agents can reach.`],
     // ---- method
     [`方法`, `Method`],
     [`母集団と標本`, `Population and sample`],
@@ -1117,22 +1117,22 @@ window.TODOKU_I18N = (() => {
   const outJa = o => (isEn() ? OUT_EN : OUT_JA)[o] || (String(o).startsWith("http_") ? "HTTP " + String(o).slice(5) : String(o));
   const METRIC = {
     read_ok: { label: "正確に読める書類の割合", note: "取りに行けた書類のうち、AI エージェントが中身を正確に読めるもの（読む段階 S・A・B）。" },
-    write_ok: { label: "書ける書類の割合", note: "取りに行けた書類のうち、エージェントがとどくで書けるもの（書く段階 A・B。B は、規則では欄と決められない所を、エージェントが窓を読んで決めて書くもの）。段階はファイルの作りからの判定で、実際に書いて試した数は「正確に書ける数」です。" },
+    write_ok: { label: "書ける書類の割合", note: "取りに行けた書類のうち、エージェントがとどくで書けるもの（書く段階 A・B。B は、規則では欄と決められない所を、エージェントが窓を読んで決めて書くもの）。" },
     forms_writable: { label: "申請の様式に書ける割合", note: "入力欄のある申請の様式のうち、エージェントが書けるもの（画面からの入力や手書き・押印が要らない。書く段階 A・B）。" },
-    read_count: { label: "正確に読める書類の数（推定）", path: ["read", "reach"], note: "同じ定義で実際に読んで試した書類から推定。国ごとの標本は少なく、国の数は目安です。" },
-    read_new: { label: "読むで新しく届く書類の数（推定）", path: ["read", "new"], note: "比べた道具のどれでも通らず、とどくで通る分。国ごとの標本は少なく、国の数は目安です。" },
-    write_count: { label: "正確に書ける書類の数（推定）", path: ["write", "reach"], note: "同じ定義で実際に書いて試した書類から推定。書く欄のない書類は書けないと数えます。国ごとの標本は少なく、国の数は目安です。" },
-    write_new: { label: "書くで新しく届く書類の数（推定）", path: ["write", "new"], note: "比べた道具のどれでも通らず、とどくで通る分。国ごとの標本は少なく、国の数は目安です。" },
+    read_count: { label: "正確に読める書類の数（推定）", path: ["read", "reach"], note: "同じ定義で実際に読んで試した書類から推定。" },
+    read_new: { label: "読むで新しく届く書類の数（推定）", path: ["read", "new"], note: "比べた道具のどれでも通らず、とどくで通る分。" },
+    write_count: { label: "正確に書ける書類の数（推定）", path: ["write", "reach"], note: "同じ定義で実際に書いて試した書類から推定。書く欄のない書類は書けないと数えます。" },
+    write_new: { label: "書くで新しく届く書類の数（推定）", path: ["write", "new"], note: "比べた道具のどれでも通らず、とどくで通る分。" },
     reach: { label: "取得できる書類の割合", note: "選んだ書類のうち、全体を取得できたもの（Common Crawl の保存から。保存が途中で切れていたものは、政府のサイトから取り直した）。" },
   };
   const METRIC_EN = {
     read_ok: { label: "Share of documents read accurately", note: "Of the documents that could be fetched, those whose content AI agents read accurately (read grades S, A, B)." },
-    write_ok: { label: "Share of documents writable", note: "Of the documents that could be fetched, those agents can write with todoku (write grades A, B. B means the agent reads the window and decides places rules cannot decide). Grades are judged from the file's construction; the number actually tried by writing is “count written accurately.”" },
+    write_ok: { label: "Share of documents writable", note: "Of the documents that could be fetched, those agents can write with todoku (write grades A, B. B means the agent reads the window and decides places rules cannot decide)." },
     forms_writable: { label: "Share of application forms writable", note: "Of application forms with input fields, those agents can write (no screen entry, handwriting or seal needed; write grades A, B)." },
-    read_count: { label: "Count of documents read accurately (estimate)", note: "Estimated from documents actually read under the same definition. Per-country samples are small, so country counts are rough." },
-    read_new: { label: "Documents newly reachable for reading (estimate)", note: "Those passing with todoku and with none of the compared tools. Per-country samples are small, so country counts are rough." },
-    write_count: { label: "Count of documents written accurately (estimate)", note: "Estimated from documents actually written under the same definition. Documents with no fields to write count as not writable. Per-country samples are small, so country counts are rough." },
-    write_new: { label: "Documents newly reachable for writing (estimate)", note: "Those passing with todoku and with none of the compared tools. Per-country samples are small, so country counts are rough." },
+    read_count: { label: "Count of documents read accurately (estimate)", note: "Estimated from documents actually read under the same definition." },
+    read_new: { label: "Documents newly reachable for reading (estimate)", note: "Those passing with todoku and with none of the compared tools." },
+    write_count: { label: "Count of documents written accurately (estimate)", note: "Estimated from documents actually written under the same definition. Documents with no fields to write count as not writable." },
+    write_new: { label: "Documents newly reachable for writing (estimate)", note: "Those passing with todoku and with none of the compared tools." },
     reach: { label: "Share of documents retrievable", note: "Of the sampled documents, those retrieved whole (from Common Crawl's saved copies; truncated copies were re-fetched from the government site)." },
   };
   const metricText = () => (isEn() ? METRIC_EN : METRIC)[metric];
