@@ -23,7 +23,9 @@ def _blob() -> bytes:
         b"<< /Type /Sig /Filter /Adobe.PPKLite /Name (Fictional Signer) /M (D:20260101000000Z) /ByteRange [0 1 2 3] /Contents <0082AABB> >>",
         stream("/Type /XObject /Subtype /Form /BBox [0 0 200 60] /Resources << /XObject << /FRM 9 0 R >> >>", b"q /FRM Do Q"),
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
-        stream(f"/Type /XObject /Subtype /Form /BBox [0 0 200 60] /Resources << {FONT} >>", b"BT /F1 9 Tf 2 30 Td (Digitally signed by Fictional Signer) Tj ET"),
+        stream(f"/Type /XObject /Subtype /Form /BBox [0 0 200 60] /Resources << {FONT} /XObject << /Im1 10 0 R >> >>",
+               b"q 20 0 0 20 0 0 cm /Im1 Do Q BT /F1 9 Tf 2 30 Td (Digitally signed by Fictional Signer) Tj ET"),
+        stream("/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8", b"(\xff"),
     ]
     return pdf(objs, 1)
 

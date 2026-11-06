@@ -152,7 +152,9 @@ def _face_text(doc: PdfDocument, f: FormField, w: Widget) -> str:
         res = doc.resolve(st.dict.get("Resources"))
         xo = doc.resolve(res.get("XObject")) if isinstance(res, dict) else None
         for x in (xo.values() if isinstance(xo, dict) else ()):
-            walk(doc.resolve(x), depth + 1)
+            sub = doc.resolve(x)
+            if isinstance(sub, Stream) and getattr(doc.resolve(sub.dict.get("Subtype")), "name", "") == "Form":  # 画像の中身は字ではない
+                walk(sub, depth + 1)
 
     try:
         walk(widget_appearance(doc, doc.resolve(w.ref) if w.ref is not None else None), 0)
