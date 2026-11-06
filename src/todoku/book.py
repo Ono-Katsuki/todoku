@@ -66,7 +66,7 @@ def kind_of(blob: bytes, filename: str = "") -> str:
         if "fileheader" in names and _is_hwp5(blob):
             return "hwp"  # 韓国のワープロ（한글）の HWP 5.0：FileHeader のストリームが「HWP Document File」で始まる（読むだけ。hwpx/hwp5.py）
         return "cfb"
-    if blob[:4] == b"%PDF":
+    if blob[:1024].lstrip()[:5] == b"%PDF-":  # 頭に空白や改行のある PDF も、PDF（ビューアーも pdf/doc.py も読む）
         return "pdf"
     from .imaging.formats import sniff
 
