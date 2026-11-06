@@ -314,12 +314,12 @@ class Filler:
             i, off = pos[a - 1] if a > 0 else pos[0]
             at = off + 1 if a > 0 else off
             sg = p.segs[i]
-            if sg.kind in ("tab", "sym") and a > 0 and sg.run is not None:
+            if sg.kind in ("tab", "sym", "br") and a > 0 and sg.run is not None:
                 nxt = p.segs[pos[a][0]] if a < len(pos) else None
                 if nxt is not None and nxt.kind == "t" and nxt.node is not None and nxt.run is not None:
-                    i, at, sg = pos[a][0], pos[a][1], nxt  # 直前がタブ・記号：次の字の前に入れる
+                    i, at, sg = pos[a][0], pos[a][1], nxt  # 直前がタブ・記号・改行：次の字の前に入れる
                 elif nxt is None:
-                    self.append_run(item, p, sg.run, value)  # 段落の終わりのタブ・記号の後ろ：同じ書式の字の要素を足す
+                    self.append_run(item, p, sg.run, value)  # 段落の終わりのタブ・記号・改行の後ろ：同じ書式の字の要素を足す
                     return
             if sg.kind in ("note", "other") and a == len(pos) and sg.run is not None:
                 # 段落の終わりの脚注の印・図の印（「人口※4」）の後ろ：本文の字の書式（印の上付きでなく）で、字の要素を足す

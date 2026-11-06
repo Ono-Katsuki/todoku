@@ -256,3 +256,17 @@ def test_embedded_excel_table_is_shown_as_plain_text():
     md = to_markdown(win)
     assert "## 埋め込み1：Excel の表（Excel.Sheet.12・word/embeddings/Microsoft_Excel_Worksheet.xlsx）" in md
     assert "工賃総額" in md and "5年度" in md
+
+
+def test_write_after_a_line_break_at_the_end_of_a_paragraph(tmp_path):
+    """段落の終わりの改行の後ろ：窓が示す所に書ける（書けずに、ほかの欄ごと書き込みが止まっていた）。"""
+    from todoku import api
+
+    p = tmp_path / "a.docx"
+    p.write_bytes(make_docx("<w:p><w:r><w:t>具体的な活動内容</w:t><w:br/></w:r></w:p><w:p><w:r><w:t>次の段落です。</w:t></w:r></w:p>"))
+    place = next(f["id"] for f in api.fields(str(p)) if f["id"].startswith("P1.c"))
+    out = tmp_path / "o.docx"
+    r = api.fill(str(p), {place: "清掃"}, str(out))
+    assert r["proof_ok"] and r["read_back_ok"], r
+    t = "\n".join(x[1] for x in api.window(str(out))[2])
+    assert "具体的な活動内容" in t and "清掃" in t
