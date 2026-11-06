@@ -226,6 +226,18 @@ def test_xlsx_circle_adds_an_ellipse_shape_with_proof(tmp_path):
     assert r2["proof_ok"] and r2["read_back_ok"], r2["unexpected"]
 
 
+def test_xlsx_circle_proof_counts_entries_after_the_circle(tmp_path):
+    """セルと○を一緒に書くと、セルの証明の「ZIPのエントリ n/m」は○を足す前の数。元のファイルと比べた全体の数も伝える（一致した数を多く見せない）。"""
+    data = make_xlsx({"S": ({"A1": "外出の有無", "B1": "有　・　無", "A2": "年", "B2": None}, [])})
+    r, out = _write(tmp_path, data, "t.xlsx", {"S!B2": "令和8", "@c1": {"circle": "無", "cell": "S!B1"}})
+    assert r["proof_ok"] and r["read_back_ok"], (r["unexpected"], r["read_back_differences"])
+    za, zb = zipfile.ZipFile(io.BytesIO(data)), zipfile.ZipFile(out)
+    same = sum(1 for n in zb.namelist() if n in za.namelist() and za.read(n) == zb.read(n))
+    assert same < len(zb.namelist()) - 1  # シートのほかにも変わる（図形の部品など）
+    m = re.search(r"○を足した後の全体では、元のファイルと ZIPのエントリ (\d+)/(\d+) が完全一致です", r["proof"])
+    assert m and (int(m[1]), int(m[2])) == (same, len(zb.namelist())), r["proof"]
+
+
 def test_xlsx_inline_blank_list_value_reads_back_as_cell_text(tmp_path):
     data = make_xlsx({"S": ({"A1": "申請日", "B1": "令和　　年　　月　　日"}, [])})
     r, _ = _write(tmp_path, data, "t.xlsx", {"S!B1": ["8", "11", "10"]})
