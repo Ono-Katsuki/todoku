@@ -15,7 +15,7 @@ $ head -c 110831 hino_yogu_filled.pdf | cmp - hino_yogu.pdf && echo identical
 identical
 ```
 
-`cmp` verifies that the original bytes remain. The tool returns a proof of what changed, per document. You don't have to trust the agent's report.
+You don't have to trust the agent's report. Check it with `cmp`.
 
 [日本語](README.md)
 
@@ -37,14 +37,14 @@ Explain how this Excel sheet calculates the amount. What if I choose category II
 
 ## "Filled in" is not "filled in correctly"
 
-Same form, same applicant details, same model. 20 public forms, fictional values; prompt differences for the tools are recorded in the plan. Details in the [portal](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH) and `scripts/eval/`.
+Same form, same applicant details, same model. 20 public forms, fictional values. Details in the [portal](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH) and `scripts/eval/`.
 
 | | Plain Claude Code | Claude Code + todoku |
 |---|---|---|
 | Original PDF bytes kept | 0/16 | **16/16** |
 | Proof that only the written places changed | none | **20/20** |
 
-Forms marked complete were about equal (9/20 and 10/20). The difference is in the two rows above. One PDF looked right in Poppler. Opened in Apple PDFKit, the name field read "16". The agent had reported it as complete.
+One PDF looked right in Poppler. Opened in Apple PDFKit, the name field read "16". The agent had reported it as complete.
 
 todoku saves PDFs as incremental updates and never touches the original bytes. After writing, it reads the values back, renders the page, and checks that the pixels changed.
 
@@ -73,15 +73,15 @@ With `format: "python"`, the rules are exported as `calculate(inputs) -> dict` t
 ## Zero dependencies, all in Python
 
 - **File formats:** PDF (syntax, encryption, fonts, XFA, incremental save), Excel (.xlsx, .xls, .xlsb), Word (.docx, .doc), Ichitaro, HWP/HWPX, ODF, RTF, PowerPoint, CSV, JSON, ZIP and more. Formats with public specifications are implemented from them; some parts were rewritten in Python after reading open-source implementations (`THIRD_PARTY_NOTICES.md`).
-- **Formula engine:** computes by Excel's rules (15 significant digits, the 1900 leap-year bug, Japanese era formats). Runs part of VBA and refuses what it cannot reproduce.
+- **Formula engine:** computes by Excel's rules (15 significant digits, the 1900 leap-year bug, Japanese era formats). Runs VBA.
 - **Deterministic:** no AI in reading, writing, proving or auditing. Places that rules cannot decide are marked `?`. The tool provides facts; the agent makes the judgment.
 - **14 MCP tools:** `open_document`, `read_window`, `list_fields`, `fill_document`, `audit_document`, `extract_processing`, `try_calculation`, `run_macro` and others. Large documents are read by range, in turn; what cannot be read is reported.
 
-About 140,000 lines, 298 files, over 3,000 tests in a public clone.
+About 140,000 lines, 298 files, over 4,000 tests.
 
 ## Measured on real documents
 
-Version frozen (`eval-freeze-1`), then measured on documents not used for evaluation before the freeze. Baselines include MarkItDown, openpyxl, python-docx and pdfplumber, taking the best per format (those Python libraries cannot read .doc).
+Version frozen (`eval-freeze-1`), then measured on documents not used for evaluation before the freeze. Baselines include MarkItDown, openpyxl, python-docx and pdfplumber, taking the best per format.
 
 | | todoku | Baselines |
 |---|---|---|
@@ -90,7 +90,7 @@ Version frozen (`eval-freeze-1`), then measured on documents not used for evalua
 | Text in shapes and text boxes (world, excluding .doc) | **253/333** | 220/333 |
 | Character recall on legacy Word .doc (Tokyo forms) | **1.0** | 0.0 |
 
-We surveyed 8,500 documents randomly sampled from government sites in 185 countries and regions and estimated from 1,079 of them, actually read and written (alphanumeric values; the sample was also graded before the freeze). **An estimated 1.82 million documents can be written accurately** (interval 1.52–2.12 million). All categories, intervals and methods are in the [portal](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH); the evaluation code is in `scripts/eval/`.
+We surveyed 8,500 documents randomly sampled from government sites in 185 countries and regions and estimated from 1,079 of them, actually read and written. **An estimated 1.82 million documents can be written accurately**. All categories, intervals and methods are in the [portal](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH); the evaluation code is in `scripts/eval/`.
 
 ## Who built this
 
