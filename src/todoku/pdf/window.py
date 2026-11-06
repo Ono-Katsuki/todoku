@@ -1045,6 +1045,9 @@ def build(doc: PdfDocument, pages=None) -> dict:
         "form": {"acroform_fields": len(fields), "xfa": has_xfa(doc), "encrypted": doc.decryptor is not None},
         "pages": [],
     }
+    unplaced = _unplaced_fields(fields)
+    if unplaced:
+        out["form"]["unplaced"] = unplaced
     xw = _xfa_window(doc)
     for i, p in enumerate(doc.pages()):
         if pages is not None and i + 1 not in pages:
@@ -1436,6 +1439,17 @@ def _value(f: dict) -> str:
     return "、".join(map(str, v)) if isinstance(v, list) else str(v)
 
 
+def _unplaced_fields(fields: list[FormField]) -> list[dict]:
+    """AcroForm の /Fields にあるが、部品がどのページにもない欄（/P の指すページがない・部品がない）：[{name, value}]。
+    ビューアーは描かないが、値はファイルにある（読む道具には見える）。どのページの窓にも出ないので、ここで伝える。"""
+    out = []
+    for f in fields:
+        if all(w.page < 0 for w in f.widgets):
+            v = f.value_text()
+            out.append({"name": f.name, "value": "" if v is None else str(v)})
+    return out
+
+
 def _md_head(doc: dict) -> list[str]:
     out = [f"# {doc['source']['file'] or '書類'}", ""]
     out.append(f"- 元ファイルの SHA-256: `{doc['source']['sha256']}`（{doc['source']['bytes']:,} バイト）、PDF、{len(doc['pages'])} ページ")
@@ -1454,6 +1468,11 @@ def _md_head(doc: dict) -> list[str]:
         out.append(f"- フォームの欄が {fm['acroform_fields']} 個あります（PDFにある欄そのもの）。")
     else:
         out.append("- フォームの欄はありません（印刷用のPDF）。入力欄は、罫線・空き・字の並びから見つけたものです。")
+    gone = fm.get("unplaced") or []
+    if gone:
+        valued = [f"「{_md(x['name'])}」＝{_md(x['value'])}" for x in gone if x["value"]]
+        out.append(f"- どのページにも置かれていない欄が {len(gone)} 個あります（ファイルにはありますが、画面にも紙にも出ません。書く所ではありません）"
+                   + ("。値の入っている欄：" + "、".join(valued) if valued else "。値の入っている欄はありません") + "。")
     xw = doc.get("xfa")
     if xw and xw.get("readable"):
         kind = "動的" if xw["kind"] == "dynamic" else "静的"
