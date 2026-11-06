@@ -773,7 +773,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             new_blob = blob
             result.update({"proof_ok": True, "proof": "", "warnings": [], "unexpected": [], "structure_errors": [], "recalculated": {}})
         if circ:
-            new_blob = _circle_excel(new_blob, name, k, circ, result)
+            new_blob = _circle_excel(new_blob, name, k, circ, result, original=blob)
     elif k == "pdf":
         from .pdf.fill import FillError
         from .pdf.fill import fill as pfill
@@ -1372,10 +1372,12 @@ def _is_circle(v) -> bool:
     return isinstance(v, dict) and ("circle" in v or "on_shape" in v)
 
 
-def _circle_excel(blob: bytes, name: str, k: str, circ: dict, result: dict) -> bytes:
-    """Excel：セルの字を○の図形で囲む。書いた後のブックで○を決め、図形を足し、足しただけであることを証明する。"""
+def _circle_excel(blob: bytes, name: str, k: str, circ: dict, result: dict, original: bytes | None = None) -> bytes:
+    """Excel：セルの字を○の図形で囲む。書いた後のブックで○を決め、図形を足し、足しただけであることを証明する。
+    セルの証明の「ZIPのエントリ n/m」は○を足す前の数なので、元のファイルと比べた全体の数を証明の終わりに足す。"""
     from .book import open_book
     from .xlsx import circle as xc
+    from .zipraw import RawZip
 
     if k == "xls":
         raise ApiError("古い Excel（.xls）には、○の図形を足す書き方をまだ作っていません（図形を足したことを証明できないため）。"
@@ -1404,6 +1406,11 @@ def _circle_excel(blob: bytes, name: str, k: str, circ: dict, result: dict) -> b
     result["proof"] = (result.get("proof") or "") + ((f"○ {len(sds) - marks_} つは、シートの図形に楕円を足しただけです（ほかの部品はバイト一致）" if len(sds) > marks_ else "")
                                                      + (f"図形に重ねた字 {marks_} つは、字だけの図形を足しただけです（元の図形とほかの部品はバイト一致）" if marks_ else "")
                                                      if not bad else f"○の書き込みで想定外の変更 {len(bad)} 件")
+    if original is not None and not bad:
+        za, zb = RawZip(original), RawZip(out)
+        same = sum(1 for n in zb.names() if n in set(za.names()) and
+                   (za.get(n).local, za.get(n).data, za.get(n).descriptor) == (zb.get(n).local, zb.get(n).data, zb.get(n).descriptor))
+        result["proof"] += f"。○を足した後の全体では、元のファイルと ZIPのエントリ {same}/{len(zb.names())} が完全一致です"
     result["circled"] = [{"key": key_, "id": sd["id"], "sheet": sd["sheet"], "cell": sd["cell"], "text": sd["text"],
                           "label": sd["label"], "context": sd["context"], "around": sd.get("around"), "style": sd.get("style", "ellipse"),
                           "how": (f"図形 {sd.get('on_shape')} と同じ位置・大きさの、字だけの図形を足した" if sd.get("style") == "mark" else
