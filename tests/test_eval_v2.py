@@ -810,3 +810,18 @@ def test_doc_check_finds_value_in_table_and_rejects_absent(tmp_path):
     for val, want in (("TEST-12345", True), ("ABSENT-999", False)):
         r = subprocess.run([BPY, "-I", str(V2 / "baseline_write.py"), "check", doc, doc, "doc", tg, val], capture_output=True, text=True, timeout=400)
         assert json.loads(r.stdout.splitlines()[-1])["landed"] is want
+
+
+@need_base
+def test_check_leaves_no_temp_folders(tmp_path):
+    """v1 の確かめは絵と LibreOffice の設定を一時フォルダに残し続けた（8.9 GB。空きが足りず止まった）。"""
+    code = "import sys; from reportlab.pdfgen import canvas; c = canvas.Canvas(sys.argv[1]); c.drawString(72, 700, 'x'); c.save()"
+    p = tmp_path / "a.pdf"
+    subprocess.run([BPY, "-I", "-c", code, str(p)], check=True, timeout=60)
+    t = tmp_path / "t"
+    t.mkdir()
+    env = {**os.environ, "TMPDIR": str(t)}
+    tg = json.dumps({"page": 1, "rect": [10, 10, 100, 30]})
+    for args in (["check", str(p), str(p), "pdf", tg, "x"], ["crop", str(p), "1", json.dumps([10, 10, 100, 30]), str(tmp_path / "c.png")]):
+        subprocess.run([BPY, "-I", str(V2 / "baseline_write.py"), *args], check=True, capture_output=True, timeout=120, env=env)
+    assert list(t.iterdir()) == []
