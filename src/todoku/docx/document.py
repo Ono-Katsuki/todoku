@@ -1007,7 +1007,7 @@ class DocxDocument:
                 bt = "".join(n.text for n in base.iter("t")) if base is not None else ""
                 rtt = "".join(n.text for n in rt.iter("t")) if rt is not None else ""
                 p.segs.append(Seg(bt, "ruby", None, r, hidden))
-                if rtt:
+                if rtt.strip():  # 空白だけのふりがなは、字がない（窓に「（　）」を作らない。空欄の候補にもしない）
                     p.segs.append(Seg("（", "other", None, r, hidden))
                     p.segs.append(Seg(rtt, "ruby", None, r, hidden))
                     p.segs.append(Seg("）", "other", None, r, hidden))
