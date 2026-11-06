@@ -493,9 +493,7 @@ td .ci { display: inline-block; line-height: 1.3; }
       <button type="button" id="t-forms" data-m="forms_writable" aria-pressed="false">申請の様式に書ける</button>
       <button type="button" id="t-reach" data-m="reach" aria-pressed="false">取得できる</button>
       <button type="button" class="cnt" hidden data-m="read_count" aria-pressed="false">読む：正確に読める数</button>
-      <button type="button" class="cnt" hidden data-m="read_new" aria-pressed="false">読む：新しく届く数</button>
       <button type="button" class="cnt" hidden data-m="write_count" aria-pressed="false">書く：正確に書ける数</button>
-      <button type="button" class="cnt" hidden data-m="write_new" aria-pressed="false">書く：新しく届く数</button>
     </div>
     <div class="mapgrid">
       <div class="mapbox">
@@ -524,11 +522,9 @@ td .ci { display: inline-block; line-height: 1.3; }
     <button type="button" class="more" id="t-all" hidden></button>
     <div class="stages" id="stages">
       <div class="stage"><h4>読む</h4><dl>
-        <div><dt>正確に読める</dt><dd class="num" id="w-read-reach">●</dd></div>
-        <div><dt>新しく届く</dt><dd class="num" id="w-read-new">●</dd></div></dl></div>
+        <div><dt>正確に読める</dt><dd class="num" id="w-read-reach">●</dd></div></dl></div>
       <div class="stage"><h4>書く</h4><dl>
-        <div><dt>正確に書ける</dt><dd class="num" id="w-write-reach">●</dd></div>
-        <div><dt>新しく届く</dt><dd class="num" id="w-write-new">●</dd></div></dl></div>
+        <div><dt>正確に書ける</dt><dd class="num" id="w-write-reach">●</dd></div></dl></div>
     </div>
       <p class="metric-note" id="w-note">● は確定の集計が入ると、数に変わります。</p>
     <div class="band" id="band">
@@ -691,7 +687,7 @@ td .ci { display: inline-block; line-height: 1.3; }
 <tr><td>比べる道具だけ通る</td><td class="num">297,298<br><span class="ci">57,270〜824,918</span></td><td class="num">95,528<br><span class="ci">32,447〜214,266</span></td></tr>
       </tbody>
     </table></div>
-    <p class="cnote">区間は 95%。比べる道具は、書類ごとに形式に合う複数の道具のどれか 1 つでも通れば「通る」とします（比べる道具に有利）。書くは英数字の値で数えます。とどくの価値は、通る数より、変わったのが書いた所だけと証明できることにあります。「比べる道具だけ通る」のうち読むの 57% は、基準をわずかに下回った 1 件の書類の重みです。比べた結果の原因はまだ調べています。Excel は使っていません。読むの 1 件（ルーマニアの大きな Excel）は採点が終わらず、とどくも比べる道具も通らないと数えています。この件の遅さは固定後に調べています。</p>
+    <p class="cnote">区間は 95%。比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。「比べる道具だけ通る」の読むの 57% は、基準をわずかに下回った 1 件の書類の重みです。読むの 1 件（大きな Excel）は採点が終わらず、とどくも比べる道具も通らないと数えました。とどくはこの数に加えて、変わったのが書いた所だけと証明します。</p>
 
     <h4 class="minor">実験の条件</h4>
     <ul class="conds">
@@ -1021,8 +1017,8 @@ td .ci { display: inline-block; line-height: 1.3; }
       document.getElementById("w-countries").textContent = T.countries;
       document.getElementById("b-countries").textContent = T.countries;
       const put = (id, x) => { if (x && x.n != null) document.getElementById(id).innerHTML = x.n.toLocaleString() + (x.ci ? `<small>95% 区間 ${x.ci[0].toLocaleString()}〜${x.ci[1].toLocaleString()}</small>` : ""); };
-      put("w-read-reach", F.read?.reach); put("w-read-new", F.read?.new); put("w-write-reach", F.write?.reach); put("w-write-new", F.write?.new);
-      document.getElementById("w-note").textContent = `${F.version || ""} の集計。単位は書類の件数の推定で、Common Crawl の収集の中の値です（政府の書類の全部ではありません）。無作為に選んだ 1,079 件を同じ定義で実際に読み書きして推定しました。書く欄のない書類は書けないと数えます。「新しく届く」は、比べた道具のどれでも通らず、とどくで通る分です。`;
+      put("w-read-reach", F.read?.reach); put("w-write-reach", F.write?.reach);
+      document.getElementById("w-note").textContent = `${F.version || ""} の集計。無作為に選んだ 1,079 件を実際に読み書きして確かめた推定です（Common Crawl の収集の中の値。書く欄のない書類は書けないと数えます）。`;
       if (Object.values(d.countries).some(c => c.counts)) document.querySelectorAll(".tabs .cnt").forEach(b => { b.hidden = false; });
     } else {
       document.getElementById("map-status").textContent = "いま地図に出している割合は、確定の集計の前のものです。● は確定の集計が入ると、数に変わります。";
