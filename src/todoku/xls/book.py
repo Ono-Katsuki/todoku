@@ -249,6 +249,7 @@ class XlsWorkbook:
         self.names: list[DefinedName] = []
         self.shared_strings: list[str] = strings if strings is not None else []
         self.phonetic: dict[int, str] = strings.phonetic if strings is not None else {}
+        self.phonetic_units: dict[int, list[str]] = getattr(strings, "phonetic_units", {}) if strings is not None else {}
         self.cell_sst: dict[tuple[str, int, int], int] = {}
         self.styles: list[Style] = []
         self.dxfs: list[Dxf] = []
@@ -594,9 +595,11 @@ class XlsWorkbook:
                 rb = r.read(4 * runs)
                 self.sst_runs[i] = [struct.unpack_from("<HH", rb, 4 * k) for k in range(runs)]
             if ext:
-                ph = _phonetic(s, r.read(ext))
+                ext_data = r.read(ext)
+                ph = _phonetic(s, ext_data)
                 if ph is not None:
                     self.phonetic[i] = ph
+                    self.phonetic_units[i] = _phonetic_units(ext_data)
             self.shared_strings.append(s)
 
     # ------------------------------------------------------------------ シート
@@ -1046,6 +1049,17 @@ def _control_state(c: Control, info, fmla_range: str | None) -> None:
             c.sel_type = SEL_TYPES.get(info.sel_type, "single")
         if info.bsels is not None:
             c.multi_sel = [k + 1 for k, x in enumerate(info.bsels) if x]
+
+
+def _phonetic_units(ext: bytes) -> list[str]:
+    """ExtRst に保存された読みの単位（PhRuns ごとの字。MS-XLS 2.5.216）。"""
+    p = 4 + 4
+    crun, _cch = struct.unpack_from("<HH", ext, p)
+    cch_st = struct.unpack_from("<H", ext, p + 4)[0]
+    st = ext[p + 6:p + 6 + 2 * cch_st].decode("utf-16-le", errors="replace")
+    q = p + 6 + 2 * cch_st
+    firsts = [struct.unpack_from("<H", ext, q + 6 * k)[0] for k in range(crun)]
+    return [u for k, f in enumerate(firsts) if (u := st[f:firsts[k + 1] if k + 1 < crun else len(st)].strip())]
 
 
 def _phonetic(base: str, ext: bytes) -> str | None:

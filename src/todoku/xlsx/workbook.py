@@ -446,6 +446,7 @@ class Workbook:
         self.shared_strings: list[str] = []
         self.sst_path: str | None = None  # 共有文字列の部品（字ごとの書式を読み直すのに使う：xlsx/richtext）
         self.phonetic: dict[int, str] = {}  # 共有文字列の番号 → ふりがなを当てた読み（PHONETIC 関数の値）
+        self.phonetic_units: dict[int, list[str]] = {}  # 共有文字列の番号 → ファイルに保存された読みの単位（<rPh> ごとの字）
         self._last_sst: int | None = None
         self._sst_runs: dict[int, list] = {}  # 共有文字列の番号 → 字ごとの書式（取り消し線・字の色のあるものだけ）
         self.cell_sst: dict[tuple[str, int, int], int] = {}  # 共有文字列を使うセル → 番号
@@ -583,6 +584,7 @@ class Workbook:
         if src is not None:
             self.shared_strings = src
             self.phonetic = src.phonetic
+            self.phonetic_units = getattr(src, "phonetic_units", {})
             return
         root = self.xml(path)
         for i, si in enumerate(root.findall(M + "si")):
@@ -590,6 +592,7 @@ class Workbook:
             ph = _phonetic_text(si)
             if ph is not None:
                 self.phonetic[i] = ph
+                self.phonetic_units[i] = _phonetic_units(si)
             runs = _font_runs(si)
             if runs is not None:
                 self._sst_runs[i] = runs
@@ -1143,6 +1146,16 @@ def _phonetic_text(el: ET.Element) -> str | None:
         pos = max(pos, eb)
     out.append(base[pos:])
     return "".join(out)
+
+
+def _phonetic_units(el: ET.Element) -> list[str]:
+    """ファイルに保存された読みの単位（<rPh> ごとの字。元の字の順に）。"""
+    out = []
+    for rp in sorted(el.findall(M + "rPh"), key=lambda x: int(x.get("sb", "0"))):
+        t = rp.find(M + "t")
+        if t is not None and (t.text or "").strip():
+            out.append(t.text.strip())
+    return out
 
 
 def _rich_text(el: ET.Element) -> str:

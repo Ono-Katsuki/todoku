@@ -115,6 +115,8 @@ def furigana(wb, sh) -> list[dict]:
         return []
     shown = getattr(sh, "phonetic_shown", ()) or ()
     got: dict = {}
+    stored = getattr(wb, "phonetic_units", None)
+    units_of = (lambda i: stored.get(i)) if stored is not None else (lambda i: None)
     for (r, c), cell in sorted(sh.cells.items()):
         i = cs.get((sh.name, r, c))
         if i is None or i not in phon or not isinstance(cell.value, str):
@@ -125,7 +127,8 @@ def furigana(wb, sh) -> list[dict]:
         k = (cell.value, merged)
         d = got.get(k)
         if d is None:
-            d = got[k] = {"text": cell.value, "reading": reading_parts(cell.value, merged), "cells": [], "shown": False}
+            # 読みは、ファイルに保存された単位のまま（<rPh>・ExtRst。単位のないものだけ、元の字との違いから）
+            d = got[k] = {"text": cell.value, "reading": units_of(i) or reading_parts(cell.value, merged), "cells": [], "shown": False}
         d["cells"].append(addr(r, c))
         d["shown"] = d["shown"] or (r, c) in shown
     return [d for d in got.values() if d["reading"]]

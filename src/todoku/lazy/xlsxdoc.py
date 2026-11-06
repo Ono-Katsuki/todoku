@@ -176,6 +176,7 @@ class LazyStrings:
         self.wrap_open = (b"<" + (m[1] or b"") + b"sst" + m[2] + b">") if m else b"<sst>"
         self.wrap_close = b"</" + ((m[1] or b"") if m else b"") + b"sst>"
         self.phonetic = _Phonetic(self)
+        self.phonetic_units = _PhoneticUnits(self)
 
     def __len__(self) -> int:
         return len(self.offs)
@@ -222,6 +223,17 @@ class _Phonetic:
         root = parse_xml(self.s.wrap_open + self.s.si_xml(i) + self.s.wrap_close)
         got = _phonetic_text(root[0])
         return got if got is not None else default
+
+
+class _PhoneticUnits(_Phonetic):
+    """共有文字列の番号 → ファイルに保存された読みの単位（読みが要るときだけ、その <si> を読む）。"""
+
+    def get(self, i, default=None):
+        if i not in self:
+            return default
+        from ..xlsx.workbook import _phonetic_units, parse_xml
+
+        return _phonetic_units(parse_xml(self.s.wrap_open + self.s.si_xml(i) + self.s.wrap_close)[0])
 
 
 def _end_index(xml: bytes, at: int) -> int:
