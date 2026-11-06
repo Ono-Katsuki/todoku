@@ -2,6 +2,8 @@
 
 **Claude Code は、もう申請書を書ける。とどくは、書いた所のほかは 1 バイトも変えていないと証明する。**
 
+既存の道具では、申請書を任せられませんでした。数か月苦労しました。だから、とどくを作りました。とどくは、書いた値を読み戻し、変えたのが記入した所とその計算結果だけだと、書類ごとに証明します。
+
 行政書類を AI エージェントが正確に読み書きするための MCP サーバー。`dependencies = []`。Office も LibreOffice も不要。
 
 **[ポータル：世界の調査と全結果](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)**
@@ -90,7 +92,9 @@ ROUNDDOWN(ROUND(L × P, 0), 0) × AA
 - 古い Word .doc の字（都・多摩）：**1.0** <!-- freeze-2 -->
 
 <details>
-<summary>比べる道具との比較（開発の物差し）</summary>
+<summary>比べる道具に有利な条件での比較</summary>
+
+比較の条件：「比べる道具」の列は、人が形式ごとに最良の道具を選び、書く欄をとどくが教え、正解と照らして初めて分かる数です。エージェントが一人で使ったときの数ではありません。
 
 比較対象は MarkItDown・openpyxl・python-docx・pdfplumber など、形式ごとの最良値。 <!-- freeze-2 -->
 

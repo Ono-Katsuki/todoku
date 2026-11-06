@@ -2,6 +2,8 @@
 
 **Claude Code can already fill in a government form. todoku proves nothing but what it wrote has changed.**
 
+Existing tools could not be trusted with government forms. I struggled with them for months, so I built todoku. todoku reads back what it wrote and proves, document by document, that only the filled places and their calculated results changed.
+
 An MCP server that lets AI agents read and write administrative documents accurately. `dependencies = []`. No Office. No LibreOffice.
 
 **[Portal: world survey and full results](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)** 
@@ -90,7 +92,9 @@ We surveyed 8,500 documents randomly sampled from government sites in 185 countr
 - Character recall on legacy Word .doc (Tokyo forms): **1.0** <!-- freeze-2 -->
 
 <details>
-<summary>Comparison with baselines (a development yardstick)</summary>
+<summary>Comparison under conditions that favour the baselines</summary>
+
+The baseline column is what a person gets by choosing the best tool for each format, with todoku pointing out the fields, and checking against the known answer. It is not what an agent gets working alone.
 
 Baselines include MarkItDown, openpyxl, python-docx and pdfplumber, taking the best per format. <!-- freeze-2 -->
 

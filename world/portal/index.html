@@ -434,6 +434,7 @@ td .ci { display: inline-block; line-height: 1.3; }
 
   <section aria-labelledby="h-trust">
     <h2 class="eyebrow" id="h-trust">信頼できる理由</h2>
+    <p class="sub">既存の道具では、申請書を任せられませんでした。数か月苦労しました。だから、とどくを作りました。とどくは、書いた値を読み戻し、変えたのが記入した所とその計算結果だけだと、書類ごとに証明します。</p>
     <p class="state">書いた場所以外は変えない。</p>
     <p class="state">読み書きの正確さを、実際の書類で検証する。</p>
     <p class="why">行政手続きは 1 円、1 バイトずれると困る世界だから</p>
@@ -717,6 +718,7 @@ td .ci { display: inline-block; line-height: 1.3; }
     <p class="cnote">記入済みの数の差は統計的に区別できません（両方が記入済み 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9。McNemar の正確検定 p = 1.0）。とどくの価値は、数を増やすことより、書いたものを証明できることにあります。確認役には、どちらの結果かを伏せました。</p>
 
     <h4 class="minor">世界の数（同じ定義で実際に試した 1,079 件から推定）</h4>
+    <p class="sub">「比べる道具」の列は、人が形式ごとに最良の道具を選び、書く欄をとどくが教え、正解と照らして初めて分かる数です。エージェントが一人で使ったときの数ではありません。</p>
     <div class="tablebox"><table>
       <thead><tr><th></th><th class="num">読む</th><th class="num">書く</th></tr></thead>
       <tbody>
@@ -987,6 +989,8 @@ window.TODOKU_I18N = (() => {
     [`記入済み（95% 区間）`, `Completed (95% interval)`], [`書類の部品が消えた様式`, `Forms that lost document parts`], [`日本語が読める PDF（Poppler／PDFKit の描画）`, `PDFs with readable Japanese (Poppler / PDFKit rendering)`],
     [`答えられるのに空いていた所`, `Left empty though answerable`], [`1 通の平均の時間`, `Average time per 1 form`], [`162 秒`, `162 s`], [`124 秒`, `124 s`],
     [`記入済みの数の差は統計的に区別できません（両方が記入済み 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9。McNemar の正確検定 p = 1.0）。とどくの価値は、数を増やすことより、書いたものを証明できることにあります。確認役には、どちらの結果かを伏せました。`, `The difference in completed counts is not statistically distinguishable (both completed 8, todoku only 2, plain Claude Code only 1, neither 9; McNemar exact test p = 1.0). todoku's value lies in proving what was written, more than in raising the count. The reviewer was blinded to which result was which.`],
+    [`既存の道具では、申請書を任せられませんでした。数か月苦労しました。だから、とどくを作りました。とどくは、書いた値を読み戻し、変えたのが記入した所とその計算結果だけだと、書類ごとに証明します。`, `Existing tools could not be trusted with government forms. I struggled with them for months, so I built todoku. todoku reads back what it wrote and proves, document by document, that only the filled places and their calculated results changed.`],
+    [`「比べる道具」の列は、人が形式ごとに最良の道具を選び、書く欄をとどくが教え、正解と照らして初めて分かる数です。エージェントが一人で使ったときの数ではありません。`, `The comparison-tool column is what a person gets by choosing the best tool for each format, with todoku pointing out the fields, and checking against the known answer. It is not what an agent gets working alone.`],
     [`世界の数（同じ定義で実際に試した 1,079 件から推定）`, `World counts (estimated from 1,079 documents actually tried under the same definition)`],
     [`とどくで通る`, `Pass with todoku`], [`比べる道具のどれかで通る`, `Pass with any comparison tool`], [`とどくで通り、比べる道具では通らない`, `Pass with todoku, not with any comparison tool`], [`比べる道具だけ通る`, `Pass with comparison tools only`],
     [`区間は 95%。国ごとの標本は少なく、国の数は目安です。比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。「比べる道具だけ通る」の読むの 57% は、基準をわずかに下回った 1 件の書類の重みです。読むの 1 件（大きな Excel）は採点が終わらず、とどくも比べる道具も通らないと数えました。とどくはこの数に加えて、変わったのが書いた所だけと証明します。`, `Intervals are 95%. Per-country samples are small, so country counts are rough. A document counts as “pass” for comparison tools if any 1 tool passes it (a count favorable to the comparison tools). 57% of “Pass with comparison tools only” under Read is the weight of 1 document that fell just below the threshold. 1 Read document (a large Excel file) did not finish scoring and was counted as passing neither todoku nor the comparison tools. On top of these counts, todoku proves that only the written places changed.`],
