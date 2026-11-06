@@ -548,6 +548,7 @@ def make_lines(chars: list[Ch], overlaps: list | None = None) -> list[Line]:
         rows = [sub for row in rows for sub in _split_stacked(row, vertical)]
         for row in rows:
             row.sort(key=lambda c: c.y0 if vertical else c.x0)
+            row[:] = _marks_after_bases(row, vertical)
             parts = _split_overprinted(row)
             if len(parts) > 1:
                 made = [_line(sorted(p, key=lambda c: c.y0 if vertical else c.x0), vertical) for p in parts]
@@ -567,6 +568,35 @@ def make_lines(chars: list[Ch], overlaps: list | None = None) -> list[Line]:
     top = min(ln.y0 for ln in ver_l)
     k = next((i for i, ln in enumerate(hor_l) if ln.y0 > top), len(hor_l))
     return hor_l[:k] + ver_l + hor_l[k:]
+
+
+def _marks_after_bases(row: list[Ch], vertical: bool) -> list[Ch]:
+    """結合する記号（Mn・Me）は、基の字の後ろの字（Unicode の決まり）。記号の箱の左端は次の字の左端より少し右に来ることがあり、位置で並べると
+    次の字の後ろに回る（タイ語の「ชื่อ」が「ชอ่ื」に）。描いた順で基の字のすぐ後の記号は、位置によらず基の字の後ろに置く。
+    左から右へ書く字（Unicode の方向 L）だけ：右から左の字は描く順が字の順とは限らない（_logical_order が決める）。"""
+    if vertical or not any(len(c.text) == 1 and unicodedata.category(c.text) in ("Mn", "Me") for c in row):
+        return row
+    by_seq = {c.seq: c for c in row if c.seq >= 0}
+    root: dict[int, Ch] = {}  # 記号 → 基の字
+    after: dict[int, list[Ch]] = {}
+    for c in sorted(row, key=lambda c: c.seq):
+        if not (len(c.text) == 1 and unicodedata.category(c.text) in ("Mn", "Me")):
+            continue
+        p = by_seq.get(c.seq - 1)
+        if p is None:
+            continue
+        b = root.get(id(p), p)
+        if unicodedata.bidirectional(b.text[:1]) == "L" and b.x0 - 0.5 * b.size <= c.x0 <= b.x1 + 0.5 * b.size:
+            root[id(c)] = b
+            after.setdefault(id(b), []).append(c)
+    if not root:
+        return row
+    out: list[Ch] = []
+    for c in row:
+        if id(c) not in root:
+            out.append(c)
+            out += after.get(id(c), [])
+    return out
 
 
 def _split_stacked(row: list[Ch], vertical: bool) -> list[list[Ch]]:
