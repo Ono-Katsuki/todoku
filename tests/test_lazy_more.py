@@ -722,3 +722,18 @@ def test_large_pptx_read_in_parts_shows_comments_and_links(tmp_path, monkeypatch
     assert "コメントの字" in seen
     lazy.clear()
     api._WINDOWS.clear()
+
+
+def test_large_pdf_audit_handles_an_image_only_page_after_the_first():
+    """大きな PDF の検査は 1 ページずつ見る。1 ページ目より後の画像だけのページで IndexError になり、検査が止まっていた。"""
+    from pdfmini import build
+
+    from todoku.lazy.pdfdoc import _OnePage
+    from todoku.pdf.audit import _check_unmapped_and_images
+    from todoku.pdf.doc import PdfDocument
+
+    doc = PdfDocument(build("", "<< >>", []))
+    win = {"pages": [{"number": 122, "image_only": True, "unmapped": 0, "chars": 0}]}
+    checks = _check_unmapped_and_images(_OnePage(doc, doc.pages()[0]), win)
+    c = next(x for x in checks if x.name == "画像だけのページ")
+    assert c.items == ["ページ 122"]

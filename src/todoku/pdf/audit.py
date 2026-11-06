@@ -260,7 +260,9 @@ def _check_unmapped_and_images(doc: PdfDocument, win: dict) -> list[Check]:
     from .pageimage import unreadable_images
 
     pages = doc.pages()
-    bad = {n: unreadable_images(doc, pages[n - 1]) for n in img}
+    # 大きな PDF の検査は 1 ページずつ（doc はそのページだけ、番号は文書の中の番号）：窓のページと、同じ順で対応させる
+    by_number = dict(zip((p["number"] for p in win["pages"]), pages))
+    bad = {n: unreadable_images(doc, by_number[n]) for n in img}
     bad = {n: v for n, v in bad.items() if v}
     out.append(Check("画像だけのページ", not bad,
                      "すべてのページに文字の情報があります" if not img else
