@@ -533,7 +533,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             "fields": out_fields, "reading": reading, "circled": circled, "maybe_circled": maybe_circled, "chars": chars, "unmapped": pc.unmapped, "images": images,
             # 字に直せない字の、行の中での役割（字の並びの形で決める）：行の頭の印（箇条の印）と、それ以外（本文の字）
             "unmapped_marks": marks, "unmapped_text": inword,
-            "image_only": chars == 0 and images > 0, "pictures": pictures, "problems": pc.problems, "annotations": annots,
+            "image_only": chars == 0 and images > 0, **({"blank": True} if chars == 0 and images == 0 else {}), "pictures": pictures, "problems": pc.problems, "annotations": annots,
             "_plain": plain, "_dropped": lay.dropped, "_added": lay.added, "read_flags": lay.flags,
             # 窓の作り方で1つにした字：同じ位置に重ねて描いた同じ字（太字に見せる重ね書き）・縦に1字ずつ積んだ字の列
             "merged_glyphs": sum(1 for k, _t in lay.dropped if k == "dup"),
@@ -1515,6 +1515,8 @@ def _md_page(pg: dict) -> list[str]:
         out += ["- **このページは画像だけです**（文字の情報がありません）。view_page でページの画像を見て読み、"
                 "書く所は画像の目盛り（mm）で枠を決めて、fill_document に {\"@1\": {\"page\": ページ, \"box\": [左, 上, 右, 下], "
                 "\"value\": 書く字}} で書きます", ""]
+    if pg.get("blank"):
+        out += ["- このページには字も画像もありません（白紙か、線だけのページ）", ""]
     if pg.get("unmapped"):
         out += [f"- 文字に直せない字が {pg['unmapped']} 字あります（�で示しています）", ""]
         marks = pg.get("unmapped_marks") or []

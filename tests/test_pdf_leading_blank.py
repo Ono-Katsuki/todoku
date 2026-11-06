@@ -28,3 +28,11 @@ def test_blank_before_the_header_is_still_a_pdf(tmp_path):
 
 def test_text_that_mentions_the_header_is_not_a_pdf():
     assert kind_of(b"memo: %PDF-1.4 is the header\n", "a.txt") != "pdf"
+
+
+def test_blank_page_is_told(tmp_path):
+    blob = pdf([b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] >>"], 1)
+    p = tmp_path / "a.pdf"
+    p.write_bytes(blob)
+    assert "字も画像もありません" in "\n".join(s for _n, s in api.window(str(p))[2])
