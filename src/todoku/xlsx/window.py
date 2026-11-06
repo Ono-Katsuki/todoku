@@ -1166,7 +1166,7 @@ class Box:
             ctl = self.control
             if ctl.link_cell:
                 return addr(*ctl.link_cell[1:])  # つながったセル（別のシートなら field の id にシート名が入る）
-            return ctl.name
+            return ctl.ref_name
         a = addr(self.r, self.c1)
         return a if (self.r2, self.c2) == (self.r, self.c1) else f"{a}:{addr(self.r2, self.c2)}"
 
@@ -1399,6 +1399,9 @@ class Layout:
         self.inputs = input_cells(wb, sh)
         self.wide_inputs = sh.__dict__.get("_wide_inputs") or []  # 範囲の所にする入力規則
         self.readers = formula_readers(wb, sh)  # セル → それを読む数式（事実。欄の宣言ではない）
+        from .controls import ensure_places
+
+        ensure_places(wb, sh)  # 同じ名前のオプションボタンの組の id
         self.links = {}
         for s in wb.sheets:
             for ctl in s.controls:
@@ -2669,7 +2672,7 @@ def _control_field(wb: Workbook, sh: Sheet, lay: Layout, b: Box, groups: dict, d
         sel = g.selected
         label = (g.box.text.strip() if g.box is not None and g.box.text.strip() else "") or d.get("label") or "選択肢"
         f = {"id": g.id, "cell": addr(*g.link[1:]) if g.link else None, "kind": "radio", "options": g.options,
-             "value": g.options[sel - 1] if sel else None, "controls": [x.name for x in g.radios], **d, "label": label,
+             "value": g.options[sel - 1] if sel else None, "controls": [x.ref_name for x in g.radios], **d, "label": label,
              "write_as": "選択肢の文字か、何番目か（1から）", "provenance": LAYOUT}
         if not g.consistent:
             f["undecided"] = g.why  # 組の順を規則では決められない：書き込まない

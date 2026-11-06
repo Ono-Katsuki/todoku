@@ -478,10 +478,13 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
         if len(sa.validations) != len(sb.validations):
             unexpected.append(f"{sa.name}: 入力規則が変わりました")
     control_changes = []
+    from .controls import ensure_places
+
     for sa in a.sheets:
         if not b.has_sheet(sa.name):
             continue
         sb = b.sheet(sa.name)
+        ensure_places(a, sa)  # 同じ名前の組：指示した組と別の組を、id で見分ける
         after = {c.shape_id: c for c in sb.controls}
         if len(sa.controls) != len(sb.controls):
             unexpected.append(f"{sa.name}: フォームコントロールの数が変わりました")
@@ -498,10 +501,10 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
             if state(ca) == state(cb):
                 continue
             if ca.kind != "CheckBox":
-                control_changes.append({"sheet": sa.name, "control": ca.name, "kind": "control", "link": ca.link,
+                control_changes.append({"sheet": sa.name, "control": ca.ref_name, "kind": "control", "link": ca.link,
                                         "before": _state_text(ca), "after": _state_text(cb)})
-                if allowed_controls is not None and (sa.name, ca.name) not in allowed_controls:
-                    unexpected.append(f"{sa.name}: 指示していない部品「{ca.name}」が変わりました")
+                if allowed_controls is not None and (sa.name, ca.ref_name) not in allowed_controls:
+                    unexpected.append(f"{sa.name}: 指示していない部品「{ca.ref_name}」が変わりました")
                 continue
             control_changes.append({"sheet": sa.name, "control": ca.name, "kind": "control", "link": ca.link,
                                     "before": ca.checked or "Unchecked", "after": cb.checked or "Unchecked"})

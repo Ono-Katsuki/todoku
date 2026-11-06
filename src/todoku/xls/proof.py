@@ -291,6 +291,9 @@ def _prove_one(original: bytes, new: bytes, allowed_inputs, allowed_controls, st
         oa, ob = others(ra), others(rb)
         if [x for x in oa if x[0] != 0x0208] != [x for x in ob if x[0] != 0x0208]:
             unexpected.append(f"{name}: セル以外のレコードが変わりました")
+        from ..xlsx.controls import ensure_places
+
+        ensure_places(a, sh_a)  # 同じ名前の組：指示した組と別の組を、id で見分ける
         ctl_a = {c.shape_id: c for c in sh_a.controls}
         for cb_ in sh_b.controls:
             ca_ = ctl_a.get(cb_.shape_id)
@@ -334,10 +337,10 @@ def _control_problems(b: XlsWorkbook, sheet: str, ca, cb, allowed_controls) -> l
     {(シート, 部品): 変える状態} のとき）になっているか。チェックボックスなら、つながったセルの値と合っているか。"""
     out = []
     what = "チェックボックス" if ca.kind == "CheckBox" else "部品"
-    if allowed_controls is not None and (sheet, ca.name) not in allowed_controls:
+    if allowed_controls is not None and (sheet, ca.ref_name) not in allowed_controls:
         out.append(f"{sheet}: 指示していない{what}「{ca.name}」が変わりました")
         return out
-    want = allowed_controls.get((sheet, ca.name)) if isinstance(allowed_controls, dict) else None
+    want = allowed_controls.get((sheet, ca.ref_name)) if isinstance(allowed_controls, dict) else None
     if want is not None and not isinstance(want, dict):
         want = {"checked": want}  # チェックボックス：書いた状態（"Checked" / None）
     for key, v in (want or {}).items():

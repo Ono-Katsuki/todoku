@@ -134,10 +134,19 @@ def find_control(wb: Workbook, target: str) -> Control | None:
     sheet = sheet.strip("'")
     if not wb.has_sheet(sheet):
         return None
-    for ctl in wb.sheet(sheet).controls:
-        if ctl.name == name.strip():
-            return ctl
-    return None
+    from .controls import ensure_places
+
+    sh = wb.sheet(sheet)
+    ensure_places(wb, sh)
+    wanted = name.strip()
+    same = [ctl for ctl in sh.controls if ctl.ref_name == wanted]
+    if same:
+        return same[0]
+    same = [ctl for ctl in sh.controls if ctl.name == wanted]
+    if same and same[0].place:
+        ids = "、".join(f"{sh.name}!{c.ref_name}" for c in same)
+        raise EditError(f"{target}: 同じ名前のオプションボタンが {len(same)} つあります（{ids}）。どちらの組かを、位置のついた id で指定してください")
+    return same[0] if same else None
 
 
 def checkbox_links(wb: Workbook) -> dict[tuple[str, int, int], list[tuple[str, Control]]]:
@@ -1706,7 +1715,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
                          (ctl.vml_part, lambda x: set_vml_checked(x, ctl.shape_id, state))):
             if part:
                 parts[part] = fn(parts.get(part, wb.zip.read(part)))
-        patches.append(Patch(ctl.prop_part or ctl.vml_part or "", sheet, ctl.name, "control", ctl.checked, state))
+        patches.append(Patch(ctl.prop_part or ctl.vml_part or "", sheet, ctl.ref_name, "control", ctl.checked, state))
     for sheet, ctl, change in writes:
         if all(getattr(ctl, k_) == (tuple(v_) if k_ == "multi_sel" and v_ is not None else v_) or
                (k_ == "multi_sel" and tuple(ctl.multi_sel or ()) == tuple(v_ or ())) for k_, v_ in change.items()):
@@ -1717,7 +1726,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
             parts[ctl.prop_part] = _ctl.set_ctrlprop(parts.get(ctl.prop_part, wb.zip.read(ctl.prop_part)), change)
         if ctl.vml_part:
             parts[ctl.vml_part] = _ctl.set_vml(parts.get(ctl.vml_part, wb.zip.read(ctl.vml_part)), ctl.shape_id, change)
-        patches.append(Patch(ctl.prop_part or ctl.vml_part or "", sheet, ctl.name, "control",
+        patches.append(Patch(ctl.prop_part or ctl.vml_part or "", sheet, ctl.ref_name, "control",
                              {k_: getattr(ctl, k_) for k_ in change}, change))
     if ax_writes:
         # ActiveX の部品：保存の形（activeX*.bin・性質の袋）の性質と、控えの絵（EMF）を書き換える
@@ -1816,7 +1825,7 @@ def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set 
             ed.set_control(sheet, ctl.shape_id, change)
         except XlsWriteError as e:
             raise EditError(f"{sheet}!{ctl.name}: {e}") from None
-        patches.append(Patch(wb.stream_name, sheet, ctl.name, "control", {k_: getattr(ctl, k_) for k_ in change}, change))
+        patches.append(Patch(wb.stream_name, sheet, ctl.ref_name, "control", {k_: getattr(ctl, k_) for k_ in change}, change))
     ax_streams: dict = {}
     if ax_writes:
         # ActiveX の部品：Ctls ストリーム（か MBD の入れ物）の部品の性質と、OBJ の中の部品の位置・大きさ

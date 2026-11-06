@@ -51,7 +51,7 @@ class RadioGroup:
     def id(self) -> str:
         if self.link:
             return f"{self.link[0]}!{addr(self.link[1], self.link[2])}"
-        return f"{self.sheet}!{self.radios[0].name}"
+        return f"{self.sheet}!{self.radios[0].ref_name}"
 
 
 def _rect(c: Control):
@@ -156,7 +156,36 @@ def radio_groups(wb: Workbook, sh: Sheet) -> list[RadioGroup]:
                 g.consistent, g.why = False, (f"つながったセル {addr(*g.link[1:])} の値（{v!r}）と、選ばれたボタン（{sel} 番目）が、"
                                               "ファイルの中の部品の順では合いません")
         out.append(g)
+    _set_places(out)
     return out
+
+
+def _set_places(groups: list[RadioGroup]) -> None:
+    """同じシートで、ボタンの名前が別の組とぶつかる組だけ、ボタンの id に組の位置（先頭のボタンの左上のセル）を付ける。ぶつからない組は変えない。
+    ファイルは変えない（Excel の組の動きはグループボックスで決まる。名前は id のためだけに区別する）。"""
+    owners: dict[str, set[int]] = {}
+    for i, g in enumerate(groups):
+        for r in g.radios:
+            owners.setdefault(r.name, set()).add(i)
+    clashing = {i for who in owners.values() if len(who) > 1 for i in who}
+    taken: dict[str, int] = {}
+    for i, g in enumerate(groups):
+        if i not in clashing:
+            continue
+        head = g.radios[0]
+        place = addr(*head.anchor) if head.anchor else f"s{head.shape_id}"
+        taken[place] = taken.get(place, 0) + 1
+        if taken[place] > 1:
+            place = f"{place}.{head.shape_id}"  # 先頭のボタンが同じセルにある組：図形の番号で分ける
+        for r in g.radios:
+            r.place = place
+
+
+def ensure_places(wb: Workbook, sh: Sheet) -> None:
+    """同じ名前のオプションボタンがあるシートで、id の位置を入れる（組を求めるまで分からない）。"""
+    names = [c.name for c in sh.controls if c.kind == "Radio"]
+    if len(names) != len(set(names)):
+        radio_groups(wb, sh)
 
 
 def items_of(wb: Workbook, sh: Sheet, ctl: Control, calc=None) -> list[str]:

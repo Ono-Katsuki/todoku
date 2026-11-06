@@ -216,6 +216,12 @@ class Control:
     @property
     def is_checked(self) -> bool:
         return self.checked == "Checked"
+    place: str = field(default="", compare=False)  # 同じシートに同じ名前のオプションボタンの組があるとき、組の位置（xlsx/controls.py が入れる）
+
+    @property
+    def ref_name(self) -> str:
+        """id に使う名前。名前がぶつかる組のボタンだけ「名前@位置」。"""
+        return f"{self.name}@{self.place}" if self.place else self.name
 
 
 @dataclass
