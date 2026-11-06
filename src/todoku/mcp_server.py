@@ -790,7 +790,9 @@ def call_tool(name: str, args: dict) -> dict:
         au = api.audit(args["path"], args.get("password"), args.get("encoding"), restart=bool(args.get("restart")), job=bool(args.get("job")))
         lines = [("[OK] " if c["ok"] else "[要確認] ") + f"{c['name']}: {c['detail']}" for c in au["checks"]]
         job = au.get("job")
-        if job and not job["finished"]:
+        if job and job.get("failed"):
+            lines.insert(0, f"検査は最後まで進みませんでした：{job.get('stopped')}。{au.get('note', '')}")
+        elif job and not job["finished"]:
             pr = job.get("progress") or {}
             at = f"{pr.get('text', '始めたところ')}" + (f"（{pr['done']:,}／{pr['total']:,}）" if pr.get("total") else "")
             lines.insert(0, (f"検査は止まりました：{job['stopped']}" if job.get("stopped") else f"検査は別のプロセスで動いています：{at}。") +

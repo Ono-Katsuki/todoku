@@ -2048,7 +2048,8 @@ def _job_view(rec: dict, path: str, password: str | None, encoding: str | None) 
     d: dict = {"job": {"key": rec.get("key"), "running": not finished and not rec.get("stopped"), "finished": finished,
                        "progress": rec.get("progress"), "resumed": rec.get("resumed", False), "steps": rec.get("steps", 0),
                        **({"peak_rss_mb": rec["peak_rss_mb"], "seconds": round(rec["finished"] - rec.get("started", rec["finished"]), 1)} if finished and rec.get("peak_rss_mb") else {}),
-                       **({"stopped": rec["stopped"]} if rec.get("stopped") else {})}}
+                       **({"stopped": rec["stopped"]} if rec.get("stopped") else {}),
+                       **({"failed": True} if rec.get("failed") else {})}}
     full = state.get("full")
     if finished and full:
         d.update(full)
@@ -2056,7 +2057,10 @@ def _job_view(rec: dict, path: str, password: str | None, encoding: str | None) 
         return d
     d["checks"] = list(state.get("checks") or [])
     d["ok"] = all(c.get("ok") for c in d["checks"]) if finished else None
-    if not finished:
+    if rec.get("failed"):
+        d["ok"] = False  # 確かめ終わっていない：「通った」にしない
+        d["note"] = "検査は最後まで進みませんでした。同じ呼び出しでは立ち上げ直しません。原因を直してから restart: true で始めからやり直せます"
+    elif not finished:
         d["note"] = ("検査は別のプロセスで続いています（書類が大きいので、1 回の呼び出しの時間には縛られません）。"
                      "もう一度 audit_document を呼ぶと、進み具合と結果が分かります。止まっても、控えの続きから進みます")
     if lazy_open(path, password, encoding, built_ok=False) is not None:
@@ -2415,13 +2419,18 @@ def _calculate_cells(path: str, values: dict, cells: list, password: str | None)
         job = None
         if any(c.get("status") == "unfinished" for c in got):
             rec = jobs.start_calc(path, password, values, cells, store.data)
-            job = {"key": rec.get("key"), "running": True, "finished": False}
+            job = {"key": rec.get("key"), "running": not rec.get("failed"), "finished": False}
+            if rec.get("failed"):
+                job.update(failed=True, stopped=rec.get("stopped"))
     lines = []
     for c in got:
         if c.get("status") == "ok":
             lines.append(f"- {c['cell']}：{c['value']}" + (f"（配列 {c['spill']} のマス）" if c.get("spill") else "") + (f"。{c['note']}" if c.get("note") else ""))
         elif c.get("status") == "unfinished":
             pct = f"{c['done'] / c['total'] * 100:.2f}%" if c.get("total") else ""
+            if job and job.get("failed"):
+                lines.append(f"- {c['cell']}：計算できません（{c['total']:,} マスのうち {c['done']:,} マスで、別のプロセスの計算が止まりました：{job.get('stopped')}）")
+                continue
             lines.append(f"- {c['cell']}：まだ計算中です（{c['total']:,} マスのうち {c['done']:,} マス、{pct}。別のプロセスで続けています。"
                          "同じ呼び出しをもう一度すると、進み具合か結果を返します）")
         else:

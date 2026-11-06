@@ -328,10 +328,13 @@ def stopped(why: str, name: str = "", args: dict | None = None, at: dict | None 
 
         try:
             failed = jobs.window_failed(args["path"], args.get("encoding"))
+            if not failed and not jobs.window_made(args["path"], args.get("encoding")):
+                rec = jobs.start_window(args["path"], args.get("encoding"))
+                failed = rec.get("stopped")
+                if not failed:
+                    return _job_result(rec)
             if failed:
                 why = f"{why}。長い仕事でも止まりました：{failed}"
-            elif not jobs.window_made(args["path"], args.get("encoding")):
-                return _job_result(jobs.start_window(args["path"], args.get("encoding")))
         except (OSError, ValueError):
             pass  # 仕事を始められない：いままでどおり、止めた理由と頼み方を伝える
     hint = smaller_request(name, args or {})

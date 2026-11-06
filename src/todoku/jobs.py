@@ -11,6 +11,8 @@
   字を探した控えも消す（purge：この場所を使うときと MCP サーバーの立ち上げで）。元のファイルがなくなった仕事の控えも消す。動いている仕事は消さない。
   0 にすると、窓は読んだら、仕事の記録は終わった結果を返したら消す（読まれなかった控えは 1 時間で。大きな書類は開くたびに作り直す）。
   `todoku forget` で、動いている仕事のほかをすぐに消せる
+- 仕事が落ちたとき：標準エラーを控えの場所に置き（.err。最後の 1 行を理由として伝える）、進まないまま MAX_TRIES 回止まったら、もう立ち上げ直さず
+  失敗として返す（failed。「動いている」と返し続けない）。進んでいれば、何度止まっても続きから進む
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from pathlib import Path
 from . import limits
 
 SAVE_EVERY = 1.0  # 控えを書く間隔（秒）
+MAX_TRIES = 3  # 進まないまま立ち上げる回数の上限
 
 
 def _dir() -> Path:
@@ -104,6 +107,7 @@ def read_once(rec: dict | None) -> None:
     """読んだら消す設定（TODOKU_JOBS_TTL_HOURS=0）：終わった仕事の結果を返したので、その記録を消す。"""
     if rec and rec.get("finished") and rec.get("key") and ttl_seconds() <= 0:
         _state_path(rec["key"]).unlink(missing_ok=True)
+        _err_path(rec["key"]).unlink(missing_ok=True)
 
 
 def job_key(path: str, encoding: str | None) -> str:
@@ -149,6 +153,73 @@ def _alive(pid) -> bool:
     return True
 
 
+def _lower_priority() -> None:
+    """ほかの処理を邪魔しないように優先度を下げる。下げられなくても（macOS は優先度がすでに低いと PermissionError）仕事は進める。"""
+    try:
+        os.nice(10)
+    except OSError:
+        pass
+
+
+def _spawn(key: str) -> subprocess.Popen:
+    """仕事のプロセスを立ち上げる。標準エラーは控えの場所へ（落ちた理由を伝えるため）。終わったらすぐ片づける：立ち上げたプロセスが生きている間
+    ゾンビとして残ると、ほかのプロセスからは「動いている」と見える。"""
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([here] + [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p])
+    fd = os.open(_err_path(key), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        proc = subprocess.Popen([sys.executable, "-m", "todoku.jobs", key], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                stderr=fd, env=env, start_new_session=True)
+    finally:
+        os.close(fd)
+    threading.Thread(target=proc.wait, daemon=True).start()
+    return proc
+
+
+def _send(proc: subprocess.Popen, payload: dict) -> None:
+    """仕事に頼む中身を標準入力で渡す。もう終わっていても（落ちた仕事は、次の呼び出しで失敗として分かる）ここでは失敗にしない。"""
+    try:
+        proc.stdin.write(json.dumps(payload).encode())
+        proc.stdin.close()
+    except OSError:
+        pass
+
+
+def _err_path(key: str) -> Path:
+    return jobs_dir() / f"{key}.err"
+
+
+def _last_error(key: str) -> str:
+    """落ちた仕事の標準エラーの最後の行（例外の種類と理由）。"""
+    try:
+        with open(_err_path(key), "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(f.tell() - 4096, 0))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return ""
+    lines = [x.strip() for x in lines if x.strip()]
+    return lines[-1][:500] if lines else ""
+
+
+def _gave_up(key: str, rec: dict, done: int) -> bool:
+    """止まった仕事を立ち上げ直す前に数える。done（進んだ量）が増えないまま MAX_TRIES 回止まったら、失敗として控えに書く（True：立ち上げ直さない）。"""
+    if rec.get("tries_at") != done:
+        rec["tries_at"] = done
+        rec["tries"] = 0
+        rec.pop("failed", None)
+    rec["tries"] = rec.get("tries", 0) + 1
+    if rec["tries"] < MAX_TRIES:
+        return False
+    if not rec.get("failed"):
+        err = _last_error(key)
+        rec["stopped"] = rec.get("stopped") or (f"仕事のプロセスが異常終了しました：{err}" if err else "仕事のプロセスが、理由を残さずに終わりました")
+        rec["failed"] = True
+    save(key, rec)
+    return True
+
+
 def status(path: str, encoding: str | None = None) -> dict | None:
     return load(job_key(path, encoding))
 
@@ -164,23 +235,18 @@ def start(path: str, password: str | None = None, encoding: str | None = None, r
     if rec and not restart:
         # 仕事は止まっていた。読んだ後に終わったのかもしれない：古い控えで終わった結果を上書きして、やり直さない
         rec = load(key) or rec
-        if rec.get("finished"):
+        if rec.get("finished") or _gave_up(key, rec, rec.get("steps", 0)):
             return rec
     if restart:
         rec = None
         _state_path(key).unlink(missing_ok=True)
-    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join([here] + [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p])
     new = dict(rec or {"key": key, "path": path, "encoding": encoding, "started": time.time(), "steps": 0})
     new["resumed"] = bool(rec)
-    proc = subprocess.Popen([sys.executable, "-m", "todoku.jobs", key], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, env=env, start_new_session=True)
+    proc = _spawn(key)
     new["pid"] = proc.pid
     new.pop("stopped", None)
     save(key, new)
-    proc.stdin.write(json.dumps({"path": path, "password": password, "encoding": encoding}).encode())
-    proc.stdin.close()
+    _send(proc, {"path": path, "password": password, "encoding": encoding})
     return new
 
 
@@ -211,16 +277,13 @@ def start_calc(path: str, password: str | None, values: dict, cells: list, scans
         if k not in merged or v.get("k", 0) > merged[k].get("k", 0):
             merged[k] = v
     new["scans"] = merged
+    if rec and _gave_up(key, new, sum(v.get("k", 0) for v in merged.values())):
+        return new
     new.pop("stopped", None)
-    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join([here] + [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p])
-    proc = subprocess.Popen([sys.executable, "-m", "todoku.jobs", key], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, env=env, start_new_session=True)
+    proc = _spawn(key)
     new["pid"] = proc.pid
     save(key, new)
-    proc.stdin.write(json.dumps({"path": path, "password": password, "values": values}).encode())
-    proc.stdin.close()
+    _send(proc, {"path": path, "password": password, "values": values})
     return new
 
 
@@ -257,16 +320,15 @@ def start_window(path: str, encoding: str | None) -> dict:
     rec = load(key)
     if rec and not rec.get("finished") and _alive(rec.get("pid")):
         return rec
-    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join([here] + [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p])
     new = {"key": key, "kind": "window", "path": path, "encoding": encoding, "started": time.time()}
-    proc = subprocess.Popen([sys.executable, "-m", "todoku.jobs", key], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, env=env, start_new_session=True)
+    if rec and not rec.get("finished"):
+        new.update({k: rec[k] for k in ("tries", "tries_at", "stopped", "pid") if k in rec})
+        if _gave_up(key, new, 0):
+            return new
+    proc = _spawn(key)
     new["pid"] = proc.pid
     save(key, new)
-    proc.stdin.write(b"{}")
-    proc.stdin.close()
+    _send(proc, {})
     return new
 
 
@@ -301,7 +363,7 @@ def _run_window(key: str, rec: dict) -> int:
     from . import api
     from .lazy.filebytes import sha256_hex
 
-    os.nice(10)
+    _lower_priority()
     rec["pid"] = os.getpid()
     threading.Thread(target=_watch_memory, args=(key, rec), daemon=True).start()
     last = {"t": 0.0}
@@ -340,7 +402,7 @@ def _run_calc(key: str, rec: dict, args: dict) -> int:
     from .formula.lazyarr import ScanStore
     from .xlsx import model as xm
 
-    os.nice(10)
+    _lower_priority()
     rec["pid"] = os.getpid()
     threading.Thread(target=_watch_memory, args=(key, rec), daemon=True).start()
 
@@ -391,7 +453,7 @@ def run(key: str) -> int:
         return _run_calc(key, rec, args)
     if rec.get("kind") == "window":
         return _run_window(key, rec)
-    os.nice(10)
+    _lower_priority()
     rec["pid"] = os.getpid()
     threading.Thread(target=_watch_memory, args=(key, rec), daemon=True).start()
     last = {"t": 0.0}
