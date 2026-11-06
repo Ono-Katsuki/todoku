@@ -102,3 +102,20 @@ def test_checkbox_caption_is_in_the_reading_order():
     b = Box(1, 1, 1, 1, "check", None, "☐", ctl)
     assert lay._token(b).endswith("A. Nombre comercial") and lay._token(b).startswith("☐［")
     assert "Nombre" not in lay._token(Box(1, 1, 1, 1, "check", None, "☐", SimpleNamespace(text="", link_cell=None, link=None, name="C")))
+
+
+def test_shape_text_on_a_hidden_sheet_is_in_the_window(tmp_path):
+    """非表示のシートの図形の字も、窓に出す（読み順の節だけ出して、図形の節を落としていた）。"""
+    text_shape = DRAWING.replace("</xdr:spPr></xdr:sp>", "</xdr:spPr><xdr:txBody><a:bodyPr/><a:p><a:r><a:t>隠れたシートの注意書き</a:t></a:r></a:p></xdr:txBody></xdr:sp>")
+    blob = _xlsx(text_shape)
+    src = io.BytesIO(blob)
+    out = io.BytesIO()
+    with zipfile.ZipFile(src) as zi, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zo:
+        for it in zi.infolist():
+            b = zi.read(it.filename)
+            if it.filename == "xl/workbook.xml":
+                b = b.replace(b'sheetId="1" r:id="rId1"', b'sheetId="1" state="hidden" r:id="rId1"')
+            zo.writestr(it, b)
+    p = tmp_path / "a.xlsx"
+    p.write_bytes(out.getvalue())
+    assert "隠れたシートの注意書き" in _window(p)

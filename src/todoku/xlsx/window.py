@@ -2845,7 +2845,7 @@ def _md_sheet(sh: dict) -> list[str]:
                "ここから作られる選択肢は、各入力欄の「選択肢」に展開してあります。中身は次のとおりです。", ""]
         if sh.get("reading"):
             out += ["### 読み順（上から。非表示のシート）", ""] + _md_reading(sh) + [""]
-        return out + _md_furigana(sh) + sheet_markdown(sh)
+        return out + _md_shapes(sh) + _md_furigana(sh) + sheet_markdown(sh)
     out = [f"## シート「{sh['name']}」", ""]
     info = []
     if sh.get("right_to_left"):
@@ -2903,7 +2903,15 @@ def _md_sheet(sh: dict) -> list[str]:
     out.append("")
     if sh.get("links"):
         out += ["### リンク（マスと、その先。ファイルに書かれた先のまま）", ""] + [f"- {x['cell']} → {_md(x['target'])}" for x in sh["links"]] + [""]
-    notes = sh.get("notes", [])
+    out += _md_shapes(sh)
+    out += _md_furigana(sh)
+    return out + sheet_markdown(sh)
+
+
+def _md_shapes(sh: dict) -> list[str]:
+    """図形・メモ・ヘッダーの節（見えるシートにも、非表示のシートにも）。"""
+    out: list[str] = []
+    notes = sh.get("notes") or []
     shapes = [s for s in sh.get("shapes", []) if s["text"] or s["alt"] or s["kind"] == "picture"]
     bare = [s for s in sh.get("shapes", []) if s["kind"] in ("shape", "text") and not s["text"] and not s["alt"]]
     if notes or shapes or bare or sh.get("header_footer"):
@@ -2925,8 +2933,7 @@ def _md_sheet(sh: dict) -> list[str]:
         for h in sh.get("header_footer", []):
             out.append(f"- ヘッダー・フッター: {_md(h)}")
         out.append("")
-    out += _md_furigana(sh)
-    return out + sheet_markdown(sh)
+    return out
 
 
 BARE_SHAPES_SHOWN = 40  # 字のない図形を 1 シートに並べる数（線や飾りの多いシートで、窓が図形で埋まらないように）
