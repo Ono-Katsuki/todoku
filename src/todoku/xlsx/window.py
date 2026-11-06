@@ -1166,7 +1166,7 @@ class Box:
             ctl = self.control
             if ctl.link_cell:
                 return addr(*ctl.link_cell[1:])  # つながったセル（別のシートなら field の id にシート名が入る）
-            return ctl.ref_name
+            return getattr(ctl, "ref_name", ctl.name)
         a = addr(self.r, self.c1)
         return a if (self.r2, self.c2) == (self.r, self.c1) else f"{a}:{addr(self.r2, self.c2)}"
 
