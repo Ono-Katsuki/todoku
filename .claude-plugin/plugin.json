@@ -1,7 +1,7 @@
 {
   "name": "todoku",
   "version": "0.2.0",
-  "description": "申請書類（Excel・Word・PDF・一太郎など）を、AI エージェントが全部・正確に読み書きできるようにする。書いた所のほかは変わっていないことを書類ごとに証明する",
+  "description": "申請書類（Excel・Word・PDF・一太郎など）を、AI エージェントが正確に読み書きできるようにする。書いた所のほかは変わっていないことを書類ごとに証明する",
   "author": {
     "name": "Ono Katsuki"
   },

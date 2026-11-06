@@ -1,6 +1,6 @@
 # とどく（todoku）
 
-**Claude Code は、もう申請書を書ける。とどくは、1 バイトもずれていないと証明する。**
+**Claude Code は、もう申請書を書ける。とどくは、書いた所のほかは 1 バイトも変えていないと証明する。**
 
 行政書類を AI エージェントが正確に読み書きするための MCP サーバー。`dependencies = []`。Office も LibreOffice も不要。
 
@@ -15,7 +15,7 @@ $ head -c 110831 hino_yogu_filled.pdf | cmp - hino_yogu.pdf && echo 一致
 一致
 ```
 
-エージェントの報告を信じる必要はない。`cmp` で検証できる。
+元のバイトが残ることは `cmp` で検証できる。変わった所の証明は、道具が書類ごとに返す。エージェントの報告を信じる必要はない。
 
 [English](README.en.md)
 
@@ -37,14 +37,14 @@ Claude Code で実行する（[uv](https://docs.astral.sh/uv/) が必要）。
 
 ## 「書けた」と「正確に書けた」は違う
 
-同じ申請書、同じ指示、同じ Claude で比較した（公開の様式 20 通、値は架空。詳細は [ポータル](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH) と `scripts/eval/`）。
+同じ申請書、同じ申請者の情報、同じモデルで比較した（公開の様式 20 通、値は架空。道具に合わせた指示の違いは計画に記録。詳細は [ポータル](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH) と `scripts/eval/`）。
 
 | | ただの Claude Code | Claude Code + とどく |
 |---|---|---|
 | 元の PDF をそのまま残す | 0/16 | **16/16** |
 | 変わったのは書いた所だけと証明 | なし | **20/20** |
 
-ある PDF は Poppler では正しく表示された。Apple PDFKit で開くと、氏名の欄は「16」。報告は「記入済み」だった。
+記入済みの数はほぼ同じ（9/20 と 10/20）。差が出るのは上の 2 行だ。ある 1 通の PDF は Poppler では正しく表示された。Apple PDFKit で開くと、氏名の欄は「16」。報告は「記入済み」だった。
 
 とどくは PDF を増分保存し、元のバイトに触れない。書いた後は読み戻し、描画して、画素の変化まで確かめる。
 
@@ -70,27 +70,27 @@ ROUNDDOWN(ROUND(L × P, 0), 0) × AA
 
 `format: "python"` なら、標準ライブラリだけで動く `calculate(inputs) -> dict` として書き出す。
 
-## 中身はすべて自前実装
+## 依存ゼロ、中身は Python
 
-- **ファイル形式：** PDF（構文・暗号・フォント・XFA・増分の保存）、Excel（.xlsx・.xls・.xlsb）、Word（.docx・.doc）、一太郎、HWP／HWPX、ODF、RTF、PowerPoint、CSV、JSON、ZIP など。公開仕様のある形式は仕様書から実装した。
-- **数式エンジン：** Excel と同じ規則（有効数字 15 桁、1900 年のうるう年、和暦の表示形式）で計算する。VBA も実行する。
+- **ファイル形式：** PDF（構文・暗号・フォント・XFA・増分の保存）、Excel（.xlsx・.xls・.xlsb）、Word（.docx・.doc）、一太郎、HWP／HWPX、ODF、RTF、PowerPoint、CSV、JSON、ZIP など。公開仕様のある形式は仕様書から実装し、一部は OSS の実装を読んで Python に書き直した（`THIRD_PARTY_NOTICES.md`）。
+- **数式エンジン：** Excel と同じ規則（有効数字 15 桁、1900 年のうるう年、和暦の表示形式）で計算する。VBA の一部も実行する（再現できない命令は断る）。
 - **決定的：** 読む・書く・証明・検査に AI を使わない。規則で決められない所は `？` で示す。事実は道具が出し、判断はエージェントが下す。
-- **MCP の道具 14 個：** `open_document`・`read_window`・`list_fields`・`fill_document`・`audit_document`・`extract_processing`・`try_calculation`・`run_macro` など。大きな書類は範囲で読む。読めない所は作らない。
+- **MCP の道具 14 個：** `open_document`・`read_window`・`list_fields`・`fill_document`・`audit_document`・`extract_processing`・`try_calculation`・`run_macro` など。大きな書類は範囲で順に読む。読めない所は、読めないと伝える。
 
-約 14 万行・298 ファイル・テスト 4,000 件超。
+約 14 万行・298 ファイル・テスト 3,000 件超（公開の clone で動く分）。
 
 ## 実物で測った
 
-版を固定し（`eval-freeze-1`）、固定まで開かなかった書類で測定した。比較対象は MarkItDown・openpyxl・python-docx・pdfplumber など、形式ごとの最良値。
+版を固定し（`eval-freeze-1`）、固定まで評価に使わなかった書類で測定した。比較対象は MarkItDown・openpyxl・python-docx・pdfplumber など、形式ごとの最良値（.doc はこれらの Python ライブラリでは読めない）。
 
 | | とどく | 比べる道具 |
 |---|---|---|
 | 世界の行政書類を開けた | **552/557** | 494/557 |
 | ふりがな（都・多摩） | **698/713** | 77/713 |
-| 図形・テキストボックスの字（世界） | **389/487** | 220/487 |
+| 図形・テキストボックスの字（世界・.doc を除く） | **253/333** | 220/333 |
 | 古い Word .doc の字（都・多摩） | **1.0** | 0.0 |
 
-185 か国の政府サイトから無作為に 8,500 件を抽出して調査し、うち 1,079 件を実際に読み書きして推定した。**正確に書ける文書は推定約 182 万件**。全カテゴリの表・区間・方法は [ポータル](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)、評価コードは `scripts/eval/`。
+185 の国と地域の政府サイトから無作為に 8,500 件を抽出して調査し、うち 1,079 件を実際に読み書きして推定した（英数字の値。標本は固定前の段階付けにも使った）。**正確に書ける文書は推定約 182 万件**（区間 152〜212 万）。全カテゴリの表・区間・方法は [ポータル](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)、評価コードは `scripts/eval/`。
 
 ## 作った人
 

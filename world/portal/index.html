@@ -418,7 +418,7 @@ td .ci { display: inline-block; line-height: 1.3; }
     </div>
     <p class="ask">私が頼むのは 1 文。2〜3 分です。</p>
     <p class="cond">東京都中央区の申請書に、架空の値で 22 か所を書いた場合。</p>
-    <details class="fold in inline-folds"><summary>私が区に出す 1 通の申請書</summary>
+    <details class="fold in inline-folds"><summary>区に出す 1 通の申請書（例）</summary>
       <p class="bnote">東京都中央区「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）。2 ページ・入力欄の候補 196 か所。架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合。</p>
       <ul class="walls">
         <li><b>探すだけで重い。</b>様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。</li>
@@ -444,7 +444,7 @@ td .ci { display: inline-block; line-height: 1.3; }
     <blockquote class="office-q"><span class="nb">私たちの事業所の請求の計算を、</span><span class="nb">数か月かけて自分で作りました。</span><span class="nb">だから知っています。</span><span class="nb">一円ずれると、通りません。</span></blockquote>
     <div class="trial">
       <div class="tablebox"><table class="small">
-        <caption>試算の例（架空の値：重度訪問介護、処遇改善加算Ⅰ、総単位数 123,457、2 か月。ファイルは書き換えない）</caption>
+        <caption>試算の例（架空の値：重度訪問介護、処遇改善加算Ⅰ、一月の報酬総額 123,457 円、2 か月。ファイルは書き換えない）</caption>
         <thead><tr><th>計算の順番</th><th class="num">見込額</th></tr></thead>
         <tbody>
           <tr><td>様式の決まりどおり</td><td class="num">84,692 円</td></tr>
@@ -754,7 +754,7 @@ td .ci { display: inline-block; line-height: 1.3; }
     </details>
     <details class="fold"><summary><h3 id="h-method">方法</h3></summary>
     <div class="method">
-      <div><h4>母集団と標本</h4><p>国連の加盟 193 か国（そのうち、政府の書類の枠があり段階を付けられたのは 185 か国）の、政府のサイトにある PDF・表計算・文書・CSV の書類です。政府のサイトは、国のドメインの政府用の区分（gov.br・go.jp・lg.jp・gouv.fr・gob.mx など。Public Suffix List と各国の登録機関の規則が根拠）と、米国の .gov などの国の政府のドメイン、Wikidata にある省庁・政府の機関・自治体の公式のサイトで決めました。書類は、Common Crawl の 2026 年 10 月の収集（CC-MAIN-2026-43）の中から選びます。収集の索引を区切りごとに無作為に選び、その中の政府のサイトの書類を候補にして、国 × 形式の群の層ごとに 20 件を無作為に選びました（選ばれる確率を記録）。表計算・文書は数が少ないので、候補が 20 件に届くまで区切りを無作為に足して読みました（国ごとに 120 まで）。国は選び出さず、193 か国のすべての結果を地図に示しています。</p></div>
+      <div><h4>母集団と標本</h4><p>国連の加盟 193 か国と地域（そのうち、政府の書類の枠があり段階を付けられたのは 183 か国と 2 地域）の、政府のサイトにある PDF・表計算・文書・CSV の書類です。政府のサイトは、国のドメインの政府用の区分（gov.br・go.jp・lg.jp・gouv.fr・gob.mx など。Public Suffix List と各国の登録機関の規則が根拠）と、米国の .gov などの国の政府のドメイン、Wikidata にある省庁・政府の機関・自治体の公式のサイトで決めました。書類は、Common Crawl の 2026 年 10 月の収集（CC-MAIN-2026-43）の中から選びます。収集の索引を区切りごとに無作為に選び、その中の政府のサイトの書類を候補にして、国 × 形式の群の層ごとに 20 件を無作為に選びました（選ばれる確率を記録）。表計算・文書は数が少ないので、候補が 20 件に届くまで区切りを無作為に足して読みました（国ごとに 120 まで）。国は選び出さず、193 か国のすべての結果を地図に示しています。</p></div>
       <div><h4>分析の単位</h4><p>主の単位は書類（ファイル）です。段階がファイルごとに付くためです。同じ中身の書類は 1 件に数えます。書く段階の理由は入力欄ごとにも数えます。</p></div>
       <div><h4>測ること</h4><p>書類の全体を取得できたか、読む段階 S〜F、書く段階 A〜D、その理由。すべて決定的な処理です。Common Crawl は大きな書類を途中で切って保存するので、切れた書類は、そのままスコアを付けず、政府のサイトから取り直しました。10% の部分標本では、全欄に書いて、書いた所のほかはバイト一致することを確かめました。</p></div>
       <div><h4>数字の読み方</h4><p>数字が表すのは「Common Crawl が集めた、政府のサイトの書類」で、政府の書類の全体の中では下限です。Common Crawl は、リンクの多いページや HTML を先に集めます。Office の書類は PDF よりずっと少なく、標本の少ない国・形式は区間が広くなります。政府のドメインの一覧は、国のドメインに政府用の区分のない国（ドイツ・オランダなど）では Wikidata によります。切れた書類で取り直せなかったものは分母から除いています。国の値は、PDF・表計算・文書・CSV の割合を、その国の政府のサイトにある数（収集の索引から推定）に合わせて足し合わせたものです（選んだ数の偏りを直すため）。</p></div>
@@ -848,7 +848,7 @@ window.TODOKU_I18N = (() => {
     [`依頼・確認の時間は別`, `Asking and checking are separate`],
     [`私が頼むのは 1 文。2〜3 分です。`, `I ask in 1 sentence. That takes 2–3 minutes.`],
     [`東京都中央区の申請書に、架空の値で 22 か所を書いた場合。`, `Writing 22 places on an application from Chuo City, Tokyo, with fictional values.`],
-    [`私が区に出す 1 通の申請書`, `The 1 application I file with my ward`],
+    [`区に出す 1 通の申請書（例）`, `One application to a ward (example)`],
     [`東京都中央区「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）。2 ページ・入力欄の候補 196 か所。架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合。`, `Chuo City, Tokyo: “Disability Welfare Service Application (new/renewal)” (benefit application for severe-disability home care and similar services). 2 pages, 196 candidate input places. 22 places written (158 characters and 2 seals) with a fictional person's values.`],
     [`探すだけで重い。様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。`, `<b>Finding it is already heavy.</b> Forms differ by ward and are scattered. To find this 1 form, even an agent took 6 searches across 4 sites (Tokyo, Meguro City, Shinjuku City, Chuo City), and no filled-in example existed anywhere. Entering search terms 1 character at a time with a head switch is a big job on its own.`],
     [`印刷して手で書く前提。入力欄のない印刷用の PDF で、紙に書いて窓口か郵送で出します。ペンを持てない私には書けません。`, `<b>It assumes printing and handwriting.</b> A print-only PDF with no input fields, written on paper and filed at the counter or by mail. I cannot hold a pen, so I cannot write it.`],
@@ -868,7 +868,7 @@ window.TODOKU_I18N = (() => {
     [`セルすべて一致`, `cells, all matching`],
     [`新潟県の公開様式`, `Public form, Niigata Prefecture`],
     [`私たちの事業所の請求の計算を、数か月かけて自分で作りました。だから知っています。一円ずれると、通りません。`, `I spent months building our office's billing calculation myself. So I know: one yen off, and it does not go through.`],
-    [`試算の例（架空の値：重度訪問介護、処遇改善加算Ⅰ、総単位数 123,457、2 か月。ファイルは書き換えない）`, `Sample calculation (fictional values: severe-disability home care, care-worker pay improvement addition I, 123,457 total units, 2 months. The file is not rewritten.)`],
+    [`試算の例（架空の値：重度訪問介護、処遇改善加算Ⅰ、一月の報酬総額 123,457 円、2 か月。ファイルは書き換えない）`, `Sample calculation (fictional values: severe-disability home care, care-worker pay improvement addition I, monthly remuneration total ¥123,457, 2 months. The file is not rewritten.)`],
     [`計算の順番`, `Order of calculation`], [`見込額`, `Estimate`],
     [`様式の決まりどおり`, `As the form defines it`],
     [`全部掛けてから、最後に切り捨てる`, `Multiply everything, then round down`],
@@ -1010,7 +1010,7 @@ window.TODOKU_I18N = (() => {
     // ---- method
     [`方法`, `Method`],
     [`母集団と標本`, `Population and sample`],
-    [`国連の加盟 193 か国（そのうち、政府の書類の枠があり段階を付けられたのは 185 か国）の、政府のサイトにある PDF・表計算・文書・CSV の書類です。政府のサイトは、国のドメインの政府用の区分（gov.br・go.jp・lg.jp・gouv.fr・gob.mx など。Public Suffix List と各国の登録機関の規則が根拠）と、米国の .gov などの国の政府のドメイン、Wikidata にある省庁・政府の機関・自治体の公式のサイトで決めました。書類は、Common Crawl の 2026 年 10 月の収集（CC-MAIN-2026-43）の中から選びます。収集の索引を区切りごとに無作為に選び、その中の政府のサイトの書類を候補にして、国 × 形式の群の層ごとに 20 件を無作為に選びました（選ばれる確率を記録）。表計算・文書は数が少ないので、候補が 20 件に届くまで区切りを無作為に足して読みました（国ごとに 120 まで）。国は選び出さず、193 か国のすべての結果を地図に示しています。`, `PDF, spreadsheet, document and CSV files on the government sites of the 193 UN member states (185 of them with a frame of government documents that could be graded). Government sites were defined by the government subdivisions of national domains (gov.br, go.jp, lg.jp, gouv.fr, gob.mx and others, based on the Public Suffix List and each registry's rules), national government domains such as the US .gov, and official sites of ministries, government agencies and municipalities in Wikidata. Documents are chosen from Common Crawl's 2026-10 crawl (CC-MAIN-2026-43). Sections of the crawl index were chosen at random, the government-site documents in them became candidates, and 20 were chosen at random per stratum of country × format group (selection probabilities recorded). Spreadsheets and documents are scarce, so I added random sections until candidates reached 20 (up to 120 per country). No countries were cherry-picked: the map shows results for all 193.`],
+    [`国連の加盟 193 か国と地域（そのうち、政府の書類の枠があり段階を付けられたのは 183 か国と 2 地域）の、政府のサイトにある PDF・表計算・文書・CSV の書類です。政府のサイトは、国のドメインの政府用の区分（gov.br・go.jp・lg.jp・gouv.fr・gob.mx など。Public Suffix List と各国の登録機関の規則が根拠）と、米国の .gov などの国の政府のドメイン、Wikidata にある省庁・政府の機関・自治体の公式のサイトで決めました。書類は、Common Crawl の 2026 年 10 月の収集（CC-MAIN-2026-43）の中から選びます。収集の索引を区切りごとに無作為に選び、その中の政府のサイトの書類を候補にして、国 × 形式の群の層ごとに 20 件を無作為に選びました（選ばれる確率を記録）。表計算・文書は数が少ないので、候補が 20 件に届くまで区切りを無作為に足して読みました（国ごとに 120 まで）。国は選び出さず、193 か国のすべての結果を地図に示しています。`, `PDF, spreadsheet, document and CSV files on the government sites of the 193 UN member states and regions (183 countries and 2 regions with a frame of government documents that could be graded). Government sites were defined by the government subdivisions of national domains (gov.br, go.jp, lg.jp, gouv.fr, gob.mx and others, based on the Public Suffix List and each registry's rules), national government domains such as the US .gov, and official sites of ministries, government agencies and municipalities in Wikidata. Documents are chosen from Common Crawl's 2026-10 crawl (CC-MAIN-2026-43). Sections of the crawl index were chosen at random, the government-site documents in them became candidates, and 20 were chosen at random per stratum of country × format group (selection probabilities recorded). Spreadsheets and documents are scarce, so I added random sections until candidates reached 20 (up to 120 per country). No countries were cherry-picked: the map shows results for all 193.`],
     [`分析の単位`, `Unit of analysis`],
     [`主の単位は書類（ファイル）です。段階がファイルごとに付くためです。同じ中身の書類は 1 件に数えます。書く段階の理由は入力欄ごとにも数えます。`, `The main unit is the document (file), because grades are assigned per file. Documents with identical content count as 1. Write-grade reasons are also counted per input field.`],
     [`測ること`, `What is measured`],
