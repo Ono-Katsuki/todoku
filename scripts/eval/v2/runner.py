@@ -398,9 +398,15 @@ def one_score(rd: dict, wr: dict) -> dict:
     d["write_grade"] = (t.get("todoku") or {}).get("write_grade")
     d["write_unscored"] = bool(wr.get("unscored"))
     runs = wr.get("runs") or {}
+    # 前の定義に近い数（文字の中の空欄を選ばない・断られて選び直さない）。比べる道具も同じ書類だけ
+    tgt = wr.get("target") or {}
+    prev_scope = bool(runs) and not tgt.get("inline") and not wr.get("pick_refused")
     if runs:  # 書く比べは英数字の値で数える（注釈でも書ける形：比べる道具に有利）
         d["write_todoku"] = bool((runs.get("todoku:ascii") or {}).get("write_ok"))
         d["write_base"] = any(r.get("write_ok") for k, r in runs.items() if k.endswith(":ascii") and not k.startswith("todoku"))
+        d["write_todoku_prev"] = prev_scope and d["write_todoku"]
+        d["write_base_prev"] = prev_scope and d["write_base"]
+        d["write_unverified"] = bool((runs.get("todoku:ascii") or {}).get("unverified"))
         # 感度（W5 を入れない）：消えたのが数式の保存された値だけなら通す（Excel で開けば計算し直される）
         d["write_base_no_w5"] = d["write_base"] or any(
             (r.get("check") or {}).get("landed") and set((r.get("check") or {}).get("lost") or {}) == {"formula_cached_values"} and not (r.get("check") or {}).get("error")
@@ -442,6 +448,8 @@ SENS = {"read_todoku_text_layer": (lambda s: s.get("read_todoku_text_layer"), "R
         "write_new_with_baseline_format": (lambda s: s.get("write_todoku") and not s.get("write_base") and s.get("kind") in ("xlsx", "docx", "pdf"), "新しく届く（書く）：比べる道具に書く手段のある形式だけ（.xls・.doc を当たりに数えない）"),
         "write_base_no_w5": (lambda s: s.get("write_base_no_w5"), "比べる道具：数式の保存された値が消えただけなら書けたに数える（W5 を入れない）"),
         "write_new_no_w5": (lambda s: s.get("write_todoku") and not s.get("write_base_no_w5"), "新しく届く（書く）：W5 を入れない"),
+        "write_todoku_prev": (lambda s: s.get("write_todoku_prev"), "前の定義に近い：文字の中の空欄を選ばない・断られた所を選び直さない（とどく）"),
+        "write_base_prev": (lambda s: s.get("write_base_prev"), "前の定義に近い（比べる道具）"),
         "read_grade_sab": (lambda s: s.get("read_grade") in ("S", "A", "B"), "とどくの読む段階が S・A・B"),
         "write_grade_ab": (lambda s: s.get("write_grade") in ("A", "B"), "とどくの書く段階が A・B")}
 

@@ -7,6 +7,10 @@ v1 からの違い（理由と試験は docs/再評価の計画.md・tests/test_
      字の層だけで決めた値も exact_text_layer に残す（感度の比べ）。
   R4 書類ごとに別の処理で採点し、時間の上限を超えたら「未採点」（unscored）と記録する。大量の失敗で止まる。失敗は scores に書かない（次の回でやり直す）。
   R6 感度の比べだけ（exact_value）：表計算で元の値を正しく出した道具も通す数を別に残す。「新しく届く」が画面の書式の差だけでないかを見るため。
+  R7 ひとつ選ぶ欄の印 ◉（選んだ）・○（選んでいない）も状態の印に数える。比べる道具の ☑☐ と同じ扱い。
+  R8 窓の復号：マスの区切りは「 ｜ 」（空白つき）だけを消す。書類の字の ｜ は残す。［　］（規則の空欄）は中の空白に戻す。
+     フォームの欄の印（☐［Check14］など）は字の比べの前に除く（書類の字でなく、語の中に入ると 2 字の並びが切れる）。位置で決まる所の前の ☐ は印刷の字なので残す。
+  R9 Word の字の色：文書でいちばん多い色を除いた項目を color_not_normal として別に数える（定義は変えない。黒か文書のふつうの色かは決まっていない）。
   R5 とどくの src を --todoku-src で渡す（道具の版と採点の版を分ける）。Office は動かさない。
 
 読む比べ：ファイルの一覧を、比べる道具ととどくで読み、字の再現率だけでなく、特徴ごとに数える。
@@ -58,8 +62,8 @@ TOOLS = {"xlsx": ("markitdown", "openpyxl"), "xls": ("markitdown", "xlrd"), "doc
 HID = re.compile(r"非表示|hidden", re.I)
 STRIKE = re.compile(r"取消線|取り消し線|消し線|~~|<s>|<del>|strike", re.I)
 COLOR = re.compile(r"色[:：]|字の色|赤字|赤い字|color|#[0-9a-f]{6}", re.I)
-CHECK_ON = re.compile(r"☑|☒|✓|✔|\[x\]", re.I)
-CHECK_OFF = re.compile(r"☐|\[ \]")
+CHECK_ON = re.compile(r"☑|☒|✓|✔|◉|\[x\]", re.I)
+CHECK_OFF = re.compile(r"☐|○|\[ \]")
 SCAN = re.compile(r"画像|image|スキャン|scan", re.I)
 STALE = re.compile(r"保存された値と合わない|古い値|stale|文字の並び順で結果が変わる", re.I)
 VOLATILE = re.compile(r"\b(TODAY|NOW|RAND|RANDBETWEEN|OFFSET|INDIRECT|CELL|INFO)\s*\(", re.I)
@@ -132,6 +136,14 @@ def drop_font_marks(t: str) -> str:
     return _FONT_PART.sub("", _FONT_MARK.sub("", t))
 
 
+_CTRL_MARK = re.compile(r"[☐☑☒○◉](?=\s*［(?!P\d+\.c|p\d+\.[a-z]))")
+
+
+def drop_ctrl_marks(md: str) -> str:
+    """フォームの欄の印を、字の比べの前に除く（R8）。状態の印の数え（checks）は別に元の字で見る。"""
+    return _CTRL_MARK.sub("", md)
+
+
 def clean_todoku(md: str) -> str:
     """窓の記号（欄の名前・番地・「？」の空き・余白の印）を除いて、書類の字に戻す。「［B5？　］」は元の字（空白・点線など）、「［B5＝値］」は値、「〔A2〕」は消す。"""
     t = re.sub(r"［(?:" + _ID + r")?？([^］＝]*)］", r"\1", md)
@@ -141,7 +153,9 @@ def clean_todoku(md: str) -> str:
     t = re.sub(r"［" + _ID + r"？?(?:：[^］]*)?］", " ", t)
     t = re.sub(r"〔" + _ID + r"〕", "", t)
     t = re.sub(r"^\s*-\s+(?:\d+(?:〜\d+)?:\s)?", "", t, flags=re.M)
-    return t.replace("｜", " ").replace("↵", " ")
+    t = re.sub(r"［([\s　]*)］", r"\1", t)  # 規則の空欄
+    t = re.sub(r"(?:^|(?<=\s))｜(?=\s|$)", " ", t, flags=re.M)  # マスの区切りだけ。書類の字の ｜ は残す
+    return t.replace("↵", " ")
 
 
 def recalls(units: list[str], out: str) -> dict:
@@ -382,6 +396,7 @@ def score_docx(t: dict, hay: Hay, raw_text: str) -> dict:
     return {"shapes": {"n": len(pr.get("textboxes") or []), "ok": sum(1 for s in pr.get("textboxes") or [] if norm(s) in hay.nospace)},
             "checkboxes": checks(pr.get("checkboxes") or [], raw_text),
             "strike": lined(pr.get("strike") or [], STRIKE), "color": lined(pr.get("color") or [], COLOR),
+            "color_not_normal": lined([x for x, v in zip(pr.get("color") or [], pr.get("color_vals") or []) if v != pr.get("color_normal")], COLOR),
             "hidden_cells": {**lined(pr.get("hidden") or [], HID), "leak": 0},
             "furigana": {"n": len(pr.get("ruby") or []), "ok": sum(1 for s in pr.get("ruby") or [] if norm(s) in hay.nospace)}}
 
@@ -436,9 +451,9 @@ def score_tool(t: dict, out_text: str, tool: str, res: dict) -> dict:
     literal = None
     chars_out = len(out_text)
     if tool == "todoku":
-        literal = recalls(_recall_units(t), drop_font_marks(clean_todoku(todoku_content(out_text))))
+        literal = recalls(_recall_units(t), drop_font_marks(clean_todoku(drop_ctrl_marks(todoku_content(out_text)))))
         out_text = expand_collapsed(out_text)
-        content = drop_font_marks(clean_todoku(todoku_content(out_text)))
+        content = drop_font_marks(clean_todoku(drop_ctrl_marks(todoku_content(out_text))))
         out_text = clean_todoku(out_text)
     else:
         content = out_text
@@ -605,7 +620,7 @@ def _purge_doc(base: Path, did: str) -> None:
 
 
 CATS = ("displayed", "displayed_date", "displayed_era", "displayed_number", "formula", "stale_natural", "merged_rows", "hidden_sheets", "hidden_cells",
-        "strike", "color", "furigana", "shapes", "checkboxes", "form_values", "scan_flag")
+        "strike", "color", "color_not_normal", "furigana", "shapes", "checkboxes", "form_values", "scan_flag")
 
 
 def summarize(recs: list[dict]) -> dict:
@@ -651,7 +666,7 @@ def summarize(recs: list[dict]) -> dict:
 
 CAT_JA = {"displayed": "画面の字（全部）", "displayed_date": "　日付", "displayed_era": "　和暦", "displayed_number": "　数の形式", "formula": "数式の値",
           "stale_natural": "再計算と違う保存値（自然）", "merged_rows": "結合が各行に届く", "hidden_sheets": "非表示のシートの印", "hidden_cells": "非表示の字の印",
-          "strike": "取り消し線", "color": "字の色", "furigana": "ふりがな", "shapes": "図形・テキストボックスの字", "checkboxes": "チェックボックスの状態",
+          "strike": "取り消し線", "color": "字の色", "color_not_normal": "字の色（文書でいちばん多い色を除く）", "furigana": "ふりがな", "shapes": "図形・テキストボックスの字", "checkboxes": "チェックボックスの状態",
           "form_values": "PDF の欄の値", "scan_flag": "字のないページを伝える"}
 
 
