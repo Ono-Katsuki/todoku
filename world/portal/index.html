@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=BIZ+UDPMincho:wght@400;700&display=swap">
 <style>
-/* 順番：01 何の道具か → 02 実際に何が変わるか（対比と私の言葉）→ 03 信頼できる理由 → 04 使い方 → 05 世界の行政書類を調査（説明と地図のほかは折りたたみ）。
+/* 順番：01 冒頭は私の言葉と論文、その下に導入 → 02 実際に何が変わるか（対比と私の言葉）→ 03 信頼できる理由 → 04 使い方 → 05 世界の行政書類を調査（説明と地図のほかは折りたたみ）。
    数字を大きく・太くするのは 約9分30秒以上・0.3秒、16/16、105,256 の 3 か所だけ。様式の紙と青インクの色 */
 :root {
   --paper: #f4f6f8; --ink: #17202b; --muted: #5b6878; --line: #c9d2dc; --slip: #ffffff; --pen: #1f4fb8;
@@ -55,43 +55,151 @@ button, select, input { font: inherit; color: inherit; }
 
 /* ---- 01 最初：墨の地。字は一点からにじんで、すぐ結ぶ（全部で 1 秒あまり） ---- */
 @property --bleed { syntax: "<percentage>"; inherits: false; initial-value: 140%; }
-.opening { background: radial-gradient(90% 90% at 30% 40%, var(--sumi-2) 0%, var(--sumi) 70%); color: var(--shiro); color-scheme: dark;
-  padding: clamp(30px, 6vh, 64px) 20px clamp(24px, 4.4vh, 48px); }
-.opening > div { max-width: 1080px; margin: 0 auto; }
-.opening h1 { font-family: var(--display); font-weight: 700; font-size: clamp(1.9rem, 1.25rem + 3.6vw, 3.75rem); line-height: 1.32; letter-spacing: .02em; margin: 0; }
-.opening .ln { display: inline-block; }
-.opening .desc { margin: 14px 0 0; font-size: clamp(1rem, .92rem + .55vw, 1.3rem); line-height: 1.7; word-break: auto-phrase; }
-.opening .prod { margin: 16px 0 0; font-size: .8rem; color: var(--usuzumi); display: flex; flex-wrap: wrap; gap: 2px 16px; }
-.opening .prod a { color: var(--shiro); }
-.opening a:focus-visible { outline-color: var(--shiro); }
-.opening .ln, .opening .desc, .opening .prod {
-  -webkit-mask-image: radial-gradient(circle at var(--ox, 30%) 50%, #000 calc(var(--bleed) - 40%), transparent var(--bleed));
-          mask-image: radial-gradient(circle at var(--ox, 30%) 50%, #000 calc(var(--bleed) - 40%), transparent var(--bleed));
-  animation: bleed .7s cubic-bezier(.3, .1, .2, 1) var(--at, 0s) both; }
-.opening .ln:nth-child(2) { --at: .18s; --ox: 62%; }
-.opening .desc { --at: .36s; }
-.opening .prod { --at: .5s; }
-@keyframes bleed { 0% { --bleed: 0%; filter: blur(6px); opacity: .25; } 60% { filter: blur(1px); opacity: 1; } 100% { --bleed: 140%; filter: blur(0); opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .opening .ln, .opening .desc, .opening .prod { animation: none; } }
+.opening .orbit { display: grid; grid-template-areas: "a b c" "d q e" "f g h"; align-items: center; }
+.opening .voice { grid-area: q; text-align: center; }
+.opening .voice blockquote { margin: 0; font-family: var(--display); text-wrap: balance; }
+.opening .voice blockquote em { font-style: normal; }
+.opening .slip { min-width: 0; }
+.opening .slip p { margin: 0; }
+.opening .s1 { grid-area: a; } .opening .s2 { grid-area: b; align-self: end; } .opening .s3 { grid-area: c; } .opening .s4 { grid-area: d; }
+.opening .s5 { grid-area: e; } .opening .s6 { grid-area: f; } .opening .s7 { grid-area: g; align-self: start; } .opening .s8 { grid-area: h; }
+.opening {
+  --sumi: #0c0b0a; --sumi-2: #171513; --shiro: #f3f2ee; --usuzumi: #a9a49b; --nibi: #6f6a62;
+  position: relative; background: radial-gradient(90% 70% at 50% 46%, var(--sumi-2) 0%, var(--sumi) 70%);
+  color: var(--shiro); color-scheme: dark; overflow: hidden; padding: clamp(56px, 9vh, 96px) 20px clamp(64px, 10vh, 104px);
+  min-height: min(100svh, 880px); display: grid; align-content: center;
+}
+.opening .kicker { position: absolute; top: 22px; left: 0; right: 0; text-align: center; margin: 0; color: var(--nibi);
+  font-size: .72rem; letter-spacing: .5em; }
+.opening .orbit { max-width: 1200px; margin: 0 auto; width: 100%; gap: 40px 56px; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.opening .voice { padding: 12px 0; }
+.opening .voice blockquote { color: color-mix(in srgb, var(--shiro) 78%, var(--sumi)); font-weight: 700; letter-spacing: .04em;
+  font-size: clamp(1.6rem, 1rem + 2.4vw, 2.6rem); line-height: 1.6; }
+.opening .voice blockquote em { color: var(--shiro); }
+.opening .voice .who { color: var(--usuzumi); margin: 30px auto 0; max-width: 31em; display: grid; gap: 6px; }
+.opening .voice .who p { margin: 0; text-wrap: balance; }
+.opening .voice .who .prop { font-family: var(--display); color: color-mix(in srgb, var(--shiro) 86%, var(--sumi)); font-size: .98rem; line-height: 1.85; }
+.opening .voice .who .orig { font-size: .7rem; line-height: 1.6; color: var(--nibi); font-style: italic; }
+.opening .voice .who figcaption { font-size: .68rem; letter-spacing: .06em; color: var(--nibi); margin-top: 4px; }
+.opening .voice .who figcaption span { display: inline-block; }
+/* 論文：箱なし。左の列は言葉の側へ寄せ、右の列は外へ流す */
+.opening .slip { background: none; border: 0; box-shadow: none; padding: 0; transform: none; animation: none; color: var(--usuzumi);
+  max-width: 26em; font-size: .78rem; line-height: 1.75; }
+.opening .s1, .opening .s4, .opening .s6 { justify-self: end; text-align: right; }
+.opening .s3, .opening .s5, .opening .s8 { justify-self: start; }
+.opening .s2, .opening .s7 { justify-self: center; text-align: center; }
+.opening .slip .src { display: block; margin-bottom: 4px; }
+.opening .slip .venue { color: var(--shiro); font-weight: 400; letter-spacing: .14em; font-size: .68rem; }
+.opening .slip .au { color: var(--nibi); font-size: .68rem; margin-left: .6em; }
+.opening .slip p { font-family: var(--display); color: color-mix(in srgb, var(--shiro) 82%, var(--sumi)); font-size: .9rem; line-height: 1.8; text-wrap: balance; word-break: auto-phrase; }
+.opening .slip p.so { font-family: var(--body); color: var(--usuzumi); font-size: .74rem; line-height: 1.7; margin: 2px 0 3px; }
+.opening .slip a { color: var(--nibi); text-decoration: none; font-size: .66rem; font-variant-numeric: tabular-nums; }
+.opening .slip a:hover { color: var(--usuzumi); }
+/* 墨のにじみ：一点から広がる円の中だけが見え、ぼけが引いて輪郭を結ぶ */
+.opening .ln, .opening .hl, .opening .who, .opening .slip {
+  -webkit-mask-image: radial-gradient(circle at var(--ox, 50%) var(--oy, 50%), #000 calc(var(--bleed) - 40%), transparent var(--bleed));
+          mask-image: radial-gradient(circle at var(--ox, 50%) var(--oy, 50%), #000 calc(var(--bleed) - 40%), transparent var(--bleed));
+}
+.opening .ln { display: block; white-space: nowrap; --bleed: 0%; animation: bleed 1.9s cubic-bezier(.3, .1, .2, 1) both; }
+.opening .ln:nth-child(1) { animation-delay: .35s; --ox: 18%; }
+.opening .ln:nth-child(2) { animation-delay: 1.05s; --ox: 72%; }
+.opening .ln:nth-child(3) { animation-delay: 1.75s; --ox: 40%; }
+.opening .hl { --bleed: 0%; animation: bleed 1.6s ease 2.5s both; }
+.opening .who { --bleed: 0%; animation: bleed 1.6s ease 2.9s both; }
+.opening .slip { --bleed: 0%; animation: bleed 2.2s cubic-bezier(.3, .1, .2, 1) calc(3.1s + var(--i) * .22s) both; }
+@keyframes bleed {
+  0%   { --bleed: 0%; filter: blur(9px); opacity: .2; }
+  55%  { filter: blur(1.5px); opacity: 1; }
+  100% { --bleed: 140%; filter: blur(0); opacity: 1; }
+}
+.opening .cue { position: absolute; bottom: 22px; left: 0; right: 0; width: max-content; margin: 0 auto; color: var(--nibi);
+  text-decoration: none; font-size: .72rem; letter-spacing: .3em; animation: fadein 1s ease 5.4s both; }
+.opening .cue:hover { color: var(--shiro); }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+.stage-ctl { position: absolute; right: 18px; bottom: 18px; display: flex; gap: 14px; }
+.stage-ctl button { background: none; border: 0; padding: 4px 0; color: var(--nibi); font-size: .7rem; letter-spacing: .2em; cursor: pointer; }
+.stage-ctl button:hover { color: var(--shiro); }
+.stage-ctl button:focus-visible, .opening a:focus-visible { outline: 1px solid var(--usuzumi); outline-offset: 4px; }
+#op-replay { display: none; }
+.opening.done #op-skip { display: none; } .opening.done #op-replay { display: inline-block; }
+.opening.done .ln, .opening.done .hl, .opening.done .who, .opening.done .slip, .opening.done .cue { animation: none; --bleed: 140%; filter: none; opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .opening .ln, .opening .hl, .opening .who, .opening .slip, .opening .cue { animation: none !important; --bleed: 140%; filter: none; opacity: 1; }
+  .stage-ctl { display: none; }
+}
+@media (max-width: 860px) {
+  .opening { min-height: auto; }
+  .opening .orbit { gap: 26px; grid-template-columns: 1fr; }
+  .opening .ln { white-space: normal; }
+  .opening .slip { justify-self: stretch !important; text-align: left !important; max-width: none; }
+}
+
+@media (max-width: 860px) {
+  .opening .orbit { grid-template-columns: 1fr 1fr; grid-template-areas: "q q" "a b" "c d" "e f" "g h"; }
+  .opening .voice { padding: 8px 0 12px; }
+}
+@media (max-width: 480px) { .opening .orbit { grid-template-columns: 1fr; grid-template-areas: "q" "a" "b" "c" "d" "e" "f" "g" "h"; } }
+/* ---- 言葉の下の 1 行・導入 ---- */
+.opening .hl { margin-top: 22px; }
+.opening .hl p { margin: 0; text-wrap: balance; word-break: auto-phrase; }
+.opening .tagline { font-family: var(--display); color: color-mix(in srgb, var(--shiro) 86%, var(--sumi)); font-size: clamp(.98rem, .9rem + .5vw, 1.2rem); }
+.intro { text-align: center; display: grid; gap: 8px; max-width: 44em; margin: 28px auto 0; }
+.intro p { margin: 0; text-wrap: balance; word-break: auto-phrase; }
+.intro .say1 { font-family: var(--display); font-weight: 700; font-size: clamp(1.15rem, 1rem + .9vw, 1.5rem); line-height: 1.6; }
+.intro .prod { font-size: .8rem; color: var(--muted); display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 16px; margin-top: 10px; }
+.intro .who2 { font-size: .9rem; color: var(--muted); margin-top: 6px; }
+
+/* ---- 1 円、1 バイト・Claude との開発・世界の数の枠・折りたたみ ---- */
+.minor { font-size: 1rem; margin: 30px 0 10px; }
+table.small { min-width: 0; }
+td.big { font-size: 1.15rem; font-weight: 700; white-space: nowrap; }
+td.win { color: var(--pen); }
+caption { caption-side: top; text-align: left; font-size: .8rem; color: var(--muted); padding: 10px 10px 2px; }
+.cnote { font-size: .8rem; color: var(--muted); margin: 8px 0 0; max-width: 60em; }
+.office-q { margin: 26px 0 0; padding: 4px 0 4px 16px; border-left: 3px solid var(--pen); font-family: var(--display); font-weight: 700; font-size: clamp(1.05rem, .95rem + .6vw, 1.3rem); line-height: 1.7; word-break: auto-phrase; }
+.cmd.rule { margin: 14px 0; }
+.talks { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.talk { background: var(--slip); border: 1px solid var(--line); border-radius: 3px; padding: 14px 16px; font-size: .86rem; min-width: 0; display: grid; gap: 6px; align-content: start; }
+.talk time { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.talk p { margin: 0; }
+.talk .me { font-weight: 700; }
+.talk .me::before { content: "私  "; color: var(--pen); font-size: .72rem; white-space: pre; }
+.talk .cl::before { content: "Claude  "; color: var(--muted); font-size: .72rem; white-space: pre; }
+.talk .cm { font-size: .74rem; color: var(--muted); overflow-wrap: anywhere; }
+.talk code { color: var(--bleed); }
+.stages { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.stage { background: var(--slip); border: 1px solid var(--line); border-radius: 3px; padding: 14px 18px; min-width: 0; }
+.stage h3 { margin: 0 0 8px; font-family: var(--display); font-size: 1.05rem; }
+.stage dl { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stage dt { font-size: .78rem; color: var(--muted); }
+.stage dd { margin: 0; font-size: 1.5rem; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; color: var(--bleed); }
+.stage dd small { display: block; font-size: .7rem; font-weight: 400; color: var(--muted); }
+.fold { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+.fold > summary { cursor: pointer; font-weight: 700; color: var(--pen); }
+.fold > summary + * { margin-top: 12px; }
+.fold.big { margin-top: 0; border-top: 0; padding-top: 0; }
+.fold.big > summary { color: var(--bleed); }
+.fold.big > summary h2 { display: inline; margin: 0; }
+.conds { margin: 0; padding: 0 0 0 1.1em; display: grid; gap: 6px; font-size: .88rem; max-width: 62em; }
+.next { font-size: .88rem; margin: 0; max-width: 48em; }
+#w-note { margin: 10px 0 0; }
+#band { margin-top: 18px; }
+.nb { display: inline-block; }
+td .ci { display: inline-block; line-height: 1.3; }
+.panel .tablebox th, .panel .tablebox td { padding: 5px 6px; letter-spacing: 0; }
 
 /* ---- 02 実際に何が変わるか ---- */
 .versus { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .vs { background: var(--slip); border: 1px solid var(--line); border-radius: 3px; padding: clamp(12px, 2.4vw, 28px) clamp(10px, 2.4vw, 32px); display: grid; align-content: start; gap: 4px; min-width: 0; }
 .vs p { margin: 0; }
 .vs .l { font-size: clamp(.84rem, .78rem + .4vw, 1.1rem); line-height: 1.45; word-break: auto-phrase; }
-.vs .n { font-size: clamp(1.4rem, 8.6vw - 4.4px, 4.4rem); font-weight: 700; line-height: 1.2; white-space: nowrap; letter-spacing: -.01em; }
+.vs .n { font-size: min(4.05rem, 6.2vw - 3.5px); font-weight: 700; line-height: 1.2; white-space: nowrap; letter-spacing: -.01em; }
 .vs .c { font-size: clamp(.74rem, .7rem + .25vw, .9rem); color: var(--muted); line-height: 1.5; word-break: auto-phrase; }
 .vs.me { border: 2px solid var(--pen); }
-@media (max-width: 640px) { .versus { grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr); } }
+@media (max-width: 640px) { .versus { grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr); } .vs .n { font-size: calc(7vw - 5px); } }
 .vs.me .n { color: var(--pen); }
 .ask { margin: 12px 0 0; font-size: clamp(1rem, .94rem + .3vw, 1.12rem); }
 .cond { margin: 2px 0 0; font-size: .8rem; color: var(--muted); }
-.words { margin-top: 40px; background: var(--sumi); color: var(--shiro); color-scheme: dark; border-radius: 3px; padding: clamp(28px, 5vw, 56px) clamp(20px, 5vw, 64px); display: grid; gap: 14px; }
-.words p { margin: 0; word-break: auto-phrase; text-wrap: balance; }
-.words .big { font-family: var(--display); font-weight: 700; font-size: clamp(1.35rem, 1.05rem + 1.3vw, 2.1rem); line-height: 1.55; }
-.words .who { font-size: .92rem; color: var(--usuzumi); }
-.words .say1 { font-family: var(--display); font-size: clamp(1.05rem, .98rem + .5vw, 1.35rem); line-height: 1.65; }
-.words .end { font-family: var(--display); font-weight: 700; font-size: clamp(1.15rem, 1rem + .8vw, 1.6rem); margin-top: 10px; }
 
 /* ---- 03 信頼できる理由 ---- */
 .why { margin: 12px 0 0; color: var(--muted); }
@@ -258,13 +366,47 @@ td .ci { display: inline-block; line-height: 1.3; }
 @media (max-width: 480px) { .bar { grid-template-columns: minmax(0, 9em) 1fr auto; } }
 </style>
 
-<header class="opening" id="opening"><div>
-  <h1><span class="ln">書けない書類を、</span><span class="ln">AIと書けるように。</span></h1>
-  <p class="desc"><span class="nb">行政のPDFも、Excelも、Wordも。</span><wbr><span class="nb">元の書類を壊さず、</span><wbr><span class="nb">会話だけで正確に読み書きする。</span></p>
-  <p class="prod"><span>とどく：行政書類を正確に読み書きするための MCP</span><a href="https://github.com/Ono-Katsuki/todoku" rel="noopener noreferrer">GitHub</a><a href="#h-use">使い方</a></p>
-</div></header>
+<section class="opening" id="opening" aria-label="冒頭：私の言葉と、まわりの研究">
+  <p class="kicker">とどく ／ Built with Claude: Japan 2026</p>
+  <div class="orbit">
+      <div class="voice">
+        <blockquote><span class="ln">エージェントが全て正確に</span><span class="ln">読み書きできないと、</span><span class="ln"><em>申請で困るのは私</em>だからね。</span></blockquote>
+        <div class="hl"><p class="tagline">エージェントにとどけば、私にとどく。</p></div>
+        <figure class="who">
+          <p class="prop">多くの道具の画面を一つずつ使えるようにするのではなく、そのすべてに届く、ひとつの自然言語の入口を用意する。</p>
+          <p class="orig" lang="en">“rather than adapting many specialized interfaces, provide a single natural-language entry point through which the user can reach all of them.”</p>
+          <figcaption><span>小野克樹「Reconfiguration of Ability」</span> <span>The 28th International ACM SIGACCESS Conference on Computers and Accessibility (ASSETS '26)</span> <span>§5.7 デザインへの示唆（日本語訳）</span></figcaption>
+        </figure>
+      </div>
+      <aside class="slip s1" style="--i:0;--fx:-1;--fy:-1"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
+        <p>行政の手続きの重さは、調べる手間・書類をそろえて書く手間・気持ちの負担の3つに分けられる。</p><p class="so">とどくが軽くするのは、このうちの「書く」重さ。</p><a href="https://doi.org/10.1093/jopart/muu009">doi:10.1093/jopart/muu009</a></aside>
+      <aside class="slip s2" style="--i:1;--fx:0;--fy:-1"><div class="src"><span class="venue">2018</span><span class="au">Herd &amp; Moynihan</span></div>
+        <p>手続きの重さは偶然ではない。法律を変えなくても、書類を重くすれば、制度を使える人は減る。</p><p class="so">だから、書類そのものの重さを測る。</p><a href="https://doi.org/10.7758/9781610448789">doi:10.7758/9781610448789</a></aside>
+      <aside class="slip s3" style="--i:2;--fx:1;--fy:-1"><div class="src"><span class="venue">JITP 2011</span><span class="au">Goodwin ほか</span></div>
+        <p>192 か国の政府のサイトを、障害のある人が使えるかという基準で、国ごとに測った。</p><p class="so">この調査も、国ごとに比べる。</p><a href="https://doi.org/10.1080/19331681.2010.508011">doi:10.1080/19331681.2010.508011</a></aside>
+      <aside class="slip s4" style="--i:3;--fx:-1;--fy:0"><div class="src"><span class="venue">IMC 2020</span><span class="au">Singanamalla ほか</span></div>
+        <p>政府のサイト 135,408 件のうち、よく見られる上位の一覧に載るのは 1 割に満たない。目立つ所だけ調べても分からない。</p><p class="so">この調査は、政府のサイトの書類から無作為に選ぶ。</p><a href="https://doi.org/10.1145/3419394.3423645">doi:10.1145/3419394.3423645</a></aside>
+      <aside class="slip s5" style="--i:4;--fx:1;--fy:0"><div class="src"><span class="venue">ASSETS 2024</span><span class="au">Kumar &amp; Wang</span></div>
+        <p>約 2 万件の論文の PDF を層に分けて選び、支援技術で読めるかを調べた。</p><p class="so">この調査も、書類を層に分けて選ぶ。</p><a href="https://doi.org/10.1145/3663548.3675634">doi:10.1145/3663548.3675634</a></aside>
+      <aside class="slip s6" style="--i:5;--fx:-1;--fy:1"><div class="src"><span class="venue">Internet Research 2009</span><span class="au">Hackett &amp; Parmanto</span></div>
+        <p>入口のページだけを調べても、サイト全体が使えるかは分からない。</p><p class="so">この調査は、入口でなく書類そのものを開く。</p><a href="https://doi.org/10.1108/10662240910927830">doi:10.1108/10662240910927830</a></aside>
+      <aside class="slip s7" style="--i:6;--fx:0;--fy:1"><div class="src"><span class="venue">W4A 2013</span><span class="au">Vigo, Brown &amp; Conway</span></div>
+        <p>自動の検査ツールだけでは、見つかる問題はおよそ 10 のうち 4。</p><p class="so">とどくは検査で終わらず、実際に書いて、変わったのが書いた所だけかを証明する。</p><a href="https://doi.org/10.1145/2461121.2461124">doi:10.1145/2461121.2461124</a></aside>
+      <aside class="slip s8" style="--i:7;--fx:1;--fy:1"><div class="src"><span class="venue">CHI 2022</span><span class="au">Fok ほか</span></div>
+        <p>312 のアプリを 16 か月追い、画像に説明（代わりの字）がない問題を調べた。</p><p class="so">とどくは、説明のない画像を、段階とは別の注意として示す。</p><a href="https://doi.org/10.1145/3491102.3502143">doi:10.1145/3491102.3502143</a></aside>
+  </div>
+  <div class="stage-ctl"><button type="button" id="op-skip">スキップ</button><button type="button" id="op-replay">もう一度</button></div>
+  <a class="cue" href="#intro">下へ ↓</a>
+</section>
 
 <div class="wrap">
+  <header class="intro" id="intro">
+    <p class="say1"><span class="nb">Claude があれば、</span><span class="nb">寝たきりも開発者になれる。</span></p>
+    <p class="say1"><span class="nb">私は、私の視点から、</span><span class="nb">自分の力で、</span><span class="nb">Claude と課題を解決する。</span></p>
+    <p class="who2">寝たきりの開発者、経営者、研究者。入力は頭のスイッチひとつ。</p>
+    <p class="prod"><span>とどく：行政書類を正確に読み書きするための MCP</span><a href="https://github.com/Ono-Katsuki/todoku" rel="noopener noreferrer">GitHub</a><a href="#h-use">使い方</a></p>
+  </header>
+
   <section aria-labelledby="h-change">
     <h2 id="h-change">実際に何が変わるか</h2>
     <div class="versus">
@@ -285,13 +427,6 @@ td .ci { display: inline-block; line-height: 1.3; }
       <p class="bnote">とどく ＋ エージェント：私が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）。</p>
       <p class="bnote">とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで 0.3 秒。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
     </details>
-    <div class="words">
-      <p class="big"><span class="nb">エージェントが全て正確に</span><span class="nb">読み書きできないと、</span><span class="nb">申請で困るのは私だからね。</span></p>
-      <p class="who">寝たきりの開発者、経営者、研究者。入力は頭のスイッチひとつ。</p>
-      <p class="say1"><span class="nb">Claude があれば、</span><span class="nb">寝たきりも開発者になれる。</span></p>
-      <p class="say1"><span class="nb">私は、私の視点から、</span><span class="nb">自分の力で、</span><span class="nb">Claude と課題を解決する。</span></p>
-      <p class="end">エージェントにとどけば、私にとどく。</p>
-    </div>
   </section>
 
   <section aria-labelledby="h-trust">
@@ -650,6 +785,19 @@ td .ci { display: inline-block; line-height: 1.3; }
 </div>
 <footer class="foot">とどく ／ Built with Claude: Japan 2026</footer>
 
+<script>
+// 冒頭の上映：スキップ（すぐ完成した形に）と、もう一度
+(() => {
+  const op = document.getElementById("opening");
+  if (!op) return;
+  document.getElementById("op-skip").addEventListener("click", () => op.classList.add("done"));
+  document.getElementById("op-replay").addEventListener("click", () => {
+    op.classList.remove("done");
+    op.querySelectorAll("*").forEach(el => { el.style.animation = "none"; void el.offsetWidth; el.style.animation = ""; });
+  });
+  setTimeout(() => op.classList.add("done"), 6600);  // 上映が終わったら「もう一度」を出す
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
 <script>
