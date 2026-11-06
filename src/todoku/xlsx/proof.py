@@ -33,6 +33,7 @@ class Proof:
     container: str = "zip"  # zip（xlsx）/ cfb（xls）
     records_total: int = 0  # xls：ブックのストリームのレコード数
     records_identical: int = 0
+    renamed_cells: set = field(default_factory=set)  # テーブルの見出しを書き換えて、構造化参照の字が変わったセル
 
     @property
     def ok(self) -> bool:
@@ -602,4 +603,5 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
         xml_bytes_total=xml_total,
         sheets_outside_identical=n_same,
         sheets_changed=n_sheets,
+        renamed_cells=renamed_cells,
     )

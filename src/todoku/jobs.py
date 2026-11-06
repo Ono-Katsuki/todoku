@@ -287,6 +287,84 @@ def start_calc(path: str, password: str | None, values: dict, cells: list, scans
     return new
 
 
+# ---------------------------------------------------------------------- 書いた後のファイルの、ブック全体の計算し直し（fill_document が未確認で返したもの）
+def _proof_key(path: str) -> str:
+    return "proof-" + job_key(path, None)
+
+
+def note_proof(path: str, original: str, seeds: list, changed: list, marked: bool) -> None:
+    """未確認で返したファイルと、確かめに要ること（セルの番地だけ。書いた値は控えに残さない）を控える。仕事は audit_document で始める。"""
+    key = _proof_key(path)
+    save(key, {"key": key, "kind": "proof", "path": path, "original": original, "seeds": [list(x) for x in seeds],
+               "changed": [list(x) for x in changed], "marked": marked})
+
+
+def proof_status(path: str) -> dict | None:
+    try:
+        return load(_proof_key(path))
+    except OSError:
+        return None
+
+
+def start_proof(path: str, password: str | None = None) -> dict:
+    """仕事を始める（動いていれば、終わっていれば、何もしない）。いまの控えを返す。"""
+    key = _proof_key(path)
+    rec = load(key) or {}
+    if rec.get("finished") or _alive(rec.get("pid")):
+        return rec
+    if rec.get("pid"):  # 止まっていた
+        rec = load(key) or rec
+        if rec.get("finished") or _gave_up(key, rec, 0):
+            return rec
+    rec.pop("stopped", None)
+    rec["started"] = rec.get("started") or time.time()
+    proc = _spawn(key)
+    rec["pid"] = proc.pid
+    save(key, rec)
+    _send(proc, {"password": password})
+    return rec
+
+
+def _run_proof(key: str, rec: dict, args: dict) -> int:
+    from .api import _read
+    from .book import open_book
+    from .xlsx.reach import from_workbook, has_full_calc_mark, whole_calc
+
+    _lower_priority()
+    rec["pid"] = os.getpid()
+    threading.Thread(target=_watch_memory, args=(key, rec), daemon=True).start()
+    try:
+        password = args.get("password")
+        b = limits.Budget(total=None)
+        b.calc_left = float("inf")
+        with limits.call_budget(b):
+            blob, name, _k, _lock = _read(rec["path"], password)
+            wb = open_book(blob, name)
+            graph = from_workbook(wb)  # 数式は元と同じ（書き込みの証明で確かめた）
+            reach = graph.reach(tuple(x) for x in rec["seeds"])
+            changed = {graph.key(*x) for x in rec["changed"]}
+
+            def original():
+                ob, on, _k2, _l2 = _read(rec["original"], password)
+                return open_book(ob, on)
+
+            calc, problems = whole_calc(wb, graph, reach, changed, rec.get("marked") or has_full_calc_mark(wb), original)
+        rec["result"] = {"calc": calc, "problems": problems[:50]}
+        rec["finished"] = time.time()
+        try:
+            import resource
+
+            rec["peak_rss_mb"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // (1 << 20 if sys.platform == "darwin" else 1 << 10)
+        except ImportError:
+            pass
+        save(key, rec)
+        return 0
+    except Exception as e:  # noqa: BLE001  仕事の失敗は、控えで伝える
+        rec["stopped"] = f"途中で問題が起きました（{type(e).__name__}）：{str(e)[:500]}"
+        save(key, rec)
+        return 1
+
+
 # ---------------------------------------------------------------------- 窓を作る仕事（open_document が時間の上限に当たったとき）
 def _window_key(path: str, encoding: str | None) -> str:
     return "win-" + job_key(path, encoding)
@@ -453,6 +531,8 @@ def run(key: str) -> int:
         return _run_calc(key, rec, args)
     if rec.get("kind") == "window":
         return _run_window(key, rec)
+    if rec.get("kind") == "proof":
+        return _run_proof(key, rec, args)
     _lower_priority()
     rec["pid"] = os.getpid()
     threading.Thread(target=_watch_memory, args=(key, rec), daemon=True).start()

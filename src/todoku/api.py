@@ -680,6 +680,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     readback_values = dict(values)  # 読み戻しで確かめる、欄の id → 書いた値
     outside_written: dict = {}  # .doc の本文の外に書いた所
     told = None  # 本人に伝える、書いた所（ほかの形式は読み戻しの値と同じ）
+    pending_proof = None  # ブック全体の計算を済ませなかった確かめ（長い仕事に渡す）
     rest_fields = None  # まだ空いている欄を数える、欄の一覧（なければ、書いた後のファイルの欄）
     try:
         before = fields(path, password, encoding)
@@ -704,6 +705,8 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         from .xlsx.edit import EditError
         from .xlsx.edit import fill as xfill
         from .xlsx.proof import prove
+        from .limits import CALC_SECONDS
+        from .xlsx.reach import add_scope, prove_whole, seeds_of
 
         circ = {k_: v for k_, v in values.items() if _is_circle(v)}
         cell_values = {k_: v for k_, v in values.items() if k_ not in circ}
@@ -731,6 +734,10 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             result.update({"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings),
                            "unexpected": pr.unexpected[:20], "structure_errors": pr.lint_errors[:20],
                            "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"}})
+            scope = prove_whole(wb, res.blob, name, seeds_of(res), pr.cell_changes, res.full_calc_on_load, CALC_SECONDS)
+            add_scope(result, scope)
+            if scope.calc.get("status") == "deferred":
+                pending_proof = scope
             # 字のセルの一部を書き換えたセル（空欄ごとの値のリスト・箱の字への true/false・字を目印にした old/new）：
             # 読み戻しと本人に伝える値は、書いた後のセルの字そのもの（true ではなく「■移動支援」）
             for key_, v_ in cell_values.items():
@@ -1157,7 +1164,11 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                                result, labels, printed, rects, said))
     else:
         result.update(_to_tell(after_list, readback_values, result, labels, printed, rects, said))
-    _publish(tmp, dst, src, overwrite, result)
+    final = _publish(tmp, dst, src, overwrite, result)
+    if pending_proof is not None and result.get("verified"):
+        from . import jobs
+
+        jobs.note_proof(str(final), str(src), pending_proof.seeds, pending_proof.changed_cells, pending_proof.marked)
     return result
 
 
@@ -1991,6 +2002,10 @@ def run_macro(path: str, macro: str, out_path: str, answers: list | None = None,
         raise ApiError(str(e)) from None
     pr = prove(blob, res.blob, res.allowed_inputs, {(p.sheet, p.address) for p in res.patches if p.kind == "control"},
                {(p.sheet, p.address) for p in res.patches if p.kind in ("macro", "input")})
+    from .limits import CALC_SECONDS
+    from .xlsx.reach import add_scope, prove_whole, seeds_of
+
+    scope = prove_whole(open_book(blob, name), res.blob, name, seeds_of(res), pr.cell_changes, res.full_calc_on_load, CALC_SECONDS)
     out_blob = res.blob
     if lock is not None:
         from .unlock import relock, unlock
@@ -2002,11 +2017,16 @@ def run_macro(path: str, macro: str, out_path: str, answers: list | None = None,
     out.update({"out_path": str(dst), "proof_ok": pr.ok, "proof": pr.headline(), "unexpected": pr.unexpected[:20],
                 "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"},
                 "warnings": res.warnings})
+    add_scope(out, scope)
     tmp = _temp_beside(dst, out_blob)
     try:
-        _publish(tmp, dst, src, overwrite, out, ok=pr.ok)
+        final = _publish(tmp, dst, src, overwrite, out, ok=bool(out["proof_ok"]))
     finally:
         tmp.unlink(missing_ok=True)
+    if scope.calc.get("status") == "deferred" and out.get("verified"):
+        from . import jobs
+
+        jobs.note_proof(str(final), str(src), scope.seeds, scope.changed_cells, scope.marked)
     return out
 
 
@@ -2024,6 +2044,40 @@ def _num_equal(a, b) -> bool:
 
 @_budgeted
 def audit(path: str, password: str | None = None, encoding: str | None = None, restart: bool = False, job: bool = False) -> dict:
+    """検査。書き込みで全体の計算を済ませていないファイルは、その確かめ（長い仕事）も始めて、結果を添える。"""
+    d = _audit(path, password, encoding, restart, job)
+    _with_written_proof(d, path, password)
+    return d
+
+
+def _with_written_proof(d: dict, path: str, password: str | None) -> None:
+    """fill_document が「未確認」と返したファイル：ブック全体の計算し直しの結果。終わるまでは、確かめたと言わない。"""
+    from . import jobs
+
+    if _member(path) is not None or jobs.proof_status(path) is None:
+        return
+    rec = jobs.start_proof(path, password)
+    if rec.get("finished"):
+        got = rec.get("result") or {}
+        bad = got.get("problems") or []
+        calc = got.get("calc") or {}
+        d["written_proof"] = {"status": "done", "recalculated": calc, "problems": bad}
+        d.setdefault("checks", []).append({"name": "書いた後の計算結果（ブック全体）", "ok": not bad, "agent": False, "items": bad[:30],
+                                           "detail": f"書いた後のファイルをブック全体で計算し直し、連動するセル {calc.get('checked', 0):,} か所のうち {calc.get('same', 0):,} か所が保存された値と一致"
+                                                     + (f"。計算できないセル {calc['cannot_calculate']:,} か所は照らしていません" if calc.get("cannot_calculate") else "")})
+        if bad:
+            d["ok"] = False
+            d["written_proof"]["note"] = "書き込んだ計算結果が、ブック全体の計算と違います。このファイルを本人に渡さないでください"
+        return
+    msg = "未確認：ブック全体を計算し直して、書き込んだ計算結果と照らすこと"
+    if rec.get("failed") or rec.get("stopped"):
+        d["written_proof"] = {"status": "stopped", "note": f"{msg}（最後まで進みませんでした：{rec.get('stopped')}）"}
+    else:
+        d["written_proof"] = {"status": "running", "progress": rec.get("progress"), "note": f"{msg}（別のプロセスで動いています。もう一度 audit_document を呼ぶと結果が分かります）"}
+    d["deferred"] = list(d.get("deferred") or []) + [msg]
+
+
+def _audit(path: str, password: str | None = None, encoding: str | None = None, restart: bool = False, job: bool = False) -> dict:
     """大きな書類は、長い仕事（jobs）として動かす：すぐ返して、進み具合と、ここまでの結果を示す。何度でも呼べて、止まっても続きから進む。
     job：大きさによらず、長い仕事として動かす（いままでの検査が時間の上限に当たったとき）。"""
     lz = lazy_open(path, password, encoding) if not job else True  # 窓の全体が予算に入らない書類は、どの形式でも長い仕事に

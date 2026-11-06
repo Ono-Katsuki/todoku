@@ -621,6 +621,7 @@ class XlsxLazy(LazyDoc):
         self.ratio = 0.25  # 窓の字 ÷ シートの XML のバイト（測って直す）
         self._fx: FormulaIndex | None = None
         self.sst_part = None
+        self._trial = False  # 検査の中の書き込みの試し（試しのファイルの確かめは残さない）
         self.est_chars = self._estimate()
 
     def close(self) -> None:
@@ -1225,6 +1226,7 @@ class XlsxLazy(LazyDoc):
         from ..xlsx.edit import EditError, _group_span_ids
         from ..xlsx.edit import fill as xfill
         from ..xlsx.proof import prove
+        from ..xlsx.reach import add_scope
         from ..xlsx.readback import check as readback_check
         from ..xlsx.workbook import sst_scope
         from ..xlsx.window import parse_span_id
@@ -1303,6 +1305,8 @@ class XlsxLazy(LazyDoc):
             if res.fit:
                 result["fit"] = list(res.fit)
                 result["warnings"] += [x["message"] for x in res.fit]
+            scope = self._prove_scope(tmp, res, pr)
+            add_scope(result, scope)
             if res.anchored:
                 result["anchored"] = dict(res.anchored)
             if opaque or warnings:
@@ -1312,9 +1316,31 @@ class XlsxLazy(LazyDoc):
             labels = {}
             _finish_fill(result, {k: shown.get(k, v) for k, v in readback_values.items()}, labels, said, tmp, dst, self.path, overwrite,
                          "list_fields に sheet と rows を渡すと、その範囲の欄と空のマスが分かります")
+            if result.get("verified") and not self._trial:
+                from .. import jobs
+
+                jobs.note_proof(result["out_path"], self.path, scope.seeds, scope.changed_cells, scope.marked)
             return result
         finally:
             tmp.unlink(missing_ok=True)
+
+    def _prove_scope(self, tmp: Path, res, pr):
+        """書いた後のファイルを開き直して、元のファイルと比べる（連動の確認）。ブック全体の計算は長い仕事に置く（未確認として返す）。"""
+        from ..xlsx.reach import files_scope, from_lazy, seeds_of
+        from ..xlsx.workbook import sst_scope
+
+        seeds = seeds_of(res)
+        with sst_scope(self.strings):
+            graph = from_lazy(self)
+        reach = graph.reach(seeds)
+        after = XlsxLazy(str(tmp), self.name)
+        try:
+            scope = files_scope(self, after, graph, reach, pr.renamed_cells)
+        finally:
+            after.close()
+        scope.note_cells(graph, seeds)
+        scope.calc = {"status": "deferred"}
+        return scope
 
     def _row_edits(self, ix: SheetIndex, old: bytes, new: bytes, unexpected: list[str]) -> list[tuple[int, int, bytes]]:
         """小さなブックのシート XML の前後を比べて、変わった行を、元のシート XML の範囲の置き換えにする。"""
@@ -1505,11 +1531,14 @@ class XlsxLazy(LazyDoc):
                 continue
             col = addr(1, ix.max_col + 1).rstrip("0123456789") if ix.max_col < 16384 else "XFD"
             key = f"{d['name']}!{col}{ix.rows[len(ix.rows) // 2]}"
+            self._trial = True
             with tempfile.TemporaryDirectory(prefix="todoku-audit-") as td:
                 try:
                     res = self.fill({key: "テスト"}, str(Path(td) / "t.xlsx"), True, True, None)
                 except ValueError as e:
                     return {"name": "書き込みの試し", "ok": False, "agent": False, "detail": f"{key} に書けませんでした：{e}", "items": []}
+                finally:
+                    self._trial = False
             return {"name": "書き込みの試し", "ok": bool(res.get("proof_ok") and res.get("read_back_ok")), "agent": False,
                     "detail": f"{key}（使っていない列）に試しの値を書き、{res.get('proof')}", "items": res.get("unexpected") or []}
         return {"name": "書き込みの試し", "ok": True, "agent": False, "detail": "書けるシートがありませんでした", "items": []}
