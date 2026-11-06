@@ -81,7 +81,18 @@ About 140,000 lines, 299 files, 4,443 tests.
 
 ## Measured on real documents
 
-Version frozen (`eval-freeze-1`), then measured on documents not used for evaluation before the freeze. Baselines include MarkItDown, openpyxl, python-docx and pdfplumber, taking the best per format. <!-- freeze-2 -->
+Version frozen (`eval-freeze-1`), then measured on documents not used for evaluation before the freeze. <!-- freeze-2 -->
+
+We surveyed 8,500 documents randomly sampled from government sites in 185 countries and regions and estimated from 1,079 of them, actually read and written. **An estimated 1.82 million documents can be written accurately**. All categories, intervals and methods are in the [portal](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH); the evaluation code is in `scripts/eval/`. <!-- freeze-2 -->
+
+- World government documents opened: **552/557** <!-- freeze-2 -->
+- Furigana (Tokyo forms): **698/713** <!-- freeze-2 -->
+- Character recall on legacy Word .doc (Tokyo forms): **1.0** <!-- freeze-2 -->
+
+<details>
+<summary>Comparison with baselines (a development yardstick)</summary>
+
+Baselines include MarkItDown, openpyxl, python-docx and pdfplumber, taking the best per format. <!-- freeze-2 -->
 
 | | todoku | Baselines |
 |---|---|---|
@@ -90,7 +101,7 @@ Version frozen (`eval-freeze-1`), then measured on documents not used for evalua
 | Text in shapes and text boxes (world, excluding .doc) | **253/333** | 220/333 <!-- freeze-2 --> |
 | Character recall on legacy Word .doc (Tokyo forms) | **1.0** | 0.0 <!-- freeze-2 --> |
 
-We surveyed 8,500 documents randomly sampled from government sites in 185 countries and regions and estimated from 1,079 of them, actually read and written. **An estimated 1.82 million documents can be written accurately**. All categories, intervals and methods are in the [portal](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH); the evaluation code is in `scripts/eval/`. <!-- freeze-2 -->
+</details>
 
 ## Who built this
 

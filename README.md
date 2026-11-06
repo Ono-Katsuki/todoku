@@ -81,7 +81,18 @@ ROUNDDOWN(ROUND(L × P, 0), 0) × AA
 
 ## 実物で測った
 
-版を固定し（`eval-freeze-1`）、固定まで評価に使わなかった書類で測定した。比較対象は MarkItDown・openpyxl・python-docx・pdfplumber など、形式ごとの最良値。 <!-- freeze-2 -->
+版を固定し（`eval-freeze-1`）、固定まで評価に使わなかった書類で測定した。 <!-- freeze-2 -->
+
+185 の国と地域の政府サイトから無作為に 8,500 件を抽出して調査し、うち 1,079 件を実際に読み書きして推定した。**正確に書ける文書は推定約 182 万件**。全カテゴリの表・区間・方法は [ポータル](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)、評価コードは `scripts/eval/`。 <!-- freeze-2 -->
+
+- 世界の行政書類を開けた：**552/557** <!-- freeze-2 -->
+- ふりがな（都・多摩）：**698/713** <!-- freeze-2 -->
+- 古い Word .doc の字（都・多摩）：**1.0** <!-- freeze-2 -->
+
+<details>
+<summary>比べる道具との比較（開発の物差し）</summary>
+
+比較対象は MarkItDown・openpyxl・python-docx・pdfplumber など、形式ごとの最良値。 <!-- freeze-2 -->
 
 | | とどく | 比べる道具 |
 |---|---|---|
@@ -90,7 +101,7 @@ ROUNDDOWN(ROUND(L × P, 0), 0) × AA
 | 図形・テキストボックスの字（世界・.doc を除く） | **253/333** | 220/333 <!-- freeze-2 --> |
 | 古い Word .doc の字（都・多摩） | **1.0** | 0.0 <!-- freeze-2 --> |
 
-185 の国と地域の政府サイトから無作為に 8,500 件を抽出して調査し、うち 1,079 件を実際に読み書きして推定した。**正確に書ける文書は推定約 182 万件**。全カテゴリの表・区間・方法は [ポータル](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)、評価コードは `scripts/eval/`。 <!-- freeze-2 -->
+</details>
 
 ## 作った人
 

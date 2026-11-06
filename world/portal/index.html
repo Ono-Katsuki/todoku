@@ -722,7 +722,7 @@ td .ci { display: inline-block; line-height: 1.3; }
       <tbody>
 <tr><td>とどくで通る</td><td class="num">2,196,131<br><span class="ci">1,862,792〜2,499,442</span></td><td class="num">1,822,350<br><span class="ci">1,515,378〜2,122,403</span></td></tr>
 <tr><td>比べる道具のどれかで通る</td><td class="num">2,458,866<br><span class="ci">1,922,916〜2,878,899</span></td><td class="num">1,840,925<br><span class="ci">1,547,590〜2,127,105</span></td></tr>
-<tr><td>とどくだけ通る（新しく届く）</td><td class="num">34,563<br><span class="ci">17,366〜61,435</span></td><td class="num">76,953<br><span class="ci">38,896〜135,667</span></td></tr>
+<tr><td>とどくで通り、比べる道具では通らない</td><td class="num">34,563<br><span class="ci">17,366〜61,435</span></td><td class="num">76,953<br><span class="ci">38,896〜135,667</span></td></tr>
 <tr><td>比べる道具だけ通る</td><td class="num">297,298<br><span class="ci">57,270〜824,918</span></td><td class="num">95,528<br><span class="ci">32,447〜214,266</span></td></tr>
       </tbody>
     </table></div>
@@ -988,7 +988,7 @@ window.TODOKU_I18N = (() => {
     [`答えられるのに空いていた所`, `Left empty though answerable`], [`1 通の平均の時間`, `Average time per 1 form`], [`162 秒`, `162 s`], [`124 秒`, `124 s`],
     [`記入済みの数の差は統計的に区別できません（両方が記入済み 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9。McNemar の正確検定 p = 1.0）。とどくの価値は、数を増やすことより、書いたものを証明できることにあります。確認役には、どちらの結果かを伏せました。`, `The difference in completed counts is not statistically distinguishable (both completed 8, todoku only 2, plain Claude Code only 1, neither 9; McNemar exact test p = 1.0). todoku's value lies in proving what was written, more than in raising the count. The reviewer was blinded to which result was which.`],
     [`世界の数（同じ定義で実際に試した 1,079 件から推定）`, `World counts (estimated from 1,079 documents actually tried under the same definition)`],
-    [`とどくで通る`, `Pass with todoku`], [`比べる道具のどれかで通る`, `Pass with any comparison tool`], [`とどくだけ通る（新しく届く）`, `Pass with todoku only (newly reachable)`], [`比べる道具だけ通る`, `Pass with comparison tools only`],
+    [`とどくで通る`, `Pass with todoku`], [`比べる道具のどれかで通る`, `Pass with any comparison tool`], [`とどくで通り、比べる道具では通らない`, `Pass with todoku, not with any comparison tool`], [`比べる道具だけ通る`, `Pass with comparison tools only`],
     [`区間は 95%。国ごとの標本は少なく、国の数は目安です。比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。「比べる道具だけ通る」の読むの 57% は、基準をわずかに下回った 1 件の書類の重みです。読むの 1 件（大きな Excel）は採点が終わらず、とどくも比べる道具も通らないと数えました。とどくはこの数に加えて、変わったのが書いた所だけと証明します。`, `Intervals are 95%. Per-country samples are small, so country counts are rough. A document counts as “pass” for comparison tools if any 1 tool passes it (a count favorable to the comparison tools). 57% of “Pass with comparison tools only” under Read is the weight of 1 document that fell just below the threshold. 1 Read document (a large Excel file) did not finish scoring and was counted as passing neither todoku nor the comparison tools. On top of these counts, todoku proves that only the written places changed.`],
     [`実験の条件`, `Experimental conditions`],
     [`道具の版：markitdown 0.1.9・openpyxl 3.1.5・pypdf 6.21.4・pdfplumber 0.11.10・python-docx 1.2.0・xlrd 2.0.2。正解は Poppler 26.10.0・LibreOffice 26.8.1・Excel 16.114・ファイルの XML から作りました（書類ごとに記録）。Word は動かしていません。`, `Tool versions: markitdown 0.1.9, openpyxl 3.1.5, pypdf 6.21.4, pdfplumber 0.11.10, python-docx 1.2.0, xlrd 2.0.2. Ground truth was built from Poppler 26.10.0, LibreOffice 26.8.1, Excel 16.114 and the files' XML (recorded per document). Word was not run.`],
@@ -1120,9 +1120,7 @@ window.TODOKU_I18N = (() => {
     write_ok: { label: "書ける書類の割合", note: "取りに行けた書類のうち、エージェントがとどくで書けるもの（書く段階 A・B。B は、規則では欄と決められない所を、エージェントが窓を読んで決めて書くもの）。" },
     forms_writable: { label: "申請の様式に書ける割合", note: "入力欄のある申請の様式のうち、エージェントが書けるもの（画面からの入力や手書き・押印が要らない。書く段階 A・B）。" },
     read_count: { label: "正確に読める書類の数（推定）", path: ["read", "reach"], note: "同じ定義で実際に読んで試した書類から推定。" },
-    read_new: { label: "読むで新しく届く書類の数（推定）", path: ["read", "new"], note: "比べた道具のどれでも通らず、とどくで通る分。" },
     write_count: { label: "正確に書ける書類の数（推定）", path: ["write", "reach"], note: "同じ定義で実際に書いて試した書類から推定。書く欄のない書類は書けないと数えます。" },
-    write_new: { label: "書くで新しく届く書類の数（推定）", path: ["write", "new"], note: "比べた道具のどれでも通らず、とどくで通る分。" },
     reach: { label: "取得できる書類の割合", note: "選んだ書類のうち、全体を取得できたもの（Common Crawl の保存から。保存が途中で切れていたものは、政府のサイトから取り直した）。" },
   };
   const METRIC_EN = {
@@ -1130,9 +1128,7 @@ window.TODOKU_I18N = (() => {
     write_ok: { label: "Share of documents writable", note: "Of the documents that could be fetched, those agents can write with todoku (write grades A, B. B means the agent reads the window and decides places rules cannot decide)." },
     forms_writable: { label: "Share of application forms writable", note: "Of application forms with input fields, those agents can write (no screen entry, handwriting or seal needed; write grades A, B)." },
     read_count: { label: "Count of documents read accurately (estimate)", note: "Estimated from documents actually read under the same definition." },
-    read_new: { label: "Documents newly reachable for reading (estimate)", note: "Those passing with todoku and with none of the compared tools." },
     write_count: { label: "Count of documents written accurately (estimate)", note: "Estimated from documents actually written under the same definition. Documents with no fields to write count as not writable." },
-    write_new: { label: "Documents newly reachable for writing (estimate)", note: "Those passing with todoku and with none of the compared tools." },
     reach: { label: "Share of documents retrievable", note: "Of the sampled documents, those retrieved whole (from Common Crawl's saved copies; truncated copies were re-fetched from the government site)." },
   };
   const metricText = () => (isEn() ? METRIC_EN : METRIC)[metric];
@@ -1279,8 +1275,8 @@ window.TODOKU_I18N = (() => {
          <dt>${tr("読む S〜B", "Read S–B")}</dt><dd>${pct(c.read_ok.p)} <span class="ci">${ci(c.read_ok.ci)}</span></dd>
          <dt>${tr("書く A・B", "Write A, B")}</dt><dd>${pct(c.write_ok.p)} <span class="ci">${ci(c.write_ok.ci)}</span></dd>
          <dt>${tr("様式に書く", "Forms writable")}</dt><dd>${pct(c.forms_writable.p)} <span class="ci">${ci(c.forms_writable.ci)}</span>${tr(`（様式 ${c.forms_writable.n} 件）`, ` (${c.forms_writable.n} forms)`)}</dd>
-         ${c.counts ? tr(`<dt>読む：正確に／新しく</dt><dd>${c.counts.read.reach.toLocaleString()}／${c.counts.read.new.toLocaleString()} 件</dd><dt>書く：正確に／新しく</dt><dd>${c.counts.write.reach.toLocaleString()}／${c.counts.write.new.toLocaleString()} 件</dd>`,
-           `<dt>Read: accurate / new</dt><dd>${c.counts.read.reach.toLocaleString()} / ${c.counts.read.new.toLocaleString()} documents</dd><dt>Write: accurate / new</dt><dd>${c.counts.write.reach.toLocaleString()} / ${c.counts.write.new.toLocaleString()} documents</dd>`) : ""}
+         ${c.counts ? tr(`<dt>正確に読める</dt><dd>${c.counts.read.reach.toLocaleString()} 件</dd><dt>正確に書ける</dt><dd>${c.counts.write.reach.toLocaleString()} 件</dd>`,
+           `<dt>Read accurately</dt><dd>${c.counts.read.reach.toLocaleString()} documents</dd><dt>Written accurately</dt><dd>${c.counts.write.reach.toLocaleString()} documents</dd>`) : ""}
        </dl>
        <div style="font-size:.78rem;color:var(--muted)">${tr("読む段階", "Read grade")}</div>${stackHtml(c.read, READ, "g", readNames())}${stackLabels(c.read, READ, "g", readNames())}
        <div style="font-size:.78rem;color:var(--muted)">${tr("書く段階", "Write grade")}</div>${stackHtml(c.write, WRITE, "w", writeNames())}${stackLabels(c.write, WRITE, "w", writeNames())}
