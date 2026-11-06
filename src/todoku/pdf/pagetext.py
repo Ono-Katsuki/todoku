@@ -545,6 +545,7 @@ def make_lines(chars: list[Ch], overlaps: list | None = None) -> list[Line]:
                     continue
             rows.append([c])
             total, biggest = c.base, c.size
+        rows = [sub for row in rows for sub in _split_stacked(row, vertical)]
         for row in rows:
             row.sort(key=lambda c: c.y0 if vertical else c.x0)
             parts = _split_overprinted(row)
@@ -566,6 +567,35 @@ def make_lines(chars: list[Ch], overlaps: list | None = None) -> list[Line]:
     top = min(ln.y0 for ln in ver_l)
     k = next((i for i, ln in enumerate(hor_l) if ln.y0 > top), len(hor_l))
     return hor_l[:k] + ver_l + hor_l[k:]
+
+
+def _split_stacked(row: list[Ch], vertical: bool) -> list[list[Ch]]:
+    """行の帯（いちばん大きな字で決まる）に入った、上下に積まれた別の行を分ける。大きな見出しの横に小さな字の 2 行があると、基準線の違う字が
+    同じ帯に入り、字が 1 字ずつ交互に混ざる（「ADYEU NATAS…」）。1 つの行の字は送りの向きに進むので、送りの向きで大きく重なって基準線の違う
+    字は、同じ行の字ではない。そういう字があるときだけ、字ごとの大きさで行に分け直す。"""
+    if len(row) < 2:
+        return [row]
+    at = (lambda c: (c.y0, c.y1)) if vertical else (lambda c: (c.x0, c.x1))
+    ink = sorted((c for c in row if not c.text.isspace() and not all(_is_mark(ch) for ch in c.text)), key=at)
+
+    def stacked(a: Ch, b: Ch) -> bool:
+        (a0, a1), (b0, b1) = at(a), at(b)
+        inter = min(a1, b1) - max(a0, b0)
+        return inter > 0.5 * max(1e-6, min(a1 - a0, b1 - b0)) and abs(a.base - b.base) > 0.45 * min(a.size, b.size)
+
+    if not any(stacked(a, b) for a, b in zip(ink, ink[1:])) and not any(stacked(a, b) for a, b in zip(ink, ink[2:])):
+        return [row]
+    out: list[list[Ch]] = []
+    for c in sorted(row, key=lambda c: (c.base, at(c)[0])):
+        if out:
+            last = out[-1]
+            ref = sum(x.base for x in last) / len(last)
+            size = sum(x.size for x in last) / len(last)
+            if abs(c.base - ref) <= 0.45 * min(size, c.size):
+                last.append(c)
+                continue
+        out.append([c])
+    return out
 
 
 def _clash(a: Ch, b: Ch) -> bool:
