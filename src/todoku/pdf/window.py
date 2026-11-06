@@ -132,6 +132,36 @@ def _widget_mark(f: FormField, w: Widget) -> str:
     return f"［{f.name}＝{v}］" if v not in (None, "") else f"［{f.name}］"
 
 
+def _face_text(doc: PdfDocument, f: FormField, w: Widget) -> str:
+    """欄の面に描かれた、値ではない字（ボタンの字・電子署名の印の字）。ページに見えている字なので、読み順にも出す。"""
+    if f.kind not in ("button", "signature"):
+        return ""
+    if f.kind == "button" and w.mk_caption:
+        return " " + w.mk_caption
+    from .glyphs import appearance_text, widget_appearance
+    from .objects import Stream
+
+    got: list[str] = []
+    seen: set[int] = set()
+
+    def walk(st, depth: int) -> None:
+        if not isinstance(st, Stream) or depth > 8 or id(st) in seen:
+            return
+        seen.add(id(st))
+        got.append(appearance_text(doc, st)[0])
+        res = doc.resolve(st.dict.get("Resources"))
+        xo = doc.resolve(res.get("XObject")) if isinstance(res, dict) else None
+        for x in (xo.values() if isinstance(xo, dict) else ()):
+            walk(doc.resolve(x), depth + 1)
+
+    try:
+        walk(widget_appearance(doc, doc.resolve(w.ref) if w.ref is not None else None), 0)
+    except Exception:  # noqa: BLE001  面の字が読めないだけ（欄の印は出す）
+        return ""
+    text = " ".join(" ".join(got).split())
+    return f" {text}" if text else ""
+
+
 def _unseen_mark(f: FormField, w: Widget) -> str:
     """画面にも紙にも出ない部品・紙に印刷されない部品：窓の欄の印のすぐ後ろに「［name：画面にも紙にも出ない］」と出す。"""
     gone, unprinted = f.visibility([w])
@@ -324,7 +354,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             for _, f, w in sorted(it.marks, key=lambda m: m[0]):
                 if f.name in names.values():
                     continue  # 配置から見つけた欄として、値つきで出した
-                t = (t + " " if t else "") + _widget_mark(f, w) + _unseen_mark(f, w)
+                t = (t + " " if t else "") + _widget_mark(f, w) + _unseen_mark(f, w) + _face_text(doc, f, w)
             if t.strip():
                 parts.append(t.strip())
         if parts:

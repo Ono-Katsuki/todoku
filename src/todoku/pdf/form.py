@@ -138,6 +138,10 @@ class FormField:
             return decode_text(v)
         if isinstance(v, list):
             return [decode_text(x) if isinstance(x, (bytes, PdfString)) else getattr(x, "name", x) for x in v]
+        if isinstance(v, dict) and self.kind == "signature":
+            # 電子署名の辞書：人の読む項目だけ（/Contents・/ByteRange は検証のためのバイト列で、字ではない）
+            said = [(k, v.get(k)) for k in ("Name", "M", "Reason", "Location", "ContactInfo")]
+            return "・".join(f"{k} {decode_text(x)}" for k, x in said if isinstance(x, (bytes, PdfString)) and decode_text(x)) or None
         return v
 
     @property
