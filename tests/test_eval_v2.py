@@ -592,3 +592,17 @@ def test_estimator_reproduces_published_numbers():
     for cc, c in frag["countries"].items():
         assert c["counts"] == real["countries"][cc]["counts"], cc
     assert RN.film_counts(res, "final")["world_point"] == 1822350
+
+
+def test_jp_forms_page_list_fixed_and_refusal_rule():
+    spec = importlib.util.spec_from_file_location("jp_forms_v2", V2 / "jp_forms.py")
+    jf = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(jf)
+    pages = [ln.split("\t") for ln in jf.PAGES.read_text(encoding="utf-8").splitlines() if not ln.startswith("#")]
+    assert {p[2] for p in pages} == {"www.pref.fukushima.lg.jp", "www.city.akita.lg.jp", "www.city.fukuoka.lg.jp", "www.city.kashiwa.lg.jp"}
+    assert not ({p[2] for p in pages} & jf.seen_hosts([]))
+    for why in ("robots", "captcha", "login", "http_403", "http_429", "http_401"):
+        assert jf.REFUSED.match(why)
+    assert not jf.REFUSED.match("http_404")
+    html = b'<a href="a.pdf">x</a><a href="/b.XLSX">y</a><a href="c.html">z</a>'
+    assert jf.links_of("https://x.example/d/p.html", html, "text/html") == ["https://x.example/b.XLSX", "https://x.example/d/a.pdf"]
