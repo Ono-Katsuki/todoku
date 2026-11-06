@@ -115,6 +115,7 @@ class Ch:
     invisible: bool
     legacy: bool = False  # Unicode でない符号の書体の字
     seq: int = -1  # 描いた順（ページの描画の命令の中の何番目の字か）
+    upward: bool = False  # 下から上へ進む字（左へ90度回した字。余白に回して印刷した字など）。行としては縦で、読む順は下から
 
     @property
     def cx(self) -> float:
@@ -210,14 +211,12 @@ def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges:
         fr = glyph_frame(g, view)
         ox, oy, ux, uy, _w = fr
         vertical = abs(uy) > abs(ux) * 1.5
-        if vertical and uy < 0:
-            vertical = False  # 下から上へ進む字（左へ90度回した字）も、行としては横に扱わない
         base = (x0 + x1) / 2 if vertical else oy
         if g.size < 0.5 or x1 - x0 > view.width * 2 or y1 - y0 > view.height * 2:
             if dropped is not None:
                 dropped.append(("size", g.text))
             continue
-        c = Ch(g.text, x0, y0, x1, y1, max(g.size, 1.0), vertical, base, g.invisible, g.legacy, seq)
+        c = Ch(g.text, x0, y0, x1, y1, max(g.size, 1.0), vertical, base, g.invisible, g.legacy, seq, upward=vertical and uy < 0)
         # 同じ字を同じ位置に重ねたもの（太字に見せる重ね書き、色の層）は1字にする
         kx, ky = int(ox // cell), int(oy // cell)
         dup = None  # 重ね書きとした前の字
@@ -526,8 +525,9 @@ def make_lines(chars: list[Ch], overlaps: list | None = None) -> list[Line]:
     """overlaps：違う字が重なって描かれた行（2つの行を重ねて印刷したもの）を、分けた行の組で受け取る。"""
     out: list[Line] = []
     hor = [c for c in chars if not c.vertical]
-    ver = [c for c in chars if c.vertical]
-    for vertical, group in ((False, hor), (True, ver)):
+    ver = [c for c in chars if c.vertical and not c.upward]
+    up = [c for c in chars if c.vertical and c.upward]
+    for vertical, group in ((False, hor), (True, ver), (True, up)):
         if not group:
             continue
         group.sort(key=lambda c: (c.base, c.x0 if not vertical else c.y0))
@@ -547,11 +547,11 @@ def make_lines(chars: list[Ch], overlaps: list | None = None) -> list[Line]:
             total, biggest = c.base, c.size
         rows = [sub for row in rows for sub in _split_stacked(row, vertical)]
         for row in rows:
-            row.sort(key=lambda c: c.y0 if vertical else c.x0)
+            row.sort(key=lambda c: (-c.y1 if c.upward else c.y0) if vertical else c.x0)
             row[:] = _marks_after_bases(row, vertical)
             parts = _split_overprinted(row)
             if len(parts) > 1:
-                made = [_line(sorted(p, key=lambda c: c.y0 if vertical else c.x0), vertical) for p in parts]
+                made = [_line(sorted(p, key=lambda c: (-c.y1 if c.upward else c.y0) if vertical else c.x0), vertical) for p in parts]
                 for ln in made:
                     ln.overprint = id(made)  # 重ねて描かれた行の組（窓では「／」で区切る）
                 if overlaps is not None:
@@ -793,9 +793,12 @@ def _line(row: list[Ch], vertical: bool, stacked: bool = False) -> Line:
         if prev is not None:
             a1 = prev.y1 if vertical else prev.x1
             b0 = c.y0 if vertical else c.x0
+            if c.upward:  # 下から上へ読む行：前の字の上端から、次の字の下端までが空き。向きをそろえて測る
+                a1, b0 = -prev.y0, -c.y1
             gap = b0 - a1
             sz = max(prev.size, c.size)
-            had_space = any((x.cy if vertical else x.cx) > a1 - 0.5 and (x.cy if vertical else x.cx) < b0 + 0.5 for x in spaces)
+            had_space = any((-x.cy if c.upward else x.cy if vertical else x.cx) > a1 - 0.5 and (-x.cy if c.upward else x.cy if vertical else x.cx) < b0 + 0.5
+                            for x in spaces)
             cjk = _is_cjk(prev.text[-1:]) or _is_cjk(c.text[:1])
             em = min(prev.size, c.size)  # 和字の空白 1 字ぶんの幅（1 em）：両どなりの字の小さい方の大きさ
             if stacked:
