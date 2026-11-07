@@ -25,7 +25,7 @@ $ head -c 110831 hino_yogu_filled.pdf | cmp - hino_yogu.pdf && echo 一致
 
 ## 30 秒で入れる
 
-Claude Code で実行する（[uv](https://docs.astral.sh/uv/) が必要）。
+Claude Code で実行する（[uv](https://docs.astral.sh/uv/) が必要。対応する環境は macOS と Linux）。
 
 ```text
 /plugin marketplace add Ono-Katsuki/todoku

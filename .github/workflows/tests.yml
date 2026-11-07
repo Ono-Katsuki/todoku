@@ -1,4 +1,4 @@
-# テスト：Linux・macOS・Windows × Python の版。
+# テスト：Linux・macOS × Python の版（Windows はサポート外）。
 # corpus/（集めた公開の様式。再配布しないので git にない）を使うテストは、印 corpus で飛ばし、その数を報告する。
 # Linux では Noto の書体と hb-shape（HarfBuzz）を入れて、字の組み立て・埋め込みのテストも動かす。
 name: tests
@@ -23,7 +23,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # 対応する環境は macOS と Linux（Windows はサポート外）
+        os: [ubuntu-latest, macos-latest]
         # pyproject.toml の requires-python が許さない版は、下の「版の確かめ」で飛ばす（制限を緩めれば、そのまま動く）
         python: ["3.11", "3.12", "3.13"]
     defaults:

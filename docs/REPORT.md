@@ -98,7 +98,7 @@ MCP サーバーと、申請書を探して記入するときの進め方（ス�
    curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
 
-   （Homebrew なら `brew install uv`。Windows は PowerShell で `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`）
+   （Homebrew なら `brew install uv`。対応する環境は macOS と Linux で、Windows はサポート外）
 
    初回に uv が Python 3.11（約 30 MB）をダウンロードする。インターネットにつながらない所で使うなら、
    つながる所で先に `uv python install 3.11` を実行する。
@@ -153,7 +153,7 @@ MCP サーバーと、申請書を探して記入するときの進め方（ス�
 
 MCP サーバーは、道具の呼び出しを別のプロセス（働き手）で動かす。1 回の呼び出しに時間とメモリの上限を置く（`TODOKU_TIME_LIMIT`・`TODOKU_MEMORY_LIMIT_MB`）。超えたら働き手を止めて、そう返す。
 
-- **Windows**：この分け方（パイプの受け渡し）が使えないので、サーバーの中で動かす。上限は展開・描画・項目の予算（`TODOKU_MAX_ITEMS`）と、時間とメモリを見る見張りのスレッドだ。Python の処理の切れ目で止めるので、C の中の 1 回の処理の途中では止まらない。コマンドラインも同じ予算で動く。
+- **Windows（サポート外）**：この分け方（パイプの受け渡し）が使えないので、サーバーの中で動かす。上限は展開・描画・項目の予算（`TODOKU_MAX_ITEMS`）と、時間とメモリを見る見張りのスレッドだ。Python の処理の切れ目で止めるので、C の中の 1 回の処理の途中では止まらない。コマンドラインも同じ予算で動く。
 - **macOS**：メモリの上限 RLIMIT_AS が効かない。長い呼び出しは、働き手のメモリを `ps` で外からも見張る。`ps` が使えるかはサーバーの起動時に一度確かめる。使えない環境では、その見張りが効かず働き手の中の見張りだけになることを知らせる。
 - **Linux**：`ps` が使えなくても RLIMIT_AS は効く。止まるのは外からの常駐メモリの見張りだけだ。
 
@@ -458,7 +458,7 @@ PropList.txt・字の文字の種類 Scripts.txt）だけを、版つきの小�
 - **印 `fonts`**：パソコンの書体（字の組み立て・埋め込み）や `hb-shape`（HarfBuzz）を使うテスト。なければ理由をつけて飛ばす。
   Linux では `fonts-noto-core`・`fonts-dejavu-core`・`libharfbuzz-bin` を入れると動く（書体は `TODOKU_PDF_FONT`・
   `TODOKU_PDF_FONT_ARABIC` などでも指せる）。
-- **CI**（`.github/workflows/tests.yml`）：Linux・macOS・Windows × Python 3.11（3.12・3.13 は `requires-python` が許せば動く）で
+- **CI**（`.github/workflows/tests.yml`）：Linux・macOS × Python 3.11・3.12・3.13 で
   `uv run pytest -q` を動かし、MCP サーバーが `.mcp.json` とプラグインの起動のしかたで立ち上がって `initialize`・`tools/list` に
   答えるかを確かめる（`.github/scripts/mcp_smoke.py`）。数の内訳はジョブの Summary に出る。
 

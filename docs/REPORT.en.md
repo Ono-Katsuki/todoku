@@ -98,7 +98,7 @@ The plugin brings the MCP server and the skill `shinsei`, the workflow for findi
    curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
 
-   (With Homebrew: `brew install uv`. On Windows, in PowerShell: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`.)
+   (With Homebrew: `brew install uv`. Supported on macOS and Linux; Windows is not supported.)
 
    On first run, uv downloads Python 3.11 (about 30 MB). To work offline, run `uv python install 3.11` first while connected.
 2. Install the plugin inside Claude Code.
@@ -151,7 +151,7 @@ The same operations are available from the command line (`uv run todoku --help`)
 
 The MCP server runs tool calls in a separate process (a worker). Each call has time and memory limits (`TODOKU_TIME_LIMIT`, `TODOKU_MEMORY_LIMIT_MB`). Past a limit, the worker is stopped and the call says so.
 
-- **Windows:** this split (passing pipes) is unavailable, so calls run inside the server. The limits are the budgets for inflating, rendering and items (`TODOKU_MAX_ITEMS`) plus a watchdog thread for time and memory. It stops at Python-level boundaries, so it does not interrupt a single operation inside C. The command line runs on the same budgets.
+- **Windows (not supported):** this split (passing pipes) is unavailable, so calls run inside the server. The limits are the budgets for inflating, rendering and items (`TODOKU_MAX_ITEMS`) plus a watchdog thread for time and memory. It stops at Python-level boundaries, so it does not interrupt a single operation inside C. The command line runs on the same budgets.
 - **macOS:** the memory limit RLIMIT_AS is not enforced. Long calls also have their worker's memory watched from outside with `ps`. Whether `ps` works is checked once at server startup. Where it does not, the server reports that this watch is off and only the worker's internal watchdog remains.
 - **Linux:** RLIMIT_AS is enforced even without `ps`. Only the external resident-memory watch stops.
 
@@ -455,7 +455,7 @@ PropList.txt, scripts in Scripts.txt) is held in small versioned tables (`chars.
 - **Mark `fonts`:** tests using the computer's fonts (shaping, embedding) or `hb-shape` (HarfBuzz). Skipped with a reason when absent.
   On Linux, `fonts-noto-core`, `fonts-dejavu-core` and `libharfbuzz-bin` enable them (fonts can also be set with `TODOKU_PDF_FONT`,
   `TODOKU_PDF_FONT_ARABIC` and others).
-- **CI** (`.github/workflows/tests.yml`): Linux, macOS and Windows × Python 3.11 (3.12 and 3.13 run if `requires-python` allows) run
+- **CI** (`.github/workflows/tests.yml`): Linux and macOS × Python 3.11, 3.12 and 3.13 run
   `uv run pytest -q`, and check that the MCP server starts as `.mcp.json` and the plugin start it and answers `initialize` and `tools/list`
   (`.github/scripts/mcp_smoke.py`). The count breakdown appears in the job Summary.
 
