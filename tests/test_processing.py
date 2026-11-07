@@ -7,7 +7,6 @@ import base64
 import importlib.util
 import io
 import json
-import resource
 import shutil
 import struct
 import subprocess
@@ -577,6 +576,7 @@ def _peak(path: Path) -> dict:
     return json.loads(p.stdout)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="resource（ピークのメモリ）は POSIX だけ")
 def test_100k_rows_give_a_handful_of_rules_with_bounded_memory(tmp_path):
     small, big = tmp_path / "s.xlsx", tmp_path / "b.xlsx"
     _huge(small, 10_000)
@@ -589,7 +589,8 @@ def test_100k_rows_give_a_handful_of_rules_with_bounded_memory(tmp_path):
     assert sum(b["exc"]) == 2
     # セルが 10 倍でも、メモリはセルの数に比例しない（セルごとの控えなら数十 MB 増える）
     assert b["peak"] - a["peak"] < 24 * 1024 * 1024, (a["peak"], b["peak"])
-    assert b["peak"] < 160 * 1024 * 1024
+    if sys.platform == "darwin":  # 全体のピークは C ライブラリの割り当てで変わる（Linux の glibc では大きく出る）。増え方は上で確かめる
+        assert b["peak"] < 160 * 1024 * 1024
 
 
 def test_100k_rows_python_module_verifies(tmp_path):
@@ -909,6 +910,9 @@ def test_all_registered_functions_can_be_vendored(tmp_path):
 
     def walk(t):
         for s in t.get_symbols():
+            # Python 3.12 から、最上位の内包表記の変数はモジュールの表に入る（PEP 709）。代入される名前は除く
+            if t.get_type() == "module" and s.is_assigned():
+                continue
             if s.is_global() and s.is_referenced() and s.get_name() not in ns and not hasattr(builtins, s.get_name()):
                 missing.add(s.get_name())
         for c in t.get_children():

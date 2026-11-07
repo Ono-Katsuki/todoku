@@ -82,6 +82,7 @@ Features measured on `eval-freeze-1` (documents not used in development; all tab
 - **Read grades that are too kind:** 19 documents graded S or A missed the accuracy bar: 5 Arabic PDFs (all characters present, bigrams .89–.97; baselines .47–.63), 4 .ods/.odt, 3 PDFs with text in images (one with character recall 0.2 graded A), 7 just under the bar (.989–.995).
 - **Excel calculation:** full recalculation uses the same calculator as writing (checked against real Excel on 3 input variations, 306 cells). Functions with undetermined dependencies such as `INDIRECT`, `OFFSET`, `TODAY` are only counted. The big-workbook path was tried on 3 real files and on no .xlsm. A big-workbook failure after writing leaves the file name in place. Id collisions between same-named checkboxes are unchecked.
 - **105,256 cells:** the Niigata form is blank, so 87% of the results are empty values. 13,815 cells hold values, and all cells matched, empty ones included.
+- **Shaping limits:** a character missing from the font (such as "." in a Thai font) is refused rather than taken from another font. The Arabic lam-alef ligature is not formed with some font versions (seen with Noto Sans Arabic on Ubuntu).
 - **Countries and regions not measured (10):** Central African Republic, North Korea, Eritrea, Eswatini, Gabon, Guinea-Bissau, Micronesia, São Tomé and Príncipe, Tuvalu, Vanuatu. No government documents were found in the crawl. 247 strata with 50 or fewer candidates in the 161 countries are also unmeasured.
 
 ## Usage: as an MCP server

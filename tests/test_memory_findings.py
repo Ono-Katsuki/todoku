@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("fcntl", reason="評価の道具は POSIX（fcntl）を使う。Windows では動かさない")
+
 from todoku import api, limits
 from todoku.limits import Budget, LimitExceeded, call_budget
 

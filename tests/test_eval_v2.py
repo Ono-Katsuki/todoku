@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("fcntl", reason="評価の道具は POSIX（fcntl）を使う。Windows では動かさない")
+
 V2 = Path(__file__).resolve().parents[1] / "scripts" / "eval" / "v2"
 sys.path.insert(0, str(V2))
 for m in ("common", "truth", "read_compare", "runner", "stage2_select", "write_compare", "make_signed"):  # v1 と同じ名前の部品が先に読まれていれば外す
@@ -337,8 +339,8 @@ def test_nice_prefix_at_nice_20():
     assert r.returncode == 0, r.stderr
     assert r.stdout.split("\n")[:2] == ["[]", "ok"]
     v1 = subprocess.run(["nice", "-n", "20", sys.executable, "-I", "-c", "import os; os.nice(0)"], capture_output=True, text=True, timeout=30)
-    if sys.platform == "darwin":
-        assert "Operation not permitted" in v1.stderr  # 根本の原因の再現（macOS）
+    if sys.platform == "darwin" and v1.returncode:
+        assert "Operation not permitted" in v1.stderr  # 根本の原因の再現（macOS。権限のある環境では起きない）
 
 
 def test_run_watched_survives_killpg_eperm(monkeypatch):

@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("fcntl", reason="評価の道具は POSIX（fcntl）を使う。Windows では動かさない")
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "eval"))
 from common import betainc, clopper_pearson, doc_id, guard_path, korn_graubard  # noqa: E402
 
