@@ -6,7 +6,9 @@
 
 行政書類を AI エージェントが正確に読み書きするための MCP サーバー。`dependencies = []`。Office も LibreOffice も不要。
 
-**[ポータル：世界の調査と全結果](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)**
+[![とどく デモ動画（3 分・字幕つき）](https://img.youtube.com/vi/zB95Q_jUq5A/maxresdefault.jpg)](https://youtu.be/zB95Q_jUq5A)
+
+**[デモ動画（3 分・日本語と英語の字幕つき）](https://youtu.be/zB95Q_jUq5A)** ・ **[ポータル：世界の調査と全結果](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)**
 
 ```text
 証明：元のファイル 110,831 バイトは先頭からバイト一致のまま、後ろに 18,121 バイトを足しました

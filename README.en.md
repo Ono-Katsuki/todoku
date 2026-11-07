@@ -6,7 +6,9 @@ Existing tools could not be trusted with government forms. I struggled with them
 
 An MCP server that lets AI agents read and write administrative documents accurately. `dependencies = []`. No Office. No LibreOffice.
 
-**[Portal: world survey and full results](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)** 
+[![todoku demo video (3 min, with captions)](https://img.youtube.com/vi/zB95Q_jUq5A/maxresdefault.jpg)](https://youtu.be/zB95Q_jUq5A)
+
+**[Demo video (3 min, Japanese and English captions)](https://youtu.be/zB95Q_jUq5A)** · **[Portal: world survey and full results](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)** 
 
 ```text
 Proof: the original 110,831 bytes are unchanged from the start of the file; 18,121 bytes were appended.

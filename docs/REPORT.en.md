@@ -6,7 +6,7 @@ How to use it, what each tool does, how each format is built, how to read the ch
 
 ## Results (`eval-freeze-2`)
 
-Tool: `eval-freeze-2` (16059b5). Scoring: the pre-registered v2 (plan in Japanese: [再評価の計画](再評価の計画.md)). Documents: 935 from 185 countries and regions (list: [`sources/eval_freeze2/world.tsv`](../sources/eval_freeze2/world.tsv)).
+Tool: `eval-freeze-2` (86bba80). Scoring: the pre-registered v2 (plan in Japanese: [再評価の計画](再評価の計画.md)). Documents: 935 from 185 countries and regions (list: [`sources/eval_freeze2/world.tsv`](../sources/eval_freeze2/world.tsv)).
 
 - **878 documents (161 countries and regions):** a new sample nobody had opened before the freeze. 900 were chosen; 22 with truncated captures were excluded.
 - **57 documents (24 countries):** strata with 50 or fewer candidates. Chosen from survey documents by seed and hash order, without looking at results. 11 overlap the frozen version's comparison. todoku passed 39 on reading and 38 on writing.
@@ -81,7 +81,7 @@ Features measured on `eval-freeze-1` (documents not used in development; all tab
 - **Unreadable text can still be written:** the render check looks at pixel change and contrast, so it does not stop every case of text lost in the background.
 - **Read grades that are too kind:** 19 documents graded S or A missed the accuracy bar: 5 Arabic PDFs (all characters present, bigrams .89–.97; baselines .47–.63), 4 .ods/.odt, 3 PDFs with text in images (one with character recall 0.2 graded A), 7 just under the bar (.989–.995).
 - **Excel calculation:** full recalculation uses the same calculator as writing (checked against real Excel on 3 input variations, 306 cells). Functions with undetermined dependencies such as `INDIRECT`, `OFFSET`, `TODAY` are only counted. The big-workbook path was tried on 3 real files and on no .xlsm. A big-workbook failure after writing leaves the file name in place. Id collisions between same-named checkboxes are unchecked.
-- **105,256 cells:** the Niigata form is blank, so 87% of the results are empty values. 13,815 cells hold values, and all cells matched, empty ones included. The 84,692 yen example has not been remeasured on the latest version.
+- **105,256 cells:** the Niigata form is blank, so 87% of the results are empty values. 13,815 cells hold values, and all cells matched, empty ones included.
 - **Countries and regions not measured (10):** Central African Republic, North Korea, Eritrea, Eswatini, Gabon, Guinea-Bissau, Micronesia, São Tomé and Príncipe, Tuvalu, Vanuatu. No government documents were found in the crawl. 247 strata with 50 or fewer candidates in the 161 countries are also unmeasured.
 
 ## Usage: as an MCP server

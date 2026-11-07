@@ -19,7 +19,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=BIZ+UDPMincho:wght@400;700&display=swap">
 <style>
 /* 順番：01 冒頭は私の言葉と論文、その下に導入 → 02 実際に何が変わるか（対比と私の言葉）→ 03 信頼できる理由 → 04 使い方 → 05 世界の行政書類を調査（説明と地図のほかは折りたたみ）。
-   数字を大きく・太くするのは 約9分30秒以上・約1.5秒、16/16、105,256 の 3 か所だけ。様式の紙と青インクの色 */
+   数字を大きく・太くするのは 約9分30秒以上・約2秒、16/16、105,256 の 3 か所だけ。様式の紙と青インクの色 */
 :root {
   --paper: #f4f6f8; --ink: #17202b; --muted: #5b6878; --line: #c9d2dc; --slip: #ffffff; --pen: #1f4fb8;
   --none: #e3e8ee;          /* 調べていない国 */
@@ -52,6 +52,9 @@
 :root { --sumi: #0c0b0a; --sumi-2: #171513; --shiro: #f3f2ee; --usuzumi: #b5b0a7; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); line-height: 1.7; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.skip { position: absolute; left: 12px; top: -60px; z-index: 50; padding: 8px 14px; background: var(--pen); color: var(--paper); border-radius: 4px; }
+.skip:focus { top: 12px; }
 .wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: clamp(56px, 8vh, 88px) 104px; display: grid; gap: clamp(104px, 14vh, 152px); }
 .wrap > * { min-width: 0; }  /* 表の最小幅で、ほかの節まで横に広げない（表は表の箱の中で横に送る） */
 h2 { font-family: var(--display); font-size: clamp(1.5rem, 1.1rem + 1.4vw, 2.2rem); line-height: 1.45; margin: 0 0 24px; text-wrap: balance; }
@@ -275,7 +278,7 @@ tr.unr td { color: var(--muted); }
 .doc { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .chips { display: flex; gap: 4px; align-items: start; }
 .chip { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 3px; font-weight: 700; color: #fff; font-size: .95rem; line-height: 1; }
-.chip small { font-size: .52rem; font-weight: 400; opacity: .9; }
+.chip small { font-size: .52rem; font-weight: 400; }
 .chip.o { background: var(--none); color: var(--muted); width: 72px; font-size: .68rem; font-weight: 400; }
 .doc .t { font-weight: 700; overflow-wrap: anywhere; }
 .doc .m { font-size: .76rem; color: var(--muted); overflow-wrap: anywhere; }
@@ -368,6 +371,7 @@ td .ci { display: inline-block; line-height: 1.3; }
 @media (max-width: 480px) { .bar { grid-template-columns: minmax(0, 9em) 1fr auto; } }
 </style>
 
+<a class="skip" href="#intro">本文へ</a>
 <section class="opening" id="opening" aria-label="冒頭：私の言葉と、まわりの研究">
   <div class="lang-switch" role="group" aria-label="言語 / Language"><button type="button" data-lang="ja" lang="ja" aria-pressed="true">日本語</button><span aria-hidden="true">/</span><button type="button" data-lang="en" lang="en" aria-pressed="false">English</button></div>
   <p class="kicker">とどく ／ Built with Claude: Japan 2026</p>
@@ -381,40 +385,41 @@ td .ci { display: inline-block; line-height: 1.3; }
           <figcaption><span><a href="https://doi.org/10.1145/3797867.3828990" rel="noopener noreferrer">小野克樹「Reconfiguration of Ability: An Autoethnography of LLM-Mediated Development by a Developer with Severe Physical Disability」</a></span> <span>The 28th International ACM SIGACCESS Conference on Computers and Accessibility (ASSETS '26)</span> <span>§5.7 デザインへの示唆（日本語訳）</span></figcaption>
         </figure>
       </div>
-      <aside class="slip s1" style="--i:0;--fx:-1;--fy:-1"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
-        <p>行政の手続きの重さは、調べる手間・書類をそろえて書く手間・気持ちの負担の3つに分けられる。</p><p class="so">とどくが軽くするのは、このうちの「書く」重さ。</p><a href="https://doi.org/10.1093/jopart/muu009">doi:10.1093/jopart/muu009</a></aside>
-      <aside class="slip s2" style="--i:1;--fx:0;--fy:-1"><div class="src"><span class="venue">2018</span><span class="au">Herd &amp; Moynihan</span></div>
-        <p>手続きの重さは偶然ではない。法律を変えなくても、書類を重くすれば、制度を使える人は減る。</p><p class="so">だから、書類そのものの重さを測る。</p><a href="https://doi.org/10.7758/9781610448789">doi:10.7758/9781610448789</a></aside>
-      <aside class="slip s3" style="--i:2;--fx:1;--fy:-1"><div class="src"><span class="venue">JITP 2011</span><span class="au">Goodwin ほか</span></div>
-        <p>192 か国の政府のサイトを、障害のある人が使えるかという基準で、国ごとに測った。</p><p class="so">この調査も、国ごとに比べる。</p><a href="https://doi.org/10.1080/19331681.2010.508011">doi:10.1080/19331681.2010.508011</a></aside>
-      <aside class="slip s4" style="--i:3;--fx:-1;--fy:0"><div class="src"><span class="venue">IMC 2020</span><span class="au">Singanamalla ほか</span></div>
-        <p>政府のサイト 135,408 件のうち、よく見られる上位の一覧に載るのは 1 割に満たない。目立つ所だけ調べても分からない。</p><p class="so">この調査は、政府のサイトの書類から無作為に選ぶ。</p><a href="https://doi.org/10.1145/3419394.3423645">doi:10.1145/3419394.3423645</a></aside>
-      <aside class="slip s5" style="--i:4;--fx:1;--fy:0"><div class="src"><span class="venue">ASSETS 2024</span><span class="au">Kumar &amp; Wang</span></div>
-        <p>約 2 万件の論文の PDF を層に分けて選び、支援技術で読めるかを調べた。</p><p class="so">この調査も、書類を層に分けて選ぶ。</p><a href="https://doi.org/10.1145/3663548.3675634">doi:10.1145/3663548.3675634</a></aside>
-      <aside class="slip s6" style="--i:5;--fx:-1;--fy:1"><div class="src"><span class="venue">Internet Research 2009</span><span class="au">Hackett &amp; Parmanto</span></div>
-        <p>入口のページだけを調べても、サイト全体が使えるかは分からない。</p><p class="so">この調査は、入口でなく書類そのものを開く。</p><a href="https://doi.org/10.1108/10662240910927830">doi:10.1108/10662240910927830</a></aside>
-      <aside class="slip s7" style="--i:6;--fx:0;--fy:1"><div class="src"><span class="venue">W4A 2013</span><span class="au">Vigo, Brown &amp; Conway</span></div>
-        <p>自動の検査ツールだけでは、見つかる問題はおよそ 10 のうち 4。</p><p class="so">とどくは検査で終わらず、実際に書いて、変わったのが書いた所だけかを証明する。</p><a href="https://doi.org/10.1145/2461121.2461124">doi:10.1145/2461121.2461124</a></aside>
-      <aside class="slip s8" style="--i:7;--fx:1;--fy:1"><div class="src"><span class="venue">CHI 2022</span><span class="au">Fok ほか</span></div>
-        <p>312 のアプリを 16 か月追い、画像に説明（代わりの字）がない問題を調べた。</p><p class="so">とどくは、説明のない画像を、段階とは別の注意として示す。</p><a href="https://doi.org/10.1145/3491102.3502143">doi:10.1145/3491102.3502143</a></aside>
+      <div class="slip s1" style="--i:0;--fx:-1;--fy:-1"><div class="src"><span class="venue">JPART 2015</span> <span class="au">Moynihan, Herd &amp; Harvey</span></div>
+        <p>行政の手続きの重さは、調べる手間・書類をそろえて書く手間・気持ちの負担の3つに分けられる。</p><p class="so">とどくが軽くするのは、このうちの「書く」重さ。</p><a href="https://doi.org/10.1093/jopart/muu009">doi:10.1093/jopart/muu009</a></div>
+      <div class="slip s2" style="--i:1;--fx:0;--fy:-1"><div class="src"><span class="venue">2018</span> <span class="au">Herd &amp; Moynihan</span></div>
+        <p>手続きの重さは偶然ではない。法律を変えなくても、書類を重くすれば、制度を使える人は減る。</p><p class="so">だから、書類そのものの重さを測る。</p><a href="https://doi.org/10.7758/9781610448789">doi:10.7758/9781610448789</a></div>
+      <div class="slip s3" style="--i:2;--fx:1;--fy:-1"><div class="src"><span class="venue">JITP 2011</span> <span class="au">Goodwin ほか</span></div>
+        <p>192 か国の政府のサイトを、障害のある人が使えるかという基準で、国ごとに測った。</p><p class="so">この調査も、国ごとに比べる。</p><a href="https://doi.org/10.1080/19331681.2010.508011">doi:10.1080/19331681.2010.508011</a></div>
+      <div class="slip s4" style="--i:3;--fx:-1;--fy:0"><div class="src"><span class="venue">IMC 2020</span> <span class="au">Singanamalla ほか</span></div>
+        <p>政府のサイト 135,408 件のうち、よく見られる上位の一覧に載るのは 1 割に満たない。目立つ所だけ調べても分からない。</p><p class="so">この調査は、政府のサイトの書類から無作為に選ぶ。</p><a href="https://doi.org/10.1145/3419394.3423645">doi:10.1145/3419394.3423645</a></div>
+      <div class="slip s5" style="--i:4;--fx:1;--fy:0"><div class="src"><span class="venue">ASSETS 2024</span> <span class="au">Kumar &amp; Wang</span></div>
+        <p>約 2 万件の論文の PDF を層に分けて選び、支援技術で読むための作り（タグ・代わりの字など）を調べた。</p><p class="so">この調査も、書類を層に分けて選ぶ。</p><a href="https://doi.org/10.1145/3663548.3675634">doi:10.1145/3663548.3675634</a></div>
+      <div class="slip s6" style="--i:5;--fx:-1;--fy:1"><div class="src"><span class="venue">Internet Research 2009</span> <span class="au">Hackett &amp; Parmanto</span></div>
+        <p>入口のページだけを調べても、サイト全体が使えるかは分からない。</p><p class="so">この調査は、入口でなく書類そのものを開く。</p><a href="https://doi.org/10.1108/10662240910927830">doi:10.1108/10662240910927830</a></div>
+      <div class="slip s7" style="--i:6;--fx:0;--fy:1"><div class="src"><span class="venue">W4A 2013</span> <span class="au">Vigo, Brown &amp; Conway</span></div>
+        <p>自動の検査ツールが見つけたのは、実際の問題の 14〜38%。</p><p class="so">とどくは検査で終わらず、実際に書いて、変わったのが書いた所だけかを証明する。</p><a href="https://doi.org/10.1145/2461121.2461124">doi:10.1145/2461121.2461124</a></div>
+      <div class="slip s8" style="--i:7;--fx:1;--fy:1"><div class="src"><span class="venue">CHI 2022</span> <span class="au">Fok ほか</span></div>
+        <p>312 のアプリを 16 か月追い、画像に説明（代わりの字）がない問題を調べた。</p><p class="so">とどくは、説明のない画像を、段階とは別の注意として示す。</p><a href="https://doi.org/10.1145/3491102.3502143">doi:10.1145/3491102.3502143</a></div>
   </div>
   <div class="stage-ctl"><button type="button" id="op-skip">スキップ</button><button type="button" id="op-replay">もう一度</button></div>
   <a class="cue" href="#intro">下へ ↓</a>
 </section>
 
-<div class="wrap">
-  <header class="intro" id="intro">
+<div class="wrap" role="main">
+  <div class="intro" id="intro" tabindex="-1">
+    <h1 class="vh">とどく：行政書類を正確に読み書きするための MCP</h1>
     <p class="say1"><span class="nb">Claude があれば、</span><span class="nb">寝たきりも開発者になれる。</span></p>
     <p class="say1"><span class="nb">私は、私の視点から、</span><span class="nb">自分の力で、</span><span class="nb">Claude と課題を解決する。</span></p>
     <p class="who2">寝たきりの開発者、経営者、研究者。入力は頭のスイッチひとつ。</p>
     <p class="prod"><span>とどく：行政書類を正確に読み書きするための MCP</span><a href="https://github.com/Ono-Katsuki/todoku" rel="noopener noreferrer">GitHub</a><a href="#h-use">使い方</a></p>
-  </header>
+  </div>
 
   <section aria-labelledby="h-change">
     <h2 id="h-change">実際に何が変わるか</h2>
     <div class="versus">
       <div class="vs"><p class="l">頭のスイッチで文字入力</p><p class="n num">約9分30秒以上</p><p class="c">欄を探す操作は含まない</p></div>
-      <div class="vs me"><p class="l">とどくの書類処理</p><p class="n num">約1.5秒</p><p class="c">依頼・確認の時間は別</p></div>
+      <div class="vs me"><p class="l">とどくの書類処理</p><p class="n num">約2秒</p><p class="c">依頼・確認の時間は別</p></div>
     </div>
     <p class="ask">私が頼むのは 1 文。2〜3 分です。</p>
     <p class="cond">東京都中央区の申請書に、架空の値で 22 か所を書いた場合。</p>
@@ -428,7 +433,7 @@ td .ci { display: inline-block; line-height: 1.3; }
       </ul>
       <p class="bnote">頭のスイッチで字を入れたとしたら：158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）。＋ 321 か所から書く欄を探して移る操作（この時間は足していません）。</p>
       <p class="bnote">とどく ＋ エージェント：私が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）。</p>
-      <p class="bnote">とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで約 1.5 秒。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
+      <p class="bnote">とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで約 2 秒。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
     </details>
   </section>
 
@@ -458,15 +463,15 @@ td .ci { display: inline-block; line-height: 1.3; }
     <div class="inline-folds">
     <details class="fold in"><summary>1 円、1 バイト</summary>
       <p class="sub">Claude Code は書けます。でも、任せられません。とどくが渡すのは、ずれていないと言い切れることです。</p>
-      <h4 class="minor">1 バイト：同じ 20 通で比べました</h4>
+      <h3 class="minor">1 バイト：同じ 20 通で比べました</h3>
       <div class="tablebox"><table class="small">
-        <thead><tr><th></th><th class="num">ただの Claude Code</th><th class="num">＋ とどく</th></tr></thead>
+        <thead><tr><th><span class="vh">項目</span></th><th class="num">ただの Claude Code</th><th class="num">＋ とどく</th></tr></thead>
         <tbody>
           <tr><td>元の PDF をそのまま残す</td><td class="num">0/16</td><td class="num">16/16</td></tr>
           <tr><td>変わったのは書いた所だけと証明</td><td class="num">なし</td><td class="num">20/20</td></tr>
         </tbody>
       </table></div>
-      <h4 class="minor">1 円：データと処理を、分けて渡す</h4>
+      <h3 class="minor">1 円：データと処理を、分けて渡す</h3>
       <p class="sub">計算を、憶測させないためです。とどくは書類の中の計算の決まりを、値でなく処理として取り出し、保存された値と照らしてから渡します。</p>
       <div class="band">
         <div><span class="v num">105,256</span><span>数式のセル（新潟県の公開様式）</span></div>
@@ -527,22 +532,22 @@ td .ci { display: inline-block; line-height: 1.3; }
       <figcaption><a href="https://doi.org/10.1145/3797867.3828990" rel="noopener noreferrer">小野克樹「Reconfiguration of Ability」</a>ASSETS '26 §5.7（日本語訳）</figcaption>
     </figure>
     <p class="lead">エージェントがアクセスできないことは、アクセシビリティの問題です。アクセシビリティは、一人で作るものじゃない。とどくは、世界の行政書類が、エージェントにどこまで届くかを評価します。</p>
-    <p class="sub"><span class="num" id="w-countries">●</span> か国と地域の、政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って正確に扱える書類の割合です。政府のサイトで公開された書類が対象です。国を選ぶと、内訳が出ます。<span id="map-status"></span></p>
+    <p class="sub"><span class="num" id="w-countries">●</span> か国と地域の、政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って正確に扱える書類の数と割合です。政府のサイトで公開された書類が対象です。国を選ぶと、内訳が出ます。<span id="map-status"></span></p>
     <div class="tabs" role="group" aria-label="地図に示す値">
-      <button type="button" id="t-read" data-m="read_ok" aria-pressed="true">正確に読める</button>
-      <button type="button" id="t-write" data-m="write_ok" aria-pressed="false">書ける</button>
-      <button type="button" id="t-forms" data-m="forms_writable" aria-pressed="false">申請の様式に書ける</button>
-      <button type="button" id="t-reach" data-m="reach" aria-pressed="false">取得できる</button>
-      <button type="button" class="cnt" hidden data-m="read_count" aria-pressed="false">読む：正確に読める数</button>
-      <button type="button" class="cnt" hidden data-m="write_count" aria-pressed="false">書く：正確に書ける数</button>
+      <button type="button" class="cnt" data-m="read_count" aria-pressed="true">正確に読める数</button>
+      <button type="button" class="cnt" data-m="write_count" aria-pressed="false">正確に書ける数</button>
+      <button type="button" id="t-read" data-m="read_ok" aria-pressed="false">調査：読める割合</button>
+      <button type="button" id="t-write" data-m="write_ok" aria-pressed="false">調査：書ける割合</button>
+      <button type="button" id="t-forms" data-m="forms_writable" aria-pressed="false">調査：申請の様式に書ける割合</button>
+      <button type="button" id="t-reach" data-m="reach" aria-pressed="false">調査：取得できる割合</button>
     </div>
     <div class="mapgrid">
       <div class="mapbox">
-        <svg id="map" viewBox="0 0 960 500" role="img" aria-label="国ごとの地図"></svg>
+        <svg id="map" viewBox="0 0 960 500" role="group" aria-label="国ごとの地図。矢印キーで国を移り、Enter で選びます。同じ内容は「国の一覧」にあります。"></svg>
         <div class="legend" id="legend"></div>
         <p class="metric-note" id="metric-note"></p>
       </div>
-      <aside class="panel" id="panel" aria-live="polite"><p class="sub" style="margin:0">地図か一覧から国を選んでください。</p></aside>
+      <div class="panel" id="panel" aria-live="polite"><p class="sub" style="margin:0">地図か一覧から国を選んでください。</p></div>
     </div>
 
     <div class="folds">
@@ -604,7 +609,7 @@ td .ci { display: inline-block; line-height: 1.3; }
     <details class="fold"><summary><h3 id="h-dev">Claude との開発</h3></summary>
       <p class="sub">方針と判断は私が伝え、実装と検証は Claude Code とサブエージェントが並行して進めました。とどくは、Python の標準の機能だけで動きます。</p>
       <div class="band">
-        <div><span class="v num">439</span><span>コミット</span></div>
+        <div><span class="v num">511</span><span>コミット</span></div>
         <div><span class="v num">4,483</span><span>テスト（最後の全体テスト）</span></div>
         <div><span class="v num">0</span><span>外部ライブラリ</span></div>
       </div>
@@ -612,15 +617,15 @@ td .ci { display: inline-block; line-height: 1.3; }
     <div class="talks">
       <div class="talk"><time>11/03 06:28</time><p class="me">壊してない証明として書き込み除くとバイト一致する？</p><p class="cl">実物の書類で「書いた所を除くとバイト一致か」を測る検証を書いています。</p><p class="cm"><code>b2a5e6d</code> 証明を強める：書いた所を除くとバイト一致を確かめる（Excel のシート・.doc の本文・CSV の後ろの行）</p></div>
       <div class="talk"><time>11/03 11:02</time><p class="me">ベンチ最適化でなく汎化性が大切だよ。</p><p class="cl">規則で決めるのは、ファイルの構造から確実に分かることだけにします。</p><p class="cm"><code>90b6af3</code> PDF の配置の推定：決め打ちの選別をやめ、迷う所はエージェントに候補として示す</p></div>
-      <div class="talk"><time>11/04 20:09</time><p class="me">処理は処理として取れる方が嬉しい</p><p class="cl">値を計算して渡すだけでなく、処理そのものを渡します。</p><p class="cm"><code>ec728a4</code> 処理を処理として取り出す extract_processing</p></div>
+      <div class="talk"><time>11/04 20:09</time><p class="me">処理は処理として取れる方が嬉しい</p><p class="cl">値を計算して渡すだけでなく、処理そのものを渡します。</p><p class="cm"><code>602d49d</code> 処理を処理として取り出す extract_processing</p></div>
     </div>
     </details>
     <details class="fold"><summary><h3 id="h-detail">詳しい結果</h3></summary>
-    <p class="sub">世界の数と、初めて見る日本の様式は、固定版 <code>eval-freeze-2</code>（コミット 16059b5）の評価です。そのほかの表は固定版 <code>eval-freeze-1</code>（コミット 26f4332）の評価で、「開発用」は開発に使った書類、「評価用」は固定するまで開かなかった書類（都と多摩、世界）です。弱点と定義の全部は<a href="https://github.com/Ono-Katsuki/todoku/blob/main/docs/REPORT.md">詳細レポート</a>にあります。</p>
+    <p class="sub">世界の数と、初めて見る日本の様式は、固定版 <code>eval-freeze-2</code>（コミット 86bba80）の評価です。そのほかの表は固定版 <code>eval-freeze-1</code>（コミット 66fa94f）の評価で、「開発用」は開発に使った書類、「評価用」は固定するまで開かなかった書類（都と多摩、世界）です。弱点と定義の全部は<a href="https://github.com/Ono-Katsuki/todoku/blob/main/docs/REPORT.md">詳細レポート</a>にあります。</p>
 
     <h4 class="minor">世界の数（185 か国・地域の 935 件を実際に読み書きして推定）</h4>
     <div class="tablebox"><table>
-      <thead><tr><th></th><th class="num">読む</th><th class="num">書く</th></tr></thead>
+      <thead><tr><th><span class="vh">項目</span></th><th class="num">読む</th><th class="num">書く</th></tr></thead>
       <tbody>
 <tr><td>とどくで正確に</td><td class="num">2,452,605<br><span class="ci">2,247,931〜2,637,377</span></td><td class="num">2,377,412<br><span class="ci">2,169,193〜2,567,703</span></td></tr>
 <tr><td>うち日本</td><td class="num">289,454</td><td class="num">299,125</td></tr>
@@ -646,7 +651,7 @@ td .ci { display: inline-block; line-height: 1.3; }
     <h4 class="minor">比べる道具との比較（第 2 段と 24 か国の 935 件）</h4>
     <p class="sub">「比べる道具」の列は、人が形式ごとに最良の道具を選び、書く欄をとどくが教え、正解と照らして初めて分かる数です。エージェントが一人で使ったときの数ではありません。</p>
     <div class="tablebox"><table>
-      <thead><tr><th></th><th class="num">読む</th><th class="num">書く</th></tr></thead>
+      <thead><tr><th><span class="vh">項目</span></th><th class="num">読む</th><th class="num">書く</th></tr></thead>
       <tbody>
 <tr><td>とどくで通る</td><td class="num">2,452,605<br><span class="ci">2,247,931〜2,637,377</span></td><td class="num">2,377,412<br><span class="ci">2,169,193〜2,567,703</span></td></tr>
 <tr><td>比べる道具のどれかで通る</td><td class="num">2,388,684<br><span class="ci">2,178,692〜2,580,045</span></td><td class="num">2,374,569<br><span class="ci">2,164,878〜2,566,164</span></td></tr>
@@ -674,7 +679,7 @@ td .ci { display: inline-block; line-height: 1.3; }
 
     <h4 class="minor">読む</h4>
     <div class="tablebox"><table>
-      <thead><tr><th rowspan="2"></th><th colspan="2">開発用</th><th colspan="2">評価用：都と多摩</th><th colspan="2">評価用：世界</th></tr>
+      <thead><tr><th rowspan="2"><span class="vh">項目</span></th><th colspan="2">開発用</th><th colspan="2">評価用：都と多摩</th><th colspan="2">評価用：世界</th></tr>
       <tr><th class="num">とどく</th><th class="num">比べる道具</th><th class="num">とどく</th><th class="num">比べる道具</th><th class="num">とどく</th><th class="num">比べる道具</th></tr></thead>
       <tbody>
 <tr><td>開けた</td><td class="num">78/78<br><span class="ci">100.0%</span></td><td class="num">74/78<br><span class="ci">94.9%</span></td><td class="num">100/100<br><span class="ci">100.0%</span></td><td class="num">95/100<br><span class="ci">95.0%</span></td><td class="num">552/557<br><span class="ci">99.1%</span></td><td class="num">494/557<br><span class="ci">88.7%</span></td></tr>
@@ -726,7 +731,7 @@ td .ci { display: inline-block; line-height: 1.3; }
 
     <h4 class="minor">処理の取り出し</h4>
     <div class="tablebox"><table>
-      <thead><tr><th></th><th class="num">開発用</th><th class="num">評価用：都と多摩</th><th class="num">評価用：世界</th></tr></thead>
+      <thead><tr><th><span class="vh">項目</span></th><th class="num">開発用</th><th class="num">評価用：都と多摩</th><th class="num">評価用：世界</th></tr></thead>
       <tbody>
         <tr><td>数式のある書類</td><td class="num">1 / 13</td><td class="num">1 / 11</td><td class="num">9 / 26</td></tr>
         <tr><td>数式のセル</td><td class="num">42</td><td class="num">752</td><td class="num">846</td></tr>
@@ -739,7 +744,7 @@ td .ci { display: inline-block; line-height: 1.3; }
 
     <h4 class="minor">白紙からの記入</h4>
     <div class="tablebox"><table>
-      <thead><tr><th></th><th class="num">評価用：都と多摩</th><th class="num">評価用：世界</th></tr></thead>
+      <thead><tr><th><span class="vh">項目</span></th><th class="num">評価用：都と多摩</th><th class="num">評価用：世界</th></tr></thead>
       <tbody>
         <tr><td>記入済み（エージェント＋証明＋確認役。95% 区間）</td><td class="num">55/100<br><span class="ci">45〜64%</span></td><td class="num">23/48<br><span class="ci">34〜62%</span></td></tr>
         <tr><td>証明が通った（出力のある様式）</td><td class="num">100/100</td><td class="num">47/47</td></tr>
@@ -758,7 +763,7 @@ td .ci { display: inline-block; line-height: 1.3; }
 
     <h4 class="minor">ただの Claude Code との比較（都と多摩の同じ 20 通）</h4>
     <div class="tablebox"><table class="small">
-      <thead><tr><th></th><th class="num">ただの Claude Code</th><th class="num">＋ とどく</th></tr></thead>
+      <thead><tr><th><span class="vh">項目</span></th><th class="num">ただの Claude Code</th><th class="num">＋ とどく</th></tr></thead>
       <tbody>
         <tr><td>記入済み（95% 区間）</td><td class="num">9/20<br><span class="ci">26〜66%</span></td><td class="num">10/20<br><span class="ci">30〜70%</span></td></tr>
         <tr><td>元の PDF をそのまま残す</td><td class="num">0/16</td><td class="num">16/16</td></tr>
@@ -818,22 +823,22 @@ td .ci { display: inline-block; line-height: 1.3; }
         <figcaption><a href="https://doi.org/10.1145/3797867.3828990" rel="noopener noreferrer">小野克樹「Reconfiguration of Ability」</a> The 28th International ACM SIGACCESS Conference on Computers and Accessibility (ASSETS '26) §5.7 デザインへの示唆（日本語訳）</figcaption>
       </figure>
       <div class="papers">
-      <aside class="slip"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
-        <p>行政の手続きの重さは、調べる手間・書類をそろえて書く手間・気持ちの負担の3つに分けられる。</p><p class="so">とどくが軽くするのは、このうちの「書く」重さ。</p><a href="https://doi.org/10.1093/jopart/muu009">doi:10.1093/jopart/muu009</a></aside>
-      <aside class="slip"><div class="src"><span class="venue">2018</span><span class="au">Herd &amp; Moynihan</span></div>
-        <p>手続きの重さは偶然ではない。法律を変えなくても、書類を重くすれば、制度を使える人は減る。</p><p class="so">だから、書類そのものの重さを測る。</p><a href="https://doi.org/10.7758/9781610448789">doi:10.7758/9781610448789</a></aside>
-      <aside class="slip"><div class="src"><span class="venue">JITP 2011</span><span class="au">Goodwin ほか</span></div>
-        <p>192 か国の政府のサイトを、障害のある人が使えるかという基準で、国ごとに測った。</p><p class="so">この調査も、国ごとに比べる。</p><a href="https://doi.org/10.1080/19331681.2010.508011">doi:10.1080/19331681.2010.508011</a></aside>
-      <aside class="slip"><div class="src"><span class="venue">IMC 2020</span><span class="au">Singanamalla ほか</span></div>
-        <p>政府のサイト 135,408 件のうち、よく見られる上位の一覧に載るのは 1 割に満たない。目立つ所だけ調べても分からない。</p><p class="so">この調査は、政府のサイトの書類から無作為に選ぶ。</p><a href="https://doi.org/10.1145/3419394.3423645">doi:10.1145/3419394.3423645</a></aside>
-      <aside class="slip"><div class="src"><span class="venue">ASSETS 2024</span><span class="au">Kumar &amp; Wang</span></div>
-        <p>約 2 万件の論文の PDF を層に分けて選び、支援技術で読めるかを調べた。</p><p class="so">この調査も、書類を層に分けて選ぶ。</p><a href="https://doi.org/10.1145/3663548.3675634">doi:10.1145/3663548.3675634</a></aside>
-      <aside class="slip"><div class="src"><span class="venue">Internet Research 2009</span><span class="au">Hackett &amp; Parmanto</span></div>
-        <p>入口のページだけを調べても、サイト全体が使えるかは分からない。</p><p class="so">この調査は、入口でなく書類そのものを開く。</p><a href="https://doi.org/10.1108/10662240910927830">doi:10.1108/10662240910927830</a></aside>
-      <aside class="slip"><div class="src"><span class="venue">W4A 2013</span><span class="au">Vigo, Brown &amp; Conway</span></div>
-        <p>自動の検査ツールだけでは、見つかる問題はおよそ 10 のうち 4。</p><p class="so">とどくは検査で終わらず、実際に書いて、変わったのが書いた所だけかを証明する。</p><a href="https://doi.org/10.1145/2461121.2461124">doi:10.1145/2461121.2461124</a></aside>
-      <aside class="slip"><div class="src"><span class="venue">CHI 2022</span><span class="au">Fok ほか</span></div>
-        <p>312 のアプリを 16 か月追い、画像に説明（代わりの字）がない問題を調べた。</p><p class="so">とどくは、説明のない画像を、段階とは別の注意として示す。</p><a href="https://doi.org/10.1145/3491102.3502143">doi:10.1145/3491102.3502143</a></aside>
+      <div class="slip"><div class="src"><span class="venue">JPART 2015</span> <span class="au">Moynihan, Herd &amp; Harvey</span></div>
+        <p>行政の手続きの重さは、調べる手間・書類をそろえて書く手間・気持ちの負担の3つに分けられる。</p><p class="so">とどくが軽くするのは、このうちの「書く」重さ。</p><a href="https://doi.org/10.1093/jopart/muu009">doi:10.1093/jopart/muu009</a></div>
+      <div class="slip"><div class="src"><span class="venue">2018</span> <span class="au">Herd &amp; Moynihan</span></div>
+        <p>手続きの重さは偶然ではない。法律を変えなくても、書類を重くすれば、制度を使える人は減る。</p><p class="so">だから、書類そのものの重さを測る。</p><a href="https://doi.org/10.7758/9781610448789">doi:10.7758/9781610448789</a></div>
+      <div class="slip"><div class="src"><span class="venue">JITP 2011</span> <span class="au">Goodwin ほか</span></div>
+        <p>192 か国の政府のサイトを、障害のある人が使えるかという基準で、国ごとに測った。</p><p class="so">この調査も、国ごとに比べる。</p><a href="https://doi.org/10.1080/19331681.2010.508011">doi:10.1080/19331681.2010.508011</a></div>
+      <div class="slip"><div class="src"><span class="venue">IMC 2020</span> <span class="au">Singanamalla ほか</span></div>
+        <p>政府のサイト 135,408 件のうち、よく見られる上位の一覧に載るのは 1 割に満たない。目立つ所だけ調べても分からない。</p><p class="so">この調査は、政府のサイトの書類から無作為に選ぶ。</p><a href="https://doi.org/10.1145/3419394.3423645">doi:10.1145/3419394.3423645</a></div>
+      <div class="slip"><div class="src"><span class="venue">ASSETS 2024</span> <span class="au">Kumar &amp; Wang</span></div>
+        <p>約 2 万件の論文の PDF を層に分けて選び、支援技術で読むための作り（タグ・代わりの字など）を調べた。</p><p class="so">この調査も、書類を層に分けて選ぶ。</p><a href="https://doi.org/10.1145/3663548.3675634">doi:10.1145/3663548.3675634</a></div>
+      <div class="slip"><div class="src"><span class="venue">Internet Research 2009</span> <span class="au">Hackett &amp; Parmanto</span></div>
+        <p>入口のページだけを調べても、サイト全体が使えるかは分からない。</p><p class="so">この調査は、入口でなく書類そのものを開く。</p><a href="https://doi.org/10.1108/10662240910927830">doi:10.1108/10662240910927830</a></div>
+      <div class="slip"><div class="src"><span class="venue">W4A 2013</span> <span class="au">Vigo, Brown &amp; Conway</span></div>
+        <p>自動の検査ツールが見つけたのは、実際の問題の 14〜38%。</p><p class="so">とどくは検査で終わらず、実際に書いて、変わったのが書いた所だけかを証明する。</p><a href="https://doi.org/10.1145/2461121.2461124">doi:10.1145/2461121.2461124</a></div>
+      <div class="slip"><div class="src"><span class="venue">CHI 2022</span> <span class="au">Fok ほか</span></div>
+        <p>312 のアプリを 16 か月追い、画像に説明（代わりの字）がない問題を調べた。</p><p class="so">とどくは、説明のない画像を、段階とは別の注意として示す。</p><a href="https://doi.org/10.1145/3491102.3502143">doi:10.1145/3491102.3502143</a></div>
       </div>
     </details>
     </div>
@@ -848,7 +853,8 @@ window.TODOKU_I18N = (() => {
     // ---- attributes
     [`冒頭：私の言葉と、まわりの研究`, `Opening: my words and the surrounding research`],
     [`地図に示す値`, `Value shown on the map`],
-    [`国ごとの地図`, `Map by country`],
+    [`国ごとの地図。矢印キーで国を移り、Enter で選びます。同じ内容は「国の一覧」にあります。`, `Map by country. Move between countries with the arrow keys and select with Enter. The same content is in the country list.`],
+    [`本文へ`, `Skip to content`], [`項目`, `Item`],
     [`例：form、申請、antrag`, `e.g. form, application, antrag`],
     // ---- opening
     [`とどく ／ Built with Claude: Japan 2026`, `todoku / Built with Claude: Japan 2026`],
@@ -869,11 +875,11 @@ window.TODOKU_I18N = (() => {
     [`この調査も、国ごとに比べる。`, `This survey also compares by country.`],
     [`政府のサイト 135,408 件のうち、よく見られる上位の一覧に載るのは 1 割に満たない。目立つ所だけ調べても分からない。`, `Of 135,408 government sites, fewer than 1 in 10 appear on top-sites lists. Checking only the prominent ones tells you little.`],
     [`この調査は、政府のサイトの書類から無作為に選ぶ。`, `This survey samples at random from documents on government sites.`],
-    [`約 2 万件の論文の PDF を層に分けて選び、支援技術で読めるかを調べた。`, `Stratified about 20,000 paper PDFs and tested whether assistive technology can read them.`],
+    [`約 2 万件の論文の PDF を層に分けて選び、支援技術で読むための作り（タグ・代わりの字など）を調べた。`, `Stratified about 20,000 paper PDFs and checked what assistive technology needs to read them (tags, alt text and more).`],
     [`この調査も、書類を層に分けて選ぶ。`, `This survey also stratifies its documents.`],
     [`入口のページだけを調べても、サイト全体が使えるかは分からない。`, `Checking only the entry page does not tell you whether the whole site is usable.`],
     [`この調査は、入口でなく書類そのものを開く。`, `This survey opens the documents themselves, not the entry page.`],
-    [`自動の検査ツールだけでは、見つかる問題はおよそ 10 のうち 4。`, `Automated checking tools alone find about 4 in 10 problems.`],
+    [`自動の検査ツールが見つけたのは、実際の問題の 14〜38%。`, `Automated checking tools found only 14–38% of the actual problems.`],
     [`とどくは検査で終わらず、実際に書いて、変わったのが書いた所だけかを証明する。`, `todoku does not stop at checking: it actually writes, then proves that only the written places changed.`],
     [`312 のアプリを 16 か月追い、画像に説明（代わりの字）がない問題を調べた。`, `Followed 312 apps for 16 months and studied images missing descriptions (alternative text).`],
     [`とどくは、説明のない画像を、段階とは別の注意として示す。`, `todoku reports images without descriptions as alerts, separate from the grade.`],
@@ -890,7 +896,7 @@ window.TODOKU_I18N = (() => {
     [`約9分30秒以上`, `~9 min 30 s+`],
     [`欄を探す操作は含まない`, `Excludes finding the fields`],
     [`とどくの書類処理`, `todoku's document processing`],
-    [`約1.5秒`, `about 1.5 s`],
+    [`約2秒`, `about 2 s`],
     [`依頼・確認の時間は別`, `Asking and checking are separate`],
     [`私が頼むのは 1 文。2〜3 分です。`, `I ask in 1 sentence. That takes 2–3 minutes.`],
     [`東京都中央区の申請書に、架空の値で 22 か所を書いた場合。`, `Writing 22 places on an application from Chuo City, Tokyo, with fictional values.`],
@@ -902,7 +908,7 @@ window.TODOKU_I18N = (() => {
     [`署名は手書きの欄。とどくは、私が同意すれば署名の画像を置けます。画像の署名を受け付けるかは、様式ごとに決まっています。`, `<b>The signature is a handwriting field.</b> With my consent, todoku can place an image of my signature. Each form sets whether an image signature is accepted.`],
     [`頭のスイッチで字を入れたとしたら：158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）。＋ 321 か所から書く欄を探して移る操作（この時間は足していません）。`, `Typing with a head switch would take: longer than 158 characters × 3.6 seconds for 1 character (Ono, ASSETS '26 §4.1: over 1 hour per 1,000 characters). + finding and moving to the right fields among 321 places (this time is not added).`],
     [`とどく ＋ エージェント：私が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）。`, `todoku + agent: the 1 sentence I ask: 2–3 minutes (Ono, ASSETS '26 §4.3).`],
-    [`とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで約 1.5 秒。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。`, `todoku writes the 22 places, proves that only those changed, and reads them back in about 1.5 s. I check by reading what the agent tells me it wrote, in conversation. The typing time is a lower bound derived from my paper (over 1 hour per 1,000 characters; 2–3 minutes per 1 request).`],
+    [`とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで約 2 秒。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。`, `todoku writes the 22 places, proves that only those changed, and reads them back in about 2 s. I check by reading what the agent tells me it wrote, in conversation. The typing time is a lower bound derived from my paper (over 1 hour per 1,000 characters; 2–3 minutes per 1 request).`],
     // ---- trust
     [`信頼できる理由`, `Why it can be trusted`],
     [`書いた場所以外は変えない。`, `Nothing changes except where it writes.`],
@@ -963,13 +969,13 @@ window.TODOKU_I18N = (() => {
     // ---- world
     [`世界の行政書類を調査`, `A survey of the world's administrative documents`],
     [`エージェントがアクセスできないことは、アクセシビリティの問題です。アクセシビリティは、一人で作るものじゃない。とどくは、世界の行政書類が、エージェントにどこまで届くかを評価します。`, `When an agent cannot access something, that is an accessibility problem. Accessibility is not something one person builds alone. todoku evaluates how far the world's administrative documents reach agents.`],
-    [`● か国と地域の、政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って正確に扱える書類の割合です。政府のサイトで公開された書類が対象です。国を選ぶと、内訳が出ます。`, `Across <span class="num" id="w-countries">●</span> countries and regions, the share of documents on government sites (Common Crawl, 2026-10 crawl) that AI agents can handle accurately with todoku. It covers documents published on government sites. Select a country to see its breakdown. <span id="map-status"></span>`],
+    [`● か国と地域の、政府のサイトにある書類（Common Crawl の 2026 年 10 月の収集）のうち、AI エージェントがとどくを使って正確に扱える書類の数と割合です。政府のサイトで公開された書類が対象です。国を選ぶと、内訳が出ます。`, `Across <span class="num" id="w-countries">●</span> countries and regions, the number and share of documents on government sites (Common Crawl, 2026-10 crawl) that AI agents can handle accurately with todoku. It covers documents published on government sites. Select a country to see its breakdown. <span id="map-status"></span>`],
     [`正確に読める`, `Reads accurately`],
     [`書ける`, `Writable`],
     [`申請の様式に書ける`, `Application forms writable`],
     [`取得できる`, `Retrievable`],
-    [`読む：正確に読める数`, `Read: count read accurately`],
-    [`書く：正確に書ける数`, `Write: count written accurately`],
+    [`正確に読める数`, `Documents read accurately`], [`正確に書ける数`, `Documents written accurately`],
+    [`調査：読める割合`, `Survey: share readable`], [`調査：書ける割合`, `Survey: share writable`], [`調査：申請の様式に書ける割合`, `Survey: share of application forms writable`], [`調査：取得できる割合`, `Survey: share retrievable`],
     [`地図か一覧から国を選んでください。`, `Select a country on the map or in the list.`],
     [`国の一覧`, `Countries`],
     [`割合のあとの括弧は 95% 区間です。標本の少ない国は区間が広くなります。`, `Parentheses after a share give the 95% interval. Countries with small samples have wider intervals.`],
@@ -1004,10 +1010,10 @@ window.TODOKU_I18N = (() => {
     [`90b6af3 PDF の配置の推定：決め打ちの選別をやめ、迷う所はエージェントに候補として示す`, `<code>90b6af3</code> PDF layout inference: drop hard-coded selection; show uncertain places to the agent as candidates`],
     [`処理は処理として取れる方が嬉しい`, `I'd like processing to be extractable as processing`],
     [`値を計算して渡すだけでなく、処理そのものを渡します。`, `Rather than only computing and passing values, I will hand over the processing itself.`],
-    [`ec728a4 処理を処理として取り出す extract_processing`, `<code>ec728a4</code> Extract processing as processing: extract_processing`],
+    [`602d49d 処理を処理として取り出す extract_processing`, `<code>602d49d</code> Extract processing as processing: extract_processing`],
     // ---- detailed results
     [`詳しい結果`, `Detailed results`],
-    [`世界の数と、初めて見る日本の様式は、固定版 eval-freeze-2（コミット 16059b5）の評価です。そのほかの表は固定版 eval-freeze-1（コミット 26f4332）の評価で、「開発用」は開発に使った書類、「評価用」は固定するまで開かなかった書類（都と多摩、世界）です。弱点と定義の全部は詳細レポートにあります。`, `The world counts and the first-seen Japanese forms evaluate the frozen version <code>eval-freeze-2</code> (commit 16059b5). The other tables evaluate <code>eval-freeze-1</code> (commit 26f4332); "development" means documents used in development, "held-out" means documents not opened before the freeze (Tokyo and Tama, world). All weaknesses and definitions are in the <a href="https://github.com/Ono-Katsuki/todoku/blob/main/docs/REPORT.en.md">detailed report</a>.`],
+    [`世界の数と、初めて見る日本の様式は、固定版 eval-freeze-2（コミット 86bba80）の評価です。そのほかの表は固定版 eval-freeze-1（コミット 66fa94f）の評価で、「開発用」は開発に使った書類、「評価用」は固定するまで開かなかった書類（都と多摩、世界）です。弱点と定義の全部は詳細レポートにあります。`, `The world counts and the first-seen Japanese forms evaluate the frozen version <code>eval-freeze-2</code> (commit 86bba80). The other tables evaluate <code>eval-freeze-1</code> (commit 66fa94f); "development" means documents used in development, "held-out" means documents not opened before the freeze (Tokyo and Tama, world). All weaknesses and definitions are in the <a href="https://github.com/Ono-Katsuki/todoku/blob/main/docs/REPORT.en.md">detailed report</a>.`],
     [`開発用`, `Development`], [`評価用：都と多摩`, `Held-out: Tokyo and Tama`], [`評価用：世界`, `Held-out: World`],
     [`とどく`, `todoku`], [`比べる道具`, `Comparison tools`], [`最良の道具`, `Best tool`], [`形式`, `Format`],
     [`開けた`, `Opened`], [`正確に読めた（字がある書類）`, `Read accurately (documents with text)`], [`画面の字（日付・数の形式）`, `Displayed text (date and number formats)`],
@@ -1249,7 +1255,7 @@ window.TODOKU_I18N = (() => {
   const ci = c => (c && c[0] != null) ? tr(`（${(c[0] * 100).toFixed(0)}〜${(c[1] * 100).toFixed(0)}）`, `(${(c[0] * 100).toFixed(0)}–${(c[1] * 100).toFixed(0)})`) : "";
   const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 
-  let DATA = null, metric = "read_ok", selected = null, topo = null;
+  let mapFocus = null, DATA = null, metric = "read_count", selected = null, topo = null;
 
   function stackHtml(dist, order, prefix, names) {
     const n = order.reduce((s, k) => s + (dist[k] || 0), 0);
@@ -1267,6 +1273,7 @@ window.TODOKU_I18N = (() => {
   const COUNT_BINS = [[0, 100, "100 件未満"], [100, 1e3, "100〜1,000"], [1e3, 1e4, "1,000〜1 万"], [1e4, 1e5, "1 万〜10 万"], [1e5, Infinity, "10 万件以上"]];
   const COUNT_LABELS_EN = ["Under 100", "100–1,000", "1,000–10,000", "10,000–100,000", "100,000 or more"];
   const bins = () => METRIC[metric].path ? COUNT_BINS.map((b, i) => isEn() ? [b[0], b[1], COUNT_LABELS_EN[i]] : b) : BINS;
+  const chipInk = v => { const n = parseInt(css(v).trim().slice(1), 16), l = [n >> 16, n >> 8 & 255, n & 255].map(c => (c /= 255) <= .03928 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4); return .2126 * l[0] + .7152 * l[1] + .0722 * l[2] > .18 ? "#0b1622" : "#fff"; };
   const color = p => css(`--q${bins().findIndex(([a, b]) => p >= a && p < b) + 1 || 5}`);
   // 地図に示す値：割合か、確定の集計が入ったあとの数（countries[cc].counts）
   function mv(c) {
@@ -1298,7 +1305,7 @@ window.TODOKU_I18N = (() => {
         if (unr[f.id]) return DATA.unreached[unr[f.id]].outcome === "no_domains" ? css("--line") : "url(#hatch)";
         return css("--none");
       })
-      .attr("tabindex", f => byIso[f.id] ? 0 : null)
+      .attr("tabindex", f => byIso[f.id] ? (f.id === (mapFocus ??= fc.features.find(x => byIso[x.id]).id) ? 0 : -1) : null)
       .attr("role", f => byIso[f.id] ? "button" : null)
       .attr("aria-label", f => {
         const cc = byIso[f.id];
@@ -1307,7 +1314,14 @@ window.TODOKU_I18N = (() => {
         return null;
       })
       .on("click", (e, f) => { if (byIso[f.id]) select(byIso[f.id]); })
-      .on("keydown", (e, f) => { if ((e.key === "Enter" || e.key === " ") && byIso[f.id]) { e.preventDefault(); select(byIso[f.id]); } })
+      .on("keydown", (e, f) => {
+        if ((e.key === "Enter" || e.key === " ") && byIso[f.id]) { e.preventDefault(); select(byIso[f.id]); return; }
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+        if (!step) return;
+        e.preventDefault();
+        const all = [...e.currentTarget.ownerSVGElement.querySelectorAll('path[role="button"]')], i = all.indexOf(e.currentTarget), to = all[(i + step + all.length) % all.length];
+        all.forEach(x => x.setAttribute("tabindex", x === to ? "0" : "-1")); mapFocus = d3.select(to).datum().id; to.focus();
+      })
       .append("title").text(f => {
         const cc = byIso[f.id];
         if (cc) { const c = DATA.countries[cc], v = mv(c); return `${cname(cc, c)}${tr("：", ": ")}${v.text}${v.extra}`; }
@@ -1422,8 +1436,8 @@ window.TODOKU_I18N = (() => {
     document.getElementById("count").textContent = `${list.length.toLocaleString()}${tr(" 件", " documents")}`;
     const shown = list.slice(0, 10 + (page - 1) * 20);
     document.getElementById("docs").innerHTML = shown.map(d => {
-      const chips = d.r ? `<span class="chip" style="background:var(--g${d.r})" title="${tr("読む", "Read")} ${d.r} ${esc(readNames()[d.r])}"><span>${d.r}<br><small>${tr("読む", "Read")}</small></span></span>` +
-        `<span class="chip" style="background:var(--w${d.w})" title="${tr("書く", "Write")} ${d.w} ${esc(writeNames()[d.w])}"><span>${d.w}<br><small>${tr("書く", "Write")}</small></span></span>`
+      const chips = d.r ? `<span class="chip" style="background:var(--g${d.r});color:${chipInk("--g" + d.r)}" title="${tr("読む", "Read")} ${d.r} ${esc(readNames()[d.r])}"><span>${d.r}<br><small>${tr("読む", "Read")}</small></span></span>` +
+        `<span class="chip" style="background:var(--w${d.w});color:${chipInk("--w" + d.w)}" title="${tr("書く", "Write")} ${d.w} ${esc(writeNames()[d.w])}"><span>${d.w}<br><small>${tr("書く", "Write")}</small></span></span>`
         : `<span class="chip o">${esc(outJa(d.o))}${d.e ? "<br>" + esc(d.e) : ""}</span>`;
       const kind = (d.k ? esc(d.k) : esc(d.d)) + (d.s === "live" ? tr("・政府のサイトから取り直し", ", re-fetched from the government site") : "");
       const rs = d.rr.length || d.wr.length ? `<div class="rs">${d.rr.map(reasonName).map(esc).join(tr("・", ", "))}${d.wr.length ? tr(" ／ 書く：", " / Write: ") + d.wr.map(reasonName).map(esc).join(tr("・", ", ")) : ""}</div>` : "";
