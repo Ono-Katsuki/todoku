@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -50,6 +51,7 @@ def _wait_dead(rec: dict) -> None:
         time.sleep(0.02)
 
 
+@pytest.mark.skipif(shutil.which("nice") is None, reason="nice のコマンドがない（Git Bash のない Windows）")
 def test_job_finishes_when_priority_cannot_be_lowered(jd, tmp_path):
     """優先度がすでに低いプロセスから（macOS では os.nice が PermissionError）：検査は最後まで進む。"""
     p = _csv(tmp_path)

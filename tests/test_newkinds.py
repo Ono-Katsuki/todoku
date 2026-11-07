@@ -57,7 +57,7 @@ def test_txt_checked_marks_can_be_unchecked(tmp_path):
     out = tmp_path / "d.txt"
     r = api.fill(str(p), {"P1.c0": False, "P2.c0": True}, str(out))
     assert r["proof_ok"] and r["read_back_ok"], r
-    assert out.read_text() == "☐ 同意する\n■ 見出し\n"
+    assert out.read_text(encoding="utf-8") == "☐ 同意する\n■ 見出し\n"
 
 
 def test_txt_proof_catches_extra_change(tmp_path):
