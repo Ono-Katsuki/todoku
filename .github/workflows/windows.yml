@@ -1,0 +1,50 @@
+# Windows の対応を進めるための調べ（ブランチ windows だけ）。テストのファイルごとに時間の上限を置き、失敗と止まる所を一覧にする。
+name: windows-probe
+
+on:
+  push:
+    branches: [windows]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    env:
+      UV_PYTHON: "3.12"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: 依存を入れる
+        run: uv sync --locked
+      - name: MCP サーバーが立ち上がるか
+        continue-on-error: true
+        run: uv run python .github/scripts/mcp_smoke.py
+      - name: テスト（ファイルごと、上限 240 秒）
+        continue-on-error: true
+        run: |
+          mkdir -p probe
+          for f in tests/test_*.py; do
+            n=$(basename "$f" .py)
+            start=$(date +%s)
+            timeout 240 uv run pytest -q -rfE -p no:cacheprovider "$f" > "probe/$n.log" 2>&1
+            rc=$?
+            echo "$n rc=$rc s=$(( $(date +%s) - start )) $(tail -1 probe/$n.log)" | tee -a probe/summary.txt
+          done
+      - name: 結果を残す
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-probe
+          path: probe/
+          retention-days: 14
