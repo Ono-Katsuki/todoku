@@ -32,8 +32,8 @@ for m in ("common", "truth", "read_compare", "runner", "stage2_select", "write_c
 WC = None  # write_compare は下で読む
 sys.path.remove(str(V2))
 
-BPY = os.environ.get("TODOKU_BASELINE_PY", "/private/tmp/claude-501/-Users-onokatsuki-Documents-GitHub-claude---/fdcc494c-06ce-4f3c-bc44-7cab0977bf2d/scratchpad/m/ev/baseline_venv/bin/python")
-need_base = pytest.mark.skipif(not Path(BPY).exists(), reason="比べる道具の venv がない")
+BPY = os.environ.get("TODOKU_BASELINE_PY", "")
+need_base = pytest.mark.skipif(not BPY or not Path(BPY).exists(), reason="比べる道具の venv がない")
 need_lo = pytest.mark.skipif(not shutil.which("soffice"), reason="LibreOffice がない")
 
 
@@ -577,7 +577,7 @@ def test_exclusion_includes_every_sample_row():
     assert all(r["digest"] in ex for r in rows)
 
 
-FROZEN = Path("/private/tmp/claude-501/-Users-onokatsuki-Documents-GitHub-claude---/fdcc494c-06ce-4f3c-bc44-7cab0977bf2d/scratchpad/final/world")
+FROZEN = Path(os.environ.get("TODOKU_FROZEN_WORLD", "/nonexistent"))  # 固定版の記録（リポジトリに含めない）
 
 
 @pytest.mark.skipif(not (FROZEN / "scores.json").exists(), reason="固定版の記録がない")
@@ -587,7 +587,7 @@ def test_estimator_reproduces_published_numbers():
     scores = json.loads((FROZEN / "scores.json").read_text(encoding="utf-8"))["scores"]
     frames = json.loads((RN.W / "frames.json").read_text(encoding="utf-8"))
     res = RN.estimate(sub, scores, frames, exclude_unscored=False)
-    real = json.loads((RN.W / "portal" / "data.json").read_text(encoding="utf-8"))
+    real = json.loads((FROZEN / "portal_fragment.json").read_text(encoding="utf-8"))
     frag = RN.portal_fragment(res, real["final"]["version"])
     assert frag["final"] == real["final"]
     for cc, c in frag["countries"].items():

@@ -19,7 +19,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=BIZ+UDPMincho:wght@400;700&display=swap">
 <style>
 /* 順番：01 冒頭は私の言葉と論文、その下に導入 → 02 実際に何が変わるか（対比と私の言葉）→ 03 信頼できる理由 → 04 使い方 → 05 世界の行政書類を調査（説明と地図のほかは折りたたみ）。
-   数字を大きく・太くするのは 約9分30秒以上・0.3秒、16/16、105,256 の 3 か所だけ。様式の紙と青インクの色 */
+   数字を大きく・太くするのは 約9分30秒以上・約1.5秒、16/16、105,256 の 3 か所だけ。様式の紙と青インクの色 */
 :root {
   --paper: #f4f6f8; --ink: #17202b; --muted: #5b6878; --line: #c9d2dc; --slip: #ffffff; --pen: #1f4fb8;
   --none: #e3e8ee;          /* 調べていない国 */
@@ -378,7 +378,7 @@ td .ci { display: inline-block; line-height: 1.3; }
         <figure class="who">
           <p class="prop">多くの道具の画面を一つずつ使えるようにするのではなく、そのすべてに届く、ひとつの自然言語の入口を用意する。</p>
           <p class="orig" lang="en">“rather than adapting many specialized interfaces, provide a single natural-language entry point through which the user can reach all of them.”</p>
-          <figcaption><span><a href="https://doi.org/10.1145/3797867.3828990" rel="noopener noreferrer">小野克樹「Reconfiguration of Ability」</a></span> <span>The 28th International ACM SIGACCESS Conference on Computers and Accessibility (ASSETS '26)</span> <span>§5.7 デザインへの示唆（日本語訳）</span></figcaption>
+          <figcaption><span><a href="https://doi.org/10.1145/3797867.3828990" rel="noopener noreferrer">小野克樹「Reconfiguration of Ability: An Autoethnography of LLM-Mediated Development by a Developer with Severe Physical Disability」</a></span> <span>The 28th International ACM SIGACCESS Conference on Computers and Accessibility (ASSETS '26)</span> <span>§5.7 デザインへの示唆（日本語訳）</span></figcaption>
         </figure>
       </div>
       <aside class="slip s1" style="--i:0;--fx:-1;--fy:-1"><div class="src"><span class="venue">JPART 2015</span><span class="au">Moynihan, Herd &amp; Harvey</span></div>
@@ -414,21 +414,21 @@ td .ci { display: inline-block; line-height: 1.3; }
     <h2 id="h-change">実際に何が変わるか</h2>
     <div class="versus">
       <div class="vs"><p class="l">頭のスイッチで文字入力</p><p class="n num">約9分30秒以上</p><p class="c">欄を探す操作は含まない</p></div>
-      <div class="vs me"><p class="l">とどくの書類処理</p><p class="n num">0.3秒</p><p class="c">依頼・確認の時間は別</p></div>
+      <div class="vs me"><p class="l">とどくの書類処理</p><p class="n num">約1.5秒</p><p class="c">依頼・確認の時間は別</p></div>
     </div>
     <p class="ask">私が頼むのは 1 文。2〜3 分です。</p>
     <p class="cond">東京都中央区の申請書に、架空の値で 22 か所を書いた場合。</p>
     <details class="fold in inline-folds"><summary>区に出す 1 通の申請書（例）</summary>
-      <p class="bnote">東京都中央区「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）。2 ページ・入力欄の候補 196 か所。架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合。</p>
+      <p class="bnote">東京都中央区「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）。2 ページ・入力欄の候補 321 か所。架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合。</p>
       <ul class="walls">
         <li><b>探すだけで重い。</b>様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。</li>
         <li><b>印刷して手で書く前提。</b>入力欄のない印刷用の PDF で、紙に書いて窓口か郵送で出します。ペンを持てない私には書けません。</li>
         <li><b>そもそも、私が使う iPad では Office の書類も崩れて扱えません。</b>iPad の Excel は、マクロ（VBA）も動かせません。</li>
         <li><b>署名は手書きの欄。</b>とどくは、私が同意すれば署名の画像を置けます。画像の署名を受け付けるかは、様式ごとに決まっています。</li>
       </ul>
-      <p class="bnote">頭のスイッチで字を入れたとしたら：158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）。＋ 196 か所から書く欄を探して移る操作（この時間は足していません）。</p>
+      <p class="bnote">頭のスイッチで字を入れたとしたら：158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）。＋ 321 か所から書く欄を探して移る操作（この時間は足していません）。</p>
       <p class="bnote">とどく ＋ エージェント：私が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）。</p>
-      <p class="bnote">とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで 0.3 秒。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
+      <p class="bnote">とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで約 1.5 秒。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。</p>
     </details>
   </section>
 
@@ -474,6 +474,7 @@ td .ci { display: inline-block; line-height: 1.3; }
         <div><span class="v num">105,256 / 105,256</span><span>保存された値と一致</span></div>
       </div>
     <div class="cmd rule"><code>AC13:AC1213 = ROUNDDOWN(ROUND(L*P,0),0)*AA</code></div>
+    <p class="cnote">様式が白紙なので、計算の結果の 87% は空の値です。値のあるセルは 13,815 で、空の値も含めて全部一致しました。</p>
     </details>
     <details class="fold in"><summary>とどくで、どう届くようにしたか</summary>
       <p class="sub">とどくは、書類を変えずに、AI エージェントが全てを正確に読み書きできる道をつくります。どの段階も AI を使わない決まった処理で、同じ書類と同じ環境（入っている書体など）からは、必ず同じ結果が出ます。数は、この調査で段階を付けた書類のものです。</p>
@@ -604,7 +605,7 @@ td .ci { display: inline-block; line-height: 1.3; }
       <p class="sub">方針と判断は私が伝え、実装と検証は Claude Code とサブエージェントが並行して進めました。とどくは、Python の標準の機能だけで動きます。</p>
       <div class="band">
         <div><span class="v num">439</span><span>コミット</span></div>
-        <div><span class="v num">4,257</span><span>テスト（最後の全体テスト）</span></div>
+        <div><span class="v num">4,483</span><span>テスト（最後の全体テスト）</span></div>
         <div><span class="v num">0</span><span>外部ライブラリ</span></div>
       </div>
       <h4 class="minor">私の指示と、Claude の返答（履歴の原文）</h4>
@@ -615,7 +616,61 @@ td .ci { display: inline-block; line-height: 1.3; }
     </div>
     </details>
     <details class="fold"><summary><h3 id="h-detail">詳しい結果</h3></summary>
-    <p class="sub">ここの数は、すべて固定版 <code>eval-freeze-1</code>（コミット 26f4332）の評価です。「開発用」は開発に使った書類、「評価用」は固定するまで開かなかった書類（都と多摩、世界）です。</p>
+    <p class="sub">世界の数と、初めて見る日本の様式は、固定版 <code>eval-freeze-2</code>（コミット 16059b5）の評価です。そのほかの表は固定版 <code>eval-freeze-1</code>（コミット 26f4332）の評価で、「開発用」は開発に使った書類、「評価用」は固定するまで開かなかった書類（都と多摩、世界）です。弱点と定義の全部は<a href="https://github.com/Ono-Katsuki/todoku/blob/main/docs/REPORT.md">詳細レポート</a>にあります。</p>
+
+    <h4 class="minor">世界の数（185 か国・地域の 935 件を実際に読み書きして推定）</h4>
+    <div class="tablebox"><table>
+      <thead><tr><th></th><th class="num">読む</th><th class="num">書く</th></tr></thead>
+      <tbody>
+<tr><td>とどくで正確に</td><td class="num">2,452,605<br><span class="ci">2,247,931〜2,637,377</span></td><td class="num">2,377,412<br><span class="ci">2,169,193〜2,567,703</span></td></tr>
+<tr><td>うち日本</td><td class="num">289,454</td><td class="num">299,125</td></tr>
+<tr><td>未見の 878 件だけで出した数</td><td class="num">2,452,339</td><td class="num">2,377,089</td></tr>
+      </tbody>
+    </table></div>
+    <p class="cnote">区間は 95%。数えた枠は Common Crawl の政府サイトの書類 3,358,926 件です。国ごとの標本は少なく、国の数は目安です。878 件（161 か国・地域）は固定するまで誰も開いていない新しい標本で、57 件（24 か国）は候補の少ない層から調査の書類を結果を見ずに選びました。生の件数は 878 件で読む 657・書く 601 です。「書く」には文字の中の空欄も入ります。前の定義に近い数えは約 151 万件です。</p>
+
+    <h4 class="minor">初めて見る日本の様式（福島県・秋田市・福岡市・柏市の 48 件。無作為ではありません）</h4>
+    <div class="tablebox"><table>
+      <thead><tr><th>形式</th><th class="num">件数（書く）</th><th class="num">日本語の値が入った</th><th class="num">証明</th><th class="num">読み戻し</th></tr></thead>
+      <tbody>
+<tr><td>PDF（欄のない）</td><td class="num">26</td><td class="num">25</td><td class="num">26</td><td class="num">26</td></tr>
+<tr><td>.xls</td><td class="num">7</td><td class="num">7</td><td class="num">7</td><td class="num">7</td></tr>
+<tr><td>.doc</td><td class="num">6</td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td>.xlsx</td><td class="num">6</td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td>.docx</td><td class="num">1</td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td>合計</td><td class="num">46</td><td class="num">45</td><td class="num">46</td><td class="num">46</td></tr>
+      </tbody>
+    </table></div>
+    <p class="cnote">書く欄のない 2 件は除きました。読むは字のある 46 件のうち 40 件です。</p>
+
+    <h4 class="minor">比べる道具との比較（第 2 段と 24 か国の 935 件）</h4>
+    <p class="sub">「比べる道具」の列は、人が形式ごとに最良の道具を選び、書く欄をとどくが教え、正解と照らして初めて分かる数です。エージェントが一人で使ったときの数ではありません。</p>
+    <div class="tablebox"><table>
+      <thead><tr><th></th><th class="num">読む</th><th class="num">書く</th></tr></thead>
+      <tbody>
+<tr><td>とどくで通る</td><td class="num">2,452,605<br><span class="ci">2,247,931〜2,637,377</span></td><td class="num">2,377,412<br><span class="ci">2,169,193〜2,567,703</span></td></tr>
+<tr><td>比べる道具のどれかで通る</td><td class="num">2,388,684<br><span class="ci">2,178,692〜2,580,045</span></td><td class="num">2,374,569<br><span class="ci">2,164,878〜2,566,164</span></td></tr>
+<tr><td>とどくで通り、比べる道具では通らない</td><td class="num">133,662<br><span class="ci">94,794〜182,564</span></td><td class="num">139,515<br><span class="ci">99,745〜189,254</span></td></tr>
+<tr><td>比べる道具だけ通る</td><td class="num">69,741<br><span class="ci">30,806〜134,464</span></td><td class="num">136,639<br><span class="ci">83,321〜210,092</span></td></tr>
+      </tbody>
+    </table></div>
+    <div class="tablebox"><table>
+      <thead><tr><th>形式（第 2 段の 878 件）</th><th class="num">件数</th><th class="num">読む：とどく</th><th class="num">読む：比べる道具</th><th class="num">書く：とどく</th><th class="num">書く：比べる道具</th></tr></thead>
+      <tbody>
+<tr><td>PDF</td><td class="num">730</td><td class="num">519</td><td class="num">518</td><td class="num">511</td><td class="num">529</td></tr>
+<tr><td>.xlsx</td><td class="num">36</td><td class="num">35</td><td class="num">14</td><td class="num">29</td><td class="num">11</td></tr>
+<tr><td>.docx</td><td class="num">35</td><td class="num">34</td><td class="num">28</td><td class="num">34</td><td class="num">32</td></tr>
+<tr><td>CSV</td><td class="num">21</td><td class="num">20</td><td class="num">21</td><td class="num">—</td><td class="num">—</td></tr>
+<tr><td>.doc</td><td class="num">18</td><td class="num">17</td><td class="num">0</td><td class="num">17</td><td class="num">0</td></tr>
+<tr><td>.xls</td><td class="num">14</td><td class="num">13</td><td class="num">6</td><td class="num">10</td><td class="num">0</td></tr>
+<tr><td>.odt</td><td class="num">13</td><td class="num">12</td><td class="num">0</td><td class="num">—</td><td class="num">—</td></tr>
+<tr><td>.ods</td><td class="num">9</td><td class="num">5</td><td class="num">0</td><td class="num">—</td><td class="num">—</td></tr>
+<tr><td>.rtf</td><td class="num">2</td><td class="num">2</td><td class="num">0</td><td class="num">—</td><td class="num">—</td></tr>
+      </tbody>
+    </table></div>
+    <p class="cnote">比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。とどくはこの数に加えて、変わったのが書いた所だけと証明します。</p>
+
+    <h4 class="minor">版 eval-freeze-1 の詳しい表</h4>
 
     <h4 class="minor">読む</h4>
     <div class="tablebox"><table>
@@ -717,29 +772,17 @@ td .ci { display: inline-block; line-height: 1.3; }
     </table></div>
     <p class="cnote">元の PDF を残せたのは、ただの Claude Code が 0/16、とどくが 16/16。変わったのは書いた所だけと証明できたのは、とどくの 20/20 です。記入済みの数は、両方 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9（McNemar の正確検定 p = 1.0）。確認役には、どちらの結果かを伏せました。</p>
 
-    <h4 class="minor">世界の数（同じ定義で実際に試した 1,079 件から推定）</h4>
-    <p class="sub">「比べる道具」の列は、人が形式ごとに最良の道具を選び、書く欄をとどくが教え、正解と照らして初めて分かる数です。エージェントが一人で使ったときの数ではありません。</p>
-    <div class="tablebox"><table>
-      <thead><tr><th></th><th class="num">読む</th><th class="num">書く</th></tr></thead>
-      <tbody>
-<tr><td>とどくで通る</td><td class="num">2,196,131<br><span class="ci">1,862,792〜2,499,442</span></td><td class="num">1,822,350<br><span class="ci">1,515,378〜2,122,403</span></td></tr>
-<tr><td>比べる道具のどれかで通る</td><td class="num">2,458,866<br><span class="ci">1,922,916〜2,878,899</span></td><td class="num">1,840,925<br><span class="ci">1,547,590〜2,127,105</span></td></tr>
-<tr><td>とどくで通り、比べる道具では通らない</td><td class="num">34,563<br><span class="ci">17,366〜61,435</span></td><td class="num">76,953<br><span class="ci">38,896〜135,667</span></td></tr>
-<tr><td>比べる道具だけ通る</td><td class="num">297,298<br><span class="ci">57,270〜824,918</span></td><td class="num">95,528<br><span class="ci">32,447〜214,266</span></td></tr>
-      </tbody>
-    </table></div>
-    <p class="cnote">区間は 95%。国ごとの標本は少なく、国の数は目安です。比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。「比べる道具だけ通る」の読むの 57% は、基準をわずかに下回った 1 件の書類の重みです。読むの 1 件（大きな Excel）は採点が終わらず、とどくも比べる道具も通らないと数えました。とどくはこの数に加えて、変わったのが書いた所だけと証明します。</p>
-
     <h4 class="minor">実験の条件</h4>
     <ul class="conds">
       <li>道具の版：markitdown 0.1.9・openpyxl 3.1.5・pypdf 6.21.4・pdfplumber 0.11.10・python-docx 1.2.0・xlrd 2.0.2。正解は Poppler 26.10.0・LibreOffice 26.8.1・Excel 16.114・ファイルの XML から作りました（書類ごとに記録）。Word は動かしていません。</li>
       <li>比べる道具に有利な条件：書く欄はとどくが選んで教えました（欄を見つける力は比べていません）。比べる道具の読み方は、使い慣れた人が書く形にしました。「比べる道具」の列は形式ごとの最良です。</li>
       <li>とどくに有利な条件：変えた保存値の試験（表には載せていません）、比べる道具を Python のライブラリに限ったこと（LibreOffice で変換してから読む手順は入っていません）。</li>
       <li>試運転（開発の書類 95 件）のあとで測り方を変え、評価用の書類を開く前に固定しました。同じコミットで、試運転で見つけた直しも入れています。評価用の書類は、固定するまで開いていません。</li>
+      <li><code>eval-freeze-2</code>：採点 v2 は第 2 段の結果を見る前に登録し、版を固定してから測りました。境と定義は結果を見て変えていません。</li>
       <li>Office の書類の絵は LibreOffice の描画で、日本語は Noto Sans JP で描きました。字の幅が実物と違うので、はみ出しの判断は参考です。</li>
     </ul>
 
-    <h4 class="minor">固定のあとに入れた改善（<code>eval-freeze-1</code> から 25 コミット。上の数には含みません）</h4>
+    <h4 class="minor"><code>eval-freeze-1</code> のあとに入れた改善（<code>eval-freeze-2</code> までに道具のコードを変えたコミットは 60。世界の数と日本の様式の数には入っていて、<code>eval-freeze-1</code> の表には入っていません）</h4>
     <ul class="conds">
       <li><b>書体の埋め込み</b>：PDF に足す字を、同梱の書体（Noto Sans JP、OFL）から部分埋め込みするのを既定に。固定版の 20 通の比較では、PDF 16 通で日本語の書体を埋め込んでいませんでした。</li>
       <li><b>見えない字を防ぐ描画の確かめ</b>：書いた後に描いて、画素が変わらなければ読み戻しの違いとして返し、明るさの比が低ければ知らせます。</li>
@@ -813,6 +856,7 @@ window.TODOKU_I18N = (() => {
     [`エージェントにとどけば、私にとどく。`, `If it reaches the agent, it reaches me.`],
     [`多くの道具の画面を一つずつ使えるようにするのではなく、そのすべてに届く、ひとつの自然言語の入口を用意する。`, `“rather than adapting many specialized interfaces, provide a single natural-language entry point through which the user can reach all of them.”`],
     [`小野克樹「Reconfiguration of Ability」`, `Katsuki Ono, “Reconfiguration of Ability”`],
+    [`小野克樹「Reconfiguration of Ability: An Autoethnography of LLM-Mediated Development by a Developer with Severe Physical Disability」`, `Katsuki Ono, “Reconfiguration of Ability: An Autoethnography of LLM-Mediated Development by a Developer with Severe Physical Disability”`],
     [`§5.7 デザインへの示唆（日本語訳）`, `§5.7 Design implications`],
     [`ASSETS '26 §5.7（日本語訳）`, ` ASSETS '26 §5.7`],
     [`The 28th International ACM SIGACCESS Conference on Computers and Accessibility (ASSETS '26) §5.7 デザインへの示唆（日本語訳）`, `The 28th International ACM SIGACCESS Conference on Computers and Accessibility (ASSETS '26) §5.7 Design implications`],
@@ -846,19 +890,19 @@ window.TODOKU_I18N = (() => {
     [`約9分30秒以上`, `~9 min 30 s+`],
     [`欄を探す操作は含まない`, `Excludes finding the fields`],
     [`とどくの書類処理`, `todoku's document processing`],
-    [`0.3秒`, `0.3 s`],
+    [`約1.5秒`, `about 1.5 s`],
     [`依頼・確認の時間は別`, `Asking and checking are separate`],
     [`私が頼むのは 1 文。2〜3 分です。`, `I ask in 1 sentence. That takes 2–3 minutes.`],
     [`東京都中央区の申請書に、架空の値で 22 か所を書いた場合。`, `Writing 22 places on an application from Chuo City, Tokyo, with fictional values.`],
     [`区に出す 1 通の申請書（例）`, `One application to a ward (example)`],
-    [`東京都中央区「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）。2 ページ・入力欄の候補 196 か所。架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合。`, `Chuo City, Tokyo: “Disability Welfare Service Application (new/renewal)” (benefit application for severe-disability home care and similar services). 2 pages, 196 candidate input places. 22 places written (158 characters and 2 seals) with a fictional person's values.`],
+    [`東京都中央区「障害福祉サービス申請書（新規・更新）」（重度訪問介護などの支給申請）。2 ページ・入力欄の候補 321 か所。架空の人の値で 22 か所（158 字と、印 2 つ）を書いた場合。`, `Chuo City, Tokyo: “Disability Welfare Service Application (new/renewal)” (benefit application for severe-disability home care and similar services). 2 pages, 196 candidate input places. 22 places written (158 characters and 2 seals) with a fictional person's values.`],
     [`探すだけで重い。様式は区ごとに違い、置き場所もばらばらです。この 1 通を見つけるのに、エージェントでも検索 6 回・4 つのサイト（東京都・目黒区・新宿区・中央区）を回り、記入例はどこにもありませんでした。頭のスイッチで検索語を 1 字ずつ入れれば、それだけで大仕事です。`, `<b>Finding it is already heavy.</b> Forms differ by ward and are scattered. To find this 1 form, even an agent took 6 searches across 4 sites (Tokyo, Meguro City, Shinjuku City, Chuo City), and no filled-in example existed anywhere. Entering search terms 1 character at a time with a head switch is a big job on its own.`],
     [`印刷して手で書く前提。入力欄のない印刷用の PDF で、紙に書いて窓口か郵送で出します。ペンを持てない私には書けません。`, `<b>It assumes printing and handwriting.</b> A print-only PDF with no input fields, written on paper and filed at the counter or by mail. I cannot hold a pen, so I cannot write it.`],
     [`そもそも、私が使う iPad では Office の書類も崩れて扱えません。iPad の Excel は、マクロ（VBA）も動かせません。`, `<b>On the iPad I use, Office documents break and cannot be handled in the first place.</b> Excel on iPad cannot run macros (VBA) either.`],
     [`署名は手書きの欄。とどくは、私が同意すれば署名の画像を置けます。画像の署名を受け付けるかは、様式ごとに決まっています。`, `<b>The signature is a handwriting field.</b> With my consent, todoku can place an image of my signature. Each form sets whether an image signature is accepted.`],
-    [`頭のスイッチで字を入れたとしたら：158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）。＋ 196 か所から書く欄を探して移る操作（この時間は足していません）。`, `Typing with a head switch would take: longer than 158 characters × 3.6 seconds for 1 character (Ono, ASSETS '26 §4.1: over 1 hour per 1,000 characters). + finding and moving to the right fields among 196 places (this time is not added).`],
+    [`頭のスイッチで字を入れたとしたら：158 字 × 1 字 3.6 秒より長い（Ono, ASSETS '26 §4.1：1,000 字に 1 時間以上）。＋ 321 か所から書く欄を探して移る操作（この時間は足していません）。`, `Typing with a head switch would take: longer than 158 characters × 3.6 seconds for 1 character (Ono, ASSETS '26 §4.1: over 1 hour per 1,000 characters). + finding and moving to the right fields among 321 places (this time is not added).`],
     [`とどく ＋ エージェント：私が頼む 1 文：2〜3 分（Ono, ASSETS '26 §4.3）。`, `todoku + agent: the 1 sentence I ask: 2–3 minutes (Ono, ASSETS '26 §4.3).`],
-    [`とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで 0.3 秒。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。`, `todoku writes the 22 places, proves that only those changed, and reads them back in 0.3 seconds. I check by reading what the agent tells me it wrote, in conversation. The typing time is a lower bound derived from my paper (over 1 hour per 1,000 characters; 2–3 minutes per 1 request).`],
+    [`とどくが 22 か所を書き、変わったのが書いた所だけと証明し、読み戻すまで約 1.5 秒。私は、エージェントが会話で伝える書いた内容を読んで確かめます。字を入れる時間は、私の論文（1,000 字に 1 時間以上・頼みごと 1 つに 2〜3 分）から出した下限です。`, `todoku writes the 22 places, proves that only those changed, and reads them back in about 1.5 s. I check by reading what the agent tells me it wrote, in conversation. The typing time is a lower bound derived from my paper (over 1 hour per 1,000 characters; 2–3 minutes per 1 request).`],
     // ---- trust
     [`信頼できる理由`, `Why it can be trusted`],
     [`書いた場所以外は変えない。`, `Nothing changes except where it writes.`],
@@ -963,7 +1007,7 @@ window.TODOKU_I18N = (() => {
     [`ec728a4 処理を処理として取り出す extract_processing`, `<code>ec728a4</code> Extract processing as processing: extract_processing`],
     // ---- detailed results
     [`詳しい結果`, `Detailed results`],
-    [`ここの数は、すべて固定版 eval-freeze-1（コミット 26f4332）の評価です。「開発用」は開発に使った書類、「評価用」は固定するまで開かなかった書類（都と多摩、世界）です。`, `All numbers here evaluate the frozen version <code>eval-freeze-1</code> (commit 26f4332). “Development” means documents used in development; “Held-out” means documents not opened before the freeze (Tokyo and Tama, World).`],
+    [`世界の数と、初めて見る日本の様式は、固定版 eval-freeze-2（コミット 16059b5）の評価です。そのほかの表は固定版 eval-freeze-1（コミット 26f4332）の評価で、「開発用」は開発に使った書類、「評価用」は固定するまで開かなかった書類（都と多摩、世界）です。弱点と定義の全部は詳細レポートにあります。`, `The world counts and the first-seen Japanese forms evaluate the frozen version <code>eval-freeze-2</code> (commit 16059b5). The other tables evaluate <code>eval-freeze-1</code> (commit 26f4332); "development" means documents used in development, "held-out" means documents not opened before the freeze (Tokyo and Tama, world). All weaknesses and definitions are in the <a href="https://github.com/Ono-Katsuki/todoku/blob/main/docs/REPORT.en.md">detailed report</a>.`],
     [`開発用`, `Development`], [`評価用：都と多摩`, `Held-out: Tokyo and Tama`], [`評価用：世界`, `Held-out: World`],
     [`とどく`, `todoku`], [`比べる道具`, `Comparison tools`], [`最良の道具`, `Best tool`], [`形式`, `Format`],
     [`開けた`, `Opened`], [`正確に読めた（字がある書類）`, `Read accurately (documents with text)`], [`画面の字（日付・数の形式）`, `Displayed text (date and number formats)`],
@@ -991,16 +1035,28 @@ window.TODOKU_I18N = (() => {
     [`元の PDF を残せたのは、ただの Claude Code が 0/16、とどくが 16/16。変わったのは書いた所だけと証明できたのは、とどくの 20/20 です。記入済みの数は、両方 8・とどくだけ 2・ただの Claude Code だけ 1・どちらでもない 9（McNemar の正確検定 p = 1.0）。確認役には、どちらの結果かを伏せました。`, `The original PDF stayed intact for plain Claude Code in 0/16 and for todoku in 16/16. Proof that only the written places changed: todoku, 20/20. Completed counts: both 8, todoku only 2, plain Claude Code only 1, neither 9 (McNemar exact test p = 1.0). The reviewer was blinded to which result was which.`],
     [`既存の道具では、申請書を任せられませんでした。数か月苦労しました。だから、とどくを作りました。とどくは、書いた値を読み戻し、変えたのが記入した所とその計算結果だけだと、書類ごとに証明します。`, `Existing tools could not be trusted with government forms. I struggled with them for months, so I built todoku. todoku reads back what it wrote and proves, document by document, that only the filled places and their calculated results changed.`],
     [`「比べる道具」の列は、人が形式ごとに最良の道具を選び、書く欄をとどくが教え、正解と照らして初めて分かる数です。エージェントが一人で使ったときの数ではありません。`, `The comparison-tool column is what a person gets by choosing the best tool for each format, with todoku pointing out the fields, and checking against the known answer. It is not what an agent gets working alone.`],
-    [`世界の数（同じ定義で実際に試した 1,079 件から推定）`, `World counts (estimated from 1,079 documents actually tried under the same definition)`],
+    
     [`とどくで通る`, `Pass with todoku`], [`比べる道具のどれかで通る`, `Pass with any comparison tool`], [`とどくで通り、比べる道具では通らない`, `Pass with todoku, not with any comparison tool`], [`比べる道具だけ通る`, `Pass with comparison tools only`],
-    [`区間は 95%。国ごとの標本は少なく、国の数は目安です。比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。「比べる道具だけ通る」の読むの 57% は、基準をわずかに下回った 1 件の書類の重みです。読むの 1 件（大きな Excel）は採点が終わらず、とどくも比べる道具も通らないと数えました。とどくはこの数に加えて、変わったのが書いた所だけと証明します。`, `Intervals are 95%. Per-country samples are small, so country counts are rough. A document counts as “pass” for comparison tools if any 1 tool passes it (a count favorable to the comparison tools). 57% of “Pass with comparison tools only” under Read is the weight of 1 document that fell just below the threshold. 1 Read document (a large Excel file) did not finish scoring and was counted as passing neither todoku nor the comparison tools. On top of these counts, todoku proves that only the written places changed.`],
+    
     [`実験の条件`, `Experimental conditions`],
     [`道具の版：markitdown 0.1.9・openpyxl 3.1.5・pypdf 6.21.4・pdfplumber 0.11.10・python-docx 1.2.0・xlrd 2.0.2。正解は Poppler 26.10.0・LibreOffice 26.8.1・Excel 16.114・ファイルの XML から作りました（書類ごとに記録）。Word は動かしていません。`, `Tool versions: markitdown 0.1.9, openpyxl 3.1.5, pypdf 6.21.4, pdfplumber 0.11.10, python-docx 1.2.0, xlrd 2.0.2. Ground truth was built from Poppler 26.10.0, LibreOffice 26.8.1, Excel 16.114 and the files' XML (recorded per document). Word was not run.`],
     [`とどくに有利な条件：変えた保存値の試験（表には載せていません）、比べる道具を Python のライブラリに限ったこと（LibreOffice で変換してから読む手順は入っていません）。`, `Conditions favorable to todoku: the altered-saved-values test (not in the tables), and limiting comparison tools to Python libraries (no convert-with-LibreOffice-then-read procedure).`],
     [`比べる道具に有利な条件：書く欄はとどくが選んで教えました（欄を見つける力は比べていません）。比べる道具の読み方は、使い慣れた人が書く形にしました。「比べる道具」の列は形式ごとの最良です。`, `Conditions favorable to comparison tools: todoku chose and supplied the fields to write (field-finding ability was not compared). Comparison tools were read the way an experienced user would write it. The “Comparison tools” column is the best per format.`],
     [`試運転（開発の書類 95 件）のあとで測り方を変え、評価用の書類を開く前に固定しました。同じコミットで、試運転で見つけた直しも入れています。評価用の書類は、固定するまで開いていません。`, `After a trial run (95 development documents) I changed the measurement, and froze it before opening the held-out documents. The same commit includes fixes found in the trial run. The held-out documents were not opened until the freeze.`],
     [`Office の書類の絵は LibreOffice の描画で、日本語は Noto Sans JP で描きました。字の幅が実物と違うので、はみ出しの判断は参考です。`, `Images of Office documents are LibreOffice renderings, with Japanese drawn in Noto Sans JP. Character widths differ from the real thing, so overflow judgments are indicative only.`],
-    [`固定のあとに入れた改善（eval-freeze-1 から 25 コミット。上の数には含みません）`, `Improvements after the freeze (25 commits from <code>eval-freeze-1</code>; not included in the numbers above)`],
+    [`eval-freeze-1 のあとに入れた改善（eval-freeze-2 までに道具のコードを変えたコミットは 60。世界の数と日本の様式の数には入っていて、eval-freeze-1 の表には入っていません）`, `Improvements after <code>eval-freeze-1</code> (60 commits changed the tool's code up to <code>eval-freeze-2</code>; included in the world counts and the Japanese forms, not in the <code>eval-freeze-1</code> tables)`],
+    [`世界の数（185 か国・地域の 935 件を実際に読み書きして推定）`, `World counts (estimated from 935 documents actually read and written, 185 countries and regions)`],
+    [`とどくで正確に`, `Accurate with todoku`], [`うち日本`, `of which Japan`], [`未見の 878 件だけで出した数`, `From the 878 unseen documents alone`],
+    [`区間は 95%。数えた枠は Common Crawl の政府サイトの書類 3,358,926 件です。国ごとの標本は少なく、国の数は目安です。878 件（161 か国・地域）は固定するまで誰も開いていない新しい標本で、57 件（24 か国）は候補の少ない層から調査の書類を結果を見ずに選びました。生の件数は 878 件で読む 657・書く 601 です。「書く」には文字の中の空欄も入ります。前の定義に近い数えは約 151 万件です。`, `Intervals are 95%. The frame is 3,358,926 government-site documents in Common Crawl. Per-country samples are small, so country numbers are indicative. The 878 (161 countries and regions) are a new sample nobody opened before the freeze; the 57 (24 countries) were chosen from survey documents in strata with few candidates, without looking at results. Raw counts on the 878: read 657, write 601. "Write" includes blanks inside text; a count close to the earlier definition is about 1.51 million.`],
+    [`初めて見る日本の様式（福島県・秋田市・福岡市・柏市の 48 件。無作為ではありません）`, `Japanese forms seen for the first time (48 from Fukushima, Akita, Fukuoka and Kashiwa; not random)`],
+    [`形式`, `Format`], [`件数（書く）`, `Docs (write)`], [`日本語の値が入った`, `Japanese value landed`], [`証明`, `Proof`], [`読み戻し`, `Read-back`], [`PDF（欄のない）`, `PDF (no fields)`], [`合計`, `Total`],
+    [`書く欄のない 2 件は除きました。読むは字のある 46 件のうち 40 件です。`, `2 with no place to write are excluded. Reading: 40 of the 46 with text.`],
+    [`比べる道具との比較（第 2 段と 24 か国の 935 件）`, `Comparison with baselines (the 935 documents)`],
+    [`形式（第 2 段の 878 件）`, `Format (the 878 documents)`], [`件数`, `Docs`], [`読む：とどく`, `Read: todoku`], [`読む：比べる道具`, `Read: baselines`], [`書く：とどく`, `Write: todoku`], [`書く：比べる道具`, `Write: baselines`],
+    [`比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。とどくはこの数に加えて、変わったのが書いた所だけと証明します。`, `A document passes with baselines if any one of several tools passes it (a count favorable to them). On top of these counts, todoku proves that only what it wrote changed.`],
+    [`版 eval-freeze-1 の詳しい表`, `Detailed tables for eval-freeze-1`],
+    [`eval-freeze-2：採点 v2 は第 2 段の結果を見る前に登録し、版を固定してから測りました。境と定義は結果を見て変えていません。`, `<code>eval-freeze-2</code>: scoring v2 was registered before any second-stage result, and measurement followed the freeze. Thresholds and definitions were not changed after seeing results.`],
+    [`様式が白紙なので、計算の結果の 87% は空の値です。値のあるセルは 13,815 で、空の値も含めて全部一致しました。`, `The form is blank, so 87% of the results are empty values. 13,815 cells hold values, and all cells matched, empty ones included.`],
     [`書体の埋め込み：PDF に足す字を、同梱の書体（Noto Sans JP、OFL）から部分埋め込みするのを既定に。固定版の 20 通の比較では、PDF 16 通で日本語の書体を埋め込んでいませんでした。`, `<b>Font embedding</b>: characters added to PDFs are now subset-embedded by default from a bundled font (Noto Sans JP, OFL). In the frozen version's 20-form comparison, 16 PDFs had no embedded Japanese font.`],
     [`見えない字を防ぐ描画の確かめ：書いた後に描いて、画素が変わらなければ読み戻しの違いとして返し、明るさの比が低ければ知らせます。`, `<b>Rendering check against invisible text</b>: after writing, it renders; if the pixels did not change it returns a read-back difference, and it alerts on low contrast.`],
     [`書いた字を見える形に：高さの足りない所で切られる字、一覧にない部品、NeedAppearances、枠の設定、描き直す表示での字の違いに対応。`, `<b>Making written text visible</b>: handles text clipped where height is short, widgets not in the list, NeedAppearances, field border settings, and text differences in viewers that redraw.`],
@@ -1417,8 +1473,8 @@ window.TODOKU_I18N = (() => {
       document.getElementById("b-countries").textContent = T.countries;
       const put = (id, x) => { if (x && x.n != null) document.getElementById(id).innerHTML = x.n.toLocaleString() + (x.ci ? tr(`<small>95% 区間 ${x.ci[0].toLocaleString()}〜${x.ci[1].toLocaleString()}</small>`, `<small>95% interval ${x.ci[0].toLocaleString()}–${x.ci[1].toLocaleString()}</small>`) : ""); };
       put("w-read-reach", F.read?.reach); put("w-write-reach", F.write?.reach);
-      document.getElementById("w-note").textContent = tr(`${F.version || ""} の集計。無作為に選んだ 1,079 件を実際に読み書きして確かめた推定です（Common Crawl の収集の中の値。書く欄のない書類は書けないと数えます）。`,
-        `${F.version || ""} tally. Estimated from 1,079 randomly chosen documents actually read and written (values within the Common Crawl crawl; documents with no fields to write count as not writable).`);
+      document.getElementById("w-note").textContent = tr(`${F.version || ""} の集計。935 件を実際に読み書きして確かめた推定です（Common Crawl の収集の中の値。書く欄のない書類は書けないと数えます）。地図の割合と段階は、8,500 件の調査の値です。`,
+        `${F.version || ""} tally. Estimated from 935 documents actually read and written (values within the Common Crawl crawl; documents with no fields to write count as not writable). Shares and grades on the map come from the survey of 8,500 documents.`);
       if (Object.values(d.countries).some(c => c.counts)) document.querySelectorAll(".tabs .cnt").forEach(b => { b.hidden = false; });
     } else {
       document.getElementById("map-status").textContent = tr("いま地図に出している割合は、確定の集計の前のものです。● は確定の集計が入ると、数に変わります。", "The shares now on the map predate the final tally. ● becomes a number once the final tally is in.");

@@ -79,17 +79,17 @@ With `format: "python"`, the rules are exported as `calculate(inputs) -> dict` t
 - **Deterministic:** no AI in reading, writing, proving or auditing. Places that rules cannot decide are marked `?`. The tool provides facts; the agent makes the judgment.
 - **14 MCP tools:** `open_document`, `read_window`, `list_fields`, `fill_document`, `audit_document`, `extract_processing`, `try_calculation`, `run_macro` and others. Large documents are read by range, in turn; what cannot be read is reported.
 
-About 140,000 lines, 299 files, 4,443 tests.
+About 140,000 lines, 299 files, 4,483 tests.
 
 ## Measured on real documents
 
-Version frozen (`eval-freeze-1`), then measured on documents not used for evaluation before the freeze. <!-- freeze-2 -->
+Version frozen (`eval-freeze-2`), then measured by actually reading and writing 935 documents from government sites in 185 countries and regions. 878 of them are a new sample nobody had opened before the freeze.
 
-We surveyed 8,500 documents randomly sampled from government sites in 185 countries and regions and estimated from 1,079 of them, actually read and written. **An estimated 1.82 million documents can be written accurately**. All categories, intervals and methods are in the [portal](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH); the evaluation code is in `scripts/eval/`. <!-- freeze-2 -->
+**Among the government-site documents collected by Common Crawl, an estimated 2.45 million can be read accurately and an estimated 2.38 million can be written accurately.** All categories, intervals and methods are in the [portal](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH); the evaluation code is in `scripts/eval/`.
 
-- World government documents opened: **552/557** <!-- freeze-2 -->
-- Furigana (Tokyo forms): **698/713** <!-- freeze-2 -->
-- Character recall on legacy Word .doc (Tokyo forms): **1.0** <!-- freeze-2 -->
+- Read accurately: **about 2.45 million** (95% interval 2.25–2.64 million)
+- Written accurately: **about 2.38 million** (95% interval 2.17–2.57 million)
+- 46 Japanese forms seen for the first time, filled in Japanese: **correct in 45, with proof and read-back passing on all 46**
 
 ## Who built this
 

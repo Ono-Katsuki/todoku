@@ -4,18 +4,85 @@ How to use it, what each tool does, how each format is built, how to read the ch
 
 [日本語](REPORT.md)
 
-## Comparison under conditions that favour the baselines
+## Results (`eval-freeze-2`)
 
-The baseline column is what a person gets by choosing the best tool for each format, with todoku pointing out the fields, and checking against the known answer. It is not what an agent gets working alone.
+Tool: `eval-freeze-2` (16059b5). Scoring: the pre-registered v2 (plan in Japanese: [再評価の計画](再評価の計画.md)). Documents: 935 from 185 countries and regions (list: [`sources/eval_freeze2/world.tsv`](../sources/eval_freeze2/world.tsv)).
 
-Baselines include MarkItDown, openpyxl, python-docx and pdfplumber, taking the best per format. <!-- freeze-2 -->
+- **878 documents (161 countries and regions):** a new sample nobody had opened before the freeze. 900 were chosen; 22 with truncated captures were excluded.
+- **57 documents (24 countries):** strata with 50 or fewer candidates. Chosen from survey documents by seed and hash order, without looking at results. 11 overlap the frozen version's comparison. todoku passed 39 on reading and 38 on writing.
+
+| World (stratum × weight 1/π estimate) | Read | Write |
+|---|---|---|
+| **Accurate with todoku** | **2,452,605** (2,247,931–2,637,377) | **2,377,412** (2,169,193–2,567,703) |
+| of which Japan | 289,454 | 299,125 |
+| From the 878 alone | 2,452,339 | 2,377,089 |
+
+The frame is 3,358,926 government-site documents in Common Crawl (CC-MAIN-2026-43); measured strata cover 3,344,887. Intervals are 95%. Per-country samples are small, so country numbers are indicative.
+
+Definition: "write" means a place was chosen and written, the value landed, and nothing was lost. Documents with no place to write count as not writable. Blanks inside text count as places, and places todoku refuses are re-chosen. A count close to the earlier definition (no blanks inside text, no re-choosing) gives 1,508,644 for todoku and 1,506,136 for the baselines. The 45 csv, odt, ods and rtf documents are not write-scored and count as not writable.
+
+Raw counts on the 878: read 657, write 601. Read grades: S 20, A 461, B 139, C 72, E 180, none 6.
+
+Rescoring the frozen version (`eval-freeze-1`) on its 1,079 documents with v2 gives read 2,273,554 and write 2,106,851 (2,196,131 and 1,822,350 before the scoring fixes). That difference comes from the scoring fixes and the change in the write definition.
+
+### Japanese forms seen for the first time
+
+48 documents from the listing pages of Fukushima, Akita, Fukuoka and Kashiwa (not random; [`sources/eval_freeze2/jp_forms.tsv`](../sources/eval_freeze2/jp_forms.tsv)). 2 with no place to write are excluded from writing.
+
+| Format | Docs (write) | ASCII | Japanese | Proof, read-back | Baselines (Japanese) |
+|---|---|---|---|---|---|
+| PDF (no fields) | 26 | 24 | 25 | 26, 26 | pypdf 0; pypdf overlay 26 (original bytes not kept) |
+| .doc | 6 | 6 | 6 | 6, 6 | cannot write |
+| .xls | 7 | 7 | 7 | 7, 7 | cannot write |
+| .xlsx | 6 | 6 | 6 | 6, 6 | openpyxl 3 (shapes, comments etc. lost) |
+| .docx | 1 | 1 | 1 | 1, 1 | python-docx 1 |
+| Total | 46 | 44 | 45 | 46, 46 | |
+
+Reading: 40 of the 46 with text (.doc 6/6, .docx 1/1, .xls 7/7, .xlsx 6/6, PDF 20/28; PDF baselines pypdf 22, pdfplumber 20).
+
+### Comparison under conditions that favour the baselines
+
+The baseline column is what a person gets by choosing the best tool for each format, with todoku pointing out the fields, and checking against the known answer. It is not what an agent gets working alone. Tools: MarkItDown, openpyxl, python-docx, pdfplumber, pypdf, xlrd.
+
+| World | Read | Write |
+|---|---|---|
+| todoku | **2,452,605** | **2,377,412** |
+| Any baseline | 2,388,684 (2,178,692–2,580,045) | 2,374,569 (2,164,878–2,566,164) |
+| Pass with todoku, not with any baseline | 133,662 (94,794–182,564) | 139,515 (99,745–189,254) |
+| Pass with baselines only | 69,741 (30,806–134,464) | 136,639 (83,321–210,092) |
+
+Counts by format on the 878 (todoku / baselines):
+
+| Format | Docs | Read | Write |
+|---|---|---|---|
+| PDF | 730 | 519 / 518 | 511 / 529 |
+| .xlsx | 36 | **35** / 14 | **29** / 11 |
+| .docx | 35 | **34** / 28 | **34** / 32 |
+| CSV | 21 | 20 / 21 | – |
+| .doc | 18 | **17** / 0 | **17** / 0 |
+| .xls | 14 | **13** / 6 | **10** / 0 |
+| .odt | 13 | **12** / 0 | – |
+| .ods | 9 | **5** / 0 | – |
+| .rtf | 2 | **2** / 0 | – |
+
+Features measured on `eval-freeze-1` (documents not used in development; all tables on the portal):
 
 | | todoku | Baselines |
 |---|---|---|
-| World government documents opened | **552/557** | 494/557 <!-- freeze-2 --> |
-| Furigana (Tokyo forms) | **698/713** | 77/713 <!-- freeze-2 --> |
-| Text in shapes and text boxes (world, excluding .doc) | **253/333** | 220/333 <!-- freeze-2 --> |
-| Character recall on legacy Word .doc (Tokyo forms) | **1.0** | 0.0 <!-- freeze-2 --> |
+| World government documents opened | **552/557** | 494/557 |
+| Furigana (Tokyo forms) | **698/713** | 77/713 |
+| Text in shapes and text boxes (world, excluding .doc) | **253/333** | 220/333 |
+| Character recall on legacy Word .doc (Tokyo forms) | **1.0** | 0.0 |
+
+### Known weaknesses
+
+- **39 PDFs only todoku failed to write (of the 878):** about 5 correct refusals to protect certified signatures; about 15 written cleanly but misread by the checking OCR; about 12 written over photos or logos that are not fields; about 5 overlapping printed text; 2 hard to read (black on a dark background, clipped at the page edge). The breakdown was sorted by eye.
+- **Non-fields offered as fields:** on documents that are not forms, photos and logos can be offered as places to write.
+- **Unreadable text can still be written:** the render check looks at pixel change and contrast, so it does not stop every case of text lost in the background.
+- **Read grades that are too kind:** 19 documents graded S or A missed the accuracy bar: 5 Arabic PDFs (all characters present, bigrams .89–.97; baselines .47–.63), 4 .ods/.odt, 3 PDFs with text in images (one with character recall 0.2 graded A), 7 just under the bar (.989–.995).
+- **Excel calculation:** full recalculation uses the same calculator as writing (checked against real Excel on 3 input variations, 306 cells). Functions with undetermined dependencies such as `INDIRECT`, `OFFSET`, `TODAY` are only counted. The big-workbook path was tried on 3 real files and on no .xlsm. A big-workbook failure after writing leaves the file name in place. Id collisions between same-named checkboxes are unchecked.
+- **105,256 cells:** the Niigata form is blank, so 87% of the results are empty values. 13,815 cells hold values, and all cells matched, empty ones included. The 84,692 yen example has not been remeasured on the latest version.
+- **Countries and regions not measured (10):** Central African Republic, North Korea, Eritrea, Eswatini, Gabon, Guinea-Bissau, Micronesia, São Tomé and Príncipe, Tuvalu, Vanuatu. No government documents were found in the crawl. 247 strata with 50 or fewer candidates in the 161 countries are also unmeasured.
 
 ## Usage: as an MCP server
 
@@ -406,7 +473,10 @@ No bot protection was circumvented. The XFA 3.3 specification came from an Inter
 | Random sample of public Excel files | [data.go.jp](https://data.e-gov.go.jp/) CKAN API (`sources/data.e-gov.go.jp.tsv`) |
 | Pairs of blank forms and filled examples | Each municipality's listing page (`sources/pairs.tsv`) |
 | World survey documents | Common Crawl archives and government sites of each country (`world/sample.jsonl`) |
-| Forms from Tokyo's 23 wards and Tama (the 20-form comparison, furigana, .doc measurement) | Each ward's or city's listing page |
+| Forms from Tokyo's 23 wards and Tama (the 20-form comparison, furigana, .doc measurement) | Each ward's or city's listing page (`sources/tokyo23.tsv`, `sources/tama.tsv`) |
+| World forms (development and blank-form filling) | Government sites of each country (`sources/forms_world.tsv`) |
+| Re-evaluation documents | Common Crawl archive (`sources/eval_freeze2/world.tsv`); Fukushima, Akita, Fukuoka, Kashiwa (`sources/eval_freeze2/jp_forms.tsv`) |
+| Forms shown in the video (values are fictional) | [Katsushika Ward assistive device application form](https://www.city.katsushika.lg.jp/kenkou/1000053/1002246/1002304.html), [Hino City daily living equipment application form](https://www.city.hino.lg.jp/fukushi/nanbyo/service/josei/1003716.html) |
 | Listing pages for unseen Japanese forms | Fukushima Prefecture, Akita City, Fukuoka City, Kashiwa City (`sources/jp_forms_pages.tsv`) |
 | Encrypted Office documents (with ground truth) | Test files from [msoffcrypto-tool](https://github.com/nolze/msoffcrypto-tool) (MIT) |
 | Encrypted PDFs (with ground truth) | Test files from [pypdf](https://github.com/py-pdf/pypdf) (BSD 3-Clause) and [pdf.js](https://github.com/mozilla/pdf.js) (Apache-2.0) (`sources/crypto__pdf.txt`) |

@@ -12,11 +12,11 @@ setopt NO_BG_NICE
 set -u
 SCRIPT_DIR="${0:A:h}"
 ROOT="${SCRIPT_DIR:h:h:h}"
-S="${FREEZE2_SCRATCH:-/private/tmp/claude-501/-Users-onokatsuki-Documents-GitHub-claude---/fdcc494c-06ce-4f3c-bc44-7cab0977bf2d/scratchpad}"
+S="${FREEZE2_SCRATCH:?作業のフォルダを FREEZE2_SCRATCH に入れてください}"
 BASE="${FREEZE2_OUT:-$S/freeze2}"
 SUBSET1="${FREEZE2_SUBSET1:-$S/final/world/subset.json}"
 export TODOKU_BASELINE_PY="${TODOKU_BASELINE_PY:-$S/m/ev/baseline_venv/bin/python}"
-export TODOKU_PY="${TODOKU_PY:-/Users/onokatsuki/Documents/GitHub/claudeコンペ/.venv/bin/python}"
+export TODOKU_PY="${TODOKU_PY:-$ROOT/.venv/bin/python}"
 PKR="${FREEZE2_PKR:-$S/final/tools/pkr}"
 PY="$(command -v python3)"
 RUN=("$PY" -I "$SCRIPT_DIR/runner.py")
