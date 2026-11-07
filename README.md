@@ -6,7 +6,7 @@
 
 行政書類を AI エージェントが正確に読み書きするための MCP サーバー。`dependencies = []`。Office も LibreOffice も不要。
 
-[![とどく デモ動画（3 分・字幕つき）](https://img.youtube.com/vi/zB95Q_jUq5A/maxresdefault.jpg)](https://youtu.be/zB95Q_jUq5A)
+[![デモ動画を YouTube で見る（3 分、日本語と英語の字幕つき）。サムネイル：世界地図に「世界の行政書類を、エージェントへ。185 か国・地域で測定、正確に書ける文書 約 238 万件」](https://img.youtube.com/vi/zB95Q_jUq5A/maxresdefault.jpg)](https://youtu.be/zB95Q_jUq5A)
 
 **[デモ動画（3 分・日本語と英語の字幕つき）](https://youtu.be/zB95Q_jUq5A)** ・ **[ポータル：世界の調査と全結果](https://claude.ai/artifact/45P2GdSFYWkAqWrdLebmSH)**
 
