@@ -166,6 +166,9 @@ def _windows_rss() -> int | None:
     c.cb = ctypes.sizeof(c)
     psapi, k32 = ctypes.WinDLL("psapi"), ctypes.WinDLL("kernel32")
     k32.GetCurrentProcess.restype = wintypes.HANDLE
+    # 引数の型を決めないと、64 ビットの HANDLE（-1 の擬似ハンドル）が 32 ビットで渡り、いつも失敗して 0 になる
+    psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD]
+    psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
     if not psapi.GetProcessMemoryInfo(k32.GetCurrentProcess(), ctypes.byref(c), c.cb):
         return None
     return c.working
@@ -368,8 +371,12 @@ def soft_call(fn, name: str, args: dict) -> dict:
             why = None
             if time.monotonic() - t0 > limits.TIME_LIMIT:
                 why = _TIME()
-            elif rss_bytes() > limits.MEMORY_LIMIT / 2 and (limits.release_memory() or rss_bytes() > limits.MEMORY_LIMIT):
-                why = _MEMORY()
+            else:
+                try:
+                    if rss_bytes() > limits.MEMORY_LIMIT / 2 and (limits.release_memory() or rss_bytes() > limits.MEMORY_LIMIT):
+                        why = _MEMORY()
+                except Exception:  # noqa: BLE001  メモリを読めなくても、時間の見張りは続ける（見張りが黙って止まらないように）
+                    pass
             if why:
                 _SoftStop.reason = why
                 ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(target), ctypes.py_object(_SoftStop))

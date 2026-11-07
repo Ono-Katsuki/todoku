@@ -436,6 +436,7 @@ def _handle(name, **args):
     return handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}})["result"]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="別のプロセスの働き手は POSIX だけ（Windows はサーバーの中で、見張りのスレッドと予算で止める）")
 def test_isolated_calls_stop_on_time_and_memory_and_the_server_survives(monkeypatch, tmp_path):
     from todoku import isolate
 

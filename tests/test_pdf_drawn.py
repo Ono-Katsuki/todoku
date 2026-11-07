@@ -7,6 +7,7 @@ Quartz は注釈を描かない。実物の表示での測り方は tests/audit_
 from __future__ import annotations
 
 import re
+import os
 import shutil
 import subprocess
 
@@ -265,7 +266,7 @@ def _verify(blob: bytes, br: list[int], cert: bytes, tmp_path) -> bool:
     (tmp_path / "v.bin").write_bytes(a + b)
     (tmp_path / "v.pem").write_bytes(cert)
     r = subprocess.run([openssl, "cms", "-verify", "-binary", "-inform", "DER", "-in", str(tmp_path / "v.der"), "-content", str(tmp_path / "v.bin"),
-                        "-CAfile", str(tmp_path / "v.pem"), "-out", "/dev/null"], capture_output=True)
+                        "-CAfile", str(tmp_path / "v.pem"), "-out", os.devnull], capture_output=True)
     return r.returncode == 0
 
 

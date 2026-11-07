@@ -32,9 +32,15 @@ def _csv(tmp_path) -> Path:
 
 def _broken_python(tmp_path, monkeypatch, text: str = "RuntimeError: だめでした") -> None:
     """仕事のプロセスが、すぐに異常終了するようにする（本物のプロセスの終わり方で試す）。"""
-    fake = tmp_path / "broken-python"
-    fake.write_text(f"#!/bin/sh\ncat > /dev/null\necho 'Traceback' >&2\necho '{text}' >&2\nexit 3\n", encoding="utf-8")
-    fake.chmod(0o755)
+    if os.name == "nt":  # Windows はシェルの台本を起動できない：本物の Python で同じ終わり方をする小さな台本を、.cmd から起動する
+        py = tmp_path / "broken.py"
+        py.write_text(f"import sys\nsys.stdin.read()\nprint('Traceback', file=sys.stderr)\nprint({text!r}, file=sys.stderr)\nsys.exit(3)\n", encoding="utf-8")
+        fake = tmp_path / "broken-python.cmd"
+        fake.write_text(f'@"{sys.executable}" -X utf8 "{py}" %*\r\n@exit /b %errorlevel%\r\n', encoding="utf-8")
+    else:
+        fake = tmp_path / "broken-python"
+        fake.write_text(f"#!/bin/sh\ncat > /dev/null\necho 'Traceback' >&2\necho '{text}' >&2\nexit 3\n", encoding="utf-8")
+        fake.chmod(0o755)
     monkeypatch.setattr(jobs.sys, "executable", str(fake))
 
 
@@ -67,7 +73,7 @@ def test_lowering_priority_never_raises(monkeypatch):
     def refuse(_n):
         raise PermissionError(1, "Operation not permitted")
 
-    monkeypatch.setattr(jobs.os, "nice", refuse)
+    monkeypatch.setattr(jobs.os, "nice", refuse, raising=False)  # Windows には os.nice がない
     jobs._lower_priority()
 
 

@@ -139,19 +139,37 @@ def _read_file(p: Path) -> bytes:
     return p.read_bytes()
 
 
+_CALLS = __import__("threading").local()  # 呼び出しの入れ子の深さ（Windows の片づけは外側だけ）
+
+
 def _budgeted(fn):
     """1 回の呼び出しに、展開・描画の予算を 1 つ置く（limits.call_budget。呼び出しの中で api を呼び直しても同じ予算）。"""
     import functools
 
     @functools.wraps(fn)
     def run(*a, **k):
+        from .limits import call_budget
+
+        depth = getattr(_CALLS, "depth", 0)
+        _CALLS.depth = depth + 1
+        try:
+            return _call(fn, a, k, call_budget)
+        finally:
+            _CALLS.depth = depth
+            if depth == 0 and os.name == "nt":
+                # Windows は、読みに使った mmap が残っている間、そのファイルを消すことも名前を変えることもできない。
+                # 書類のオブジェクトは互いを指すので、参照の数だけでは放されない：外側の呼び出しの終わりに片づけて、ファイルを放す
+                import gc
+
+                gc.collect()
+
+    def _call(fn, a, k, call_budget):
         import struct
         import xml.etree.ElementTree as ET
         import xml.parsers.expat as expat
         import zlib
 
         from .cfb import CfbError
-        from .limits import call_budget
         from .pdf.crypto import NeedsPassword as PdfNeedsPassword
         from .pdf.objects import PdfError
         from .xls.book import XlsError
@@ -1256,7 +1274,8 @@ def _temp_beside(dst: Path, blob: bytes) -> Path:
     from .lazy.filebytes import FileBytes, write_out
 
     dst.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(blob, FileBytes) and blob._owned is not None and Path(blob.path).parent == dst.parent:
+    # Windows は開いているファイルの名前を付け替えられないので、写す方へ
+    if isinstance(blob, FileBytes) and blob._owned is not None and Path(blob.path).parent == dst.parent and os.name != "nt":
         # 書いた結果の一時ファイル（元のバイトを流して写したもの）：もう一度写さず、名前を付け替える
         fd, name = tempfile.mkstemp(prefix=f".{dst.stem}.", suffix=f".todoku-tmp{dst.suffix}", dir=dst.parent)
         os.close(fd)

@@ -7,6 +7,7 @@ import base64
 import importlib.util
 import io
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -22,6 +23,8 @@ from todoku import api
 openpyxl = pytest.importorskip("openpyxl")
 FIX = Path(__file__).parent / "fixtures"
 SRC = str(Path(__file__).parent.parent / "src")
+# 子の Python の環境：Windows は SYSTEMROOT などがないと立ち上がらないので、今の環境を引き継ぐ。出力は UTF-8 で読む
+_ENV = {**os.environ, "PYTHONPATH": SRC, "PYTHONUTF8": "1"} if os.name == "nt" else {"PYTHONPATH": SRC, "PATH": "/usr/bin:/bin"}
 
 
 # ---------------------------------------------------------------- 作り方
@@ -571,7 +574,7 @@ print(json.dumps({"peak": peak, "summary": res["summary"], "texts": [d["text"] f
 
 
 def _peak(path: Path) -> dict:
-    p = subprocess.run([sys.executable, "-c", _PEAK, str(path)], capture_output=True, text=True, env={"PYTHONPATH": SRC, "PATH": "/usr/bin:/bin"}, timeout=300)
+    p = subprocess.run([sys.executable, "-c", _PEAK, str(path)], capture_output=True, text=True, encoding="utf-8", env=_ENV, timeout=300)
     assert p.returncode == 0, p.stderr[-2000:]
     return json.loads(p.stdout)
 
@@ -711,7 +714,7 @@ def test_generated_module_is_standalone(tmp_path):
             assert n.level == 0
             roots.add(n.module.split(".")[0])
     assert roots <= set(sys.stdlib_module_names), roots
-    r = subprocess.run([sys.executable, "-I", "-S", str(mod)], capture_output=True, text=True, cwd=tmp_path, timeout=60)
+    r = subprocess.run([sys.executable, "-I", "-S", str(mod)], capture_output=True, text=True, encoding="utf-8", cwd=tmp_path, timeout=60)
     assert r.returncode == 0, r.stderr
     assert isinstance(json.loads(r.stdout), dict)
     # すでにあるファイルは、頼まれないと置き換えない
@@ -807,8 +810,8 @@ def test_time_limit_stops_verification_and_says_so(tmp_path):
                 total += 1
                 f.write(f'<row r="{r}"><c r="A{r}"><v>1</v></c><c r="B{r}"><f>SUM(A$1:A{r})</f><v>{total}</v></c></row>'.encode())
             f.write(b"</sheetData></worksheet>")
-    p = subprocess.run([sys.executable, "-c", _SLOW, str(tmp_path / "t.xlsx"), str(tmp_path / "m.py")], capture_output=True, text=True, timeout=120,
-                       env={"PYTHONPATH": SRC, "PATH": "/usr/bin:/bin", "TODOKU_TIME_LIMIT": "6"})
+    p = subprocess.run([sys.executable, "-c", _SLOW, str(tmp_path / "t.xlsx"), str(tmp_path / "m.py")], capture_output=True, text=True, encoding="utf-8", timeout=120,
+                       env={**_ENV, "TODOKU_TIME_LIMIT": "6"})
     assert p.returncode == 0, p.stderr[-1500:]
     d = json.loads(p.stdout.strip().splitlines()[-1])
     assert (tmp_path / "m.py").exists()
@@ -1057,16 +1060,16 @@ def test_mcp_tool(tmp_path):
     assert "extract_processing" in names
     msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "extract_processing", "arguments": {"path": str(FIX / "kami_meisai.xlsx")}}}]
-    p = subprocess.run([sys.executable, "-m", "todoku.mcp_server"], input="\n".join(json.dumps(m) for m in msgs) + "\n", capture_output=True, text=True,
-                       env={"PYTHONPATH": SRC, "PATH": "/usr/bin:/bin"}, timeout=120)
+    p = subprocess.run([sys.executable, "-m", "todoku.mcp_server"], input="\n".join(json.dumps(m) for m in msgs) + "\n", capture_output=True, text=True, encoding="utf-8",
+                       env=_ENV, timeout=120)
     out = [json.loads(x) for x in p.stdout.splitlines() if x.strip()]
     res = next(x for x in out if x.get("id") == 2)["result"]
     assert res["structuredContent"]["summary"]["rules"] == 14
     assert "規則 14" in res["content"][0]["text"]
     mod = tmp_path / "m.py"
     msgs[1]["params"]["arguments"].update(format="python", out_path=str(mod))
-    p = subprocess.run([sys.executable, "-m", "todoku.mcp_server"], input="\n".join(json.dumps(m) for m in msgs) + "\n", capture_output=True, text=True,
-                       env={"PYTHONPATH": SRC, "PATH": "/usr/bin:/bin"}, timeout=120)
+    p = subprocess.run([sys.executable, "-m", "todoku.mcp_server"], input="\n".join(json.dumps(m) for m in msgs) + "\n", capture_output=True, text=True, encoding="utf-8",
+                       env=_ENV, timeout=120)
     out = [json.loads(x) for x in p.stdout.splitlines() if x.strip()]
     res = next(x for x in out if x.get("id") == 2)["result"]["structuredContent"]
     assert res["verification"]["stored"]["rate"] == "100%" and mod.exists()

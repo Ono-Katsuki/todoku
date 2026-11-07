@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -32,9 +33,9 @@ def test_old_records_of_every_kind_are_purged_and_new_ones_stay(jd, tmp_path, mo
     src.write_text("x")
     d = jobs._dir()
     for name in ("win-1.window", "win-1.json", "calc-1.json", "2.json", "anchor-3.json", "4.5.tmp"):
-        (d / name).write_text('{"path": "%s", "finished": 1}' % src)
+        (d / name).write_text('{"path": %s, "finished": 1}' % json.dumps(str(src)))
         _old(d / name, 25)
-    (d / "new.json").write_text('{"path": "%s", "finished": 1}' % src)
+    (d / "new.json").write_text('{"path": %s, "finished": 1}' % json.dumps(str(src)))
     gone = jobs.purge()
     assert sorted(gone) == sorted(["win-1.window", "win-1.json", "calc-1.json", "2.json", "anchor-3.json", "4.5.tmp"])
     assert [p.name for p in d.iterdir()] == ["new.json"]
@@ -44,7 +45,7 @@ def test_ttl_comes_from_the_environment(jd, tmp_path, monkeypatch):
     src = tmp_path / "a.txt"
     src.write_text("x")
     d = jobs._dir()
-    (d / "a.json").write_text('{"path": "%s", "finished": 1}' % src)
+    (d / "a.json").write_text('{"path": %s, "finished": 1}' % json.dumps(str(src)))
     _old(d / "a.json", 3)
     assert jobs.purge() == []  # 既定は 24 時間
     monkeypatch.setenv("TODOKU_JOBS_TTL_HOURS", "2")
@@ -57,17 +58,17 @@ def test_running_job_is_never_purged(jd, tmp_path):
     src = tmp_path / "a.txt"
     src.write_text("x")
     d = jobs._dir()
-    (d / "r.json").write_text('{"path": "%s", "pid": %d}' % (src, os.getpid()))
+    (d / "r.json").write_text('{"path": %s, "pid": %d}' % (json.dumps(str(src)), os.getpid()))
     _old(d / "r.json", 100)
     assert jobs.purge() == []
     assert jobs.purge(everything=True) == []
-    (d / "r.json").write_text('{"path": "%s", "pid": %d, "finished": 1}' % (src, os.getpid()))
+    (d / "r.json").write_text('{"path": %s, "pid": %d, "finished": 1}' % (json.dumps(str(src)), os.getpid()))
     assert jobs.purge(everything=True) == ["r.json"]
 
 
 def test_record_of_a_deleted_file_is_purged_at_once(jd, tmp_path):
     d = jobs._dir()
-    (d / "win-g.json").write_text('{"path": "%s", "finished": 1}' % (tmp_path / "gone.xlsx"))
+    (d / "win-g.json").write_text('{"path": %s, "finished": 1}' % json.dumps(str(tmp_path / "gone.xlsx")))
     (d / "win-g.window").write_bytes(b"content")
     assert sorted(jobs.purge()) == ["win-g.json", "win-g.window"]
 

@@ -38,7 +38,7 @@ jobs:
           for f in tests/test_*.py; do
             n=$(basename "$f" .py)
             start=$(date +%s)
-            timeout 240 uv run pytest -q -rfE -p no:cacheprovider "$f" > "probe/$n.log" 2>&1
+            timeout 240 uv run pytest -v -rfE -p no:cacheprovider "$f" > "probe/$n.log" 2>&1
             rc=$?
             echo "$n rc=$rc s=$(( $(date +%s) - start )) $(tail -1 probe/$n.log)" | tee -a probe/summary.txt
           done

@@ -614,6 +614,12 @@ def _dump(path, seconds, max_cells):
 
 
 def main(argv):
+    # Windows の標準出力は既定のコードページ（cp1252・cp932 など）で、日本語の値を出せないことがある。結果は UTF-8 の JSON で出す
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except (ValueError, OSError):
+            pass
     if len(argv) >= 2 and argv[1] == "--dump":
         _dump(argv[2], float(argv[3]), int(argv[4]))
         return 0
