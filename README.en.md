@@ -25,7 +25,7 @@ You don't have to trust the agent's report. Check it with `cmp`.
 
 ## Install in 30 seconds
 
-In Claude Code (requires [uv](https://docs.astral.sh/uv/); supported on macOS and Linux):
+In Claude Code (requires [uv](https://docs.astral.sh/uv/); supported on macOS; Windows and Linux in beta):
 
 ```text
 /plugin marketplace add Ono-Katsuki/todoku
