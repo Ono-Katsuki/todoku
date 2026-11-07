@@ -101,6 +101,18 @@ I am a bedridden developer, business owner and researcher. I cannot speak. I can
 
 I built this repository in one week, by talking to Claude through that switch. Real documents expose a bug, another agent verifies it, it gets fixed. Over and over.
 
+Our office handles a great many applications. From now on, my staff and I will fill them in with todoku.
+
+| How Claude is used | For what |
+|---|---|
+| Claude Code (CLI) | The center of development: design, implementation and verification, by conversation through a head switch |
+| Remote Control | Driving Claude Code on the Mac from an iPad, lying in bed |
+| Subagents (worktrees) | Finding bugs on real documents, fixing them and having another agent verify, in parallel |
+| MCP server (14 tools) | todoku itself: the entry point where agents read, write and prove documents |
+| Skill `shinsei` | Hands agents the way to find and fill in application forms |
+| Plugin (marketplace) | Installs the MCP server and the skill at once |
+| Claude.ai Artifact | Publishes the world survey results as the portal |
+
 > With Claude, even someone bedridden can become a developer.
 
 Paper: Katsuki Ono, [*Reconfiguration of Ability: An Autoethnography of LLM-Mediated Development by a Developer with Severe Physical Disability*](https://doi.org/10.1145/3797867.3828990), ASSETS '26

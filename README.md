@@ -101,6 +101,18 @@ ROUNDDOWN(ROUND(L × P, 0), 0) × AA
 
 このリポジトリは、そのスイッチで Claude と会話して、1 週間で作った。実物の書類でバグを見つけ、別のエージェントが確かめ、直す。その繰り返しだ。
 
+私たちの事業所は申請がとても多い。これからは私も社員も、申請書をとどくで書く。
+
+| Claude の使い分け | 何のために |
+|---|---|
+| Claude Code（CLI） | 開発の中心。設計・実装・検証を、頭のスイッチで会話して進めた |
+| Remote Control | 寝たまま iPad から、Mac の Claude Code を動かす |
+| サブエージェント（worktree） | 実物の書類でバグを探す・直す・別のエージェントが確かめる、を並行して回す |
+| MCP サーバー（道具 14 個） | とどく本体。エージェントが書類を読み書きし、証明する入口 |
+| スキル `shinsei` | 申請書を探して記入する進め方を、エージェントに渡す |
+| プラグイン（マーケットプレイス） | MCP サーバーとスキルを一度に入れる |
+| Claude.ai の Artifact | 世界の調査の結果を、ポータルとして公開する |
+
 > Claude があれば、寝たきりも開発者になれる。
 
 論文：Katsuki Ono, [*Reconfiguration of Ability: An Autoethnography of LLM-Mediated Development by a Developer with Severe Physical Disability*](https://doi.org/10.1145/3797867.3828990), ASSETS '26
