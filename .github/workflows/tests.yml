@@ -5,6 +5,7 @@ name: tests
 
 on:
   push:
+    branches-ignore: [windows]  # Windows の調べのブランチでは、全部のテストを動かさない（分数の節約。調べは windows.yml）
   pull_request:
   workflow_dispatch:
 
