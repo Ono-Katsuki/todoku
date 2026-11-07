@@ -136,6 +136,7 @@ def test_collapsed_rows_are_stated_and_reachable(tmp_path):
     assert "- 13: " not in body  # 頼まなかった行は出さない（読んでいないので、作った字を出さない）
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="評価の道具（scripts/eval）は POSIX だけ")
 def test_expand_collapsed_counts_stated_rows():
     from read_compare import expand_collapsed
 
@@ -144,6 +145,7 @@ def test_expand_collapsed_counts_stated_rows():
     assert out.count("済") == 3 and "同じ形の行" not in out and "- 2" in out
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="評価の道具（scripts/eval）は POSIX だけ")
 def test_pdf_units_split_at_spaces_for_bigrams():
     from read_compare import _recall_units
 
@@ -319,6 +321,7 @@ def test_text_order_not_told_when_result_does_not_depend(tmp_path, formula, key)
 
 
 # ---------------------------------------------------------------- 区間
+@pytest.mark.skipif(sys.platform == "win32", reason="評価の道具（scripts/eval）は POSIX だけ")
 def test_portal_and_eval_use_same_interval():
     import world_counts
     import world_portal

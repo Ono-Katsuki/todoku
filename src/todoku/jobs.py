@@ -136,9 +136,29 @@ def save(key: str, record: dict) -> None:
     os.replace(tmp, p)
 
 
+def _alive_nt(pid: int) -> bool:
+    """Windows：os.kill(pid, 0) は確かめではなく Ctrl+C を送るので使わない。プロセスの終わりの値を聞く（259 は動いている）。"""
+    import ctypes
+
+    k = ctypes.windll.kernel32
+    h = k.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    try:
+        code = ctypes.c_ulong()
+        return bool(k.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == 259
+    finally:
+        k.CloseHandle(h)
+
+
 def _alive(pid) -> bool:
     if not pid:
         return False
+    if os.name == "nt":
+        try:
+            return _alive_nt(int(pid))
+        except (OSError, ValueError):
+            return False
     try:
         os.kill(int(pid), 0)
     except (OSError, ValueError):

@@ -1341,7 +1341,8 @@ def _fill_member(path: str, values: dict, out_path: str, force: bool, password: 
     name = name.replace("\\", "_")
     if name.strip(".") == "":  # 「..」「.」だけの名前：一時フォルダの中のファイルの名前にできない
         name = "member"
-    with tempfile.TemporaryDirectory() as d:
+    # Windows は開いたままのファイルを消せない。読みの控えが閉じる前に片づけが来ても、書いた結果は返す（残りは OS の一時フォルダの片づけに任せる）
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         a, b = Path(d) / "a" / name, Path(d) / "b" / name
         a.parent.mkdir()
         b.parent.mkdir()
