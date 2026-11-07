@@ -657,6 +657,7 @@ td .ci { display: inline-block; line-height: 1.3; }
 <tr><td>比べる道具のどれかで通る</td><td class="num">2,388,684<br><span class="ci">2,178,692〜2,580,045</span></td><td class="num">2,374,569<br><span class="ci">2,164,878〜2,566,164</span></td></tr>
 <tr><td>とどくで通り、比べる道具では通らない</td><td class="num">133,662<br><span class="ci">94,794〜182,564</span></td><td class="num">139,515<br><span class="ci">99,745〜189,254</span></td></tr>
 <tr><td>比べる道具だけ通る</td><td class="num">69,741<br><span class="ci">30,806〜134,464</span></td><td class="num">136,639<br><span class="ci">83,321〜210,092</span></td></tr>
+<tr><td>元の PDF のバイト列を残して書けた：とどく ／ 比べる道具</td><td class="num">—</td><td class="num">2,377,412 ／ 1,915,851<br><span class="ci">比べる道具 1,683,348〜2,141,464</span></td></tr>
       </tbody>
     </table></div>
     <div class="tablebox"><table>
@@ -673,7 +674,7 @@ td .ci { display: inline-block; line-height: 1.3; }
 <tr><td>.rtf</td><td class="num">2</td><td class="num">2</td><td class="num">0</td><td class="num">—</td><td class="num">—</td></tr>
       </tbody>
     </table></div>
-    <p class="cnote">比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。とどくはこの数に加えて、変わったのが書いた所だけと証明します。</p>
+    <p class="cnote">比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。この数は、元の書類を残すことも、変えていないことの証明も条件に入れていません。PDF の重ね書きは、書けた 502 件のどれも元のバイト列を残しませんでした。とどくは書けた PDF 511 件のすべてで元のバイト列を残し、変わったのが書いた所だけと証明しました。</p>
 
     <h4 class="minor">版 eval-freeze-1 の詳しい表</h4>
 
@@ -1059,7 +1060,8 @@ window.TODOKU_I18N = (() => {
     [`書く欄のない 2 件は除きました。読むは字のある 46 件のうち 40 件です。`, `2 with no place to write are excluded. Reading: 40 of the 46 with text.`],
     [`比べる道具との比較（第 2 段と 24 か国の 935 件）`, `Comparison with baselines (the 935 documents)`],
     [`形式（第 2 段の 878 件）`, `Format (the 878 documents)`], [`件数`, `Docs`], [`読む：とどく`, `Read: todoku`], [`読む：比べる道具`, `Read: baselines`], [`書く：とどく`, `Write: todoku`], [`書く：比べる道具`, `Write: baselines`],
-    [`比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。とどくはこの数に加えて、変わったのが書いた所だけと証明します。`, `A document passes with baselines if any one of several tools passes it (a count favorable to them). On top of these counts, todoku proves that only what it wrote changed.`],
+    [`比べる道具は、書類ごとに複数の道具のどれか 1 つでも通れば「通る」と数えます（比べる道具に有利な数え方）。この数は、元の書類を残すことも、変えていないことの証明も条件に入れていません。PDF の重ね書きは、書けた 502 件のどれも元のバイト列を残しませんでした。とどくは書けた PDF 511 件のすべてで元のバイト列を残し、変わったのが書いた所だけと証明しました。`, `A document passes with baselines if any one of several tools passes it (a count favorable to them). These counts require neither keeping the original document nor proving nothing else changed. The PDF overlay kept the original bytes in none of its 502 writes. todoku kept the original bytes and proved that only what it wrote changed in all 511 PDFs it wrote.`],
+    [`元の PDF のバイト列を残して書けた：とどく ／ 比べる道具`, `Written with the original PDF bytes kept: todoku / baselines`], [`比べる道具 1,683,348〜2,141,464`, `baselines 1,683,348–2,141,464`],
     [`版 eval-freeze-1 の詳しい表`, `Detailed tables for eval-freeze-1`],
     [`eval-freeze-2：採点 v2 は第 2 段の結果を見る前に登録し、版を固定してから測りました。境と定義は結果を見て変えていません。`, `<code>eval-freeze-2</code>: scoring v2 was registered before any second-stage result, and measurement followed the freeze. Thresholds and definitions were not changed after seeing results.`],
     [`様式が白紙なので、計算の結果の 87% は空の値です。値のあるセルは 13,815 で、空の値も含めて全部一致しました。`, `The form is blank, so 87% of the results are empty values. 13,815 cells hold values, and all cells matched, empty ones included.`],

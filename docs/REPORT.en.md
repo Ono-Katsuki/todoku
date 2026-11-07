@@ -4,6 +4,12 @@ How to use it, what each tool does, how each format is built, how to read the ch
 
 [日本語](REPORT.md)
 
+**Summary**
+
+- 935 government-site documents from 185 countries and regions were actually read and written after freezing the version (878 of them a new sample nobody opened before the freeze). Estimated documents read accurately: about 2.45 million; written accurately: about 2.38 million.
+- The baseline count is an upper bound: a person picks the best tool per format and todoku points out the fields. Even so, baselines write 0 .doc and .xls files and read 0 .doc, .odt, .ods and .rtf files, and on .xlsx it is 29 to 11 for writing and 35 to 14 for reading. Requiring the original PDF bytes to be kept, documents written are about 2.38 million for todoku and about 1.92 million for the baselines.
+- todoku proves, document by document, that nothing changed besides what it wrote and the resulting calculations. The baselines have no such proof.
+
 ## Results (`eval-freeze-2`)
 
 Tool: `eval-freeze-2` (86bba80). Scoring: the pre-registered v2 (plan in Japanese: [再評価の計画](再評価の計画.md)). Documents: 935 from 185 countries and regions (list: [`sources/eval_freeze2/world.tsv`](../sources/eval_freeze2/world.tsv)).
@@ -44,18 +50,22 @@ Reading: 40 of the 46 with text (.doc 6/6, .docx 1/1, .xls 7/7, .xlsx 6/6, PDF 2
 
 The baseline column is what a person gets by choosing the best tool for each format, with todoku pointing out the fields, and checking against the known answer. It is not what an agent gets working alone. Tools: MarkItDown, openpyxl, python-docx, pdfplumber, pypdf, xlrd.
 
+How to read it: this upper bound does not require keeping the original document or proving nothing else changed. The PDF overlay (pypdf overlay) kept the original bytes in none of its 502 writes. Requiring the original PDF bytes to be kept, documents written are 2,377,412 for todoku and 1,915,851 for the baselines (last row below). todoku kept the original bytes and passed its proof in all 511 PDFs it wrote.
+
 | World | Read | Write |
 |---|---|---|
 | todoku | **2,452,605** | **2,377,412** |
 | Any baseline | 2,388,684 (2,178,692–2,580,045) | 2,374,569 (2,164,878–2,566,164) |
 | Pass with todoku, not with any baseline | 133,662 (94,794–182,564) | 139,515 (99,745–189,254) |
 | Pass with baselines only | 69,741 (30,806–134,464) | 136,639 (83,321–210,092) |
+| Written with the original PDF bytes kept: todoku / baselines | – | **2,377,412** / 1,915,851 (1,683,348–2,141,464) |
 
 Counts by format on the 878 (todoku / baselines):
 
 | Format | Docs | Read | Write |
 |---|---|---|---|
 | PDF | 730 | 519 / 518 | 511 / 529 |
+| PDF (written, original bytes kept) | 730 | – | **511** / 398 |
 | .xlsx | 36 | **35** / 14 | **29** / 11 |
 | .docx | 35 | **34** / 28 | **34** / 32 |
 | CSV | 21 | 20 / 21 | – |
@@ -403,6 +413,8 @@ Large documents may be read in smaller amounts, but they are never treated as un
 
 ## Full audit during development (as of November 3, 2026)
 
+The documents in this section were used in development, so this is not an evaluation (failures were fixed, so results approach 100%). The evaluation is [Results](#results-eval-freeze-2) above.
+
 Forms collected from public pages of national, prefectural and municipal governments in Japan and from abroad (US, UK, Canada, Germany, New Zealand, Australia) went through the same checks as `audit_document` (`scripts/audit_corpus.py`). Failures were not blamed on the form. The general cause on todoku's side was found and fixed.
 
 | Collected forms | Count | Readable and writable, completely and accurately |
@@ -430,7 +442,7 @@ Forms collected from public pages of national, prefectural and municipal governm
 
 ```sh
 uv sync
-uv run pytest          # 4,443 tests
+uv run pytest          # 4,483 tests
 uv run python scripts/audit_corpus.py corpus/wide   # batch audit of collected forms (fetch them first)
 ```
 
