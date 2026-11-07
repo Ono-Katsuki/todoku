@@ -130,7 +130,7 @@ def load(key: str) -> dict | None:
 def save(key: str, record: dict) -> None:
     p = _state_path(key)
     tmp = p.with_suffix(f".{os.getpid()}.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(record, f, ensure_ascii=False, default=str)
     os.replace(tmp, p)
@@ -157,7 +157,7 @@ def _lower_priority() -> None:
     """ほかの処理を邪魔しないように優先度を下げる。下げられなくても（macOS は優先度がすでに低いと PermissionError）仕事は進める。"""
     try:
         os.nice(10)
-    except OSError:
+    except (OSError, AttributeError):  # Windows には os.nice がない
         pass
 
 
@@ -167,7 +167,7 @@ def _spawn(key: str) -> subprocess.Popen:
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join([here] + [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p])
-    fd = os.open(_err_path(key), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(_err_path(key), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
     try:
         proc = subprocess.Popen([sys.executable, "-m", "todoku.jobs", key], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                 stderr=fd, env=env, start_new_session=True)
@@ -461,7 +461,7 @@ def _run_window(key: str, rec: dict) -> int:
             blob = api._read(rec["path"], None)[0]
         p = _window_file(key)
         tmp = p.with_suffix(f".{os.getpid()}.tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
         with os.fdopen(fd, "wb") as f:
             pickle.dump((sha256_hex(blob), out), f, protocol=pickle.HIGHEST_PROTOCOL)
         os.replace(tmp, p)

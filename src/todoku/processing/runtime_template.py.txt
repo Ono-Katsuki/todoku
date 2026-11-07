@@ -498,10 +498,10 @@ def _deep(fn):
             box["e"] = e
 
     old = sys.getrecursionlimit()
-    # Windows のスレッドのスタックは 256 MB まで（それより大きいと ValueError）。再帰の上限もスタックに合わせる
+    # Windows のスレッドのスタックは 256 MB 未満（256 MB ちょうどでも ValueError）。再帰の上限もスタックに合わせる
     big = sys.platform != "win32"
-    sys.setrecursionlimit(200000 if big else 100000)
-    threading.stack_size((512 if big else 256) * 1024 * 1024)
+    sys.setrecursionlimit(200000 if big else 90000)
+    threading.stack_size((512 if big else 240) * 1024 * 1024)
     try:
         t = threading.Thread(target=target)
         t.start()

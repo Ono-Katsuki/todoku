@@ -12,6 +12,7 @@ from __future__ import annotations
 import codecs
 import hashlib
 import os
+from .pread import O_BINARY, pread
 import re
 from array import array
 
@@ -76,7 +77,7 @@ class Source:
 
     def __init__(self, path: str):
         self.path = path
-        self.fd = os.open(path, os.O_RDONLY)
+        self.fd = os.open(path, os.O_RDONLY | O_BINARY)
         st = os.fstat(self.fd)
         self.size = st.st_size
         self.key = (st.st_size, st.st_mtime_ns)
@@ -84,7 +85,7 @@ class Source:
     def read(self, a: int, b: int) -> bytes:
         out = []
         while a < b:
-            piece = os.pread(self.fd, min(b - a, 1 << 26), a)
+            piece = pread(self.fd, min(b - a, 1 << 26), a)
             if not piece:
                 break
             out.append(piece)
@@ -94,7 +95,7 @@ class Source:
     def chunks(self, a: int = 0, b: int | None = None, size: int = CHUNK):
         b = self.size if b is None else b
         while a < b:
-            piece = os.pread(self.fd, min(size, b - a), a)
+            piece = pread(self.fd, min(size, b - a), a)
             if not piece:
                 return
             yield piece

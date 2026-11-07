@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from .pread import O_BINARY, pread
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -157,13 +158,13 @@ def stream_patch(src, edits: list[tuple[int, int, bytes]], dst: Path) -> tuple[B
 def verify_ranges(dst: Path, ranges: ByteRanges) -> list[str]:
     """書いたファイルを読み直して、書き換えなかった範囲のハッシュが元のファイルと同じことを確かめる。"""
     bad = []
-    fd = os.open(dst, os.O_RDONLY)
+    fd = os.open(dst, os.O_RDONLY | O_BINARY)
     try:
         for a, b, d, want in ranges.items:
             h = hashlib.sha256()
             pos, end = d, d + (b - a)
             while pos < end:
-                c = os.pread(fd, min(1 << 20, end - pos), pos)
+                c = pread(fd, min(1 << 20, end - pos), pos)
                 if not c:
                     break
                 h.update(c)

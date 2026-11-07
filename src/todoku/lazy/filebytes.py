@@ -12,6 +12,7 @@ import contextvars
 import hashlib
 import mmap
 import os
+from .pread import O_BINARY, pread
 import re
 import tempfile
 import weakref
@@ -49,7 +50,7 @@ class FileBytes(mmap.mmap):
     """読むだけの mmap に、bytes の主な読み方を足したもの。"""
 
     def __new__(cls, path):
-        fd = os.open(path, os.O_RDONLY)
+        fd = os.open(path, os.O_RDONLY | O_BINARY)
         try:
             self = super().__new__(cls, fd, 0, access=mmap.ACCESS_READ)
         finally:
@@ -108,11 +109,11 @@ class FileBytes(mmap.mmap):
     # ------------------------------------------------------------------ 少しずつ読む
     def chunks(self, a: int = 0, b: int | None = None, step: int = STEP):
         b = len(self) if b is None else b
-        fd = os.open(self.path, os.O_RDONLY)
+        fd = os.open(self.path, os.O_RDONLY | O_BINARY)
         try:
             pos = a
             while pos < b:
-                c = os.pread(fd, min(step, b - pos), pos)
+                c = pread(fd, min(step, b - pos), pos)
                 if not c:
                     return
                 yield c

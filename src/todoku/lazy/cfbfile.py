@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import bisect
 import os
+from .pread import O_BINARY, pread
 import tempfile
 from array import array
 
@@ -67,7 +68,7 @@ class Stream:
             seg_end = self.starts[i + 1] if i + 1 < len(self.starts) else b
             take = min(b, seg_end) - pos
             if take > 0:
-                c = os.pread(fd, take, self.at[i] + pos - self.starts[i])
+                c = pread(fd, take, self.at[i] + pos - self.starts[i])
                 out += c
                 if len(c) < take:
                     break
@@ -90,7 +91,7 @@ class CfbFile:
         self.path = path
         self.fb = FileBytes(path)
         self.cfb = CFB(self.fb)
-        self.fd = os.open(path, os.O_RDONLY)
+        self.fd = os.open(path, os.O_RDONLY | O_BINARY)
         self.size = len(self.fb)
         self._streams = {n.lower(): n for n in self.cfb.streams()}
 

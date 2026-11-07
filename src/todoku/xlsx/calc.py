@@ -346,10 +346,10 @@ def _run_deep(fn):
             result["e"] = e
 
     old = sys.getrecursionlimit()
-    # Windows のスレッドのスタックは 256 MB まで（それより大きいと ValueError）。再帰の上限もスタックに合わせる
+    # Windows のスレッドのスタックは 256 MB 未満（256 MB ちょうどでも ValueError）。再帰の上限もスタックに合わせる
     big = sys.platform != "win32"
-    sys.setrecursionlimit(200000 if big else 100000)
-    threading.stack_size((512 if big else 256) * 1024 * 1024)
+    sys.setrecursionlimit(200000 if big else 90000)
+    threading.stack_size((512 if big else 240) * 1024 * 1024)
     ctx = contextvars.copy_context()  # 呼び出しの予算（limits.call_budget）を、大きなスタックのスレッドでも同じに使う
     try:
         t = threading.Thread(target=ctx.run, args=(target,))
