@@ -142,6 +142,19 @@ def _read_file(p: Path) -> bytes:
 _CALLS = __import__("threading").local()  # 呼び出しの入れ子の深さ（Windows の片づけは外側だけ）
 
 
+def _release_files() -> None:
+    """Windows：開いたまま・mmap したままのファイルは、消すことも名前を変えることもできない。分けて読む書類の控えを閉じ、
+    互いを指すオブジェクト（参照の数だけでは放されない）を片づけて、ファイルを放す。ほかの OS では何もしない（控えで速く読む）。"""
+    if os.name != "nt":
+        return
+    import gc
+
+    from . import lazy
+
+    lazy.clear()
+    gc.collect()
+
+
 def _budgeted(fn):
     """1 回の呼び出しに、展開・描画の予算を 1 つ置く（limits.call_budget。呼び出しの中で api を呼び直しても同じ予算）。"""
     import functools
@@ -156,12 +169,8 @@ def _budgeted(fn):
             return _call(fn, a, k, call_budget)
         finally:
             _CALLS.depth = depth
-            if depth == 0 and os.name == "nt":
-                # Windows は、読みに使った mmap が残っている間、そのファイルを消すことも名前を変えることもできない。
-                # 書類のオブジェクトは互いを指すので、参照の数だけでは放されない：外側の呼び出しの終わりに片づけて、ファイルを放す
-                import gc
-
-                gc.collect()
+            if depth == 0:
+                _release_files()
 
     def _call(fn, a, k, call_budget):
         import struct
@@ -1322,6 +1331,7 @@ def _publish(tmp: Path, dst: Path, src: Path, overwrite: bool, result: dict, ok:
     if ok and final.exists() and not overwrite and not _same_bytes(final, tmp):
         raise ApiError(f"書き出す先「{final.name}」には、すでに別のファイルがあります（書き出していません）。"
                        "置き換えてよいと本人が言ったときだけ overwrite に true を入れるか、別の名前（out_path）を指定してください")
+    _release_files()  # Windows：読み戻しで開いた一時ファイルを放してから、名前を付け替える
     os.replace(tmp, final)
     result["out_path"] = str(final)
     result["verified"] = ok

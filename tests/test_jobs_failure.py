@@ -165,10 +165,14 @@ def test_exit_of_the_job_is_seen_from_another_process(jd, tmp_path, monkeypatch)
     pid = jobs.start(str(p))["pid"]
     t0 = time.time()
     while time.time() - t0 < 20:
-        try:
-            os.kill(pid, 0)
-        except OSError:
-            return
+        if os.name == "nt":  # Windows の os.kill(pid, 0) は確かめではなく Ctrl+C を送るので、とどくの確かめ方で
+            if not jobs._alive(pid):
+                return
+        else:
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return
         time.sleep(0.02)
     pytest.fail("仕事のプロセスがゾンビとして残っています")
 

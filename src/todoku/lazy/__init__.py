@@ -169,6 +169,13 @@ def _make(path: str, name: str, password: str | None, encoding: str | None) -> L
 
 
 def clear() -> None:
+    """控えを捨てる。開いたファイルも閉じる（Windows は、開いたままのファイルを消すことも名前を変えることもできない）。"""
+    for doc in list(_CACHE.values()):
+        if hasattr(doc, "close"):
+            try:
+                doc.close()
+            except Exception:  # noqa: BLE001  閉じられなくても、控えは捨てる
+                pass
     _CACHE.clear()
 
 

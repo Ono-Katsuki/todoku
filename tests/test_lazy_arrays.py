@@ -212,7 +212,8 @@ def test_chunked_aggregate_stops_says_how_far_and_resumes(monkeypatch):
     with limits.call_budget(b):
         with pytest.raises(Unfinished) as e2:
             calc(limit_small, ctx2)
-    assert e2.value.done == 4096
+    # 時間の予算 0：はじめのまとまり（4,096 マス）で止まる。Windows の時計は 15.6 ms 刻みで、経過が 0 に見えて 1 まとまり多く進むことがある
+    assert e2.value.done in (4096, 8192)
     ctx2.scan_seq = {}
     b = limits.Budget()
     b.calc_left = 1000

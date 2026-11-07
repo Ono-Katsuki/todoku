@@ -393,6 +393,7 @@ def test_soft_watchdog_leaves_quick_calls_alone():
     assert isolate.soft_call(lambda n, a: {"ok": n}, "x", {}) == {"ok": "x"}
 
 
+@pytest.mark.skipif(os.name == "nt", reason="監査の手作りの書類の道具は POSIX のロック（fcntl）を使う")
 def test_crafted_small_files_finish_quickly(tmp_path):
     """監査の手作りの書類のうち、宣言だけが大きいもの：予算の内で、すぐ終わる。"""
     os.environ.setdefault("CRAFT_ONLY", "1")
@@ -409,6 +410,7 @@ def test_crafted_small_files_finish_quickly(tmp_path):
         assert time.perf_counter() - t < 30, name
 
 
+@pytest.mark.skipif(os.name == "nt", reason="監査の手作りの書類の道具は POSIX のロック（fcntl）を使う")
 def test_xfa_occur_beyond_data_is_stated_as_a_fact(tmp_path):
     os.environ.setdefault("CRAFT_ONLY", "1")
     import crafted
@@ -427,6 +429,7 @@ def test_memory_is_returned_without_error():
     limits.release_memory()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="監査の手作りの書類の道具は POSIX のロック（fcntl）を使う")
 def test_comb_maxlen_declaration_takes_no_room(tmp_path):
     os.environ.setdefault("CRAFT_ONLY", "1")
     import crafted
