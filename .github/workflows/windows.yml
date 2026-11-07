@@ -33,6 +33,7 @@ jobs:
       - name: テスト（ファイルごと、上限 240 秒）
         continue-on-error: true
         run: |
+          set +e
           mkdir -p probe
           for f in tests/test_*.py; do
             n=$(basename "$f" .py)
