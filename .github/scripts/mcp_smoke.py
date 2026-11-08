@@ -33,6 +33,7 @@ def command() -> list[str]:
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8")  # Windows の CI は出力が cp1252 で、日本語を書けない
     cmd = command()
     print("起動:", " ".join(cmd), flush=True)
     p = subprocess.Popen(cmd, cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
