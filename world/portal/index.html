@@ -170,6 +170,10 @@ button, select, input { font: inherit; color: inherit; }
 .intro .say1 { font-family: var(--display); font-weight: 700; font-size: clamp(1.15rem, 1rem + .9vw, 1.5rem); line-height: 1.6; }
 .intro .prod { font-size: .8rem; color: var(--muted); display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 16px; margin-top: 16px; }
 .intro .who2 { font-size: .9rem; color: var(--muted); margin-top: 12px; }
+.intro .film { display: block; max-width: 560px; margin: 28px auto 0; color: var(--muted); text-decoration: none; }
+.intro .film img { display: block; width: 100%; height: auto; border-radius: 6px; border: 1px solid rgba(255,255,255,.12); }
+.intro .film span { display: block; margin-top: 8px; font-size: .85rem; text-decoration: underline; text-underline-offset: 3px; }
+.intro .film:hover span, .intro .film:focus-visible span { color: var(--shiro); }
 
 /* ---- 02 実際に何が変わるか ---- */
 .versus { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
@@ -412,7 +416,8 @@ td .ci { display: inline-block; line-height: 1.3; }
     <p class="say1"><span class="nb">Claude があれば、</span><span class="nb">寝たきりも開発者になれる。</span></p>
     <p class="say1"><span class="nb">私は、私の視点から、</span><span class="nb">自分の力で、</span><span class="nb">Claude と課題を解決する。</span></p>
     <p class="who2">寝たきりの開発者、経営者、研究者。入力は頭のスイッチひとつ。</p>
-    <p class="prod"><span>とどく：行政書類を正確に読み書きするための MCP</span><a href="https://github.com/Ono-Katsuki/todoku" rel="noopener noreferrer">GitHub</a><a href="#h-use">使い方</a></p>
+    <p class="prod"><span>とどく：行政書類を正確に読み書きするための MCP</span><a href="https://github.com/Ono-Katsuki/todoku" rel="noopener noreferrer">GitHub</a><a href="https://youtu.be/zB95Q_jUq5A" rel="noopener noreferrer">デモ動画</a><a href="#h-use">使い方</a></p>
+    <a class="film" href="https://youtu.be/zB95Q_jUq5A" rel="noopener noreferrer"><div class="pic"><img src="demo_thumb.jpg" alt="" width="1280" height="720"></div><span>デモ動画を YouTube で見る（3 分、日本語と英語の字幕つき）</span></a>
   </div>
 
   <section aria-labelledby="h-change">
@@ -891,6 +896,8 @@ window.TODOKU_I18N = (() => {
     [`寝たきりの開発者、経営者、研究者。入力は頭のスイッチひとつ。`, `I am a bedridden developer, business owner and researcher. My only input is a single head switch.`],
     [`とどく：行政書類を正確に読み書きするための MCP`, `todoku: an MCP server for reading and writing administrative documents accurately`],
     [`使い方`, `How to use`],
+    [`デモ動画`, `Demo video`],
+    [`デモ動画を YouTube で見る（3 分、日本語と英語の字幕つき）`, `Watch the demo on YouTube (3 min, Japanese and English captions)`],
     // ---- what changes
     [`実際に何が変わるか`, `What actually changes`],
     [`頭のスイッチで文字入力`, `Typing with a head switch`],
