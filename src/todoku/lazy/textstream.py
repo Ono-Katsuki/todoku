@@ -20,15 +20,21 @@ from ..datafile.textenc import (
     BOMS,
     MULTI,
     NAME_JA,
-    SINGLE,
     WIDE,
     Decoded,
     EncodingError,
+    _HIGH,
     _clip,
+    breaks_before,
     canonical,
     clean,
     controls,
     declared,
+    differing,
+    first_offset,
+    high_bytes,
+    single_readings,
+    snippet,
 )
 
 CHUNK = 1 << 20
@@ -167,20 +173,41 @@ def _first_diff(src: Source, e1: str, e2: str) -> tuple[int, str, str]:
     return 0, "", ""
 
 
-def _choose(src: Source, encs: tuple, basis_one: str) -> StreamDecoded | None:
-    got: list[tuple[str, bytes, int]] = []
-    for enc in encs:
+def _legacy(src: Source) -> StreamDecoded | None:
+    """textenc._legacy と同じ答え。多バイトは増分のデコーダでファイルの全部を読み、1バイトは、ファイルにあるバイトの種類を
+    1 回だけ集めて、文字コードごとの表で見る（文字コードの数だけ読み直さない）。"""
+    multi: list[tuple[str, bytes, int]] = []
+    for enc in MULTI:
         ok, is_clean, ctl, digest, _nl = _strict_stream(src, enc)
-        if ok and is_clean and all(digest != d for _e, d, _c in got):
-            got.append((enc, digest, ctl))
-    if not got:
+        if ok and is_clean and all(digest != d for _e, d, _c in multi):
+            multi.append((enc, digest, ctl))
+    high = high_bytes(src.chunks())
+    single = single_readings(high)
+    if not multi and not single:
         return None
-    enc, _d, ctl = got[0]
-    cands = []
-    for e2, _d2, _c2 in got[1:]:
-        k, mine, theirs = _first_diff(src, enc, e2)
-        cands.append({"encoding": e2, "label": NAME_JA.get(e2, e2), "line": k, "sample": theirs, "own_sample": mine})
-    return StreamDecoded(enc, b"", "", False, basis_one if not cands else "order", cands, ctl)
+    lines: dict[int, int] = {}
+
+    def cand(e2: str, off: int, own: str) -> dict:
+        if off not in lines:
+            lines[off] = breaks_before(src.chunks(), off)
+        return {"encoding": e2, "label": NAME_JA.get(e2, e2), "line": lines[off],
+                "sample": snippet(src.read, src.size, off, e2), "own_sample": snippet(src.read, src.size, off, own)}
+
+    if multi:
+        enc, _d, ctl = multi[0]
+        cands = []
+        for e2, _d2, _c2 in multi[1:]:
+            k, mine, theirs = _first_diff(src, enc, e2)
+            cands.append({"encoding": e2, "label": NAME_JA.get(e2, e2), "line": k, "sample": theirs, "own_sample": mine})
+        off = first_offset(src.chunks(), _HIGH)
+        cands += [cand(e2, off, enc) for e2, _key in single]
+        basis = "multibyte"
+    else:
+        enc, key = single[0]
+        ctl = _strict_stream(src, enc)[2]
+        cands = [cand(e2, first_offset(src.chunks(), differing(high, key, k2)), enc) for e2, k2 in single[1:]]
+        basis = "singlebyte"
+    return StreamDecoded(enc, b"", "", False, basis if not cands else "order", cands, ctl)
 
 
 def detect(src: Source, encoding: str | None = None) -> StreamDecoded:
@@ -236,10 +263,9 @@ def detect(src: Source, encoding: str | None = None) -> StreamDecoded:
             ok, is_clean, ctl, _d, _nl = _strict_stream(src, e)
             if ok and is_clean:
                 return StreamDecoded(e, b"", "", False, "declared", [], ctl, decl[1])
-        for encs, basis in ((MULTI, "multibyte"), (SINGLE, "singlebyte")):
-            got2 = _choose(src, encs, basis)
-            if got2 is not None:
-                return got2
+        got2 = _legacy(src)
+        if got2 is not None:
+            return got2
     ctl = 0
     for c in src.chunks():
         t = c.decode("latin-1")
@@ -443,13 +469,13 @@ class CsvStats:
             self.first_problems.append(text)
 
 
-def sniff_delimiter(src: Source, start: int, enc: str, kind: str) -> str:
-    """datafile.csvfile._delimiter と同じ規則（頭の 200,000 字・200 行）。"""
-    from ..datafile.csvfile import _delimiter
+def sniff_delimiter(src: Source, start: int, enc: str, kind: str) -> tuple[str, list, bool]:
+    """datafile.csvfile.delimiters と同じ規則・同じ答え（頭の 200,000 字・200 行）。"""
+    from ..datafile.csvfile import delimiters
 
     dec = codecs.getincrementaldecoder(enc)("replace")
     text = dec.decode(src.read(start, start + 800_000))[:200_000]
-    return _delimiter(text, kind)
+    return delimiters(text, kind)
 
 
 def index_csv(src: Source, start: int, enc: str, delim: str) -> tuple[TextIndex, CsvStats]:

@@ -259,10 +259,14 @@ def _signed(tmp_path) -> tuple[bytes, list[int], bytes]:
 def _verify(blob: bytes, br: list[int], cert: bytes, tmp_path) -> bool:
     openssl = shutil.which("openssl")
     a, b = blob[br[0]:br[0] + br[1]], blob[br[2]:br[2] + br[3]]
-    hexsig = blob[br[1] + 1:br[2] - 1].rstrip(b"0")
+    hexsig = blob[br[1] + 1:br[2] - 1]
     if len(hexsig) % 2:
         hexsig += b"0"
-    (tmp_path / "v.der").write_bytes(bytes.fromhex(hexsig.decode()))
+    der = bytes.fromhex(hexsig.decode())
+    # 署名の長さは DER の頭から読む（後ろの 0 を削って決めると、00 で終わる署名が欠けて、検証がときどき落ちる）
+    n = der[1]
+    size = 2 + n if n < 0x80 else 2 + (n & 0x7F) + int.from_bytes(der[2:2 + (n & 0x7F)], "big")
+    (tmp_path / "v.der").write_bytes(der[:size])
     (tmp_path / "v.bin").write_bytes(a + b)
     (tmp_path / "v.pem").write_bytes(cert)
     r = subprocess.run([openssl, "cms", "-verify", "-binary", "-inform", "DER", "-in", str(tmp_path / "v.der"), "-content", str(tmp_path / "v.bin"),

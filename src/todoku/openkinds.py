@@ -492,8 +492,9 @@ def grade(k: str, blob: bytes, name: str, encoding: str | None = None):
 def encoding_reason(dec, base: str = "S"):
     """文字コードの、読む段階と書く段階の理由：(読む, 書く)。規則で決まっていれば (None, None)。
     - どの文字コードとしても読めない（Latin-1 で1字ずつ読んだ）：読む C（窓の字を信じられない。エージェントが確かめる）
-    - いくつもの文字コードで、仕様どおりにきれいに読める：読む B（中身はすべて窓に出ていて、候補ごとの読み方の見本も窓に
-      並べた。どれが正しいかを、窓に示した根拠でエージェントが決める）・書く B（文字コードを決めてから書く）
+    - いくつもの文字コードで、仕様どおりにきれいに読める（BOM も宣言もない 8 ビットの字のファイルは、いつもこれ）：読む B
+      （中身はすべて窓に出ていて、候補ごとの読み方の見本も窓に並べた。どれが正しいかを、窓に示した根拠でエージェントが決める。
+      候補の名前は where に）・書く B（文字コードを決めてから書く）
     - エージェントが候補から選んで encoding で指定した：その文字コードで厳密に読めることを確かめたので、段階は下げない
       （base：S か A）。理由に、選んだ文字コードと、選んだのがエージェントであることを残す（出どころ agent_choice）"""
     from .datafile.textenc import NAME_JA
@@ -516,17 +517,32 @@ def encoding_reason(dec, base: str = "S"):
                        "エージェントが確かめます（正しい文字コードが分かれば encoding で指定します）"),
                 Reason("B", "文字コードを決められない", "書く値の文字コードは、エージェントが正しい文字コードを決めてから書きます"))
     if dec.candidates:
-        names = [name] + [c["label"] for c in dec.candidates]
         codes = [dec.encoding] + [c["encoding"] for c in dec.candidates]
         return (Reason("B", "文字コードを規則では決められない",
-                       f"{len(names)} つの文字コード（{'・'.join(names)}）のどれとしても、仕様どおりにきれいに読めます"
-                       "（BOM・ファイルの中の宣言もありません）。"
-                       f"窓は {names[0]} で読み、ほかの読み方の見本（字の違う最初の行）を窓に並べました。"
-                       "どれが正しいかは、エージェントが字を読んで決め、その名前を encoding で渡します"
-                       f"（{'・'.join(codes)}）", codes),
+                       f"{len(codes)} つの文字コードのどれとしても、仕様どおりにきれいに読めます（BOM・ファイルの中の宣言もありません。"
+                       "8 ビットの字のファイルは、バイトからは文字コードが決まりません）。"
+                       f"窓は {name} で読み、ほかの読み方の見本（字の違う最初の所）を窓に並べました。"
+                       "どれが正しいかは、エージェントが字を読んで決め、その名前を encoding で渡します", codes),
                 Reason("B", "文字コードを規則では決められない",
                        "書く値の文字コードは、エージェントが字を読んで正しい文字コードを決め、encoding で指定してから書きます", codes))
     return None, None
+
+
+def delimiter_reason(fm: dict):
+    """CSV の区切りの、読む段階と書く段階の理由：(読む, 書く)。規則で決まっていれば (None, None)。
+    選んだ区切りのほかにも、どの行も同じ数の列に分かれる区切りがある（csvfile.delimiters）：読む B・書く B
+    （中身はすべて窓に出ている。列の分かれ方が正しいかは、エージェントが窓を読んで確かめる）。"""
+    from .grade import Reason
+
+    also = fm.get("delimiter_also")
+    if not also:
+        return None, None
+    others = "・".join(f"{a['delimiter_ja']}（{a['columns']} 列）" for a in also)
+    return (Reason("B", "区切りを規則では決められない",
+                   f"{fm['delimiter_ja']} で読みましたが、{others} でも、どの行も同じ数の列に分かれます。"
+                   "列の分かれ方が意味の通るものかを、エージェントが窓を読んで確かめます", [a["delimiter"] for a in also]),
+            Reason("B", "区切りを規則では決められない",
+                   "書く前に、窓の列の分かれ方が正しいことを、エージェントが確かめます（書き込みは、いまの分かれ方のマスに書きます）"))
 
 
 def _grade_data(k: str, blob: bytes, name: str, encoding: str | None = None):
@@ -551,8 +567,10 @@ def _grade_data(k: str, blob: bytes, name: str, encoding: str | None = None):
         if f.problems:
             reasons.append(Reason("S", "書き方の問題", "RFC 4180 に合わない書き方があります（どう読んだかは窓に書いてあります）", f.problems[:5]))
         enc, wenc = encoding_reason(f.dec)
-        if enc is not None:
-            return _final(reasons + [enc], [wenc] + direct, base="S")
+        sep, wsep = delimiter_reason(f.format_info())
+        more = [r for r in (enc, sep) if r is not None]
+        if more:
+            return _final(reasons + more, [w for w in (wenc, wsep) if w is not None] + direct, base="S")
         return Grade("S", reasons, write="A", write_reasons=direct)
     from .datafile.jsonfile import JsonFile
 

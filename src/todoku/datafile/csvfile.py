@@ -105,19 +105,65 @@ def parse(text: str, delim: str) -> tuple[list[Record], list[str]]:
     return out, problems
 
 
-def _delimiter(text: str, kind: str) -> str:
-    """区切り：.tsv はタブ、.csv はカンマ。ただし .csv で、どの行にもカンマがなく、どの行にも同じ数のタブ（または「;」）が
-    あるものは、それを区切りとする（引用符の中は数えない）。"""
+SEPS = (",", "\t", ";")  # 区切りとして見る字（どれも、多バイトの文字コードの 2 バイト目には現れないバイト）
+_SEP_LINE = re.compile(r"sep=([,;\t])(?:\r\n|\n|\r|$)")
+
+
+def delimiters(text: str, kind: str) -> tuple[str, list[tuple[str, int]], bool]:
+    """区切り：(区切り, ほかにも「そろっている」区切り [(区切り, 列の数)], 1行目の sep= で決めたか)。
+    - .tsv はタブ。
+    - 1行目が「sep=,」「sep=;」「sep=（タブ）」（Excel の、区切りの宣言の行）なら、その区切り。
+    - .csv は、行ごとに、引用符の外の「,」・タブ・「;」の数を数える（頭の 200,000 字・字のある 200 行）。どの行にも同じ数
+      （1つ以上）あることを「そろっている」と呼ぶ。
+      1. カンマがそろっていれば、カンマ。
+      2. そうでなければ、タブ・「;」のうち、そろっているもの（タブが先）。カンマが値の中にあるファイル（小数点がカンマの
+         「Meier;1,50;Bonn」など）は、カンマの数が行によって違い、「;」の数はどの行も同じ。
+      3. どれもそろっていなければ、カンマ（行によって列の数の違う CSV・1列だけのファイル）。
+    - 選んだもののほかにも、そろっている区切りがあれば、決めた区切りが正しいとは限らない（見出しのない「1,5;2,5」は、
+      カンマでも「;」でも同じ数に分かれる）。規則では決めず、ほかの区切りと、それで分けた列の数を返す。"""
     if kind == "tsv":
-        return "\t"
+        return "\t", [], False
+    m = _SEP_LINE.match(text)
+    if m:
+        return m[1], [], True
     lines = [ln for ln in re.split(r"\r\n|\n|\r", re.sub(r'"(?:[^"]|"")*"', "", text[:200_000])) if ln.strip()][:200]
-    if not lines or any("," in ln for ln in lines):
-        return ","
-    for d in ("\t", ";"):
+    even = {}
+    for d in SEPS:
         counts = {ln.count(d) for ln in lines}
         if len(counts) == 1 and counts != {0}:
-            return d
-    return ","
+            even[d] = counts.pop() + 1
+    delim = next((d for d in SEPS if d in even), ",")
+    return delim, [(d, n) for d, n in even.items() if d != delim], False
+
+
+def _delimiter(text: str, kind: str) -> str:
+    return delimiters(text, kind)[0]
+
+
+def delimiter_info(delim: str, also: list, declared: bool) -> dict:
+    """窓の format に入れる、区切りの決め方（ほかの区切りでもそろうとき・宣言の行で決めたときだけ、鍵を足す）。"""
+    out = {"delimiter": delim, "delimiter_ja": DELIM_JA.get(delim, repr(delim))}
+    if declared:
+        out["delimiter_declared_by"] = "1行目の sep="
+    if also:
+        out["delimiter_also"] = [{"delimiter": d, "delimiter_ja": DELIM_JA.get(d, repr(d)), "columns": n} for d, n in also]
+    return out
+
+
+def delimiter_notes(fm: dict) -> list[str]:
+    """Markdown の窓の注意（区切りを宣言の行で決めたとき・ほかの区切りでもそろうとき）。"""
+    out = []
+    if fm.get("delimiter_declared_by"):
+        out.append(f"- 1行目（R1）は、区切りの宣言の行（Excel の「sep=」）です。区切りは、宣言のとおり {fm['delimiter_ja']} で読みました"
+                   "（R1 は列の見出しではありません。見出しは R2 から読んでください）。")
+    also = fm.get("delimiter_also")
+    if also:
+        others = "・".join(f"{a['delimiter_ja']}（{a['columns']} 列）" for a in also)
+        out.append(f"- **区切りを規則では決められません**：{fm['delimiter_ja']} で読みましたが、{others} でも、どの行も同じ数の列に"
+                   "分かれます（引用符の外で数えました）。窓の列が意味の通らない分かれ方（数の途中で切れているなど）なら、"
+                   "区切りはそちらです。とどくには、区切りを選んで読み直す引数がまだないので、そのときは、この窓の列を信じずに、"
+                   "そのことを本人に伝えてください（書き込みは、いまの分かれ方のマスに書きます）。")
+    return out
 
 
 class CsvFile:
@@ -132,7 +178,7 @@ class CsvFile:
         except UnicodeDecodeError as e:
             raise CsvError(f"文字コードを読めません（{e.reason}）") from None
         self.text = self.dec.text
-        self.delim = _delimiter(self.text, kind)
+        self.delim, self.delim_also, self.delim_declared = delimiters(self.text, kind)
         # 圧縮の爆弾（書庫の中の CSV）：バイトの上限の内でも、小さなマスが何千万もあれば、読むだけでメモリを使い切る。作る前に数える
         budget().count_part("csv", self.text.count(self.delim) + self.text.count("\n") + self.text.count("\r"), "CSV のマス")
         self.records, self.problems = parse(self.text, self.delim)
@@ -164,8 +210,8 @@ class CsvFile:
         q = "すべてのマスを引用符で囲む" if self.quote_all else "必要なマスだけ引用符で囲む"
         return {"encoding": self.dec.encoding, "encoding_ja": self.dec.label, "bom": bool(self.dec.bom),
                 "ascii_only": self.dec.ascii_only, "newline": NEWLINE_JA[self.newline], "mixed_newlines": self.mixed_newlines,
-                "ends_with_newline": self.ends_with_newline, "delimiter": self.delim,
-                "delimiter_ja": DELIM_JA.get(self.delim, repr(self.delim)), "quoting": q, "empty_lines": self.empty_lines,
+                "ends_with_newline": self.ends_with_newline, **delimiter_info(self.delim, self.delim_also, self.delim_declared),
+                "quoting": q, "empty_lines": self.empty_lines,
                 **self.dec.info(), "encoding_notes": self.dec.note_lines()}
 
     # ------------------------------------------------------------------ id

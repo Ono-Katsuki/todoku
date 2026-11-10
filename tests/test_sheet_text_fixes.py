@@ -212,12 +212,16 @@ def test_ambiguous_encoding_is_handed_to_the_agent(tmp_path):
     assert "文字コードを規則では決められません" in md and "GBK" in md
 
 
-def test_shift_jis_decided_when_only_it_fits():
-    """半角カナの後ろに「,」が続く（GBK・Big5・EUC では続くバイトになれない）：Shift_JIS だけが読める。"""
+def test_half_width_kana_shift_jis_is_not_decided_by_being_the_only_multibyte():
+    """半角カナの後ろに「,」が続く（GBK・Big5・EUC では続くバイトになれない）：多バイトでは Shift_JIS だけが読めるが、
+    1バイトの文字コード（Windows-874 のタイ語など）としても、きれいに読める。決めずに候補を示す。"""
     text = "ｶﾅ,1\r\nｱｲｳ,2\r\n"
     d = decode(text.encode("cp932"))
-    assert (d.encoding, d.basis, d.candidates) == ("cp932", "multibyte", [])
-    assert grade_blob(text.encode("cp932"), "a.csv").grade == "S"
+    assert (d.encoding, d.basis, d.text) == ("cp932", "order", text)
+    assert not {c["encoding"] for c in d.candidates} & {"euc_jp", "cp950", "big5hkscs", "gbk", "cp949"}
+    assert "cp874" in {c["encoding"] for c in d.candidates}
+    assert grade_blob(text.encode("cp932"), "a.csv").grade == "B"
+    assert grade_blob(text.encode("cp932"), "a.csv", encoding="cp932").grade == "S"
 
 
 @pytest.mark.parametrize("enc, bom", [("utf-16-le", b""), ("utf-16-be", b""), ("utf-32-le", b"\xff\xfe\x00\x00"),

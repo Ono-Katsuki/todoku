@@ -808,6 +808,11 @@ def call_tool(name: str, args: dict) -> dict:
         pw = args.get("password")
         enc = args.get("encoding")
         s = api.summary(path, pw, enc)
+        fm = s.get("format")
+        if isinstance(fm, dict) and "encoding_notes" in fm:
+            # 文字コードの注意の字は、下の窓（概要）の字にそのままある。同じ事実は、format の encoding_basis・encoding_candidates・
+            # encoding_chosen_by・control_chars にある
+            s = {**s, "format": {k: v for k, v in fm.items() if k != "encoding_notes"}}
         if s.get("large"):
             lz = api.lazy_open(path, pw, enc)
             head = (f"{s['kind_ja']}・大きな書類です（窓の全体は見積もりで {s['estimated_window_chars']:,} 字）。全体を一度には返しません。"

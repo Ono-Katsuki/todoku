@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from .csvfile import CsvFile
+from .csvfile import CsvFile, delimiter_notes
 from .jsonfile import JsonFile, JNode, unesc_token
 
 BUDGET = 120_000
@@ -101,6 +101,7 @@ def md_csv_head(doc: dict) -> list[str]:
     if fm.get("ascii_only"):
         out.append("- このファイルは ASCII の字だけなので、文字コードは決まりません（日本語を書くと UTF-8 で書きます）。")
     out += fm.get("encoding_notes") or []
+    out += delimiter_notes(fm)
     for p in doc.get("problems") or []:
         out.append(f"- **書き方の問題**：{p}")
     out.append("")

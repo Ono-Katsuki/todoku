@@ -14,13 +14,18 @@
    （頭の 1024 バイトの中の <meta charset> か <meta http-equiv="Content-Type" content="…; charset=…">。HTML の仕様の
    prescan と同じ範囲）、RTF の \ansicpg（頭の {\rtf1 の後の、ANSI のコードページ）。宣言があり、その文字コードで厳密に
    きれいに読めれば、それ（basis "declared"）。宣言と中身が合わない（読めない）ときは、宣言を使わず、下の段で決める。
-5. 多バイトの文字コード（Shift_JIS（CP932）・EUC-JP・Big5（CP950・HKSCS）・GBK（CP936）・UHC（CP949））を、それぞれ厳密に
-   試す。これらは、先頭のバイトと続くバイトの範囲が決まっているので、全体が合うことが手がかりになる。きれいに読めたものが
-   1つなら、それ。2つ以上で、読んだ字が違うなら、**規則では決められない**：いちばん前のもの（todoku が主に読む日本の書類の
-   文字コードを前に置いた、決まった順）で窓を作り、ほかを candidates に示す。どれが正しいかは、エージェントが字を読んで決める。
-6. 1バイトの文字コード（Windows の 1250〜1258・874・KOI8・ISO-8859 の各部・Mac Roman）：ほぼすべてのバイトに字を当てるので、
-   読めることは手がかりにならない。多バイトのどれでも読めないときだけ試し、きれいに読めたものが2つ以上（読んだ字が違う）なら、
-   候補として示す（規則では決められない）。
+5. BOM も宣言もなく、UTF-8 でもない 8 ビットの字のファイルは、**バイトからは文字コードが決まらない**。読める文字コードを
+   すべて試し、きれいに読めたものが 1 つだけなら、それ。読んだ字の違うものが 2 つ以上なら、決まった順のいちばん前のもので
+   窓を作り、ほかを candidates に示す。どれが正しいかは、エージェントが字を読んで決める（encoding で渡す）。
+   - 多バイトの文字コード（Shift_JIS（CP932）・EUC-JP・Big5（CP950・HKSCS）・GBK（CP936）・UHC（CP949））を、それぞれ厳密に
+     試す。先頭のバイトと続くバイトの範囲が決まっているので、合わないものは落ちる。
+   - 1バイトの文字コード（Windows の 1250〜1258・874・KOI8・ISO-8859 の各部・Mac Roman）も、いつも試す。ほぼすべてのバイトに
+     字を当てるので、多バイトで読めたファイルも 1 バイトとして読める（ドイツ語の Windows-1252 の「Müller」は GBK の
+     「M黮ler」としても、タイ語の Windows-874 は Shift_JIS の半角カナとしても、厳密に読める）。多バイトで読めたことだけでは
+     決めない。
+   - 順は、多バイト（上の順）・1バイト（上の順）。順は決め方ではない（決められないときに、どれで窓を作るかだけ）。
+6. 1バイトの文字コードの読み方は、ファイルにある 0x80 以上のバイトの種類だけで決まる（1 バイトが 1 字）。バイトの種類を
+   1 回だけ集め、文字コードごとの表で、きれいに読めるか・読み方が同じかを見る（ファイルを文字コードの数だけ読み直さない）。
    NUL のバイトがあるのに 1・2・4 の UTF として読めないものは、5・6 を試さない（UTF でない文字のファイルに NUL はない）。
 7. どれでも読めなければ、**決められない**（encoding "latin-1"、basis "none"）：バイトを1字ずつ Latin-1 の字にして窓を作る
    （バイトの位置を保つため）。字が正しいとは限らないことを、窓と段階に必ず書く（黙って Latin-1 にしない）。
@@ -65,8 +70,8 @@ NAME_JA = {"utf-8": "UTF-8", "cp932": "Shift_JIS（CP932）", "euc_jp": "EUC-JP"
 for _k in range(2, 17):
     NAME_JA.setdefault(f"iso8859_{_k}", f"ISO-8859-{_k}")
 BASIS_JA = {"bom": "BOM", "nul": "NUL のバイトの並び（BOM のない UTF-16・UTF-32）", "ascii": "ASCII の字だけ",
-            "utf-8": "UTF-8 として厳密に読める", "multibyte": "多バイトの文字コードのうち、これだけが厳密に読める",
-            "singlebyte": "1バイトの文字コードのうち、これだけがきれいに読める",
+            "utf-8": "UTF-8 として厳密に読める", "multibyte": "多バイトの文字コードのうち、これだけが厳密に読める（1バイトの文字コードでは、きれいに読めない）",
+            "singlebyte": "1バイトの文字コードのうち、これだけがきれいに読める（多バイトの文字コードでは読めない）",
             "order": "規則では決められない（いくつもの文字コードで読める。決まった順の前のもので読んだ）",
             "none": "どの文字コードとしても読めない",
             "declared": "ファイルの中の宣言（XML の宣言・HTML の meta charset・RTF の \\ansicpg）",
@@ -115,7 +120,8 @@ class Decoded:
     text: str
     ascii_only: bool  # ASCII の字だけ（文字コードは UTF-8 とみなしたが、ファイルからは決まらない）
     basis: str = ""  # どう決めたか（BASIS_JA の鍵）
-    # 規則では決められないとき、ほかに読める文字コード：[{encoding, label, sample}]（sample は、読んだ字が違う最初の行）
+    # 規則では決められないとき、ほかに読める文字コード：[{encoding, label, line, sample}]（sample は、読んだ字が違う最初の所。
+    # line は、その行の番号。own_sample は、同じ所を窓の文字コードで読んだ字：窓の注意にだけ使い、結果には入れない）
     candidates: list = field(default_factory=list)
     controls: int = 0  # 制御文字（NUL など）の数
     declared_by: str = ""  # 宣言で決めたとき、どこの宣言か（XML の宣言・HTML の meta charset・RTF の \\ansicpg）
@@ -143,7 +149,7 @@ class Decoded:
         if self.declared_by:
             out["encoding_declared_by"] = self.declared_by
         if self.candidates:
-            out["encoding_candidates"] = list(self.candidates)
+            out["encoding_candidates"] = [{k: v for k, v in c.items() if k != "own_sample"} for c in self.candidates]
         if self.controls:
             out["control_chars"] = self.controls
         return out
@@ -160,7 +166,7 @@ class Decoded:
                        "出しています（字が正しいとは限りません。字化けしていれば、そう伝えてください）。")
         elif self.candidates:
             out.append(f"- **文字コードを規則では決められません**：{NAME_JA.get(self.encoding, self.encoding)} で読みましたが、"
-                       "次の文字コードでも、仕様どおりにきれいに読めます。字の違う最初の行を並べます。意味の通る方を選んでください"
+                       "次の文字コードでも、仕様どおりにきれいに読めます。字の違う最初の所を並べます。意味の通る方を選んでください"
                        "（この窓の字が化けていれば、ほかの文字コードが正しい）。選んだら、その名前（encoding の値）を、"
                        "どの道具にも encoding で渡してください（窓・欄・書き込み・段階が、その文字コードで読み直されます）。")
             out.append(f"  - {NAME_JA.get(self.encoding, self.encoding)}（この窓。encoding: \"{self.encoding}\"）："
@@ -174,6 +180,9 @@ class Decoded:
 
     @staticmethod
     def sample_of(text: str, cand: dict) -> str:
+        """窓の文字コードで読んだ、候補と字の違う最初の所（見本）。"""
+        if "own_sample" in cand:
+            return cand["own_sample"]
         n = cand.get("line", 0)
         lines = text.splitlines()
         return _clip(lines[n]) if n < len(lines) else ""
@@ -247,21 +256,168 @@ def _first_diff_line(a: str, b: str) -> int:
 def _choose(blob: bytes, encs: tuple, basis_one: str, text_of=None) -> Decoded | None:
     """encs のうち、きれいに読めるもの。1つならそれ（basis_one）、読んだ字の違うものが2つ以上なら、前のもので読み、
     ほかを候補に。どれも読めなければ None。"""
+    got = _readings(blob, encs, text_of)
+    if not got:
+        return None
+    enc, text = got[0]
+    cands = _line_candidates(text, got[1:])
+    return Decoded(enc, b"", text, False, basis_one if not cands else "order", cands, controls(text))
+
+
+def _readings(blob: bytes, encs: tuple, text_of=None) -> list[tuple[str, str]]:
+    """encs のうち、厳密にきれいに読めるもの：[(文字コード, 字)]。読んだ字が前のものと同じなら入れない。"""
     got: list[tuple[str, str]] = []
     for enc in encs:
         t = _strict(blob, enc) if text_of is None else text_of(enc)
         if t is not None and clean(t) and all(t != u for _, u in got):
             got.append((enc, t))
-    if not got:
-        return None
-    enc, text = got[0]
+    return got
+
+
+def _line_candidates(text: str, others: list[tuple[str, str]]) -> list[dict]:
     cands = []
-    for e2, t2 in got[1:]:
+    for e2, t2 in others:
         k = _first_diff_line(text, t2)
         lines = t2.splitlines()
         cands.append({"encoding": e2, "label": NAME_JA.get(e2, e2), "line": k,
                       "sample": _clip(lines[k]) if k < len(lines) else ""})
-    return Decoded(enc, b"", text, False, basis_one if not cands else "order", cands, controls(text))
+    return cands
+
+
+# ---------------------------------------------------------------------- 1バイトの文字コード
+_ASCII = bytes(range(128))
+_HIGH = re.compile(rb"[\x80-\xff]")
+# str.splitlines と同じ行の区切り（どれも 0x40 より小さいので、多バイトの文字コードの 2 バイト目には現れない）
+_SEP = re.compile(rb"\r\n|[\n\r\x0b\x0c\x1c-\x1e]")
+SNIP = 48  # 候補の見本の字数（表示だけ。決め方には使わない）
+_TABLES: dict[str, tuple] = {}
+
+
+def _table(enc: str) -> tuple:
+    """1バイトの文字コードの、0x80〜0xFF の読み方（字。割り当てがない・きれいでないバイトは None）。"""
+    t = _TABLES.get(enc)
+    if t is None:
+        row = []
+        for b in range(128, 256):
+            try:
+                ch = bytes([b]).decode(enc)
+            except UnicodeDecodeError:
+                ch = None
+            row.append(ch if ch is not None and clean(ch) else None)
+        t = _TABLES[enc] = tuple(row)
+    return t
+
+
+def high_bytes(chunks) -> list[int]:
+    """ファイルにある 0x80 以上のバイトの種類（小さい順）。見つけた種類を消しながら進むので、ファイルを 1 回たどるだけ。"""
+    gone, present = _ASCII, set()
+    for c in chunks:
+        rest = c.translate(None, gone)
+        while rest:
+            new = set(rest[:4096])
+            present |= new
+            gone += bytes(new)
+            rest = rest.translate(None, gone)
+    return sorted(present)
+
+
+def single_readings(high: list[int]) -> list[tuple[str, tuple]]:
+    """ファイルにある 0x80 以上のバイトの種類 → きれいに読める 1 バイトの文字コードと、そのバイトの読み方
+    [(文字コード, 読み方)]。読み方が前のものと同じ（＝ファイルの字が同じ）なら入れない。"""
+    out: list[tuple[str, tuple]] = []
+    seen = set()
+    for enc in SINGLE:
+        tab = _table(enc)
+        key = tuple(tab[b - 128] for b in high)
+        if None in key or key in seen:
+            continue
+        seen.add(key)
+        out.append((enc, key))
+    return out
+
+
+def differing(high: list[int], key1: tuple, key2: tuple) -> "re.Pattern":
+    """2 つの 1 バイトの読み方で、字の違うバイトを探す式。"""
+    return re.compile(b"[" + b"".join(re.escape(bytes([b])) for b, x, y in zip(high, key1, key2) if x != y) + b"]")
+
+
+def first_offset(chunks, pat) -> int:
+    """pat に合う最初のバイトの位置（なければ -1）。chunks は、ファイルの頭から順のバイト列。"""
+    pos = 0
+    for c in chunks:
+        m = pat.search(c)
+        if m:
+            return pos + m.start()
+        pos += len(c)
+    return -1
+
+
+def breaks_before(chunks, off: int) -> int:
+    """off より前にある行の区切りの数（＝ off のある行の番号。0 から。str.splitlines と同じ数え方）。"""
+    n, pos, cr = 0, 0, False
+    for c in chunks:
+        if pos >= off:
+            break
+        if pos + len(c) > off:
+            c = c[:off - pos]
+        n += len(_SEP.findall(c))
+        if cr and c[:1] == b"\n":
+            n -= 1  # 前の塊の終わりの CR と、この塊の頭の LF は 1 つの区切り
+        cr = c.endswith(b"\r")
+        pos += len(c)
+    return n
+
+
+def snippet(read, size: int, off: int, enc: str) -> str:
+    """off（字の違う最初のバイト）のある行を enc で読んだ見本：違う所の少し前から SNIP 字まで（前後を切ったら「…」）。
+    read(a, b) はファイルのバイトを返す。off より前の、その行のバイトは、くらべる読み方のどれでも同じ字（ASCII か、同じ
+    読み方の 1 バイト）で、1 バイトが 1 字なので、行の途中から読んでよい。"""
+    a0, b0 = max(0, off - 13), min(size, off + 4 * SNIP)
+    piece = read(a0, b0)
+    rel = off - a0
+    a, cut_head = (1, True) if a0 else (0, False)  # 頭の 1 バイトは、行の区切りかどうかを見るだけ
+    for m in _SEP.finditer(piece, 0, rel):
+        a, cut_head = m.end(), False
+    m = _SEP.search(piece, rel)
+    b = m.start() if m else len(piece)
+    s = piece[a:b].decode(enc, "ignore")  # 終わりで切れた多バイトの字は捨てる
+    out = s[:SNIP].rstrip()
+    return ("…" if cut_head else "") + out + ("…" if len(s) > SNIP or (m is None and b0 < size) else "")
+
+
+def _legacy(blob: bytes) -> Decoded | None:
+    """BOM も宣言もない 8 ビットの字のファイル：多バイト・1バイトの読める文字コードをすべて並べる（説明の 5・6）。"""
+    multi = _readings(blob, MULTI)
+    high = high_bytes((blob,))
+    single = single_readings(high)
+    if not multi and not single:
+        return None
+    lines: dict[int, int] = {}
+
+    def cand(e2: str, off: int, own: str) -> dict:
+        if off not in lines:
+            lines[off] = breaks_before((blob,), off)
+        return {"encoding": e2, "label": NAME_JA.get(e2, e2), "line": lines[off],
+                "sample": _snip(blob, off, e2),
+                "own_sample": _snip(blob, off, own)}
+
+    if multi:
+        enc, text = multi[0]
+        cands = _line_candidates(text, multi[1:])
+        # 1バイトの読み方が、窓（多バイト）の読み方と違う最初の所は、最初の 0x80 以上のバイト
+        off = first_offset((blob,), _HIGH)
+        cands += [cand(e2, off, enc) for e2, _key in single]
+        basis = "multibyte"
+    else:
+        enc, key = single[0]
+        text = blob.decode(enc)
+        cands = [cand(e2, first_offset((blob,), differing(high, key, k2)), enc) for e2, k2 in single[1:]]
+        basis = "singlebyte"
+    return Decoded(enc, b"", text, False, basis if not cands else "order", cands, controls(text))
+
+
+def _snip(blob: bytes, off: int, enc: str) -> str:
+    return snippet(lambda a, b: blob[a:b], len(blob), off, enc)
 
 
 def canonical(label: str) -> str | None:
@@ -335,10 +491,9 @@ def decode(blob: bytes, encoding: str | None = None) -> Decoded:
     if b"\x00" not in blob:
         # NUL のバイトは、UTF-8・UTF-16・UTF-32 でなければ、文字のファイルにはない（POSIX の「文字のファイル」の定義）。
         # NUL があるのに UTF の形で読めないものは、多バイト・1バイトの文字コードを試さない（バイナリか、壊れたファイル）
-        for encs, basis in ((MULTI, "multibyte"), (SINGLE, "singlebyte")):
-            got = _choose(blob, encs, basis)
-            if got is not None:
-                return got
+        got = _legacy(blob)
+        if got is not None:
+            return got
     text = blob.decode("latin-1")
     return Decoded("latin-1", b"", text, False, "none", [], controls(text))
 

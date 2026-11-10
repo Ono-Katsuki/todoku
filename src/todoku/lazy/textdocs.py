@@ -20,11 +20,12 @@ from pathlib import Path
 
 from .. import limits
 from ..datafile.csvfile import (
-    DELIM_JA,
     NEWLINE_JA,
     CsvError,
     CsvFile,
     CsvPatch,
+    delimiter_info,
+    delimiter_notes,
     formula_like,
     formula_note,
     parse,
@@ -85,11 +86,13 @@ class CsvDoc(TextDoc):
         self._st: CsvStats | None = None
         self._head: list[str] | None = None
         self._delim = None
+        self.delim_also: list = []
+        self.delim_declared = False
 
     @property
     def delim(self) -> str:
         if self._delim is None:
-            self._delim = sniff_delimiter(self.src, self.start, self.dec.encoding, self.kind)
+            self._delim, self.delim_also, self.delim_declared = sniff_delimiter(self.src, self.start, self.dec.encoding, self.kind)
         return self._delim
 
     @property
@@ -146,8 +149,8 @@ class CsvDoc(TextDoc):
         q = "すべてのマスを引用符で囲む" if st.quote_all else "必要なマスだけ引用符で囲む"
         return {"encoding": self.dec.encoding, "encoding_ja": self.dec.label, "bom": bool(self.dec.bom),
                 "ascii_only": self.dec.ascii_only, "newline": NEWLINE_JA[idx.newline or "\r\n"], "mixed_newlines": idx.mixed_newlines,
-                "ends_with_newline": idx.ends_with_newline, "delimiter": self.delim,
-                "delimiter_ja": DELIM_JA.get(self.delim, repr(self.delim)), "quoting": q,
+                "ends_with_newline": idx.ends_with_newline, **delimiter_info(self.delim, self.delim_also, self.delim_declared),
+                "quoting": q,
                 "empty_lines_count": st.empty_lines, "empty_lines_first": st.first_empty_lines,
                 **self.dec.info(), "encoding_notes": self.dec.note_lines()}
 
@@ -178,6 +181,7 @@ class CsvDoc(TextDoc):
         if fm.get("ascii_only"):
             out.append("- このファイルは ASCII の字だけなので、文字コードは決まりません（日本語を書くと UTF-8 で書きます）。")
         out += fm.get("encoding_notes") or []
+        out += delimiter_notes(fm)
         for p in self.st.first_problems[:20]:
             out.append(f"- **書き方の問題**：{p}")
         if self.st.problem_rows > 20:
@@ -456,7 +460,7 @@ class CsvDoc(TextDoc):
     # ------------------------------------------------------------------ 段階
     def grade(self) -> dict:
         from ..grade import Grade, Reason, _final, _locked
-        from ..openkinds import KIND_JA, encoding_reason
+        from ..openkinds import KIND_JA, delimiter_reason, encoding_reason
 
         direct = [Reason("A", "データそのもの", "行と列のデータに、そのまま書けます")]
         if self.dec.binary:
@@ -466,7 +470,10 @@ class CsvDoc(TextDoc):
         if self.st.first_problems:
             reasons.append(Reason("S", "書き方の問題", "RFC 4180 に合わない書き方があります（どう読んだかは窓に書いてあります）", self.st.first_problems[:5]))
         enc, wenc = encoding_reason(self.dec)
-        g = _final(reasons + [enc], [wenc] + direct, base="S") if enc is not None else Grade("S", reasons, write="A", write_reasons=direct)
+        sep, wsep = delimiter_reason(self.format_info())
+        more = [r for r in (enc, sep) if r is not None]
+        g = (_final(reasons + more, [w for w in (wenc, wsep) if w is not None] + direct, base="S") if more
+             else Grade("S", reasons, write="A", write_reasons=direct))
         g.deferred = []  # 文字コード・行の区切り・マスの数はファイルの全部で調べたので、残した確かめはない
         return g
 
