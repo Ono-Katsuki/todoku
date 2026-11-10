@@ -84,6 +84,19 @@ def compobj(data: bytes) -> dict:
     return out
 
 
+def stored_prog(st) -> str:
+    """入れ物が名乗る ProgID（\\x01CompObj の Reserved1）。ProgID の形（英字で始まる、英数字と「.」「_」の語。Windows の
+    決まりで 39 字まで）でなければ、ないものとして空の字を返す。"""
+    try:
+        names = {n.lower(): n for n in st.streams()}
+        if "\x01compobj" not in names:
+            return ""
+        prog = compobj(st.read(names["\x01compobj"])).get("prog", "")
+    except Exception:  # noqa: BLE001  読めない入れ物
+        return ""
+    return prog if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]{0,38}", prog) else ""
+
+
 def clsid_of(cfb, path: str = "") -> str:
     """入れ物の CLSID（ディレクトリの項目の 80 バイト目から 16 バイト）。path が空ならルート。"""
     base, prefix = cfb, ""

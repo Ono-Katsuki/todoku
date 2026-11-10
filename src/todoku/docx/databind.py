@@ -90,6 +90,27 @@ def store_parts(zipf) -> dict[str, str]:
     return out
 
 
+def property_parts(zipf) -> list[str]:
+    """文書のプロパティの部品（docProps/core.xml・docProps/app.xml）：パッケージの関係（_rels/.rels）の種類が
+    core-properties・extended-properties のもの（ECMA-376 第2部 11・第1部 15.2.12.3）。Word は、題名・作成者・会社などの
+    プロパティを、ユーザー定義の XML の部品と同じに、結び付けの先として見せる（決まった w:storeItemID で指す）。"""
+    names = set(zipf.names())
+    if "_rels/.rels" not in names:
+        return []
+    out = []
+    for m in re.finditer(rb"<(?:[\w.-]+:)?Relationship\b[^>]*>", zipf.read("_rels/.rels")):
+        kind = re.search(rb'\bType="([^"]*)"', m[0])
+        target = re.search(rb'\bTarget="([^"]*)"', m[0])
+        if not kind or not target or re.search(rb'\bTargetMode="External"', m[0]):
+            continue
+        if kind[1].rsplit(b"/", 1)[-1] not in (b"core-properties", b"extended-properties"):
+            continue
+        part = target[1].decode("utf-8", "replace").lstrip("/")
+        if part in names and part not in out:
+            out.append(part)
+    return out
+
+
 # ------------------------------------------------------------------ XPath
 _STEP = re.compile(r"(?:([\w.-]+):)?([\w.-]+)(?:\[(\d+)\])?")
 
@@ -233,7 +254,17 @@ def locate(doc, ctl) -> Target | None:
     if b.store:
         part = stores.get(_norm_id(b.store))
         if part is None:
-            raise BindError(f"結び付けた XML の部品（w:storeItemID {b.store}）が、文書の中にありません")
+            # ユーザー定義の XML の部品にない番号：文書のプロパティの部品を指すことがある。番号の表は持たず、XPath（要素の名前と
+            # 名前空間）でたどれるプロパティの部品が 1 つだけのときに、その部品と決める
+            found = []
+            for prop in property_parts(doc.zip):
+                try:
+                    found.append(resolve(doc.zip.read(prop), b, prop))
+                except BindError:
+                    continue
+            if len(found) != 1:
+                raise BindError(f"結び付けた XML の部品（w:storeItemID {b.store}）が、文書の中にありません")
+            return found[0]
         return resolve(doc.zip.read(part), b, part)
     # w:storeItemID のない結び付け：XPath のたどれる部品が1つだけのときに決める
     found = []

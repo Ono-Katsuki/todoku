@@ -462,8 +462,12 @@ class DocFile:
         for e in self.embeds:
             if e["storage"] == storage:
                 return e
-        from ..embeds.ole import label_of
+        from ..cfb import SubStorage
+        from ..embeds.ole import label_of, stored_prog
 
+        # 部品の種類は、入れ物が自分で名乗る ProgID（\x01CompObj）で決める。EMBED の命令の語は、Word が書いた名前で、
+        # ProgID でないことがある（ギリシア語の Word の「Γράφημα」など）
+        prog = stored_prog(SubStorage(self.cfb, storage)) or prog
         label = label_of(prog)
         e = {"n": len(self.embeds) + 1, "storage": storage, "prog": prog, "label": label, "para": p}
         self.embeds.append(e)
@@ -472,15 +476,21 @@ class DocFile:
     def _add_data_embed(self, pos: int, prog: str, p) -> dict | None:
         """RC4 CryptoAPI で暗号化した文書では、OLE の部品の入れ物は ObjectPool ではなく Data ストリームの pos にある
         （FOBJH の後ろ。MS-DOC 2.9.94・sprmCPicLocation）。そこに入れ物があれば、埋め込みの一覧に足す。"""
-        from ..embeds.ole import label_of
+        from ..cfb import CFB
+        from ..embeds.ole import label_of, stored_prog
         from ..embeds.word import fobjh_storage
 
-        if fobjh_storage(self.data, pos) is None:
+        body = fobjh_storage(self.data, pos)
+        if body is None:
             return None
         storage = f"Data@{pos}"
         for e in self.embeds:
             if e["storage"] == storage:
                 return e
+        try:
+            prog = stored_prog(CFB(body)) or prog
+        except Exception:  # noqa: BLE001  読めない入れ物：命令の語のまま
+            pass
         e = {"n": len(self.embeds) + 1, "storage": storage, "prog": prog, "label": label_of(prog), "para": p}
         self.embeds.append(e)
         return e

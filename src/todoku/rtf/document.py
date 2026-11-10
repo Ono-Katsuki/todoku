@@ -650,7 +650,13 @@ class RtfDocument:
                         new.anchor = para()
                     if w == "footnote":
                         p = para()
-                        p.segs.append(Seg("※", "note", RSrc("el", t.s, t.e), None, st.hidden))
+                        # 印の所は、脚注のグループ「{\footnote …}」の全体（その中は脚注の字：本文の字を書き足す所ではない）
+                        g = t.s
+                        while g > 0 and self.blob[g - 1] in b"\r\n":
+                            g -= 1
+                        src = (RSrc("el", g - 1, _group_end(self.blob, g - 1), look=st.look) if g > 0 and self.blob[g - 1] == 0x7B
+                               else RSrc("el", t.s, t.e, look=st.look))
+                        p.segs.append(Seg("※", "note", src, None, st.hidden))
                     stories.append(new)
                     story = new
                     st.dest = None

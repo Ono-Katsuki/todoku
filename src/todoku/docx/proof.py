@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
 import re
 from dataclasses import dataclass, field
 
@@ -174,7 +175,10 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
         if _cut(xa, spans_a) != _cut(xb, spans_b):
             pr.unexpected.append(f"{part}：書いた欄のある段落の外が変わっています")
         pr.lint_errors += _mark_ids(b, part)
-        if len(set(re.findall(rb'bookmarkStart\b[^>]*?\bw?:?id="(\d+)"', xb))) != len(re.findall(rb'bookmarkStart\b[^>]*?\bw?:?id="(\d+)"', xb)):
+        # しおりの番号の重なり：書き込みで増えたものだけ（元の文書に初めからある重なりは、書き込みの誤りではない）
+        ids_a = Counter(re.findall(rb'bookmarkStart\b[^>]*?\bw?:?id="(\d+)"', xa))
+        ids_b = Counter(re.findall(rb'bookmarkStart\b[^>]*?\bw?:?id="(\d+)"', xb))
+        if any(n > 1 and n > ids_a.get(k, 0) for k, n in ids_b.items()):
             pr.lint_errors.append(f"{part}：しおりの番号が重なっています")
     # 書いた段落：文字と書式
     for i, items in targets.items():

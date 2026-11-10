@@ -188,6 +188,22 @@ def _field_mask(p: Para) -> bytearray:
     return out
 
 
+# 中の字を書き換えられない区切り：ふりがなつきの字（親字・ふりがな）、図・埋め込み・切れないハイフンなどの印、脚注の印、数式
+_FIXED_KINDS = ("ruby", "other", "note", "math")
+
+
+def _fixed_mask(p: Para) -> bytearray | None:
+    """段落の字ごとに、中を書き換えられない区切りの字か（そういう区切りのない段落は None）。「氏　　名」にふりがなを付けた字の
+    中の空白・図の説明の字の中の空白は、空欄ではない（書き手は、その中の字を置き換えられない）。"""
+    if not any(s.kind in _FIXED_KINDS and s.text and not s.hidden for s in p.segs):
+        return None
+    out = bytearray()
+    for s in p.segs:
+        if not s.hidden:
+            out.extend((b"\x01" if s.kind in _FIXED_KINDS else b"\x00") * len(s.text))
+    return out
+
+
 def _author_text(s) -> bool:
     """フィールドの結果の字のうち、作り手が命令に書いた字をそのまま見せるもの（EQ：均等割り付け・囲み字・ふりがなの古い形。
     ECMA-376 第1部 17.16.5.17）。ページ番号・日付・目次のように、ほかから作る値ではないので、見出しの字として読む
@@ -313,6 +329,7 @@ class Spots:
                 text = p.text
                 self._texts[id(p)] = text  # 段落の字は 1 度だけ作る（Para.text は呼ぶたびに区切りをつなぎ直す）
                 fmask = _field_mask(p)
+                xmask = _fixed_mask(p)
                 has_field = any(s_.field is not None for s_ in p.segs)  # 長さ 0 の欄（字のない部品）も、欄のある段落
                 # フォームの欄（書く所が決まっている）のある段落か。フィールドの結果の字（差し込み・ページ番号・EQ など）だけの
                 # 段落は別：結果の字の外の空きは、ふつうの段落と同じに探す（結果の字に重なる所は、下で除く）
@@ -331,13 +348,17 @@ class Spots:
                 k = 0
                 spans = []  # (始め, 終わり, 種類, 理由の鍵（None は規則の欄）)
                 for i, ch in enumerate(text):
-                    if ch in BOX and not (has_field and fmask[i]):
+                    if (has_field and fmask[i]) or (xmask is not None and xmask[i]):
+                        continue
+                    if ch in BOX:
                         spans.append((i, i + 1, "checkbox", "bullet_box"))
-                    elif ch in CHECKED and not (has_field and fmask[i]):
+                    elif ch in CHECKED:
                         spans.append((i, i + 1, "checkbox", "checked_mark"))  # チェック済みの欄かもしれない（■ は箇条の印のことも）
                 for a, b, why in para_spans(p, text):
                     if has_field and any(fmask[a:b]):
                         continue
+                    if xmask is not None and any(xmask[a:b]):
+                        continue  # ふりがなつきの字・図の印・数式の中の空白：書き換えられない
                     if why in ("gap", "short_underline", "underlined_tab", "leader_tab") and has_field and _touches_field(p, a, b):
                         continue  # フォームの欄にすぐ接する空白は、欄の字の飾り（欄はその id で書く）
                     spans.append((a, b, "inline", why))

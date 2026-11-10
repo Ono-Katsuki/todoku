@@ -194,6 +194,17 @@ class RtfWriter:
             src = p.segs[i].node
             if src is None:
                 raise FillError(f"{item['id']}: 書き足す位置が、書き換えられない部分にあります")
+            if a > 0 and p.segs[i].kind == "note":
+                # 脚注の印のすぐ後ろ：印は、上付きの字のグループの中にある（{\super \chftn {\footnote …}}）。その中に書くと、
+                # 書いた字が上付きになる。段落の終わりなら段落の印の前に、そうでなければ、次の字の前に（次の字の書式で）書く
+                if a == len(pos):
+                    self.para_end(item, p, value)
+                    return
+                nxt = p.segs[pos[a][0]].node
+                if nxt is not None:
+                    at = nxt.starts[pos[a][1]] if nxt.kind == "txt" else nxt.s
+                    self.put(at, at, bm[0] + self.clean(nxt.look, self.enc(value, getattr(nxt, "uc", 1)), item["id"]) + bm[1])
+                    return
             if src.kind == "txt":
                 at = src.ends[off] if a > 0 else src.starts[off]
             else:

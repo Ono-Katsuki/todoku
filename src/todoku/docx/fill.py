@@ -754,12 +754,18 @@ class Filler:
 
     def finish_bound(self) -> dict[str, bytes]:
         """結び付けた XML の部品の、書いた値の所だけを変えたバイト列。同じデータに結び付いたほかの欄は、警告で伝える。"""
-        from .databind import edit, locate
+        from .databind import binding_of, edit, locate, property_parts
 
         out: dict[str, bytes] = {}
         by_part: dict[str, list] = {}
+        props = set(property_parts(self.doc.zip)) if self.bound else set()
         for (part, _s, _e), (fid, stored, t) in self.bound.items():
             by_part.setdefault(part, []).append((t, stored))
+            if part in props:
+                # 題名・作成者などの文書のプロパティに結び付いた欄：ファイルのプロパティの値も変わる
+                bd = binding_of(self.sp.items[fid]["control"]) if fid in self.sp.items else None
+                self.warnings.append(f"{fid}: 文書のプロパティ（{part}{f' の「{bd.xpath}」' if bd is not None else ''}）に結び付いた欄なので、"
+                                     f"文書のプロパティの値も、同じ値に書きました")
         for part, todo in by_part.items():
             xml = self.doc.zip.read(part)
             for t, stored in sorted(todo, key=lambda x: -x[0].s):
