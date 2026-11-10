@@ -122,7 +122,8 @@ def _gs(pdf: bytes, tmp_path):
 
 
 def _check(stream: bytes, expect, tmp_path, globals_data=None, oracle=True):
-    """oracle：別の実装（poppler・Ghostscript）の少なくとも 1 つが、同じ画素に開くこと。入っていなければ飛ばす。"""
+    """oracle：別の実装（poppler・Ghostscript）の少なくとも 1 つが、同じ画素に開くこと。入っていなければ飛ばす。
+    oracle="gs" は Ghostscript とだけ照らす（poppler が元の画素とも Ghostscript とも違う形）。"""
     h, w = len(expect), len(expect[0])
     page = J.decode(stream, globals_data, w, h)
     assert not page.problems, page.problems
@@ -130,7 +131,8 @@ def _check(stream: bytes, expect, tmp_path, globals_data=None, oracle=True):
     if not oracle:
         return
     pdf = E.pdf_with_jbig2(stream, w, h, globals_data)
-    others = [r for r in (_pdftoppm(pdf, tmp_path, w, h), _gs(pdf, tmp_path)) if r is not None]
+    poppler = None if oracle == "gs" else _pdftoppm(pdf, tmp_path, w, h)
+    others = [r for r in (poppler, _gs(pdf, tmp_path)) if r is not None]
     if others:
         assert expect in others, "別の実装と合わない（符号化か、復号の見立てが仕様と違う）"
 
@@ -209,7 +211,8 @@ def test_generic_arith_moved_at_pixels(t, at, tmp_path):
 
 def test_generic_mmr(tmp_path):
     rows = _noise_page(9)
-    _check(_page(E.segment(1, 38, E.generic_seg(rows, mmr=True))), rows, tmp_path)
+    # poppler 26.10 は元の画素とも Ghostscript とも違う画素に開く。Ghostscript とだけ照らす
+    _check(_page(E.segment(1, 38, E.generic_seg(rows, mmr=True))), rows, tmp_path, oracle="gs")
 
 
 def test_regions_are_combined_on_the_page(tmp_path):
@@ -440,7 +443,9 @@ def test_halftone_angled_grid_with_skip(tmp_path):
     g2 = [[gray[m][n] if not (((gx + m * ry + n * rx) >> 8) + 4 <= 0 or ((gx + m * ry + n * rx) >> 8) >= W
                               or ((gy + m * rx - n * ry) >> 8) + 4 <= 0 or ((gy + m * rx - n * ry) >> 8) >= H) else 0
            for n in range(gw)] for m in range(gh)]
-    _check(_page(E.segment(1, 16, pd), E.segment(2, 22, ht, refs=[1])), _half_expect(W, H, g2, pats, gx, gy, rx, ry), tmp_path)
+    # poppler 26.10 は元の画素とも Ghostscript とも違う画素に開く。Ghostscript とだけ照らす
+    _check(_page(E.segment(1, 16, pd), E.segment(2, 22, ht, refs=[1])), _half_expect(W, H, g2, pats, gx, gy, rx, ry), tmp_path,
+           oracle="gs")
 
 
 # ====================================================================== 細かくする領域
@@ -454,7 +459,8 @@ def test_refinement_region_of_the_page(t, tpgr, tmp_path):
     s = _page(E.segment(1, 38, E.generic_seg(base)), E.segment(2, 42, E.refinement_seg(new, base, t=t, tpgr=tpgr)))
     # 型 1 の TPGR の SLTP の文脈（図 15：元の画像の中心の画素だけが 1）は、poppler と jbig2dec で実装が揃っていない。
     # 図と pdf.js の値（0x0008：中心の画素）に合わせるので、別の実装では確かめない
-    _check(s, new, tmp_path, oracle=not (t == 1 and tpgr))
+    # 型 0 の TPGR は、poppler 26.10 が元の画素とも Ghostscript とも違う画素に開く。Ghostscript とだけ照らす
+    _check(s, new, tmp_path, oracle=False if (t == 1 and tpgr) else "gs" if tpgr else True)
 
 
 def test_refinement_of_an_intermediate_region(tmp_path):
