@@ -52,23 +52,23 @@ INSTRUCTIONS = (
     "（選ぶもの・マクロの「はい／いいえ」など）は勝手に決めず、なるべくまとめて、選びやすい形で聞いてください。"
     "ただし手順の決まりではありません。本人が会話しながら一緒に埋めたいときは、その流れに合わせ、言われた所から書いてかまいません。"
     "パスワードで保護された書類は「パスワードが要る」と返るので、本人にパスワードを聞いて、どの道具にも password で渡してください"
-    "（パスワードは結果にも記録にも残しません。書き出したファイルも、元と同じパスワードで保護されたままです）。"
+    "（パスワードは結果にも記録にも残しません。書き出したファイルも、元と同じパスワードで保護されます）。"
     "文字だけのファイル（CSV・.txt など）で、窓に「文字コードを規則では決められません」と候補が並んだときは、字を読んで意味の通る方を"
     "選び、その名前を、そのファイルのどの道具にも encoding で渡してください。"
     "窓の「画像」の節で「説明（代わりの字）がありません」とある画像は、中身を字として読めません。申請に関わりそうなら view_image（PDF の"
     "ページ全体は view_page）で画像を見て読み、読めなければ、その位置（ページ・上下左右・近くの字）を本人に伝えてください。中身を推測で"
-    "埋めないでください。画像そのもののファイル（JPEG・PNG・TIFF・SVG など）も open_document で開き、view_page で見ます。RAR・HEIC・HEIF・AVIF と LZH の -lh1-〜-lh3- は、とどくは解きません：open_document の needs_tool（format・why・next_step）に、別の道具のコマンドの例があります。入っている道具を確かめて使い、できたファイルをもう一度 open_document で開いてください。変換・展開したことは本人に伝えてください（書いたものは元の形式には戻りません）。計算の決まりを知りたいときは、値から推測せず extract_processing で規則として受け取ります。段階の alerts（アクセシビリティの注意）は、"
+    "埋めないでください。画像そのもののファイル（JPEG・PNG・TIFF・SVG など）も open_document で開き、view_page で見ます。RAR・HEIC・HEIF・AVIF と LZH の -lh1-〜-lh3- は、とどくは解きません：open_document の needs_tool（format・why・next_step）に、別の道具のコマンドの例があります。入っている道具を確かめて使い、できたファイルを open_document で開いてください。変換・展開したことは本人に伝えてください（書いたものは元の形式には戻りません）。計算の決まりを知りたいときは、値から推測せず extract_processing で規則として受け取ります。段階の alerts（アクセシビリティの注意）は、"
     "段階とは別に伝えてください。"
-    "fill_document の結果の read_back_ok が false のときは、ファイルはもう書き出されていますが、書いた後のファイルを読み直した値が"
+    "fill_document の結果の read_back_ok が false のときは、ファイルは書き出し済みですが、読み直した値が"
     "書いた値と違う欄があります（read_back_differences）。確かめずに本人に渡さず、違いを読んで直すか、そのことを本人に伝えてください。"
     "Excel の proof_scope は確かめた範囲の数です（連動しないセルと一致数・照らした計算結果と一致数・連動を決められないセル・計算できないセル）。"
-    "結果に deferred（未確認）があれば、ブック全体の計算し直しはまだ済んでいません：書き出したファイルを audit_document に渡すと確かめて written_proof で結果を返します。"
+    "結果に deferred（未確認）があれば、ブック全体の計算し直しは済んでいません：書き出したファイルを audit_document に渡すと、確かめて written_proof に返します。"
     "済むまで、確かめたと伝えないでください。written_proof の problems があれば、そのファイルを本人に渡さないでください。"
-    "結果に check_visually（書く B）があるときは、その欄を view_page でページの画像を見て、字の形が正しいかを確かめてください"
-    "（字を組み立てて描いた文字は、字の並びは確かめていますが、見た目そのものは確かめていません）。"
+    "結果に check_visually（書く B）があるときは、その欄を view_page の画像で見て、字の形が正しいかを確かめてください"
+    "（字を組み立てて描いた文字は、字の並びは確かめ、見た目は確かめていません）。"
     "結果に replaced_existing があるときは、空欄に書いたのではなく、書いた所にもとからあった字や値を変えています（how が removed：字が"
-    "消えた・数が変わった。inside：字は残っているが、字と字のあいだに字が入った）。どの形式でも、書く前の字と書いた後の字を比べて出します。"
-    "書く前の字と書いた後の字を本人に伝え、本人が頼んだ書き換えかを確かめてください。"
+    "消えた・数が変わった。inside：字は残り、字のあいだに字が入った）。どの形式でも、書く前と後の字を比べて出します。"
+    "その 2 つの字を本人に伝え、本人が頼んだ書き換えかを確かめてください。"
     "証明（書いた所のほかは元のまま）と読み直しは、とどくが書き出したファイルについて確かめたことです。本人がほかの道具（Python の"
     "ライブラリなど）での書き直しを求めたときは、そのファイルにはこの確かめがなくなること（書いた所のほかが元のままかは分からなくなること）を、"
     "本人に必ず伝えてください：切り替える前に伝えて本人に決めてもらうのが基本で、すぐに作り直すよう求められたときも、作り直した報告で省かないでください。"
@@ -109,11 +109,13 @@ TOOLS = [
                      "required": ["path"]}},
     {"name": "list_fields",
      "description": "入力欄の一覧を JSON で返す：id（書き込むときの名前）・label（見出し）・kind（種類）・options（選択肢）・value（いまの値）・readonly（書けない欄）・context（その行）。"
+                    "同じ行の欄が続くときは、行を 1 度だけ返す：2 つ目からは context の代わりに context_same_as（その行を context に持つ、前の欄の id）。"
+                    "行の中のその欄の所は［その欄の id…］（表計算は［番地…］。▶ は、行を持つ欄の所の印）。"
                     "大きな書類は範囲で頼む（read_window と同じ pages・sheet・rows・paragraphs・records。空のマスは only_empty）。結果の next で続きを頼める。"
                     "kind が range の項目は「範囲の所」：入力規則や数式の参照が広いとき、空のセルをまとめて 1 つで示す（id は S!C5:C40000。count が空のセルの数）。"
                     "中のどのマスも番地（S!C7）で書ける。sheet と rows を渡すと、その行の分を 1 マスずつの欄で返す（文書に埋め込んだ表は sheet に「E1!シート」）。"
                     "結果が大きいときは、書くのに要る事実を残して、根拠の事実（near・evidence・why など）を省き、省いたものと頼み方を omitted に書く。"
-                    "ids（id のリスト）を渡すと、その欄の事実をすべて返す。detail: true なら、どの欄の事実も省かず、分けて返す（next で続く）。",
+                    "ids（id のリスト）を渡すと、その欄の事実をすべて返す（context も欄ごとに）。detail: true なら、どの欄の事実も省かず、分けて返す（next で続く）。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
                                                       "only_empty": {"type": "boolean", "default": False},
                                                       "pages": _RANGE_SCHEMA, "rows": _RANGE_SCHEMA, "paragraphs": _RANGE_SCHEMA, "records": _RANGE_SCHEMA,
@@ -281,7 +283,8 @@ TOOLS = [
                     "規則で決めた段階に、エージェントが窓を読んで確かめたこと（findings）を合わせる。"
                     "規則では決めないこと（署名・印・拇印・公証など、手で行う所＝書く D、電子申請などの画面からの入力＝書く C、"
                     "書く値をぼかす書き方＝読む D）は、agent_checks の問いとして返すので、窓を読んで答えてください。"
-                    "見つけたら findings に {check: 問いの id, title, detail, where} で渡す（段階は問いで決まる）。",
+                    "見つけたら findings に {check: 問いの id, title, detail, where} で渡す（段階は問いで決まる）。"
+                    "所の多い理由の where は、はじめの所と「ほか N か所」（すべての所は where_all: true）。",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
          "findings": {"type": "array", "description": "見つけたこと：[{check: 'cannot_do'|'ui_only'|'vague_value', title, detail, where}]。"
@@ -291,7 +294,9 @@ TOOLS = [
                                                                  "detail": {"type": "string"},
                                                                  "where": {"type": ["string", "array"]}}}},
          "answered": {"type": "array", "items": {"type": "string"},
-                      "description": "確かめ終えた問いの id（見つからなかったものも含む。例 ['cannot_do', 'ui_only', 'vague_value']）"}},
+                      "description": "確かめ終えた問いの id（見つからなかったものも含む。例 ['cannot_do', 'ui_only', 'vague_value']）"},
+         "where_all": {"type": "boolean", "default": False, "description": "所の多い理由の、すべての所（where_all）も返す"},
+         "skip": {"type": "integer", "minimum": 0, "description": "すべての所が一度に入らないときの、続きの位置（前の結果の next をそのまま渡す）"}},
          "required": ["path"]}},
 ]
 
@@ -317,12 +322,40 @@ for _t in TOOLS:
     if _t["name"] == "audit_document":
         _t["inputSchema"]["properties"]["job"] = {"type": "boolean", "description": "大きさによらず、長い仕事として動かす（呼び出しの時間の上限に当たったとき）"}
         _t["inputSchema"]["properties"]["restart"] = {"type": "boolean", "description": "控えを捨てて、始めから確かめ直す"}
-    if _t["name"] in ("open_document", "read_window", "list_fields", "fill_document", "audit_document", "grade_document"):
+    if _t["name"] == "open_document":
         _t["inputSchema"]["properties"]["encoding"] = _ENCODING
+    if _t["name"] in ("read_window", "list_fields", "fill_document", "audit_document", "grade_document"):
+        # 開いたあとの道具には短く（選び方は open_document の説明と、サーバーの説明にある）
+        _t["inputSchema"]["properties"]["encoding"] = {"type": "string", "description": "文字だけのファイル（CSV・.txt など）で、窓に文字コードの候補が並んだときに選んだ"
+                                                                                       "文字コード（候補の encoding の値。例 \"cp932\"）。同じファイルには、どの道具にも同じ値を渡す"}
 
 
 def _text(obj) -> dict:
-    return {"type": "text", "text": obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False, indent=1, default=str)}
+    """結果の字：JSON は字下げなしで返す（字下げの空白と改行は、読む側の字の数を増やすだけで、事実を足さない）。"""
+    return {"type": "text", "text": obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str)}
+
+
+def _said(res: dict, *head: str) -> list[dict]:
+    """content：head・say_to_user・残りの JSON（say_to_user は 1 度だけ。structuredContent には、そのまま入っている）。"""
+    return [*map(_text, head), _text(res.get("say_to_user", "")), _text({k: v for k, v in res.items() if k != "say_to_user"})]
+
+
+def _where_shown(g: dict) -> dict:
+    """段階の結果（MCP の形だけ。api.grade の中身は変えない）：理由ごとの where_all（すべての所）は、頼まれたときだけ返す。
+    where（はじめの所と「ほか N か所」）は、いつも返す。外したことと頼み方は omitted に書く。"""
+    cut = 0
+
+    def slim(reasons: list[dict]) -> list[dict]:
+        nonlocal cut
+        cut += sum(1 for r in reasons if "where_all" in r)
+        return [{k: v for k, v in r.items() if k != "where_all"} for r in reasons]
+
+    shown = {**g, "reasons": slim(g.get("reasons") or []), "write": {**g["write"], "reasons": slim(g["write"].get("reasons") or [])},
+             "alerts": slim(g.get("alerts") or [])}
+    if cut:
+        shown["omitted"] = {"where_all": "所の多い理由の where は、はじめの所と「ほか N か所」です。すべての所は、grade_document に where_all: true を渡すと、"
+                                         "理由ごとの where_all に返ります（findings・answered を渡したときは、同じものも渡す）"}
+    return shown
 
 
 def _score(check: dict) -> str:
@@ -336,7 +369,49 @@ _FIELD_RANGE = ("pages", "sheet", "rows", "paragraphs", "records", "path_in", "c
 
 
 def _size(obj) -> int:
-    return len(_text(obj)["text"])
+    """結果の大きさ（limits.RESULT_CHARS と比べる字の数）：字下げつきの JSON の字数。返す字は字下げなしなので、これより少ない
+    （上限に入る量の決まりは、字下げなしで返すようにしても変えない）。"""
+    return len(obj) if isinstance(obj, str) else len(json.dumps(obj, ensure_ascii=False, indent=1, default=str))
+
+
+_MARK = "▶"  # 表計算の窓の行で、その欄の所に付く印（［▶B3］）
+
+
+def _line_of(head: str, fid: str) -> str | None:
+    """行を持つ欄の context（head）から、同じ行の欄 fid の context を作る：▶ のない行はそのまま。▶ のある行は、▶ を
+    fid の番地の所（［番地…）に移す。番地の所が 1 つに決まらなければ None。"""
+    if _MARK not in head:
+        return head
+    line = head.replace(_MARK, "")
+    key = "［" + fid.rsplit("!", 1)[-1]
+    at, found = line.find(key), []
+    while at >= 0:
+        nxt = line[at + len(key):at + len(key) + 1]
+        if not (nxt.isascii() and nxt.isalnum()):  # ［B3 は ［B30 の頭ではない
+            found.append(at)
+        at = line.find(key, at + 1)
+    if len(found) != 1:
+        return None
+    return line[:found[0] + 1] + _MARK + line[found[0] + 1:]
+
+
+def _shared_lines(fl: list[dict]):
+    """同じ行の欄が続くとき、行（context）を 1 度だけ返す：2 つ目からは context の代わりに context_same_as（その行を context に
+    持つ欄の id）。_line_of で元の context とちょうど同じ字に戻せる欄だけを置き換えるので、事実は減らない（api.fields の中身は変えない）。
+    欄を 1 つずつ返す（何万もの欄のうち、結果に入る分だけを作る）。はじめの n 個の形は、はじめの n 個の欄だけで決まる。"""
+    head_id = head = None
+    for f in fl:
+        c, fid = f.get("context"), f.get("id")
+        if isinstance(c, str) and c and isinstance(fid, str):
+            if head is not None and _line_of(head, fid) == c:
+                yield {("context_same_as" if k == "context" else k): (head_id if k == "context" else v) for k, v in f.items()}
+                continue
+            head_id, head = fid, c
+        yield f
+
+
+def _share_lines(fl: list[dict]) -> list[dict]:
+    return list(_shared_lines(fl))
 
 
 def _fields_range_args(args: dict) -> dict:
@@ -346,7 +421,7 @@ def _fields_range_args(args: dict) -> dict:
     return rng
 
 
-def _fits(rest: dict, fl: list, budget: int) -> bool:
+def _fits(rest: dict, fl, budget: int) -> bool:
     """{**rest, "fields": fl} を字にした大きさ（_size）が budget 以下か。欄を 1 つずつ数えて足し、越えた所でやめる
     （何万もの欄の結果の全体を、大きさを知るためだけに字にしない）。数え方は _size と同じ字数になる：欄は 1 つ目のあと、「,」と改行の分だけ増える。"""
     if not fl:
@@ -362,7 +437,7 @@ def _fits(rest: dict, fl: list, budget: int) -> bool:
     return True
 
 
-def _take_fields(fl: list[dict], room: int) -> int:
+def _take_fields(fl, room: int) -> int:
     """room 字に入る、はじめの欄の数（進むように、少なくとも 1 つ）。"""
     empty = _size({"fields": []})
     used = n = 0
@@ -391,7 +466,8 @@ def _fit_fields(res: dict, args: dict, rng: dict) -> dict | None:
     limit = int(args.get("limit") or 0)
     fl = res.get("fields") or []
     rest = {k: v for k, v in res.items() if k != "fields"}
-    if not skip and not (limit and len(fl) > limit) and (_fits(rest, fl, budget) if fl else _size(res) <= budget):
+    share = iter if detail else _shared_lines  # detail: true は、どの欄も api.fields のとおりに
+    if not skip and not (limit and len(fl) > limit) and (_fits(rest, share(fl), budget) if fl else _size(res) <= budget):
         return None
     told: dict = {}
     blanks = rest.get("blank_cells_in_range")
@@ -401,7 +477,7 @@ def _fit_fields(res: dict, args: dict, rng: dict) -> dict | None:
         rest["blank_cells_in_range"] = blanks[:keep]
         told["blank_cells_in_range"] = (f"見た行の空のマスの番地のはじめの {keep} 個だけを返しました（全 {rest.get('blank_cell_count', len(blanks))} 個は、どれも番地で書けます）。"
                                         "rows を狭めて頼むと、その行の番地が返ります")
-    if not detail and not _fits(rest, fl, budget):
+    if not detail and fl and not _fits(rest, share(fl), budget):
         counts: dict[str, int] = {}
         for f in fl:
             for k in _FIELD_DETAIL:
@@ -418,10 +494,10 @@ def _fit_fields(res: dict, args: dict, rng: dict) -> dict | None:
     total = len(fl)
     fl = fl[skip:]
     shown = {"omitted": told, **rest}  # 省いたことを先頭に
-    n = _take_fields(fl, budget - _size(shown) - 200)  # 200：下の、分けたことの知らせの分
+    n = _take_fields(share(fl), budget - _size(shown) - 200)  # 200：下の、分けたことの知らせの分
     if limit:
         n = min(n, limit)  # 頼まれた数まで（範囲の読みはページ・行の単位で集めるので、ここで欄の数にそろえる）
-    shown["fields"] = fl[:n]
+    shown["fields"] = list(share(fl[:n]))  # 行は、この結果の中の欄を指す（分けた続きでも、行を持つ欄はいつも同じ結果にある）
     shown["fields_total"], shown["fields_returned"] = total, n
     if skip + n < total:
         shown["next"] = _ask_again(args, rng, skip=skip + n)
@@ -466,16 +542,18 @@ def _list_fields(args: dict) -> dict:
     if rng or args.get("limit") or api.lazy_open(args["path"], pw, enc) is not None:
         res = api.fields_range(args["path"], rng, bool(args.get("only_empty")), args.get("limit"), pw, enc)
         shown = _fit_fields(res, args, rng)
-        if shown is None and args.get("detail") and res.get("next"):
-            shown = {**res, "next": {**res["next"], "detail": True}}  # 続きも省かずに
-        return {"content": [_text(shown or res)], "structuredContent": shown or res}
+        if shown is None and args.get("detail"):
+            shown = {**res, "next": {**res["next"], "detail": True}} if res.get("next") else res  # 続きも省かずに
+        elif shown is None:
+            shown = {**res, "fields": _share_lines(res["fields"])} if res.get("fields") else res
+        return {"content": [_text(shown)], "structuredContent": shown}
     fl = api.fields(args["path"], pw, enc)
     if args.get("only_empty"):
         fl = [f for f in fl if f.get("value") in (None, "", False)]
     shown = _fit_fields({"fields": fl}, args, rng)
-    if shown is not None:
-        return {"content": [_text(shown)], "structuredContent": shown}
-    return {"content": [_text(fl)], "structuredContent": {"fields": fl}}
+    if shown is None:
+        shown = {"fields": fl if args.get("detail") else _share_lines(fl)}
+    return {"content": [_text(shown)], "structuredContent": shown}
 
 
 # extract_processing の結果が limits.RESULT_CHARS に入らないときも、規則ごとに残す事実。ほかの事実は ids・section・out_path で取れる
@@ -608,7 +686,11 @@ def _slice_json(obj: dict, label: str, ask: dict, skip: int) -> dict:
         return {"content": [_text(text)], "structuredContent": obj}
     if skip > len(text):
         raise api.ApiError(f"skip は {len(text):,} までです（前の結果の next をそのまま渡してください）")
-    end = min(skip + max(budget - _size(ask) - 400, 200), len(text))  # 400：下の、読んだ範囲と続きの知らせの分
+    room = max(budget - _size(ask) - 400, 200)  # 400：下の、読んだ範囲と続きの知らせの分
+    end = min(skip + room, len(text))
+    over = len(json.dumps(text[skip:end], ensure_ascii=False)) - 2 - room  # structuredContent では、字の中の " と \ に \ が付く
+    if over > 0:
+        end = max(end - over, skip + 1)
     if end < len(text):
         nl = text.rfind("\n", skip, end)
         if nl > skip:
@@ -616,8 +698,9 @@ def _slice_json(obj: dict, label: str, ask: dict, skip: int) -> dict:
     cover = f"{label}の JSON の {skip + 1:,}〜{end:,} 字目（全 {len(text):,} 字。つなげると元の JSON）"
     nxt = {**ask, "skip": end} if end < len(text) else None
     tail = f"続きは next：{json.dumps(nxt, ensure_ascii=False)}" if nxt else "これで終わりです"
+    # 字も structuredContent に：structuredContent があると content を見せないクライアントで、covered・next だけになる
     return {"content": [_text(f"{cover}。{tail}"), _text(text[skip:end])],
-            "structuredContent": {"covered": cover, "remaining": f"{len(text) - end:,} 字", "next": nxt, "done": nxt is None}}
+            "structuredContent": {"text": text[skip:end], "covered": cover, "remaining": f"{len(text) - end:,} 字", "next": nxt, "done": nxt is None}}
 
 
 def _extract_processing(args: dict) -> dict:
@@ -647,7 +730,7 @@ def _extract_processing(args: dict) -> dict:
         return _slice_json({section: res[section]}, f"節「{section}」", {"section": section, **ask_sheet}, skip)
     say = old.get("say_to_user", "")
     if not skip and len(say) + _size(old) <= limits.RESULT_CHARS:
-        return {"content": [_text(say), _text(old)], "structuredContent": old}
+        return {"content": _said(old), "structuredContent": old}
     shown = _fit_processing(res, args, skip, 0 if skip else len(say))
     return {"content": [_text(shown)] if skip else [_text(say), _text(shown)], "structuredContent": shown}
 
@@ -734,7 +817,7 @@ def call_tool(name: str, args: dict) -> dict:
         if s.get("needs_tool"):
             return {"content": [_text(f"{s['kind_ja']}。中身は読んでいません。下の手順で変換・展開してから、できたファイルを開いてください"), _text(parts[0][1])], "structuredContent": s}
         head = (f"{s['kind_ja']}・入力欄 {s['fields']} か所（書ける欄 {s['writable_fields']}）・窓は {s['window_parts']} 部分"
-                + ("（read_window で part を指定して続きを読めます）" if s["window_parts"] > 1 else ""))
+                + ("。下は部分 1 です（続きは read_window に part: 2 から）" if s["window_parts"] > 1 else "。下が窓の全体です"))
         cut = _cut_text(head, parts[0][1], "", 0, {"part": 1}, {"part": 2} if len(parts) > 1 else None)  # 最初の部分が結果の上限に入らないとき
         if cut is not None:
             return {"content": [_text(head), _text(cut["piece"]), _text(cut["foot"])], "structuredContent": {**s, "next": cut["next"]}}
@@ -761,8 +844,7 @@ def call_tool(name: str, args: dict) -> dict:
         if res.get("replaced_existing"):
             head += f"　もとからあった字や値を変えた所 {len(res['replaced_existing'])} か所：replaced_existing。本人が頼んだ書き換えかを、本人に確かめる。"
         # 本人は書類を開いて確かめないので、say_to_user（書いた所の見出しと値・まだ空いている欄・本人に伝えること）を、対話で伝える
-        return {"content": [_text(head), _text(res.get("say_to_user", "")), _text(res)], "structuredContent": res,
-                "isError": not ok}
+        return {"content": _said(res, head), "structuredContent": res, "isError": not ok}
     if name == "run_macro":
         res = api.run_macro(args["path"], args["macro"], args["out_path"], args.get("answers") or [], args.get("files") or {},
                             password=args.get("password"), overwrite=bool(args.get("overwrite")))
@@ -791,7 +873,7 @@ def call_tool(name: str, args: dict) -> dict:
         return {"content": [_text(res)], "structuredContent": res}
     if name == "try_calculation":
         res = api.calculate(args["path"], args.get("values") or {}, args.get("password"), args.get("cells"))
-        return {"content": [_text(res["say_to_user"]), _text(res)], "structuredContent": res}
+        return {"content": _said(res), "structuredContent": res}
     if name == "extract_processing":
         return _extract_processing(args)
     if name == "view_page":
@@ -813,7 +895,12 @@ def call_tool(name: str, args: dict) -> dict:
         lines = [g["headline"]] + [f"  - 読む[{r['grade']}]{mark(r)} {r['title']}: {r['detail']}" for r in g["reasons"]]
         lines += [f"  - 書く[{r['grade']}]{mark(r)} {r['title']}: {r['detail']}" for r in g["write"]["reasons"]]
         lines += [f"  - ？（あれば{_score(c)} {c['grade']}）{c['question']}" for c in g.get("agent_checks", [])]
-        return {"content": [_text("\n".join(lines)), _text(g)], "structuredContent": g}
+        shown = g if args.get("where_all") else _where_shown(g)
+        skip = int(args.get("skip") or 0)
+        if skip or _size(shown) > limits.RESULT_CHARS:  # すべての所を頼んで、一度に入らないとき：分けて返す
+            ask = {k: args[k] for k in ("where_all", "findings", "answered") if args.get(k)}
+            return _slice_json(shown, "段階", ask, skip)
+        return {"content": [_text("\n".join(lines)), _text(shown)], "structuredContent": shown}
     if name == "audit_document":
         au = api.audit(args["path"], args.get("password"), args.get("encoding"), restart=bool(args.get("restart")), job=bool(args.get("job")))
         lines = [("[OK] " if c["ok"] else "[要確認] ") + f"{c['name']}: {c['detail']}" for c in au["checks"]]
@@ -832,6 +919,7 @@ def call_tool(name: str, args: dict) -> dict:
             lines.insert(0, wp["note"])
         g = au.get("grade")
         if g:
+            au = {**au, "grade": _where_shown(g)}
             lines.append(g["headline"])
             lines += [f"  - 読む[{r['grade']}] {r['title']}: {r['detail']}" for r in g["reasons"] if r["grade"] not in ("S", "A")]
             lines += [f"  - 書く[{r['grade']}] {r['title']}: {r['detail']}" for r in g["write"]["reasons"] if r["grade"] != "A"]

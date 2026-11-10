@@ -38,6 +38,16 @@ def test_server_instructions_fit():
     assert utf16_len(mcp_server._instructions()) <= LIMIT
 
 
+def test_server_instructions_fit_with_any_environment_notice(monkeypatch):
+    # この環境の注意（Windows・ps がない）が付いても切れない：どの OS のテストでも、いちばん長い注意で確かめる
+    from todoku import isolate
+
+    for note in (isolate._NO_ISOLATE_NT, isolate._NO_PS):
+        monkeypatch.setattr(isolate, "notice", lambda note=note: note + "。")
+        assert mcp_server._instructions().endswith(note + "。）")
+        assert utf16_len(mcp_server._instructions()) <= LIMIT
+
+
 def test_fill_description_keeps_what_agents_need_up_front():
     d = next(t for t in mcp_server.TOOLS if t["name"] == "fill_document")["description"]
     for fact in ("out_path", "true/false", "as", "old", "circle", "seal", "consent", "overwrite_text", "allow_hidden", "view_page", "say_to_user", "help"):

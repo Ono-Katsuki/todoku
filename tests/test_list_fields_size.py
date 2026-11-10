@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from lines_back import restore
 from todoku import api, limits, mcp_server
 
 openpyxl = pytest.importorskip("openpyxl")
@@ -53,12 +54,15 @@ def small_budget(monkeypatch):
     return 6000
 
 
-def test_result_that_fits_is_unchanged(tmp_path):
+def test_result_that_fits_keeps_every_fact(tmp_path):
     p = _book(tmp_path / "a.xlsx", rows=3)
     r = mcp_server.tool_result("list_fields", {"path": p})
     whole = api.fields(p)
-    assert r["structuredContent"] == {"fields": whole}
-    assert r["content"][0]["text"] == json.dumps(whole, ensure_ascii=False, indent=1, default=str)
+    got = r["structuredContent"]["fields"]
+    assert list(r["structuredContent"]) == ["fields"] and restore(got) == whole  # 同じ行は 1 度だけ。戻すと一字も違わない
+    assert sum("context_same_as" in f for f in got) == 9 and sum("context" in f for f in got) == 3  # 3 行に 4 マスずつ
+    assert json.loads(r["content"][0]["text"]) == r["structuredContent"]
+    assert mcp_server.tool_result("list_fields", {"path": p, "detail": True})["structuredContent"] == {"fields": whole}
 
 
 def test_too_large_keeps_what_writing_needs_and_says_how_to_get_the_rest(tmp_path, small_budget):
@@ -70,7 +74,7 @@ def test_too_large_keeps_what_writing_needs_and_says_how_to_get_the_rest(tmp_pat
         assert len(mcp_server._text(pg)["text"]) <= small_budget
         how = pg["omitted"]["detail"]["how"]
         assert "ids" in how and "detail" in how and "near" in how
-    got = [f for pg in pages for f in pg["fields"]]
+    got = [f for pg in pages for f in restore(pg["fields"])]  # 行を持つ欄は、いつも同じ結果の中にある
     assert len(pages) > 1 and [f["id"] for f in got] == list(whole)  # 分けても、どの欄も読める
     for f in got:
         # 省くのは根拠の事実だけ：ほかは一字も変えない
@@ -92,8 +96,8 @@ def test_only_empty_is_kept_while_going_on(tmp_path, small_budget):
 def test_ids_return_every_fact(tmp_path, small_budget):
     p = _book(tmp_path / "a.xlsx")
     whole = {f["id"]: f for f in api.fields(p)}
-    slim = {f["id"] for pg in _walk(p) for f in pg["fields"]}
-    one = next(i for i, f in whole.items() if "near" in f and i in slim)
+    slim = {f["id"] for pg in _walk(p) for f in pg["fields"] if "context_same_as" in f}
+    one = next(i for i, f in whole.items() if "near" in f and i in slim)  # 行を省いた欄も、ids なら行ごと返る
     res = _call(path=p, ids=[one])
     assert res["fields"] == [whole[one]] and "near" in res["fields"][0]
     assert "omitted" not in res and "not_found" not in res
@@ -119,6 +123,7 @@ def test_range_request_is_kept_while_going_on(tmp_path, small_budget):
     pages = _walk(p, sheet="表", rows="3-25")
     assert len(pages) > 1 and all(pg["next"]["rows"] == "3-25" for pg in pages[:-1])
     assert [f["id"] for pg in pages for f in pg["fields"]] == [f["id"] for f in want]
+    assert [f["context"] for pg in pages for f in restore(pg["fields"])] == [f["context"] for f in want]
     # 範囲と id でも、事実をすべて
     res = _call(path=p, sheet="表", rows="3-25", ids=[want[3]["id"]])
     assert res["fields"] == [want[3]]
