@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
@@ -163,11 +164,6 @@ def checkbox_links(wb: Workbook) -> dict[tuple[str, int, int], list[tuple[str, C
 # Excelが手入力で数値として受け取る全角の文字（数字・符号・小数点・桁区切り・％・円記号）だけを半角にする。
 # NFKC は ① を 1 に、㈱ を (株) に変えるなど、文字そのものを変えてしまうので使わない。
 _WIDE = str.maketrans("０１２３４５６７８９＋－．，％￥　／：", "0123456789+-.,%¥ /:")
-_WIDE_MINUS = str.maketrans({"−": "-", "ー": None})
-
-
-def half_width(s: str) -> str:
-    return s.translate(_WIDE)
 
 
 def as_bool(value) -> bool | None:
@@ -178,11 +174,78 @@ def as_bool(value) -> bool | None:
     return checkbox_state(value)
 
 
-_WESTERN = re.compile(r"(\d{4})\s*[/\-.年]\s*(\d{1,2})\s*[/\-.月]\s*(\d{1,2})\s*日?")
-_WAREKI = re.compile(r"(明治|大正|昭和|平成|令和|[MTSHR])\s*(元|\d{1,2})\s*[年/\-.]\s*(\d{1,2})\s*[月/\-.]\s*(\d{1,2})\s*日?", re.I)
+# 数字のほかに、数の字として 1 つに決まる字：アラビア文字の小数点（٫）・桁区切り（٬）・％（٪）、小さい ％、負の符号（−・﹣）
+_NUM_MARKS = str.maketrans({"\u066b": ".", "\u066c": ",", "\u066a": "%", "\ufe6a": "%", "\u2212": "-", "\ufe63": "-"})
+
+
+def plain_digits(s: str) -> str:
+    """数・日付として読むための字にする：全角の数字・符号と、Unicode の 10 進の数字（Nd：アラビア・ペルシア・デーヴァナーガリー・
+    タイなどの数字）を 0〜9 に、アラビア文字の小数点・桁区切り・％と負の符号を ASCII の字にする。ほかの字は変えない。"""
+    t = s.translate(_WIDE).translate(_NUM_MARKS)
+    if t.isascii():
+        return t
+    return "".join(ch if ch.isascii() or unicodedata.decimal(ch, None) is None else str(unicodedata.decimal(ch)) for ch in t)
+
+
+def _other_digits(s: str) -> bool:
+    """全角のほかに、0〜9 と ASCII の字に直した字があるか：ほかの文字の数字（١٢٣・१२३・๑๒๓）、アラビア文字の小数点・桁区切り・％、
+    負の符号（−）。Excel は、手で入力すると字として受け取る。"""
+    return plain_digits(s) != s.translate(_WIDE)
+
+
+# 年が先頭の日付：2026-04-01・2026/4/1・2026.4.1（終わりに点のつく 2026. 4. 1. も）・2026年4月1日・2026년 4월 1일
+_WESTERN = re.compile(r"([0-9]{4})\s*[/\-.年년]\s*([0-9]{1,2})\s*[/\-.月월]\s*([0-9]{1,2})\s*(?:[日일]|\.)?")
+_WAREKI = re.compile(r"(明治|大正|昭和|平成|令和|[MTSHR])\s*(元|[0-9]{1,2})\s*[年/\-.]\s*([0-9]{1,2})\s*[月/\-.]\s*([0-9]{1,2})\s*日?", re.I)
 # 年が先頭でない、数字だけの日付（03/11/2026・3.11.26・11-03-2026）：日・月の順が地域で違う
-_DAY_MONTH = re.compile(r"\d{1,2}\s*[/\-.]\s*\d{1,2}\s*[/\-.]\s*\d{1,4}\.?")
-_NUMBER = re.compile(r"([+-])?[¥$]?((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?|\.\d+)(?:[eE]([+-]?\d+))?(%)?")
+_DAY_MONTH = re.compile(r"[0-9]{1,2}\s*[/\-.]\s*[0-9]{1,2}\s*[/\-.]\s*[0-9]{1,4}\.?")
+# todoku の数の書き方：小数点「.」・3 桁ずつの桁区切り「,」（JSON の数・窓に示す数と同じ）
+_PLAIN_NUM = re.compile(r"((?:[1-9][0-9]{0,2}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]*)?|\.[0-9]+)(?:[eE]([+-]?[0-9]+))?")
+# 「1.234」「1,234」：小数点と桁区切りの字が地域で逆なので、地域で値が 1000 倍違う形（前が 1〜3 桁・後ろがちょうど 3 桁）
+_REGION_SHAPE = re.compile(r"[1-9][0-9]{0,2}([.,])[0-9]{3}")
+_GAPS = " \u00a0\u202f\u2009"  # 桁区切り・記号との間に使う空白（空白・NBSP・狭い NBSP・細い空白）
+# ほかの書き方としてしか読めない形（上の書き方では数にならない形だけ）：どれも、数としての読み方は 1 つ
+_OTHER_NUM = (
+    # 桁区切りが「.」で小数点が「,」（1.234,56）、桁区切りの「.」が 2 つ以上（1.234.567）
+    (re.compile(r"[1-9][0-9]{0,2}(?:\.[0-9]{3})+,[0-9]+|[1-9][0-9]{0,2}(?:\.[0-9]{3}){2,}"),
+     lambda b: b.replace(".", "").replace(",", ".")),
+    # 小数点が「,」で桁区切りなし（1,5・0,125・1234,567）
+    (re.compile(r"(?:0|[1-9][0-9]*),[0-9]+"), lambda b: b.replace(",", ".")),
+    # 桁区切りが空白かアポストロフィ（1 234,56・1'234.56）：小数点は「,」でも「.」でも
+    (re.compile(r"[1-9][0-9]{0,2}([ \u00a0\u202f\u2009'\u2019])[0-9]{3}(?:\1[0-9]{3})*(?:[.,][0-9]+)?"),
+     lambda b: re.sub(r"[ \u00a0\u202f\u2009'\u2019]", "", b).replace(",", ".")),
+    # 桁区切りが下 3 桁の上は 2 桁ずつ（12,34,567.89）
+    (re.compile(r"[1-9][0-9]?(?:,[0-9]{2})+,[0-9]{3}(?:\.[0-9]*)?"), lambda b: b.replace(",", "")),
+)
+
+
+def _number_parts(t: str) -> tuple[bool, bool, str, str]:
+    """数の字から、符号・通貨記号（Unicode の通貨記号 Sc：¥ $ € £ ₩ ₹ など。前か後ろに 1 つ）・％を外す：
+    (負か, ％か, 通貨記号, 数字の部分)。"""
+    sign = cur = ""
+    i = 0
+    while i < len(t):
+        ch = t[i]
+        if ch in "+-" and not sign:
+            sign = ch
+        elif not cur and unicodedata.category(ch) == "Sc":
+            cur = ch
+        elif not (ch in _GAPS and cur and t[i - 1] == cur):
+            break
+        i += 1
+    body = t[i:]
+    pct = body.endswith("%")
+    if pct:
+        body = body[:-1].rstrip(_GAPS)
+    elif body and not cur and unicodedata.category(body[-1]) == "Sc":
+        cur, body = body[-1], body[:-1].rstrip(_GAPS)
+    return sign == "-", pct, cur, body
+
+
+def _is_number_format(fmt: str) -> bool:
+    """数の表示形式か：標準・文字列・日付でなく、数字の置き場（0 # ?）がある。"""
+    if _general(fmt) or fmt == "@" or is_date_format(fmt):
+        return False
+    return bool(re.search(r"[0#?]", re.sub(r'"[^"]*"|\\.|\[[^\]]*\]|[_*].', "", fmt)))
 
 
 def parse_date_text(s: str):
@@ -191,7 +254,7 @@ def parse_date_text(s: str):
 
     from ..formula.dates import ERAS
 
-    t = half_width(s).strip()
+    t = plain_digits(s).strip()
     m = _WESTERN.fullmatch(t)
     try:
         if m:
@@ -220,6 +283,11 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value, *, refuse_a
 
     セルの書式は変えない。Excelなら書式まで変える入力（日付を標準のセルに入れるなど）は、
     文字のまま書き込み、その旨を返す。
+
+    字で指定した数は、小数点「.」・桁区切り「,」で読む（JSON の数と同じ書き方）。ほかの書き方で読み方が 1 つに決まる形
+    （1.234,56・1,5・1 234,56）と、ほかの文字の数字（١٢٣）は、Excel が字として受け取る形：数の入るセル（数の表示形式・数式から
+    参照・数の入力規則）でだけ数にして、どう読んだかを返す。地域で値が違う形（1.234・1,234）は、セルが同じ字で表示するとき
+    のほかは、どう読んだかを返す。
     """
     where = f"{sheet}!{addr(r, c)}"
     cell = wb.sheet(sheet).cells.get((r, c))
@@ -258,13 +326,19 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value, *, refuse_a
         return s[1:], notes
     if s.strip() == "":
         return None, notes
-    t = half_width(s).strip()
+    t = plain_digits(s).strip()
     if t.upper() in ("TRUE", "FALSE"):
         return t.upper() == "TRUE", notes
     d = parse_date_text(s)
     if d is not None:
         if is_date_format(fmt):
-            return float(date_to_serial(d, wb.date1904)), notes
+            n = date_to_serial(d, wb.date1904)
+            if n < (0 if wb.date1904 else 1) and getattr(wb, "kind", "xlsx") != "ods":
+                # Excel の日付は、数え方の始まりの日（1900 年 1 月 1 日。1904 年から数えるブックは 1904 年 1 月 1 日）から
+                notes.append(f"{where}: 「{s}」は、Excel で扱える日付（{'1904' if wb.date1904 else '1900'} 年 1 月 1 日から）より前なので、"
+                             "文字として書き込みました（年が西暦でない暦の年なら、西暦に直して指定してください）")
+                return s, notes
+            return float(n), notes
         notes.append(f"{where}: 「{s}」は日付として読めますが、このセルの表示形式は日付ではないので、文字として書き込みました")
         return s, notes
     if is_date_format(fmt) and _DAY_MONTH.fullmatch(t):
@@ -276,17 +350,24 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value, *, refuse_a
             raise EditError(msg)
         notes.append(msg + "。文字として書き込みました")
         return s, notes
-    m = _NUMBER.fullmatch(t)
-    if m:
-        digits = re.sub(r"\D", "", m[2])
-        if re.fullmatch(r"0\d+", m[2]):
+    neg, pct, cur, body = _number_parts(t)
+    m = _PLAIN_NUM.fullmatch(body)
+    mant, exp = (m[1], m[2]) if m else (None, None)
+    # ほかの書き方（1.234,56・1,5・1 234,56・12,34,567）と、ほかの文字の数字（١٢٣）：数としての読み方は 1 つ。
+    # 日付のセルでは数にしない（数にすると、その数の日付として表示される）
+    other = m is None or _other_digits(s)
+    if other:
+        mant = None if is_date_format(fmt) else mant or next((conv(body) for pat, conv in _OTHER_NUM if pat.fullmatch(body)), None)
+    if mant is not None:
+        digits = re.sub(r"[^0-9]", "", mant)
+        if re.fullmatch(r"0[0-9]+", mant):
             notes.append(f"{where}: 先頭の 0 を残すため、「{s}」を文字として書き込みました")
             return s, notes
         if len(digits.lstrip("0")) > 15:
             notes.append(f"{where}: 15桁を超える数字はExcelでは末尾が0に変わるため、「{s}」を文字として書き込みました")
             return s, notes
         try:
-            x = float(m[2].replace(",", "") + (f"e{m[3]}" if m[3] else ""))
+            x = float(mant.replace(",", "") + (f"e{exp}" if exp else ""))
         except (OverflowError, ValueError):
             x = math.inf
         if not math.isfinite(x) or (x == 0 and digits.strip("0")):
@@ -294,15 +375,30 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value, *, refuse_a
             notes.append(f"{where}: 「{s}」は Excel で扱える数の大きさ（およそ ±1E+308 から ±1E-307 まで）の外なので、"
                          "文字として書き込みました")
             return s, notes
-        if m[1] == "-":
+        if neg:
             x = -x
-        if m[4]:
+        if pct:
             x /= 100
-        if _general(fmt) and (m[4] or "¥" in t or "$" in t or "," in m[2]):
+        if other:
+            # Excel（小数点「.」の地域）は字として受け取る形。標準の表示形式のセルは、数式・数の入力規則が使うときだけ数にし
+            # （見え方を伝える）、ほかは書いたとおりの字。数の表示形式のセルは数にして、どう読んだかを伝える
+            if _general(fmt):
+                if _numeric_use(wb, sheet, r, c):
+                    return _shown_differs(wb, sheet, r, c, where, s, x, _general_shown(x), notes)
+                return s, notes
+            if _is_percent(fmt) and not pct and abs(x) >= 1:
+                x /= 100
+            shown = _shown_as(x, fmt)
+            notes.append(f"{where}: 「{s}」を数 {number_to_text(x)} として書き込みました（小数点「.」・桁区切り「,」・0〜9 の数字の書き方ではない"
+                         "字ですが、数としての読み方が 1 つに決まるので、数にしました。"
+                         + (f"このセルでは「{shown}」と表示されます。" if shown else "")
+                         + "字で指定する数は、1234.56 の形か、JSON の数が確かです）")
+            return x, notes
+        if _general(fmt) and (pct or cur or "," in mant):
             # 「¥1,000」「$100」「50%」「1,000」：Excel は手で入力すると表示形式を通貨・パーセント・桁区切りに変える。
             # todoku はセルの書式を変えないので、標準の表示形式のままでは「1000」「0.5」と、入力した字と違って見える
             return _shown_differs(wb, sheet, r, c, where, s, x, _general_shown(x), notes)
-        if _general(fmt) and not m[3] and "E" in _general_shown(x):
+        if _general(fmt) and not exp and "E" in _general_shown(x):
             # 12 桁以上の数字（個人番号など）を字で指定した：数にすると標準の表示形式で「1.23457E+11」と表示され、番号が
             # 読めないので、書いたとおりの字として書く（指定どおり）。数の入力規則のあるセルだけは、規則が数を求めるので数にする
             shown = _general_shown(x)
@@ -318,14 +414,33 @@ def interpret_input(wb: Workbook, sheet: str, r: int, c: int, value, *, refuse_a
             return s, notes
         elif _is_percent(fmt):
             # Excelの「パーセント形式での自動入力」：1以上の数は % として受け取る
-            if abs(x) >= 1:
+            if abs(x) >= 1 and not pct:
                 x /= 100
+        rm = None if exp else _REGION_SHAPE.fullmatch(body)
+        if rm:
+            # 「1.234」「1,234」：小数点と桁区切りの字が逆の地域では、値が 1000 倍違う。todoku の書き方で読み、セルの表示形式が
+            # 書いた字と同じ字で表示するときのほかは、どう読んだかを伝える
+            shown = _general_shown(x) if _general(fmt) else _shown_as(x, fmt)
+            if _general(fmt) or shown is None or not _same_marks(shown, body):
+                alt = body.replace(".", "") if rm[1] == "." else body.replace(",", ".")
+                ax = float(alt) * (-1 if neg else 1)  # もう一方の読み方の数：上と同じ手順で（％・パーセントの書式）
+                if pct or (_is_percent(fmt) and abs(ax) >= 1):
+                    ax /= 100
+                alt = ("-" if neg else "") + alt + ("%" if pct else "")
+                notes.append(f"{where}: 「{s}」を数 {number_to_text(x)} として書き込みました（字で指定した数は、「.」を小数点、「,」を桁区切りとして"
+                             "読みます。" + (f"このセルでは「{shown}」と表示されます。" if shown else "")
+                             + f"{alt} のつもりなら、JSON の数 {number_to_text(ax)} で指定してください）")
         if t != s.strip() and re.search(r"[０-９]", s):
             notes.append(f"{where}: 全角の数字「{s}」を数値 {number_to_text(x)} として書き込みました（Excelと同じ扱い）")
         return x, notes
-    if is_date_format(fmt) and re.search(r"\d", t):
-        notes.append(f"{where}: このセルの表示形式は日付・時刻ですが、「{s}」は日付として読めないので、文字として書き込みました"
-                     "（日付なら ISO の形 2026-11-03 で指定してください）")
+    if re.search(r"[0-9]", t):
+        if is_date_format(fmt):
+            notes.append(f"{where}: このセルの表示形式は日付・時刻ですが、「{s}」は日付として読めないので、文字として書き込みました"
+                         "（日付なら ISO の形 2026-11-03 で指定してください）")
+        elif _is_number_format(fmt) or any(v.covers(r, c) and v.type in ("whole", "decimal")
+                                           for v in getattr(wb.sheet(sheet), "validations", ())):
+            notes.append(f"{where}: このセルは数の入るセル（数の表示形式か、数の入力規則）ですが、「{s}」は数として読めないので、"
+                         "文字として書き込みました（数なら、1234.56 の形の字か、JSON の数で指定してください）")
     return s, notes
 
 
@@ -334,6 +449,22 @@ MAX_CELL_TEXT = 32767  # Excel のセルに入る字の数の上限
 
 def _general(fmt: str) -> bool:
     return (fmt or "General").strip().lower() in ("general", "")
+
+
+def _shown_as(x: float, fmt: str) -> str | None:
+    """数 x が、表示形式 fmt のセルで表示される字。再現できない表示形式は None。"""
+    from ..formula.numfmt import format_value
+
+    try:
+        return format_value(x, fmt)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _same_marks(shown: str, typed: str) -> bool:
+    """表示される字 shown の数字・小数点・桁区切りが、書いた字 typed と同じか（後ろに小数の 0 が足されるのは同じとする）。"""
+    sk = re.sub(r"[^0-9.,]", "", shown)
+    return sk == typed or (sk.startswith(typed) and not sk[len(typed):].strip(".0"))
 
 
 def _general_shown(x: float) -> str:

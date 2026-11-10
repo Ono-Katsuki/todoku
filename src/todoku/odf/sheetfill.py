@@ -123,6 +123,11 @@ class SheetWriter:
         x = float(value)
         if kind == "date":
             d = _serial_date(wb, x)
+            if x < 1 and wb.null_date == dt.date(1899, 12, 30):
+                # 1900 年 1 月 1 日より前の日付：書式の道具は Excel の数え方（0 は「1900/1/0」、負の数は表示できない）なので、
+                # 見える字は作らず、値の字（ISO）を書く
+                self.unformatted = getattr(self, "unformatted", 0) + 1
+                return [("office:value-type", "date"), ("office:date-value", d), ("calcext:value-type", "date")], d
             return ([("office:value-type", "date"), ("office:date-value", d), ("calcext:value-type", "date")],
                     self.shown(x, style_idx, d))
         if kind == "time":
