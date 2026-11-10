@@ -714,16 +714,20 @@ def line_width(size: float) -> float:
     return round(max(0.6, 0.07 * size), 2)
 
 
-def open_depth(data: bytes) -> int:
-    """描画の終わりで閉じていない q の数。"""
-    d = 0
+def open_depth(data: bytes) -> tuple[int, int]:
+    """描画の終わりで閉じていない q の数と、閉じていない内容の印（BMC・BDC）の数。"""
+    d = m = 0
     for kind, val in tokens(data):
         if kind == "o":
             if val == "q":
                 d += 1
             elif val == "Q" and d > 0:
                 d -= 1
-    return d
+            elif val in ("BMC", "BDC"):
+                m += 1
+            elif val == "EMC" and m > 0:
+                m -= 1
+    return d, m
 
 
 def _seg(p, q) -> str:
@@ -788,9 +792,11 @@ def check_said(lay: PageLayout, rect) -> str | None:
     return f"（{'、'.join(parts)}）" if parts else None
 
 
-def closing(depth: int) -> bytes:
-    """後ろに足すストリームの初め：閉じていない q を戻す（前に足した q の分も）。ページの初めの座標に戻る。"""
-    return b"Q\n" * (depth + 1)
+def closing(depth: tuple[int, int]) -> bytes:
+    """後ろに足すストリームの初め：閉じていない内容の印を閉じ、閉じていない q を戻す（前に足した q の分も）。ページの初めの座標に戻る。
+    印を閉じないと、足した字が、元の描画の終わりの印（画面に出ないレイヤー・飾りの印など）の中に入る。"""
+    q, marks = depth
+    return b"EMC\n" * marks + b"Q\n" * (q + 1)
 
 
 def description(sd: dict) -> str | None:

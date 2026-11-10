@@ -381,6 +381,12 @@ class PageLayout:
                 _agent(k)
                 k.readonly = f"小さい（幅 {(x1 - x0) / self.view.mm:.1f} mm・高さ {(y1 - y0) / self.view.mm:.1f} mm）ので、1字も入りません"
         self._assign_ids()
+        # 既定の設定では画面に見えないレイヤーの字：読み順・欄には入れず、行にして分けて伝える（上から。表の形にはしない）
+        self.off_layers: list[tuple] = []  # [(レイヤーの見え方, 行, 画像の数, 線や図形があるか)]
+        for st, c in pc.off:
+            lines = make_lines(view_chars(c, self.view, self.dropped))
+            lines.sort(key=lambda ln: (ln.y0, ln.x0))
+            self.off_layers.append((st, lines, len(c.pictures), bool(c.segs or c.boxes or c.curves)))
         self.flags: list[dict] = []  # 読む段階に関わる注意：{grade, title, detail, where}
         self._read_flags()
 
@@ -532,6 +538,27 @@ class PageLayout:
                          "。どちらの行が生きているか（消した字か）は view_page で確かめる"),
                       [self.where(min(ln.x0 for ln in grp), min(ln.y0 for ln in grp), " ／ ".join(ln.text.strip() for ln in grp))
                        for grp in self.overprinted])
+        for st, lines, pics, _shapes in self.off_layers:
+            n = sum(1 for ln in lines for ch in ln.text if not ch.isspace())
+            if not n and not pics:
+                continue  # 線・塗りだけのレイヤー（欄にしていない）は、読む字に関わらない
+            self.flag("B", "既定では表示されないレイヤーの字・画像",
+                      "PDF のレイヤー（表示を切り替えられる内容）のうち、既定の設定では画面に出ないものに、字・画像があります。"
+                      "読み順・入力欄には入れず、ページの「既定では表示されないレイヤーの字」の節に分けて示しました。書類の内容として"
+                      "読むか（記入例・別の言語の版・下書き・印刷だけに出す字など）は、レイヤーの名前と字を読んでエージェントが決める"
+                      "（view_page の画像には出ません。ビューアーでレイヤーを切り替えた人には見えます）",
+                      [f"{self.number}ページ（レイヤー「{st.name}」：{st.how()}。字 {n} 字・画像 {pics} 個）"])
+        if self.pc.screen_only:
+            where = []
+            for st, gl in self.pc.screen_only:
+                for ln in make_lines(view_chars(PageContent(glyphs=list(gl)), self.view)):
+                    if ln.text.strip():
+                        where.append(self.where(ln.x0, ln.y0, ln.text) + f"（レイヤー「{st.name}」）")
+            if where:
+                self.flag("B", "印刷には出ない字",
+                          "PDF のレイヤーのうち、既定の設定で、画面には出るが印刷には出ないものに字があります。窓の読み順には入っています"
+                          "（画面で見える字なので）。紙に印刷して出す書類では、その字は紙に出ません。紙でも要る字かは、エージェントが"
+                          "字を読んで決める", where)
         ocr = [c for c in self.chars if c.invisible and not c.text.isspace()]
         if ocr:
             pics = [self.view.rect(p.x0, p.y0, p.x1, p.y1) for p in self.pc.pictures]

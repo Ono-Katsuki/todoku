@@ -117,6 +117,11 @@ class PageContent:
     maybe_ovals: list[tuple] = field(default_factory=list)
     unmapped: int = 0
     problems: list[str] = field(default_factory=list)
+    # 既定の設定では画面に見えないレイヤー（optional content）の内容：[(レイヤーの見え方 layers.State, その内容 PageContent)]。
+    # ふつうの内容（上の項目）には入れない：字は読み順に入れずに分けて伝え、線・画像は欄・画像にしない
+    off: list[tuple] = field(default_factory=list)
+    # 画面には見えるが、既定の設定では印刷に出ないレイヤーの字：[(レイヤーの見え方, 字)]。字は、ふつうの内容にも入っている
+    screen_only: list[tuple] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------- 字句
@@ -242,6 +247,11 @@ class Interpreter:
         self.doc = doc
         self.out = PageContent()
         self.written_forms: set[int] = set()
+        from .layers import layers
+
+        self.layers = layers(doc)
+        self._main = self.out  # ふつうの内容（self.out は、画面に見えないレイヤーの中では、そのレイヤーの内容）
+        self._layer = None  # いま読んでいる内容のレイヤーの見え方（重なったレイヤーは合わせたもの）。ふつうの内容は None
 
     def run_page(self, page: dict) -> PageContent:
         res = self.doc.resolve(page.get("Resources")) or {}
@@ -251,6 +261,8 @@ class Interpreter:
         self.written_forms = verified_refs(self.doc, page)  # とどくが書いた値（欄の値として読む）：印刷された字として読まない
         self._run(data, res, _GS(), depth=0, owner="page")
         self.out.unmapped = sum(f.unmapped for f in self._fonts_used.values()) if hasattr(self, "_fonts_used") else 0
+        for _st, c in self.out.off:
+            self.out.problems += [x for x in c.problems if x not in self.out.problems]
         return self.out
 
     def run_stream(self, data: bytes, res: dict, ctm=IDENT) -> PageContent:
@@ -258,6 +270,34 @@ class Interpreter:
         gs.ctm = ctm
         self._run(data, res or {}, gs, depth=0)
         return self.out
+
+    # ------------------------------------------------------------------ レイヤー（optional content）
+    def _layer_begin(self, oc):
+        """内容の印（/OC）の始まり。既定の設定で、画面に見えない・印刷に出ない内容になるなら、戻すための控えを返す（変わらなければ None）。
+        画面に見えない内容は、ふつうの内容と分けて集める（同じ見え方のレイヤーは、ページで 1 つにまとめる：行を組み立てるため）。"""
+        st = self.layers.state(oc)
+        if st is None:
+            return None
+        cur = self._layer
+        eff = cur.both(st) if cur is not None else st
+        if (eff.view, eff.print) == ((cur.view, cur.print) if cur is not None else (True, True)):
+            return None
+        saved = (cur, self.out, len(self.out.glyphs))
+        self._layer = eff
+        if not eff.view:
+            got = next((c for s, c in self._main.off if s == eff), None)
+            if got is None:
+                got = PageContent()
+                self._main.off.append((eff, got))
+            self.out = got
+        return saved
+
+    def _layer_end(self, saved) -> None:
+        cur, out, first = saved
+        eff = self._layer
+        if eff is not None and eff.view and not eff.print and self.out.glyphs[first:]:
+            self._main.screen_only.append((eff, self.out.glyphs[first:]))
+        self._layer, self.out = cur, out
 
     # ------------------------------------------------------------------
     def _font(self, res: dict, name: str) -> PdfFont | None:
@@ -279,6 +319,7 @@ class Interpreter:
         drawing = self.__dict__.setdefault("_drawing", set())  # いま描いている途中のフォームの部品（自分を描く部品は描かない）
         doc = self.doc
         out = self.out
+        layered = self.layers.any  # レイヤーの設定のある書類だけ、内容の印（/OC）を見る
         stack: list = []
         gstack: list[_GS] = []
         path: list = []  # 部分の図形：[("m", x, y) ...] をページの座標で
@@ -634,37 +675,47 @@ class Interpreter:
                     name = stack[-1].name if stack and isinstance(stack[-1], Name) else ""
                     xo = doc.resolve((doc.resolve(res.get("XObject")) or {}).get(name))
                     if isinstance(xo, Stream):
-                        st = getattr(xo.dict.get("Subtype"), "name", "")
-                        key = xo.num or id(xo)
-                        if st == "Form" and xo.num in self.written_forms:
-                            pass
-                        elif st == "Form" and key in drawing:
-                            out.problems.append(f"フォームの部品 {name} が自分自身を描いています（その所は描きません）")
-                        elif st == "Form":
-                            m = xo.dict.get("Matrix")
-                            m = tuple(float(doc.resolve(v)) for v in m) if isinstance(m, list) and len(m) == 6 else IDENT
-                            sub_res = doc.resolve(xo.dict.get("Resources")) or res
-                            g2 = gs.copy()
-                            g2.ctm = mul(m, gs.ctm)
-                            sps = doc.resolve(xo.dict.get("StructParents"))
-                            sp = doc.resolve(xo.dict.get("StructParent"))
-                            drawing.add(key)
-                            try:
-                                self._run(doc.decode(xo), sub_res, g2, depth + 1, outer + tuple(x[3] for x in mc_stack),
-                                          sps if isinstance(sps, int) else None, sp if isinstance(sp, int) else objparent)
-                            except (LimitExceeded, RecursionError, MemoryError):
-                                raise
-                            except Exception as e:  # noqa: BLE001
-                                out.problems.append(f"フォームの部品 {name} を読めません: {e}")
-                            finally:
-                                drawing.discard(key)
-                        elif st == "Image":
-                            pts = [apply(gs.ctm, 0, 0), apply(gs.ctm, 1, 0), apply(gs.ctm, 0, 1), apply(gs.ctm, 1, 1)]
-                            sp = doc.resolve(xo.dict.get("StructParent"))
-                            pic = picture(pts, name, sp if isinstance(sp, int) else None)
-                            pic.ctm, pic.image = gs.ctm, xo
-                            if not self._thin_image(pic, xo.dict, None, gs, xo):
-                                out.pictures.append(pic)
+                        # 部品の /OC：画面に見えないレイヤーの部品は、ふつうの内容に入れない
+                        began = self._layer_begin(xo.dict.get("OC")) if layered else None
+                        out = self.out
+                        try:
+                            st = getattr(xo.dict.get("Subtype"), "name", "")
+                            key = xo.num or id(xo)
+                            if st == "Form" and xo.num in self.written_forms:
+                                pass
+                            elif st == "Form" and key in drawing:
+                                out.problems.append(f"フォームの部品 {name} が自分自身を描いています（その所は描きません）")
+                            elif st == "Form":
+                                m = xo.dict.get("Matrix")
+                                m = tuple(float(doc.resolve(v)) for v in m) if isinstance(m, list) and len(m) == 6 else IDENT
+                                sub_res = doc.resolve(xo.dict.get("Resources")) or res
+                                g2 = gs.copy()
+                                g2.ctm = mul(m, gs.ctm)
+                                sps = doc.resolve(xo.dict.get("StructParents"))
+                                sp = doc.resolve(xo.dict.get("StructParent"))
+                                drawing.add(key)
+                                keep = (self._layer, self.out)
+                                try:
+                                    self._run(doc.decode(xo), sub_res, g2, depth + 1, outer + tuple(x[3] for x in mc_stack),
+                                              sps if isinstance(sps, int) else None, sp if isinstance(sp, int) else objparent)
+                                except (LimitExceeded, RecursionError, MemoryError):
+                                    raise
+                                except Exception as e:  # noqa: BLE001
+                                    out.problems.append(f"フォームの部品 {name} を読めません: {e}")
+                                finally:
+                                    drawing.discard(key)
+                                    self._layer, self.out = keep  # 途中で読めなくなった部品の中のレイヤーを、外に持ち出さない
+                            elif st == "Image":
+                                pts = [apply(gs.ctm, 0, 0), apply(gs.ctm, 1, 0), apply(gs.ctm, 0, 1), apply(gs.ctm, 1, 1)]
+                                sp = doc.resolve(xo.dict.get("StructParent"))
+                                pic = picture(pts, name, sp if isinstance(sp, int) else None)
+                                pic.ctm, pic.image = gs.ctm, xo
+                                if not self._thin_image(pic, xo.dict, None, gs, xo):
+                                    out.pictures.append(pic)
+                        finally:
+                            if began is not None:
+                                self._layer_end(began)
+                            out = self.out
                 elif op == "EI":
                     pts = [apply(gs.ctm, 0, 0), apply(gs.ctm, 1, 0), apply(gs.ctm, 0, 1), apply(gs.ctm, 1, 1)]
                     pic = picture(pts, "inline")
@@ -684,8 +735,10 @@ class Interpreter:
                             gs.fs = float(doc.resolve(fnt[1]))
                 elif op in ("BDC", "BMC"):
                     props = stack[-1] if op == "BDC" and stack else None
+                    oc = None  # 内容の印が指すレイヤー（/OC /名前 BDC）
                     if isinstance(props, Name):
-                        props = doc.resolve((doc.resolve(res.get("Properties")) or {}).get(props.name))
+                        oc = (doc.resolve(res.get("Properties")) or {}).get(props.name)
+                        props = doc.resolve(oc)
                     tag = stack[-2 if op == "BDC" else -1] if len(stack) >= (2 if op == "BDC" else 1) else None
                     tag = tag.name if isinstance(tag, Name) else ""
                     mcid = None
@@ -705,11 +758,16 @@ class Interpreter:
                     mark = _Mark(tag, mcid, owner, alt, tag == "Artifact")
                     if mcid is None and mc_stack:
                         mcid = mc_stack[-1][0]
-                    mc_stack.append((mcid, actual, len(out.glyphs), mark))
+                    began = self._layer_begin(oc) if layered and tag == "OC" and oc is not None else None
+                    out = self.out
+                    mc_stack.append((mcid, actual, len(out.glyphs), mark, began))
                 elif op == "EMC":
                     if mc_stack:
-                        mcid, actual, first, _mark = mc_stack.pop()
-                        if actual is not None:
+                        mcid, actual, first, _mark, began = mc_stack.pop()
+                        if began is not None:
+                            self._layer_end(began)
+                            out = self.out
+                        elif actual is not None:
                             gl = out.glyphs[first:]
                             if gl:
                                 g0 = gl[0]
@@ -725,6 +783,9 @@ class Interpreter:
             except (IndexError, ValueError, TypeError, ZeroDivisionError):
                 pass
             stack.clear()
+        for m in reversed(mc_stack):  # 閉じていない内容の印は、この流れの終わりまで（次の内容まで隠さない。描く側と同じ）
+            if m[4] is not None:
+                self._layer_end(m[4])
         del in_text
 
 
@@ -854,6 +915,6 @@ def page_content(doc, page: dict) -> PageContent:
     it = Interpreter(doc)
     pc = it.run_page(page)
     fonts = getattr(it, "_fonts_used", {})
-    pc.unmapped = sum(1 for g in pc.glyphs if g.text == UNKNOWN)
+    pc.unmapped = sum(1 for c in [pc] + [c for _st, c in pc.off] for g in c.glyphs if g.text == UNKNOWN)
     del fonts
     return pc

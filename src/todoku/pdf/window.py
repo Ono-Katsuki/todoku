@@ -22,6 +22,7 @@ from ..xlsx.window import GAP_TOKEN_NOTE, label_text, shown_gap, with_label_keys
 from .content import page_content
 from .doc import PdfDocument
 from .form import FormField, Widget, has_xfa, read_fields
+from .layers import layers as _layers
 from .layout import OLD_ID, PLACE_ID, Cell, Line, PageLayout, Spot, _overlap, _RectIndex
 
 DET = "deterministic"
@@ -504,6 +505,9 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         drawn, unread = _appearance_text(doc, ad)
         if txt or drawn or unread or st in ("FreeText", "Stamp", "Text"):
             d_ = {"kind": st, "text": txt}
+            layer = _layers(doc).state(ad.get("OC"))
+            if layer is not None and not (layer.view and layer.print):
+                d_["layer"] = f"レイヤー「{layer.name}」：既定では{layer.how()}"
             if drawn and drawn.split() != txt.split():
                 d_["drawn"] = drawn  # 注釈の見た目（/AP）に描かれた字：ページに見えるのはこの字
             if unread:
@@ -519,6 +523,13 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                          "しれないので、その位置は view_page で画像を見て確かめる（中身を推測で埋めない）",
                          [f"{where}（{st}：{unread}）"])
             annots.append(d_)
+    # 既定の設定では画面に見えないレイヤーの内容：読み順・欄・画像の一覧には入れず、ここに分けて示す（字は 1 字も落とさない）
+    off_layers = []
+    for st_, lines_, pics_, shapes_ in lay.off_layers:
+        texts = [t for t in (ln_.text.strip(" \u3000") for ln_ in lines_) if t]
+        plain += texts  # 読み落としの検査は、分けて示した字も数える
+        off_layers.append({"layer": st_.name, "view": st_.view, "print": st_.print, "how": st_.how(), "lines": texts,
+                           "chars": sum(1 for t in texts for ch in t if not ch.isspace()), "images": pics_, "shapes": shapes_})
     marks, inword = unmapped_places(lay)
     circled = [{"text": ln_.text[a_:b_], "id": ident or None, "context": re.sub(r"[ 　]+", " ", ln_.text).strip()[:60],
                 "rect": [round(v, 1) for v in ln_.span_rect(a_, b_)]} for ln_, a_, b_, ident in getattr(lay, "circled", [])]
@@ -535,6 +546,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             "unmapped_marks": marks, "unmapped_text": inword,
             "image_only": chars == 0 and images > 0, **({"blank": True} if chars == 0 and images == 0 else {}), "pictures": pictures, "problems": pc.problems, "annotations": annots,
             "_plain": plain, "_dropped": lay.dropped, "_added": lay.added, "read_flags": lay.flags,
+            **({"off_layers": off_layers} if off_layers else {}),
             # 窓の作り方で1つにした字：同じ位置に重ねて描いた同じ字（太字に見せる重ね書き）・縦に1字ずつ積んだ字の列
             "merged_glyphs": sum(1 for k, _t in lay.dropped if k == "dup"),
             "unseen_glyphs": sum(1 for k, _t in lay.dropped if k == "size"),  # 0.5pt に満たない字・ページの何倍もある字
@@ -1070,6 +1082,9 @@ def build(doc: PdfDocument, pages=None) -> dict:
     unplaced = _unplaced_fields(fields)
     if unplaced:
         out["form"]["unplaced"] = unplaced
+    special = _layers(doc).special()
+    if special:  # 既定の設定で、画面に見えない・印刷に出ないレイヤー（どのページで使うかは、ページごとに示す）
+        out["layers"] = [{"name": st.name, "view": st.view, "print": st.print, "how": st.how()} for st in special]
     xw = _xfa_window(doc)
     for i, p in enumerate(doc.pages()):
         if pages is not None and i + 1 not in pages:
@@ -1497,6 +1512,13 @@ def _md_head(doc: dict) -> list[str]:
         valued = [f"「{_md(x['name'])}」＝{_md(x['value'])}" for x in gone if x["value"]]
         out.append(f"- どのページにも置かれていない欄が {len(gone)} 個あります（ファイルにはありますが、画面にも紙にも出ません。書く所ではありません）"
                    + ("。値の入っている欄：" + "、".join(valued) if valued else "。値の入っている欄はありません") + "。")
+    ly = doc.get("layers") or []
+    if ly:
+        hidden = [f"「{_md(x['name'])}」（{x['how']}）" for x in ly if not x["view"]]
+        paper = [f"「{_md(x['name'])}」" for x in ly if x["view"] and not x["print"]]
+        out.append("- PDF のレイヤー（表示を切り替えられる内容）があります（既定の設定での見え方。ビューアーで切り替えた後の状態は分かりません）。"
+                   + (f"画面に出ないレイヤー：{'、'.join(hidden)}。その字・画像のあるページでは、読み順・入力欄に入れず、分けて示します。" if hidden else "")
+                   + (f"画面には出るが印刷に出ないレイヤー：{'、'.join(paper)}。その字のあるページでは、読み順に入れたまま、ページの注意で知らせます。" if paper else ""))
     xw = doc.get("xfa")
     if xw and xw.get("readable"):
         kind = "動的" if xw["kind"] == "dynamic" else "静的"
@@ -1514,9 +1536,11 @@ def _md_page(pg: dict) -> list[str]:
     if pg.get("image_only"):
         out += ["- **このページは画像だけです**（文字の情報がありません）。view_page でページの画像を見て読み、"
                 "書く所は画像の目盛り（mm）で枠を決めて、fill_document に {\"@1\": {\"page\": ページ, \"box\": [左, 上, 右, 下], "
-                "\"value\": 書く字}} で書きます", ""]
+                "\"value\": 書く字}} で書きます"
+                + ("（既定では表示されないレイヤーの字は、下の節にあります）" if pg.get("off_layers") else ""), ""]
     if pg.get("blank"):
-        out += ["- このページには字も画像もありません（白紙か、線だけのページ）", ""]
+        out += ["- このページには字も画像もありません（白紙か、線だけのページ）"
+                + ("。既定では表示されないレイヤーの内容は、下の節にあります" if pg.get("off_layers") else ""), ""]
     if pg.get("unmapped"):
         out += [f"- 文字に直せない字が {pg['unmapped']} 字あります（�で示しています）", ""]
         marks = pg.get("unmapped_marks") or []
@@ -1561,6 +1585,16 @@ def _md_page(pg: dict) -> list[str]:
     for line in pg["reading"]:
         out.append(f"- {line}")
     out.append("")
+    off = pg.get("off_layers") or []
+    if off:
+        out += [f"### 既定では表示されないレイヤーの字・画像（レイヤー {len(off)} 個）", "",
+                "（PDF のレイヤーのうち、既定の設定では画面に出ないものの内容。上の読み順・入力欄・画像の一覧には入っていない。"
+                "字は行ごとに上から（表の形にはしていない）。線や図形は欄にしていない）", ""]
+        for o in off:
+            out.append(f"- レイヤー「{_md(o['layer'])}」（{o['how']}。字 {o['chars']} 字・画像 {o['images']} 個"
+                       + ("・線や図形あり" if o.get("shapes") else "") + "）")
+            out += [f"  - {_md(t)}" for t in o["lines"]]
+        out.append("")
     pics = [p for p in pg.get("pictures", []) if not p["decorative"]]
     if pics:
         out += [f"### 画像（{len(pics)} 個）", ""]
@@ -1573,7 +1607,8 @@ def _md_page(pg: dict) -> list[str]:
         out += ["### 注釈（ページに貼られたメモなど）", ""]
         for a in pg["annotations"]:
             out.append(f"- {a['kind']}: {_md(a['text']) or '（文字なし）'}"
-                       + (f"（見た目に描かれた字：{_md(a['drawn'])}）" if a.get("drawn") else ""))
+                       + (f"（見た目に描かれた字：{_md(a['drawn'])}）" if a.get("drawn") else "")
+                       + (f"（{_md(a['layer'])}）" if a.get("layer") else ""))
         out.append("")
     return out
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .layers import layers
 from .objects import Name, PdfString, Ref, decode_text
 
 FF_READONLY = 1
@@ -42,16 +43,19 @@ class Widget:
     states: tuple = ()  # 見た目（/AP /N）にある「入」の状態の名前（Off を除く。チェック・ラジオ）
     drawn: bool = False  # とどくが値をページの描画に描いた欄（pagedraw）：欄そのものは隠してあるが、値はページに見える
     listed: bool = True  # ページの注釈の一覧（/Annots）に入っている部品か。/P でページが分かっても、一覧になければビューアーは描かない
+    layer: object = None  # 部品のレイヤー（/OC）の、既定の設定での見え方（layers.State）。レイヤーにない部品は None
 
     @property
     def on_screen(self) -> bool:
         """画面に出る部品か：ページにあり、隠す印（Hidden）も画面に出さない印（NoView）もない。"""
-        return self.drawn or (self.page >= 0 and self.listed and not self.flags & (ANNOT_HIDDEN | ANNOT_NOVIEW))
+        return self.drawn or (self.page >= 0 and self.listed and not self.flags & (ANNOT_HIDDEN | ANNOT_NOVIEW)
+                              and (self.layer is None or self.layer.view))
 
     @property
     def printed(self) -> bool:
         """紙に印刷される部品か：ページにあり、隠す印（Hidden）がなく、印刷する印（Print）がある（/F がなければ印刷されない）。"""
-        return self.drawn or (self.page >= 0 and self.listed and not self.flags & ANNOT_HIDDEN and bool(self.flags & ANNOT_PRINT))
+        return self.drawn or (self.page >= 0 and self.listed and not self.flags & ANNOT_HIDDEN and bool(self.flags & ANNOT_PRINT)
+                              and (self.layer is None or self.layer.print))
 
     def why_unseen(self) -> str:
         why = []
@@ -67,6 +71,8 @@ class Widget:
             why.append("画面に出さない印（/F の NoView）があります")
         if not self.flags & ANNOT_PRINT:
             why.append("印刷する印（/F の Print）がありません")
+        if self.layer is not None and not (self.layer.view and self.layer.print):
+            why.append(f"レイヤー「{self.layer.name}」にあります（既定の設定では{self.layer.how()}）")
         return "・".join(why)
 
 
@@ -288,7 +294,7 @@ def read_fields(doc) -> list[FormField]:
                                     (min(rect[0], rect[2]), min(rect[1], rect[3]), max(rect[0], rect[2]), max(rect[1], rect[3])),
                                     on, st.name if isinstance(st, Name) else None, bool(flags & 2),
                                     _txt(doc, mk.get("CA")) if isinstance(mk, dict) else "", flags, tuple(states),
-                                    _drawn(doc, wd), listed))
+                                    _drawn(doc, wd), listed, layers(doc).state(wd.get("OC"))))
         out.append(f)
 
     for r in doc.resolve(af.get("Fields")) or []:

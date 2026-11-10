@@ -116,9 +116,9 @@ def is_said_form(doc, st) -> bool:
     return n_tr == 1
 
 
-def page_ops(view, depth: int, circles: list[dict], items: list[Item], taken, first_mcid: int | None,
+def page_ops(view, depth: tuple[int, int], circles: list[dict], items: list[Item], taken, first_mcid: int | None,
              describe: bool = True, said=None) -> tuple[bytes, dict[str, Ref], list[dict]]:
-    """後ろに足すストリーム全部：閉じていない q を戻し、○と値を読む順に描く。書き込みと証明が同じものを作る。
+    """後ろに足すストリーム全部：閉じていない内容の印と q を戻し（depth は circle.open_depth の答え）、○と値を読む順に描く。書き込みと証明が同じものを作る。
     said(sd, 資源の名前) → ○の示す字のフォームの参照か None。describe=False：○を飾りのまま描く（署名のある文書）。
     返す：(命令, 足す /XObject, 番号をつけた範囲 [{id, mcid, rect, kind}])。"""
     from . import circle

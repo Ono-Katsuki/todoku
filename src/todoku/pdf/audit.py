@@ -216,7 +216,11 @@ def check_glyphs(doc: PdfDocument, win: dict) -> Check:
         tiny = _count(t for k, t in pg["_dropped"] if k == "size")
         merged = _count(t for k, t in pg["_dropped"] if k == "dup")
         try:
-            real = _count(ch for t, n in overprints(page_content(doc, page).glyphs).items() for ch in [t] * n)
+            # 画面に見えないレイヤーの字は、窓がレイヤーごとに分けて読む（重ね書きも、その中で 1 字にする）ので、同じ分け方で数え直す
+            pc = page_content(doc, page)
+            real = Counter()
+            for c in [pc] + [c for _st, c in pc.off]:
+                real += _count(ch for t, n in overprints(c.glyphs).items() for ch in [t] * n)
         except Exception as e:  # noqa: BLE001  数え直せないものは、窓の数を正しいとしない
             unsure.append(f"ページ {pg['number']}: 重ね書きを数え直せませんでした（{type(e).__name__}: {str(e)[:60]}）")
             continue

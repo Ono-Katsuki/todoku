@@ -115,49 +115,15 @@ class Renderer:
         self.approx: dict[str, int] = {}
         self.image_failed: list[str] = []
         self.image_notes: list[str] = []  # 画像の開き方の知らせ（JPEG 2000 の解像度など）
-        self._oc_off = self._oc_config()
+        from ..layers import layers
+
+        self.layers = layers(doc)
 
     # ------------------------------------------------------------------ 見える／見えない内容
-    def _oc_config(self) -> set:
-        doc = self.doc
-        try:
-            ocp = doc.resolve(doc.root.get("OCProperties"))
-        except Exception:  # noqa: BLE001
-            return set()
-        if not isinstance(ocp, dict):
-            return set()
-        d = doc.resolve(ocp.get("D")) or {}
-        off: set = set()
-        allg = [x for x in (doc.resolve(ocp.get("OCGs")) or [])]
-        key = lambda r: getattr(r, "num", id(r))  # noqa: E731
-        if getattr(doc.resolve(d.get("BaseState")), "name", "ON") == "OFF":
-            on = {key(x) for x in (doc.resolve(d.get("ON")) or [])}
-            off = {key(x) for x in allg if key(x) not in on}
-        for x in doc.resolve(d.get("OFF")) or []:
-            off.add(key(x))
-        return off
-
     def hidden(self, oc) -> bool:
-        """内容の印（OCG・OCMD）が、既定の設定で見えないか。"""
-        if oc is None or not self._oc_off:
-            return False
-        doc = self.doc
-        key = getattr(oc, "num", None)
-        d = doc.resolve(oc)
-        if not isinstance(d, dict):
-            return False
-        t = getattr(d.get("Type"), "name", "")
-        if t == "OCMD":
-            gs = d.get("OCGs")
-            gs = doc.resolve(gs)
-            lst = gs if isinstance(gs, list) else [d.get("OCGs")] if gs is not None else []
-            states = [getattr(g, "num", id(g)) not in self._oc_off for g in lst]
-            if not states:
-                return False
-            p = getattr(d.get("P"), "name", "AnyOn")
-            vis = {"AllOn": all(states), "AnyOn": any(states), "AnyOff": not all(states), "AllOff": not any(states)}.get(p, any(states))
-            return not vis
-        return key in self._oc_off
+        """内容の印（OCG・OCMD）が、既定の設定で画面に見えないか。読む側（content.py）と同じ決まり（pdf/layers.py）。"""
+        st = self.layers.state(oc)
+        return st is not None and not st.view
 
     # ------------------------------------------------------------------
     def note(self, what: str) -> None:
