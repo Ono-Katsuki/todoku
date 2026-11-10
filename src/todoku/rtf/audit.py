@@ -11,6 +11,7 @@ import codecs
 import re
 from collections import Counter
 
+from .. import symfont
 from ..docx.audit import _sample, anchored_check, macro_check
 from ..docx.fill import FillError
 from ..xlsx.audit import AUDIT_BOXES, Audit, Check, agent_places_check, count_chars
@@ -35,12 +36,31 @@ def independent_text(blob: bytes) -> Counter:
     except LookupError:
         ansi = "cp1252"
     fonts = {}
+    names = {}  # 記号の書体（\\fcharset2 か、対応表のある名前の書体）→ 名前
     for fm in re.finditer(rb"\{\\f(\d+)", blob[:400_000]):
-        seg = blob[fm.end():fm.end() + 300]
-        stop = min([x for x in (seg.find(b";"), seg.find(b"}")) if x >= 0] or [len(seg)])
-        cm = re.search(rb"\\fcharset(\d+)", seg[:stop])
+        seg = blob[fm.end():fm.end() + 400]
+        flat = bytearray()  # 書体の定義の、入れ子のグループ（\\*\\panose など）を除いた字句
+        deep = 0
+        for x in seg:
+            if x == 0x7B:
+                deep += 1
+            elif x == 0x7D:
+                if deep == 0:
+                    break
+                deep -= 1
+            elif deep == 0:
+                if x == 0x3B:
+                    break
+                flat.append(x)
+        cm = re.search(rb"\\fcharset(\d+)", flat)
+        if int(fm[1]) in fonts or int(fm[1]) in names:
+            continue
+        name = re.sub(rb"\\[a-zA-Z]+-?\d* ?|[\r\n]", b"", bytes(flat)).decode("latin-1").strip()
         if cm:
-            fonts.setdefault(int(fm[1]), int(cm[1]))
+            fonts[int(fm[1])] = int(cm[1])
+        if (cm and int(cm[1]) == 2) or symfont.known(name):
+            names[int(fm[1])] = name
+    symbols = frozenset(symfont.key(names[f]) for f, cs in fonts.items() if cs == 2 and f in names)
     deff = re.search(rb"\\deff(\d+)", head)
     out = Counter()
     stack = []
@@ -51,18 +71,22 @@ def independent_text(blob: bytes) -> Counter:
     cp_buf = ansi
 
     def cp_of(f):
+        if f in names:
+            return "symbol:" + names[f]
         cs = fonts.get(f)
         if cs is None or cs == 1:
             return ansi
-        if cs == 2:
-            return "symbol"
         return CHARSET_CP.get(cs, ansi)
+
+    def as_sym(text):
+        """記号の書体で書いた ASCII の字・\\uN の字：書体の対応表で読む（窓の読み方と同じ決まり。symfont）。"""
+        return symfont.text(text, names[font], None, symbols) if font in names else text
 
     def flush():
         nonlocal buf
         if buf and not hide:
-            if cp_buf == "symbol":
-                text = "◆" * len(buf)
+            if cp_buf.startswith("symbol:"):
+                text = "".join(symfont.decode(cp_buf[7:], 0xF000 + v, symbols) if v >= 0x20 else chr(v) for v in buf)
             else:
                 text = bytes(buf).decode(cp_buf, "replace")
             for ch in text:
@@ -112,7 +136,7 @@ def independent_text(blob: bytes) -> Counter:
                 continue
             first = False
             if s in "\\{}" and not hide:
-                out[s] += 1
+                out[as_sym(s)] += 1
             elif s == "_" and not hide:
                 out["‑"] += 1
             continue
@@ -132,7 +156,7 @@ def independent_text(blob: bytes) -> Counter:
                     ch = chr(0x10000 + ((high - 0xD800) << 10) + (n - 0xDC00)) if high else None
                     high = 0
                 elif 0 <= n <= 0x10FFFF:  # 壊れて大きな数は字にしない（窓の読み方と同じ）
-                    ch = chr(n)
+                    ch = as_sym(chr(n))
                 if ch is not None and not hide and not ch.isspace() and ch not in BOXES:
                     out[ch] += 1
                 skip = uc
@@ -154,7 +178,7 @@ def independent_text(blob: bytes) -> Counter:
                 flush()
                 continue
             if not hide:
-                for ch in text.decode("latin-1"):
+                for ch in as_sym(text.decode("latin-1")):
                     if not ch.isspace() and ch not in BOXES:
                         out[ch] += 1
     flush()

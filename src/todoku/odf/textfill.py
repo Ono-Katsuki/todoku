@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ..docx.fill import FillError, _as_bool, _is_text_value, inline_padding, tab_note, written_of  # 証明に渡す、書いた所 → 値（Word と同じ）
+from ..docx.fill import SYMBOL_FONT, FillError, _as_bool, _is_text_value, inline_padding, tab_note, written_of  # 証明に渡す、書いた所 → 値（Word と同じ）
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from .text import MARK_PREFIX, OdtDocument, Src
 from .xml import NS, esc_attr, esc_text, set_attr, top
@@ -68,6 +68,8 @@ LOOK_RESET = {"strike": (("style:text-line-through-style", "none"), ("style:text
               "color": (("style:use-window-font-color", "true"),),
               "bg": (("fo:background-color", "transparent"),)}
 STYLE_PREFIX = "todoku_w"
+# 記号の書体を打ち消すときに、足す自動スタイルに写す、書体の属性（記号の書体の外側で効いていた、記号でない書体のもの）
+FONT_ATTRS = ("style:font-name", "fo:font-family")
 
 
 def _style_props(el) -> dict:
@@ -108,6 +110,39 @@ def looks(doc: OdtDocument, part: str, el) -> dict:
             break
         node = node.parent
     return got
+
+
+def font_reset(doc: OdtDocument, part: str, el) -> tuple[str, tuple] | None:
+    """el（字を囲む要素）の字の書体が記号の書体のとき：(その名前, 外側で効いていた、記号でない書体の属性（FONT_ATTRS → 値）)。
+    記号の書体を引き継ぐと、書いた字が、その書体の別の字（絵・ギリシア文字）になる。記号の書体でない・書体を決めていない・
+    外側に記号でない書体がない（打ち消せない）ときは None。"""
+    from .text import INLINE
+
+    tpq = "{" + NS["style"] + "}text-properties"
+    found: list[tuple[str, object]] = []  # 近い順に、(書体が記号の書体ならその名前・そうでなければ "", 字の書式)
+    node = el
+    while node is not None and getattr(node, "tag", None):
+        para = node.local in ("p", "h") and node.tag.startswith("{" + NS["text"] + "}")
+        fam = "paragraph" if para else ("text" if node.tag in INLINE else None)
+        st = node.get("text:style-name") if fam else None
+        els = list(doc.styles.chain(part, fam, st)) if st else []
+        if para and doc.styles.defaults.get("paragraph") is not None:
+            els.append(doc.styles.defaults["paragraph"])
+        for sel in els:
+            for pe in sel.kids:
+                if getattr(pe, "tag", None) == tpq:
+                    face = doc.styles.face(pe)
+                    if face is not None:
+                        found.append((face, pe))
+        if para:
+            break
+        node = node.parent
+    if not found or not found[0][0]:
+        return None
+    plain = next((pe for face, pe in found if face == ""), None)
+    if plain is None:
+        return None
+    return found[0][0], tuple((qn, plain.get(qn)) for qn in FONT_ATTRS if plain.get(qn) is not None)
 
 
 def bad_looks(lk: dict) -> list[str]:
@@ -182,23 +217,27 @@ class OdtWriter:
         self.edits.setdefault(part, []).append((s, e, b))
 
     def clean(self, part: str, el, body: bytes, fid: str) -> bytes:
-        """書く所（el の中）の字の書式に、取り消し線・非表示・字の色・背景の色があれば、それを打ち消す自動スタイルの
-        text:span で値を囲む（字の大きさ・書体は、囲む span のまま）。打ち消した書式は警告で伝える。"""
+        """書く所（el の中）の字の書式に、取り消し線・非表示・字の色・背景の色・記号の書体があれば、それを打ち消す自動スタイルの
+        text:span で値を囲む（字の大きさは、囲む span のまま。書体は、記号の書体のときだけ、その外側で効いていた書体に戻す）。
+        打ち消した書式は警告で伝える。戻す書体のない記号の書体は、そのまま（読み戻しで、書いた字と違えば断る）。"""
         if el is None or not body:
             return body
         bad = bad_looks(looks(self.doc, part, el))
-        if not bad:
+        font = font_reset(self.doc, part, el)
+        if not bad and font is None:
             return body
-        name = self.reset_style(part, tuple(bad))
+        name = self.reset_style(part, tuple(bad), font[1] if font else ())
         tp = self.tp(part)
-        self.warnings.append(f"{fid}: 書く所に残っていた書式（{'・'.join(LOOK_NAMES[x] for x in bad)}）は、書いた字に引き継がず、"
-                             "打ち消す書式で書きました（字の大きさ・書体はそのまま）")
+        names = [LOOK_NAMES[x] for x in bad] + ([f"{SYMBOL_FONT}（{font[0]}）"] if font else [])
+        kept = "字の大きさ・書体はそのまま" if font is None else "字の大きさはそのまま。書体は、記号の書体の外側の書体"
+        self.warnings.append(f"{fid}: 書く所に残っていた書式（{'・'.join(names)}）は、書いた字に引き継がず、"
+                             f"打ち消す書式で書きました（{kept}）")
         return f'<{tp}:span {tp}:style-name="{esc_attr(name)}">'.encode() + body + f"</{tp}:span>".encode()
 
-    def reset_style(self, part: str, bad: tuple) -> str:
-        """打ち消す書式の自動スタイル（office:automatic-styles の終わりに足す）の名前。"""
-        if (part, bad) in self.reset:
-            return self.reset[(part, bad)]
+    def reset_style(self, part: str, bad: tuple, font: tuple = ()) -> str:
+        """打ち消す書式（bad）と、戻す書体（font：属性 → 値）の自動スタイル（office:automatic-styles の終わりに足す）の名前。"""
+        if (part, bad, font) in self.reset:
+            return self.reset[(part, bad, font)]
         doc_el = top(self.doc.pkg.tree(part))
         auto = doc_el.find("office:automatic-styles")
         if auto is None or auto.se == auto.e:
@@ -211,18 +250,17 @@ class OdtWriter:
         sp = doc_el.prefix_of(NS["style"]) or "style"
         decl = {}
         attrs = []
-        for x in bad:
-            for qn, v in LOOK_RESET[x]:
-                pre, local = qn.split(":")
-                have = doc_el.prefix_of(NS[pre])
-                if have is None:
-                    decl[pre] = f' xmlns:{pre}="{NS[pre]}"'
-                    have = pre
-                attrs.append(f'{have}:{local}="{v}"')
+        for qn, v in [pair for x in bad for pair in LOOK_RESET[x]] + list(font):
+            pre, local = qn.split(":")
+            have = doc_el.prefix_of(NS[pre])
+            if have is None:
+                decl[pre] = f' xmlns:{pre}="{NS[pre]}"'
+                have = pre
+            attrs.append(f'{have}:{local}="{esc_attr(v)}"')
         el = (f'<{sp}:style {sp}:name="{name}" {sp}:family="text"><{sp}:text-properties{"".join(decl.values())} '
               + " ".join(attrs) + f"/></{sp}:style>").encode()
         self.styles_added.setdefault(part, (auto.es, []))[1].append(el)  # 部品ごとに、まとめて1か所に足す（build）
-        self.reset[(part, bad)] = name
+        self.reset[(part, bad, font)] = name
         return name
 
     def bookmark(self, part: str, fid: str) -> tuple[bytes, bytes]:

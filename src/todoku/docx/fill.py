@@ -16,8 +16,9 @@ import datetime as dt
 import re
 from dataclasses import dataclass, field
 
-from .document import WINGDINGS, DocxDocument, Para, form_field_notes, form_field_refusal
-from .window import CHECKED, MARK_PREFIX, Spots, box_mark
+from .. import symfont
+from .document import DocxDocument, Para, form_field_notes, form_field_refusal
+from .window import BOX, CHECKED, MARK_PREFIX, Spots, box_mark
 from .xmlpos import Node, escape, prefix_of
 
 
@@ -72,12 +73,39 @@ def _rpr_on(name: str, attrs: bytes) -> bool:
     return False
 
 
-def clean_rpr(rpr: bytes) -> tuple[bytes, list[str]]:
-    """書いた字に付ける書式（rPr のバイト列）：_DROP_RPR の、見た目を変える値の要素を除いたものと、除いた書式の名前。
+SYMBOL_FONT = "記号の書体"
+_RFONTS = re.compile(rb"<(?:[\w.-]+:)?rFonts\b([^>]*?)(/>|>\s*</(?:[\w.-]+:)?rFonts>)")
+_FONT_ATTR = re.compile(rb'\s(?:[\w.-]+:)?(?:ascii|hAnsi)="([^"]*)"')
+
+
+def kept_note(names: list[str]) -> str:
+    """引き継がなかった書式の知らせに添える、そのまま残したもの（記号の書体を外したときは、書体は残していない）。"""
+    return "字の大きさはそのまま。書体は、記号の書体を外しました" if any(n.startswith(SYMBOL_FONT) for n in names) else "字の大きさ・書体はそのまま"
+
+
+def clean_rpr(rpr: bytes, symbols=()) -> tuple[bytes, list[str]]:
+    """書いた字に付ける書式（rPr のバイト列）：_DROP_RPR の、見た目を変える値の要素と、記号の書体（w:rFonts の ascii・hAnsi。
+    symbols は、文書が記号の書体と宣言した書体）を除いたものと、除いた書式の名前。記号の書体を引き継ぐと、書いた字が、
+    その書体の別の字（絵・ギリシア文字）になる。
     子の要素のなくなった rPr は b""（段落・スタイルの既定の書式）。証明（docx/proof.py）も同じ関数で、認める書式を作る。"""
     if not rpr:
         return rpr, []
     names: list[str] = []
+
+    def font(m: re.Match) -> bytes:
+        from xml.sax.saxutils import unescape
+
+        name = unescape(m[1].decode("utf-8", "replace"), {"&quot;": '"', "&apos;": "'"})
+        if not symfont.is_symbol(name, symbols):
+            return m[0]
+        names.append(f"{SYMBOL_FONT}（{name}）")
+        return b""
+
+    def fonts(m: re.Match) -> bytes:
+        attrs = _FONT_ATTR.sub(font, m[1])
+        return m[0] if attrs == m[1] else b"" if not attrs.strip() else m[0][:m.start(1) - m.start()] + attrs + b"/>"
+
+    rpr = _RFONTS.sub(fonts, rpr)
 
     def drop(m: re.Match) -> bytes:
         name = m[1].decode()
@@ -259,6 +287,7 @@ class Filler:
         # （Word はこれらの番号を同じ数の並びとして扱い、重なると開くときに修復を求めることがある）
         self.next_bm = 1 + max([int(m) for part in doc.parts for m in _ANNOT_ID.findall(doc.xml(part))] + [0])
         self.run_ops: dict[tuple[str, int], tuple[Node, list]] = {}
+        self.sym_seen: dict[int, tuple[str, str]] = {}  # 書く所の記号の字（w:sym）：(いまの字, 書体)
         self.bm_ids: dict[int, str] = {}
         self.bound: dict[tuple[str, int, int], tuple[str, str, object]] = {}  # 結び付けた XML の値の所 → (欄, 書く値, 所)
         self._perm_ranges()
@@ -363,6 +392,8 @@ class Filler:
         bm = self.bookmark(item["id"])
         for n, i in enumerate(segs_idx):
             sg = p.segs[i]
+            if sg.kind == "sym":  # 記号の字：いまの字と、その書体（チェックの印は、同じ書体の番号で書く）
+                self.sym_seen[id(sg.node)] = (sg.text, self.doc.sym_font(p, pos.index((i, 0))))
             ks = [off for k in range(a, b) for si, off in [pos[k]] if si == i]
             k0, k1 = min(ks), max(ks) + 1
             self.run_ops.setdefault((part, sg.run.s), (sg.run, []))[1].append(
@@ -398,7 +429,7 @@ class Filler:
                 self.revision_split = getattr(self, "revision_split", []) + [(who, split[2])]
             rpr = run.find("rPr")
             rpr_b = xml[rpr.s:rpr.e] if rpr is not None else b""
-            rpr_v, dropped = clean_rpr(rpr_b)  # 書いた値の字の書式（取り消し線・字の色などは引き継がない）
+            rpr_v, dropped = clean_rpr(rpr_b, self.doc.symbol_fonts)  # 書いた値の字の書式（取り消し線・字の色などは引き継がない）
             r_open = xml[run.s:run.se] if run.se != run.e else f"<{pre}:r>".encode()
             r_close = f"</{pre}:r>".encode()
             out = bytearray()
@@ -434,17 +465,21 @@ class Filler:
                 if kid.local == "sym":
                     k0, k1, value, bm, _pad = todo[0]
                     sym = xml[kid.s:kid.e]
-                    if value in ("■", "☑", "☒"):
-                        sym = re.sub(rb'(char=")[0-9A-Fa-f]+(")', rb"\g<1>F0FE\g<2>", sym)
-                    elif value in ("□", "☐"):
-                        # チェックを外す：Wingdings などの記号の字（私用の領域）は Wingdings の空の箱、ふつうの字はその字に
+                    was, font = self.sym_seen.get(id(kid), ("", ""))
+                    if (value in CHECKED and was not in CHECKED) or (value in BOX and was in CHECKED):
+                        # チェックを入れる・外す：同じ書体の、印のついた箱・印のない箱の番号にする（記号の書体は、書体ごとに番号が違う）。
+                        # 記号の書体でない w:sym（ふつうの字の番号）は、その字の番号
+                        codes = symfont.box_codes(font)
                         m_ = re.search(rb'char="([0-9A-Fa-f]+)"', sym)
                         code = int(m_[1], 16) if m_ else 0
-                        pua = code >= 0xE000 or code < 0x100
-                        was = WINGDINGS.get(code if code >= 0xF000 else code + 0xF000) if pua else chr(code)
-                        if was in CHECKED:  # 印のない箱のチェックを外す（変えない）ときは、元の字のまま
-                            to = b"F0A8" if pua else f"{ord(value):04X}".encode()
-                            sym = re.sub(rb'(char=")[0-9A-Fa-f]+(")', rb"\g<1>" + to + rb"\g<2>", sym)
+                        if codes is not None:
+                            to = f"F0{codes[0 if value in CHECKED else 1]:02X}"
+                        elif not symfont.known(font) and 0x100 <= code < 0xE000 and len(value) == 1 and ord(value) < 0x10000:
+                            to = f"{ord(value):04X}"
+                        else:
+                            raise FillError(f"記号の書体（{font or '不明'}）の字「{was}」に、チェックの印を書けません"
+                                            "（この書体の、印のついた箱・印のない箱の字の番号が決められません）")
+                        sym = re.sub(rb'(char=")[0-9A-Fa-f]+(")', rb"\g<1>" + to.encode() + rb"\g<2>", sym)
                     flush()
                     out.extend((split[0] if split else b"") + (bm[0] if bm else b"") + r_open + rpr_b + sym + r_close
                                + (bm[1] if bm else b"") + (split[1]() if split else b""))
@@ -480,7 +515,7 @@ class Filler:
         if PART not in self.doc.parts:
             raise FillError(f"{item['id']}: 段落番号の定義（{PART}）がありません")
         try:
-            checked_lvl(self.doc.xml(PART), level_of(self.doc.xml(PART), bl["num"], bl["ilvl"])[1])
+            checked_lvl(self.doc.xml(PART), level_of(self.doc.xml(PART), bl["num"], bl["ilvl"])[1], self.doc.symbol_fonts)
         except BulletError as e:
             raise FillError(f"{item['id']}: {e}") from None
         self.bullets = getattr(self, "bullets", [])
@@ -496,7 +531,7 @@ class Filler:
         xml = self.doc.xml(PART)
         ed = self.ed(PART)
         ids = next_ids(xml, len(items))
-        body = b"".join(new_num(xml, ed.pre, it["bullet"]["num"], it["bullet"]["ilvl"], nid) for it, nid in zip(items, ids))
+        body = b"".join(new_num(xml, ed.pre, it["bullet"]["num"], it["bullet"]["ilvl"], nid, self.doc.symbol_fonts) for it, nid in zip(items, ids))
         at = insert_at(xml)
         ed.put(at, at, body)
         for it, nid in zip(items, ids):
@@ -535,7 +570,7 @@ class Filler:
         """引き継がなかった書式を、警告で伝える（書いた字の書式を、黙って決めない）。"""
         shown = "・".join(str(i) for i in ids if i) or "書いた所"
         self.warnings.append(f"{shown}: 書く所に残っていた書式（{'・'.join(names)}）は、書いた字に引き継がず、"
-                             "段落・スタイルの既定の書式（字の大きさ・書体はそのまま）で書きました")
+                             f"段落・スタイルの既定の書式（{kept_note(names)}）で書きました")
 
     # ------------------------------------------------------------------ 表の空のマス
     def fill_cell(self, item: dict, value: str) -> None:
@@ -553,7 +588,7 @@ class Filler:
             if mark is not None:
                 inner = b"".join(xml[x.s:x.e] for x in mark.kids if x.local not in ("ins", "del", "moveFrom", "moveTo"))
                 rpr_b = f"<{pre}:rPr>".encode() + inner + f"</{pre}:rPr>".encode() if inner else b""
-        rpr_b, dropped = clean_rpr(rpr_b)  # 空のマスに残った取り消し線・字の色などは引き継がない
+        rpr_b, dropped = clean_rpr(rpr_b, self.doc.symbol_fonts)  # 空のマスに残った取り消し線・字の色などは引き継がない
         if dropped:
             self.note_dropped([item["id"]], dropped)
         start_bm, end_bm = self.bookmark(item["id"])
@@ -579,7 +614,7 @@ class Filler:
         src = after_run if style_run is None else style_run
         rpr = src.find("rPr") if src is not False else None
         rpr_b = xml[rpr.s:rpr.e] if rpr is not None else b""
-        rpr_b, dropped = clean_rpr(rpr_b)
+        rpr_b, dropped = clean_rpr(rpr_b, self.doc.symbol_fonts)
         at = after_run.e
         wraps = revision_wrappers(after_run)
         if wraps:
@@ -1207,7 +1242,7 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
                 p = item["para"]
                 a, b = item["span"]
                 orig = p.text[a:b]
-                mark = box_mark(orig, on)
+                mark = box_mark(orig, on, f.doc.sym_font(p, a))
                 f.replace_span(item, p, a, b, mark)
                 f.patches.append(Patch(key, "control", on, p.part))
             elif kind == "inline":

@@ -16,7 +16,8 @@ import struct
 from dataclasses import dataclass, field
 
 from ..cfb import CFB
-from ..docx.document import TEXT_TYPES, WINGDINGS, Cell, Control, Para, Seg, Table, _is_form_instr, _mark_result
+from .. import symfont
+from ..docx.document import TEXT_TYPES, Cell, Control, Para, Seg, Table, _is_form_instr, _mark_result
 
 FC_NAMES = ["StshfOrig", "Stshf", "PlcffndRef", "PlcffndTxt", "PlcfandRef", "PlcfandTxt", "PlcfSed", "PlcPad", "PlcfPhe",
             "SttbfGlsy", "PlcfGlsy", "PlcfHdd", "PlcfBteChpx", "PlcfBtePapx", "PlcfSea", "SttbfFfn", "PlcfFldMom",
@@ -423,7 +424,8 @@ class DocFile:
             return out
         if not lfos:
             return out
-        n = Numberer(lists, lfos)
+        n = Numberer(lists, lfos, lambda ftc: (tuple(self.font_name(f) or "" if f is not None else None for f in ftc),
+                                              self._declared(ftc)))
         starts = sorted(self.__dict__.get("papx_istd", {}))
         for m in re.finditer("[\r\x07]", self.text):
             cp = m.start()
@@ -541,6 +543,121 @@ class DocFile:
             elif sp == 0x0806:
                 d["data"] = bool(op[0]) if op else False
         return d
+
+    # ------------------------------------------------------------------ 書体の表・記号の書体
+    def font_table(self) -> list[tuple[str, int]]:
+        """書体の表（SttbfFfn。MS-DOC 2.9.286・2.9.83 FFN）：ftc の番号 → (名前, 文字セット chs)。読めなければ空。
+        FFN：長さ（1 バイト。その後ろのバイト数）・印 1・太さ 2・chs 1・別名の位置 1・PANOSE 10・FONTSIGNATURE 24・名前（UTF-16）。"""
+        got = self.__dict__.get("_ffn")
+        if got is not None:
+            return got
+        out: list[tuple[str, int]] = []
+        self.__dict__["_ffn"] = out
+        fc, lcb = self.fc.get("SttbfFfn", (0, 0))
+        t = self.table
+        if lcb < 4 or fc + lcb > len(t):
+            return out
+        n = struct.unpack_from("<H", t, fc)[0]
+        if n == 0xFFFF:
+            return out  # 形の違う表（確かめていない）：書体の名前を決めない
+        p, end = fc + 4, fc + lcb
+        for _ in range(n):
+            if p >= end or t[p] < 39 or p + 1 + t[p] > end:
+                break
+            cb = t[p]
+            name = t[p + 40:p + 1 + cb - (cb + 1 - 40) % 2].decode("utf-16-le", "replace").split("\0")[0]
+            out.append((name, t[p + 4]))
+            p += 1 + cb
+        return out
+
+    def font_name(self, ftc: int) -> str | None:
+        """書体の番号（ftc）の名前。書体の表にない番号は None。"""
+        ft = self.font_table()
+        return ft[ftc][0] if 0 <= ftc < len(ft) else None
+
+    def _declared(self, ftcs) -> frozenset:
+        """書体の番号 ftcs のうち、書体の表が「記号の書体」（chs が 2：SYMBOL_CHARSET）と宣言した書体の名前（symfont.key の形）。
+        宣言は書体の番号ごとに見る：同じ名前の書体に、記号の書体の宣言と、そうでない宣言の 2 つがあることがある。"""
+        ft = self.font_table()
+        return frozenset(symfont.key(ft[f][0]) for f in ftcs if f is not None and 0 <= f < len(ft) and ft[f][1] == 2)
+
+    def symbol_char(self, ftc: int, code: int) -> str:
+        """記号の字（sprmCSymbol：書体 ftc の番号 code）の字。書体の対応表で読む（symfont）。対応表のない記号の書体・
+        書体の表にない番号の書体の字は、私用の領域の字（U+F0xx。外字として伝える）。"""
+        name = self.font_name(ftc)
+        if name is None:
+            return chr(0xF000 + code) if code <= 0xFF else chr(code)
+        return symfont.decode(name, code, self._declared((ftc,))) or chr(0xF000 + (code & 0xFF))
+
+    def _style_fonts(self, istd, seen: int = 0) -> tuple:
+        """スタイル（基のスタイルも）の字の書式の書体の番号 (sprmCRgFtc0：ASCII の字, sprmCRgFtc2：そのほかの字)。決めていなければ None。"""
+        memo = self.__dict__.setdefault("_style_fonts_memo", {})
+        if istd in memo:
+            return memo[istd]
+        from .wrap import _styles
+
+        st = _styles(self)
+        if istd not in st or seen > 20:
+            return (None, None)
+        base, _papx, chpx = st[istd]
+        got = list((None, None) if base == 0x0FFF or base == istd else self._style_fonts(base, seen + 1))
+        for sp, op in sprms(chpx or b""):
+            if sp in (0x4A4F, 0x4A51) and len(op) >= 2:
+                got[0 if sp == 0x4A4F else 1] = struct.unpack_from("<H", op, 0)[0]
+        memo[istd] = got = tuple(got)
+        return got
+
+    def char_fonts(self, cp: int) -> tuple | None:
+        """位置 cp の字の書体が記号の書体なら (ASCII の字の書体の名前, そのほかの字の書体の名前, 記号の書体と宣言した名前)。
+        どちらも記号の書体でなければ None。書体は、段落のスタイル → 字のスタイル（sprmCIstd）→ 字の書式の順で決める
+        （文書の既定の書体は見ていない）。記号の書体の宣言（chs が 2）は、書体の番号ごとに見る：同じ名前の書体に、
+        記号の書体の宣言と、そうでない宣言の 2 つがあることがある。"""
+        fc = self.fc_of(cp)
+        return self._fonts_at(fc, self._lookup(self.chpx, fc))
+
+    def _fonts_at(self, fc: int, grp: bytes) -> tuple | None:
+        starts = self.__dict__.get("_papx_starts")
+        if starts is None:
+            starts = self.__dict__["_papx_starts"] = sorted(self.__dict__.get("papx_istd", {}))
+        i = bisect.bisect_right(starts, fc) - 1
+        istd = self.__dict__.get("papx_istd", {}).get(starts[i]) if i >= 0 else 0
+        kept = self.__dict__.setdefault("_char_fonts", {})
+        got = kept.get((grp, istd))
+        if got is None:
+            ftc = list(self._style_fonts(istd))
+            for sp, op in sprms(grp):
+                if sp == 0x4A30 and len(op) >= 2:
+                    ftc = [b if b is not None else a for a, b in zip(ftc, self._style_fonts(struct.unpack_from("<H", op, 0)[0]))]
+                elif sp in (0x4A4F, 0x4A51) and len(op) >= 2:
+                    ftc[0 if sp == 0x4A4F else 1] = struct.unpack_from("<H", op, 0)[0]
+            names = [self.font_name(f) if f is not None else None for f in ftc]
+            declared = self._declared(ftc)
+            if any(symfont.is_symbol(n, declared) for n in names):
+                got = (names[0], names[1], declared)
+            else:
+                got = False
+            kept[(grp, istd)] = got
+        return got or None
+
+    def text_char(self, cp: int, ch: str) -> str:
+        """本文の字のうち、記号の書体で書いた字（U+0021〜U+00FF と、私用の領域の U+F020〜U+F0FF：Word は、記号の書体で
+        書いた字を私用の領域の番号で持つ）を、書体の対応表で読む（symfont）。記号の書体でない書体の字は、そのまま。
+        対応表のない記号の書体の字は、私用の領域の字（外字として伝える）。"""
+        if getattr(self, "word6", False) or not self.uses_symbol_fonts:
+            return ch
+        try:
+            f = self.char_fonts(cp)
+        except (struct.error, IndexError, KeyError):
+            return ch
+        return symfont.text(ch, f[0], f[1], f[2]) if f else ch
+
+    @property
+    def uses_symbol_fonts(self) -> bool:
+        """書体の表に、記号の書体（対応表のある書体か、記号の書体と宣言した書体）があるか。なければ、字ごとに書体を引かない。"""
+        got = self.__dict__.get("_uses_symbol_fonts")
+        if got is None:
+            got = self.__dict__["_uses_symbol_fonts"] = any(chs == 2 or symfont.known(n) for n, chs in self.font_table())
+        return got
 
     def _style_look(self, istd, seen: int = 0) -> tuple:
         """スタイル（基のスタイルも）の字の書式の、取り消し線と字の色。"""
@@ -882,12 +999,12 @@ class DocFile:
             elif o in (0x02, 0x05) and props["spec"]:
                 p.segs.append(Seg("※", "note", CPRef(cp), None, hidden))
             elif o == 0x28 and props["symbol"] and props["spec"]:
-                code = props["symbol"][1]
-                code2 = code + 0xF000 if code < 0xF000 else code
-                p.segs.append(Seg(WINGDINGS.get(code2, "◆"), "sym", CPRef(cp), None, hidden, props["underline"], look=props.get("look")))
+                p.segs.append(Seg(self.symbol_char(*props["symbol"]), "sym", CPRef(cp), None, hidden, props["underline"], look=props.get("look")))
             elif o < 0x20 and o not in (0x09,):
                 pass
             else:
+                if 0x20 < o <= 0xFF or 0xF020 <= o <= 0xF0FF:
+                    ch = self.text_char(cp, ch)  # 記号の書体で書いた字
                 # 同じ書式の字はまとめる
                 if p.segs and p.segs[-1].kind == "t" and p.segs[-1].hidden == hidden and \
                         p.segs[-1].underline == props["underline"] and p.segs[-1].node.s + len(p.segs[-1].text) == cp \

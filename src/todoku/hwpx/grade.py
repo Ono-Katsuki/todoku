@@ -27,7 +27,7 @@ def grade(k: str, blob: bytes, name: str, textdoc):
             extra.append(Reason("C", "한글のマクロ", f"文書のマクロ（JScript）{len(doc.scripts)} 個は、規則では再現しません。"
                                 "文書を開く・閉じるときに動く処理が要るかは、エージェントがソースを読んで判断します",
                                 [n for n, _s in doc.scripts]))
-        g = textdoc(win, "한글の文書", "누름틀・フォームの部品", extra)
+        g = textdoc(win, "한글の文書", "누름틀・フォームの部品", extra, doc)
         if doc.scripts:
             g.write_reasons.append(Reason("C", "한글のマクロ", "文書のマクロ（JScript）が動いて欄を書き換えるかは、規則では分かりません。"
                                           "要る処理なら、本人に한글で開いて動かしてもらいます", [n for n, _s in doc.scripts]))
@@ -46,7 +46,7 @@ def grade(k: str, blob: bytes, name: str, textdoc):
     if doc.numbered:
         extra.append(Reason("B", "段落の番号", f"番号・箇条書きの段落 {doc.numbered} 個の番号の字（문단 번호・개요 번호）は、HWP 5 では窓に"
                             "出していません。番号を読むときは、HWPX で保存し直した文書を読みます"))
-    g = textdoc(win, "한글の文書（HWP 5）", "누름틀・フォームの部品", extra)
+    g = textdoc(win, "한글の文書（HWP 5）", "누름틀・フォームの部品", extra, doc)
     g.write_reasons = [Reason("D", "HWP 5 には書けない", "HWP 5（.hwp）には書けません。HWPX で保存し直せば書ける"
                               "（한글の「다른 이름으로 저장」で .hwpx を選ぶ）")]
     g.write = "D"

@@ -790,6 +790,7 @@ def word_pua_reasons(doc) -> list[Reason]:
     from .docx.document import iter_paras
 
     where = []
+    marks: dict[str, list[int]] = {}  # 段落の印（箇条書きの印・番号の字）の外字 → 段落の番号
     try:
         blocks = [b for _k, _part, bl in doc.all_blocks() for b in bl]
     except Exception:  # noqa: BLE001
@@ -798,6 +799,12 @@ def word_pua_reasons(doc) -> list[Reason]:
         t = "".join(s.text for s in p.segs if not s.hidden)
         if any(is_pua(ch) for ch in t):
             where.append(f"{n} 段落目「{pua_context(t)}」")
+        label = getattr(p, "label", "") or ""
+        if any(is_pua(ch) for ch in label):
+            marks.setdefault(label, []).append(n)
+    for label, ns in marks.items():  # 対応表のない記号の書体の印（同じ印は 1 つにまとめる）
+        shown = "".join(f"〔U+{ord(ch):04X}〕" if is_pua(ch) else ch for ch in label)
+        where.append(f"段落の印「{shown}」：{len(ns)} 段落（{ns[0]} 段落目から）")
     return pua_reasons(where)
 
 
@@ -1294,6 +1301,7 @@ def _grade_word6(doc, win: dict | None = None) -> Grade:
                               f"チェックボックス・ドロップダウンのフォームの欄 {unread} か所は、Word 6.0/95 の欄のデータの形が仕様書にないので、"
                               "状態（チェックの有無・選んだ項目）を読んでいません"))
     reasons += _macro_reasons(win.get("macros"))
+    reasons += word_pua_reasons(doc)
     ok = [f for f in fields if not f.get("readonly")]
     blocked = [f for f in fields if f.get("readonly")]
     if ok or agent:
@@ -1358,4 +1366,5 @@ def _grade_jtd(blob: bytes, filename: str) -> Grade:
     if not (ok or agent or blocked):
         write.append(Reason("B", "印のある欄がない", "欄のない所は、前後の字を目印にして書きます"
                             + ("（本文は字数が違ってもよい）" if pol.ok else "（同じ字数で上書き）")))
+    reasons += word_pua_reasons(doc)
     return _final(reasons, write)

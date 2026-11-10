@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .. import symfont
 from ..docx.document import Cell, Control, Para, Seg, Table, iter_paras, number_text
 from ..limits import MAX_DECLARED_CELLS
 from .package import OdfError, OdfPackage, text_of
@@ -130,6 +131,7 @@ class _Ctx:
     field: Control | None = None
     run: El | None = None
     look: tuple | None = None  # 字の書式の事実（取り消し線か, 字の色 "RRGGBB" か None）：docx/fontfacts.py
+    font: str | None = None  # 記号の書体で書いた字の、書体の名前（記号の書体でなければ None）：字を書体の対応表で読む（symfont）
 
 
 class OdtDocument:
@@ -402,7 +404,13 @@ class OdtDocument:
         if lv is None:
             return ""
         if lv.local == "list-level-style-bullet":
-            return lv.get("text:bullet-char", "・") or "・"
+            # 印の字の書体：段の字の書式（style:text-properties）か、印の字のスタイル（text:style-name）。記号の書体の印は対応表で読む
+            tp = lv.find("style:text-properties")
+            f = self.styles.face(tp) if tp is not None else None
+            if f is None:
+                f = self.styles.symbol_font(part, "text", lv.get("text:style-name"))
+            ch = lv.get("text:bullet-char", "・") or "・"
+            return symfont.text(ch, f, None, (symfont.key(f),)) if f else ch
         if lv.local == "list-level-style-image":
             return "・"
         fmt = lv.get("style:num-format", "")
@@ -507,7 +515,7 @@ class OdtDocument:
         style = el.get("text:style-name")
         strike, color = self._style_look(part, "paragraph", style)
         ctx = _Ctx(underline=self.styles.underline(part, "paragraph", style), hidden=self.styles.hidden(part, "paragraph", style),
-                   run=el, look=(bool(strike), color))
+                   run=el, look=(bool(strike), color), font=self.styles.symbol_font(part, "paragraph", style) or None)
         atoms: list = [("del", sg) for sg in self._gone]  # 段落の前（ブロックのあいだ）で削除された字
         self._gone = []
         self._inline(el, p, part, ctx, atoms)
@@ -544,6 +552,8 @@ class OdtDocument:
         for ch in node.kids:
             if isinstance(ch, Txt):
                 text, offs = ch.decode(data)
+                if ctx.font:
+                    text = symfont.text(text, ctx.font, None, (symfont.key(ctx.font),))  # 記号の書体の字（字の数は変わらない）
                 for k, c in enumerate(text):
                     atoms.append(("ch", ch, c, offs[k], offs[k + 1], ctx))
                 continue
@@ -565,7 +575,9 @@ class OdtDocument:
                     strike, color = self._style_look(part, "text", st)
                     look = ctx.look if ctx.look is None or (strike is None and color is None) else (
                         ctx.look[0] if strike is None else strike, ctx.look[1] if color is None else color)
-                    c2 = _Ctx(ctx.underline if u is None else u != "none", ctx.hidden if h is None else h == "none", ctx.field, ch, look)
+                    f = self.styles.symbol_font(part, "text", st)
+                    c2 = _Ctx(ctx.underline if u is None else u != "none", ctx.hidden if h is None else h == "none", ctx.field, ch, look,
+                              ctx.font if f is None else f or None)
                 self._inline(ch, p, part, c2, atoms)
             elif t in MARKS:
                 if t == _T + "hidden-paragraph" and ch.get("text:is-hidden") == "true":
@@ -798,7 +810,7 @@ class OdtDocument:
         ctl.values = [li.get("loext:value") or "" for li in el.findall("loext:list-item")]
         self._add_control(ctl)
         n0 = len(atoms)
-        self._inline(el, p, part, _Ctx(ctx.underline, ctx.hidden, ctl, ctx.run, ctx.look), atoms)
+        self._inline(el, p, part, _Ctx(ctx.underline, ctx.hidden, ctl, ctx.run, ctx.look, ctx.font), atoms)
         if not any(a[0] in ("ch", "s", "tab", "br", "seg") for a in atoms[n0:]):
             # 中が空：書く所は、要素の終わりのタグの前
             at = el.es if el.es != el.e else el.e

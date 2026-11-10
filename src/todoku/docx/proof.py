@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from ..zipraw import RawZip
 from .document import DocxDocument, Para, iter_paras
 from ..inputcheck import GLYPH_OFF, GLYPH_ON, checkbox_state
-from .window import Spots, box_mark
+from .window import BULLET_CHECKED, Spots, box_mark
 
 
 @dataclass
@@ -182,7 +182,7 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
             continue
         p_old, p_new = pa[i], pb[i]
         pr.paragraphs_changed += 1
-        want = _expected_text(p_old, items)
+        want = _expected_text(p_old, items, a)
         if want is not None and p_new.text != want:
             pr.unexpected.append(f"段落 {i + 1}：書いた後の文字が「{p_new.text[:60]}」で、思っていた「{want[:60]}」と違います")
         old_fmt = {_fmt(p_old, s, a) for s in p_old.segs if s.run is not None}
@@ -191,7 +191,7 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
         # 書いた字には、取り消し線・字の色などを引き継がない（docx.fill.clean_rpr）：その書式を除いた形も、元の段落の書式として認める
         from .fill import clean_rpr
 
-        old_fmt |= {clean_rpr(f)[0] for f in old_fmt}
+        old_fmt |= {clean_rpr(f, a.symbol_fonts)[0] for f in old_fmt}
         # 書いたコンテンツコントロールの字の、プレースホルダーの文字のスタイル（w:rStyle）を外した書式：Word が値を入れるときと
         # 同じ変更なので、書き込みの一部として認める（外してよいのは、そのスタイルの要素だけ）
         from .fill import placeholder_style
@@ -217,7 +217,7 @@ def prove(original: bytes, new: bytes, written: dict[str, object]) -> DocxProof:
     bullets = {i for i, items in targets.items() for _f, it, v in items if it.get("bullet") is not None and v is True}
     for i, (p_old, p_new) in enumerate(zip(pa, pb)):
         if i in bullets:
-            if p_new.label not in ("■", "☑"):
+            if p_new.label not in BULLET_CHECKED:
                 pr.unexpected.append(f"段落 {i + 1}：箇条書きの印が「{p_old.label}」から「{p_new.label}」になっています（チェックした印でない）")
         elif p_old.label != p_new.label:
             pr.unexpected.append(f"書いていない段落 {i + 1} の段落番号・箇条書きの印が変わっています（「{p_old.label}」→「{p_new.label}」）")
@@ -310,7 +310,7 @@ def _numbering(a: DocxDocument, b: DocxDocument, pa: list, pb: list, targets: di
             continue
         try:
             aid, lvl, num = level_of(xa, bl[0]["num"], bl[0]["ilvl"])
-            want_lvl = checked_lvl(xa, lvl)
+            want_lvl = checked_lvl(xa, lvl, a.symbol_fonts)
         except BulletError as e:
             pr.unexpected.append(f"{PART}：{e}")
             ok = False
@@ -446,7 +446,7 @@ def _mark_fmt(p: Para, doc: DocxDocument) -> bytes:
     return re.sub(rb'\s+w:rsid\w*="[^"]*"', b"", xml[mark.s:mark.se] + inner + b"</w:rPr>") if inner else b""
 
 
-def _expected_text(p: Para, items) -> str | None:
+def _expected_text(p: Para, items, doc: DocxDocument | None = None) -> str | None:
     text = p.text
     edits = []
     for fid, it, value in items:
@@ -463,7 +463,7 @@ def _expected_text(p: Para, items) -> str | None:
             a, b = it["span"]
             on = checkbox_state(value, GLYPH_ON, GLYPH_OFF) is True  # 書き手と同じ読み方（inputcheck）
             orig = text[a:b]
-            edits.append((a, b, box_mark(orig, on)))
+            edits.append((a, b, box_mark(orig, on, doc.sym_font(p, a) if doc is not None else "")))
         else:
             a, b = it["span"]
             v = str(value)

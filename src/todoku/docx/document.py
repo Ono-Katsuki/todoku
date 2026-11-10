@@ -11,6 +11,7 @@ import contextvars
 import re
 from dataclasses import dataclass, field
 
+from .. import chars, symfont
 from ..zipraw import RawZip
 from .xmlpos import Node, parse
 
@@ -19,14 +20,9 @@ PKG_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 W14 = "http://schemas.microsoft.com/office/word/2010/wordml"
 MATH = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 
-WINGDINGS = {0xF06F: "□", 0xF0A8: "□", 0xF071: "❑", 0xF072: "❒", 0xF06E: "■", 0xF0FE: "☑", 0xF0FD: "☒", 0xF078: "☒",
-             0xF0FC: "✓", 0xF0FB: "✗", 0xF06C: "●", 0xF0A1: "○", 0xF09F: "•", 0xF0A7: "▪", 0xF0D8: "➢", 0xF0E8: "➔",
-             0xF0B2: "◆", 0xF075: "◆", 0xF0B7: "•"}
-SYMBOL_FONT = {0xF0B7: "•", 0xF0A7: "§", 0xF0D7: "×", 0xF0B4: "×", 0xF0AE: "→", 0xF0AC: "←", 0xF0B0: "°", 0xF0B1: "±"}
-
-
-# 箇条書きの印のうち、チェックの欄（□）とみなすもの。チェックした印は、同じフォントで ■（☐ は ☑。Wingdings は ☑ の字）
-BULLET_BOXES = frozenset("□☐❑❒")
+# 箇条書きの印のうち、チェックの欄とみなすもの：印のない箱の字（chars.EMPTY_BOXES）。チェックした印は、同じ形の塗った字
+# （☐ は ☑、ほかは ■ など：window.box_mark）。記号の書体の印は、その書体の印のついた箱の番号（symfont.box_codes）
+BULLET_BOXES = chars.EMPTY_BOXES
 
 
 class DocxError(ValueError):
@@ -220,6 +216,7 @@ class Numbering:
         self.abstract: dict[str, dict[int, dict]] = {}
         self.nums: dict[str, tuple[str, dict[int, dict]]] = {}
         self.counters: dict[str, list[int]] = {}
+        self.symbols: frozenset = frozenset()  # 文書が「記号の書体」と宣言した書体の名前（DocxDocument が入れる）
         if root is None:
             return
         top = root.kids[0] if root.kids else None
@@ -254,6 +251,9 @@ class Numbering:
             x = lv.find(k)
             if x is not None:
                 d[k] = x.get("val")
+        font = _fonts_of(lv.find("rPr"))  # 印の字の書体（記号の書体の印は、書体と番号の組で字が決まる）
+        if font[0] is not None or font[1] is not None:
+            d["font"] = font
         if "start" in d:
             d["start"] = int(d["start"] or 1)
         return d
@@ -287,7 +287,7 @@ class Numbering:
         fmt = lv.get("numFmt") or "decimal"
         self.last_unshown = []  # この番号の中の、再現できない番号の書式（段階は、この事実で決める）
         if fmt == "bullet":
-            return _bullet(text)
+            return _bullet(text, lv.get("font"), self.symbols)
         if fmt == "none":
             return re.sub(r"%\d", "", text)
 
@@ -304,13 +304,35 @@ class Numbering:
         return re.sub(r"%(\d)", rep, text)
 
 
-def _bullet(t: str) -> str:
+def _fonts_of(rpr) -> tuple:
+    """字の書式（w:rPr）の書体の名前 (ascii, hAnsi)。None は書いていない、"" はテーマの書体（記号の書体ではない）。"""
+    rf = rpr.find("rFonts") if rpr is not None else None
+    if rf is None:
+        return (None, None)
+    return tuple("" if rf.get(k + "Theme") else rf.get(k) for k in ("ascii", "hAnsi"))
+
+
+def sym_text(text: str, fonts, symbols=()) -> str:
+    """書体 fonts（ascii, hAnsi）で書いた字。記号の書体（Symbol・Wingdings など）の字は、書体の対応表で Unicode の字にする
+    （symfont。字の数は変わらない）。U+0021〜U+007F は ascii、U+0080〜U+00FF は hAnsi の書体の字（ISO 29500-1 17.3.2.26）。
+    symbols：文書の書体の一覧（fontTable）が「記号の書体」と宣言した書体の名前。対応表のない記号の書体の字は、私用の領域の字。"""
+    if not fonts or not text:
+        return text
+    a, h = fonts[0] or "", fonts[1] or ""
+    if not (symfont.is_symbol(a, symbols) or symfont.is_symbol(h, symbols)):
+        return text
+    return symfont.text(text, a, h, symbols)
+
+
+def sym_char(font: str, code: int, symbols=()) -> str:
+    """記号の字（w:sym）の字：書体 font の番号 code。対応表のない書体の、私用の領域の番号は、そのまま（外字として伝える）。"""
+    return symfont.decode(font, code, symbols)
+
+
+def _bullet(t: str, fonts=None, symbols=()) -> str:
     if not t:
         return "・"
-    o = ord(t[0])
-    if 0xF000 <= o <= 0xF0FF:
-        return WINGDINGS.get(o) or SYMBOL_FONT.get(o) or "・"
-    return t
+    return sym_text(t, fonts, symbols)
 
 
 # 段落番号の書式（ECMA-376 第1部 17.18.59 ST_NumberFormat）。番号の字が Word と同じと確かめられる範囲だけを字にし、
@@ -629,6 +651,8 @@ class DocxDocument:
                     il = npr.find("ilvl")
                     self.style_num[sid] = (nid.get("val") if nid is not None else "", int(il.get("val")) if il is not None else 0)
         self.numbering = Numbering(self._load("word/numbering.xml"))
+        self.symbol_fonts = self._symbol_fonts()
+        self.numbering.symbols = self.symbol_fonts
         if base.get("counters"):
             self.numbering.counters = {k: list(v) for k, v in base["counters"].items()}
         settings = self._load("word/settings.xml")
@@ -786,6 +810,83 @@ class DocxDocument:
         self.__dict__["_font_styles"] = out
         self.__dict__["_look_memo"] = {}
         return out
+
+    def _symbol_fonts(self) -> frozenset:
+        """書体の一覧（word/fontTable.xml）が「記号の書体」と宣言した書体の名前（w:charset の値が 02：SYMBOL_CHARSET。
+        ISO 29500-1 17.8.3.2）。symfont.key の形。"""
+        try:
+            root = self._load("word/fontTable.xml")
+        except Exception:  # noqa: BLE001  読めない書体の一覧は、宣言がないものとして読む
+            root = None
+        out = set()
+        for f in (root.kids[0].findall("font") if root is not None and root.kids else []):
+            cs = f.find("charset")
+            try:
+                sym = cs is not None and int(cs.get("val") or "0", 16) == 2
+            except ValueError:
+                sym = False
+            if sym and f.get("name"):
+                out.add(symfont.key(f.get("name")))
+        return frozenset(out)
+
+    def symbol_styles(self) -> dict | None:
+        """スタイル・文書の既定の書体のうち、記号の書体（symfont の対応表のある書体）を名指すものがあるとき：
+        スタイルごとの (基のスタイル, ascii, hAnsi)・既定の段落スタイル・文書の既定。なければ None（字の書式の書体だけで決まる）。"""
+        if "_symbol_styles" in self.__dict__:
+            return self.__dict__["_symbol_styles"]
+        out: dict = {"styles": {}, "para_default": "", "default": (None, None)}
+        root = self._load("word/styles.xml")
+        top = root.kids[0] if root is not None and root.kids else None
+        if top is not None:
+            dd = top.find("docDefaults")
+            rd = dd.find("rPrDefault") if dd is not None else None
+            out["default"] = _fonts_of(rd.find("rPr") if rd is not None else None)
+            for st in top.findall("style"):
+                b = st.find("basedOn")
+                out["styles"][st.get("styleId") or ""] = (b.get("val") or "" if b is not None else "", *_fonts_of(st.find("rPr")))
+                if st.get("type") == "paragraph" and st.get("default") in ("1", "true", "on"):
+                    out["para_default"] = st.get("styleId") or ""
+        named = [f for _b, *fs in out["styles"].values() for f in fs] + list(out["default"])
+        got = out if any(symfont.is_symbol(f, self.symbol_fonts) for f in named if f) else None
+        self.__dict__["_symbol_styles"] = got
+        return got
+
+    def sym_font(self, p: Para, k: int) -> str:
+        """段落 p の k 字目が、書体と番号で書いた記号の字（w:sym）なら、その書体の名前（そうでなければ ""）。"""
+        pos = p.positions()
+        sg = p.segs[pos[k][0]] if 0 <= k < len(pos) else None
+        if sg is None or sg.kind != "sym" or sg.node is None or sg.run is None:
+            return ""
+        fonts = self.run_fonts(sg.run.find("rPr"), p.style)
+        return sg.node.get("font", "") or fonts[0] or fonts[1]
+
+    def run_fonts(self, rpr, para_style: str) -> tuple[str, str]:
+        """字の書体の名前 (ascii, hAnsi)：字の書式 → 字のスタイル → 段落のスタイル → 文書の既定の順で、近いものが勝つ
+        （ISO 29500-1 17.7.2）。スタイルをたどるのは、記号の書体を名指すスタイルのある文書だけ（ほかは、字の書式の書体で足りる）。
+        表のスタイルの字の書式は見ない。"""
+        fonts = _fonts_of(rpr)
+        if fonts[0] is not None and fonts[1] is not None or self.symbol_styles() is None:
+            return (fonts[0] or "", fonts[1] or "")
+        rs = rpr.find("rStyle") if rpr is not None else None
+        return self.fonts_from(fonts, rs.get("val") or "" if rs is not None else "", para_style)
+
+    def fonts_from(self, fonts: tuple, run_style: str, para_style: str) -> tuple[str, str]:
+        """字の書式の書体 fonts（_fonts_of の形）に、字のスタイル・段落のスタイル・文書の既定の書体を足したもの。"""
+        a, h = fonts
+        if a is None or h is None:
+            ss = self.symbol_styles()
+            if ss is not None:
+                for sid in (run_style, para_style or ss["para_default"]):
+                    seen = 0
+                    while sid and seen < 20 and (a is None or h is None):
+                        based, sa, sh = ss["styles"].get(sid, ("", None, None))
+                        a = sa if a is None else a
+                        h = sh if h is None else h
+                        sid = based
+                        seen += 1
+                a = ss["default"][0] if a is None else a
+                h = ss["default"][1] if h is None else h
+        return (a or "", h or "")
 
     def run_look(self, rpr, para_style: str) -> tuple:
         """字の書式の事実（取り消し線か, 字の色）：文書の既定 → 段落のスタイル → 字のスタイル → 字の書式の順で、近いものが勝つ
@@ -1028,9 +1129,8 @@ class DocxDocument:
             u = rpr.find("u")
             if u is not None and u.get("val", "single") not in ("none", "0"):
                 underline = True
-            rf = rpr.find("rFonts")
-            if rf is not None:
-                sym_font = rf.get("ascii", "") or rf.get("hAnsi", "") or ""
+        fonts = self.run_fonts(rpr, p.style)
+        sym_font = fonts[0] or fonts[1]
         stack: list = st["stack"]
         for ch in r.kids:
             loc = ch.local
@@ -1092,9 +1192,9 @@ class DocxDocument:
             if in_instr:
                 continue
             if loc == "t":
-                p.segs.append(Seg(ch.text, "t", ch, r, hidden, underline))
+                p.segs.append(Seg(sym_text(ch.text, fonts, self.symbol_fonts), "t", ch, r, hidden, underline))
             elif loc == "delText":
-                p.segs.append(Seg(ch.text, "del", ch, r, True))  # 変更履歴で削除された字（窓では印をつけて示す）
+                p.segs.append(Seg(sym_text(ch.text, fonts, self.symbol_fonts), "del", ch, r, True))  # 変更履歴で削除された字（窓では印をつけて示す）
             elif loc == "tab" or loc == "ptab":
                 p.segs.append(Seg("\t", "tab", ch, r, hidden, underline))
             elif loc in ("br", "cr"):
@@ -1102,19 +1202,11 @@ class DocxDocument:
             elif loc == "noBreakHyphen":
                 p.segs.append(Seg("‑", "other", ch, r, hidden))
             elif loc == "sym":
-                code = int(ch.get("char", "0") or "0", 16)
-                font = ch.get("font", "") or sym_font
-                if code < 0xF000:
-                    code2 = code + 0xF000
-                else:
-                    code2 = code
-                if "wingding" in font.lower():
-                    txt = WINGDINGS.get(code2, "◆")
-                elif "symbol" in font.lower():
-                    txt = SYMBOL_FONT.get(code2, chr(code2 - 0xF000) if code2 >= 0xF020 else "・")
-                else:
-                    txt = chr(code) if code < 0xE000 else "・"
-                p.segs.append(Seg(txt, "sym", ch, r, hidden, underline))
+                try:
+                    code = int(ch.get("char", "0") or "0", 16)
+                except ValueError:
+                    code = 0
+                p.segs.append(Seg(sym_char(ch.get("font", "") or sym_font, code, self.symbol_fonts), "sym", ch, r, hidden, underline))
             elif loc in ("footnoteReference", "endnoteReference"):
                 p.segs.append(Seg(f"※{ch.get('id', '')}", "note", ch, r, hidden))
             elif loc in ("drawing", "pict", "object", "AlternateContent"):

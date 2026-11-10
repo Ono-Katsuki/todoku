@@ -44,7 +44,8 @@ def test_char_tables_cite_unicode():
     assert all(chars.is_connector(ch) for ch in "_‿⁀⁔︳︴﹍﹎﹏＿")
     assert all(chars.is_space(ch) for ch in "   　") and not chars.is_space("\t")
     # チェックの箱の字
-    assert set("☐□▢◻◽❏❐❑❒⬜") == set(chars.EMPTY_BOXES) and set("☑☒") == set(chars.CHECKED_BOXES)
+    assert set("☐□▢◻◽❏❐❑❒⬜") | {chr(c) for c in range(0x1F78E, 0x1F794)} == set(chars.EMPTY_BOXES)  # 線の太さの違う白い四角も
+    assert set("☑☒\u2bbd\U0001f5f5\U0001f5f7\U0001f5f9\u2327") == set(chars.CHECKED_BOXES)
 
 
 def test_label_text_verbatim_and_label_key():

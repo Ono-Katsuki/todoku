@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import struct
 
-from ..docx.document import WINGDINGS, number_text
+from ..docx.document import number_text, sym_text
 
 # MSONFC（MS-DOC 2.9.157。順は ST_NumberFormat の並びと同じ）。ここにない番号は number_text が〔再現できません〕にする
 NFC = {0: "decimal", 1: "upperRoman", 2: "lowerRoman", 3: "upperLetter", 4: "lowerLetter", 5: "ordinal", 6: "cardinalText", 7: "ordinalText",
@@ -23,13 +23,21 @@ _SPRM_ILFO, _SPRM_ILVL = 0x460B, 0x260A
 
 def _lvl(t: bytes, p: int) -> tuple[dict, int]:
     start, nfc, flags = struct.unpack_from("<iBB", t, p)
-    cb_papx, cb_chpx = t[p + 24], t[p + 25]
+    cb_chpx, cb_papx = t[p + 24], t[p + 25]  # LVLF：cbGrpprlChpx・cbGrpprlPapx の順。後ろに並ぶのは grpprlPapx・grpprlChpx の順
     q = p + _LVLF + cb_papx + cb_chpx
     cch = struct.unpack_from("<H", t, q)[0]
     if cch > 9 * 2 + 256 or q + 2 + 2 * cch > len(t):
         raise ValueError("番号の字の長さが合いません")
     xst = t[q + 2:q + 2 + 2 * cch].decode("utf-16-le", "replace")
-    return {"start": start, "nfc": nfc, "legal": bool(flags & 4), "no_restart": bool(flags & 8), "xst": xst}, q + 2 + 2 * cch
+    # 番号の字の書体（grpprlChpx の sprmCRgFtc0：ASCII の字の書体、sprmCRgFtc2：そのほかの字の書体）。記号の書体の印を読むのに使う
+    from .book import sprms
+
+    ftc = [None, None]
+    for sp, op in sprms(t[p + _LVLF + cb_papx:q]):
+        if sp in (0x4A4F, 0x4A51) and len(op) >= 2:
+            ftc[0 if sp == 0x4A4F else 1] = struct.unpack_from("<H", op, 0)[0]
+    return {"start": start, "nfc": nfc, "legal": bool(flags & 4), "no_restart": bool(flags & 8), "xst": xst,
+            "ftc": tuple(ftc)}, q + 2 + 2 * cch
 
 
 def read_lists(fc: dict, t: bytes) -> tuple[dict, dict]:
@@ -83,24 +91,25 @@ def _digit(n: int, lv: dict) -> str:
     return number_text(n, NFC.get(lv["nfc"], f"番号の形{lv['nfc']}"))
 
 
-def label_text(levels: list, ilvl: int, counts: list, fmt: dict) -> str:
+def label_text(levels: list, ilvl: int, counts: list, fmt: dict, fonts=None) -> str:
+    """段落番号の字。fonts：書体の番号 (ftc0, ftc2) → (書体の名前 (ASCII の字, そのほかの字), 文書が記号の書体と宣言した名前)。
+    記号の書体の印は、書体の対応表で読む（symfont）。対応表のない書体の印は、私用の領域の字のまま（外字として伝える）。"""
     lv = fmt.get(ilvl) or levels[ilvl]
+    names, symbols = fonts(lv.get("ftc") or (None, None)) if fonts is not None else (None, ())
     out = []
     for ch in lv["xst"]:
         o = ord(ch)
         if o < 9:
             if o < len(levels):
                 out.append(_digit(counts[o] if counts[o] is not None else (fmt.get(o) or levels[o])["start"], fmt.get(o) or levels[o]))
-        elif 0xF000 <= o <= 0xF0FF:
-            out.append(WINGDINGS.get(o, "•"))  # 記号の書体の印（字としての意味はない）
         else:
-            out.append(ch)
+            out.append(sym_text(ch, names, symbols))
     return "".join(out)
 
 
 class Numberer:
-    def __init__(self, lists: dict, lfos: dict):
-        self.lists, self.lfos = lists, lfos
+    def __init__(self, lists: dict, lfos: dict, fonts=None):
+        self.lists, self.lfos, self.fonts = lists, lfos, fonts
         self.counts: dict[int, list] = {}
         self.used_over: set = set()
 
@@ -120,4 +129,4 @@ class Numberer:
         for d in range(ilvl + 1, len(counts)):
             if not (lfo["fmt"].get(d) or levels[d])["no_restart"]:
                 counts[d] = None
-        return label_text(levels, ilvl, counts, lfo["fmt"])
+        return label_text(levels, ilvl, counts, lfo["fmt"], self.fonts)

@@ -19,7 +19,8 @@ import re
 from array import array
 from dataclasses import dataclass, field
 
-from ..docx.document import TEXT_TYPES, WINGDINGS, Cell, Control, Para, Seg, Table, iter_paras
+from .. import symfont
+from ..docx.document import TEXT_TYPES, Cell, Control, Para, Seg, Table, iter_paras
 from .lexer import Tok, tokens
 
 MARK_PREFIX = "_todoku_"
@@ -76,7 +77,7 @@ class RSrc:
     starts: "array | None" = None  # 字ごとの位置（1 字 8 バイトの配列。字の数だけ int の控えを作らない）
     ends: "array | None" = None
     uc: int = 1  # この字を読んだときの \\uc（書き足す字の、代わりの字の数）
-    look: dict | None = None  # この字の書式のうち、取り消し線・非表示・字の色・蛍光ペン・背景の色（LOOK_WORDS → 値）
+    look: dict | None = None  # この字の書式のうち、取り消し線・非表示・字の色・蛍光ペン・背景の色（LOOK_WORDS → 値）と、記号の書体（f・nf）
 
 
 # タブ位置の線（リーダー）の制御語 → 線の種類（Word の .docx と同じ名前）
@@ -101,6 +102,7 @@ class _St:
     look: dict = field(default_factory=dict)  # LOOK_WORDS の制御語 → 値（グループの中で変えるときは、写してから変える）
     lead: str = ""  # 次のタブ位置（\tx）につく、線（リーダー）の種類
     leaders: tuple = ()  # 段落のタブ位置のうち、線を引くものの、線の種類
+    textfont: int | None = None  # 最後に選ばれた、記号の書体でない書体（記号の書体の字の後ろに書く字の書体）
 
 
 @dataclass
@@ -317,17 +319,36 @@ class RtfDocument:
         if f is None:
             return self.ansicpg
         cs, name = f
-        if cs == 2:
-            return "symbol:" + name.lower()
+        if cs == 2 or symfont.known(name):
+            return "symbol:" + name
         if cs is None or cs == 1:
             return self.ansicpg
         return CHARSET_CP.get(cs, self.ansicpg)
 
+    def symbol_font(self, font: int | None) -> str | None:
+        """記号の書体（\\fcharset2 と宣言した書体か、対応表のある書体）の名前。そうでなければ None。"""
+        cp = self.codepage(font)
+        return cp[7:] if cp.startswith("symbol:") else None
+
     # ------------------------------------------------------------------ 読む
     def _parse(self) -> None:
         b = self.blob
+        # 記号の書体と宣言した書体の名前：対応表のない書体の字は、私用の領域の字（U+F0xx）として読み、外字として伝える
+        symbols = frozenset(symfont.key(name) for cs, name in self.fonts.values() if cs == 2)
         stack: list[_St] = []
         st = _St()
+
+        def font_look(st: _St) -> None:
+            """いまの書体が記号の書体なら、字の書式（look）に、その番号（"f"）と、その前に選ばれていた記号でない書体（"nf"）を
+            持たせる：書き込む側が、書いた字に記号の書体を引き継がないため（引き継ぐと、その書体の別の字になる）。"""
+            if self.symbol_font(st.font) is not None:
+                st.look = {**st.look, "f": st.font if st.font is not None else self.deff, "nf": st.textfont}
+            else:
+                st.textfont = st.font
+                if "f" in st.look:
+                    st.look = {k: v for k, v in st.look.items() if k not in ("f", "nf")}
+
+        font_look(st)
         story = _Story("body", 0)
         self.body_story = story
         stories: list[_Story] = [story]
@@ -357,9 +378,9 @@ class RtfDocument:
             pending = []
             cp = run[0][3]
             if cp.startswith("symbol:"):
+                # 記号の書体の字：書体ごとの対応表で読む（symfont）
                 for v, s, e, _cp in run:
-                    ch = WINGDINGS.get(0xF000 + v, chr(v) if v < 0x80 else "◆") if "wingding" in cp or "symbol" in cp else chr(v)
-                    add_char(ch, s, e)
+                    add_char(symfont.decode(cp[7:], 0xF000 + v, symbols) if v >= 0x20 else chr(v), s, e, sym=False)
                 return
             try:
                 dec = codecs.getincrementaldecoder(cp)(errors="replace")
@@ -372,11 +393,11 @@ class RtfDocument:
                 out = dec.decode(bytes([v]))
                 if out:
                     for ch in out:
-                        add_char(ch, first, e)
+                        add_char(ch, first, e, sym=False)
                     first = None
             tail = dec.decode(b"", final=True)
             if tail and first is not None:
-                add_char(tail, first, run[-1][2])
+                add_char(tail, first, run[-1][2], sym=False)
 
         def result_field():
             """いま読んでいる字が、どのフィールドの結果の字か（同じ流れの、いちばん内側のもの。なければ None）。"""
@@ -385,10 +406,14 @@ class RtfDocument:
                     return fd.ctl if fd.ctl is not None else fd.dummy
             return None
 
-        def add_char(ch: str, s: int, e: int, kind: str = "t") -> None:
+        def add_char(ch: str, s: int, e: int, kind: str = "t", sym: bool = True) -> None:
             if st.skip or st.dest in SKIP:
                 return
             dest = st.dest
+            if sym and kind == "t" and dest not in ("fldinst", "bkmkstart", "bkmkend", "ffname", "ffl", "ffdeftext"):
+                name = self.symbol_font(st.font)
+                if name is not None:  # 記号の書体で書いた ASCII の字・\uN の字（U+F0xx）
+                    ch = symfont.text(ch, name, None, symbols)
             if dest in ("listtext", "pntext"):
                 info = nearest(special_groups, depth)
                 if info is not None:
@@ -434,7 +459,8 @@ class RtfDocument:
 
         def add_plain(data: bytes, s: int) -> None:
             """ASCII の字の並び：add_char を 1 字ずつ呼ぶのと同じ結果を、まとめて作る（字の位置は続いた番号）。"""
-            if st.skip or st.dest in SKIP or st.dest in ("listtext", "pntext", "fldinst", "bkmkstart", "bkmkend", "ffname", "ffl", "ffdeftext"):
+            if st.skip or st.dest in SKIP or st.dest in ("listtext", "pntext", "fldinst", "bkmkstart", "bkmkend", "ffname", "ffl", "ffdeftext") \
+                    or self.symbol_font(st.font) is not None:
                 for i, x in enumerate(data):
                     add_char(chr(x), s + i, s + i + 1)
                 return
@@ -503,7 +529,7 @@ class RtfDocument:
                 flush_bytes()
                 stack.append(st)
                 st = _St(st.dest, st.skip, st.uc, st.font, st.hidden, st.ul, st.intbl, st.itap, True, False, st.deleted, st.look, st.lead,
-                         st.leaders)
+                         st.leaders, st.textfont)
                 depth += 1
                 s_join[0] = -1
                 continue
@@ -680,9 +706,11 @@ class RtfDocument:
                 st.uc = t.param
             elif w == "f" and t.param is not None:
                 st.font = t.param
+                font_look(st)
             elif w == "plain":
                 st.font, st.hidden, st.ul, st.deleted = self.deff, False, False, False
                 st.look = {}
+                font_look(st)
             elif w == "deleted":
                 st.deleted = t.param != 0  # 変更履歴で削除された字（RTF 1.9.1 の Revision Marks）
                 st.look = {**st.look, "deleted": 1 if st.deleted else 0}

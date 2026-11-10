@@ -164,8 +164,9 @@ def prove(original: bytes, new: bytes, written: dict) -> OdfProof:
 
 def _added_styles(a: OdtDocument, b: OdtDocument, part: str, pr: OdfProof) -> list[tuple[str, int, int]]:
     """書いた後の部品の office:automatic-styles に足された style:style（名前・始まり・終わり）。足されたものは、続けて
-    終わりに置かれ、名前が todoku_w…、字の書式を打ち消す属性（LOOK_RESET）だけを持つこと。"""
-    from .textfill import LOOK_RESET, STYLE_PREFIX
+    終わりに置かれ、名前が todoku_w…、字の書式を打ち消す属性（LOOK_RESET）と、記号でない書体（FONT_ATTRS：記号の書体を
+    引き継がないため）だけを持つこと。"""
+    from .textfill import FONT_ATTRS, LOOK_RESET, STYLE_PREFIX
     from .xml import NS, top
 
     def autos(doc):
@@ -192,7 +193,7 @@ def _added_styles(a: OdtDocument, b: OdtDocument, part: str, pr: OdfProof) -> li
             for k, v in props.attrs.items():
                 ns, local = k[1:].split("}", 1)
                 pre = next((p for p, u in NS.items() if u == ns), None)
-                if (f"{pre}:{local}", v) not in ok:
+                if (f"{pre}:{local}", v) not in ok and not (f"{pre}:{local}" in FONT_ATTRS and b.styles.face(props) == ""):
                     bad = True
         if bad:
             pr.unexpected.append(f"{part}：足したスタイル「{name}」が、書いた字の書式を打ち消すだけのものではありません")

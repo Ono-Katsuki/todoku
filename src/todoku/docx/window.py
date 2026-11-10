@@ -22,7 +22,7 @@ import hashlib
 import itertools
 import re
 
-from .. import chars
+from .. import chars, symfont
 from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, agent_blanks, blank_places, kept_chars, label_tail, label_text, shown_gap, wide_space
 from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, one_wide_space, place_facts
 from ..xlsx.window import gap_interior, with_label_keys
@@ -35,9 +35,13 @@ BOX = chars.EMPTY_BOXES  # 印のない箱の字（chars.py）。どれも箇条
 # 印のついたチェックの印らしい字：☑・☒（Ballot Box）はチェック済みの箱、■ は箇条の印・飾りのこともあり、✓ は本文の印のこともある。
 # 規則では決めず、チェック済み（checked）のチェックボックスの候補として「？」をつけて示す（エージェントが判断する）
 CHECKED = chars.CHECKED_BOXES | chars.MAYBE_CHECKED
-UNCHECK = {"☑": "☐", "☒": "☐", "■": "□", "✓": "□", "✔": "□", "▣": "□"}  # チェックを外すときに書く字（印のない同じ形の箱）
+# チェックを入れる・外すときに書く字（同じ形の、塗った字・印のない字）。ここにない字：印のない箱は ■、印のついた箱（Ballot Box）は ☐、
+# そのほかの印（■・✓ など）は □
+CHECK = {"☐": "☑", "◻": "◼", "◽": "◾", "⬜": "⬛"}
+UNCHECK = {v: k for k, v in CHECK.items()}
 MARK_PREFIX = "_todoku_"
-BULLET_CHECKED = frozenset("■☑☒")
+# 箇条書きの印で、チェック済みと読む字：印のついた箱と、印のない箱を塗った字
+BULLET_CHECKED = chars.CHECKED_BOXES | frozenset("■◼◾⬛")
 
 
 def is_bullet(item: dict) -> bool:
@@ -60,12 +64,17 @@ WORD_WHY = {
 }
 
 
-def box_mark(orig: str, on: bool) -> str:
+def box_mark(orig: str, on: bool, font: str = "") -> str:
     """チェックボックスの字 orig に、チェックを入れる（on）・外すときに書く字（変えないときは orig のまま）。
-    ☐ は ☑、ほかの白い箱（□ ❏ ⬜ など）は ■ にする。チェック済みの印（☑・■・✓ など）は、外すときに印のない箱（☐・□）にする。"""
+    ☐ は ☑、ほかの白い箱（□ ❏ ⬜ など）は ■ にする。チェック済みの印（☑・■・✓ など）は、外すときに印のない箱（☐・□）にする。
+    font：その字が、書体と番号で書いた記号の字（Word の w:sym）のときの書体。箱の字のある記号の書体（symfont.box_codes）なら、
+    その書体の印のついた箱・印のない箱の字（Wingdings 2 は ☑・□。ほかの書体の字は、その書体では描けない）。"""
+    codes = symfont.box_codes(font) if font else None
+    if codes is not None:
+        return orig if (orig in CHECKED) == on else symfont.decode(font, codes[0 if on else 1])
     if orig in CHECKED:
-        return orig if on else UNCHECK[orig]
-    return ("☑" if orig == "☐" else "■") if on else orig
+        return orig if on else UNCHECK.get(orig, "☐" if orig in chars.CHECKED_BOXES else "□")
+    return CHECK.get(orig, "■") if on else orig
 
 
 def tabs_in(p, a: int, b: int) -> list[int]:

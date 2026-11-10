@@ -18,8 +18,9 @@ import re
 import struct
 from dataclasses import dataclass, field
 
+from .. import symfont
 from ..docx.document import form_field_notes, form_field_refusal
-from ..docx.fill import FillError, _as_bool, _is_text_value, tab_note
+from ..docx.fill import SYMBOL_FONT, FillError, _as_bool, _is_text_value, kept_note, tab_note
 from ..docx.window import MARK_PREFIX, Spots, box_mark
 from .book import FC_NAMES, DocFile, units
 
@@ -102,6 +103,11 @@ DROP_SPRMS = {
 }
 # 名前を伝えない（ほかの命令と組みで意味を持つ、変更履歴の付け足しの情報）
 _QUIET = {0x4804, 0x6805, 0x4863, 0x6864}
+# 字の書式ではなく、その字が「字でないもの」であることの印：特別な字（sprmCFSpec）・書体と番号で書いた記号（sprmCSymbol）・
+# 絵の場所（sprmCPicLocation）・フォームの欄のデータ（sprmCFData）。書いた字は、ふつうの字なので引き継がない（見た目は変わらない）
+_SPECIAL_SPRMS = {0x0855, 0x6A09, 0x6A03, 0x0806}
+# 字の書体：ASCII の字（sprmCRgFtc0）・そのほかの字（sprmCRgFtc2）。記号の書体のときは引き継がない
+_FONT_SPRMS = {0x4A4F, 0x4A51}
 
 
 def _is_off(sprm: int, op: bytes) -> bool:
@@ -119,8 +125,18 @@ def _is_off(sprm: int, op: bytes) -> bool:
     return True
 
 
-def clean_chpx(grpprl: bytes) -> tuple[bytes, list[str]]:
-    """書いた字に付ける書式：DROP_SPRMS の命令を除いた grpprl と、除いた書式の名前（見た目の変わるもの）。"""
+def _symbol_font(doc, op: bytes) -> str | None:
+    """書体の番号（ftc）が記号の書体（対応表のある書体か、書体の表が記号の書体と宣言した書体）なら、その名前。"""
+    if doc is None or len(op) < 2:
+        return None
+    ftc = struct.unpack_from("<H", op)[0]
+    name = doc.font_name(ftc)
+    return name if name and symfont.is_symbol(name, doc._declared((ftc,))) else None
+
+
+def clean_chpx(grpprl: bytes, doc=None) -> tuple[bytes, list[str]]:
+    """書いた字に付ける書式：DROP_SPRMS の命令・「字でないもの」の印・記号の書体（doc の書体の表で決める）を除いた grpprl と、
+    除いた書式の名前（見た目の変わるもの）。記号の書体を引き継ぐと、書いた字が、その書体の別の字（絵・ギリシア文字）になる。"""
     from .book import sprm_spans
 
     out = bytearray()
@@ -128,9 +144,15 @@ def clean_chpx(grpprl: bytes) -> tuple[bytes, list[str]]:
     start = 0
     for sprm, at, size in sprm_spans(grpprl):
         end = at + size
+        font = _symbol_font(doc, grpprl[at:end]) if sprm in _FONT_SPRMS else None
         if sprm in DROP_SPRMS:
             if sprm not in _QUIET and not _is_off(sprm, grpprl[at:end]):
                 names.append(DROP_SPRMS[sprm])
+        elif sprm in _SPECIAL_SPRMS:
+            pass
+        elif font is not None:
+            if f"{SYMBOL_FONT}（{font}）" not in names:
+                names.append(f"{SYMBOL_FONT}（{font}）")
         else:
             out += grpprl[start:end]
         start = end
@@ -339,7 +361,7 @@ class DocWriter:
             if not e.text:
                 continue
             grpprl = doc._lookup(doc.chpx, doc.fc_of(e.style_cp)) if doc.fc_of(e.style_cp) >= 0 else b""
-            grpprl, dropped = clean_chpx(grpprl)
+            grpprl, dropped = clean_chpx(grpprl, doc)
             if dropped:
                 self.dropped.append((e.key, dropped))
             runs.append((texts_fc[k], texts_fc[k] + 2 * e.n, grpprl))
@@ -657,21 +679,26 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                     pad = gap_padding(p.text[a0:b0], text, opts.get("align", "left"), context=p.text,
                                       ambiguous_wide=AMBIGUOUS.get(opts.get("ambiguous_width")))
                 tabs = it.get("tabs")  # 所の後ろに残す、空欄のタブ
+                style = None  # 書式を引き継ぐ字の位置（決めなければ、書く位置の字）
                 if a0 == b0 and tabs and a0 < len(cps) and cps[a0] >= 0:
                     a = b = cps[a0]  # タブで始まる空欄：タブの前に、タブの書式（下線など）で差し込む。タブは残す
                 elif a0 == b0:
-                    # 挿入：直前の字の後ろ（段落の終わりなら、段落の印の前）。段落の頭は、初めの字の前（書式も初めの字から）
+                    # 挿入：直前の字の後ろ（段落の終わりなら、段落の印の前）。段落の頭は、初めの字の前（書式も初めの字から）。
+                    # 書式は直前の字から引き継ぐ（Word で字の後ろに打つのと同じ）：段落の印の書式は、次の段落の初めの字と
+                    # 同じまとまりのことがある（LibreOffice の書いた .doc）ので、字のある段落では使わない
                     if a0 == 0 and cps and cps[0] >= 0:
                         a = b = cps[0]
                     elif a0 == 0 and cps:
                         raise FillError(f"{key}: 書き足す位置が、書き換えられない部分にあります")
                     else:
                         a = b = (cps[a0 - 1] + units(p.text[a0 - 1])) if a0 > 0 and cps[a0 - 1] >= 0 else p.cp1
+                        if a0 > 0 and cps[a0 - 1] >= 0:
+                            style = cps[a0 - 1]
                 else:
                     a, b = cps[a0], cps[b0 - 1] + units(p.text[b0 - 1])
                     if b - a != sum(units(c) for c in p.text[a0:b0]) or -1 in cps[a0:b0]:
                         raise FillError(f"{key}: 空欄が、書き換えられない部分にかかっています")
-                w.add(Edit(a, b, pad[0] + text + pad[1], a, mark))
+                w.add(Edit(a, b, pad[0] + text + pad[1], a if style is None else style, mark))
                 if tabs and text:
                     warnings.append(tab_note(key, tabs))
                 if w.story_of(a) != "text":
@@ -687,7 +714,7 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
     blob = w.build()
     for k_, names in w.dropped:
         warnings.append(f"{k_ or '書いた所'}: 書く所に残っていた書式（{'・'.join(names)}）は、書いた字に引き継がず、"
-                        "段落・スタイルの既定の書式（字の大きさ・書体はそのまま）で書きました")
+                        f"段落・スタイルの既定の書式（{kept_note(names)}）で書きました")
     if ax_writes:
         from ..activex import AxError
         from ..axbin import apply_doc

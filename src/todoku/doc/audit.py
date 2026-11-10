@@ -18,7 +18,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from ..cfb import CFB
-from ..docx.document import WINGDINGS, iter_paras
+from ..docx.document import iter_paras
 from ..docx.window import Spots, box_mark, build, markdown_parts
 from ..xlsx.audit import AUDIT_BOXES, Audit, Check, count_chars
 from ..eqfield import eq_chars
@@ -56,11 +56,9 @@ def raw_chars(doc: DocFile) -> list[str]:
         if o == 0x28:
             pr = doc.char_props(cp)
             if pr["symbol"] and pr["spec"]:
-                code = pr["symbol"][1]
-                code2 = code + 0xF000 if code < 0xF000 else code
-                out.append(WINGDINGS.get(code2, "◆"))
+                out.append(doc.symbol_char(*pr["symbol"]))
                 continue
-        out.append(ch)
+        out.append(doc.text_char(cp, ch) if 0x20 < o <= 0xFF or 0xF020 <= o <= 0xF0FF else ch)
     return out
 
 

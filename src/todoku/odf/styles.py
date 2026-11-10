@@ -7,8 +7,14 @@ content.xml の要素は content.xml の自動スタイルと共通スタイル�
 
 from __future__ import annotations
 
+from .. import symfont
 from .package import FLAT, OdfPackage
 from .xml import NS, El, q, top
+
+
+def _family(v: str) -> str:
+    """書体の名前（svg:font-family・fo:font-family）の 1 つ目：引用符を外す。"""
+    return (v or "").split(",")[0].strip().strip("'\"").strip()
 
 
 class Styles:
@@ -21,6 +27,9 @@ class Styles:
         self.lists: dict[str, dict[str, El]] = {}  # 部品 → 名前 → text:list-style
         self.data: dict[str, bytes] = {}
         self.outline: El | None = None
+        # 書体の宣言（style:font-face）の名前 → (書体の名前（svg:font-family の 1 つ目）, 「記号の書体」と宣言したか（style:font-charset="x-symbol"）)
+        # 同じ書体の名前に、記号の書体の宣言と、そうでない宣言の 2 つがあることがある：宣言の名前ごとに持つ
+        self.faces: dict[str, tuple[str, bool]] = {}
         parts = [FLAT] if pkg.flat else [p for p in ("styles.xml", "content.xml") if pkg.has(p)]
         for part in parts:
             root = pkg.tree(part)
@@ -31,6 +40,11 @@ class Styles:
             self.auto[part] = {}
             self.numbers.setdefault(part, {})
             self.lists.setdefault(part, {})
+            decls = doc.find("office:font-face-decls")
+            for el in (decls.els() if decls is not None else []):
+                if el.tag == q("style:font-face") and el.get("style:name"):
+                    fam = _family(el.get("svg:font-family") or el.get("style:name"))
+                    self.faces.setdefault(el.get("style:name"), (fam, el.get("style:font-charset") == "x-symbol"))
             for sec_name in ("styles", "automatic-styles"):
                 sec = doc.find("office:" + sec_name)
                 if sec is None:
@@ -52,8 +66,49 @@ class Styles:
                     elif el.tag == q("text:outline-style"):
                         self.outline = el
 
+        self._sym_memo: dict = {}
+
     def _part(self, part: str) -> str:
         return FLAT if self.pkg.flat else part
+
+    def face(self, tp: El) -> str | None:
+        """字の書式（style:text-properties）の決める書体が、記号の書体（対応表のある書体か、文書が記号の書体と宣言した書体）なら、
+        その名前。記号の書体でなければ ""。書体を決めていなければ None。
+        書体は style:font-name（書体の宣言の名前）か fo:font-family。記号の書体の宣言は、書体の宣言か、字の書式そのものの
+        style:font-charset="x-symbol"。"""
+        declared = tp.get("style:font-charset") == "x-symbol"
+        name = tp.get("style:font-name")
+        if name is not None:
+            fam, sym = self.faces.get(name, (name, False))
+            declared = declared or sym
+        else:
+            fam = tp.get("fo:font-family")
+            if fam is None:
+                return None
+            fam = _family(fam)
+        return fam if declared or symfont.known(fam) else ""
+
+    def symbol_font(self, part: str, family: str, name: str | None) -> str | None:
+        """スタイル（親・既定のスタイルもたどる）の決める書体が、記号の書体（対応表のある書体か、文書が記号の書体と宣言した書体）なら、
+        その名前。記号の書体でなければ ""。どこも書体を決めていなければ None。"""
+        key = (self._part(part), family, name)
+        if key in self._sym_memo:
+            return self._sym_memo[key]
+        got = None
+        els = list(self.chain(part, family, name)) if name else []
+        if self.defaults.get(family) is not None:
+            els.append(self.defaults[family])
+        tpq = q("style:text-properties")
+        for el in els:
+            for pe in el.kids:
+                if isinstance(pe, El) and pe.tag == tpq:
+                    got = self.face(pe)
+                    if got is not None:
+                        break
+            if got is not None:
+                break
+        self._sym_memo[key] = got
+        return got
 
     def get(self, part: str, family: str, name: str) -> El | None:
         part = self._part(part)

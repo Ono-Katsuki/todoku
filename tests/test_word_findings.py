@@ -143,7 +143,8 @@ def test_bullet_fill_proof_readback_and_only_that_paragraph(tmp_path):
     assert r_["read_back_ok"], r_["read_back_differences"]
     d = DocxDocument(open(out, "rb").read())
     labels = [q.label for q in d.body]
-    assert labels == ["■", "□", "☑", "■"]  # Ⅱ の段落の印は □ のまま。Wingdings の □ は Wingdings の ☑
+    # Ⅱ の段落の印は □ のまま。Wingdings の □（0xA8）は Wingdings の 0xFE：U+1F5F9 BALLOT BOX WITH BOLD CHECK
+    assert labels == ["■", "□", "\U0001F5F9", "■"]
     num = d.xml("word/numbering.xml")
     assert b"&#xF0A8;" in num or "".encode() in num  # 元の定義はそのまま
     fl = {f["id"]: f for f in api.fields(out)}

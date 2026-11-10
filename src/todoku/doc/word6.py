@@ -373,6 +373,7 @@ class Word6File(DocFile):
         f0, lcb = self.fc["SttbfFfn"]
         wd = self.wd
         out: list[str | None] = []
+        table = self.__dict__["_ffn"] = []  # DocFile.font_table と同じ形：(名前, chs)
         if lcb <= 2:
             return out
         p, end = f0 + 2, f0 + lcb
@@ -381,6 +382,7 @@ class Word6File(DocFile):
             cb = wd[p] + 1
             out.append(_CHS_CP.get(wd[p + 4]))
             self._font_names.append(wd[p + 6:p + cb].split(b"\0")[0].decode("latin-1"))
+            table.append((self._font_names[-1], wd[p + 4]))
             p += cb
         return out
 

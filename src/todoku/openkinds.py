@@ -440,7 +440,8 @@ def grade(k: str, blob: bytes, name: str, encoding: str | None = None):
             from .odf.text import OdtDocument
             from .odf.textwindow import build
 
-            return _grade_textdoc(build(OdtDocument(blob, name)), "OpenDocument の文書", "フォームの部品・入力の欄")
+            doc = OdtDocument(blob, name)
+            return _grade_textdoc(build(doc), "OpenDocument の文書", "フォームの部品・入力の欄", doc=doc)
         if k in SHEETS:
             from .odf.sheetwindow import grade_sheets
 
@@ -449,7 +450,8 @@ def grade(k: str, blob: bytes, name: str, encoding: str | None = None):
             from .rtf.document import RtfDocument
             from .rtf.window import build
 
-            return _grade_textdoc(build(RtfDocument(blob, name)), "RTF", "フォームの欄")
+            doc = RtfDocument(blob, name)
+            return _grade_textdoc(build(doc), "RTF", "フォームの欄", doc=doc)
         if k == "txt":
             return _grade_txt(blob, name, encoding)
         if k == "markup":
@@ -472,7 +474,7 @@ def grade(k: str, blob: bytes, name: str, encoding: str | None = None):
             slides = [b for sl in doc.slides for b in sl["blocks"]]
             extra = content_image_reasons(doc, win, slides, lambda p: p.style == "Title", "スライド",
                                           pages=[sl["blocks"] for sl in doc.slides])
-            return _grade_textdoc(win, "PowerPoint", "作り手の印のある欄", extra)
+            return _grade_textdoc(win, "PowerPoint", "作り手の印のある欄", extra, doc)
         if k in HANGUL:
             from .hwpx.grade import grade as hgrade
 
@@ -598,7 +600,7 @@ def _grade_txt(blob: bytes, name: str, encoding: str | None = None):
         doc = TxtDocument(blob, name, encoding)
     except TxtError as e:
         return _locked("読めない", str(e), "読めないので、書けません")
-    g = _grade_textdoc(build(doc), "テキスト", "入力欄の印")
+    g = _grade_textdoc(build(doc), "テキスト", "入力欄の印", doc=doc)
     enc, wenc = encoding_reason(doc.dec, "A")
     if enc is None:
         return g
@@ -607,10 +609,10 @@ def _grade_txt(blob: bytes, name: str, encoding: str | None = None):
     return out
 
 
-def _grade_textdoc(win: dict, kind_ja: str, explicit: str, extra: list | None = None):
+def _grade_textdoc(win: dict, kind_ja: str, explicit: str, extra: list | None = None, doc=None):
     """Word と同じ決め方：入力欄（作り手の印・配置からの推定・規則では決められない所）は書く段階で決め、読む段階は
-    中身が読めるか（マクロ・読めない部分）だけで決める。"""
-    from .grade import Reason, _final, _macro_reasons, _write_fields, _write_macros
+    中身が読めるか（マクロ・読めない部分・外字）だけで決める。doc：読んだ文書（段落の字と段落の印の外字を伝える）。"""
+    from .grade import Reason, _final, _macro_reasons, _write_fields, _write_macros, word_pua_reasons
 
     reasons: list = []
     agent = [f for f in win["fields"] if f.get("agent")]
@@ -620,6 +622,8 @@ def _grade_textdoc(win: dict, kind_ja: str, explicit: str, extra: list | None = 
     for e in win.get("unread") or []:
         reasons.append(Reason("F", "読めない部分", e))
     reasons += extra or []
+    if doc is not None:
+        reasons += word_pua_reasons(doc)
     write = _write_fields(fields, layout, agent, f"{kind_ja}の{explicit}", "欄のない所は、前後の字を指定して書き換えます")
     write += _write_macros(win.get("macros"))
     from .grade import picture_alerts, word_reasons

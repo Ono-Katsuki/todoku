@@ -11,6 +11,7 @@ from __future__ import annotations
 import xml.parsers.expat as expat
 from collections import Counter
 
+from .. import symfont
 from ..docx.audit import _sample, anchored_check, macro_check
 from ..docx.fill import FillError
 from ..xlsx.audit import AUDIT_BOXES, Audit, Check, agent_places_check, count_chars
@@ -21,6 +22,8 @@ from .textwindow import build, markdown_parts
 from .xml import NS
 
 BOXES = AUDIT_BOXES
+_PARA = {NS["text"] + "}p", NS["text"] + "}h"}
+_RUN = {NS["text"] + "}span", NS["text"] + "}a", NS["text"] + "}meta", NS["text"] + "}meta-field", NS["draw"] + "}a"}
 _SKIP = {NS["text"] + "}" + x for x in ("note-citation", "variable-decls", "sequence-decls", "user-field-decls",
                                         "dde-connection-decls", "table-of-content-source", "illustration-index-source",
                                         "table-index-source", "object-index-source", "user-index-source",
@@ -29,25 +32,40 @@ _SKIP = {NS["text"] + "}" + x for x in ("note-citation", "variable-decls", "sequ
     NS["dc"] + "}creator", NS["dc"] + "}date", NS["meta"] + "}date-string"}
 
 
-def raw_chars(xml: bytes, area: str) -> Counter:
-    """expat で、area（office:text・office:master-styles）の中の文字を、そのまま数える（空白・□☐☑☒■ は数えない）。"""
+def raw_chars(xml: bytes, area: str, fonts=None) -> Counter:
+    """expat で、area（office:text・office:master-styles）の中の文字を、そのまま数える（空白・□☐☑☒■ は数えない）。
+    fonts(family, スタイルの名前)：そのスタイルの決める記号の書体の名前（Styles.symbol_font。記号の書体でなければ ""、決めていなければ None）。
+    記号の書体で書いた字は、書体の対応表で読む（窓と同じ決まり。symfont）。"""
     p = expat.ParserCreate(namespace_separator="}")
     p.buffer_text = True
     c = Counter()
     stack: list[bool] = []  # 数える所か
+    font: list[str | None] = []  # いまの字の、記号の書体の名前（記号の書体でなければ None）
     inside = [0]
     target = NS["office"] + "}" + area
+    sname = NS["text"] + "}style-name"
 
     def start(tag, attrs):
         skip = tag in _SKIP or (tag == NS["text"] + "}hidden-text" and attrs.get(NS["text"] + "}is-hidden") == "true")
         on = (stack[-1] if stack else False) or tag == target
         stack.append(on and not skip)
+        cur = font[-1] if font else None
+        if fonts is not None:
+            if tag in _PARA:
+                cur = fonts("paragraph", attrs.get(sname)) or None
+            elif tag in _RUN and attrs.get(sname):
+                f = fonts("text", attrs.get(sname))
+                cur = cur if f is None else f or None
+        font.append(cur)
 
     def end(tag):
         stack.pop()
+        font.pop()
 
     def chars(data):
         if stack and stack[-1]:
+            if font[-1]:
+                data = symfont.text(data, font[-1], None, (symfont.key(font[-1]),))
             for ch in data:
                 if not ch.isspace() and ch not in BOXES:
                     c[ch] += 1
@@ -65,11 +83,15 @@ def _count(texts) -> Counter:
 
 
 def check_reading(doc: OdtDocument, win: dict) -> list[Check]:
-    raw = raw_chars(doc.pkg.xml(doc.part), doc.office_text.local)
+    def fonts(part):
+        return lambda family, name: doc.styles.symbol_font(part, family, name)
+
+    raw = raw_chars(doc.pkg.xml(doc.part), doc.office_text.local, fonts(doc.part))
     if doc.pkg.flat or doc.pkg.has("styles.xml"):
-        raw += raw_chars(doc.pkg.xml(doc.pkg.part_of("styles.xml")), "master-styles") if not doc.pkg.flat else Counter()
+        sp = doc.pkg.part_of("styles.xml")
+        raw += raw_chars(doc.pkg.xml(sp), "master-styles", fonts(sp)) if not doc.pkg.flat else Counter()
         if doc.pkg.flat:
-            raw += raw_chars(doc.pkg.xml(doc.part), "master-styles")
+            raw += raw_chars(doc.pkg.xml(doc.part), "master-styles", fonts(doc.part))
     shown = Counter()
     for st in win["stories"]:
         shown += _count(st["_plain"])

@@ -18,11 +18,15 @@ from todoku.pdf.window import build as window  # noqa: E402
 
 
 def test_box_sets():
-    assert set("☐□▢⬜❏❐❑❒◻◽") == set(chars.EMPTY_BOXES)
+    # 線の太さの違う白い四角（U+1F78E〜U+1F793：Wingdings・Wingdings 2 の箱の字）も、印のない箱の字
+    assert set("☐□▢⬜❏❐❑❒◻◽") | {chr(c) for c in range(0x1F78E, 0x1F794)} == set(chars.EMPTY_BOXES)
     assert not chars.CERTAIN_EMPTY_BOXES  # 字だけで記入の箱と決まる字はない
     assert chars.BULLET_LIKE_BOXES == chars.EMPTY_BOXES
-    assert set("☑☒") == set(chars.CHECKED_BOXES)
+    # 太さ・書き方の違う、印のついた箱の字（U+2BBD・U+1F5F5・U+1F5F7・U+1F5F9）と、× の入った箱（U+2327）
+    assert set("☑☒\u2bbd\U0001f5f5\U0001f5f7\U0001f5f9\u2327") == set(chars.CHECKED_BOXES)
     assert "▣" in chars.MAYBE_CHECKED and "▣" not in chars.BOXES  # 記入済みの箱のことも、箇条の印のこともある
+    # 塗った四角（U+25FC・U+25FE・U+2B1B）・細い CHECK MARK（U+1F5F8）・中の四角の大きさの違う「▣」（U+1F794・U+1F795）も同じ
+    assert set("■✓✔▣\u25fc\u25fe\u2b1b\U0001f5f8\U0001f794\U0001f795") == set(chars.MAYBE_CHECKED)
     assert all(chars.is_bullet_like_box(ch) for ch in chars.EMPTY_BOXES)
 
 

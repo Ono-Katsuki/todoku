@@ -71,15 +71,21 @@ def dots(ch: str) -> int:
 # 箱の字（Unicode の名前の表 NamesList.txt・ブロック Blocks.txt）。どれも、字からは「記入の箱」とは決まらない：
 #   U+2610 BALLOT BOX（Miscellaneous Symbols）・U+25A1 WHITE SQUARE・U+25A2 WHITE SQUARE WITH ROUNDED CORNERS・
 #   U+25FB WHITE MEDIUM SQUARE・U+25FD WHITE MEDIUM SMALL SQUARE（Geometric Shapes）・U+2B1C WHITE LARGE SQUARE
-#   （Miscellaneous Symbols and Arrows）・U+274F〜U+2752 の影つきの白い四角（Dingbats）
-EMPTY_BOXES = frozenset("☐□▢⬜❏❐❑❒◻◽")
-# 印のついた箱：U+2611 BALLOT BOX WITH CHECK・U+2612 BALLOT BOX WITH X
-CHECKED_BOXES = frozenset("☑☒")
+#   （Miscellaneous Symbols and Arrows）・U+274F〜U+2752 の影つきの白い四角（Dingbats）・
+#   U+1F78E〜U+1F793（Geometric Shapes Extended：LIGHT・MEDIUM・BOLD・HEAVY・VERY HEAVY・EXTREMELY HEAVY WHITE SQUARE。
+#   線の太さの違う白い四角。Wingdings・Wingdings 2 の箱の字）
+EMPTY_BOXES = frozenset("☐□▢⬜❏❐❑❒◻◽\U0001F78E\U0001F78F\U0001F790\U0001F791\U0001F792\U0001F793")
+# 印のついた箱：U+2611 BALLOT BOX WITH CHECK・U+2612 BALLOT BOX WITH X と、その太さ・書き方の違う字（U+2BBD BALLOT BOX WITH LIGHT X・
+# U+1F5F5 BALLOT BOX WITH SCRIPT X・U+1F5F7 BALLOT BOX WITH BOLD SCRIPT X・U+1F5F9 BALLOT BOX WITH BOLD CHECK）・
+# U+2327 X IN A RECTANGLE BOX（Wingdings の、× の入った箱の字）
+CHECKED_BOXES = frozenset("☑☒\u2BBD\U0001F5F5\U0001F5F7\U0001F5F9\u2327")
 BOXES = EMPTY_BOXES | CHECKED_BOXES
 # 印のついた箱かもしれない字：U+25A0 BLACK SQUARE は箇条の印・飾りのことも、U+2713/U+2714 CHECK MARK は本文の印のことも、
 # U+25A3 WHITE SQUARE CONTAINING BLACK SMALL SQUARE は記入済みの箱のことも（日本・韓国の様式）、箇条の印・見出しの印の
-# ことも（韓国の公文書の「▣」など）ある。どれも、元の字のまま示す
-MAYBE_CHECKED = frozenset("■✓✔▣")
+# ことも（韓国の公文書の「▣」など）ある。U+25FC BLACK MEDIUM SQUARE・U+25FE BLACK MEDIUM SMALL SQUARE・U+2B1B BLACK LARGE SQUARE は、
+# 印のない箱の字（U+25FB・U+25FD・U+2B1C）を塗った字、U+1F5F8 LIGHT CHECK MARK は細い CHECK MARK、U+1F794・U+1F795 は「▣」の
+# 中の四角の大きさの違う字（WHITE SQUARE CONTAINING BLACK VERY SMALL / MEDIUM SQUARE）。どれも、元の字のまま示す
+MAYBE_CHECKED = frozenset("■✓✔▣\u25FC\u25FE\u2B1B\U0001F5F8\U0001F794\U0001F795")
 # 互換のための名前（ほかの形式の窓が使う）：字からチェックの欄と決まる箱の字はない（空）。印のない箱の字は、どれも
 # 箇条・見出しの印のこともある字として「？」にする（BULLET_LIKE_BOXES は EMPTY_BOXES と同じ）
 CERTAIN_EMPTY_BOXES: frozenset[str] = frozenset()

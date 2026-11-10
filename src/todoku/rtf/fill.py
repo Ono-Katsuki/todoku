@@ -15,7 +15,7 @@ import hashlib
 from dataclasses import dataclass, field
 
 from ..docx.document import form_field_notes, form_field_refusal, iter_paras
-from ..docx.fill import FillError, _as_bool, _is_text_value, inline_padding, tab_note, written_of  # 証明に渡す、書いた所 → 値（Word と同じ）
+from ..docx.fill import SYMBOL_FONT, FillError, _as_bool, _is_text_value, inline_padding, tab_note, written_of  # 証明に渡す、書いた所 → 値（Word と同じ）
 from ..docx.proof import _expected_text
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from .document import MARK_PREFIX, RtfDocument, color_table
@@ -79,13 +79,16 @@ def rtf_text(value: str, uc: int, cp: str) -> bytes:
 
 # ====================================================================== 書いた字の書式
 LOOK_NAMES = {"strike": "取り消し線", "striked": "二重取り消し線", "v": "非表示", "cf": "字の色", "highlight": "蛍光ペン",
-              "cb": "背景の色", "chcbpat": "背景の色（網かけ）", "revised": "変更履歴の挿入の印", "deleted": "変更履歴の削除の印"}
+              "cb": "背景の色", "chcbpat": "背景の色（網かけ）", "revised": "変更履歴の挿入の印", "deleted": "変更履歴の削除の印",
+              "f": SYMBOL_FONT}
 
 
 def bad_looks(look: dict | None, colors: list) -> list[str]:
     """消したように・目立って見える書式の制御語（LOOK_NAMES）。"""
     look = look or {}
     out = []
+    if look.get("f") is not None:
+        out.append("f")  # 記号の書体：引き継ぐと、書いた字が、その書体の別の字（絵・ギリシア文字）になる
     for w in ("strike", "striked", "v", "revised", "deleted"):
         if look.get(w, 0):
             out.append(w)
@@ -141,14 +144,22 @@ class RtfWriter:
         return rtf_text(value, uc, self.doc.ansicpg)
 
     def clean(self, look: dict | None, body: bytes, fid: str) -> bytes:
-        """書く所の字の書式に、取り消し線・非表示・字の色・蛍光ペン・背景の色があれば、それを打ち消す制御語のグループで値を
-        囲む（字の大きさ・書体は、その所のまま）。打ち消した書式は警告で伝える。"""
+        """書く所の字の書式に、取り消し線・非表示・字の色・蛍光ペン・背景の色・記号の書体があれば、それを打ち消す制御語の
+        グループで値を囲む（字の大きさは、その所のまま。書体は、記号の書体のときだけ、その前に選ばれていた書体に戻す）。
+        打ち消した書式は警告で伝える。戻す書体のない記号の書体は、そのまま（読み戻しで、書いた字と違えば断る）。"""
         bad = bad_looks(look, self.colors)
+        font = None
+        if "f" in bad:
+            font = look.get("nf") if look.get("nf") is not None else self.doc.deff
+            if font is None or font not in self.doc.fonts or self.doc.symbol_font(font) is not None:
+                bad.remove("f")
         if not bad or not body:
             return body
         words = b""
         for w in bad:
-            if w in ("strike", "striked", "v", "highlight", "revised", "deleted"):
+            if w == "f":
+                words += B + b"f" + str(font).encode()
+            elif w in ("strike", "striked", "v", "highlight", "revised", "deleted"):
                 words += B + w.encode() + b"0"
             else:
                 want = (0, 0, 0) if w == "cf" else (255, 255, 255)
@@ -157,9 +168,10 @@ class RtfWriter:
                 if idx is None:
                     raise FillError(f"{fid}: 書く所の字の{LOOK_NAMES[w]}を打ち消す色が、色の表（\\colortbl）にありません")
                 words += B + w.encode() + str(idx).encode()
-        names = list(dict.fromkeys(LOOK_NAMES[w] for w in bad))
+        names = list(dict.fromkeys(f"{SYMBOL_FONT}（{self.doc.symbol_font(look['f'])}）" if w == "f" else LOOK_NAMES[w] for w in bad))
+        kept = "字の大きさ・書体はそのまま" if font is None else f"字の大きさはそのまま。書体は、記号の書体の前の「{self.doc.fonts[font][1]}」"
         self.warnings.append(f"{fid}: 書く所に残っていた書式（{'・'.join(names)}）は、書いた字に引き継がず、打ち消す書式で"
-                             "書きました（字の大きさ・書体はそのまま）")
+                             f"書きました（{kept}）")
         return b"{" + words + b" " + body + b"}"
 
     # ------------------------------------------------------------------ 段落の字

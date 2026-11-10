@@ -6,7 +6,7 @@ MTEF 版 3（Design Science の公開の仕様 "MTEF v.3 (Equation Editor 3.x)"�
 - レコード：1 バイトの印（下の 4 ビットが種類、上の 4 ビットが選択）。0 END・1 LINE・2 CHAR・3 TMPL・4 PILE・5 MATRIX・
   6 EMBELL・7 RULER・8 FONT・9 SIZE・10〜14 FULL/SUB/SUB2/SYM/SUBSYM。選択 0x8（xfLMOVE）があれば、位置のずれ（nudge）が続く
 - LINE：［ずれ］［行の間隔（0x4）］［RULER（0x2）］中身の並び（0x1 xfNULL なら中身なし）
-- CHAR：［ずれ］字体（値＋128）・字（2 バイト。文字の字体では Unicode、記号の字体では Symbol フォントの番号）・［飾り（0x2）］
+- CHAR：［ずれ］字体（値＋128）・字（2 バイト。文字の字体では Unicode、記号の字体では Symbol フォントの番号。MT Extra の字は、対応表を確かめていないので、番号のまま示す）・［飾り（0x2）］
 - TMPL：［ずれ］型・変種・選択・中身の並び（枠の LINE と、かっこなどの字）。PILE・MATRIX は行（LINE）の並び
 
 ここでは、決まった規則だけで字を取り出す：分数（型 14）は (分子)/(分母)、根号（13）は √(…)、添え字（15）は _(…)・^(…)、
@@ -17,16 +17,10 @@ from __future__ import annotations
 
 import struct
 
-# Symbol フォントの番号 → 文字（数式でよく使うもの。Symbol フォントの公開の対応表から）
-_SYMBOL = {0x22: "∀", 0x24: "∃", 0x27: "∋", 0x2A: "∗", 0x2D: "−", 0x40: "≅", 0x5C: "∴", 0x5E: "⊥", 0x60: "‾",
-           0xA2: "′", 0xA3: "≤", 0xA5: "∞", 0xA6: "ƒ", 0xAB: "↔", 0xAC: "←", 0xAD: "↑", 0xAE: "→", 0xAF: "↓",
-           0xB0: "°", 0xB1: "±", 0xB2: "″", 0xB3: "≥", 0xB4: "×", 0xB5: "∝", 0xB6: "∂", 0xB7: "•", 0xB8: "÷",
-           0xB9: "≠", 0xBA: "≡", 0xBB: "≈", 0xBC: "…", 0xC4: "⊗", 0xC5: "⊕", 0xC6: "∅", 0xC7: "∩", 0xC8: "∪",
-           0xC9: "⊃", 0xCA: "⊇", 0xCB: "⊄", 0xCC: "⊂", 0xCD: "⊆", 0xCE: "∈", 0xCF: "∉", 0xD0: "∠", 0xD1: "∇",
-           0xD5: "∏", 0xD6: "√", 0xD7: "⋅", 0xD8: "¬", 0xD9: "∧", 0xDA: "∨", 0xDB: "⇔", 0xDC: "⇐", 0xDD: "⇑",
-           0xDE: "⇒", 0xDF: "⇓", 0xE1: "〈", 0xE5: "∑", 0xF1: "〉", 0xF2: "∫"}
-_GREEK = dict(zip("abgdezhqiklmnxoprstufcywjvJVDFGLPQSUXY", "αβγδεζηθικλμνξοπρστυφχψωϑϖϑςΔΦΓΛΠΘΣΥΞΨ"))
-_SYMBOL_FACES = {4, 5, 6, 11}  # 小文字のギリシャ文字・大文字のギリシャ文字・記号・MT Extra
+from .. import symfont
+
+_SYMBOL_FACES = {4, 5, 6}  # 小文字のギリシャ文字・大文字のギリシャ文字・記号：字は Symbol フォントの番号（対応表は symfont）
+_MT_EXTRA = 11  # MT Extra：対応表を確かめていない書体。字を決めず、書体の名前と番号を示す
 
 
 class MtefError(ValueError):
@@ -167,13 +161,14 @@ class _Reader:
 
 def _char(face: int, code: int) -> str:
     if face in _SYMBOL_FACES and code < 0x100:
-        if face in (4, 5):
-            return _GREEK.get(chr(code), chr(code))
-        return _SYMBOL.get(code, chr(code) if 0x20 <= code < 0x7F else "")
+        # 空白は空白のまま。表にない番号は、私用の領域の字（U+F0xx）
+        return symfont.decode("Symbol", code) if code > 0x20 else " " if code == 0x20 else ""
+    if face == _MT_EXTRA and 0x20 < code < 0x100:
+        return f"〔MT Extra の字 0x{code:02X}〕"
     if code in (0, 0xFFFF):
         return ""
-    if 0xF000 <= code <= 0xF0FF:  # 記号のフォントの私用の領域
-        return _SYMBOL.get(code - 0xF000, "")
+    if 0xF020 <= code <= 0xF0FF:  # 記号のフォントの私用の領域
+        return symfont.decode("Symbol", code)
     return chr(code)
 
 

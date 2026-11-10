@@ -15,7 +15,7 @@ from collections import Counter
 
 from ..eqfield import eq_chars
 from ..xlsx.audit import AUDIT_BOXES, Audit, Check, count_chars
-from .document import WINGDINGS, DocxDocument
+from .document import DocxDocument, sym_char, sym_text
 from .fill import FillError, fill
 from .proof import prove
 from .window import build, markdown_parts
@@ -48,27 +48,69 @@ def _eq_fields(xml: bytes) -> list[str]:
     return out
 
 
+_TOKENS = re.compile(
+    rb"<w:p(?:\s[^>]*)?>|</w:p>|<w:pPrChange\b|</w:pPrChange>|<w:pStyle\b[^>]*>"
+    rb"|<w:r(?:\s[^>]*)?>(?:\s*<w:rPr>(.*?)</w:rPr>)?|</w:r>"
+    rb"|<((?:w|m):(?:t|delText))(?:\s[^>]*)?>(.*?)</(?:w|m):(?:t|delText)>|<w:sym\b([^>]*)/>", re.S)
+
+
+def _attr(tag: str, name: str) -> str | None:
+    m = re.search(rf'\bw:{name}="([^"]*)"', tag)
+    return _unxml(m[1]) if m else None
+
+
+def _run_fonts(doc: DocxDocument, rpr: bytes | None, para_style: str) -> tuple[str, str]:
+    """字の書式（w:rPr の中身のバイト列）の書体 (ascii, hAnsi)。スタイルの書体は、文書の決まり（fonts_from）で足す。"""
+    t = (rpr or b"").split(b"<w:rPrChange", 1)[0].decode("utf-8", "replace")  # 変更の前の書式は見ない
+    m = re.search(r"<w:rFonts\b[^>]*>", t)
+    fonts = tuple("" if m and _attr(m[0], k + "Theme") else _attr(m[0], k) if m else None for k in ("ascii", "hAnsi"))
+    rs = re.search(r"<w:rStyle\b[^>]*>", t)
+    return doc.fonts_from(fonts, (_attr(rs[0], "val") or "") if rs else "", para_style)
+
+
 def raw_texts(doc: DocxDocument) -> list[str]:
-    """文字の要素（w:t）と記号（w:sym）を、XML から直接拾う。AlternateContent の代わりの中身（Fallback）は除く。"""
+    """文字の要素（w:t）と記号（w:sym）を、XML から直接拾う。AlternateContent の代わりの中身（Fallback）は除く。
+    記号の書体の字は、窓と同じ対応表（symfont）で読む：どの字がどの書体かは、ここで XML の並びから別に決める。"""
     out = []
     for _kind, part, _blocks in doc.all_blocks():
         xml = doc.xml(part)
         xml = re.sub(rb"<mc:Fallback\b.*?</mc:Fallback>", b"", xml, flags=re.S)
         out += _eq_fields(xml)
         xml = re.sub(rb"<w:instrText\b[^>]*>.*?</w:instrText>", b"", xml, flags=re.S)
-        for m in re.finditer(rb"<(?:w|m):(?:t|delText)(?:\s[^>]*)?>(.*?)</(?:w|m):(?:t|delText)>|<w:sym\b([^>]*)/>", xml, re.S):
-            if m[1] is not None:
-                t = m[1].decode("utf-8", "replace")
-                out.append(t.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&apos;", "'").replace("&amp;", "&"))
-            else:
-                a = m[2].decode("latin-1")
+        paras: list[str] = []  # 開いている段落のスタイル（テキストボックスの中の段落は、入れ子になる）
+        runs: list[tuple[str, str]] = []  # 開いている w:r の書体
+        changed = 0
+        for m in _TOKENS.finditer(xml):
+            tok = m[0]
+            if tok.endswith(b"/>") and m[4] is None and not tok.startswith(b"<w:pStyle"):
+                continue  # 中身のない段落・字の要素（閉じる印が来ない）
+            if m[2] is not None:
+                t = _unxml(m[3].decode("utf-8", "replace"))
+                out.append(sym_text(t, runs[-1], doc.symbol_fonts) if runs and m[2].startswith(b"w:") else t)
+            elif m[4] is not None:
+                a = _unxml(m[4].decode("utf-8", "replace"))
                 cm = re.search(r'char="([0-9A-Fa-f]+)"', a)
                 fm = re.search(r'font="([^"]*)"', a)
                 if cm:
-                    code = int(cm[1], 16)
-                    code2 = code + 0xF000 if code < 0xF000 else code
-                    if fm and "wingding" in fm[1].lower():
-                        out.append(WINGDINGS.get(code2, "◆"))
+                    fonts = runs[-1] if runs else ("", "")
+                    out.append(sym_char((fm[1] if fm else "") or fonts[0] or fonts[1], int(cm[1], 16), doc.symbol_fonts))
+            elif tok.startswith(b"<w:pPrChange"):
+                changed += 1
+            elif tok == b"</w:pPrChange>":
+                changed = max(0, changed - 1)
+            elif tok.startswith(b"<w:pStyle"):
+                if paras and not changed and not paras[-1]:
+                    paras[-1] = _attr(tok.decode("utf-8", "replace"), "val") or ""
+            elif tok == b"</w:p>":
+                if paras:
+                    paras.pop()
+            elif tok == b"</w:r>":
+                if runs:
+                    runs.pop()
+            elif tok.startswith(b"<w:r"):
+                runs.append(_run_fonts(doc, m[1], paras[-1] if paras else ""))
+            else:
+                paras.append("")
     return out
 
 

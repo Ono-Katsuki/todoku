@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import re
 
+from .. import symfont
 from .xmlpos import Node, parse
 
 PART = "word/numbering.xml"
-# チェックした印：Unicode の字は同じ字の組の塗った方、Wingdings（記号のフォント、U+F000 台）は ☑（0xFE）
-CHECKED_TEXT = {"□": "■", "☐": "☑", "❑": "■", "❒": "■"}
-WINGDINGS_CHECKED = ""
+# チェックした印：Unicode の字は同じ形の塗った字（window.box_mark と同じ決まり）、記号の書体の印は、その書体の印のついた箱の番号
+# （symfont.box_codes。Word と同じく、私用の領域 U+F0xx の字で書く）
 
 
 class BulletError(ValueError):
@@ -55,33 +55,40 @@ def level_of(xml: bytes, num_id: str, ilvl: int) -> tuple[str, Node, Node | None
     return aid, lvl, num
 
 
-def checked_text(lvl_text: str, font: str) -> str:
-    """箇条書きの印の字（lvlText）の、チェックした印。決められなければ BulletError。"""
-    if len(lvl_text) == 1 and 0xF000 <= ord(lvl_text) <= 0xF0FF:
-        if "wingding" in font.lower():
-            return WINGDINGS_CHECKED
-        raise BulletError(f"記号のフォント（{font or '不明'}）の箇条書きの印で、チェックした印の字が決められません")
-    if lvl_text in CHECKED_TEXT:
-        return CHECKED_TEXT[lvl_text]
-    raise BulletError(f"箇条書きの印「{lvl_text}」は、チェックの □ ではありません")
+def checked_text(lvl_text: str, fonts, symbols=()) -> str:
+    """箇条書きの印の字（lvlText）の、チェックした印。fonts は印の字の書体 (ascii, hAnsi)。決められなければ BulletError。"""
+    from .document import BULLET_BOXES, sym_text
+    from .window import box_mark
+
+    shown = sym_text(lvl_text, fonts, symbols)
+    if shown not in BULLET_BOXES:
+        raise BulletError(f"箇条書きの印「{lvl_text}」は、チェックの □ ではありません")
+    if shown != lvl_text:  # 記号の書体の印：その書体の、印のついた箱の番号
+        o = ord(lvl_text)
+        font = (fonts[0] if o >= 0xF000 or o < 0x80 else fonts[1]) or fonts[1] or fonts[0]
+        codes = symfont.box_codes(font)
+        if codes is None:
+            raise BulletError(f"記号の書体（{font or '不明'}）の箇条書きの印で、チェックした印の字が決められません")
+        return chr(0xF000 + codes[0])
+    return box_mark(lvl_text, True)
 
 
-def _font(lvl: Node) -> str:
-    rpr = lvl.find("rPr")
-    rf = rpr.find("rFonts") if rpr is not None else None
-    return (rf.get("ascii") or rf.get("hAnsi") or "") if rf is not None else ""
+def _font(lvl: Node) -> tuple:
+    from .document import _fonts_of
+
+    return _fonts_of(lvl.find("rPr"))
 
 
 def _esc_attr(t: str) -> bytes:
     return t.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").encode("utf-8")
 
 
-def checked_lvl(xml: bytes, lvl: Node) -> bytes:
-    """段の定義のバイト列の、lvlText の字だけをチェックした印にしたもの。"""
+def checked_lvl(xml: bytes, lvl: Node, symbols=()) -> bytes:
+    """段の定義のバイト列の、lvlText の字だけをチェックした印にしたもの。symbols：文書が記号の書体と宣言した書体の名前。"""
     lt = lvl.find("lvlText")
     if lt is None:
         raise BulletError("段落番号の定義に、印の字（lvlText）がありません")
-    new = checked_text(lt.get("val", "") or "", _font(lvl))
+    new = checked_text(lt.get("val", "") or "", _font(lvl), symbols)
     tag = xml[lt.s:lt.se]
     tag2, n = re.subn(rb'(\b(?:\w+:)?val=")[^"]*(")', lambda m: m[1] + _esc_attr(new) + m[2], tag, count=1)
     if n != 1:
@@ -89,14 +96,14 @@ def checked_lvl(xml: bytes, lvl: Node) -> bytes:
     return xml[lvl.s:lt.s] + tag2 + xml[lt.se:lvl.e]
 
 
-def new_num(xml: bytes, pre: str, num_id: str, ilvl: int, new_id: str) -> bytes:
+def new_num(xml: bytes, pre: str, num_id: str, ilvl: int, new_id: str, symbols=()) -> bytes:
     """足す w:num：元の w:num と同じ抽象の定義を指し、段 ilvl だけを、印をチェックした段の定義で上書きする。
     元の w:num のほかの段の上書き（startOverride など）は、そのまま写す。"""
     aid, lvl, num = level_of(xml, num_id, ilvl)
     keep = b""
     if num is not None:
         keep = b"".join(xml[lo.s:lo.e] for lo in num.findall("lvlOverride") if int(lo.get("ilvl", 0) or 0) != ilvl)
-    over = f'<{pre}:lvlOverride {pre}:ilvl="{ilvl}">'.encode() + checked_lvl(xml, lvl) + f"</{pre}:lvlOverride>".encode()
+    over = f'<{pre}:lvlOverride {pre}:ilvl="{ilvl}">'.encode() + checked_lvl(xml, lvl, symbols) + f"</{pre}:lvlOverride>".encode()
     return (f'<{pre}:num {pre}:numId="{new_id}"><{pre}:abstractNumId {pre}:val="{aid}"/>'.encode() + keep + over
             + f"</{pre}:num>".encode())
 
