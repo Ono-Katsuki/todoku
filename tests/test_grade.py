@@ -141,6 +141,56 @@ def test_display_only_macros_do_not_lower_the_grade():
     assert not macro_is_display_only('Sub 写す()\n    Range("A1").Value = Range("B1").Value\nEnd Sub\n')
 
 
+def _sub(body: str) -> str:
+    return "Sub a()\n" + body + "\nEnd Sub\n"
+
+
+@pytest.mark.parametrize("body", [
+    'Dim x: Range("A1") = 5',  # 1 行に「:」で並べた文
+    'MsgBox "x": Range("A1").ClearContents',
+    'On Error Resume Next: Kill "a.txt"',
+    'With Range("A1"): .Value = 5: End With',
+    'If True Then\nElse: Range("A1") = 1\nEnd If',
+    'Range("A1") = 5: Sheets(1).Select',
+    'Range("A1").Value = "do .Select"',  # 字（文字列）の中の語
+    "Range(\"A1\") = 5 ' .Select",  # 行の終わりのコメント
+    'MsgBox Range("A1").ClearContents',  # 式の中で、値を変えるメソッドを呼ぶ
+    'Sheets(CallByName(Range("A1"), "Clear", 1)).Select',
+    'MsgBox Application.Run("Other")',
+    'Selection = 5',  # 既定のプロパティ（セルの値）に書く
+    'Dim r As Range\nSet r = Range("A1")\nr = 5',
+    'Dim v\nSet v = Range("A1")\nv = 5',
+    'x = 5',  # 宣言のない名前：何に書くかが分からない
+    '#If Mac Then\nRange("A1") = 1\n#End If\nSheets(1).Select',  # 条件付きコンパイル：使わない側を読んでいない
+    'ActiveSheet.PageSetup.PrintArea = "A1:B2"',
+    'Sheets(1).Range("A1").Copy',
+    'this is not vba (',
+])
+def test_a_macro_that_may_change_values_is_not_display_only(body):
+    assert not macro_is_display_only(_sub(body))
+
+
+@pytest.mark.parametrize("body", [
+    'If MsgBox("印刷しますか", vbYesNo) = vbYes Then ActiveSheet.PrintOut',
+    'Dim i As Long\nFor i = 1 To Sheets.Count\nSheets(i).PrintOut Copies:=1\nNext',
+    'Dim n As Long: n = 2: Sheets(n).Select',
+    'With Sheets("申請書")\n.Select\n.PrintOut\nEnd With',
+    'Dim sh As Object\nFor Each sh In Sheets\nsh.PrintPreview\nNext',
+    "Application.ScreenUpdating = False\nSheets(\"a\").Range(\"A1\").Select\nMsgBox \"ok\" ' Range(\"A1\") = 5",
+    'Select Case Sheets.Count\nCase 1: Sheets(1).PrintOut\nCase Else: MsgBox "x"\nEnd Select',
+    'On Error GoTo e\nActiveSheet.PrintOut\nExit Sub\ne:\nMsgBox Err.Description',
+])
+def test_a_macro_of_selecting_and_printing_statements_is_display_only(body):
+    assert macro_is_display_only(_sub(body))
+
+
+def test_display_only_follows_the_procedures_of_the_module():
+    assert not macro_is_display_only('Sub a(): Range("A1") = 5: End Sub')
+    assert macro_is_display_only('Sub a()\nb 1\nEnd Sub\nSub b(n)\nSheets(n).Select\nEnd Sub\n')
+    assert not macro_is_display_only('Sub a()\nb\nEnd Sub\nSub b()\nRange("A1").Clear\nEnd Sub\n')
+    assert not macro_is_display_only('Sub a()\nOther\nEnd Sub\n')  # ほかのモジュールの手続き：中身をここでは確かめられない
+
+
 def test_value_accepts_space_after_sign_like_excel():
     from todoku.formula.values import parse_number
 

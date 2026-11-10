@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
+import functools
 import re
 from dataclasses import asdict, dataclass, field
 
@@ -90,15 +91,6 @@ AGENT_CHECKS = [
      "question": "書く値そのものがおおよそでよい、または人によって解釈が分かれる書き方の入力欄（「約［　］人」「月［　］日程度」"
                  "「必要に応じて記入」など）がありますか。あれば、その欄の名前と書き方を答えてください。"},
 ]
-
-# 印刷・表示だけのマクロ：この命令だけでできた手続きは、セルの値を変えない（VBA の文の意味で決める）
-_SAFE_STMT = re.compile(
-    r"^(?:(?:Private|Public)\s+)?(?:Sub|Function)\b|^End\s+(?:Sub|Function|With|If)\b|^Exit\s+(?:Sub|Function)\b|^With\b|^Else\b|"
-    r"^(?:Dim|Const)\b|^'|^Rem\b|^Option\b|^Attribute\b|^On\s+Error\b|"
-    r"\.(?:Select|Activate|PrintOut|PrintPreview)\b[^=]*$|^(?:ActiveWindow|Application)\.(?:SelectedSheets\.)?(?:PrintOut|PrintPreview)\b|"
-    r"^Application\.(?:ScreenUpdating|DisplayAlerts|MoveAfterReturnDirection|StatusBar|Cursor|EnableEvents)\s*=|"
-    r"^MsgBox\b|^(?:Sheets|Worksheets|Range|Cells)\(.*\)\.(?:Select|Activate)\b", re.I)
-
 
 @dataclass
 class Reason:
@@ -232,14 +224,13 @@ def combine(rule: "Grade | dict", findings: list[dict], answered: list[str] | No
     return out
 
 
+@functools.lru_cache(maxsize=256)
 def macro_is_display_only(source: str) -> bool:
-    """手続きの命令が、すべて「選ぶ・切り替える・印刷する・画面の設定」だけなら True（セルの値を変えない）。"""
-    lines = []
-    for raw in source.replace(" _\n", " ").split("\n"):
-        ln = raw.strip()
-        if ln:
-            lines.append(ln)
-    return all(_SAFE_STMT.search(ln) for ln in lines)
+    """手続きの文が、すべて「選ぶ・切り替える・印刷する・画面の設定・知らせる」だけなら True（セルの値を変えない）。
+    VBA の文として読んで決める（vbarun/display.py）。決められないマクロは False（エージェントがソースを読んで判断する）。"""
+    from .vbarun.display import display_only
+
+    return display_only(source)
 
 
 def _macro_reasons(info) -> list[Reason]:
