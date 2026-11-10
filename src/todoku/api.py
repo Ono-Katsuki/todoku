@@ -667,11 +667,126 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
                     "ほかのページの欄は list_fields に pages を渡すと分かります")
             res["empty_fields_note"] = note
             res["say_to_user"] = (res.get("say_to_user") or "") + f"\n（{note}）"
-            return res
-        return _fill(path, values, out_path, force, password, encoding, overwrite, temps)
+            return _tell_replaced(values, res)
+        return _tell_replaced(values, _fill(path, values, out_path, force, password, encoding, overwrite, temps))
     finally:
         for t in temps:
             t.unlink(missing_ok=True)
+
+
+PROOF_SCOPE_NOTE = ("この証明と読み直しは、とどくが書き出したこのファイル（out_path）について確かめたことです。ほかの道具で書き直したファイルは、"
+                    "とどくは確かめていないので、書いた所のほかが元のままかは分かりません。本人がほかの道具での書き直しを求めたら、"
+                    "このことを本人に必ず伝えてください（切り替える前に。すぐに作り直すよう求められたときは、作り直した報告の中で）")
+
+
+def _number(text: str):
+    """字の全体が数として読めるなら、その数（全角の数字は、半角にして読む）。読めなければ None。
+    コンマのある字は数として読まない：桁区切り（1,500）か小数点（1,5）かは、国によって違い、字からは決められない（字として比べる）。"""
+    import unicodedata
+
+    t = unicodedata.normalize("NFKC", text).strip()
+    try:
+        return float(t) if t and t[0] in "+-.0123456789" and t.lower().strip("+-.0123456789e") == "" else None
+    except ValueError:
+        return None
+
+
+def _changed_existing(was: str, now: str) -> str | None:
+    """書く前の字 was が、書いた後の字 now でどうなったか：removed（字が消えた・数が変わった）、inside（字は残っているが、
+    字と字のあいだに字が入った）、None（同じ、または、前・後ろ・空白や下線の所に足しただけ）。字の意味は見ない（事実だけ）。"""
+    from .xlsx.edit import keeps_printed, keeps_runs
+
+    if not was.strip() or was == now:
+        return None
+    a, b = _number(was), _number(now)
+    if a is not None:
+        return None if b is not None and a == b else "removed"  # 数は、桁を足しても別の数
+    if not keeps_printed(was, now):
+        return "removed"
+    return None if keeps_runs(was, now) else "inside"
+
+
+def _replaced_values(before: dict, after: dict, written: dict, number_changed: dict | None = None) -> list[dict]:
+    """書いた所のうち、書く前からあった字や値が、書いた後に元のままでない所（書く前の字 → 書いた後の字。how は _changed_existing）。
+    どの形式でも同じ決め方：書く前の値と、書いた後のファイルを読み直した値を比べる（頼み方では決めない）。
+    書く前が空の所・チェックの印（true/false）の所・前後や空欄に書き足しただけの所は数えない。
+    number_changed：書く前が数のセルで、セルの値が変わったか（Excel。あれば、見えている字ではなく、こちらで決める）。"""
+    from .formula.values import to_text
+
+    def text(v):
+        if v is None or isinstance(v, (bool, list, tuple, dict)):
+            return None
+        return to_text(v) if isinstance(v, (int, float)) else str(v)
+
+    out = []
+    for key, v in written.items():
+        if isinstance(v, bool) or key not in after:
+            continue
+        was, now = text(before.get(key)), text(after.get(key))
+        how = _changed_existing(was, now) if was is not None and now is not None else None
+        if key in (number_changed or {}) and was is not None and now is not None:
+            how = "removed" if number_changed[key] else None
+        if how:
+            out.append({"id": key, "removed": was.strip(), "wrote": now, "how": how})
+    return out
+
+
+def _tell_replaced(values: dict, res: dict) -> dict:
+    """もとからあった字や値を変えた所を、結果（replaced_existing）と、本人に伝えることに入れる。証明の及ぶ範囲（proof_applies_to）も添える。
+    書いた欄・セル・値の、書く前の字（_replaced_values）と、字を目印にした書き込み {"old": …, "new": …} の old の字を、同じ決め方
+    （_changed_existing）で見る：字が消えた・数が変わった（removed。消えた字は、前後の同じ字を除いた所）、字と字のあいだに字が入った（inside）。
+    前・後ろ・空白や下線の空欄に足しただけ・箱の字の印は、数えない。とどくは、頼まれた書き換えかを決めない：書く前の字と書いた後の字を
+    事実として出し、エージェントが本人に確かめる。"""
+    if not isinstance(res, dict) or "out_path" not in res:
+        return res  # 長い仕事にした・書き出していない結果
+    res["proof_applies_to"] = PROOF_SCOPE_NOTE
+    got = list(res.get("replaced_existing") or [])
+    anchored, renamed = res.get("anchored") or {}, res.get("renamed_ids") or {}
+    for key, v in values.items():
+        if not isinstance(v, dict) or not isinstance(v.get("old"), str) or not isinstance(v.get("new"), str):
+            continue
+        old, new = v["old"], v["new"]
+        how = _changed_existing(old, new)
+        if not how:
+            continue
+        k0 = k1 = 0
+        if how == "removed":
+            while k0 < min(len(old), len(new)) and old[k0] == new[k0]:
+                k0 += 1
+            while k1 < min(len(old), len(new)) - k0 and old[len(old) - 1 - k1] == new[len(new) - 1 - k1]:
+                k1 += 1
+        key = renamed.get(key, key)
+        got.append({"id": str(anchored.get(key, key)), "removed": old[k0:len(old) - k1], "wrote": new[k0:len(new) - k1], "how": how})
+    if not got:
+        res.pop("replaced_existing", None)
+        return res
+    res["replaced_existing"] = got
+    short = lambda t: t if len(t) <= 60 else t[:60] + "…"  # noqa: E731  字のすべては replaced_existing に
+
+    def listed(items: list) -> str:
+        return ("／".join(f"{d['id']}「{short(d['removed'])}」→" + (f"「{short(d['wrote'])}」" if d["wrote"] else "（字を消しただけ）")
+                         for d in items[:10])
+                + (f"／ほかに {len(items) - 10} か所（replaced_existing にすべてあります）" if len(items) > 10 else ""))
+
+    gone, inside = [d for d in got if d["how"] == "removed"], [d for d in got if d["how"] == "inside"]
+    notes = []
+    if gone:
+        notes.append(f"もとからあった字を消して書き換えた所が {len(gone)} か所あります（空欄に書いたのではなく、書く前からあった字や値が"
+                     "消えています。本人が頼んだ書き換えかを確かめてください）：" + listed(gone))
+    if inside:
+        notes.append(f"もとからあった字のあいだに字を足した所が {len(inside)} か所あります（字は消えていませんが、空欄ではなく、字と字の"
+                     "あいだに入っています。意味が変わっていないかを確かめてください）：" + listed(inside))
+    note = "／".join(notes)
+    head = "本人に伝えること："
+    lines = (res.get("say_to_user") or "").split("\n")
+    for i, line in enumerate(lines):
+        if line.startswith(head):
+            lines[i] = head + note + "／" + line[len(head):]
+            break
+    else:
+        lines = [x for x in lines if x] + [head + note]
+    res["say_to_user"] = "\n".join(lines)
+    return res
 
 
 def _fill(path: str, values: dict, out_path: str, force: bool, password: str | None, encoding: str | None,
@@ -709,8 +824,11 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     told = None  # 本人に伝える、書いた所（ほかの形式は読み戻しの値と同じ）
     pending_proof = None  # ブック全体の計算を済ませなかった確かめ（長い仕事に渡す）
     rest_fields = None  # まだ空いている欄を数える、欄の一覧（なければ、書いた後のファイルの欄）
+    before_vals: dict = {}  # 書く前の、欄の id → 値（書いた所に、もとからあった字が残っているかを見る：_replaced_values）
+    number_changed: dict = {}  # Excel の、書く前が数・日付のセル → セルの値が変わったか
     try:
         before = fields(path, password, encoding)
+        before_vals = {f["id"]: f.get("value") for f in before}
         labels = {f["id"]: f.get("label", "") for f in before}  # 白紙のときの見出し（対話で伝える一覧に使う）
         printed = {f["id"] for f in before if f.get("label_printed")}  # 見出しが文書に印刷される字の欄
         result["_inline"] = {f["id"] for f in before if f.get("kind") == "inline"}  # 文字の中に空欄のあるマス（書く前の窓）
@@ -1065,6 +1183,10 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     xl_back: dict = {}  # Excel：書いた所の (読み戻しが合うか, 見えている字)。日付・数は、ブックの数え方と表示形式でそろえて比べる
     if k in _open.KINDS:  # 追加の形式：欄の一覧に出ないマス・値も、書いた後のファイルを読み直して照らす
         after.update(_open.read_back(k, written_plain, name, readback_values, encoding))
+        try:
+            before_vals.update(_open.read_back(k, blob, name, readback_values, encoding))  # 同じ所の、書く前の値
+        except Exception:  # noqa: BLE001  書く前の値を読めない所は、欄の一覧の値だけで見る
+            pass
     if k in _open.SHEETS:
         # OpenDocument の表計算：Excel と同じく、日付・数をそろえて比べ、見えている字（ファイルに保存された字）で伝える
         try:
@@ -1104,6 +1226,21 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             from .xlsx import readback as _xrb
 
             xl_back = _xrb.check(wb_after, readback_values)
+            from .xlsx.window import display as _display
+
+            for key in xl_back:  # 同じセルの、書く前の見えている字（欄の一覧にないセルも）
+                try:
+                    sh_, r_, c_ = resolve_target(wb, key)
+                except Exception:  # noqa: BLE001
+                    continue
+                cell = wb.sheet(sh_).cells.get((r_, c_))
+                before_vals[key] = _display(wb, cell) if cell is not None and cell.value not in (None, "") else None
+                raw = cell.value if cell is not None else None
+                if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+                    # 数・日付のセル：見えている字ではなく、セルの値そのもので比べる（表示形式で同じ字に見えても、別の値）
+                    now_ = wb_after.sheet(sh_).cells.get((r_, c_))
+                    now_ = now_.value if now_ is not None else None
+                    number_changed[key] = isinstance(now_, bool) or not isinstance(now_, (int, float)) or float(now_) != float(raw)
             for key in readback_values:
                 if not labels.get(key) and not key.startswith("@"):
                     t_ = _cell_near_text(wb, key)
@@ -1119,6 +1256,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     if k == "pdf":
         readback_values.update({i: v for i, v in pdf_v.items() if i in readback_values})
     mismatch = []
+    seen: dict = {}  # 書いた所の、読み直した字（書く前の字と比べる）
     # 読み戻しのしかた：書いた所の印を置けない形式（一太郎・Word 6.0/95・PowerPoint・.txt）は、証明の中で書いた後のファイルを
     # 読み直して照らす（readback_values は空）。ほかは、書いた後のファイルの窓（after）で照らす
     result["read_back_by"] = "proof" if told is not None else "window"
@@ -1145,6 +1283,13 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                         f_["value"] = g
         if not ok:
             mismatch.append({"id": key, "written": v, "read_back": g})
+        seen[key] = g  # 本人に伝える字（Excel は見えている字）
+    if k == "pdf":
+        # PDF の選ぶ欄の「Off」は、どれも選んでいない状態の名前（もとからあった値ではない）
+        before_vals = {i: None if v_ == "Off" else v_ for i, v_ in before_vals.items()}
+    gone = _replaced_values(before_vals, seen, readback_values, number_changed)
+    if gone:
+        result["replaced_existing"] = gone  # 書く前からあった字が残らなかった所（本人に伝える：_tell_replaced）
     if k == "pdf":
         mismatch += pdf_ap_diff  # 見た目（/AP）の字：描ける字形で、見せるはずの字か
         for f_ in after_list:

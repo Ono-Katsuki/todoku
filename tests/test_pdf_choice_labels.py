@@ -91,6 +91,7 @@ def test_say_to_user_shows_the_chosen_option_label(tmp_path):
     r = api.fill(str(src), {"gender": "F"}, str(tmp_path / "b.pdf"), overwrite=True)
     assert r["proof_ok"] and r["read_back_ok"], r
     assert "gender（近くの字「Gender」）：Female" in r["say_to_user"], r["say_to_user"]
+    assert "replaced_existing" not in r  # どれも選んでいなかった欄（Off）：もとからあった値を変えたのではない
     assert "Male" not in r["say_to_user"].split("記入した内容")[1].split("\n")[2]
     after = _gender((tmp_path / "b.pdf").read_bytes())
     assert after["value"] == "Female" and after["export_value"] == "F"

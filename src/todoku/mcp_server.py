@@ -66,6 +66,12 @@ INSTRUCTIONS = (
     "済むまで、確かめたと伝えないでください。written_proof の problems があれば、そのファイルを本人に渡さないでください。"
     "結果に check_visually（書く B）があるときは、その欄を view_page でページの画像を見て、字の形が正しいかを確かめてください"
     "（字を組み立てて描いた文字は、字の並びは確かめていますが、見た目そのものは確かめていません）。"
+    "結果に replaced_existing があるときは、空欄に書いたのではなく、書いた所にもとからあった字や値を変えています（how が removed：字が"
+    "消えた・数が変わった。inside：字は残っているが、字と字のあいだに字が入った）。どの形式でも、書く前の字と書いた後の字を比べて出します。"
+    "書く前の字と書いた後の字を本人に伝え、本人が頼んだ書き換えかを確かめてください。"
+    "証明（書いた所のほかは元のまま）と読み直しは、とどくが書き出したファイルについて確かめたことです。本人がほかの道具（Python の"
+    "ライブラリなど）での書き直しを求めたときは、そのファイルにはこの確かめがなくなること（書いた所のほかが元のままかは分からなくなること）を、"
+    "本人に必ず伝えてください：切り替える前に伝えて本人に決めてもらうのが基本で、すぐに作り直すよう求められたときも、作り直した報告で省かないでください。"
 )
 
 from .fillhelp import TOPICS as FILL_TOPICS, help_text as fill_help  # noqa: E402
@@ -735,6 +741,8 @@ def call_tool(name: str, args: dict) -> dict:
                                                      for x in cv["fields"]) + "。" + cv["why"])
         if res.get("written_without_as"):
             head += f"　as（書いた値の意味）のない所 {len(res['written_without_as'])} か所：written_without_as。本人が確かめる書類なら as を添えて伝える。"
+        if res.get("replaced_existing"):
+            head += f"　もとからあった字や値を変えた所 {len(res['replaced_existing'])} か所：replaced_existing。本人が頼んだ書き換えかを、本人に確かめる。"
         # 本人は書類を開いて確かめないので、say_to_user（書いた所の見出しと値・まだ空いている欄・本人に伝えること）を、対話で伝える
         return {"content": [_text(head), _text(res.get("say_to_user", "")), _text(res)], "structuredContent": res,
                 "isError": not ok}

@@ -1084,6 +1084,32 @@ def keeps_printed(old: str, new) -> bool:
     return True
 
 
+def keeps_runs(old: str, new) -> bool:
+    """元の字 old の、空白・下線で区切ったひと続きの字が、どれも切れずに、同じ順で new に残っているか
+    （足した字は、前・後ろ・空白や下線の所だけで、字と字のあいだには入っていない）。箱の字は keeps_printed と同じ。"""
+    if not isinstance(new, str):
+        return False
+    runs, cur = [], ""
+    for ch in old:
+        if ch.isspace() or ch in "_＿":
+            if cur:
+                runs.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    if cur:
+        runs.append(cur)
+    at = 0
+    for run in runs:
+        for i in range(at, len(new) - len(run) + 1):
+            if all(a == b or (_is_box(a) and _is_box(b)) for a, b in zip(run, new[i:i + len(run)])):
+                at = i + len(run)
+                break
+        else:
+            return False
+    return True
+
+
 def anchor_text(wb: Workbook, key: str, spec, *, force: bool = False, allow_formula_overwrite: bool = False,
                 pending: dict | None = None):
     """字を目印にした書き込み {"old": 元の字, "new": 書き換えた後の字, "cell"・"sheet"・"occurrence"（任意）}：
