@@ -1218,7 +1218,7 @@ def _facts_text(f: dict) -> str:
     elif "width_mm" in fa:
         head += f" {fa['width_mm']}mm（{fa.get('width_em')}字）"
         if fa.get("glyph"):
-            head += f"・「{fa['glyph']}」{fa.get('count')} 字"
+            head += f"・「{fa['glyph']}」{fa.get('count')} 字" + ("（空白をはさんで並ぶ）" if fa.get("pieces") else "")
     parts.append(head)
     nb = _nb_text(fa)
     if nb:
@@ -1413,7 +1413,7 @@ def _in_line(f: dict) -> str:
     else:
         t = f"{head}{_SHAPE_JA.get(shape, shape)} {fa.get('width_mm')}mm（{fa.get('width_em')}字）"
         if fa.get("glyph"):
-            t += f"「{fa['glyph']}」{fa.get('count')} 字"
+            t += f"「{fa['glyph']}」{fa.get('count')} 字" + ("（空白をはさんで並ぶ）" if fa.get("pieces") else "")
         if shape in ("lead", "trail") and fa.get("bound"):
             bd = fa["bound"]
             t += f"・{_BOUND_JA.get(bd['kind'], bd['kind'])}まで" + (_q(bd["text"], 12) if bd.get("text") else "")

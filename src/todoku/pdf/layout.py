@@ -119,25 +119,63 @@ class Blank(tuple):
 
     structural: bool
     why: str
+    pieces: int  # 短い下線の字の並びを、狭い空白をはさんで 1 つの所にまとめたときの、並びの数（まとめていなければ 0）
 
-    def __new__(cls, a: int, b: int, structural: bool = False, why: str = ""):
+    def __new__(cls, a: int, b: int, structural: bool = False, why: str = "", pieces: int = 0):
         t = super().__new__(cls, (a, b))
         t.structural = structural
         t.why = why
+        t.pieces = pieces
         return t
 
 
 def underscore_touches_word(text: str, a: int, b: int) -> bool:
-    """下線の字の並び（text[a:b] を含む、続いた並び全体）の前か後ろが、英数字・「/」「.」「-」か（名前・URL の一部の形）。"""
-    def ident(ch: str) -> bool:
-        return ch.isascii() and (ch.isalnum() or ch in ".-/")
-
+    """下線の字の並び（text[a:b] を含む、続いた並び全体）の前か後ろが、名前の続きか（名前・URL の一部の形）。
+    名前の続き（chars.name_side）：語を空白で区切る文字の字・数字と、その字に続く「/」「.」「-」。
+    漢字・かな・ハングル・タイの字などは、空欄が見出しの字にじかに続くので、名前の続きとしない。"""
     x, y = a, b
     while x > 0 and _chars.is_connector(text[x - 1]):
         x -= 1
     while y < len(text) and _chars.is_connector(text[y]):
         y += 1
-    return (0 < x and ident(text[x - 1])) or (y < len(text) and ident(text[y]))
+    return _chars.name_side(text, x - 1, -1) or _chars.name_side(text, y, 1)
+
+
+def _short_connectors(text: str, runs: list, w) -> tuple[list[Blank], set[int]]:
+    """1 em に満たない下線の字の並び（1 つでは所にしないもの）が続く形：
+    - 1 em に満たない空白をはさんで 2 つ以上続き、全体が 1 em 以上（「_ _ _ _ _」：破線の形の下線）：全体で 1 つの所（pieces に並びの数）
+    - 句読点の字 1 つをはさんで下線の字の並びが 2 つ以上続く（「_/_/_」「_._._」）：短い並びの 1 つずつが所（「？」）。
+      並びの前後が名前の続きのもの（「a_-_b」）は除く
+    返すのは (所, まとめた空白の並びの始めの位置)。"""
+    out: list[Blank] = []
+    inner: set[int] = set()
+    short = [k == "connector" and w(a, b) < EM_SPACE - EM_ROUND for a, b, k in runs]
+    i = 0
+    while i < len(runs):
+        if not short[i]:
+            i += 1
+            continue
+        j = i
+        while (j + 2 < len(runs) and short[j + 2] and runs[j + 1][2] == "space" and runs[j + 1][0] == runs[j][1]
+               and runs[j + 2][0] == runs[j + 1][1] and w(runs[j + 1][0], runs[j + 1][1]) < EM_SPACE - EM_ROUND):
+            j += 2
+        a, b = runs[i][0], runs[j][1]
+        if j > i and w(a, b) >= EM_SPACE - EM_ROUND:
+            out.append(Blank(a, b, not underscore_touches_word(text, a, b), "connector", pieces=(j - i) // 2 + 1))
+            inner.update(runs[k][0] for k in range(i + 1, j, 2))
+        i = j + 1
+    grouped = {x for blank in out for x in range(*blank)}
+    conn = [(a, b, sh) for (a, b, k), sh in zip(runs, short) if k == "connector"]
+    i = 0
+    while i < len(conn):
+        j = i
+        while (j + 1 < len(conn) and conn[j + 1][0] == conn[j][1] + 1
+               and unicodedata.category(text[conn[j][1]])[0] == "P"):
+            j += 1
+        if j > i and not (_chars.name_side(text, conn[i][0] - 1, -1) or _chars.name_side(text, conn[j][1], 1)):
+            out += [Blank(a, b, False, "connector") for a, b, sh in conn[i:j + 1] if sh and a not in grouped]
+        i = j + 1
+    return out, inner
 
 
 def _em_width(text: str, a: int, b: int) -> float:
@@ -158,7 +196,8 @@ def gap_blanks(text: str, lead: int = 0, trail: int = 0, width=None, align: bool
     """行の字の中の書く所（上の決め方の 2・3 のうち、字の並びで決まるもの）。各要素は Blank。
     width(a, b)：text[a:b] の測った幅（1 em を 1 とする数）。省くと字の幅の目安（_em_width）で測る。
     - 空白の並び：1 em 以上（PDF の行の空白は測った空きから作る：1 em 以上の空きだけが全角の空白か 2 字以上の半角の空白になる）
-    - 下線の字の並び：1 em 以上（英数字に接するものは「？」：名前の一部の形）
+    - 下線の字の並び：1 em 以上（名前の続きの字に接するものは「？」：名前の一部の形）。1 em に満たない並びは、
+      狭い空白か句読点の字 1 つをはさんで続くときだけ（_short_connectors）
     - 点線・ダッシュ：同じ種類の字が 2 字以上続き、1 em 以上
     - かっこの組の中が空白だけのもの（幅は問わない）
     lead・trail：行の前後に足した空白の数（行の頭の前・行の終わりの後ろの空き。呼ぶ側が 1 em 以上のときだけ足す）。
@@ -172,8 +211,11 @@ def gap_blanks(text: str, lead: int = 0, trail: int = 0, width=None, align: bool
     while core_b > core_a and _chars.is_space(text[core_b - 1]):
         core_b -= 1
     core = text[core_a:core_b]
-    out: list[Blank] = []
-    for a, b, kind in _runs(text):
+    runs = _runs(text)
+    out, inner = _short_connectors(text, runs, w)
+    for a, b, kind in runs:
+        if a in inner:
+            continue  # 破線の形の下線の中の、狭い空白
         if kind == "connector":
             if w(a, b) >= EM_SPACE - EM_ROUND:
                 out.append(Blank(a, b, not underscore_touches_word(text, a, b), "connector"))
@@ -1105,6 +1147,9 @@ class PageLayout:
             if why in ("connector", "leader", "dash", "placeholder"):
                 facts["glyph"] = orig[:1]
                 facts["count"] = len(orig)
+                if blank.pieces:  # 破線の形の下線（「_ _ _ _」）：字の数は下線の字だけ・間に狭い空白
+                    facts["count"] = sum(1 for ch in orig if _chars.is_connector(ch))
+                    facts["pieces"] = blank.pieces
             if bound is not None:
                 facts["bound"] = bound
             if why == "gap":

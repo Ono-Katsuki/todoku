@@ -43,6 +43,43 @@ def test_gaps_by_geometry_in_any_language():
     assert gap_blanks("────────────────") == []  # 線の字だけの行（飾り）
 
 
+def _us(text: str) -> list[tuple[str, bool, int]]:
+    return [(text[a:b], x.structural, x.pieces) for x in gap_blanks(text) for a, b in [x] if x.why == "connector"]
+
+
+@pytest.mark.parametrize("text,want", [
+    # 1 em に満たない下線の字が、狭い空白をはさんで並ぶ（破線の形の下線）：全体で 1 つの所
+    ("№  _ _ _ _ _ _ _ від _ _ _ _ _", [("_ _ _ _ _ _ _", True, 7), ("_ _ _ _ _", True, 5)]),
+    ("PIN: _ _ _ _", [("_ _ _ _", True, 4)]),
+    ("_ _ / _ _ / _ _ _ _", [("_ _", True, 2), ("_ _", True, 2), ("_ _ _ _", True, 4)]),
+    # 句読点の字 1 つをはさんで続く短い下線の字：1 つずつが「？」の所
+    ("Date: _/_/_", [("_", False, 0)] * 3),
+    ("_/__/____", [("_", False, 0), ("__", True, 0), ("____", True, 0)]),
+    # 区切りの「/」「.」は、向こうが下線の字なら名前の続きではない
+    ("__/__/____", [("__", True, 0), ("__", True, 0), ("____", True, 0)]),
+    ("Datum: __.__.____", [("__", True, 0), ("__", True, 0), ("____", True, 0)]),
+    # 1 つだけの短い下線の字・名前の中の下線の字は、所にしない
+    ("x _ y", []), ("file_name", []), ("a_-_b", []), ("path/_file", []), ("имя_файла", []),
+])
+def test_short_underscores_are_places_only_in_a_row(text, want):
+    assert _us(text) == want
+
+
+@pytest.mark.parametrize("text,structural", [
+    # 語を空白で区切る文字：字にじかに続く下線の字は、名前の一部の形（？）。ASCII かどうかでは決めない
+    ("ne____", False), ("né____", False), ("nom de\u0301____", False), ("Подпись____", False), ("Υπογραφή____", False),
+    ("имя__файла", False), ("ＡＢ＿＿", False), ("Tel.____", False), ("नाम की____", False),
+    # 語を空白で区切らない文字：空欄が見出しの字にじかに続く
+    ("氏名＿＿＿＿", True), ("フリガナ＿＿＿＿", True), ("ふりがな＿＿＿＿", True), ("성명____", True), ("ชื่อ____", True),
+    ("ຊື່____", True), ("ឈ្មោះ____", True),
+    # 字に続かないもの
+    ("Signature ____", True), ("Подпись: ____", True), ("الاسم: ____", True),
+])
+def test_underscores_touching_a_name_follow_the_script_not_ascii(text, structural):
+    (blank,) = [x for x in gap_blanks(text) if x.why == "connector"]
+    assert blank.structural is structural
+
+
 def test_spaced_headings_are_offered_with_their_own_key():
     assert evenly_spaced("氏　　名") and evenly_spaced("事　業　所") and not evenly_spaced("：　　～　　：")
     # 字間を空けた見出しの形（「氏　　名」と「第　　号」「年　　月　　日」は形が同じ）：形では分けない。どれも 1 字ぶん以上の空き

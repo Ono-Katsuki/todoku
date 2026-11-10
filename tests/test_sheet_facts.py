@@ -81,6 +81,22 @@ def test_leader_and_dash_length_follow_the_ellipsis_decomposition(text, is_run):
     assert bool(window.blank_places(text)) == is_run, text
 
 
+@pytest.mark.parametrize("text,n", [
+    ("file_name", 0), ("minji05_00589", 0), ("имя_файла", 0), ("données_2024", 0), ("path/_file", 0),
+    ("_/_/_", 3), ("__/__/____", 3), ("_._._", 3), ("氏名_印", 1), ("성명_인", 1), ("Name: _", 1),
+])
+def test_one_underscore_inside_a_name_follows_the_script_not_ascii(text, n):
+    # 名前の字（語を空白で区切る文字の字・数字）にはさまれた 1 つの「_」は名前の一部。区切りの「/」「.」にはさまれたものは所
+    assert len([1 for _a, _b, k in window.blank_places(text) if k == "underscore"]) == n
+
+
+def test_name_side_reads_through_joiners_and_combining_marks():
+    assert chars.joins_name("a") and chars.joins_name("я") and chars.joins_name("7") and chars.joins_name("é")
+    assert not any(chars.joins_name(ch) for ch in "名なナ명ชລខမ_/ 。")
+    assert chars.name_side("path/_", 4, -1) and not chars.name_side("_/_", 1, -1)
+    assert chars.name_side("de\u0301_", 2, -1) and not chars.name_side("_", -1, -1) and not chars.name_side("_", 1, 1)
+
+
 # ---------------------------------------------------------------- マスの中の所の、変わらない id
 def test_span_ids_are_character_offsets_and_fill_by_offset():
     def build(wb):

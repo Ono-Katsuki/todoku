@@ -23,7 +23,7 @@ import itertools
 import re
 
 from .. import chars
-from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, kept_chars, label_tail, label_text, shown_gap, wide_space
+from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, agent_blanks, blank_places, kept_chars, label_tail, label_text, shown_gap, wide_space
 from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, one_wide_space, place_facts
 from ..xlsx.window import gap_interior, with_label_keys
 from .document import Cell, Control, DocxDocument, Para, Table, form_field_fixed, iter_paras
@@ -118,7 +118,7 @@ def para_spans(p: Para, text: str | None = None) -> list[tuple[int, int, str | N
         put(a, b, None if long_ else "short_underline")
     for a, b, kind in blank_places(text):
         why = None if kind in BLANK_RULE_KINDS else kind
-        if kind == "underscore" and 0 < a and b < len(text) and _ident(text[a - 1]) and _ident(text[b]):
+        if kind == "underscore" and chars.name_side(text, a - 1, -1) and chars.name_side(text, b, 1):
             why = "underscore_in_word"
         put(a, b, why)
     kept: list[list] = []

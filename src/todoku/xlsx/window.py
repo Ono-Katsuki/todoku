@@ -590,10 +590,6 @@ def label_head(s: str) -> str:
     return "".join(t + (seps[k] if k < j else "") for k, t in enumerate(toks[:j + 1])).strip()
 
 
-def _ident(ch: str) -> bool:
-    return ch.isascii() and (ch.isalnum() or ch in ".-/")
-
-
 def _spaced_heading(text: str) -> bool:
     """字間を空けた見出し（「事　　業　　所」）：前後に空白がなく、1 字ずつが同じ空白の並びで SPACED_MIN 字以上つながる。"""
     runs = [(a, b) for a, b, k in chars.char_runs(text) if k == "space"]
@@ -689,8 +685,9 @@ def blank_places(text: str) -> list[tuple[int, int, str]]:
     for a, b, kind in chars.char_runs(text):
         run = text[a:b]
         if kind == "connector":
-            # 英数字にはさまれた 1 つの「_」（URL・ファイルの名前・メールアドレスの「minji05_00589」）は、名前の一部
-            if b - a == 1 and 0 < a and b < len(text) and _ident(text[a - 1]) and _ident(text[b]):
+            # 名前の字にはさまれた 1 つの「_」（URL・ファイルの名前・メールアドレスの「minji05_00589」「имя_файла」）は、名前の一部
+            # （chars.name_side：語を空白で区切る文字の字・数字。「_/_/_」の区切りは、名前の続きではない）
+            if b - a == 1 and chars.name_side(text, a - 1, -1) and chars.name_side(text, b, 1):
                 continue
             out.append(Found(a, b, "underscore", text=text))
         elif kind == "space":

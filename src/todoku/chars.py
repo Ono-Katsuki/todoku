@@ -191,6 +191,36 @@ def dot_run(text: str, a: int, b: int) -> bool:
     return sum(dots(ch) for ch in text[a:b]) >= ELLIPSIS_DOTS
 
 
+# 語を空白で区切らずに書く文字の種類：UAX #14 で、字と字の間で行を分けられる字の文字
+# （Line_Break が ID・CJ・H2・H3・JL・JV・JT：漢字・かな・ハングル・注音・彝の字、SA：タイ・ラオ・クメール・ミャンマー・タイ系の字）。
+# この文字では、空欄が見出しの字にじかに続く（「氏名＿＿＿」「성명＿＿」「ชื่อ＿＿」）。
+# ほかの文字（語を空白で区切る）では、字にじかに続く下線の字は、名前の一部の形（file_name・имя_файла）
+SPACELESS_SCRIPTS = frozenset({"Han", "Hiragana", "Katakana", "Hangul", "Bopomofo", "Yi", "Thai", "Lao", "Khmer", "Myanmar",
+                               "Tai_Le", "New_Tai_Lue", "Tai_Tham", "Tai_Viet", "Ahom"})
+NAME_JOINERS = frozenset(".-/")  # 名前（ファイルの名前・URL）の中で、字と下線の字をつなぐ記号
+
+
+def joins_name(ch: str) -> bool:
+    """下線の字と続けて 1 つの名前になる字か：文字・数字（一般カテゴリ L・N）で、語を空白で区切らない文字（SPACELESS_SCRIPTS）
+    でないもの。数字（Common）は、どの文字の中でも名前の字。"""
+    return unicodedata.category(ch)[0] in "LN" and script_of(ch) not in SPACELESS_SCRIPTS
+
+
+def name_side(text: str, i: int, step: int) -> bool:
+    """下線の字の並びの隣 text[i]（step：−1 は前、+1 は後ろ）が、名前の続きか：名前の字（joins_name）か、
+    「.」「-」「/」で、その向こうが名前の字のもの（「path/_file」「a.__init__」）。
+    「__/__/____」「__.__.____」の区切りは、向こうが下線の字なので、名前の続きではない。"""
+    if step < 0:
+        while i > 0 and unicodedata.category(text[i])[0] == "M":
+            i -= 1  # 結合の記号（「é」を e と U+0301 で書いたもの・母音の記号）は、その前の字で決める
+    if not 0 <= i < len(text):
+        return False
+    if joins_name(text[i]):
+        return True
+    j = i + step
+    return text[i] in NAME_JOINERS and 0 <= j < len(text) and joins_name(text[j])
+
+
 # ---- ここから scripts/make_chars.py が作る（手で直さない）
 TABLES_UCD_VERSION = "17.0.0"  # 下の表を作った Unicode 文字データベースの版
 
