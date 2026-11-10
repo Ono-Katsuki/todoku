@@ -1177,7 +1177,7 @@ def _kind_text(f: dict) -> str:
 _SHAPE_JA = {"cell": "空のマス", "cells": "空のマスの並び", "gap": "字間", "lead": "行頭の前", "trail": "行末の後",
              "connector": "下線の字", "leader": "点線", "dash": "ダッシュ", "bracket": "かっこの中", "blank_line": "空白の字だけの行", "placeholder": "伏せ字の形",
              "box": "箱の字", "checked": "記入済みの箱の字", "underline": "下線の罫線"}
-_SIDE_JA = {"left": "左", "above": "上", "right": "右", "below": "下"}
+_SIDE_JA = {"left": "左", "above": "上", "right": "右", "below": "下", "line_left": "同じ行の左", "line_right": "同じ行の右"}
 _BOUND_JA = {"cell": "マスの縁", "text": "字", "ruling": "縦の罫線", "page": "ページの端"}
 _LINE_SHAPES = ("gap", "lead", "trail", "connector", "leader", "dash", "bracket", "blank_line", "placeholder", "box", "checked")
 
@@ -1188,7 +1188,7 @@ def _q(t: str, n: int = 24) -> str:
     return f"「{_md(t)}」" if len(t) <= n else f"「{_md(t[:n])}…」（{len(t)} 字）"
 
 
-def _nb_text(fa: dict, sides=("left", "above", "right", "below")) -> str:
+def _nb_text(fa: dict, sides=("left", "above", "right", "below", "line_left", "line_right")) -> str:
     return "・".join(f"{_SIDE_JA[k]}{_q(fa[k]['text'])}{fa[k]['mm']}mm" for k in sides if fa.get(k))
 
 

@@ -113,6 +113,36 @@ def evenly_spaced(core: str) -> bool:
         and max(lens) - min(lens) <= 1
 
 
+def line_pieces(ln, even: bool = False) -> list[tuple[float, float, int, int]]:
+    """横書きの行を、1 字ぶん以上の空き（行の中の「？」の所と同じ決まり：gap_blanks の空白の並び）で分けた部分：
+    (左, 右, 字の始め, 字の終わり)。分かれない行・縦書きの行・1 字ずつの字を同じ空きでつないだ行（「氏　　名」：1 つの見出し）は、
+    空の一覧（行の全体が 1 つ）。even を付けると、同じ空きでつないだ行も分ける（その空きに所がある「年［　］月［　］日」）。
+    部分の左右は、その字の両端で決める（右から左へ書く行は、字の順と左右の順が逆）。"""
+    text = ln.text
+    if ln.vertical or (not even and evenly_spaced(text.strip(" \u3000"))):
+        return []
+    out, i = [], 0
+    cuts = [(a, b) for a, b, k in _runs(text) if k == "space" and _em_width(text, a, b) >= EM_SPACE - EM_ROUND]
+    for a, b in cuts + [(len(text), len(text))]:
+        while i < a and _chars.is_space(text[i]):
+            i += 1
+        while a > i and _chars.is_space(text[a - 1]):
+            a -= 1
+        if a > i:
+            x0, _, x1, _ = ln.span_rect(i, a)
+            out.append((x0, x1, i, a))
+        i = b
+    return out if len(out) > 1 else []
+
+
+def _pieces_text(ln, pieces: list, sel: list) -> str:
+    """行の部分のうち sel の字：行の中でとなり合う部分は、間の空白も元のまま。離れた部分は、空白 1 つでつなぐ。"""
+    idx = sorted(pieces.index(p) for p in sel)
+    if idx == list(range(idx[0], idx[-1] + 1)):
+        return ln.text[pieces[idx[0]][2]:pieces[idx[-1]][3]]
+    return " ".join(ln.text[pieces[k][2]:pieces[k][3]] for k in idx)
+
+
 class Blank(tuple):
     """文字の中の空欄 (始め, 終わり)。structural：描かれた空欄（下線の字の並びで英数字に接しないもの・かっこの組の中が空白だけの
     もの）か。偽のものは字の間の空き（窓の「？」）。why は見つけた形（GAP_WHY の鍵）。2つの数の組としてそのまま使える。"""
@@ -801,11 +831,12 @@ class PageLayout:
             if c.visible():
                 ls = [ln for ln in c.lines if ln.text.strip()]
                 items.append((c.x0, c.y0, c.x1, c.y1, join_lines(c.lines), max((ln.size for ln in ls), default=self.typical),
-                              _rtl_cell(c)))
+                              _rtl_cell(c), None))
         for ln in self.free_lines:
             if ln.text.strip():
-                items.append((ln.x0, ln.y0, ln.x1, ln.y1, ln.text.strip(), ln.size, bool(getattr(ln, "rtl", False))))
+                items.append((ln.x0, ln.y0, ln.x1, ln.y1, ln.text.strip(), ln.size, bool(getattr(ln, "rtl", False)), ln))
         self._items = items
+        self._piece_cache: dict[tuple[int, bool], list] = {}
         B = 24.0
         self._yb: dict[int, list[int]] = {}
         self._xb: dict[int, list[int]] = {}
@@ -829,23 +860,41 @@ class PageLayout:
 
     def _neighbours(self, r) -> dict:
         """所の四角 r の、左・上・右・下でいちばん近い字（字のあるマスの字・マスの外の行の字。元のまま）と、その離れ（mm）。
-        左右は上下の範囲が重なるもの、上下は左右の範囲が重なるものだけ。どこまで離れていても示す（近いかはエージェントが見る）。"""
+        左右は上下の範囲が重なるもの、上下は左右の範囲が重なるものだけ。どこまで離れていても示す（近いかはエージェントが見る）。
+        1 字ぶん以上の空きで分かれたマスの外の行（「Name:　　　Date:」「署名　　　　日付」）は、上・下では、分かれた部分ごとに見る：
+        所の左右の範囲に重なる部分だけを示し、行の全体を line に添える（どの部分も重ならなければ、行の全体）。
+        左・右は、行の全体（どの部分が見出しかは、決めない）。
+        所をまたいで続く行（所が、行の中の空きにある：「［　］年［　］月［　］日」のマス）の、所の左右ですぐ隣の部分は、
+        左・右とは別に、同じ行の左・右（line_left・line_right）として示す（左・右は、その行の外でいちばん近い字のまま：
+        行の見出しのマスなど）。"""
         x0, y0, x1, y1 = r
         B = self._B
         best: dict[str, tuple] = {}
+
+        def take(side: str, d: float, it, sel=None, ps=()) -> None:
+            if side not in best or d < best[side][0]:
+                best[side] = (max(d, 0.0), it, sel, ps)
+
         rows = _in_bands(self._yb, self._y_wide, int(y0 // B), int(y1 // B))
         for i in rows:
             it = self._items[i]
             if min(y1, it[3]) - max(y0, it[1]) <= 0:
                 continue
             if it[2] <= x0 + RULE_TOL:
-                side, d = "left", x0 - it[2]
+                take("left", x0 - it[2], it)
             elif it[0] >= x1 - RULE_TOL:
-                side, d = "right", it[0] - x1
-            else:
-                continue
-            if side not in best or d < best[side][0]:
-                best[side] = (max(d, 0.0), it)
+                take("right", it[0] - x1, it)
+            elif it[7] is not None:
+                # 所をまたいで続く行：所の左でいちばん近い部分・右でいちばん近い部分（同じ空きでつないだ「年　月　日」も分ける）
+                ps = self._pieces(it[7], True)
+                left = [p for p in ps if p[1] <= x0 + RULE_TOL]
+                right = [p for p in ps if p[0] >= x1 - RULE_TOL and p not in left]
+                if left:
+                    p = max(left, key=lambda q: q[1])
+                    take("line_left", x0 - p[1], it, [p], ps)
+                if right:
+                    p = min(right, key=lambda q: q[0])
+                    take("line_right", p[0] - x1, it, [p], ps)
         cols = _in_bands(self._xb, self._x_wide, int(x0 // B), int(x1 // B))
         for i in cols:
             it = self._items[i]
@@ -857,13 +906,31 @@ class PageLayout:
                 side, d = "below", it[1] - y1
             else:
                 continue
-            if side not in best or d < best[side][0]:
-                best[side] = (max(d, 0.0), it)
-        return {side: {"text": it[4], "mm": self._mm(d), "_size": it[5], "_rtl": it[6]} for side, (d, it) in best.items()}
+            if side in best and d >= best[side][0]:
+                continue
+            ps = self._pieces(it[7]) if it[7] is not None else []
+            over = [p for p in ps if min(x1, p[1]) - max(x0, p[0]) > 0]
+            take(side, d, it, over if over and len(over) < len(ps) else None, ps)
+        out = {}
+        for side, (d, it, sel, ps) in best.items():
+            out[side] = {"text": it[4], "mm": self._mm(d), "_size": it[5], "_rtl": it[6]}
+            if sel:
+                out[side].update(text=_pieces_text(it[7], ps, sel), line=it[4])
+        return out
+
+    def _pieces(self, ln: Line, even: bool = False) -> list:
+        """行の、1 字ぶん以上の空きで分かれた部分（line_pieces）。使うときに 1 度だけ作る。"""
+        key = (id(ln), even)
+        ps = self._piece_cache.get(key)
+        if ps is None:
+            ps = self._piece_cache[key] = line_pieces(ln, even)
+        return ps
 
     @staticmethod
     def _label_of(nb: dict) -> tuple[str, str, str]:
-        """見出し（list_fields・本人に伝える一覧の名前）：左の字（右から左へ書く表では右の字）、なければ上、なければ右の字。
+        """見出し（list_fields・本人に伝える一覧の名前）：左の字（右から左へ書く表では右の字）、なければ上、なければ右、
+        なければ同じ行の字（所をまたいで続く行の、所の前の部分と後ろの部分を、所の印「［　］」をはさんで読む順に：
+        「年［　］月」。行の中の空きの所の名前と同じ書き方で、前後のどちらが見出しかは決めない）、なければ下の字。
         どれを見出しにするかは、見出しの名前のための決まった順で、書く所かどうかの判断には使わない（周りの字はすべて facts に）。"""
         left = nb.get("left")
         right = nb.get("right")
@@ -871,21 +938,34 @@ class PageLayout:
             left, right = right, left
         rl = label_text(left["text"]) if left else ""
         cl = label_text(nb["above"]["text"]) if nb.get("above") else ""
-        return (rl or cl or (label_text(right["text"]) if right else "")), rl, cl
+        return (rl or cl or (label_text(right["text"]) if right else "") or PageLayout._inline_label(nb)
+                or (label_text(nb["below"]["text"]) if nb.get("below") else "")), rl, cl
+
+    @staticmethod
+    def _inline_label(nb: dict) -> str:
+        """所をまたいで続く行の、所の前後の部分を、所の印をはさんで読む順に並べた字（「年［　］月」）。なければ空。"""
+        sides = [nb.get("line_left"), nb.get("line_right")]
+        if not any(sides):
+            return ""
+        if next(v for v in sides if v)["_rtl"]:
+            sides.reverse()  # 右から左へ書く行：前の部分は、所の右
+        return label_text((sides[0]["text"] if sides[0] else "") + "［　］" + (sides[1]["text"] if sides[1] else ""))
 
     def default_size(self, nb: dict | None = None, line: "Line | None" = None) -> tuple[float, str]:
         """書く字の既定の大きさ（ひとつの決まり）：行の中の所はその行の字の大きさ。行のない所（空のマス・下線の罫線）は、
-        見出しにした周りの字（左、なければ上、なければ右）の大きさ。周りに字がなければ、ページのふつうの字の大きさ（字の大きさの
-        中央の値）。所に入らないときは、書き込みが入る大きさに縮めて、縮めたことを知らせる（fill）。エージェントは size で変えられる。"""
+        左、なければ上、なければ右の字、なければ所をまたいで続く行（同じ行）の字の大きさ（下の字は、所の下に小さく添えた字の
+        ことがあるので、大きさの元にしない）。
+        周りに字がなければ、ページのふつうの字の大きさ（字の大きさの中央の値）。所に入らないときは、書き込みが入る大きさに縮めて、縮めたことを知らせる（fill）。エージェントは size で変えられる。"""
         if line is not None:
             return line.size, "行の字の大きさ"
-        for side, name in (("left", "左の字"), ("above", "上の字"), ("right", "右の字")):
+        for side, name in (("left", "左の字"), ("above", "上の字"), ("right", "右の字"), ("line_left", "同じ行の字"),
+                           ("line_right", "同じ行の字")):
             if nb and nb.get(side):
                 return float(nb[side]["_size"]), f"{name}の大きさ"
         return self.typical, "ページのふつうの字の大きさ"
 
     def _facts_nb(self, nb: dict) -> dict:
-        return {side: {"text": v["text"], "mm": v["mm"]} for side, v in nb.items()}
+        return {side: {k: v[k] for k in ("text", "mm", "line") if k in v} for side, v in nb.items()}
 
     def _cell_spots(self) -> None:
         """空のマス：1 つずつの所（字か印を書く。kind_candidates に text・checkbox）と、同じ大きさの空のマスが横に隣り合って
@@ -1287,18 +1367,21 @@ class PageLayout:
 
     def _underline_spots(self) -> None:
         """下線の罫線：マスの縁でも表の中の線でもない横線で、線のすぐ上（1 行ぶん）に字のないもの。所は線の上の帯。
-        線の左の、同じ高さの字（見出しの字のことが多い）と、その離れは facts に（離れていても示す）。"""
+        周りの字（左・上・右・下でいちばん近い字と、その離れ。線をまたいで続く行の、線の前後の部分）は facts に（離れていても
+        示す）。左の字は、線の左の、同じ高さの行の字（線がその続きになる行）。
+        見出し（名前）は、その左の字。なければ、左の字（右から左へ書く字の右の字）、線をまたいで続く行の前後の字
+        （「Name:［　］Date:」）、上か下の片方にだけ字があればその字、右の字。上にも下にも字があるときは、上下のどちらが
+        見出しかを決めない（線の下に見出しを書く様式と、上に書く様式がある：どちらの字も、離れと一緒に facts にある）。"""
         lines = self.free_lines + [ln for c in self.cells for ln in c.lines]
         for h in self.hs:
             if self.index.at((h.a + h.b) / 2, h.pos - 3) is not None and self.index.at((h.a + h.b) / 2, h.pos + 3) is not None:
                 continue  # 表の中の罫線
             near = None  # 線の左の、同じ高さ（字の下の端が線の近く）の、いちばん近い行
             for ln in lines:
-                if ln.vertical:
+                if ln.vertical or abs(ln.y1 - h.pos) > 0.6 * ln.size or ln.x1 > h.a + 0.5 * ln.size:
                     continue
-                if abs(ln.y1 - h.pos) <= 0.6 * ln.size and ln.x1 <= h.a + 0.5 * ln.size:
-                    if near is None or ln.x1 > near.x1:
-                        near = ln
+                if near is None or ln.x1 > near.x1:
+                    near = ln
             sz = near.size if near is not None else self.typical
             top = h.pos - 1.3 * sz  # 線の上の 1 行（字の大きさと、字の上下のあき）
             if any(h.a < c.cx < h.b for c in self._ink_between(top, h.pos)):
@@ -1306,13 +1389,19 @@ class PageLayout:
             if self._cell_edge(h):
                 continue  # マスの縁（表の外側の線）：下線ではない
             rect = (h.a, top, h.b, h.pos - 0.5)
-            label = label_text(near.text.strip()) if near is not None else ""
-            sp = Spot("text", rect, label, "下線の罫線", size=sz, host=near,
-                      at=(len(near.text), len(near.text)) if near is not None else None, shape="underline",
-                      anchor=(h.a, h.pos), write_size_from="線の左の字の大きさ" if near is not None else "ページのふつうの字の大きさ")
-            sp.facts = {"rect_mm": self._rect_mm(rect), "length_mm": self._mm(h.b - h.a)}
+            nb = self._neighbours(rect)
+            facts = self._facts_nb(nb)
             if near is not None:
-                sp.facts["left"] = {"text": near.text.strip(), "mm": self._mm(max(0.0, h.a - near.x1))}
+                facts["left"] = {"text": near.text.strip(), "mm": self._mm(max(0.0, h.a - near.x1))}
+                label = label_text(near.text)
+            else:
+                ab = [nb[k] for k in ("above", "below") if nb.get(k)]
+                label = (self._label_of(nb)[1] or self._inline_label(nb) or (label_text(ab[0]["text"]) if len(ab) == 1 else "")
+                         or (label_text(nb["right"]["text"]) if nb.get("right") else ""))
+            sp = Spot("text", rect, label, "下線の罫線", size=sz, host=near,
+                      at=(len(near.text),) * 2 if near is not None else None, shape="underline",
+                      anchor=(h.a, h.pos), write_size_from="線の左の字の大きさ" if near is not None else "ページのふつうの字の大きさ")
+            sp.facts = {"rect_mm": self._rect_mm(rect), "length_mm": self._mm(h.b - h.a), **facts}
             self.spots.append(sp)
 
     def _cell_edge(self, h: Rule) -> bool:
