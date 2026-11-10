@@ -19,7 +19,7 @@ import struct
 from dataclasses import dataclass, field
 
 from ..docx.document import form_field_notes, form_field_refusal
-from ..docx.fill import FillError, _as_bool, _is_text_value
+from ..docx.fill import FillError, _as_bool, _is_text_value, tab_note
 from ..docx.window import MARK_PREFIX, Spots, box_mark
 from .book import FC_NAMES, DocFile, units
 
@@ -656,7 +656,10 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                     # そろえ方の指定：空きの幅を保って、前後に半角の空白を足す（Word の .docx と同じ決まり）
                     pad = gap_padding(p.text[a0:b0], text, opts.get("align", "left"), context=p.text,
                                       ambiguous_wide=AMBIGUOUS.get(opts.get("ambiguous_width")))
-                if a0 == b0:
+                tabs = it.get("tabs")  # 所の後ろに残す、空欄のタブ
+                if a0 == b0 and tabs and a0 < len(cps) and cps[a0] >= 0:
+                    a = b = cps[a0]  # タブで始まる空欄：タブの前に、タブの書式（下線など）で差し込む。タブは残す
+                elif a0 == b0:
                     # 挿入：直前の字の後ろ（段落の終わりなら、段落の印の前）。段落の頭は、初めの字の前（書式も初めの字から）
                     if a0 == 0 and cps and cps[0] >= 0:
                         a = b = cps[0]
@@ -669,6 +672,8 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                     if b - a != sum(units(c) for c in p.text[a0:b0]) or -1 in cps[a0:b0]:
                         raise FillError(f"{key}: 空欄が、書き換えられない部分にかかっています")
                 w.add(Edit(a, b, pad[0] + text + pad[1], a, mark))
+                if tabs and text:
+                    warnings.append(tab_note(key, tabs))
                 if w.story_of(a) != "text":
                     outside[key] = pad[0] + text + pad[1]
                 patches.append(Patch(key, "input", text, "doc", anchor=anchor, key=given if anchor else "",

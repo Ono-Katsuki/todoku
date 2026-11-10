@@ -28,6 +28,9 @@ CHUNK_BYTES = 1 << 20  # 1 回の小さな文書の XML の大きさの目安
 KEEP_PART = 1 << 24  # 小さな文書に写す部品の大きさの上限（これより大きな部品は、名前だけを残す）
 _COMPLEX = frozenset(("txbxContent", "sdt", "customXml", "moveTo", "AlternateContent", "ffData", "object", "OLEObject", "control",
                       "blip", "imagedata", "graphicData", "pict"))
+# フィールドの印（w:fldChar）を、本文の流れの順に数えるときにたどる要素（docx/document の _blocks・_inline と同じ道）
+_FIELD_BLOCK = frozenset(("p", "tbl", "tr", "tc", "sdt", "sdtContent", "customXml", "ins", "moveTo"))
+_FIELD_INLINE = frozenset(("hyperlink", "smartTag", "fldSimple", "bdo", "dir", "del", "moveFrom", "r"))
 _STORY_KINDS = ("header", "footer", "footnotes", "endnotes", "comments")
 
 
@@ -159,7 +162,7 @@ class DocxLazy(BlocksLazy):
 
     # ------------------------------------------------------------------ 索引
     def _scan(self) -> None:
-        from ..docx.document import iter_paras
+        from ..docx.document import _carried_field, iter_paras
         from ..docx.window import _tables
         from ..docx.xmlpos import parse
 
@@ -189,6 +192,8 @@ class DocxLazy(BlocksLazy):
         stack: list[str] = []
         st = {"at": 0, "complex": False, "paras": 0, "tables": 0, "pstyle": "", "numid": None, "ilvl": 0, "body": False, "body_end": None, "chars": 0, "del": 0}
         pending: list = []
+        fst: list[dict] = []  # 開いているフィールド（段落・まとまりをまたぐもの：目次など）
+        fp = {"bad": 0, "p": 0, "instr": False, "at": ()}
         buf = bytearray()
         buf_at = 0
         tail_seen = {}
@@ -198,7 +203,8 @@ class DocxLazy(BlocksLazy):
         def close_chunk_if_needed(at: int) -> None:
             n = len(self.offs)
             if not self.chunks or at - self.offs[self.chunks[-1]["first"]] >= CHUNK_BYTES:
-                self.chunks.append({"first": n, "para": self.paragraphs, "base": self._base_now(numbering)})
+                self.chunks.append({"first": n, "para": self.paragraphs, "base": self._base_now(numbering),
+                                    "fields": [(f, f["phase"], f["instr"]) for f in fst]})
 
         def finish_block(at_end: int) -> None:
             nonlocal buf, buf_at
@@ -209,6 +215,7 @@ class DocxLazy(BlocksLazy):
                 root = parse(xml)
                 top = root.kids[0]
                 body = top.find("body")
+                h._carry = [_carried_field({"phase": ph, "instr": ins, "locked": lk}) for ph, ins, lk in fp["at"]]
                 blocks = h._blocks(body, self.main)
                 paras = sum(1 for _ in iter_paras(blocks))
                 tables = sum(1 for _ in _tables(blocks))
@@ -242,7 +249,25 @@ class DocxLazy(BlocksLazy):
                 self.offs.append(at)
                 self.para_first.append(self.paragraphs)
                 st["at"] = at
+                fp["at"] = [(f["phase"], f["instr"], f["locked"]) for f in fst]
             if st["body"] and depth >= 2:
+                if not fp["bad"] and (local in _FIELD_BLOCK or (fp["p"] and local in _FIELD_INLINE)):
+                    if local == "p":
+                        fp["p"] += 1
+                else:
+                    if not fp["bad"] and stack[-1] == "r":
+                        if local == "fldChar":
+                            typ = next((v for k, v in attrs.items() if k.rsplit(":", 1)[-1] == "fldCharType"), "")
+                            if typ == "begin":
+                                lock = next((v for k, v in attrs.items() if k.rsplit(":", 1)[-1] == "fldLock"), "")
+                                fst.append({"phase": "instr", "instr": "", "locked": lock in ("1", "true", "on")})
+                            elif typ == "separate" and fst:
+                                fst[-1]["phase"] = "result"
+                            elif typ == "end" and fst:
+                                fst.pop()["closed"] = True
+                        elif local == "instrText":
+                            fp["instr"] = True
+                    fp["bad"] += 1
                 if local == "p":
                     if stack[-1] not in ("body", "tc"):
                         st["complex"] = True
@@ -282,6 +307,12 @@ class DocxLazy(BlocksLazy):
         def end(name):
             local = stack.pop()
             depth = len(stack)
+            if st["body"] and depth >= 2:
+                if fp["bad"]:
+                    fp["bad"] -= 1
+                    fp["instr"] = False
+                elif local == "p":
+                    fp["p"] -= 1
             if local == "p" and st["body"] and depth >= 2:
                 if st["numid"] is not None:
                     if st["numid"]:
@@ -305,6 +336,8 @@ class DocxLazy(BlocksLazy):
         def chars(data):
             if st["body"]:
                 st["chars"] += len(data)
+                if fp["instr"] and fst:
+                    fst[-1]["instr"] += data
 
         p.StartElementHandler = start
         p.EndElementHandler = end
@@ -341,6 +374,12 @@ class DocxLazy(BlocksLazy):
         self.data_end = at
         self.body_paragraphs = self.paragraphs
         self.tracked = st["del"]
+        # まとまりの始まりで開いているフィールド（その時の phase・命令の字）と、後ろで閉じるか
+        for ch in self.chunks:
+            if "story" in ch:
+                continue
+            ch["fields"] = tuple({"phase": ph, "instr": ins, "locked": f["locked"], "closed": bool(f.get("closed"))}
+                                 for f, ph, ins in ch["fields"])
 
     def _base_now(self, numbering) -> dict:
         h = self._h
@@ -434,6 +473,10 @@ class DocxLazy(BlocksLazy):
     def base_of(self, i: int) -> dict:
         base = dict(self.chunks[i]["base"])
         base["control_names"] = self.control_names[:base.pop("controls")]
+        base["fields"] = self.chunks[i].get("fields", ())
+        nxt = self.chunks[i + 1] if i + 1 < len(self.chunks) else {}
+        # この部分の終わりで開いているフィールドが、後ろで閉じるか（最後のまとまりの後ろには、閉じる印がない）
+        base["fields_end"] = tuple(f["closed"] for f in nxt["fields"]) if "fields" in nxt else None
         return base
 
     # ------------------------------------------------------------------ 概要

@@ -16,7 +16,7 @@ import struct
 from dataclasses import dataclass, field
 
 from ..cfb import CFB
-from ..docx.document import TEXT_TYPES, WINGDINGS, Cell, Control, Para, Seg, Table
+from ..docx.document import TEXT_TYPES, WINGDINGS, Cell, Control, Para, Seg, Table, _is_form_instr, _mark_result
 
 FC_NAMES = ["StshfOrig", "Stshf", "PlcffndRef", "PlcffndTxt", "PlcfandRef", "PlcfandTxt", "PlcfSed", "PlcPad", "PlcfPhe",
             "SttbfGlsy", "PlcfGlsy", "PlcfHdd", "PlcfBteChpx", "PlcfBtePapx", "PlcfSea", "SttbfFfn", "PlcfFldMom",
@@ -730,13 +730,48 @@ class DocFile:
             p.cell = c
         return c
 
+    def _fields_multi(self) -> list[tuple]:
+        """段落・マスをまたぐ、閉じたフィールド（目次・索引など、結果が何段落にもなるもの）：
+        (始まりの字, 区切りの字（なければ None）, 終わりの字, 命令の字)。始まりの順。"""
+        memo = self.__dict__.get("_fields_multi_memo")
+        if memo is not None:
+            return memo
+        text = self.text
+        out, stack = [], []
+        # フィールドの印は、同じ部分（本文・脚注・ヘッダー…）の中で組になる：部分の境で、開いたままのものを捨てる
+        cuts, at = [], 0
+        for key in ("text", "ftn", "hdd", "atn", "edn", "txbx", "hdrtxbx"):
+            at += max(0, self.ccp.get(key, 0))
+            cuts.append(at)
+        k = 0
+        for m in re.finditer("[\x13\x14\x15]", text):
+            o, cp = ord(m[0]), m.start()
+            while k < len(cuts) and cp >= cuts[k]:
+                k += 1
+                stack.clear()
+            if o == 0x13:
+                stack.append([cp, None])
+            elif o == 0x14 and stack:
+                if stack[-1][1] is None:
+                    stack[-1][1] = cp
+            elif o == 0x15 and stack:
+                b, sep = stack.pop()
+                if "\r" in text[b:cp] or "\x07" in text[b:cp]:
+                    out.append((b, sep, cp, text[b + 1:sep if sep is not None else cp]))
+        out.sort()
+        self.__dict__["_fields_multi_memo"] = out
+        return out
+
     def _para(self, s: int, e: int) -> Para:
         p = Para(None, "doc", [])
         p.cp0, p.cp1 = s, e
         sk = (getattr(self, "partial", None) or {}).get("skel")
         p.label = (sk if sk else self).number_labels().get(e, "")
         text = self.text
-        stack: list[dict] = []
+        # 前の段落から続くフィールド（閉じると分かっているものだけ）：命令の途中なら命令の字として、結果の途中なら結果の字として読む
+        multi = (sk if sk else self)._fields_multi()
+        stack: list[dict] = [{"begin": b, "instr": ins, "phase": "result" if sep is not None and sep < s else "instr", "n0": 0,
+                              "carried": True} for b, sep, end, ins in multi if b < s <= end] if multi else []
         cp = s
         while cp < e:
             ch = text[cp]
@@ -746,6 +781,10 @@ class DocFile:
                 continue
             if o == 0x13:
                 stack.append({"begin": cp, "instr": "", "phase": "instr"})
+                cp += 1
+                continue
+            if o == 0x14 and stack and stack[-1].get("carried"):
+                stack[-1].update(phase="result", n0=len(p.segs))
                 cp += 1
                 continue
             if o == 0x14 and stack:
@@ -770,6 +809,12 @@ class DocFile:
                         f["ole"] = self._add_embed(f"ObjectPool/_{pic}", prog, p) or self._add_data_embed(pic, prog, p)
                 cp += 1
                 continue
+            if o == 0x15 and stack and stack[-1].get("carried"):
+                f = stack.pop()
+                if f["phase"] == "result" and not _is_form_instr(f["instr"]):
+                    _mark_result(p.segs[f["n0"]:], f["instr"], None, "doc", p, False)
+                cp += 1
+                continue
             if o == 0x15 and stack:
                 f = stack.pop()
                 if "ctl" not in f:
@@ -778,6 +823,9 @@ class DocFile:
                 ctl = f.get("ctl")
                 if ctl is None and len(p.segs) == f["n0"]:
                     self._eq_segs(f["instr"], p, cp)
+                if ctl is None and f["phase"] == "result":
+                    # 差し込み・計算などのフィールドの結果（MERGEFIELD・DATE・REF・= など）：Word が更新すると作り直す字
+                    _mark_result(p.segs[f["n0"]:], f["instr"], None, "doc", p, False)
                 if ctl is None:
                     from ..links import field_target
 
@@ -848,6 +896,12 @@ class DocFile:
                 else:
                     p.segs.append(Seg(ch.replace("\xa0", " "), "t", CPRef(cp), None, hidden, props["underline"], look=props.get("look")))
             cp += 1
+        if stack and multi:
+            # 段落の終わりで開いているフィールドのうち、後ろで閉じるもの：ここまでの結果の字に、フィールドの結果の印
+            closing = {b for b, _sep, _end, _ins in multi}
+            for f in reversed(stack):
+                if f["phase"] == "result" and f.get("ctl") is None and f["begin"] in closing and not _is_form_instr(f["instr"]):
+                    _mark_result(p.segs[f["n0"]:], f["instr"], None, "doc", p, False)
         return p
 
     def _eq_segs(self, instr: str, p: Para, cp: int) -> None:

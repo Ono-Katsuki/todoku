@@ -193,6 +193,12 @@ def inline_padding(p: Para, a: int, b: int, value: str, opts: dict | None = None
                        ambiguous_wide=AMBIGUOUS.get(opts.get("ambiguous_width")))
 
 
+def tab_note(key: str, tabs: int) -> str:
+    """タブのある空欄に書いたときに伝えること（どの形式も同じ字）。"""
+    return (f"{key}: この空欄の線は、タブ {tabs} 個で引かれています。値はタブの前に書き、タブは残しました"
+            "（線は値の後ろから続きます。値がタブの位置を越えると、線の終わりと後ろの字が、次のタブの位置まで右に動きます）")
+
+
 def _is_text_value(v) -> str:
     if isinstance(v, dict):
         raise FillError(f"この所には、字（または数・真偽）で書いてください（受け取った指定 {sorted(v)} は、この所では使えません）")
@@ -301,11 +307,21 @@ class Filler:
                 f'<{pre}:bookmarkEnd {pre}:id="{bid}"/>'.encode())
 
     # ------------------------------------------------------------------ 段落の文字を置き換える
-    def replace_span(self, item: dict, p: Para, a: int, b: int, value: str, pad: tuple[str, str] = ("", "")) -> None:
+    def replace_span(self, item: dict, p: Para, a: int, b: int, value: str, pad: tuple[str, str] = ("", ""),
+                     before_tab: bool = False) -> None:
         """段落の文字 [a, b) を value にする予定を立てる（同じ文字の要素の中の複数の空欄は、finish でまとめて書く）。
-        pad：value の前と後ろに足す空白（しおりの外。inline_padding）。"""
+        pad：value の前と後ろに足す空白（しおりの外。inline_padding）。
+        before_tab：a == b のとき、a の位置のタブの前に、そのタブの字の要素の書式（下線など）で差し込む（タブで始まる空欄）。"""
         part = p.part
         pos = p.positions()
+        if a == b and before_tab:
+            sg = p.segs[pos[a][0]] if a < len(pos) else None
+            if sg is None or sg.kind != "tab" or sg.node is None or sg.run is None:
+                raise FillError(f"{item['id']}: 書き足す位置が、書き換えられない部分にあります")
+            self.check_editable(item, part, sg.node.s)
+            bm = self.bookmark(item["id"])
+            self.run_ops.setdefault((part, sg.run.s), (sg.run, []))[1].append((sg.node, 0, 0, value, bm, ("", "")))
+            return
         if a == b:
             # 挿入（「市」の後ろに書き足すなど）：直前の字の後ろに入れる。段落の頭（「年　月」の年の前）は、初めの字の前に入れる
             if not pos:
@@ -405,6 +421,14 @@ class Filler:
                     continue
                 todo = sorted(by_node.get(id(kid), []), key=lambda x: x[0])
                 if not todo:
+                    buf += xml[kid.s:kid.e]
+                    continue
+                if kid.local in ("tab", "ptab"):
+                    # タブの前に差し込む（下線を引いたタブの空欄）：値はタブの字の要素の書式で書き、タブは残す
+                    _k0, _k1, value, bm, _pad = todo[0]
+                    flush()
+                    out.extend((split[0] if split else b"") + (bm[0] if bm else b"") + r_open + rpr_v + _t(pre, value)
+                               + r_close + (bm[1] if bm else b"") + (split[1]() if split else b""))
                     buf += xml[kid.s:kid.e]
                     continue
                 if kid.local == "sym":
@@ -1196,10 +1220,13 @@ def fill(doc: DocxDocument, values: dict, *, force: bool = False) -> FillResult:
                 text = _is_text_value(value)
                 p = item["para"]
                 a, b = item["span"]
+                tabs = item.get("tabs")  # 所の後ろに残す、空欄のタブ
                 # 下線を引いた空欄（空欄の字がすべて下線つき）は、幅を保つ（下線の長さを変えない）。そろえ方の指定があれば、
                 # 空きの幅を保って、そのとおりに前後へ空白を足す（inline_padding。証明も同じ決まりで確かめる）
                 pad = inline_padding(p, a, b, text, opts)
-                f.replace_span(item, p, a, b, text, pad=pad)
+                f.replace_span(item, p, a, b, text, pad=pad, before_tab=bool(tabs) and a == b)
+                if tabs and text:
+                    f.warnings.append(tab_note(key, tabs))
                 f.patches.append(Patch(key, "input", text, p.part,
                                        align={**opts, "pad": [len(pad[0]), len(pad[1])]} if opts else None))
                 lead, trail = item.get("kept_edges") or (False, False)

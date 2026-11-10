@@ -51,8 +51,10 @@ KIND_JA = {"text": "文字", "inline": "文字の中の空欄", "checkbox": "チ
 WORD_WHY = {
     **AGENT_WHY,
     "short_underline": "下線を引いた短い空白（1〜2字。下線の空欄は3字以上のことが多い）",
+    "underlined_tab": "下線を引いたタブ（1〜2字。線の長さはタブの位置で決まり、字の数からは分からない）",
+    "leader_tab": "線（リーダー：点線・下線など）を引くタブ位置のある段落の、タブ（線は、このタブがその位置まで届くときに引かれる。どのタブが届くかは字の配置で決まり、決めていません。線の種類は facts の leaders）",
     "checked_mark": "印のついたチェックの印らしい字（☑・☒・■・✓。いまはチェック済みとして読む。■ は箇条の印・飾りのこともある）",
-    "underscore_in_word": "英数字にはさまれた下線の字（「＿＿」。URL・ファイルの名前の一部のこともある）",
+    "underscore_in_word": "名前の字（英字・数字など、語を空白で分ける文字）にはさまれた下線の字（「＿＿」。URL・ファイルの名前の一部のこともある）",
     "next_line_long": "見出しのあるマスの中の、空の段落（マスのほかの字が長く、見出しではなく説明の文のこともある）",
     "first_line": "字のあるマスの、初めの空の段落（後ろの段落にだけ字がある。その字は見出しのことも、別の欄の見出しのこともある）",
 }
@@ -66,21 +68,28 @@ def box_mark(orig: str, on: bool) -> str:
     return ("☑" if orig == "☐" else "■") if on else orig
 
 
-def _underlined_blanks(p: Para) -> list[tuple[int, int, bool]]:
-    """下線を引いた空白の並び（「氏名＿＿＿」を下線つきの空白で作ったもの）：(始め, 終わり, 3字以上か)。
-    3字以上は書類の作り（下線の空欄）として規則の欄。1〜2字は、下線つきの見出しの字間のこともあるので、規則では決めない（エージェント）。
-    下線つきの字にはさまれた空白（下線を引いた字の中の、語の間の空白）は、空欄の形ではないので出さない。"""
+def tabs_in(p, a: int, b: int) -> list[int]:
+    """段落の字 [a, b) の中の、タブの位置（字の「\\t」ではなく、タブの要素）。"""
+    pos = p.positions()
+    return [k for k in range(a, min(b, len(pos))) if p.segs[pos[k][0]].kind == "tab"]
+
+
+def _underlined_blanks(p: Para) -> list[tuple[int, int, str | None]]:
+    """下線を引いた空白・タブの並び（「氏名＿＿＿」を下線つきの空白やタブで作ったもの）：(始め, 終わり, 理由の鍵)。
+    3字以上は書類の作り（下線の空欄）として規則の欄（理由の鍵 None）。1〜2字は規則では決めない（エージェント）：空白だけなら、
+    下線つきの見出しの字間のこともある（short_underline）。タブを含むなら、線の長さはタブの位置で決まり、字からは分からない
+    （underlined_tab）。下線つきの字にはさまれた空白・タブ（下線を引いた字の中の、語の間の空き）は、空欄の形ではないので出さない。"""
     chars_: list[tuple[str, bool]] = []  # (字, 下線つきか)
     blanks: list[bool] = []
     for s in p.segs:
         if s.hidden:
             continue
-        if not s.underline or s.kind != "t":
+        if not s.underline or s.kind not in ("t", "tab"):
             blanks.extend([False] * len(s.text))
             chars_.extend((ch, bool(s.underline)) for ch in s.text)
             continue
         for ch in s.text:
-            blanks.append(chars.is_space(ch))
+            blanks.append(s.kind == "tab" or chars.is_space(ch))
             chars_.append((ch, True))
     out = []
     start = None
@@ -89,21 +98,24 @@ def _underlined_blanks(p: Para) -> list[tuple[int, int, bool]]:
             start = pos
         elif not is_blank and start is not None:
             if pos - start >= 3:
-                out.append((start, pos, True))
+                out.append((start, pos, None))
             else:
                 inside = start > 0 and pos < len(chars_) and chars_[start - 1][1] and chars_[pos][1] \
                     and not chars_[start - 1][0].isspace() and not chars_[pos][0].isspace()
                 if not inside:
-                    out.append((start, pos, False))
+                    tab = any(chars_[k][0] == "\t" for k in range(start, pos))
+                    out.append((start, pos, "underlined_tab" if tab else "short_underline"))
             start = None
     return out
 
 
 def para_spans(p: Para, text: str | None = None) -> list[tuple[int, int, str | None]]:
     """段落の中の空欄：(始め, 終わり, 理由の鍵)。理由の鍵が None のものは、書類の作りで決まる空欄（規則の欄）：
-    下線を引いた空白の並び（3字以上）・下線の字の並び・かっこの組の中が空白だけの所。ほかは字の形と並びだけで見つけた所
+    下線を引いた空白・タブの並び（3字以上）・下線の字の並び・かっこの組の中が空白（とタブ）だけの所。ほかは字の形と並びだけで見つけた所
     （1 字ぶん以上の空白の並び（wide_space）・点線・ダッシュの並び。xlsx.window.blank_places）で、理由の鍵（WORD_WHY）をつけてエージェントに示す。
-    英数字にはさまれた下線の字（URL・ファイルの名前の「__icsFiles」）は、名前の一部のこともあるので規則では決めない。
+    名前の字（語を空白で分ける文字の英字・数字。chars.name_side）にはさまれた下線の字（URL・ファイルの名前の「__icsFiles」）は、
+    名前の一部のこともあるので規則では決めない。下線を引いたタブは空欄の字に数え、線（リーダー）を引くタブ位置のある段落のタブは、
+    それぞれ「？」の所にする（どのタブがその位置に届くかは、字の配置で決まる）。
     重なる空欄は1つにまとめる（どれかが作りで決まるものなら、まとめた所も規則の欄）。text は p.text（呼ぶ側で作ってあれば渡す）。"""
     if text is None:
         text = p.text
@@ -114,13 +126,36 @@ def para_spans(p: Para, text: str | None = None) -> list[tuple[int, int, str | N
             return  # 同じ所：先に見つけた理由（作りで決まるもの・下線のような作りの手がかり）を残す
         spans[(a, b)] = why
 
-    for a, b, long_ in _underlined_blanks(p):  # 下線（書式）は、字の並びより先に見る（同じ所なら、下線の理由を残す）
-        put(a, b, None if long_ else "short_underline")
+    for a, b, why in _underlined_blanks(p):  # 下線（書式）は、字の並びより先に見る（同じ所なら、下線の理由を残す）
+        put(a, b, why)
     for a, b, kind in blank_places(text):
         why = None if kind in BLANK_RULE_KINDS else kind
         if kind == "underscore" and chars.name_side(text, a - 1, -1) and chars.name_side(text, b, 1):
             why = "underscore_in_word"
         put(a, b, why)
+    tabs = tabs_in(p, 0, len(text)) if "\t" in text else []
+    done = -1
+    for k in tabs:
+        # かっこの組の中が、空白とタブだけ（「（[タブ]）」）：規則の空欄（空白だけのものは blank_places）
+        if k <= done:
+            continue
+        a = b = k
+        while a > 0 and (chars.is_space(text[a - 1]) or text[a - 1] == "\t"):
+            a -= 1
+        while b < len(text) and (chars.is_space(text[b]) or text[b] == "\t"):
+            b += 1
+        done = b
+        if a > 0 and b < len(text) and chars.closing(text[a - 1]) == text[b]:
+            put(a, b, None)
+    if getattr(p, "leaders", ()) and tabs:
+        covered = sorted(spans)
+        run: list[int] = []  # 続けて並ぶタブは、1 つの所
+        for k in [*tabs, -1]:
+            if run and k != run[-1] + 1:
+                put(run[0], run[-1] + 1, "leader_tab")
+                run = []
+            if k >= 0 and not any(a <= k < b for a, b in covered):
+                run.append(k)
     kept: list[list] = []
     for (a, b), why in sorted(spans.items()):
         if kept and a < kept[-1][1]:
@@ -134,13 +169,22 @@ def para_spans(p: Para, text: str | None = None) -> list[tuple[int, int, str | N
 
 
 def _field_mask(p: Para) -> bytearray:
-    """段落の字ごとに、フォームの欄の字か（1）。段落ごとに 1 回だけ作る（字ごとに区切りをたどり直さない）。"""
+    """段落の字ごとに、フォームの欄・フィールドの結果の字か（1。作り手が命令に書いた字をそのまま見せる EQ の結果は 2）。
+    段落ごとに 1 回だけ作る（字ごとに区切りをたどり直さない）。"""
     out = bytearray()
     for s in p.segs:
         if s.hidden:
             continue
-        out.extend((b"\x01" if s.field is not None else b"\x00") * len(s.text))
+        out.extend((b"\x00" if s.field is None else b"\x02" if _author_text(s) else b"\x01") * len(s.text))
     return out
+
+
+def _author_text(s) -> bool:
+    """フィールドの結果の字のうち、作り手が命令に書いた字をそのまま見せるもの（EQ：均等割り付け・囲み字・ふりがなの古い形。
+    ECMA-376 第1部 17.16.5.17）。ページ番号・日付・目次のように、ほかから作る値ではないので、見出しの字として読む
+    （中には書けない。その外の空き・後ろは、ふつうの字の隣と同じに探す）。"""
+    f = s.field
+    return f is not None and f.kind == "field" and re.match(r"\s*EQ(?![A-Za-z])", getattr(f, "instr", "") or "", re.I) is not None
 
 
 def _option_end(text: str, b: int, stops: list[int]) -> int:
@@ -251,12 +295,19 @@ class Spots:
                 if id(p) in cell_paras:
                     continue
                 if any(s.field is not None for s in p.segs) and all(s.field is not None or not s.text.strip() for s in p.segs):
-                    continue
+                    # 欄の字と空白だけの段落。フィールドの結果の字（差し込み・ページ番号・EQ など）と、その外の空白のある段落は別：
+                    # 外の空白は、ふつうの段落と同じに探す（「ﾌﾘｶﾞﾅ」（EQ の結果）の後ろの空白の並びなど）
+                    if any(s.field is not None and s.field.kind != "field" for s in p.segs) or not any(
+                            (s.field is None or _author_text(s)) and s.text and not s.hidden for s in p.segs):
+                        continue
                 pi = self.para_index[id(p)]
                 text = p.text
                 self._texts[id(p)] = text  # 段落の字は 1 度だけ作る（Para.text は呼ぶたびに区切りをつなぎ直す）
                 fmask = _field_mask(p)
                 has_field = any(s_.field is not None for s_ in p.segs)  # 長さ 0 の欄（字のない部品）も、欄のある段落
+                # フォームの欄（書く所が決まっている）のある段落か。フィールドの結果の字（差し込み・ページ番号・EQ など）だけの
+                # 段落は別：結果の字の外の空きは、ふつうの段落と同じに探す（結果の字に重なる所は、下で除く）
+                has_form = any(s_.field is not None and s_.field.kind != "field" for s_ in p.segs)
                 stops = _option_stops(text)
                 bullet_id = f"P{pi}.b"
                 bm = self.marks.get(bullet_id)
@@ -278,15 +329,26 @@ class Spots:
                 for a, b, why in para_spans(p, text):
                     if has_field and any(fmask[a:b]):
                         continue
-                    if why in ("gap", "short_underline") and has_field and _touches_field(p, a, b):
+                    if why in ("gap", "short_underline", "underlined_tab", "leader_tab") and has_field and _touches_field(p, a, b):
                         continue  # フォームの欄にすぐ接する空白は、欄の字の飾り（欄はその id で書く）
                     spans.append((a, b, "inline", why))
                 # 書き込み済みの欄（しおり）は、その名前を持ったまま（4 で作る）。残りの所の名前は、すべて集めてから
                 # 字の位置で決める（_name_places：P段落.c字数。数え順の番号にしない）
                 mine = marks_of.get(id(p), [])
                 written = [(x, y) for _n, x, y in mine]
+                rest: list[tuple[int, int]] = []
                 if written:
                     spans = [t for t in spans if not _overlaps(t[0], t[1], written)]
+                    # 書いた所のすぐ後ろがタブなら、そこから次の印刷された字までの空白・タブは、その所の線の残り
+                    # （値はタブの前に書き、タブは残した）：新しい空欄として出さない（書き直すときは、書いた所の id で）
+                    for _x, y in written:
+                        if text[y:y + 1] == "\t":
+                            z = y
+                            while z < len(text) and (text[z] == "\t" or chars.is_space(text[z])):
+                                z += 1
+                            rest.append((y, z))
+                    if rest:
+                        spans = [t for t in spans if not (t[2] == "inline" and any(y <= t[0] and t[1] <= z for y, z in rest))]
                 placed: list[tuple[dict, str]] = []  # (所, 古い番号の並び："" は P段落.番号、"a" は P段落.a番号)
                 for a, b, kind, why in sorted(spans, key=lambda t: t[:3]):
                     if kind == "checkbox":
@@ -307,8 +369,14 @@ class Spots:
                     edges = (False, False)
                     if kind == "inline":
                         # 空白だけの長い空き：書いた字が見出しにくっつかないよう、端の 1 字を残した中に書く（窓の所も中だけ）
-                        a, b, edges = gap_interior(text, a, b)
+                        # 空欄の中にタブがあれば、所（値で置き換える範囲）は初めのタブの前まで：タブは残す（下線を引いたタブは、
+                        # タブがあるかぎり線を引き続ける。消すと、書類の線が短くなる）。空欄がタブで始まるときは、字のない所
+                        # （a == b）：そのタブの前に、タブと同じ書式で差し込む。所がどの形式でも同じなので、書き込みと証明がそろう
+                        tabs = tabs_in(p, a, b) if "\t" in text[a:b] else []
+                        a, b, edges = gap_interior(text, a, tabs[0] if tabs else b)
                     it = {"kind": kind, "source": "layout", "para": p, "span": (a, b), "label": label, "provenance": LAYOUT}
+                    if kind == "inline" and tabs:
+                        it["tabs"] = len(tabs)  # 所の後ろに残る、空欄のタブの数
                     if kind == "checkbox" and clipped:
                         it["label_clipped"] = True
                     if any(edges):
@@ -323,7 +391,7 @@ class Spots:
                 # 規則では決められない所：窓に「？」をつけて示し、エージェントが読んで判断する
                 # （フォームの欄のある段落・図や埋め込みの印だけの段落（窓のために作った字だけ）は、探さない）
                 found_agent = []
-                look = not has_field and (text.strip(" \u3000") == "" or "".join(
+                look = not has_form and (text.strip(" \u3000") == "" or "".join(
                     s_.text for s_ in p.segs if not s_.hidden and s_.kind in ("t", "sym", "tab")).strip(" \u3000\t"))
                 if look:
                     found_agent = agent_blanks(text, [(x, y) for x, y, _k, _w in spans] + written)
@@ -341,6 +409,10 @@ class Spots:
                     for a, b, why in found_agent:
                         if has_field and any(fmask[a:max(a + 1, b)]):
                             continue
+                        if has_field and a == b and 0 < a <= len(fmask) and fmask[a - 1] == 1:
+                            continue  # ほかから作る値（ページ番号・日付など）のすぐ後ろ：見出しの後ろとして示さない
+                        if any(y <= a and b <= z for y, z in rest):
+                            continue  # 書いた所の線の残り（タブと、その後ろの空白）
                         label = self._label(p, a, b)
                         if why in ("first_line", "next_line", "next_line_long") and c is not None and c.table is not None:
                             # マスの中の空の段落：段落の字は空欄だけ（「［　］」）なので、ほかのマスの欄と同じく、表の行・列の見出し
@@ -795,10 +867,11 @@ def _cell_label(t: Table, c: Cell, written: set | None = None) -> tuple[str, str
 
 
 def _printed(c: Cell) -> str:
-    """マスの、印刷される字（入力欄の値・フィールドの結果でない字）。"""
+    """マスの、印刷される字（入力欄の値でない字。フィールドの結果の字は、紙に出る字なので入れる：
+    見出しの字を EQ フィールドで均等に割り付けた様式がある）。"""
     out = []
     for p in c.paras():
-        t = "".join(s.text for s in p.segs if not s.hidden and s.field is None).strip()
+        t = "".join(s.text for s in p.segs if not s.hidden and (s.field is None or s.field.kind == "field")).strip()
         if t:
             out.append(t)
     return " ".join(out)
@@ -922,6 +995,10 @@ def build(doc: DocxDocument) -> dict:
             # 段落の中の所の事実（所の字・字数・幅の目安・前後の字・字間を空けた並びの字数。xlsx.window.place_facts）
             q = it["para"]
             d["facts"] = place_facts(sp._texts.get(id(q)) or q.text, *it["span"])
+            if it.get("why_key") == "leader_tab":
+                d["facts"]["leaders"] = list(getattr(q, "leaders", ()))  # 段落のタブ位置の、線の種類
+            if it.get("tabs"):
+                d["facts"]["tabs"] = it["tabs"]  # 所の後ろに続く、空欄のタブの数：値はその前に書き、タブは残る
         if kind == "cell" and it.get("cell") is not None:
             # 空のマスの欄に残っている、本文ではない字（事実）：変更履歴で削除された字・非表示の字
             qs = it["cell"].paras()

@@ -834,7 +834,7 @@ def _lead_marker(body: str) -> str:
 def gap_interior(text: str, a: int, b: int, pad: tuple[bool, bool] | None = None) -> tuple[int, int, tuple[bool, bool]]:
     """空白だけの空き text[a:b] に書くとき、書いた字が前後の印刷された字にくっつかないよう（「氏　名山田　花子」）、元の空白を
     端に 1 字ずつ残した中の範囲：(始め, 終わり, (前を残したか, 後ろを残したか))。字数の目安は使わない：
-    - 前に印刷された字（空白・開きかっこ Ps・Pi でない字）があれば初めの 1 字を、後ろに印刷された字（空白・閉じかっこ Pe・Pf
+    - 前に印刷された字（空白・タブ・開きかっこ Ps・Pi でない字）があれば初めの 1 字を、後ろに印刷された字（空白・タブ・閉じかっこ Pe・Pf
       でない字）があれば終わりの 1 字を残す。残したあとに書く所が 1 字ぶん以上残らないときは、残さない（「年　　月」は空き全体）
     - pad（(前, 後ろ)）で、残すかどうかを決めて渡せる（残せない長さのときは残さない）
     空白でない空き（下線の字・点線）は、そのまま返す。どちらを残したかは、所の kept_edges に出る。"""
@@ -842,8 +842,9 @@ def gap_interior(text: str, a: int, b: int, pad: tuple[bool, bool] | None = None
     if not seg or not all(chars.is_space(ch) for ch in seg):
         return a, b, (False, False)
     if pad is None:
-        lead = a > 0 and not chars.is_space(text[a - 1]) and unicodedata.category(text[a - 1]) not in ("Ps", "Pi")
-        trail = b < len(text) and not chars.is_space(text[b]) and unicodedata.category(text[b]) not in ("Pe", "Pf")
+        # タブは印刷された字ではない（空白と同じく、くっつく相手にならない）
+        lead = a > 0 and not chars.is_space(text[a - 1]) and text[a - 1] != "\t" and unicodedata.category(text[a - 1]) not in ("Ps", "Pi")
+        trail = b < len(text) and not chars.is_space(text[b]) and text[b] != "\t" and unicodedata.category(text[b]) not in ("Pe", "Pf")
     else:
         lead, trail = bool(pad[0]), bool(pad[1])
     if b - a - lead - trail < 1:

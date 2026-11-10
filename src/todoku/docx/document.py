@@ -47,6 +47,23 @@ class Seg:
     look: tuple | None = None  # 字の書式の事実（取り消し線か, 字の色 "RRGGBB" か None）：docx/fontfacts.py。ない形式は None
 
 
+def _tab_stops(ppr) -> list[tuple[str, str, str]]:
+    """w:pPr の w:tabs：[(位置, 種類, リーダー)]。"""
+    tabs = ppr.find("tabs") if ppr is not None else None
+    if tabs is None:
+        return []
+    return [(t.get("pos") or "", t.get("val") or "", t.get("leader") or "") for t in tabs.findall("tab")]
+
+
+def _lay_stops(stops: dict, more: list) -> None:
+    """タブ位置を重ねる：同じ位置は後のものが勝ち、clear はその位置を消す。"""
+    for pos, val, leader in more:
+        if val == "clear":
+            stops.pop(pos, None)
+        else:
+            stops[pos] = leader
+
+
 @dataclass
 class Para:
     node: Node
@@ -56,6 +73,7 @@ class Para:
     label: str = ""  # 段落番号（「１．」「(1)」「①」など）
     cell: "Cell | None" = None
     boxes: list["Block"] = field(default_factory=list)  # 段落の中のテキストボックスの中身
+    leaders: tuple = ()  # 段落のタブ位置のうち、線（リーダー）を引くものの、線の種類（タブのある段落だけ）
 
     @property
     def text(self) -> str:
@@ -625,6 +643,12 @@ class DocxDocument:
                 self.protection = dp.get("edit", "")
                 self.protection_enforced = dp.get("enforcement", "0") in ("1", "true", "on")
         self.controls: list[Control] = []
+        # 段落をまたいで開いているフィールド（目次・索引・参考文献など、結果が何段落にもなるもの）：本文の流れごとに持ち越す
+        self._carry: list = []
+        # 書類の一部だけを読むとき（lazy/docxdoc が数えたもの）：その前から開いているフィールドと、
+        # この部分の終わりで開いているフィールドが後ろで閉じるか
+        self._carry_base = tuple(base.get("fields", ()))
+        self._carry_ends = base.get("fields_end")
         self.body = self._story(self.main)
         self.stories: list[tuple[str, str, list]] = []  # (種類, 部品, ブロック)
         for rid, (typ, target) in self.rels.items():
@@ -806,9 +830,16 @@ class DocxDocument:
                 if item.local in ("footnote", "endnote", "comment"):
                     if item.get("type") in ("separator", "continuationSeparator", "continuationNotice"):
                         continue
+                    self._carry = []
                     out += self._blocks(item, part)
             return out
-        return self._blocks(container, part)
+        self._carry = [_carried_field(f) for f in self._carry_base] if part == self.main else []
+        out = self._blocks(container, part)
+        if part == self.main and self._carry_ends is not None and len(self._carry_ends) == len(self._carry):
+            for f, closed in reversed(list(zip(self._carry, self._carry_ends))):  # 内側のフィールドから
+                if closed:
+                    _mark_held(f)
+        return out
 
     def _blocks(self, node: Node, part: str, cell: Cell | None = None) -> list:
         out = []
@@ -892,8 +923,59 @@ class DocxDocument:
             if p.label in BULLET_BOXES and self.numbering.fmt(num[0], num[1]) == "bullet":
                 # 箇条書きの印が □ の段落（「□ Ⅰ 負担上限月額に関する認定」）：チェックの欄にできる（印は段落番号の定義の字）
                 p.bullet = {"num": num[0], "ilvl": num[1], "direct": ppr is not None and ppr.find("numPr") is not None}
-        self._inline(node, p, part, {"stack": []})
+        self._inline(node, p, part, {"stack": self._carry})
+        self._carry_over(p, part)
+        if any(s.kind == "tab" for s in p.segs):
+            p.leaders = self._leaders(ppr, p.style)
         return p
+
+    def _carry_over(self, p: Para, part: str) -> None:
+        """段落の終わりで、まだ閉じていないフィールドを次の段落へ持ち越す（フィールドの始まり・区切り・終わりの印は、
+        本文の流れの順に対になる。ECMA-376 第1部 17.16.2：結果は何段落にもなれる）。
+        結果の途中のフィールド（フォームの欄でないもの）は、この段落のぶんの結果の字を控え、終わりの印が来たときに
+        フィールドの結果の印を付ける（終わりの印のないフィールドは、いままでどおり、ふつうの字として読む）。
+        フォームの欄は、いままでどおり、始まりの段落の中だけで読む（後ろの段落の終わりの印は、対として数えるだけ）。"""
+        for f in self._carry:
+            if f.get("ghost"):
+                continue
+            if f.get("ctl") is not None:
+                f["ghost"] = True
+                continue
+            if f["phase"] == "result":
+                f.setdefault("held", []).append((p.segs[f.get("n0", 0):], part, p))
+                f["n0"] = 0
+            f["carried"] = True
+
+    def tab_styles(self) -> dict:
+        """タブ位置の決まり方の材料：スタイルごとの (基のスタイル, タブ位置の並び [(位置, 種類, リーダー)])・既定の段落スタイル。"""
+        memo = self.__dict__.get("_tab_styles")
+        if memo is not None:
+            return memo
+        out: dict = {"styles": {}, "para_default": ""}
+        root = self._load("word/styles.xml")
+        top = root.kids[0] if root is not None and root.kids else None
+        if top is not None:
+            for st in top.findall("style"):
+                b = st.find("basedOn")
+                out["styles"][st.get("styleId") or ""] = (b.get("val") or "" if b is not None else "", _tab_stops(st.find("pPr")))
+                if st.get("type") == "paragraph" and st.get("default") in ("1", "true", "on"):
+                    out["para_default"] = st.get("styleId") or ""
+        self.__dict__["_tab_styles"] = out
+        return out
+
+    def _leaders(self, ppr, style: str) -> tuple:
+        """段落のタブ位置（スタイルの基から順に重ね、w:val="clear" の位置は消す。ISO 29500-1 17.3.1.38）のうち、
+        線（リーダー）を引くものの、線の種類（dot・hyphen・underscore・heavy・middleDot）。"""
+        ts = self.tab_styles()
+        chain, s = [], style or ts["para_default"]
+        while s and s in ts["styles"] and s not in chain and len(chain) < 20:
+            chain.append(s)
+            s = ts["styles"][s][0]
+        stops: dict = {}
+        for sid in reversed(chain):
+            _lay_stops(stops, ts["styles"][sid][1])
+        _lay_stops(stops, _tab_stops(ppr))
+        return tuple(sorted({x for x in stops.values() if x and x != "none"}))
 
     def _inline(self, node: Node, p: Para, part: str, st: dict, deleted: bool = False) -> None:
         for ch in node.kids:
@@ -952,23 +1034,33 @@ class DocxDocument:
         stack: list = st["stack"]
         for ch in r.kids:
             loc = ch.local
-            in_instr = bool(stack) and stack[-1]["phase"] == "instr"
+            # 前の段落から続く命令の途中では、命令の字（instrText）だけを命令として読む（本文の字は落とさない）
+            in_instr = bool(stack) and stack[-1]["phase"] == "instr" and not stack[-1].get("carried")
             if loc == "fldChar":
                 typ = ch.get("fldCharType")
                 if typ == "begin":
-                    stack.append({"phase": "instr", "instr": "", "begin": ch, "ctl": None, "run": r})
+                    stack.append({"phase": "instr", "instr": "", "begin": ch, "ctl": None, "run": r,
+                                  "locked": ch.get("fldLock", "") in ("1", "true", "on")})
                 elif typ == "separate" and stack:
                     f = stack[-1]
                     f["phase"] = "result"
-                    f["ctl"] = self._form_field(f, part, p)
+                    if f.get("carried") and _is_form_instr(f["instr"]):
+                        f["ghost"] = True  # 命令が段落をまたぐフォームの欄：欄にしない（いままでどおり）
+                    elif not f.get("carried"):
+                        f["ctl"] = self._form_field(f, part, p)
                     f["n0"] = len(p.segs)
                 elif typ == "end" and stack:
                     f = stack.pop()
+                    if f.get("ghost"):
+                        continue
+                    if f.get("carried") and f["phase"] == "instr":
+                        continue  # 結果のないフィールドが段落をまたいで終わった
                     if f.get("ctl") is None and f["phase"] == "instr":
                         f["ctl"] = self._form_field(f, part, p)
                         f["n0"] = len(p.segs)
+                    _mark_held(f)  # 前の段落までの結果の字
                     ctl = f.get("ctl")
-                    if ctl is None and len(p.segs) == f.get("n0", len(p.segs)):
+                    if ctl is None and not f.get("carried") and len(p.segs) == f.get("n0", len(p.segs)):
                         # 結果の字のない EQ フィールド（古い形のふりがな）：命令の中の字が見える字
                         from ..eqfield import eq_text
 
@@ -981,8 +1073,7 @@ class DocxDocument:
                         self._note_field_link(f["instr"], p.segs[f.get("n0", len(p.segs)):])
                     if ctl is None and f["phase"] == "result":
                         # 差し込み・計算などのフィールドの結果（MERGEFIELD・DATE・REF・= など）：Word が更新すると作り直す字
-                        _mark_result(p.segs[f.get("n0", len(p.segs)):], f["instr"], f["begin"], part, p,
-                                     f["begin"].get("fldLock", "") in ("1", "true", "on"))
+                        _mark_result(p.segs[f.get("n0", len(p.segs)):], f["instr"], f["begin"], part, p, f["locked"])
                     if ctl is not None:
                         ctl.end = ch
                         ctl.result_segs = p.segs[f.get("n0", len(p.segs)):]
@@ -1178,7 +1269,11 @@ class DocxDocument:
             ups = list(_ancestors(tx, node))
             if any(a.local in ("Fallback", "txbxContent") for a in ups):
                 continue
-            p.boxes += self._blocks(tx, part)
+            keep, self._carry = self._carry, []  # テキストボックスの中は、別の流れ
+            try:
+                p.boxes += self._blocks(tx, part)
+            finally:
+                self._carry = keep
 
     # ------------------------------------------------------------------ 入力欄
     def _form_field(self, f: dict, part: str, p: Para) -> Control | None:
@@ -1300,6 +1395,24 @@ def _look_of(rpr) -> tuple:
         v = (c.get("val") or "").upper()
         color = "000000" if v == "AUTO" else v if len(v) == 6 and all(ch in "0123456789ABCDEF" for ch in v) else None
     return strike, color
+
+
+def _is_form_instr(instr: str) -> bool:
+    w = instr.split()
+    return bool(w) and w[0].upper() in ("FORMTEXT", "FORMCHECKBOX", "FORMDROPDOWN")
+
+
+def _carried_field(f: dict) -> dict:
+    """書類の一部だけを読むとき、その前から開いているフィールド（lazy/docxdoc が数えた phase・instr・locked）。"""
+    form = _is_form_instr(f.get("instr", ""))
+    return {"phase": f["phase"], "instr": f.get("instr", ""), "begin": None, "ctl": None, "run": None,
+            "locked": bool(f.get("locked")), "carried": True, "n0": 0, "ghost": form and f["phase"] == "result"}
+
+
+def _mark_held(f: dict) -> None:
+    """段落をまたぐフィールドの、前の段落までの結果の字に、フィールドの結果の印を付ける。"""
+    for segs, part, p in f.pop("held", ()):
+        _mark_result(segs, f["instr"], f["begin"], part, p, f["locked"])
 
 
 def _mark_result(segs: list, instr: str, node: Node, part: str, p: Para, locked: bool) -> None:

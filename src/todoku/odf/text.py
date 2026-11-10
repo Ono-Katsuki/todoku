@@ -104,6 +104,11 @@ def deleted_text(el: El, data: bytes) -> str:
     return "\n".join(out)
 
 
+# 作った字のまとまり（ODF 1.2 第1部 8：目次・索引など）の名前
+INDEX_JA = {"table-of-content": "目次", "illustration-index": "図の目次", "table-index": "表の目次", "object-index": "オブジェクトの目次",
+            "user-index": "ユーザー定義の目次", "alphabetical-index": "索引", "bibliography": "参考文献"}
+
+
 @dataclass
 class Src:
     """段落の字の1片が、XML のどこから来たか（Seg.node に入れる。並べるために .s を持つ）。"""
@@ -240,7 +245,15 @@ class OdtDocument:
             elif t == _T + "section":
                 out += self._blocks(ch, part, cell, protected or ch.get("text:protected") == "true", list_ctx)
             elif t.startswith(_T) and ch.find("text:index-body") is not None:
-                out += self._blocks(ch.find("text:index-body"), part, cell, protected, list_ctx)
+                # 目次・索引・参考文献など：本文（index-body）は、文書の見出しなどから作った字。更新すると作り直すので、
+                # フィールドの結果と同じに扱う（入力欄の推定・字を目印にした書き込みの対象にしない）
+                inner = self._blocks(ch.find("text:index-body"), part, cell, protected, list_ctx)
+                fc = Control("field", "odf-index", INDEX_JA.get(t[len(_T):], t[len(_T):]), ch, part, None)
+                for q in iter_paras(inner):
+                    for sg in q.segs:
+                        if sg.field is None:
+                            sg.field = fc
+                out += inner
             elif t in (_T + "index-body", _T + "index-title"):
                 out += self._blocks(ch, part, cell, protected, list_ctx)
             elif t == _DRAW + "page":

@@ -15,7 +15,7 @@ import hashlib
 from dataclasses import dataclass, field
 
 from ..docx.document import form_field_notes, form_field_refusal, iter_paras
-from ..docx.fill import FillError, _as_bool, _is_text_value, inline_padding, written_of  # 証明に渡す、書いた所 → 値（Word と同じ）
+from ..docx.fill import FillError, _as_bool, _is_text_value, inline_padding, tab_note, written_of  # 証明に渡す、書いた所 → 値（Word と同じ）
 from ..docx.proof import _expected_text
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from .document import MARK_PREFIX, RtfDocument, color_table
@@ -163,10 +163,17 @@ class RtfWriter:
         return b"{" + words + b" " + body + b"}"
 
     # ------------------------------------------------------------------ 段落の字
-    def replace_span(self, item: dict, p, a: int, b: int, value: str, keep_width: bool = False) -> None:
+    def replace_span(self, item: dict, p, a: int, b: int, value: str, keep_width: bool = False, before_tab: bool = False) -> None:
         self.check(item)
         pos = p.positions()
         bm = self.bookmark(item["id"])
+        if a == b and before_tab:
+            # タブで始まる空欄：タブの前に、タブの所の書式（下線など）で差し込む。タブは残す
+            src = p.segs[pos[a][0]].node if a < len(pos) else None
+            if src is None or src.kind != "tab":
+                raise FillError(f"{item['id']}: 書き足す位置が、書き換えられない部分にあります")
+            self.put(src.s, src.s, bm[0] + self.clean(src.look, self.enc(value, 1), item["id"]) + bm[1])
+            return
         if a == b:
             if not pos:
                 self.para_end(item, p, value)
@@ -332,10 +339,13 @@ def fill(doc: RtfDocument, values: dict, *, force: bool = False) -> FillResult:
             elif kind == "inline":
                 text = _is_text_value(value)
                 a, b = item["span"]
+                tabs = item.get("tabs")  # 所の後ろに残す、空欄のタブ
                 pos = p.positions()
                 blank = [p.segs[pos[i][0]] for i in range(a, b) if i < len(pos)]
                 underlined = bool(blank) and all(sg.underline for sg in blank)
-                w.replace_span(item, p, a, b, text, keep_width=underlined and bool(text))
+                w.replace_span(item, p, a, b, text, keep_width=underlined and bool(text), before_tab=bool(tabs) and a == b)
+                if tabs and text:
+                    w.warnings.append(tab_note(key, tabs))
                 w.patches.append(Patch(key, "input", text))
             else:
                 raise FillError(f"{key}: この種類の欄（{kind}）には書けません")

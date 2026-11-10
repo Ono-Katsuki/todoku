@@ -79,6 +79,10 @@ class RSrc:
     look: dict | None = None  # この字の書式のうち、取り消し線・非表示・字の色・蛍光ペン・背景の色（LOOK_WORDS → 値）
 
 
+# タブ位置の線（リーダー）の制御語 → 線の種類（Word の .docx と同じ名前）
+TAB_LEADERS = {"tldot": "dot", "tlhyph": "hyphen", "tlul": "underscore", "tlth": "heavy", "tleq": "equal", "tlmdot": "middleDot"}
+
+
 @dataclass
 class _St:
     """グループの状態（「{」で複写し、「}」で戻す）。"""
@@ -95,6 +99,8 @@ class _St:
     star: bool = False  # \* のあと
     deleted: bool = False  # 変更履歴で削除された字（\deleted）
     look: dict = field(default_factory=dict)  # LOOK_WORDS の制御語 → 値（グループの中で変えるときは、写してから変える）
+    lead: str = ""  # 次のタブ位置（\tx）につく、線（リーダー）の種類
+    leaders: tuple = ()  # 段落のタブ位置のうち、線を引くものの、線の種類
 
 
 @dataclass
@@ -372,6 +378,13 @@ class RtfDocument:
             if tail and first is not None:
                 add_char(tail, first, run[-1][2])
 
+        def result_field():
+            """いま読んでいる字が、どのフィールドの結果の字か（同じ流れの、いちばん内側のもの。なければ None）。"""
+            for _d, fd in reversed(fields):
+                if fd.kind == "result" and getattr(fd, "story", story) is story:
+                    return fd.ctl if fd.ctl is not None else fd.dummy
+            return None
+
         def add_char(ch: str, s: int, e: int, kind: str = "t") -> None:
             if st.skip or st.dest in SKIP:
                 return
@@ -390,11 +403,7 @@ class RtfDocument:
             if ch == "\xa0":
                 ch = " "
             p = para()
-            fctl = None
-            for _d, fd in reversed(fields):
-                if fd.kind == "result" and getattr(fd, "story", story) is story:
-                    fctl = fd.ctl if fd.ctl is not None else fd.dummy
-                    break
+            fctl = result_field()
             segs = p.segs
             # 変更履歴の数：挿入・削除の印のついた字の、ひと続きを 1 つと数える
             rev = (bool(st.look.get("revised")), st.deleted)
@@ -493,7 +502,8 @@ class RtfDocument:
             if k == "open":
                 flush_bytes()
                 stack.append(st)
-                st = _St(st.dest, st.skip, st.uc, st.font, st.hidden, st.ul, st.intbl, st.itap, True, False, st.deleted, st.look)
+                st = _St(st.dest, st.skip, st.uc, st.font, st.hidden, st.ul, st.intbl, st.itap, True, False, st.deleted, st.look, st.lead,
+                         st.leaders)
                 depth += 1
                 s_join[0] = -1
                 continue
@@ -691,6 +701,13 @@ class RtfDocument:
                 st.ul = not (w == "ulnone" or t.param == 0)
             elif w == "pard":
                 st.intbl, st.itap = False, 0
+                st.lead, st.leaders = "", ()
+            elif w in TAB_LEADERS:
+                st.lead = TAB_LEADERS[w]
+            elif w in ("tx", "tb"):
+                if st.lead and st.lead not in st.leaders:
+                    st.leaders = tuple(sorted({*st.leaders, st.lead}))
+                st.lead = ""
             elif w == "intbl":
                 st.intbl = True
             elif w == "itap" and t.param is not None:
@@ -705,10 +722,13 @@ class RtfDocument:
                 self._row_def(story, st, "trowd", None)
             elif w in ("cellx", "clvmgf", "clvmrg", "clmgf", "clmrg", "clcbpat"):
                 self._row_def(story, st, w, t.param)
+            elif w == "tab" and st.dest in ("listtext", "pntext"):
+                add_char("\t", t.s, t.e)  # 段落番号の字の後ろのタブ：番号の字のうち（本文の字ではない。Word は番号から作り直す）
             elif w == "tab":
-                para().segs.append(Seg("\t", "tab", RSrc("tab", t.s, t.e, look=st.look), None, st.hidden, st.ul, None))
+                para().segs.append(Seg("\t", "tab", RSrc("tab", t.s, t.e, look=st.look), None, st.hidden, st.ul, result_field()))
+                para().leaders = st.leaders  # 段落の書式は、字より前にある
             elif w in ("line", "page", "column"):
-                para().segs.append(Seg("\n", "br", RSrc("br", t.s, t.e, look=st.look), None, st.hidden, False, None))
+                para().segs.append(Seg("\n", "br", RSrc("br", t.s, t.e, look=st.look), None, st.hidden, False, result_field()))
             elif w in SPECIAL:
                 add_char(SPECIAL[w], t.s, t.e)
             elif w == "chftn":
