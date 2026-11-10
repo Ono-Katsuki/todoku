@@ -79,23 +79,50 @@ def _check_rules(wb, sh, r: int, c: int, v, where: str, force: bool) -> None:
                 raise XlsbWriteError(f"{where}：選択肢（{'／'.join(opts)}）にない値です")
 
 
-def fill(blob: bytes, name: str, values: dict, force: bool = False):
-    """(書いたブック, 書いたセル {(シート, 行, 列): 値}, 計算し直した数式 {…}, 書き換えた範囲 {部品: [(始め, 終わり)]})。"""
+def fill(blob: bytes, name: str, values: dict, force: bool = False, notes: dict | None = None):
+    """(書いたブック, 書いたセル {(シート, 行, 列): 値}, 計算し直した数式 {…}, 書き換えた範囲 {部品: [(始め, 終わり)]})。
+    notes を渡すと、伝えること（replaced_text・written_formatting・warnings）を入れる。"""
+    from ..formula.parser import addr
+    from ..xlsx.cellcheck import written_cells_format
+    from ..xlsx.edit import EditError, _both_boxes_marked, check_box_in_text, explicit_overwrite, is_printed_text, replaced_printed
+
     wb = XlsbWorkbook(blob, name)
     parts: dict[str, bytearray] = {}
     spans: dict[str, list[tuple[int, int]]] = {}
     written = {}
     grows: dict[str, list[tuple[int, int, int, object]]] = {}  # シートの部品 → (行, 列, 書式, 値)。0 始まり
+    claimed: dict[tuple[str, int, int], str] = {}
+    keys: dict[tuple[str, int, int], str] = {}
+    notes = notes if notes is not None else {}
     for key, v in values.items():
         try:
             sheet, r, c = resolve_target(wb, key)
         except Exception as e:  # noqa: BLE001
             raise XlsbWriteError(f"{key}：セルが分かりません（{e}）") from None
+        if (sheet, r, c) in claimed:
+            # 同じセルを2つの指示で書かない（B9 と b9）：後の指示が前の指示を黙って消す
+            raise XlsbWriteError(f"「{claimed[(sheet, r, c)]}」と「{key}」は、同じセル {sheet}!{addr(r, c)} を指しています。"
+                                 "後の指示が前の指示を消してしまうので、書いていません。1つのセルには1つの指示で書いてください")
+        claimed[(sheet, r, c)] = str(key)
+        keys[(sheet, r, c)] = str(key)
         sh = wb.sheet(sheet)
         where = f"{sheet}!{key.rsplit('!', 1)[-1]}"
         cell = sh.cells.get((r, c))
         if cell is not None and (cell.has_formula or cell.array_master):
             raise XlsbWriteError(f"{where}：数式のセルには書きません")
+        # 印刷された字のあるセル：Excel の書き手と同じ決まり（字を消す書き込みは、明示がなければ証明で示す）
+        try:
+            v, overwrite_text = explicit_overwrite(key, v)
+            if is_printed_text(cell) and not overwrite_text:
+                if isinstance(v, bool):
+                    v, note = check_box_in_text(cell.value, v, f"{sheet}!{addr(r, c)}", anchors=False)
+                    notes.setdefault("warnings", []).extend([note] + _both_boxes_marked(cell.value, v, f"{sheet}!{addr(r, c)}"))
+                else:
+                    gone = replaced_printed(wb, sh, sheet, r, c, cell, v, anchors=False)
+                    if gone:
+                        notes.setdefault("replaced_text", []).append(gone)
+        except EditError as e:
+            raise XlsbWriteError(str(e)) from None
         rec = wb.value_records.get((sheet, r, c))
         _check_rules(wb, sh, r, c, v, where, force)
         if rec is None or rec[1] == C_BLANK:
@@ -111,6 +138,11 @@ def fill(blob: bytes, name: str, values: dict, force: bool = False):
         buf[pos:pos + ln] = new
         spans.setdefault(part, []).append((pos, pos + ln))
         written[(sheet, r, c)] = v
+    # 書いたセルの書式：見えない字（字と塗りが同じ色など）は書かない。取り消し線などは伝える（Excel の書き手と同じ）
+    try:
+        notes["written_formatting"] = written_cells_format(wb, written, keys, force)
+    except ValueError as e:
+        raise XlsbWriteError(str(e)) from None
     recalculated = _recalc(wb, blob, name, parts, spans, grows)
     return _assemble(blob, wb, parts, grows), written, recalculated, spans
 
@@ -239,7 +271,8 @@ def prove(old: bytes, new: bytes, spans: dict, grown: dict | None = None, indexe
 def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
     from ..formula.parser import addr
 
-    new, written, recalculated, spans = fill(blob, name, values, force)
+    notes: dict = {}
+    new, written, recalculated, spans = fill(blob, name, values, force, notes)
     old_wb = XlsbWorkbook(blob, name)
     grown: dict[str, set] = {}
     for (s, r, c) in written:
@@ -258,11 +291,17 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
                 "元のレコードは順のまま残り、索引の位置はすべてセルの始まりを指しています")
     else:
         head = "%d セルをレコードの大きさを変えずに上書きしました。ほかの部品は圧縮したバイトまで同じで、シートの部品で変わったのは値のバイトだけです" % len(written)
+    from ..xlsx.cellcheck import formatting_notes
     from .grow import UNVERIFIED
 
-    return {"blob": new, "readback": readback, "labels": {},
-            "result": {"proof_ok": not problems, "proof": head, "warnings": [UNVERIFIED] if grown else [], "unexpected": problems[:20], "structure_errors": [],
-                       "recalculated": recalculated, "written_as": {k: str(v) for k, v in readback.items()}}}
+    result = {"proof_ok": not problems, "proof": head, "warnings": ([UNVERIFIED] if grown else []) + list(notes.get("warnings") or []),
+              "unexpected": problems[:20], "structure_errors": [], "recalculated": recalculated, "written_as": {k: str(v) for k, v in readback.items()}}
+    if notes.get("replaced_text"):
+        result["replaced_text"] = notes["replaced_text"]  # 書き込みの終わり（api）で、証明の想定外の変更に入れる
+    if notes.get("written_formatting"):
+        result["written_formatting"] = notes["written_formatting"]
+        result["warnings"] += formatting_notes(notes["written_formatting"])
+    return {"blob": new, "readback": readback, "labels": {}, "result": result}
 
 
 def _same_cells(old, new, written: dict, recalculated: dict) -> list[str]:

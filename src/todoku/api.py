@@ -599,7 +599,7 @@ def _field(f: dict, **where) -> dict:
                 "hidden", "hidden_why", "not_printed", "not_printed_why", "legacy_id", "why_code", "reason_codes",
                 "row_label", "column_label", "column_label_partial", "label_clipped", "neighbours", "facts", "near",
                 "label_method", "section", "input_reason_codes", "spans", "blanks", "shape", "size", "size_from", "cell_ids",
-                "label_key", "referenced_by", "tooltip"):
+                "label_key", "referenced_by", "tooltip", "not_for_input", "expression", "text_type"):
         if f.get(key) not in (None, "", [], False):
             d[key] = f[key]
     if f.get("agent") and isinstance(f.get("evidence"), dict) and f["evidence"]:
@@ -707,6 +707,16 @@ PROOF_SCOPE_NOTE = ("この証明と読み直しは、とどくが書き出し�
                     "このことを本人に必ず伝えてください（切り替える前に。すぐに作り直すよう求められたときは、作り直した報告の中で）")
 
 
+def _printed_replaced(result: dict, replaced_text) -> None:
+    """印刷された字を、明示（overwrite_text・old/new）なしに置き換えた所（書き手が見つけたもの）：証明の想定外の変更として示す
+    （提出させない）。どの表計算の書き手・大きな書類の道でも、同じ所で証明に入れる。"""
+    if not replaced_text:
+        return
+    result["proof_ok"] = False
+    result["unexpected"] = (list(replaced_text) + list(result.get("unexpected") or []))[:20]
+    result["proof"] = (result.get("proof") or "") + f"。印刷された字を置き換えたセルが {len(replaced_text)} か所あります（明示されていない置き換え）"
+
+
 def _number(text: str):
     """字の全体が数として読めるなら、その数（全角の数字は、半角にして読む）。読めなければ None。
     コンマのある字は数として読まない：桁区切り（1,500）か小数点（1,5）かは、国によって違い、字からは決められない（字として比べる）。"""
@@ -734,11 +744,13 @@ def _changed_existing(was: str, now: str) -> str | None:
     return None if keeps_runs(was, now) else "inside"
 
 
-def _replaced_values(before: dict, after: dict, written: dict, number_changed: dict | None = None) -> list[dict]:
+def _replaced_values(before: dict, after: dict, written: dict, number_changed: dict | None = None, as_bool=None, sheet: bool = True) -> list[dict]:
     """書いた所のうち、書く前からあった字や値が、書いた後に元のままでない所（書く前の字 → 書いた後の字。how は _changed_existing）。
     どの形式でも同じ決め方：書く前の値と、書いた後のファイルを読み直した値を比べる（頼み方では決めない）。
-    書く前が空の所・チェックの印（true/false）の所・前後や空欄に書き足しただけの所は数えない。
-    number_changed：書く前が数のセルで、セルの値が変わったか（Excel。あれば、見えている字ではなく、こちらで決める）。"""
+    書く前が空の所・チェックの印の所（書く前が true/false か、その形式の書き手が印として読む字：as_bool）・前後や空欄に
+    書き足しただけの所は数えない。書く前が字の所に true/false を書いて、字が残っていなければ数える（字が TRUE に変わった）。
+    number_changed：書く前が数のセルで、セルの値が変わったか（Excel。あれば、見えている字ではなく、こちらで決める）。
+    sheet：表計算か（true/false の見える字は TRUE・FALSE。ほかの形式は true・false）。"""
     from .formula.values import to_text
 
     def text(v):
@@ -748,9 +760,14 @@ def _replaced_values(before: dict, after: dict, written: dict, number_changed: d
 
     out = []
     for key, v in written.items():
-        if isinstance(v, bool) or key not in after:
+        if key not in after:
             continue
         was, now = text(before.get(key)), text(after.get(key))
+        if isinstance(v, bool) or isinstance(after.get(key), bool):
+            if was is None or (isinstance(before.get(key), str) and as_bool is not None and as_bool(was) is not None):
+                continue  # チェックの印の所：印を付けた・外した（書く前が数の所は、数が消えたので数える）
+            if isinstance(after.get(key), bool):
+                now = to_text(after.get(key)) if sheet else ("true" if after.get(key) else "false")
         how = _changed_existing(was, now) if was is not None and now is not None else None
         if key in (number_changed or {}) and was is not None and now is not None:
             how = "removed" if number_changed[key] else None
@@ -767,6 +784,8 @@ def _tell_replaced(values: dict, res: dict) -> dict:
     事実として出し、エージェントが本人に確かめる。"""
     if not isinstance(res, dict) or "out_path" not in res:
         return res  # 長い仕事にした・書き出していない結果
+    if "proof_applies_to" in res:
+        return res  # もう伝えた結果（ZIP の中のファイル：取り出した中身への書き込みで伝えている。同じことを 2 度言わない）
     res["proof_applies_to"] = PROOF_SCOPE_NOTE
     got = list(res.get("replaced_existing") or [])
     anchored, renamed = res.get("anchored") or {}, res.get("renamed_ids") or {}
@@ -947,11 +966,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                 result["warnings"] += [x["message"] for x in res.fit]
             if res.exclusive:
                 result["warnings"] += list(res.exclusive)
-            if res.replaced_text:
-                # 印刷された字を、明示（overwrite_text・old/new）なしに置き換えた：証明の想定外の変更として示す（提出させない）
-                result["proof_ok"] = False
-                result["unexpected"] = list(res.replaced_text) + result["unexpected"]
-                result["proof"] += f"。印刷された字を置き換えたセルが {len(res.replaced_text)} か所あります（明示されていない置き換え）"
+            _printed_replaced(result, res.replaced_text)
         else:
             new_blob = blob
             result.update({"proof_ok": True, "proof": "", "warnings": [], "unexpected": [], "structure_errors": [], "recalculated": {}})
@@ -1087,6 +1102,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             raise ApiError(str(e)) from None
         new_blob = res_["blob"]
         result.update(res_["result"])
+        _printed_replaced(result, result.pop("replaced_text", None))
         readback_values = res_["readback"]
         labels.update(res_.get("labels") or {})
         if res_.get("told") is not None:
@@ -1233,6 +1249,8 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             else:
                 ods_before, ods_after = OdsWorkbook(blob, name), OdsWorkbook(written_plain, name)
             xl_back = _xrb.check(ods_after, readback_values)
+            was_, number_changed = _cells_before(ods_before, ods_after, xl_back)  # Excel と同じ：書く前の見えている字と、数の値が変わったか
+            before_vals.update(was_)
             result["recalculated_cells"] = _xrb.recalculated(
                 ods_before, ods_after, [(i.rsplit("!", 1)[0], i.rsplit("!", 1)[1], v) for i, v in (result.get("recalculated") or {}).items()])
         except Exception as e:  # noqa: BLE001  確かめられなかったことを、黙らずに伝える
@@ -1259,21 +1277,8 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             from .xlsx import readback as _xrb
 
             xl_back = _xrb.check(wb_after, readback_values)
-            from .xlsx.window import display as _display
-
-            for key in xl_back:  # 同じセルの、書く前の見えている字（欄の一覧にないセルも）
-                try:
-                    sh_, r_, c_ = resolve_target(wb, key)
-                except Exception:  # noqa: BLE001
-                    continue
-                cell = wb.sheet(sh_).cells.get((r_, c_))
-                before_vals[key] = _display(wb, cell) if cell is not None and cell.value not in (None, "") else None
-                raw = cell.value if cell is not None else None
-                if isinstance(raw, (int, float)) and not isinstance(raw, bool):
-                    # 数・日付のセル：見えている字ではなく、セルの値そのもので比べる（表示形式で同じ字に見えても、別の値）
-                    now_ = wb_after.sheet(sh_).cells.get((r_, c_))
-                    now_ = now_.value if now_ is not None else None
-                    number_changed[key] = isinstance(now_, bool) or not isinstance(now_, (int, float)) or float(now_) != float(raw)
+            was_, number_changed = _cells_before(wb, wb_after, xl_back)  # 同じセルの、書く前の見えている字（欄の一覧にないセルも）
+            before_vals.update(was_)
             for key in readback_values:
                 if not labels.get(key) and not key.startswith("@"):
                     t_ = _cell_near_text(wb, key)
@@ -1320,7 +1325,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     if k == "pdf":
         # PDF の選ぶ欄の「Off」は、どれも選んでいない状態の名前（もとからあった値ではない）
         before_vals = {i: None if v_ == "Off" else v_ for i, v_ in before_vals.items()}
-    gone = _replaced_values(before_vals, seen, readback_values, number_changed)
+    gone = _replaced_values(before_vals, seen, readback_values, number_changed, lambda x: _writer_bool(k, x), _is_sheet(k))
     if gone:
         result["replaced_existing"] = gone  # 書く前からあった字が残らなかった所（本人に伝える：_tell_replaced）
     if k == "pdf":
@@ -1340,13 +1345,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         mismatch += [{"id": "段落", "written": "", "read_back": x} for x in result.pop("para_read_back", [])]
     result["read_back_ok"] = not mismatch
     result["read_back_differences"] = mismatch[:30]
-    hand = _HAND_ONLY.get(result["original_sha256"])
-    if hand is not None:
-        # 段階を決めたとき（grade_document の findings）に見つかった、手で行う所（書く D）：本人に伝えることに必ず入れる
-        result["hand_only"] = hand
-    else:
-        result["hand_only_unchecked"] = ("署名・押印など手で行う所は、まだ確かめていません（grade_document で窓を読んで findings に"
-                                         "渡すと、書き込みの結果の本人に伝えることに入ります）")
+    _add_hand_only(result)
     rects: dict = {}
     if k == "pdf":
         # PDF：同じ所の別の読み方（規則の欄と「？」の所）を、書いた所と重なる欄として、まだ空いている欄から外すのに使う
@@ -1377,8 +1376,33 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     return result
 
 
-def _cell_near_text(wb, key: str) -> str:
-    """セルのいちばん近い字：同じ行を左へ、なければ同じ列を上へたどって、最初にある字（字のまま。見出しと決めたものではない）。"""
+def _cells_before(wb, wb_after, keys) -> tuple[dict, dict]:
+    """書いたセル（keys）の、書く前の見えている字（空のセルは None）と、書く前が数・日付のセル → セルの値が変わったか。
+    wb：書く前のブック、wb_after：書いた後のブック（大きな書類の道では、書いた行だけの小さなブック）。"""
+    from .xlsx.edit import resolve_target
+    from .xlsx.window import display as _display
+
+    was: dict = {}
+    number_changed: dict = {}
+    for key in keys:
+        try:
+            sh_, r_, c_ = resolve_target(wb, key)
+        except Exception:  # noqa: BLE001
+            continue  # 部品の名前など、セルでない指定
+        cell = wb.sheet(sh_).cells.get((r_, c_))
+        was[key] = _display(wb, cell) if cell is not None and cell.value not in (None, "") else None
+        raw = cell.value if cell is not None else None
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            # 数・日付のセル：見えている字ではなく、セルの値そのもので比べる（表示形式で同じ字に見えても、別の値）
+            now_ = wb_after.sheet(sh_).cells.get((r_, c_))
+            now_ = now_.value if now_ is not None else None
+            number_changed[key] = isinstance(now_, bool) or not isinstance(now_, (int, float)) or float(now_) != float(raw)
+    return was, number_changed
+
+
+def _cell_near_text(wb, key: str, up: bool = True) -> str:
+    """セルのいちばん近い字：同じ行を左へ、なければ同じ列を上へたどって、最初にある字（字のまま。見出しと決めたものではない）。
+    up=False：同じ行の左だけ（大きな書類の道：上の行はメモリに載せていない）。"""
     from .xlsx.edit import resolve_target
     from .xlsx.window import label_text
 
@@ -1387,11 +1411,15 @@ def _cell_near_text(wb, key: str) -> str:
         cells = wb.sheet(sheet).cells
     except Exception:  # noqa: BLE001  部品の名前など、セルでない指定
         return ""
-    for rr, cc in [(r, x) for x in range(c - 1, 0, -1)] + [(x, c) for x in range(r - 1, 0, -1)]:
+    for rr, cc in [(r, x) for x in range(c - 1, 0, -1)] + ([(x, c) for x in range(r - 1, 0, -1)] if up else []):
         cell = cells.get((rr, cc))
         if cell is not None and isinstance(cell.value, str) and not cell.has_formula and cell.value.strip():
             return label_text(cell.value)
     return ""
+
+
+def _is_sheet(k) -> bool:
+    return k in ("xlsx", "xls") or k in _open.SHEETS
 
 
 def _writer_bool(k: str, v) -> bool | None:
@@ -1872,6 +1900,8 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
     as があれば「生年月日：昭和60年4月1日（p1.t45-112／近くの字「住所」）」、なければ「p1.t45-112（近くの字「住所」）：昭和60年4月1日」。"""
     labels = labels or {}
     printed = printed or set()
+    # 大きな書類の道は、同じ行の左だけを見ている：字がない所を「近くの字なし」と言わない（上の行は見ていない）
+    no_near = "同じ行の左に字なし（上の行は見ていません）" if result.pop("_near_row_only", False) else "近くの字なし"
     after_list = [dict(f, label=labels[f["id"]]) if labels.get(f["id"]) else f for f in after_list]
     after_list = [dict(f, label=_verbatim_label(f)) if f.get("label") and f.get("context") else f for f in after_list]
     by_id = {f["id"]: f for f in after_list}
@@ -1958,7 +1988,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         if source(d).get("nearest_text"):
             return lab.split("（", 1)[1].rsplit("）", 1)[0] if "（" in lab else lab  # far_label：「左に 3 列あけて『氏名』」
         if not lab or (lab == d["id"] and d["id"] not in printed):
-            return "近くの字なし"
+            return no_near
         from .xlsx.window import label_text
 
         src_ = source(d)
@@ -1972,7 +2002,7 @@ def _to_tell(after_list: list[dict], written: dict, result: dict, labels: dict |
         base = re.sub(r"［[^］]*］", "［ ］", lab).strip("：:　 ") if len(slots) > 1 else re.sub(r"［[^］]*］", "", lab).strip("-－ー：:　 ")
         base = base if len(base) <= 40 else base[:40] + "…"  # 字のすべては窓に（ここは対話で読み上げる短い形）
         if not base:
-            return "近くの字なし"
+            return no_near
         return f"近くの字「{base}」" + (f"の {k} つ目の空き" if k and len(slots) > 1 else "")
 
     def name(d: dict) -> str:
@@ -3046,6 +3076,7 @@ def _lazy_grade(path: str, g, encoding: str | None, findings, answered) -> dict:
     if findings or answered:
         g2 = combine(g, findings or [], answered)
         g = g2
+    _remember_hand_only(path, g, findings, answered)  # 大きな書類でも、手で行う所を書き込みの結果に入れる
     d = g.to_dict()
     d["deferred"] = deferred
     d["provisional"] = bool(deferred)
@@ -3059,17 +3090,33 @@ def _lazy_grade(path: str, g, encoding: str | None, findings, answered) -> dict:
 _HAND_ONLY: "dict[str, list[dict]]" = {}
 
 
+def _add_hand_only(result: dict) -> None:
+    """書き込みの結果に、手で行う所を入れる（どの道の書き込みでも：ふつうの道・大きな書類の道・ZIP の中のファイル）。
+    段階を決めたとき（grade_document の findings）に見つかっていれば、その所（書く D）。まだなら、確かめていないこと。"""
+    hand = _HAND_ONLY.get(result.get("original_sha256"))
+    if hand is not None:
+        result["hand_only"] = hand
+    else:
+        result["hand_only_unchecked"] = ("署名・押印など手で行う所は、まだ確かめていません（grade_document で窓を読んで findings に"
+                                         "渡すと、書き込みの結果の本人に伝えることに入ります）")
+
+
 def _remember_hand_only(path: str, g, findings, answered) -> None:
     hand = [{"title": r.title, "detail": r.detail, "where": list(r.where), "by": r.by}
             for r in g.write_reasons if r.grade == "D" and r.by == "agent"]
     checked = bool(hand) or "cannot_do" in (answered or []) or any((f or {}).get("check") == "cannot_do" for f in findings or [])
     if not checked:
         return
-    p = Path(path).expanduser()
-    if not p.is_file():
-        return
     try:
-        _HAND_ONLY[_sha256_file(p)] = hand
+        if _member(path) is not None:
+            # ZIP の中のファイル：書くときは取り出した中身に書くので、その中身のハッシュで控える
+            key = hashlib.sha256(_member_blob(path)[0]).hexdigest()
+        else:
+            p = Path(path).expanduser()
+            if not p.is_file():
+                return
+            key = _sha256_file(p)
+        _HAND_ONLY[key] = hand
     except Exception:  # noqa: BLE001  控えられないだけ（書き込みの結果に「まだ確かめていない」と出る）
         return
     while len(_HAND_ONLY) > 64:

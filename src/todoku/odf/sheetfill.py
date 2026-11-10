@@ -22,7 +22,8 @@ from ..formula.numfmt import format_value
 from ..formula.parser import addr
 from ..formula.values import ExcelError, is_number, number_to_text
 from ..xlsx.calc import Calc, _run_deep, recalc, values_equal
-from ..xlsx.edit import EditError, interpret_input, resolve_target, rule_issues
+from ..xlsx.edit import (EditError, _both_boxes_marked, check_box_in_text, explicit_overwrite, interpret_input, is_printed_text, replaced_printed,
+                         resolve_target, rule_issues)
 from .sheet import RowEl, OdsWorkbook
 from .xml import NS, esc_text, set_attr, top, well_formed
 
@@ -46,6 +47,8 @@ class OdsFillResult:
     patches: list[Patch] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     stale: list[str] = field(default_factory=list)  # 計算し直せなかった数式（計算結果が古いまま）
+    replaced_text: list[str] = field(default_factory=list)  # 印刷された字を、明示なしに置き換えた所（証明で想定外の変更として示す）
+    written_formatting: list = field(default_factory=list)  # 書いたセルの書式（取り消し線・白い字など）：[{id, formatting}]
 
 
 class SheetWriter:
@@ -280,9 +283,11 @@ def fill(wb: OdsWorkbook, values: dict, *, force: bool = False) -> OdsFillResult
     warnings: list[str] = []
     problems: list[str] = []
     claimed: dict[tuple[str, int, int], str] = {}
+    replaced_text: list[str] = []
     for k, v in values.items():
         try:
             sheet, r, c = resolve_target(wb, k, inner_merge=False)
+            v, overwrite_text = explicit_overwrite(k, v)
         except EditError as e:
             problems.append(str(e))
             continue
@@ -314,7 +319,23 @@ def fill(wb: OdsWorkbook, values: dict, *, force: bool = False) -> OdsFillResult
             targets[(sheet, r, c)] = v
             keys[(sheet, r, c)] = str(k)
             continue
+        # 印刷された字のあるセル：Excel の書き手と同じ決まり（字を消す書き込みは、明示がなければ証明で示す）
+        printed_text = is_printed_text(cell)
+        if isinstance(v, bool) and printed_text and not overwrite_text:
+            try:
+                new_text, note = check_box_in_text(cell.value, v, f"{sheet}!{addr(r, c)}", anchors=False)
+            except EditError as e:
+                problems.append(str(e))
+                continue
+            warnings += [note] + _both_boxes_marked(cell.value, new_text, f"{sheet}!{addr(r, c)}")
+            targets[(sheet, r, c)] = new_text
+            keys[(sheet, r, c)] = str(k)
+            continue
         val, notes = interpret_input(wb, sheet, r, c, v)
+        if printed_text and not overwrite_text:
+            gone = replaced_printed(wb, sh, sheet, r, c, cell, val, anchors=False)
+            if gone:
+                replaced_text.append(gone)
         warnings += [n.replace("Excelと同じ扱い", "LibreOffice と同じ扱い").replace("Excelでは", "表計算では") for n in notes]
         targets[(sheet, r, c)] = val
         keys[(sheet, r, c)] = str(k)
@@ -330,6 +351,13 @@ def fill(wb: OdsWorkbook, values: dict, *, force: bool = False) -> OdsFillResult
     if blocking and not force:
         raise EditError("入力規則に合いません（LibreOffice でも受け付けない値です）:\n" + "\n".join(i.message for i in blocking))
     warnings += [i.message for i in issues]
+    # 書いたセルの書式：見えない字（字と塗りが同じ色など）は書かない。取り消し線などは伝える（Excel の書き手と同じ）
+    from ..xlsx.cellcheck import written_cells_format
+
+    try:
+        fmt_found = written_cells_format(wb, targets, keys, force)
+    except ValueError as e:
+        raise EditError(str(e)) from None
     changed, unsolved = recalc(wb, targets)
     w = SheetWriter(wb)
     patches: list[Patch] = []
@@ -353,7 +381,7 @@ def fill(wb: OdsWorkbook, values: dict, *, force: bool = False) -> OdsFillResult
     if getattr(w, "unformatted", 0):
         warnings.append(f"{w.unformatted} か所は、セルの数の書式を規則で再現できないので、見える字を書いた値のまま書きました"
                         "（値は正しく、表計算ソフトで開くと書式どおりに表示されます）")
-    return OdsFillResult(blob, patches, warnings, stale)
+    return OdsFillResult(blob, patches, warnings, stale, replaced_text, fmt_found)
 
 
 # ====================================================================== 証明
@@ -484,6 +512,13 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
               "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"}}
     if res.stale:
         result["stale_formulas"] = res.stale
+    if res.replaced_text:
+        result["replaced_text"] = list(res.replaced_text)  # 書き込みの終わり（api）で、証明の想定外の変更に入れる
+    if res.written_formatting:
+        from ..xlsx.cellcheck import formatting_notes
+
+        result["written_formatting"] = list(res.written_formatting)
+        result["warnings"] += formatting_notes(res.written_formatting)
     # 書いたことでセルの字が折り返す見込み（目安）：証明・読み戻しは字しか見ないので、見た目の変化を伝える
     try:
         wrapped = wrap_warnings(wb, res.patches)

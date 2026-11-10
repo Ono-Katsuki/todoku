@@ -141,6 +141,55 @@ class Control:
     help: str = ""
     ax: object = None  # ActiveX の部品（source が activex のとき、axfile.AxRef）
     multiline: bool = True  # 書式なしテキストのコントロール（w:text）：w:multiLine（既定は「いいえ」。ECMA-376 第1部 17.5.2.44）
+    # 旧来のフォームの欄の設定（.docx の w:ffData・.doc の FFData・RTF の \formfield）
+    text_type: str = ""  # 字の欄の種類（TEXT_TYPES のどれか。字の欄でなければ空）
+    text_format: str = ""  # 字の欄の書式（w:format。数の「#,##0」・字の「UPPERCASE」など。Word が欄を出るときに当てる）
+    expression: str = ""  # 計算の欄の式（w:default）
+    disabled: bool = False  # 入力を受け付けない設定（w:enabled が「いいえ」・fProt・\ffprot1）
+    calc_on_exit: bool = False  # 欄を出るときに、計算の欄を計算し直す設定（w:calcOnExit・fRecalc・\ffrecalc1）
+
+
+# 旧来のフォームの字の欄の種類（w:textInput/w:type、ST_FFTextType）。.doc の iTypeTxt・RTF の \fftypetxt は、この並びの番号（0〜5）
+TEXT_TYPES = ("regular", "number", "date", "currentDate", "currentTime", "calculated")
+
+
+def form_field_fixed(c) -> str:
+    """旧来のフォームの欄のうち、人が入力しない欄の理由（入力する欄なら空の字）。ファイルに書かれた欄の設定だけで決める。"""
+    if c is None or c.source != "formfield":
+        return ""
+    if c.text_type == "calculated":
+        return f"計算の欄です（式「{c.expression}」の結果を Word が入れる欄で、入力する所ではありません）"
+    if c.text_type == "currentDate":
+        return "Word が今日の日付を入れる欄です（入力する所ではありません）"
+    if c.text_type == "currentTime":
+        return "Word がいまの時刻を入れる欄です（入力する所ではありません）"
+    if c.disabled:
+        return "入力を受け付けない設定の欄です（フォームの欄の設定で、入力できないようになっています）"
+    return ""
+
+
+def form_field_refusal(c, fid: str, force: bool) -> None:
+    """人が入力しない欄（form_field_fixed）には書かない（force なら書く）。"""
+    from .fill import FillError
+
+    why = form_field_fixed(c)
+    if why and not force:
+        raise FillError(f"{fid}: {why}")
+
+
+def form_field_notes(c, fid: str, text: str | None, controls) -> list[str]:
+    """旧来のフォームの欄に書いたときに伝えること：数の欄に数字のない字を書いた・計算の欄を計算し直していない。
+    text は書いた字（チェック・選択肢の欄は None）。"""
+    out = []
+    if c.text_type == "number" and text is not None and not any(ch.isdigit() for ch in text):
+        out.append(f"{fid}: この欄は「数」の欄と設定されています。書いた「{text}」には数字がありません（字はそのまま書きました）")
+    if c.calc_on_exit:
+        calc = [x for x in controls if x.source == "formfield" and x.text_type == "calculated"]
+        if calc:
+            names = "、".join(f"{x.name or '（名前なし）'}（式「{x.expression}」）" for x in calc[:8])
+            out.append(f"{fid}: この欄は、Word で欄を出るときに計算の欄を計算し直す設定です。とどくは計算の欄を計算し直していません"
+                       f"（計算の欄 {len(calc)} か所：{names}。いま表示される値は、書く前のままです。Word で開いてフィールドを更新すると計算し直されます）")
+    return out
 
 
 Block = Para | Table
@@ -1144,6 +1193,9 @@ class DocxDocument:
         if ff is not None:
             n = ff.find("name")
             name = n.get("val", "") if n is not None else ""
+            en, coe = ff.find("enabled"), ff.find("calcOnExit")
+            ctl.disabled = en is not None and en.get("val", "true") in ("0", "false", "off")  # ない・値なしは「入力できる」
+            ctl.calc_on_exit = coe is not None and coe.get("val", "true") not in ("0", "false", "off")
             ht = ff.find("helpText") or ff.find("statusText")
             if ht is not None:
                 ctl.help = ht.get("val", "")
@@ -1167,11 +1219,15 @@ class DocxDocument:
                 if ml is not None and ml.get("val"):
                     ctl.maxlen = int(ml.get("val"))
                 tp = ti.find("type")
-                if tp is not None and tp.get("val") == "date":
+                ctl.text_type = tp.get("val", "regular") if tp is not None else "regular"
+                if ctl.text_type == "date":
                     ctl.kind = "date"
                 fmt = ti.find("format")
                 if fmt is not None:
-                    ctl.date_format = fmt.get("val", "")
+                    ctl.date_format = ctl.text_format = fmt.get("val", "")
+                dv = ti.find("default")
+                if ctl.text_type == "calculated" and dv is not None:
+                    ctl.expression = dv.get("val", "")
                 if ctl.kind == "date":
                     ctl.date_lid, ctl.date_lid_from = _run_lang(self, f["begin"], ctl.date_format)
         ctl.name = name

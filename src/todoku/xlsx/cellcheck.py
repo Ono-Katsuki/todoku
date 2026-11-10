@@ -114,6 +114,24 @@ def written_format(wb, plan) -> tuple[list[dict], list[str]]:
     return found, invisible
 
 
+def written_cells_format(wb, targets: dict, keys: dict, force: bool = False) -> list[dict]:
+    """Excel のほかの表計算の書き手（OpenDocument・xlsb）で、written_format と同じことを確かめる：書いたセル targets
+    {(シート, 行, 列): 値} と、その指定の名前 keys。見えない字になるセルがあれば、書かない（ValueError。force なら伝えるだけ）。"""
+    from types import SimpleNamespace
+
+    from .calc import _run_deep
+
+    found, invisible = _run_deep(lambda: written_format(wb, SimpleNamespace(direct=keys, targets=targets, rich={})))
+    if invisible and not force:
+        raise ValueError("書いた字が見えなくなるセルです（印刷しても見えません）。書いていません：\n" + "\n".join(invisible)
+                         + "\n（書式で隠した、計算や部品のためのセルのことが多いので、書く欄か窓で確かめてください）")
+    return found
+
+
+def formatting_notes(found: list[dict]) -> list[str]:
+    return [f"{x['id']}: 書いたセルの書式に「{'・'.join(x['formatting'])}」があります" for x in found]
+
+
 def _xls_font_props(wb, ifnt) -> list[str]:
     """.xls の字体の番号（字ごとの書式。None はセルの書式の字体）の、取り消し線・字の色。"""
     if ifnt is None:

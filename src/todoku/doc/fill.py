@@ -18,6 +18,7 @@ import re
 import struct
 from dataclasses import dataclass, field
 
+from ..docx.document import form_field_notes, form_field_refusal
 from ..docx.fill import FillError, _as_bool, _is_text_value
 from ..docx.window import MARK_PREFIX, Spots, box_mark
 from .book import FC_NAMES, DocFile, units
@@ -584,6 +585,9 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                     raise FillError(f"{key}: {e}") from None
                 continue
             if c is not None:
+                form_field_refusal(c, key, force)
+                if c.kind in ("checkbox", "dropdown"):
+                    warnings += form_field_notes(c, key, None, doc.controls)
                 if c.kind == "checkbox":
                     on = _as_bool(value)
                     _set_ffbits(doc, w, c, res=1 if on else 0)
@@ -599,6 +603,7 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                 text = _is_text_value(value)
                 if c.maxlen and len(text) > c.maxlen:
                     raise FillError(f"{key}: 「{text}」は {len(text)} 字です（この欄は {c.maxlen} 字まで）")
+                warnings += form_field_notes(c, key, text, doc.controls)
                 cps = [s.node.s for s in c.result_segs if s.node is not None and s.kind == "t"]
                 if cps:
                     a = cps[0]

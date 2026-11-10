@@ -136,7 +136,8 @@ def test_refuses_what_would_change_size(tmp_path):
 def test_same_length_text_and_broken_records(tmp_path):
     p = _write(tmp_path)
     out = tmp_path / "b.xlsb"
-    r = api.fill(str(p), {"申請!C1": "別の字の字"[:4]}, str(out))
+    # 字のあるセルの字をまるごと書き換える：明示して書く（明示のない書き換えは、test_generalized_guards で証明が通らないことを確かめる）
+    r = api.fill(str(p), {"申請!C1": {"value": "別の字の字"[:4], "overwrite_text": True}}, str(out))
     assert r["proof_ok"] and open_book(out.read_bytes(), "b").sheet("申請").cells[(1, 3)].value == "別の字の"
     with pytest.raises(XlsbError):
         list(records(b"\x05\x7f\x00"))

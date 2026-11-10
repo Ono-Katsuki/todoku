@@ -16,7 +16,6 @@ from .xlsx.calc import verify
 from .xlsx.diagnose import diagnose
 from .xlsx.edit import EditError, fill
 from .xlsx.proof import prove
-from .xlsx.workbook import Workbook
 from . import report
 
 
@@ -79,37 +78,6 @@ def _docx_convert(a) -> int:
     return 0
 
 
-def _docx_fill(a, values: dict) -> int:
-    from .book import kind_of
-    from .docx.fill import FillError
-
-    blob = Path(a.file).read_bytes()
-    is_doc = kind_of(blob) == "doc"
-    if is_doc:
-        from .doc.audit import prove as docx_prove
-        from .doc.fill import fill as docx_fill
-    else:
-        from .docx.fill import fill as docx_fill
-        from .docx.proof import prove as docx_prove
-    try:
-        res = docx_fill(_word_doc(blob, Path(a.file).name), values, force=getattr(a, "force", False))
-    except FillError as e:
-        print(f"書き込めません: {e}", file=sys.stderr)
-        return 2
-    out_path = Path(a.out)
-    out_path.write_bytes(res.blob)
-    from .docx.fill import written_of
-
-    pr = docx_prove(blob, res.blob, written_of(res.patches))
-    print(pr.headline())
-    for u in pr.unexpected[:20]:
-        print(f"  想定外の変更: {u}")
-    print(f"元 SHA-256: {pr.original_sha256}")
-    print(f"後 SHA-256: {pr.new_sha256}")
-    _dump({**pr.__dict__, "ok": pr.ok, "headline": pr.headline()}, out_path.with_suffix(".proof.json"))
-    return 0 if pr.ok else 1
-
-
 def _pdf_convert(a) -> int:
     from .pdf.doc import PdfDocument
     from .pdf.window import build, markdown_parts
@@ -131,31 +99,6 @@ def _pdf_convert(a) -> int:
           + ("・フォームの欄あり" if doc["form"]["acroform_fields"] else "・印刷用（入力欄は配置から推定）"))
     print(f"出力: {out}/{stem}.window.md と window.json")
     return 0 if unmapped == 0 else 1
-
-
-def _pdf_fill(a, values: dict) -> int:
-    from .pdf.doc import PdfDocument
-    from .pdf.fill import FillError, fill as pdf_fill
-    from .pdf.proof import prove as pdf_prove
-
-    blob = Path(a.file).read_bytes()
-    try:
-        res = pdf_fill(PdfDocument(blob, Path(a.file).name), values)
-    except FillError as e:
-        print(f"書き込めません: {e}", file=sys.stderr)
-        return 2
-    out_path = Path(a.out)
-    out_path.write_bytes(res.blob)
-    pr = pdf_prove(blob, res.blob, set(values))
-    print(pr.headline())
-    if pr.lint_errors:
-        print("構造の問題:", *pr.lint_errors[:20], sep="\n  ")
-    if pr.unexpected:
-        print("想定外の変更:", *pr.unexpected[:20], sep="\n  ")
-    print(f"元 SHA-256: {pr.original_sha256}")
-    print(f"後 SHA-256: {pr.new_sha256}")
-    _dump({**pr.__dict__, "ok": pr.ok, "headline": pr.headline()}, out_path.with_suffix(".proof.json"))
-    return 0 if pr.ok else 1
 
 
 def cmd_convert(a) -> int:
@@ -221,42 +164,77 @@ def _parse_sets(sets: list[str]) -> dict[str, str]:
     return out
 
 
-def _write_fill(wb: Workbook, values: dict, out_path: Path, strict: bool) -> int:
+def _write_fill(path: str, values: dict, out: str, strict: bool = False) -> int:
+    """書き込み（どの形式でも、エージェントの道具と同じ道 api.fill）：証明・読み戻し・もとからあった字の確かめを、同じ所で行う。
+    結果の全部を「（出力）.proof.json」に書く。終わりの値：0 証明も読み戻しも通った、1 通らなかった（「.unverified」の名前で書き出す）、
+    2 書いていない。"""
+    from . import api
+    from .book import kind_of
+
+    k = kind_of(Path(path).read_bytes())
+    excel = k in ("xlsx", "xls")
+    if strict and excel:
+        # --strict：警告にとどまる入力規則の問題も受け付けない（書く前に、同じ値で確かめる）
+        try:
+            fill(_load(path), values, strict=True)
+        except EditError as e:
+            print(f"書き込めません: {e}", file=sys.stderr)
+            return 2
     try:
-        res = fill(wb, values, strict=strict)
-    except EditError as e:
+        r = api.fill(path, values, out, overwrite=True)
+    except api.ApiError as e:
         print(f"書き込めません: {e}", file=sys.stderr)
         return 2
-    out_path.write_bytes(res.blob)
-    allowed = res.allowed_inputs
-    allowed_controls = {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"}  # 部品 → 書いた状態
-    pr = prove(wb.zip.original, res.blob, allowed, allowed_controls,
-               {(p.sheet, p.address) for p in res.patches if p.kind == "macro"})
-    from .xlsx.reach import prove_whole, seeds_of
-
-    scope = prove_whole(wb, res.blob, out_path.name, seeds_of(res), pr.cell_changes, res.full_calc_on_load)
-    pr.unexpected += scope.problems
-    print(scope.sentence())
-    for w in res.warnings:
+    if "out_path" not in r:  # 長い仕事にした：もう一度同じ呼び出しをすると、進み具合か結果が返る
+        print(r.get("message") or json.dumps(r, ensure_ascii=False, default=_json_default))
+        return 1
+    ok = bool(r.get("proof_ok") and r.get("read_back_ok"))
+    print(r.get("proof") or "")
+    for w in r.get("warnings") or []:
         print(f"注意: {w}")
-    for u in res.unverified:
-        print(f"再計算できない数式: {u}（Excelで開いたときに再計算されるよう設定しました）")
-    print(pr.headline())
-    if pr.lint_errors:
-        print("構造の問題（Excelで修復が必要になるおそれ）:", *pr.lint_errors[:20], sep="\n  ")
-    else:
-        print(f"構造: Excelが修復なしに開くための条件を満たしています（書き換えた {pr.lint_parts} 部分とパッケージ全体を検査）")
-    print(f"元 SHA-256: {pr.original_sha256}")
-    print(f"後 SHA-256: {pr.new_sha256}")
-    if pr.unexpected:
-        print("想定外の変更:", *pr.unexpected, sep="\n  ")
-    proof = {**pr.__dict__, "ok": pr.ok, "headline": pr.headline()}
-    _dump(proof, out_path.with_suffix(".proof.json"))
-    rep = verify(open_book(res.blob, out_path.name))
-    diag = diagnose(open_book(res.blob, out_path.name), rep)
-    out_path.with_suffix(".proof.html").write_text(
-        report.render(diag.to_dict(), proof=proof, title=f"記入の証明：{out_path.name}"), encoding="utf-8")
-    return 0 if pr.ok else 1
+    if r.get("structure_errors"):
+        print("構造の問題:", *r["structure_errors"][:20], sep="\n  ")
+    if r.get("unexpected"):
+        print("想定外の変更:", *r["unexpected"], sep="\n  ")
+    if not r.get("read_back_ok"):
+        print("読み戻しの違い（書いた後のファイルを読み直した値が、書いた値と違う）:",
+              *(json.dumps(d, ensure_ascii=False, default=_json_default) for d in (r.get("read_back_differences") or [])[:20]), sep="\n  ")
+    print(f"元 SHA-256: {r.get('original_sha256')}")
+    print(f"後 SHA-256: {r.get('new_sha256')}")
+    print(r.get("say_to_user") or "")
+    out_path = Path(r["out_path"])
+    print(f"出力: {out_path}")
+    _dump(r, out_path.with_suffix(".proof.json"))
+    if excel:
+        try:
+            wb = open_book(out_path.read_bytes(), out_path.name)
+            proof = {"ok": ok, "headline": r.get("proof") or "", "original_sha256": r.get("original_sha256"), "new_sha256": r.get("new_sha256"),
+                     "unexpected": list(r.get("unexpected") or []), "cell_changes": _cell_changes(_load(path), r)}
+            out_path.with_suffix(".proof.html").write_text(
+                report.render(diagnose(wb, verify(wb)).to_dict(), proof=proof, title=f"記入の証明：{out_path.name}"), encoding="utf-8")
+        except Exception as e:  # noqa: BLE001  報告のページを作れないだけ（書き込みと証明は終わっている）
+            print(f"注意: 証明のページ（.proof.html）を作れませんでした（{type(e).__name__}）")
+    return 0 if ok else 1
+
+
+def _cell_changes(wb, r: dict) -> list[dict]:
+    """証明のページの表：書いたセルと、計算し直したセルの、書く前の値 → 後の値。"""
+    from .formula.parser import addr
+    from .xlsx.edit import resolve_target
+
+    out = []
+    written = r.get("written") or {}
+    if not isinstance(written, dict):
+        written = {x.get("id"): x.get("value") for x in written if isinstance(x, dict)}
+    for kind, d in (("input", written), ("formula", r.get("recalculated") or {})):
+        for key, after in d.items():
+            try:
+                s, row, col = resolve_target(wb, key)
+            except Exception:  # noqa: BLE001  部品の名前など、セルでない所
+                continue
+            cell = wb.sheet(s).cells.get((row, col))
+            out.append({"sheet": s, "cell": addr(row, col), "kind": kind, "before": cell.value if cell is not None else None, "after": after})
+    return out
 
 
 def cmd_fill(a) -> int:
@@ -265,15 +243,7 @@ def cmd_fill(a) -> int:
         values.update(json.loads(Path(a.json).read_text(encoding="utf-8")))
     if not values:
         sys.exit("書き込む値がありません（--set か --json）")
-    k = _kind(a.file)
-    if k == "pdf":
-        return _pdf_fill(a, values)
-    if k in ("docx", "doc"):
-        return _docx_fill(a, values)
-    if k == "jtd":
-        return _jtd_fill(a, values)
-    wb = _load(a.file)
-    return _write_fill(wb, values, Path(a.out), a.strict)
+    return _write_fill(a.file, values, a.out, a.strict)
 
 
 def cmd_apply(a) -> int:
@@ -297,7 +267,7 @@ def cmd_apply(a) -> int:
         Path(a.out).write_bytes(wb.zip.build())
         print("変更はありません。元のファイルとバイト一致のファイルを書き出しました。")
         return 0
-    return _write_fill(wb, values, Path(a.out), a.strict)
+    return _write_fill(a.original, values, a.out, a.strict)
 
 
 def cmd_example(a) -> int:
@@ -541,16 +511,3 @@ def _jtd_convert(a) -> int:
           out / f"{stem}.window.json")
     print(f"窓：{out / (stem + '.window.md')}（入力欄 {len(doc['fields'])} か所）")
     return 0
-
-
-def _jtd_fill(a, values: dict) -> int:
-    """一太郎に書き込み（同じ字数の上書きか、本文の字数を変える書き込み）、証明を出す。"""
-    from . import api
-
-    try:
-        r = api.fill(a.file, values, a.out)
-    except api.ApiError as e:
-        sys.exit(str(e))
-    print(r["proof"])
-    print(r["say_to_user"])
-    return 0 if r["proof_ok"] and r["read_back_ok"] else 1

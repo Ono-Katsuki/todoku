@@ -16,7 +16,7 @@ import datetime as dt
 import re
 from dataclasses import dataclass, field
 
-from .document import WINGDINGS, DocxDocument, Para
+from .document import WINGDINGS, DocxDocument, Para, form_field_notes, form_field_refusal
 from .window import CHECKED, MARK_PREFIX, Spots, box_mark
 from .xmlpos import Node, escape, prefix_of
 
@@ -587,7 +587,10 @@ class Filler:
         if c.lock in ("contentLocked", "sdtContentLocked") and not self.force:
             raise FillError(f"{item['id']}: 中身を変えられないように固定された欄です")
         if c.source == "formfield":
+            form_field_refusal(c, item["id"], self.force)
             ff = c.node.find("ffData")
+            if c.kind != "text" and c.kind != "date":
+                self.warnings += form_field_notes(c, item["id"], None, self.doc.controls)
             if c.kind == "checkbox":
                 on = _as_bool(value)
                 cb = ff.find("checkBox") if ff is not None else None
@@ -627,6 +630,7 @@ class Filler:
                                          f" {c.date_lid} で「{text}」と書きました。Word で開く PC の言語で見え方が変わることがあります")
             if c.maxlen and len(text) > c.maxlen:
                 raise FillError(f"{item['id']}: 「{text}」は {len(text)} 字です（この欄は {c.maxlen} 字まで）")
+            self.warnings += form_field_notes(c, item["id"], text, self.doc.controls)
             self._replace_result(item, c, text)
             self.patches.append(Patch(item["id"], "input", text, part))
             return

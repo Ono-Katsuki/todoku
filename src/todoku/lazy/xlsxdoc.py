@@ -1256,6 +1256,14 @@ class XlsxLazy(LazyDoc):
         readback_values = {k: v for k, v in values.items() if not (isinstance(k, str) and "!" in k and not k.startswith("@") and parse_span_id(k))}
         with sst_scope(self.strings):
             res = xfill(wb, cell_values, force=force, run_macros=run_macros)
+        # ふつうの道と同じ：読み戻しと本人に伝える値は、書いた値そのもの（{"value": 値, "overwrite_text": true} は値で）と、
+        # 字のセルの一部を書き換えたセルの、書いた後の字（true ではなく「■移動支援」）
+        for key_, v_ in cell_values.items():
+            if isinstance(v_, dict) and "value" in v_:
+                readback_values[key_] = v_["value"]
+        for key_, (id_, text_) in (res.text_written or {}).items():
+            readback_values.pop(key_, None)
+            readback_values[id_] = text_
         with sst_scope(self.strings):
             pr = prove(mini, res.blob, res.allowed_inputs, {(p.sheet, p.address): p.after for p in res.patches if p.kind == "control"},
                        {(p.sheet, p.address) for p in res.patches if p.kind == "macro"}, rich=set(res.rich_cells))
@@ -1287,7 +1295,7 @@ class XlsxLazy(LazyDoc):
         try:
             report = stream_package(self, changed_sheets, other_parts, tmp)
             unexpected += report["problems"]
-            back, shown = self._read_back(tmp, values, readback_values, res)
+            back, shown, was, number_changed = self._read_back(tmp, values, readback_values, res, wb)
             for u in res.unverified:
                 warnings.append(f"{u}")
             result = {"kind": "xlsx", "out_path": str(dst), "original_sha256": report["old_sha256"], "new_sha256": report["new_sha256"],
@@ -1305,17 +1313,37 @@ class XlsxLazy(LazyDoc):
             if res.fit:
                 result["fit"] = list(res.fit)
                 result["warnings"] += [x["message"] for x in res.fit]
+            from ..api import _printed_replaced
+
+            _printed_replaced(result, res.replaced_text)  # ふつうの道と同じ：印刷された字の、明示されていない置き換えは証明に入れる
+            from .. import pkgsig
+
+            sig = pkgsig.find_in(list(self.members), self.z.read)
+            if sig is not None:
+                # ふつうの道と同じ：パッケージの電子署名は、書くと無効になる。黙って無効にしない（本人に伝えることの先頭に）
+                result["warnings"] = [sig.message] + list(result.get("warnings") or [])
+                result["digital_signature"] = dict(sig.to_dict(), invalidated=True)
             scope = self._prove_scope(tmp, res, pr)
             add_scope(result, scope)
             if res.anchored:
                 result["anchored"] = dict(res.anchored)
+            if res.aligned:
+                from ..api import _align_no_effect
+
+                result["aligned"] = dict(res.aligned)
+                result["warnings"] += _align_no_effect(res.aligned)
             if opaque or warnings:
                 result["formulas_recalculated_on_open"] = True
             from .textdocs import _finish_fill
 
-            labels = {}
+            from ..api import _cell_near_text
+
+            # ふつうの道と同じ事実：書く前のブックの、同じ行の左の字（上の行はメモリに載せていないので見ない）
+            with sst_scope(self.strings):
+                labels = {k: t for k in readback_values if not str(k).startswith("@") for t in [_cell_near_text(wb, k, up=False)] if t}
+            result["_near_row_only"] = True
             _finish_fill(result, {k: shown.get(k, v) for k, v in readback_values.items()}, labels, said, tmp, dst, self.path, overwrite,
-                         "list_fields に sheet と rows を渡すと、その範囲の欄と空のマスが分かります")
+                         "list_fields に sheet と rows を渡すと、その範囲の欄と空のマスが分かります", before=was, number_changed=number_changed)
             if result.get("verified") and not self._trial:
                 from .. import jobs
 
@@ -1367,8 +1395,10 @@ class XlsxLazy(LazyDoc):
             unexpected.append("元のシートに行がないので、行を差し込めませんでした")
         return out
 
-    def _read_back(self, tmp: Path, values: dict, readback_values: dict, res) -> tuple[list[dict], dict]:
-        """書いた後のファイルを開き直し、書いた行だけの小さなブックで、書いた値を読む（索引も、書いたファイルから作り直す）。"""
+    def _read_back(self, tmp: Path, values: dict, readback_values: dict, res, wb_before) -> tuple[list[dict], dict, dict, dict]:
+        """書いた後のファイルを開き直し、書いた行だけの小さなブックで、書いた値を読む（索引も、書いたファイルから作り直す）。
+        (読み戻しの違い, 書いた所の見えている字, 同じ所の書く前の見えている字, 数・日付のセルの値が変わったか)。"""
+        from ..api import _cells_before
         from ..xlsx.readback import check as readback_check
         from ..xlsx.workbook import sst_scope
 
@@ -1385,7 +1415,9 @@ class XlsxLazy(LazyDoc):
                 shown[k] = text
                 if not ok:
                     back.append({"id": k, "written": readback_values.get(k), "read_back": text})
-            return back, shown
+            with sst_scope(self.strings):
+                was, number_changed = _cells_before(wb_before, wb, got)
+            return back, shown, was, number_changed
         finally:
             after.close()
 

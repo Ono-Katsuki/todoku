@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 
-from ..docx.document import iter_paras
+from ..docx.document import form_field_notes, form_field_refusal, iter_paras
 from ..docx.fill import FillError, _as_bool, _is_text_value, inline_padding, written_of  # 証明に渡す、書いた所 → 値（Word と同じ）
 from ..docx.proof import _expected_text
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
@@ -238,7 +238,10 @@ class RtfWriter:
         c = item["control"]
         if getattr(c, "unwritable", "") and not self.force:
             raise FillError(f"{item['id']}: {c.unwritable}")
+        form_field_refusal(c, item["id"], self.force)
         ff = getattr(c, "ff", {})
+        if c.kind in ("checkbox", "dropdown"):
+            self.warnings += form_field_notes(c, item["id"], None, self.doc.controls)
         if c.kind == "checkbox":
             on = _as_bool(value)
             self._ffres(c, ff, 1 if on else 0)
@@ -257,6 +260,7 @@ class RtfWriter:
         text = _is_text_value(value)
         if c.maxlen and len(text) > c.maxlen:
             raise FillError(f"{item['id']}: 「{text}」は {len(text)} 字です（この欄は {c.maxlen} 字まで）")
+        self.warnings += form_field_notes(c, item["id"], text, self.doc.controls)
         self._result(c, text)
         self.patches.append(Patch(item["id"], "input", text))
 

@@ -26,7 +26,7 @@ from .. import chars
 from ..xlsx.window import AGENT_WHY, BLANK_RULE_KINDS, _ident, agent_blanks, blank_places, kept_chars, label_tail, label_text, shown_gap, wide_space
 from ..xlsx.window import GAP_TOKEN_NOTE, ONE_WIDE_SPACE_WHY, one_wide_space, place_facts
 from ..xlsx.window import gap_interior, with_label_keys
-from .document import Cell, Control, DocxDocument, Para, Table, iter_paras
+from .document import Cell, Control, DocxDocument, Para, Table, form_field_fixed, iter_paras
 
 DET = "deterministic"
 LAYOUT = "layout"
@@ -937,6 +937,10 @@ def build(doc: DocxDocument) -> dict:
             d["maxlen"] = c.maxlen
         if c is not None and c.kind == "date" and c.date_format:
             d["format"] = c.date_format
+        elif c is not None and c.text_format:
+            d["format"] = c.text_format  # 字の欄の書式（数の「#,##0」など）：Word が欄を出るときに当てる。とどくは書いた字をそのまま書く
+        if c is not None and c.text_type == "number":
+            d["text_type"] = "number"  # 「数」の欄と設定された字の欄
         bnd = sp.bound(c) if c is not None else None
         if bnd is not None:
             # 文書の中の XML のデータに結び付いた欄：窓の値は、Word が開くときに表示する、その XML の値
@@ -961,6 +965,12 @@ def build(doc: DocxDocument) -> dict:
             d["shaded"] = it["shade"]
         if c is not None and c.lock in ("contentLocked", "sdtContentLocked"):
             d["readonly"] = True
+        fixed = form_field_fixed(c)
+        if fixed:
+            d["readonly"] = True
+            d["not_for_input"] = fixed  # 人が入力しない欄（計算の欄・今日の日付の欄・入力を受け付けない設定の欄）
+            if c.expression:
+                d["expression"] = c.expression
         if c is not None and getattr(c, "unwritable", ""):
             d["readonly"] = True
             d["unwritable"] = True
@@ -1298,12 +1308,16 @@ def to_markdown(doc: dict) -> str:
                 k += ": " + "／".join(map(str, f["options"][:15]))
             if f.get("maxlen"):
                 k += f"（{f['maxlen']} 字まで）"
+            if f.get("text_type") == "number":
+                k += "（数の欄）"
             if f.get("format"):
                 k += f"（書式 {f['format']}）"
             if f.get("agent"):
                 k = f"規則では決められない：{f['why']}" + (f"（{f['alternative_to']} の代わりの所かもしれません。書くのはどちらか一方）" if f.get("alternative_to") else "")
             if f.get("protected"):
                 k += "（文書の保護で書けない欄）"
+            elif f.get("not_for_input"):
+                k += f"（変更できない欄：{f['not_for_input']}）"
             elif f.get("readonly"):
                 k += "（変更できない欄）"
             v = f.get("value")

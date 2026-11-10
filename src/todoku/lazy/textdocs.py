@@ -308,6 +308,7 @@ class CsvDoc(TextDoc):
         warnings: list[str] = []
         touched: dict[int, tuple] = {}  # 行 → (元の始めのバイト, 元の終わりのバイト（改行を含む）)
         before: dict[int, tuple[list, str]] = {}
+        was: dict[str, str | None] = {}  # 書いたマスの、書く前の値（もとからあった字が残っているかを見る）
         try:
             for r in sorted({r for r, _c in want if r <= n}):
                 rn, rec, dec, at = self.records(r, r)[0]
@@ -320,6 +321,7 @@ class CsvDoc(TextDoc):
                     text, key = want[(r, c)]
                     if c <= len(rec.fields):
                         fd = rec.fields[c - 1]
+                        was[key] = fd.value
                         edits.append((at + dec.byte_of(fd.a), at + dec.byte_of(fd.b), dec.encode(quote(text, self, fd.quoted))))
                     else:
                         tail.append(c)
@@ -376,7 +378,7 @@ class CsvDoc(TextDoc):
             if risky:
                 result["formula_like"] = risky
             _finish_fill(result, {p.key: p.value for p in patches}, {p.key: f"{self._label(p.col)}（{p.row}行目）" for p in patches}, said,
-                         tmp, dst, self.path, overwrite, f"list_fields に rows を渡すと、その範囲の空のマスが分かります（全 {comma(n)} 行）")
+                         tmp, dst, self.path, overwrite, f"list_fields に rows を渡すと、その範囲の空のマスが分かります（全 {comma(n)} 行）", before=was)
             return result
         finally:
             tmp.unlink(missing_ok=True)
@@ -564,9 +566,18 @@ def _row_args(rng: dict, n: int, default_from: int = 1) -> tuple[int, int, int]:
     return a, b, 0
 
 
-def _finish_fill(result: dict, written: dict, labels: dict, said: dict | None, tmp: Path, dst: Path, src_path: str, overwrite: bool, rest_note: str) -> None:
+def _finish_fill(result: dict, written: dict, labels: dict, said: dict | None, tmp: Path, dst: Path, src_path: str, overwrite: bool, rest_note: str,
+                 before: dict | None = None, number_changed: dict | None = None) -> None:
+    """大きな書類の書き込みの終わり（どの形式でも）：ふつうの道の終わりと同じことを伝える。
+    before：書いた所の、書く前の字や値（id → 値。空の所は None）。written（書いた後のファイルを読み直した字）と比べて、もとからあった字が
+    元のままでない所を replaced_existing に入れる（api._replaced_values：ふつうの道と同じ決め方）。手で行う所（hand_only）も入れる。"""
     from .. import api
 
+    kind = result.get("kind")
+    gone = api._replaced_values(before or {}, written, written, number_changed, lambda x: api._writer_bool(kind, x), api._is_sheet(kind))
+    if gone:
+        result["replaced_existing"] = gone
+    api._add_hand_only(result)
     told = api._to_tell([], written, result, labels, set(), {}, said or {})
     result.update(told)
     result["empty_fields_note"] = rest_note
@@ -721,7 +732,7 @@ class JsonlDoc(LineDoc):
         return res
 
     def fill(self, values: dict, out_path: str, force: bool, overwrite: bool, said: dict | None) -> dict:
-        from ..datafile.jsonfile import JsonError, JsonFile, fill as jfill, prove as jprove
+        from ..datafile.jsonfile import JsonError, JsonFile, _plain, fill as jfill, prove as jprove
 
         by_line: dict[int, dict] = {}
         problems = []
@@ -736,6 +747,7 @@ class JsonlDoc(LineDoc):
         patches = []
         notes: list[str] = []
         spans = {}
+        was: dict = {}  # 書いた値の、書く前の値（もとからあった値が残っているかを見る）
         for ln, items in sorted(by_line.items()):
             got = self.line_spans(ln, ln)
             if not got or ln > n:
@@ -745,6 +757,13 @@ class JsonlDoc(LineDoc):
             data = self.src.read(x, y)
             try:
                 f = JsonFile(data, self.name, "jsonl", self.dec.encoding)
+                for key, (ptr, _v) in items.items():
+                    try:
+                        node = f.find("L1" + ptr)[0]
+                    except ValueError:
+                        continue  # まだない値（足す所）
+                    if node is not None:
+                        was[key] = _plain(node)
                 res = jfill(f, {"L1" + p: val for p, val in items.values()})
             except JsonError as e:
                 problems.append(f"{ln} 行目：{e}")
@@ -804,7 +823,7 @@ class JsonlDoc(LineDoc):
             if added:
                 result["added"] = added
             _finish_fill(result, {p["key"]: p["value"] for p in patches}, {p["key"]: p["id"].rsplit("/", 1)[-1] for p in patches}, said, tmp, dst,
-                         self.path, overwrite, f"list_fields に records を渡すと、その範囲の値が分かります（全 {comma(n)} 行）")
+                         self.path, overwrite, f"list_fields に records を渡すと、その範囲の値が分かります（全 {comma(n)} 行）", before=was)
             return result
         finally:
             tmp.unlink(missing_ok=True)

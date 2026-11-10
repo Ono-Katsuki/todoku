@@ -50,13 +50,18 @@ def find(blob: bytes) -> PackageSignature | None:
         names = z.names()
     except Exception:  # noqa: BLE001
         return None
+    return find_in(names, z.read)
+
+
+def find_in(names, read) -> PackageSignature | None:
+    """ZIP の中の名前の並びと、1 つを読む関数から、パッケージの電子署名を探す（大きな書類は、全体をメモリに載せずに探す）。"""
     lower = {n.lower(): n for n in names}
     if "[content_types].xml" in lower:
         sig_parts = [n for n in names if n.lower().startswith("_xmlsignatures/") and not n.endswith("/")]
         origin = False
         if "_rels/.rels" in lower:
             try:
-                rels = z.read(lower["_rels/.rels"])
+                rels = read(lower["_rels/.rels"])
                 origin = bool(re.search(rb'Type="' + re.escape(ORIGIN_REL.encode()) + rb'"', rels))
             except Exception:  # noqa: BLE001
                 origin = False
@@ -67,7 +72,7 @@ def find(blob: bytes) -> PackageSignature | None:
     for name, kind in (("meta-inf/documentsignatures.xml", "odf"), ("meta-inf/signatures.xml", "ocf")):
         if name in lower:
             try:
-                n = len(re.findall(rb"<(?:[\w.-]+:)?Signature\b", z.read(lower[name])))
+                n = len(re.findall(rb"<(?:[\w.-]+:)?Signature\b", read(lower[name])))
             except Exception:  # noqa: BLE001
                 n = 0
             return PackageSignature(kind, [lower[name]], n)

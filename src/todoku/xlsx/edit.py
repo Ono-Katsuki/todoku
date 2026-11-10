@@ -1041,15 +1041,48 @@ def box_glyph(orig: str, on: bool) -> str:
     return box_mark(orig, on)
 
 
-def check_box_in_text(text: str, on: bool, where: str) -> tuple[str, str]:
+_BY_ANCHOR = "{\"@1\": {\"old\": …, \"new\": …, \"cell\": …}}"
+_WHOLE = "まるごと書き換えると決めたなら {\"value\": …, \"overwrite_text\": true} で指定してください"
+
+
+def explicit_overwrite(k, v) -> tuple[object, bool]:
+    """{"value": 値, "overwrite_text": true}（印刷された字のあるセルを、まるごと書き換えると明示した）を、(値, 明示したか) にする。
+    ほかの値は、そのまま (値, False)。どの表計算の書き手も、同じ形で受け取る。"""
+    if isinstance(v, dict) and "value" in v and "circle" not in v:
+        extra = set(v) - {"value", "overwrite_text"}
+        if extra:
+            raise EditError(f"{k}: 分からない指定があります（{'・'.join(sorted(extra))}）。使えるのは value と overwrite_text です")
+        return v["value"], v.get("overwrite_text") is True
+    return v, False
+
+
+def is_printed_text(cell, linked: bool = False) -> bool:
+    """字のあるセル（数式でない・部品につながっていない）：書く前から、文書に字が書いてある。"""
+    return (cell is not None and isinstance(cell.value, str) and cell.value.strip() != "" and not cell.has_formula and not linked)
+
+
+def replaced_printed(wb, sh, sheet: str, r: int, c: int, cell, val, anchors: bool = True) -> str | None:
+    """字のあるセル cell に val を書くと、印刷された字が残らないときの注意（証明で想定外の変更として示す）。
+    字が残る書き込み（空欄に書き足しただけ）・入力欄（ロックの解除・入力規則のあるセル）のいまの値の書き換えは None。
+    どの表計算の書き手（Excel・OpenDocument・xlsb・大きなブック）も、同じ決め方。anchors：字を目印にした書き込みのある書き手か。"""
+    from .window import input_cells
+
+    if keeps_printed(cell.value, val) or (r, c) in input_cells(wb, sh):
+        return None
+    part = f"一部を書き換えるなら {_BY_ANCHOR}、" if anchors else ""
+    return (f"{sheet}!{addr(r, c)}: 印刷された字「{cell.value.strip()[:60]}」を、「{to_text(val)[:60]}」に置き換えました（元の字が残っていません）。"
+            f"字の中の空欄に書くなら空欄ごとの値のリスト、{part}{_WHOLE}")
+
+
+def check_box_in_text(text: str, on: bool, where: str, anchors: bool = True) -> tuple[str, str]:
     """字のあるセルに true/false を書く：字の中のチェックの箱の字が1つだけなら、その字だけを印の字にする（ほかの字は変えない）。
     箱の字がない・いくつもあるときは、どれのことか決められないので書かない（EditError。箱ごとの前後の字を示す）。"""
     at = [i for i, ch in enumerate(text) if _is_box(ch)]
     shown = text.strip()[:60]
     if not at:
         raise EditError(f"{where} は字「{shown}」のセルで、チェックの箱の字（□・☐ など）がありません。true/false を書くと、"
-                        "印刷された字が消えるので書いていません。チェックの印にするなら字を目印にした書き込み（{\"@1\": {\"old\": …, "
-                        "\"new\": …, \"cell\": …}}）、まるごと書き換えると決めたなら {\"value\": …, \"overwrite_text\": true} で指定してください")
+                        "印刷された字が消えるので書いていません。"
+                        + (f"チェックの印にするなら字を目印にした書き込み（{_BY_ANCHOR}）、" if anchors else "") + _WHOLE)
     if len(at) > 1:
         ctx = "／".join(f"{n}「{text[max(0, i - 4):i]}［{text[i]}］{text[i + 1:i + 9]}」" for n, i in enumerate(at, 1))
         raise EditError(f"{where} の字には、チェックの箱の字が {len(at)} つあります（{ctx}）。true/false では、どれに印をつけるか"
@@ -1306,14 +1339,7 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             anchored[k] = f"{sheet}!{addr(r, c)}"
             explicit.add((sheet, r, c))
             continue
-        overwrite_text = False
-        if isinstance(v, dict) and "value" in v and "circle" not in v:
-            # {"value": 値, "overwrite_text": true}：印刷された字のあるセルを、まるごと書き換えると明示した
-            extra = set(v) - {"value", "overwrite_text"}
-            if extra:
-                raise EditError(f"{k}: 分からない指定があります（{'・'.join(sorted(extra))}）。使えるのは value と overwrite_text です")
-            overwrite_text = v.get("overwrite_text") is True
-            v = v["value"]
+        v, overwrite_text = explicit_overwrite(k, v)
         ctl = find_control(wb, k)
         if ctl is not None:
             sheet = wb.sheet(k.rsplit("!", 1)[0].strip("'")).name
@@ -1400,8 +1426,7 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             text_written[k] = (sheet, r, c)
             exclusive += _both_boxes_marked(cell.value, v, f"{sheet}!{addr(r, c)}")
             continue
-        printed_text = (cell is not None and isinstance(cell.value, str) and cell.value.strip() != "" and not cell.has_formula
-                        and not linked)
+        printed_text = is_printed_text(cell, bool(linked))
         if isinstance(v, bool) and printed_text and not overwrite_text:
             # 字のあるセルに true/false：セルの字の中のチェックの箱の字（□ など）に印をつける（外す）。字は消さない
             new_text, note = check_box_in_text(cell.value, v, f"{sheet}!{addr(r, c)}")
@@ -1411,16 +1436,10 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             warnings.append(note)
             continue
         val, notes = interpret_input(wb, sheet, r, c, v)
-        if printed_text and not overwrite_text and not keeps_printed(cell.value, val):
-            from .window import input_cells
-
-            if (r, c) in input_cells(wb, sh):
-                pass  # 入力欄（ロックの解除・入力規則のあるセル）のいまの値：印刷された字ではなく、書き換える値
-            else:
-                replaced_text.append(f"{sheet}!{addr(r, c)}: 印刷された字「{cell.value.strip()[:60]}」を、"
-                                     f"「{to_text(val)[:60]}」に置き換えました（元の字が残っていません）。"
-                                     "字の中の空欄に書くなら空欄ごとの値のリスト、一部を書き換えるなら {\"@1\": {\"old\": …, \"new\": …, "
-                                     "\"cell\": …}}、まるごと書き換えると決めたなら {\"value\": …, \"overwrite_text\": true} で指定してください")
+        if printed_text and not overwrite_text:
+            gone = replaced_printed(wb, sh, sheet, r, c, cell, val)
+            if gone:
+                replaced_text.append(gone)
         if overwrite_text:
             explicit.add((sheet, r, c))
         if linked:

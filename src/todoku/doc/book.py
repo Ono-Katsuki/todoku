@@ -16,7 +16,7 @@ import struct
 from dataclasses import dataclass, field
 
 from ..cfb import CFB
-from ..docx.document import WINGDINGS, Cell, Control, Para, Seg, Table
+from ..docx.document import TEXT_TYPES, WINGDINGS, Cell, Control, Para, Seg, Table
 
 FC_NAMES = ["StshfOrig", "Stshf", "PlcffndRef", "PlcffndTxt", "PlcfandRef", "PlcfandTxt", "PlcfSed", "PlcPad", "PlcfPhe",
             "SttbfGlsy", "PlcfGlsy", "PlcfHdd", "PlcfBteChpx", "PlcfBtePapx", "PlcfSea", "SttbfFfn", "PlcfFldMom",
@@ -873,18 +873,17 @@ class DocFile:
         kind = {"FORMTEXT": "text", "FORMCHECKBOX": "checkbox", "FORMDROPDOWN": "dropdown"}[word]
         ctl = Control(kind, "formfield", "", None, "doc", p)
         ctl.begin_cp = f["begin"]
-        props = self.char_props(f["begin"])
-        if props["pic"] is None:
-            # FFData の位置（sprmCPicLocation, sprmCFData）：Word は欄の始めの字（0x13）に置くが、LibreOffice が書き出す .doc は、
-            # 欄の命令の中の 0x01 の字に置く（区切りの字 0x14 のないこともある）。始めの字になければ、命令の中の 0x01 の字と、
-            # 区切りの字を、この順に見る
-            end = f["begin"] + 1 + len(f["instr"])
-            for cp in [f["begin"] + 1 + i for i, ch in enumerate(f["instr"]) if ch == "\x01"] + \
-                    ([f["sep"]] if f.get("sep") is not None else [end]):
-                got = self.char_props(cp)
-                if got["pic"] is not None:
-                    props = got
-                    break
+        # FFData の位置：欄のデータの印（sprmCFData）の付いた字の、絵の位置（sprmCPicLocation）。Word も LibreOffice も、欄の命令の中の
+        # 0x01 の字に置く。印のない字の絵の位置は、欄のデータではない（Word の書き出した .doc では、欄の始めの字 0x13 にも
+        # 絵の位置 0 が付いていて、そこを読むと、関係のないバイトを欄の名前・状態として読む）。
+        end = f["begin"] + 1 + len(f["instr"])
+        props = {"pic": None}
+        for cp in [f["begin"]] + [f["begin"] + 1 + i for i, ch in enumerate(f["instr"]) if ch == "\x01"] + \
+                ([f["sep"]] if f.get("sep") is not None else [end]):
+            got = self.char_props(cp)
+            if got["data"] and got["pic"] is not None:
+                props = got
+                break
         if props["pic"] is not None:
             ff = parse_ffdata(self.data, props["pic"])
             if ff:
@@ -901,6 +900,12 @@ class DocFile:
                     if idx == 25:
                         idx = ff.get("wDef", 0)
                     ctl.value = ctl.options[idx] if 0 <= idx < len(ctl.options) else None
+                ctl.disabled, ctl.calc_on_exit = bool(ff.get("prot")), bool(ff.get("recalc"))
+                if kind == "text":
+                    ctl.text_type = TEXT_TYPES[ff["type_txt"]] if ff.get("type_txt", 0) < len(TEXT_TYPES) else "regular"
+                    ctl.text_format = ff.get("format", "")
+                    if ctl.text_type == "calculated":
+                        ctl.expression = ff.get("default", "")
                 if ff.get("type_txt") == 2:
                     ctl.kind = "date"
                     ctl.date_format = ff.get("format", "")
@@ -974,7 +979,8 @@ def parse_ffdata(data: bytes, pos: int) -> dict:
         cch, hps = struct.unpack_from("<HH", data, i + 6)
         k = i + 10
         name, k = _xstz(data, k)
-        d = {"_pos": i, "type": itype, "res": res, "type_txt": type_txt, "cch": cch, "name": name, "bits_pos": i + 4}
+        d = {"_pos": i, "type": itype, "res": res, "type_txt": type_txt, "cch": cch, "name": name, "bits_pos": i + 4,
+             "prot": bool(bits & 0x0200), "recalc": bool(bits & 0x4000)}  # FFDataBits の fProt・fRecalc（MS-DOC 2.9.78）
         if itype == 0:
             d["default"], k = _xstz(data, k)
         if itype in (1, 2):

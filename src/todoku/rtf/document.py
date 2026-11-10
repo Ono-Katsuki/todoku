@@ -19,7 +19,7 @@ import re
 from array import array
 from dataclasses import dataclass, field
 
-from ..docx.document import WINGDINGS, Cell, Control, Para, Seg, Table, iter_paras
+from ..docx.document import TEXT_TYPES, WINGDINGS, Cell, Control, Para, Seg, Table, iter_paras
 from .lexer import Tok, tokens
 
 MARK_PREFIX = "_todoku_"
@@ -565,7 +565,7 @@ class RtfDocument:
                                                                       "shptxt", "dptxbxtext", "shpinst", "shp", "do",
                                                                       "listtext", "pntext", "bkmkstart", "bkmkend",
                                                                       "formfield", "result", "object", "nesttableprops")):
-                if st.skip and w not in ("ffname", "ffl", "ffdeftext", "ffhelptext", "ffstattext"):
+                if st.skip and w not in ("ffname", "ffl", "ffdeftext", "ffformat", "ffhelptext", "ffstattext"):
                     st.dest = w if st.star else st.dest  # 飛ばしている宛先の中（\\shprslt の中の \\dptxbxtext など）は、そのまま飛ばす
                     continue
                 known = self._start_dest(w, t, st, stack, story, fields, special_groups, depth)
@@ -728,7 +728,7 @@ class RtfDocument:
                 fields[-1][1].ff["span"] = (t.s, None)
                 fields[-1][1].ff["depth"] = depth
             return "keep"
-        if w in ("ffname", "ffl", "ffdeftext", "ffhelptext", "ffstattext"):
+        if w in ("ffname", "ffl", "ffdeftext", "ffformat", "ffhelptext", "ffstattext"):
             st.dest = w
             special[depth] = {"kind": w, "text": ""}
             return "keep"
@@ -746,8 +746,9 @@ class RtfDocument:
         if not fields:
             return
         ff = fields[-1][1].ff
-        if t.word in ("fftype", "ffres", "ffdefres", "ffmaxlen", "fftypetxt"):
-            ff[t.word] = t.param if t.param is not None else 0
+        if t.word in ("fftype", "ffres", "ffdefres", "ffmaxlen", "fftypetxt", "ffprot", "ffrecalc"):
+            # 値のない \ffprot・\ffrecalc は「オン」（オン・オフの制御語は、値がなければ 1）
+            ff[t.word] = t.param if t.param is not None else (1 if t.word in ("ffprot", "ffrecalc") else 0)
             ff[t.word + "_pos"] = (t.s, t.e)
 
     def _close_special(self, info: dict, story, fields, t: Tok, depth: int) -> None:
@@ -777,7 +778,7 @@ class RtfDocument:
                 story.para = p
             pos = len(p.text)
             self.marks_raw.append((text.strip(), "start" if kind == "bkmkstart" else "end", p, pos))
-        elif kind in ("ffname", "ffl", "ffdeftext", "ffhelptext", "ffstattext") and fields:
+        elif kind in ("ffname", "ffl", "ffdeftext", "ffformat", "ffhelptext", "ffstattext") and fields:
             ff = fields[-1][1].ff
             if kind == "ffl":
                 ff.setdefault("ffl", []).append(text)
@@ -815,8 +816,16 @@ class RtfDocument:
             if kind == "dropdown":
                 ctl.options = list(ff.get("ffl", []))
                 ctl.value = ctl.options[res] if 0 <= res < len(ctl.options) else None
+            ctl.disabled, ctl.calc_on_exit = bool(ff.get("ffprot")), bool(ff.get("ffrecalc"))
+            if kind == "text":
+                n = ff.get("fftypetxt", 0)
+                ctl.text_type = TEXT_TYPES[n] if 0 <= n < len(TEXT_TYPES) else "regular"
+                ctl.text_format = ff.get("ffformat", "") or ""
+                if ctl.text_type == "calculated":
+                    ctl.expression = ff.get("ffdeftext", "") or ""
             if ff.get("fftypetxt") == 2:
                 ctl.kind = "date"
+                ctl.date_format = ctl.text_format
             ctl.ff = dict(ff)
             ctl.rtf_pos = (pos0, pos0)
             if kind in ("checkbox", "dropdown") and "fftype_pos" not in ff and "ffres_pos" not in ff:
@@ -1002,7 +1011,7 @@ class RtfDocument:
         return out
 
 
-NAME_DESTS = ("bkmkstart", "bkmkend", "ffname", "ffl", "ffdeftext", "ffhelptext", "ffstattext")
+NAME_DESTS = ("bkmkstart", "bkmkend", "ffname", "ffl", "ffdeftext", "ffformat", "ffhelptext", "ffstattext")
 
 
 def _name_flush(info: dict) -> None:
