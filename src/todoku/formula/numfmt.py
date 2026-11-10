@@ -139,6 +139,19 @@ def format_value(v, fmt: str, date1904: bool | None = None) -> str:
             return _literal(parse_section(fmt)[0]).replace("@", v)
         return v
     x = float(v)
+    if date1904 is None:
+        return _shown_number(x, fmt, None)  # 計算中のブックの数え方によるので、控えない
+    return _shown_number_kept(x, x == 0 and math.copysign(1.0, x) < 0, fmt, bool(date1904))
+
+
+@lru_cache(maxsize=100_000)
+def _shown_number_kept(x: float, _minus_zero: bool, fmt: str, date1904: bool) -> str:
+    """同じ数・同じ表示形式・同じ日付の数え方は、同じ字になる（表のマスは同じ値・同じ形式がくり返し出る）。
+    再現できない表示形式（例外）は控えない。-0.0 は 0.0 と分けて控える。"""
+    return _shown_number(x, fmt, date1904)
+
+
+def _shown_number(x: float, fmt: str, date1904: bool | None) -> str:
     bid = builtin_id(fmt)
     if bid is not None:
         raise LocaleDependent(bid, iso_text(x, date1904))

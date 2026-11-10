@@ -123,7 +123,8 @@ def checkbox_value(value, on=(), off=(), where: str = "") -> bool:
     """checkbox_state と同じ。受けない値なら InputError（宣言した状態の値があれば、それを添える）。"""
     got = checkbox_state(value, on, off)
     if got is None:
-        declared = [str(x) for x in (*on, *off) if str(x)]
+        # 集合で渡された値は並べる（集合の順は動かすたびに変わるので、同じ頼みに同じ字で断る）
+        declared = [str(x) for grp in (on, off) for x in (sorted(grp, key=str) if isinstance(grp, (set, frozenset)) else grp) if str(x)]
         extra = f"（この欄の状態の値：{'・'.join(dict.fromkeys(declared))}）" if declared else ""
         raise InputError(f"{where + ': ' if where else ''}{CHECKBOX_HINT}{extra}（「{value}」）")
     return got

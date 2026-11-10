@@ -106,6 +106,7 @@ class Anchor:
 
 
 _MEMO = "_window_memo"  # 窓を作るあいだだけ、シートに置く控え（配置のマス・表）。build の外では使わない
+_BOOK_MEMO = "_window_book_memo"  # 窓を作るあいだだけ、ブックに置く控え（すべてのシートの数式を 1 度だけ見て作るもの）
 
 
 def anchors(sh: Sheet) -> dict[int, list[Anchor]]:
@@ -264,21 +265,42 @@ def formula_readers(wb: Workbook, sh: Sheet) -> Readers:
     """シート sh のセル → それを読む数式（事実）：{"cells": [「シート!番地」…（READERS_MAX まで）], "n": 読む数式の数}。
     ブックのすべてのシートの数式の参照を見る（名前の定義を通した参照も）。列全体（A:A）などの広い参照は、使っている範囲と
     印刷範囲までに切る（その外は、値も書式もないセル）。読まれることは入力欄の宣言ではないので、ここでは欄と決めない。
-    範囲はマスに広げず、区間のまま持つ（xlsx/readers.py）。"""
+    範囲はマスに広げず、区間のまま持つ（xlsx/readers.py）。
+    窓を作るあいだ（build）は、すべてのシートの分を、ブックの数式を 1 度だけ見て作る（シートごとに見直すと、シートの数 × 数式の数になる）。"""
     memo = sh.__dict__.get(_MEMO)
     if memo is not None and "readers" in memo:
         return memo["readers"]
-    lim_r, lim_c = _used_limits(sh, wb)
-    me = sh.name.lower()
-    # 広げてよい数：ファイルに要素のないマスの分（要素のあるマスは、広げてもメモリは増えない）
-    out = Readers(READERS_MAX, _declared_room(wb) + len(sh.cells) + len(sh.merges))
+    book = wb.__dict__.get(_BOOK_MEMO)
+    out = None
+    if book is not None:
+        if "readers" not in book:
+            book["readers"] = {id(s_): x for s_, x in zip(wb.sheets, _formula_readers(wb, wb.sheets))}
+        # シートの控えに移す（そのシートの窓ができたら捨てる。ブックの終わりまで持たない）
+        out = book["readers"].pop(id(sh), None) if memo is not None else book["readers"].get(id(sh))
+    if out is None:
+        out = _formula_readers(wb, [sh])[0]
+    if memo is not None:
+        memo["readers"] = out
+    return out
+
+
+def _formula_readers(wb: Workbook, targets: list) -> list[Readers]:
+    """targets のシートごとの Readers。ブックの数式を 1 度だけ見て、参照を、指すシートの Readers に入れる。"""
+    outs: list[Readers] = []
+    to_sheet: dict[str, list[tuple[int, Readers, int, int]]] = {}
+    for sh in targets:
+        lim_r, lim_c = _used_limits(sh, wb)
+        # 広げてよい数：ファイルに要素のないマスの分（要素のあるマスは、広げてもメモリは増えない）
+        outs.append(Readers(READERS_MAX, _declared_room(wb) + len(sh.cells) + len(sh.merges)))
+        to_sheet.setdefault(sh.name.lower(), []).append((len(outs) - 1, outs[-1], lim_r, lim_c))
 
     def boxes(ast, here: str, dr: int, dc: int, depth: int = 0):
         for ref in iter_refs(ast):
             if isinstance(ref, RefNode):
-                if (ref.sheet or here).lower() == me:
+                to = to_sheet.get((ref.sheet or here).lower())
+                if to:
                     x = ref.shifted(dr, dc)
-                    yield min(x.r1, x.r2), min(x.c1, x.c2), max(x.r1, x.r2), max(x.c1, x.c2)
+                    yield to, min(x.r1, x.r2), min(x.c1, x.c2), max(x.r1, x.r2), max(x.c1, x.c2)
             elif isinstance(ref, NameNode) and depth < 8 and hasattr(wb, "defined_name"):  # 名前の入れ子の深さ（安全のため）
                 d = wb.defined_name(ref.name, ref.sheet or here)
                 if d is not None and d.ast is not None:
@@ -288,17 +310,17 @@ def formula_readers(wb: Workbook, sh: Sheet) -> Readers:
         for (r0, c0), cell in s_.cells.items():
             if cell.ast is None or not cell.has_formula:
                 continue
-            order = None
-            for r1, c1, r2, c2 in boxes(cell.ast, s_.name, cell.dr, cell.dc):
-                r1, c1, r2, c2 = max(r1, 1), max(c1, 1), min(r2, lim_r), min(c2, lim_c)
-                if r2 < r1 or c2 < c1:
-                    continue
-                if order is None:
-                    order = out.add_formula(s_.name, r0, c0)
-                out.add_box(r1, c1, r2, c2, order)
-    if memo is not None:
-        memo["readers"] = out
-    return out
+            orders: dict[int, int] = {}
+            for to, r1, c1, r2, c2 in boxes(cell.ast, s_.name, cell.dr, cell.dc):
+                for i, out, lim_r, lim_c in to:
+                    a1, b1, a2, b2 = max(r1, 1), max(c1, 1), min(r2, lim_r), min(c2, lim_c)
+                    if a2 < a1 or b2 < b1:
+                        continue
+                    order = orders.get(i)
+                    if order is None:
+                        order = orders[i] = out.add_formula(s_.name, r0, c0)
+                    out.add_box(a1, b1, a2, b2, order)
+    return outs
 
 
 def undecided_cells(wb: Workbook, sh: Sheet, inputs: dict) -> dict[tuple[int, int], str]:
@@ -405,8 +427,17 @@ def _cols_table(wb: Workbook, sh: Sheet) -> tuple:
         base = col_mm(wb, sh, 0)  # 列 0 はないので、幅の指定のない列の幅
         cols = sorted({*sh.col_widths, *sh.hidden_cols})
         total = [0.0]
+        mm: dict = {}  # 幅 → mm（シートの右端まで同じ幅を宣言した列が 1 万を超えて並ぶ：同じ幅を 1 度だけ mm にする）
+        hidden, widths, default = sh.hidden_cols, sh.col_widths, sh.default_col_width
         for c in cols:
-            total.append(total[-1] + col_mm(wb, sh, c) - base)
+            if c in hidden:
+                w = 0.0
+            else:
+                key = widths.get(c, default)
+                w = mm.get(key)
+                if w is None:
+                    w = mm[key] = col_mm(wb, sh, c)
+            total.append(total[-1] + w - base)
         got = sh.__dict__["_cols_mm"] = ((len(sh.col_widths), len(sh.hidden_cols)), cols, total, base)
     return got
 
@@ -1385,6 +1416,11 @@ def wb_default_color(wb) -> str:
     return _rgb(wb.style(0).font_color)
 
 
+def _empty_input(x: Box) -> bool:
+    """値のない入力欄（近くの字を探すとき、こえて数える）。"""
+    return x.kind == "input" and not x.text and (x.cell is None or x.cell.value in (None, ""))
+
+
 class Layout:
     """1枚のシートの、目に見える配置。"""
 
@@ -1640,8 +1676,7 @@ class Layout:
         何行・何列はなれていても出す（見出しかどうかはエージェントが判断する）。"""
         out: dict = {}
 
-        def empty(x: Box) -> bool:
-            return x.kind == "input" and not x.text and (x.cell is None or x.cell.value in (None, ""))
+        empty = _empty_input
 
         def shown(x: Box) -> str:
             if x.kind != "text" or x.cell is None or x.cell.value in (None, ""):
@@ -1669,21 +1704,36 @@ class Layout:
                 out["left"] = {**fact(x, t, skipped), "cols": b.c1 - x.c2 - 1,
                                "mm": round(cols_mm(self.wb, self.sh, x.c2 + 1, b.c1 - 1), 1)}
             break
-        probe, skipped = b, 0
-        while True:
-            x = self._above_box(probe)
-            if x is None:
-                break
-            if empty(x):
-                skipped += 1
-                probe = Box(x.r, b.c1, x.r, b.c2, "probe")
-                continue
+        x, skipped = self._above_walk(b.r, b.c1, b.c2)
+        if x is not None:
             t = shown(x)
             if t.strip():
                 out["above"] = {**fact(x, t, skipped), "rows": b.r - x.r2,
                                 "mm": round(rows_mm(self.sh, x.r2 + 1, b.r - 1), 1)}
-            break
         return out
+
+    def _above_walk(self, r: int, c1: int, c2: int) -> tuple:
+        """行 r・列 c1〜c2 から上へ、空の欄をこえて、はじめに当たるマス（なければ None）と、こえた空の欄の数。
+        同じ行と列の範囲からの答えは同じなので、たどった所をすべて控える（空の欄が縦に並ぶ表で、欄ごとに上までたどり直さない）。"""
+        memo = self.__dict__.setdefault("_above_walks", {}).setdefault((c1, c2), {})
+        got = memo.get(r)
+        if got is not None:
+            return got
+        path = []
+        while True:
+            x = self._above_box(Box(r, c1, r, c2, "probe"))
+            path.append(r)
+            if x is None or not _empty_input(x):
+                end, n = x, 0
+                break
+            r = x.r
+            got = memo.get(r)
+            if got is not None:
+                end, n = got[0], got[1] + 1
+                break
+        for i, r_ in enumerate(reversed(path)):
+            memo[r_] = (end, n + i)
+        return memo[path[0]]
 
     def _next_row(self, rr: int, span: tuple[int, int]) -> int:
         """rr から上（rr を含む）で、列の範囲 span にかかるマス（その行で始まるか、上から結合で続くもの）のある、いちばん下の行。
@@ -1767,7 +1817,7 @@ class Layout:
         row.append(tmp)
         row.sort(key=lambda x: (x.c1, x.kind != "check"))
         try:
-            d = self.describe(tmp)
+            d = self.describe(tmp, context=False)  # 行の並び（context）は、仮のマスを外してから作る
         finally:
             row.remove(tmp)
             if not row:
@@ -1954,11 +2004,25 @@ class Layout:
         others = [b for b in self.boxes(target.r) if b not in phrase and b.kind != "check"]
         lo = min(b.c1 for b in phrase) if phrase else target.c1
         hi = max(b.c2 for b in phrase) if phrase else target.c2
-        r = target.r - 1
-        shape = self.shape(target.r)
-        span = (target.c1, target.c2)
-        # 何行はなれていても見る（行の数の目安で打ち切らない。離れ方は near に出す）。列の範囲にマスのない行はとばす
+        h = self._text_above(target.r - 1, self.shape(target.r), (target.c1, target.c2))
+        if h is None:
+            return -1
+        covered = [o for o in others if o.c1 <= h.c2 and o.c2 >= h.c1 and not (lo <= o.c1 and o.c2 <= hi)
+                   and not (o.kind == "formula" and not o.text)]
+        return -1 if covered else self._header_node(h)
+
+    def _text_above(self, r: int, shape, span: tuple[int, int]) -> Box | None:
+        """行 r から上へ、列の範囲 span ではじめに当たる字のマス（先に別の入力欄に当たるか、シートの上まで行けば None）。
+        何行はなれていても見る（行の数の目安で打ち切らない。離れ方は near に出す）。列の範囲にマスのない行はとばす。
+        同じ形・同じ列の範囲からの答えは同じなので、たどった行をすべて控える（字も欄もない行が続く所を、欄ごとにたどり直さない）。"""
+        memo = self.__dict__.setdefault("_text_aboves", {}).setdefault((shape, span), {})
+        path: list[int] = []
+        found = None
         while r > 0:
+            if r in memo:
+                found = memo[r]
+                break
+            path.append(r)
             # 表の本体の行（同じ形）と、同じ列割りの欄が上に続く行（表の列）は、数えずに上へ。続く所の上まで、まとめて飛ぶ
             r = self._skip_up(r, shape, span)
             if r <= 0:
@@ -1970,16 +2034,13 @@ class Layout:
             if any(b.kind == "input" for b in cand):
                 break  # すぐ上に別の入力欄がある：この欄の見出しは上にはない
             texts = [b for b in cand if _text(b)]
-            if not texts:
-                r -= 1
-                continue
-            h = texts[0]
-            covered = [o for o in others if o.c1 <= h.c2 and o.c2 >= h.c1 and not (lo <= o.c1 and o.c2 <= hi)
-                       and not (o.kind == "formula" and not o.text)]
-            if covered:
+            if texts:
+                found = texts[0]
                 break
-            return self._header_node(h)
-        return -1
+            r -= 1
+        for r_ in path:
+            memo[r_] = found
+        return found
 
     def _header_node(self, h: Box) -> int:
         """見出しのマス h の段の番号。次の段は、h の上の行と h の列の範囲だけで決まる（どの欄から来ても同じ）。"""
@@ -2050,7 +2111,7 @@ class Layout:
         return _placed_fact(t, x.ref if x.control is None else x.cell_ref, x.c2 - x.c1 + 1, x.r2, x.c2, target.r, target.c1,
                             lambda: _rows_table(self.sh), lambda: _cols_table(self.wb, self.sh))
 
-    def describe(self, target: Box, options: list | None = None) -> dict:
+    def describe(self, target: Box, options: list | None = None, context: bool = True) -> dict:
         """入力欄（またはチェックボックス）の見出しと、判断の材料。見出しは、印刷された字をそのまま使う：
         同じ行の前（左。右から左へ表示するシートでは画面の右）のいちばん近い字・同じ列の上の字。字の意味（単位・年号など）では選ばない。"""
         r = target.r
@@ -2181,7 +2242,7 @@ class Layout:
             section = "／".join(p for p in dict.fromkeys(parts) if p) or None
             label = phrase_text
         out = {"label": label or None, "label_method": "・".join(method) or None,
-               "context": self.line(r, mark_box=target)}
+               "context": self.line(r, mark_box=target) if context else None}
         if section:
             out["section"] = section  # 区分・上の見出しなど（見出しには付けていない、ほかのマス・行の字）
         if between_text:
@@ -2345,26 +2406,43 @@ class Layout:
         return [b for b in self.cover.get(r, []) if b.kind in ("text", "formula", "input") and b.text and b.text.strip()]
 
     def line(self, r: int, mark_box: Box | None = None, include_outside: bool = True) -> str:
+        items, tails = self._line_items(r, include_outside)
+        if mark_box is not None:
+            items = [(self.token(b, True) if b is mark_box else t, o, b) for t, o, b in items]
+        inside = [t for t, o, _b in items if not o and t]
+        outside = [t for t, o, _b in items if o and t]
+        s = " ｜ ".join(inside)
+        if outside:
+            s += ("　" if s else "") + "〔印刷範囲外〕" + " ｜ ".join(outside)
+        for tail in tails:
+            s += ("　" if s else "") + tail
+        return s
+
+    def _line_items(self, r: int, include_outside: bool) -> tuple[list, list]:
+        """行 r の読み順の並び：([(字, 印刷範囲の外か, マス)…], 見えない字の節)。欄の印（▶）を付ける前のもの。
+        配置は作り終えたあと変わらないので、行ごとに 1 度だけ作る（欄ごとの context は、同じ行の並びに ▶ を 1 つ付けたもの。
+        欄ごとに作り直すと、行の欄の数の 2 乗になる）。"""
+        memo = self.__dict__.setdefault("_lines", {})
+        got = memo.get((r, include_outside))
+        if got is not None:
+            return got
         own = self.boxes(r)
         if r in self.agent:
             own = sorted(own + self.agent[r], key=lambda b: (b.c1, b.kind != "check"))
         own = [b for b in own if include_outside or not b.outside]
         own = [b for b in own if b.kind != "formula" or b.text]
         # 結合のマスは、かかるどの行でも、その列の位置に（　）で示す（どの行の値かを、エージェントが推し量らなくてよいように）
-        items = [(b.c1, f"（{label_text(b.text)}）", b.outside) for b in self.carried(r) if include_outside or not b.outside]
-        items += [(b.c1, self.token(b, b is mark_box), b.outside) for b in own]
+        items = [(b.c1, f"（{label_text(b.text)}）", b.outside, None) for b in self.carried(r) if include_outside or not b.outside]
+        items += [(b.c1, self.token(b), b.outside, b) for b in own]
         items.sort(key=lambda x: x[0])
-        inside = [t for _c, t, o in items if not o and t]
-        outside = [t for _c, t, o in items if o and t]
-        s = " ｜ ".join(inside)
-        if outside:
-            s += ("　" if s else "") + "〔印刷範囲外〕" + " ｜ ".join(outside)
+        tails = []
         for how, mark in (("row", "〔非表示〕"), ("merge", "〔結合の下に隠れた字〕"), ("format", "〔条件付き書式でいまは見えない〕")):
             hidden = [self.hidden_token(b) for b in sorted(self.hidden_boxes.get(r, []), key=lambda b: b.c1) if b.hidden == how]
             hidden = [t for t in hidden if t]
             if hidden:
-                s += ("　" if s else "") + mark + " ｜ ".join(hidden)
-        return s
+                tails.append(mark + " ｜ ".join(hidden))
+        got = memo[(r, include_outside)] = ([(t, o, b) for _c, t, o, b in items], tails)
+        return got
 
     def hidden_token(self, b: Box) -> str:
         """非表示の行・列のマスの字：番地をつけて示す（画面には出ないので、どこの字かが分かるように）。"""
@@ -2449,6 +2527,7 @@ class _Options:
 
         self.wb = wb
         self.calc = Calc(wb)
+        self.calc.ranges = {}  # 窓を作るあいだはマスの値が変わらない：同じ表を引く数式が、表を 1 度だけ読む
         self.cache: dict = {}
 
     def get(self, sheet: str, v, r: int, c: int) -> tuple[list | None, str | None]:
@@ -2740,15 +2819,19 @@ def build(wb: Workbook) -> dict:
         "sheets": [],
     }
     opts = _Options(wb)
-    for sh in wb.sheets:
-        if sh.state.startswith("non-worksheet"):
-            doc["sheets"].append({"name": sh.name, "state": sh.state, "cells": [], "fields": [], "reading": []})
-            continue
-        sh.__dict__[_MEMO] = {}
-        try:
-            doc["sheets"].append(_sheet_doc(wb, sh, opts))
-        finally:
-            sh.__dict__.pop(_MEMO, None)
+    wb.__dict__[_BOOK_MEMO] = {}
+    try:
+        for sh in wb.sheets:
+            if sh.state.startswith("non-worksheet"):
+                doc["sheets"].append({"name": sh.name, "state": sh.state, "cells": [], "fields": [], "reading": []})
+                continue
+            sh.__dict__[_MEMO] = {}
+            try:
+                doc["sheets"].append(_sheet_doc(wb, sh, opts))
+            finally:
+                sh.__dict__.pop(_MEMO, None)
+    finally:
+        wb.__dict__.pop(_BOOK_MEMO, None)
     from ..embeds.excel import add_to_window
 
     add_to_window(wb, doc)  # グラフ（charts）と埋め込み（objects）：読むだけ

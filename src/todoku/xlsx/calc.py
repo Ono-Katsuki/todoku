@@ -48,6 +48,10 @@ class VerifyReport:
         return {"total": self.total, **{k: self.count(k) for k in keys}}
 
 
+_RANGES_ROOM = 2_000_000  # 範囲の値の控えに置くマスの数の上限（メモリを使いすぎないため。超えた範囲は控えずに読む）
+_OK = ("ok", "")
+
+
 class Calc:
     """ブックの計算コンテキスト。
 
@@ -70,6 +74,9 @@ class Calc:
         self._sheets = {s.name: s for s in wb.sheets}
         self._sheets_lower = {s.name.lower(): s for s in wb.sheets}
         self.scan_store = scan_store  # 大きな配列の集計の控え
+        # 範囲の値の控え（range_rows）。マスの値が変わらないと分かっているあいだ（窓を作るあいだ）だけ、使う側が {} を置く
+        self.ranges: dict | None = None
+        self._ranges_room = _RANGES_ROOM
         self.scan_seq: dict = {}  # 数式のセルごとの、集計の順の番号（呼び直しても同じ控えに当たるように）
         self.calc_notes: dict = {}  # 計算の結果についての注（式で答えた和など）
         self.unfinished: dict = {}  # 時間の中で終わらなかった集計：数式のセル → Unfinished
@@ -172,6 +179,46 @@ class Calc:
             if s == sh.name and r1 <= r <= r2 and c1 <= c <= c2:
                 have.add((r, c))
         return sorted(have)
+
+    def range_rows(self, sheet: str, r1: int, c1: int, r2: int, c2: int) -> list[list]:
+        """範囲のマスの値（行ごと）。答えは cell_value を 1 マスずつ呼ぶのと同じ。数式でないマスは、シートを 1 度だけ探して、
+        ファイルの値をそのまま取る（表を引く VLOOKUP などは、引くたびに表のすべてのマスを読む）。"""
+        cv = self.cell_value
+        sh = None
+        if r1 <= r2 and c1 <= c2 and not self.overrides and self._ext(sheet) is None:
+            sh = self._sheet(sheet)
+            if getattr(sh, "array_spans", None) or getattr(sh, "virtual_cell", None) is not None:
+                sh = None
+        if sh is None:
+            return [[cv(sheet, r, c) for c in range(c1, c2 + 1)] for r in range(r1, r2 + 1)]
+        keep, key = self.ranges, (sh.name, r1, c1, r2, c2)
+        if keep is not None:
+            hit = keep.get(key)
+            if hit is not None:
+                if hit[1] and self._frames:
+                    self._frames[-1] = True  # cell_value と同じ：計算のたびに変わる値のマスが範囲にある
+                return [row[:] for row in hit[0]]
+        get, status, name = sh.cells.get, self.status, sh.name
+        out, volatile = [], False
+        for r in range(r1, r2 + 1):
+            row = []
+            for c in range(c1, c2 + 1):
+                cell = get((r, c))
+                if cell is None:
+                    row.append(None)
+                elif cell.has_formula:
+                    row.append(cv(sheet, r, c))
+                    if not volatile and status.get((name, r, c), _OK)[0] == "volatile":
+                        volatile = True
+                else:
+                    row.append(cell.value)
+            out.append(row)
+        n = (r2 - r1 + 1) * (c2 - c1 + 1)
+        if keep is not None and n <= self._ranges_room:
+            # 数式の値は 1 度決まると変わらない（memo）ので、同じ範囲は同じ値になる。渡すのは写し（控えを変えさせない）
+            self._ranges_room -= n
+            keep[key] = ([row[:] for row in out], volatile)
+        return out
 
     def cell_value(self, sheet: str, r: int, c: int):
         ext = self._ext(sheet)

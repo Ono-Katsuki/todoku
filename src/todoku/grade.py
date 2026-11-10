@@ -46,6 +46,8 @@ D 書けない（アクセスできない・字の情報がなく、ページの
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import re
 from dataclasses import asdict, dataclass, field
 
@@ -268,6 +270,26 @@ def unsupported_grade(kind: str, blob: bytes | None = None, detail: str | None =
 
 
 # ====================================================================== 形式ごと
+# もう作ってある窓：(ファイルの中身, 窓)。対話では、開いた書類の段階を続けて頼む。窓を作るのがいちばん重いので、同じ中身の窓があれば作り直さない
+_BUILT: contextvars.ContextVar = contextvars.ContextVar("todoku_grade_window", default=None)
+
+
+@contextlib.contextmanager
+def built_window(blob: bytes, win: dict):
+    """この中で blob の段階を決めるときは、窓を作り直さず win を使う（win は読むだけ。変えない）。"""
+    token = _BUILT.set((blob, win))
+    try:
+        yield
+    finally:
+        _BUILT.reset(token)
+
+
+def _built(blob: bytes) -> dict | None:
+    """blob の、もう作ってある窓（なければ None）。渡された中身そのもののときだけ：ZIP の中のファイルなど、ほかの中身には使わない。"""
+    pre = _BUILT.get()
+    return pre[1] if pre is not None and pre[0] is blob else None
+
+
 def grade_blob(blob: bytes, filename: str = "", password: str | None = None, encoding: str | None = None) -> Grade:
     """形式ごとに段階を決め（_grade_blob）、パッケージの電子署名があれば、書く段階の理由を足す。"""
     g = _grade_blob(blob, filename, password, encoding)
@@ -449,7 +471,9 @@ def _grade_pdf(blob: bytes, filename: str, password: str | None = None) -> Grade
     from .pdf.window import build
 
     doc = PdfDocument(blob, filename, password=password) if password else PdfDocument(blob, filename)
-    win = build(doc)
+    win = _built(blob)
+    if win is None:
+        win = build(doc)
     if not win["pages"]:
         return _locked("ページがない", "ページの木（Catalog の Pages）をたどっても、ファイルを頭から読み直しても、ページが1つも"
                        "見つかりません。窓は空なので、中身を読めません", "ページがないので、書けません")
@@ -710,12 +734,14 @@ def _grade_word(blob: bytes, filename: str, kind: str) -> Grade:
 
         doc = DocFile(blob, filename)
         if getattr(doc, "word6", False):
-            return _grade_word6(doc)
+            return _grade_word6(doc, _built(blob))
     else:
         from .docx.document import DocxDocument
 
         doc = DocxDocument(blob, filename)
-    win = build(doc)
+    win = _built(blob)
+    if win is None:
+        win = build(doc)
     reasons: list[Reason] = []
     write: list[Reason] = []
     agent = [f for f in win["fields"] if f.get("agent")]
@@ -1157,7 +1183,9 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
     from .xlsx.window import build
 
     wb = open_book(blob, filename)
-    doc = build(wb)
+    doc = _built(blob)
+    if doc is None:
+        doc = build(wb)
     reasons: list[Reason] = []
     write: list[Reason] = []
     sheet_input_reasons(doc, reasons, write)
@@ -1251,12 +1279,13 @@ def _excel_lost(wb, doc: dict) -> list[Reason]:
     return lost_reason(checks, "ブック")
 
 
-def _grade_word6(doc) -> Grade:
+def _grade_word6(doc, win: dict | None = None) -> Grade:
     """Word 6.0/95：読む段階は Word と同じ決め方。書く段階は、字のバイト数を変えない上書きなので、空白・伏せ字・□ の上に
     書ける欄は B（解析して書く）、字のない欄（空のマスなど）は D（todoku では書けない）。"""
     from .doc.word6 import build
 
-    win = build(doc)
+    if win is None:
+        win = build(doc)
     reasons: list[Reason] = []
     write: list[Reason] = []
     agent = [f for f in win["fields"] if f.get("agent")]
@@ -1301,7 +1330,9 @@ def _grade_jtd(blob: bytes, filename: str) -> Grade:
     from .jtd.window import build
 
     doc = JtdFile(blob, filename)
-    win = build(doc)
+    win = _built(blob)
+    if win is None:
+        win = build(doc)
     reasons: list[Reason] = []
     write: list[Reason] = []
     agent = [f for f in win["fields"] if f.get("agent")]

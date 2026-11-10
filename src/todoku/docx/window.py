@@ -1358,11 +1358,13 @@ def markdown_parts(doc: dict, budget: int = 120_000) -> list[tuple[str, str]]:
     lines = whole.split("\n")
     parts = []
     cur: list[str] = []
+    used = 0  # cur の字数（行ごとに足し直さない）
     for line in lines:
-        if cur and sum(len(x) + 1 for x in cur) + len(line) > budget - 2000:
+        if cur and used + len(line) > budget - 2000:
             parts.append(cur)
-            cur = []
+            cur, used = [], 0
         cur.append(line)
+        used += len(line) + 1
     if cur:
         parts.append(cur)
     head = lines[:6]

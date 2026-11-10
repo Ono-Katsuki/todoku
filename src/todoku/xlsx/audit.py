@@ -633,7 +633,7 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
                      f"{pr.headline()}。{scope.sentence()}",
                      [*pr.unexpected, *scope.problems[:20], *pr.lint_errors, *res.unverified, *skipped]))
     # 読み戻し：書き込み後のファイルを読み直して、書いた値とチェックの状態がそのとおりかを確かめる
-    after = open_book(res.blob, wb.filename)
+    after = scope.book if scope.book is not None else open_book(res.blob, wb.filename)  # 証明で開いた、同じ中身のブック
     got = {}
     for sh in after.sheets:
         for (r, c), cell in sh.cells.items():

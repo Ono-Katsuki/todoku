@@ -891,6 +891,18 @@ class PageLayout:
         keys, order, _n = idx
         return [self.chars[i] for i in sorted(order[bisect.bisect_left(keys, y - d):bisect.bisect_right(keys, y + d)])]
 
+    def _ink_between(self, y0: float, y1: float) -> list:
+        """字の中ほどの高さが y0 より下・y1 より上（端は入れない）の、空白でない字。高さの索引で引く
+        （所ごと・線ごとに、ページのすべての字をたどらない）。並びは高さの順（ページの字の順ではない）。"""
+        import bisect
+
+        idx = self.__dict__.get("_ink_index")
+        if idx is None or idx[2] != len(self.chars):
+            ink = sorted(((c.cy, n) for n, c in enumerate(self.chars) if not c.text.isspace() and c.cy == c.cy))  # 数でない高さの字は、どの帯にも入らない
+            idx = self.__dict__["_ink_index"] = ([k for k, _n in ink], [self.chars[n] for _k, n in ink], len(self.chars))
+        keys, chars, _n = idx
+        return chars[bisect.bisect_right(keys, y0):bisect.bisect_left(keys, y1)]
+
     def _bounds(self, ln: Line, cell: Cell | None) -> tuple[tuple, tuple]:
         """行の左右の端：(位置, 種類, その先の字)。種類は "cell"（マスの縁）・"text"（同じ高さのほかの字）・"ruling"（縦の罫線）・
         "page"（ページの字の端）。"""
@@ -1135,7 +1147,7 @@ class PageLayout:
             return True
         x0, y0, x1, y1 = sp.rect
         own = {id(c) for c in sp.host.chars} if isinstance(sp.host, Line) else set()  # 欄の行の字（下線の「＿」など）は欄の一部
-        inside = [c for c in self.chars if not c.text.isspace() and id(c) not in own and x0 < c.cx < x1 and y0 < c.cy < y1]
+        inside = [c for c in self._ink_between(y0, y1) if x0 < c.cx < x1 and id(c) not in own]  # このあとは、並びによらない（端の値を並べ直す）
         if not inside:
             return True
         # 上下の空き（字の帯のあいだ）と、左右の空きのうち、いちばん広い所
@@ -1217,7 +1229,7 @@ class PageLayout:
                         near = ln
             sz = near.size if near is not None else self.typical
             top = h.pos - 1.3 * sz  # 線の上の 1 行（字の大きさと、字の上下のあき）
-            if any(h.a < c.cx < h.b and top < c.cy < h.pos and not c.text.isspace() for c in self.chars):
+            if any(h.a < c.cx < h.b for c in self._ink_between(top, h.pos)):
                 continue  # 線の上に字がある（字に引いた下線）
             if self._cell_edge(h):
                 continue  # マスの縁（表の外側の線）：下線ではない

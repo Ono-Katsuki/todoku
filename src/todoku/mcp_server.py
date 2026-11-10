@@ -346,6 +346,22 @@ def _fields_range_args(args: dict) -> dict:
     return rng
 
 
+def _fits(rest: dict, fl: list, budget: int) -> bool:
+    """{**rest, "fields": fl} を字にした大きさ（_size）が budget 以下か。欄を 1 つずつ数えて足し、越えた所でやめる
+    （何万もの欄の結果の全体を、大きさを知るためだけに字にしない）。数え方は _size と同じ字数になる：欄は 1 つ目のあと、「,」と改行の分だけ増える。"""
+    if not fl:
+        return _size({**rest, "fields": fl}) <= budget
+    used = _size({**rest, "fields": []}) + 1
+    if used > budget:
+        return False
+    empty = _size({"fields": []})
+    for f in fl:
+        used += _size({"fields": [f]}) - empty - 1
+        if used > budget:
+            return False
+    return True
+
+
 def _take_fields(fl: list[dict], room: int) -> int:
     """room 字に入る、はじめの欄の数（進むように、少なくとも 1 つ）。"""
     empty = _size({"fields": []})
@@ -374,17 +390,18 @@ def _fit_fields(res: dict, args: dict, rng: dict) -> dict | None:
     budget = limits.RESULT_CHARS
     limit = int(args.get("limit") or 0)
     fl = res.get("fields") or []
-    if not skip and _size(res) <= budget and not (limit and len(fl) > limit):
-        return None
     rest = {k: v for k, v in res.items() if k != "fields"}
+    if not skip and not (limit and len(fl) > limit) and (_fits(rest, fl, budget) if fl else _size(res) <= budget):
+        return None
     told: dict = {}
     blanks = rest.get("blank_cells_in_range")
-    if blanks and _size(blanks) > budget // 4:
-        keep = max(1, (budget // 4) * len(blanks) // _size(blanks))
+    blanks_size = _size(blanks) if blanks else 0
+    if blanks and blanks_size > budget // 4:
+        keep = max(1, (budget // 4) * len(blanks) // blanks_size)
         rest["blank_cells_in_range"] = blanks[:keep]
         told["blank_cells_in_range"] = (f"見た行の空のマスの番地のはじめの {keep} 個だけを返しました（全 {rest.get('blank_cell_count', len(blanks))} 個は、どれも番地で書けます）。"
                                         "rows を狭めて頼むと、その行の番地が返ります")
-    if not detail and _size({**rest, "fields": fl}) > budget:
+    if not detail and not _fits(rest, fl, budget):
         counts: dict[str, int] = {}
         for f in fl:
             for k in _FIELD_DETAIL:

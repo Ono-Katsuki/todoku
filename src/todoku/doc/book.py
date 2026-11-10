@@ -512,8 +512,19 @@ class DocFile:
 
     def char_props(self, cp: int) -> dict:
         fc = self.fc_of(cp)
+        grp = self._lookup(self.chpx, fc)
+        kept = self.__dict__.setdefault("_chpx_props", {})  # 書式の命令の並び → 読んだ結果（同じ書式の字が続くので、字ごとに読み直さない）
+        d = kept.get(grp)
+        if d is None:
+            d = kept[grp] = self._chpx_props_of(grp)
+        d = dict(d)
+        d["look"] = self._char_look(fc, grp)
+        return d
+
+    @staticmethod
+    def _chpx_props_of(grp: bytes) -> dict:
         d = {"hidden": False, "underline": False, "pic": None, "symbol": None, "spec": False, "data": False, "deleted": False}
-        for sp, op in sprms(self._lookup(self.chpx, fc)):
+        for sp, op in sprms(grp):
             # 命令の番号は MS-DOC の原本（2.6.1）で確かめた：0x083C 非表示（0x0839 は影付きで別のもの）、0x0800 変更履歴の削除
             if sp == 0x083C:
                 d["hidden"] = bool(op[0] & 1) if op else False
@@ -529,7 +540,6 @@ class DocFile:
                 d["spec"] = bool(op[0]) if op else False
             elif sp == 0x0806:
                 d["data"] = bool(op[0]) if op else False
-        d["look"] = self._char_look(fc)
         return d
 
     def _style_look(self, istd, seen: int = 0) -> tuple:
@@ -547,22 +557,30 @@ class DocFile:
         memo[istd] = got = apply_look(got, sprms(chpx or b""))
         return got
 
-    def _char_look(self, fc: int) -> tuple:
-        """字の書式の事実（取り消し線か, 字の色）：段落のスタイル → 字のスタイル（sprmCIstd）→ 字の書式の順（MS-DOC 2.6.1）。"""
-        direct = self.__dict__.setdefault("_chpx_ops", {})
-        grp = self._lookup(self.chpx, fc)
-        ops = direct.get(grp)
-        if ops is None:
-            ops = direct[grp] = list(sprms(grp))
+    def _char_look(self, fc: int, grp: bytes | None = None) -> tuple:
+        """字の書式の事実（取り消し線か, 字の色）：段落のスタイル → 字のスタイル（sprmCIstd）→ 字の書式の順（MS-DOC 2.6.1）。
+        grp：fc の字の書式の命令の並び（呼ぶ側がもう引いていれば）。"""
+        if grp is None:
+            grp = self._lookup(self.chpx, fc)
         starts = self.__dict__.get("_papx_starts")
         if starts is None:
             starts = self.__dict__["_papx_starts"] = sorted(self.__dict__.get("papx_istd", {}))
         i = bisect.bisect_right(starts, fc) - 1
-        look = self._style_look(self.__dict__.get("papx_istd", {}).get(starts[i]) if i >= 0 else 0)
+        istd = self.__dict__.get("papx_istd", {}).get(starts[i]) if i >= 0 else 0
+        kept = self.__dict__.setdefault("_char_looks", {})  # (命令の並び, 段落のスタイル) → 書式の事実
+        got = kept.get((grp, istd))
+        if got is not None:
+            return got
+        direct = self.__dict__.setdefault("_chpx_ops", {})
+        ops = direct.get(grp)
+        if ops is None:
+            ops = direct[grp] = list(sprms(grp))
+        look = self._style_look(istd)
         for sp, op in ops:
             if sp == 0x4A30 and len(op) >= 2:
                 look = _merge_style(look, self._style_look(struct.unpack_from("<H", op, 0)[0]))
-        return apply_look(look, ops)
+        kept[(grp, istd)] = got = apply_look(look, ops)
+        return got
 
     # ------------------------------------------------------------------ 文書の保護
     def _dop(self) -> tuple[str, bool]:

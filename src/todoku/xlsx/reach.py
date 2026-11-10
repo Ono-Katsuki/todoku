@@ -470,6 +470,7 @@ class Scope:
     seeds: list = field(default_factory=list)  # 長い仕事に渡す、書いたセルと変わったセル
     changed_cells: list = field(default_factory=list)
     marked: bool = False
+    book: object = field(default=None, repr=False, compare=False)  # 開いた、書いた後のブック（読むだけで使う。結果には出さない）
 
     def note_cells(self, graph: Graph, seeds: set) -> None:
         self.seeds = sorted(seeds)
@@ -666,7 +667,7 @@ def prove_whole(wb, new_blob: bytes, name: str, seeds: set, changes: list[dict],
     s.note_cells(graph, seeds)
     s.marked = full_calc
     try:
-        wb_new = open_book(new_blob, name)
+        wb_new = s.book = open_book(new_blob, name)
         s.marked = has_full_calc_mark(wb_new) or full_calc
         s.calc, bad = whole_calc(wb_new, graph, reach, s.changed, s.marked, lambda: wb, None if seconds is None else time.monotonic() + seconds)
     except LimitExceeded:  # この呼び出しの予算に入らない：長い仕事で確かめる

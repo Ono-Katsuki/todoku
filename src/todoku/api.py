@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import re
 import struct
+from contextvars import ContextVar
 from pathlib import Path
 
 from .book import UNSUPPORTED, FormatError, kind_of, unsupported_message
@@ -77,9 +79,10 @@ def _read(path: str, password: str | None = None):
         raise ApiError(f"ファイルが見つかりません: {path}")
     _arc.use_sibling(lambda stem, exts: _file_sibling(p, stem, exts))
     blob = _read_file(p)
+    name = _name_of(p)
     try:
         plain, lock = unlock(blob, password)
-        _arc.preflight(plain, kind_of(plain, p.name))
+        _arc.preflight(plain, kind_of(plain, name))
     except NeedsPassword as e:
         raise PasswordNeeded(f"{e}。本人にパスワードを聞いて、password に入れてもう一度呼んでください"
                              "（パスワードは、結果にも記録にも残しません）") from None
@@ -87,12 +90,24 @@ def _read(path: str, password: str | None = None):
         raise PasswordWrong(f"{e}。本人にもう一度確かめてください") from None
     except _arc.ArchiveError:
         pass  # 壊れた書庫：窓・段階の所で、理由を添えて伝える
-    k = kind_of(plain, p.name)  # 名前は、中身だけでは決まらない形式（CSV・JSON など）を見分けるのに使う
+    k = kind_of(plain, name)  # 名前は、中身だけでは決まらない形式（CSV・JSON など）を見分けるのに使う
     if k in UNSUPPORTED:
         raise Unsupported(unsupported_message(k, plain), k)  # 見分けたが、まだ読めない形式（book.UNSUPPORTED）
     if k not in KIND_JA:
         raise ApiError(f"この形式（{k}）は扱えません。Excel・PDF・Word のファイルを指定してください")
-    return plain, p.name, k, lock
+    return plain, name, k, lock
+
+
+# 書き出す前の一時ファイルを読み戻すとき：その一時ファイルを、書き出す名前のファイルとして読む（(一時ファイル, 名前)。_fill が置き、fill が戻す）。
+# 窓の控えの鍵は中身と名前なので、書き出したファイルをあとで開くとき（open_document・grade_document）に、読み戻しで作った窓を作り直さない
+_NAMED_AS: "ContextVar[tuple[Path, str] | None]" = ContextVar("todoku_named_as", default=None)
+
+
+def _name_of(p: Path) -> str:
+    named = _NAMED_AS.get()
+    return named[1] if named is not None and p == named[0] else p.name
+
+
 
 
 def _file_sibling(p: Path, stem: str, exts: tuple) -> tuple[bytes, str] | None:
@@ -359,8 +374,9 @@ def _cached_window(key: tuple) -> tuple:
     if isinstance(held, _Held):
         return held.out
     import pickle
+    import zlib
 
-    return pickle.loads(held)  # 呼んだ側が変えても控えは変わらないよう、写しを返す
+    return pickle.loads(zlib.decompress(held))  # 呼んだ側が変えても控えは変わらないよう、写しを返す
 # 控えの大きさ（窓を写したバイトの合計）の上限：limits.WINDOW_CACHE。大きな書類の窓をいくつも控えて、メモリを使い切らない
 
 
@@ -396,7 +412,12 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
             snap = _Held(out, size) if size > _WINDOWS_COPY else pickle.dumps(out, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception:  # noqa: BLE001  写せないものが入っていれば、控えない
             return out
-        if len(snap) <= WINDOW_CACHE:
+        if len(snap) <= WINDOW_CACHE:  # 写しを開いたときの大きさで決める（縮めて小さくても、読み直すたびにこの大きさを使う）
+            if isinstance(snap, bytes):
+                import zlib
+
+                # 縮めて控える：欄ごとに同じ行の字（context）がくり返すので、欄の多い書類ほど小さくなる（4 万欄の書類で 150 MB → 9 MB）
+                snap = zlib.compress(snap, 1)
             _WINDOWS[key] = (k, snap)
         while len(_WINDOWS) > _WINDOWS_MAX or sum(len(v[1]) for v in _WINDOWS.values()) > WINDOW_CACHE:
             _WINDOWS.pop(next(iter(_WINDOWS)))  # いちばん前に使ったものから
@@ -497,6 +518,11 @@ def _word(blob: bytes, name: str, k: str):
 def fields(path: str, password: str | None = None, encoding: str | None = None) -> list[dict]:
     """入力欄の一覧（名前・見出し・種類・選択肢・いまの値・書けるか・その行の文脈）。"""
     k, doc, _ = window(path, password, encoding)
+    return _fields_of(k, doc)
+
+
+def _fields_of(k: str, doc: dict) -> list[dict]:
+    """窓 doc の入力欄の一覧（fields の中身。窓をもう持っている所は、窓を取り直さずにこれを呼ぶ）。"""
     if k in _arc.KINDS:
         return []  # ZIP そのものに欄はない（中のファイルを「a.zip!/名前」で開く）
     if k in _open.KINDS:  # 追加の形式
@@ -652,6 +678,7 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
     except InputError as e:
         raise ApiError(str(e)) from None
     temps: list[Path] = []
+    named = _NAMED_AS.set(None)
     try:
         lz = lazy_open(path, password, encoding, built_ok=False) if _member(path) is None else None
         if lz is not None and lz.kind == "pdf":
@@ -670,6 +697,7 @@ def fill(path: str, values: dict, out_path: str, force: bool = False, password: 
             return _tell_replaced(values, res)
         return _tell_replaced(values, _fill(path, values, out_path, force, password, encoding, overwrite, temps))
     finally:
+        _NAMED_AS.reset(named)
         for t in temps:
             t.unlink(missing_ok=True)
 
@@ -826,6 +854,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     rest_fields = None  # まだ空いている欄を数える、欄の一覧（なければ、書いた後のファイルの欄）
     before_vals: dict = {}  # 書く前の、欄の id → 値（書いた所に、もとからあった字が残っているかを見る：_replaced_values）
     number_changed: dict = {}  # Excel の、書く前が数・日付のセル → セルの値が変わったか
+    proved_book = None  # Excel：(書いた中身, 証明のときに開いたブック)
     try:
         before = fields(path, password, encoding)
         before_vals = {f["id"]: f.get("value") for f in before}
@@ -881,6 +910,8 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
                            "recalculated": {f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "formula"}})
             scope = prove_whole(wb, res.blob, name, seeds_of(res), pr.cell_changes, res.full_calc_on_load, CALC_SECONDS)
             add_scope(result, scope)
+            if scope.book is not None:
+                proved_book = (res.blob, scope.book)  # 証明で開いた、書いた後のブック（読み戻しで、同じ中身を開き直さない）
             if scope.calc.get("status") == "deferred":
                 pending_proof = scope
             # 字のセルの一部を書き換えたセル（空欄ごとの値のリスト・箱の字への true/false・字を目印にした old/new）：
@@ -1161,7 +1192,9 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     # 書き出す前に、同じフォルダの一時ファイルに書いて読み戻す（確かめてから、名前を付け替える：_publish）
     tmp = _temp_beside(dst, new_blob)
     _temps.append(tmp)  # 途中で止まっても、fill が消す
-    # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか
+    # 読み戻し：書き込み後のファイルの窓に、書いた値が出ているか。一時ファイルを、書き出す名前のファイルとして読む
+    # （_NAMED_AS。fill が終わりに戻す）：書き出したファイルをあとで開くときに、ここで作った窓を作り直さない
+    _NAMED_AS.set((tmp, dst.name))
     after_list = fields(str(tmp), password, encoding)
     after = {f["id"]: f.get("value") for f in after_list}
     if k == "doc" and outside_written:
@@ -1213,7 +1246,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         from .xlsx.edit import resolve_target
 
         try:
-            wb_after = open_book(written_plain, name)
+            wb_after = proved_book[1] if proved_book is not None and proved_book[0] is written_plain else open_book(written_plain, name)
             for key in readback_values:
                 if key in after or key.startswith("@"):
                     continue
@@ -2943,13 +2976,36 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
     encoding = _encoding(blob, k, encoding)
     from .embeds.lazy import window_room
 
-    with window_room():  # 窓に入らない埋め込みの表は開かない（理由に「まだ確かめていない」と書く。検査の仕事の中では、すべて読む）
+    with window_room(), _opened_window(blob, name, k, lock, encoding):  # 窓に入らない埋め込みの表は開かない（理由に「まだ確かめていない」と書く。検査の仕事の中では、すべて読む）
         g = grade_blob(blob, name, password=pdf_password(lock), encoding=encoding)
     g = _with_finished_audit(g, path, encoding)
     if findings or answered:
         g = combine(g, findings or [], answered)
     _remember_hand_only(path, g, findings, answered)
     return g.to_dict()
+
+
+# 段階を決めるときに、控えた窓をそのまま使える形式：窓の作り方が、開くとき（_window）と段階を決めるとき（grade）で同じもの
+_SAME_WINDOW = ("xlsx", "xls", "pdf", "jtd", "docx", "doc")
+
+
+@contextlib.contextmanager
+def _opened_window(blob: bytes, name: str, k: str, lock, encoding: str | None):
+    """段階を決める間、同じ書類の窓を控えていれば（開いたあとに段階を頼まれた）、作り直さずにそれを使う。
+    控えていないとき・ページを限った窓・埋め込みをすべて読む検査の中では、いままでどおり作る。"""
+    from .embeds.lazy import _WHOLE
+    from .grade import built_window
+    from .lazy.filebytes import sha256_hex
+    from .pdf.window import _PAGE_SCOPE
+
+    key = None
+    if lock is None and k in _SAME_WINDOW and _PAGE_SCOPE.get() is None and not _WHOLE.get() and _WINDOWS:
+        key = (sha256_hex(blob), name, encoding, None)
+    if key is None or key not in _WINDOWS or _WINDOWS[key][0] != k:
+        yield
+        return
+    with built_window(blob, _cached_window(key)[1]):
+        yield
 
 
 def _with_finished_audit(g, path: str, encoding: str | None):
@@ -3222,7 +3278,7 @@ def summary(path: str, password: str | None = None, encoding: str | None = None)
         return {"file": Path(path).name, "kind": lz.kind, "kind_ja": KIND_JA.get(lz.kind, lz.kind), "large": True, "estimated_window_chars": lz.est_chars,
                 "context_budget_chars": __import__("todoku.limits", fromlist=["x"]).CONTEXT_BUDGET, **lz.overview()}
     k, doc, parts = window(path, password, encoding)
-    fl = fields(path, password, encoding)
+    fl = _fields_of(k, doc)
     d = {"file": Path(path).name, "kind": k, "kind_ja": KIND_JA[k], "fields": len(fl),
          "writable_fields": sum(1 for f in fl if not f.get("readonly")), "window_parts": len(parts),
          "window_chars": sum(len(t) for _, t in parts)}

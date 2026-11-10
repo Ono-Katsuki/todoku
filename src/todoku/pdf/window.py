@@ -1611,31 +1611,34 @@ def markdown_parts(doc: dict, budget: int = BUDGET) -> list[tuple[str, str]]:
     parts: list[tuple[str, list[str]]] = []
     cur: list[str] = []
     first = last = None
+    used = 0  # cur の字数（ページごと・行ごとに足し直さない）
     for pg in doc["pages"]:
         lines = _md_page(pg)
         size = sum(len(x) + 1 for x in lines)
-        if cur and sum(len(x) + 1 for x in cur) + size > budget - 2000:
+        if cur and used + size > budget - 2000:
             parts.append((f"ページ {first}〜{last}" if first != last else f"ページ {first}", cur))
-            cur, first = [], None
+            cur, first, used = [], None, 0
         if first is None:
             first = pg["number"]
         last = pg["number"]
         cur += lines
+        used += size
     if cur:
         parts.append((f"ページ {first}〜{last}" if first != last else f"ページ {first}", cur))
     # XFA の節：大きな単位（スクリプトなど）は、行の切れ目で分ける（とても長い行は、途中で分ける）
-    cur, titles = [], []
+    cur, titles, used = [], [], 0
     step = budget // 2
     for t, lines in _xfa_units(doc):
         for line in lines:
             for k in range(0, max(len(line), 1), step):
                 piece = line[k:k + step]
-                if cur and sum(len(x) + 1 for x in cur) + len(piece) > budget - 2000:
+                if cur and used + len(piece) > budget - 2000:
                     parts.append((_span(titles), cur))
-                    cur, titles = [], []
+                    cur, titles, used = [], [], 0
                 if not titles or titles[-1] != t:
                     titles.append(t)
                 cur.append(piece)
+                used += len(piece) + 1
     if cur:
         parts.append((_span(titles), cur))
     index = _md_head(doc) + ["## この窓の目次", "", f"窓が大きいので、{len(parts)} の部分に分けました。必要な部分を順に読んでください。", ""]
