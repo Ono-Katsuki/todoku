@@ -870,7 +870,7 @@ def build(doc: DocxDocument) -> dict:
         if lines or kind == "body":
             out["stories"].append({"kind": kind, "part": part, "reading": lines, "_plain": plain})
     # 変更履歴で削除された字の残る段落（窓では〔変更履歴で削除された字〕と示す）
-    out["tracked_deletions"] = [f"段落 {sp.para_index[id(q)]}「{q.deleted_text().strip()[:20]}」"
+    out["tracked_deletions"] = [f"段落 {sp.para_index[id(q)]}「{q.deleted_text().strip()[:20].replace(chr(10), '⏎')}」"
                                 for _k, _part, blocks in doc.all_blocks() for q in iter_paras(blocks)
                                 if hasattr(q, "deleted_text") and q.deleted_text().strip()]
     from ..embeds import lazy as embed_lazy
@@ -922,6 +922,15 @@ def build(doc: DocxDocument) -> dict:
             # 段落の中の所の事実（所の字・字数・幅の目安・前後の字・字間を空けた並びの字数。xlsx.window.place_facts）
             q = it["para"]
             d["facts"] = place_facts(sp._texts.get(id(q)) or q.text, *it["span"])
+        if kind == "cell" and it.get("cell") is not None:
+            # 空のマスの欄に残っている、本文ではない字（事実）：変更履歴で削除された字・非表示の字
+            qs = it["cell"].paras()
+            gone = "⏎".join(x for x in (q.deleted_text().strip().replace("\n", "⏎") for q in qs if hasattr(q, "deleted_text")) if x)
+            hid = " ".join(x for x in (q.hidden_text().strip() for q in qs if hasattr(q, "hidden_text")) if x)
+            if gone:
+                d["tracked_deleted"] = gone
+            if hid:
+                d["hidden_text"] = hid
         if it["id"] in legacy_of:
             d["legacy_id"] = legacy_of[it["id"]]  # 古い数え順の名前（その段落にこの並びの所が 1 つだけなので、同じ所を指す）
         if c is not None and c.para is not None and c.para.cell is not None and c.para.cell.table is not None:
@@ -1156,8 +1165,11 @@ def _render_blocks(blocks, sp: Spots, by_para, lines: list[str], plain: list[str
                             _render_blocks([blk], sp, by_para, inner, plain)
                             sub.append("［表］" + " ／ ".join(inner))
                     cell_text = " ".join(sub)
-                    if cid is not None and not cell_text:
-                        cell_text = f"［{cid}？］" if sp.items[cid].get("provenance") == AGENT else f"［{cid}］"
+                    if cid is not None:
+                        # 空のマスの欄：本文の字のないマス。非表示の字・変更履歴で削除された字・テキストボックスだけがあるマスも、
+                        # 欄の印を先に示す（欄の一覧にあるのに、窓に印のない所を作らない）
+                        mark = f"［{cid}？］" if sp.items[cid].get("provenance") == AGENT else f"［{cid}］"
+                        cell_text = f"{mark} {cell_text}" if cell_text else mark
                     parts.append(cell_text)
                 if any(x.strip() for x in parts):
                     lines.append(" ｜ ".join(x for x in parts))
@@ -1240,7 +1252,9 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
         t += f"〔非表示の文字: {hid}〕"
     gone = p.deleted_text().strip() if hasattr(p, "deleted_text") else ""
     if gone:
-        t += f"〔変更履歴で削除された字（いまの本文ではない）: {gone}〕"
+        # 段落をまたいで削除された所（OpenDocument）は、消えた段落の切れ目を ⏎ で示す
+        t += ("〔変更履歴で削除された字（いまの本文ではない" + ("。⏎ は段落の切れ目" if "\n" in gone else "")
+              + f"）: {gone.replace(chr(10), '⏎')}〕")
     label = p.label
     bullet = next((it for it in items if is_bullet(it)), None)
     if bullet is not None and label:

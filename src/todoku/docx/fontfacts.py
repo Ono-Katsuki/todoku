@@ -7,7 +7,26 @@ from __future__ import annotations
 
 import collections
 
-from ..xlsx.fontfacts import AUTO, _rgb
+from ..xlsx.fontfacts import AUTO
+
+
+def _rgb(c: str | None) -> str:
+    """字の色：決めていなければ自動の色（黒）。RRGGBB は大文字にそろえる（RRGGBB で言えない色の言い方は、そのまま）。"""
+    c = c or AUTO
+    return c.upper() if len(c) == 6 else c
+
+
+def count_colors(paras, n: collections.Counter) -> None:
+    """段落の、見える字の色ごとの字数を n に足す（空白は数えない）。"""
+    for p in paras:
+        for s in p.segs:
+            if s.look is not None and not s.hidden and s.kind in ("t", "sym"):
+                n[_rgb(s.look[1])] += sum(1 for ch in s.text if not ch.isspace())
+
+
+def most_common_color(n: collections.Counter) -> str:
+    """いちばん字数の多い色。同じ字数なら黒、その次は色の名前の順（数える順で変わらないように）。"""
+    return max(n, key=lambda c: (n[c], c == AUTO, [-ord(x) for x in c])) if n else AUTO
 
 
 def normal_color(doc) -> str:
@@ -18,14 +37,15 @@ def normal_color(doc) -> str:
     from .document import iter_paras
 
     n: collections.Counter = collections.Counter()
-    n[AUTO] += 0
     for _k, _p, blocks in doc.all_blocks():
-        for p in iter_paras(blocks):
-            for s in p.segs:
-                if s.look is not None and not s.hidden and s.kind in ("t", "sym"):
-                    n[_rgb(s.look[1])] += sum(1 for ch in s.text if not ch.isspace())
-    got = doc.__dict__["_normal_font_color"] = n.most_common(1)[0][0]
+        count_colors(iter_paras(blocks), n)
+    got = doc.__dict__["_normal_font_color"] = most_common_color(n)
     return got
+
+
+def _color_name(c: str) -> str:
+    """字の色の言い方：RRGGBB なら「字の色 #RRGGBB」。RRGGBB で言えない色（PowerPoint の、変えた色・塗りなしなど）は、その言い方のまま。"""
+    return f"字の色 #{c}" if len(c) == 6 and all(x in "0123456789ABCDEF" for x in c) else f"字の色（{c}）"
 
 
 def marks(p, normal: str) -> tuple[str, str]:
@@ -50,12 +70,12 @@ def marks(p, normal: str) -> tuple[str, str]:
         if st and not whole_strike:
             what.append("取り消し線")
         if c != whole_color:
-            what.append(f"字の色 #{c}")
+            what.append(_color_name(c))
         if what:
             parts.append(f"〔うち{'・'.join(what)}：「{t.replace(chr(10), ' ').strip()}」〕")
     head = []
     if whole_strike:
         head.append("取り消し線")
     if whole_color != normal:
-        head.append(f"字の色 #{whole_color}")
+        head.append(_color_name(whole_color))
     return (f"〔{'・'.join(head)}〕" if head else ""), "".join(parts)

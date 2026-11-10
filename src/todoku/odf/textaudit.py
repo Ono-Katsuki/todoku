@@ -21,11 +21,11 @@ from .textwindow import build, markdown_parts
 from .xml import NS
 
 BOXES = AUDIT_BOXES
-_SKIP = {NS["text"] + "}" + x for x in ("tracked-changes", "note-citation", "variable-decls", "sequence-decls", "user-field-decls",
+_SKIP = {NS["text"] + "}" + x for x in ("note-citation", "variable-decls", "sequence-decls", "user-field-decls",
                                         "dde-connection-decls", "table-of-content-source", "illustration-index-source",
                                         "table-index-source", "object-index-source", "user-index-source",
                                         "alphabetical-index-source", "bibliography-source")} | {
-    NS["office"] + "}forms", NS["office"] + "}event-listeners", NS["svg"] + "}title", NS["svg"] + "}desc",
+    NS["office"] + "}forms", NS["office"] + "}event-listeners", NS["office"] + "}change-info", NS["svg"] + "}title", NS["svg"] + "}desc",
     NS["dc"] + "}creator", NS["dc"] + "}date", NS["meta"] + "}date-string"}
 
 

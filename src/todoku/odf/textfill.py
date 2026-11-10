@@ -537,8 +537,10 @@ def fill(doc: OdtDocument, values: dict, *, force: bool = False) -> FillResult:
     sp = w.sp
     problems = []
     used: dict = {}
+    wrote: list[tuple[str, str, int]] = []  # (欄, 部品, 書いたバイトの位置)
     for key, value in values.items():
         item = sp.items.get(key)
+        had = {part: len(eds) for part, eds in w.edits.items()}
         try:
             if key.startswith("@"):
                 if not isinstance(value, dict):
@@ -590,6 +592,52 @@ def fill(doc: OdtDocument, values: dict, *, force: bool = False) -> FillResult:
                 raise FillError(f"{key}: この種類の欄（{kind}）には書けません")
         except FillError as e:
             problems.append(str(e))
+        finally:
+            for part, eds in w.edits.items():
+                wrote += [(key, part, s) for s, _e, _b in eds[had.get(part, 0):]]
     if problems:
         raise FillError("\n".join(problems))
+    revision_warnings(w, wrote)
     return FillResult(w.build(), w.patches, w.warnings)
+
+
+def revision_warnings(w: OdtWriter, wrote: list[tuple[str, str, int]]) -> None:
+    """変更履歴（ODF 1.3 第 3 部 5.5）：承諾も却下もされていない変更履歴があること、書いた所が挿入の中にあること、
+    記録がオンでも書いた字は変更履歴にしていないことを伝える（Word の文書と同じ決まり。docx.fill.revision_warnings）。"""
+    doc = w.doc
+    regions = {id(el): kind for kind, el, _part in doc.changes.values()}
+    n = {name: sum(1 for k in regions.values() if k == kind)
+         for name, kind in (("挿入", "insertion"), ("削除", "deletion"), ("書式", "format-change"))}
+    if any(n.values()):
+        what = "・".join(f"{k} {v}" for k, v in n.items() if v)
+        w.warnings.insert(0, f"この文書には、まだ承諾も却下もされていない変更履歴（{what}）があります。ワープロで開くと変更履歴として"
+                             "表示され、承諾・却下で字が変わります。書いた字は、変更履歴としてではなく、ふつうの字として書きました。"
+                             "提出する前に、変更履歴をどうするか本人に確かめてください")
+    inside: dict[str, None] = {}
+    for part in dict.fromkeys(part for _k, part, _s in wrote) if n["挿入"] else ():
+        spans = _inserted_spans(doc, part, w.tp(part))
+        for key, where, s in wrote:
+            if where == part and any(a <= s <= b for a, b in spans):
+                inside[key] = None
+    for key in inside:
+        w.warnings.append(f"{key}: 書いた所は、変更履歴の挿入の中にあります。その挿入を却下すると（元に戻すと）、書いた字も消えます")
+    if doc.tracking:
+        w.warnings.append("この文書は「変更履歴の記録」がオンになっていますが、とどくの書き込みは変更履歴として記録していません"
+                          "（ふつうの字として書きました。ワープロの変更履歴には、書いた所は出ません）")
+
+
+def _inserted_spans(doc: OdtDocument, part: str, tp: str) -> list[tuple[int, int]]:
+    """部品の中の、変更履歴の挿入の範囲（text:change-start の終わり 〜 同じ id の text:change-end の始まり。バイトの位置）。"""
+    data = doc.pkg.xml(part)
+    t = re.escape(tp.encode())
+    open_: dict[bytes, int] = {}
+    out = []
+    for m in re.finditer(rb"<" + t + rb":change-(start|end)\b[^>]*?\b" + t + rb":change-id\s*=\s*(?:\"([^\"]*)\"|'([^']*)')[^>]*>", data):
+        cid = m[2] if m[2] is not None else m[3]
+        if doc.changes.get(cid.decode("utf-8", "replace"), ("",))[0] != "insertion":
+            continue
+        if m[1] == b"start":
+            open_[cid] = m.end()
+        elif cid in open_:
+            out.append((open_.pop(cid), m.start()))
+    return out

@@ -2,7 +2,7 @@
 
 窓の全体を作り（api.window の控えを使う）、測った字の数で判断する。読む範囲は、窓の Markdown の字の位置で決まる（part と同じ中身を、
 どの大きさでも分けて読める）。長い 1 行も、字の位置で分けて読める。書き込みは、いままでの api.fill のまま。
-Word（.docx・.doc）は、段落の範囲（paragraphs）でも読める。
+Word（.docx・.doc）・OpenDocument の文書・RTF は、段落の範囲（paragraphs）でも読める。
 """
 
 from __future__ import annotations
@@ -11,6 +11,9 @@ import re
 
 from .. import limits
 from .base import LazyDoc, Page, RangeError, comma, parse_range
+
+
+_PARAGRAPH_KINDS = ("docx", "doc", "odt", "rtf")  # 段落の範囲でも読める形式（Word と同じ窓の文書）
 
 
 class BuiltDoc(LazyDoc):
@@ -35,8 +38,8 @@ class BuiltDoc(LazyDoc):
 
     def overview(self) -> dict:
         out = {"bytes": (self.doc.get("source") or {}).get("bytes"), "window_chars": self.est_chars, "window_parts": len(self.parts),
-               "ranges": "paragraphs（段落の範囲）か cursor" if self.k in ("docx", "doc") else "cursor（字の位置）"}
-        if self.k in ("docx", "doc"):
+               "ranges": "paragraphs（段落の範囲）か cursor" if self.k in _PARAGRAPH_KINDS else "cursor（字の位置）"}
+        if self.k in _PARAGRAPH_KINDS:
             out["fields_total"] = len(self.doc.get("fields") or [])
             out["paragraphs"] = self._paragraph_count()
         return out
@@ -47,7 +50,7 @@ class BuiltDoc(LazyDoc):
             lines = head.split("\n")[:12]
         else:
             lines = head.split("\n")
-        how = (f"段落の範囲（paragraphs: \"1-200\"。全 {self._paragraph_count():,} 段落）か、" if self.k in ("docx", "doc") else "")
+        how = (f"段落の範囲（paragraphs: \"1-200\"。全 {self._paragraph_count():,} 段落）か、" if self.k in _PARAGRAPH_KINDS else "")
         lines = lines + ["", f"- 窓の全体は {self.est_chars:,} 字あります。read_window に {how}part（部分の番号）か cursor を渡して読みます"
                          "（cursor をたどれば、すべてを読めます。max_chars で 1 回の大きさを変えられます）。"
                          "list_fields に paragraphs を渡すと、その範囲の欄を出します。"]
@@ -56,6 +59,8 @@ class BuiltDoc(LazyDoc):
     # ------------------------------------------------------------------ 読む
     def read(self, rng: dict, max_chars: int) -> Page:
         if rng.get("paragraphs") is not None or str(rng.get("cursor") or "").startswith("paragraphs:"):
+            if self.k not in _PARAGRAPH_KINDS:
+                raise RangeError("この書類は、段落の範囲では読めません。part（部分の番号）か cursor（前の結果の next）で読みます")
             return self._read_paragraphs(rng, max_chars)
         if rng.get("sheet") is not None or rng.get("rows") is not None:
             return self._read_sheet(rng, max_chars)
@@ -142,7 +147,16 @@ class BuiltDoc(LazyDoc):
         from ..docx.window import Spots, iter_paras
 
         blob, name, k, _lock = api._read(self.path, self.password)
-        d = api._word(blob, name, k)
+        if k == "odt":
+            from ..odf.text import OdtDocument
+
+            d = OdtDocument(blob, name)
+        elif k == "rtf":
+            from ..rtf.document import RtfDocument
+
+            d = RtfDocument(blob, name)
+        else:
+            d = api._word(blob, name, k)
         sp = Spots(d)
         by_para: dict[int, list[dict]] = {}
         for it in sp.items.values():

@@ -27,6 +27,7 @@ _T = "{" + NS["text"] + "}"
 _DRAW = "{" + NS["draw"] + "}"
 _TABLE = "{" + NS["table"] + "}"
 _OFFICE = "{" + NS["office"] + "}"
+_STYLE = "{" + NS["style"] + "}"
 _FORM = "{" + NS["form"] + "}"
 _FIELDNS = "urn:openoffice:names:experimental:ooo-ms-interop:xmlns:field:1.0"
 _LOEXT = "{" + NS["loext"] + "}"
@@ -44,11 +45,63 @@ MARKS = {_T + x for x in ("bookmark", "bookmark-start", "bookmark-end", "referen
 INLINE = {_T + "span", _T + "a", _T + "meta", _T + "meta-field", _DRAW + "a"}
 SHAPES = {_DRAW + x for x in ("frame", "custom-shape", "rect", "ellipse", "circle", "line", "polyline", "polygon", "path",
                              "regular-polygon", "connector", "caption", "measure", "g")}
+# 削除された中身（text:deletion）の字に入れない要素：変更の記録（だれが・いつ・コメント）、脚注の番号、図の説明、コメントの作者と日時
+_DEL_SKIP = {_OFFICE + "change-info", _T + "note-citation", "{" + NS["svg"] + "}title", "{" + NS["svg"] + "}desc",
+             "{" + NS["dc"] + "}creator", "{" + NS["dc"] + "}date", "{" + NS["meta"] + "}date-string"}
 NUM_FORMAT = {"1": "decimal", "a": "lowerLetter", "A": "upperLetter", "i": "lowerRoman", "I": "upperRoman",
               "１, ２, ３, ...": "decimalFullWidth", "１, ２, ３": "decimalFullWidth", "①, ②, ③, ...": "decimalEnclosedCircle",
               "①, ②, ③": "decimalEnclosedCircle", "一, 二, 三, ...": "japaneseCounting", "一, 二, 三": "japaneseCounting",
               "ア, イ, ウ, ...": "aiueoFullWidth", "ア, イ, ウ": "aiueoFullWidth", "イ, ロ, ハ, ...": "irohaFullWidth",
               "イ, ロ, ハ": "irohaFullWidth"}
+
+
+def deleted_text(el: El, data: bytes) -> str:
+    """削除された中身（text:deletion。ODF 1.3 第 3 部 5.5.4）の字：段落ごとに空白の決まり（6.1.2）で読み、段落の切れ目を改行でつなぐ。
+    段落の途中から次の段落の途中までを消した所は、消えた段落の切れ目も 1 つの改行になる。"""
+    paras: list[list[tuple[str, bool]]] = []  # 段落ごとの (字, そのままの字か：text:s・text:tab・text:line-break)
+
+    def walk(n: El, inp: bool) -> None:
+        for k in n.kids:
+            if isinstance(k, Txt):
+                if inp:
+                    paras[-1].append((k.value(data), False))
+                continue
+            t = k.tag
+            if t in _DEL_SKIP or (t == _T + "hidden-text" and k.get("text:is-hidden") == "true"):
+                continue
+            if t in (_T + "p", _T + "h"):
+                paras.append([])
+                walk(k, True)
+            elif inp and t == _T + "s":
+                c = k.get("text:c", "1") or "1"
+                paras[-1].append((" " * (int(c) if c.isdigit() else 1), True))
+            elif inp and t in (_T + "tab", _T + "line-break"):
+                paras[-1].append(("\t" if t == _T + "tab" else " ", True))
+            else:
+                walk(k, inp)
+
+    walk(el, False)
+    out = []
+    for toks in paras:
+        got: list[str] = []
+        space = soft = True  # 段落の頭：空白を置かない
+        for text, literal in toks:
+            if literal:
+                got.append(text)
+                space = soft = False
+                continue
+            for c in text:
+                if c in " \t\r\n":
+                    if not space:
+                        got.append(" ")
+                        space = soft = True
+                else:
+                    got.append(c)
+                    space = soft = False
+        if got and soft:
+            got.pop()  # 段落の終わりの空白
+        out.append("".join(got))
+    return "\n".join(out)
 
 
 @dataclass
@@ -71,6 +124,7 @@ class _Ctx:
     hidden: bool = False
     field: Control | None = None
     run: El | None = None
+    look: tuple | None = None  # 字の書式の事実（取り消し線か, 字の色 "RRGGBB" か None）：docx/fontfacts.py
 
 
 class OdtDocument:
@@ -101,6 +155,10 @@ class OdtDocument:
         self.notes: list[tuple[str, list]] = []  # (footnotes / endnotes, ブロック)
         self.comments: list = []
         self.marks_raw: list[tuple[str, str, Para, int]] = []  # (名前, start/end/point, 段落, 字の位置)
+        # 変更履歴（5.5）：所の id → (deletion / insertion / format-change, その要素, 部品)。記録がオンか（text:track-changes。既定は true）
+        self.changes: dict[str, tuple[str, El, str]] = {}
+        self.tracking = False
+        self._gone: list[Seg] = []  # 段落の外（ブロックのあいだ）にある削除の印の字：次の段落の頭に付ける
         self.list_counters: dict[str, list[int]] = {k: list(v) for k, v in p_.get("list_counters", {}).items()}
         self.outline_counter = list(p_.get("outline_counter", [0] * 11))
         self.vba = None
@@ -111,6 +169,7 @@ class OdtDocument:
         self.part = self.pkg.part_of("content.xml")
         self._forms(self.office_text)
         self.body = self._blocks(self.office_text, self.part, None, False)
+        self._gone_to_last(self.body)
         self.stories: list[tuple[str, str, list]] = []
         if partial is None or p_.get("master"):
             self._master_pages()
@@ -200,13 +259,87 @@ class OdtDocument:
                 self._shape(ch, p, part, _Ctx())
                 if p.boxes or p.segs:
                     out.append(p)
-            elif t in (_T + "tracked-changes", _OFFICE + "forms", _T + "variable-decls", _T + "sequence-decls",
+            elif t == _T + "tracked-changes":
+                self._note_changes(ch, part)
+            elif t == _T + "change":
+                sg = self._deleted(ch, part, None)
+                if sg is not None:
+                    self._gone.append(sg)
+            elif t in (_OFFICE + "forms", _T + "variable-decls", _T + "sequence-decls",
                        _T + "user-field-decls", _T + "dde-connection-decls", _TABLE + "calculation-settings",
                        _TABLE + "content-validations", _TABLE + "label-ranges", _TABLE + "named-expressions",
                        _TABLE + "database-ranges", _TABLE + "data-pilot-tables", _T + "alphabetical-index-auto-mark-file",
                        _T + "soft-page-break", _OFFICE + "event-listeners"):
                 continue
         return out
+
+    def _style_look(self, part: str, family: str, name: str | None) -> tuple:
+        """スタイル（親をたどる。段落は、段落の既定のスタイルも）の決める (取り消し線か, 字の色 "RRGGBB")：決めていなければ None。
+        取り消し線は style:text-line-through-style（なければ -type）が none でないこと。字の色は fo:color、自動の色
+        （style:use-window-font-color）は黒（近いスタイルの決めたほうが効く。同じスタイルに両方あれば自動）。"""
+        memo = self.__dict__.setdefault("_look_memo", {})
+        key = (part, family, name)
+        if key in memo:
+            return memo[key]
+        strike = color = None
+        els = list(self.styles.chain(part, family, name)) if name else []
+        if family == "paragraph" and self.styles.defaults.get("paragraph") is not None:
+            els.append(self.styles.defaults["paragraph"])
+        for el in els:
+            for pe in el.kids:
+                if not isinstance(pe, El) or pe.tag != _STYLE + "text-properties":
+                    continue
+                if strike is None:
+                    v = pe.get("style:text-line-through-style")
+                    v = pe.get("style:text-line-through-type") if v is None else v
+                    if v is not None:
+                        strike = v != "none"
+                if color is None:
+                    c = (pe.get("fo:color") or "").lstrip("#").upper()
+                    if pe.get("style:use-window-font-color") == "true":
+                        color = "000000"
+                    elif len(c) == 6 and all(x in "0123456789ABCDEF" for x in c):
+                        color = c
+        memo[key] = (strike, color)
+        return memo[key]
+
+    # ------------------------------------------------------------------ 変更履歴（ODF 1.3 第 3 部 5.5）
+    def _note_changes(self, el: El, part: str) -> None:
+        """変更履歴の所（text:changed-region）を控える。削除された字は、本文の削除の印（text:change）の所で読む。"""
+        if el.get("text:track-changes") != "false":
+            self.tracking = True
+        for r in el.els():
+            if r.tag != _T + "changed-region":
+                continue
+            what = next((k for k in r.els() if k.tag in (_T + "deletion", _T + "insertion", _T + "format-change")), None)
+            if what is None:
+                continue
+            for key in (r.get("text:id"), r.get("xml:id")):
+                if key:
+                    self.changes[key] = (what.local, what, part)
+
+    def _deleted(self, ch: El, part: str, run: El | None) -> Seg | None:
+        """削除の印（text:change）の指す所が削除なら、削除された字の片（変更履歴で削除された字：本文の字にしない）。"""
+        kind, what, where = self.changes.get(ch.get("text:change-id") or "", ("", None, ""))
+        if kind != "deletion":
+            return None
+        gone = deleted_text(what, self.pkg.xml(where))
+        if not gone:
+            return None
+        return Seg(gone, "del", Src("el", part, ch.s, ch.e, el=ch), run, True)
+
+    def _gone_to_last(self, blocks: list) -> None:
+        """後ろに段落のない、段落の外の削除の印：その字を、最後の段落の終わりに付ける（段落が 1 つもなければ、読まなかった所に残す）。"""
+        if not self._gone:
+            return
+        last = None
+        for last in iter_paras(blocks):
+            pass
+        if last is None:
+            self.unread.append("変更履歴で削除された字（段落のない所）：" + "／".join(sg.text.replace("\n", "⏎") for sg in self._gone))
+        else:
+            last.segs += self._gone
+        self._gone = []
 
     def _draw_page(self, el: El, part: str, cell: Cell | None, protected: bool) -> list:
         """発表資料・図形描画の 1 ページ：字のない段落に、何ページ目かと名前を添える（窓の見出し。ファイルの字ではない）。"""
@@ -359,9 +492,11 @@ class OdtDocument:
         p.protected = protected
         p.heading = el.tag == _T + "h"
         style = el.get("text:style-name")
+        strike, color = self._style_look(part, "paragraph", style)
         ctx = _Ctx(underline=self.styles.underline(part, "paragraph", style), hidden=self.styles.hidden(part, "paragraph", style),
-                   run=el)
-        atoms: list = []
+                   run=el, look=(bool(strike), color))
+        atoms: list = [("del", sg) for sg in self._gone]  # 段落の前（ブロックのあいだ）で削除された字
+        self._gone = []
         self._inline(el, p, part, ctx, atoms)
         self._collapse(p, part, atoms)
         for sg in p.segs:  # コンテンツコントロールの中の字（空白の決まりを通した後の片）
@@ -414,12 +549,20 @@ class OdtDocument:
                 if st:
                     u = self.styles.prop(part, "text", st, "style:text-properties", "style:text-underline-style")
                     h = self.styles.prop(part, "text", st, "style:text-properties", "text:display")
-                    c2 = _Ctx(ctx.underline if u is None else u != "none", ctx.hidden if h is None else h == "none", ctx.field, ch)
+                    strike, color = self._style_look(part, "text", st)
+                    look = ctx.look if ctx.look is None or (strike is None and color is None) else (
+                        ctx.look[0] if strike is None else strike, ctx.look[1] if color is None else color)
+                    c2 = _Ctx(ctx.underline if u is None else u != "none", ctx.hidden if h is None else h == "none", ctx.field, ch, look)
                 self._inline(ch, p, part, c2, atoms)
             elif t in MARKS:
                 if t == _T + "hidden-paragraph" and ch.get("text:is-hidden") == "true":
                     atoms.append(("hide-para",))
                     continue
+                if t == _T + "change":
+                    sg = self._deleted(ch, part, ctx.run)
+                    if sg is not None:
+                        atoms.append(("del", sg))
+                        continue
                 name = ch.get("text:name")
                 if t in (_T + "bookmark-start", _T + "bookmark-end", _T + "bookmark") and name:
                     atoms.append(("mark", name, {"bookmark-start": "start", "bookmark-end": "end"}.get(ch.local, "point"), ch))
@@ -470,7 +613,7 @@ class OdtDocument:
                 if shown:
                     fc = Control("field", "odf-field", "", ch, part, p)
                     atoms.append(("seg", [Seg(shown, "t", Src("field", part, ch.s, ch.e, el=ch), ctx.run, ctx.hidden,
-                                              ctx.underline, fc)]))
+                                              ctx.underline, fc, ctx.look)]))
                 else:
                     atoms.append(("sep",))
             else:
@@ -531,7 +674,7 @@ class OdtDocument:
                     prev_space = False
                 at_start = False
                 kept.append(("ch", a[1], c, a[3], a[4], a[5]))
-            elif k in ("mark", "hide-para"):
+            elif k in ("mark", "hide-para", "del"):
                 kept.append(a)
             elif k in ("fm-start", "fm-end"):
                 prev_space = False
@@ -541,7 +684,7 @@ class OdtDocument:
                 at_start = False
                 kept.append(a)
         for i in range(len(kept) - 1, -1, -1):  # 段落の終わりの空白
-            if kept[i][0] in ("mark", "hide-para", "fm-start", "fm-end"):
+            if kept[i][0] in ("mark", "hide-para", "del", "fm-start", "fm-end"):
                 continue
             if kept[i][0] == "ch" and kept[i][2] == " ":
                 del kept[i]
@@ -578,7 +721,7 @@ class OdtDocument:
                     sg.node.ends.append(e)
                     sg.node.e = e
                 else:
-                    sg = Seg(c, "t", Src("txt", part, s, e, [s], [e], el=node.parent), ctx.run, hidden, ctx.underline, ctx.field)
+                    sg = Seg(c, "t", Src("txt", part, s, e, [s], [e], el=node.parent), ctx.run, hidden, ctx.underline, ctx.field, ctx.look)
                     segs.append(sg)
                     cur = (node, ctx)
                 if not hidden:
@@ -602,6 +745,8 @@ class OdtDocument:
                     segs.append(sg)
                     if not sg.hidden:
                         pos += len(sg.text)
+            elif k == "del":
+                segs.append(a[1])
             elif k == "mark" and a[1]:
                 self.marks_raw.append((a[1], a[2], p, pos))
         p.segs = segs
@@ -621,7 +766,7 @@ class OdtDocument:
             opts = [x.get("text:value", "") for x in el.findall("text:label")]
             ctl = Control("dropdown", "odf-dropdown", el.get("text:name") or "選択", el, part, p, value=shown, options=opts)
         self._add_control(ctl)
-        sg = Seg(shown, "t", Src("text", part, el.s, el.e, el=el), ctx.run, ctx.hidden, ctx.underline, ctl)
+        sg = Seg(shown, "t", Src("text", part, el.s, el.e, el=el), ctx.run, ctx.hidden, ctx.underline, ctl, ctx.look)
         ctl.result_segs = [sg]
         return [sg]
 
@@ -640,7 +785,7 @@ class OdtDocument:
         ctl.values = [li.get("loext:value") or "" for li in el.findall("loext:list-item")]
         self._add_control(ctl)
         n0 = len(atoms)
-        self._inline(el, p, part, _Ctx(ctx.underline, ctx.hidden, ctl, ctx.run), atoms)
+        self._inline(el, p, part, _Ctx(ctx.underline, ctx.hidden, ctl, ctx.run, ctx.look), atoms)
         if not any(a[0] in ("ch", "s", "tab", "br", "seg") for a in atoms[n0:]):
             # 中が空：書く所は、要素の終わりのタグの前
             at = el.es if el.es != el.e else el.e

@@ -34,6 +34,18 @@ INVISIBLE = {"zwj", "zwnj", "ltrmark", "rtlmark", "zwbo", "zwnbo", "softline", "
 # 書いた字に引き継がない文字の書式の制御語（RTF 1.9.1）：取り消し線（\\strike・二重の \\striked）・非表示（\\v）・
 # 字の色（\\cf）・蛍光ペン（\\highlight）・背景の色（\\cb・\\chcbpat）
 LOOK_WORDS = ("strike", "striked", "cf", "highlight", "cb", "chcbpat")
+
+
+def color_table(blob: bytes) -> list:
+    """色の表（{\\colortbl …}）：番号 → (赤, 緑, 青)。中身のない項目（自動の色）は None。"""
+    m = re.search(rb"\{\\colortbl\b(.*?)\}", blob, re.S)
+    if not m:
+        return []
+    out = []
+    for ent in m[1].split(b";")[:-1]:
+        rgb = {k.decode(): int(v) for k, v in re.findall(rb"\\(red|green|blue)(\d+)", ent)}
+        out.append((rgb.get("red", 0), rgb.get("green", 0), rgb.get("blue", 0)) if rgb else None)
+    return out
 SKIP = {"fonttbl", "colortbl", "stylesheet", "info", "pict", "listtable", "listoverridetable", "revtbl", "rsidtbl",
         "generator", "xmlnstbl", "latentstyles", "datastore", "themedata", "colorschememapping", "objdata", "nonshppict",
         "shprslt", "pnseclvl", "pn", "ftnsep", "ftnsepc", "aftnsep", "aftnsepc", "ftncn", "aftncn", "pgdsctbl", "mmathPr",
@@ -147,6 +159,13 @@ class RtfDocument:
         self.deff: int | None = None
         self.stories: list[tuple[str, str, list]] = []
         self.unread: list[str] = []
+        # 変更履歴（RTF 1.9.1 の Track Changes）：承諾も却下もされていない挿入（\\revised）・削除（\\deleted）・書式の変更
+        # （\\crauth）の数と、「変更履歴の記録」がオンか（\\revisions）
+        self.revisions = {"挿入": 0, "削除": 0, "書式": 0}
+        self.tracking = False
+        self._rev_prev = (False, False)
+        self.colors = color_table(blob)
+        self._looks: dict[tuple, tuple] = {}
         self._fonts_pass()
         head = blob[:200_000]
         if re.search(rb"\\formprot(?![a-z])", head):
@@ -156,6 +175,16 @@ class RtfDocument:
         self._parse()
         self._name_fields()
         self.pictures = self._pictures()
+
+    def _seg_look(self, look: dict) -> tuple:
+        """字の書式の事実（取り消し線か, 字の色 "RRGGBB"）：docx/fontfacts.py。自動の色（\\cf0・色の表の空の項目）は黒。"""
+        key = (look.get("strike", 0), look.get("striked", 0), look.get("cf", 0))
+        got = self._looks.get(key)
+        if got is None:
+            i = key[2]
+            c = self.colors[i] if isinstance(i, int) and 0 <= i < len(self.colors) else None
+            got = self._looks[key] = (bool(key[0] or key[1]), "000000" if c is None else "%02X%02X%02X" % c)
+        return got
 
     def _name_fields(self) -> None:
         """名前（\\ffname）のないフォームの欄：欄のすぐ前か後ろのしおり（\\bkmkstart）の名前を、欄の名前にする（Word の
@@ -367,6 +396,12 @@ class RtfDocument:
                     fctl = fd.ctl if fd.ctl is not None else fd.dummy
                     break
             segs = p.segs
+            # 変更履歴の数：挿入・削除の印のついた字の、ひと続きを 1 つと数える
+            rev = (bool(st.look.get("revised")), st.deleted)
+            if rev != self._rev_prev:
+                self.revisions["挿入"] += 1 if rev[0] and not self._rev_prev[0] else 0
+                self.revisions["削除"] += 1 if rev[1] and not self._rev_prev[1] else 0
+                self._rev_prev = rev
             if st.deleted and kind == "t":
                 kind = "del"  # 変更履歴で削除された字：本文の字にしない（窓では印をつけて示す）
             hid = st.hidden or kind == "del"
@@ -382,7 +417,8 @@ class RtfDocument:
             else:
                 if segs and getattr(segs[-1], "_open", False):
                     segs[-1]._open = False
-                sg = Seg(ch, kind, RSrc("txt", s, e, array("Q", (s,)), array("Q", (e,)), st.uc, st.look), None, hid, st.ul, fctl)
+                sg = Seg(ch, kind, RSrc("txt", s, e, array("Q", (s,)), array("Q", (e,)), st.uc, st.look), None, hid, st.ul, fctl,
+                         self._seg_look(st.look))
                 sg._open = True
                 segs.append(sg)
             s_join[0] = e
@@ -639,6 +675,13 @@ class RtfDocument:
                 st.look = {}
             elif w == "deleted":
                 st.deleted = t.param != 0  # 変更履歴で削除された字（RTF 1.9.1 の Revision Marks）
+                st.look = {**st.look, "deleted": 1 if st.deleted else 0}
+            elif w == "revised":
+                st.look = {**st.look, "revised": 0 if t.param == 0 else 1}  # 変更履歴で挿入された字
+            elif w == "crauth":
+                self.revisions["書式"] += 1
+            elif w == "revisions":
+                self.tracking = True
             elif w == "v":
                 st.hidden = t.param != 0
                 st.look = {**st.look, "v": 0 if t.param == 0 else 1}

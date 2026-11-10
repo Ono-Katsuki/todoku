@@ -15,6 +15,7 @@ HWP 5（한글 97 の後の、한글の2進の形式。Hancom「한글 문서 �
 
 from __future__ import annotations
 
+import bisect
 import struct
 import zlib
 
@@ -192,6 +193,7 @@ class Hwp5Document:
     # ------------------------------------------------------------------ DocInfo
     def _docinfo(self) -> None:
         self.under: list[bool] = []
+        self.looks: list[tuple] = []  # 文字の形 → (取り消し線か, 字の色 "RRGGBB")：docx/fontfacts.py
         self.para_head: list[int] = []
         try:
             recs = records(self._stream("DocInfo"))
@@ -201,6 +203,9 @@ class Hwp5Document:
             if r.tag == CHAR_SHAPE and len(r.data) >= 50:
                 (attr,) = struct.unpack_from("<I", r.data, 46)
                 self.under.append(((attr >> 2) & 3) == 1)
+                # 属性のビット 18〜20：取り消し線。字の色は、影の間隔（2 バイト）の後ろの COLORREF（0x00BBGGRR）
+                color = struct.unpack_from("<I", r.data, 52)[0] if len(r.data) >= 56 else 0
+                self.looks.append((bool((attr >> 18) & 7), "%02X%02X%02X" % (color & 0xFF, (color >> 8) & 0xFF, (color >> 16) & 0xFF)))
             elif r.tag == PARA_SHAPE and len(r.data) >= 4:
                 (attr,) = struct.unpack_from("<I", r.data, 0)
                 self.para_head.append((attr >> 23) & 3)
@@ -248,19 +253,43 @@ class Hwp5Document:
         ci = 0
         buf: list[str] = []
 
-        def under_at(pos: int) -> bool:
+        ats = [at for at, _s in shapes]
+        in_order = all(a <= b for a, b in zip(ats, ats[1:]))
+
+        def shape_at(pos: int) -> int:
+            if in_order:  # 位置の順に並んでいる（ふつう）：二分探索
+                k = bisect.bisect_right(ats, pos)
+                return shapes[k - 1][1] if k else 0
             sid = 0
             for at, s in shapes:
                 if at <= pos:
                     sid = s
+            return sid
+
+        def under_at(pos: int) -> bool:
+            sid = shape_at(pos)
             return sid < len(self.under) and self.under[sid]
+
+        def look_at(pos: int):
+            sid = shape_at(pos)
+            return self.looks[sid] if sid < len(self.looks) else None
+
+        buf_at = [0]  # buf のはじめの字の位置（字の形は、ここで決まる）
+
+        def put(ch: str, pos: int) -> None:
+            # 下線・取り消し線・字の色の変わる所で、字を分ける
+            if buf and (under_at(pos), look_at(pos)) != (under_at(buf_at[0]), look_at(buf_at[0])):
+                flush(pos)
+            if not buf:
+                buf_at[0] = pos
+            buf.append(ch)
 
         def flush(at: int) -> None:
             if buf:
                 t = "".join(buf)
                 buf.clear()
                 f = next((x for x in reversed(fields) if x is not None), None)
-                sg = Seg(t, "t", None, None, False, under_at(at), f)
+                sg = Seg(t, "t", None, None, False, under_at(buf_at[0]), f, look_at(buf_at[0]))
                 if f is not None and f.kind != "field":
                     f.result_segs.append(sg)
                 p.segs.append(sg)
@@ -272,11 +301,11 @@ class Hwp5Document:
             u = units[i]
             if u >= 32:
                 if 0xD800 <= u < 0xDC00 and i + 1 < len(units):
-                    buf.append(chr(0x10000 + ((u - 0xD800) << 10) + (units[i + 1] - 0xDC00)))
+                    put(chr(0x10000 + ((u - 0xD800) << 10) + (units[i + 1] - 0xDC00)), i)
                     raw.append(buf[-1])
                     i += 2
                     continue
-                buf.append(chr(u))
+                put(chr(u), i)
                 raw.append(chr(u))
                 i += 1
                 continue
@@ -285,9 +314,9 @@ class Hwp5Document:
                     flush(i)
                     p.segs.append(Seg("\n", "br", None))
                 elif u == 30:
-                    buf.append(" ")
+                    put(" ", i)
                 elif u == 31:
-                    buf.append("　")
+                    put("　", i)
                 elif u == 24:
                     flush(i)
                     p.segs.append(Seg("-", "other", None))

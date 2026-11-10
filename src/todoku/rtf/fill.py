@@ -18,7 +18,7 @@ from ..docx.document import form_field_notes, form_field_refusal, iter_paras
 from ..docx.fill import FillError, _as_bool, _is_text_value, inline_padding, written_of  # 証明に渡す、書いた所 → 値（Word と同じ）
 from ..docx.proof import _expected_text
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
-from .document import MARK_PREFIX, RtfDocument
+from .document import MARK_PREFIX, RtfDocument, color_table
 from .lexer import control_word_ends_at
 
 B = b"\x5c"  # 逆斜線
@@ -79,28 +79,14 @@ def rtf_text(value: str, uc: int, cp: str) -> bytes:
 
 # ====================================================================== 書いた字の書式
 LOOK_NAMES = {"strike": "取り消し線", "striked": "二重取り消し線", "v": "非表示", "cf": "字の色", "highlight": "蛍光ペン",
-              "cb": "背景の色", "chcbpat": "背景の色（網かけ）"}
-
-
-def color_table(blob: bytes) -> list:
-    """色の表（{\\colortbl …}）：番号 → (赤, 緑, 青)。中身のない項目（自動の色）は None。"""
-    import re
-
-    m = re.search(rb"\{\\colortbl\b(.*?)\}", blob, re.S)
-    if not m:
-        return []
-    out = []
-    for ent in m[1].split(b";")[:-1]:
-        rgb = {k.decode(): int(v) for k, v in re.findall(rb"\\(red|green|blue)(\d+)", ent)}
-        out.append((rgb.get("red", 0), rgb.get("green", 0), rgb.get("blue", 0)) if rgb else None)
-    return out
+              "cb": "背景の色", "chcbpat": "背景の色（網かけ）", "revised": "変更履歴の挿入の印", "deleted": "変更履歴の削除の印"}
 
 
 def bad_looks(look: dict | None, colors: list) -> list[str]:
     """消したように・目立って見える書式の制御語（LOOK_NAMES）。"""
     look = look or {}
     out = []
-    for w in ("strike", "striked", "v"):
+    for w in ("strike", "striked", "v", "revised", "deleted"):
         if look.get(w, 0):
             out.append(w)
 
@@ -162,7 +148,7 @@ class RtfWriter:
             return body
         words = b""
         for w in bad:
-            if w in ("strike", "striked", "v", "highlight"):
+            if w in ("strike", "striked", "v", "highlight", "revised", "deleted"):
                 words += B + w.encode() + b"0"
             else:
                 want = (0, 0, 0) if w == "cf" else (255, 255, 255)
@@ -357,7 +343,22 @@ def fill(doc: RtfDocument, values: dict, *, force: bool = False) -> FillResult:
             problems.append(str(e))
     if problems:
         raise FillError("\n".join(problems))
+    revision_warnings(doc, w.warnings)
     return FillResult(w.build(), w.patches, w.warnings)
+
+
+def revision_warnings(doc: RtfDocument, warnings: list[str]) -> None:
+    """変更履歴：承諾も却下もされていない変更履歴があること・変更履歴の記録がオンでも、書いた字は変更履歴にしていないことを伝える
+    （Word・OpenDocument と同じ）。書いた字は、挿入・削除の印を打ち消して書くので（clean）、変更履歴の外のふつうの字になる。"""
+    n = {k: v for k, v in doc.revisions.items() if v}
+    if n:
+        what = "・".join(f"{k} {v}" for k, v in n.items())
+        warnings.insert(0, f"この文書には、まだ承諾も却下もされていない変更履歴（{what}）があります。ワープロで開くと変更履歴として"
+                           "表示され、承諾・却下で字が変わります。書いた字は、変更履歴の外に、ふつうの字として書きました。"
+                           "提出する前に、変更履歴をどうするか本人に確かめてください")
+    if doc.tracking:
+        warnings.append("この文書は「変更履歴の記録」がオンになっていますが、とどくの書き込みは変更履歴として記録していません"
+                        "（ふつうの字として書きました。ワープロの変更履歴には、書いた所は出ません）")
 
 
 # ====================================================================== 証明

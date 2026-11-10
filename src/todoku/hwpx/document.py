@@ -131,6 +131,7 @@ class HwpxDocument:
     # ------------------------------------------------------------------ header.xml：文字の形・段落の形・番号
     def _header(self) -> None:
         self.under: dict[str, bool] = {}
+        self.looks: dict[str, tuple] = {}  # 文字の形 → (取り消し線か, 字の色 "RRGGBB")：docx/fontfacts.py
         self.para_heading: dict[str, tuple[str, str, int]] = {}
         self.numberings: dict[str, dict[int, tuple[int, str, str]]] = {}
         self.bullets: dict[str, str] = {}
@@ -143,6 +144,11 @@ class HwpxDocument:
             if loc == "charPr":
                 u = kid(el, "underline")
                 self.under[el.attrs.get("id", "")] = u is not None and u.attrs.get("type", "NONE") == "BOTTOM"
+                so = kid(el, "strikeout")
+                c = (el.attrs.get("textColor") or "#000000").lstrip("#").upper()
+                self.looks[el.attrs.get("id", "")] = (
+                    so is not None and (so.attrs.get("shape") or "NONE").upper() not in ("NONE", ""),
+                    c if len(c) == 6 and all(x in "0123456789ABCDEF" for x in c) else "000000")
             elif loc == "paraPr":
                 h = kid(el, "heading")
                 if h is not None:
@@ -253,6 +259,7 @@ class HwpxDocument:
         data = self.pkg.xml(part)
         for run in kids(el, "run"):
             under = self.under.get(run.attrs.get("charPrIDRef", ""), False)
+            n0, look = len(p.segs), self.looks.get(run.attrs.get("charPrIDRef", ""))
             for ch in run.els():
                 loc = L(ch)
                 if loc == "t":
@@ -288,6 +295,10 @@ class HwpxDocument:
                     continue
                 elif loc == "" or loc in ("unknownObj",):
                     continue
+            if look is not None:
+                for sg in p.segs[n0:]:
+                    if sg.kind == "t" and sg.look is None:
+                        sg.look = look
         # 閉じていない欄（段落の終わりまで）
         for f in st.fields:
             if f.ctl is not None:

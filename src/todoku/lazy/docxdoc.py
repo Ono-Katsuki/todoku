@@ -542,7 +542,7 @@ class DocxLazy(BlocksLazy):
         n = len(self.chunks)
         if i < n:
             with partial_base(self.base_of(i)):  # 書き込みの試しが開き直す文書も、番号は全体と同じ
-                d = self.chunk_doc(i)
+                d = self.told_doc(i)
                 win = build(d)
                 raw = _count(raw_texts(d))
                 shown = None
@@ -561,7 +561,7 @@ class DocxLazy(BlocksLazy):
                         state["problems"].append(f"段落 {self.chunks[i]['para'] + 1}〜：「{ch}」が {k} 字、元にないのに窓に出ています")
                 # 書き込みの試し：このまとまりの欄すべて（小さな文書の上で）
                 if win["fields"]:
-                    for c in check_writing(self.chunk_doc(i), win):
+                    for c in check_writing(self.told_doc(i), win):
                         state["written"] += 1 if c.ok else 0
                         if not c.ok and len(state["write_problems"]) < 30:
                             state["write_problems"] += [f"段落 {self.chunks[i]['para'] + 1}〜：{c.name}：{c.detail[:120]}"] + [str(x)[:160] for x in list(c.items)[:3]]

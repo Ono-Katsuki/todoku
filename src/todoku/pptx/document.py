@@ -341,7 +341,7 @@ class PptxDocument:
                 rpr = k.find("rPr")
                 ul = rpr is not None and (rpr.get("u") or "none") != "none"
                 if t is not None:
-                    out.segs.append(Seg(t.text, "t", t, k, False, ul))
+                    out.segs.append(Seg(t.text, "t", t, k, False, ul, None, self._run_look(rpr, part)))
             elif k.local == "fld":
                 # PowerPoint が作る字（スライド番号・日付など）：字として読むが、書き換えない（欄の中の字として扱う）
                 t = k.find("t")
@@ -349,6 +349,84 @@ class PptxDocument:
                     out.segs.append(Seg(t.text, "t", t, k, False, False, Control("text", "pptx-field", "", k, part)))
             elif k.local == "br":
                 out.segs.append(Seg("\n", "br", k, None))
+        return out
+
+    # ------------------------------------------------------------------ 字の書式の事実（取り消し線・字の色）
+    def _run_look(self, rpr: Node | None, part: str) -> tuple:
+        """字（a:r）が自分で決めている (取り消し線か, 字の色)：docx/fontfacts.py。字の色は "RRGGBB"、RRGGBB で言えない色は
+        その言い方（「#4472C4 を変えた色」「塗りなし」など）、決めていなければ None（図形・型から受け継ぐ色。ふつうの色として数える）。
+        図形・段落・型（レイアウト・マスター）から受け継ぐ取り消し線・色は読まない。"""
+        if rpr is None:
+            return (False, None)
+        strike = rpr.get("strike") in ("sngStrike", "dblStrike")
+        for k in rpr.kids:
+            if k.local == "solidFill":
+                c = k.kids[0] if k.kids else None
+                return (strike, self._color(c, part) if c is not None else None)
+            if k.local == "noFill":
+                return (strike, "塗りなし")
+            if k.local in ("gradFill", "pattFill", "blipFill", "grpFill"):
+                return (strike, "グラデーション・模様・絵の塗り")
+        return (strike, None)
+
+    def _color(self, c: Node, part: str) -> str:
+        """DrawingML の色（21.1.2.3）：srgbClr・sysClr（lastClr）・schemeClr（テーマの色を、マスターの色の対応 clrMap で引く）。
+        明るさ・濃さなどを変える子（lumMod・tint・alpha など）があるときは、変えた後の色は計算せず「#もとの色 を変えた色」と言う。"""
+        base = None
+        if c.local == "srgbClr":
+            base = c.get("val")
+        elif c.local == "sysClr":
+            base = c.get("lastClr")
+        elif c.local == "schemeClr":
+            base = self._scheme(part).get(c.get("val") or "")
+        base = (base or "").upper()
+        if len(base) != 6 or any(x not in "0123456789ABCDEF" for x in base):
+            return f"{c.local} {c.get('val') or ''}".strip() + "（RRGGBB に直せない色）"
+        return f"#{base} を変えた色" if c.kids else base
+
+    def _scheme(self, part: str) -> dict[str, str]:
+        """部品（スライド・ノート・レイアウト・マスター）で使うテーマの色：名前（tx1・bg1・accent1 など）→ "RRGGBB"。
+        部品 →（レイアウト →）マスター → テーマ とたどり、マスターの p:clrMap（スライドの a:overrideClrMapping があればそれ）で引く。"""
+        memo = self.__dict__.setdefault("_schemes", {})
+        if part in memo:
+            return memo[part]
+        out: dict[str, str] = {}
+        memo[part] = out
+        cur, master, theme = part, None, None
+        for _ in range(4):
+            rels = rels_of(self.zip, cur)
+            nxt = None
+            for typ, tg in rels.values():
+                kind = typ.rsplit("/", 1)[-1]
+                if kind == "theme":
+                    theme = _join(cur, tg)
+                    master = cur
+                elif kind in ("slideLayout", "slideMaster", "notesMaster") and nxt is None:
+                    nxt = _join(cur, tg)
+            if theme is not None or nxt is None or not self.zip.has(nxt):
+                break
+            cur = nxt
+        if theme is None or not self.zip.has(theme):
+            return out
+        colors: dict[str, str] = {}
+        m = re.search(rb"<(?:[\w.-]+:)?clrScheme\b.*?</(?:[\w.-]+:)?clrScheme>", self.zip.read(theme), re.S)
+        for name, body in re.findall(rb"<(?:[\w.-]+:)?(dk1|lt1|dk2|lt2|accent[1-6]|hlink|folHlink)>(.*?)</(?:[\w.-]+:)?\1>", m[0] if m else b"", re.S):
+            v = re.search(rb'<(?:[\w.-]+:)?srgbClr\b[^>]*?\bval="([0-9A-Fa-f]{6})"', body) or \
+                re.search(rb'<(?:[\w.-]+:)?sysClr\b[^>]*?\blastClr="([0-9A-Fa-f]{6})"', body)
+            if v:
+                colors[name.decode()] = v[1].decode().upper()
+        out.update(colors)
+        cmap: dict[str, str] = {}
+        for src in (master, part):  # スライドの対応（overrideClrMapping）が、マスターの対応（clrMap）に勝つ
+            if src is None or not self.zip.has(src):
+                continue
+            pat = rb"<(?:[\w.-]+:)?clrMap\b([^>]*)>" if src == master else rb"<(?:[\w.-]+:)?overrideClrMapping\b([^>]*)>"
+            mm = re.search(pat, self.zip.read(src))
+            if mm:
+                cmap.update(re.findall(r'([\w]+)="([^"]*)"', mm[1].decode("utf-8", "replace")))
+        for k, v in cmap.items():
+            if v in colors:
+                out[k] = colors[v]
         return out
 
     # ------------------------------------------------------------------ Word と同じ問い合わせ

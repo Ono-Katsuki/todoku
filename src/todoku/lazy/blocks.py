@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import bisect
 import re
+from collections import Counter
 
 from .. import limits
+from ..docx.fontfacts import count_colors, most_common_color
 from .base import LazyDoc, Page, RangeError, comma, parse_range
 
 _P_ID = re.compile(r"P(\d+)\.")
@@ -94,6 +96,15 @@ class BlocksLazy(LazyDoc):
     def chunk_doc(self, i: int, real: tuple = ()):
         raise NotImplementedError
 
+    def told_doc(self, i: int):
+        """窓・欄にするまとまりの文書。字の色の「ふつう」は、まとまりごとには決めない（まとまりで印が変わる）：
+        段落の位置を調べるときに全体で数えた色（normal_font_color）。数えていない形式は、黒をふつうとし、黒でない色にはみな印を付ける。"""
+        from ..xlsx.fontfacts import AUTO
+
+        d = self.chunk_doc(i)
+        d.__dict__.setdefault("_normal_font_color", getattr(self, "normal_font_color", AUTO))
+        return d
+
     def build_window(self, doc) -> dict:
         from ..docx.window import build
 
@@ -107,7 +118,7 @@ class BlocksLazy(LazyDoc):
         from ..docx.document import iter_paras
         from ..docx.window import Spots
 
-        d = self.chunk_doc(i)
+        d = self.told_doc(i)
         sp = Spots(d)
         by_para: dict[int, list[dict]] = {}
         for it in sp.items.values():
@@ -217,7 +228,7 @@ class BlocksLazy(LazyDoc):
 
     # ------------------------------------------------------------------ 欄
     def _chunk_fields(self, i: int) -> list[dict]:
-        return self.build_window(self.chunk_doc(i))["fields"]
+        return self.build_window(self.told_doc(i))["fields"]
 
     def fields(self, rng: dict, only_empty: bool, limit: int) -> dict:
         from ..api import _field
@@ -255,8 +266,18 @@ class BlocksLazy(LazyDoc):
 
     # ------------------------------------------------------------------ 概要
     def overview(self) -> dict:
-        return {"bytes": getattr(self, "size", None), "window_chars": self.est_chars, "paragraphs": self.paragraphs, "tables": self.tables,
-                "ranges": "paragraphs（段落の範囲）か cursor"}
+        out = {"bytes": getattr(self, "size", None), "window_chars": self.est_chars, "paragraphs": self.paragraphs, "tables": self.tables,
+               "ranges": "paragraphs（段落の範囲）か cursor"}
+        if self._normal_note():
+            out["normal_font_color"] = self.normal_font_color
+        return out
+
+    def _normal_note(self) -> str:
+        """黒でない色がふつうの文書：印の付かない字が黒とは限らないので、ふつうの色そのものを伝える（ふつうの道の窓と同じ）。"""
+        from ..xlsx.fontfacts import AUTO
+
+        c = getattr(self, "normal_font_color", AUTO)
+        return "" if c == AUTO else f"- この文書のふつうの字の色は #{c} です（黒ではない。この色の字には印を付けません）\n"
 
     def overview_text(self) -> str:
         from ..api import KIND_JA
@@ -264,14 +285,18 @@ class BlocksLazy(LazyDoc):
         return (f"# {self.name}\n\n- {KIND_JA.get(self.kind, self.kind)}（{getattr(self, 'size', 0) or 0:,} バイト）・段落 {self.paragraphs:,}・表 {self.tables:,}\n"
                 f"- 大きいので、ここでは本文を読んでいません（窓の全体は見積もりで {self.est_chars:,} 字）。read_window に paragraphs: \"1-200\" のように段落の範囲を渡して読みます"
                 "（cursor をたどれば、すべてを読めます。max_chars で 1 回の大きさを変えられます。窓を作るのが上限で止まるときは raw: true で字のまま読めます）。"
-                "list_fields に paragraphs を渡すと、その範囲の欄を出します。\n")
+                "list_fields に paragraphs を渡すと、その範囲の欄を出します。\n" + self._normal_note())
 
     # ------------------------------------------------------------------ 段階・検査
     def grade(self):
         from ..grade import Reason, _final
 
         write = [Reason("B", "欄を範囲ごとに見つける", "大きな文書なので、欄は頼まれた段落の範囲ごとに見つけます")]
-        g = _final([], write)
+        read = []
+        if getattr(self, "tracked", 0):  # ふつうの道（grade.word_reasons）と同じ理由
+            read.append(Reason("B", "変更履歴", f"変更履歴で削除された字が {self.tracked} 段落に残っています。窓では本文に入れず"
+                               "〔変更履歴で削除された字〕と示しています。印刷される字は、ソフトの変更履歴の表示の設定で変わります"))
+        g = _final(read, write)
         g.deferred = ["未確認：全段落の字の読み落とし（audit_document で全部のまとまりを確かめます）"]
         return g
 
@@ -299,7 +324,7 @@ class BlocksLazy(LazyDoc):
         i = state["next_chunk"]
         n = len(self.chunks)
         if i < n:
-            d = self.chunk_doc(i)
+            d = self.told_doc(i)
             win = self.build_window(d)
             raw = Counter()
             for _k, _part, blocks in d.all_blocks():
@@ -340,7 +365,8 @@ class ViewLazy(BlocksLazy):
         self.password = password
         self.chunks = []
         self.control_ids = _control_ids(doc)
-        para = table = chars = 0
+        para = table = chars = tracked = 0
+        colors: Counter = Counter()
         for k, part, blocks in doc.all_blocks():
             start = 0
             first = True
@@ -355,6 +381,10 @@ class ViewLazy(BlocksLazy):
                 self._add(k, part, blocks[start:], para, table, first)
                 para, table = self._counts(blocks[start:], para, table)
             chars += sum(len(p.text) for p in iter_paras(blocks))
+            tracked += sum(1 for p in iter_paras(blocks) if hasattr(p, "deleted_text") and p.deleted_text().strip())
+            count_colors(iter_paras(blocks), colors)
+        self.tracked = tracked  # 変更履歴で削除された字の残る段落の数
+        self.normal_font_color = most_common_color(colors)  # 文書のふつうの字の色（ふつうの道と同じ数え方）
         self.paragraphs, self.tables = para, table
         self.est_chars = int(chars * 1.25) + para * 12 + len(self.control_ids) * 60
 
@@ -435,6 +465,13 @@ class SeqLazy(BlocksLazy):
         total_controls = 0
         n = self.unit_count()
         self.object_units: list[int] = []
+        self.tracked = 0  # 変更履歴で削除された字の残る段落の数
+        colors: Counter = Counter()
+
+        def gone(blocks) -> int:
+            count_colors(iter_paras(blocks), colors)
+            return sum(1 for p in iter_paras(blocks) if hasattr(p, "deleted_text") and p.deleted_text().strip())
+
         for u in range(n):
             limits.progress("段落の位置を調べています", u, n)
             self.states.append(state)
@@ -443,12 +480,14 @@ class SeqLazy(BlocksLazy):
             ta = sum(1 for _ in _tables(d.body))
             bodies.append((u, pa, ta))
             chars += sum(len(p.text) for p in iter_paras(d.body))
+            self.tracked += gone(d.body)
             for j, (k, part, blocks) in enumerate(d.stories):
                 self.story_rank.setdefault(k, len(self.story_rank))
                 ps = sum(1 for _ in iter_paras(blocks))
                 ts = sum(1 for _ in _tables(blocks))
                 stories.append((k, u, j, part, ps, ts))
                 chars += sum(len(p.text) for p in iter_paras(blocks))
+                self.tracked += gone(blocks)
             names = []
             for c in self._unit_controls(d, u):
                 total_controls += 1
@@ -477,6 +516,7 @@ class SeqLazy(BlocksLazy):
             para += ps
             table += ts
         self.paragraphs, self.tables = para, table
+        self.normal_font_color = most_common_color(colors)  # 文書のふつうの字の色（ふつうの道と同じ数え方）
         self.est_chars = int(chars * 1.25) + para * 12 + len(used) * 60
 
     def first_state(self) -> dict:
