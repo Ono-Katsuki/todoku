@@ -22,6 +22,7 @@ from ..xlsx.window import GAP_TOKEN_NOTE, label_text, shown_gap, with_label_keys
 from .content import page_content
 from .doc import PdfDocument
 from .form import FormField, Widget, has_xfa, read_fields
+from . import textcolor
 from .layers import layers as _layers
 from .layout import OLD_ID, PLACE_ID, Cell, Line, PageLayout, Spot, _overlap, _RectIndex
 
@@ -45,11 +46,13 @@ class _Item:
 
 
 def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, circled: list | None = None,
-                 struck: list | None = None) -> str:
+                 struck: list | None = None, tint: tuple | None = None) -> str:
     """行の文字に、入力欄の印（［p1.3］）を入れる。kept があれば、窓に出した元の字（印に置き換えて消えた字を除いたもの）を足す
     （読み落としの検査が、窓に実際に出た字で数えるため）。circled：ページに描かれた○が囲む字 (始め, 終わり, id)：その字の後ろに
     「［○］」（とどくが描いた○は「［p1.c1：○］」）。4 つ目が真のもの（角の丸い四角など、○かもしれない囲み）は「［○？］」。
-    struck：取り消し線のある字 (始め, 終わり)：その字の後ろに「〔取り消し線：「字」〕」（字は消さない）。"""
+    struck：取り消し線のある字 (始め, 終わり)：その字の後ろに「〔取り消し線：「字」〕」（字は消さない）。
+    tint：字の色の印（textcolor.line_marks）：(行の前に置く印, [(始め, 終わり, 色)])：行の一部の色は、その字の後ろに
+    「〔うち字の色 #RRGGBB：「字」〕」。"""
     text = ln.text
     edits = []
     for a, b, ident, *maybe in circled or []:
@@ -81,6 +84,13 @@ def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, ci
             if ea < at < eb:
                 at = eb  # 欄の印の中には入れない：印の後ろに置く
         marks.append((at, at, f"〔取り消し線：「{text[a:b]}」〕"))
+    head, runs = tint or ("", [])
+    for a, b, col in runs:
+        at = b
+        for ea, eb, _rep in edits:
+            if ea < at < eb:
+                at = eb
+        marks.append((at, at, f"〔うち{textcolor.name(col)}：「{re.sub('[ 　]+', ' ', text[a:b]).strip()}」〕"))
     edits = sorted(marks + edits, key=lambda e: (e[0], e[1]))  # 同じ位置では、取り消し線の印を先に（字のすぐ後ろ）
     out, at = [], 0
     shown = []
@@ -97,7 +107,7 @@ def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, ci
     shown.append(text[at:])
     if kept is not None:
         kept.append("".join(shown))
-    return "".join(out).strip()
+    return head + "".join(out).strip()
 
 
 def _box_glyph(sp: Spot, orig: str) -> str:
@@ -315,6 +325,14 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         circ.setdefault(id(ln_), []).append((a_, b_, ident))
     for ln_, a_, b_, ident in getattr(lay, "maybe_circled", []):
         circ.setdefault(id(ln_), []).append((a_, b_, ident, True))
+    normal_color = textcolor.normal(lay.chars)  # ページのふつうの字の色（字数のいちばん多い色）
+    color_marks = [0]
+
+    def tint(ln_):
+        got = textcolor.line_marks(ln_, normal_color)
+        color_marks[0] += bool(got[0]) + len(got[1])
+        return got
+
     strk: dict[int, list] = {}  # 行 → 取り消し線のある字 (始め, 終わり)
     for ln_, a_, b_ in getattr(lay, "struck", []):
         strk.setdefault(id(ln_), []).append((a_, b_))
@@ -329,7 +347,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         for it in row:
             if it.line is not None:
                 t = _render_line(it.line, line_spots.get(id(it.line), []), name, plain, circ.get(id(it.line)),
-                                 strk.get(id(it.line))) + room_mark(it.line)
+                                 strk.get(id(it.line)), tint(it.line)) + room_mark(it.line)
             elif getattr(it, "spot", None) is not None:
                 sp = it.spot
                 mark = _filled_mark(sp, name)
@@ -349,7 +367,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                         pieces.append(f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
                 rendered = []
                 for ln in c.lines:
-                    r_ = _render_line(ln, line_spots.get(id(ln), []), name, plain, circ.get(id(ln)), strk.get(id(ln))) + room_mark(ln)
+                    r_ = _render_line(ln, line_spots.get(id(ln), []), name, plain, circ.get(id(ln)), strk.get(id(ln)),
+                                      tint(ln)) + room_mark(ln)
                     grp = getattr(ln, "overprint", None)
                     if grp is not None and rendered and rendered[-1][1] == grp:
                         rendered[-1] = (rendered[-1][0] + " ／ " + r_, grp)  # 重ねて描かれた行
@@ -562,7 +581,12 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             # UserUnit（ページの座標の 1 単位が何ポイントか）：1 でないページだけ。窓の rect・大きさは、ページの座標の単位
             **({"user_unit": view.unit} if view.unit != 1.0 else {}),
             "fields": out_fields, "reading": reading, "circled": circled, "maybe_circled": maybe_circled,
-            **({"struck": struck} if struck else {}), "chars": chars, "unmapped": pc.unmapped, "images": images,
+            **({"struck": struck} if struck else {}),
+            # 字の色：ページのふつうの色（黒でないときだけ）と、ふつうと違う色に付けた印の数（pdf/textcolor.py）
+            **({"normal_color": "#" + normal_color if normal_color != textcolor.PATTERN else normal_color}
+               if normal_color != textcolor.BLACK else {}),
+            **({"color_marks": color_marks[0]} if color_marks[0] else {}),
+            "chars": chars, "unmapped": pc.unmapped, "images": images,
             # 字に直せない字の、行の中での役割（字の並びの形で決める）：行の頭の印（箇条の印）と、それ以外（本文の字）
             "unmapped_marks": marks, "unmapped_text": inword,
             "image_only": chars == 0 and images > 0, **({"blank": True} if chars == 0 and images == 0 else {}), "pictures": pictures, "problems": pc.problems, "annotations": annots,
@@ -663,15 +687,36 @@ def _pictures(doc: PdfDocument, page: dict, number: int, pc, lay) -> list[dict]:
     return out
 
 
+_COLOR = r"字の色(?: #[0-9A-F]{6}|（[^）〕]*）)"
+_COLOR_HEAD = re.compile(rf"〔{_COLOR}〕")  # 行の前の、字の色の印
+_MARK_OPEN = re.compile(rf"〔(?:うち{_COLOR}|取り消し線)：「")  # 字の後ろの印（字の色・取り消し線）の始まり
+
+
+def _last_char(t: str) -> str:
+    """行の終わりの字：終わりに付いた印（字の色・取り消し線）は、字ではないので除く。"""
+    while t.endswith("」〕"):
+        i = max(t.rfind("〔うち字の色"), t.rfind("〔取り消し線：「"))
+        if i <= 0 or not _MARK_OPEN.match(t, i):
+            break
+        t = t[:i]
+    return t[-1:]
+
+
 def _join(texts: list[str]) -> str:
+    """マスの中の行をつなぐ：行の終わりの字と次の行の頭の字が、どちらも語の間に空白を置かない字なら、空白を入れない。
+    印（字の色・取り消し線）は、字ではないので、その内側の字で決める。"""
     out = ""
+    last = ""  # 前の行の終わりの字
     for t in texts:
         t = t.strip()
         if not t:
             continue
-        if out and not (_cjk(out[-1]) and _cjk(t[0])):
+        m = _COLOR_HEAD.match(t)
+        first = t[m.end():m.end() + 1] if m else t[0]
+        if out and not (_cjk(last) and first and _cjk(first)):
             out += " "
         out += t
+        last = _last_char(t)
     return out
 
 
@@ -1115,6 +1160,11 @@ def build(doc: PdfDocument, pages=None) -> dict:
     if any(pg.get("struck") for pg in out["pages"]):
         out["notation"]["〔取り消し線：「字」〕"] = ("直前のその字の上に、行に沿った線が描かれている（PDF の取り消し線は、字の書式でなく、描いた線："
                                              "線と字の位置から決める。字は消さずに示す。どうして取り消したかは決めない）")
+    if any(pg.get("color_marks") or pg.get("normal_color") for pg in out["pages"]):
+        out["notation"]["〔字の色 #FF0000〕"] = ("字の書式の事実：後ろの行（マスの中の 1 行）の字の色が、そのページのふつうの色（ページで字数の"
+                                          "いちばん多い色。黒でなければ、ページの normal_color）と違う。〔うち字の色 #FF0000：「字」〕は、"
+                                          "直前のその字だけの色。色は、字を描いた色を RGB に直したもの（意味は決めない）。〔字の色（模様）〕は、"
+                                          "模様・グラデーションで描いた字（1 つの色にならない）")
     if xw is not None:
         out["xfa"] = xw
         out["form"]["xfa_kind"] = xw.get("kind")
@@ -1609,6 +1659,8 @@ def _md_page(pg: dict) -> list[str]:
         out += _field_lines(fields)
         out.append("")
     out += ["### 読み順（上から）", ""]
+    if pg.get("normal_color"):
+        out += [f"（このページのふつうの字の色は {pg['normal_color']}：字の色の印のない字は、この色）", ""]
     for line in pg["reading"]:
         out.append(f"- {line}")
     out.append("")

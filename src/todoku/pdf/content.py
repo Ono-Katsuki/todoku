@@ -47,7 +47,7 @@ class Glyph:
     vertical: bool
     invisible: bool
     font: str
-    color: tuple
+    color: tuple | None  # 字を描いた色（塗りの色。輪郭だけを描く字は線の色）の (r, g, b)。模様（Pattern）で描いた字は None
     mcid: int | None = None
     actual: bool = False  # ActualText で置き換えた文字
     legacy: bool = False  # Unicode でない符号の書体で描いた字（取り出した字は元の文字ではない）
@@ -226,7 +226,8 @@ def tokens(data: bytes):
 
 # ---------------------------------------------------------------------- 状態
 class _GS:
-    __slots__ = ("ctm", "lw", "fill", "stroke", "font", "fs", "tc", "tw", "th", "tl", "tr", "rise", "fontobj", "clip", "ml")
+    __slots__ = ("ctm", "lw", "fill", "stroke", "font", "fs", "tc", "tw", "th", "tl", "tr", "rise", "fontobj", "clip", "ml",
+                 "fcs", "scs", "fpat", "spat")
 
     def __init__(self):
         self.ctm = IDENT
@@ -246,6 +247,11 @@ class _GS:
         # 外枠は切り抜きの形を含むので、外枠の外にある字は、確かに見えない（外枠の中の字が見えるとは決めない）
         self.clip = None
         self.ml = 10.0  # 線の角のとがりの上限（M）：線の墨が、道からどこまで出うるか
+        # cs・CS で選んだ色空間（render/colors.py の CS）。None は、選んでいない・g rg k で決めた（成分の数で決まる）
+        self.fcs = None
+        self.scs = None
+        self.fpat = False  # 塗りが模様（Pattern）：1 つの色として言えない
+        self.spat = False
 
     def copy(self):
         g = _GS.__new__(_GS)
@@ -316,6 +322,13 @@ def _cmyk(c, m, y, k):
     return ((1 - c) * (1 - k), (1 - m) * (1 - k), (1 - y) * (1 - k))
 
 
+def _text_color(gs):
+    """字を描く色：塗りの色。輪郭だけを描く字（Tr 1・5）は線の色。模様（Pattern）で描く字は None。"""
+    if gs.tr in (1, 5):
+        return None if gs.spat else gs.stroke
+    return None if gs.fpat else gs.fill
+
+
 class Interpreter:
     def __init__(self, doc):
         self.doc = doc
@@ -349,6 +362,44 @@ class Interpreter:
         for _st, c in self.out.off:
             self.out.problems += [x for x in c.problems if x not in self.out.problems]
         return self.out
+
+    def _colorspace(self, name, res):
+        """cs・CS の色空間（render/colors.py の CS）。名前でない・読めないときは None（色は、成分の数で決める）。"""
+        if not isinstance(name, Name):
+            return None
+        cache = self.__dict__.setdefault("_spaces", {})
+        key = (id(res), name.name)
+        hit = cache.get(key)
+        if hit is not None and hit[0] is res:
+            return hit[1]
+        from .render.colors import colorspace
+
+        try:
+            space = colorspace(self.doc, name, res)
+        except Exception:  # noqa: BLE001
+            space = None
+        cache[key] = (res, space)
+        return space
+
+    @staticmethod
+    def _color(space, nums) -> tuple:
+        """sc・scn・SC・SCN の色：(色, 模様か)。色空間（cs・CS）を選んであれば、その色空間で読む：Separation・DeviceN は
+        濃さを色の変換の関数で代わりの色空間へ、Indexed は色の表、Lab は XYZ から。選んでいない・成分の数が合わないときは、
+        成分の数で決める（1 灰色・3 RGB・4 CMYK）。模様（Pattern）は 1 つの色として言えない：下の色空間の色（色のない模様の色）が
+        あればその色、なければ黒と置き、模様であることを返す。"""
+        by_count = (_gray(nums[0]) if len(nums) == 1 else tuple(nums[:3]) if len(nums) == 3 else _cmyk(*nums[:4]) if len(nums) == 4
+                    else (0.0, 0.0, 0.0))
+        if space is None:
+            return by_count, False
+        try:
+            if space.kind == "Pattern":
+                under = space.under
+                return (tuple(under.rgb(nums)) if under is not None and nums and len(nums) == under.n else (0.0, 0.0, 0.0)), True
+            if len(nums) == space.n:
+                return tuple(space.rgb(nums)), False
+        except Exception:  # noqa: BLE001
+            pass
+        return by_count, False
 
     def run_stream(self, data: bytes, res: dict, ctm=IDENT) -> PageContent:
         gs = _GS()
@@ -504,7 +555,7 @@ class Interpreter:
                         elif ik is not None:
                             blank = _outside(box, cl, 0.0)
                 g = Glyph(text, min(xs), min(ys), max(xs), max(ys), size, ox, oy, nx - ox, ny - oy,
-                          f.vertical, gs.tr in (3, 7), gs.font, gs.fill, mcid,
+                          f.vertical, gs.tr in (3, 7), gs.font, _text_color(gs), mcid,
                           legacy=legacy_text(f.legacy, text),
                           adv=((fx - ox) ** 2 + (fy - oy) ** 2) ** 0.5,
                           fontbase=f.base, embedded=getattr(f, "embedded", False), mc=mc_, ink=ink)
@@ -786,28 +837,43 @@ class Interpreter:
                     gs.ml = float(stack[-1])
                 elif op in ("g",):
                     gs.fill = _gray(float(stack[-1]))
+                    gs.fcs, gs.fpat = None, False
                 elif op == "G":
                     gs.stroke = _gray(float(stack[-1]))
+                    gs.scs, gs.spat = None, False
                 elif op == "rg":
                     gs.fill = tuple(float(x) for x in stack[-3:])
+                    gs.fcs, gs.fpat = None, False
                 elif op == "RG":
                     gs.stroke = tuple(float(x) for x in stack[-3:])
+                    gs.scs, gs.spat = None, False
                 elif op == "k":
                     gs.fill = _cmyk(*[float(x) for x in stack[-4:]])
+                    gs.fcs, gs.fpat = None, False
                 elif op == "K":
                     gs.stroke = _cmyk(*[float(x) for x in stack[-4:]])
+                    gs.scs, gs.spat = None, False
                 elif op in ("sc", "scn", "SC", "SCN"):
                     nums = [float(x) for x in stack if isinstance(x, (int, float))]
-                    col = _gray(nums[0]) if len(nums) == 1 else tuple(nums[:3]) if len(nums) == 3 else _cmyk(*nums[:4]) if len(nums) == 4 else (0.0, 0.0, 0.0)
+                    col, pat = self._color(gs.fcs if op in ("sc", "scn") else gs.scs, nums)
                     if op in ("sc", "scn"):
-                        gs.fill = col
+                        gs.fill, gs.fpat = col, pat
                     else:
-                        gs.stroke = col
+                        gs.stroke, gs.spat = col, pat
                 elif op in ("cs", "CS"):
+                    space = self._colorspace(stack[-1] if stack else None, res)
+                    col, pat = (0.0, 0.0, 0.0), False
+                    if space is not None:
+                        pat = space.kind == "Pattern"
+                        if not pat:
+                            try:
+                                col = tuple(space.rgb(space.initial()))  # 色空間の初めの色（Separation は濃さ 1、Indexed は 0 番）
+                            except Exception:  # noqa: BLE001
+                                col = (0.0, 0.0, 0.0)
                     if op == "cs":
-                        gs.fill = (0.0, 0.0, 0.0)
+                        gs.fill, gs.fcs, gs.fpat = col, space, pat
                     else:
-                        gs.stroke = (0.0, 0.0, 0.0)
+                        gs.stroke, gs.scs, gs.spat = col, space, pat
                 elif op == "m":
                     x, y = apply(gs.ctm, float(stack[-2]), float(stack[-1]))
                     sub = new_sub(x, y)

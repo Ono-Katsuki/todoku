@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from .. import chars as _chars  # 字の種類（空白・下線の字・ダッシュ・点線・かっこの組・チェックの箱の字）：Unicode の資料の表
 from ..limits import budget
 from .content import PageContent
+from .textcolor import hexcolor
 
 
 # 印のない箱の字（chars.EMPTY_BOXES）：どれも箇条・見出しの印のこともある字で、チェックの印の所にはするが、規則では決めない（？）
@@ -116,6 +117,7 @@ class Ch:
     legacy: bool = False  # Unicode でない符号の書体の字
     seq: int = -1  # 描いた順（ページの描画の命令の中の何番目の字か）
     upward: bool = False  # 下から上へ進む字（左へ90度回した字。余白に回して印刷した字など）。行としては縦で、読む順は下から
+    color: str = "000000"  # 字を描いた色 "RRGGBB"（模様で描いた字は textcolor.PATTERN）：pdf/textcolor.py
 
     @property
     def cx(self) -> float:
@@ -216,7 +218,8 @@ def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges:
             if dropped is not None:
                 dropped.append(("size", g.text))
             continue
-        c = Ch(g.text, x0, y0, x1, y1, max(g.size, 1.0), vertical, base, g.invisible, g.legacy, seq, upward=vertical and uy < 0)
+        c = Ch(g.text, x0, y0, x1, y1, max(g.size, 1.0), vertical, base, g.invisible, g.legacy, seq, upward=vertical and uy < 0,
+               color=hexcolor(g.color))
         # 同じ字を同じ位置に重ねたもの（太字に見せる重ね書き、色の層）は1字にする
         kx, ky = int(ox // cell), int(oy // cell)
         dup = None  # 重ね書きとした前の字
@@ -231,6 +234,8 @@ def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges:
             if dup:
                 break
         if dup is not None:
+            if not c.invisible:
+                dup.color = c.color  # 重ねて描いた字は、後から描いた字（上の字）の色
             if dropped is not None:
                 dropped.append(("dup", g.text))
             if merges is not None:
