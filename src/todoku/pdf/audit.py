@@ -205,7 +205,7 @@ def check_glyphs(doc: PdfDocument, win: dict) -> Check:
     比べる。窓が1字にした字は、理由ごとに数えて差し引く：重ね書き（overprints が、窓と同じ決まりを窓とは別の手順で数え直す。
     整合の検査）と、0.5pt に満たない字・ページの何倍もある字。窓が、数え直した重ね書きより多くの字を「重ね書き」として落としたら、
     読み落とし。数え直せないページがあれば、通ったことにしない（「確かめられない」）。"""
-    from .content import page_content
+    from .content import PageContent, page_content
 
     missing, extra = [], []
     dup_total = 0
@@ -219,7 +219,7 @@ def check_glyphs(doc: PdfDocument, win: dict) -> Check:
             # 画面に見えないレイヤーの字は、窓がレイヤーごとに分けて読む（重ね書きも、その中で 1 字にする）ので、同じ分け方で数え直す
             pc = page_content(doc, page)
             real = Counter()
-            for c in [pc] + [c for _st, c in pc.off]:
+            for c in [pc] + [c for _st, c in pc.off] + ([PageContent(glyphs=pc.clipped)] if pc.clipped else []):
                 real += _count(ch for t, n in overprints(c.glyphs).items() for ch in [t] * n)
         except Exception as e:  # noqa: BLE001  数え直せないものは、窓の数を正しいとしない
             unsure.append(f"ページ {pg['number']}: 重ね書きを数え直せませんでした（{type(e).__name__}: {str(e)[:60]}）")
@@ -414,7 +414,7 @@ def check_circles(doc: PdfDocument) -> Check | None:
     ○の線がほかの字の面にかかっているもの（前の版で書いた○など）は、値は読めるので NG にはせず、位置を添えて
     エージェントが画像で確かめる所として示す。○のない書類は None。"""
     from . import circle
-    from .content import page_content
+    from .content import PageContent, page_content
     from .layout import PageLayout
 
     bad, touching, differ, n_all = [], [], [], 0

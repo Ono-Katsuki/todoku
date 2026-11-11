@@ -530,6 +530,10 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         plain += texts  # 読み落としの検査は、分けて示した字も数える
         off_layers.append({"layer": st_.name, "view": st_.view, "print": st_.print, "how": st_.how(), "lines": texts,
                            "chars": sum(1 for t in texts for ch in t if not ch.isspace()), "images": pics_, "shapes": shapes_})
+    # 切り抜き（クリップ）の外にあって見えない字：読み順・欄には入れず、行ごとに、位置（ページの左上からの mm）と一緒に示す
+    clipped = [{"text": t_, "left_mm": round(ln_.x0 / view.mm, 1), "top_mm": round(ln_.y0 / view.mm, 1)}
+               for ln_ in lay.clipped_lines if (t_ := ln_.text.strip(" \u3000"))]
+    plain += [c_["text"] for c_ in clipped]  # 読み落としの検査は、分けて示した字も数える
     marks, inword = unmapped_places(lay)
     circled = [{"text": ln_.text[a_:b_], "id": ident or None, "context": re.sub(r"[ 　]+", " ", ln_.text).strip()[:60],
                 "rect": [round(v, 1) for v in ln_.span_rect(a_, b_)]} for ln_, a_, b_, ident in getattr(lay, "circled", [])]
@@ -547,6 +551,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             "image_only": chars == 0 and images > 0, **({"blank": True} if chars == 0 and images == 0 else {}), "pictures": pictures, "problems": pc.problems, "annotations": annots,
             "_plain": plain, "_dropped": lay.dropped, "_added": lay.added, "read_flags": lay.flags,
             **({"off_layers": off_layers} if off_layers else {}),
+            **({"clipped": clipped} if clipped else {}),
             # 窓の作り方で1つにした字：同じ位置に重ねて描いた同じ字（太字に見せる重ね書き）・縦に1字ずつ積んだ字の列
             "merged_glyphs": sum(1 for k, _t in lay.dropped if k == "dup"),
             "unseen_glyphs": sum(1 for k, _t in lay.dropped if k == "size"),  # 0.5pt に満たない字・ページの何倍もある字
@@ -1537,10 +1542,12 @@ def _md_page(pg: dict) -> list[str]:
         out += ["- **このページは画像だけです**（文字の情報がありません）。view_page でページの画像を見て読み、"
                 "書く所は画像の目盛り（mm）で枠を決めて、fill_document に {\"@1\": {\"page\": ページ, \"box\": [左, 上, 右, 下], "
                 "\"value\": 書く字}} で書きます"
-                + ("（既定では表示されないレイヤーの字は、下の節にあります）" if pg.get("off_layers") else ""), ""]
+                + ("（既定では表示されないレイヤーの字は、下の節にあります）" if pg.get("off_layers") else "")
+                + ("（切り抜きで見えない字は、下の節にあります）" if pg.get("clipped") else ""), ""]
     if pg.get("blank"):
         out += ["- このページには字も画像もありません（白紙か、線だけのページ）"
-                + ("。既定では表示されないレイヤーの内容は、下の節にあります" if pg.get("off_layers") else ""), ""]
+                + ("。既定では表示されないレイヤーの内容は、下の節にあります" if pg.get("off_layers") else "")
+                + ("。切り抜きで見えない字は、下の節にあります" if pg.get("clipped") else ""), ""]
     if pg.get("unmapped"):
         out += [f"- 文字に直せない字が {pg['unmapped']} 字あります（�で示しています）", ""]
         marks = pg.get("unmapped_marks") or []
@@ -1594,6 +1601,14 @@ def _md_page(pg: dict) -> list[str]:
             out.append(f"- レイヤー「{_md(o['layer'])}」（{o['how']}。字 {o['chars']} 字・画像 {o['images']} 個"
                        + ("・線や図形あり" if o.get("shapes") else "") + "）")
             out += [f"  - {_md(t)}" for t in o["lines"]]
+        out.append("")
+    hid = pg.get("clipped") or []
+    if hid:
+        n_ = sum(1 for c in hid for ch in c["text"] if not ch.isspace())
+        out += [f"### 切り抜きで見えない字（{n_} 字）", "",
+                "（ページに描かれているが、切り抜き（クリップ）の外にあって、画面にも印刷にも出ない字。上の読み順・入力欄には"
+                "入っていない。view_page の画像にも出ない。行ごとに上から、行の左上の位置（ページの左上からの mm）と一緒に）", ""]
+        out += [f"- （左 {c['left_mm']}・上 {c['top_mm']} mm）{_md(c['text'])}" for c in hid]
         out.append("")
     pics = [p for p in pg.get("pictures", []) if not p["decorative"]]
     if pics:

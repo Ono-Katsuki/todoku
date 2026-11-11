@@ -459,6 +459,9 @@ class PageLayout:
             lines = make_lines(view_chars(c, self.view, self.dropped))
             lines.sort(key=lambda ln: (ln.y0, ln.x0))
             self.off_layers.append((st, lines, len(c.pictures), bool(c.segs or c.boxes or c.curves)))
+        # 切り抜き（クリップ）の外にあって、画面にも印刷にも出ない字：読み順・欄には入れず、行にして、位置と一緒に分けて伝える
+        self.clipped_lines = make_lines(view_chars(PageContent(glyphs=list(pc.clipped)), self.view, self.dropped)) if pc.clipped else []
+        self.clipped_lines.sort(key=lambda ln: (ln.y0, ln.x0))
         self.flags: list[dict] = []  # 読む段階に関わる注意：{grade, title, detail, where}
         self._read_flags()
 

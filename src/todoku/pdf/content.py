@@ -132,6 +132,11 @@ class PageContent:
     off: list[tuple] = field(default_factory=list)
     # 画面には見えるが、既定の設定では印刷に出ないレイヤーの字：[(レイヤーの見え方, 字)]。字は、ふつうの内容にも入っている
     screen_only: list[tuple] = field(default_factory=list)
+    # 描かれているが、切り抜き（クリップ）の外にあって、画面にも印刷にも出ない字。ふつうの内容（glyphs）には入れない
+    clipped: list[Glyph] = field(default_factory=list)
+    # 同じく、切り抜きの外にあって見えない線・図形（道の部分の数）と画像の数。罫線・マス・画像の一覧には入れない
+    clipped_shapes: int = 0
+    clipped_pictures: int = 0
 
 
 # ---------------------------------------------------------------------- 字句
@@ -220,7 +225,7 @@ def tokens(data: bytes):
 
 # ---------------------------------------------------------------------- 状態
 class _GS:
-    __slots__ = ("ctm", "lw", "fill", "stroke", "font", "fs", "tc", "tw", "th", "tl", "tr", "rise", "fontobj")
+    __slots__ = ("ctm", "lw", "fill", "stroke", "font", "fs", "tc", "tw", "th", "tl", "tr", "rise", "fontobj", "clip", "ml")
 
     def __init__(self):
         self.ctm = IDENT
@@ -236,12 +241,70 @@ class _GS:
         self.tl = 0.0
         self.tr = 0
         self.rise = 0.0
+        # 切り抜き（W・W*・部品の BBox）の道の外枠：(x0, y0, x1, y1)。切り抜きがなければ None。
+        # 外枠は切り抜きの形を含むので、外枠の外にある字は、確かに見えない（外枠の中の字が見えるとは決めない）
+        self.clip = None
+        self.ml = 10.0  # 線の角のとがりの上限（M）：線の墨が、道からどこまで出うるか
 
     def copy(self):
         g = _GS.__new__(_GS)
         for k in _GS.__slots__:
             setattr(g, k, getattr(self, k))
         return g
+
+
+_NO_AREA = (float("inf"), float("inf"), float("-inf"), float("-inf"))  # 何も通さない切り抜き
+
+
+def _clip_and(cur, pts):
+    """今の切り抜きの外枠と、道（その点の全部。曲線は制御点も：曲線は制御点の外枠から出ない）の外枠の重なり。"""
+    x0, y0 = min(p[0] for p in pts), min(p[1] for p in pts)
+    x1, y1 = max(p[0] for p in pts), max(p[1] for p in pts)
+    if cur is not None:
+        x0, y0, x1, y1 = max(x0, cur[0]), max(y0, cur[1]), min(x1, cur[2]), min(y1, cur[3])
+    return (x0, y0, x1, y1) if x0 < x1 and y0 < y1 else _NO_AREA
+
+
+def _cut_seg(ax, ay, bx, by, cl, half: float):
+    """太さの半分が half の直線のうち、切り抜きの外枠 cl の中に墨がありうる部分（Liang–Barsky）。なければ None。
+    線の向きには外枠のとおりに切り、線に直角な向きには太さの半分だけ外枠を広げる（外枠のすぐ外を通る線も、墨の半分は中に入る）。"""
+    t0, t1 = 0.0, 1.0
+    dx, dy = bx - ax, by - ay
+    hx, hy = (0.0 if dy == 0 and dx != 0 else half), (0.0 if dx == 0 and dy != 0 else half)
+    box = (cl[0] - hx, cl[1] - hy, cl[2] + hx, cl[3] + hy)
+    for p_, q_ in ((-dx, ax - box[0]), (dx, box[2] - ax), (-dy, ay - box[1]), (dy, box[3] - ay)):
+        if p_ == 0:
+            if q_ < 0:
+                return None
+            continue
+        r = q_ / p_
+        if p_ < 0:
+            t0 = max(t0, r)
+        else:
+            t1 = min(t1, r)
+        if t0 > t1:
+            return None
+    if t0 == 0.0 and t1 == 1.0:
+        return (ax, ay, bx, by)
+    if t1 <= t0:
+        return None  # 角に触れるだけ
+    return (ax + t0 * dx, ay + t0 * dy, ax + t1 * dx, ay + t1 * dy)
+
+
+def _open_at_page(cl, page):
+    """線・塗りを切るための外枠：ページの枠の辺か、その外にある辺では切らない
+    （ページの外へ出る線・塗りは、切り抜きがないときと同じに、出たままの形として扱う：ページの端で終わるマスの辺を失わない）。"""
+    if cl is None or page is None:
+        return cl
+    inf = float("inf")
+    r = (cl[0] if cl[0] > page[0] else -inf, cl[1] if cl[1] > page[1] else -inf,
+         cl[2] if cl[2] < page[2] else inf, cl[3] if cl[3] < page[3] else inf)
+    return None if r == (-inf, -inf, inf, inf) else r
+
+
+def _outside(b, cl, m: float) -> bool:
+    """四角 b が、余裕 m を置いても、切り抜きの外枠 cl の外にあるか。"""
+    return b[2] + m <= cl[0] or b[0] - m >= cl[2] or b[3] + m <= cl[1] or b[1] - m >= cl[3]
 
 
 def _gray(v):
@@ -265,6 +328,8 @@ class Interpreter:
         # 字形の輪郭の四角を返す関数（placement が渡す）：(資源, 書体の名前, 書体, 符号, 字) → 字の原点からの (x0, y0, x1, y1)
         # （字の大きさを 1 とした長さ）。墨のない字は ()、分からなければ None
         self.ink_of = None
+        self._clip_ink_fn = None
+        self._page = None  # ページの枠（内容の座標）
 
     def run_page(self, page: dict) -> PageContent:
         res = self.doc.resolve(page.get("Resources")) or {}
@@ -272,7 +337,13 @@ class Interpreter:
         from .pagedraw import verified_refs
 
         self.written_forms = verified_refs(self.doc, page)  # とどくが書いた値（欄の値として読む）：印刷された字として読まない
-        self._run(data, res, _GS(), depth=0, owner="page")
+        from .pagetext import View
+
+        gs = _GS()
+        v = View(self.doc, page)
+        gs.clip = (v.x0, v.y0, v.x1, v.y1)  # 見えるのは、ページの枠（CropBox を MediaBox に切り詰めたもの）の中だけ
+        self._page = gs.clip
+        self._run(data, res, gs, depth=0, owner="page")
         self.out.unmapped = sum(f.unmapped for f in self._fonts_used.values()) if hasattr(self, "_fonts_used") else 0
         for _st, c in self.out.off:
             self.out.problems += [x for x in c.problems if x not in self.out.problems]
@@ -283,6 +354,14 @@ class Interpreter:
         gs.ctm = ctm
         self._run(data, res or {}, gs, depth=0)
         return self.out
+
+    def _clip_ink(self, res, name, pf, code, text):
+        """切り抜きの外枠にかかる字の、字形の輪郭の四角（字の座標）。分からなければ None（見える字のままにする）。"""
+        if self._clip_ink_fn is None:
+            from .placement import outline_ink
+
+            self._clip_ink_fn = outline_ink(self.doc)
+        return self._clip_ink_fn(res, name, pf, code, text)
 
     # ------------------------------------------------------------------ レイヤー（optional content）
     def _layer_begin(self, oc):
@@ -341,6 +420,7 @@ class Interpreter:
         tm = IDENT
         tlm = IDENT
         in_text = False
+        side: list = [None]  # いまの文字の組（BT〜ET）で、すぐ前の字が見えない字か（None はまだ字がない）。後ろは、待たせている空白
         mc_stack: list = []  # (mcid, actual_text, 先頭のglyphの位置)
         arr_stack: list = []
         dict_stack: list = []
@@ -400,11 +480,49 @@ class Interpreter:
                 ys = [c[1] for c in corners]
                 a, b, c, d = trm[0], trm[1], trm[2], trm[3]
                 size = (abs(a * d - b * c)) ** 0.5 if (a or b or c or d) else 0.0
-                out.glyphs.append(Glyph(text, min(xs), min(ys), max(xs), max(ys), size, ox, oy, nx - ox, ny - oy,
-                                        f.vertical, gs.tr in (3, 7), gs.font, gs.fill, mcid,
-                                        legacy=legacy_text(f.legacy, text),
-                                        adv=((fx - ox) ** 2 + (fy - oy) ** 2) ** 0.5,
-                                        fontbase=f.base, embedded=getattr(f, "embedded", False), mc=mc_, ink=ink))
+                cl = gs.clip
+                # 字の四角（送りの幅 × 書体の高さ）は墨の見積もり：字の大きさの半分の余裕を置いても外枠の外にある字だけを、見えない字にする
+                hidden = False
+                blank = False  # 外枠のすぐ外の、墨のない字（空白）：切り抜かれる墨がないので、同じ文字の組（BT〜ET）の字に合わせる
+                if cl is not None and not (cl[0] <= min(xs) and max(xs) <= cl[2] and cl[1] <= min(ys) and max(ys) <= cl[3]):
+                    # 字の四角（送りの幅 × 書体の高さ）は墨の見積もり：字の大きさの半分の余裕を置いても外枠の外にある字は、見えない。
+                    # 外枠にかかる字・すぐ外の字は、字形の輪郭の四角（埋め込んだ書体）が外枠の外にあるときだけ、見えない字にする
+                    box = (min(xs), min(ys), max(xs), max(ys))
+                    hidden = _outside(box, cl, size / 2)
+                    if not hidden:
+                        emb = getattr(f, "embedded", False)  # 埋め込んでいない書体の字形は、見る道具が決める：分からない
+                        ik = ink if emb else None
+                        if ink_of is None and emb:
+                            ik = self._clip_ink(res, gs.font, f, code, text)
+                            if ik:
+                                gm = mul((1, 0, 0, 1, -vpos[0], -vpos[1]), trm) if f.vertical else trm
+                                ps = [apply(gm, x, y) for x in (ik[0], ik[2]) for y in (ik[1], ik[3])]
+                                ik = ((min(p[0] for p in ps), min(p[1] for p in ps), max(p[0] for p in ps), max(p[1] for p in ps)),)
+                        if ik:
+                            hidden = all(_outside(b, cl, 0.0) for b in ik)
+                        elif ik is not None:
+                            blank = _outside(box, cl, 0.0)
+                g = Glyph(text, min(xs), min(ys), max(xs), max(ys), size, ox, oy, nx - ox, ny - oy,
+                          f.vertical, gs.tr in (3, 7), gs.font, gs.fill, mcid,
+                          legacy=legacy_text(f.legacy, text),
+                          adv=((fx - ox) ** 2 + (fy - oy) ** 2) ** 0.5,
+                          fontbase=f.base, embedded=getattr(f, "embedded", False), mc=mc_, ink=ink)
+                if blank:
+                    # すぐ前の字と同じ側。前に字がなければ、見える側に置いておき、次の字が見えない字なら、そちらへ移す。
+                    # 空白だけの組は、見える側のまま（前と同じ）
+                    hidden = bool(side[0])
+                    if side[0] is None:
+                        side.append((out.glyphs, g))
+                else:
+                    if hidden and side[0] is None:
+                        for lst, sp in side[1:]:
+                            for i in range(len(lst) - 1, -1, -1):
+                                if lst[i] is sp:
+                                    del lst[i]
+                                    self._main.clipped.append(sp)
+                                    break
+                    side[:] = [hidden]
+                (self._main.clipped if hidden else out.glyphs).append(g)
 
         def adjust(v):
             nonlocal tm
@@ -421,8 +539,19 @@ class Interpreter:
                 return
             ctm_scale = (abs(gs.ctm[0] * gs.ctm[3] - gs.ctm[1] * gs.ctm[2])) ** 0.5
             lw = gs.lw * ctm_scale if gs.lw > 0 else ctm_scale * 0.1
+            cl = _open_at_page(gs.clip, self._page)
+            # 線の墨は、道から、太さの半分 × 角のとがりの上限（四角い端では √2）まで出うる
+            reach = lw / 2 * max(gs.ml, 1.5) if stroke else 0.0
             for sub in path:
                 pts = sub["pts"]
+                cut = False  # 外枠の外に出ている道：見えうるのは、外枠の中の部分だけ
+                if cl is not None:
+                    bb = (min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts))
+                    if _outside(bb, cl, reach):
+                        out.clipped_shapes += 1  # 切り抜きの外にあって見えない線・図形：罫線・マスにしない
+                        continue
+                    if bb[0] < cl[0] or bb[1] < cl[1] or bb[2] > cl[2] or bb[3] > cl[3]:
+                        cut = True
                 if sub.get("curve"):
                     xs = [p[0] for p in pts]
                     ys = [p[1] for p in pts]
@@ -447,6 +576,29 @@ class Interpreter:
                     if not lines:
                         continue
                 rect = _as_rect(pts, sub.get("closed"))
+                if fill and rect is not None and cut:
+                    # 塗りの四角は、外枠の中の部分だけにする。縁の線は、辺ごとに切る
+                    x0, y0, x1, y1 = max(rect[0], cl[0]), max(rect[1], cl[1]), min(rect[2], cl[2]), min(rect[3], cl[3])
+                    if stroke:
+                        edges = PageContent()
+                        _rect_edges(edges, rect, lw, gs.stroke)
+                        for e in edges.segs:
+                            c = _cut_seg(e.x0, e.y0, e.x1, e.y1, cl, lw / 2)
+                            if c is not None:
+                                out.segs.append(Seg(*c, lw, False, gs.stroke))
+                    if x0 >= x1 or y0 >= y1:
+                        continue
+                    if max(x1 - x0, y1 - y0) <= 2.5:
+                        out.segs.append(Seg(x0, (y0 + y1) / 2, x1, (y0 + y1) / 2, y1 - y0, True, gs.fill))
+                        out.segs.append(Seg((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1 - x0, True, gs.fill))
+                    elif min(x1 - x0, y1 - y0) <= 2.5:
+                        if x1 - x0 >= y1 - y0:
+                            out.segs.append(Seg(x0, (y0 + y1) / 2, x1, (y0 + y1) / 2, y1 - y0, True, gs.fill))
+                        else:
+                            out.segs.append(Seg((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1 - x0, True, gs.fill))
+                    else:
+                        out.boxes.append(Box(x0, y0, x1, y1, gs.fill, False))
+                    continue
                 if fill and rect is not None:
                     x0, y0, x1, y1 = rect
                     if max(x1 - x0, y1 - y0) <= 2.5:
@@ -466,15 +618,17 @@ class Interpreter:
                         _rect_edges(out, rect, lw, gs.stroke)
                     continue
                 if stroke:
-                    segs = sub.get("lines") or []
-                    for (ax, ay, bx, by) in segs:
-                        out.segs.append(Seg(ax, ay, bx, by, lw, False, gs.stroke))
-                    if sub.get("closed") and len(pts) >= 2:
-                        ax, ay = pts[-1]
-                        bx, by = pts[0]
-                        if (ax, ay) != (bx, by):
-                            out.segs.append(Seg(ax, ay, bx, by, lw, False, gs.stroke))
-                    if rect is not None and not fill:
+                    segs = list(sub.get("lines") or [])
+                    if sub.get("closed") and len(pts) >= 2 and pts[-1] != pts[0]:
+                        segs.append((*pts[-1], *pts[0]))
+                    for sg in segs:
+                        if cut:
+                            sg = _cut_seg(*sg, cl, lw / 2)
+                            if sg is None:
+                                out.clipped_shapes += 1
+                                continue
+                        out.segs.append(Seg(*sg, lw, False, gs.stroke))
+                    if rect is not None and not fill and not cut:
                         out.boxes.append(Box(*rect, None, True))
                 elif fill and len(pts) >= 3:
                     xs = [p[0] for p in pts]
@@ -488,12 +642,22 @@ class Interpreter:
                            next((m.alt for m in reversed(chain) if m.alt), None), any(m.artifact for m in chain), inner,
                            own_parent if own_parent is not None else objparent)
 
+        def end_path():
+            nonlocal clip_next
+            if clip_next:
+                pts = [p for sp in path for p in sp["pts"]]
+                if pts:  # 点のない道の切り抜きは、決めない（切り抜きを変えない）
+                    gs.clip = _clip_and(gs.clip, pts)
+                clip_next = False
+            path.clear()
+
         def new_sub(x, y):
             sub = {"pts": [(x, y)], "lines": [], "closed": False}
             path.append(sub)
             return sub
 
         sub = None
+        clip_next = False
         inline_img = None
         for kind, val in tokens(data):
             # 1 ページ（とその部品）の字句の数の上限：部品が部品を何度も描いて、読み終わらない PDF を止める
@@ -588,8 +752,10 @@ class Interpreter:
                 elif op == "BT":
                     tm = tlm = IDENT
                     in_text = True
+                    side[:] = [None]
                 elif op == "ET":
                     in_text = False
+                    side[:] = [None]
                 elif op == "q":
                     gstack.append(gs.copy())
                 elif op == "Q":
@@ -600,6 +766,8 @@ class Interpreter:
                     gs.ctm = mul(m, gs.ctm)
                 elif op == "w":
                     gs.lw = float(stack[-1])
+                elif op == "M":
+                    gs.ml = float(stack[-1])
                 elif op in ("g",):
                     gs.fill = _gray(float(stack[-1]))
                 elif op == "G":
@@ -673,24 +841,26 @@ class Interpreter:
                     sub = None
                     cur = p0
                     start = p0
+                elif op in ("W", "W*"):
+                    clip_next = True  # 切り抜きは、次に道を描く（か捨てる）命令のあとで効く
                 elif op in ("S", "s"):
                     if op == "s" and sub is not None:
                         sub["closed"] = True
                     flush_path(True, False)
-                    path.clear()
+                    end_path()
                     sub = None
                 elif op in ("f", "F", "f*"):
                     flush_path(False, True)
-                    path.clear()
+                    end_path()
                     sub = None
                 elif op in ("B", "B*", "b", "b*"):
                     if op.startswith("b") and sub is not None:
                         sub["closed"] = True
                     flush_path(True, True)
-                    path.clear()
+                    end_path()
                     sub = None
                 elif op == "n":
-                    path.clear()
+                    end_path()
                     sub = None
                 elif op == "Do":
                     name = stack[-1].name if stack and isinstance(stack[-1], Name) else ""
@@ -712,6 +882,11 @@ class Interpreter:
                                 sub_res = doc.resolve(xo.dict.get("Resources")) or res
                                 g2 = gs.copy()
                                 g2.ctm = mul(m, gs.ctm)
+                                bb = doc.resolve(xo.dict.get("BBox"))
+                                if isinstance(bb, list) and len(bb) == 4:  # 部品の内容は、BBox で切り抜かれる（8.10.2）
+                                    bx0, by0, bx1, by1 = (float(doc.resolve(v)) for v in bb)
+                                    g2.clip = _clip_and(gs.clip, [apply(g2.ctm, bx0, by0), apply(g2.ctm, bx1, by0),
+                                                                  apply(g2.ctm, bx0, by1), apply(g2.ctm, bx1, by1)])
                                 sps = doc.resolve(xo.dict.get("StructParents"))
                                 sp = doc.resolve(xo.dict.get("StructParent"))
                                 drawing.add(key)
@@ -731,7 +906,9 @@ class Interpreter:
                                 sp = doc.resolve(xo.dict.get("StructParent"))
                                 pic = picture(pts, name, sp if isinstance(sp, int) else None)
                                 pic.ctm, pic.image = gs.ctm, xo
-                                if not self._thin_image(pic, xo.dict, None, gs, xo):
+                                if gs.clip is not None and _outside((pic.x0, pic.y0, pic.x1, pic.y1), gs.clip, 0.0):
+                                    out.clipped_pictures += 1  # 切り抜きの外にあって見えない画像
+                                elif not self._thin_image(pic, xo.dict, None, gs, xo):
                                     out.pictures.append(pic)
                         finally:
                             if began is not None:
@@ -741,7 +918,9 @@ class Interpreter:
                     pts = [apply(gs.ctm, 0, 0), apply(gs.ctm, 1, 0), apply(gs.ctm, 0, 1), apply(gs.ctm, 1, 1)]
                     pic = picture(pts, "inline")
                     pic.ctm, pic.image = gs.ctm, inline_img
-                    if not self._thin_image(pic, inline_img[0] if inline_img else {}, inline_img[1] if inline_img else b"", gs):
+                    if gs.clip is not None and _outside((pic.x0, pic.y0, pic.x1, pic.y1), gs.clip, 0.0):
+                        out.clipped_pictures += 1
+                    elif not self._thin_image(pic, inline_img[0] if inline_img else {}, inline_img[1] if inline_img else b"", gs):
                         out.pictures.append(pic)
                     inline_img = None
                 elif op == "gs":
@@ -937,5 +1116,6 @@ def page_content(doc, page: dict) -> PageContent:
     pc = it.run_page(page)
     fonts = getattr(it, "_fonts_used", {})
     pc.unmapped = sum(1 for c in [pc] + [c for _st, c in pc.off] for g in c.glyphs if g.text == UNKNOWN)
+    pc.unmapped += sum(1 for g in pc.clipped if g.text == UNKNOWN)
     del fonts
     return pc
