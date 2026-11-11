@@ -112,16 +112,25 @@ def test_wrapping_only_in_a_tall_area_and_says_so():
 
 
 def test_written_values_whose_ink_overlaps_are_refused():
-    # 行の所の字と、0.8 字ぶんだけ下にずれた枠の字：字の面が重なる（下線に触れたとしない低い四角では見のがす）
+    # 行の所の字と、下にずれた枠の字：字形の輪郭の四角で比べる（下線に触れたとしない低い四角では見のがす）
     blob = glyphs_pdf(_row("氏名", 70, 650), extra=_rect(60, 600, 500, 680))
     trail = next(f for f in _fields(blob).values() if f.get("shape") == "trail")
     mm = 72 / 25.4
     x0, x1 = 120 / mm, 300 / mm
     base_y = (842 - 650) / mm  # 行の基線（mm）
-    # 枠の高さと字の大きさ：枠の中ほどに字を置く。字の大きさ 10.5pt（3.7 mm）の字の基線が、行の基線の 0.8 字ぶん下に来る枠
-    box = [x0, base_y + 0.8 * 12 / mm - 3.7, x1, base_y + 0.8 * 12 / mm + 1.0]
-    with pytest.raises(FillError, match="重なります"):
-        fill(PdfDocument(blob, "t.pdf"), {trail["id"]: "山田太郎山田太郎", "@1": {"page": 1, "box": box, "value": "山田太郎山田太郎"}})
+
+    def both(k: float):
+        # 枠の高さと字の大きさ：枠の中ほどに字を置く。字の大きさ 10.5pt（3.7 mm）の字の基線が、行の基線の k 字ぶん下に来る枠
+        box = [x0, base_y + k * 12 / mm - 3.7, x1, base_y + k * 12 / mm + 1.0]
+        return fill(PdfDocument(blob, "t.pdf"), {trail["id"]: "山田太郎山田太郎",
+                                                 "@1": {"page": 1, "box": box, "value": "山田太郎山田太郎"}})
+
+    # 0.5 字ぶん下：字がはっきり重なる
+    with pytest.raises(FillError, match="同じ書き込みで書いたものどうしが重なります"):
+        both(0.5)
+    # 0.8 字ぶん下：下の行の字の上の端が、上の行の字の下の端に少しかかる。断らずに、位置を添えて知らせる
+    res = both(0.8)
+    assert any("同じ書き込みで書いたものどうしが少しかかる見込み" in w and "mm" in w for w in res.warnings), res.warnings
     # 1 行ぶん離れていれば書ける
     far = [x0, base_y + 2.0, x1, base_y + 7.0]
     fill(PdfDocument(blob, "t.pdf"), {trail["id"]: "山田太郎", "@1": {"page": 1, "box": far, "value": "山田太郎"}})

@@ -346,6 +346,21 @@ def layout_text(text: str, w: float, h: float, size: float, center: bool = False
     raise FillError(f"「{text}」は、欄（幅 {w * unit:.0f}pt・高さ {h * unit:.0f}pt）に入りきりません")
 
 
+def _ink_inside(lines: list[str], s: float, y: float, leading: float, vh: float) -> tuple[float, bool]:
+    """1 行目の基線の高さ y で描いた字の墨（埋め込む書体の字形の輪郭）が、枠（高さ vh）の上下を出ない y と、墨が枠に入るか。
+    出ていなければ y のまま。墨の高さが枠より高いときは、上下に同じだけ出る y と False。"""
+    ext = [(i, e) for i, e in enumerate(map(glyphs.ink_extent, lines)) if e]
+    if not ext:
+        return y, True
+    top = max(e[0] * s - i * leading for i, e in ext)
+    bottom = min(e[1] * s - i * leading for i, e in ext)
+    if y + top <= vh + 0.01 and y + bottom >= -0.01:
+        return y, True
+    if top - bottom > vh:
+        return (vh - top - bottom) / 2, False
+    return min(max(y, -bottom), vh - top), True
+
+
 # ====================================================================== 見た目のストリーム
 def _ap(update: Update, w: float, h: float, ops: bytes, fonts: set[str], dr_fonts, matrix=None) -> Ref:
     """見た目のフォーム。w・h は BBox の大きさ（描く向きの座標：回した欄は、欄の Rect の幅と高さを入れ替えたもの）。
@@ -427,6 +442,11 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
         if len(chars) > len(comb):
             raise FillError(f"「{value}」は {len(chars)} 字です（この欄は {len(comb)} 字まで）")
         s = min(size, min(b[3] - b[1] for b in comb) * 0.7)
+        # 字の送り幅がマスの幅より広いと、字がとなりのマスと仕切りにかかり、終わりのマスでは欄を出て欠ける：
+        # いちばん広い字がマスの幅に入る大きさまで小さくする（紙の上の 4pt より小さくはしない）
+        tight = max((text_width(ch, 1.0) / (b[2] - b[0]) for ch, b in zip(chars, comb) if b[2] > b[0]), default=0.0)
+        if tight * s > 1.0:
+            s = min(s, max(1.0 / tight, 4.0 / unit))
         ops = bytearray(frame + b"/Tx BMC\nq\n")
         x_origin = comb[0][0]
         y_top = min(b[1] for b in comb)
@@ -441,13 +461,20 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
     given = pad is not None
     pad = min(1.5, 0.1 * vw) if pad is None else min(pad, 0.45 * vw)
     # 余白を決めたとき（pad_mm）：その余白の内側に収める（入らなければ小さくするか、断る）。枠の端を字が越えないように
-    lines, s = layout_text(str(value), vw - 2 * pad if given else vw, vh, size, center, multiline, unit)
-    leading = s * 1.15
-    block = leading * (len(lines) - 1) + s
-    y = baseline if baseline is not None else (vh + block) / 2 - s * 0.8
-    if baseline is not None:
-        # 行の基線にそろえても、字が枠（BBox：描く所の切り抜き）を出ない高さに収める（字の箱は基線の下に 0.12、上に 0.88 字ぶん）
-        y = max(min(y, vh - s * 0.88), s * 0.12 + leading * (len(lines) - 1))
+    while True:
+        lines, s = layout_text(str(value), vw - 2 * pad if given else vw, vh, size, center, multiline, unit)
+        leading = s * 1.15
+        block = leading * (len(lines) - 1) + s
+        y = baseline if baseline is not None else (vh + block) / 2 - s * 0.8
+        if baseline is not None:
+            # 行の基線にそろえても、字が枠（BBox：描く所の切り抜き）を出ない高さに収める（字の箱は基線の下に 0.12、上に 0.88 字ぶん）
+            y = max(min(y, vh - s * 0.88), s * 0.12 + leading * (len(lines) - 1))
+        # 字形の輪郭が、字の箱より上・下に出る字（記号を重ねた字・基線より下に下がる字）：枠を出て欠けるなら、枠に入る高さに寄せる。
+        # 墨の高さが枠より高ければ、字を小さくする（いちばん小さい字でも入らなければ、上下に同じだけ出す）
+        y, fits = _ink_inside(lines, s, y, leading, vh)
+        if fits or s - 0.5 < 4.0 / unit - 1e-9:
+            break
+        size = s - 0.5
     align = "center" if center else align
     aw = vw - 2 * pad
     ops = frame + bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, aw if align in ("center", "right") else None,

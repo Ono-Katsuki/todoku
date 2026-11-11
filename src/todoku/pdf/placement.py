@@ -3,9 +3,11 @@
 証明（proof.py）と読み戻しは、書いた値と見た目の字が正しいかを確かめるが、どこに描かれたか（印刷された字・罫線・同じ書き込みで
 書いたほかの値に重なっていないか）は見ない。ここでは、書いた後の文書から形を取り出して、重なりを確かめる：
 
-- 書いた字の形：欄の見た目（/AP）を、仕様どおりの行列（ISO 32000-1 12.5.5 Algorithm 8.1）で置いた、字ごとの墨の四角
-  （字の原点から送りの向きに送りの幅、基線から上に字の大きさの 0.7 倍。字の下がり（ディセンダー）は入れない：下線の上に
-  書く字が、下線に触れたとしないため）。字の送りの幅の両端は、字の大きさの 0.06 倍だけ内側
+- 書いた字の形：欄の見た目（/AP）を、仕様どおりの行列（ISO 32000-1 12.5.5 Algorithm 8.1）で置いた、字ごとの墨の四角。
+  書いたファイルに埋め込んだ書体の字は、その字形の輪郭の四角（outline_ink：基線より下に下がる字・上に重ねた記号も、ある
+  とおりに。空白には墨がない）。埋め込んでいない書体の字（見る道具が自分の書体で描く：字形はファイルにない）は、字の大きさ
+  からの見積もり（ink_box：字の原点から送りの向きに送りの幅、基線から上に字の大きさの 0.7 倍。両端は 0.06 倍だけ内側。
+  書いたものどうしは written_ink）
 - ○の形：楕円（中心と半径）か四角の囲み線（circle.resolve の決めたもの）と、その線の太さ
 
 断るのは、はっきり重なるときだけ（いまのエージェントは書く所を正しく決め、書いた後のページを view_page で見て確かめるので、
@@ -108,14 +110,67 @@ def appearance_glyphs(doc, ad: dict) -> list:
     sx, sy = (rx1 - rx0) / (bx1 - bx0), (ry1 - ry0) / (by1 - by0)
     fit = (sx, 0, 0, sy, rx0 - bx0 * sx, ry0 - by0 * sy)
     try:
-        pc = Interpreter(doc).run_stream(doc.decode(n), doc.resolve(n.dict.get("Resources")) or {}, mul(m, fit))
+        it = Interpreter(doc)
+        it.ink_of = outline_ink(doc)
+        pc = it.run_stream(doc.decode(n), doc.resolve(n.dict.get("Resources")) or {}, mul(m, fit))
     except Exception:  # noqa: BLE001  読めない見た目は、形を確かめられない（証明が別に確かめる）
         return []
     return [g for g in pc.glyphs if not g.invisible and g.text.strip()]
 
 
+def outline_ink(doc):
+    """字形の輪郭の四角を返す関数（content.Interpreter.ink_of に渡す）：ファイルに埋め込んだ書体の、その字の輪郭から。
+    埋め込んでいない Helvetica（標準の 14 書体）の字は、Adobe の AFM の四角から（見る道具は自分の書体で描く：それに近い値）。
+    ほかの埋め込んでいない書体・Type 3・輪郭を読めない字は None（字の大きさからの見積もりで比べる）。"""
+    from . import glyphs as _glyphs
+    from .fonts import load_font
+    from .render.canvas import flatten
+    from .render.fontmap import glyphs_for
+
+    known: dict = {}
+
+    def ink_of(res, name, pf, code, text):
+        k = (id(pf), code)
+        if k in known:
+            return known[k]
+        box = None
+        try:
+            fonts = doc.resolve(res.get("Font")) or {}
+            ref = fonts.get(name) if isinstance(fonts, dict) else None
+            fd = doc.resolve(ref) if ref is not None else None
+            # ExtGState で選んだ書体は、資源の名前から引けない：同じ書体と確かめられたときだけ
+            if isinstance(fd, dict) and load_font(doc, ref, name) is pf:
+                gl = glyphs_for(doc, fd, pf)
+                r = gl.lookup(code, text) if gl.kind == "embedded" else None
+                if gl.kind == "system" and getattr(doc.resolve(fd.get("BaseFont")), "name", "") == "Helvetica":
+                    box = _glyphs.helv_box(text) if len(text) == 1 else None
+                elif r is not None and r[0] != "type3":
+                    _key, ops, gm = r
+                    # 曲線を分ける細かさは写した先の長さで決まる：字の大きさを 1000 として分ける
+                    big = tuple(v * 1000 for v in gm)
+                    pts = [q for poly, _c in flatten(ops or [], big) for q in poly]
+                    box = (min(q[0] for q in pts) / 1000, min(q[1] for q in pts) / 1000,
+                           max(q[0] for q in pts) / 1000, max(q[1] for q in pts) / 1000) if pts else ()
+        except Exception:  # noqa: BLE001  読めない書体は、見積もりで比べる
+            box = None
+        if len(known) < 50000:
+            known[k] = box
+        return box
+
+    return ink_of
+
+
+def _boxes(g, view: View, estimate) -> list[tuple[float, float, float, float]]:
+    """字の墨の四角の並び（見た目の座標）：字形の輪郭が分かる字は、輪郭の四角（墨のない字は空。まとめた字は、字形ごとに 1 つ）。
+    分からない字は、字の大きさからの見積もり（estimate：ink_box か written_ink）。"""
+    if g.ink is None:
+        b = estimate(g, view)
+        return [b] if b else []
+    return [view.rect(*b) for b in g.ink]
+
+
 def ink_box(g, view: View, up_ratio: float = INK_UP, down_ratio: float = 0.0) -> tuple[float, float, float, float] | None:
-    """字の墨の四角（見た目の座標）：基線から上に up_ratio 字ぶん、下に down_ratio 字ぶん。"""
+    """字形の輪郭が分からない字の、墨の四角の見積もり（見た目の座標）：基線から上に up_ratio 字ぶん、下に down_ratio 字ぶん。"""
     ln = math.hypot(g.dx, g.dy)
     adv = g.adv or ln
     if ln <= 0 or adv <= 0 or g.size <= 0:
@@ -132,7 +187,7 @@ def ink_box(g, view: View, up_ratio: float = INK_UP, down_ratio: float = 0.0) ->
 
 
 def written_ink(g, view: View) -> tuple[float, float, float, float] | None:
-    """書いたものどうしを比べる墨の四角：字の面の高さ（全角の字は字の箱いっぱいに近い：基線の少し下から 0.84 字ぶん上まで。
+    """字形の輪郭が分からない字の、書いたものどうしを比べる墨の四角の見積もり：字の面の高さ（全角の字は字の箱いっぱいに近い：基線の少し下から 0.84 字ぶん上まで。
     ほかの字は基線から大文字の高さまで）。INK_UP の四角（下線・罫線に触れたとしないための低い四角）で比べると、行の間が 1 字に
     満たない 2 つの値の、実際に重なる字を見のがす。"""
     wide = any(unicodedata.east_asian_width(ch) in ("W", "F") for ch in g.text)
@@ -245,8 +300,8 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
                 continue
             n = w.page + 1
             gs = appearance_glyphs(new, wd)
-            boxes = [b for b in (ink_box(g, view_of(n)) for g in gs) if b]
-            faces = [b for b in (written_ink(g, view_of(n)) for g in gs) if b]
+            boxes = [b for g in gs for b in _boxes(g, view_of(n), ink_box)]
+            faces = [b for g in gs for b in _boxes(g, view_of(n), written_ink)]
             if faces:
                 v = view_of(n)
                 rx0, ry0, rx1, ry1 = v.rect(*w.rect)
@@ -257,8 +312,8 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
                 elif x1 > CUT and y1 > CUT and (x0 < -CUT or y0 < -CUT or x1 > v.width + CUT or y1 > v.height + CUT):
                     problems.append(f"{f.name}：書いた字が、ページの外に出て欠けます（{pos}）。別の所に書いてください")
             if boxes:
-                items.setdefault(n, []).append((f.name, "text", boxes, f.name in created,
-                                                [b for b in (written_ink(g, view_of(n)) for g in gs) if b]))
+                items.setdefault(n, []).append((f.name, "text", boxes, f.name in created, faces,
+                                                all(g.ink is not None for g in gs)))
     for p in patches:
         if p.kind == "circle" and p.circle:
             sd = p.circle
@@ -288,6 +343,7 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
                 return g[0] - lw / 2, g[1] - lw / 2, g[2] + lw / 2, g[3] + lw / 2
             return g[0] - g[2] - lw / 2, g[1] - g[3] - lw / 2, g[0] + g[2] + lw / 2, g[1] + g[3] + lw / 2
 
+        printed = None  # 印刷された字と、その墨の面・字の面（ページに 1 回だけ作る）
         for it in its:
             name = it[0]
             ob = outline(it)
@@ -295,14 +351,17 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
             if placed:
                 if it[1] == "text" and name not in covers:
                     # 線の代わりに印刷された字（下線の字・点線）は書く場所：上に書いても字を隠さない
-                    lines = lay.line_glyphs()
-                    printed = [c for c in lay.chars if not c.text.isspace() and id(c) not in lines]
-                    clear = next(((c, b) for b in it[2] for c in printed
-                                  if _ovl_ratio(b, _circle.face(c, _circle.INK)) >= CLEAR), None)
+                    if printed is None:
+                        lines = lay.line_glyphs()
+                        printed = [(c, _circle.face(c, _circle.INK), _circle.face(c)) for c in lay.chars
+                                   if not c.text.isspace() and id(c) not in lines]
+                    # 書いた字の外側の四角に、字の面がかかる字だけを比べる（墨の面は、字の面の内側）
+                    near = [pc for pc in printed if _overlap(ob, pc[2], 0.0)]
+                    clear = next(((c, b) for b in it[2] for c, ink, _fc in near if _ovl_ratio(b, ink) >= CLEAR), None)
                     if clear is not None:
                         problems.append(f"{name}：書いた字が、印刷された字「{clear[0].text}」の上に重なります（{where(clear[1])}）")
                     else:
-                        hit = next(((c, b) for b in it[2] for c in printed if _overlap(b, _circle.face(c))), None)
+                        hit = next(((c, b) for b in it[2] for c, _ink, fc in near if _overlap(b, fc)), None)
                         if hit is not None:
                             notes.append(f"{name}：書いた字が、印刷された字「{hit[0].text}」の縁に少しかかる見込みです"
                                          f"（{where(hit[1])}）。view_page で見て確かめてください")
@@ -346,9 +405,15 @@ def check(orig, new, patches: list, created: set[str], covers: set[str]) -> tupl
                 if a[1] != "text" and b[1] != "text":
                     continue  # ○どうしは circle.resolve が確かめる
                 if a[1] == "text" and b[1] == "text":
-                    # 書いたものどうしは、墨が少しでも重なれば断る（字の面の四角で比べる）
-                    clear = next((x for x in a[4] for y in b[4] if _overlap(x, y)), None)
-                    hit = clear
+                    # 字形の輪郭の四角どうしは、はっきり重なれば断り、少しかかるだけなら知らせる（行の間の狭い 2 行で、
+                    # 上の行の字の基線より下の部分が、下の行の字の上の端にかかる、など）。
+                    # 見積もりの四角（字の面より小さく見積もる）がある値は、少しでも重なれば断る
+                    hit = next(((x, y) for x in a[4] for y in b[4] if _overlap(x, y)), None)
+                    if hit is None or not (a[5] and b[5]):
+                        clear = hit
+                    else:
+                        clear = next(((x, y) for x in a[4] for y in b[4] if _ovl_ratio(x, y) >= CLEAR), None)
+                    hit, clear = hit and hit[0], clear and clear[0]
                 else:
                     t, s_ = (a, b) if a[1] == "text" else (b, a)
                     clear = next((x for x in t[2] if x[2] - x[0] > 2 * HAIR and x[3] - x[1] > 2 * HAIR and

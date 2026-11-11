@@ -25,6 +25,13 @@ def apply(m, x, y):
     return (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
 
 
+def _ink_all(gl) -> tuple | None:
+    """まとめた字（ActualText）の輪郭の四角：まとめる前の字の四角を、1 つずつ並べたもの。1 つでも分からない字があれば None。"""
+    if any(g.ink is None for g in gl):
+        return None
+    return tuple(b for g in gl for b in g.ink)
+
+
 @dataclass(slots=True)  # 字はページに何万と並ぶ：1 字のメモリを小さく
 class Glyph:
     text: str
@@ -48,6 +55,9 @@ class Glyph:
     fontbase: str = ""  # 書体の名前（BaseFont）
     embedded: bool = False  # 書体のプログラムを埋め込んだ書体か
     mc: tuple | None = None  # 内側の番号つきの印：(持ち主, MCID)。持ち主は "page" か StructParents の番号（structadd）
+    # 字形の輪郭の四角の並び（ページの座標の (x0, y0, x1, y1)。Interpreter.ink_of を渡したときだけ）：None は分からない、
+    # () は墨のない字（空白など）。まとめた字（ActualText）は、まとめる前の字の四角を 1 つずつ
+    ink: tuple | None = None
 
     @property
     def cx(self) -> float:
@@ -252,6 +262,9 @@ class Interpreter:
         self.layers = layers(doc)
         self._main = self.out  # ふつうの内容（self.out は、画面に見えないレイヤーの中では、そのレイヤーの内容）
         self._layer = None  # いま読んでいる内容のレイヤーの見え方（重なったレイヤーは合わせたもの）。ふつうの内容は None
+        # 字形の輪郭の四角を返す関数（placement が渡す）：(資源, 書体の名前, 書体, 符号, 字) → 字の原点からの (x0, y0, x1, y1)
+        # （字の大きさを 1 とした長さ）。墨のない字は ()、分からなければ None
+        self.ink_of = None
 
     def run_page(self, page: dict) -> PageContent:
         res = self.doc.resolve(page.get("Resources")) or {}
@@ -351,8 +364,16 @@ class Interpreter:
             mcid = mc_stack[-1][0] if mc_stack else None
             chain_ = outer + tuple(m[3] for m in mc_stack)
             mc_ = next(((m.owner, m.mcid) for m in reversed(chain_) if m.mcid is not None and m.owner is not None), None)
+            ink_of = self.ink_of
             for code, text, w, is_space, vpos, vwidth in items:
                 trm = mul((fs * th, 0, 0, fs, 0, gs.rise), mul(tm, gs.ctm))
+                ink = None
+                if ink_of is not None:
+                    ink = ink_of(res, gs.font, f, code, text)
+                    if ink:
+                        gm = mul((1, 0, 0, 1, -vpos[0], -vpos[1]), trm) if f.vertical else trm
+                        ps = [apply(gm, x, y) for x in (ink[0], ink[2]) for y in (ink[1], ink[3])]
+                        ink = ((min(p[0] for p in ps), min(p[1] for p in ps), max(p[0] for p in ps), max(p[1] for p in ps)),)
                 if f.vertical:
                     vx, vy = vpos
                     x0, x1 = -vx, -vx + (vwidth or 1.0)
@@ -383,7 +404,7 @@ class Interpreter:
                                         f.vertical, gs.tr in (3, 7), gs.font, gs.fill, mcid,
                                         legacy=legacy_text(f.legacy, text),
                                         adv=((fx - ox) ** 2 + (fy - oy) ** 2) ** 0.5,
-                                        fontbase=f.base, embedded=getattr(f, "embedded", False), mc=mc_))
+                                        fontbase=f.base, embedded=getattr(f, "embedded", False), mc=mc_, ink=ink))
 
         def adjust(v):
             nonlocal tm
@@ -775,7 +796,7 @@ class Interpreter:
                                                max(g.y1 for g in gl), g0.size, g0.ox, g0.oy, gl[-1].ox + gl[-1].dx - g0.ox,
                                                gl[-1].oy + gl[-1].dy - g0.oy, g0.vertical, g0.invisible, g0.font, g0.color,
                                                mcid=mcid, actual=True, legacy=any(g.legacy for g in gl), adv=sum(g.adv for g in gl),
-                                               fontbase=g0.fontbase, embedded=g0.embedded, mc=g0.mc)
+                                               fontbase=g0.fontbase, embedded=g0.embedded, mc=g0.mc, ink=_ink_all(gl))
                                 del out.glyphs[first:]
                                 out.glyphs.append(merged)
             except LimitExceeded:
