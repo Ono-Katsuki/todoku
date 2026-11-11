@@ -375,8 +375,8 @@ def test_filling_a_control_redraws_its_wmf_picture_in_any_one_script(tmp_path):
     for value in ("김철수", "Γιώργος", "Їжак"):
         out = str(tmp_path / "out.docx")
         assert api.fill(p, {"TextBox1": value}, out, overwrite=True)["read_back_ok"]
-        z = zipfile.ZipFile(out)
-        assert [value] in [axdraw.wmf_texts(z.read(n)) for n in z.namelist() if n.endswith(".wmf")]
+        with zipfile.ZipFile(out) as z:  # 閉じてから次を書く（Windows では、開いているファイルは置き換えられない）
+            assert [value] in [axdraw.wmf_texts(z.read(n)) for n in z.namelist() if n.endswith(".wmf")]
     with pytest.raises(api.ApiError, match="1 つの文字セット"):  # 2 つの文字の混ざった字は、字を落とさずに断る
         api.fill(p, {"TextBox1": "山田 김철수 สมชาย"}, str(tmp_path / "no.docx"))
 
@@ -388,7 +388,8 @@ def test_metafile_text_in_a_font_without_a_code_page_is_told():
     from todoku.imaging import metaraster
 
     wmf = axdraw.to_wmf(axdraw.render(ax.parse(morph(1, "山田太郎"), "TextBox"), 120, 24, 96.0), (0, 0, 1800, 360), 1440)
-    assert metaraster.wmf(wmf).problems == []  # 文字セット 128（Shift_JIS）の字体：決まる
+    # 文字セット 128（Shift_JIS）の字体：決まる（この機械に字の形がない、という知らせは別のこと）
+    assert not any("規則では決められない字" in x for x in metaraster.wmf(wmf).problems)
     i = wmf.index(b"\xfb\x02")  # META_CREATEFONTINDIRECT の文字セットを DEFAULT（1）にする
     assert wmf[i + 15] == 128
     unknown = wmf[:i + 15] + b"\x01" + wmf[i + 16:]

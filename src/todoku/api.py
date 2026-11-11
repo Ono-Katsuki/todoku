@@ -1549,7 +1549,12 @@ def _publish(tmp: Path, dst: Path, src: Path, overwrite: bool, result: dict, ok:
         raise ApiError(f"書き出す先「{final.name}」には、すでに別のファイルがあります（書き出していません）。"
                        "置き換えてよいと本人が言ったときだけ overwrite に true を入れるか、別の名前（out_path）を指定してください")
     _release_files()  # Windows：読み戻しで開いた一時ファイルを放してから、名前を付け替える
-    os.replace(tmp, final)
+    try:
+        os.replace(tmp, final)
+    except PermissionError as e:
+        # Windows：ほかのプログラムが開いているファイルは、置き換えられない（一時ファイルは、呼んだ側が消す）
+        raise ApiError(f"書き出す先「{final.name}」を置き換えられません（書き出していません）：ほかのプログラムがそのファイルを開いているか、"
+                       "そこへの書き込みが許されていません。そのファイルを閉じてからもう一度書き込むか、別の名前（out_path）を指定してください") from e
     result["out_path"] = str(final)
     result["verified"] = ok
     if not ok:

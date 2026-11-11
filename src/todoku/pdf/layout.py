@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 
 from .. import chars as _chars  # 字の種類（空白・下線の字・ダッシュ・点線・かっこの組・チェックの箱の字）：Unicode の資料の表
 from ..xlsx.window import label_text
+from . import strike
 from .content import PageContent
 # 字・罫線・マス・行（pagetext）：ここからも同じ名前で使える（ほかのモジュール・テストの import のため）
 from .pagetext import (  # noqa: F401
@@ -446,6 +447,12 @@ class PageLayout:
             self.spots = [k for k in self.spots if not any(
                 _overlap(k.rect, (r[0] - m, r[1] - m, r[2] + m, r[3] + m)) > 0 for r, _n, mixed in self.drawn_text if not mixed)]
         self._circled()
+        self.struck, crossing = strike.find(self)  # 取り消し線のある字 (行, 始め, 終わり) と、その線
+        if crossing:
+            # 字の上の取り消し線は、下線の罫線（書く所）ではない
+            self.spots = [k for k in self.spots if not (k.shape == "underline" and any(
+                not vert and abs(k.anchor[1] - pos) <= strike.JOIN and a - 1.0 <= k.anchor[0] and k.rect[2] <= b + 1.0
+                for vert, pos, a, b in crossing))]
         for k in self.spots:
             # 書き込みと同じ決め方で1字も入らない所も、消さずに示す（規則では決められない所・書けない所として）
             if not _holds_text(k):

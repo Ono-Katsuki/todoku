@@ -410,6 +410,26 @@ def test_fill_output_is_atomic_refuses_overwrite_and_hardlinks(tmp_path):
     assert src.read_text() == "name,amount\nyamada,\n"
 
 
+def test_fill_output_that_cannot_be_replaced_is_told(monkeypatch, tmp_path):
+    # Windows：ほかのプログラムが開いているファイルは置き換えられない。そのまま落ちずに、どうすればよいかを伝える
+    src = tmp_path / "a.csv"
+    src.write_text("name,amount\nyamada,\n")
+    out = tmp_path / "out.csv"
+    api.fill(str(src), {"R2.C2": "5"}, str(out))
+    real = os.replace
+
+    def locked(a, b, *args, **kw):
+        if Path(b) == out:
+            raise PermissionError(13, "Access is denied")
+        return real(a, b, *args, **kw)
+
+    monkeypatch.setattr(os, "replace", locked)
+    with pytest.raises(api.ApiError, match="置き換えられません"):
+        api.fill(str(src), {"R2.C2": "6"}, str(out), overwrite=True)
+    assert out.read_text().endswith("yamada,5\n")  # 前のファイルはそのまま
+    assert not [x for x in tmp_path.iterdir() if "todoku-tmp" in x.name]  # 一時ファイルは残らない
+
+
 def test_fill_that_cannot_be_verified_is_named_unverified(monkeypatch, tmp_path):
     src = tmp_path / "a.csv"
     src.write_text("name,amount\nyamada,\n")

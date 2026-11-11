@@ -77,6 +77,7 @@ class Seg:
     width: float
     filled: bool = False  # 細い塗りつぶしの四角を線として扱ったもの
     color: tuple = (0.0, 0.0, 0.0)
+    part: bool = False  # 同じ道のほかの部分と重なる塗りの四角（枠の内と外・輪郭で描いた字の一部）：1 本の線として描いたものではない
 
 
 @dataclass
@@ -542,6 +543,19 @@ class Interpreter:
             cl = _open_at_page(gs.clip, self._page)
             # 線の墨は、道から、太さの半分 × 角のとがりの上限（四角い端では √2）まで出うる
             reach = lw / 2 * max(gs.ml, 1.5) if stroke else 0.0
+            bbs: list = []  # 道の部分ごとの外枠（要るときに 1 回だけ作る）
+
+            def part(sub, rect) -> bool:
+                """塗りの四角 rect が、同じ道のほかの部分と重なる（枠の内と外の四角・輪郭で描いた字の一部）。"""
+                if len(path) < 2:
+                    return False
+                if not bbs:
+                    for o in path:
+                        ps = o["pts"]
+                        bbs.append((min(p[0] for p in ps), min(p[1] for p in ps), max(p[0] for p in ps), max(p[1] for p in ps)))
+                return any(o is not sub and bb[0] < rect[2] and bb[2] > rect[0] and bb[1] < rect[3] and bb[3] > rect[1]
+                           for o, bb in zip(path, bbs))
+
             for sub in path:
                 pts = sub["pts"]
                 cut = False  # 外枠の外に出ている道：見えうるのは、外枠の中の部分だけ
@@ -589,13 +603,14 @@ class Interpreter:
                     if x0 >= x1 or y0 >= y1:
                         continue
                     if max(x1 - x0, y1 - y0) <= 2.5:
-                        out.segs.append(Seg(x0, (y0 + y1) / 2, x1, (y0 + y1) / 2, y1 - y0, True, gs.fill))
-                        out.segs.append(Seg((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1 - x0, True, gs.fill))
+                        pt = part(sub, rect)
+                        out.segs.append(Seg(x0, (y0 + y1) / 2, x1, (y0 + y1) / 2, y1 - y0, True, gs.fill, pt))
+                        out.segs.append(Seg((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1 - x0, True, gs.fill, pt))
                     elif min(x1 - x0, y1 - y0) <= 2.5:
                         if x1 - x0 >= y1 - y0:
-                            out.segs.append(Seg(x0, (y0 + y1) / 2, x1, (y0 + y1) / 2, y1 - y0, True, gs.fill))
+                            out.segs.append(Seg(x0, (y0 + y1) / 2, x1, (y0 + y1) / 2, y1 - y0, True, gs.fill, part(sub, rect)))
                         else:
-                            out.segs.append(Seg((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1 - x0, True, gs.fill))
+                            out.segs.append(Seg((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1 - x0, True, gs.fill, part(sub, rect)))
                     else:
                         out.boxes.append(Box(x0, y0, x1, y1, gs.fill, False))
                     continue
@@ -603,15 +618,16 @@ class Interpreter:
                     x0, y0, x1, y1 = rect
                     if max(x1 - x0, y1 - y0) <= 2.5:
                         # 点（点線の1つぶ）：縦にも横にもつながりうるので、両方の向きの短い線として残す
-                        out.segs.append(Seg(x0, (y0 + y1) / 2, x1, (y0 + y1) / 2, y1 - y0, True, gs.fill))
-                        out.segs.append(Seg((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1 - x0, True, gs.fill))
+                        pt = part(sub, rect)
+                        out.segs.append(Seg(x0, (y0 + y1) / 2, x1, (y0 + y1) / 2, y1 - y0, True, gs.fill, pt))
+                        out.segs.append(Seg((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1 - x0, True, gs.fill, pt))
                         continue
                     if min(x1 - x0, y1 - y0) <= 2.5:
                         # 細い塗りつぶし：線として扱う
                         if x1 - x0 >= y1 - y0:
-                            out.segs.append(Seg(x0, (y0 + y1) / 2, x1, (y0 + y1) / 2, y1 - y0, True, gs.fill))
+                            out.segs.append(Seg(x0, (y0 + y1) / 2, x1, (y0 + y1) / 2, y1 - y0, True, gs.fill, part(sub, rect)))
                         else:
-                            out.segs.append(Seg((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1 - x0, True, gs.fill))
+                            out.segs.append(Seg((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1 - x0, True, gs.fill, part(sub, rect)))
                         continue
                     out.boxes.append(Box(x0, y0, x1, y1, gs.fill, stroke))
                     if stroke:

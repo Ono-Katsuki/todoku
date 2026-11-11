@@ -44,10 +44,12 @@ class _Item:
     marks: list = field(default_factory=list)  # (順番の x, 印の文字列を返す関数)
 
 
-def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, circled: list | None = None) -> str:
+def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, circled: list | None = None,
+                 struck: list | None = None) -> str:
     """行の文字に、入力欄の印（［p1.3］）を入れる。kept があれば、窓に出した元の字（印に置き換えて消えた字を除いたもの）を足す
     （読み落としの検査が、窓に実際に出た字で数えるため）。circled：ページに描かれた○が囲む字 (始め, 終わり, id)：その字の後ろに
-    「［○］」（とどくが描いた○は「［p1.c1：○］」）。4 つ目が真のもの（角の丸い四角など、○かもしれない囲み）は「［○？］」。"""
+    「［○］」（とどくが描いた○は「［p1.c1：○］」）。4 つ目が真のもの（角の丸い四角など、○かもしれない囲み）は「［○？］」。
+    struck：取り消し線のある字 (始め, 終わり)：その字の後ろに「〔取り消し線：「字」〕」（字は消さない）。"""
     text = ln.text
     edits = []
     for a, b, ident, *maybe in circled or []:
@@ -72,7 +74,14 @@ def _render_line(ln: Line, spots: list[Spot], name, kept: list | None = None, ci
             # 「？」の所で空白だけのものは、行の空白（測った空きから作った字）をそのまま印の中に入れる（「［p1.a1？　］」）
             gap = shown_gap(text[a:b]) if q and not keep else ""
             edits.append((a, b, f"{keep}［{name(sp)}{q}{gap}］"))
-    edits.sort(key=lambda e: (e[0], e[1]))
+    marks = []
+    for a, b in struck or []:
+        at = b
+        for ea, eb, _rep in edits:
+            if ea < at < eb:
+                at = eb  # 欄の印の中には入れない：印の後ろに置く
+        marks.append((at, at, f"〔取り消し線：「{text[a:b]}」〕"))
+    edits = sorted(marks + edits, key=lambda e: (e[0], e[1]))  # 同じ位置では、取り消し線の印を先に（字のすぐ後ろ）
     out, at = [], 0
     shown = []
     for a, b, rep in edits:
@@ -306,6 +315,9 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         circ.setdefault(id(ln_), []).append((a_, b_, ident))
     for ln_, a_, b_, ident in getattr(lay, "maybe_circled", []):
         circ.setdefault(id(ln_), []).append((a_, b_, ident, True))
+    strk: dict[int, list] = {}  # 行 → 取り消し線のある字 (始め, 終わり)
+    for ln_, a_, b_ in getattr(lay, "struck", []):
+        strk.setdefault(id(ln_), []).append((a_, b_))
     reading = []
     plain: list[str] = []
     for row in rows:
@@ -316,7 +328,8 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
         parts = []
         for it in row:
             if it.line is not None:
-                t = _render_line(it.line, line_spots.get(id(it.line), []), name, plain, circ.get(id(it.line))) + room_mark(it.line)
+                t = _render_line(it.line, line_spots.get(id(it.line), []), name, plain, circ.get(id(it.line)),
+                                 strk.get(id(it.line))) + room_mark(it.line)
             elif getattr(it, "spot", None) is not None:
                 sp = it.spot
                 mark = _filled_mark(sp, name)
@@ -336,7 +349,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                         pieces.append(f"［{name(sp)}{'？' if sp.confidence == 'agent' else ''}］")
                 rendered = []
                 for ln in c.lines:
-                    r_ = _render_line(ln, line_spots.get(id(ln), []), name, plain, circ.get(id(ln))) + room_mark(ln)
+                    r_ = _render_line(ln, line_spots.get(id(ln), []), name, plain, circ.get(id(ln)), strk.get(id(ln))) + room_mark(ln)
                     grp = getattr(ln, "overprint", None)
                     if grp is not None and rendered and rendered[-1][1] == grp:
                         rendered[-1] = (rendered[-1][0] + " ／ " + r_, grp)  # 重ねて描かれた行
@@ -542,10 +555,14 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
                       "rect": [round(v, 1) for v in ln_.span_rect(a_, b_)], "agent": True,
                       "why": "曲線と直線で閉じた図形（角の丸い四角など）が囲む字：○で選んだ印か、ただの枠か、規則では決められない"}
                      for ln_, a_, b_, _ident in getattr(lay, "maybe_circled", [])]
+    # 取り消し線のある字（字の上に、行に沿って描いた線：pdf/strike.py の決まり）
+    struck = [{"text": ln_.text[a_:b_], "context": re.sub(r"[ 　]+", " ", ln_.text).strip()[:60],
+               "rect": [round(v, 1) for v in ln_.span_rect(a_, b_)]} for ln_, a_, b_ in getattr(lay, "struck", [])]
     return {"number": number, "width": round(view.width, 1), "height": round(view.height, 1), "rotate": view.rot,
             # UserUnit（ページの座標の 1 単位が何ポイントか）：1 でないページだけ。窓の rect・大きさは、ページの座標の単位
             **({"user_unit": view.unit} if view.unit != 1.0 else {}),
-            "fields": out_fields, "reading": reading, "circled": circled, "maybe_circled": maybe_circled, "chars": chars, "unmapped": pc.unmapped, "images": images,
+            "fields": out_fields, "reading": reading, "circled": circled, "maybe_circled": maybe_circled,
+            **({"struck": struck} if struck else {}), "chars": chars, "unmapped": pc.unmapped, "images": images,
             # 字に直せない字の、行の中での役割（字の並びの形で決める）：行の頭の印（箇条の印）と、それ以外（本文の字）
             "unmapped_marks": marks, "unmapped_text": inword,
             "image_only": chars == 0 and images > 0, **({"blank": True} if chars == 0 and images == 0 else {}), "pictures": pictures, "problems": pc.problems, "annotations": annots,
@@ -1095,6 +1112,9 @@ def build(doc: PdfDocument, pages=None) -> dict:
         if pages is not None and i + 1 not in pages:
             continue
         out["pages"].append(page_window(doc, p, i + 1, fields, layout=xw is None or not xw.get("readable")))
+    if any(pg.get("struck") for pg in out["pages"]):
+        out["notation"]["〔取り消し線：「字」〕"] = ("直前のその字の上に、行に沿った線が描かれている（PDF の取り消し線は、字の書式でなく、描いた線："
+                                             "線と字の位置から決める。字は消さずに示す。どうして取り消したかは決めない）")
     if xw is not None:
         out["xfa"] = xw
         out["form"]["xfa_kind"] = xw.get("kind")
