@@ -5,6 +5,7 @@
 - 下線・字の上の線・太い帯・白い線・字より 1 字ぶんより長く続く線・両端がほかの線につながる線（枠の辺・罫線）・
   同じ道のほかの部分と重なる塗り・縞の帯は、取り消し線と言わない
 - 破線は、空きが 1 字ぶんまでならひと続き。字の間の空いた並び（「譲　受　人」）は、空白ごと 1 つの範囲
+- 字のすぐ隣に続く空白の字（描かれた空白のグリフ）も線の下にあれば、線は字より長くてよい（「　　本人　　」を空白ごと消した所）
 - 縦書き（縦書きの書体・横書きの書体の字を積んだ行）は、縦の線
 - 取り消し線と決めた線は、下線の罫線（書く所）にしない
 """
@@ -126,6 +127,19 @@ def test_slightly_longer_line(tmp_path):
     assert _struck(pg) == ["申請者氏名"]
 
 
+def test_line_over_the_blank_glyphs_next_to_the_text(tmp_path):
+    # 空白ごと選んで消した所：空白のグリフ（100〜124・148〜172）も線の下。線は、字（124〜148）より 2 字ぶん長い
+    _win, pg, md, _p = _text(tmp_path, [("　　本人　　", 100, 700)], _line(704.5, 100, 172))
+    assert _struck(pg) == ["本人"] and MARK % "本人" in md
+
+
+def test_line_over_the_blank_glyphs_between_other_words(tmp_path):
+    # 氏名 100〜124・空白 124〜148・本人 148〜172・空白 172〜196・印 196〜208
+    _win, pg, md, _p = _text(tmp_path, [("氏名　　本人　　印", 100, 700)], _line(704.5, 124, 196))
+    assert _struck(pg) == ["本人"]
+    assert MARK % "氏名" not in md and MARK % "印" not in md
+
+
 def test_mark_goes_after_a_place_in_the_struck_text(tmp_path):
     # 字の形の空欄（○○）は所：取り消し線の印は、所の印の中に入れない（○ は半角の幅：124〜136）
     _win, pg, md, _p = _text(tmp_path, [("令和○○年", 100, 700)], _line(704.5, 124, 136))
@@ -159,6 +173,16 @@ def test_not_a_strike(tmp_path, extra):
     assert "struck" not in pg and "取り消し線" not in md
     assert KEY not in win["notation"]
     assert "申請者氏名" in md
+
+
+@pytest.mark.parametrize("rows, extra", [
+    ([("本人", 124, 700)], _line(704.5, 100, 172)),  # 同じ線でも、隣に空白のグリフがなければ、字より長く続く線
+    ([("　　本人　　", 100, 700)], _line(704.5, 60, 212)),  # 空白のグリフより、さらに 1 字ぶんより長く続く線
+    ([("　本人　", 112, 700), ("　　", 100, 716), ("　　", 148, 716)], _line(704.5, 88, 184)),  # 線が中央の半分を通らない空白（上の行の空白）は、並びに入れない
+])
+def test_long_line_without_blank_glyphs_under_it(tmp_path, rows, extra):
+    _win, pg, md, _p = _text(tmp_path, rows, extra)
+    assert "struck" not in pg and "取り消し線" not in md
 
 
 def test_same_rect_alone_is_a_strike(tmp_path):

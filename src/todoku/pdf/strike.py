@@ -8,7 +8,11 @@ PDF の取り消し線は、字の書式ではなく、字の上に描いた線�
   （字の四角の端）は入らない。線の太さは、字の大きさの 1/4 まで（それより太いものは、字を塗る帯）
 - かかる字：幅の半分より多くが線の下にある字（字ごとに、その字の基線と大きさで確かめる）。ひと続きの線の両端は、かかる字の
   並びの端から 1 字ぶんより外へ出ない。線の長さの半分以上が、かかる字の並び（始めの字から終わりの字まで）の上にある
-  （字を横切るだけの長い線・引き出しの線・字より長く続く破線・切り取りの線は入らない）
+  （字を横切るだけの長い線・引き出しの線・字より長く続く破線・切り取りの線は入らない）。
+  かかる字のすぐ隣に続く空白の字（ページに描かれた空白のグリフ。字の間の空きから補った空白ではない）も、字と同じ決まりで
+  線の下にあれば（線が、その空白の中央の半分を通り、幅の半分より多くにかかる）、並びに入れる（「　本人　」のように、
+  空白ごと選んで消した所は、線が字より長い。空白ごと線を引いて作った切り取りの線「き　り　と　り　線」も、
+  字の上の線として伝わる：意味は決めない）
 - 線の両端が、ほかの線・曲線につながらない（枠の辺・表の罫線・吹き出しの辺・直角の点線の 1 つぶは入らない）
 - すき間なく並ぶ線（縞で塗った帯）は、並び全体を 1 本の太い線として見る
 この決まりに合う線のかかる字が「取り消し線のある字」。合わない線は、何も言わない。
@@ -113,6 +117,37 @@ def _over(pieces: list[list[float]], lo: float, hi: float) -> float:
     return sum(max(0.0, min(hi, q[2]) - max(lo, q[1])) for q in pieces)
 
 
+def _blanks(spaces, vertical: bool, pos: float, width: float) -> list[tuple[float, float]]:
+    """線（位置 pos・太さ width）が中央の半分を通る空白のグリフの、行の向きの範囲（始めの順）。"""
+    out = []
+    for c in spaces:
+        lo, hi = (c.y0, c.y1) if vertical else (c.x0, c.x1)
+        centre = (c.x0 + c.x1) / 2 if vertical else c.base - EM_CENTRE * c.size
+        if hi > lo and abs(pos - centre) <= BAND * c.size and width <= BAND * c.size:
+            out.append((lo, hi))
+    out.sort()
+    return out
+
+
+def _with_blanks(chain, gl, blanks, g0: float, g1: float) -> tuple[float, float]:
+    """かかる字の並び [g0, g1] を、すぐ隣に続く、線の下の空白のグリフまで広げる（ほかの字をまたがない）。"""
+    before = max((g[1] for g in gl if g[1] <= g0 + 0.01), default=None)  # 並びの前の、いちばん近い字の終わり
+    after = min((g[0] for g in gl if g[0] >= g1 - 0.01), default=None)
+    for lo, hi in reversed(blanks):
+        if hi > g0 + JOIN or (before is not None and lo < before - JOIN):
+            continue
+        if g0 - hi > JOIN or _over(chain, lo, hi) <= 0.5 * (hi - lo):
+            break
+        g0 = lo
+    for lo, hi in blanks:
+        if lo < g1 - JOIN or (after is not None and hi > after + JOIN):
+            continue
+        if lo - g1 > JOIN or _over(chain, lo, hi) <= 0.5 * (hi - lo):
+            break
+        g1 = hi
+    return g0, g1
+
+
 def find(lay) -> tuple[list[tuple], list[tuple]]:
     """ページの配置（PageLayout）→ 取り消し線のある字：(行, 始め, 終わり) の並び（行の text の位置）と、
     その取り消し線：(縦か, 位置, 始め, 終わり) の並び（pt。左上が原点）。"""
@@ -140,6 +175,7 @@ def find(lay) -> tuple[list[tuple], list[tuple]]:
     keys = {False: [r[0] for r in hs], True: [r[0] for r in vs]}
     rules = {False: hs, True: vs}
     ends = None
+    spaces = None  # ページの空白のグリフ（字より長い線があるときだけ集める）
     out = []
     lines: list[tuple] = []
     for ln in lay.all_lines():
@@ -189,6 +225,12 @@ def find(lay) -> tuple[list[tuple], list[tuple]]:
                     continue
                 g0, g1 = hit[0][0], max(g[1] for g in hit)
                 size = max(g[3] for g in hit)
+                if g0 - a > size or b - g1 > size:
+                    if spaces is None:
+                        spaces = [c for c in lay.chars if c.text.isspace() and not c.invisible and c.size > 0]
+                    blanks = _blanks(spaces, ln.vertical, pos, width)
+                    if blanks:
+                        g0, g1 = _with_blanks(chain, gl, blanks, g0, g1)
                 if g0 - a > size or b - g1 > size:
                     continue  # 字より長く続く線
                 if _over(chain, g0, g1) < 0.5 * sum(q[2] - q[1] for q in chain):
