@@ -134,6 +134,8 @@ The plugin brings the MCP server and the skill `shinsei`, the workflow for findi
    /plugin marketplace add Ono-Katsuki/todoku
    /plugin install todoku@todoku
    ```
+3. To move to the newest version, run `claude plugin marketplace update todoku` and `claude plugin update todoku@todoku` in a terminal,
+   then restart Claude Code (the plugin's version is the repository commit).
 
 **From an iPad or phone:** todoku runs on your computer, and documents stay there. Use Claude Code's
 [Remote Control](https://code.claude.com/docs/en/remote-control) to operate the computer's Claude Code from an iPad.

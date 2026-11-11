@@ -135,6 +135,8 @@ MCP サーバーと、申請書を探して記入するときの進め方（ス�
    /plugin marketplace add Ono-Katsuki/todoku
    /plugin install todoku@todoku
    ```
+3. 新しい版にするときは、ターミナルで `claude plugin marketplace update todoku` と `claude plugin update todoku@todoku` を実行して、
+   Claude Code を開き直す（プラグインの版は、リポジトリのコミットで決まる）。
 
 **iPad・スマートフォンから使う**：とどくはパソコンの上で動く。書類はパソコンから出さない。Claude Code の
 [Remote Control](https://code.claude.com/docs/en/remote-control) で、パソコンの Claude Code を iPad から操作する。

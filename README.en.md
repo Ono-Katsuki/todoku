@@ -32,6 +32,8 @@ In Claude Code (requires [uv](https://docs.astral.sh/uv/); supported on macOS; W
 /plugin install todoku@todoku
 ```
 
+To move to the newest version, run `claude plugin marketplace update todoku` and `claude plugin update todoku@todoku` in a terminal, then restart Claude Code.
+
 Then just ask:
 
 ```text

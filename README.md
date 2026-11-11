@@ -32,6 +32,8 @@ Claude Code で実行する（[uv](https://docs.astral.sh/uv/) が必要。対�
 /plugin install todoku@todoku
 ```
 
+新しい版にするときは、ターミナルで `claude plugin marketplace update todoku` と `claude plugin update todoku@todoku` を実行して、Claude Code を開き直す。
+
 あとは自然言語で頼む。
 
 ```text
