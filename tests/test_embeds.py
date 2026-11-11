@@ -387,7 +387,13 @@ def test_docx_window_shows_chart_smartart_and_every_embedding():
 
 def test_ole_pieces():
     info = compobj(compobj_stream("Microsoft Excel ワークシート", "Excel.Sheet.8"))
-    assert info == {"user_type": "Microsoft Excel ワークシート", "prog": "Excel.Sheet.8"}
+    # 表示名は 8 ビットの字で、文字コードが書かれていない：読んだ字と、決められないことを返す
+    assert info == {"user_type": "Microsoft Excel ワークシート", "prog": "Excel.Sheet.8",
+                    "user_type_read": "Shift_JIS（CP932）（決められない）", "user_type_undetermined": True}
+    declared = [("cp932", "同じ入れ物の要約の情報のコードページ")]
+    assert compobj(compobj_stream("Microsoft Excel ワークシート", "Excel.Sheet.8"), declared) == {
+        "user_type": "Microsoft Excel ワークシート", "prog": "Excel.Sheet.8",
+        "user_type_read": "Shift_JIS（CP932）（同じ入れ物の要約の情報のコードページ）"}
     assert ole10native(package_native("a.txt", b"hello")) == ("a.txt", b"hello")
     assert equation_text(mtef_fraction()) == ("x=(a+1)/(2)", "")
     d, cu = ppt_document()

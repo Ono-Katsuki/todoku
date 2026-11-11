@@ -115,8 +115,9 @@ _URL_MONIKER = bytes.fromhex("e0c9ea79f9bace118c8200aa004ba90b")
 _FILE_MONIKER = bytes.fromhex("0303000000000000c000000000000046")
 
 
-def _hyperlink_object(b: bytes, p: int) -> str:
-    """Hyperlink オブジェクト（MS-OSHARED 2.3.7.1）の先：URL か、ファイルの名前と、その中の位置。"""
+def _hyperlink_object(b: bytes, p: int, how: dict | None = None) -> str:
+    """Hyperlink オブジェクト（MS-OSHARED 2.3.7.1）の先：URL か、ファイルの名前と、その中の位置。ファイルの名前が 8 ビットの字だけで
+    （Unicode の名前がなく）、文字コードを規則で決められないときは、how["undetermined"] に読み方を置く。"""
     def hstr(q: int) -> tuple[str, int]:
         n = struct.unpack_from("<I", b, q)[0]  # 字の数（終わりの 0 を含む）
         q += 4
@@ -146,10 +147,17 @@ def _hyperlink_object(b: bytes, p: int) -> str:
         elif clsid == _FILE_MONIKER:
             anti, ln = struct.unpack_from("<HI", b, p)
             p += 6
-            ansi = b[p:p + ln].rstrip(b"\x00").decode("cp932", "replace")
+            raw = b[p:p + ln].rstrip(b"\x00")
             p += ln + 24  # endServer 2・版 2・予約 20
             cb = struct.unpack_from("<I", b, p)[0]
             p += 4
+            if not cb:  # 8 ビットの名前だけ：文字コードは書かれていない（namecode の決め方）
+                from ..namecode import decide
+
+                reading = decide([raw])
+                ansi, told = reading.text(raw)
+                if reading.undetermined and how is not None:
+                    how["undetermined"] = told
             if cb:
                 nb = struct.unpack_from("<I", b, p)[0]
                 ansi = b[p + 6:p + 6 + nb].decode("utf-16-le", "replace")
@@ -573,10 +581,14 @@ class XlsWorkbook:
         r1, r2, c1, c2 = struct.unpack_from("<HHHH", b, 0)
         cell = addr(r1 + 1, c1 + 1)
         try:
-            target = _hyperlink_object(b, 24)
+            how: dict = {}
+            target = _hyperlink_object(b, 24, how)
         except (struct.error, ValueError, IndexError) as e:
             sh.unread.append(f"{cell} のリンクの先を読めません（{e}）")
             return
+        if how.get("undetermined"):
+            sh.unread.append(f"{cell} のリンクの先のファイルの名前は、文字コードがファイルに書かれていず、規則では決められません"
+                             f"（{how['undetermined']}で読んだ字「{target}」。字が正しいとは限りません）")
         sh.hyperlinks.append((cell, target))
 
     def _sst(self, parts: list[bytes]) -> None:

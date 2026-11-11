@@ -75,6 +75,13 @@ class BadRow:
 _NEEDS_QUOTE = re.compile(r"[\x00-\x1f\x7f｜]")
 
 
+def _codepage_codec(cp: int) -> str:
+    """ファイルの頭のコードページ → 文字コード（表を持たない番号は Windows-1252）。"""
+    from ..namecode import codec_of_codepage
+
+    return codec_of_codepage(cp) or "cp1252"
+
+
 def number_text(v: float) -> str:
     if v != v or v in (float("inf"), float("-inf")):
         return repr(v)
@@ -240,7 +247,7 @@ class Jet:
             if not any(raw):
                 return "none", ""
             try:
-                return "ok", raw.split(b"\0", 1)[0].decode({932: "cp932"}.get(struct.unpack_from("<H", head, 0x3C)[0], "cp1252"))
+                return "ok", raw.split(b"\0", 1)[0].decode(_codepage_codec(struct.unpack_from("<H", head, 0x3C)[0]))
             except UnicodeDecodeError:
                 return "unknown", ""
         raw = bytearray(head[0x42:0x42 + 40])

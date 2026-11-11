@@ -63,12 +63,12 @@ def _flags(blob: bytes, set_bits: int = 0, clear_bits: int = 0) -> bytes:
     return bytes(b)
 
 
-def test_shift_jis_names_are_read_and_marked_as_guessed():
+def test_shift_jis_names_are_read_and_marked_as_undetermined():
     # 日本の ZIP によくある、UTF-8 の印のない Shift_JIS の名前（同じバイト数の名前に置き換えて作る）
     sj = "申請書.csv".encode("cp932")  # 10 バイト
     blob = _zip({"abcdefghij": "a\n1\n"}).replace(b"abcdefghij", sj)
     m = ziparc.files(blob)[0]
-    assert m.name == "申請書.csv" and "推定" in m.named
+    assert m.name == "申請書.csv" and "決められない" in m.named  # 文字コードは書かれていない（tests/test_name_encodings.py）
     assert ziparc.extract(blob, "申請書.csv") == b"a\n1\n"
 
 

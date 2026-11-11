@@ -34,7 +34,7 @@ class _State:
         self.mode = 1
         self.pen = {"rgb": (0, 0, 0), "w": 0.0, "style": 0}
         self.brush = (255, 255, 255)
-        self.font = {"h": 12.0, "weight": 400, "italic": False, "esc": 0.0, "face": ""}
+        self.font = {"h": 12.0, "weight": 400, "italic": False, "esc": 0.0, "face": "", "charset": None}
         self.tc = (0, 0, 0)
         self.bk_op = True
         self.bk = (255, 255, 255)
@@ -220,6 +220,15 @@ class _Player:
         if st.ta & 1:
             st.cur = (x + total / (k or 1), y)
         self.drawn += 1
+
+    def ansi(self, raw: bytes) -> str:
+        """8 ビットの字：選んでいる字体の文字セットの文字コードで読む。決められないときは、そう伝える（namecode.read_ansi）。"""
+        from ..namecode import read_ansi
+
+        text, how = read_ansi(raw, self.st.font.get("charset"))
+        if how:
+            self.skip(f"字の文字コードが絵に書かれていず、規則では決められない字（{how}で読んだ字。字が正しいとは限りません）")
+        return text
 
     def skip(self, what: str, n: int = 1) -> None:
         self.skipped[what] = self.skipped.get(what, 0) + n
@@ -440,7 +449,8 @@ def _emf_record(pl: _Player, t: int, r: bytes) -> None:
         pl.objects[u32(8)] = ("brush", (128, 128, 128))
     elif t == 82:
         face = r[40:104].decode("utf-16-le", "replace").split("\0")[0]
-        pl.objects[u32(8)] = ("font", {"h": float(i32(12)), "weight": i32(28), "italic": bool(r[32]), "esc": float(i32(20)), "face": face})
+        pl.objects[u32(8)] = ("font", {"h": float(i32(12)), "weight": i32(28), "italic": bool(r[32]), "esc": float(i32(20)), "face": face,
+                                       "charset": r[35]})
     elif t == 40:
         pl.objects.pop(u32(8), None)
     elif t == 42:
@@ -531,7 +541,7 @@ def _round_rect(x0, y0, x1, y1, cw, ch) -> list:
 def _emf_text(pl: _Player, r: bytes, wide: bool) -> None:
     x, y, n, off, _opt = struct.unpack_from("<iiIII", r, 36)
     odx = struct.unpack_from("<I", r, 72)[0]
-    s = r[off:off + 2 * n].decode("utf-16-le", "replace") if wide else r[off:off + n].decode("cp932", "replace")
+    s = r[off:off + 2 * n].decode("utf-16-le", "replace") if wide else pl.ansi(r[off:off + n])
     dx = list(struct.unpack_from(f"<{n}i", r, odx)) if odx and odx + 4 * n <= len(r) else None
     pl.draw_text(s, x, y, dx)
 
@@ -718,7 +728,8 @@ def _wmf_record(pl: _Player, f: int, r: bytes, slots: list, placeable: bool, org
         _slot(slots, ("brush", None if style == 1 else _rgb(color)))
     elif f == 0x02FB:
         h_, _w, esc, _ori, weight = struct.unpack_from("<5h", r, 0)
-        _slot(slots, ("font", {"h": float(h_), "weight": weight, "italic": bool(r[10]), "esc": float(esc), "face": ""}))
+        _slot(slots, ("font", {"h": float(h_), "weight": weight, "italic": bool(r[10]), "esc": float(esc), "face": "",
+                               "charset": r[13] if len(r) > 13 else None}))
     elif f in (0x00F7, 0x01F9, 0x0142, 0x06FF):
         if f in (0x01F9, 0x0142):
             pl.skip("ビットマップのブラシ（灰色で塗った）")
@@ -742,13 +753,13 @@ def _wmf_record(pl: _Player, f: int, r: bytes, slots: list, placeable: bool, org
     elif f == 0x0521:
         n = u16(0)
         at = 2 + n + (n & 1)
-        s = r[2:2 + n].decode("cp932", "replace")
+        s = pl.ansi(r[2:2 + n])
         y, x = struct.unpack_from("<2h", r, at)
         pl.draw_text(s, x, y, None)
     elif f == 0x0A32:
         y, x, n, opt = struct.unpack_from("<hhhH", r, 0)
         at = 8 + (8 if opt & 6 else 0)
-        s = r[at:at + n].decode("cp932", "replace")
+        s = pl.ansi(r[at:at + n])
         at2 = at + n + (n & 1)
         dx = list(struct.unpack_from(f"<{n}h", r, at2)) if at2 + 2 * n <= len(r) else None
         pl.draw_text(s, x, y, dx)

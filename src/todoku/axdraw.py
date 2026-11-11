@@ -482,12 +482,28 @@ def _wrec(func: int, body: bytes) -> bytes:
     return struct.pack("<IH", 3 + len(body) // 2, func) + body
 
 
-_CODEPAGE = {128: "cp932", 0: "cp1252", 1: "cp1252", 129: "cp949", 134: "gbk", 136: "cp950"}
+def _charset_for(s: str, cs: int) -> tuple[int, str] | None:
+    """字 s を書ける文字セットと文字コード：字体の文字セット cs で書ければ、それ。書けなければ（英語の字体の部品にほかの文字を
+    書いた）、Windows が字を代わりの字体で出すのと同じく、s の全部を書ける文字セット（ANSI → 1 バイトの文字セット → 漢字の文字セットの、表の順で最初のもの）。なければ None。"""
+    from .namecode import CHARSETS
+
+    if s.isascii():
+        return cs, "ascii"
+    # 文字コードを決めない文字セット（DEFAULT など）の字体に ASCII でない字：文字コードの決まる文字セットを書く（ANSI から）
+    # 1 バイトの文字セット（その文字だけの字体）を、漢字の文字セット（キリル・ギリシャの全角の字も持つ）より先に見る
+    for c, enc in ([(cs, CHARSETS[cs])] if cs in CHARSETS else []) + [(0, "cp1252")] + [
+            (c, e) for lo, hi in ((137, 255), (128, 137)) for c, e in CHARSETS.items() if lo <= c < hi]:
+        try:
+            s.encode(enc)
+        except (UnicodeEncodeError, LookupError):
+            continue
+        return c, enc
+    return None
 
 
 def to_wmf(cv: Canvas, box: tuple[int, int, int, int] | None = None, inch: int = 96, placeable: bool = True) -> bytes:
     """Canvas を WMF（MS-WMF）にする。box・inch は置き場所の頭（Placeable）の枠と1インチの単位（元の絵と同じにする）。
-    字は字体の文字セットの符号（日本語は Shift_JIS）で書く。符号にできない字があれば ValueError（字を落とした絵は作らない）。"""
+    字は字体の文字セットの文字コードで書く（その文字セットで書けない字は、書ける文字セットで：_charset_for）。どの文字セットでも書けない字があれば ValueError（字を落とした絵は作らない）。"""
     W, H = cv.w, cv.h
     recs: list[bytes] = []
     hs = _Handles(0)
@@ -549,17 +565,11 @@ def to_wmf(cv: Canvas, box: tuple[int, int, int, int] | None = None, inch: int =
             _, x, y, s, font, color, clip = op
             cs = font.get("charset")
             cs = (1 if cs is None else int(cs)) & 0xFF
-            enc = _CODEPAGE.get(cs, "cp1252")
-            try:
-                raw = s.encode(enc)
-            except UnicodeEncodeError:
-                # 字体の文字セットで書けない字（英語の字体の部品に日本語を書いた）：Windows が字を代わりの字体で出すのと同じく、
-                # 日本語の文字セット（SHIFTJIS_CHARSET）で書く
-                try:
-                    cs, enc = 128, "cp932"
-                    raw = s.encode(enc)
-                except UnicodeEncodeError:
-                    raise ValueError(f"「{s}」には、WMF の字（Shift_JIS）で書けない字があります") from None
+            got = _charset_for(s, cs)
+            if got is None:
+                raise ValueError(f"「{s}」には、WMF の字（1 つの文字セットの 8 ビットの字）で書けない字があります")
+            cs, enc = got
+            raw = s.encode(enc)
             f = hs.new()
             face = (font["name"] or "").encode(enc, errors="replace")[:31]
             eff = font.get("effects") or 0
@@ -624,13 +634,34 @@ def wmf_records(data: bytes) -> list[tuple[int, bytes]]:
     return out
 
 
-def wmf_texts(data: bytes, encoding: str = "cp932") -> list[str]:
+def wmf_texts(data: bytes) -> list[str]:
+    """WMF の中の、字を書く命令（EXTTEXTOUT）の字。字は、そのとき選んでいる字体の文字セットの文字コードで読む（namecode.read_ansi）。"""
+    from .namecode import read_ansi
+
     out = []
+    slots: list = []  # 作った部品の表（MS-WMF 3.1.4.1：空いているいちばん前の番号に入る）。字体は文字セット、ほかは -1
+    charset = None
     for func, body in wmf_records(data):
-        if func == 0x0A32:
+        if func in (0x02FA, 0x02FC, 0x02FB, 0x00F7, 0x01F9, 0x0142, 0x06FF):
+            obj = body[13] if func == 0x02FB and len(body) > 13 else -1
+            for i, v in enumerate(slots):
+                if v is None:
+                    slots[i] = obj
+                    break
+            else:
+                slots.append(obj)
+        elif func == 0x012D and len(body) >= 2:
+            i = struct.unpack_from("<H", body, 0)[0]
+            if i < len(slots) and slots[i] is not None and slots[i] >= 0:
+                charset = slots[i]
+        elif func == 0x01F0 and len(body) >= 2:
+            i = struct.unpack_from("<H", body, 0)[0]
+            if i < len(slots):
+                slots[i] = None
+        elif func == 0x0A32:
             n, opts = struct.unpack_from("<hH", body, 4)
             at = 8 + (8 if opts & 0x06 else 0)
-            out.append(body[at:at + n].decode(encoding, errors="replace"))
+            out.append(read_ansi(body[at:at + n], charset)[0])
     return out
 
 

@@ -140,24 +140,10 @@ PP95_HEADING = "スライドの字（PowerPoint 95。スライドの区切りは
 
 def _summary_codepage(storage, names: dict) -> str | None:
     """SummaryInformation（OLE のプロパティの集まり）の PIDSI_CODEPAGE（番号 1）。読めなければ None。"""
-    key = next((names[n] for n in names if n.endswith("summaryinformation") and "document" not in n), None)
-    if key is None:
-        return None
-    b = storage.read(key)
-    try:
-        if struct.unpack_from("<H", b, 0)[0] != 0xFFFE:
-            return None
-        at = struct.unpack_from("<I", b, 44)[0]
-        n = struct.unpack_from("<I", b, at + 4)[0]
-        for k in range(n):
-            pid, off = struct.unpack_from("<II", b, at + 8 + 8 * k)
-            if pid == 1:
-                vt, cp = struct.unpack_from("<HxxH", b, at + off)
-                if vt == 2:
-                    return f"cp{cp}" if cp != 65001 else "utf-8"
-    except struct.error:
-        return None
-    return None
+    from .ole import summary_codepage
+
+    got = [enc for enc, where in summary_codepage(storage) if where.startswith("同じ入れ物")]
+    return got[0] if got else None
 
 
 def _text_content(storage, names: dict) -> list[str]:

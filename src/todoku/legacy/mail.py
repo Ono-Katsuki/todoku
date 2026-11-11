@@ -25,6 +25,8 @@ class Mail:
     body: str
     attachments: list[tuple[str, bytes]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    rawnames: dict = field(default_factory=dict)  # 添付の名前 → 文字コードの印のない名前のバイト（.msg の 8 ビットの字）
+    text_encoding: dict = field(default_factory=dict)  # .msg の 8 ビットの字の読み方（namecode.Reading.info()）
 
 
 def _unique(names: list[str], name: str) -> str:
@@ -171,50 +173,100 @@ def rtf_text(rtf: bytes) -> str:
     return "\n".join(p.text for p in paragraphs(RtfDocument(rtf, "本文.rtf")))
 
 
-def _prop_text(c, base: str, tag: int, cp: str) -> str | None:
-    for typ, enc in (("001F", "utf-16-le"), ("001E", cp)):
-        n = f"{base}__substg1.0_{tag:04X}{typ}"
-        if c.has(n):
-            return c.read(n).decode(enc, "replace").rstrip("\x00")
-    return None
+_MESSAGE_CP, _INTERNET_CP = 0x3FFD, 0x3FDE  # PR_MESSAGE_CODEPAGE（8 ビットの字のプロパティ）・PR_INTERNET_CPID（本文の HTML）
 
 
-CODEPAGES = {932: "cp932", 65001: "utf-8", 50220: "iso-2022-jp", 51932: "euc_jp", 1252: "cp1252", 20127: "ascii"}
+def _codepages(c) -> dict:
+    """__properties_version1.0（MS-OXMSG 2.4）の固定長の値の並びから、コードページのプロパティを引く：{プロパティ: codec}。
+    見出し 32 バイト、1 つ 16 バイト。Python が表を持たない番号は入れない（ほかの番号の表で読まない）。"""
+    from ..namecode import codec_of_codepage
 
-
-def _codepage(c) -> str:
-    """__properties_version1.0（MS-OXMSG 2.4）の固定長の値の並びから、文字コードのプロパティを引く。見出し 32 バイト、1 つ 16 バイト。"""
     n = "__properties_version1.0"
+    out = {}
     if not c.has(n):
-        return "cp932"
+        return out
     d = c.read(n)
-    found = {}
     for pos in range(32, len(d) - 15, 16):
         typ, pid, _flags, val = struct.unpack_from("<HHII", d, pos)
-        if typ == 3 and pid in (0x3FDE, 0x3FFD):
-            found[pid] = val
-    for pid in (0x3FDE, 0x3FFD):
-        if found.get(pid) in CODEPAGES:
-            return CODEPAGES[found[pid]]
-    return "cp932"
+        if typ == 3 and pid in (_MESSAGE_CP, _INTERNET_CP):
+            codec = codec_of_codepage(val)
+            if codec and not codec.startswith(("utf-16", "utf-32")):
+                out[pid] = codec
+    return out
 
 
-def read_msg(blob: bytes) -> Mail:
+def _html_decode(h: bytes, cps: dict, notes: list) -> str:
+    """本文の HTML（バイト）を字にする：PR_INTERNET_CPID → PR_MESSAGE_CODEPAGE の順に、厳密に読めた文字コード。
+    どちらもなければ、文字のファイルと同じ決め方（datafile/textenc：BOM・UTF-8 の形・meta の charset・読める文字コードの全部）。"""
+    from ..datafile import textenc
+
+    for pid in (_INTERNET_CP, _MESSAGE_CP):
+        if pid in cps:
+            try:
+                return h.decode(cps[pid])
+            except UnicodeDecodeError:
+                continue
+    dec = textenc.decode(h)
+    notes.extend(x.lstrip("- ") if x.startswith("- ") else x for x in dec.note_lines())
+    return dec.text
+
+
+def read_msg(blob: bytes, encoding: str | None = None) -> Mail:
+    """Outlook の .msg。字のプロパティは、UTF-16（001F）があればそれ。8 ビットの字（001E）は、PR_MESSAGE_CODEPAGE（なければ
+    PR_INTERNET_CPID）で厳密に読めれば、それ。コードページのプロパティがないか、読めなければ、namecode の決め方（決められなければ、
+    候補を notes に並べる）。encoding：エージェントが選んだ、8 ビットの字の文字コード。"""
+    from .. import namecode
     from ..cfb import CFB
 
     c = CFB(blob)
-    cp = _codepage(c)
+    cps = _codepages(c)
+    wide: dict = {}
+    narrow: dict = {}
+
+    def load(base: str, tag: int) -> None:
+        n = f"{base}__substg1.0_{tag:04X}"
+        if c.has(n + "001F"):
+            wide[(base, tag)] = c.read(n + "001F").decode("utf-16-le", "replace").rstrip("\x00")
+        elif c.has(n + "001E"):
+            narrow[(base, tag)] = c.read(n + "001E").rstrip(b"\x00")
+
+    head_tags = (("From", 0x0C1A), ("差出人のアドレス", 0x0C1F), ("To", 0x0E04), ("Cc", 0x0E03), ("Subject", 0x0037))
+    stores = sorted({n.split("/")[0] for n in c.streams() if n.lower().startswith("__attach_version1.0_#")})
+    for _key, tag in head_tags + (("", 0x1000),):
+        load("", tag)
+    for st in stores:
+        for tag in (0x3707, 0x3704):
+            load(st + "/", tag)
+    declared = [(cps[pid], what) for pid, what in ((_MESSAGE_CP, "メールのコードページ PR_MESSAGE_CODEPAGE"),
+                                                   (_INTERNET_CP, "メールのコードページ PR_INTERNET_CPID")) if pid in cps]
+    reading = namecode.decide(list(narrow.values()), encoding, declared)
+    seven = next((e for e, _w in declared if e.startswith("iso2022")), None)
+
+    def text(base: str, tag: int) -> str | None:
+        if (base, tag) in wide:
+            return wide[(base, tag)]
+        raw = narrow.get((base, tag))
+        if raw is None:
+            return None
+        if seven and b"\x1b" in raw and raw.isascii():  # ISO-2022 の字（7 ビット。エスケープで切り替える）
+            try:
+                return raw.decode(seven)
+            except UnicodeDecodeError:
+                pass
+        return reading.text(raw)[0]
+
     heads = []
-    for key, tag in (("From", 0x0C1A), ("差出人のアドレス", 0x0C1F), ("To", 0x0E04), ("Cc", 0x0E03), ("Subject", 0x0037)):
-        v = _prop_text(c, "", tag, cp)
+    for key, tag in head_tags:
+        v = text("", tag)
         if v:
             heads.append((key, v))
-    body = _prop_text(c, "", 0x1000, cp) or ""
-    notes = []
+    body = text("", 0x1000) or ""
+    notes = [x[2:] if x.startswith("- ") else x for x in reading.note_lines(
+        "8 ビットの字の項目（差出人・件名・本文・添付の名前）", "選んだら、その文字コードの名前を encoding で渡してください。")]
     if not body:
         h = c.read("__substg1.0_10130102") if c.has("__substg1.0_10130102") else None
         if h:
-            body = _html_text(h.decode(cp, "replace"))
+            body = _html_text(_html_decode(h, cps, notes))
             notes.append("本文は HTML だけなので、タグの間の字を読みました")
         elif c.has("__substg1.0_10090102"):
             try:
@@ -222,19 +274,21 @@ def read_msg(blob: bytes) -> Mail:
                 notes.append("本文は RTF（PR_RTF_COMPRESSED）だけなので、RTF を解いて字を読みました")
             except (MailError, ValueError, IndexError) as e:
                 notes.append(f"本文の圧縮した RTF（PR_RTF_COMPRESSED）を解けません（{e}）")
-    atts, names = [], []
-    stores = sorted({n.split("/")[0] for n in c.streams() if n.lower().startswith("__attach_version1.0_#")})
+    atts, names, rawnames = [], [], {}
     for st in stores:
         base = st + "/"
-        nm = _prop_text(c, base, 0x3707, cp) or _prop_text(c, base, 0x3704, cp)
+        tag = 0x3707 if text(base, 0x3707) else 0x3704
+        nm = _unique(names, text(base, tag) or "添付")
         data_n = f"{base}__substg1.0_37010102"
-        nm = _unique(names, nm or "添付")
         if not c.has(data_n):
             notes.append(f"添付「{nm}」は埋め込みのオブジェクトで、取り出していません")
             continue
         names.append(nm)
         atts.append((nm, c.read(data_n)))
-    return Mail(heads, body, atts, notes)
+        raw = narrow.get((base, tag))
+        if raw is not None and not raw.isascii():
+            rawnames[nm] = raw
+    return Mail(heads, body, atts, notes, rawnames, reading.info())
 
 
 _HEAD_JA = {"From": "差出人", "To": "宛先", "Cc": "写し", "Date": "日時", "Subject": "件名"}

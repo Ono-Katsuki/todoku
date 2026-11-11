@@ -46,7 +46,9 @@ def _stories(b: bytes) -> tuple[list[tuple[str, bytes]], str]:
     ccp_text, ccp_ftn, ccp_hdd = struct.unpack_from("<III", b, 0x34)
     if fc_min + ccp_text + ccp_ftn + ccp_hdd > fc_mac:
         raise Word2Error("本文の長さがファイルと合いません（壊れています）")
-    enc = "cp932" if lid == 0x0411 else "cp1252"
+    from ..doc.word6 import lid_codec
+
+    enc = lid_codec(lid) or "cp1252"  # 文書の言語の Windows の ANSI の文字コード（表にない言語は Windows-1252）
     p = fc_min
     out = []
     for name, n in (("本文", ccp_text), ("脚注", ccp_ftn), ("ヘッダー・フッター", ccp_hdd)):

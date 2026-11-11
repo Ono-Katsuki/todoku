@@ -56,6 +56,20 @@ _LID_CP = {0x11: "cp932", 0x12: "cp949", 0x1E: "cp874", 0x01: "cp1256", 0x0D: "c
            0x1A: "cp1250", 0x1B: "cp1250", 0x24: "cp1250", 0x18: "cp1250", 0x25: "cp1257", 0x26: "cp1257", 0x27: "cp1257"}
 _WESTERN = {0x03, 0x06, 0x07, 0x09, 0x0A, 0x0B, 0x0C, 0x0F, 0x10, 0x13, 0x14, 0x16, 0x1D, 0x2D, 0x36, 0x38, 0x3E, 0x41}
 
+
+
+def lid_codec(lid: int) -> str | None:
+    """文書の言語（lid）→ その言語の Windows の ANSI の文字コード。表にない言語は None。"""
+    prim = lid & 0x3FF
+    if lid in (0x0404, 0x0C04, 0x1404):
+        return "cp950"
+    if lid in (0x0804, 0x1004):
+        return "cp936"
+    if prim in _LID_CP:
+        return _LID_CP[prim]
+    return "cp1252" if prim in _WESTERN else None
+
+
 # sprm の値の長さ（仕様書の SPRM DEFINITIONS の表）。-1：長さ 1 バイトが続く。-2：長さ 2 バイトが続き、その値から 1 を引く。
 # -3：長さ 2 バイトが続く。23（sprmPChgTabs）は別の決まり
 SPRM_LEN: dict[int, int] = {2: 2, 3: -1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1, 11: 1, 12: -1, 13: 1, 14: 1, 15: -1, 16: 2,
@@ -145,16 +159,8 @@ class Word6File(DocFile):
         if chse != 0:
             raise DocError(f"Word 6.0/95 の文書の文字は、Windows の ANSI ではない文字コード（chse={chse}。256 は Macintosh）で"
                            "書かれています。この文字コードは確かめていないので、読み違えた字を出さないよう、読むのをやめました")
-        prim = self.lid & 0x3FF
-        if self.lid == 0x0404 or self.lid == 0x0C04 or self.lid == 0x1404:
-            self.enc = "cp950"
-        elif self.lid in (0x0804, 0x1004):
-            self.enc = "cp936"
-        elif prim in _LID_CP:
-            self.enc = _LID_CP[prim]
-        elif prim in _WESTERN:
-            self.enc = "cp1252"
-        else:
+        self.enc = lid_codec(self.lid)
+        if self.enc is None:
             raise DocError(f"Word 6.0/95 の文書の言語（lid 0x{self.lid:04X}）から、文字コードを決められません")
         self.complex = bool(self.flags & 0x0004)
         self.fc_min, self.fc_mac = struct.unpack_from("<II", wd, 0x18)

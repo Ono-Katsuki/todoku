@@ -11,6 +11,11 @@ OLE1 の中身）か、部品のバイト列（.xlsx などの ZIP・複合フ�
 - CONTENTS が %PDF で始まる → PDF（Adobe の PDF の部品）。\\x01Ole10Native の中身が %PDF・ZIP・複合ファイルなら、その形で読む
   （「パッケージ」：ファイルをそのまま埋め込んだもの。ファイル名も読む）
 - それ以外 → 種類の名前（CompObj の表示名・ProgID・入れ物の CLSID）と、図としての代替テキストだけ（中身は読めない、と書く）
+
+CompObj の表示名と、パッケージのファイル名は、8 ビットの字（ANSI）で、文字コードが書かれていない。Unicode の表示名があれば、それ。
+なければ、同じ入れ物（なければ、外側の複合ファイル）の要約の情報（SummaryInformation）のコードページ（PIDSI_CODEPAGE）で厳密に
+読めれば、それ。それもなければ、namecode の決め方（読める文字コードが 1 つだけなら、それ。決められなければ、順のいちばん前で示して、
+決められないことを伝える）。
 """
 
 from __future__ import annotations
@@ -43,35 +48,84 @@ def label_of(prog: str) -> str:
 
 
 # ====================================================================== 入れ物の情報（MS-OLEDS 2.3.8 CompObjStream）
-def _lp_ansi(b: bytes, pos: int) -> tuple[str, int]:
+def _lp_ansi(b: bytes, pos: int) -> tuple[bytes, int]:
     n = struct.unpack_from("<I", b, pos)[0]
     if n > 0x10000 or pos + 4 + n > len(b):
         raise ValueError("長さが合いません")
-    raw = b[pos + 4:pos + 4 + n].rstrip(b"\x00")
-    try:
-        s = raw.decode("cp932")
-    except UnicodeDecodeError:
-        s = raw.decode("latin-1")
-    return s, pos + 4 + n
+    return b[pos + 4:pos + 4 + n].rstrip(b"\x00"), pos + 4 + n
 
 
-def compobj(data: bytes) -> dict:
-    """\\x01CompObj：{"user_type": 表示名, "clipboard": 形式, "prog": ProgID}（読めたところまで）。"""
+def summary_codepage(st) -> list[tuple[str, str]]:
+    """入れ物 st と、その外側の入れ物の、要約の情報（\\x05SummaryInformation・\\x05DocumentSummaryInformation）の
+    コードページ（MS-OLEPS：PIDSI_CODEPAGE、番号 1、VT_I2）：[(codec, どこの宣言か)]（内側から）。8 ビットの字の文字コードの宣言。"""
+    from ..namecode import codec_of_codepage
+
+    out = []
+    inner = True
+    while st is not None:
+        try:
+            names = {n.lower(): n for n in st.streams()}
+        except Exception:  # noqa: BLE001  読めない入れ物
+            names = {}
+        for key in ("\x05summaryinformation", "\x05documentsummaryinformation"):
+            if key not in names:
+                continue
+            try:
+                b = st.read(names[key])
+                if struct.unpack_from("<H", b, 0)[0] != 0xFFFE:
+                    continue
+                at = struct.unpack_from("<I", b, 44)[0]
+                n = struct.unpack_from("<I", b, at + 4)[0]
+                for k in range(min(n, 4096)):
+                    pid, off = struct.unpack_from("<II", b, at + 8 + 8 * k)
+                    if pid == 1:
+                        vt, cp = struct.unpack_from("<HxxH", b, at + off)
+                        codec = codec_of_codepage(cp) if vt == 2 else None
+                        if codec and not codec.startswith(("utf-16", "utf-32")):  # 1200：プロパティの字が Unicode（8 ビットの字の宣言ではない）
+                            out.append((codec, "同じ入れ物の要約の情報のコードページ" if inner else "外側のファイルの要約の情報のコードページ"))
+                        break
+            except Exception:  # noqa: BLE001  壊れたプロパティの集まり
+                continue
+        st = getattr(st, "parent", None)
+        inner = False
+    return list(dict.fromkeys(out))
+
+
+def _ansi(raw: bytes, declared, out: dict, key: str) -> str:
+    """8 ビットの字 raw を読む。ASCII でないときは、読み方を out[key + "_read"] に、決められないときは out[key + "_undetermined"] に置く。"""
+    from ..namecode import decide
+
+    reading = decide([raw], declared=declared)
+    text, how = reading.text(raw)
+    if not raw.isascii():
+        out[key + "_read"] = how
+        if reading.undetermined:
+            out[key + "_undetermined"] = True
+    return text
+
+
+def compobj(data: bytes, declared=()) -> dict:
+    """\\x01CompObj：{"user_type": 表示名, "clipboard": 形式, "prog": ProgID}（読めたところまで）。declared：8 ビットの字の文字コードの
+    宣言（summary_codepage）。表示名は、Unicode の表示名があればそれ、なければ 8 ビットの表示名を、宣言か namecode の決め方で読む
+    （ASCII でないときは user_type_read に読み方、決められないときは user_type_undetermined）。"""
     out: dict = {}
     try:
         pos = 28
-        out["user_type"], pos = _lp_ansi(data, pos)
+        raw_type, pos = _lp_ansi(data, pos)
+        out["user_type"] = raw_type.decode("latin-1")
         marker = struct.unpack_from("<I", data, pos)[0]
         if marker in (0xFFFFFFFF, 0xFFFFFFFE):
             pos += 8
         elif marker == 0:
             pos += 4
         else:
-            out["clipboard"], pos = _lp_ansi(data, pos)
+            raw, pos = _lp_ansi(data, pos)
+            out["clipboard"] = raw.decode("latin-1")
         if pos + 4 <= len(data):
             n = struct.unpack_from("<I", data, pos)[0]
             if 0 < n <= 0x28:  # Reserved1（実際には ProgID が入る。40 字を超えるものは仕様どおり無視する）
-                out["prog"], pos = _lp_ansi(data, pos)
+                raw, pos = _lp_ansi(data, pos)
+                out["prog"] = raw.decode("latin-1")
                 if pos + 4 <= len(data) and struct.unpack_from("<I", data, pos)[0] == 0x71B239F4:
                     pos += 4
                     cch = struct.unpack_from("<I", data, pos)[0]
@@ -79,8 +133,11 @@ def compobj(data: bytes) -> dict:
                         uni = data[pos + 4:pos + 4 + 2 * cch].decode("utf-16-le", errors="replace").rstrip("\x00")
                         if uni:
                             out["user_type"] = uni
+                            return out
     except (struct.error, ValueError):
         pass
+    if "user_type" in out:
+        out["user_type"] = _ansi(raw_type, declared, out, "user_type")
     return out
 
 
@@ -116,9 +173,10 @@ def clsid_of(cfb, path: str = "") -> str:
     return f"{{{a:08X}-{b:04X}-{c:04X}-{d[:4]}-{d[4:]}}}"
 
 
-def ole10native(data: bytes) -> tuple[str, bytes | None]:
+def ole10native(data: bytes, declared=(), how: dict | None = None) -> tuple[str, bytes | None]:
     """\\x01Ole10Native（OLE1 の中身。NativeDataSize の後ろが中身）。パッケージ（ファイルを埋め込んだもの）なら
-    (ファイル名, ファイルの中身)。中身の形は、OLE のパッケージの記録の並び（2 バイトの印・表示名・元のパス・…・中身の長さ・中身）。
+    (ファイル名, ファイルの中身)。ファイル名は 8 ビットの字：declared（summary_codepage）か namecode の決め方で読み、
+    読み方を how["file_read"]・how["file_undetermined"] に置く。中身の形は、OLE のパッケージの記録の並び（2 バイトの印・表示名・元のパス・…・中身の長さ・中身）。
     並びを読めなければ、中身の中の既知の先頭のバイト（%PDF・ZIP・複合ファイル）から後ろを中身とみなす。"""
     if len(data) < 4:
         return "", None
@@ -135,11 +193,7 @@ def ole10native(data: bytes) -> tuple[str, bytes | None]:
         size = struct.unpack_from("<I", native, pos)[0]
         body = native[pos + 4:pos + 4 + size]
         if len(body) == size:
-            try:
-                name = label.decode("cp932")
-            except UnicodeDecodeError:
-                name = label.decode("latin-1")
-            return name, body
+            return _ansi(label, declared, how if how is not None else {}, "file"), body
     except (ValueError, struct.error):
         pass
     for sig in (b"%PDF", MAGIC_CFB, b"PK\x03\x04"):
@@ -180,7 +234,10 @@ def _describe(src, name: str, prog: str, d: dict, depth: int) -> None:
 
 def _storage(st, outer: bytes, name: str, prog: str, d: dict, depth: int) -> None:
     names = {n.lower(): n for n in st.streams()}
-    info = compobj(st.read(names["\x01compobj"])) if "\x01compobj" in names else {}
+    declared = summary_codepage(st)
+    info = compobj(st.read(names["\x01compobj"]), declared) if "\x01compobj" in names else {}
+    if info.get("user_type_read"):
+        d["class_read"] = info["user_type_read"]  # 表示名（8 ビットの字）の読み方
     prog = prog or info.get("prog", "")
     cls = clsid_of(st)
     parts = [x for x in (info.get("user_type", ""), prog, cls if not (info.get("user_type") or prog) else "") if x]
@@ -215,23 +272,29 @@ def _storage(st, outer: bytes, name: str, prog: str, d: dict, depth: int) -> Non
     elif "contents" in names and st.read(names["contents"])[:4] == b"%PDF":
         _pdf(st.read(names["contents"]), name, d)
     elif "\x01ole10native" in names:
-        fname, body = ole10native(st.read(names["\x01ole10native"]))
+        how: dict = {}
+        fname, body = ole10native(st.read(names["\x01ole10native"]), declared, how)
         d["kind"] = "package"
         if fname:
             d["file"] = fname
+        if how.get("file_read"):
+            d["file_read"] = how["file_read"]
+        told = [f"- ファイル名の文字コードは、ファイルに書かれていず、規則では決められません（{how['file_read']}。字が正しいとは限りません）"] if how.get("file_undetermined") else []
         if body is not None and depth < MAX_DEPTH and body[:4] in (b"%PDF", MAGIC_CFB[:4], b"PK\x03\x04"):
             inner = describe(body, fname or name, "", "", depth + 1)
-            d["markdown"] = ([f"- ファイル名：{_md(fname)}"] if fname else []) + inner["markdown"]
+            d["markdown"] = ([f"- ファイル名：{_md(fname)}"] if fname else []) + told + inner["markdown"]
             d["inner"] = inner["kind"]
             d["label"] = f"{KIND_LABEL.get(inner['kind'], '埋め込み')}（パッケージ）"
             if inner.get("error"):
                 d["error"] = inner["error"]
         else:
-            d["markdown"] = ([f"- ファイル名：{_md(fname)}"] if fname else []) + [
+            d["markdown"] = ([f"- ファイル名：{_md(fname)}"] if fname else []) + told + [
                 "- 埋め込んだファイルの中身は、この形（" + _kind_of_bytes(body) + "）では読めません"]
     else:
         d["kind"] = "other"
-        d["markdown"] = [f"- 種類：{_md(d['class']) or '（種類の名前がありません）'}",
+        d["markdown"] = [f"- 種類：{_md(d['class']) or '（種類の名前がありません）'}"] + (
+            [f"- 種類の名前の文字コードは、ファイルに書かれていず、規則では決められません（{info['user_type_read']}。字が正しいとは限りません）"]
+            if info.get("user_type_undetermined") else []) + [
                          "- この部品の中身は、とどくでは読めない形です（種類の名前と、図としての代替テキストだけを出しています）"]
 
 

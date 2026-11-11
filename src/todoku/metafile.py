@@ -313,8 +313,9 @@ def _text_run(i: int, t: int, r: bytes, st: dict) -> TextRun:
     if t == EMR_EXTTEXTOUTW:
         text = r[off_s:off_s + 2 * nch].decode("utf-16-le", errors="replace")
     else:
-        enc = "cp932" if st["font"] is not None and st["font"].charset == 128 else "latin-1"
-        text = r[off_s:off_s + nch].decode(enc, errors="replace")
+        from .namecode import read_ansi
+
+        text = read_ansi(r[off_s:off_s + nch], st["font"].charset if st["font"] is not None else None)[0]
     dx = []
     if off_dx and off_dx + 4 * nch <= len(r) and not opts & 0x2000:  # ETO_PDY のときは縦の送りも並ぶので読まない
         dx = list(struct.unpack_from(f"<{nch}i", r, off_dx))

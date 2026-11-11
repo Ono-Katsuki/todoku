@@ -145,7 +145,8 @@ def test_lzh_levels_and_shift_jis_names(tmp_path):
     p = _p(tmp_path, "a.lzh", blob)
     s = api.summary(p)
     assert [m["name"] for m in s["members"]] == ["申請書.csv", "sub/b.txt", "統計.txt"]
-    assert "Shift_JIS（推定）" in "\n".join(t for _n, t in api.window(p)[2])
+    t = "\n".join(t for _n, t in api.window(p)[2])  # 名前の文字コードは書かれていない：決められないことと、候補を伝える
+    assert "名前の文字コードを規則では決められません" in t and "cp932（いまの読み方）：申請書.csv" in t
     assert {f["id"] for f in api.fields(f"{p}!/申請書.csv")} >= {"R2.C2"}
     assert "役所の統計" in "\n".join(t for _n, t in api.window(f"{p}!/統計.txt")[2])
     g = api.grade(p)

@@ -323,12 +323,22 @@ def _read_member(path: str, password: str | None):
 
 
 def _encoding(blob: bytes, k: str, encoding: str | None) -> str | None:
-    """エージェントが選んだ文字コード（encoding）を確かめる：文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）にだけ使え、
-    ファイルがその文字コードとして厳密に読めること。読めなければ ApiError（黙ってほかの文字コードで読まない）。"""
+    """エージェントが選んだ文字コード（encoding）を確かめる：文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）と、
+    名前・字の文字コードが書かれていない書庫とメール（ZIP・tar・gzip・LZH・.msg）にだけ使え、ファイル（書庫は、印のない名前の全部）が
+    その文字コードとして厳密に読めること。読めなければ ApiError（黙ってほかの文字コードで読まない）。"""
     if not encoding:
         return None
+    if k in _arc.NAME_CODED:
+        from .ziparc import ArchiveError
+
+        try:
+            _arc.listing(blob, k, "", encoding)
+        except ArchiveError as e:
+            raise ApiError(str(e)) from None
+        return encoding
     if k not in _open.TEXT_FILES:
-        raise ApiError(f"encoding（文字コード）は、文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）にだけ指定できます"
+        raise ApiError(f"encoding（文字コード）は、文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）と、名前の文字コードが書かれていない"
+                       f"書庫・メール（ZIP・tar・gzip・LZH・.msg）にだけ指定できます"
                        f"（この書類は {KIND_JA.get(k, k)}。文字コードはファイルの作りで決まります）")
     from .datafile.textenc import EncodingError, decode
 
@@ -446,7 +456,7 @@ def _window(blob: bytes, name: str, k: str, lock, encoding: str | None = None) -
         from .ziparc import ArchiveError
 
         try:
-            doc, parts = _arc.window(blob, name, KIND_JA, k)
+            doc, parts = _arc.window(blob, name, KIND_JA, k, encoding)
         except ArchiveError as e:
             raise ApiError(str(e)) from None
         return k, doc, parts
@@ -3342,6 +3352,11 @@ def summary(path: str, password: str | None = None, encoding: str | None = None)
             d["macro_runs_on_change"] = any(e["on_change"] for e in m["events"])
     elif k in _arc.KINDS:
         d["members"] = [{"name": m["name"], "kind": m["kind"], "size": m["size"]} for m in doc["members"]]
+        if doc.get("name_encoding", {}).get("basis") in ("order", "none", "given"):
+            # 名前の文字コードを決められない（候補と見本）・エージェントが選んだ。候補の日本語の名前は窓にだけ置く
+            d["name_encoding"] = {**doc["name_encoding"], **({"candidates": [
+                {"encoding": c["encoding"], "sample": c["sample"]} for c in doc["name_encoding"]["candidates"]]}
+                if doc["name_encoding"].get("candidates") else {})}
         if doc.get("needs_tool"):
             d["needs_tool"] = doc["needs_tool"]
     else:

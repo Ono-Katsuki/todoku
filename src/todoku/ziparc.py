@@ -3,9 +3,11 @@
 - 窓：中のファイルの一覧（名前・形式・大きさ）と、開くときの指定（path に「a.zip!/名前」）。
 - 中のファイル：取り出して、その形式の窓・入力欄・書き込み・検査・段階をそのまま使う（ZIP の中の ZIP も、続けて「!/」で指す）。
 - 書き込み：中のファイルに書き、ZIP は書いたファイルの部品だけを入れ替える（ほかの部品は、圧縮したバイトのまま写す：zipraw）。
-- 名前の文字コード：ZIP の決まり（APPNOTE 4.4.4）では、UTF-8 の印がなければ CP437。Info-ZIP の Unicode の名前（0x7075）が
-  あればそれを使う。どちらもなく、名前のバイトが UTF-8 として正しければ UTF-8、Shift_JIS（CP932）として正しければ CP932 と読み、
-  読み方を一覧に書く（ファイルには書かれていないので、読み方は推定）。
+- 名前の文字コード：UTF-8 の印（APPNOTE 4.4.4）か、Info-ZIP の Unicode の名前（0x7075）があれば、それ。どちらもない名前は、
+  ZIP の決まりでは CP437 だが、実際には作った機械の文字コード（Shift_JIS・EUC-KR・GBK・CP850・CP866 など）で書かれていて、
+  ファイルからは決まらない。namecode の決め方で読む：ASCII・UTF-8 の形の名前はそのとおり。ほかは、ZIP の中の名前をまとめて、
+  読める文字コードをすべて試し、1 つだけなら、それ。2 つ以上なら、決まった順のいちばん前で示して、ほかを候補として窓に並べる
+  （エージェントが encoding で選ぶか、正しい読み方の名前で「a.zip!/名前」と指す：名前のバイトをきれいに読める読み方なら、どれでも指せる）。
 """
 
 from __future__ import annotations
@@ -34,7 +36,8 @@ class Member:
     csize: int
     encrypted: bool
     is_dir: bool
-    named: str  # 名前の読み方（utf-8 の印・Unicode の名前・推定）
+    named: str  # 名前の読み方（UTF-8 の印・Unicode の名前・バイトの形・決められない など）
+    rawname: bytes | None = None  # 文字コードの印のない名前のバイト（印のある名前は None）
 
 
 def _unicode_extra(central: bytes) -> str | None:
@@ -56,22 +59,15 @@ def _unicode_extra(central: bytes) -> str | None:
     return None
 
 
-def _display_name(e) -> tuple[str, str]:
+def _labelled_name(e) -> tuple[str, str] | None:
+    """文字コードの印のある名前：(名前, 読み方)。印がなければ None（名前のバイトは e.name.encode("cp437")）。"""
     flags = struct.unpack_from("<H", e.central, 8)[0]
     if flags & 0x800:
         return e.name, "UTF-8（ZIP の印）"
     u = _unicode_extra(e.central)
     if u is not None:
         return u, "UTF-8（Unicode の名前）"
-    raw = e.name.encode("cp437")
-    if raw.isascii():
-        return raw.decode("ascii"), "ASCII"
-    for enc, how in (("utf-8", "UTF-8（推定）"), ("cp932", "Shift_JIS（推定）")):
-        try:
-            return raw.decode(enc), how
-        except UnicodeDecodeError:
-            continue
-    return e.name, "CP437（ZIP の決まり）"
+    return None
 
 
 def _open(blob: bytes) -> RawZip:
@@ -83,18 +79,32 @@ def _open(blob: bytes) -> RawZip:
         raise ArchiveError(f"ZIP として読めません（{e}）") from None
 
 
-def members(blob: bytes, z: RawZip | None = None) -> list[Member]:
+def listing(blob: bytes, z: RawZip | None = None, encoding: str | None = None):
+    """(中の項目, 印のない名前の読み方 namecode.Reading)。encoding：エージェントが選んだ、印のない名前の文字コード。"""
+    from . import namecode
+
     z = z or _open(blob)
+    known = [_labelled_name(e) for e in z._entries_cd_order]
+    raws = [e.name.encode("cp437") if lab is None else None for e, lab in zip(z._entries_cd_order, known)]
+    try:
+        reading = namecode.decide([r for r in raws if r is not None], encoding, fallback="cp437")
+    except namecode.NameCodeError as e:
+        raise ArchiveError(str(e)) from None
     out = []
     seen: set[str] = set()
-    for e in z._entries_cd_order:
-        name, how = _display_name(e)
+    for e, lab, raw in zip(z._entries_cd_order, known, raws):
+        name, how = lab if lab is not None else reading.text(raw)
         if name in seen:  # 読み方を変えて同じ名前になったもの：ZIP の中の名前のままで指す
             name, how = e.name, "CP437（ZIP の決まり）"
         seen.add(name)
         csize, usize = struct.unpack_from("<II", e.central, 20)
-        out.append(Member(name, e.name, usize, csize, bool(e.flags & 0x1), name.endswith("/"), how))
-    return out
+        out.append(Member(name, e.name, usize, csize, bool(e.flags & 0x1), name.endswith("/"), how,
+                          raw if raw is not None and not raw.isascii() else None))
+    return out, reading
+
+
+def members(blob: bytes, z: RawZip | None = None) -> list[Member]:
+    return listing(blob, z)[0]
 
 
 def files(blob: bytes, z: RawZip | None = None) -> list[Member]:
@@ -102,11 +112,30 @@ def files(blob: bytes, z: RawZip | None = None) -> list[Member]:
     return [m for m in members(blob, z) if not m.is_dir]
 
 
+def find_by_reading(ms: list, name: str, raw_of, fix=None):
+    """name が、印のない名前のバイトの、きれいに読める読み方のどれかと同じ項目（1 つだけのとき）。なければ None。
+    エージェントが、窓の候補から正しい読み方を選んで、その名前で指したときのため。"""
+    from . import namecode
+
+    hits = []
+    for m in ms:
+        raw = raw_of(m)
+        if raw is not None and any((fix(t) if fix else t) == name for t in namecode.readings(raw)):
+            hits.append(m)
+    if len(hits) > 1:
+        raise ArchiveError(f"「{name}」という読み方は、中の {len(hits)} 個のファイルの名前に当たります"
+                           f"（{'、'.join(m.name for m in hits[:5])}）。窓の一覧の名前で指してください")
+    return hits[0] if hits else None
+
+
 def _find(blob: bytes, name: str, ms: list[Member] | None = None) -> Member:
     ms = members(blob) if ms is None else ms
     for m in ms:
         if m.name == name and not m.is_dir:
             return m
+    hit = find_by_reading([m for m in ms if not m.is_dir], name, lambda m: m.rawname)
+    if hit is not None:
+        return hit
     names = "、".join([m.name for m in ms if not m.is_dir][:30])
     raise ArchiveError(f"ZIP の中に「{name}」がありません。中のファイル：{names}")
 
@@ -232,16 +261,23 @@ def base_name(member: str) -> str:
     return PurePosixPath(member).name
 
 
-def window(blob: bytes, name: str, kind_ja: dict) -> tuple[dict, list[tuple[str, str]]]:
+CHOOSE_NAME = ("選んだら、その文字コードの名前を encoding で渡すと、一覧をその読み方で出し直します。"
+               "中のファイルは、選んだ読み方の名前で「{name}!/名前」と指せます（名前のバイトをきれいに読める読み方なら、どれでも指せます）。")
+
+
+def window(blob: bytes, name: str, kind_ja: dict, encoding: str | None = None) -> tuple[dict, list[tuple[str, str]]]:
     """窓：中のファイルの一覧（名前・形式・大きさ・名前の読み方）と、開くときの指定。"""
     from .book import kind_of
 
     from .limits import LimitExceeded
 
     z = _open(blob)  # 中央ディレクトリは 1 度だけ読む
+    ms, reading = listing(blob, z, encoding)
     rows = []
     spent = False  # 1 回の呼び出しで展開できる合計を使い切った：残りの形式は確かめない
-    for m in files(blob, z):
+    for m in ms:
+        if m.is_dir:
+            continue
         kind, why = "", ""
         if m.encrypted:
             why = "ZIP のパスワードで暗号化されています（取り出せません）"
@@ -263,13 +299,14 @@ def window(blob: bytes, name: str, kind_ja: dict) -> tuple[dict, list[tuple[str,
     lines = [f"# ZIP：{name}", "",
              f"中のファイル {len(rows)} 個。中のファイルは、path に「{name}{SEP}中の名前」と指定して、ほかの書類と同じに開けます"
              "（書き込むと、ZIP はそのファイルの部品だけを入れ替えて書き出します）。", ""]
-    guessed = [r for r in rows if "推定" in r["named"]]
-    if guessed:
-        lines += [f"名前の文字コードがファイルに書かれていないので、{len(guessed)} 個の名前は、バイトの並びから読み方を推定しました"
-                  f"（{'・'.join(sorted({r['named'] for r in guessed}))}）。", ""]
+    notes = reading.note_lines("名前", CHOOSE_NAME.format(name=name))
+    if notes:
+        lines += notes + [""]
     lines += ["| 中の名前 | 形式 | 大きさ（展開後） |", "|---|---|---|"]
     for r in rows:
         kind = r["kind_ja"] or f"扱えない（{r['why']}）"
         lines.append(f"| {r['name'].replace('|', '｜')} | {kind} | {r['size']:,} バイト |")
     doc = {"kind": "zip", "name": name, "members": rows}
+    if reading.info():
+        doc["name_encoding"] = reading.info()
     return doc, [("一覧", "\n".join(lines))]

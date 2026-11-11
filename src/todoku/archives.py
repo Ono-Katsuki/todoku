@@ -9,6 +9,9 @@
   - gz：見出し（時刻・名前など）はそのまま。データは縮め直すので、圧縮したバイトは変わるが、解いた中身が書いたものとバイト一致すること
     （api が取り出し直して確かめる）。複数の部分をつないだ gz には書かない（どの部分かを証明できない）
   - LZH・7z とメールには書かない
+- 名前の文字コード：tar の pax の path は UTF-8（POSIX の決まり）、7z は UTF-16。tar の ustar・GNU の名前、gzip の FNAME、LZH の名前は、
+  文字コードが書かれていないので、namecode の決め方で読む（決められなければ、候補を窓に並べる。エージェントが encoding で選ぶか、
+  正しい読み方の名前で指す）。
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ KINDS = frozenset({"zip", "tar", "gz", "bz2", "xz", "lzh", "7z", "eml", "msg"})
 PASSWORDED = frozenset({"7z"})
 WRITABLE = frozenset({"zip", "tar", "gz"})
 MAIL = frozenset({"eml", "msg"})
+NAME_CODED = frozenset({"zip", "tar", "gz", "lzh", "msg"})  # 名前・字の文字コードが書かれていないことがある（エージェントが encoding で選べる）
 KIND_JA = {"tar": "tar（ファイルをまとめたもの）", "gz": "gzip（縮めた 1 つのファイル）", "bz2": "bzip2（縮めた 1 つのファイル。読むだけ）",
            "xz": "xz（縮めた 1 つのファイル。読むだけ）", "lzh": "LZH（.lzh・.lha。読むだけ）", "7z": "7-Zip の書庫（.7z。読むだけ）",
            "eml": "メール（.eml。読むだけ）", "msg": "Outlook のメール（.msg。読むだけ）"}
@@ -59,6 +63,7 @@ class AMember:
     named: str = "UTF-8"
     why: str = ""
     raw: object = None
+    rawname: bytes | None = None  # 文字コードの印のない名前のバイト（ASCII でないもの）
 
 
 # ====================================================================== 見分ける
@@ -166,8 +171,8 @@ def sniff(blob: bytes, filename: str = "") -> str | None:
 
 
 # ====================================================================== gz
-def _gz_header(b: bytes) -> tuple[int, str | None]:
-    """(見出しの大きさ, FNAME の名前)。RFC 1952。"""
+def _gz_header(b: bytes) -> tuple[int, bytes | None]:
+    """(見出しの大きさ, FNAME の名前のバイト)。RFC 1952。"""
     if not is_gzip(b) or len(b) < 10:
         raise ArchiveError("gzip の見出しが壊れています")
     flg = b[3]
@@ -179,8 +184,7 @@ def _gz_header(b: bytes) -> tuple[int, str | None]:
             p += 2 + xlen
         if flg & 8:
             e = b.index(0, p)
-            raw = b[p:e]
-            name = _decode_name(raw)
+            name = b[p:e]
             p = e + 1
         if flg & 16:
             p = b.index(0, p) + 1
@@ -189,15 +193,6 @@ def _gz_header(b: bytes) -> tuple[int, str | None]:
     except (ValueError, struct.error):
         raise ArchiveError("gzip の見出しが壊れています") from None
     return p, name
-
-
-def _decode_name(raw: bytes) -> str:
-    for enc in ("utf-8", "cp932", "latin-1"):
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("latin-1")
 
 
 def gunzip(b: bytes, what: str = "gzip") -> tuple[bytes, bool]:
@@ -271,27 +266,33 @@ def _tar_infos(data: bytes) -> list[tarfile.TarInfo]:
         raise ArchiveError(f"tar として読めません（{e}）") from None
 
 
-def _tar_name(ti: tarfile.TarInfo) -> tuple[str, str]:
-    s = ti.name
+def _tar_listing(data: bytes, encoding: str | None = None):
+    """(ファイルの項目, 印のない名前の読み方)。pax の path は UTF-8（POSIX）。ustar・GNU の名前には文字コードが書かれていない。"""
+    tis = [ti for ti in _tar_infos(data) if ti.isreg()]
+    pax = [("path" in ti.pax_headers and ti.pax_headers.get("hdrcharset") != "BINARY") for ti in tis]
+    raws = [None if px else ti.name.encode("utf-8", "surrogateescape") for ti, px in zip(tis, pax)]
+    reading = _decide([r for r in raws if r is not None], encoding)
+    out = []
+    for ti, raw in zip(tis, raws):
+        if raw is None:
+            nm, how = ti.name, ("ASCII" if ti.name.isascii() else "UTF-8（pax の決まり）")
+        else:
+            nm, how = reading.text(raw)
+        out.append(AMember(nm, ti.size, ti.size, named=how, raw=ti, rawname=raw if raw and not raw.isascii() else None))
+    return out, reading
+
+
+def _decide(raws, encoding, **kw):
+    from . import namecode
+
     try:
-        s.encode("utf-8")
-        return s, "ASCII" if s.isascii() else "UTF-8"
-    except UnicodeEncodeError:
-        raw = s.encode("utf-8", "surrogateescape")
-        try:
-            return raw.decode("cp932"), "Shift_JIS（推定）"
-        except UnicodeDecodeError:
-            return raw.decode("latin-1"), "Latin-1（どの文字コードでも読めません）"
+        return namecode.decide(raws, encoding, **kw)
+    except namecode.NameCodeError as e:
+        raise ArchiveError(str(e)) from None
 
 
 def _tar_members(data: bytes) -> list[AMember]:
-    out = []
-    for ti in _tar_infos(data):
-        if not ti.isreg():
-            continue
-        nm, how = _tar_name(ti)
-        out.append(AMember(nm, ti.size, ti.size, named=how, raw=ti))
-    return out
+    return _tar_listing(data)[0]
 
 
 def tar_replace(data: bytes, ti: tarfile.TarInfo, content: bytes) -> bytes:
@@ -415,53 +416,91 @@ def preflight(blob: bytes, k: str) -> None:
 
 
 # ====================================================================== 入口
-def _mail(blob: bytes, k: str):
+def _mail(blob: bytes, k: str, encoding: str | None = None):
+    from . import namecode
     from .legacy.mail import read_eml, read_msg
 
-    return read_eml(blob) if k == "eml" else read_msg(blob)
+    if k == "eml":
+        if encoding:
+            raise ArchiveError("メール（.eml）の字は、メールに書かれた文字コード（charset）のとおりに読みます（encoding は選べません）")
+        return read_eml(blob)
+    try:
+        return read_msg(blob, encoding)
+    except namecode.NameCodeError as e:
+        raise ArchiveError(str(e)) from None
 
 
-def _name_of_gz(blob: bytes, filename: str) -> str:
-    _h, nm = _gz_header(blob)
+def _gz_base(text: str) -> str:
+    return text.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _gz_member(blob: bytes, filename: str, encoding: str | None = None):
+    """(項目, FNAME の読み方)。gzip の FNAME は、RFC 1952 の決まりでは ISO 8859-1 だが、実際には作った機械の文字コードで書かれている。"""
+    _h, raw = _gz_header(blob)
+    reading = _decide([raw] if raw else [], encoding)
+    isize = struct.unpack_from("<I", blob, len(blob) - 4)[0] if len(blob) >= 18 else 0
+    nm, how = reading.text(raw) if raw else ("", "")
+    nm = _gz_base(nm)
     if nm:
-        return nm.replace("\\", "/").rsplit("/", 1)[-1] or "中身"
+        return AMember(nm, isize, len(blob), named=f"gzip の FNAME：{how}", rawname=None if raw.isascii() else raw), reading
     base = filename.rsplit("/", 1)[-1]
-    return base[:-3] if base.lower().endswith(".gz") and len(base) > 3 else (base + ".out" if base else "中身")
+    nm = base[:-3] if base.lower().endswith(".gz") and len(base) > 3 else (base + ".out" if base else "中身")
+    return AMember(nm, isize, len(blob), named="ファイルの名前から"), reading
 
 
 def files(blob: bytes, k: str, filename: str = "") -> list:
+    return listing(blob, k, filename)[0]
+
+
+def listing(blob: bytes, k: str, filename: str = "", encoding: str | None = None):
+    """(中のファイル, 印のない名前の読み方 namecode.Reading か None)。encoding：エージェントが選んだ、印のない名前の文字コード。"""
     if k == "zip":
-        return ziparc.files(blob)
+        ms, reading = ziparc.listing(blob, None, encoding)
+        return [m for m in ms if not m.is_dir], reading
     if k == "tar":
         data, _gz = _tar_plain(blob)
-        return _tar_members(data)
+        return _tar_listing(data, encoding)
+    if k == "gz":
+        m, reading = _gz_member(blob, filename, encoding)
+        return [m], reading
+    if k == "lzh":
+        from .legacy.lzh import LzhError, listing as lzh_listing
+
+        try:
+            es, reading = lzh_listing(blob, encoding)
+        except LzhError as e:
+            raise ArchiveError(str(e)) from None
+        return [AMember(e.name, e.size, e.csize, named=e.named, raw=e, rawname=e.rawname) for e in es if not e.is_dir], reading
+    if k in MAIL:
+        return listing_info(blob, k, filename, encoding)[0], None
+    if encoding:
+        raise ArchiveError(f"{KIND_JA.get(k, k)}の名前には、選べる文字コードがありません")
+    return _files(blob, k, filename), None
+
+
+def listing_info(blob: bytes, k: str, filename: str = "", encoding: str | None = None) -> tuple[list, dict]:
+    """(中のファイル, 印のない字（書庫の名前・メールの 8 ビットの字）の読み方の info。ASCII・UTF-8・印のある字だけなら空)。"""
+    if k in MAIL:
+        from .legacy.mail import MailError
+
+        try:
+            m = _mail(blob, k, encoding)
+        except MailError as e:
+            raise ArchiveError(str(e)) from None
+        return [AMember(n, len(b), len(b), named="メールの添付の名前", raw=b, rawname=m.rawnames.get(n))
+                for n, b in m.attachments], dict(m.text_encoding)
+    ms, reading = listing(blob, k, filename, encoding)
+    return ms, (reading.info() if reading is not None else {})
+
+
+def _files(blob: bytes, k: str, filename: str = "") -> list:
     if k in ("bz2", "xz"):
         base = filename.rsplit("/", 1)[-1]
         ext = f".{k}"
         nm = base[:-len(ext)] if base.lower().endswith(ext) and len(base) > len(ext) else (base + ".out" if base else "中身")
         return [AMember(nm, len(unpack(blob, k)), len(blob), named="ファイルの名前から")]
-    if k == "gz":
-        nm = _name_of_gz(blob, filename)
-        isize = struct.unpack_from("<I", blob, len(blob) - 4)[0] if len(blob) >= 18 else 0
-        return [AMember(nm, isize, len(blob), named="gzip の FNAME か、ファイルの名前から")]
     if k in PASSWORDED:
         return _packed_members(blob, k)
-    if k == "lzh":
-        from .legacy.lzh import LzhError, entries
-
-        try:
-            es = entries(blob)
-        except LzhError as e:
-            raise ArchiveError(str(e)) from None
-        return [AMember(e.name, e.size, e.csize, named=e.named, raw=e) for e in es if not e.is_dir]
-    if k in MAIL:
-        from .legacy.mail import MailError
-
-        try:
-            m = _mail(blob, k)
-        except MailError as e:
-            raise ArchiveError(str(e)) from None
-        return [AMember(n, len(b), len(b), named="メールの添付の名前", raw=b) for n, b in m.attachments]
     raise ArchiveError(f"この形式（{k}）は中のファイルを持ちません")
 
 
@@ -469,6 +508,14 @@ def _find(ms: list, name: str, k: str):
     for m in ms:
         if m.name == name:
             return m
+    fix = None
+    if k == "lzh":
+        from .legacy.lzh import fix_name as fix
+    elif k == "gz":
+        fix = _gz_base
+    hit = ziparc.find_by_reading(ms, name, lambda m: m.rawname, fix)
+    if hit is not None:
+        return hit
     raise ArchiveError(f"{KIND_JA.get(k, k)}の中に「{name}」がありません。中のファイル：{'、'.join(m.name for m in ms[:30])}")
 
 
@@ -561,9 +608,9 @@ def unchanged_except(old: bytes, new: bytes, name: str, k: str, filename: str = 
     return [NO_WRITE.get(k, "この形式には書けません")]
 
 
-def window(blob: bytes, name: str, kind_ja: dict, k: str) -> tuple[dict, list[tuple[str, str]]]:
+def window(blob: bytes, name: str, kind_ja: dict, k: str, encoding: str | None = None) -> tuple[dict, list[tuple[str, str]]]:
     if k == "zip":
-        return ziparc.window(blob, name, kind_ja)
+        return ziparc.window(blob, name, kind_ja, encoding)
     from .book import kind_of
 
     head_parts: list[tuple[str, str]] = []
@@ -573,12 +620,13 @@ def window(blob: bytes, name: str, kind_ja: dict, k: str) -> tuple[dict, list[tu
         from .legacy.mail import MailError, lines_of
 
         try:
-            m = _mail(blob, k)
+            m = _mail(blob, k, encoding)
         except MailError as e:
             raise ArchiveError(str(e)) from None
         body_lines = lines_of(m)
         notes = list(m.notes)
-    ms = files(blob, k, name)
+        mail_encoding = m.text_encoding
+    ms, reading = listing(blob, k, name, encoding)
     rows = []
     spent = False
     started = time.monotonic()
@@ -617,16 +665,17 @@ def window(blob: bytes, name: str, kind_ja: dict, k: str) -> tuple[dict, list[tu
     locked = sum(1 for m in ms if getattr(m, "encrypted", False))
     if locked and k in PASSWORDED:
         lines += [f"{locked} 個のファイルはパスワードで保護されています。本人にパスワードを聞いて、password に入れて開いてください。", ""]
-    guessed = [r for r in rows if "推定" in r["named"]]
-    if guessed:
-        lines += [f"名前の文字コードがファイルに書かれていないので、{len(guessed)} 個の名前は、バイトの並びから読み方を推定しました"
-                  f"（{'・'.join(sorted({r['named'] for r in guessed}))}）。", ""]
+    name_notes = reading.note_lines("名前", ziparc.CHOOSE_NAME.format(name=name)) if reading is not None else []
+    if name_notes:
+        lines += name_notes + [""]
     if rows:
         lines += ["| 中の名前 | 形式 | 大きさ（展開後） |", "|---|---|---|"]
         for r in rows:
             kind = r["kind_ja"] or f"扱えない（{r['why']}）"
             lines.append(f"| {r['name'].replace('|', '｜')} | {kind} | {r['size']:,} バイト |")
     doc = {"kind": k, "name": name, "members": rows, "fields": []}
+    if reading is not None and reading.info():
+        doc["name_encoding"] = reading.info()
     if k == "lzh":
         from .legacy.convert_first import needs_tool
         from .legacy.lzh import needs_other_tool
@@ -636,6 +685,8 @@ def window(blob: bytes, name: str, kind_ja: dict, k: str) -> tuple[dict, list[tu
     if k in MAIL:
         doc["body_lines"] = body_lines
         doc["notes"] = notes
+        if mail_encoding:
+            doc["name_encoding"] = mail_encoding
     return doc, head_parts + [("一覧", "\n".join(lines) + "\n")]
 
 

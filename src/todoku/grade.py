@@ -332,7 +332,7 @@ def _grade_blob(blob: bytes, filename: str = "", password: str | None = None, en
     from .archives import KINDS as _ARC_KINDS
 
     if k_open in _ARC_KINDS:
-        return _grade_zip(blob, password, 0, k_open, filename)
+        return _grade_zip(blob, password, 0, k_open, filename, encoding)
     from .book import UNSUPPORTED as _UNSUP
 
     if k_open in _UNSUP:  # 名前で見分ける形式（DocuWorks など）も、次の一手を伝える
@@ -347,7 +347,7 @@ def _grade_blob(blob: bytes, filename: str = "", password: str | None = None, en
     if k in UNSUPPORTED:
         return unsupported_grade(k, blob)
     if k == "zip":
-        return _grade_zip(blob, password)
+        return _grade_zip(blob, password, encoding=encoding)
     locked = k == "encrypted"
     if not locked and k in ("xls", "doc", "pdf") and not password:
         try:
@@ -387,17 +387,20 @@ def _lzh_needs_tool(entry) -> bool:
     return needs_other_tool(entry)
 
 
-def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0, k: str = "zip", filename: str = "") -> Grade:
+def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0, k: str = "zip", filename: str = "",
+               encoding: str | None = None) -> Grade:
     """ZIP：中のファイルごとに段階を決め、いちばん低いものを ZIP の段階にする（理由の頭に、中の名前を付ける）。
-    中の、扱えない形式のファイル・取り出せないファイルは、そのファイルが F（開けない）。"""
+    中の、扱えない形式のファイル・取り出せないファイルは、そのファイルが F（開けない）。
+    文字コードの印のない名前（メールは 8 ビットの字）を規則で決められないときは、文字のファイルと同じ：いくつもの文字コードで読める B・
+    どれでも読めない C。エージェントが選んだ文字コード（encoding）で読んだときは、段階を下げない。"""
     import time
 
-    from .archives import KIND_JA, KINDS, MAIL, NO_WRITE, PASSWORDED, SLOW_SECONDS, WRITABLE, extract, files
+    from .archives import KIND_JA, KINDS, MAIL, NO_WRITE, PASSWORDED, SLOW_SECONDS, WRITABLE, extract, listing_info
     from .book import kind_of
     from .ziparc import ArchiveError
 
     try:
-        ms = files(blob, k, filename)
+        ms, coded = listing_info(blob, k, filename, encoding)
     except ArchiveError as e:
         return _locked("開けない", str(e), "開けないので、書けません")
     if not ms and k not in MAIL:
@@ -412,6 +415,25 @@ def _grade_zip(blob: bytes, password: str | None = None, depth: int = 0, k: str 
         reads.append("B")
         writes.append("D")
         reasons.append(Reason("B", "メールの本文", "差出人・宛先・件名・本文の字を読みます（添付は中のファイルとして読みます）"))
+    what = "8 ビットの字の項目（差出人・件名・本文・添付の名前）" if k in MAIL else "中のファイルの名前"
+    if coded.get("basis") == "order":
+        codes = [coded["encoding"]] + [c["encoding"] for c in coded.get("candidates", [])]
+        reads.append("B")
+        reasons.append(Reason("B", "名前の文字コードを規則では決められない" if k not in MAIL else "字の文字コードを規則では決められない",
+                              f"{what}（{coded['count']} 個）は、文字コードがファイルに書かれていず、{len(codes)} つの文字コードのどれとしても"
+                              f"きれいに読めます。窓は {coded['label']} で読み、ほかの読み方の見本を窓に並べました。どれが正しいかは、"
+                              "エージェントが字を読んで決めます（その名前を encoding で渡すと、読み直します。中のファイルの中身は、名前の読み方で変わりません）",
+                              codes))
+    elif coded.get("basis") == "none":
+        reads.append("C")
+        reasons.append(Reason("C", "名前の文字コードを決められない" if k not in MAIL else "字の文字コードを決められない",
+                              f"{what}（{coded['count']} 個）は、文字コードがファイルに書かれていず、どの文字コードでも、まとめてきれいには"
+                              f"読めません。{coded['label']} でバイトを 1 字ずつ字にしました。窓の字は正しいとは限らないので、エージェントが確かめます"))
+    elif coded.get("basis") == "given":
+        reasons.append(Reason("S", "エージェントが選んだ文字コード",
+                              f"{what}（{coded['count']} 個）は、エージェントが選んで指定した {coded['label']}（encoding: \"{coded['encoding']}\"）で"
+                              "読みました。その文字コードとして厳密に読めることを確かめました（どれが正しいかは、規則ではなくエージェントの判断）",
+                              [coded["encoding"]], by="agent_choice"))
     started = time.monotonic()
     for m in ms:
         if k in PASSWORDED and time.monotonic() - started > SLOW_SECONDS:  # Python で解く書庫：呼び出しの時間の上限に当たる前に止める

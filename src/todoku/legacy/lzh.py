@@ -9,8 +9,9 @@
   フォルダ（区切りは 0xFF）
 - レベル 3：[0:2] 語の大きさ（4）、[21:23] CRC-16、[23] OS、[24:28] 見出し全体の大きさ、[28:32] 次の拡張見出しの大きさ（拡張見出しの大きさの欄も 4 バイト）
 
-解いた結果は見出しの CRC-16 で確かめる（合わなければ読まない）。名前の文字コードは書庫に書かれていないので、ASCII・Shift_JIS・UTF-8 の順に
-厳密に読めるもので読み、読み方を添える。Windows の自己解凍書庫（.exe の中の LZH）も、実行せずに中の書庫を読む。
+解いた結果は見出しの CRC-16 で確かめる（合わなければ読まない）。名前の文字コードは書庫に書かれていないので、namecode の決め方で読み
+（書庫の名前をまとめて、読める文字コードをすべて試す。決められなければ候補を並べる）、読み方を添える。名前の中の 0xFF は、LHA の決まりの
+とおり、フォルダの区切りとして読む（1 バイトの文字コードの字 ÿ・я としては読まない）。Windows の自己解凍書庫（.exe の中の LZH）も、実行せずに中の書庫を読む。
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ class Entry:
     crc: int
     start: int  # 圧縮したデータの位置
     is_dir: bool
+    rawname: bytes | None = None  # 名前のバイト（フォルダの区切りの 0xFF は「/」にしてある。ASCII だけなら None）
 
 
 class _Bits:
@@ -180,16 +182,9 @@ def unlh(data: bytes, size: int, method: str) -> bytes:
     return bytes(out[:size])
 
 
-def _name(raw: bytes) -> tuple[str, str]:
-    raw = raw.replace(b"\xff", b"/")  # 0xFF は Shift_JIS の字の中に出ないので、バイトのまま。\\ は字の 2 バイト目にも出るので、字にしてから
-    if raw.isascii():
-        return raw.decode("ascii").replace("\\", "/"), "ASCII"
-    for enc, how in (("cp932", "Shift_JIS（推定）"), ("utf-8", "UTF-8（推定）")):
-        try:
-            return raw.decode(enc).replace("\\", "/"), how
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("latin-1").replace("\\", "/"), "Latin-1（どの文字コードでも読めません）"
+def fix_name(text: str) -> str:
+    """読んだ名前の区切りを「/」にする（「\\」は、多バイトの字の 2 バイト目にも出るので、字にしてから）。"""
+    return text.replace("\\", "/")
 
 
 def _exts(blob: bytes, pos: int, next_size: int, width: int = 2) -> tuple[bytes, bytes, int]:
@@ -258,8 +253,8 @@ def _header_at(blob: bytes, pos: int) -> tuple[Entry, int] | None:
     if data_at + csize > len(blob):
         raise LzhError("圧縮したデータが書庫の外に出ています")
     is_dir = method == "-lhd-"
-    nm, how = _name(folder + raw)
-    return Entry(nm, how, method, csize, size, crc, data_at, is_dir), data_at + csize
+    # 0xFF は、LZH のフォルダの区切り（多バイトの文字コードの字の中には出ない）。名前は、書庫の全部の見出しを読んでから決める
+    return Entry("", "", method, csize, size, crc, data_at, is_dir, (folder + raw).replace(b"\xff", b"/")), data_at + csize
 
 
 def start_of(blob: bytes) -> int | None:
@@ -284,6 +279,27 @@ def start_of(blob: bytes) -> int | None:
 
 
 def entries(blob: bytes) -> list[Entry]:
+    return listing(blob)[0]
+
+
+def listing(blob: bytes, encoding: str | None = None):
+    """(項目, 名前の読み方 namecode.Reading)。LZH の見出しには、名前の文字コードが書かれていない（namecode の決め方で読む）。"""
+    from .. import namecode
+
+    es = _headers(blob)
+    try:
+        reading = namecode.decide([e.rawname for e in es], encoding)
+    except namecode.NameCodeError as e:
+        raise LzhError(str(e)) from None
+    for e in es:
+        nm, e.named = reading.text(e.rawname)
+        e.name = fix_name(nm)
+        if e.rawname.isascii():
+            e.rawname = None
+    return es, reading
+
+
+def _headers(blob: bytes) -> list[Entry]:
     s = start_of(blob)
     if s is None:
         raise LzhError("LZH の書庫の見出しがありません")
