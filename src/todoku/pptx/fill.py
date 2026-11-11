@@ -442,11 +442,9 @@ def prove(original: bytes, new: bytes, written: dict) -> PptxProof:
     return pr
 
 
-def written_formatting(original: bytes, new: bytes, written: dict) -> list[dict]:
-    """書いた後のファイルを読み直し、書いた字（元の文書で書く所を決め直し、書いた後の段落でのその字の位置）の字の書式に、
-    取り消し線・目立つ色・蛍光ペンがあれば [{id, formatting}]（読み戻しで伝える）。"""
-    a, b = PptxDocument(original), PptxDocument(new)
-    pa, pb = _paras(a), _paras(b)
+def _written_spans(a: PptxDocument, written: dict) -> dict[int, list]:
+    """元の文書で書く所を決め直す：段落の番号 → [((初め, 終わり), 書いた字, 欄の id)]。"""
+    pa = _paras(a)
     sp = Spots(a)
     index = {id(p): i for i, p in enumerate(pa)}
     used: dict = {}
@@ -467,8 +465,16 @@ def written_formatting(original: bytes, new: bytes, written: dict) -> list[dict]
         else:
             span, text = it["span"], str(value)
         per.setdefault(index[id(p)], []).append((span, text, fid))
+    return per
+
+
+def written_formatting(original: bytes, new: bytes, written: dict, docs: tuple | None = None) -> list[dict]:
+    """書いた後のファイルを読み直し、書いた字（元の文書で書く所を決め直し、書いた後の段落でのその字の位置）の字の書式に、
+    取り消し線・目立つ色・蛍光ペンがあれば [{id, formatting}]（読み戻しで伝える）。docs：もう読んであれば、(元の文書, 書いた後の文書)。"""
+    a, b = docs or (PptxDocument(original), PptxDocument(new))
+    pb = _paras(b)
     out = []
-    for i, ws in per.items():
+    for i, ws in _written_spans(a, written).items():
         y = pb[i]
         xml = b.xml(y.part)
         pos = y.positions()
@@ -507,9 +513,26 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
                                    "書いた段落の後ろの空欄の id の字数が増え（P2.c2 に「8」と書くと、P2.c3 だった空欄が P2.c4 になる）、"
                                    "書いたマスは欄の一覧から消えます。続けて書くときは、書いた後のファイルを開き直して id を"
                                    "確かめるか、元のファイルに、まとめて書いてください"}
-    from ..openkinds import _formatting
+    from ..openkinds import _formatting, _wrapped
 
-    _formatting(result, lambda: written_formatting(blob, res.blob, written_of(res.patches)))
+    both: list = []  # 元の文書と書いた後の文書（読み直すのは 1 回だけ。書き手が使った doc は、書く所を決めるのに使った後なので使わない）
+
+    def docs():
+        if not both:
+            both.extend((PptxDocument(blob, name), PptxDocument(res.blob, name)))
+        return both[0], both[1]
+
+    _formatting(result, lambda: written_formatting(blob, res.blob, written_of(res.patches), docs()))
+
+    # 書いたことで段落の行が折り返す見込み（目安）：スライドにはページの増えがないので、行の数だけを伝える
+    def estimate():
+        from .wrap import wrap_warnings
+
+        a, b = docs()
+        spans = _written_spans(a, written_of(res.patches))
+        return wrap_warnings(a, b, {i: [fid for _s, _t, fid in ws] for i, ws in spans.items()})
+
+    _wrapped(result, blob, "pptx", estimate, pages=False)
     anchored = {p.key: p.id for p in res.patches if p.anchor}
     if anchored:
         result["anchored"] = anchored

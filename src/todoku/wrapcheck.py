@@ -1,4 +1,4 @@
-"""書いたことで行が折り返すかの見積もり（目安）：Word・.doc・ODT の段落と、Excel・.xls・.ods の折り返して表示するセル。
+"""書いたことで行が折り返すかの見積もり（目安）：Word・.doc・ODT・RTF・HWPX・PowerPoint の段落と、Excel・.xls・.ods の折り返して表示するセル。
 
 書く前と書いた後の字を、同じ幅（段落なら、ページの幅から余白・字下げを引いた幅か、表のマスの幅からマスの余白を引いた幅。
 セルなら、列の幅（結合したセルはその範囲）からセルの余白を引いた幅）と同じ字の大きさで並べ、行の数を数える。書いた後の行が
@@ -6,7 +6,8 @@
 証明と読み戻しは字が正しいことしか見ないので、見た目のこの変化は、警告として本人に伝える（書き込みは止めない）。
 
 字の幅は textwidth（Unicode の東アジアの幅）：全角は字の大きさ、ほかは半分。書体の字ごとの幅・字詰め・禁則の細かい規則は
-見ないので、言い方は「見込み（目安）」。行の終わりの空白と句読点（、。）は、行からはみ出しても折り返さない（Word のぶら下げ）。
+見ないので、言い方は「見込み（目安）」で、見積もりのずれを広い側にも狭い側にも見る（wraps）：見積もりの幅で行が増える・書いた後の字が
+幅に近く、字を少し広く測るソフトでは増える・書く前の字が幅に近く、字を少し狭く測るソフトでは増える、の 3 つを言い分ける。行の終わりの空白と句読点（、。）は、行からはみ出しても折り返さない（Word のぶら下げ）。
 英字の語は、語の途中では切らない（語の初めから次の行へ）。
 """
 
@@ -73,15 +74,68 @@ NARROW = 0.88  # ほかのソフト（LibreOffice など）で幅が狭く測ら
 
 
 def wraps(before: str, after: str, avail: float, size_before, size_after, first_indent: float = 0.0,
-          tab: float = 0.0, extra_before=None, extra_after=None) -> tuple[int, int, bool] | None:
-    """書く前と書いた後の行の数と、見積もりの幅で増えるか（True）・幅に近く、少し狭く測るソフトでは増えるか（False）。
-    増えないときは None。"""
-    for k, sure in ((1.0, True), (NARROW, False)):
+          tab: float = 0.0, extra_before=None, extra_after=None) -> tuple[int, int, bool | None] | None:
+    """書く前と書いた後の行の数と、見積もりの幅で増えるか（True）・書いた後の字が幅に近く、字の幅を少し広く測るソフトでは
+    増えるか（False）・書く前の字が幅に近く、字の幅を少し狭く測るソフトでは増えるか（None）。増えないときは None。
+    見積もりのずれは、広い側にも狭い側にもある：書く前の字が、見積もりでは幅を少し出て 2 行でも、元の文書では 1 行に入って
+    いることがある（そのとき、書いた後の 2 行は、増えた行）。"""
+    for k, sure in ((1.0, True), (NARROW, False), (1 / NARROW, None)):
         nb = count_lines(before, avail * k, size_before, first_indent * k, tab, extra_before)
         na = count_lines(after, avail * k, size_after, first_indent * k, tab, extra_after)
         if na > nb:
             return nb, na, sure
     return None
+
+
+def written_places(pa: list, pb: list, marks: dict, controls: dict | None = None) -> dict[int, tuple[list[str], int]]:
+    """字が変わった段落の番号 → (所の名前, 初めて字が違う所の字の番号)。pa・pb：書いた後・書く前の段落（同じ並び）。
+    何を頼まれたかでなく、文書に起きたこと（段落の字が変わった）で決める。名前は、その段落にある書いた所の印（marks：名前 →
+    (段落, 初め, 終わり)）。印のない段落（入力欄の中に書いた段落）は、中の字が変わった入力欄の id（controls：id(欄) → 名前）。"""
+    index = {id(p): i for i, p in enumerate(pa)}
+    named: dict[int, list[str]] = {}
+    for name, (q, _a, _b) in marks.items():
+        i = index.get(id(q))
+        if i is not None:
+            named.setdefault(i, []).append(name)
+    out: dict[int, tuple[list[str], int]] = {}
+    for i, (a, b) in enumerate(zip(pa, pb)):
+        ta, tb = a.text, b.text
+        if ta == tb or _flow(a) == _flow(b):
+            continue
+        names = named.get(i) or []
+        if not names and controls:
+            names = [controls[id(c)] for c, old in zip(_fields(a), _fields(b))
+                     if id(c) in controls and _shown(c) != _shown(old)]
+        at = next((k for k, (x, y) in enumerate(zip(ta, tb)) if x != y), min(len(ta), len(tb)))
+        out[i] = (list(dict.fromkeys(names)), at)
+    return out
+
+
+# 自分の箱の中に値を描く部品（フォームの部品）：値が長くなっても、段落の行は変わらない（箱の中で切れる）
+BOXED = frozenset({"hwpx-form", "hwpx-radio", "odf-form", "odf-radio", "odf-label", "odf-other"})
+
+
+def _flow(p) -> str:
+    """段落の行に流れる字（箱の部品の値を除く）。"""
+    return "".join(sg.text for sg in p.segs if not sg.hidden
+                   and getattr(getattr(sg, "field", None), "source", "") not in BOXED)
+
+
+def _fields(p) -> list:
+    out: list = []
+    for sg in p.segs:
+        f = getattr(sg, "field", None)
+        if f is not None and not any(f is x for x in out):
+            out.append(f)
+    return out
+
+
+def _shown(c) -> str:
+    return "".join(s.text for s in c.result_segs if not getattr(s, "hidden", False))
+
+
+def place_name(names: list[str]) -> str:
+    return "・".join(names) or "字が変わった段落"
 
 
 class WrapNote(str):
@@ -90,12 +144,14 @@ class WrapNote(str):
     added: int = 0
 
 
-def say(place: str, shown: str, nb: int, na: int, basis: str, sure: bool = True) -> str:
+def say(place: str, shown: str, nb: int, na: int, basis: str, sure: bool | None = True) -> str:
     """警告の言葉：所・字・行の数・見積もりの元。"""
     s = shown.replace("\n", " ").strip()
     s = s if len(s) <= 40 else s[:40] + "…"
     how = (f"「{s}」が {nb} 行から {na} 行になります" if sure else
-           f"「{s}」が幅いっぱいに近く、字の幅を少し広く測るソフト（LibreOffice など）や印刷では {nb} 行から {na} 行になります")
+           f"「{s}」が幅いっぱいに近く、字の幅を少し広く測るソフト（LibreOffice など）や印刷では {nb} 行から {na} 行になります"
+           if sure is False else
+           f"「{s}」は、書く前の字が幅いっぱいに近く、字の幅を少し狭く測るソフトや印刷では {nb} 行から {na} 行になります")
     note = WrapNote(f"{place}: {MESSAGE}：{how}（{basis}からの見積もり）。選んだ字や書いた字が次の行の字と離れて見えることがあるので、"
                     "字を短くするか、本人に確かめてください")
     note.added = na - nb

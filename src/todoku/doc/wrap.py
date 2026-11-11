@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import struct
 
-from ..wrapcheck import say, wraps
+from ..wrapcheck import place_name, say, wraps, written_places
 from .book import sprms
 
 _DEFAULT_GAP = 108
@@ -231,17 +231,11 @@ def wrap_warnings(before, after, rename: dict | None = None) -> list[str]:
     pa, pb = paras(after), paras(before)
     if len(pa) != len(pb):
         return []
-    index = {id(p): i for i, p in enumerate(pa)}
-    written: dict[int, list[str]] = {}
-    for name, (q, _x, _y) in after.marks().items():
-        i = index.get(id(q))
-        if i is not None:
-            written.setdefault(i, []).append(name)
+    from ..lazy.blocks import _control_ids
+
     out = []
-    for i, names in sorted(written.items()):
+    for i, (names, _at) in sorted(written_places(pa, pb, after.marks(), _control_ids(after)).items()):
         a, b = pa[i], pb[i]
-        if a.text == b.text:
-            continue
         sa, sb = _sizes(after, a), _sizes(before, b)
         size = max(sa) if sa else 10.0
         left, right, first = _ind(after, a, size)
@@ -259,6 +253,6 @@ def wrap_warnings(before, after, rename: dict | None = None) -> list[str]:
                     lambda k, s=sa: s[k] if k < len(s) else size, first)
         if got is None:
             continue
-        place = "・".join(dict.fromkeys((rename or {}).get(n, n) for n in names))
+        place = place_name(list(dict.fromkeys((rename or {}).get(n, n) for n in names)))
         out.append(say(place, a.text, got[0], got[1], f"{basis} 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイント", got[2]))
     return out

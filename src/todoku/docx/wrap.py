@@ -15,7 +15,7 @@ snapToChars）は、全角の字の送りを、グリッドの字の送り（既
 
 from __future__ import annotations
 
-from ..wrapcheck import say, wraps
+from ..wrapcheck import place_name, say, wraps, written_places
 from .circle import _paras, _styles, run_size
 
 _DEFAULT_MAR = 108  # 表のマスの左右の余白が、どこにも書かれていないときに仮に置く値（twip。Word の既定の表のスタイルの値）
@@ -217,16 +217,17 @@ def wrap_warnings(before, after, rename: dict | None = None) -> list[str]:
     pb = list(_paras(before))
     if len(pa) != len(pb):
         return []
+    from ..lazy.blocks import _control_ids
+
+    # 書いた段落：字が変わった段落（wrapcheck.written_places。名前は、書いた所の印、なければ、中の字が変わった入力欄の id）と、
+    # 囲み線が変わった段落（○の既定の書き方は、字を変えず、書いた所の印も置かない）
     index = {id(p.node): i for i, p in enumerate(pa)}
-    written: dict[int, list[str]] = {}
+    marks = {name: (pa[index[id(q.node)]], x, y) for name, (q, x, y) in _bookmarks(after).items() if id(q.node) in index}
+    written = {i: names for i, (names, _at) in written_places(pa, pb, marks, _control_ids(after)).items()}
     edges = {i: (_border_extra(after, a), _border_extra(before, b)) for i, (a, b) in enumerate(zip(pa, pb))}
     for i, (ea, eb) in edges.items():
         if ea != eb:
-            written.setdefault(i, [])  # 囲み線が変わった段落（○の既定の書き方は、書いた所の印を置かない）
-    for name, (q, _x, _y) in _bookmarks(after).items():
-        i = index.get(id(q.node))
-        if i is not None:
-            written.setdefault(i, []).append(name)
+            written.setdefault(i, [])
     out = []
     for i, names in sorted(written.items()):
         a, b = pa[i], pb[i]
@@ -254,7 +255,8 @@ def wrap_warnings(before, after, rename: dict | None = None) -> list[str]:
                     extra_before=lambda k: eb[k] if k < len(eb) else 0.0, extra_after=lambda k: ea[k] if k < len(ea) else 0.0)
         if got is None:
             continue
-        place = "・".join(dict.fromkeys((rename or {}).get(n, n) for n in names)) or "字を囲んだ段落"
+        place = "・".join(dict.fromkeys((rename or {}).get(n, n) for n in names)) or (
+            "字を囲んだ段落" if a.text == b.text else place_name([]))
         out.append(say(place, a.text, got[0], got[1],
                        f"{basis} 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイント" + ("・文書のグリッド" if pitch else "")
                        + ("・字の囲み線" if any(ea) else ""), got[2]))

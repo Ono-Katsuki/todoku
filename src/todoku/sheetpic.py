@@ -106,6 +106,37 @@ def _xls_formats(wb) -> tuple[list[CellFormat], dict]:
     return out, info
 
 
+def _xlsb_formats(wb) -> tuple[list[CellFormat], dict]:
+    """Excel のバイナリのブック（.xlsb）：styles.bin の BrtFont と、セルの BrtXF から、配置と字体を読む（MS-XLSB 2.4.659・2.4.1323。
+    todoku.xlsb.book が読まない所）。BrtXF：12 バイト目からの 2 バイトが、横の配置（3 ビット）・縦の配置（3 ビット）・折り返し・
+    最後の行の均等・縮めて表示。10 バイト目が字の向き、11 バイト目が字下げ。"""
+    from .xlsb.book import BEGIN_CELLXFS, END_CELLXFS, FONT, XF, records, wstr
+
+    path = next((t for typ, t in wb._rels(wb.wb_path).values() if typ == "styles"), "xl/styles.bin")
+    if not wb.zip.has(path):
+        return [], {}
+    data = wb.zip.read(path)
+    fonts: list[CellFont] = []
+    out: list[CellFormat] = []
+    in_xfs = False
+    for rid, p, ln in records(data):
+        b = data[p:p + ln]
+        if rid == FONT and ln >= 25:
+            h, fl, bls, sss, uls, _fam, cs = struct.unpack_from("<HHHHBBB", b, 0)
+            fonts.append(CellFont(wstr(b, 21)[0], h / 20, bls >= 600, bool(fl & 0x02), uls, bool(fl & 0x08), sss, cs))
+        elif rid == BEGIN_CELLXFS:
+            in_xfs = True
+        elif rid == END_CELLXFS:
+            in_xfs = False
+        elif rid == XF and in_xfs and ln >= 14:
+            ifnt = struct.unpack_from("<H", b, 4)[0]
+            trot, indent = b[10], b[11]
+            bits = struct.unpack_from("<H", b, 12)[0]
+            out.append(CellFormat(_HALIGN.get(bits & 7, "general"), _VALIGN.get((bits >> 3) & 7, "bottom"), bool(bits & 0x40),
+                                  bool(bits & 0x100), indent, trot, fonts[ifnt] if ifnt < len(fonts) else None))
+    return out, {}
+
+
 def _xlsx_formats(wb) -> tuple[list[CellFormat], dict]:
     from .xlsx.workbook import M
 

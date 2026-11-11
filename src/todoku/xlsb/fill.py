@@ -143,6 +143,15 @@ def fill(blob: bytes, name: str, values: dict, force: bool = False, notes: dict 
         notes["written_formatting"] = written_cells_format(wb, written, keys, force)
     except ValueError as e:
         raise XlsbWriteError(str(e)) from None
+    # 書いた字がセルに収まるか（列の幅・行の高さ・隣のセルの字からの見積もり。Excel の書き手と同じ：xlsx.cellcheck）
+    try:
+        from types import SimpleNamespace
+
+        from ..xlsx.cellcheck import fit_issues
+
+        notes["fit"] = fit_issues(wb, SimpleNamespace(direct=dict(keys), targets=dict(written)))
+    except Exception as e:  # noqa: BLE001  見積もれなかったことを黙らない
+        notes["fit"] = [{"id": "", "message": f"書いた字がセルに収まるかを見積もれませんでした（{type(e).__name__}）"}]
     recalculated = _recalc(wb, blob, name, parts, spans, grows)
     return _assemble(blob, wb, parts, grows), written, recalculated, spans
 
@@ -301,6 +310,9 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
     if notes.get("written_formatting"):
         result["written_formatting"] = notes["written_formatting"]
         result["warnings"] += formatting_notes(notes["written_formatting"])
+    if notes.get("fit"):
+        result["fit"] = list(notes["fit"])
+        result["warnings"] += [x["message"] for x in notes["fit"]]
     return {"blob": new, "readback": readback, "labels": {}, "result": result}
 
 

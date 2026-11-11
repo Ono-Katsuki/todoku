@@ -520,6 +520,8 @@ class XlsbWorkbook:
                         sh.col_styles[c + 1] = x
                     if fl & 1:
                         sh.hidden_cols.add(c + 1)
+            elif rid == 137 and ln >= 2:  # BrtBeginWsView（MS-XLSB 2.4.304）：fRightToLeft（5 ビット目）＝列 A が画面の右端
+                sh.right_to_left = sh.right_to_left or bool(b[0] & 0x20)
             elif rid == WSFMT:
                 dx = struct.unpack_from("<I", b, 0)[0]
                 _cc, dy = struct.unpack_from("<HH", b, 4)

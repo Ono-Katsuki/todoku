@@ -524,9 +524,18 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
     pr = prove(blob, res.blob, written_of(res.patches))
     result = {"proof_ok": pr.ok, "proof": pr.headline(), "warnings": list(res.warnings), "unexpected": pr.unexpected[:20],
               "structure_errors": pr.lint_errors[:20]}
-    from ..openkinds import _formatting
+    from ..openkinds import _formatting, _wrapped
 
-    _formatting(result, lambda: written_formatting(res.blob, name))
+    after: list = []  # 書いた後の文書（読み直すのは 1 回だけ）
+
+    def reread():
+        if not after:
+            after.append(RtfDocument(res.blob, name))
+        return after[0]
+
+    _formatting(result, lambda: written_formatting(res.blob, name, reread()))
+    # 書いたことで段落の行が折り返す見込み（目安）：証明・読み戻しは字しか見ないので、見た目の変化を伝える
+    _wrapped(result, blob, "rtf", lambda: _wrap(RtfDocument(blob, name), reread()))
     readback = {key: v for key, v in values.items() if not key.startswith("@")}
     anchored = {p.key: p.id for p in res.patches if p.anchor}
     if anchored:
@@ -535,10 +544,16 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
     return {"blob": res.blob, "result": result, "readback": readback, "labels": {}}
 
 
-def written_formatting(blob: bytes, name: str = "") -> list[dict]:
+def _wrap(before, after) -> list[str]:
+    from .wrap import wrap_warnings
+
+    return wrap_warnings(before, after)
+
+
+def written_formatting(blob: bytes, name: str = "", doc=None) -> list[dict]:
     """書いた後の文書を読み直し、書いた所（しおり _todoku_…）の字に、消したように・目立って見える書式があれば
-    [{id, formatting}]（読み戻しで伝える）。"""
-    doc = RtfDocument(blob, name)
+    [{id, formatting}]（読み戻しで伝える）。doc：もう読み直してあれば、その文書。"""
+    doc = doc if doc is not None else RtfDocument(blob, name)
     colors = color_table(blob)
     out = []
     for fid, (p, a, b) in doc.marks().items():

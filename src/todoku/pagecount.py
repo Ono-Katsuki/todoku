@@ -1,8 +1,10 @@
-"""書く前の文書のページ数の記録と、行が増えたときに伝える事実（Word の .docx・.doc）。
+"""書く前の文書のページ数の記録と、行が増えたときに伝える事実（ページのある文書：.docx・.doc・.odt・RTF・HWPX）。
 
-Word のページ数はレイアウトの結果で、todoku はレイアウトをしない。分かるのは次のことだけなので、その事実だけを伝える：
+ページ数はレイアウトの結果で、todoku はレイアウトをしない。分かるのは次のことだけなので、その事実だけを伝える：
 - 保存したソフトが文書に残したページ数：.docx は docProps/app.xml の Pages（ECMA-376 第 1 部 22.2.2.19）、.doc は
-  SummaryInformation の PIDSI_PAGECOUNT（14。MS-OLEPS の property set を読む）
+  SummaryInformation の PIDSI_PAGECOUNT（14。MS-OLEPS の property set を読む）、.odt は meta.xml の
+  meta:document-statistic の meta:page-count（OpenDocument 1.3 第 3 部 4.3.2.18）、RTF は \info の \nofpages
+  （Rich Text Format Specification 1.9.1）。HWPX には、ページ数の記録がない
 - 書いたことで行が増える見込み（wrapcheck の見積もり）の段落と行の数
 
 書いた後のページ数は見積もらない。ページの終わりの余りが分からないので、増えるとも増えないとも言わない。
@@ -51,10 +53,44 @@ def _doc_pages(blob: bytes) -> int | None:
     return None
 
 
+def _odt_pages(blob: bytes) -> int | None:
+    from .zipraw import RawZip
+
+    z = RawZip(blob)
+    if not z.has("meta.xml"):
+        return None
+    m = re.search(rb"<meta:document-statistic\b[^>]*\bmeta:page-count=\"(\d+)\"", z.read("meta.xml"))
+    return int(m[1]) if m and int(m[1]) > 0 else None
+
+
+def _rtf_pages(blob: bytes) -> int | None:
+    from .rtf.lexer import tokens
+
+    depth = info = 0
+    for t in tokens(blob):
+        if t.kind == "open":
+            depth += 1
+        elif t.kind == "close":
+            if info and depth == info:
+                return None  # \info を読み終えた
+            depth -= 1
+        elif t.kind == "word":
+            if t.word == "info" and not info:
+                info = depth
+            elif t.word == "nofpages" and info:
+                return t.param if t.param and t.param > 0 else None
+            elif t.word in ("pard", "par", "sectd") and not info and depth <= 1:
+                return None  # 本文が始まった（\info は本文の前にある）
+    return None
+
+
+_PAGES = {"docx": _docx_pages, "doc": _doc_pages, "odt": _odt_pages, "rtf": _rtf_pages}
+
+
 def recorded_pages(blob: bytes, k: str) -> int | None:
     """保存したソフトが文書に残したページ数（なければ・読めなければ None）。"""
     try:
-        return _docx_pages(blob) if k == "docx" else _doc_pages(blob) if k == "doc" else None
+        return _PAGES[k](blob) if k in _PAGES else None
     except Exception:  # noqa: BLE001  記録が読めないだけ。書き込みは止めない
         return None
 
@@ -70,4 +106,4 @@ def growth_note(blob: bytes, k: str, wrapped: list[str]) -> tuple[dict, str] | N
     where = f"元の文書のページ数の記録は {pages} ページです（保存したソフトが残した数）" if pages else "元の文書にページ数の記録はありません"
     return facts, (f"ページが増えるかもしれません：書いたことで行が増える見込みの段落が {n} か所（合わせて約 {added} 行）あり、{where}。"
                    "ページの終わりにどれだけ余りがあるかは todoku には分からないので、書いた後のページ数は分かりません。"
-                   "ページ数が決まっている様式なら、折り返す所の字を短くするか、PDF にしてページ数を確かめてください（LibreOffice の数は Word と違うことがあります）")
+                   "ページ数が決まっている様式なら、折り返す所の字を短くするか、PDF にしてページ数を確かめてください（ページ数は、開くソフトによって違うことがあります）")

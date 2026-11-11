@@ -532,6 +532,14 @@ def api_fill(blob: bytes, name: str, values: dict, force: bool = False) -> dict:
     if wrapped:
         result["wrap"] = wrapped
         result["warnings"] += wrapped
+    # 折り返さないセルに書いた字が、セルの幅に収まらず切れて見える・数が「###」になる見込み（Excel の書き手と同じ決め方）
+    try:
+        fit = fit_warnings(wb, res.patches)
+    except Exception as e:  # noqa: BLE001  見積もれなかったことを黙らない
+        fit = [{"id": "", "message": f"書いた字がセルに収まるかを見積もれませんでした（{type(e).__name__}）"}]
+    if fit:
+        result["fit"] = fit
+        result["warnings"] += [x["message"] for x in fit]
     readback = {p.key or f"{p.sheet}!{p.address}": p.after for p in res.patches if p.kind == "input"}
     return {"blob": res.blob, "result": result, "readback": readback, "labels": {}}
 
@@ -544,46 +552,27 @@ def wrap_warnings(wb: OdsWorkbook, patches) -> list[str]:
     幅は列の style:column-width（結合したセルはその範囲）からセルの左右の余白（fo:padding。なければ 0.035cm）を引いた幅、
     字の大きさはセルのスタイルの fo:font-size（なければ 10 pt）。書く前の字は、書く前の見える字。"""
     from ..wrapcheck import say, wraps
-    from .sheet import _columns, _pt
+
+    from .sheet import _pt
 
     st, part = wb.st, wb.part
     out = []
-    tables = {t.get("table:name"): t for t in wb.book.findall("table:table")}
     widths_of: dict[str, list] = {}
     for p in patches:
         if p.kind != "input" or not isinstance(p.after, str):
             continue
         r, c = _rc(p.address)
         sh = wb.sheet(p.sheet)
-        cell = sh.cells.get((r, c))
-        name = wb.style_names[cell.style] if cell is not None and 0 <= cell.style < len(wb.style_names) else None
+        name = _style_name(wb, sh, r, c)
         if st.prop(part, "table-cell", name, "style:table-cell-properties", "fo:wrap-option") != "wrap":
             continue
-        if p.sheet not in widths_of:
-            ws = []
-            for col in _columns(tables.get(p.sheet)) if tables.get(p.sheet) is not None else []:
-                rep = min(int(col.get("table:number-columns-repeated", "1") or 1), 1024)
-                w = st.prop(part, "table-column", col.get("table:style-name"), "style:table-column-properties",
-                            "style:column-width")
-                ws += [_pt(w) if w else None] * rep
-            widths_of[p.sheet] = ws
-        ws = widths_of[p.sheet]
+        ws = _col_widths(wb, p.sheet, widths_of)
         m = sh.merged_at(r, c)
         r1, c1, r2, c2 = m if m else (r, c, r, c)
         if c2 > len(ws) or any(w is None for w in ws[c1 - 1:c2]):
             continue
-        pad = st.prop(part, "table-cell", name, "style:table-cell-properties", "fo:padding")
-        pad_pt = _pt(pad) if pad else None
-        assumed = []
-        if pad_pt is None:
-            pad_pt = _ODS_PAD
-            assumed.append("左右の余白は LibreOffice の既定 0.035cm と仮定")
+        pad_pt, size, assumed = _pad_size(wb, name)
         avail = sum(ws[c1 - 1:c2]) - 2 * pad_pt
-        size_v = st.prop(part, "table-cell", name, "style:text-properties", "fo:font-size")
-        size = _pt(size_v) if size_v and not size_v.endswith("%") else None
-        if size is None:
-            size = 10.0
-            assumed.append("字の大きさは LibreOffice の既定 10pt と仮定")
         before = wb.shown.get((p.sheet, r, c)) or ("" if p.before is None else str(p.before))
         got = wraps(before, p.after, avail, size, size)
         if got is None:
@@ -592,6 +581,144 @@ def wrap_warnings(wb: OdsWorkbook, patches) -> list[str]:
         out.append(say(f"{p.sheet}!{p.address}{merged}", p.after, got[0], got[1],
                        f"列の幅 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイント"
                        + (f"（{'・'.join(assumed)}）" if assumed else ""), got[2]))
+    return out
+
+
+def _style_name(wb: OdsWorkbook, sh, r: int, c: int) -> str | None:
+    """セルのスタイルの名前（セルの要素がなければ、行・列の既定のセルのスタイル：Sheet.style_of）。"""
+    k = sh.style_of(r, c)
+    return wb.style_names[k] if 0 <= k < len(wb.style_names) else None
+
+
+def _col_widths(wb: OdsWorkbook, sheet: str, cache: dict) -> list:
+    """シートの列の幅（pt。style:column-width。書かれていない列は None）。"""
+    from .sheet import _columns, _pt
+
+    if sheet not in cache:
+        t = next((t for t in wb.book.findall("table:table") if t.get("table:name") == sheet), None)
+        ws: list = []
+        for col in _columns(t) if t is not None else []:
+            rep = min(int(col.get("table:number-columns-repeated", "1") or 1), 1024)
+            w = wb.st.prop(wb.part, "table-column", col.get("table:style-name"), "style:table-column-properties",
+                           "style:column-width")
+            ws += [_pt(w) if w else None] * rep
+        cache[sheet] = ws
+    return cache[sheet]
+
+
+def _pad_size(wb: OdsWorkbook, name: str | None) -> tuple[float, float, list[str]]:
+    """セルの左右の余白（pt）・字の大きさ（pt）と、書かれていなくて仮に置いたものの説明。"""
+    from .sheet import _pt
+
+    pad = wb.st.prop(wb.part, "table-cell", name, "style:table-cell-properties", "fo:padding")
+    pad_pt = _pt(pad) if pad else None
+    assumed = []
+    if pad_pt is None:
+        pad_pt = _ODS_PAD
+        assumed.append("左右の余白は LibreOffice の既定 0.035cm と仮定")
+    size_v = wb.st.prop(wb.part, "table-cell", name, "style:text-properties", "fo:font-size")
+    size = _pt(size_v) if size_v and not size_v.endswith("%") else None
+    if size is None:
+        size = 10.0
+        assumed.append("字の大きさは LibreOffice の既定 10pt と仮定")
+    return pad_pt, size, assumed
+
+
+def fit_warnings(wb: OdsWorkbook, patches) -> list[dict]:
+    """折り返さないセルに書いた字が、セルの幅に収まらず切れて見える・数が「###」になる見込みの所：[{id, cell, message}]
+    （xlsx.cellcheck.fit_issues と同じ決め方。折り返すセルは wrap_warnings）。幅は列の style:column-width（結合したセルは
+    その範囲）からセルの左右の余白を引いた幅、字の幅は、全角を字の大きさ 1 つ分・ほかを半分（wrapcheck と同じ）。
+    回した字（style:rotation-angle）・縦に積む字（style:direction="ttb"）・繰り返して埋めるセル（style:repeat-content）・
+    両端をそろえるセル（fo:text-align="justify"）・幅の書かれていない列は、見積もらない。寄せ方（fo:text-align）は、
+    固定（style:text-align-source="fix"）のときだけ見る。"""
+    from ..textwidth import text_cells
+    from ..xlsx.cellcheck import _hashes, blocked_by, clipped_message, overflow_sides
+
+    st, part = wb.st, wb.part
+    out: list[dict] = []
+    widths_of: dict[str, list] = {}
+    targets = {(p.sheet, *_rc(p.address)): p.after for p in patches if p.kind == "input"}
+    writer = None
+    rtl_of: dict[str, bool] = {}
+    for p in patches:
+        v = p.after
+        if p.kind != "input" or v is None or v == "" or isinstance(v, (bool, ExcelError)):
+            continue
+        r, c = _rc(p.address)
+        sh = wb.sheet(p.sheet)
+        if sh.is_hidden(r, c):
+            continue
+        name = _style_name(wb, sh, r, c)
+        cellp = lambda a: st.prop(part, "table-cell", name, "style:table-cell-properties", a)  # noqa: E731
+        if cellp("fo:wrap-option") == "wrap" or cellp("style:repeat-content") == "true" or cellp("style:direction") == "ttb":
+            continue
+        if (cellp("style:rotation-angle") or "0").strip() not in ("0", "0deg", "0.0"):
+            continue
+        fixed = cellp("style:text-align-source") == "fix"
+        align = (st.prop(part, "table-cell", name, "style:paragraph-properties", "fo:text-align") or "") if fixed else ""
+        if align == "justify":
+            continue
+        ws = _col_widths(wb, p.sheet, widths_of)
+        m = sh.merged_at(r, c)
+        r1, c1, r2, c2 = m if m else (r, c, r, c)
+        if c2 > len(ws) or any(w is None for w in ws[c1 - 1:c2]):
+            continue
+        pad_pt, size, assumed = _pad_size(wb, name)
+        avail = sum(ws[c1 - 1:c2]) - 2 * pad_pt
+        if isinstance(v, str):
+            shown = v
+        else:
+            writer = writer or SheetWriter(wb)
+            shown = writer.value_attrs(v, False, sh.style_of(r, c))[1] or ""
+        lines = shown.split("\n")
+        need = max(text_cells(ln) for ln in lines) * size / 2
+        if need <= avail:
+            continue
+        where = f"{p.sheet}!{p.address}"
+        key = p.key if p.key and not p.key.startswith("@") else where
+        basis = (f"列の幅 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイントからの見積もり"
+                 + (f"。{'・'.join(assumed)}" if assumed else ""))
+        cut = f"{shown[:20]}{'…' if len(shown) > 20 else ''}"
+        if not isinstance(v, str):
+            # 数は折り返さず、隣へもはみ出さない：幅に入らない数を「###」と表示する。「標準」の書式は、小数の桁を減らして
+            # 入れようとするので、整数の部分（と符号）も入らないときだけ
+            st_ = wb.style(sh.style_of(r, c))
+            if _hashes(v, shown, st_.num_fmt, size / 2, avail):
+                out.append({"id": key, "cell": where, "message":
+                            f"{where}: 数「{cut}」はセルの幅に入らず、「###」と表示される見込みです（数は折り返しません。{basis}。"
+                            "本人に確かめてください）"})
+            continue
+        if cellp("style:shrink-to-fit") == "true":
+            out.append({"id": key, "cell": where, "message":
+                        f"{where}: セルの幅に合わせて字が縮んで表示されます（元の大きさの約 {int(100 * avail / need)}%。小さすぎて"
+                        f"読みにくくならないか、本人に確かめてください。{basis}）"})
+            continue
+        if m:
+            out.append({"id": key, "cell": where, "message":
+                        f"{where}: 書いた字「{cut}」は、結合したセルの幅に収まらず、はみ出す所が切れて見える見込みです（{basis}。"
+                        "字を短くするか、本人に確かめてください）"})
+            continue
+        if p.sheet not in rtl_of:
+            t = next((t for t in wb.book.findall("table:table") if t.get("table:name") == p.sheet), None)
+            mode = st.prop(part, "table", t.get("table:style-name") if t is not None else None, "style:table-properties",
+                           "style:writing-mode")
+            rtl_of[p.sheet] = (mode or "").startswith("rl")
+        # 寄せ方：start・left は左、end・right は右として見る。右から左へ並ぶシートでは、overflow_sides が向きを決めない
+        halign = {"start": "left", "left": "left", "end": "right", "right": "right", "center": "center"}.get(align, "general")
+        sides, sure = overflow_sides(halign, rtl_of[p.sheet], shown)
+
+        def empty_at(col: int) -> bool:
+            if (p.sheet, r, col) in targets:
+                return targets[(p.sheet, r, col)] in (None, "")
+            if sh.merged_at(r, col) is not None:
+                return False
+            cell = sh.cells.get((r, col))
+            return cell is None or cell.value is None or cell.value == ""
+
+        blocked = blocked_by(sides, sure, need - avail, c, lambda col: (ws[col - 1] or 0.0) if col <= len(ws) else 0.0,
+                             empty_at, last=len(ws))
+        if blocked:
+            out.append({"id": key, "cell": where, "message": clipped_message(where, shown, addr(r, blocked), sure)})
     return out
 
 

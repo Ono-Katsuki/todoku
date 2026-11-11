@@ -1,6 +1,6 @@
 """OpenDocument の文書（.odt）：書いたことで段落の行が折り返すかの見積もり（目安。wrapcheck）。
 
-書いた段落（書いた所の印のしおりのある段落）ごとに、書く前と書いた後の字を同じ幅で並べて、行の数を比べる（docx.wrap と同じ）。
+書いた段落（字が変わった段落：wrapcheck.written_places）ごとに、書く前と書いた後の字を同じ幅で並べて、行の数を比べる（docx.wrap と同じ）。
 幅：表のマスの段落は、表の列（table:table-column の style:column-width。マスの table:number-columns-spanned の分）から
 マスの左右の余白（fo:padding-left・fo:padding-right・fo:padding。なければ LibreOffice の既定 0.097cm）を引いた幅。
 ほかの段落は、最初のページの体裁（style:page-layout-properties の fo:page-width・fo:margin-left・fo:margin-right）。
@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from ..wrapcheck import say, wraps
+from ..wrapcheck import place_name, say, wraps, written_places
 from .sheet import _columns, _pt
 
 # マスの余白（fo:padding）が書かれていないときに仮に置く値：LibreOffice の既定の 0.097 cm（ODF の仕様では、書かれていない
@@ -106,17 +106,11 @@ def wrap_warnings(before, after) -> list[str]:
     pa, pb = paras(after), paras(before)
     if len(pa) != len(pb):
         return []
-    index = {id(p): i for i, p in enumerate(pa)}
-    written: dict[int, list[str]] = {}
-    for name, (q, _x, _y) in after.marks().items():
-        i = index.get(id(q))
-        if i is not None:
-            written.setdefault(i, []).append(name)
+    from ..lazy.blocks import _control_ids
+
     out = []
-    for i, names in sorted(written.items()):
+    for i, (names, _at) in sorted(written_places(pa, pb, after.marks(), _control_ids(after)).items()):
         a, b = pa[i], pb[i]
-        if a.text == b.text:
-            continue
         sa, sb = _sizes(after, a), _sizes(before, b)
         size = max(sa) if sa else _DEFAULT_SIZE
         left, right, first = _indents(after, a)
@@ -134,6 +128,6 @@ def wrap_warnings(before, after) -> list[str]:
                     lambda k, s=sa: s[k] if k < len(s) else size, first)
         if got is None:
             continue
-        out.append(say("・".join(dict.fromkeys(names)), a.text, got[0], got[1],
+        out.append(say(place_name(names), a.text, got[0], got[1],
                        f"{basis} 約 {avail:.0f} ポイント・字の大きさ {size:g} ポイント", got[2]))
     return out

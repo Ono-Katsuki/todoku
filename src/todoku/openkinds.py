@@ -252,6 +252,26 @@ def _formatting(result: dict, read) -> None:
             f"{x['id']}: 書いた字の書式に「{'・'.join(x['formatting'])}」があります" for x in found]
 
 
+def _wrapped(result: dict, blob: bytes, k: str, estimate, pages: bool = True) -> None:
+    """書いたことで段落の行が折り返す見込み（目安。wrapcheck）を、wrap と警告で伝える（Word の api._wrap_word と同じ形）。
+    見積もれなければ、そのことを伝える。pages：ページのある文書なら、行が増えたときのページの事実（pagecount）も伝える。"""
+    try:
+        wrapped = estimate()
+    except Exception as e:  # noqa: BLE001  見積もれなかったことを黙らない
+        wrapped = [f"書いたことで行が折り返すかを見積もれませんでした（{type(e).__name__}）"]
+    if not wrapped:
+        return
+    result["wrap"] = wrapped
+    result["warnings"] = list(result.get("warnings") or []) + wrapped
+    if pages:
+        from .pagecount import growth_note
+
+        grown = growth_note(blob, k, wrapped)
+        if grown:
+            result["page_growth"], said = grown
+            result["warnings"].append(said)
+
+
 def _fill_odt(blob: bytes, name: str, values: dict, force: bool) -> dict:
     from .docx.fill import FillError
     from .odf.text import OdtDocument
@@ -268,15 +288,12 @@ def _fill_odt(blob: bytes, name: str, values: dict, force: bool) -> dict:
               "structure_errors": pr.lint_errors[:20]}
     _formatting(result, lambda: odt_formatting(OdtDocument(res.blob, name)))
     # 書いたことで段落の行が折り返す見込み（目安）：証明・読み戻しは字しか見ないので、見た目の変化を伝える
-    try:
+    def estimate():
         from .odf.textwrap import wrap_warnings
 
-        wrapped = wrap_warnings(OdtDocument(blob, name), OdtDocument(res.blob, name))
-    except Exception as e:  # noqa: BLE001  見積もれなかったことを黙らない
-        wrapped = [f"書いたことで行が折り返すかを見積もれませんでした（{type(e).__name__}）"]
-    if wrapped:
-        result["wrap"] = wrapped
-        result["warnings"] += wrapped
+        return wrap_warnings(OdtDocument(blob, name), OdtDocument(res.blob, name))
+
+    _wrapped(result, blob, "odt", estimate)
     readback = {key: v for key, v in values.items() if not key.startswith("@")}
     anchored = {p.key: p.id for p in res.patches if p.anchor}
     if anchored:
@@ -310,6 +327,14 @@ def _fill_hwpx(blob: bytes, name: str, values: dict, force: bool) -> dict:
     from .hwpx.fill import written_formatting as hwpx_formatting
 
     _formatting(result, lambda: hwpx_formatting(res.blob, name))
+
+    # 書いたことで段落の行が折り返す見込み（目安）：証明・読み戻しは字しか見ないので、見た目の変化を伝える
+    def estimate():
+        from .hwpx.wrap import wrap_warnings
+
+        return wrap_warnings(HwpxDocument(blob, name), HwpxDocument(res.blob, name))
+
+    _wrapped(result, blob, "hwpx", estimate)
     readback = {key: v for key, v in plain.items() if not key.startswith("@")}
     anchored = {p.key: p.id for p in res.patches if p.anchor}
     if anchored:

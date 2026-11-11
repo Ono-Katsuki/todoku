@@ -1,4 +1,4 @@
-"""書いたセルの見え方の確かめ（.xlsx・.xls）：書式で見えない・消したように見える字と、セルに収まらず切れて見える字。
+"""書いたセルの見え方の確かめ（.xlsx・.xls・.xlsb）：書式で見えない・消したように見える字と、セルに収まらず切れて見える字。
 
 - written_format：書いたセルの書式（表示形式・字の色・塗り・取り消し線・条件付き書式・字ごとの書式・非表示の行と列）。
   見えない字になるもの（表示形式「;;;」など字が出ない形・字と塗りが同じ色・書いた値で条件付き書式が字を隠す）は、書かない所の説明に、
@@ -176,11 +176,12 @@ def both_controls_checked(wb, controls: dict) -> list[str]:
 
 def _formats(wb):
     """ブックの書式の一覧（1 冊に 1 回だけ読む。欄ごとに部品を展開し直すと、書く欄の多い書類で展開の合計の上限に当たる）。"""
-    from ..sheetpic import _xls_formats, _xlsx_formats
+    from ..sheetpic import _xls_formats, _xlsb_formats, _xlsx_formats
 
     got = getattr(wb, "_cellcheck_formats", None)
     if got is None:
-        got = (_xls_formats(wb) if getattr(wb, "kind", "xlsx") == "xls" else _xlsx_formats(wb))[0]
+        read = {"xls": _xls_formats, "xlsb": _xlsb_formats}.get(getattr(wb, "kind", "xlsx"), _xlsx_formats)
+        got = read(wb)[0]
         wb._cellcheck_formats = got
     return got
 
@@ -352,24 +353,46 @@ def fit_issues(wb, plan) -> list[dict]:
                         f"{where}: 書いた字「{shown[:20]}{'…' if len(shown) > 20 else ''}」は、結合したセルの幅に収まらず、はみ出す所が"
                         "切れて見える見込みです（列の幅からの見積もり。字を短くするか、本人に確かめてください）"})
             continue
-        h = cf.halign if cf.halign != "general" else "left"
-        sides = {"left": [1], "right": [-1], "center": [1, -1]}.get(h, [1])
-        over = need - avail
-        blocked = None
-        for d in sides:
-            room = 0.0
-            want = over if len(sides) == 1 else over / 2
-            c = c_ + d
-            while room < want and 1 <= c <= 16384:
-                if not _empty(sh, r_, c, plan.targets):
-                    blocked = addr(r_, c)
-                    break
-                room += _col_w(sh, c, mdw)
-                c += d
-            if blocked:
-                break
+        sides, sure = overflow_sides(cf.halign, getattr(sh, "right_to_left", False), shown)
+        blocked = blocked_by(sides, sure, need - avail, c_, lambda c: _col_w(sh, c, mdw),
+                             lambda c: _empty(sh, r_, c, plan.targets))
         if blocked:
-            out.append({"id": name, "cell": where, "message":
-                        f"{where}: 書いた字「{shown[:20]}{'…' if len(shown) > 20 else ''}」はセルの幅に収まらず、隣の {blocked} の字で"
-                        "切れて見える見込みです（列の幅からの見積もり。字を短くするか、本人に確かめてください）"})
+            out.append({"id": name, "cell": where, "message": clipped_message(where, shown, addr(r_, blocked), sure)})
     return out
+
+
+def overflow_sides(halign: str, rtl_sheet: bool, text: str) -> tuple[list[int], bool]:
+    """セルからはみ出す字が伸びる向き（列の番号が増える向き 1・減る向き -1）と、その向きが決まるか。
+    左寄せは列の番号が増える向き、右寄せは減る向き、中央は両方へ半分ずつ。右から左へ並ぶシート（列 A が右端）と、寄せ方の
+    決まっていないセル（標準）に書いた、右から左へ書く字（初めの向きの強い字が R・AL：Unicode の双方向の決まり P2・P3）は、
+    はみ出す側を確かめていないので、向きを決めず、両方の隣を見る（決めていない、と伝える）。"""
+    import unicodedata
+
+    if halign == "center":
+        return [1, -1], True
+    first = next((b for b in (unicodedata.bidirectional(ch) for ch in text) if b in ("L", "R", "AL")), "L")
+    if rtl_sheet or (halign not in ("left", "right") and first != "L"):
+        return [1, -1], False
+    return ([-1] if halign == "right" else [1]), True
+
+
+def blocked_by(sides: list[int], sure: bool, over: float, col: int, width_of, empty_at, last: int = 16384) -> int | None:
+    """はみ出す幅 over（width_of と同じ単位）のうちに、字のある隣のセルがあれば、その列。向きが決まった中央寄せは、両側へ半分ずつ。"""
+    for d in sides:
+        want = over / 2 if sure and len(sides) > 1 else over
+        room = 0.0
+        c = col + d
+        while room < want and 1 <= c <= last:
+            if not empty_at(c):
+                return c
+            room += width_of(c)
+            c += d
+    return None
+
+
+def clipped_message(where: str, shown: str, neighbour: str, sure: bool) -> str:
+    head = f"{where}: 書いた字「{shown[:20]}{'…' if len(shown) > 20 else ''}」はセルの幅に収まらず、隣の {neighbour} の字で"
+    if sure:
+        return head + "切れて見える見込みです（列の幅からの見積もり。字を短くするか、本人に確かめてください）"
+    return head + ("切れて見えるかもしれません（列の幅からの見積もり。右から左へ並ぶシート・右から左へ書く字では、はみ出す向きを"
+                   "決めていないので、両方の隣を見ました。字を短くするか、本人に確かめてください）")

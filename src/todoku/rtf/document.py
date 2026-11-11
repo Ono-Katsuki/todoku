@@ -754,7 +754,7 @@ class RtfDocument:
                 self._end_row(story, 2 if w == "nestrow" else 1, t)
             elif w == "trowd":
                 self._row_def(story, st, "trowd", None)
-            elif w in ("cellx", "clvmgf", "clvmrg", "clmgf", "clmrg", "clcbpat"):
+            elif w in ("cellx", "clvmgf", "clvmrg", "clmgf", "clmrg", "clcbpat", "trleft", "trgaph", "trpaddl", "trpaddr"):
                 self._row_def(story, st, w, t.param)
             elif w == "tab" and st.dest in ("listtext", "pntext"):
                 add_char("\t", t.s, t.e)  # 段落番号の字の後ろのタブ：番号の字のうち（本文の字ではない。Word は番号から作り直す）
@@ -974,6 +974,10 @@ class RtfDocument:
         if w == "cellx":
             lv.cur_def.append({"x": param or 0, **pend})
             lv.pend = {}
+        elif w in ("trleft", "trgaph", "trpaddl", "trpaddr"):
+            # 行の左の端・マスの左右の余白（twip）：行の定義の、最初のマスの定義に入れる（マスの幅：_make_table）
+            if param is not None and not lv.cur_def:
+                pend[w] = param
         else:
             pend[w] = param if param is not None else True
 
@@ -1049,6 +1053,9 @@ class RtfDocument:
             row: list[Cell] = []
             prev_x = None
             seq = 0
+            d0 = defs[0] if defs else {}
+            gap = d0.get("trgaph", 0)
+            edge = (d0.get("trleft", 0), d0.get("trpaddl", gap), d0.get("trpaddr", gap))  # 行の左の端・マスの左右の余白（twip）
             for k, cc in enumerate(cells):
                 d = defs[k] if k < len(defs) else {}
                 x = d.get("x")
@@ -1060,6 +1067,8 @@ class RtfDocument:
                             p.cell = last
                     if x in grid:
                         last.span = max(last.span, grid[x] - last.col + 1)
+                    if x is not None and getattr(last, "x_tw", None):
+                        last.x_tw = (last.x_tw[0], x) + last.x_tw[2:]
                     prev_x = x
                     continue
                 if x is not None and x in grid:
@@ -1070,6 +1079,8 @@ class RtfDocument:
                     col, span = (row[-1].col + row[-1].span) if row else seq, 1
                 vm = "continue" if d.get("clvmrg") else ("restart" if d.get("clvmgf") else "")
                 c = Cell(None, r, col, span, vm, table=t)
+                if x is not None:
+                    c.x_tw = (edge[0] if prev_x is None else prev_x, x, edge[1], edge[2])  # 左・右の端と左右の余白（rtf/wrap.py）
                 c.blocks = cc.blocks
                 for p in c.blocks:
                     if isinstance(p, Para):

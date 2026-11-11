@@ -711,6 +711,8 @@ class XlsWorkbook:
                     sh.row_heights[rw + 1] = (miy & 0x7FFF) / 20
                 if flags & 0x80:
                     sh.row_styles[rw + 1] = (flags >> 16) & 0xFFF
+            elif t == 0x023E and len(b) >= 2:  # WINDOW2（MS-XLS 2.4.346）：fRightToLeft（6 ビット目）＝列 A が画面の右端
+                sh.right_to_left = bool(b[0] & 0x40)
             elif t == 0x0225:  # DEFAULTROWHEIGHT
                 sh.default_row_height = struct.unpack_from("<H", b, 2)[0] / 20
             elif t == 0x0055 and len(b) >= 2:  # DEFCOLWIDTH（MS-XLS 2.4.89）：幅のない列の幅（余白を除いた字の数）
