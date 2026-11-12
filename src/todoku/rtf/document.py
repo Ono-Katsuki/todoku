@@ -633,6 +633,10 @@ class RtfDocument:
             st.first = False
             if w != "u":  # \\uN は字そのもの：前の字と 1 片にまとめる（字ごとに片を作らない）
                 s_join[0] = -1
+            if w == "fldlock" and st.dest == "field" and fields:
+                # 「更新しない」に固定したフィールド（外のフィールドの結果の中なら、外も固定されているときだけ）
+                fields[-1][1].dummy.locked = all(getattr(fd.dummy, "locked", False) for _d, fd in fields[:-1]
+                                                 if fd.kind == "result" and getattr(fd, "story", story) is story)
             if first and (st.star or w in SKIP or w in STORY or w in ("fldinst", "fldrslt", "field", "footnote", "annotation",
                                                                       "shptxt", "dptxbxtext", "shpinst", "shp", "do",
                                                                       "listtext", "pntext", "bkmkstart", "bkmkend",

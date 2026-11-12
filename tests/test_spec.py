@@ -92,3 +92,13 @@ def test_cleared_tables_are_deprecated_caches(spec):
         assert m, n
         desc = re.sub(r"\s+", " ", m.group(1))
         assert "SHOULD NOT" in desc or "MUST be 0" in desc or "ignored" in desc, n
+
+
+@pytest.mark.corpus
+def test_field_end_flags(spec):
+    # doc/book.py の _locked_ends：フィールドの終わりの印の grffld の fLocked = 0x10
+    j = [m.start() for m in re.finditer(r"\n2\.9\.\d+\s+grffldEnd", spec)][-1]
+    seg = spec[j:spec.find("\n2.9.", j + 10)]
+    flags = [name for _letter, name in re.findall(r"\n([A-H]) - (\w+) \(1 bit\)", seg)]
+    assert 1 << flags.index("fLocked") == 0x10 and len(flags) == 8
+    assert "this field does not recalculate" in re.sub(r"\s+", " ", seg)

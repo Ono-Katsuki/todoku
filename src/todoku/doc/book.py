@@ -987,10 +987,32 @@ class DocFile:
         self.__dict__["_fields_multi_memo"] = out
         return out
 
+    def _locked_ends(self) -> frozenset:
+        """「更新しない」に固定したフィールドの、終わりの印（0x15）の字の位置。フィールドの印の表（PlcfFld…：流れごと。位置は
+        その流れの頭から）の、終わりの印の grffld の fLocked（0x10。MS-DOC 2.8.25 Fld・2.9.90 grffldEnd。Word 6.0/95 の
+        FLD も同じ形）。表の印が、その位置の字と合わない所は読まない。"""
+        memo = self.__dict__.get("_locked_ends_memo")
+        if memo is not None:
+            return memo
+        out, base, text, t = set(), 0, self.text, self.table
+        for key, story in (("PlcfFldMom", "text"), ("PlcfFldFtn", "ftn"), ("PlcfFldHdr", "hdd"), ("PlcfFldMcr", "mcr"),
+                           ("PlcfFldAtn", "atn"), ("PlcfFldEdn", "edn"), ("PlcfFldTxbx", "txbx"), ("PlcffldHdrTxbx", "hdrtxbx")):
+            at, size = self.fc.get(key, (0, 0))
+            n = (size - 4) // 6 if size >= 10 else 0
+            if n and at + size <= len(t):
+                for k, cp in enumerate(struct.unpack_from(f"<{n}I", t, at)):
+                    mark, flags = t[at + 4 * (n + 1) + 2 * k] & 0x1F, t[at + 4 * (n + 1) + 2 * k + 1]
+                    if mark == 0x15 and flags & 0x10 and base + cp < len(text) and text[base + cp] == "\x15":
+                        out.add(base + cp)
+            base += max(0, self.ccp.get(story, 0))
+        self.__dict__["_locked_ends_memo"] = memo = frozenset(out)
+        return memo
+
     def _para(self, s: int, e: int) -> Para:
         p = Para(None, "doc", [])
         p.cp0, p.cp1 = s, e
         sk = (getattr(self, "partial", None) or {}).get("skel")
+        locked = (sk if sk else self)._locked_ends()
         p.label = (sk if sk else self).number_labels().get(e, "")
         text = self.text
         if "\t" in text[s:e]:
@@ -1042,7 +1064,7 @@ class DocFile:
             if o == 0x15 and stack and stack[-1].get("carried"):
                 f = stack.pop()
                 if f["phase"] == "result" and not _is_form_instr(f["instr"]):
-                    _mark_result(p.segs[f["n0"]:], f["instr"], None, "doc", p, False)
+                    _mark_result(p.segs[f["n0"]:], f["instr"], None, "doc", p, cp in locked)
                 cp += 1
                 continue
             if o == 0x15 and stack:
@@ -1055,7 +1077,7 @@ class DocFile:
                     self._eq_segs(f["instr"], p, cp)
                 if ctl is None and f["phase"] == "result":
                     # 差し込み・計算などのフィールドの結果（MERGEFIELD・DATE・REF・= など）：Word が更新すると作り直す字
-                    _mark_result(p.segs[f["n0"]:], f["instr"], None, "doc", p, False)
+                    _mark_result(p.segs[f["n0"]:], f["instr"], None, "doc", p, cp in locked)
                 if ctl is None:
                     from ..links import field_target
 
@@ -1136,10 +1158,10 @@ class DocFile:
             cp += 1
         if stack and multi:
             # 段落の終わりで開いているフィールドのうち、後ろで閉じるもの：ここまでの結果の字に、フィールドの結果の印
-            closing = {b for b, _sep, _end, _ins in multi}
+            closing = {b: end for b, _sep, end, _ins in multi}
             for f in reversed(stack):
                 if f["phase"] == "result" and f.get("ctl") is None and f["begin"] in closing and not _is_form_instr(f["instr"]):
-                    _mark_result(p.segs[f["n0"]:], f["instr"], None, "doc", p, False)
+                    _mark_result(p.segs[f["n0"]:], f["instr"], None, "doc", p, closing[f["begin"]] in locked)
         return p
 
     def _eq_segs(self, instr: str, p: Para, cp: int) -> None:

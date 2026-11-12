@@ -205,3 +205,110 @@ def test_rtf_tabs_inside_a_field_result_are_not_places(tmp_path):
     assert got == {"P1.c2": "after_label", "P4.c5": "leader_tab"}
     with pytest.raises(api.ApiError, match="フィールド（TOC.*の結果の字"):
         api.fill(str(src), {"@1": {"old": "申請の方法", "new": "書いた字"}}, str(tmp_path / "o.rtf"))
+
+
+# ====================================================================== 「更新しない」に固定したフィールド
+LOCKED = "「更新しない」に固定されていますが"
+OPEN = "Word などで開いてフィールドを更新すると"
+
+
+def _why_refused(path, old: str) -> str:
+    """フィールドの結果の字への書き込みを断る理由：固定したフィールドとして（locked）か、ふつうのフィールドとして（open）か。"""
+    with pytest.raises(api.ApiError, match="の結果の字です") as e:
+        api.fill(str(path), {"@1": {"old": old, "new": "書いた字"}}, str(path) + ".out")
+    assert (LOCKED in str(e.value)) != (OPEN in str(e.value)), str(e.value)
+    return "locked" if LOCKED in str(e.value) else "open"
+
+
+def test_docx_locked_field_result_is_refused_and_the_lock_is_told(tmp_path):
+    def lfld(code: str, result: str) -> str:
+        return (f'<w:r><w:fldChar w:fldCharType="begin" w:fldLock="1"/></w:r>' + instr(code) + fc("separate") + result + fc("end"))
+
+    body = ("<w:p>" + r("日付 ") + lfld(" DATE ", r("1999/01/01")) + r(" と ") + fld(" DATE ", "2000/02/02") + "</w:p>"
+            # 固定していないフィールドの結果の中の、固定したフィールド：外の更新で作り直す
+            "<w:p>" + r("外 ") + fc("begin") + instr(" IF 1 = 1 ") + fc("separate") + r("外の字 ") + lfld(" AUTHOR ", r("中の固定"))
+            + fc("end") + "</w:p>"
+            # 固定したフィールドの結果の中：中も固定していれば固定、中が固定していなければ作り直す
+            "<w:p>" + r("外 ") + lfld(" QUOTE ", r("固定の外 ") + lfld(" AUTHOR ", r("中も固定")) + fld(" TITLE ", "中は開")) + "</w:p>"
+            '<w:p><w:fldSimple w:instr=" PAGE " w:fldLock="1">' + r("77") + "</w:fldSimple></w:p>")
+    src = tmp_path / "lock.docx"
+    src.write_bytes(make_docx(body))
+    assert [_why_refused(src, x) for x in ("1999/01/01", "2000/02/02", "中の固定", "外の字", "中も固定", "固定の外", "中は開", "77")] \
+        == ["locked", "open", "open", "open", "locked", "locked", "open", "locked"]
+    # 固定していても、結果の字は所にしない（固定していても作り直すアプリがある）
+    assert _ids(src) == []
+
+
+def test_rtf_locked_field_result_is_refused_and_the_lock_is_told(tmp_path):
+    def rf(code: str, result: str, lock: bool = False) -> str:
+        return "{" + B + "field" + (B + "fldlock" if lock else "") + "{" + B + "*" + B + "fldinst " + code + "}{" + B + "fldrslt " + result + "}}"
+
+    blob = make_rtf("date " + rf("DATE", "1999/01/01", True) + " and " + rf("DATE", "2000/02/02") + B + "par",
+                    "o " + rf("IF 1 = 1", "outA " + rf("AUTHOR", "inlocked", True)) + B + "par",
+                    "k " + rf("QUOTE", "outC " + rf("AUTHOR", "bothlocked", True) + " " + rf("TITLE", "inopen"), True) + B + "par")
+    src = tmp_path / "lock.rtf"
+    src.write_bytes(blob)
+    assert [_why_refused(src, x) for x in ("1999/01/01", "2000/02/02", "inlocked", "outA", "bothlocked", "outC", "inopen")] \
+        == ["locked", "open", "open", "open", "locked", "locked", "open"]
+
+
+def test_doc_locked_fields_written_by_libreoffice(tmp_path, monkeypatch):
+    # .docx の固定した DATE・TIME（w:fldLock）を LibreOffice が .doc に書き出したファイル：終わりの印の fLocked が立つ
+    import shutil
+
+    from todoku.doc.book import DocFile
+
+    src = tmp_path / "locked_fields.doc"
+    shutil.copy(os.path.join(os.path.dirname(__file__), "fixtures", "locked_fields.doc"), src)
+    doc = DocFile(src.read_bytes(), "locked_fields.doc")
+    ends = doc._locked_ends()
+    assert len(ends) == 2 and all(doc.text[cp] == "\x15" for cp in ends)
+    assert sorted(doc.text[doc.text.rindex("\x14", 0, cp) + 1:cp] for cp in ends) == ["03:33", "1999/01/01"]
+    assert [_why_refused(src, x) for x in ("1999/01/01", "03:33", "2026/11/12", "frozenauthor")] == ["locked", "locked", "open", "open"]
+    # 大きな書類の道（段落の範囲で読む）でも、同じ理由で断る
+    monkeypatch.setattr(limits, "LAZY_MIN_BYTES", 0)
+    monkeypatch.setattr(limits, "CONTEXT_BUDGET", 300)
+    api._WINDOWS.clear()
+    lazy.clear()
+    assert api.fields_range(str(src), {"paragraphs": [1, 5]}, limit=10000)["total_paragraphs"] > 5
+    assert [_why_refused(src, x) for x in ("1999/01/01", "03:33", "2026/11/12")] == ["locked", "locked", "open"]
+
+
+def _word6_with_fields(text: str, locked: tuple, shift: int = 0) -> bytes:
+    """Word 6.0 の文書と、フィールドの印の表（PlcffldMom）：結果の字が locked のどれかで始まるフィールドの終わりの印に fLocked。"""
+    import struct
+
+    from test_legacy import make_word6
+
+    marks, stack = [], []
+    for cp, ch in enumerate(text):
+        if ch == "\x13":
+            stack.append(cp)
+            marks.append((cp, 0x13, 0))
+        elif ch == "\x14":
+            marks.append((cp, 0x14, 0xFF))
+        elif ch == "\x15":
+            b = stack.pop()
+            lock = text[text.index("\x14", b) + 1:cp].startswith(locked)
+            marks.append((cp, 0x15, 0x80 | (0x10 if lock else 0) | (0x40 if stack else 0)))
+    plc = struct.pack(f"<{len(marks) + 1}I", *[m[0] + shift for m in marks], len(text)) + b"".join(bytes([m[1], m[2]]) for m in marks)
+    return make_word6(text, enc="cp1252", lid=0x0409, more={"PlcfFldMom": plc})
+
+
+W6_FIELDS = ("date \x13 DATE \x141999/01/01\x15 and \x13 DATE \x142000/02/02\x15\r"
+             "o \x13 IF 1 = 1 \x14outA \x13 AUTHOR \x14inlocked\x15\x15\r"
+             "k \x13 QUOTE \x14outC \x13 AUTHOR \x14bothlocked\x15 \x13 TITLE \x14inopen\x15\x15\r")
+
+
+def test_word6_locked_field_result_is_refused_and_the_lock_is_told(tmp_path):
+    src = tmp_path / "lock6.doc"
+    src.write_bytes(_word6_with_fields(W6_FIELDS, ("1999/01/01", "inlocked", "bothlocked", "outC")))
+    assert [_why_refused(src, x) for x in ("1999/01/01", "2000/02/02", "inlocked", "outA", "bothlocked", "outC", "inopen")] \
+        == ["locked", "open", "open", "open", "locked", "locked", "open"]
+
+
+def test_doc_field_table_that_does_not_point_at_the_marks_is_not_used(tmp_path):
+    # 表の位置が、字の中の終わりの印（0x15）と合わないときは、固定として読まない
+    src = tmp_path / "off6.doc"
+    src.write_bytes(_word6_with_fields(W6_FIELDS, ("1999/01/01",), shift=1))
+    assert _why_refused(src, "1999/01/01") == "open"

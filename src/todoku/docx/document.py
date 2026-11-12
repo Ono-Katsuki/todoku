@@ -1510,7 +1510,8 @@ def _mark_held(f: dict) -> None:
 def _mark_result(segs: list, instr: str, node: Node, part: str, p: Para, locked: bool) -> None:
     """フィールドの結果の字（フォームの欄でないもの）に、そのフィールドの印（kind "field" の Control。文書の入力欄の一覧には
     入れない）を付ける。結果の字は、Word がフィールドを更新すると作り直す（ECMA-376 第1部 17.16）ので、入力欄の推定・
-    字を目印にした書き込みの対象にしない（固定した（fldLock）フィールドは、そのことを添える）。"""
+    字を目印にした書き込みの対象にしない。「更新しない」に固定したフィールド（fldLock）は、書けない理由にそのことを添える：
+    外のフィールドが固定されていなければ、外の更新で中の結果も作り直すので、中のフィールドの固定も外す。"""
     instr = " ".join(str(instr).split())
     if not instr:
         return
@@ -1520,6 +1521,8 @@ def _mark_result(segs: list, instr: str, node: Node, part: str, p: Para, locked:
     for s in segs:
         if s.field is None:
             s.field = fc
+        elif not locked and getattr(s.field, "source", "") in ("field-result", "rtf-field"):
+            s.field.locked = False
 
 
 def _ancestors(n: Node, stop: Node):

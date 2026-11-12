@@ -774,6 +774,13 @@ def resolve_write(sp: "Spots", spec: dict, used: dict | None = None) -> dict:
     calc = next((f for f in near_fields if f.kind == "field"), None)
     if calc is not None and any(_field_at(q, j) is calc for j in range(a, max(a + 1, b))):
         what = getattr(calc, "instr", "") or calc.name or "フィールド"
+        if getattr(calc, "locked", False):
+            # 「更新しない」に固定したフィールド（.docx の fldLock・.doc の fLocked・RTF の fldlock）：固定の間は、更新しても
+            # 結果を作り直さない決まり（ECMA-376 第1部 17.16.18 fldChar・17.16.19 fldSimple の fldLock）。固定していても作り直すアプリがあるので、書かない
+            raise WriteError(f"「{old}」は、フィールド（{what}）の結果の字です。このフィールドは「更新しない」に固定されていますが、"
+                             "固定されたフィールドの結果も作り直すアプリがあり（LibreOffice は、ページ番号・参照などを作り直します）、"
+                             "固定を外して更新すれば元の結果に戻るので、書けません。"
+                             "様式の作り手にフィールドを解除した様式を求めるか、本人に、印刷した後に手で書いてもらってください")
         raise WriteError(f"「{old}」は、フィールド（{what}）の結果の字です。Word などで開いてフィールドを更新すると、"
                          "書いた字は消えて元の結果に戻るので、書けません（差し込み印刷の欄なら、差し込みのデータの値になります）。"
                          "様式の作り手に差し込みを解除した様式を求めるか、本人に、印刷した後に手で書いてもらってください")
