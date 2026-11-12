@@ -15,11 +15,16 @@
 同じファイルの中に文字コードの宣言があるとき（declared。メールのコードページ・複合ファイルの要約の情報のコードページ）は、
 ASCII でない字の全部がその文字コードで厳密にきれいに読めれば、それ（UTF-8 の形より先）。
 エージェントが選んだ文字コード（encoding）は、印のない字の全部がその文字コードで厳密にきれいに読めるときだけ使う（読めなければ NameCodeError）。
+
+表（dBASE・Lotus 1-2-3・Excel 2〜4）の 8 ビットの字は、1 つのファイルの字の全部が同じ文字コード（decide_whole）：字ごとには決めない
+（UTF-8 も、全部の字が UTF-8 の形のときだけ）。項目の幅いっぱいの字（dBASE）は、終わりの字が幅で切れていることがあるので、
+終わりの、途中までの字だけは許す。
 """
 
 from __future__ import annotations
 
 import codecs
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from .datafile.textenc import MULTI, NAME_JA, SINGLE, canonical, clean
@@ -44,6 +49,7 @@ def _known(names: tuple) -> tuple:
 OEM = _known(("cp437", "cp850", "cp858", "cp852", "cp855", "cp857", "cp860", "cp861", "cp862", "cp863", "cp864", "cp865",
               "cp866", "cp869", "cp737", "cp775", "cp720", "cp1125"))
 ORDER = MULTI + tuple(e for e in SINGLE if e not in MULTI) + tuple(e for e in OEM if e not in SINGLE)
+_ONE_BYTE = frozenset(e for e in ORDER if e not in MULTI)  # 1 バイトが 1 字の文字コード（前後のバイトで読み方が変わらない）
 
 # Windows のコードページの番号 → Python の codec（番号がそのまま「cp番号」でないもの）
 _CODEPAGES = {65001: "utf-8", 65000: "utf-7", 1200: "utf-16-le", 1201: "utf-16-be", 12000: "utf-32-le", 12001: "utf-32-be",
@@ -127,6 +133,7 @@ class Reading:
     own_sample: str = ""  # 候補の sample と同じ字を、encoding で読んだもの
     count: int = 0  # encoding で読んだ字の数（名前の数）
     declared_by: str = ""
+    declared_note: str = ""  # ファイルの宣言を使わなかったとき、その事実（表の字：decide_whole）
 
     @property
     def undetermined(self) -> bool:
@@ -155,6 +162,8 @@ class Reading:
         out = {"encoding": self.encoding, "label": label(self.encoding), "basis": self.basis, "count": self.count}
         if self.basis == "given":
             out["chosen_by"] = "agent"
+        if self.declared_note:
+            out["declared"] = self.declared_note
         if self.candidates:
             out["sample"] = self.own_sample
             out["candidates"] = list(self.candidates)
@@ -164,7 +173,7 @@ class Reading:
         """Markdown の窓の注意（決められないとき・エージェントが選んだとき）。"""
         if self.basis == "given":
             return [f"- {what}の文字コードは、エージェントが選んで指定した {label(self.encoding)} で読みました"
-                    f"（{self.count} 個。厳密に読めることは確かめました）。"]
+                    f"（{self.count} 個。厳密に読めることは確かめました）。{self.declared_note}"]
         if self.basis == "none":
             return [f"- **{what}の文字コードを決められませんでした**：{self.count} 個の{what}は、文字コードがファイルに書かれていず、"
                     f"UTF-8・多バイト・1 バイトのどの文字コードでも、まとめてきれいには読めません。{label(self.encoding)} で"
@@ -172,7 +181,7 @@ class Reading:
         if self.basis != "order":
             return []
         out = [f"- **{what}の文字コードを規則では決められません**：{self.count} 個の{what}は、文字コードがファイルに書かれていません。"
-               f"{label(self.encoding)} で読みましたが、次の文字コードでも、きれいに読めます（字の違う最初の{what}を並べます）。"
+               f"{self.declared_note}{label(self.encoding)} で読みましたが、次の文字コードでも、きれいに読めます（字の違う最初の{what}を並べます）。"
                f"意味の通る方を選んでください。{how_to_choose}",
                f"  - {self.encoding}（いまの読み方）：{self.own_sample}"]
         out += [f"  - {c['encoding']}：{c['sample']}" for c in self.candidates]
@@ -221,6 +230,140 @@ def decide(raws, encoding: str | None = None, declared=(), fallback: str = "lati
         cands.append({"encoding": e2, "label": label(e2),
                       "sample": _clip(other[k]) + ("" if k == k0 else f"（いまの読み方では {_clip(own[k])}）")})
     return Reading(enc, "order", cands, _clip(own[k0]), len(rest))
+
+
+# ====================================================================== 表の字：1 つのファイルに 1 つの文字コード
+_TABLE: ContextVar[tuple | None] = ContextVar("todoku_table_encoding", default=None)  # (文字コード, そのファイルの印の集まり)
+
+
+def _blob_key(blob) -> tuple:
+    b = blob if isinstance(blob, bytes) else bytes(blob)
+    return len(b), hash(b)
+
+
+def use_table_encoding(encoding: str | None, blob=b"") -> None:
+    """表（dBASE・Lotus 1-2-3・Excel 2〜4）のファイル blob の字の、エージェントが選んだ文字コード（None：選んでいない）。
+    選択は、そのファイルの中身にだけ当てはめる（ほかの表・文書に埋め込んだ表は、規則で読む）。同じ文字コードで続けて呼ぶと、
+    当てはめるファイルを足す（書いた後のファイルを、書く前と同じ文字コードで読み戻すため）。"""
+    if not encoding:
+        _TABLE.set(None)
+        return
+    cur = _TABLE.get()
+    keys = cur[1] if cur and cur[0] == encoding else frozenset()
+    _TABLE.set((encoding, keys | {_blob_key(blob)}))
+
+
+def table_encoding(blob=b"") -> str | None:
+    cur = _TABLE.get()
+    return cur[0] if cur and _blob_key(blob) in cur[1] else None
+
+
+def _strict_cut(raw: bytes, enc: str) -> str | None:
+    """幅で切れているかもしれない字：終わりの、途中までの字（多バイトの字の前のバイトだけ）は読まずに、残りを厳密に読む。"""
+    try:
+        t = codecs.getincrementaldecoder(enc)("strict").decode(raw, False)
+    except (UnicodeDecodeError, LookupError):
+        return None
+    return t if clean(t) else None
+
+
+def decide_whole(raws, cut=(), encoding: str | None = None, declared=(), fallback: str = "latin-1",
+                 empty_ok: bool = False) -> Reading:
+    """1 つのファイルの 8 ビットの字の全部（raws と cut）を、同じ 1 つの文字コードで読む読み方。encoding は、いつも入る
+    （ASCII だけなら "ascii"、basis は空）。cut：項目の幅いっぱいの字（終わりの字が切れていることがある）。
+    declared：[(文字コード, どこの宣言か)]。前から順に、全部を厳密にきれいに読めた最初のもの。なければ、全部が UTF-8 の形なら
+    UTF-8（basis は shape）。ほかは decide と同じ（決まった順に試し、読めた最初の読み方で示し、ほかを候補に並べる）。
+    empty_ok：ASCII でない字が 1 つもなくても、encoding を受け取る（書ける形式：書く値の文字コードを、エージェントが選ぶ）。"""
+    whole = list(dict.fromkeys(r for r in raws if not r.isascii()))
+    seen = set(whole)
+    cuts = [r for r in dict.fromkeys(r for r in cut if not r.isascii()) if r not in seen]
+    count = len(whole) + len(cuts)
+    joined, cut_joined = b"\n".join(whole), b"\n".join(cuts)
+
+    kinds: bytes | None = None  # 字のバイトの種類
+
+    def read(enc: str) -> str | None:
+        nonlocal kinds
+        if enc in _ONE_BYTE:  # 1 バイトが 1 字の文字コード：読めるか・きれいかは、バイトの種類（256 までの字）だけで決まる
+            if kinds is None:
+                kinds = bytes(sorted(set(joined) | set(cut_joined)))
+            if _strict(kinds, enc) is None:
+                return None
+            a = joined.decode(enc)
+            return (f"{a}\n{cut_joined.decode(enc)}" if whole else cut_joined.decode(enc)) if cuts else a
+        a = _strict(joined, enc) if whole else ""
+        if a is None or not cuts:
+            return a
+        b = _strict(cut_joined, enc)  # どの字も切れていなければ、まとめて読める
+        if b is None:
+            parts = []
+            for r in cuts:
+                t = _strict_cut(r, enc)
+                if t is None:
+                    return None
+                parts.append(t)
+            b = "\n".join(parts)
+        return f"{a}\n{b}" if whole else b
+
+    said = [(enc, where) for enc, where in declared if enc]
+    if encoding:
+        enc = canonical(encoding)
+        if enc is None:
+            raise NameCodeError(f"文字コード「{encoding}」を知りません（例：UTF-8・Shift_JIS・EUC-KR・GBK・Big5・CP850・CP866）")
+        if not count and not empty_ok:
+            raise NameCodeError("この書類には、文字コードを選べる字がありません（どの字も ASCII です）")
+        if count and read(enc) is None:
+            raise NameCodeError(f"指定された文字コード（{label(enc)}）では、この書類の字を厳密に読めません。窓に並んだ候補から選んでください")
+        note = "".join(f"ファイルに書かれた文字コードは {label(e)}（{w}）です。" for e, w in said[:1] if e != enc)
+        return Reading(enc, "given", count=count, declared_note=note)
+    if not count:  # ASCII の字だけ：宣言があれば、書くときの文字コードは宣言のもの
+        return Reading(said[0][0], "declared", declared_by=said[0][1]) if said else Reading("ascii")
+    for enc, where in said:
+        if read(enc) is not None:
+            return Reading(enc, "declared", count=count, declared_by=where)
+    note = "".join(f"ファイルに書かれた文字コード {label(e)}（{w}）では、字を厳密に読めません。" for e, w in said)
+    if read("utf-8") is not None:
+        return Reading("utf-8", "shape", count=count, declared_note=note)
+    got: list[tuple[str, str]] = []
+    for enc in ORDER:
+        t = read(enc)
+        if t is not None and all(t != u for _e, u in got):
+            got.append((enc, t))
+    if not got:
+        return Reading(fallback, "none", count=count, declared_note=note)
+    enc, text = got[0]
+    if len(got) == 1:
+        return Reading(enc, "one", count=count, declared_note=note)
+    own = text.split("\n")
+    cands, k0 = [], None
+    for e2, t2 in got[1:]:
+        other = t2.split("\n")
+        k = next((i for i, (a, b) in enumerate(zip(own, other)) if a != b), 0)
+        k0 = k if k0 is None else k0
+        cands.append({"encoding": e2, "label": label(e2),
+                      "sample": _clip(other[k]) + ("" if k == k0 else f"（いまの読み方では {_clip(own[k])}）")})
+    return Reading(enc, "order", cands, _clip(own[k0]), count, declared_note=note)
+
+
+def table_reading(blob, raws, cut=(), declared=(), empty_ok: bool = False) -> Reading:
+    """表のファイル blob の字の読み方：エージェントがこのファイルに選んだ文字コード（use_table_encoding）があれば、それで厳密に
+    読めるときだけ使う。"""
+    return decide_whole(raws, cut, table_encoding(blob), declared, empty_ok=empty_ok)
+
+
+def table_window(doc: dict, reading: "Reading | None") -> None:
+    """窓の JSON に、表の字の文字コードの決め方を入れる（規則で決まらなかったとき・エージェントが選んだとき・宣言を使わなかったとき）。"""
+    if reading is None or not (reading.basis in ("order", "none", "given") or reading.declared_note):
+        return
+    doc["text_encoding"] = reading.info()
+    if reading.basis == "given" and not reading.count:
+        doc["text_encoding"]["notes"] = [f"- このファイルに ASCII でない字はありません。書く値は、エージェントが選んで指定した文字コード"
+                                         f"（{label(reading.encoding)}）のバイトにします。{reading.declared_note}"]
+        return
+    doc["text_encoding"]["notes"] = reading.note_lines(
+        "値", "選んだ文字コードの名前を、このファイルのどの道具にも encoding で渡します。") or (
+        [f"- {reading.declared_note}{label(reading.encoding)} で読みました"
+         f"（{'字の全部が UTF-8 の形' if reading.basis == 'shape' else 'ほかの文字コードでは読めない'}）。"])
 
 
 def readings(raw: bytes) -> list[str]:

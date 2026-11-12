@@ -2834,6 +2834,10 @@ def build(wb: Workbook) -> dict:
 
     add_to_window(wb, doc)  # グラフ（charts）と埋め込み（objects）：読むだけ
     doc["unread"] = [u for sh in wb.sheets for u in sh.unread]
+    if getattr(wb, "text_reading", None) is not None:  # dBASE・Lotus・Excel 2〜4：8 ビットの字の文字コードの決め方
+        from ..namecode import table_window
+
+        table_window(doc, wb.text_reading)
     if any(sh.__dict__.pop("_has_font_marks", False) for sh in wb.sheets):
         doc["notation"]["〔取り消し線〕・〔字の色 #FF0000〕"] = ("字の書式の事実：後ろの値に取り消し線がある・字の色がシートのふつうの色と違う。"
                                                        "〔うち取り消し線：「字」〕はセルの字の一部の書式（意味は決めない）")
@@ -3127,6 +3131,7 @@ def _md_head(doc: dict) -> list[str]:
     if line:
         out.append("- " + line)
     out += [f"- **読んでいない部分**：{u}" for u in doc.get("unread") or []]
+    out += (doc.get("text_encoding") or {}).get("notes") or []
     out.append("")
     return out
 

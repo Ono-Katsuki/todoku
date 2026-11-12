@@ -1197,6 +1197,45 @@ def unshown_reasons(doc: dict) -> list[Reason]:
                    where)]
 
 
+TEXT_ENCODING_TITLES = ("字の文字コードを規則では決められない", "字の文字コードを決められない", "エージェントが選んだ文字コード")
+
+
+def text_encoding_reasons(te: dict) -> tuple[list[Reason], list[Reason]]:
+    """表のファイル（dBASE・Lotus 1-2-3・Excel 2〜4）の 8 ビットの字の文字コード（窓の text_encoding）：(読む理由, 書く理由)。
+    - ファイルに書かれていず、いくつもの文字コードできれいに読める：読む B（字は全部窓に出ていて、候補の見本も並べた。どれが正しいかは
+      エージェントが字を読んで決める）・書く B（ASCII でない字は、文字コードを選んでから書く）
+    - どの文字コードでもきれいに読めない：読む C
+    - エージェントが選んで encoding で渡した：厳密に読めることを確かめたので、段階は下げない（出どころ agent_choice）"""
+    basis = te.get("basis")
+    said = te.get("declared") or ""
+    if basis == "order":
+        codes = [te["encoding"]] + [c["encoding"] for c in te.get("candidates", [])]
+        return ([Reason("B", TEXT_ENCODING_TITLES[0],
+                        f"ASCII でない字（{te['count']} 個の値・名前）は、文字コードがファイルに書かれていず、{len(codes)} つの文字コードのどれとしても"
+                        f"きれいに読めます。{said}窓は {te['label']} で読み、ほかの読み方の見本を窓に並べました。どれが正しいかは、"
+                        "エージェントが字を読んで決めます（その名前を encoding で渡すと、読み直します）", codes)],
+                [Reason("B", TEXT_ENCODING_TITLES[0],
+                        "ASCII でない字は、エージェントが字を読んで文字コードを選び、encoding で渡してから書きます（選ぶ前は、ASCII の値だけ書けます）",
+                        codes)])
+    if basis == "none":
+        return ([Reason("C", TEXT_ENCODING_TITLES[1],
+                        f"ASCII でない字（{te['count']} 個の値・名前）は、文字コードがファイルに書かれていず、どの文字コードでも、まとめてきれいには"
+                        f"読めません。{said}{te['label']} でバイトを 1 字ずつ字にしました。窓の字は正しいとは限らないので、エージェントが確かめます")],
+                [Reason("B", TEXT_ENCODING_TITLES[1], "ASCII でない字は、エージェントが正しい文字コードを決めて encoding で渡してから書きます")])
+    if basis == "given" and not te["count"]:  # ASCII の字だけのファイル：選んだのは、書く値の文字コード
+        return [], [Reason("A", TEXT_ENCODING_TITLES[2], f"書く値は、エージェントが選んで指定した文字コード（{te['label']}）のバイトにして書きます"
+                           f"（このファイルに ASCII でない字はなく、どの文字コードで書くかは、規則ではなくエージェントの判断）。{said}",
+                           [te["encoding"]], by="agent_choice")]
+    if basis == "given":
+        return ([Reason("S", TEXT_ENCODING_TITLES[2],
+                        f"ASCII でない字（{te['count']} 個の値・名前）は、エージェントが選んで指定した {te['label']}（encoding: \"{te['encoding']}\"）で"
+                        f"読みました。その文字コードとして厳密に読めることを確かめました（どれが正しいかは、規則ではなくエージェントの判断）。{said}",
+                        [te["encoding"]], by="agent_choice")],
+                [Reason("A", TEXT_ENCODING_TITLES[2], f"書く値は、選んだ文字コード（{te['label']}）のバイトにして書きます",
+                        [te["encoding"]], by="agent_choice")])
+    return [], []
+
+
 def _grade_excel(blob: bytes, filename: str) -> Grade:
     from .book import open_book
     from .xlsx.calc import verify
@@ -1212,6 +1251,10 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
     reasons += unshown_reasons(doc)
     for u in doc.get("unread") or []:  # .xlsb の図形など、読んでいない所
         reasons.append(Reason("C", "読んでいない部分", u))
+    if doc.get("text_encoding"):
+        r_, w_ = text_encoding_reasons(doc["text_encoding"])
+        reasons += r_
+        write += w_
     vr = verify(wb)
     rep = vr.summary()
     if rep["unsupported"]:

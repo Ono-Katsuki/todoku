@@ -73,6 +73,7 @@ def _read(path: str, password: str | None = None):
 
     p = Path(path).expanduser()
     _arc.use_password(password)
+    _table_encoding(None)  # 表の字の文字コードの選択は、呼び出しごと（_encoding で確かめてから置く）
     if not p.is_file() and _member(path) is not None:
         return _read_member(path, password)
     if not p.is_file():
@@ -322,12 +323,37 @@ def _read_member(path: str, password: str | None):
     return plain, name, k, lock
 
 
-def _encoding(blob: bytes, k: str, encoding: str | None) -> str | None:
-    """エージェントが選んだ文字コード（encoding）を確かめる：文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）と、
-    名前・字の文字コードが書かれていない書庫とメール（ZIP・tar・gzip・LZH・.msg）にだけ使え、ファイル（書庫は、印のない名前の全部）が
-    その文字コードとして厳密に読めること。読めなければ ApiError（黙ってほかの文字コードで読まない）。"""
+TABLE_CODED = ("dbf", "wk1", "xls2")  # 8 ビットの字の表：文字コードがファイルに書かれていないことがある
+
+
+def _table_encoding(encoding: str | None, blob: bytes = b"") -> None:
+    from .namecode import use_table_encoding
+
+    use_table_encoding(encoding, blob)
+
+
+def _encoding(blob: bytes, k: str, encoding: str | None, name: str = "") -> str | None:
+    """エージェントが選んだ文字コード（encoding）を確かめる：文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）、
+    名前・字の文字コードが書かれていない書庫とメール（ZIP・tar・gzip・LZH・.msg）、8 ビットの字の表（dBASE・Lotus 1-2-3・Excel 2〜4）に
+    だけ使え、ファイル（書庫は、印のない名前の全部。表は、ASCII でない字の全部）がその文字コードとして厳密に読めること。
+    読めなければ ApiError（黙ってほかの文字コードで読まない）。"""
     if not encoding:
         return None
+    if k in TABLE_CODED:
+        from . import namecode
+
+        enc = namecode.canonical(encoding)
+        if enc is None:
+            raise ApiError(f"文字コード「{encoding}」を知りません（例：UTF-8・Shift_JIS・EUC-KR・GBK・Big5・CP850・CP866）")
+        _table_encoding(enc, blob)
+        try:
+            _open._more.open_workbook(k, blob, name)  # その文字コードで、字の全部を厳密に読めること
+        except namecode.NameCodeError as e:
+            _table_encoding(None)
+            raise ApiError(str(e)) from None
+        except Exception:  # noqa: BLE001  壊れたファイル：窓・段階の所で、理由を添えて伝える
+            pass
+        return enc
     if k in _arc.NAME_CODED:
         from .ziparc import ArchiveError
 
@@ -337,8 +363,8 @@ def _encoding(blob: bytes, k: str, encoding: str | None) -> str | None:
             raise ApiError(str(e)) from None
         return encoding
     if k not in _open.TEXT_FILES:
-        raise ApiError(f"encoding（文字コード）は、文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）と、名前の文字コードが書かれていない"
-                       f"書庫・メール（ZIP・tar・gzip・LZH・.msg）にだけ指定できます"
+        raise ApiError(f"encoding（文字コード）は、文字だけのファイル（CSV・TSV・JSON・JSON Lines・.txt）、名前の文字コードが書かれていない"
+                       f"書庫・メール（ZIP・tar・gzip・LZH・.msg）、8 ビットの字の表（dBASE・Lotus 1-2-3・Excel 2〜4）にだけ指定できます"
                        f"（この書類は {KIND_JA.get(k, k)}。文字コードはファイルの作りで決まります）")
     from .datafile.textenc import EncodingError, decode
 
@@ -397,7 +423,7 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
     import pickle
 
     blob, name, k, lock = _read(path, password)
-    encoding = _encoding(blob, k, encoding)
+    encoding = _encoding(blob, k, encoding, name)
     from .pdf.window import _PAGE_SCOPE
 
     scope = _PAGE_SCOPE.get()  # 大きな PDF：書く所のページだけの窓
@@ -869,7 +895,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         except ValueError as e:
             raise ApiError(str(e)) from None
     blob, name, k, lock = _read(path, password)
-    encoding = _encoding(blob, k, encoding)
+    encoding = _encoding(blob, k, encoding, name)
     if k in _arc.KINDS:
         raise ApiError("ZIP そのものには書けません。中のファイルを path に「" + path + "!/中の名前」で指定してください")
     _seal_supported(k, values)
@@ -2384,7 +2410,7 @@ def audit_whole(path: str, password: str | None = None, encoding: str | None = N
     from .unlock import pdf_password
 
     blob, name, k, lock = _read(path, password)
-    encoding = _encoding(blob, k, encoding)
+    encoding = _encoding(blob, k, encoding, name)
     if k in _arc.KINDS:
         return _audit_zip(path, blob, password, k, name)
     if k == "pdf":
@@ -2420,7 +2446,7 @@ def audit_whole(path: str, password: str | None = None, encoding: str | None = N
 @_budgeted
 def read_table(path: str, header: str, sheet: str | None = None, header_rows: int | None = None,
                out_path: str | None = None, password: str | None = None, cursor: str | None = None,
-               rows: str | None = None, limit: int | None = None) -> dict:
+               rows: str | None = None, limit: int | None = None, encoding: str | None = None) -> dict:
     """Excel の表・データベースの表を、見出しの列で行ごとに取り出す（結合セルは画面どおりに範囲へ広げ、値ごとに元のセルを添える）。
     sheet を省くと、header のあるすべてのシートから。out_path（.csv か .json）を指すと、すべての行を書き出す。
     rows（シートの行の番号の範囲。sheet といっしょに）：その範囲の行だけ。limit：分けて読む道で 1 回に返す行の数（続きは next）。"""
@@ -2446,6 +2472,7 @@ def read_table(path: str, header: str, sheet: str | None = None, header_rows: in
     blob, name, k, lock = _read(path, password)
     if k not in _BOOKS:
         raise ApiError("表の取り出しは Excel（.xlsx・.xlsm・.xls）です（ほかの形式は窓で読めます）")
+    _encoding(blob, k, encoding, name)
     try:
         t = tread(open_book(blob, name), header, sheet, header_rows)
     except TableError as e:
@@ -2661,7 +2688,7 @@ def _table_cols(lz, si, band, tread, header, sheet, header_rows) -> list[str]:
 
 
 @_budgeted
-def calc_model(path: str, cell: str | None = None, password: str | None = None) -> dict:
+def calc_model(path: str, cell: str | None = None, password: str | None = None, encoding: str | None = None) -> dict:
     """Excel の様式の「データ」（入力欄）と「処理」（入力につながる数式）。cell を指すと、その計算を入力欄までさかのぼる。
     式は、番地を見出しに置き換えて示す（in_words）。"""
     from .book import open_book
@@ -2670,6 +2697,7 @@ def calc_model(path: str, cell: str | None = None, password: str | None = None) 
     blob, name, k, lock = _read(path, password)
     if k not in _BOOKS:
         raise ApiError("計算の取り出しは Excel の様式（.xlsx・.xlsm・.xls）です")
+    _encoding(blob, k, encoding, name)
     lz = lazy_open(path, password, built_ok=False)
     if lz is not None and lz.kind == "xlsx":
         wb_, doc = lz.calc_book([cell] if cell else [])  # 大きなブック：そのセルの計算に要る行だけ
@@ -2682,7 +2710,7 @@ def calc_model(path: str, cell: str | None = None, password: str | None = None) 
             return {"explain": xm.explain(m, cell)}
         except ValueError as e:
             raise ApiError(str(e)) from None
-    _k, doc, _ = window(path, password)
+    _k, doc, _ = window(path, password, encoding)
     m = xm.model(open_book(blob, name), doc)
     if cell:
         try:
@@ -2693,7 +2721,7 @@ def calc_model(path: str, cell: str | None = None, password: str | None = None) 
             "dynamic": m["dynamic"], "result_groups": xm.summary(m)}
 
 
-def calc_workbook(path: str, password: str | None, cells: list):
+def calc_workbook(path: str, password: str | None, cells: list, encoding: str | None = None):
     """計算するためのブック：大きなブックは、頼まれたセルに要る行だけ。"""
     from .book import open_book
 
@@ -2701,10 +2729,11 @@ def calc_workbook(path: str, password: str | None, cells: list):
     if lz is not None and lz.kind == "xlsx":
         return lz.calc_book(cells, dependents=True)[0]
     blob, name, _k, _lock = _read(path, password)
+    _encoding(blob, _k, encoding, name)
     return open_book(blob, name)
 
 
-def _calculate_cells(path: str, values: dict, cells: list, password: str | None) -> dict:
+def _calculate_cells(path: str, values: dict, cells: list, password: str | None, encoding: str | None = None) -> dict:
     """頼まれたセルを計算する。大きな配列の集計が時間の中で終わらなければ、進んだ所を控えて、長い仕事として続ける
     （もう一度同じ呼び出しをすると、進み具合か、結果を返す）。"""
     from . import jobs
@@ -2712,7 +2741,7 @@ def _calculate_cells(path: str, values: dict, cells: list, password: str | None)
     from .xlsx import model as xm
     from .xlsx.edit import EditError
 
-    rec = jobs.calc_status(path, values, cells)
+    rec = jobs.calc_status(path, values, cells, encoding)
     if rec and rec.get("finished") and rec.get("results") is not None:
         got = rec["results"]
         job = {"finished": True}
@@ -2721,12 +2750,12 @@ def _calculate_cells(path: str, values: dict, cells: list, password: str | None)
         running = jobs.calc_running(rec)
         store = ScanStore(dict((rec or {}).get("scans") or {}), frozen=running)
         try:
-            got = xm.cell_values(calc_workbook(path, password, list(values) + list(cells)), values, cells, store)
+            got = xm.cell_values(calc_workbook(path, password, list(values) + list(cells), encoding), values, cells, store)
         except (EditError, ValueError) as e:
             raise ApiError(str(e)) from None
         job = None
         if any(c.get("status") == "unfinished" for c in got):
-            rec = jobs.start_calc(path, password, values, cells, store.data)
+            rec = jobs.start_calc(path, password, values, cells, store.data, encoding)
             job = {"key": rec.get("key"), "running": not rec.get("failed"), "finished": False}
             if rec.get("failed"):
                 job.update(failed=True, stopped=rec.get("stopped"))
@@ -2750,7 +2779,8 @@ def _calculate_cells(path: str, values: dict, cells: list, password: str | None)
 
 
 @_budgeted
-def calculate(path: str, values: dict, password: str | None = None, cells: list | None = None) -> dict:
+def calculate(path: str, values: dict, password: str | None = None, cells: list | None = None,
+              encoding: str | None = None) -> dict:
     """値の組から、ファイルを書かずに結果を計算する（試算）。書き込みと同じ受け取り方・入力規則・計算エンジン。
     cells：結果を見たいセル（動的配列の広がった先のマスも。大きな配列の集計は長い仕事として続きから進む）。"""
     from .book import open_book
@@ -2760,16 +2790,17 @@ def calculate(path: str, values: dict, password: str | None = None, cells: list 
     blob, name, k, lock = _read(path, password)
     if k not in _BOOKS:
         raise ApiError("試算は Excel の様式（.xlsx・.xlsm・.xls）です")
+    _encoding(blob, k, encoding, name)
     values = _split_values(values, k)[0]  # as（述べた意味）は書くときのもの。試算にも同じ値の形を渡せるように
     if cells:
-        return _calculate_cells(path, values, list(cells), password)
+        return _calculate_cells(path, values, list(cells), password, encoding)
     lz = lazy_open(path, password, built_ok=False)
     try:
         if lz is not None and lz.kind == "xlsx":
             wb_, doc = lz.calc_book(list(values), dependents=True)  # 大きなブック：書いたセルに連動する行だけ
             r = xm.calculate(wb_, doc, values)
         else:
-            _k, doc, _ = window(path, password)
+            _k, doc, _ = window(path, password, encoding)
             r = xm.calculate(open_book(blob, name), doc, values)
     except EditError as e:
         raise ApiError(str(e)) from None
@@ -2790,15 +2821,15 @@ def calculate(path: str, values: dict, password: str | None = None, cells: list 
 
 @_budgeted
 def extract_processing(path: str, format: str = "json", out_path: str | None = None, sheet: str | None = None,
-                       overwrite: bool = False, password: str | None = None) -> dict:
+                       overwrite: bool = False, password: str | None = None, encoding: str | None = None) -> dict:
     """書類の処理を、処理として取り出す：規則（同じ形の数式を 1 つに）・構造（入力・参照表・出力・順番など）・マクロ・PDF の計算。
     format="python" なら、標準ライブラリだけで動く calculate(inputs) のモジュールを out_path に書き出し、確かめてから返す。"""
-    return extract_processing_both(path, format, out_path, sheet, overwrite, password)[1]
+    return extract_processing_both(path, format, out_path, sheet, overwrite, password, encoding)[1]
 
 
 @_budgeted
 def extract_processing_both(path: str, format: str = "json", out_path: str | None = None, sheet: str | None = None,
-                            overwrite: bool = False, password: str | None = None) -> tuple[dict, dict]:
+                            overwrite: bool = False, password: str | None = None, encoding: str | None = None) -> tuple[dict, dict]:
     """(省かない全部, extract_processing の返す形)。MCP が結果の上限に合わせて選ぶため。"""
     from .limits import CONTEXT_BUDGET
     from .processing import ProcessingError, extract_both
@@ -2808,6 +2839,7 @@ def extract_processing_both(path: str, format: str = "json", out_path: str | Non
     blob, name, k, lock = _read(path, password)
     if k not in _BOOKS and k not in ("ods", "fods", "pdf"):
         raise ApiError(f"処理の取り出しは Excel の仲間（.xlsx・.xls・.xlsb・.ods など）と PDF のフォームです。この形式（{k}）には計算の処理がありません")
+    _encoding(blob, k, encoding, name)
     if out_path:
         _not_source(Path(path).expanduser(), Path(out_path).expanduser())
     try:
@@ -3019,7 +3051,7 @@ def grade(path: str, findings: list[dict] | None = None, answered: list[str] | N
 
         g = _locked("開けない", str(e), "読めないので、書けません")
         return (combine(g, findings or [], answered) if findings or answered else g).to_dict()
-    encoding = _encoding(blob, k, encoding)
+    encoding = _encoding(blob, k, encoding, name)
     from .embeds.lazy import window_room
 
     with window_room(), _opened_window(blob, name, k, lock, encoding):  # 窓に入らない埋め込みの表は開かない（理由に「まだ確かめていない」と書く。検査の仕事の中では、すべて読む）
@@ -3302,6 +3334,7 @@ def _add_range_fields(path: str, sheet: str, rng: dict, res: dict, limit: int, p
         return
     a, b = _rows_of(rng)
     blob, name, _k, _lock = _read(path, password)
+    _encoding(blob, _k, encoding, name)
     wb = open_book(blob, name)
     _places, got, more = _expand_places(wb, wb.sheet(sheet), a, b, limit)
     have = {f.get("id") for f in res.get("fields") or []}
@@ -3366,6 +3399,11 @@ def summary(path: str, password: str | None = None, encoding: str | None = None)
             d["needs_tool"] = doc["needs_tool"]
     else:
         d["protection"] = doc.get("protection")
+    if isinstance(doc, dict) and doc.get("text_encoding"):
+        # 表の字の文字コードを決められない（候補と見本）・エージェントが選んだ・宣言を使わなかった。注意の文は窓の頭にある
+        te = doc["text_encoding"]
+        d["text_encoding"] = {**{x: v for x, v in te.items() if x != "notes"}, **({"candidates": [
+            {"encoding": c["encoding"], "sample": c["sample"]} for c in te["candidates"]]} if te.get("candidates") else {})}
     if k in _open.KINDS:  # 追加の形式
         d.pop("protection", None)
         d.update(_open.summary(k, doc))

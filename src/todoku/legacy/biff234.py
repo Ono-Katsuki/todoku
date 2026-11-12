@@ -2,7 +2,9 @@
 
 レコードの形は OpenOffice.org の「Microsoft Excel File Format」のとおり：
 - BOF は 0x0009・0x0209・0x0409。セルのレコードは BIFF2 では 3 バイトの属性（2.5.13）、BIFF3・4 では XF の番号（BIFF8 と同じ形）
-- 字はバイト列で、CODEPAGE の文字コード（なければ、読み方を推定して窓に書く）。LABEL の長さは BIFF2 が 1 バイト、BIFF3・4 が 2 バイト
+- 字はバイト列。字の全部を 1 つの文字コードで読む（namecode.decide_whole）：CODEPAGE の記録の文字コードで、字の全部を厳密に読めれば、
+  それ。記録がないか、それでは読めなければ、読める文字コードを決まった順に試し、最初の読み方で示して、候補を窓に並べる
+  （エージェントが字を読んで選び、encoding で渡す）。LABEL の長さは BIFF2 が 1 バイト、BIFF3・4 が 2 バイト
 - 数式は 3.4.7 の表の大きさのトークン（tFunc の関数の番号は BIFF2・3 が 1 バイト、BIFF4 が 2 バイト）。
   読めないトークンは Unsupported（窓には保存された結果を出す）
 """
@@ -169,6 +171,18 @@ class Biff234Workbook(XlsbWorkbook):
     kind = "xls2"
 
     def __init__(self, blob: bytes, filename: str = ""):
+        from ..namecode import table_reading
+
+        self.text_reading = None
+        self._raws: dict[bytes, None] = {}  # 1 回目：8 ビットの字のバイトを集める
+        self._first_ok = True
+        self._start(blob, filename)
+        declared = [(self.codepage, f"CODEPAGE の記録 {self.codepage_number}")] if self.codepage else []
+        self.text_reading = table_reading(blob, self._raws, declared=declared)
+        if self._raws and not (self._first_ok and self.text_reading.encoding == self._first):
+            self._start(blob, filename)  # 2 回目：決めた文字コードで読む
+
+    def _start(self, blob: bytes, filename: str) -> None:
         self.filename = filename
         self.zip = _ZipShim(blob)
         self.sheets: list[Sheet] = []
@@ -191,8 +205,8 @@ class Biff234Workbook(XlsbWorkbook):
         self.value_records = {}
         self.record_counts = {}
         self._name_raw = []
-        self.codepage: str | None = None
-        self.guessed_codepage = False
+        self.codepage: str | None = None  # CODEPAGE の記録の文字コード（宣言）
+        self.codepage_number = 0
         self.biff = 0
         self._load2(blob)
 
@@ -204,32 +218,43 @@ class Biff234Workbook(XlsbWorkbook):
         return self._names_only[idx - 1] if 1 <= idx <= len(self._names_only) else "#NAME?"
 
     def _text(self, raw: bytes) -> str:
-        if self.codepage:
-            return raw.decode(self.codepage, "replace")
         if raw.isascii():
             return raw.decode("ascii")
-        self.guessed_codepage = True
-        try:
-            return raw.decode("cp932")
-        except UnicodeDecodeError:
-            return raw.decode("cp1252", "replace")
+        if self.text_reading is None:
+            self._raws[raw] = None
+            try:
+                return raw.decode(self._first)
+            except (UnicodeDecodeError, LookupError):
+                self._first_ok = False
+                return raw.decode("latin-1")
+        return raw.decode(self.text_reading.encoding, "replace")
 
     def _load2(self, blob: bytes) -> None:
         if not is_biff234(blob):
             raise BiffError("Excel 2〜4 のブックとして読めません")
         recs = list(_records(blob))
         self.biff = BOFS[recs[0][0]]
+        for t, b in recs:
+            if t == 0x0042 and len(b) >= 2:
+                from ..namecode import codec_of_codepage
+
+                cp = struct.unpack_from("<H", b, 0)[0]
+                # 367 は ASCII、0x8000 は Apple Roman、0x8001 は Windows-1252（BIFF2〜4 の番号）。ほかは Windows のコードページの番号
+                self.codepage = {367: "ascii", 0x8000: "mac_roman", 0x8001: "cp1252"}.get(cp) or codec_of_codepage(cp)
+                self.codepage_number = cp
+                break
+            if t == 0x002F:
+                raise BiffError("パスワードで保護された古い Excel のブックです。この形の暗号は解けません。解いて保存し直したものか、PDF を頼んでください")
+        if self.text_reading is None:
+            from ..namecode import ORDER, table_encoding
+
+            # 1 回目は、決まるはずの文字コード（エージェントが選んだもの、CODEPAGE の記録、順のいちばん前）で読んでおく：
+            # 決めた文字コードがそれと同じで、どの字も厳密に読めていれば、読み直さない
+            self._first = table_encoding(blob) or self.codepage or ORDER[0]
         if struct.unpack_from("<H", recs[0][1], 2)[0] == 0x100:
             sheet_names = [self._text(b[7:7 + b[6]]) for t, b in recs if t == 0x008E and len(b) > 6]
         else:
             sheet_names = []
-        for t, b in recs:
-            if t == 0x0042 and len(b) >= 2:
-                cp = struct.unpack_from("<H", b, 0)[0]
-                self.codepage = {932: "cp932", 1252: "cp1252", 367: "ascii", 437: "cp437", 0x8000: "mac_roman", 0x8001: "cp1252", 949: "cp949", 936: "gbk", 950: "cp950"}.get(cp)
-                break
-            if t == 0x002F:
-                raise BiffError("パスワードで保護された古い Excel のブックです。この形の暗号は解けません。解いて保存し直したものか、PDF を頼んでください")
         self._fmts: list[str] = []
         self._fonts: list[int] = []
         stem = self.filename.rsplit("/", 1)[-1].rsplit(".", 1)[0] or "Sheet1"
@@ -341,8 +366,6 @@ class Biff234Workbook(XlsbWorkbook):
                 cell.parse_error = f"構文エラー: {e}"
         if not self.sheets:
             raise BiffError("ワークシートがありません")
-        if self.guessed_codepage:
-            self.sheets[0].unread.append("CODEPAGE の記録がないので、字の文字コードをバイトの並びから推定しました（Shift_JIS か Windows-1252）。字が正しいかはエージェントが確かめます")
 
     def _xf34(self, b: bytes, t: int) -> None:
         ifnt, ifmt = b[0], b[1]

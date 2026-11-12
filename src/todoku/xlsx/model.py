@@ -422,11 +422,11 @@ def spill_of(calc, sh, r: int, c: int) -> dict | None:
     return None
 
 
-def cells_for_job(path: str, password: str | None, values: dict, cells: list, store) -> list[dict]:
+def cells_for_job(path: str, password: str | None, values: dict, cells: list, store, encoding: str | None = None) -> list[dict]:
     """長い仕事の本体：ファイルを開いて、頼まれたセルを時間の上限なしに計算する。"""
     from .. import api
 
-    wb = api.calc_workbook(path, password, list(values) + list(cells))
+    wb = api.calc_workbook(path, password, list(values) + list(cells), encoding)
     return cell_values(wb, values, cells, store)
 
 

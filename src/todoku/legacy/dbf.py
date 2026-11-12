@@ -6,7 +6,11 @@
   dBase IV：見出しの 20 バイト目に区画の大きさ、区画は FF FF 08 00・長さ 4）。ファイルの隣か、書庫の同じフォルダから読む。G・P（絵・OLE）の中身は読まない
 - 書く：1 件の大きさも見出しも変えず、項目の幅の中で上書きする（字は空白で埋める。数は右に寄せる）。メモと絵の項目には書かない。変わったのが書いた項目のバイトだけであることを照らす
 - 削除の印（先頭が「*」）のある行は読まず、数を伝える
-- 文字コード：言語の印（0x13・0x7B は Shift_JIS など）。印がなければ、全体が Shift_JIS として厳密に読めるかを見て、推定と書く
+- 文字コード：ファイルの字の全部を、1 つの文字コードで読む（namecode.decide_whole）。隣の .cpg（シェープファイルの決まり：
+  文字コードの名前かコードページの番号）、見出しの言語の印（LDID）の順で、字の全部を厳密に読めた最初の宣言。宣言がないか、
+  宣言では読めなければ、規則では決まらない：読める文字コードを決まった順に試し、最初の読み方で示して、候補を窓に並べる
+  （エージェントが字を読んで選び、encoding で渡す）。項目の幅いっぱいの字は、終わりの字が幅で切れていることがあるので、
+  終わりの途中までの字は読まずに、その数を伝える
 """
 
 from __future__ import annotations
@@ -16,7 +20,44 @@ import struct
 
 from .tablebook import TableBook
 
-LDID = {0x13: "cp932", 0x7B: "cp932", 0x01: "cp437", 0x02: "cp850", 0x03: "cp1252", 0x4D: "gbk", 0x4F: "big5", 0x79: "cp949", 0x7A: "gbk", 0x7D: "cp1255", 0x7E: "cp1256", 0x57: "cp1252", 0x58: "cp1252", 0x59: "cp1252"}
+# 言語の印（見出しの 29 バイト目。LDID）→ 文字コード。dBASE・FoxPro・ESRI の表（dbfread と GDAL の表を合わせたもの）。
+# 0x57（ANSI：書いた機械の文字コード）は、どの文字コードかをファイルが言わないので、宣言にしない。
+# 0x68（Kamenický）・0x69（Mazovia）は、Python に表がないので、宣言にしない
+LDID = {0x01: "cp437", 0x02: "cp850", 0x03: "cp1252", 0x04: "mac_roman", 0x08: "cp865", 0x09: "cp437", 0x0A: "cp850",
+        0x0B: "cp437", 0x0D: "cp437", 0x0E: "cp850", 0x0F: "cp437", 0x10: "cp850", 0x11: "cp437", 0x12: "cp850",
+        0x13: "cp932", 0x14: "cp850", 0x15: "cp437", 0x16: "cp850", 0x17: "cp865", 0x18: "cp437", 0x19: "cp437",
+        0x1A: "cp850", 0x1B: "cp437", 0x1C: "cp863", 0x1D: "cp850", 0x1F: "cp852", 0x22: "cp852", 0x23: "cp852",
+        0x24: "cp860", 0x25: "cp850", 0x26: "cp866", 0x37: "cp850", 0x40: "cp852", 0x4D: "gbk", 0x4E: "cp949",
+        0x4F: "cp950", 0x50: "cp874", 0x58: "cp1252", 0x59: "cp1252", 0x64: "cp852", 0x65: "cp866", 0x66: "cp865",
+        0x67: "cp861", 0x6A: "cp737", 0x6B: "cp857", 0x6C: "cp863", 0x78: "cp950", 0x79: "cp949", 0x7A: "gbk",
+        0x7B: "cp932", 0x7C: "cp874", 0x7D: "cp1255", 0x7E: "cp1256", 0x86: "cp737", 0x87: "cp852", 0x88: "cp857",
+        0x96: "mac_cyrillic", 0x97: "mac_latin2", 0x98: "mac_greek", 0xC8: "cp1250", 0xC9: "cp1251", 0xCA: "cp1254",
+        0xCB: "cp1253", 0xCC: "cp1257"}
+
+
+def cpg_encoding(data: bytes) -> str | None:
+    """.cpg の中身（シェープファイルの決まり）→ 文字コード。コードページの番号（932・1252）、「8859」に続く番号（88591・8859-2）、
+    「ANSI 1251」「OEM 866」の形、文字コードの名前（UTF-8・SJIS・Big5）。「LDID/19」は言語の印の番号。読めなければ None。"""
+    from ..namecode import canonical, codec_of_codepage
+
+    try:
+        t = data[:64].decode("ascii").strip().strip("\0").strip()
+    except UnicodeDecodeError:
+        return None
+    low = t.lower()
+    if low.startswith("ldid/"):
+        return LDID.get(int(low[5:])) if low[5:].isdigit() else None
+    for head in ("ansi ", "oem "):
+        if low.startswith(head):
+            low = low[len(head):].strip()
+    if low.startswith("8859"):
+        num = low[4:].lstrip("-")
+        return canonical(f"iso8859_{num}") if num.isdigit() else None
+    if low.isdigit():
+        return codec_of_codepage(int(low))
+    return canonical(low)
+
+
 VERSIONS = {0x02, 0x03, 0x04, 0x05, 0x30, 0x31, 0x32, 0x43, 0x63, 0x83, 0x8B, 0x8E, 0xCB, 0xF5, 0xFB}
 
 
@@ -98,6 +139,9 @@ class _Memo:
         return d[p:e if e >= 0 else len(d)]
 
 
+_CUT = object()  # 幅いっぱいで、厳密には読めない字の項目
+
+
 class DbfWorkbook(TableBook):
     def __init__(self, blob: bytes, filename: str = ""):
         super().__init__(blob, filename, "dbf")
@@ -105,7 +149,10 @@ class DbfWorkbook(TableBook):
             n, hs, rs, fields = parse_header(blob)
         except struct.error as e:
             raise DbfError(f"見出しが壊れています（{e}）") from None
-        self.encoding, guessed = self._encoding(blob, n, hs, rs, fields)
+        store = self._memo_store(blob[0], filename) if any(t == "M" for _r, t, _l, _d in fields) else None
+        self.text_reading = self._reading(blob, n, hs, rs, fields, filename, store)
+        self.encoding = self.text_reading.encoding
+        self.cut: list[tuple[int, int]] = []  # 項目の幅で、終わりの字が切れている値の (行, 列)
         name = filename.rsplit("/", 1)[-1].rsplit(".", 1)[0] or "dbf"
         sh = self.add_sheet(name)
         for c, (raw, _t, _ln, _d) in enumerate(fields, 1):
@@ -114,7 +161,6 @@ class DbfWorkbook(TableBook):
         self.fields_raw = fields
         self.hs, self.rs = hs, rs
         self.rowmap: dict[int, int] = {}
-        store = self._memo_store(blob[0], filename) if any(t == "M" for _r, t, _l, _d in fields) else None
         bad_memo = 0
         row = 1
         deleted = 0
@@ -132,6 +178,10 @@ class DbfWorkbook(TableBook):
             q = p + 1
             for c, (_raw, t, ln, dc) in enumerate(fields, 1):
                 v, st = self._value(blob[q:q + ln], t, dc)
+                if v is _CUT:
+                    v, was_cut = self._cut_text(blob[q:q + ln])
+                    if was_cut:
+                        self.cut.append((row, c))
                 if t == "M" and store is not None:
                     v = self._memo_value(store, blob[q:q + ln])
                     if v is False:
@@ -152,8 +202,11 @@ class DbfWorkbook(TableBook):
                 sh.unread.append(f"メモのファイル「{store.name}」の {bad_memo} か所を読めません（壊れているか、別の版のファイルです）")
         if deleted:
             sh.unread.append(f"削除の印のある {deleted} 行は読んでいません")
-        if guessed:
-            sh.unread.append(f"文字コードの印がないので、{'Shift_JIS' if self.encoding == 'cp932' else 'Windows-1252'} と推定して読みました。字が正しいかはエージェントが確かめます")
+        if self.cut:
+            from ..formula.parser import addr
+
+            sh.unread.append(f"項目の幅で、終わりの字が途中で切れている値が {len(self.cut)} 個あります（切れた字のバイトは字にならないので、"
+                             f"窓に出していません：{'・'.join(addr(r, c) for r, c in self.cut[:8])}{' など' if len(self.cut) > 8 else ''}）")
 
     def _memo_store(self, version: int, filename: str) -> _Memo | None:
         from ..archives import SIBLING
@@ -187,21 +240,79 @@ class DbfWorkbook(TableBook):
         text = data.decode(self.encoding, "replace").rstrip("\x00")
         return text or None
 
-    def _encoding(self, b: bytes, n: int, hs: int, rs: int, fields) -> tuple[str, bool]:
-        ld = b[29]
-        if ld in LDID:
-            return LDID[ld], False
-        for enc in ("ascii", "cp932"):
+    def _reading(self, b: bytes, n: int, hs: int, rs: int, fields, filename: str, store):
+        """字（項目の名前・字の項目・メモ）の全部の、文字コードの読み方。削除の印のある行は読まないので、入れない。"""
+        from ..archives import SIBLING
+        from ..namecode import table_reading
+
+        whole: dict[bytes, None] = {}
+        cut: dict[bytes, None] = {}
+        for raw, _t, _l, _d in fields:
+            if not raw.isascii():
+                (cut if len(raw) >= 10 else whole)[raw] = None
+        cols, off = [], 1
+        for _raw, t, ln, _d in fields:
+            if t in "CM":
+                cols.append((off, ln, t))
+            off += ln
+        if cols and (store is not None or not b[hs:hs + n * rs].isascii()):
+            flags = b[hs:hs + n * rs:rs]  # 行の頭の 1 バイト（削除の印・終わりの印）
+            end = flags.find(b"\x1a")
+            rows = range(hs, hs + (len(flags) if end < 0 else end) * rs, rs)
+            live = None if 0x2A not in flags[:len(rows)] else [p for p in rows if b[p] != 0x2A]
+            for o, ln, t in cols:
+                if t == "M" and store is None:
+                    continue
+                # 項目ごとに、違う値だけを見る（出てきた順）
+                for raw in dict.fromkeys(b[p + o:p + o + ln] for p in (rows if live is None else live)):
+                    if t == "M":
+                        data = self._memo_bytes(store, raw)
+                        if data and not data.isascii():
+                            whole[data.rstrip(b"\0")] = None
+                    elif not raw.isascii():
+                        v = raw.rstrip(b" \0")
+                        (cut if len(v) == ln else whole)[v] = None
+        declared = []
+        reader = SIBLING.get()
+        if reader is not None and filename:
             try:
-                b[hs:hs + n * rs].decode(enc)
-                return ("cp932" if enc == "cp932" else "ascii"), enc == "cp932"
-            except UnicodeDecodeError:
-                continue
-        return "cp1252", True
+                hit = reader(filename.rsplit("/", 1)[-1].rsplit(".", 1)[0], (".cpg",))
+            except (ValueError, OSError):
+                hit = None
+            if hit:
+                declared.append((cpg_encoding(hit[0]), f"隣のファイル {hit[1]}"))
+        if b[29] in LDID:
+            declared.append((LDID[b[29]], f"言語の印 0x{b[29]:02X}"))
+        return table_reading(b, whole, cut, declared, empty_ok=True)  # 書ける形式：ASCII だけのファイルに書く字の文字コードも選べる
+
+    def _memo_bytes(self, store: _Memo, raw: bytes) -> bytes | None:
+        if len(raw) == 4:
+            n = struct.unpack("<I", raw)[0]
+        else:
+            s = raw.strip(b" \0")
+            if not s.isdigit():
+                return None
+            n = int(s)
+        return store.read(n) if n else None
+
+    def _cut_text(self, raw: bytes) -> tuple[str | None, bool]:
+        """幅いっぱいで厳密には読めない値：(字, 終わりの字が幅で切れていたか)。切れていれば、切れた字の前まで。"""
+        import codecs
+
+        try:
+            s = codecs.getincrementaldecoder(self.encoding)("strict").decode(raw, False)
+        except (UnicodeDecodeError, LookupError):
+            return raw.decode(self.encoding, "replace").rstrip(" \0") or None, False
+        return s.rstrip(" \0") or None, True
 
     def _value(self, raw: bytes, t: str, dc: int):
         if t == "C":
-            s = raw.decode(self.encoding, "replace").rstrip(" \0")
+            try:
+                s = raw.decode(self.encoding).rstrip(" \0")
+            except UnicodeDecodeError:
+                if raw[-1:] not in (b" ", b"\0"):
+                    return _CUT, 0  # 幅いっぱいの字：終わりの字が切れているかを、呼んだ側で確かめる
+                s = raw.decode(self.encoding, "replace").rstrip(" \0")
             return (s or None), 0
         if t in "NF":
             s = raw.strip(b" \0*").decode("ascii", "replace")
@@ -334,6 +445,13 @@ def api_fill(blob: bytes, name: str, values: dict) -> dict:
         if t in "MGP":
             raise DbfError(f"{where}：{NO_WRITE}")
         pos = wb.hs + wb.rowmap[r] * wb.rs + 1 + sum(f[2] for f in wb.fields_raw[:c - 1])
+        if t == "C" and wb.text_reading.undetermined and not str(v).isascii():
+            raise DbfError(f"{where}：このファイルの字の文字コードは、規則では決まっていません（窓に候補が並んでいます）。"
+                           "ASCII でない字を書く前に、字を読んで文字コードを選び、encoding で渡してください")
+        if t == "C" and wb.encoding == "ascii" and not str(v).isascii():
+            raise DbfError(f"{where}：このファイルの字は ASCII だけで、文字コードの宣言（言語の印・隣の .cpg）もないので、"
+                           "ASCII でない字をどの文字コードで書くかが決まりません。このファイルを読むソフトの文字コードを本人に確かめて、"
+                           "encoding で渡してください")
         out[pos:pos + ln] = encode_value(v, t, ln, dc, wb.encoding, where)
         spans.append((pos, pos + ln))
         written[(sheet, r, c)] = v
@@ -350,6 +468,10 @@ def api_fill(blob: bytes, name: str, values: dict) -> dict:
             if i >= len(spans) or k < spans[i][0]:
                 problems.append(f"書いた項目のほかのバイト（位置 {k}）が変わっています")
                 break
+    if wb.text_reading.basis == "given":
+        from ..namecode import use_table_encoding
+
+        use_table_encoding(wb.encoding, new)  # 書いた後のファイルも、選んだ文字コードで読む
     w2 = DbfWorkbook(new, name)
     for sh, sh2 in zip(wb.sheets, w2.sheets):
         for rc, cell in sh.cells.items():

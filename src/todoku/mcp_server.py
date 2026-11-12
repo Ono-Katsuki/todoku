@@ -53,7 +53,7 @@ INSTRUCTIONS = (
     "ただし手順の決まりではありません。本人が会話しながら一緒に埋めたいときは、その流れに合わせ、言われた所から書いてかまいません。"
     "パスワードで保護された書類は「パスワードが要る」と返るので、本人にパスワードを聞いて、どの道具にも password で渡してください"
     "（パスワードは結果にも記録にも残しません。書き出したファイルも、元と同じパスワードで保護されます）。"
-    "文字だけのファイル（CSV・.txt など）や書庫・メールの名前で、窓に「文字コードを規則では決められません」と候補が並んだら、字を読んで意味の通る方を"
+    "文字だけのファイル（CSV・.txt など）・古い表（.dbf・.wk1 など）や書庫・メールの名前で、窓に「文字コードを規則では決められません」と候補が並んだら、字を読んで意味の通る方を"
     "選び、そのファイルのどの道具にも encoding で渡してください。"
     "窓の「画像」の節で「説明（代わりの字）がありません」とある画像は、中身を字として読めません。申請に関わりそうなら view_image（PDF の"
     "ページ全体は view_page）で画像を見て読み、読めなければ、その位置（ページ・上下左右・近くの字）を本人に伝えてください。中身を推測で"
@@ -320,7 +320,9 @@ _ENCODING = {"type": "string",
                             "その文字コードで厳密に読めることを確かめて、窓・欄・書き込み・段階をその文字コードで読み直す"
                             "（書き込みは、書いた所だけをその文字コードのバイトにする）。同じファイルには、どの道具にも同じ値を渡す。"
                             "書庫・メール（ZIP・tar・gzip・LZH・.msg）で、窓に「名前の文字コードを規則では決められません」と候補が並んだときは、"
-                            "その書庫の path に、選んだ文字コードを渡すと、一覧を読み直す（中のファイルは、選んだ読み方の名前でそのまま指せる）"}
+                            "その書庫の path に、選んだ文字コードを渡すと、一覧を読み直す（中のファイルは、選んだ読み方の名前でそのまま指せる）。"
+                            "8 ビットの字の表（dBASE .dbf・Lotus 1-2-3 .wk1・Excel 2〜4 の .xls）で、窓に「値の文字コードを規則では決められません」と"
+                            "候補が並んだときも、選んだ文字コードを渡す（ファイルの ASCII でない字の全部を、その 1 つの文字コードで読み直す）"}
 for _t in TOOLS:
     if _t["name"] == "audit_document":
         _t["inputSchema"]["properties"]["job"] = {"type": "boolean", "description": "大きさによらず、長い仕事として動かす（呼び出しの時間の上限に当たったとき）"}
@@ -329,8 +331,10 @@ for _t in TOOLS:
         _t["inputSchema"]["properties"]["encoding"] = _ENCODING
     if _t["name"] in ("read_window", "list_fields", "fill_document", "audit_document", "grade_document"):
         # 開いたあとの道具には短く（選び方は open_document の説明と、サーバーの説明にある）
-        _t["inputSchema"]["properties"]["encoding"] = {"type": "string", "description": "文字だけのファイル（CSV・.txt など）か、書庫・メールの名前で、窓に文字コードの候補が並んだときに選んだ"
+        _t["inputSchema"]["properties"]["encoding"] = {"type": "string", "description": "文字だけのファイル（CSV・.txt など）、書庫・メールの名前、8 ビットの字の表（.dbf・.wk1 など）で、窓に文字コードの候補が並んだときに選んだ"
                                                                                        "文字コード（候補の encoding の値。例 \"cp932\"）。同じファイルには、どの道具にも同じ値を渡す"}
+    if _t["name"] in ("read_table", "explain_calculation", "try_calculation", "extract_processing"):
+        _t["inputSchema"]["properties"]["encoding"] = {"type": "string", "description": "8 ビットの字の表（.dbf・.wk1 など）で、窓の候補から選んだ文字コード（ほかの道具に渡したものと同じ値）"}
 
 
 def _text(obj) -> dict:
@@ -713,7 +717,7 @@ def _extract_processing(args: dict) -> dict:
     if ids and section:
         raise api.ApiError("ids か section のどちらかで頼んでください")
     res, old = api.extract_processing_both(args["path"], args.get("format") or "json", args.get("out_path"), args.get("sheet"),
-                                           bool(args.get("overwrite")), args.get("password"))
+                                           bool(args.get("overwrite")), args.get("password"), args.get("encoding"))
     ask_sheet = {"sheet": args["sheet"]} if args.get("sheet") else {}
     if ids:
         want = list(dict.fromkeys(str(x) for x in ids))
@@ -868,7 +872,8 @@ def call_tool(name: str, args: dict) -> dict:
         # rows で範囲を頼んだら、limit を省いても、その範囲を切り詰めない。分けて読む道は limit の所で止めて next を返す（読み飛ばす行を作らない）
         limit = args.get("limit", None if args.get("rows") else READ_TABLE_LIMIT)
         res = api.read_table(args["path"], args["header"], args.get("sheet"), args.get("header_rows"), args.get("out_path"),
-                             args.get("password"), args.get("cursor"), args.get("rows"), None if args.get("out_path") else limit)
+                             args.get("password"), args.get("cursor"), args.get("rows"), None if args.get("out_path") else limit,
+                             args.get("encoding"))
         res.pop("all_rows", None) if args.get("out_path") else None
         if not args.get("out_path") and limit is not None and res["rows"] > limit:
             res["all_rows"] = res["all_rows"][:limit]  # はじめの limit 行（行の数 rows と、返した行の数 rows_returned）
@@ -877,10 +882,10 @@ def call_tool(name: str, args: dict) -> dict:
                            "に書き出すか、limit を大きくして読んでください")
         return {"content": [_text(res)], "structuredContent": res}
     if name == "explain_calculation":
-        res = api.calc_model(args["path"], args.get("cell"), args.get("password"))
+        res = api.calc_model(args["path"], args.get("cell"), args.get("password"), args.get("encoding"))
         return {"content": [_text(res)], "structuredContent": res}
     if name == "try_calculation":
-        res = api.calculate(args["path"], args.get("values") or {}, args.get("password"), args.get("cells"))
+        res = api.calculate(args["path"], args.get("values") or {}, args.get("password"), args.get("cells"), args.get("encoding"))
         return {"content": _said(res), "structuredContent": res}
     if name == "extract_processing":
         return _extract_processing(args)

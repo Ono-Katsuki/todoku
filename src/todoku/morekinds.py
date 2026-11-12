@@ -86,7 +86,7 @@ def window(k: str, blob: bytes, name: str):
         doc["kind"] = k
         doc["kind_ja"] = KIND_JA[k]
         if k == "dbf":
-            _mark_dbf(doc, blob, name)
+            _mark_dbf(doc, wb)
         elif k != "xlsb":
             _mark_readonly(doc, k)
         if k == "mdb":
@@ -112,11 +112,10 @@ WRITE_NOTE = {"xls2": "Excel 2〜4 の形には書きません。Excel で .xlsx
               "mdb": "Access のデータベースには書きません。表を .xlsx か CSV に書き出してもらえば書けます"}
 
 
-def _mark_dbf(doc: dict, blob: bytes, name: str) -> None:
+def _mark_dbf(doc: dict, wb) -> None:
     from .formula.parser import parse_cell
-    from .legacy.dbf import NO_WRITE, DbfWorkbook
+    from .legacy.dbf import NO_WRITE
 
-    wb = DbfWorkbook(blob, name)
     for sh in doc["sheets"]:
         for f in sh.get("fields", []):
             try:
@@ -253,7 +252,7 @@ def _sxo_audit(k: str, blob: bytes, name: str):
 
 
 def grade(k: str, blob: bytes, name: str):
-    from .grade import Reason, _final, _grade_excel
+    from .grade import TEXT_ENCODING_TITLES, Reason, _final, _grade_excel
 
     if k == "xlsb":
         g = _grade_excel(blob, name)
@@ -265,7 +264,8 @@ def grade(k: str, blob: bytes, name: str):
     if k == "dbf":
         g = _grade_excel(blob, name)
         g.write_reasons = [Reason("B", "項目の幅の中で上書きする", "字は項目の幅に入るものだけ（切り詰めません）、数は幅と小数の桁に合うものだけ書きます。件数と項目は増やしません。"
-                                  "ファイルの大きさは変わらず、変わったのが書いた項目のバイトだけであることを照らします")]
+                                  "ファイルの大きさは変わらず、変わったのが書いた項目のバイトだけであることを照らします")] + [
+            r for r in g.write_reasons if r.title in TEXT_ENCODING_TITLES]
         g.write = "B"
         return g
     if k in WORKBOOKS:

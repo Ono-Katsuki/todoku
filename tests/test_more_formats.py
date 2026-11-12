@@ -275,14 +275,15 @@ def test_dbf_read_as_table(tmp_path):
     assert g["grade"] == "C" and g["write"]["grade"] == "B"
 
 
-def test_dbf_rejects_inconsistent_header_and_guesses_with_note(tmp_path):
+def test_dbf_rejects_inconsistent_header_and_tells_undeclared_encoding(tmp_path):
     from todoku.book import open_book
 
     bad = bytearray(_dbf())
     struct.pack_into("<H", bad, 10, 99)
     assert kind_of(bytes(bad), "a.dbf") != "dbf"
-    wb = open_book(_dbf(ldid=0), "a.dbf")
-    assert wb.encoding == "cp932" and any("推定" in u for u in wb.sheets[0].unread)
+    wb = open_book(_dbf(ldid=0), "a.dbf")  # 言語の印がない：推定とは言わず、決まった順の最初で示し、候補を並べる（tests/test_table_encodings.py）
+    assert wb.encoding == "cp932" and wb.text_reading.basis == "order" and wb.text_reading.candidates
+    assert wb.sheets[0].cells[(2, 1)].value == "山田"
 
 
 # ====================================================================== Access

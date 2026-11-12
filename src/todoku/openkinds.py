@@ -369,6 +369,10 @@ def _fill_hwpx(blob: bytes, name: str, values: dict, force: bool) -> dict:
 def read_back(k: str, blob: bytes, name: str, keys: dict, encoding: str | None = None) -> dict:
     """書いた後のファイルから、書いた所（keys の id）の値を読む（欄の一覧に出ないマス・値のため）。"""
     if k in _more.KINDS:
+        if encoding and k == "dbf":
+            from .namecode import use_table_encoding
+
+            use_table_encoding(encoding, blob)  # 書く前に選んだ文字コードで読み戻す
         return _more.read_back(k, blob, name, keys)
     out: dict = {}
     try:

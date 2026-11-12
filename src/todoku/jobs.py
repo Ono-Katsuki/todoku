@@ -271,23 +271,25 @@ def start(path: str, password: str | None = None, encoding: str | None = None, r
 
 
 # ---------------------------------------------------------------------- 大きな配列の集計（try_calculation の cells）
-def calc_key(path: str, values: dict, cells: list) -> str:
+def calc_key(path: str, values: dict, cells: list, encoding: str | None = None) -> str:
     base = job_key(path, None)
-    what = json.dumps({"values": values, "cells": sorted(cells)}, ensure_ascii=False, sort_keys=True, default=str)
+    what = json.dumps({"values": values, "cells": sorted(cells), **({"encoding": encoding} if encoding else {})},
+                      ensure_ascii=False, sort_keys=True, default=str)
     return "calc-" + hashlib.sha256(f"{base}|{what}".encode()).hexdigest()[:24]
 
 
-def calc_status(path: str, values: dict, cells: list) -> dict | None:
-    return load(calc_key(path, values, cells))
+def calc_status(path: str, values: dict, cells: list, encoding: str | None = None) -> dict | None:
+    return load(calc_key(path, values, cells, encoding))
 
 
 def calc_running(rec: dict | None) -> bool:
     return bool(rec) and not rec.get("finished") and _alive(rec.get("pid"))
 
 
-def start_calc(path: str, password: str | None, values: dict, cells: list, scans: dict | None = None) -> dict:
+def start_calc(path: str, password: str | None, values: dict, cells: list, scans: dict | None = None,
+               encoding: str | None = None) -> dict:
     """集計の仕事を始める（動いていれば何もしない。止まった仕事は控えの続きから）。scans：ここまでの呼び出しで読み進めた控え。"""
-    key = calc_key(path, values, cells)
+    key = calc_key(path, values, cells, encoding)
     rec = load(key)
     if rec and (rec.get("finished") or _alive(rec.get("pid"))):
         return rec
@@ -303,7 +305,7 @@ def start_calc(path: str, password: str | None, values: dict, cells: list, scans
     proc = _spawn(key)
     new["pid"] = proc.pid
     save(key, new)
-    _send(proc, {"path": path, "password": password, "values": values})
+    _send(proc, {"path": path, "password": password, "values": values, "encoding": encoding})
     return new
 
 
@@ -514,7 +516,8 @@ def _run_calc(key: str, rec: dict, args: dict) -> int:
         b = limits.Budget(total=None)
         b.calc_left = float("inf")
         with limits.call_budget(b):
-            rec["results"] = xm.cells_for_job(args["path"], args.get("password"), args.get("values") or {}, rec["cells"], store)
+            rec["results"] = xm.cells_for_job(args["path"], args.get("password"), args.get("values") or {}, rec["cells"], store,
+                                              args.get("encoding"))
         rec["scans"] = store.data
         rec["finished"] = time.time()
         save(key, rec)

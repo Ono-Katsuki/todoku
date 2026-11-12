@@ -4,7 +4,9 @@
 数式の字の結果は続く 51 STRING。数式は逆ポーランドのコード（Lotus の公開資料 WSFF2・WSFF5 の命令の表）を字に直す。相対の印（番地の最上位ビット。残りは符号つきの差）は
 資料に書かれていない、広く知られた形。Excel と同じ意味の命令と関数だけの式は計算でも確かめ、ほかは字に直すだけ（未対応と示す）。読めないコードは推測せず「?」のまま保存値を読む。
 .wk3・.wk4・.123 の形は Lotus の公開資料がないので読まず、次の一手を伝える。
-字のバイトは LICS で、8 ビットの字は Shift_JIS と推定する（読み方を窓に書く）。PASSWORD（75）があれば暗号として読まない。
+字の文字コードは、ファイルに書かれていない：字の全部を 1 つの文字コードで読む（namecode.decide_whole）。8 ビットの字があれば、
+読める文字コードを決まった順に試し、最初の読み方で示して、候補を窓に並べる（エージェントが字を読んで選び、encoding で渡す）。
+1-2-3 の欧文の字の表（LICS）は、Python に表がないので、候補にない。PASSWORD（75）があれば暗号として読まない。
 """
 
 from __future__ import annotations
@@ -152,10 +154,23 @@ def is_wk3plus(b: bytes) -> bool:
 
 class Wk1Workbook(TableBook):
     def __init__(self, blob: bytes, filename: str = ""):
+        from ..namecode import ORDER, table_encoding, table_reading
+
+        self.text_reading = None
+        self._raws: dict[bytes, None] = {}  # 1 回目：8 ビットの字のバイトを集める
+        # 1 回目は、決まるはずの文字コード（エージェントが選んだもの、なければ順のいちばん前）で読んでおく：
+        # 決めた文字コードがそれと同じで、どの字も厳密に読めていれば、読み直さない
+        self._first = table_encoding(blob) or ORDER[0]
+        self._first_ok = True
+        self._load(blob, filename)
+        self.text_reading = table_reading(blob, self._raws)
+        if self._raws and not (self._first_ok and self.text_reading.encoding == self._first):
+            self._load(blob, filename)  # 2 回目：決めた文字コードで読む
+
+    def _load(self, blob: bytes, filename: str) -> None:
         super().__init__(blob, filename, "wk1")
         name = filename.rsplit("/", 1)[-1].rsplit(".", 1)[0] or "Sheet1"
         sh = self.add_sheet(name)
-        guessed = False
         pos = 0
         last = None
         while pos + 4 <= len(blob):
@@ -169,9 +184,7 @@ class Wk1Workbook(TableBook):
             if t == PASSWORD:
                 raise LotusError("パスワードで保護された Lotus のワークシートです。解いて保存し直したものか、PDF を頼んでください")
             if t == STRING and last is not None and ln >= 5:
-                s, g = self._text(b[5:].split(b"\0", 1)[0])
-                guessed |= g
-                last.value = s
+                last.value = self._text(b[5:].split(b"\0", 1)[0])
                 last.t = "str"
                 continue
             if t in (INTEGER, NUMBER, LABEL, FORMULA) and ln >= 5:
@@ -182,22 +195,18 @@ class Wk1Workbook(TableBook):
                 elif t == NUMBER:
                     self.put(sh, r + 1, c + 1, struct.unpack_from("<d", b, 5)[0])
                 elif t == LABEL:
-                    s, g = self._text(b[6:].split(b"\0", 1)[0])  # 先頭の 1 字は、そろえ方の印
-                    guessed |= g
-                    self.put(sh, r + 1, c + 1, s)
+                    self.put(sh, r + 1, c + 1, self._text(b[6:].split(b"\0", 1)[0]))  # 先頭の 1 字は、そろえ方の印
                 else:
                     cell = self.put(sh, r + 1, c + 1, struct.unpack_from("<d", b, 5)[0])
                     self._formula(cell, b, c, r)
                     last = cell
-        if guessed:
-            sh.unread.append("文字コードがファイルに書かれていないので、字を Shift_JIS と推定しました。字が正しいかはエージェントが確かめます")
 
     def _formula(self, cell, b: bytes, c: int, r: int) -> None:
         from ..formula.parser import parse
 
         try:
             size = struct.unpack_from("<H", b, 13)[0]
-            text, same = formula_text(b[15:15 + size], c, r, lambda raw: self._text(raw)[0])
+            text, same = formula_text(b[15:15 + size], c, r, self._text)
         except (_Bad, struct.error, IndexError) as e:
             cell.formula = "?"
             cell.parse_error = f"未対応: Lotus の数式（保存された結果だけを読みました：{e}）"
@@ -212,14 +221,17 @@ class Wk1Workbook(TableBook):
                 pass
         cell.parse_error = "未対応: Lotus の数式を字に直しました（Lotus の関数は Excel と意味の違うものがあるので、計算では確かめず、保存された結果を読みます）"
 
-    @staticmethod
-    def _text(raw: bytes) -> tuple[str, bool]:
+    def _text(self, raw: bytes) -> str:
         if raw.isascii():
-            return raw.decode("ascii"), False
-        try:
-            return raw.decode("cp932"), True
-        except UnicodeDecodeError:
-            return raw.decode("cp1252", "replace"), True
+            return raw.decode("ascii")
+        if self.text_reading is None:
+            self._raws[raw] = None
+            try:
+                return raw.decode(self._first)
+            except (UnicodeDecodeError, LookupError):
+                self._first_ok = False
+                return raw.decode("latin-1")
+        return raw.decode(self.text_reading.encoding, "replace")
 
 
 def raw_values(wb) -> dict:

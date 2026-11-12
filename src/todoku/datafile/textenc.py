@@ -98,13 +98,21 @@ class EncodingError(ValueError):
     pass
 
 
+_CLEAN: set[str] = set()  # きれいと確かめた字（同じ字を、文字コードの候補ごとに確かめ直さない）
+
+
 def clean(text: str) -> bool:
     """読んだ字に、割り当てのない字（Cn）・サロゲート（Cs）・C1 の制御文字がないか（文字コードの選び方の「きれい」）。"""
-    for ch in set(text):
+    if text.isascii():
+        return True
+    new = set(text).difference(_CLEAN)
+    for ch in new:
         if "\x80" <= ch <= "\x9f":
             return False
         if ch > "\x7f" and unicodedata.category(ch) in ("Cn", "Cs"):
             return False
+    if len(_CLEAN) < 200_000:
+        _CLEAN.update(new)
     return True
 
 

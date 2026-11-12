@@ -91,7 +91,8 @@ def test_mcp_tools_take_encoding(tmp_path):
     from todoku import mcp_server
 
     names = {t["name"] for t in mcp_server.TOOLS if "encoding" in t["inputSchema"]["properties"]}
-    assert names == {"open_document", "read_window", "list_fields", "fill_document", "audit_document", "grade_document"}
+    assert names == {"open_document", "read_window", "list_fields", "fill_document", "audit_document", "grade_document",
+                     "read_table", "explain_calculation", "try_calculation", "extract_processing"}  # 後ろの 4 つは、8 ビットの字の表のため
     p = tmp_path / "a.csv"
     p.write_bytes(JA.encode("cp932"))
     got = mcp_server.call_tool("grade_document", {"path": str(p), "encoding": "cp932"})
