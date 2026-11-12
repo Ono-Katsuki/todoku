@@ -514,7 +514,12 @@ def test_overflow_sides_rule():
     assert overflow_sides("center", True, "abc") == ([1, -1], True)
     assert overflow_sides("general", False, "123 محمد") == ([1, -1], False)  # 初めの、向きの強い字が右から左
     assert overflow_sides("general", False, "abc محمد") == ([1], True)
-    assert overflow_sides("right", True, "abc") == ([1, -1], False)
+    # 右から左へ並ぶシート：画面の左が、列の番号の増える向き
+    assert overflow_sides("right", True, "abc") == ([1], True) and overflow_sides("left", True, "abc") == ([-1], True)
+    assert overflow_sides("general", True, "abc") == ([1, -1], False)
+    # 読む向きが右から左のセル（readingOrder 2）は、標準の寄せ方でも右
+    assert overflow_sides("general", False, "abc", 2) == ([-1], True) and overflow_sides("general", True, "abc", 2) == ([1], True)
+    assert overflow_sides("general", False, "محمد", 1) == ([1, -1], False) and overflow_sides("left", False, "abc", 2) == ([1], True)
     # 中央寄せは両側へ半分ずつ：10 はみ出すとき、幅 6 の空の隣の先の字にはかからない
     filled = {1, 5}
     assert blocked_by([1, -1], True, 10, 3, lambda c: 6.0, lambda c: c not in filled) is None

@@ -71,6 +71,7 @@ class CellFormat:
     indent: int = 0
     rotation: int = 0
     font: CellFont | None = None
+    reading: int = 0  # 読む向き（.xlsx の readingOrder、.xls の iReadOrder、.xlsb の iReadingOrder）：0 字で決まる・1 左から右・2 右から左
 
 
 _HALIGN_JA = {"left": "左寄せ", "right": "右寄せ", "center": "中央寄せ"}
@@ -97,7 +98,8 @@ def _xls_formats(wb) -> tuple[list[CellFormat], dict]:
             b6, trot, b8 = b[6], b[7], b[8]
             fi = ifnt - 1 if ifnt >= 4 else ifnt  # FONT の4番は欠番
             out.append(CellFormat(_HALIGN.get(b6 & 7, "general"), _VALIGN.get((b6 >> 4) & 7, "bottom"), bool(b6 & 8),
-                                  bool(b8 & 0x10), b8 & 0x0F, trot, fonts[fi] if 0 <= fi < len(fonts) else None))
+                                  bool(b8 & 0x10), b8 & 0x0F, trot, fonts[fi] if 0 <= fi < len(fonts) else None,
+                                  (b8 >> 6) & 3))  # iReadOrder：8 バイト目の上の 2 ビット（MS-XLS 2.5.20 CellXF）
         elif t == 0x00DE and len(b) >= 8:  # OleObjectSize：絵に映る範囲
             r1, r2, c1, c2 = struct.unpack_from("<HHBB", b, 2)
             info["range"] = (r1 + 1, c1 + 1, r2 + 1, c2 + 1)
@@ -109,7 +111,7 @@ def _xls_formats(wb) -> tuple[list[CellFormat], dict]:
 def _xlsb_formats(wb) -> tuple[list[CellFormat], dict]:
     """Excel のバイナリのブック（.xlsb）：styles.bin の BrtFont と、セルの BrtXF から、配置と字体を読む（MS-XLSB 2.4.659・2.4.1323。
     todoku.xlsb.book が読まない所）。BrtXF：12 バイト目からの 2 バイトが、横の配置（3 ビット）・縦の配置（3 ビット）・折り返し・
-    最後の行の均等・縮めて表示。10 バイト目が字の向き、11 バイト目が字下げ。"""
+    最後の行の均等・縮めて表示・結合・読む向き（iReadingOrder：10〜11 ビット目）。10 バイト目が字の向き、11 バイト目が字下げ。"""
     from .xlsb.book import BEGIN_CELLXFS, END_CELLXFS, FONT, XF, records, wstr
 
     path = next((t for typ, t in wb._rels(wb.wb_path).values() if typ == "styles"), "xl/styles.bin")
@@ -133,7 +135,8 @@ def _xlsb_formats(wb) -> tuple[list[CellFormat], dict]:
             trot, indent = b[10], b[11]
             bits = struct.unpack_from("<H", b, 12)[0]
             out.append(CellFormat(_HALIGN.get(bits & 7, "general"), _VALIGN.get((bits >> 3) & 7, "bottom"), bool(bits & 0x40),
-                                  bool(bits & 0x100), indent, trot, fonts[ifnt] if ifnt < len(fonts) else None))
+                                  bool(bits & 0x100), indent, trot, fonts[ifnt] if ifnt < len(fonts) else None,
+                                  (bits >> 10) & 3))
     return out, {}
 
 
@@ -183,6 +186,8 @@ def _xlsx_formats(wb) -> tuple[list[CellFormat], dict]:
             cf.shrink = al.get("shrinkToFit") in ("1", "true")
             cf.indent = int(al.get("indent", "0") or 0)
             cf.rotation = int(al.get("textRotation", "0") or 0)
+            ro = al.get("readingOrder", "0")
+            cf.reading = int(ro) if ro in ("1", "2") else 0
         out.append(cf)
     return out, info
 
@@ -334,7 +339,8 @@ def cell_text(wb, sh, fmts: list[CellFormat], r: int, c: int) -> CellText:
     if kind == "fill-right":
         h = "right"
     elif h == "general":
-        h = {"text": "left", "number": "right", "center": "center"}[kind]
+        # 標準の寄せ方の字は左。読む向きが右から左のセル（readingOrder 2）の字は右
+        h = {"text": "right" if cf.reading == 2 else "left", "number": "right", "center": "center"}[kind]
     elif h == "justify":
         h = "left"  # 1行に収まる両端揃えは左寄せと同じ
     out.halign = h

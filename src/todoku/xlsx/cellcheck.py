@@ -353,7 +353,7 @@ def fit_issues(wb, plan) -> list[dict]:
                         f"{where}: 書いた字「{shown[:20]}{'…' if len(shown) > 20 else ''}」は、結合したセルの幅に収まらず、はみ出す所が"
                         "切れて見える見込みです（列の幅からの見積もり。字を短くするか、本人に確かめてください）"})
             continue
-        sides, sure = overflow_sides(cf.halign, getattr(sh, "right_to_left", False), shown)
+        sides, sure = overflow_sides(cf.halign, getattr(sh, "right_to_left", False), shown, cf.reading)
         blocked = blocked_by(sides, sure, need - avail, c_, lambda c: _col_w(sh, c, mdw),
                              lambda c: _empty(sh, r_, c, plan.targets))
         if blocked:
@@ -361,19 +361,26 @@ def fit_issues(wb, plan) -> list[dict]:
     return out
 
 
-def overflow_sides(halign: str, rtl_sheet: bool, text: str) -> tuple[list[int], bool]:
+def overflow_sides(halign: str, rtl_sheet: bool, text: str, reading: int = 0) -> tuple[list[int], bool]:
     """セルからはみ出す字が伸びる向き（列の番号が増える向き 1・減る向き -1）と、その向きが決まるか。
-    左寄せは列の番号が増える向き、右寄せは減る向き、中央は両方へ半分ずつ。右から左へ並ぶシート（列 A が右端）と、寄せ方の
-    決まっていないセル（標準）に書いた、右から左へ書く字（初めの向きの強い字が R・AL：Unicode の双方向の決まり P2・P3）は、
-    はみ出す側を確かめていないので、向きを決めず、両方の隣を見る（決めていない、と伝える）。"""
+    左寄せは画面の右へ、右寄せは画面の左へ、中央は両方へ半分ずつ。画面の右は、ふつうのシートでは列の番号が増える向き、
+    右から左へ並ぶシート（列 A が右端）では減る向き。寄せ方の決まっていないセル（標準）は、セルの読む向き（reading：
+    .xlsx の readingOrder）が右から左（2）なら右寄せ。読む向きが 2 でない標準のセルは、左から右へ書く字（初めの向きの強い字が L：
+    Unicode の双方向の決まり P2・P3）をふつうのシートに書いたときだけ左寄せと決める。右から左へ書く字と、右から左へ並ぶ
+    シートの標準のセルは、アプリによって寄る側が違うので、向きを決めず、両方の隣を見る（決めていない、と伝える）。"""
     import unicodedata
 
     if halign == "center":
         return [1, -1], True
+    right = -1 if rtl_sheet else 1  # 画面の右へ伸びるときの、列の番号の向き
+    if halign in ("left", "right"):
+        return [right if halign == "left" else -right], True
+    if reading == 2:
+        return [-right], True
     first = next((b for b in (unicodedata.bidirectional(ch) for ch in text) if b in ("L", "R", "AL")), "L")
-    if rtl_sheet or (halign not in ("left", "right") and first != "L"):
+    if rtl_sheet or first != "L":
         return [1, -1], False
-    return ([-1] if halign == "right" else [1]), True
+    return [1], True
 
 
 def blocked_by(sides: list[int], sure: bool, over: float, col: int, width_of, empty_at, last: int = 16384) -> int | None:
@@ -394,5 +401,5 @@ def clipped_message(where: str, shown: str, neighbour: str, sure: bool) -> str:
     head = f"{where}: 書いた字「{shown[:20]}{'…' if len(shown) > 20 else ''}」はセルの幅に収まらず、隣の {neighbour} の字で"
     if sure:
         return head + "切れて見える見込みです（列の幅からの見積もり。字を短くするか、本人に確かめてください）"
-    return head + ("切れて見えるかもしれません（列の幅からの見積もり。右から左へ並ぶシート・右から左へ書く字では、はみ出す向きを"
-                   "決めていないので、両方の隣を見ました。字を短くするか、本人に確かめてください）")
+    return head + ("切れて見えるかもしれません（列の幅からの見積もり。寄せ方の決まっていないセルで、右から左へ並ぶシート・右から左へ"
+                   "書く字では、はみ出す向きを決めていないので、両方の隣を見ました。字を短くするか、本人に確かめてください）")

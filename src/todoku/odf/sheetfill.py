@@ -703,9 +703,12 @@ def fit_warnings(wb: OdsWorkbook, patches) -> list[dict]:
             mode = st.prop(part, "table", t.get("table:style-name") if t is not None else None, "style:table-properties",
                            "style:writing-mode")
             rtl_of[p.sheet] = (mode or "").startswith("rl")
-        # 寄せ方：start・left は左、end・right は右として見る。右から左へ並ぶシートでは、overflow_sides が向きを決めない
+        # 寄せ方：start・left は左、end・right は右として見る（LibreOffice の Calc は、読む向きによらず start を左に寄せる）。
+        # 寄せ方の決まっていないセルは、セルの読む向き（段落かセルの書式の style:writing-mode）が右から左（rl-tb）なら右
         halign = {"start": "left", "left": "left", "end": "right", "right": "right", "center": "center"}.get(align, "general")
-        sides, sure = overflow_sides(halign, rtl_of[p.sheet], shown)
+        mode = (st.prop(part, "table-cell", name, "style:paragraph-properties", "style:writing-mode")
+                or cellp("style:writing-mode") or "")
+        sides, sure = overflow_sides(halign, rtl_of[p.sheet], shown, 2 if mode.startswith("rl") else 1 if mode.startswith("lr") else 0)
 
         def empty_at(col: int) -> bool:
             if (p.sheet, r, col) in targets:
