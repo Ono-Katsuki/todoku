@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import bisect
 import hashlib
+import html
 import io
 import os
 import re
@@ -177,6 +178,19 @@ class LazyStrings:
         self.wrap_close = b"</" + ((m[1] or b"") if m else b"") + b"sst>"
         self.phonetic = _Phonetic(self)
         self.phonetic_units = _PhoneticUnits(self)
+        self.sym = _SymRuns(self)
+        self._has_sym: bool | None = None
+
+    @property
+    def has_sym(self) -> bool:
+        """字ごとの書体に、記号の書体（xlsx/symcells.py）を指定した字があるか（書体の名前と文字セットを、1 回だけ探す）。"""
+        if self._has_sym is None:
+            from .. import symfont
+
+            names = {m[1] for m in re.finditer(rb'rFont\b[^>]*?\bval="([^"]*)"', self.xml)}
+            self._has_sym = (re.search(rb'charset\b[^>]*?\bval="2"', self.xml) is not None
+                             or any(symfont.known(html.unescape(n.decode("utf-8", "replace"))) for n in names))
+        return self._has_sym
 
     def __len__(self) -> int:
         return len(self.offs)
@@ -222,6 +236,21 @@ class _Phonetic:
 
         root = parse_xml(self.s.wrap_open + self.s.si_xml(i) + self.s.wrap_close)
         got = _phonetic_text(root[0])
+        return got if got is not None else default
+
+
+class _SymRuns(_Phonetic):
+    """共有文字列の番号 → 字ごとの書体（記号の書体を指定した字のあるものだけ：xlsx.workbook._sym_runs）。"""
+
+    def __contains__(self, i) -> bool:
+        return 0 <= i < len(self.s) and b"rFont" in self.s.si_xml(i)
+
+    def get(self, i, default=None):
+        if i not in self:
+            return default
+        from ..xlsx.workbook import _sym_runs, parse_xml
+
+        got = _sym_runs(parse_xml(self.s.wrap_open + self.s.si_xml(i) + self.s.wrap_close)[0])
         return got if got is not None else default
 
 

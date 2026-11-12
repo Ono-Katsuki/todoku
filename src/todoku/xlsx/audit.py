@@ -428,7 +428,12 @@ def _sample(f: dict, wb: Workbook, sheet: str, calc: Calc | None):
         cur = f.get("value")
         return lo if cur != lo else min(hi, lo + 1)
     if f["kind"] == "inline":
-        return ["1"] * f["blanks"]
+        vals = ["1"] * f["blanks"]
+        if getattr(wb, "has_sym", False):
+            from .symcells import sample_values
+
+            vals = sample_values(wb, sheet, f, vals)  # 記号の書体の所には、その書体にある記号（「1」は断られる）
+        return vals
     rules = f.get("rules", [])
     r, c = parse_cell(f["cell"])
     sh = wb.sheet(sheet)
@@ -635,9 +640,12 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     # 読み戻し：書き込み後のファイルを読み直して、書いた値とチェックの状態がそのとおりかを確かめる
     after = scope.book if scope.book is not None else open_book(res.blob, wb.filename)  # 証明で開いた、同じ中身のブック
     got = {}
+    from .window import _seen_of
+
+    seen, seen_after = _seen_of(wb), _seen_of(after)  # 記号の書体の字は、見える字で照らす（書く値も見える字）
     for sh in after.sheets:
         for (r, c), cell in sh.cells.items():
-            v = cell.value
+            v = seen_after(cell).value
             got[f"{sh.name}!{addr(r, c)}"] = v.code if isinstance(v, ExcelError) else v
         for ctl in sh.controls:
             if ctl.kind == "CheckBox":
@@ -672,7 +680,7 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
             if isinstance(v, list):
                 from .window import blank_spans, fill_blanks
 
-                want = fill_blanks(wb.sheet(s).cells[(r, c)].value, v, blank_spans(wb, s, r, c))
+                want = fill_blanks(seen(wb.sheet(s).cells[(r, c)]).value, v, blank_spans(wb, s, r, c))
             else:
                 want = interpret_input(wb, s, r, c, v)[0]
             key = f"{s}!{addr(r, c)}"

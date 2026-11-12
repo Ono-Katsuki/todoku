@@ -173,6 +173,17 @@ def _hyperlink_object(b: bytes, p: int, how: dict | None = None) -> str:
     return target
 
 
+def _font_sym(b: bytes) -> str:
+    """FONT（BIFF8）の書体が記号の書体なら、その名前（bCharSet（12 バイト目）が 2＝SYMBOL_CHARSET か、symfont に表のある名前）。"""
+    from .. import symfont
+
+    try:
+        name = xlstring(b, 14, 1)[0]
+    except (struct.error, IndexError, UnicodeDecodeError):
+        return ""
+    return name if name and ((len(b) > 12 and b[12] == 2) or symfont.known(name)) else ""
+
+
 def xlstring(b: bytes, pos: int, cch_size: int = 2) -> tuple[str, int]:
     """XLUnicodeString（文字数 u16 または u8、印、文字）。(文字列, 次の位置)。"""
     if cch_size == 2:
@@ -276,6 +287,8 @@ class XlsWorkbook:
         # 字ごとの書式のある字のセル → 共有文字列の番号（LABELSST）か None（RSTRING）
         self.rich_cells: dict[tuple[str, int, int], int | None] = {}
         self._font_strike: list[bool] = []  # 取り消し線（FONT の grbit の fStrikeOut）
+        self._font_sym: list[str] = []  # 記号の書体の名前（bCharSet が 2 か、表のある書体：symfont）。ほかは ""
+        self.has_sym = False  # 記号の書体の字があるか（xlsx/symcells.py：BIFF8 だけ）
         self._formats: dict[int, str] = dict(BUILTIN)
         self._palette = list(_PALETTE)
         self._supbooks: list[_Supbook] = []
@@ -411,6 +424,8 @@ class XlsWorkbook:
             elif t == 0x0031:  # FONT
                 self._fonts.append(struct.unpack_from("<H", b, 4)[0])
                 self._font_strike.append(bool(struct.unpack_from("<H", b, 2)[0] & 0x08))
+                self._font_sym.append(_font_sym(b) if self.biff == 8 else "")
+                self.has_sym = self.has_sym or bool(self._font_sym[-1])
             elif t == 0x041E:  # FORMAT
                 ifmt = struct.unpack_from("<H", b, 0)[0]
                 self._formats[ifmt] = xlstring(b, 2)[0]
@@ -506,7 +521,29 @@ class XlsWorkbook:
         lines = struct.unpack_from("<I", b, 10)[0]
         bits = sum(k for k, sh in ((1, 0), (2, 4), (4, 8), (8, 12)) if (lines >> sh) & 0x0F)
         strike = self._font_strike[fnt] if 0 <= fnt < len(self._font_strike) else False
-        self.styles.append(Style(self._formats.get(ifmt, "General"), locked, hidden, fc, fill, bits, strike))
+        self.styles.append(Style(self._formats.get(ifmt, "General"), locked, hidden, fc, fill, bits, strike, self.font_sym(ifnt)))
+
+    def font_sym(self, ifnt: int) -> str:
+        """書体の番号 ifnt（XF・字ごとの書式の番号：4 番は欠番）の、記号の書体の名前（記号の書体でなければ ""）。"""
+        fnt = ifnt - 1 if ifnt >= 4 else ifnt
+        return self._font_sym[fnt] if 0 <= fnt < len(self._font_sym) else ""
+
+    def sym_runs(self, cell) -> list | None:
+        """セルの字の、字ごとの書体 [(字の数, 書体)]：None はセルの書式の書体、"" は記号の書体でない書体（xlsx.workbook._sym_runs と
+        同じ形）。記号の書体を指定した字のないセルは None。"""
+        isst = self.rich_cells.get((cell.sheet, cell.row, cell.col))
+        if isst is None or isst not in self.sst_runs or not isinstance(cell.value, str):
+            return None
+        from ..xlsx.richtext import xls_runs
+
+        out: list = []
+        for p in xls_runs(cell.value, self.sst_runs[isst]):
+            f = None if p is None else self.font_sym(p)
+            if out and out[-1][1] == f:
+                out[-1] = (out[-1][0] + 1, f)
+            else:
+                out.append((1, f))
+        return out if any(f for _n, f in out) else None
 
     def _color(self, icv: int) -> str | None:
         if icv in (0x7FFF, 0x40, 0x51):

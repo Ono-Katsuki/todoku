@@ -216,6 +216,24 @@ def text(s: str, font: str | None, high_font: str | None = None, symbols=()) -> 
     return "".join(out)
 
 
+@functools.lru_cache(maxsize=64)
+def _codes(k: str) -> dict:
+    t = _table(k)
+    out: dict = {}
+    for i, ch in enumerate(t[1] if t else ()):
+        # 番号 0x80〜0x9F は入れない：保存する字（U+0080〜U+009F か、Windows の文字コード表の字か）がアプリで違う。
+        # 0x20・0xA0 も入れない：その番号の字（空白）は、空白のまま読む（text）
+        c = 0x20 + i
+        if ch is not None and c not in (0x20, 0xA0) and not 0x80 <= c <= 0x9F:
+            out.setdefault(ch, c)
+    return out
+
+
+def code_of(font: str | None, ch: str) -> int | None:
+    """書体 font で字 ch を描く番号（0x21〜0x7F・0xA1〜0xFF。同じ字がいくつもあれば小さい番号）。その字のない書体・表のない書体は None。"""
+    return _codes(key(font)).get(ch)
+
+
 def box_codes(font: str | None) -> tuple[int, int] | None:
     """書体 font の、（印のついた箱の番号, 印のない箱の番号）。その字のない書体・表のない書体は None。"""
     t = _table(font)

@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
+from xml.sax.saxutils import unescape
 
 from ..docx.document import iter_paras
 from ..docx.fill import FillError, _as_bool, _is_text_value, written_of  # 証明に渡す、書いた所 → 値（Word と同じ）
@@ -22,7 +23,7 @@ from ..docx.window import Spots, WriteError, box_mark, resolve_write
 from ..docx.xmlpos import escape, parse
 from ..inputcheck import GLYPH_OFF, GLYPH_ON, checkbox_state
 from ..zipraw import RawZip
-from .document import PptxDocument, PptxError
+from .document import PptxDocument, PptxError, symbol_typeface
 
 _BAD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
 
@@ -75,13 +76,18 @@ def t_chars(xml: bytes, node) -> list[tuple[int, int]]:
 # ====================================================================== 書いた字の書式
 # 書いた字に引き継がない文字の書式（a:rPr・a:endParaRPr。ECMA-376 第1部 21.1.2.3.9 CT_TextCharacterProperties）：
 # 取り消し線（strike）・字の塗り（黒でない色・塗りなし：赤・白・背景と同じ色など）・蛍光ペン（a:highlight）。
-# 字の大きさ（sz）・書体（a:latin・a:ea など）はそのまま残す（Word の docx.fill.clean_rpr と同じ考え方）
+# 字の大きさ（sz）・書体（a:latin・a:ea など）はそのまま残す（Word の docx.fill.clean_rpr と同じ考え方）。ただし、記号の書体
+# （a:latin・a:ea・a:cs・a:sym が名指す Wingdings・Symbol など）は引き継がない：引き継ぐと、書いた字が、その書体の別の字（絵・
+# ギリシア文字）になる
 _STRIKE = re.compile(rb'(\sstrike\s*=\s*")(sngStrike|dblStrike)(")')
 _FILL = re.compile(rb"<(?:[\w.-]+:)?(solidFill|gradFill|pattFill|blipFill|grpFill|noFill)\b[^>]*?(?:/>|>.*?</(?:[\w.-]+:)?\1>)", re.S)
 _HIGHLIGHT = re.compile(rb"<(?:[\w.-]+:)?highlight\b[^>]*?(?:/>|>.*?</(?:[\w.-]+:)?highlight>)", re.S)
 _BLACK = re.compile(rb'^<(?:[\w.-]+:)?solidFill>\s*<(?:[\w.-]+:)?(?:srgbClr\s+val="000000"|schemeClr\s+val="(?:tx1|dk1)"|'
                     rb'sysClr\s+val="windowText"[^>]*?)\s*/>\s*</(?:[\w.-]+:)?solidFill>$')
 _FILL_NAMES = {"strike": "取り消し線", "fill": "字の色（黒でない色・塗りなし）", "highlight": "蛍光ペン"}
+_FONT = re.compile(rb"<(?:[\w.-]+:)?(latin|ea|cs|sym)\b([^>]*?)(?:/>|>\s*</(?:[\w.-]+:)?\1>)")
+_FONT_ATTR = re.compile(rb'\s(typeface|charset)\s*=\s*"([^"]*)"')
+SYMBOL_FONT = "記号の書体"
 
 
 def clean_rpr(rpr: bytes) -> tuple[bytes, list[str]]:
@@ -102,7 +108,15 @@ def clean_rpr(rpr: bytes) -> tuple[bytes, list[str]]:
         names.append(_FILL_NAMES["fill"])
         return b""
 
+    def font(mm: re.Match) -> bytes:
+        a = {k.decode(): unescape(v.decode("utf-8", "replace"), {"&quot;": '"', "&apos;": "'"}) for k, v in _FONT_ATTR.findall(mm[2])}
+        if not symbol_typeface(a.get("typeface", ""), a.get("charset")):
+            return mm[0]
+        names.append(f"{SYMBOL_FONT}（{a.get('typeface', '')}）")
+        return b""
+
     body = _FILL.sub(fill, body)
+    body = _FONT.sub(font, body)
     if _HIGHLIGHT.search(body):
         body = _HIGHLIGHT.sub(b"", body)
         names.append(_FILL_NAMES["highlight"])
@@ -126,8 +140,9 @@ class PptxWriter:
         self.warnings: list[str] = []
 
     def note(self, fid: str, names: list[str]) -> None:
+        kept = "字の大きさはそのまま。書体は、記号の書体を外しました" if any(n.startswith(SYMBOL_FONT) for n in names) else "字の大きさ・書体はそのまま"
         self.warnings.append(f"{fid}: 書く所に残っていた書式（{'・'.join(names)}）は、書いた字に引き継がず、図形・段落の既定の"
-                             "書式（字の大きさ・書体はそのまま）で書きました")
+                             f"書式（{kept}）で書きました")
 
     def put_value(self, item: dict, part: str, xml: bytes, sg, s: int, e: int, value: str) -> None:
         """字の要素（sg の a:t）の字 [s, e) を値にする。その字の要素の書式に取り消し線・目立つ色などがあれば、字の要素を分けて、

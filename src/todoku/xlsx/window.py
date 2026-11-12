@@ -66,17 +66,31 @@ def display(wb: Workbook, cell: Cell, flag: bool = True) -> str:
     return shown_text(wb, cell, flag)[0]
 
 
+def _seen_of(wb):
+    """セルを、値が見える字のセルにする関数（記号の書体のあるブックだけ：xlsx/symcells.py。ほかは、そのまま返す）。"""
+    if not getattr(wb, "has_sym", False):
+        return lambda cell: cell
+    from .symcells import seen_cell
+
+    return lambda cell: seen_cell(wb, cell)
+
+
 def unshown_mark(fmt: str, raw: str) -> str:
     return f"〔表示形式「{fmt}」は再現できません：元の値 {raw}〕"
 
 
 def shown_text(wb: Workbook, cell: Cell, flag: bool = True) -> tuple[str, str | None]:
     """(見えている字, 再現できなかった理由)。"""
+    sym = getattr(wb, "has_sym", False)  # 記号の書体のあるブック：字を、その書体の記号として読む（xlsx/symcells.py）
+    if sym:
+        from . import symcells
+
+        cell = getattr(cell, "raw", cell)
     shown = getattr(wb, "shown_text", None)  # 見える字をファイルに保存している形式（OpenDocument の表計算）は、その字
     if shown is not None:
         t = shown(cell)
         if t is not None:
-            return t, None
+            return (symcells.shown(wb, cell, t) if sym else t), None
     v = cell.value
     if v is None:
         return "", None
@@ -85,6 +99,8 @@ def shown_text(wb: Workbook, cell: Cell, flag: bool = True) -> tuple[str, str | 
     fmt = wb.style(cell.style).num_fmt
     try:
         out = format_value(v, fmt, getattr(wb, "date1904", False))
+        if sym:
+            out = symcells.shown(wb, cell, out)
         if "E+" in out and fmt in ("General", "") and isinstance(v, (int, float)) and abs(v) < 1e21:
             # Excel の「標準」は 12 桁から 1.23457E+14 と見せる。口座番号などの桁が読めなくなるので、元の値を添える
             out += f"〔元の値 {int(v) if v == int(v) else to_text(v)}〕"
@@ -1051,6 +1067,7 @@ def _detect_tables(wb: Workbook, sh: Sheet, rows: dict[int, list[Anchor]]) -> li
         heads = {}
         for k, c in enumerate(range(t.c1, t.c2 + 1)):
             cell = sh.cells.get((top, c)) if t.header_rows else None
+            cell = _seen_of(wb)(cell) if cell is not None else None
             v = cell.value if cell is not None and isinstance(cell.value, str) else (t.columns[k] if k < len(t.columns) else "")
             heads[c] = label_text(v or "")
         first, last = t.r1 + t.header_rows, t.r2 - t.totals_rows
@@ -1459,16 +1476,17 @@ class Layout:
         self.hidden_boxes: dict[int, list[Box]] = {}
         shown_sheet = sh.state not in ("hidden", "veryHidden")  # 非表示のシート（選択肢の元の表など）は、記入する所ではない
         self.shown_sheet = shown_sheet
+        seen = _seen_of(wb)
         for r, items in anchors(sh).items():
             for a in items:
                 if sh.is_hidden(a.r, a.c1):
-                    cell = a.cell
+                    cell = seen(a.cell)
                     if cell is not None and (cell.has_formula or (cell.value is not None and cell.value != "")):
                         self.hidden_boxes.setdefault(a.r, []).append(
                             Box(a.r, a.c1, a.r2, a.c2, "formula" if cell.has_formula else "text", cell, display(wb, cell),
                                 outside=not sh.in_print_area(a.r, a.c1), hidden="row"))
                     continue
-                cell = a.cell
+                cell = seen(a.cell)
                 outside = not sh.in_print_area(a.r, a.c1)
                 if (a.r, a.c1) in self.inputs:
                     if (a.r, a.c1) in self.links:
@@ -1540,6 +1558,7 @@ class Layout:
                     continue
                 m = sh.merged_at(r, c)
                 if m and (r, c) != (m[0], m[1]):
+                    cell = seen(cell)
                     self.hidden_boxes.setdefault(r, []).append(
                         Box(r, c, r, c, "formula" if cell.has_formula else "text", cell, display(wb, cell),
                             outside=not sh.in_print_area(r, c), hidden="merge"))
@@ -1989,6 +2008,7 @@ class Layout:
             return None
         hr = t.r1 + t.header_rows - 1
         cell = self.sh.cells.get((hr, target.c1))
+        cell = _seen_of(self.wb)(cell) if cell is not None else None
         v = cell.value if cell is not None and isinstance(cell.value, str) and cell.value.strip() else None
         if v is None and target.c1 - t.c1 < len(t.columns):
             v = t.columns[target.c1 - t.c1] or None
@@ -2933,7 +2953,7 @@ def _sheet_doc(wb: Workbook, sh: Sheet, opts: "_Options") -> dict:
                      for c in sh.controls],
         "shapes": [{"kind": s.kind, "name": s.name, "text": s.text, "alt": s.alt,
                     "anchor": addr(*s.anchor) if s.anchor else None, "provenance": DET,
-                    **({"decorative": True} if getattr(s, "decorative", False) else {}), **_shape_place(sh, s)} for s in sh.shapes]
+                    **({"decorative": True} if getattr(s, "decorative", False) else {}), **_shape_place(sh, s, _seen_of(wb))} for s in sh.shapes]
                   # 押すだけの部品・ラベル・枠の面の字（欄ではないが、シートに見えている字）
                   + [{"kind": "部品", "name": c.name, "text": " ".join(c.text.split()), "alt": "", "anchor": addr(*c.anchor) if c.anchor else None,
                       "provenance": DET} for c in sh.controls if c.kind in ("Button", "Label", "GBox") and (c.text or "").strip()],
@@ -3270,7 +3290,7 @@ def _bare_shape_line(s: dict) -> str:
     return f"字のない図形 {s.get('shape_id', '')}「{s.get('name', '')}」（{where}）：" + "、".join(bits)
 
 
-def _shape_place(sh, s) -> dict:
+def _shape_place(sh, s, seen=lambda cell: cell) -> dict:
     """図形の種類・大きさ・位置の事実。同じ行の字：図形の左上の行から右下の行まで、図形の列から右へ見て最初の字。"""
     out: dict = {}
     if getattr(s, "sid", ""):
@@ -3295,7 +3315,7 @@ def _shape_place(sh, s) -> dict:
             c = next((k for k in range(frm[0] + 1, frm[0] + 61) if isinstance(getattr(sh.cells.get((r, k)), "value", None), str)
                       and sh.cells[(r, k)].value.strip()), None)
             if c is not None:
-                out["near"] = " ".join(sh.cells[(r, c)].value.split())[:40]
+                out["near"] = " ".join(seen(sh.cells[(r, c)]).value.split())[:40]
                 out["near_cell"] = addr(r, c)
                 break
     return out

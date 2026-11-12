@@ -20,7 +20,7 @@ def check(wb_after, written: dict) -> dict[str, tuple[bool, str]]:
     """書いた所の {id: (読み戻しが合うか, 本人に伝える見えている字)}。セルとして読めない id（部品の名前・文字の中の空欄の
     リストなど）は入れない（呼ぶ側の、ほかの比べ方に任せる）。"""
     from .edit import interpret_input, parse_date_text, resolve_target
-    from .window import display
+    from .window import _seen_of, display
 
     out: dict[str, tuple[bool, str]] = {}
     for key, v in written.items():
@@ -32,7 +32,8 @@ def check(wb_after, written: dict) -> dict[str, tuple[bool, str]]:
         except Exception:  # noqa: BLE001  セルでない指定
             continue
         cell = sh.cells.get((r, c))
-        got = cell.value if cell is not None else None
+        # 記号の書体のセルは、見える字で比べる（書く値の指定も見える字：xlsx/symcells.py）
+        got = _seen_of(wb_after)(cell).value if cell is not None else None
         shown = display(wb_after, cell) if cell is not None else ""
         try:
             expected, _notes = interpret_input(wb_after, sn, r, c, v)

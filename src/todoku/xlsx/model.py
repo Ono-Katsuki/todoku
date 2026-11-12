@@ -291,9 +291,19 @@ def _in_words(wb: Workbook, formula: str, sheet: str, idx: _Index, name_of) -> s
 
 def _shown(wb: Workbook, cell, v) -> tuple:
     """(見えている字か値, 見え方について伝えること)。地域で見え方が変わる組み込みの表示形式（LocaleDependent）は、
-    地域によらない書き方（ISO 8601）と、そう示す字。再現できない表示形式は、元の値と、再現できない理由。"""
+    地域によらない書き方（ISO 8601）と、そう示す字。再現できない表示形式は、元の値と、再現できない理由。
+    記号の書体のセルの字は、その書体で読んだ字（窓と同じ：xlsx/symcells.py。エラーの字は、そのまま）。"""
     if isinstance(v, ExcelError):
         return v.code, None
+    out, note = _shown_plain(wb, cell, v)
+    if isinstance(out, str) and cell is not None and getattr(wb, "has_sym", False):
+        from .symcells import shown as sym_shown
+
+        out = sym_shown(wb, cell, out)
+    return out, note
+
+
+def _shown_plain(wb: Workbook, cell, v) -> tuple:
     if is_number(v):
         fmt = wb.style(cell.style).num_fmt if cell is not None else "General"
         try:
@@ -345,9 +355,19 @@ def calculate(wb: Workbook, doc: dict, values: dict) -> dict:
         notes = list(dict.fromkeys(n for n in (n1, n2) if n))
         out.append({"cell": k, "label": lab.get(k), "before": before, "after": shown_after,
                     "result": k in res_cells, **({"note": "／".join(notes)} if notes else {})})
-    return {"inputs": {_key(*k): v for k, v in targets.items()}, "changed": out,
+    # 記号の書体のセルは、見える字で伝える（計算には、保存する字を使う：xlsx/symcells.py）
+    return {"inputs": {_key(*k): plan_.seen.get(k, v) for k, v in targets.items()}, "changed": out,
             "not_computed": [{"cell": _key(*k), "why": w} for k, w in problems.items()],
             "warnings": list(plan_.warnings) + [i.message for i in issues if not i.blocking]}
+
+
+def _seen_value(wb: Workbook, cell, v):
+    """計算した値 v を伝える形：記号の書体のセルの字は、その書体で読んだ字（数・真偽は値のまま）。"""
+    if not isinstance(v, str) or cell is None or not getattr(wb, "has_sym", False):
+        return v
+    from .symcells import shown as sym_shown
+
+    return sym_shown(wb, cell, v)
 
 
 def cell_values(wb: Workbook, values: dict, cells: list, store=None) -> list[dict]:
@@ -376,7 +396,7 @@ def cell_values(wb: Workbook, values: dict, cells: list, store=None) -> list[dic
             if un is not None:
                 d.update({"status": "unfinished", "why": why, "done": un.done, "total": un.total})
             elif st in ("ok", "volatile"):
-                d.update({"status": "ok", "value": v.code if isinstance(v, ExcelError) else v})
+                d.update({"status": "ok", "value": v.code if isinstance(v, ExcelError) else _seen_value(wb, sh.cells.get((r, c)), v)})
             else:
                 d.update({"status": st, "why": why})
             if where is not None and where.get("range"):

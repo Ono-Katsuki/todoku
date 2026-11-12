@@ -1302,12 +1302,17 @@ def _grade_excel(blob: bytes, filename: str) -> Grade:
                              "decorative": getattr(s, "decorative", False), "where": f"シート「{sh_obj.name}」{at}"})
     # 外字（私用の符号の字）：セルの字（窓に出す字）にあれば、その位置
     pua = []
+    from .xlsx.window import _seen_of
+
+    seen = _seen_of(wb)  # 記号の書体の字は、その書体の記号として読んだ字（私用の符号 U+F0xx も、番号の記号になる）
     for sh_obj in wb.sheets:
         from .formula.parser import addr
 
         for (r, c), cell in sorted(sh_obj.cells.items()):
             if isinstance(cell.value, str) and any(is_pua(ch) for ch in cell.value):
-                pua.append(f"{sh_obj.name}!{addr(r, c)}「{pua_context(cell.value)}」")
+                text = seen(cell).value
+                if any(is_pua(ch) for ch in text):
+                    pua.append(f"{sh_obj.name}!{addr(r, c)}「{pua_context(text)}」")
     reasons += pua_reasons(pua)
     # Excel 5.0/95（BIFF5）のブックも、BIFF8 と同じく書けて証明できる（xls/write.py・xls/proof.py）。段階は、ほかの理由だけで決まる
     g = _final(reasons, write)

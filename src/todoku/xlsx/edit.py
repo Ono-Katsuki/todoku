@@ -1165,11 +1165,12 @@ def _cell_blanks(text: str):
     return cell_blanks(text)
 
 
-def box_glyph(orig: str, on: bool) -> str:
-    """箱の字 orig に印をつける（on）・外すときの字。Word と同じ（☐ は ☑、ほかの白い箱 □ などは ■。外すときは印のない同じ形の箱）。"""
+def box_glyph(orig: str, on: bool, font: str = "") -> str:
+    """箱の字 orig に印をつける（on）・外すときの字。Word と同じ（☐ は ☑、ほかの白い箱 □ などは ■。外すときは印のない同じ形の箱）。
+    font：その字の記号の書体（xlsx/symcells.py）。箱の字のある記号の書体なら、その書体の印のついた箱・印のない箱の字。"""
     from ..docx.window import box_mark
 
-    return box_mark(orig, on)
+    return box_mark(orig, on, font)
 
 
 _BY_ANCHOR = "{\"@1\": {\"old\": …, \"new\": …, \"cell\": …}}"
@@ -1205,7 +1206,7 @@ def replaced_printed(wb, sh, sheet: str, r: int, c: int, cell, val, anchors: boo
             f"字の中の空欄に書くなら空欄ごとの値のリスト、{part}{_WHOLE}")
 
 
-def check_box_in_text(text: str, on: bool, where: str, anchors: bool = True) -> tuple[str, str]:
+def check_box_in_text(text: str, on: bool, where: str, anchors: bool = True, fonts=None) -> tuple[str, str]:
     """字のあるセルに true/false を書く：字の中のチェックの箱の字が1つだけなら、その字だけを印の字にする（ほかの字は変えない）。
     箱の字がない・いくつもあるときは、どれのことか決められないので書かない（EditError。箱ごとの前後の字を示す）。"""
     at = [i for i, ch in enumerate(text) if _is_box(ch)]
@@ -1219,7 +1220,7 @@ def check_box_in_text(text: str, on: bool, where: str, anchors: bool = True) -> 
         raise EditError(f"{where} の字には、チェックの箱の字が {len(at)} つあります（{ctx}）。true/false では、どれに印をつけるか"
                         "決められないので書いていません。空欄ごとの値のリスト（箱の所に true か ☑ などの字、ほかは null）で指定してください")
     i = at[0]
-    new = box_glyph(text[i], on)
+    new = box_glyph(text[i], on, fonts[i] if fonts else "")
     if new == text[i]:
         return text, f"{where}: 箱の字「{text[i]}」は、もともと{'印のついた' if on else '印のない'}字です（変えていません）"
     from .. import chars
@@ -1299,8 +1300,12 @@ def anchor_text(wb: Workbook, key: str, spec, *, force: bool = False, allow_form
         cells = [(sh.name, r, c) for sh in sheets for (r, c) in sorted(sh.cells)]
     hits = []
 
+    from .window import _seen_of
+
+    seen = _seen_of(wb)  # 記号の書体のセルは、見える字で探す（xlsx/symcells.py）
+
     def text_of(sheet, r, c):
-        cell = wb.sheet(sheet).cells.get((r, c))
+        cell = seen(wb.sheet(sheet).cells.get((r, c)))
         if cell is None or not isinstance(cell.value, str) or cell.has_formula:
             return None
         t_ = pending.get((sheet, r, c), cell.value)
@@ -1354,6 +1359,7 @@ class InputPlan:
     exclusive: list = field(default_factory=list)  # 2つのうち1つを選ぶ箱の両方に印をつけた所（警告）
     table_changes: dict = field(default_factory=dict)  # テーブルの見出し・集計の行の見出しの書き換え（force のときだけ）
     aligned: dict = field(default_factory=dict)  # 空きの中にそろえて書いた所の id → {align, pad}（_aligned_blank）
+    seen: dict = field(default_factory=dict)  # 記号の書体のセル：(シート, 行, 列) → 書いた字の見える字（targets は保存する字：symcells）
 
 
 def _aligned_blank(where: str, text: str, span, x, aligned: dict):
@@ -1448,6 +1454,12 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
     claimed: dict = {}  # (シート, 行, 列) → (指示の鍵, 字を目印にした書き込みか)
     linked_cells: set = set()  # チェックボックスにつながったセル（字の書式の確かめから外す）
     exclusive: list = []
+    sym = getattr(wb, "has_sym", False)  # 記号の書体のあるブック（xlsx/symcells.py）
+    if sym:
+        from .symcells import char_fonts as _char_fonts, seen_cell
+
+        def seen(cell_):
+            return seen_cell(wb, cell_)
 
     def claim(cell_: tuple, key_: str, anchor_: bool = False) -> None:
         """同じセルを2つの指示で書かない（B9 と B9:D9、b1 と B1 など）：後の指示が前の指示を黙って消すので、書かない。
@@ -1501,6 +1513,10 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
         claim((sheet, r, c), k)
         sh = wb.sheet(sheet)
         cell = sh.cells.get((r, c))
+        # 記号の書体のセル：字は、見える字（その書体の記号）で扱う。保存する字には、後ろでまとめて直す（symcells.encode_targets）
+        fonts = _char_fonts(wb, cell) if sym and cell is not None else None
+        if fonts is not None:
+            cell = seen(cell)
         if cell is not None and cell.has_formula and not allow_formula_overwrite:
             raise EditError(f"{sheet}!{addr(r, c)} は数式のセルです（計算で決まるので、直接は書き込みません）")
         linked = links.get((sheet, r, c))
@@ -1534,13 +1550,15 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             sp_ = spans if spans is not None else [(a_, b_) for a_, b_, _k in _cell_blanks(cell.value)]
             if isinstance(v, SpanValues):
                 by_at = {a_: (a_, b_) for a_, b_ in sp_}
-                vals = {at: (box_glyph(cell.value[at], x) if isinstance(x, bool) and at in by_at and by_at[at][1] - at == 1
+                vals = {at: (box_glyph(cell.value[at], x, fonts[at] if fonts else "")
+                             if isinstance(x, bool) and at in by_at and by_at[at][1] - at == 1
                              and _is_box(cell.value[at]) else x) for at, x in v.items()}
             else:
                 vals = list(v)
             if not isinstance(vals, dict) and len(sp_) == len(vals):
                 # 箱の字の所に true/false：その箱の字を、チェックの印の字にする（「TRUE」の字は書かない）
-                vals = [box_glyph(cell.value[a_], x) if isinstance(x, bool) and b_ - a_ == 1 and _is_box(cell.value[a_])
+                vals = [box_glyph(cell.value[a_], x, fonts[a_] if fonts else "")
+                        if isinstance(x, bool) and b_ - a_ == 1 and _is_box(cell.value[a_])
                         else x for (a_, b_), x in zip(sp_, vals)]
             # そろえ方を指定した所（{"value": 値, "align": …}）：空きの幅を保って、前後に半角の空白を足した字にする
             where_ = f"{sheet}!{addr(r, c)}"
@@ -1560,7 +1578,7 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
         printed_text = is_printed_text(cell, bool(linked))
         if isinstance(v, bool) and printed_text and not overwrite_text:
             # 字のあるセルに true/false：セルの字の中のチェックの箱の字（□ など）に印をつける（外す）。字は消さない
-            new_text, note = check_box_in_text(cell.value, v, f"{sheet}!{addr(r, c)}")
+            new_text, note = check_box_in_text(cell.value, v, f"{sheet}!{addr(r, c)}", fonts=fonts)
             exclusive += _both_boxes_marked(cell.value, new_text, f"{sheet}!{addr(r, c)}")
             targets[(sheet, r, c)] = new_text
             text_written[k] = (sheet, r, c)
@@ -1586,6 +1604,14 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             warnings += notes
         targets[(sheet, r, c)] = val
 
+    seen_text: dict = {}
+    if sym:
+        from .symcells import encode_targets
+
+        try:
+            seen_text = encode_targets(wb, targets, set(text_written.values()), warnings)
+        except ValueError as e:
+            raise EditError(str(e)) from None
     table_changes = _table_label_writes(wb, targets, force)
     # Excel のセルに入る字は 32,767 字まで（それより長い字は、Excel で開くと切られる）
     for (s_, r_, c_), v_ in targets.items():
@@ -1637,7 +1663,7 @@ def plan_inputs(wb: Workbook, values: dict[str, object], *, allow_formula_overwr
             warnings.append(f"{s_}!{addr(r_, c_)}: 書き換えた字に付いていたふりがな（{'・'.join(rich[cell_][2])} の読み）を外しました")
     direct = {c_: k_ for c_, (k_, _a) in claimed.items() if c_ not in linked_cells}
     return InputPlan(targets, controls, writes, ax_writes, warnings, text_written, replaced_text, anchored, rich, direct, exclusive,
-                     table_changes, aligned)
+                     table_changes, aligned, seen_text)
 
 
 def _table_label_writes(wb: Workbook, targets: dict, force: bool) -> dict:
@@ -1797,7 +1823,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
     plan_ = plan_inputs(wb, values, allow_formula_overwrite=allow_formula_overwrite, force=force)
     targets, controls, writes, ax_writes, warnings = (plan_.targets, plan_.controls, plan_.writes, plan_.ax_writes,
                                                       plan_.warnings)
-    text_extra = {"text_written": {k_: (f"{s_}!{addr(r_, c_)}", plan_.targets.get((s_, r_, c_)))
+    text_extra = {"text_written": {k_: (f"{s_}!{addr(r_, c_)}", plan_.seen.get((s_, r_, c_), plan_.targets.get((s_, r_, c_))))
                                     for k_, (s_, r_, c_) in plan_.text_written.items()},
                   "replaced_text": list(plan_.replaced_text), "anchored": dict(plan_.anchored), "aligned": dict(plan_.aligned)}
     from .. import axfile

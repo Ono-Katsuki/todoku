@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from ..formula.parser import Node, addr, parse, parse_cell, unparse
 from ..formula.values import ExcelError, Unsupported
+from .. import symfont
 from ..limits import MAX_DECLARED_CELLS, budget
 from ..zipraw import RawZip
 
@@ -399,6 +400,7 @@ class Style:
     fill_color: str | None = None  # 塗りつぶしの色（なければ None＝白）
     borders: int = 0  # 罫線：1 左・2 右・4 上・8 下
     font_strike: bool = False  # 字の取り消し線
+    sym: str = ""  # 記号の書体（Wingdings など：symfont）の名前。記号の書体でなければ ""
 
 
 @dataclass
@@ -456,6 +458,11 @@ class Workbook:
         self._last_sst: int | None = None
         self._sst_runs: dict[int, list] = {}  # 共有文字列の番号 → 字ごとの書式（取り消し線・字の色のあるものだけ）
         self.cell_sst: dict[tuple[str, int, int], int] = {}  # 共有文字列を使うセル → 番号
+        # 記号の書体（xlsx/symcells.py）：ブックに記号の書体があるか、共有文字列の番号・セルの中の字 → 字ごとの書体
+        self.has_sym = False
+        self._sst_sym: dict[int, list] = {}
+        self._inline_sym: dict[tuple[str, int, int], list] = {}
+        self._last_inline_sym: list | None = None
         self.styles: list[Style] = []
         self.dxfs: list[Dxf] = []
         self.tables: dict[str, Table] = {}
@@ -591,6 +598,8 @@ class Workbook:
             self.shared_strings = src
             self.phonetic = src.phonetic
             self.phonetic_units = getattr(src, "phonetic_units", {})
+            self._sst_sym = getattr(src, "sym", {})
+            self.has_sym = self.has_sym or bool(getattr(src, "has_sym", False))
             return
         root = self.xml(path)
         for i, si in enumerate(root.findall(M + "si")):
@@ -602,6 +611,16 @@ class Workbook:
             runs = _font_runs(si)
             if runs is not None:
                 self._sst_runs[i] = runs
+            sym = _sym_runs(si)
+            if sym is not None:
+                self._sst_sym[i] = sym
+                self.has_sym = True
+
+    def sym_runs(self, cell) -> list | None:
+        """セルの字の、字ごとの書体 [(字の数, 書体)]（_sym_runs）。記号の書体を指定した字のないセルは None。"""
+        k = (cell.sheet, cell.row, cell.col)
+        i = self.cell_sst.get(k)
+        return self._sst_sym.get(i) if i is not None else self._inline_sym.get(k)
 
     def sst_font_runs(self, i: int) -> list | None:
         """共有文字列 i の字ごとの書式 [(字, 取り消し線, 色)]（xlsx/fontfacts.py）。色は "RRGGBB"、セルの書式のままなら None。"""
@@ -640,6 +659,8 @@ class Workbook:
         fonts = [_color(f.find(M + "color"), pal) for f in (root.find(M + "fonts") or [])]
         strikes = [(f.find(M + "strike") is not None and f.find(M + "strike").get("val", "1") not in ("0", "false"))
                    for f in (root.find(M + "fonts") or [])]
+        syms = [_sym_font(f.find(M + "name"), f.find(M + "charset")) for f in (root.find(M + "fonts") or [])]
+        self.has_sym = self.has_sym or any(syms)
         fills = [_fill_color(f, pal=pal) for f in (root.find(M + "fills") or [])]
         borders = []
         for bd in root.find(M + "borders") or []:
@@ -663,7 +684,8 @@ class Workbook:
             bo = int(xf.get("borderId", "0"))
             self.styles.append(Style(fmts.get(fid, "General"), locked, hidden,
                                      fonts[fo] if fo < len(fonts) else None, fills[fi] if fi < len(fills) else None,
-                                     borders[bo] if bo < len(borders) else 0, strikes[fo] if fo < len(strikes) else False))
+                                     borders[bo] if bo < len(borders) else 0, strikes[fo] if fo < len(strikes) else False,
+                                     syms[fo] if fo < len(syms) else ""))
         for d in root.find(M + "dxfs") or []:
             font = d.find(M + "font")
             nf = d.find(M + "numFmt")
@@ -743,6 +765,10 @@ class Workbook:
                 cell.value = self._cell_value(cell.t, v, c)
                 if self._last_sst is not None:
                     self.cell_sst[(sh.name, r, col)] = self._last_sst
+                if self._last_inline_sym is not None:
+                    self._inline_sym[(sh.name, r, col)] = self._last_inline_sym
+                    self._last_inline_sym = None
+                    self.has_sym = True
                 if c.get("ph") in ("1", "true"):  # ふりがなを画面に出すセル（ECMA-376 18.3.1.4 の ph）
                     sh.__dict__.setdefault("phonetic_shown", set()).add((r, col))
                 if f is not None:
@@ -967,13 +993,15 @@ class Workbook:
     def _cell_value(self, t, v, c):
         if t == "inlineStr":
             is_ = c.find(M + "is")
+            if is_ is not None and len(is_) > 1:
+                self._last_inline_sym = _sym_runs(is_)
             return _rich_text(is_) if is_ is not None else ""
         if v is None or v.text is None:
             return "" if t == "str" and v is not None else None
         text = v.text
         if t == "s":
             i = int(text)
-            if i in self.phonetic or i in self._sst_runs:
+            if i in self.phonetic or i in self._sst_runs or (self.has_sym and i in self._sst_sym):
                 self._last_sst = i
             return self.shared_strings[i] if i < len(self.shared_strings) else ""
         if t == "b":
@@ -1134,6 +1162,32 @@ def _font_runs(si: ET.Element) -> list | None:
             strike = None if pr is None else (st is not None and st.get("val", "1") not in ("0", "false"))
             seen = seen or bool(strike) or col is not None
             runs.append((_unxml(t.text or "") if t is not None else "", strike, col))
+    return runs if seen else None
+
+
+def _sym_font(name: ET.Element | None, charset: ET.Element | None) -> str:
+    """書体の要素（<name>/<rFont> と <charset>）の決める記号の書体の名前：対応表のある書体（symfont）か、charset が 2
+    （SYMBOL_CHARSET）の書体。記号の書体でなければ ""。"""
+    n = (name.get("val") or "") if name is not None else ""
+    return n if n and ((charset is not None and charset.get("val") == "2") or symfont.known(n)) else ""
+
+
+def _sym_runs(si: ET.Element) -> list | None:
+    """字ごとの書体のうち、記号の書体を指定したものがある文字列の [(字の数, 書体)]。ほかは None。
+    書体：記号の書体の名前。記号の書体でない書体を指定した字は ""、書体を指定していない字（セルの書体で描く）は None。"""
+    runs = []
+    seen = False
+    for child in si:
+        tag = child.tag.split("}")[-1]
+        if tag == "t":
+            runs.append((len(_unxml(child.text or "")), None))
+        elif tag == "r":
+            t = child.find(M + "t")
+            pr = child.find(M + "rPr")
+            f = pr.find(M + "rFont") if pr is not None else None
+            font = _sym_font(f, pr.find(M + "charset")) if f is not None else None
+            seen = seen or bool(font)
+            runs.append((len(_unxml(t.text or "")) if t is not None else 0, font))
     return runs if seen else None
 
 

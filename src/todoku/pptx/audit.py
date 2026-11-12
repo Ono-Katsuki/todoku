@@ -19,7 +19,7 @@ from ..docx.audit import _sample, macro_check
 from ..docx.fill import FillError
 from ..xlsx.audit import Audit, Check, agent_places_check, count_chars
 from ..zipraw import RawZip
-from .document import PptxDocument, PptxError
+from .document import PptxDocument, PptxError, sym_text, symbol_typeface
 from .fill import fill, prove, written_of
 from .window import build, markdown_parts
 
@@ -51,7 +51,8 @@ def _rels(z: RawZip, part: str) -> list[tuple[str, str, str]]:
 
 
 def _walk(el, template: bool, out: list[str], pics: list[str]) -> None:
-    """a:t の字を集める。代わりの中身（mc:Fallback）は読まない。template：プレースホルダーの図形・絵・表を除く。"""
+    """a:t の字を集める。代わりの中身（mc:Fallback）は読まない。template：プレースホルダーの図形・絵・表を除く。
+    記号の書体の字は、窓と同じ対応表（symfont）で読む：どの字がどの書体かは、ここで XML の並び（a:r・a:fld の a:rPr）から別に決める。"""
     for ch in el:
         loc = _local(ch.tag)
         if ch.tag == _MC + "Fallback":
@@ -71,6 +72,14 @@ def _walk(el, template: bool, out: list[str], pics: list[str]) -> None:
             continue  # 埋め込みの代わりの絵（p:pic）は、埋め込みの印として数える
         if any(ch.tag == a + "t" for a in _A):
             out.append(ch.text or "")
+            continue
+        if loc in ("r", "fld"):
+            fonts = {"latin": "", "sym": ""}
+            for rpr in ch:
+                for f in rpr if _local(rpr.tag) == "rPr" else ():
+                    if _local(f.tag) in fonts and symbol_typeface(f.get("typeface") or "", f.get("charset")):
+                        fonts[_local(f.tag)] = f.get("typeface")
+            out.extend(sym_text(t.text or "", fonts["latin"], fonts["sym"]) for t in ch if any(t.tag == a + "t" for a in _A))
             continue
         _walk(ch, template, out, pics)
 

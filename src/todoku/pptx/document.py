@@ -4,6 +4,8 @@
 - スライドの字：p:spTree の図形（p:sp の p:txBody）・まとめた図形（p:grpSp、入れ子も）・表（p:graphicFrame の a:tbl。
   gridSpan・hMerge・rowSpan・vMerge）・AlternateContent（mc:Choice を読み、代わりの mc:Fallback は読まない）
 - 段落（a:p）の字：a:r の a:t、a:fld の a:t（スライド番号・日付などの、PowerPoint が作る字）、a:br（行の区切り）
+- 記号の書体の字：字（a:r・a:fld）の a:rPr が自分で決めている書体（a:latin・a:sym）が記号の書体なら、その書体の対応表で
+  Unicode の字として読む（sym_text。字の数は変わらない）
 - 絵（p:pic、絵で塗った図形）：説明（cNvPr の descr）と、飾りの印（adec:decorative）。グラフ（c:chart）・SmartArt（dgm:relIds）
 - ノート（スライドの関係の notesSlide）。スライドの型（レイアウト・マスター）の、プレースホルダーでない図形の字（スライドに出るもの）
 読んだ結果は、Word（.docx）と同じ形（段落・表・マス）にして、窓・入力欄の推定（空のマス・空欄・□・「？」の所）を共通にする。
@@ -13,6 +15,7 @@ from __future__ import annotations
 
 import re
 
+from .. import symfont
 from ..docx.document import Cell, Control, Para, Seg, Table, _join
 from ..docx.xmlpos import Node, parse
 from ..zipraw import RawZip
@@ -341,12 +344,13 @@ class PptxDocument:
                 rpr = k.find("rPr")
                 ul = rpr is not None and (rpr.get("u") or "none") != "none"
                 if t is not None:
-                    out.segs.append(Seg(t.text, "t", t, k, False, ul, None, self._run_look(rpr, part)))
+                    out.segs.append(Seg(sym_text(t.text, *sym_fonts(rpr)), "t", t, k, False, ul, None, self._run_look(rpr, part)))
             elif k.local == "fld":
                 # PowerPoint が作る字（スライド番号・日付など）：字として読むが、書き換えない（欄の中の字として扱う）
                 t = k.find("t")
                 if t is not None:
-                    out.segs.append(Seg(t.text, "t", t, k, False, False, Control("text", "pptx-field", "", k, part)))
+                    out.segs.append(Seg(sym_text(t.text, *sym_fonts(k.find("rPr"))), "t", t, k, False, False,
+                                        Control("text", "pptx-field", "", k, part)))
             elif k.local == "br":
                 out.segs.append(Seg("\n", "br", k, None))
         return out
@@ -440,6 +444,36 @@ class PptxDocument:
     def marks(self) -> dict:
         """書き込んだ欄の印：PowerPoint の字には、Word のしおりのような見えない印がない（書いた所は、証明で読み直して確かめる）。"""
         return {}
+
+
+def symbol_typeface(typeface: str, charset: str | None) -> bool:
+    """書体の要素（a:latin・a:sym など。CT_TextFont）が、記号の書体を名指すか：対応表のある書体の名前か、文字の集合が
+    記号（charset="2"）。テーマの書体への参照（+mj-lt など）は、名前のままでは記号の書体でない。"""
+    return symfont.known(typeface) or (charset or "").strip() == "2" and bool(typeface) and not typeface.startswith("+")
+
+
+def sym_fonts(rpr: Node | None) -> tuple[str, str]:
+    """字の書式（a:rPr）が自分で決めている記号の書体：(a:latin の書体, a:sym の書体)。記号の書体でなければ ""。
+    図形・段落・型（レイアウト・マスター）・テーマから受け継ぐ書体は読まない。"""
+    out = ["", ""]
+    for k in rpr.kids if rpr is not None else ():
+        if k.local in ("latin", "sym"):
+            name = k.get("typeface") or ""
+            if symbol_typeface(name, k.get("charset")):
+                out[0 if k.local == "latin" else 1] = name
+    return out[0], out[1]
+
+
+def sym_text(text: str, latin: str, sym: str) -> str:
+    """字の並びを、その字の書式の記号の書体で読む（字の数は変わらない）：U+0021〜U+00FF の字は a:latin の書体、
+    私用の領域の字（U+F020〜U+F0FF）は a:sym の書体（なければ a:latin）。どちらも記号の書体でなければ、そのまま。"""
+    if not (latin or sym):
+        return text
+    out = []
+    for ch in text:
+        f = (sym or latin) if 0xF000 <= ord(ch) <= 0xF0FF else latin
+        out.append(symfont.text(ch, f, symbols=(symfont.key(f),)) if f else ch)
+    return "".join(out)
 
 
 def _plain(n: Node) -> str:
