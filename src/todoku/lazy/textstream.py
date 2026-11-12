@@ -22,6 +22,7 @@ from array import array
 from ..datafile.textenc import (
     BOMS,
     ISO2022,
+    ISO2022_MS,
     MULTI,
     NAME_JA,
     WIDE,
@@ -287,7 +288,9 @@ def detect(src: Source, encoding: str | None = None) -> StreamDecoded:
 def _escaped(src: Source, esc: int) -> StreamDecoded | None:
     """ASCII のバイトだけで ESC のあるファイルを、ISO/IEC 2022 の切り替えの印のとおりに読む（textenc の決め方の 3'）。"""
     got = []
-    for enc in ISO2022:
+    for enc in ISO2022 + (ISO2022_MS,):
+        if enc == ISO2022_MS and got:
+            break  # Windows の ISO-2022-JP は、ほかのどれでも読めないときだけ試す
         dec = codecs.getincrementaldecoder(enc)("strict")
         h = hashlib.sha1()
         ok, ctl, left = True, 0, 0

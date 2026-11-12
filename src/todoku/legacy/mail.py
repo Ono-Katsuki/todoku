@@ -51,16 +51,106 @@ def _html_text(s: str) -> str:
     return "\n".join(x.strip() for x in p.lines if x.strip())
 
 
+_EW = re.compile(r"=\?([^?\s*]+)(?:\*[^?\s]*)?\?([bBqQ])\?([^?\s]*)\?=")  # 符号化語（RFC 2047。*言語 は RFC 2231）
+
+
+def _reword(raw: str) -> str | None:
+    """標準の email が解けなかった符号化語（=?文字コード?B か Q?…?=）のあるヘッダーを、元の行から読み直す。
+    符号化語は 1 つずつ、宣言の文字コードで厳密に読む（textenc.read_as：ISO-2022-JP の名前で、規格の表にない Windows の字
+    （①・髙 など）があれば、Windows の ISO-2022-JP として読む）。符号化語どうしの間の空白は落とす（RFC 2047 6.2）。
+    1 つでも読めなければ None（email の結果のままにする）。"""
+    import base64
+
+    from ..datafile import textenc
+
+    raw = re.sub(r"\r?\n(?=[ \t])", "", raw)
+    out, at, word = [], 0, False
+    for m in _EW.finditer(raw):
+        gap = raw[at:m.start()]
+        if not (word and gap.strip(" \t") == ""):
+            out.append(gap)
+        enc = textenc.canonical(m.group(1))
+        try:
+            if m.group(2) in "bB":
+                data = base64.b64decode(m.group(3) + "=" * (-len(m.group(3)) % 4), validate=True)
+            else:
+                data = re.sub(rb"=([0-9A-Fa-f]{2})", lambda x: bytes((int(x.group(1), 16),)),
+                              m.group(3).replace("_", " ").encode("ascii"))
+        except ValueError:
+            return None
+        t = textenc.read_as(data, enc) if enc else None
+        if t is None:
+            return None
+        out.append(t)
+        at, word = m.end(), True
+    out.append(raw[at:])
+    return "".join(out).strip()
+
+
+class _Tolerant(email.policy.EmailPolicy):
+    """標準の email の読み方（email.policy.default）と同じ。ただし、ヘッダーの行を解く途中で email が止まるとき（RFC 2231 の
+    name*=・filename*= の字を、宣言の文字コードで読めない）は、その行を、解かずに元の字のまま返す（メール全体を断らない）。"""
+
+    def header_fetch_parse(self, name, value):
+        try:
+            return super().header_fetch_parse(name, value)
+        except Exception:  # noqa: BLE001
+            return "".join(str(value).splitlines())
+
+
+_POLICY = _Tolerant()
+
+
+def _part_facts(part) -> tuple[str, str | None, str | None, str | None]:
+    """メールの部分の（種類, ファイルの名前, Content-Disposition, 本文の文字コードの名前）。
+    標準の email が名前を解けないとき（符号化語が残る・「�」になる・RFC 2231 の name*=・filename*= の字を宣言の文字コードで
+    読めずに止まる：ISO-2022-JP の名前で書いた Windows の字（①・髙 など）で起きる）は、元の行から読み直す。"""
+    try:
+        got = (part.get_content_type(), part.get_filename(), part.get_content_disposition(), part.get_content_charset())
+        if got[1] is None or not (_EW.search(got[1]) or "\ufffd" in got[1]):
+            return got
+    except Exception:  # noqa: BLE001
+        got = None
+    from ..datafile import textenc
+
+    old = email.message.Message()  # 元の行のまま（compat32）
+    for k, v in part.raw_items():
+        if k.lower() in ("content-type", "content-disposition"):
+            old[k] = str(v)
+    fn = None
+    for header, param in (("content-disposition", "filename"), ("content-type", "name")):
+        try:
+            val = old.get_param(param, None, header)
+        except Exception:  # noqa: BLE001
+            val = None
+        if isinstance(val, tuple):  # RFC 2231：(文字コード, 言語, % を戻したバイトを Latin-1 の字にしたもの)
+            enc = textenc.canonical(val[0] or "")
+            fn = textenc.read_as(val[2].encode("latin-1", "replace"), enc) if enc else None
+        elif isinstance(val, str) and val:
+            fn = _reword(val) if _EW.search(val) else val
+        if fn:
+            break
+    if got is not None:
+        return got[0], fn or got[1], got[2], got[3]
+    return old.get_content_type(), fn, old.get_content_disposition(), old.get_content_charset()
+
+
 def read_eml(blob: bytes) -> Mail:
     try:
-        m = email.message_from_bytes(blob, policy=email.policy.default)
+        m = email.message_from_bytes(blob, policy=_POLICY)
     except Exception as e:  # noqa: BLE001
         raise MailError(f"メールとして読めません（{type(e).__name__}）") from None
     heads = []
+    raw_heads = None
     for key in ("From", "To", "Cc", "Date", "Subject"):
         v = m.get(key)
         if v is not None:
-            heads.append((key, str(v)))
+            s = str(v)
+            if _EW.search(s):  # email が解けなかった符号化語が残っている
+                if raw_heads is None:
+                    raw_heads = email.message_from_bytes(blob)  # 元の行のまま（compat32）
+                s = _reword(str(raw_heads.get(key, ""))) or s
+            heads.append((key, s))
     plain: list[str] = []
     html_parts: list[str] = []
     att: list[tuple[str, bytes]] = []
@@ -69,9 +159,7 @@ def read_eml(blob: bytes) -> Mail:
     for part in m.walk():
         if part.is_multipart():
             continue
-        ctype = part.get_content_type()
-        fn = part.get_filename()
-        disp = part.get_content_disposition()
+        ctype, fn, disp, charset = _part_facts(part)
         if fn or disp == "attachment" or not ctype.startswith("text/"):
             try:
                 data = part.get_payload(decode=True) or b""
@@ -83,10 +171,21 @@ def read_eml(blob: bytes) -> Mail:
             continue
         try:
             text = part.get_content()
+            if "\ufffd" in text:  # email は、宣言の文字コードで読めないバイトを「�」にする：厳密に読み直す
+                from ..datafile import textenc
+
+                raw = part.get_payload(decode=True) or b""
+                enc = textenc.canonical(charset or "")
+                fixed = textenc.read_as(raw, enc) if enc else None
+                if fixed is not None:
+                    text = fixed
+                else:
+                    notes.append(f"本文に、宣言の文字コード（{charset}）では読めないバイトがあります。"
+                                 "読めない所は「�」にしました")
         except (LookupError, ValueError):
             raw = part.get_payload(decode=True) or b""
             text = raw.decode("latin-1")
-            notes.append(f"本文の文字コード（{part.get_content_charset()}）を読めません。バイトをそのまま字にしました")
+            notes.append(f"本文の文字コード（{charset}）を読めません。バイトをそのまま字にしました")
         (plain if ctype == "text/plain" else html_parts).append(text)
     if plain:
         body = "\n".join(plain)

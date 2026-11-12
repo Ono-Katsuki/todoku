@@ -422,7 +422,7 @@ def fill(f: CsvFile, values: dict) -> CsvFillResult:
         problems.append(f"新しい行は、今ある {n} 行の次（R{n + 1}）から続けて足します（行を飛ばせません：" + "、".join(f"R{r}" for r in new_rows) + "）")
     if problems:
         raise CsvError("\n".join(problems))
-    edits: list[tuple[int, int, bytes]] = []
+    edits: list[tuple[int, int, str]] = []
     patches: list[CsvPatch] = []
     warnings: list[str] = []
     try:
@@ -436,7 +436,7 @@ def fill(f: CsvFile, values: dict) -> CsvFillResult:
                 text, key = want[(r, c)]
                 if c <= len(rec.fields):
                     fd = rec.fields[c - 1]
-                    edits.append(f.dec.patch(f.blob, fd.a, fd.b, quote(text, f, fd.quoted)))
+                    edits.append((fd.a, fd.b, quote(text, f, fd.quoted)))
                 else:
                     tail.append(str(c))
                 patches.append(CsvPatch(f"R{r}.C{c}", r, c, text, key))
@@ -448,7 +448,7 @@ def fill(f: CsvFile, values: dict) -> CsvFillResult:
                 for c in range(last + 1, hi + 1):
                     cells.append(quote(want[(r, c)][0], f, False) if (r, c) in want else
                                  ('""' if f.quote_empty else ""))
-                edits.append(f.dec.patch(f.blob, rec.b, rec.b, f.delim + f.delim.join(cells)))
+                edits.append((rec.b, rec.b, f.delim + f.delim.join(cells)))
                 warnings.append(f"R{r}：もとの行は {last} マスなので、区切りを足して C{hi} まで書きました")
         if new_rows:
             width = max(f.width, max(c for (_r, c) in want))
@@ -464,24 +464,18 @@ def fill(f: CsvFile, values: dict) -> CsvFillResult:
                 lines.append(f.delim.join(cells))
             add = (f.newline if f.records and not f.ends_with_newline else "") + f.newline.join(lines) + \
                 (f.newline if f.ends_with_newline or not f.records else "")
-            edits.append(f.dec.patch(f.blob, len(f.text), len(f.text), add))
+            edits.append((len(f.text), len(f.text), add))
             if f.width and width > f.width:
                 warnings.append(f"新しい行は {width} マスです（もとの表は {f.width} 列）")
+        out = f.dec.rewrite(f.blob, edits)
     except EncodingError as e:
         raise CsvError(str(e)) from None
     if f.dec.ascii_only and any(not p.value.isascii() for p in patches):
         warnings.append("もとのファイルは ASCII の字だけで文字コードが決まらないので、UTF-8（BOM なし）で書きました")
-    out = bytearray()
-    at = 0
-    for x, y, b in sorted(edits, key=lambda e: (e[0], e[1])):
-        out += f.blob[at:x]
-        out += b
-        at = y
-    out += f.blob[at:]
     patches.sort(key=lambda p: (p.row, p.col))
     risky = [{"id": p.key, "value": p.value, "safe_form": "'" + p.value} for p in patches if formula_like(p.value)]
     warnings += [formula_note(x["id"], x["value"]) for x in risky]
-    return CsvFillResult(bytes(out), patches, warnings, len(new_rows), risky)
+    return CsvFillResult(out, patches, warnings, len(new_rows), risky)
 
 
 # ====================================================================== 証明

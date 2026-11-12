@@ -27,7 +27,7 @@ import codecs
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
-from .datafile.textenc import MULTI, NAME_JA, SINGLE, canonical, clean
+from .datafile.textenc import ISO2022_MS, MULTI, NAME_JA, SINGLE, canonical, clean
 
 
 class NameCodeError(ValueError):
@@ -54,7 +54,7 @@ _ONE_BYTE = frozenset(e for e in ORDER if e not in MULTI)  # 1 バイトが 1 �
 # Windows のコードページの番号 → Python の codec（番号がそのまま「cp番号」でないもの）
 _CODEPAGES = {65001: "utf-8", 65000: "utf-7", 1200: "utf-16-le", 1201: "utf-16-be", 12000: "utf-32-le", 12001: "utf-32-be",
               20127: "ascii", 932: "cp932", 936: "gbk", 949: "cp949", 950: "cp950", 1361: "johab", 54936: "gb18030",
-              20936: "gb2312", 52936: "hz", 50220: "iso2022_jp", 50221: "iso2022_jp_ext", 50222: "iso2022_jp_ext",
+              20936: "gb2312", 52936: "hz", 50220: ISO2022_MS, 50221: ISO2022_MS, 50222: ISO2022_MS,
               50225: "iso2022_kr", 51932: "euc_jp", 20932: "euc_jp", 51949: "euc_kr", 51936: "gb2312", 20866: "koi8_r",
               21866: "koi8_u", 10000: "mac_roman", 10001: "shift_jis", 10006: "mac_greek", 10007: "mac_cyrillic",
               10029: "mac_latin2", 10079: "mac_iceland", 10081: "mac_turkish",

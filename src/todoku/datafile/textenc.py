@@ -12,7 +12,10 @@
    印）かもしれない。ISO-2022-JP（-1・-2・半角カナつき・-3・-2004）と ISO-2022-KR を、それぞれ厳密に試す。読めて、きれいで、
    ESC の数がバイトより減り（切り替えの印として読めた ESC が 1 つはある）、SO・SI（0x0E・0x0F：ISO/IEC 2022 の、もう
    1 つの切り替えの印）が字として残らないものが、その読み方。読んだ字が同じなら、順の前の名前（basis "escape"）。
-   読んだ字の違うものが 2 つ以上なら、候補として示す。どれでも読めなければ、3 のまま（ESC は制御文字として数える）。
+   読んだ字の違うものが 2 つ以上なら、候補として示す。どれでも読めないときだけ、Windows の ISO-2022-JP（CP50220・
+   CP50221・CP50222：2 バイトの字を CP932 の表で読む。NEC 特殊文字（13 区の ①・㈱ など）・NEC 選定 IBM 拡張文字（89〜92 区
+   の 髙・﨑 など）・SO/SI の半角カナ。iso2022ms.py）を、同じ決まりで試す。それでも読めなければ、3 のまま（ESC は
+   制御文字として数える）。
    切り替えの印でない ESC（端末の色の印など）は、制御文字として残り、数える。HZ・UTF-7 は、ふつうの ASCII の字
    （~{ や +）が印なので、規則では決めない（エージェントが encoding で選ぶ）。
 4. UTF-8 として厳密に読めれば UTF-8（UTF-8 は、先頭のバイトと続くバイトの形が決まっていて、ほかの文字コードの字の並びが
@@ -56,6 +59,8 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
+from . import iso2022ms  # Windows の ISO-2022-JP（CP50220・CP50221・CP50222）の codec を登録する
+
 # BOM：UTF-32 の LE は UTF-16 の LE の BOM で始まるので、先に見る
 BOMS = [(b"\xef\xbb\xbf", "utf-8"), (b"\xff\xfe\x00\x00", "utf-32-le"), (b"\x00\x00\xfe\xff", "utf-32-be"),
         (b"\xff\xfe", "utf-16-le"), (b"\xfe\xff", "utf-16-be")]
@@ -78,9 +83,12 @@ NAME_JA = {"utf-8": "UTF-8", "cp932": "Shift_JIS（CP932）", "euc_jp": "EUC-JP"
            "iso2022_jp": "ISO-2022-JP", "iso2022_jp_1": "ISO-2022-JP-1", "iso2022_jp_2": "ISO-2022-JP-2",
            "iso2022_jp_ext": "ISO-2022-JP（半角カナつき）", "iso2022_jp_3": "ISO-2022-JP-3",
            "iso2022_jp_2004": "ISO-2022-JP-2004", "iso2022_kr": "ISO-2022-KR", "hz": "HZ-GB-2312", "utf-7": "UTF-7",
+           "iso2022_jp_ms": "ISO-2022-JP（Windows の CP50221：NEC 特殊文字・IBM 拡張文字つき）",
            "latin-1": "Latin-1（文字コードを決められなかった）"}
 # ISO/IEC 2022 の切り替えの印で文字集合を指す文字コード（試す順。字の少ないものが前）
 ISO2022 = ("iso2022_jp", "iso2022_jp_1", "iso2022_jp_2", "iso2022_jp_ext", "iso2022_jp_3", "iso2022_jp_2004", "iso2022_kr")
+# 上のどれでも読めないときだけ試す：Windows の ISO-2022-JP（2 バイトの字を CP932 の表で読む）
+ISO2022_MS = iso2022ms.NAME
 for _k in range(2, 17):
     NAME_JA.setdefault(f"iso8859_{_k}", f"ISO-8859-{_k}")
 BASIS_JA = {"bom": "BOM", "nul": "NUL のバイトの並び（BOM のない UTF-16・UTF-32）", "ascii": "ASCII の字だけ",
@@ -105,6 +113,9 @@ ALIASES = {"shift_jis": "cp932", "shift-jis": "cp932", "sjis": "cp932", "x-sjis"
 for _k in range(1250, 1259):
     ALIASES[f"windows-{_k}"] = ALIASES[f"cp{_k}"] = f"cp{_k}"
 ALIASES["windows-874"] = ALIASES["cp874"] = "cp874"
+for _k in (50220, 50221, 50222):  # Windows のコードページの名前（Python に、この名前の codec はない）
+    ALIASES[f"cp{_k}"] = ALIASES[f"windows-{_k}"] = ALIASES[f"ms{_k}"] = ISO2022_MS
+ALIASES["iso-2022-jp-ms"] = ALIASES[ISO2022_MS] = ISO2022_MS
 ALIASES.update({v.lower(): k for k, v in NAME_JA.items() if k != "latin-1"})  # 日本語の名前（窓の候補の label）でも指せる
 WHITESPACE_CC = set("\t\n\v\f\r")
 
@@ -269,15 +280,67 @@ class Decoded:
         if not stateful(self.encoding):
             x, y = self.span(blob, a, b)
             return x, y, self.encode(s)
-        x, y, new = self.shifts().patch(a, b, s, self.encode(s))
+        x, y, new = self.shifts().plan([(a, b, s)], self.encode)[0]
         return len(self.bom) + x, len(self.bom) + y, new
+
+    def pieces(self, blob: bytes, edits: list[tuple[int, int, str]]) -> list[tuple[int, int, bytes]]:
+        """字の範囲の置き換え [(a, b, s)] → 前から順の [(バイトの始め, 終わり, 置くバイト列)]。重なる書き込みは断る。
+        切り替えの印のある文字コードは、書き込みを前から順に、前の書き込みの後ろの状態から作る（Shifts.plan）。"""
+        edits = sorted(edits, key=lambda e: (e[0], e[1]))
+        for (_a1, b1, _s1), (a2, _b2, _s2) in zip(edits, edits[1:]):
+            if a2 < b1:
+                raise EncodingError("書く所が重なっています")
+        if stateful(self.encoding):
+            n = len(self.bom)
+            return [(n + x, n + y, new) for x, y, new in self.shifts().plan(edits, self.encode)]
+        return [(*self.span(blob, a, b), self.encode(v)) for a, b, v in edits]
+
+    def rewrite(self, blob: bytes, edits: list[tuple[int, int, str]]) -> bytes:
+        """字の範囲の置き換え [(a, b, s)] を全部した後の、ファイルのバイト列。書く所のほかのバイトは変えない。
+        切り替えの印のある文字コードは、できたバイト列の全体を厳密に読んで、字の上での置き換えと同じ字になることを
+        確かめる（ならなければ、書かずに断る）。"""
+        edits = sorted(edits, key=lambda e: (e[0], e[1]))
+        out = bytearray()
+        at = 0
+        for x, y, new in self.pieces(blob, edits):
+            out += blob[at:x]
+            out += new
+            at = y
+        out += blob[at:]
+        if stateful(self.encoding):
+            want, k = [], 0
+            for a, b, v in edits:
+                want += [self.text[k:a], v]
+                k = b
+            want.append(self.text[k:])
+            if _strict(bytes(out[len(self.bom):]), self.encoding) != "".join(want):
+                raise EncodingError(_CANNOT.format(NAME_JA.get(self.encoding, self.encoding)))
+        return bytes(out)
 
     def encode(self, s: str) -> bytes:
         try:
             return s.encode(self.encoding)
         except UnicodeEncodeError as e:
             bad = s[e.start:e.end]
-            raise EncodingError(f"「{bad}」は、このファイルの文字コード（{NAME_JA.get(self.encoding, self.encoding)}）では書けない字です") from None
+            raise EncodingError(f"「{bad}」は、このファイルの文字コード（{NAME_JA.get(self.encoding, self.encoding)}）では書けない字です"
+                                + self._windows_hint(bad)) from None
+
+    def _windows_hint(self, bad: str) -> str:
+        """規格の ISO-2022-JP の仲間として読んだファイルに、Windows の ISO-2022-JP（CP50221）にだけある字を書こうとしたとき：
+        ファイルが CP50221 としても読めるなら、そのことと、読める字が同じかを添える（どちらで読むかは、エージェントが決める）。"""
+        raw = getattr(self, "_raw", None)
+        if raw is None or not self.encoding.startswith("iso2022_jp") or self.encoding == ISO2022_MS:
+            return ""
+        try:
+            bad.encode(ISO2022_MS)
+        except UnicodeEncodeError:
+            return ""
+        t = _strict(raw, ISO2022_MS)
+        if t is None:
+            return ""
+        same = "いまの字は、どちらで読んでも同じ" if t == self.text else "いまの字のうち、読み方の変わる字があります（〜 と ～ など）"
+        return (f"（Windows の ISO-2022-JP（CP50221）にはある字です。このファイルは CP50221 としても読めます：{same}。"
+                "Windows の決まりのファイルとして書くなら、encoding に cp50221 を渡します）")
 
 
 @functools.lru_cache(maxsize=None)
@@ -294,6 +357,9 @@ def stateful(enc: str) -> bool:
 # 切り替えのない状態に戻す印（ISO-2022-JP は ESC ( B：RFC 1468。ISO-2022-KR は SI：RFC 1557。HZ は ~}：RFC 1843。
 # UTF-7 は「-」：RFC 2152）。どれを使うかは、デコーダで確かめて決める
 RESETS = (b"\x1b(B", b"\x0f", b"~}", b"-")
+_CANNOT = ("この所には、ファイルの文字コード（{}）では書けません"
+           "（この文字コードの切り替えの印の決まりでは、ここに書くと、後ろの字の読み方を元と同じに保てません）。"
+           "ここに書くには、ファイルを UTF-8 などの文字コードに直したものに書きます（直したことは本人に伝える）")
 
 
 class Shifts:
@@ -301,10 +367,17 @@ class Shifts:
 
     バイトを 1 つずつ増分のデコーダに渡し、字が出た所・切り替えの印が終わった所と、そこでのデコーダの状態を覚える。
     書くときは、置くバイト列を、書く所の前の状態から読んで、書く字になり、後ろの状態が元と同じになることを、デコーダで
-    確かめる（後ろのバイトは変えないので、状態が同じなら、後ろの字の読み方も同じ）。"""
+    確かめる（後ろのバイトは変えないので、状態が同じなら、後ろの字の読み方も同じ）。
+    - 後ろの状態を元と同じにできない所（ISO-2022-KR の、行の頭の印 ESC $ ) C より前に韓国語の字を書く：印を書いた後は、
+      集合を指した状態を元に戻す印がない）は、後ろの元のバイトを、新しい状態と元の状態の 2 つのデコーダで並べて読み、
+      同じ字が出て、2 つの状態が同じになる（合流する）か、ファイルの終わりまで同じ字なら、書ける（meets）。
+    - いくつかのバイトがまとまって字になる所（UTF-7 の base64 のひと続き：字の境目がバイトの境目にない）の中・すぐ後ろに
+      書くときは、書く範囲を、そのまとまりの字の全部に広げ、広げた分は同じ字で書き直す（widen）。
+    - いくつもの書き込みは、前から順に作る：前の書き込みの後ろで状態が元と違う間（合流するまで）にある書き込みは、
+      その違う状態から読んで確かめる（plan）。"""
 
     def __init__(self, blob: bytes, enc: str, text: str):
-        self.blob, self.enc = blob, enc
+        self.blob, self.enc, self.text = blob, enc, text
         dec = codecs.getincrementaldecoder(enc)("strict")
         self.init = dec.getstate()[1]
         code = "I" if len(blob) < 1 << 32 else "Q"
@@ -399,11 +472,60 @@ class Shifts:
         except (UnicodeDecodeError, TypeError, ValueError, OverflowError):
             return False
 
-    def patch(self, a: int, b: int, s: str, core: bytes) -> tuple[int, int, bytes]:
-        """字の範囲 [a, b) を s に置き換える (バイトの始め, 終わり, 置くバイト列)。core は s を切り替えのない状態から
-        書いたバイト列（終わりも切り替えのない状態）。core の前後の印を省いたもの・切り替えのない状態に戻す印を前に
-        足したもの・後ろの状態に合わせる印を後ろに足したものを、短い順に、デコーダで確かめて選ぶ。"""
-        x, y, sx, sy = self.span(a, b)
+    def widen(self, a: int, b: int) -> tuple[int, int]:
+        """前の字と同じバイトの並びから出た字の途中にかかる範囲を、その並びの字の全部に広げる。"""
+        while a in self.glued:
+            a -= 1
+        while b in self.glued:
+            b += 1
+        return a, b
+
+    def _after(self, new: bytes, sx: int, s: str) -> int | None:
+        """new を、状態 sx から読むと s になるとき、読んだ後の状態（字・印の途中で終わるなら None）。"""
+        dec = codecs.getincrementaldecoder(self.enc)("strict")
+        try:
+            dec.setstate((b"", sx))
+            if dec.decode(new) != s:
+                return None
+            pending, state = dec.getstate()
+        except (UnicodeDecodeError, TypeError, ValueError, OverflowError):
+            return None
+        return None if pending else state
+
+    def meets(self, y: int, t: int, sy: int) -> int | None:
+        """y から後ろの元のバイトを、状態 t と、元の状態 sy の 2 つのデコーダで並べて読む。同じ字が出て、2 つの状態が同じに
+        なった所（合流した所）のバイトの位置。ファイルの終わりまで同じ字なら、終わりの位置。字が違えば None。"""
+        d1 = codecs.getincrementaldecoder(self.enc)("strict")
+        d2 = codecs.getincrementaldecoder(self.enc)("strict")
+        try:
+            d1.setstate((b"", t))
+            d2.setstate((b"", sy))
+            pos, step, o1, o2 = y, 64, "", ""
+            while pos < len(self.blob):
+                chunk = self.blob[pos:pos + step]
+                o1 += d1.decode(chunk)
+                o2 += d2.decode(chunk)
+                k = min(len(o1), len(o2))
+                if o1[:k] != o2[:k]:
+                    return None
+                o1, o2 = o1[k:], o2[k:]
+                pos += len(chunk)
+                if not o1 and not o2 and d1.getstate() == d2.getstate():
+                    return pos
+                step = min(step * 2, 1 << 16)
+            if o1 + d1.decode(b"", True) != o2 + d2.decode(b"", True):
+                return None
+        except (UnicodeDecodeError, TypeError, ValueError, OverflowError):
+            return None
+        return len(self.blob)
+
+    def fit(self, y: int, sx: int, sy: int, s: str, core: bytes) -> tuple[bytes, tuple[int, int] | None]:
+        """状態 sx の所に置いて s と読めるバイト列と、後ろの状態が元（sy）と違うときの (新しい状態, 合流する位置)。
+        core は s を切り替えのない状態から書いたバイト列（終わりも切り替えのない状態）。core の前後の印を省いたもの・
+        切り替えのない状態に戻す印を前に足したもの・後ろの状態に合わせる印を後ろに足したものを、短い順に、デコーダで
+        確かめて選ぶ：後ろの状態が元と同じになるものが先。なければ、エンコーダが書くとおりに、切り替えのない状態に戻して
+        終わるバイト列（後ろの印を省かず、足さないもの）のうち、後ろの元のバイトが同じ字に読めるもの（meets）。終わりの印を
+        省いたものは、ここでは使わない（Python のデコーダは、ISO-2022-KR の SO を改行で戻すが、ほかの読み手は戻さない）。"""
         heads, tails = [0], [len(core)]
         if s:
             own = Shifts(core, self.enc, s)
@@ -413,12 +535,61 @@ class Shifts:
         pres = (b"",) + RESETS
         posts = [b""] + self.recent(y)
         cands = sorted(dict.fromkeys(pre + body + post for body in bodies for pre in pres for post in posts), key=len)
+        closed = {pre + core[p:] for p in heads for pre in pres}
+        after = []
         for new in cands:
-            if self.reads(new, sx, s, sy):
-                return x, y, new
-        raise EncodingError(f"この所には、ファイルの文字コード（{NAME_JA.get(self.enc, self.enc)}）では書けません"
-                            "（この文字コードの切り替えの印の決まりでは、ここに書くと、後ろの字の読み方を元と同じに保てません）。"
-                            "ここに書くには、ファイルを UTF-8 などの文字コードに直したものに書きます（直したことは本人に伝える）")
+            t = self._after(new, sx, s)
+            if t == sy:
+                return new, None
+            after.append((new, t))
+        for new, t in after:
+            if t is not None and new in closed:
+                c = self.meets(y, t, sy)
+                if c is not None:
+                    return new, (t, c)
+        raise EncodingError(_CANNOT.format(NAME_JA.get(self.enc, self.enc)))
+
+    def plan(self, edits: list[tuple[int, int, str]], encode) -> list[tuple[int, int, bytes]]:
+        """字の範囲の置き換え [(a, b, s)]（前から順。重ならない）→ [(バイトの始め, 終わり, 置くバイト列)]。
+        広げた範囲（widen）が重なる書き込みは、1 つにまとめる。"""
+        groups: list[list] = []  # [広げた始め, 広げた終わり, [(a, b, s)]]
+        for a, b, s in edits:
+            if not 0 <= a <= b <= len(self.start):
+                raise EncodingError("字の位置とバイトの位置を結べませんでした")
+            wa, wb = self.widen(a, b)
+            if groups and wa < groups[-1][1]:
+                groups[-1][1] = max(groups[-1][1], wb)
+                groups[-1][2].append((a, b, s))
+            else:
+                groups.append([wa, wb, [(a, b, s)]])
+        out: list[tuple[int, int, bytes]] = []
+        drift = None  # 前の書き込みの後ろで、状態が元と違う間：(バイトの位置, 字の番号, そこでの状態, 合流する位置)
+        for wa, wb, parts in groups:
+            s, k = "", wa
+            for a, b, v in parts:
+                s += self.text[k:a] + v
+                k = b
+            s += self.text[k:wb]
+            x, y, sx, sy = self.span(wa, wb)
+            if drift is not None and x < drift[3]:
+                got = self._after(self.blob[drift[0]:x], drift[2], self.text[drift[1]:wa])
+                if got is None:
+                    raise EncodingError(_CANNOT.format(NAME_JA.get(self.enc, self.enc)))
+                sx = got
+            new, moved = self.fit(y, sx, sy, s, encode(s))
+            out.append((x, y, new))
+            drift = None if moved is None else (y, wb, moved[0], moved[1])  # 状態が元と同じに戻れば、後ろは元のまま
+        return out
+
+
+def read_as(raw: bytes, enc: str) -> str | None:
+    """raw を、名前で指された文字コード enc で厳密に読んだ字（読めなければ None）。enc が規格の ISO-2022-JP の仲間で、規格の
+    表では読めないときは、Windows の ISO-2022-JP（CP50221）で読む：Windows のメールは、ISO-2022-JP の名前で、規格にない
+    NEC 特殊文字・IBM 拡張文字（①・㈱・髙 など）を書く。"""
+    t = _strict(raw, enc)
+    if t is None and enc.startswith("iso2022_jp") and enc != ISO2022_MS:
+        t = _strict(raw, ISO2022_MS)
+    return t
 
 
 def kept_encoding(a: Decoded, b: Decoded, new: bytes) -> bool:
@@ -704,7 +875,11 @@ def decode(blob: bytes, encoding: str | None = None) -> Decoded:
 def _escaped(blob: bytes) -> Decoded | None:
     """ASCII のバイトだけで ESC のあるファイルを、ISO/IEC 2022 の切り替えの印のとおりに読む（決め方の 3'）。"""
     n = blob.count(b"\x1b")
-    got = [(e, t) for e, t in _readings(blob, ISO2022) if t.count("\x1b") < n and "\x0e" not in t and "\x0f" not in t]
+    got = []
+    for encs in (ISO2022, (ISO2022_MS,)):
+        got = [(e, t) for e, t in _readings(blob, encs) if t.count("\x1b") < n and "\x0e" not in t and "\x0f" not in t]
+        if got:
+            break
     if not got:
         return None
     enc, text = got[0]

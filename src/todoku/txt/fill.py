@@ -99,18 +99,10 @@ def plan(doc: TxtDocument, values: dict) -> tuple[list[tuple[int, int, str, int]
 
 def apply(doc: TxtDocument, edits: list[tuple[int, int, str, int]]) -> bytes:
     """書く所の字のバイトだけを、ファイルの文字コードで作ったバイト列に置き換える。"""
-    out = bytearray()
-    at = 0
-    for a, b, v, _n in sorted(edits, key=lambda e: (e[0], e[1])):
-        try:
-            x, y, enc = doc.dec.patch(doc.blob, a, b, v)
-        except EncodingError as e:
-            raise FillError(str(e)) from None
-        out += doc.blob[at:x]
-        out += enc
-        at = y
-    out += doc.blob[at:]
-    return bytes(out)
+    try:
+        return doc.dec.rewrite(doc.blob, [(a, b, v) for a, b, v, _n in edits])
+    except EncodingError as e:
+        raise FillError(str(e)) from None
 
 
 def fill(doc: TxtDocument, values: dict, *, force: bool = False) -> FillResult:
@@ -181,30 +173,13 @@ def prove(original: bytes, new: bytes, written: dict, encoding: str | None = Non
         if e is not None:
             edits.append((ln.a + e[0], ln.a + e[1], e[2]))
     # バイト：元のファイルに、書く所の置き換えだけをしたもの
-    want = bytearray()
-    at = 0
-    for x0, y0, v in sorted(edits):
-        why = None
-        try:
-            x, y, enc = a.dec.patch(original, x0, y0, v)
-        except EncodingError as ex:
-            why = str(ex)
-            try:
-                x, y = a.dec.span(original, x0, y0)
-            except EncodingError:
-                pr.unexpected.append(why)
-                continue
-        if x < at:
-            pr.unexpected.append("書く所が重なっています")
-            break
-        if why is not None:
-            pr.unexpected.append(why)
-            continue
-        want += original[at:x] + enc
-        pr.bytes_replaced += y - x
-        at = y
-    want += original[at:]
-    if bytes(want) != new:
+    want = None
+    try:
+        pr.bytes_replaced = sum(y - x for x, y, _enc in a.dec.pieces(original, edits))
+        want = a.dec.rewrite(original, edits)
+    except EncodingError as ex:
+        pr.unexpected.append(str(ex))
+    if want is not None and want != new:
         k = next((i for i in range(min(len(want), len(new))) if want[i] != new[i]), min(len(want), len(new)))
         pr.unexpected.append(f"書いた後のファイルが、元のファイルの書く所だけを置き換えたものと違います（{k} バイト目から）")
     # 読み直し

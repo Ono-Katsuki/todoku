@@ -453,18 +453,11 @@ def fill(f: JsonFile, values: dict) -> JsonFillResult:
     for (a1, b1, _x), (a2, _b2, _y) in zip(edits, edits[1:]):
         if a2 < b1:
             raise JsonError("同じ所に2つの書き込みが重なりました（オブジェクトと、その中の値に同時に書いています）")
-    out = bytearray()
-    at = 0
     try:
-        for a, b, s in edits:
-            x, y, new = f.dec.patch(f.blob, a, b, s)
-            out += f.blob[at:x]
-            out += new
-            at = y
+        out = f.dec.rewrite(f.blob, edits)
     except EncodingError as e:
         raise JsonError(str(e)) from None
-    out += f.blob[at:]
-    return JsonFillResult(bytes(out), patches, notes)
+    return JsonFillResult(out, patches, notes)
 
 
 def _colon(f: JsonFile, obj: JNode) -> str:

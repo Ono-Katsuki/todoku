@@ -3,7 +3,8 @@
 バイトはどれも ASCII の範囲で、ESC・SO/SI・「~{」・「+」の印の後ろのバイトが、別の文字集合の字になる。
 - ISO/IEC 2022 の印のとおりに厳密に読めるファイルは、規則で見分ける（色の指定の ESC・印のない SO/SI は、見分けない）。
 - 範囲で読む道（rows・paragraphs・records）は、UTF-8 に直した写しを読むので、全体の窓と同じ字になる。
-- 書き込みは、書いた所のバイトだけを変え、書いた後ろの字の読み方を、デコーダで確かめて元と同じに保つ。保てない所は断る。
+- 書き込みは、書いた所のバイトだけを変え、書いた後ろの字の読み方を、デコーダで確かめて元と同じに保つ。前後の字と
+  ひと続きのバイトになる所は、そのひと続きを同じ字で書き直す。断るのは、その文字コードにない字だけ。
 どれも、作ったファイルで確かめる。
 """
 
@@ -35,7 +36,7 @@ BY_RULE = [("iso2022_jp", JA_CSV, "iso2022_jp"), ("iso2022_jp_2004", JA_CSV, "is
            ("iso2022_jp_2", "名前,한글,ά\n", "iso2022_jp_2"), ("iso2022_kr", KO_CSV, "iso2022_kr"),
            ("iso2022_jp_1", "名前,丂\n", "iso2022_jp_1")]
 # ISO/IEC 2022 の印として読めないもの：ASCII の字のまま（ESC・SO・SI は制御文字として数える）
-NOT_ISO2022 = [b"\x1b[31mred\x1b[0m,1\n", b"a\x0eb\x0fc,1\n", b"\x1b$B-!\x1b(B,1\n", b"+MEw-,1\n", b"~{JOC{~},1\n",
+NOT_ISO2022 = [b"\x1b[31mred\x1b[0m,1\n", b"a\x0eb\x0fc,1\n", b"\x1b$B.!\x1b(B,1\n", b"+MEw-,1\n", b"~{JOC{~},1\n",
                b"\x1b[0m\x0e\n"]
 
 
@@ -234,19 +235,40 @@ def test_characters_outside_the_encoding_are_refused(tmp_path):
     assert not (tmp_path / "o.csv").exists()
 
 
-def test_places_where_the_state_cannot_be_kept_are_refused(tmp_path):
-    """ISO-2022-KR の行の頭の印（ESC $ ) C）より前に韓国語の字を書くと、印が 2 つになり、後ろの状態が元と違う：断る。
-    UTF-7 の、base64 のひと続きの中・すぐ後ろは、デコーダがひと続きをまとめて字にするので、そこだけを書き換えられない：断る。"""
+def test_korean_before_a_late_iso2022_kr_header_is_written(tmp_path):
+    """ISO-2022-KR の印（ESC $ ) C）より前に韓国語の字を書く：書く字の前に印を置き、後ろの元のバイトは変えない
+    （前は断っていた）。印は 2 つになるが、どちらの後ろも同じ読み方。"""
     late = "a,b\n1,홍\n".encode("iso2022_kr")
-    assert late.index(b"\x1b$)C") > 4  # Python は、初めの韓国語の字の前に印を置く
-    p = _file(tmp_path, "k.csv", late)
-    with pytest.raises(api.ApiError, match="ISO-2022-KR）では書けません"):
-        api.fill(p, {"R1.C1": "성"}, str(tmp_path / "o.csv"))
-    assert _fill(tmp_path, "k2.csv", late, {"R1.C1": "z", "R2.C2": "성"}).decode("iso2022_kr") == "z,b\n1,성\n"
-    p = _file(tmp_path, "u.csv", JA_CSV.encode("utf-7"))
-    with pytest.raises(api.ApiError, match="UTF-7）では、前の字と同じバイトの並び"):
-        api.fill(p, {"R2.C2": "松本"}, str(tmp_path / "o2.csv"), encoding="utf-7")
-    assert not (tmp_path / "o.csv").exists() and not (tmp_path / "o2.csv").exists()
+    assert late == b"a,b\n1,\x1b$)C\x0eH+\x0f\n"  # Python は、初めの韓国語の字の前に印を置く
+    kr, tail = b"\x1b$)C", b"\n1,\x1b$)C\x0eH+\x0f\n"
+    assert _fill(tmp_path, "k1.csv", late, {"R1.C1": "성"}) == kr + b"\x0e<:\x0f,b" + tail
+    assert _fill(tmp_path, "k2.csv", late, {"R1.C1": "성", "R1.C2": "명"}) == kr + b"\x0e<:\x0f,\x0e8m\x0f" + tail
+    assert _fill(tmp_path, "k3.csv", late, {"R1.C1": "성", "R2.C2": "길"}) == kr + b"\x0e<:\x0f,b\n1,\x1b$)C\x0e1f\x0f\n"
+    assert _fill(tmp_path, "k4.csv", late, {"R1.C1": "z", "R2.C2": "성"}) == b"z,b\n1,\x1b$)C\x0e<:\x0f\n"
+    assert _fill(tmp_path, "k5.csv", late, {"R3.C1": "끝"}) == late + b"\x0e3!\x0f,\n"
+    for name, want in (("k1", "성,b\n1,홍\n"), ("k2", "성,명\n1,홍\n"), ("k3", "성,b\n1,길\n"), ("k5", "a,b\n1,홍\n끝,\n")):
+        got = decode(open(tmp_path / f"out_{name}.csv", "rb").read())
+        assert (got.encoding, got.text) == ("iso2022_kr", want)
+
+
+def test_utf7_inside_and_after_a_base64_run_is_written(tmp_path):
+    """UTF-7 の、base64 のひと続きの中・すぐ後ろに書く：デコーダがまとめて字にするひと続きを、同じ字で書き直す
+    （前は断っていた）。ひと続きの外のバイトは変えない。"""
+    u = JA_CSV.encode("utf-7")
+    assert u == (b'+bA9UDQ,+T09iQA,+UJmAAw\n+T1CF5A +grFbUA,+MGowTDBu,"+MEIwijABMEw"\n'
+                 b"+dTBOLQ +WSqQzg,+WSeWKl6c,+MGowVw\n+XHF1MA,+Z3FOrA,\n")
+    new = _fill(tmp_path, "u1.csv", u, {"R2.C2": "松本"}, "utf-7")
+    assert new == u.replace(b"+MGowTDBu", b"+Z35nLA")
+    new = _fill(tmp_path, "u2.csv", u, {"R2.C2": "松本", "R2.C1": "a+b"}, "utf-7")
+    assert new == u.replace(b"+MGowTDBu", b"+Z35nLA").replace(b"+T1CF5A +grFbUA", b"a+-b")
+    new = _fill(tmp_path, "u3.csv", u, {"R4.C3": "x-y", "R3.C2": "", "R5.C1": "終"}, "utf-7")
+    assert new == u.replace(b"+WSeWKl6c", b"").replace(b"+Z3FOrA,\n", b"+Z3FOrA,x-y\n+fUI,,\n")
+    assert new.decode("utf-7") == JA_CSV.replace("大阪府", "").replace("東京,\n", "東京,x-y\n終,,\n")
+    # ひと続きの中の 1 字だけを書き換える：そのひと続きのバイトは変わる（字は同じ）
+    one = "氏名,あいう\n".encode("utf-7")
+    assert one == b"+bA9UDQ,+MEIwRDBG\n"
+    assert _fill(tmp_path, "u4.csv", one, {"R1.C2": "あxう"}, "utf-7") == b"+bA9UDQ,+MEI-x+MEY\n"
+    assert _fill(tmp_path, "u5.csv", "あ,い\n".encode("utf-7"), {"R1.C2": "-"}, "utf-7") == b"+MEI,-\n"
 
 
 def test_a_file_left_with_ascii_only_keeps_its_encoding(tmp_path):
@@ -261,38 +283,67 @@ def test_a_file_left_with_ascii_only_keeps_its_encoding(tmp_path):
 
 
 POOLS = {"iso2022_jp": "あが、※穐aB,\"1 \n漢字", "iso2022_jp_ext": "あがｶﾅaB,\"\n漢", "iso2022_jp_2004": "あ𠮟が,a\"\n漢",
-         "iso2022_jp_2": "あ한é,a\"\nü漢", "iso2022_kr": "한글가,a\" \nb", "iso2022_jp_3": "あ塡a,\n漢", "hz": "汉字一a,\"\nb"}
+         "iso2022_jp_2": "あ한é,a\"\nü漢", "iso2022_kr": "한글가,a\" \nb", "iso2022_jp_3": "あ塡a,\n漢", "hz": "汉字一a,\"\nb",
+         "utf-7": "あ한aB+-,\"1 \n漢😀", "iso2022_jp_ms": "あ①髙ｶ¥aB,\"1 \n漢～"}
+GIVEN = {"hz": "hz", "utf-7": "utf-7", "iso2022_jp_ms": "cp50221"}
 
 
 @pytest.mark.parametrize("enc", sorted(POOLS))
 def test_patches_decode_to_the_expected_text(enc):
     """いろいろな字の並びに、重ならない書き込みをいくつかして、できたバイトを読むと、字の上での置き換えと同じになる。
-    断るのは、その文字コードで書けない字と、状態を保てない所だけ（どちらも、書かずに断る）。"""
+    断るのは、その文字コードで書けない字だけ（書かずに断る）：切り替えの印の決まりで書けない所はない。"""
     rnd = random.Random(20261112)
     pool, done, refused = POOLS[enc], 0, 0
+    other = "".join(sorted(set("".join(POOLS.values())) - set(pool)))
     for _ in range(250):
         t = "".join(rnd.choice(pool) for _ in range(rnd.randint(0, 14)))
         blob = t.encode(enc)
-        d = decode(blob, "hz" if enc == "hz" else None)
+        d = decode(blob, GIVEN.get(enc))
         if d.text != t or not stateful(d.encoding):
             continue  # ASCII の字だけの並び
         cuts = sorted(rnd.sample(range(len(t) + 1), min(len(t) + 1, 4)))
-        out, at, want, wat = bytearray(), 0, "", 0
+        edits = []
         for i in range(len(cuts) - 1):
             a, e = cuts[i], cuts[i + 1] if rnd.random() < 0.7 else cuts[i]
             s = "".join(rnd.choice(pool) for _ in range(rnd.randint(0, 3)))
+            if rnd.random() < 0.05:
+                s += rnd.choice(other)
             try:
-                x, y, new = d.patch(blob, a, e, s)
-            except EncodingError:
+                d.encode(s)
+            except EncodingError as err:
+                assert "書けない字" in str(err)
                 refused += 1
                 continue
-            assert at <= x <= y
-            out += blob[at:x] + new
-            at, want, wat, done = y, want + t[wat:a] + s, e, done + 1
-        out += blob[at:]
-        want += t[wat:]
-        assert bytes(out).decode(d.encoding) == want, (t, bytes(out))
+            edits.append((a, e, s))
+        want, at = "", 0
+        for a, e, s in edits:
+            want, at = want + t[at:a] + s, e
+        want += t[at:]
+        out = d.rewrite(blob, edits)
+        assert out.decode(d.encoding) == want, (t, edits, out)
+        if not edits:
+            assert out == blob
+        one = [d.rewrite(blob, [x]) for x in edits]  # 1 つずつ書いても、どれも書ける
+        assert len(one) == len(edits)
+        done += len(edits)
     assert done > 300 and refused < done / 4
+
+
+def test_rewrite_refuses_overlapping_places_and_checks_its_own_output():
+    blob = JA_CSV.encode("iso2022_jp")
+    d = decode(blob)
+    with pytest.raises(EncodingError, match="重なっています"):
+        d.rewrite(blob, [(0, 2, "a"), (1, 3, "b")])
+    assert d.rewrite(blob, []) == blob
+    assert d.rewrite(blob, [(3, 5, "町"), (0, 2, "名前")]).decode("iso2022_jp") == JA_CSV.replace("氏名,住所", "名前,町")
+    # pieces：書き換えるバイトの範囲と新しいバイト（並びは位置の順。範囲は重ならない）
+    ps = d.pieces(blob, [(3, 5, "町"), (0, 2, "名前")])
+    assert [x for x, _y, _n in ps] == sorted(x for x, _y, _n in ps) and all(ps[i][1] <= ps[i + 1][0] for i in range(len(ps) - 1))
+    out, at = bytearray(), 0
+    for x, y, new in ps:
+        out += blob[at:x] + new
+        at = y
+    assert bytes(out + blob[at:]) == d.rewrite(blob, [(3, 5, "町"), (0, 2, "名前")])
 
 
 def test_stateless_patch_is_span_and_encode():
