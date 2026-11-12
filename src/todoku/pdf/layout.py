@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import bisect
 import re
 import math
 import unicodedata
@@ -1326,9 +1327,17 @@ class PageLayout:
         def near(p, q):
             return abs(p[0] - q[0]) <= tol and abs(p[1] - q[1]) <= tol
 
-        for a, b in self.diagonals:
-            for p, q in pairs:
-                if (near(a, p) and near(b, q)) or (near(a, q) and near(b, p)):
+        # 斜めの線の端を x の順に並べておき、角の近くに端のある線だけを調べる（図面のように斜めの線が何万本もあるページで、
+        # 欄ごとに全部の線を調べない。決まりは同じ：片方の端が角 p の近く、もう片方の端が向かいの角 q の近く）
+        ends = self.__dict__.get("_diagonal_ends")
+        if ends is None:
+            ends = sorted((d[e][0], i, e) for i, d in enumerate(self.diagonals) for e in (0, 1))
+            ends = self._diagonal_ends = ([x for x, _i, _e in ends], ends)
+        xs, ends = ends
+        for p, q in pairs:
+            for _x, i, e in ends[bisect.bisect_left(xs, p[0] - tol - 1e-6):bisect.bisect_right(xs, p[0] + tol + 1e-6)]:
+                d = self.diagonals[i]
+                if near(d[e], p) and near(d[1 - e], q):
                     return True
         return False
 

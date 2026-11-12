@@ -35,7 +35,7 @@ def _base_matrix(view: View, s: float, x0: float, y0: float):
 
 
 def render(doc, page_no: int, region_mm: list | None = None, max_side: int | None = None, dpi: float | None = None,
-           time_limit: float | None = None) -> dict:
+           time_limit: float | None = None, probe_of=None) -> dict:
     """ページ（の範囲）の画像。region_mm：[左, 上, 右, 下]（ページの左上からの mm）。
     大きさ：dpi を指定すればその解像度。なければ、max_side を指定すれば長い辺をその画素に、どちらもなければ、ページ全体は
     100 dpi・範囲は長い辺 1600 画素（拡大して読む）。
@@ -65,7 +65,7 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int | Non
         s = DEFAULT_DPI / 25.4
     s = min(s, MAX_SIDE / max(x1 - x0, y1 - y0), (MAX_PIXELS / ((x1 - x0) * (y1 - y0))) ** 0.5)  # 1 mm の画素
     W, H = max(1, math.ceil((x1 - x0) * s - 1e-6)), max(1, math.ceil((y1 - y0) * s - 1e-6))
-    cv, rr = render_page(doc, page, W, H, _base_matrix(view, s, x0, y0), time_limit)
+    cv, rr = render_page(doc, page, W, H, _base_matrix(view, s, x0, y0), time_limit, probe_of)
     stamps: list = []
     annot_failed: list[str] = []
     cells: list = []

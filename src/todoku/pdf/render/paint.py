@@ -17,7 +17,7 @@ import time
 from ..content import tokens
 from ..fonts import load_font
 from ..objects import Name, PdfString, Stream
-from .canvas import (Canvas, Clip, _rect_of, fill_rows, flatten, inv, mul, paint, paint_fn, rect_rows, scale_of, scan,
+from .canvas import (Canvas, Clip, _rect_of, covered, fill_rows, flatten, inv, mul, paint, paint_fn, rect_rows, scale_of, scan,
                      stroke_polys, transform_polys)
 from .colors import DCMYK, DRGB, GRAY, PatternCS, colorspace, function
 from .fontmap import _decoded_name, glyphs_for
@@ -102,6 +102,10 @@ class Renderer:
         self.stopped = False
         self.ops = 0
         self.gcache: dict = {}
+        # 書いた字が下地に紛れていないかの確かめ（pdf/inkcheck）：probe_of(種類, 鍵) が控えを返す所（注釈の見た目・とどくがページに
+        # 描いた値の印の範囲）の字だけ、字を塗る前に、墨の画素と下の色を控えに渡す。ふつうの描画では、どちらも None
+        self.probe_of = None
+        self.probe = None
         self.images: dict = {}  # 開いた画像の控え（オブジェクトと大きさごと）：同じ画像を何度も描くページで、開き直さない
         self.images_held = 0  # 控えの大きさの合計
         self.images_spent = 0  # このページで開いた画像の大きさの合計
@@ -155,6 +159,7 @@ class Renderer:
         tm = tlm = IDENT
         text_clip: list | None = None
         hide: list = []  # 内容の印ごとに、見えない（True）か
+        spans: list = []  # 内容の印ごとに、その外の控え（probe）
         inline = None
 
         def push(v):
@@ -386,9 +391,15 @@ class Renderer:
                         oc = (doc.resolve(res.get("Properties")) or {}).get(props.name) if isinstance(props, Name) else None
                         hid = self.hidden(oc)
                     hide.append(hid)
+                    if self.probe_of is not None:
+                        spans.append(self.probe)
+                        if op == "BDC" and stack and isinstance(stack[-1], dict):
+                            self.probe = self.probe_of("span", stack[-1]) or self.probe
                 elif op == "EMC":
                     if hide:
                         hide.pop()
+                    if spans:
+                        self.probe = spans.pop()
             except _Stop:
                 raise
             except LimitExceeded:
@@ -609,10 +620,18 @@ class Renderer:
                     rows = scan([p for p, _c in flatten(ops, (M[0], M[1], M[2], M[3], qx, qy)) if len(p) >= 2])
                     if len(self.gcache) < 30000:
                         self.gcache[ck] = rows
+                if self.probe is not None:
+                    self.probe.glyph(self.cv, covered(self.cv, rows, gs.clip, ix, iy), gs.fc, gs.ca)
                 paint(self.cv, rows, gs.fc, gs.ca, gs.clip, ix, iy)
+                if self.probe is not None:
+                    self.probe.painted(self.cv)
             else:
                 rows = scan([p for p, _c in flatten(ops, M) if len(p) >= 2], False, gs.clip.rect)
+                if self.probe is not None and gs.fpat is None:
+                    self.probe.glyph(self.cv, covered(self.cv, rows, gs.clip), gs.fc, gs.ca)
                 self._paint_rows(gs, rows, True)
+                if self.probe is not None and gs.fpat is None:
+                    self.probe.painted(self.cv)
         if mode in (1, 2, 5, 6):
             subs = flatten(ops, M)
             wdev = max(1.0, gs.lw * scale_of(gs.ctm))
@@ -1101,10 +1120,11 @@ def appearance_notes(doc, page: dict) -> list[str]:
     return out
 
 
-def render_page(doc, page: dict, W: int, H: int, base, time_limit: float = 60.0) -> tuple[Canvas, Renderer]:
+def render_page(doc, page: dict, W: int, H: int, base, time_limit: float = 60.0, probe_of=None) -> tuple[Canvas, Renderer]:
     """ページを W × H の画素に描く。base：ページの座標 → 画素の行列（回転・切り取り・拡大を含む）。"""
     cv = Canvas(W, H)
     r = Renderer(doc, cv, time.monotonic() + time_limit if time_limit else None)
+    r.probe_of = probe_of
     res = doc.resolve(page.get("Resources")) or {}
     gs = GS(base, Clip(0, 0, W, H))
     try:
@@ -1117,6 +1137,7 @@ def render_page(doc, page: dict, W: int, H: int, base, time_limit: float = 60.0)
             if r.hidden(ad.get("OC")):
                 continue
             g = GS(base, Clip(0, 0, W, H))
+            r.probe = probe_of("annot", ad) if probe_of is not None else None
             try:
                 r.form(g, n, res, 0, matrix=mul(fit, base))
             except _Stop:

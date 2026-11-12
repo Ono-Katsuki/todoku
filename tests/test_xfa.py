@@ -433,3 +433,22 @@ def test_corpus_writing(path):
     doc = PdfDocument(blob, path.name)
     for c in check_writing(doc, build(doc)):
         assert c.ok, (c.name, c.items[:5])
+
+
+def test_a_value_written_into_a_static_form_is_checked_to_be_visible(tmp_path):
+    """静的な XFA：同じ名前の PDF の欄の見た目に描いた字が見えるかも確かめる（前は、XFA に書いた欄は確かめていなかった）。"""
+    from todoku import api, lazy
+
+    key = ID + "LastName[0]"
+    blob = make_xfa_pdf(dynamic=False, acro={key: "text"})
+    page = b"BT /F1 12 Tf 72 720 Td (Library card) Tj ET"
+    assert blob.count(page) == 1
+    black = b"0 g 0 0 612 792 re f".ljust(len(page))  # 同じ長さ：ページの全体が黒
+    for name, data, ok in (("plain.pdf", blob, True), ("black.pdf", blob.replace(page, black), False)):
+        (tmp_path / name).write_bytes(data)
+        r = api.fill(str(tmp_path / name), {key: "Ito"}, str(tmp_path / ("out_" + name)), overwrite=True)
+        assert r["proof_ok"] and r["read_back_ok"] is ok, r
+        if not ok:
+            d = [x for x in r["read_back_differences"] if x["id"] == key]
+            assert len(d) == 1 and "画素が 1 つも変わりません" in d[0]["read_back"]
+    lazy.clear()  # Windows は、開いたままのファイルを消せない

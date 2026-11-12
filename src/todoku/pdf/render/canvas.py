@@ -564,6 +564,38 @@ def paint(cv: Canvas, rows, rgb, alpha: float, clip: Clip, dx: int = 0, dy: int 
                     buf[p + 2] = (buf[p + 2] * na + ba) // 255
 
 
+def covered(cv: Canvas, rows, clip: Clip, dx: int = 0, dy: int = 0) -> list:
+    """paint が塗る画素：(画素の番号（行 × 幅 + 列）, 墨の濃さ 1〜255) の並び。切り抜き・ずらし方は paint と同じ。
+    塗る前の色（buf の 番号 × 3 から 3 つ）を見るために使う（書いた字が下地に紛れていないかの確かめ：pdf/inkcheck）。"""
+    W = cv.w
+    cx0, cy0, cx1, cy1 = clip.x0, clip.y0, clip.x1, clip.y1
+    mask = clip.mask
+    out = []
+    for Y, runs in rows:
+        Y += dy
+        if Y < cy0 or Y >= cy1:
+            continue
+        if mask is not None:
+            mr = mask.get(Y)
+            if not mr:
+                continue
+            runs = intersect(runs, mr, dx)
+            ddx = 0
+        else:
+            ddx = dx
+        base = Y * W
+        for x0, x1, a in runs:
+            x0 += ddx
+            x1 += ddx
+            if x0 < cx0:
+                x0 = cx0
+            if x1 > cx1:
+                x1 = cx1
+            if x1 > x0 and a > 0:
+                out += [(q, min(255, a)) for q in range(base + x0, base + x1)]
+    return out
+
+
 def paint_fn(cv: Canvas, rows, color_at, alpha: float, clip: Clip) -> None:
     """画素ごとに色の変わる塗り（網かけ）：color_at(x, y) → (r, g, b) か None（塗らない）。"""
     buf = cv.buf

@@ -6,6 +6,11 @@
 - 書いた所の四角を、書く前と書いた後で同じ解像度に描き、画素を比べる（とどくの描画：pdf/render。ビューアーと同じ順で、注釈の見た目も描く）
 - 変わった画素がない：読み戻しの違いとして返す（ファイルは書き出されるが read_back_ok は false）
 - 変わった画素のうち、いちばん差のある所でも字と下地の差が小さい：WCAG 2 の明るさの比が 3:1 未満（大きな字・図の基準）なら知らせる
+- 欄の一部だけが下地に紛れる所（黒い帯に半分かかる字・濃い写真の上の字）は、欄の全体の画素では分からない：書いた欄の字を描くときに、
+  字（グリフ）ごとに、墨の画素と、その下の色（この欄の字を描く前の色）を控える。墨のどの画素も下と同じ色の字は「見えない字」
+  （読み戻しの違い）、墨の半分より多くが 3:1 未満の下地の上にある字は「見えにくい字」（知らせる）。位置は mm で伝える
+- 字を描いた後に、その上に別のものが描かれる所（後ろの注釈の見た目・重なったほかの欄）：字を塗った直後の色も控え、描き終えた絵と比べる。
+  墨の半分より多くの色が変わった字は「上に別のものが重なった字」として知らせる（透ける色の印の下の字は読めるので、止めずに、見て確かめてもらう）
 - 描ききれなかった（時間切れ・書体がない）ときは、確かめていないことを知らせる（見えるとは言わない）
 """
 
@@ -59,6 +64,85 @@ def _ink(before: dict, after: dict, box: tuple[float, float, float, float]) -> t
     return n, best
 
 
+class _Glyphs:
+    """書いた 1 つの欄の字（グリフ）ごとの、墨の画素と、その下の色。描画（render/paint）が、字を塗る前に glyph を、塗った後に
+    painted を呼ぶ。下の色は、この欄の字が初めてその画素に触れる前の色（同じ字を 2 回重ねて描く太字も、1 回目の前の色と比べる）。
+    塗った後の色は、この欄の字が終わりにその画素を塗った直後の色（描き終えた絵と違えば、後から別のものが上に描かれた）。"""
+
+    def __init__(self) -> None:
+        self.under: dict[int, bytes] = {}
+        self.after: dict[int, bytes] = {}
+        self.glyphs: list[tuple[list, tuple, float]] = []
+
+    def painted(self, cv) -> None:
+        if self.glyphs:
+            buf, after = cv.buf, self.after
+            for q, _a in self.glyphs[-1][0]:
+                after[q] = bytes(buf[q * 3:q * 3 + 3])
+
+    def glyph(self, cv, px: list, rgb, alpha: float) -> None:
+        if not px:
+            self.glyphs.append(([], (0, 0, 0), 0.0))  # painted が、前の字の画素を塗り直したと見ないように
+            return
+        buf, under = cv.buf, self.under
+        for q, _a in px:
+            if q not in under:
+                under[q] = bytes(buf[q * 3:q * 3 + 3])
+        self.glyphs.append((px, tuple(int(v) for v in rgb), alpha))
+
+    def judge(self, final=None) -> tuple[int, list, list, float, list]:
+        """返す：(墨のある字の数, 見えない字ごとの画素の番号の並び, 見えにくい字ごとの画素の番号の並び, 見えにくい字の墨の下でいちばん小さい比,
+        上に別のものが重なった字ごとの画素の番号の並び)。
+        見えない字：墨のどの画素も、下と同じ色。見えにくい字：墨（濃さで量る）の半分より多くが、比 3:1 未満の下地の上。
+        重なった字（final：描き終えた絵の RGB があるとき）：見える字のうち、墨の半分より多くが、塗った直後と違う色になった字。"""
+        seen: dict = {}
+        n = 0
+        hidden: list = []
+        dim: list = []
+        over: list = []
+        lowest = LOW_CONTRAST
+        after = self.after
+        for px, rgb, alpha in self.glyphs:
+            k = int(alpha * 255 + 0.5)
+            total = same = low = 0
+            least = LOW_CONTRAST
+            for q, a in px:
+                u = self.under[q]
+                c = seen.get((u, rgb, k))
+                if c is None:
+                    ink = rgb if k >= 255 else tuple((u[i] * (255 - k) + rgb[i] * k + 127) // 255 for i in range(3))
+                    c = seen[(u, rgb, k)] = 0.0 if ink == tuple(u) else contrast(tuple(u), ink)
+                total += a
+                if c < LOW_CONTRAST:
+                    low += a
+                    if c == 0.0:
+                        same += a
+                    elif c < least:
+                        least = c
+            if not total:
+                continue
+            n += 1
+            if same == total:
+                hidden.append([q for q, _a in px])
+                continue
+            if low * 2 > total:
+                dim.append([q for q, _a in px])
+                lowest = min(lowest, least if least < LOW_CONTRAST else 1.0)
+            if final is not None:
+                changed = sum(a for q, a in px if q in after and final[q * 3:q * 3 + 3] != after[q])
+                if changed * 2 > total:
+                    over.append([q for q, _a in px])
+        return n, hidden, dim, lowest, over
+
+
+def _place(n: int, glyphs: list, img: dict) -> str:
+    """字ごとの画素の番号の並びを囲む四角を、ページの左上からの mm で。"""
+    w, s = img["w"], img["scale"]
+    ox, oy = img["origin_mm"]
+    xs, ys = [q % w for px in glyphs for q in px], [q // w for px in glyphs for q in px]
+    return f"{n}ページ（左 {ox + min(xs) / s:.1f}・上 {oy + min(ys) / s:.1f}・右 {ox + (max(xs) + 1) / s:.1f}・下 {oy + (max(ys) + 1) / s:.1f} mm）"
+
+
 def _old_text(field) -> str:
     v = field.value_text() if field is not None else None
     return v if isinstance(v, str) else ""
@@ -68,13 +152,32 @@ def check(orig, new, patches: list) -> tuple[list[dict], list[str]]:
     """返す：(読み戻しの違い, 知らせること)。orig：書く前の文書、new：書いた後の文書。"""
     from .pageimage import render
 
+    from .objects import decode_text
+
     old = {f.name: f for f in read_fields(orig)}
     by_page: dict[int, list] = {}
+    annots: dict[int, str] = {}  # 書いた部品の注釈の辞書 → 欄の名前
+    probes: dict[str, _Glyphs] = {}
+
+    def probe_of(kind: str, key):
+        """描画が、書いた欄の字を描く所で呼ぶ：注釈の見た目（annot）か、とどくがページに描いた値の印の範囲（span：TdkField）。"""
+        if kind == "annot":
+            name = annots.get(id(key))
+        else:
+            name = decode_text(key["TdkField"]) if "TdkField" in key else None
+        return probes.get(name)
+
     for f in read_fields(new):
-        p = next((x for x in patches if x.id == f.name and x.kind in ("input", "calc")), None)
-        if p is None or not str(p.shown if p.shown is not None else p.value or "").strip():
+        p = next((x for x in patches if x.id == f.name and x.kind in ("input", "calc", "xfa")), None)
+        if p is None:
             continue
-        shown = str(p.shown if p.shown is not None else p.value)
+        if p.kind == "xfa":
+            # 静的な XFA：同じ名前の PDF の欄にも書いた。描いた字は、欄の値（XFA の書式で整えた字）。印（チェック・ラジオ）は、ほかの欄と同じに見ない
+            shown = _old_text(f) if f.kind in ("text", "combo", "list") else ""
+        else:
+            shown = str(p.shown if p.shown is not None else p.value or "")
+        if not shown.strip():
+            continue
         before = old.get(f.name)
         if before is not None and _old_text(before) == shown:
             continue  # 同じ値を書き直した：絵は変わらなくてよい
@@ -85,6 +188,9 @@ def check(orig, new, patches: list) -> tuple[list[dict], list[str]]:
                 continue
             if isinstance(w.page, int) and w.page >= 0:
                 by_page.setdefault(w.page + 1, []).append((f.name, shown, w.rect))
+                probes[f.name] = _Glyphs()
+                if w.ref is not None:
+                    annots[id(new.resolve(w.ref))] = f.name
     bad: list[dict] = []
     notes: list[str] = []
     deadline = time.monotonic() + TOTAL_LIMIT
@@ -95,21 +201,23 @@ def check(orig, new, patches: list) -> tuple[list[dict], list[str]]:
             notes.append(f"{n} ページの {ids}：字が見えるかの確かめを時間内にできませんでした。view_page で見て確かめてください")
             continue
         view = View(new, pages[n - 1])
-        boxes = {}
+        boxes = []  # 部品ごと（同じ欄の部品が、このページにいくつかあるときも、どれも見る）
         for name, shown, r in spots:
             x0, y0, x1, y1 = view.rect(*r)
-            boxes.setdefault(name, (shown, [x0 / view.mm, y0 / view.mm, x1 / view.mm, y1 / view.mm], r))
+            boxes.append((name, shown, [x0 / view.mm, y0 / view.mm, x1 / view.mm, y1 / view.mm], r))
         pw, ph = view.width / view.mm, view.height / view.mm
-        region = [max(0.0, min(b[1][0] for b in boxes.values())), max(0.0, min(b[1][1] for b in boxes.values())),
-                  min(pw, max(b[1][2] for b in boxes.values())), min(ph, max(b[1][3] for b in boxes.values()))]
+        region = [max(0.0, min(b[2][0] for b in boxes)), max(0.0, min(b[2][1] for b in boxes)),
+                  min(pw, max(b[2][2] for b in boxes)), min(ph, max(b[2][3] for b in boxes))]
         if region[2] - region[0] < 1 or region[3] - region[1] < 1:
             # 四角がページの外か、とても小さい：描く所がない
-            for name, (shown, _b, r) in boxes.items():
+            for name, shown, _b, r in boxes:
                 bad.append({"id": name, "written": shown, "read_back": f"書いた所（{[round(v, 1) for v in r]}）がページの外で、字が見えません"})
             continue
+        for name, _shown, _b, _r in boxes:
+            probes[name] = _Glyphs()  # 画素の番号は、このページの絵のもの（同じ名前の欄が、ほかのページにもあるとき）
         try:
             a = render(orig, n, region, dpi=DPI, time_limit=RENDER_LIMIT)
-            b = render(new, n, region, dpi=DPI, time_limit=RENDER_LIMIT)
+            b = render(new, n, region, dpi=DPI, time_limit=RENDER_LIMIT, probe_of=probe_of)
         except Exception as e:  # noqa: BLE001  描けないページは、確かめられなかったと言う（書き込みは止めない）
             notes.append(f"{n} ページの {ids}：字が見えるかを確かめられませんでした（ページを描けません：{type(e).__name__}）。view_page で見て確かめてください")
             continue
@@ -117,10 +225,12 @@ def check(orig, new, patches: list) -> tuple[list[dict], list[str]]:
             notes.append(f"{n} ページの {ids}：字が見えるかの確かめを時間内にできませんでした。view_page で見て確かめてください")
             continue
         unknown = bool(b["missing_fonts"])
-        for name, (shown, box, _r) in boxes.items():
+        told = set()  # 部品の全体の画素で、もう伝えた欄
+        for name, shown, box, _r in boxes:
             count, best = _ink(a, b, box)
             where = f"{n}ページ（左 {box[0]:.1f}・上 {box[1]:.1f}・右 {box[2]:.1f}・下 {box[3]:.1f} mm）"
             if not count:
+                told.add(name)
                 if unknown:
                     notes.append(f"{name}：字を描く書体がこのパソコンにないので、字が見えるかを確かめられませんでした（{where}）。view_page で見て確かめてください")
                 else:
@@ -128,7 +238,26 @@ def check(orig, new, patches: list) -> tuple[list[dict], list[str]]:
                                 "read_back": f"値は入りましたが、描いても字が見えません（{where} の画素が 1 つも変わりません。"
                                              "同じ色の下地の上か、後から描かれるものの下かもしれません）。view_page で見て、別の所に書き直してください"})
             elif best < LOW_CONTRAST:
+                told.add(name)
                 notes.append(f"{name}：書いた字と下地の明るさの差が小さく（比 {best:.1f}:1。読みやすさの下限は 3:1）、見えにくいかもしれません"
                              f"（{where}）。view_page で見て確かめてください")
+        if unknown:
+            continue
+        for name, shown in dict.fromkeys((x[0], x[1]) for x in boxes):
+            if name in told:
+                continue
+            # 欄のどの部品も、どこかは見える：字ごとに、下地に紛れた字がないかを見る
+            total, hidden, dim, lowest, over = probes[name].judge(b["rgb"])
+            if hidden:
+                bad.append({"id": name, "written": shown,
+                            "read_back": f"値は入りましたが、描いた字 {total} 個のうち {len(hidden)} 個は、描いても見えません"
+                                         f"（{_place(n, hidden, b)} の字は、下地と同じ色です。ほかの字は見えます）。"
+                                         "view_page で見て、別の所に書き直してください"})
+            if dim:
+                notes.append(f"{name}：描いた字 {total} 個のうち {len(dim)} 個は、字と下地の明るさの差が小さく（比 {lowest:.1f}:1 から。"
+                             f"読みやすさの下限は 3:1）、見えにくいかもしれません（{_place(n, dim, b)}）。view_page で見て確かめてください")
+            if over:
+                notes.append(f"{name}：描いた字 {total} 個のうち {len(over)} 個の上に、後から描かれるもの（ほかの注釈・重なった欄など）が"
+                             f"重なっています（{_place(n, over, b)}）。字が隠れていないか、view_page で見て確かめてください")
     return bad, notes
 

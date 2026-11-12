@@ -251,9 +251,10 @@ def _show(key: str, run: str) -> bytes:
 
 
 def text_ops(lines: list[str], size: float, x: float, y: float, leading: float, align_w: float | None = None,
-             align: str = "center") -> bytes:
-    """文字の行を描く命令。x, y は1行目の基線の始まり。align_w があれば、その幅の中で align（center・right）にそろえる。"""
-    out = bytearray(b"BT\n0 g\n")
+             align: str = "center", color: bytes = b"0 g") -> bytes:
+    """文字の行を描く命令。x, y は1行目の基線の始まり。align_w があれば、その幅の中で align（center・right）にそろえる。
+    color：字の色の命令（欄の /DA の色：da_color。とどくが作った所は黒）。"""
+    out = bytearray(b"BT\n" + color + b"\n")
     for i, line in enumerate(lines):
         lx = x
         if align_w is not None:
@@ -427,12 +428,13 @@ def check_layout_options(key: str, opts: dict) -> None:
 def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, size: float, dr_fonts: dict, *,
                     center: bool = False, comb: list | None = None, rot: int = 0, multiline: bool = True,
                     cover: bool = False, align: str = "left", unit: float = 1.0,
-                    pad: float | None = None, baseline: float | None = None, frame: bytes = b"") -> tuple[Ref, float]:
+                    pad: float | None = None, baseline: float | None = None, frame: bytes = b"",
+                    color: bytes = b"0 g") -> tuple[Ref, float]:
     """align：枠の中の左右のそろえ方（既定は左）。pad：枠の端と字のあいだの余白（pt。既定は 1.5pt か幅の 1/10 の小さいほう）。
     baseline：字の基線の、枠の下の端からの高さ（pt。行の所は行の字と同じ基線に書く。省くと、枠の上下の中ほどにそろえる）。
     cover：欄の下地を白く塗ってから書く（伏せ字の「○○」の上に書くときに、下の字を覆う。元の字は消さない）。
     rot：欄の回転（/MK の R）。描く向きの座標（vw×vh）で字を並べ、BBox も同じ大きさにして、Matrix で Rect の向きに回す。
-    frame：字の前に描く、欄の下地と枠（/MK の BG・BC。mk_frame）。"""
+    frame：字の前に描く、欄の下地と枠（/MK の BG・BC。mk_frame）。color：字の色の命令（欄の /DA の色：da_color）。"""
     vw, vh = _view_box(rot, rect_w, rect_h)
     bg = f"q\n1 g\n0 0 {vw:.2f} {vh:.2f} re\nf\nQ\n".encode() if cover else b""
     if comb:
@@ -455,7 +457,7 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
             lx = (b[0] - x_origin) + max(0.0, (bw - text_width(ch, s)) / 2)
             # 見た目の座標（y 下向き）→ 欄の中の座標（y 上向き）
             ly = vh - ((b[1] - y_top) + bh / 2 + s * 0.35)
-            ops += text_ops([ch], s, lx, ly, s)
+            ops += text_ops([ch], s, lx, ly, s, color=color)
         ops += b"Q\nEMC\n"
         return _ap(update, vw, vh, bytes(ops), fonts_used(chars), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
     given = pad is not None
@@ -478,7 +480,7 @@ def text_appearance(update: Update, rect_w: float, rect_h: float, value: str, si
     align = "center" if center else align
     aw = vw - 2 * pad
     ops = frame + bg + b"/Tx BMC\nq\n" + text_ops(lines, s, pad, y, leading, aw if align in ("center", "right") else None,
-                                          align) + b"Q\nEMC\n"
+                                          align, color) + b"Q\nEMC\n"
     return _ap(update, vw, vh, ops, fonts_used(lines), dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s
 
 
@@ -514,12 +516,13 @@ def mk_frame(doc, wd: dict, vw: float, vh: float, comb_cells: int = 0) -> bytes:
 
 
 def check_appearance(update: Update, w: float, h: float, dr_fonts: dict, char: str = "4", rot: int = 0,
-                     said: str | None = None) -> Ref:
+                     said: str | None = None, color: bytes = b"0 g") -> Ref:
     """チェックの印の見た目。w・h は欄の Rect の幅と高さ、rot は欄の回転（/MK の R）：印も欄の向きに回して描く。
-    said：読み手に伝える字（印の示す字）。"""
+    said：読み手に伝える字（印の示す字）。color：印の色の命令（欄の /DA の色：da_color）。"""
     vw, vh = _view_box(rot, w, h)
     s = min(vw, vh) * 0.8
-    ops = f"q\nBT\n0 g\n/ZaDb {s:.2f} Tf\n{(vw - s * 0.85) / 2:.2f} {(vh - s * 0.75) / 2:.2f} Td\n({char}) Tj\nET\nQ\n".encode()
+    ops = (b"q\nBT\n" + color
+           + f"\n/ZaDb {s:.2f} Tf\n{(vw - s * 0.85) / 2:.2f} {(vh - s * 0.75) / 2:.2f} Td\n({char}) Tj\nET\nQ\n".encode())
     fonts = {"ZaDb"}
     if said:
         # 印の示す字を、透明な字で印の枠の中に（見た目の中に置くので、印を消して書き直すと一緒に消える）
@@ -674,7 +677,7 @@ class Filler:
                 wd = self.up.get(w.ref) if w.ref is not None and w.ref != f.ref else fd
                 wd["AS"] = Name(st) if on else Name("Off")
                 expect.append((w.ref.num if w.ref is not None else None, wd["AS"].name))
-                self._ensure_state_ap(wd, w, st, check=True)
+                self._ensure_state_ap(wd, w, st, check=True, da=self._da_of(f))
                 self._redraw_state(wd, wd["AS"].name)
             p = Patch(f.name, "control", on)
             p.expect = {"V": fd["V"].name, "AS": expect}
@@ -718,7 +721,7 @@ class Filler:
                 wd = self.up.get(w.ref) if w.ref is not None and w.ref != f.ref else fd
                 wd["AS"] = Name(st) if st == pick else Name("Off")
                 expect.append((w.ref.num if w.ref is not None else None, wd["AS"].name))
-                self._ensure_state_ap(wd, w, st, check=f.radio_like)
+                self._ensure_state_ap(wd, w, st, check=f.radio_like, da=self._da_of(f))
             p = Patch(f.name, "control", labels[pick] if pick is not None else "Off")
             p.expect = {"V": fd["V"].name, "AS": expect}
             self.patches.append(p)
@@ -795,7 +798,7 @@ class Filler:
                 ap, s = text_appearance(self.up, x1 - x0, y1 - y0, shown, size, self.fonts_for(keys | {"Helv"}),
                                         comb=comb, rot=rot, multiline=multiline, unit=unit,
                                         align={1: "center", 2: "right"}.get(f.q, "left"),  # /Q（0 左・1 中央・2 右）
-                                        frame=mk_frame(self.doc, wd, vw, vh, f.maxlen if comb else 0))
+                                        frame=mk_frame(self.doc, wd, vw, vh, f.maxlen if comb else 0), color=da_color(da))
             except FillError as e:
                 raise FillError(f"{f.name}: {e}" + ("" if multiline or comb else "（1 行の欄なので、折り返して書けません）")) from None
             drawn = pagedraw.widget_drawn(self.doc, wd)
@@ -933,12 +936,12 @@ class Filler:
                 size = da_size or max(6.0 / unit, min(12.0 / unit, _view_box(rot, x1 - x0, y1 - y0)[1] * 0.65))
                 ap, s = text_appearance(self.up, x1 - x0, y1 - y0, shown, size, self.fonts_for(keys | {"Helv"}),
                                         multiline=False, align={1: "center", 2: "right"}.get(f.q, "left"), rot=rot,
-                                        unit=unit)
+                                        unit=unit, color=da_color(da))
             else:
                 ti = self.doc.resolve(fd.get("TI"))
                 ti = int(ti) if isinstance(ti, (int, float)) and not isinstance(ti, bool) and 0 <= ti < len(opts) else 0
                 ap, s, top, visible = list_appearance(self.up, x1 - x0, y1 - y0, opts, set(idx), ti, da_size or 12.0 / unit,
-                                                      self.fonts_for(keys | {"Helv"}), rot=rot, unit=unit)
+                                                      self.fonts_for(keys | {"Helv"}), rot=rot, unit=unit, color=da_color(da))
                 if top != ti:
                     fd["TI"] = top  # 選んだ行が見える所から並べる（一番上に見せる選択肢の番号）
                 ap_text = "".join(opts[i] for i in visible)
@@ -1064,8 +1067,9 @@ class Filler:
             out.append((w, st, lab))
         return out
 
-    def _ensure_state_ap(self, wd: dict, w, st: str, check: bool) -> None:
-        """見た目（/AP）のない部品（/NeedAppearances の書類）：入と切の見た目を足す（どのビューアーでも同じに見えるように）。"""
+    def _ensure_state_ap(self, wd: dict, w, st: str, check: bool, da: str = "") -> None:
+        """見た目（/AP）のない部品（/NeedAppearances の書類）：入と切の見た目を足す（どのビューアーでも同じに見えるように）。
+        印の色は、欄の書体の指定（/DA）の色（見た目を作るビューアーと同じ）。"""
         if w.on is not None:
             return
         x0, y0, x1, y1 = w.rect
@@ -1076,7 +1080,7 @@ class Filler:
         char = bytes(ca).decode("latin-1")[:1] if isinstance(ca, (bytes, PdfString)) and ca else ""
         if not char.isalnum():
             char = "4" if check else "l"  # ZapfDingbats：4 はチェックの印、l は黒い丸
-        on = check_appearance(self.up, bw, bh, self.fonts_for({"ZaDb"}), char, rot)
+        on = check_appearance(self.up, bw, bh, self.fonts_for({"ZaDb"}), char, rot, color=da_color(da))
         off = empty_appearance(self.up, bw, bh, rot)
         wd["AP"] = {"N": {st: on, "Off": off}}
 
@@ -1566,6 +1570,21 @@ def _da_size(da: str) -> float | None:
     return None
 
 
+_DA_COLOR = re.compile(r"(?<!\S)((?:[-+]?(?:\d+\.?\d*|\.\d+)\s+)+)(g|rg|k)(?!\S)")
+
+
+def da_color(da: str) -> bytes:
+    """欄の書体の指定（/DA）の字の色：塗りの色の命令（g 灰・rg RGB・k CMYK）のうち、終わりのもの（ISO 32000-1 12.7.3.3：
+    /DA の命令で字を描く）。なければ黒。見た目を作り直すビューアーは、この色で値を描く：とどくが描く見た目も、同じ色にする。"""
+    out = b"0 g"
+    for m in _DA_COLOR.finditer(da or ""):
+        n = {"g": 1, "rg": 3, "k": 4}[m[2]]
+        vals = [_num(v) for v in m[1].split()[-n:]]
+        if len(vals) == n and all(v is not None for v in vals):
+            out = (" ".join(f"{min(1.0, max(0.0, v)):.4g}" for v in vals) + " " + m[2]).encode()
+    return out
+
+
 def _pt(s: float) -> str:
     """字の大きさを /DA に書く形に（10.0 → 10、7.5 → 7.5）。"""
     return f"{round(s, 2):g}"
@@ -1592,7 +1611,7 @@ LIST_HIGHLIGHT = (0.6, 0.757, 0.855)
 
 
 def list_appearance(update: Update, w: float, h: float, labels: list[str], selected: set[int], top: int, size: float,
-                    dr_fonts, rot: int = 0, unit: float = 1.0) -> tuple[Ref, float, int, list[int]]:
+                    dr_fonts, rot: int = 0, unit: float = 1.0, color: bytes = b"0 g") -> tuple[Ref, float, int, list[int]]:
     """リスト（一覧から選ぶ欄で、コンボでないもの）の見た目：選択肢を上から 1 行ずつ並べ、選んだ行に色を付ける
     （ISO 32000-1 12.7.4.4 のリストの描き方。行の高さは字の大きさ）。選んだ行が欄に入らなければ、一番上に見せる行（/TI）を
     ずらす。選んだ選択肢の字が欄の幅に入らなければ、字を小さくする（4pt でも入らなければ FillError）。
@@ -1629,7 +1648,7 @@ def list_appearance(update: Update, w: float, h: float, labels: list[str], selec
     for n, i in enumerate(visible):
         y = y_top - (n + 1) * line + 0.22 * s  # 基線：行の下から、字の下がり（ディセンダー）ぶん上
         if labels[i]:
-            ops += text_ops([labels[i]], s, pad + 1.0, y, line)
+            ops += text_ops([labels[i]], s, pad + 1.0, y, line, color=color)
     ops += b"Q\nEMC\n"
     keys = fonts_used([labels[i] for i in visible if labels[i]])
     return _ap(update, w, h, bytes(ops), keys, dr_fonts, _rot_matrix(rot, rect_w, rect_h)), s, top, visible
