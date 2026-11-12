@@ -63,7 +63,7 @@ def test_sprm_codes(spec):
     used = {"sprmPFInTable": 0x2416, "sprmPFTtp": 0x2417, "sprmPItap": 0x6649, "sprmPFInnerTableCell": 0x244B,
             "sprmPFInnerTtp": 0x244C, "sprmCFVanish": 0x083C, "sprmCFRMarkDel": 0x0800, "sprmCFRMarkIns": 0x0801, "sprmCKul": 0x2A3E,
             "sprmCPicLocation": 0x6A03, "sprmCSymbol": 0x6A09, "sprmCFSpec": 0x0855, "sprmCFData": 0x0806,
-            "sprmTDefTable": 0xD608, "sprmPChgTabs": 0xC615}
+            "sprmTDefTable": 0xD608, "sprmPChgTabs": 0xC615, "sprmPChgTabsPapx": 0xC60D}
     assert {k: vals.get(k) for k in used} == used
 
 

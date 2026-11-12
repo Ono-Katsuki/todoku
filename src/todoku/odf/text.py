@@ -513,6 +513,7 @@ class OdtDocument:
         p.protected = protected
         p.heading = el.tag == _T + "h"
         style = el.get("text:style-name")
+        p.leaders = self.styles.leaders(part, style)
         strike, color = self._style_look(part, "paragraph", style)
         ctx = _Ctx(underline=self.styles.underline(part, "paragraph", style), hidden=self.styles.hidden(part, "paragraph", style),
                    run=el, look=(bool(strike), color), font=self.styles.symbol_font(part, "paragraph", style) or None)

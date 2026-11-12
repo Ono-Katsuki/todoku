@@ -261,3 +261,193 @@ def test_hwpx_underlined_tabs_are_kept(tmp_path):
         xml = z.read("Contents/section0.xml").decode("utf-8")
     assert xml.count("<hp:tab ") == 3 and xml.index("홍길동") < xml.index("<hp:tab ")
     assert _fields(tmp_path / "o.hwpx")[spot]["value"] == "홍길동"
+
+
+# ====================================================================== 線（リーダー）を引くタブ位置：.odt・.doc・HWPX
+FIX = __import__("pathlib").Path(__file__).parent / "fixtures"
+
+
+def _leader_places(path) -> dict:
+    return {k: f["facts"]["leaders"] for k, f in _fields(path).items() if f.get("why_code") == "leader_tab"}
+
+
+def _leader_places_in_range(path, rng: str) -> dict:
+    """大きな書類の道（段落の範囲で読む道）で見た、同じ所。"""
+    return {f["id"]: f["facts"]["leaders"] for f in api.fields_range(str(path), {"paragraphs": rng})["fields"]
+            if f.get("why_code") == "leader_tab"}
+
+
+def _odt_with_styles(body: str, auto: str, styles: str) -> bytes:
+    from test_openformats import NS as ODF_NS
+
+    buf = io.BytesIO(make_odt(body, auto))
+    with zipfile.ZipFile(buf, "a", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("styles.xml", f'<?xml version="1.0" encoding="UTF-8"?><office:document-styles {ODF_NS}>'
+                   f'<office:styles>{styles}</office:styles></office:document-styles>')
+    return buf.getvalue()
+
+
+def _odt_stops(*stops: str) -> str:
+    return f'<style:paragraph-properties><style:tab-stops>{"".join(stops)}</style:tab-stops></style:paragraph-properties>'
+
+
+def test_odt_leader_tab_stop_is_an_agent_place(tmp_path):
+    auto = ('<style:style style:name="P1" style:family="paragraph">'
+            + _odt_stops('<style:tab-stop style:position="14cm" style:type="right" style:leader-style="dotted" style:leader-text="."/>')
+            + '</style:style><style:style style:name="P2" style:family="paragraph">'
+            + _odt_stops('<style:tab-stop style:position="14cm" style:leader-style="none" style:leader-text="."/>',
+                         '<style:tab-stop style:position="3cm"/>') + "</style:style>")
+    src = tmp_path / "a.odt"
+    src.write_bytes(make_odt('<text:p text:style-name="P1">氏名<text:tab/>印</text:p>'
+                             '<text:p text:style-name="P2">住所<text:tab/>まで。</text:p>', auto))
+    assert _leader_places(src) == {"P1.c2": ["dotted（.）"]}  # leader-style が none の位置・leader-style のない位置は、線なし
+    res = _fill(src, tmp_path / "o.odt", {"P1.c2": VALUE})
+    assert any("タブは残しました" in w for w in res["warnings"])
+    with zipfile.ZipFile(tmp_path / "o.odt") as z:
+        xml = z.read("content.xml").decode("utf-8")
+    assert xml.count("<text:tab/>") == 2 and xml.index(VALUE) < xml.index("<text:tab/>")
+
+
+def test_odt_leader_from_the_parent_chain_and_the_default_style(tmp_path):
+    lead = '<style:tab-stop style:position="14cm" style:type="right" style:leader-style="solid" style:leader-text="_"/>'
+    styles = ('<style:default-style style:family="paragraph">'
+              + _odt_stops('<style:tab-stop style:position="10cm" style:leader-style="dash"/>') + "</style:default-style>"
+              '<style:style style:name="Base" style:family="paragraph">' + _odt_stops(lead) + "</style:style>"
+              '<style:style style:name="Line" style:family="paragraph" style:parent-style-name="Base"/>'
+              '<style:style style:name="Plain" style:family="paragraph" style:parent-style-name="Base">'
+              + _odt_stops('<style:tab-stop style:position="3cm"/>') + "</style:style>"
+              '<style:style style:name="Empty" style:family="paragraph" style:parent-style-name="Base">'
+              "<style:paragraph-properties><style:tab-stops/></style:paragraph-properties></style:style>"
+              '<style:style style:name="Free" style:family="paragraph"/>')
+    auto = '<style:style style:name="P1" style:family="paragraph" style:parent-style-name="Line"/>'
+    body = "".join(f'<text:p text:style-name="{s}">項目<text:tab/>値。</text:p>' for s in ("P1", "Plain", "Empty", "Free"))
+    src = tmp_path / "a.odt"
+    src.write_bytes(_odt_with_styles(body, auto, styles))
+    # style:tab-stops は 1 つの性質：親の連なりで初めにそれを持つスタイルが決める（子が持てば、親の位置は使わない）。
+    # どのスタイルも持たなければ、既定のスタイル（style:default-style）
+    assert _leader_places(src) == {"P1.c2": ["solid（_）"], "P4.c2": ["dash"]}
+
+
+def test_odt_and_doc_written_by_libreoffice_read_like_the_docx_they_were_made_from():
+    # LibreOffice が同じ .docx から書き出した .odt と .doc（スタイルの連なり・消した位置・段落の位置）
+    assert _leader_places(FIX / "leader_tab_styles.odt") == {"P1.c8": ["dotted（.）"], "P4.c3": ["solid（-）"]}
+    assert _leader_places(FIX / "leader_tab_styles.doc") == {"P1.c8": ["dot"], "P4.c3": ["hyphen"]}
+    # 段落ごとのタブ位置（点・ハイフン・下線。LibreOffice は .doc に太線を下線、中点を線なしとして書き出す）
+    assert _leader_places(FIX / "leader_tabs.doc") == {"P1.c4": ["dot"], "P2.c7": ["hyphen"], "P3.c11": ["underscore"],
+                                                         "P4.c6": ["underscore"]}
+    for name in ("leader_tab_styles.odt", "leader_tab_styles.doc", "leader_tabs.doc"):  # 範囲で読む道でも同じ
+        assert _leader_places_in_range(FIX / name, "1-6") == _leader_places(FIX / name)
+
+
+def test_doc_leader_tab_is_written_before_the_tab(tmp_path):
+    res = _fill(FIX / "leader_tab_styles.doc", tmp_path / "o.doc", {"P1.c8": " Intro"})
+    assert any("タブは残しました" in w for w in res["warnings"])
+    fl = _fields(tmp_path / "o.doc")
+    assert fl["P1.c8"]["value"] == " Intro" and _leader_places(tmp_path / "o.doc") == {"P4.c3": ["hyphen"]}
+
+
+def test_doc_tab_stop_sprms_follow_the_spec():
+    import struct
+
+    from todoku.doc.book import lay_tabs, sprm_spans, tab_leaders
+
+    def add(*stops: tuple) -> bytes:  # (位置, jc, tlc)
+        return bytes([len(stops)]) + struct.pack(f"<{len(stops)}h", *[s[0] for s in stops]) + bytes(s[1] | s[2] << 3 for s in stops)
+
+    stops: dict = {}
+    lay_tabs(stops, b"\x00" + add((2000, 0, 0), (5000, 2, 4), (8000, 2, 5), (9000, 4, 1)), False)
+    assert tab_leaders(stops) == ("heavy", "middleDot")  # 縦線（jc 4）の位置の tlc は読まない。tlc 0 は線なし
+    assert tab_leaders(stops, 4) == ("heavy",)  # Word 6.0/95 の仕様書の tlc は 4 まで
+    lay_tabs(stops, bytes([1]) + struct.pack("<h", 5020) + add((3000, 0, 7)), False)  # 25 twip 以内の位置を消す
+    assert sorted(stops) == [2000, 3000, 8000, 9000] and tab_leaders(stops) == ("middleDot",)
+    # sprmPChgTabs：消す位置ごとの幅（rgdxaClose）
+    lay_tabs(stops, bytes([1]) + struct.pack("<hh", 7900, 100) + add(), True)
+    assert sorted(stops) == [2000, 3000, 9000] and tab_leaders(stops) == ()
+    lay_tabs(stops, b"\x05\x00", False)  # 途中で終わる値は、重ねない
+    assert sorted(stops) == [2000, 3000, 9000]
+    # cb が 255 の sprmPChgTabs：長さは、消す数・足す数から数え、後ろの sprm を読み違えない
+    op = bytes([1]) + struct.pack("<hh", 100, 30) + add((6000, 2, 1))
+    grp = struct.pack("<H", 0xC615) + b"\xff" + op + struct.pack("<HB", 0x2416, 1)
+    assert [(sp, size) for sp, _at, size in sprm_spans(grp)] == [(0xC615, len(op)), (0x2416, 1)]
+
+
+def _word6_stsh(styles: list[tuple]) -> bytes:
+    """Word 6.0/95 のスタイルの表（仕様書「Style Sheet (STSH)」の形）。styles：(名前, 基のスタイル, 段落の書式の grpprl)。"""
+    import struct
+
+    out = struct.pack("<H", 14) + struct.pack("<7H", len(styles), 8, 1, 0, 15, 0, 0)
+    for k, (name, base, grpprl) in enumerate(styles):
+        nm = name.encode("ascii")
+        std = struct.pack("<4H", k, 1 | base << 4, 2 | 0x0FFF << 4, 0) + bytes([len(nm)]) + nm + b"\x00"
+        std += bytes(len(std) & 1)
+        upx = struct.pack("<H", k) + grpprl
+        std += struct.pack("<H", len(upx)) + upx + bytes(len(upx) & 1) + struct.pack("<H", 0)
+        out += struct.pack("<H", len(std)) + std
+    return out
+
+
+def test_word6_leader_tab_stops_from_the_paragraph_and_the_style(tmp_path):
+    import struct
+
+    from test_legacy import make_word6
+
+    def chg(sprm: int, dels: list, adds: list, wide: bool = False) -> bytes:
+        op = bytes([len(dels)]) + struct.pack(f"<{len(dels)}h", *dels) + (struct.pack(f"<{len(dels)}h", *[25] * len(dels)) if sprm == 23 else b"")
+        op += bytes([len(adds)]) + struct.pack(f"<{len(adds)}h", *[a[0] for a in adds]) + bytes(a[1] | a[2] << 3 for a in adds)
+        return bytes([sprm, 255 if wide else len(op)]) + op
+
+    text = "Name:\tend\rDate:\tend\rPlain:\tend\rStyle:\tend\rChild:\tend\rCleared:\tend\rWide:\tend\r"
+    ends = [i for i, ch in enumerate(text) if ch == "\r"]
+    stsh = _word6_stsh([("Normal", 0x0FFF, b""), ("Lead", 0, chg(15, [], [(8000, 2, 1)])), ("Child", 1, b""),
+                        ("Off", 1, chg(15, [8010], [(2000, 0, 0)]))])
+    paras = {ends[0]: chg(15, [], [(8000, 2, 3)]), ends[1]: chg(23, [], [(8000, 2, 4)]), ends[2]: chg(15, [], [(8000, 2, 0)]),
+             ends[3]: (1, b""), ends[4]: (2, b""), ends[5]: (3, b""), ends[6]: chg(23, [], [(8000, 2, 2)], wide=True)}
+    src = tmp_path / "a.doc"
+    src.write_bytes(make_word6(text, paras, enc="cp1252", lid=0x0409, stsh=stsh))
+    assert _leader_places(src) == {"P1.c5": ["underscore"], "P2.c5": ["heavy"], "P4.c6": ["dot"], "P5.c6": ["dot"], "P7.c5": ["hyphen"]}
+    assert _leader_places_in_range(src, "1-7") == _leader_places(src)
+    # Word 6.0/95 は字のバイト数を変えずに上書きするので、タブの前（字のない所）には書けない：所は、線のあることを伝えるだけ
+    with pytest.raises(api.ApiError, match="字のバイト数を変えずに上書き"):
+        api.fill(str(src), {"P1.c5": "A"}, str(tmp_path / "o.doc"))
+
+
+# ---------------------------------------------------------------------- HWPX
+def _hwpx_with_tabs(sec: str, tab_prs: str, para_prs: str) -> bytes:
+    """header.xml に、タブの定義（hh:tabProperties）と、それを指す段落の形（hh:paraPr）を足した HWPX。"""
+    src = zipfile.ZipFile(io.BytesIO(make_hwpx(sec)))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for info in src.infolist():
+            data = src.read(info.filename)
+            if info.filename == "Contents/header.xml":
+                head = data.decode("utf-8")
+                assert "<hh:paraProperties" in head and "</hh:paraProperties>" in head
+                head = head.replace("<hh:paraProperties", f"<hh:tabProperties>{tab_prs}</hh:tabProperties><hh:paraProperties", 1)
+                data = head.replace("</hh:paraProperties>", para_prs + "</hh:paraProperties>", 1).encode("utf-8")
+            z.writestr(info, data, compress_type=info.compress_type)
+    src.close()
+    return buf.getvalue()
+
+
+def test_hwpx_leader_tab_stop_is_an_agent_place(tmp_path):
+    item = '<hh:tabItem pos="{}" type="RIGHT" leader="{}"/>'
+    tab_prs = ('<hh:tabPr id="0" autoTabLeft="0" autoTabRight="0"/>'
+               f'<hh:tabPr id="1" autoTabLeft="0" autoTabRight="0">{item.format(40000, "DOT")}{item.format(9000, "NONE")}</hh:tabPr>'
+               '<hh:tabPr id="2" autoTabLeft="0" autoTabRight="0"><hp:switch><hp:case hp:required-namespace="http://www.hancom.co.kr/hwpml/2016/HwpUnitChar">'
+               f'{item.format(80000, "DASH")}</hp:case><hp:default>{item.format(40000, "DASH")}</hp:default></hp:switch></hh:tabPr>'
+               f'<hh:tabPr id="3" autoTabLeft="0" autoTabRight="1">{item.format(9000, "NONE")}</hh:tabPr>')
+    para_prs = "".join(f'<hh:paraPr id="{10 + k}" tabPrIDRef="{k}"><hh:heading type="NONE" idRef="0" level="0"/></hh:paraPr>' for k in range(4))
+    tab_ = '<hp:tab width="4000" leader="{}" type="2"/>'
+    line = lambda label, pr, lead="0": para(run_(f"<hp:t>{label}{tab_.format(lead)}끝.</hp:t>"), pr=pr)  # noqa: E731
+    sec = (HWPX_XML + f"<hs:sec {HWPX_NS}>" + line("성명", "11") + line("주소", "12") + line("날짜", "13") + line("기타", "10")
+           + line("전화", "10", "3") + "</hs:sec>")
+    src = tmp_path / "a.hwpx"
+    src.write_bytes(_hwpx_with_tabs(sec, tab_prs, para_prs))
+    # 段落の形 → タブの定義 → hh:tabItem の leader（NONE のほか）。タブそのものの leader（0 のほか）は、書いてあるとおりに示す
+    assert _leader_places(src) == {"P1.c2": ["DOT"], "P2.c2": ["DASH"], "P5.c2": ['hp:tab leader="3"']}
+    assert _leader_places_in_range(src, "1-5") == _leader_places(src)
+    res = _fill(src, tmp_path / "o.hwpx", {"P1.c2": "홍길동"})
+    assert any("タブは残しました" in w for w in res["warnings"])
+    with zipfile.ZipFile(tmp_path / "o.hwpx") as z:
+        xml = z.read("Contents/section0.xml").decode("utf-8")
+    assert xml.count("<hp:tab ") == 5 and xml.index("홍길동") < xml.index("<hp:tab ")

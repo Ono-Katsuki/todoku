@@ -164,7 +164,9 @@ def test_no_place_inside_or_right_after_a_computed_result(tmp_path):
 def test_doc_contents_lines_give_no_places_and_refuse_writes(tmp_path):
     """LibreOffice で .doc にした、上と同じ目次の文書（TOC フィールドの結果が段落をまたぐ）。"""
     src = os.path.join(FIXTURES, "toc_field.doc")
-    assert _ids(src) == ["P1.c2", "P5.c2"]
+    fl = {f["id"]: f for f in _fields(src)}
+    assert list(fl) == ["P1.c2", "P5.c2", "P6.c5"]  # .docx と同じ：目次の外の点線のタブは所（.doc のタブ位置を読む）
+    assert fl["P6.c5"]["why_code"] == "leader_tab" and fl["P6.c5"]["facts"]["leaders"] == ["dot"]
     with pytest.raises(api.ApiError, match="フィールド（TOC.*の結果の字"):
         api.fill(src, {"@1": {"old": "申請の方法", "new": "書いた字"}}, str(tmp_path / "o.doc"))
     res = api.fill(src, {"@1": {"old": "氏名", "new": "氏名（自署）"}}, str(tmp_path / "o.doc"))

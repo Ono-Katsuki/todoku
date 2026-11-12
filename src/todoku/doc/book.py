@@ -108,13 +108,50 @@ def sprm_spans(grpprl: bytes):
             elif sprm == 0xC615:  # sprmPChgTabs
                 size = grpprl[i]
                 i += 1
-                if size == 255:
-                    size = 0
+                if size == 255:  # 長さは、消す数・足す数から数える（MS-DOC 2.9.182）
+                    dels = grpprl[i] if i < n else 0
+                    adds = grpprl[i + 1 + 4 * dels] if i + 1 + 4 * dels < n else 0
+                    size = 2 + 4 * dels + 3 * adds
             else:
                 size = grpprl[i]
                 i += 1
         yield sprm, i, size
         i += size
+
+
+TLC = {1: "dot", 2: "hyphen", 3: "underscore", 4: "heavy", 5: "middleDot"}  # MS-DOC 2.9.301 TabLC（0・7 は線なし）
+
+
+def lay_tabs(stops: dict, op: bytes, close: bool) -> None:
+    """タブ位置を重ねる（位置 twip → TBD）：sprmPChgTabsPapx（close=False：PChgTabsPapxOperand）・sprmPChgTabs
+    （close=True：PChgTabsOperand）の値（cb の後ろ）。消す位置（25 twip 以内、close のときは rgdxaClose の幅）を消してから、足す。
+    途中で終わる値は、重ねない。"""
+    try:
+        n = op[0]
+        dels = struct.unpack_from(f"<{n}h", op, 1)
+        i = 1 + 2 * n
+        width = (25,) * n
+        if close:
+            width = tuple(max(25, w) for w in struct.unpack_from(f"<{n}h", op, i))
+            i += 2 * n
+        m = op[i]
+        adds = struct.unpack_from(f"<{m}h", op, i + 1)
+        tbds = op[i + 1 + 2 * m:i + 1 + 3 * m]
+        if len(tbds) != m:
+            return
+    except (struct.error, IndexError):
+        return
+    for d, w in zip(dels, width):
+        for x in [x for x in stops if abs(x - d) <= w]:
+            del stops[x]
+    for x, t in zip(adds, tbds):
+        stops[x] = t
+
+
+def tab_leaders(stops: dict, top: int = 5) -> tuple:
+    """タブ位置のうち、線（リーダー）を引くものの、線の種類（TBD：jc 3 ビット・tlc 3 ビット。jc が 4（縦線）の位置は線なし。MS-DOC 2.9.310）。
+    top：その形式の仕様書にある tlc のいちばん大きい値（Word 6.0/95 は 4）。"""
+    return tuple(sorted({TLC[t >> 3 & 7] for t in stops.values() if t & 7 != 4 and 1 <= t >> 3 & 7 <= top}))
 
 
 ICO = {1: "000000", 2: "0000FF", 3: "00FFFF", 4: "00FF00", 5: "FF00FF", 6: "FF0000", 7: "FFFF00", 8: "FFFFFF", 9: "000080", 10: "008080",
@@ -435,6 +472,55 @@ class DocFile:
                 if not (pp["ttp"] or pp["inner_ttp"]):
                     out[cp] = n.next(ilfo, ilvl)
         return out
+
+    TLC_TOP = 5  # 仕様書にある線の種類（tlc）のいちばん大きい値
+
+    def _lay_grpprl_tabs(self, stops: dict, grpprl: bytes) -> None:
+        for sp, at, size in sprm_spans(grpprl):
+            if sp == 0xC60D:
+                lay_tabs(stops, grpprl[at:at + size], False)
+            elif sp == 0xC615 and grpprl[at - 1] != 255:  # cb が 255 のものは、Word が読まない（MS-DOC 2.9.182 の注）
+                lay_tabs(stops, grpprl[at:at + size], True)
+
+    def _style_table(self) -> dict:
+        """istd → (基のスタイル, 段落の書式の grpprl, 字の書式の grpprl)。"""
+        from .wrap import _styles
+
+        return _styles(self)
+
+    def _papx_at(self, fc: int) -> tuple:
+        """ファイルの位置 fc の字の段落の、(段落の書式の grpprl, スタイル istd)。"""
+        starts = self.__dict__.get("_papx_starts")
+        if starts is None:
+            starts = self.__dict__["_papx_starts"] = sorted(self.__dict__.get("papx_istd", {}))
+        i = bisect.bisect_right(starts, fc) - 1
+        return self._lookup(self.papx, fc), (self.__dict__.get("papx_istd", {}).get(starts[i], 0) if i >= 0 else 0)
+
+    def _style_tabs(self, istd, seen: int = 0) -> dict:
+        """スタイルのタブ位置（基のスタイルから順に重ねる）。"""
+        memo = self.__dict__.setdefault("_style_tabs_memo", {})
+        if istd in memo:
+            return memo[istd]
+        st = self._style_table()
+        if istd not in st or seen > 20:
+            return {}
+        base, papx, _chpx = st[istd]
+        stops = dict({} if base == 0x0FFF or base == istd else self._style_tabs(base, seen + 1))
+        self._lay_grpprl_tabs(stops, papx or b"")
+        memo[istd] = stops
+        return stops
+
+    def leaders_of(self, cp_end: int) -> tuple:
+        """段落のタブ位置（スタイルの基から順に重ね、段落の書式を重ねる）のうち、線（リーダー）を引くものの、線の種類
+        （dot・hyphen・underscore・heavy・middleDot：.docx の w:leader と同じ名前）。"""
+        grp, istd = self._papx_at(self.fc_of(cp_end))
+        kept = self.__dict__.setdefault("_leaders_memo", {})
+        got = kept.get((grp, istd))
+        if got is None:
+            stops = dict(self._style_tabs(istd))
+            self._lay_grpprl_tabs(stops, grp)
+            kept[(grp, istd)] = got = tab_leaders(stops, self.TLC_TOP)
+        return got
 
     def para_props(self, cp_end: int) -> dict:
         """段落の終わりの字（0x0D・0x07）の位置から、段落の書式（表の中か・行の終わりか・入れ子の深さ）。"""
@@ -907,6 +993,8 @@ class DocFile:
         sk = (getattr(self, "partial", None) or {}).get("skel")
         p.label = (sk if sk else self).number_labels().get(e, "")
         text = self.text
+        if "\t" in text[s:e]:
+            p.leaders = self.leaders_of(e)
         # 前の段落から続くフィールド（閉じると分かっているものだけ）：命令の途中なら命令の字として、結果の途中なら結果の字として読む
         multi = (sk if sk else self)._fields_multi()
         stack: list[dict] = [{"begin": b, "instr": ins, "phase": "result" if sep is not None and sep < s else "instr", "n0": 0,

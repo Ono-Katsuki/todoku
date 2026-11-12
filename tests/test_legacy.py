@@ -993,8 +993,9 @@ def _fkp(runs: list[tuple[int, int, bytes]], papx: bool) -> bytes:
         if not g:
             continue
         if papx:
+            istd, g = g if isinstance(g, tuple) else (0, g)  # (スタイル istd, grpprl) でも渡せる
             cw = (3 + len(g) + 1) // 2
-            body = bytes([cw, 0, 0]) + g + bytes(2 * cw - 3 - len(g))
+            body = bytes([cw, istd, 0]) + g + bytes(2 * cw - 3 - len(g))
         else:
             body = bytes([len(g)]) + g
         top = (top - len(body)) & ~1
@@ -1006,7 +1007,7 @@ def _fkp(runs: list[tuple[int, int, bytes]], papx: bool) -> bytes:
 
 def make_word6(text: str, paras: dict[int, bytes] | None = None, chars: list[tuple[int, int, bytes]] | None = None,
                split: int | None = None, lid: int = 0x0411, nfib: int = 101, dop: bytes = bytes(16), enc: str = "cp932",
-               raw: bytes | None = None, fonts: bytes | None = None) -> bytes:
+               raw: bytes | None = None, fonts: bytes | None = None, stsh: bytes | None = None) -> bytes:
     """Word 6.0 の文書（仕様書の形のとおりに、ここで組み立てる）。text は文書の字（CP の順）。
     paras：段落の終わりの字の CP → その段落の grpprl。chars：(CP の始まり, 終わり, grpprl) の文字の書式。
     split を決めると、高速保存の形（ピースの表）にして、後ろの字を先に置く（字の並びとファイルの並びを変える）。"""
@@ -1040,6 +1041,8 @@ def make_word6(text: str, paras: dict[int, bytes] | None = None, chars: list[tup
                                 "Dop": dop}
     if fonts is not None:
         tables["SttbfFfn"] = fonts
+    if stsh is not None:
+        tables["Stshf"] = stsh
     if split is not None:
         cps = [0, split, n]
         pcds = struct.pack("<HIH", 0, cp_to_fc[0], 0) + struct.pack("<HIH", 0, cp_to_fc[split], 0)

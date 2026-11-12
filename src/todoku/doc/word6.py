@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from ..cfb import CFB
 from ..docx.document import Seg, iter_paras
 from ..docx.fill import FillError, Patch, _as_bool, _is_text_value
-from .book import FC_NAMES, CPRef, DocError, DocFile, Piece, Run
+from .book import FC_NAMES, CPRef, DocError, DocFile, Piece, Run, lay_tabs
 from ..xlsx.audit import AUDIT_BOXES  # 検査で数えない箱の字（Word の仲間と同じ）
 
 WORD6_NFIB = range(101, 105)
@@ -277,6 +277,7 @@ class Word6File(DocFile):
             raise DocError(f"ビンの表（{name}）の大きさが合いません")
         pns = list(struct.unpack_from(f"<{n}H", self.wd, f0 + (n + 1) * 4))
         cpn = struct.unpack_from("<H", self.wd, cpn_at)[0]
+        istds: list[Run] = []
         if not self.complex and cpn > len(pns) and pns:
             # 仕様書：高速保存していない文書のビンの表は、足りない分を続くページで補う
             pns += [pns[-1] + k for k in range(1, cpn - len(pns) + 1)]
@@ -297,11 +298,18 @@ class Word6File(DocFile):
                     if papx:
                         cw = page[boff]
                         grpprl = page[boff + 3:boff + 2 * cw] if cw >= 2 else b""
+                        istds.append(Run(rgfc[k], rgfc[k + 1], page[boff + 1] if cw >= 1 else 0))
                     else:
                         cb = page[boff]
                         grpprl = page[boff + 1:boff + 1 + cb]
                 list(sprms6(grpprl, f"書式のページ {pn} の", pad_ok=papx))  # すべて読めることを先に確かめる
                 out.append(Run(rgfc[k], rgfc[k + 1], grpprl))
+                if papx and len(istds) < len(out):
+                    istds.append(Run(rgfc[k], rgfc[k + 1], 0))
+        if papx:  # 段落のスタイル（PAPX の 2 バイト目：仕様書では 1 バイト）。self.papx と同じ並び
+            order = sorted(range(len(out)), key=lambda j: out[j].fc0)
+            self._papx_istd = [istds[j] for j in order]
+            return [out[j] for j in order]
         out.sort(key=lambda r: r.fc0)
         return out
 
@@ -316,6 +324,55 @@ class Word6File(DocFile):
             if p.cp0 <= cp < p.cp1:
                 return p.fc + (cp - p.cp0)
         return -1
+
+    TLC_TOP = 4  # Word 6.0/95 の TBD の tlc は 0〜4（中点の線はない）
+
+    def _lay_grpprl_tabs(self, stops: dict, grpprl: bytes) -> None:
+        """sprm 15 sprmPChgTabsPapx・sprm 23 sprmPChgTabs（値の形は Word 97 以降と同じ。長さ 255 の sprm 23 も、数えた長さで読む）。"""
+        try:
+            for sp, op in sprms6(grpprl, pad_ok=True):
+                if sp in (15, 23):
+                    lay_tabs(stops, op, sp == 23)
+        except DocError:
+            pass
+
+    def _papx_at(self, fc: int) -> tuple:
+        return self._find_run(self.papx, self._papx_fc0, fc), self._find_run(self.__dict__.get("_papx_istd", []), self._papx_fc0, fc) or 0
+
+    def _style_table(self) -> dict:
+        """スタイルの表（STSH：Word 6.0/95 の仕様書「Style Sheet (STSH)」）：istd → (基のスタイル, 段落の書式の grpprl, b"")。
+        STSHI（cstd・cbSTDBaseInFile）の後ろに、スタイルごとの STD（長さ 2 バイト・決まった長さの頭・名前（長さ 1 バイト＋字＋NUL）・
+        偶数の位置から UPX）。段落のスタイル（sgc 1）の 1 つ目の UPX が、istd 2 バイト＋段落の書式。"""
+        memo = self.__dict__.get("_styles6")
+        if memo is not None:
+            return memo
+        out: dict = {}
+        fc, lcb = self.fc.get("Stshf", (0, 0))
+        t = self.wd
+        try:
+            if lcb and fc + lcb <= len(t):
+                cb_stshi, cstd, cb_base = struct.unpack_from("<3H", t, fc)
+                i, end = fc + 2 + cb_stshi, fc + lcb
+                for istd in range(cstd):
+                    if i + 2 > end:
+                        break
+                    cb = struct.unpack_from("<H", t, i)[0]
+                    std = t[i + 2:i + 2 + cb]
+                    i += 2 + cb
+                    if cb < 8 or cb_base >= len(std):
+                        continue
+                    w1, w2 = struct.unpack_from("<2H", std, 2)
+                    k = cb_base + 1 + std[cb_base] + 1  # 名前：長さ 1 バイト・字・NUL
+                    k += k & 1
+                    papx = b""
+                    if w1 & 0x0F == 1 and w2 & 0x0F and k + 2 <= len(std):
+                        n = struct.unpack_from("<H", std, k)[0]
+                        papx = bytes(std[k + 4:k + 2 + n])
+                    out[istd] = (w1 >> 4, papx, b"")
+        except struct.error:
+            out = {}
+        self.__dict__["_styles6"] = out
+        return out
 
     def para_props(self, cp_end: int) -> dict:
         fc = self.fc_of(cp_end)

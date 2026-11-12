@@ -135,6 +135,8 @@ class HwpxDocument:
         self.para_heading: dict[str, tuple[str, str, int]] = {}
         self.numberings: dict[str, dict[int, tuple[int, str, str]]] = {}
         self.bullets: dict[str, str] = {}
+        self.tab_leaders: dict[str, tuple] = {}  # タブの定義（hh:tabPr）→ 線を引くタブ位置の、線の種類（hh:tabItem の leader）
+        self.para_tabs: dict[str, str] = {}  # 段落の形（hh:paraPr）→ タブの定義
         if not self.pkg.has("Contents/header.xml"):
             return
         root = self.pkg.tree("Contents/header.xml")
@@ -149,7 +151,13 @@ class HwpxDocument:
                 self.looks[el.attrs.get("id", "")] = (
                     so is not None and (so.attrs.get("shape") or "NONE").upper() not in ("NONE", ""),
                     c if len(c) == 6 and all(x in "0123456789ABCDEF" for x in c) else "000000")
+            elif loc == "tabPr":
+                # タブ位置は hh:tabItem（hp:switch の hp:case・hp:default の中にも、同じ位置が単位を変えて並ぶ）
+                self.tab_leaders[el.attrs.get("id", "")] = tuple(sorted({
+                    it.attrs["leader"] for it in el.iter()
+                    if L(it) == "tabItem" and (it.attrs.get("leader") or "NONE").upper() not in ("NONE", "0")}))
             elif loc == "paraPr":
+                self.para_tabs[el.attrs.get("id", "")] = el.attrs.get("tabPrIDRef", "")
                 h = kid(el, "heading")
                 if h is not None:
                     try:
@@ -254,6 +262,7 @@ class HwpxDocument:
         p.el = el
         p.protected = protected
         p.label = self._label(el)
+        p.leaders = self.tab_leaders.get(self.para_tabs.get(el.attrs.get("paraPrIDRef", ""), ""), ())
         st = _ParaState(p)
         after: list = []  # 段落の中の表（Word の形では、段落の後ろのブロック）
         data = self.pkg.xml(part)
@@ -346,6 +355,11 @@ class HwpxDocument:
             src = Src("elx", part, k.s, k.e, el=k)
             if loc == "tab":
                 self._add(st, Seg("\t", "tab", src, run, False, under))
+                lead = k.attrs.get("leader") or "0"
+                if lead.upper() not in ("0", "NONE"):  # タブそのものに書いてある線（保存したときの配置で、線を引いたタブ）
+                    kind = f'hp:tab leader="{lead}"'
+                    if kind not in st.p.leaders:
+                        st.p.leaders = (*st.p.leaders, kind)
             elif loc == "lineBreak":
                 self._add(st, Seg("\n", "br", src, run))
             elif loc == "fwSpace":

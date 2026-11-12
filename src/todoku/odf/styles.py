@@ -162,6 +162,33 @@ class Styles:
         part = self._part(part)
         return self.lists.get(part, {}).get(name) or self.lists.get(self._part("styles.xml"), {}).get(name)
 
+    def leaders(self, part: str, name: str | None) -> tuple:
+        """段落のタブ位置（style:tab-stops）のうち、線（リーダー）を引くものの、線の種類。
+        style:tab-stops は 1 つの性質：スタイルの親をたどって、最初に持つものが全部を決める（なければ既定のスタイル）。
+        線を引くのは style:leader-style が none でない位置（ODF 1.2 第3部 20.298）。線の字 style:leader-text があれば
+        「solid（_）」のように添える（LibreOffice は、その字を並べて線にする）。"""
+        key = (self._part(part), name)
+        memo = self.__dict__.setdefault("_leader_memo", {})
+        if key in memo:
+            return memo[key]
+        pq, tq, sq = q("style:paragraph-properties"), q("style:tab-stops"), q("style:tab-stop")
+        ls, lt = q("style:leader-style"), q("style:leader-text")
+        d = self.defaults.get("paragraph")
+        out: tuple = ()
+        for el in [*self.chain(part, "paragraph", name), *([d] if d is not None else [])]:
+            stops = [t for pe in el.kids if isinstance(pe, El) and pe.tag == pq
+                     for t in pe.kids if isinstance(t, El) and t.tag == tq]
+            if stops:
+                kinds = set()
+                for s in stops[0].kids:
+                    if isinstance(s, El) and s.tag == sq and s.attrs.get(ls, "none") != "none":
+                        ch = s.attrs.get(lt, "")
+                        kinds.add(s.attrs[ls] + (f"（{ch}）" if ch.strip() else ""))
+                out = tuple(sorted(kinds))
+                break
+        memo[key] = out
+        return out
+
     # ------------------------------------------------------------------ よく使う性質
     def underline(self, part: str, family: str, name: str | None) -> bool:
         u = self.prop(part, family, name, "style:text-properties", "style:text-underline-style")
