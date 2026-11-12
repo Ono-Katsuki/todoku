@@ -329,7 +329,7 @@ def _control_change(sheet: str, ca, cb) -> dict:
         before, after = ca.checked or "Unchecked", cb.checked or "Unchecked"
     else:
         before, after = _state_text(ca), _state_text(cb)
-    return {"sheet": sheet, "control": ca.name, "kind": "control", "link": ca.link, "before": before, "after": after}
+    return {"sheet": sheet, "control": ca.ref_name, "kind": "control", "link": ca.link, "before": before, "after": after}
 
 
 def _control_problems(b: XlsWorkbook, sheet: str, ca, cb, allowed_controls) -> list[str]:
@@ -338,7 +338,7 @@ def _control_problems(b: XlsWorkbook, sheet: str, ca, cb, allowed_controls) -> l
     out = []
     what = "チェックボックス" if ca.kind == "CheckBox" else "部品"
     if allowed_controls is not None and (sheet, ca.ref_name) not in allowed_controls:
-        out.append(f"{sheet}: 指示していない{what}「{ca.name}」が変わりました")
+        out.append(f"{sheet}: 指示していない{what}「{ca.ref_name}」が変わりました")
         return out
     want = allowed_controls.get((sheet, ca.ref_name)) if isinstance(allowed_controls, dict) else None
     if want is not None and not isinstance(want, dict):

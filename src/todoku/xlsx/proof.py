@@ -506,10 +506,10 @@ def prove(original: bytes, new: bytes, allowed_inputs: set[tuple[str, str]] | No
                 if allowed_controls is not None and (sa.name, ca.ref_name) not in allowed_controls:
                     unexpected.append(f"{sa.name}: 指示していない部品「{ca.ref_name}」が変わりました")
                 continue
-            control_changes.append({"sheet": sa.name, "control": ca.name, "kind": "control", "link": ca.link,
+            control_changes.append({"sheet": sa.name, "control": ca.ref_name, "kind": "control", "link": ca.link,
                                     "before": ca.checked or "Unchecked", "after": cb.checked or "Unchecked"})
-            if allowed_controls is not None and (sa.name, ca.name) not in allowed_controls:
-                unexpected.append(f"{sa.name}: 指示していないチェックボックス「{ca.name}」が変わりました")
+            if allowed_controls is not None and (sa.name, ca.ref_name) not in allowed_controls:
+                unexpected.append(f"{sa.name}: 指示していないチェックボックス「{ca.ref_name}」が変わりました")
             if cb.link_cell and b.has_sheet(cb.link_cell[0]):
                 lc = b.sheet(cb.link_cell[0]).cells.get(cb.link_cell[1:])
                 lv = lc.value if lc else None

@@ -473,6 +473,40 @@ def test_big_book_whole_calc_job_catches_a_shifted_value(tmp_path, small_budget)
     assert d["written_proof"]["status"] == "done"
     assert any("D2" in x for x in d["written_proof"]["problems"])
     assert d["ok"] is False
+    # 全体の計算と違うと分かったファイルは、元の名前のまま残さない（書き出すときに確かめられなかったファイルと同じ名前にする）
+    aside = tmp_path / "bad.unverified.xlsx"
+    assert d["written_proof"]["renamed_to"] == str(aside.resolve()) and "bad.unverified.xlsx" in d["written_proof"]["note"]
+    assert aside.exists() and not bad.exists() and p.exists() and out.exists()
+    # 新しい名前で検査しても、同じ結果が分かる（もう一度は付け替えない）
+    again = _wait_proof(aside.resolve())
+    assert again["written_proof"]["status"] == "done" and any("D2" in x for x in again["written_proof"]["problems"])
+    assert again["ok"] is False and "renamed_to" not in again["written_proof"]
+    assert aside.exists() and not (tmp_path / "bad.unverified.unverified.xlsx").exists()
+
+
+def test_big_book_whole_calc_job_that_agrees_keeps_the_name(tmp_path, small_budget):
+    p = _big(tmp_path / "a.xlsx")
+    out = tmp_path / "o.xlsx"
+    assert api.fill(str(p), {"データ!A2": 11}, str(out))["proof_ok"]
+    d = _wait_proof(out)
+    assert d["written_proof"]["status"] == "done" and not d["written_proof"]["problems"] and "renamed_to" not in d["written_proof"]
+    assert out.exists() and not (tmp_path / "o.unverified.xlsx").exists()
+
+
+def test_big_book_whole_calc_job_never_renames_onto_the_original(tmp_path, small_budget):
+    """元のファイルが「名前.unverified.拡張子」という名前でも、元のファイルは置き換えない。"""
+    p = _big(tmp_path / "o.unverified.xlsx")
+    before = p.read_bytes()
+    out = tmp_path / "o.xlsx"
+    assert api.fill(str(p), {"データ!A2": 11}, str(out))["proof_ok"]
+    bad = tmp_path / "bad.xlsx"
+    _tamper(out, bad, "xl/worksheets/sheet1.xml", "<v>22</v>", "<v>23</v>")
+    out.unlink()
+    bad.rename(out)
+    jobs.note_proof(str(out), str(p), [("データ", 2, 1)], [("データ", 2, 4)], False)
+    d = _wait_proof(out)
+    assert d["ok"] is False and "renamed_to" not in d["written_proof"]
+    assert out.exists() and p.read_bytes() == before
 
 
 def test_whole_calc_deadline_is_not_a_pass(tmp_path):

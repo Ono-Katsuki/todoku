@@ -329,6 +329,12 @@ def note_proof(path: str, original: str, seeds: list, changed: list, marked: boo
                "changed": [list(x) for x in changed], "marked": marked})
 
 
+def note_done_proof(path: str, rec: dict) -> None:
+    """済んだ確かめの控えを、名前を付け替えたファイル（中身・大きさ・更新の時刻は同じ）でも引けるように写す。"""
+    key = _proof_key(path)
+    save(key, {**rec, "key": key, "path": path})
+
+
 def proof_status(path: str) -> dict | None:
     try:
         return load(_proof_key(path))

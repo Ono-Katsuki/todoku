@@ -980,14 +980,11 @@ def build(doc: DocxDocument) -> dict:
         if lines or kind == "body":
             out["stories"].append({"kind": kind, "part": part, "reading": lines, "_plain": plain})
     # 変更履歴で削除された字の残る段落（窓では〔変更履歴で削除された字〕と示す）
-    out["tracked_deletions"] = [f"段落 {sp.para_index[id(q)]}「{q.deleted_text().strip()[:20].replace(chr(10), '⏎')}」"
-                                for _k, _part, blocks in doc.all_blocks() for q in iter_paras(blocks)
-                                if hasattr(q, "deleted_text") and q.deleted_text().strip()]
-    from .revfacts import inserted_text
+    from .revfacts import tracked_items
 
     # 変更履歴で挿入された字のある段落（窓では本文に入れて、〔変更履歴で挿入された…〕と示す）
-    out["tracked_insertions"] = [f"段落 {sp.para_index[id(q)]}「{inserted_text(q).strip()[:20].replace(chr(10), ' ')}」"
-                                 for _k, _part, blocks in doc.all_blocks() for q in iter_paras(blocks) if inserted_text(q)]
+    out["tracked_deletions"], out["tracked_insertions"], out["tracked_marks"] = tracked_items(
+        (sp.para_index[id(q)], q) for _k, _part, blocks in doc.all_blocks() for q in iter_paras(blocks))
     from ..embeds import lazy as embed_lazy
 
     embed_lazy.spend(sum(len(ln) for st in out["stories"] for ln in st["reading"]))
@@ -1378,6 +1375,10 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
         from .revfacts import deleted_mark
 
         t += deleted_mark(p)
+    if getattr(p, "mark_rev", None) is not None or getattr(p, "row_rev", None) is not None:
+        from .revfacts import break_mark, row_mark
+
+        t = row_mark(p) + t + break_mark(p)  # 段落の区切り・表の行の、変更履歴での挿入・削除
     label = p.label
     bullet = next((it for it in items if is_bullet(it)), None)
     if bullet is not None and label:

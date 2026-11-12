@@ -181,11 +181,34 @@ def _set_places(groups: list[RadioGroup]) -> None:
             r.place = place
 
 
+def _set_own_places(sh: Sheet) -> None:
+    """オプションボタンのほかの、値を書く部品（チェックボックス・ドロップダウン・リストボックス・スピンボタン・スクロールバー）で、
+    同じシートのほかの部品と名前がぶつかるものだけ、id に自分の位置（左上のセル）を付ける。ぶつからない部品は変えない。
+    ファイルは変えない（Excel は、写して貼った部品に同じ名前を付けることがある：名前は id のためだけに区別する）。
+    ActiveX の部品の名前は、Excel がシートの中で 1 つに決めるので、付けない。"""
+    count: dict[str, int] = {}
+    for c in sh.controls:
+        count[c.name] = count.get(c.name, 0) + 1
+    todo = [c for c in sh.controls if c.kind in ("CheckBox",) + CHOICE_KINDS + VALUE_KINDS and count[c.name] > 1
+            and getattr(c, "ax", None) is None and not c.place]
+    if not todo:
+        return
+    used = {c.ref_name for c in sh.controls}
+    for c in todo:
+        place = addr(*c.anchor) if c.anchor else f"s{c.shape_id}"
+        if f"{c.name}@{place}" in used:
+            place = f"{place}.{c.shape_id}"  # 同じ名前の部品が同じセルにある：図形の番号で分ける
+        c.place = place
+        used.add(c.ref_name)
+
+
 def ensure_places(wb: Workbook, sh: Sheet) -> None:
-    """同じ名前のオプションボタンがあるシートで、id の位置を入れる（組を求めるまで分からない）。"""
+    """同じ名前の部品があるシートで、id の位置を入れる（オプションボタンは、組を求めるまで分からない）。"""
     names = [c.name for c in sh.controls if c.kind == "Radio"]
     if len(names) != len(set(names)):
         radio_groups(wb, sh)
+    if len(sh.controls) > 1:
+        _set_own_places(sh)
 
 
 def items_of(wb: Workbook, sh: Sheet, ctl: Control, calc=None) -> list[str]:

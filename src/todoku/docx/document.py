@@ -52,6 +52,14 @@ def _set_rev(segs: list, kind: str, node) -> None:
             s.rev = rev
 
 
+def _mark_rev(pr) -> tuple | None:
+    """書式の中の変更履歴の印（段落の終わりの印の w:pPr/w:rPr、表の行の w:trPr の中の w:ins・w:del・w:moveTo・w:moveFrom）。"""
+    for ch in pr.kids if pr is not None else ():
+        if ch.local in ("ins", "moveTo", "del", "moveFrom"):
+            return ("ins" if ch.local in ("ins", "moveTo") else "del", ch.get("author") or "", ch.get("date") or "")
+    return None
+
+
 def _tab_stops(ppr) -> list[tuple[str, str, str]]:
     """w:pPr の w:tabs：[(位置, 種類, リーダー)]。"""
     tabs = ppr.find("tabs") if ppr is not None else None
@@ -79,6 +87,8 @@ class Para:
     cell: "Cell | None" = None
     boxes: list["Block"] = field(default_factory=list)  # 段落の中のテキストボックスの中身
     leaders: tuple = ()  # 段落のタブ位置のうち、線（リーダー）を引くものの、線の種類（タブのある段落だけ）
+    mark_rev: tuple | None = None  # 段落の終わりの印（段落の区切り）の変更履歴：("ins"・"del", 変更した人, 日時)。docx/revfacts.py
+    row_rev: tuple | None = None  # この段落が頭にある表の行の変更履歴（行の挿入・削除）：同じ形
 
     @property
     def text(self) -> str:
@@ -1001,6 +1011,11 @@ class DocxDocument:
                     c.blocks = self._blocks(tc, part, c)
                     row.append(c)
                     col += span
+                rev = _mark_rev(tr2.find("trPr"))
+                if rev is not None:  # 行の挿入・削除：行の頭の段落に控える（窓では、その段落の前に示す）
+                    first = next((q for c in row for q in c.paras()), None)
+                    if first is not None:
+                        first.row_rev = rev
                 t.rows.append(row)
         return t
 
@@ -1009,6 +1024,7 @@ class DocxDocument:
         ppr = node.find("pPr")
         num = None
         if ppr is not None:
+            p.mark_rev = _mark_rev(ppr.find("rPr"))
             ps = ppr.find("pStyle")
             if ps is not None:
                 p.style = ps.get("val", "")

@@ -83,7 +83,7 @@ With `format: "python"`, the rules are exported as `calculate(inputs) -> dict` t
 - **Deterministic:** no AI in reading, writing, proving or auditing. Places that rules cannot decide are marked `?`. The tool provides facts; the agent makes the judgment.
 - **14 MCP tools:** `open_document`, `read_window`, `list_fields`, `fill_document`, `audit_document`, `extract_processing`, `try_calculation`, `run_macro` and others. Large documents are read by range, in turn; what cannot be read is reported.
 
-About 150,000 lines, 312 files, 5,684 tests.
+About 150,000 lines, 312 files, 5,703 tests.
 
 ## Measured on real documents
 

@@ -144,9 +144,12 @@ def find_control(wb: Workbook, target: str) -> Control | None:
     if same:
         return same[0]
     same = [ctl for ctl in sh.controls if ctl.name == wanted]
-    if same and same[0].place:
+    if same and same[0].place and same[0].kind == "Radio":
         ids = "、".join(f"{sh.name}!{c.ref_name}" for c in same)
         raise EditError(f"{target}: 同じ名前のオプションボタンが {len(same)} つあります（{ids}）。どちらの組かを、位置のついた id で指定してください")
+    if len(same) > 1 and any(c.place for c in same):
+        ids = "、".join(f"{sh.name}!{c.ref_name}" for c in same)
+        raise EditError(f"{target}: 同じ名前の部品が {len(same)} つあります（{ids}）。どれかを、位置のついた id で指定してください")
     return same[0] if same else None
 
 
@@ -2015,7 +2018,7 @@ def _fill_xls(wb, targets, changed, problems, controls, warnings, by_macro: set 
         if bool(ctl.is_checked) == bool(b):
             continue
         ed.set_checkbox(sheet, ctl.shape_id, bool(b))
-        patches.append(Patch(wb.stream_name, sheet, ctl.name, "control", ctl.checked, "Checked" if b else None))
+        patches.append(Patch(wb.stream_name, sheet, ctl.ref_name, "control", ctl.checked, "Checked" if b else None))
     # チェックボックス以外の部品（オプションボタン・ドロップダウン・リストボックス・スピンボタン・スクロールバー）
     for sheet, ctl, change in writes or ():
         if all(tuple(getattr(ctl, k_) or ()) == tuple(v_ or ()) if k_ == "multi_sel" else getattr(ctl, k_) == v_

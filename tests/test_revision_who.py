@@ -153,14 +153,17 @@ def test_docx_large_road_tells_inserted_text(tmp_path, monkeypatch, chunked):
     assert _range_lines(path, "1-40") == normal
 
 
-def test_docx_large_road_does_not_count_inserted_paragraph_marks_and_rows(tmp_path, monkeypatch):
-    # 段落の終わりの印・表の行の挿入（書式の中の w:ins）は、字の挿入として数えない
+def test_docx_inserted_paragraph_marks_and_rows_are_not_inserted_text(tmp_path, monkeypatch):
+    # 段落の終わりの印・表の行の挿入（書式の中の w:ins）は、字の挿入として数えない：段落の区切り・表の行の変更として、別に伝える
     ppr = f'<w:pPr><w:rPr><w:ins w:id="5" {A1}/></w:rPr></w:pPr>'
     row = (f'<w:tbl><w:tr><w:trPr><w:ins w:id="6" {A1}/></w:trPr><w:tc><w:p><w:r><w:t>マス</w:t></w:r></w:p></w:tc></w:tr></w:tbl>')
     path = write(tmp_path, docx(p(r("段落。"), ppr=ppr) + row + p(r("終わり。"))))
-    assert api.window(path)[1]["tracked_insertions"] == [] and not _detail(path)
+    win = api.window(path)[1]
+    assert win["tracked_insertions"] == [] and win["tracked_marks"] == ["段落 1：挿入された段落の区切り", "段落 2：挿入された表の行"]
+    normal = _detail(path)
+    assert len(normal) == 1 and "段落の区切り・表の行" in normal[0] and "が 2 か所" in normal[0]
     _large(monkeypatch, True)
-    assert not _detail(path)
+    assert _detail(path) == normal
 
 
 # ====================================================================== .doc（Word 97〜2003）

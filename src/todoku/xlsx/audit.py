@@ -640,6 +640,7 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
     # 読み戻し：書き込み後のファイルを読み直して、書いた値とチェックの状態がそのとおりかを確かめる
     after = scope.book if scope.book is not None else open_book(res.blob, wb.filename)  # 証明で開いた、同じ中身のブック
     got = {}
+    from .controls import ensure_places as _ensure_places
     from .window import _seen_of
 
     seen, seen_after = _seen_of(wb), _seen_of(after)  # 記号の書体の字は、見える字で照らす（書く値も見える字）
@@ -647,9 +648,10 @@ def check_writing(wb: Workbook, doc: dict) -> list[Check]:
         for (r, c), cell in sh.cells.items():
             v = seen_after(cell).value
             got[f"{sh.name}!{addr(r, c)}"] = v.code if isinstance(v, ExcelError) else v
+        _ensure_places(after, sh)  # 同じ名前の部品：欄の id と同じ、位置のついた名前で照らす
         for ctl in sh.controls:
             if ctl.kind == "CheckBox":
-                key = f"{sh.name}!{addr(*ctl.link_cell[1:])}" if ctl.link_cell else f"{sh.name}!{ctl.name}"
+                key = f"{sh.name}!{addr(*ctl.link_cell[1:])}" if ctl.link_cell else f"{sh.name}!{ctl.ref_name}"
                 if not ctl.link_cell:
                     got[key] = ctl.is_checked
     wrong = []

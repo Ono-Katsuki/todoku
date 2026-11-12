@@ -665,6 +665,10 @@ def word_reasons(win: dict) -> tuple[list[Reason], list[Reason]]:
     new = win.get("tracked_insertions") or []
     if new:
         read.append(Reason("B", "変更履歴", inserted_reason(len(new), "段落"), new))
+    marks = win.get("tracked_marks") or []
+    if marks:
+        read.append(Reason("B", "変更履歴", f"変更履歴で挿入・削除された段落の区切り・表の行（まだ承諾も却下もされていない）が {len(marks)} か所にあります。"
+                           "窓では〔変更履歴で…された段落の区切り〕〔変更履歴で…された表の行〕と示しています。段落・行の分かれ方は、ソフトの変更履歴の表示の設定で変わります", marks))
     bad = [f for f in win.get("fields") or [] if f.get("unwritable")]
     if bad:
         write.append(Reason("D", "書けない入力欄", f"入力欄 {len(bad)} か所は、ファイルの作りのために書けません：{bad[0].get('why', '')}",

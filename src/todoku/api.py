@@ -2383,7 +2383,15 @@ def _with_written_proof(d: dict, path: str, password: str | None) -> None:
                                                      + (f"。計算できないセル {calc['cannot_calculate']:,} か所は照らしていません" if calc.get("cannot_calculate") else "")})
         if bad:
             d["ok"] = False
-            d["written_proof"]["note"] = "書き込んだ計算結果が、ブック全体の計算と違います。このファイルを本人に渡さないでください"
+            note = "書き込んだ計算結果が、ブック全体の計算と違います。このファイルを本人に渡さないでください"
+            job = d.get("job") or {}
+            # このファイルの検査（長い仕事）が動いている間は、名前を変えない：済んだ呼び出しで付け替える
+            aside = _set_aside(path, rec) if not job or job.get("finished") or job.get("failed") else None
+            if aside is not None:
+                # 書き出したときに確かめられなかったファイルと同じ名前にする：元の名前のまま残して、確かめたファイルと取り違えない
+                note += f"。ファイルの名前を「{aside.name}」に変えました（「{Path(path).name}」という名前のファイルは、もうありません）"
+                d["written_proof"]["renamed_to"] = str(aside)
+            d["written_proof"]["note"] = note
         return
     msg = "未確認：ブック全体を計算し直して、書き込んだ計算結果と照らすこと"
     if rec.get("failed") or rec.get("stopped"):
@@ -2391,6 +2399,30 @@ def _with_written_proof(d: dict, path: str, password: str | None) -> None:
     else:
         d["written_proof"] = {"status": "running", "progress": rec.get("progress"), "note": f"{msg}（別のプロセスで動いています。もう一度 audit_document を呼ぶと結果が分かります）"}
     d["deferred"] = list(d.get("deferred") or []) + [msg]
+
+
+def _set_aside(path: str, rec: dict) -> Path | None:
+    """ブック全体の計算と違うと分かった、とどくが書き出したファイルを「名前.unverified.拡張子」に付け替える（_publish が、書き出すときに
+    確かめられなかったファイルに付ける名前と同じ）。確かめの控えは、新しい名前でも引けるように写す。
+    もうその名前のファイル・元のファイルを指す名前・付け替えられないファイル（ほかのプログラムが開いているなど）は、そのままにして None。"""
+    from . import jobs
+
+    try:
+        src = Path(path).expanduser().resolve()
+        if src.stem.endswith(".unverified") or not src.is_file():
+            return None
+        dst = unverified_path(src)
+        if rec.get("original"):
+            _not_source(Path(rec["original"]).expanduser().resolve(), dst)
+        _release_files()  # Windows：検査で開いたファイルを放してから、名前を付け替える
+        os.replace(src, dst)
+    except (OSError, ApiError):
+        return None
+    try:
+        jobs.note_done_proof(str(dst), rec)
+    except OSError:
+        pass
+    return dst
 
 
 def _audit(path: str, password: str | None = None, encoding: str | None = None, restart: bool = False, job: bool = False) -> dict:

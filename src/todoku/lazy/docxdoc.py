@@ -34,6 +34,7 @@ _COMPLEX = frozenset(("txbxContent", "sdt", "customXml", "moveTo", "AlternateCon
 _FIELD_BLOCK = frozenset(("p", "tbl", "tr", "tc", "sdt", "sdtContent", "customXml", "ins", "moveTo"))
 _FIELD_INLINE = frozenset(("hyperlink", "smartTag", "fldSimple", "bdo", "dir", "del", "moveFrom", "r"))
 _STORY_KINDS = ("header", "footer", "footnotes", "endnotes", "comments")
+_REV = frozenset(("ins", "del", "moveTo", "moveFrom", "delText"))  # 変更履歴の要素（どこにあっても、そのまとまりを数える）
 _LOOK = frozenset(("color", "pStyle", "rStyle"))  # 字の色を決めうる要素（色の指定と、スタイルの名指し）
 
 
@@ -89,8 +90,9 @@ class DocxLazy(BlocksLazy):
         self.pictures: list[dict] = []
         self.object_stories: list[str] = []
         self.objects_blocks: list[int] = []  # 埋め込み・グラフ・SmartArt のあるブロック（窓の終わりの節を作るとき読む）
-        self.tracked = 0
-        self.tracked_ins = 0  # 変更履歴で挿入された字の所（w:ins・w:moveTo）の数
+        self._rev_chunks: set[int] = set()  # 変更履歴の要素のある、本文のまとまり
+        self._story_rev: tuple[list, list, list] = ([], [], [])  # 本文のほかの部品の、変更履歴の一覧（revisions と同じ並び）
+        self._rev: tuple[list, list, list] | None = None
         self._may_color = False  # 本文に、黒でない色になりうる字があるか（色の指定か、色を決めるスタイルの名指し）
         self._story_colors: collections.Counter = collections.Counter()  # 本文のほかの部品の、色ごとの字数
         self.head_xml = b""
@@ -198,7 +200,7 @@ class DocxLazy(BlocksLazy):
         p.StartDoctypeDeclHandler = _no_doctype
         names: dict[str, str] = {}
         stack: list[str] = []
-        st = {"at": 0, "complex": False, "paras": 0, "tables": 0, "pstyle": "", "numid": None, "ilvl": 0, "body": False, "body_end": None, "chars": 0, "del": 0, "ins": 0, "colored": False}
+        st = {"at": 0, "complex": False, "paras": 0, "tables": 0, "pstyle": "", "numid": None, "ilvl": 0, "body": False, "body_end": None, "chars": 0, "colored": False}
         look_styles: set = {""}  # 本文が名指すスタイル（段落・字）
         pending: list = []
         fst: list[dict] = []  # 開いているフィールド（段落・まとまりをまたぐもの：目次など）
@@ -283,6 +285,8 @@ class DocxLazy(BlocksLazy):
                         elif local == "instrText":
                             fp["instr"] = True
                     fp["bad"] += 1
+                if local in _REV:
+                    self._rev_chunks.add(len(self.chunks) - 1)
                 if local == "p":
                     if stack[-1] not in ("body", "tc"):
                         st["complex"] = True
@@ -311,12 +315,6 @@ class DocxLazy(BlocksLazy):
                 elif local == "ilvl":
                     if stack[-1] == "numPr":
                         st["ilvl"] = int(next((v for k, v in attrs.items() if k.rsplit(":", 1)[-1] == "val"), 0) or 0)
-                elif local == "delText":
-                    st["del"] += 1
-                elif local in ("ins", "moveTo", "moveFrom"):
-                    # 字の挿入（段落の中の w:ins）・移る前の字（w:moveFrom：字は w:t）：書式の中の印（段落の終わりの印・行・番号）は数えない
-                    if stack[-1] not in ("rPr", "pPr", "trPr", "tcPr", "tblPr", "numPr", "sectPr"):
-                        st["del" if local == "moveFrom" else "ins"] += 1
             if depth == 0:
                 self._raw_names = {"top": name.encode()}
             elif depth == 1 and local == "body":
@@ -392,8 +390,6 @@ class DocxLazy(BlocksLazy):
         self.tail_xml = self.reader.read(at, total) or self.tail_guess
         self.data_end = at
         self.body_paragraphs = self.paragraphs
-        self.tracked = st["del"]
-        self.tracked_ins = st["ins"]
         fs = h.font_styles()
         self._may_color = (st["colored"] or fs["default"][1] not in (None, AUTO)
                            or any(_chain_colored(fs["styles"], s) for s in look_styles | {fs["para_default"]}))
@@ -452,6 +448,7 @@ class DocxLazy(BlocksLazy):
         """ヘッダー・フッター・脚注・コメント：部品ごとに 1 つのまとまり（本文の後ろの番号。いままでの読み手と同じ順）。"""
         from ..docx.document import _join, iter_paras
         from ..docx.fontfacts import count_colors
+        from ..docx.revfacts import tracked_items
         from ..docx.window import _tables
 
         h = self._h
@@ -470,6 +467,8 @@ class DocxLazy(BlocksLazy):
             self._story_has_objects = False
             self.chars += sum(len(p.text) for p in iter_paras(blocks))
             count_colors(iter_paras(blocks), self._story_colors)
+            for a, b in zip(self._story_rev, tracked_items(enumerate(iter_paras(blocks), self.paragraphs + 1))):
+                a += b
             self._after_tree(h, blocks, -1)
             if self._story_has_objects:
                 self.object_stories.append(name)
@@ -502,6 +501,25 @@ class DocxLazy(BlocksLazy):
 
             self._normal = most_common_color(self.color_counts())
         return self._normal
+
+    # ------------------------------------------------------------------ 変更履歴
+    def revisions(self) -> tuple[list, list, list]:
+        """変更履歴で削除された字の残る段落・挿入された字のある段落・挿入や削除された段落の区切りと表の行
+        （ふつうの道の窓の tracked_deletions・tracked_insertions・tracked_marks と同じ字）。
+        変更履歴の要素のあるまとまりだけを、初めて要るときに 1 回、小さな文書にして、ふつうの道と同じ数え方で数える。"""
+        if self._rev is None:
+            from ..docx.document import iter_paras
+            from ..docx.revfacts import tracked_items
+
+            got: tuple[list, list, list] = ([], [], [])
+            body = sorted(i for i in self._rev_chunks if 0 <= i < len(self.chunks) and "story" not in self.chunks[i])
+            for k, i in enumerate(body):
+                limits.progress(f"{self.main} の変更履歴を数えています", k, len(body))
+                paras = (q for _kind, _part, blocks in self.chunk_doc(i).all_blocks() for q in iter_paras(blocks))
+                for a, b in zip(got, tracked_items(enumerate(paras, self.chunks[i]["para"] + 1))):
+                    a += b
+            self._rev = tuple(a + b for a, b in zip(got, self._story_rev))
+        return self._rev
 
     # ------------------------------------------------------------------ 小さな文書
     def _chunk_xml(self, i: int) -> bytes:
@@ -618,12 +636,11 @@ class DocxLazy(BlocksLazy):
         write = [Reason("B", "欄を範囲ごとに見つける", "大きな文書なので、欄は頼まれた段落の範囲ごとに見つけます")]
         if self.has_macros:
             write.append(Reason("C", "マクロ", "マクロがあります。窓の終わりの節のソースを読んで判断します"))
-        if self.tracked:
-            reasons.append(Reason("B", "変更履歴", f"変更履歴で削除された字が {self.tracked} か所に残っています"))
-        if self.tracked_ins:
-            from ..grade import inserted_reason
+        if self._rev_chunks or any(self._story_rev):
+            from ..grade import word_reasons
 
-            reasons.append(Reason("B", "変更履歴", inserted_reason(self.tracked_ins, "か所")))
+            gone, new, marks = self.revisions()
+            reasons += word_reasons({"tracked_deletions": gone, "tracked_insertions": new, "tracked_marks": marks})[0]
         g = _final(reasons, write)
         g.deferred = ["未確認：全段落の字の読み落とし・全部の欄への書き込みの試し（audit_document で全部のまとまりを確かめます）"]
         return g

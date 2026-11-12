@@ -2574,8 +2574,9 @@ LOCKED_FIELD = ("保護されたセル：書けない／パスワードが要る
 
 def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dict]:
     out = []
-    from .controls import CHOICE_KINDS, VALUE_KINDS, radio_groups
+    from .controls import CHOICE_KINDS, VALUE_KINDS, ensure_places, radio_groups
 
+    ensure_places(wb, sh)
     groups = {id(c): g for g in radio_groups(wb, sh) for c in g.radios}
     done_groups: set[int] = set()
     for r in sorted(set(lay.rows) | set(lay.agent)):
@@ -2600,8 +2601,8 @@ def fields_for(wb: Workbook, sh: Sheet, lay: Layout, opts: _Options) -> list[dic
             if b.kind == "check":
                 ctl = b.control
                 d = lay.describe(b)
-                f = {"id": f"{sh.name}!{addr(*ctl.link_cell[1:])}" if ctl.link_cell else f"{sh.name}!{ctl.name}",
-                     "cell": addr(*ctl.link_cell[1:]) if ctl.link_cell else None, "control": ctl.name,
+                f = {"id": f"{sh.name}!{addr(*ctl.link_cell[1:])}" if ctl.link_cell else f"{sh.name}!{ctl.ref_name}",
+                     "cell": addr(*ctl.link_cell[1:]) if ctl.link_cell else None, "control": ctl.ref_name,
                      "kind": "checkbox", "value": ctl.is_checked, "at": addr(*ctl.anchor),
                      "write_as": "TRUE（チェックあり）/ FALSE（なし）", **d, "provenance": LAYOUT}
                 if ctl.link_cell and ctl.link_cell[0] != sh.name:
@@ -2778,18 +2779,18 @@ def _control_field(wb: Workbook, sh: Sheet, lay: Layout, b: Box, groups: dict, d
         items = lay.control_items.get(ctl.shape_id) or items_of(wb, sh, ctl)
         multi = ctl.kind == "List" and (ctl.sel_type or "single") != "single"
         link = ctl.link_cell
-        fid = f"{link[0]}!{addr(*link[1:])}" if link and not multi else f"{sh.name}!{ctl.name}"
+        fid = f"{link[0]}!{addr(*link[1:])}" if link and not multi else f"{sh.name}!{ctl.ref_name}"
         value = ([items[i - 1] for i in (ctl.multi_sel or []) if 0 < i <= len(items)] if multi else
                  (items[ctl.sel - 1] if ctl.sel and 0 < ctl.sel <= len(items) else None))
         return {"id": fid, "cell": addr(*link[1:]) if link and not multi else None, "kind": "multiselect" if multi else "select",
-                "control": ctl.name, "options": items, "value": value, **d,
+                "control": ctl.ref_name, "options": items, "value": value, **d,
                 "write_as": "選択肢の文字のリストか、番号（1から）のリスト" if multi else "選択肢の文字か、番号（1から）",
                 "provenance": LAYOUT}
     link = ctl.link_cell
-    fid = f"{link[0]}!{addr(*link[1:])}" if link else f"{sh.name}!{ctl.name}"
+    fid = f"{link[0]}!{addr(*link[1:])}" if link else f"{sh.name}!{ctl.ref_name}"
     lo = ctl.vmin if ctl.vmin is not None else 0
     hi = ctl.vmax if ctl.vmax is not None else 100
-    return {"id": fid, "cell": addr(*link[1:]) if link else None, "kind": "spin", "control": ctl.name, "min": lo, "max": hi,
+    return {"id": fid, "cell": addr(*link[1:]) if link else None, "kind": "spin", "control": ctl.ref_name, "min": lo, "max": hi,
             "value": ctl.val, **d, "write_as": f"{lo}〜{hi} の整数", "provenance": LAYOUT}
 
 
