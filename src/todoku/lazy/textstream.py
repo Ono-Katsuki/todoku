@@ -5,6 +5,8 @@
 - 索引：STRIDE 個ごとの記録の始まりのバイト位置だけを array に持つ（行数に比例するが、1 行あたり 1 バイト未満）
 - 区切りのバイト（改行・「,」・タブ・「;」・引用符）は、CP932・EUC-JP・Big5・GBK・UHC の 2 バイト目には現れない（どれも 0x40 以上か
   0xA1 以上）ので、バイトのまま探せる。UTF-16・UTF-32 は、字の単位（2・4 バイト）にそろった所だけを見る
+- 切り替えの印で字の読み方が変わる文字コード（ISO-2022・HZ・UTF-7）は、同じバイトが、前の印によって別の字になるので、
+  バイトのままでは探せない：字を UTF-8 に直した写し（recode）の上で、同じ読み手を使う
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from array import array
 
 from ..datafile.textenc import (
     BOMS,
+    ISO2022,
     MULTI,
     NAME_JA,
     WIDE,
@@ -36,6 +39,7 @@ from ..datafile.textenc import (
     high_bytes,
     single_readings,
     snippet,
+    stateful,
 )
 
 CHUNK = 1 << 20
@@ -225,11 +229,12 @@ def detect(src: Source, encoding: str | None = None) -> StreamDecoded:
                 raise UnicodeDecodeError(enc, head, len(bom), src.size, "BOM の文字コードとして読めません")
             d = StreamDecoded(enc, bom, "", False, "bom", [], ctl)
             return d
-    has_nul, ascii_only, ctl = False, True, 0
+    has_nul, ascii_only, ctl, esc = False, True, 0, 0
     for c in src.chunks():
         has_nul = has_nul or b"\x00" in c
         if ascii_only and not c.isascii():
             ascii_only = False
+        esc += c.count(b"\x1b") if ascii_only else 0
     if has_nul:
         best = None
         got = []
@@ -249,6 +254,9 @@ def detect(src: Source, encoding: str | None = None) -> StreamDecoded:
             best.has_nul = True
             return best
     if ascii_only:
+        got3 = _escaped(src, esc) if esc and not has_nul else None
+        if got3 is not None:
+            return got3
         for c in src.chunks():
             ctl += controls(c.decode("ascii")) if _CTL.search(c.decode("ascii")) else 0
         d = StreamDecoded("utf-8", b"", "", True, "ascii", [], ctl)
@@ -274,6 +282,103 @@ def detect(src: Source, encoding: str | None = None) -> StreamDecoded:
     d = StreamDecoded("latin-1", b"", "", False, "none", [], ctl)
     d.has_nul = has_nul
     return d
+
+
+def _escaped(src: Source, esc: int) -> StreamDecoded | None:
+    """ASCII のバイトだけで ESC のあるファイルを、ISO/IEC 2022 の切り替えの印のとおりに読む（textenc の決め方の 3'）。"""
+    got = []
+    for enc in ISO2022:
+        dec = codecs.getincrementaldecoder(enc)("strict")
+        h = hashlib.sha1()
+        ok, ctl, left = True, 0, 0
+        try:
+            for c in src.chunks():
+                t = dec.decode(c)
+                if "\x0e" in t or "\x0f" in t or (not t.isascii() and not clean(t)):
+                    ok = False
+                    break
+                left += t.count("\x1b")
+                ctl += controls(t) if not _no_control(t) else 0
+                h.update(t.encode("utf-8", "surrogatepass"))
+            if ok:
+                t = dec.decode(b"", True)
+                h.update(t.encode("utf-8", "surrogatepass"))
+        except UnicodeDecodeError:
+            continue
+        if ok and left < esc and all(h.digest() != d for _e, d, _c in got):
+            got.append((enc, h.digest(), ctl))
+    if not got:
+        return None
+    first = got[0]
+    cands = []
+    for e2, _d, _c in got[1:]:
+        k, mine, theirs = _first_diff(src, first[0], e2)
+        cands.append({"encoding": e2, "label": NAME_JA.get(e2, e2), "line": k, "sample": theirs, "own_sample": mine})
+    return StreamDecoded(first[0], b"", "", False, "escape" if not cands else "order", cands, first[2])
+
+
+RECODE_IN_MEMORY = 64 << 20  # これより小さいファイルの写しは、メモリに置く（大きいものは一時ファイル）
+
+
+class RecodedSource(Source):
+    """切り替えの印のある文字コードのファイルを、UTF-8 に直した写し（一時ファイル。閉じると消える）。"""
+
+    def __init__(self, src, enc: str, start: int):
+        import tempfile
+
+        fd, tmp = tempfile.mkstemp(prefix="todoku-", suffix=".utf8")
+        self.path = None
+        self.fd = -1
+        self._tmp = tmp
+        try:
+            with os.fdopen(fd, "wb") as f:
+                for piece in _recoded(src, enc, start):
+                    f.write(piece)
+            self.fd = os.open(tmp, os.O_RDONLY | O_BINARY)
+            self.size = os.fstat(self.fd).st_size
+        except BaseException:
+            self.close()
+            raise
+        self.key = src.key
+        try:  # 開いたまま消せる OS では、ここで消す（止まっても残らない）。消せない OS では、閉じるときに消す
+            os.unlink(tmp)
+            self._tmp = None
+        except OSError:
+            pass
+
+    def close(self) -> None:
+        super().close()
+        if self._tmp:
+            try:
+                os.unlink(self._tmp)
+                self._tmp = None
+            except OSError:
+                pass
+
+
+def _recoded(src, enc: str, start: int):
+    dec = codecs.getincrementaldecoder(enc)("strict")
+    try:
+        for c in src.chunks(start):
+            t = dec.decode(c)
+            if t:
+                yield t.encode("utf-8")
+        t = dec.decode(b"", True)
+        if t:
+            yield t.encode("utf-8")
+    except UnicodeError:
+        raise EncodingError(f"このファイルの字を、{NAME_JA.get(enc, enc)} から UTF-8 に直せませんでした") from None
+
+
+def recode(src, dec: StreamDecoded):
+    """切り替えの印のある文字コードのファイル → 字を UTF-8 に直した写しと、その写しの読み方。字は同じ（厳密に読んで、厳密に書く）。
+    写しの上では、行・区切り・引用符をバイトのまま探せる。"""
+    if src.size <= RECODE_IN_MEMORY:
+        out = MemorySource(b"".join(_recoded(src, dec.encoding, len(dec.bom))))
+        out.key = src.key
+    else:
+        out = RecodedSource(src, dec.encoding, len(dec.bom))
+    return out, StreamDecoded("utf-8", b"", "", False, "given", [], dec.controls)
 
 
 def _given(src: Source, encoding: str) -> StreamDecoded:

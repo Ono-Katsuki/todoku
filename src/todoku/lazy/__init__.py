@@ -93,7 +93,11 @@ def _open_doc(path, password, encoding, force, built_ok, _member) -> LazyDoc | N
             old = _CACHE.pop(next(iter(_CACHE)))
             if hasattr(old, "close"):
                 old.close()
-    return doc if force or doc.large else None
+    if not (force or doc.large):
+        return None
+    if not force and not built_ok and getattr(doc, "recoded", False):
+        return None  # 切り替えの印のある文字コードの文字のファイル：書き込み・検査・段階は、全体を読む道で
+    return doc
 
 
 def _is_built(path: str, name: str) -> bool:

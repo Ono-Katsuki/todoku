@@ -12,7 +12,8 @@ import re
 import zipfile
 
 from .base import Page, RangeError, comma
-from .textstream import Source, detect
+from ..datafile.textenc import stateful
+from .textstream import Source, detect, recode
 
 _TAG = re.compile(r"<[^>]*>")
 _BLOCK_END = re.compile(r"</(?:\w+:)?(?:p|tr|row|si|text-p|h)\s*>")
@@ -320,6 +321,10 @@ def _read_text(path: str, cursor: str | None, max_chars: int, encoding: str | No
     src = Source(path)
     try:
         dec_info = detect(src, encoding)
+        if stateful(dec_info.encoding):  # 切り替えの印のある文字コード：続きの位置からは読み直せないので、UTF-8 に直した写しを読む
+            was = src
+            src, dec_info = recode(src, dec_info)
+            was.close()
         at = len(dec_info.bom)
         chars = 0
         if cursor:

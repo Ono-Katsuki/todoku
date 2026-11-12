@@ -14,7 +14,7 @@ import zipfile
 import pytest
 
 from todoku import api, jobs, lazy, limits, mcp_server
-from todoku.datafile.csvfile import OTHER_SEPS, CsvFile, choosing, chosen_delimiter, delimiters
+from todoku.datafile.csvfile import OTHER_SEPS, CsvFile, DelimiterError, choosing, chosen_delimiter, delimiters
 from todoku.lazy.textstream import second_byte_leads
 
 AMB = "1,5;2,5;3,5\r\n4,5;5,5;6,5\r\n".encode()
@@ -274,12 +274,16 @@ def test_which_encodings_need_the_second_byte_check():
         assert not second_byte_leads(enc, "|"), enc
 
 
-def test_stateful_encoding_refuses_other_symbols_in_byte_reading(tmp_path):
-    p = _file(tmp_path, "jis.csv", "名前|数\n穐山|3\n".encode("iso2022_jp"))
-    # 字にしてから読む道（窓）は読める
+def test_stateful_encoding_reads_other_symbols_through_a_utf8_copy(tmp_path):
+    """切り替えの印のある文字コード：バイトの並びからは区切りを探せない（second_byte_leads は断る）ので、
+    範囲の道は、UTF-8 に直した写しを読む。「ポ」は JIS で 0x25 0x5D、「ぬ」は 0x24 0x4C、「|」は 0x7C。"""
+    p = _file(tmp_path, "jis.csv", "名前|数\n穐山|3\nポ|ぬ\n".encode("iso2022_jp"))
     assert _table(_window(p, encoding="iso2022_jp", delimiter="|")[1])[:2] == [["名前", "数"], ["穐山", "3"]]
-    with pytest.raises(api.ApiError, match="範囲で分けて読むときに選べません"):
-        api.read_range(p, {"rows": [1, 2]}, encoding="iso2022_jp", delimiter="|")
+    for enc in ("iso2022_jp", None):  # 規則も、切り替えの印から ISO-2022-JP と決める
+        page, _doc = api.read_range(p, {"rows": [1, 3]}, encoding=enc, delimiter="|")
+        assert _table(page.text)[:3] == [["名前", "数"], ["穐山", "3"], ["ポ", "ぬ"]]
+    with pytest.raises(DelimiterError, match="範囲で分けて読むときに選べません"):
+        second_byte_leads("iso2022_jp", "|")
 
 
 # ---------------------------------------------------------------------- 大きなファイル（分けて読む道）と長い仕事

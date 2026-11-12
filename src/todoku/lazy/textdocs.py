@@ -35,7 +35,7 @@ from ..datafile.csvfile import (
     quote,
     to_text,
 )
-from ..datafile.textenc import Decoded, EncodingError, NAME_JA
+from ..datafile.textenc import Decoded, EncodingError, NAME_JA, stateful
 from ..datafile.window import cell_text, row_line
 from .base import ByteRanges, LazyDoc, Page, RangeError, comma, cut_note, parse_range, stream_patch, temp_beside, verify_ranges
 from .textstream import (
@@ -47,6 +47,7 @@ from .textstream import (
     head_text,
     index_csv,
     index_lines,
+    recode,
     second_byte_leads,
     span_hash,
 )
@@ -62,17 +63,55 @@ class TextDoc(LazyDoc):
         self.path = path
         self.name = name
         self.kind = kind
-        self.src = Source(path)
-        self.est_chars = self.src.size  # 字の数はバイト数を超えない
+        self._src = Source(path)
+        self.file_bytes = self._src.size
+        self.est_chars = self._src.size  # 字の数はバイト数を超えない
         self._encoding = encoding
         self._dec = None
         self._idx: TextIndex | None = None
+        self.told = None  # 切り替えの印のある文字コードのファイル：元のファイルの読み方（読むのは、UTF-8 に直した写し）
+
+    @property
+    def src(self):
+        """読むバイトの元。文字コードを決めてから渡す（切り替えの印のある文字コードは、UTF-8 に直した写しに替わる）。"""
+        self.dec  # noqa: B018
+        return self._src
 
     @property
     def dec(self):
         if self._dec is None:
-            self._dec = detect(self.src, self._encoding)
+            d = detect(self._src, self._encoding)
+            if stateful(d.encoding):
+                # 同じバイトが、前の印によって別の字になる：行・区切り・引用符をバイトのまま探せないので、字を UTF-8 に直した
+                # 写しの上で読む。書き込み・検査・段階は、元のファイルの全体を読む道でする（streams を False に）
+                was = self._src
+                self._src, d2 = recode(was, d)
+                was.close()
+                self.told, d = d, d2
+                self.streams = False
+            self._dec = d
         return self._dec
+
+    @property
+    def recoded(self) -> bool:
+        self.dec  # noqa: B018
+        return self.told is not None
+
+    @property
+    def shown(self):
+        """伝えるときの、ファイルの文字コード（写しを読むときも、元のファイルの読み方）。"""
+        d = self.dec
+        return self.told or d
+
+    def _audit_whole(self, state: dict) -> dict:
+        from .. import api
+
+        limits.progress("書類の全体を検査しています")
+        au = api.audit_whole(self.path, None, self._encoding)
+        state["checks"] = au.get("checks", [])
+        state["full"] = au
+        state["done"] = True
+        return state
 
     @property
     def start(self) -> int:
@@ -86,7 +125,12 @@ class TextDoc(LazyDoc):
         return Decoded(self.dec.encoding, b"", text, False, "given")
 
     def source_line(self) -> str:
-        return f"- 元ファイル {self.name}（{self.src.size:,} バイト）。SHA-256 は書き込みの結果と検査で示します（ここでは計算しません）"
+        line = f"- 元ファイル {self.name}（{self.file_bytes:,} バイト）。SHA-256 は書き込みの結果と検査で示します（ここでは計算しません）"
+        if self.recoded:
+            line += (f"\n- このファイルの文字コード（{self.told.label}）は、切り替えの印（ESC など）で、同じバイトの読み方が変わります。"
+                     "範囲で読むときは、字を UTF-8 に直した写しを読みます（字は同じ。行のバイト数は、写しでの数）。"
+                     "書き込みと検査は、元のファイルの全体を読んでします。")
+        return line
 
     def _guide(self) -> list[str]:
         return ["- 窓の全部を一度には返しません（読む量を分けるだけで、読めない所はありません）。"
@@ -168,18 +212,18 @@ class CsvDoc(TextDoc):
     def format_info(self) -> dict:
         idx, st = self.idx, self.st
         q = "すべてのマスを引用符で囲む" if st.quote_all else "必要なマスだけ引用符で囲む"
-        return {"encoding": self.dec.encoding, "encoding_ja": self.dec.label, "bom": bool(self.dec.bom),
-                "ascii_only": self.dec.ascii_only, "newline": NEWLINE_JA[idx.newline or "\r\n"], "mixed_newlines": idx.mixed_newlines,
+        return {"encoding": self.shown.encoding, "encoding_ja": self.shown.label, "bom": bool(self.shown.bom),
+                "ascii_only": self.shown.ascii_only, "newline": NEWLINE_JA[idx.newline or "\r\n"], "mixed_newlines": idx.mixed_newlines,
                 "ends_with_newline": idx.ends_with_newline,
                 **delimiter_info(self.delim, self.delim_also, self.delim_declared, self.delim_rule, self.delim_even),
                 "quoting": q,
                 "empty_lines_count": st.empty_lines, "empty_lines_first": st.first_empty_lines,
-                **self.dec.info(), "encoding_notes": self.dec.note_lines()}
+                **self.shown.info(), "encoding_notes": self.shown.note_lines()}
 
     def overview(self) -> dict:
         return {"format": self.format_info(), "rows": self.idx.count, "columns": self.width, "header": self.header,
                 "problems": self.st.first_problems, "problem_count": self.st.problem_rows, "ranges": "rows（行の範囲）",
-                "bytes": self.src.size}
+                "bytes": self.file_bytes}
 
     def overview_text(self) -> str:
         fm = self.format_info()
@@ -505,6 +549,8 @@ class CsvDoc(TextDoc):
 
     def audit_step(self, state: dict) -> dict:
         """1 区切り（STRIDE×256 行）：別の読み手（Python の csv）で、窓の読み手と同じ値かを確かめる。全部の行が終わったら書く試し。"""
+        if self.recoded:
+            return self._audit_whole(state)
         n = self.idx.count
         r = state["next_row"]
         if r <= n:
@@ -656,18 +702,18 @@ class LineDoc(TextDoc):
 # ====================================================================== JSON Lines
 class JsonlDoc(LineDoc):
     def overview(self) -> dict:
-        return {"format": {"encoding": self.dec.encoding, "encoding_ja": self.dec.label, "bom": bool(self.dec.bom), **self.dec.info(),
-                           "encoding_notes": self.dec.note_lines()},
-                "records": self.idx.count, "ranges": "records（行の範囲）", "bytes": self.src.size}
+        return {"format": {"encoding": self.shown.encoding, "encoding_ja": self.shown.label, "bom": bool(self.shown.bom), **self.shown.info(),
+                           "encoding_notes": self.shown.note_lines()},
+                "records": self.idx.count, "ranges": "records（行の範囲）", "bytes": self.file_bytes}
 
     def overview_text(self) -> str:
         n = self.idx.count
         return "\n".join([f"# {self.name}", "", self.source_line(),
-                          f"- JSON Lines・{n:,} 行。文字コード {self.dec.label}",
+                          f"- JSON Lines・{n:,} 行。文字コード {self.shown.label}",
                           f"- 大きいので、ここでは全体を出していません。read_window に records: \"1-500\" のように行の範囲を渡して読みます"
                           f"（cursor をたどれば L1〜L{n} のすべてを読めます）。list_fields も records で、その範囲の値を出します。",
                           "- 値の id は「L行/名前」（L3/name。L3 は 3 行目の全体）。書き込みは、書いた値の字だけを変え、ほかのバイトはそのままファイルを写します。",
-                          *self.dec.note_lines()]) + "\n"
+                          *self.shown.note_lines()]) + "\n"
 
     def _parse_line(self, n: int, data: bytes):
         from ..datafile.jsonfile import JsonError, JsonFile
@@ -872,6 +918,8 @@ class JsonlDoc(LineDoc):
         return {"next_row": 1, "values": 0, "problems": [], "dups": [], "done": False, "checks": []}
 
     def audit_step(self, state: dict) -> dict:
+        if self.recoded:
+            return self._audit_whole(state)
         from ..datafile.jsonfile import JsonError, JsonFile
 
         n = self.idx.count
@@ -1058,22 +1106,22 @@ class TxtLazy(LineDoc):
     # ------------------------------------------------------------------ 概要
     def overview(self) -> dict:
         idx = self.idx
-        return {"format": {"encoding": self.dec.encoding, "encoding_ja": self.dec.label, "bom": bool(self.dec.bom), "ascii_only": self.dec.ascii_only,
+        return {"format": {"encoding": self.shown.encoding, "encoding_ja": self.shown.label, "bom": bool(self.shown.bom), "ascii_only": self.shown.ascii_only,
                            "newline": NEWLINE_JA[idx.newline], "mixed_newlines": idx.mixed_newlines, "ends_with_newline": idx.ends_with_newline,
-                           "lines": idx.count, **self.dec.info(), "encoding_notes": self.dec.note_lines()},
-                "lines": idx.count, "longest_line_bytes": idx.longest, "ranges": "paragraphs（行の範囲）", "bytes": self.src.size}
+                           "lines": idx.count, **self.shown.info(), "encoding_notes": self.shown.note_lines()},
+                "lines": idx.count, "longest_line_bytes": idx.longest, "ranges": "paragraphs（行の範囲）", "bytes": self.file_bytes}
 
     def overview_text(self) -> str:
         idx = self.idx
         out = [f"# {self.name}", "", self.source_line(),
-               f"- テキスト・{idx.count:,} 行（いちばん長い行は {idx.longest:,} バイト）。文字コード {self.dec.label}／改行 {NEWLINE_JA[idx.newline]}",
+               f"- テキスト・{idx.count:,} 行（いちばん長い行は {idx.longest:,} バイト）。文字コード {self.shown.label}／改行 {NEWLINE_JA[idx.newline]}",
                f"- 大きいので、ここでは全体を出していません。read_window に paragraphs: \"1-500\" のように行の範囲を渡して読みます"
                f"（cursor をたどれば、すべての行のすべての字を読めます。{SEG_CHARS:,} 字を超える行は、字の範囲で分けて出し、分けたことを印で示します）。",
                "- list_fields も paragraphs で、その範囲の欄を出します。欄の id は窓と同じ P行.c字数。"
                f"{SEG_CHARS:,} 字を超える行では P行.x字の位置（行の頭から数えた字の位置。ほかの所を書いても変わりません）。",
                "- 書き込みは、書いた所のバイトだけを変え、ほかのバイトはそのままファイルを写します。字を目印にして書くときは "
                "`{\"@1\": {\"old\": \"元の字\", \"new\": \"書き換えた後の字\"}}`（old がファイルにいくつもあるときは occurrence か near で 1 つに決める）。",
-               *self.dec.note_lines()]
+               *self.shown.note_lines()]
         return "\n".join(out) + "\n"
 
     # ------------------------------------------------------------------ 読む
@@ -1440,6 +1488,8 @@ class TxtLazy(LineDoc):
         return {"next_row": 1, "lines": 0, "fields": 0, "chars": 0, "problems": [], "done": False, "checks": [], "seg": 0}
 
     def audit_step(self, state: dict) -> dict:
+        if self.recoded:
+            return self._audit_whole(state)
         from ..txt.document import split_lines
 
         n = self.idx.count

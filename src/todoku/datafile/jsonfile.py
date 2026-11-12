@@ -14,7 +14,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from .textenc import Decoded, EncodingError, decode
+from .textenc import Decoded, EncodingError, decode, kept_encoding
 
 
 class JsonError(ValueError):
@@ -457,9 +457,9 @@ def fill(f: JsonFile, values: dict) -> JsonFillResult:
     at = 0
     try:
         for a, b, s in edits:
-            x, y = f.dec.span(f.blob, a, b)
+            x, y, new = f.dec.patch(f.blob, a, b, s)
             out += f.blob[at:x]
-            out += f.dec.encode(s)
+            out += new
             at = y
     except EncodingError as e:
         raise JsonError(str(e)) from None
@@ -504,7 +504,7 @@ def prove(original: bytes, new: bytes, written: dict[str, object], filename: str
     except JsonError as e:
         pr.lint_errors.append(f"書いた後のファイルを JSON として読めません：{e}")
         return pr
-    if (a.dec.encoding, a.dec.bom) != (b.dec.encoding, b.dec.bom) and not a.dec.ascii_only:
+    if not kept_encoding(a.dec, b.dec, new) and not a.dec.ascii_only:
         pr.unexpected.append(f"文字コードが変わっています（{a.dec.label} → {b.dec.label}）")
     na = {i: n for i, n, _d in a.nodes()}
     nb = {i: n for i, n, _d in b.nodes()}

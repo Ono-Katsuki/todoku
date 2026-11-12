@@ -16,7 +16,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from ..limits import budget
-from .textenc import Decoded, EncodingError, decode
+from .textenc import Decoded, EncodingError, decode, kept_encoding
 
 NEWLINE_JA = {"\r\n": "CRLF", "\n": "LF", "\r": "CR", "": "なし"}
 DELIM_JA = {",": "「,」（カンマ）", "\t": "タブ", ";": "「;」（セミコロン）", "|": "「|」（縦線）"}
@@ -436,8 +436,7 @@ def fill(f: CsvFile, values: dict) -> CsvFillResult:
                 text, key = want[(r, c)]
                 if c <= len(rec.fields):
                     fd = rec.fields[c - 1]
-                    x, y = f.dec.span(f.blob, fd.a, fd.b)
-                    edits.append((x, y, f.dec.encode(quote(text, f, fd.quoted))))
+                    edits.append(f.dec.patch(f.blob, fd.a, fd.b, quote(text, f, fd.quoted)))
                 else:
                     tail.append(str(c))
                 patches.append(CsvPatch(f"R{r}.C{c}", r, c, text, key))
@@ -449,8 +448,7 @@ def fill(f: CsvFile, values: dict) -> CsvFillResult:
                 for c in range(last + 1, hi + 1):
                     cells.append(quote(want[(r, c)][0], f, False) if (r, c) in want else
                                  ('""' if f.quote_empty else ""))
-                at = f.dec.byte_of(rec.b)
-                edits.append((at, at, f.dec.encode(f.delim + f.delim.join(cells))))
+                edits.append(f.dec.patch(f.blob, rec.b, rec.b, f.delim + f.delim.join(cells)))
                 warnings.append(f"R{r}：もとの行は {last} マスなので、区切りを足して C{hi} まで書きました")
         if new_rows:
             width = max(f.width, max(c for (_r, c) in want))
@@ -466,7 +464,7 @@ def fill(f: CsvFile, values: dict) -> CsvFillResult:
                 lines.append(f.delim.join(cells))
             add = (f.newline if f.records and not f.ends_with_newline else "") + f.newline.join(lines) + \
                 (f.newline if f.ends_with_newline or not f.records else "")
-            edits.append((len(f.blob), len(f.blob), f.dec.encode(add)))
+            edits.append(f.dec.patch(f.blob, len(f.text), len(f.text), add))
             if f.width and width > f.width:
                 warnings.append(f"新しい行は {width} マスです（もとの表は {f.width} 列）")
     except EncodingError as e:
@@ -519,7 +517,7 @@ def prove(original: bytes, new: bytes, written: dict[tuple[int, int], str], file
     except CsvError as e:
         pr.lint_errors.append(f"書いた後のファイルを読めません：{e}")
         return pr
-    if (a.dec.encoding, a.dec.bom) != (b.dec.encoding, b.dec.bom) and not a.dec.ascii_only:
+    if not kept_encoding(a.dec, b.dec, new) and not a.dec.ascii_only:
         pr.unexpected.append(f"文字コードが変わっています（{a.dec.label} → {b.dec.label}）")
     if a.delim != b.delim:
         pr.unexpected.append("区切りの字が変わっています")

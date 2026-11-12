@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 
-from ..datafile.textenc import EncodingError
+from ..datafile.textenc import EncodingError, kept_encoding
 from ..docx.fill import LINE_BREAKS, FillError, _as_bool, _is_text_value, written_of  # 証明に渡す、書いた所 → 値（Word と同じ）
 from ..docx.proof import _expected_text
 from ..docx.window import Spots, WriteError, box_mark, resolve_write
@@ -102,9 +102,8 @@ def apply(doc: TxtDocument, edits: list[tuple[int, int, str, int]]) -> bytes:
     out = bytearray()
     at = 0
     for a, b, v, _n in sorted(edits, key=lambda e: (e[0], e[1])):
-        x, y = doc.dec.span(doc.blob, a, b)
         try:
-            enc = doc.dec.encode(v)
+            x, y, enc = doc.dec.patch(doc.blob, a, b, v)
         except EncodingError as e:
             raise FillError(str(e)) from None
         out += doc.blob[at:x]
@@ -185,14 +184,21 @@ def prove(original: bytes, new: bytes, written: dict, encoding: str | None = Non
     want = bytearray()
     at = 0
     for x0, y0, v in sorted(edits):
-        x, y = a.dec.span(original, x0, y0)
+        why = None
+        try:
+            x, y, enc = a.dec.patch(original, x0, y0, v)
+        except EncodingError as ex:
+            why = str(ex)
+            try:
+                x, y = a.dec.span(original, x0, y0)
+            except EncodingError:
+                pr.unexpected.append(why)
+                continue
         if x < at:
             pr.unexpected.append("書く所が重なっています")
             break
-        try:
-            enc = a.dec.encode(v)
-        except EncodingError as ex:
-            pr.unexpected.append(str(ex))
+        if why is not None:
+            pr.unexpected.append(why)
             continue
         want += original[at:x] + enc
         pr.bytes_replaced += y - x
@@ -207,7 +213,7 @@ def prove(original: bytes, new: bytes, written: dict, encoding: str | None = Non
     except TxtError as e:
         pr.lint_errors.append(f"書き込み後のファイルを読めません：{e}")
         return pr
-    if (a.dec.encoding, a.dec.bom) != (b.dec.encoding, b.dec.bom):
+    if not kept_encoding(a.dec, b.dec, new):
         pr.unexpected.append(f"文字コードが変わっています（{a.dec.label} → {b.dec.label}）")
     pr.lines_total = len(a.lines)
     if len(a.lines) != len(b.lines):
