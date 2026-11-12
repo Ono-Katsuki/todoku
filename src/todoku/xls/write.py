@@ -47,12 +47,19 @@ class Rec:
 
 
 def _xlstr(s: str) -> bytes:
-    """XLUnicodeString（u16 の文字数・印・文字）。Latin-1 で書けるものは1バイト、ほかは UTF-16。"""
+    """XLUnicodeString（u16 の文字数・印・文字）。Latin-1 で書けるものは1バイト、ほかは UTF-16。
+    文字数は UTF-16 の単位の数（基本多言語面の外の字は 2 と数える）。"""
     try:
         raw = s.encode("latin-1")
         return struct.pack("<HB", len(s), 0) + raw
     except UnicodeEncodeError:
-        return struct.pack("<HB", len(s), 1) + s.encode("utf-16-le")
+        raw = s.encode("utf-16-le")
+        return struct.pack("<HB", len(raw) // 2, 1) + raw
+
+
+def _units(s: str, i: int) -> int:
+    """字 s の i 字目の、UTF-16 の単位で数えた位置。"""
+    return i + sum(1 for ch in s[:i] if ch > "\uffff")
 
 
 def _bstr16(s: str, enc: str) -> bytes:
@@ -500,7 +507,8 @@ class XlsEditor:
                 raw, high = s.encode("latin-1"), 0
             except UnicodeEncodeError:
                 raw, high = s.encode("utf-16-le"), 1
-            head = struct.pack("<HBH", len(s), high | 0x08, len(runs)) if runs else struct.pack("<HB", len(s), high)
+            cch = len(raw) // 2 if high else len(s)  # 文字数は UTF-16 の単位の数
+            head = struct.pack("<HBH", cch, high | 0x08, len(runs)) if runs else struct.pack("<HB", cch, high)
             if len(parts[-1]) + len(head) + (2 if high else 1) > MAXREC:
                 parts.append(bytearray())
             parts[-1] += head
@@ -517,7 +525,7 @@ class XlsEditor:
             for ich, ifnt in runs:
                 if len(parts[-1]) + 4 > MAXREC:
                     parts.append(bytearray())
-                parts[-1] += struct.pack("<HH", ich, ifnt)
+                parts[-1] += struct.pack("<HH", _units(s, ich), ifnt)
         self.sst_parts = parts
         new = [Rec(T_SST, bytes(parts[0]), False)] + [Rec(T_CONTINUE, bytes(p), False) for p in parts[1:]]
         # 元の SST/CONTINUE と同じ中身の部分は「元のまま」として扱う

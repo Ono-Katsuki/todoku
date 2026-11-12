@@ -65,7 +65,7 @@ def _encode(rid: int, old_len: int, v, where: str) -> bytes:
         if 4 + len(enc) != old_len:
             raise XlsbWriteError(f"{where}：字のセルは、同じ字数（UTF-16 で {(old_len - 4) // 2} 字）でないと書けません（大きさが変わります）。"
                                  ".xlsx で保存し直してもらえば書けます")
-        return struct.pack("<I", len(s)) + enc
+        return struct.pack("<I", len(enc) // 2) + enc  # 字数は UTF-16 の単位の数
     raise XlsbWriteError(f"{where}：このセルの形（レコード {rid}）には書けません")
 
 

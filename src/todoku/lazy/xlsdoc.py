@@ -184,7 +184,7 @@ class LazySst:
                 limits.progress("共有文字列の位置を調べています", i, self.n)
 
     def _one(self, seg, decode: bool = True):
-        from ..xls.book import _phonetic
+        from ..xls.book import _phonetic, cp_runs
 
         cch = seg.u16()
         flags = seg.u8()
@@ -196,7 +196,7 @@ class LazySst:
         if runs:
             rb = seg.read(4 * runs)
             if decode:
-                rl = [struct.unpack_from("<HH", rb, 4 * k) for k in range(runs)]
+                rl = cp_runs(s, [struct.unpack_from("<HH", rb, 4 * k) for k in range(runs)])
         if ext:
             eb = seg.read(ext)
             if decode:

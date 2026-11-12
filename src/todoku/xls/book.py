@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import bisect
 import struct
 from dataclasses import dataclass, field
 
@@ -171,6 +172,26 @@ def _hyperlink_object(b: bytes, p: int, how: dict | None = None) -> str:
     if not target:
         raise ValueError("先がありません")
     return target
+
+
+def cp_runs(s: str, runs: list) -> list:
+    """字ごとの書式の位置 ich を、字（符号位置）の位置にする。ファイルの中の位置と字数は UTF-16 の単位で数える
+    （MS-XLS 2.5.293 XLUnicodeRichExtendedString・2.5.132 FormatRun）ので、基本多言語面の外の字（「𠮷」・絵文字：2 単位）
+    の後ろでは、字の位置とずれる。そういう字のない字は、そのまま。"""
+    if not runs or not any(ch > "\uffff" for ch in s):
+        return runs
+    at = [0]
+    for ch in s:
+        at.append(at[-1] + (2 if ch > "\uffff" else 1))
+    return [(bisect.bisect_right(at, ich) - 1, ifnt) for ich, ifnt in runs]
+
+
+def _cut16(s: str, a: int, b: int | None = None) -> str:
+    """字 s の、UTF-16 の単位で数えた a から b まで（ふりがなの位置：MS-XLS 2.5.200 PhRuns）。"""
+    if not any(ch > "\uffff" for ch in s):
+        return s[a:b]
+    raw = s.encode("utf-16-le", "surrogatepass")
+    return raw[2 * a:None if b is None else 2 * b].decode("utf-16-le", "replace")
 
 
 def _font_sym(b: bytes) -> str:
@@ -642,7 +663,7 @@ class XlsWorkbook:
             s = r.chars(cch, bool(flags & 0x01))
             if runs:
                 rb = r.read(4 * runs)
-                self.sst_runs[i] = [struct.unpack_from("<HH", rb, 4 * k) for k in range(runs)]
+                self.sst_runs[i] = cp_runs(s, [struct.unpack_from("<HH", rb, 4 * k) for k in range(runs)])
             if ext:
                 ext_data = r.read(ext)
                 ph = _phonetic(s, ext_data)
@@ -1103,7 +1124,7 @@ def _control_state(c: Control, info, fmla_range: str | None) -> None:
 
 
 def _phonetic_units(ext: bytes) -> list[str]:
-    """ExtRst に保存された読みの単位（PhRuns ごとの字。MS-XLS 2.5.216）。"""
+    """ExtRst に保存された読みの単位（PhRuns ごとの字。MS-XLS 2.5.200）。"""
     p = 4 + 4
     crun, _cch = struct.unpack_from("<HH", ext, p)
     cch_st = struct.unpack_from("<H", ext, p + 4)[0]
@@ -1131,10 +1152,10 @@ def _phonetic(base: str, ext: bytes) -> str | None:
         out, at = [], 0
         for k, (f, m, n) in enumerate(runs):
             nxt = runs[k + 1][0] if k + 1 < len(runs) else len(st)
-            out.append(base[at:m])
+            out.append(_cut16(base, at, m))
             out.append(st[f:nxt])
             at = m + n
-        out.append(base[at:])
+        out.append(_cut16(base, at))
         del cb
         return "".join(out)
     except Exception:  # noqa: BLE001
