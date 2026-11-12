@@ -924,8 +924,12 @@ def test_biff5_write_refusals():
     from todoku.xlsx.edit import EditError, fill
 
     blob = make_biff5()
-    with pytest.raises(EditError, match="cp932"):
+    with pytest.raises(EditError, match="CP932））では書けない字"):
         fill(XlsWorkbook(blob), {"様式!B1": "😀"})  # ブックの文字コードで書けない字
+    # 書けるが、読み直すと違う字になる字（CP932 は 〜 U+301C を ～ U+FF5E のバイトにする）：黙って違う字にしない
+    with pytest.raises(EditError, match="「〜」（U\\+301C）は.*「～」（U\\+FF5E）と同じバイト"):
+        fill(XlsWorkbook(blob), {"様式!B1": "1〜2"})
+    assert fill(XlsWorkbook(blob), {"様式!B1": "1～2"}) is not None
     with pytest.raises(EditError, match="DIMENSIONS"):
         fill(XlsWorkbook(blob), {"様式!H3": "x"})  # 使っている範囲の外
     with pytest.raises(EditError, match="ROW"):
@@ -1137,8 +1141,13 @@ def test_word6_overwrites_in_place_with_proof():
     # バイト数を超える値・文字コードで書けない字・字のない所は断る
     with pytest.raises(FillError, match="バイト"):
         doc_fill(DocFile(blob), {inline["id"]: "あ" * 20})
-    with pytest.raises(FillError, match="cp932"):
+    with pytest.raises(FillError, match="CP932））では書けない字"):
         doc_fill(DocFile(blob), {inline["id"]: "😀"})
+    # 書けるが、読み直すと違う字になる字（CP932 は 〜 U+301C を ～ U+FF5E のバイトにする）：黙って違う字にしない
+    with pytest.raises(FillError, match="「〜」（U\\+301C）は.*「～」（U\\+FF5E）と同じバイト"):
+        doc_fill(DocFile(blob), {inline["id"]: "1〜2"})
+    res = doc_fill(DocFile(blob), {inline["id"]: "1～2"})
+    assert doc_prove(blob, res.blob, written_of(res.patches)).ok
 
 
 def test_word6_refuses_what_the_spec_does_not_establish():

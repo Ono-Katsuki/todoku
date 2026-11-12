@@ -17,6 +17,7 @@ from ..xlsx.audit import Audit, Check
 from .csvfile import CsvError, CsvFile
 from .csvfile import fill as csv_fill
 from .csvfile import prove as csv_prove
+from .textenc import EncodingError
 from .jsonfile import JsonError, JsonFile, esc_token
 from .jsonfile import fill as json_fill
 from .jsonfile import prove as json_prove
@@ -93,8 +94,8 @@ def _csv_sample(f: CsvFile, k: int) -> str:
     samples = ["テスト", 'カンマ,と"引用符"', "改行\nあり", "12", "  前後の空白  "]
     s = samples[k % len(samples)]
     try:
-        s.encode(f.dec.encoding)
-    except UnicodeEncodeError:
+        f.dec.encode(s)
+    except EncodingError:
         s = ["test", 'comma,and"quote"', "line\nbreak", "12", "  spaces  "][k % 5]
     if f.kind == "tsv":
         s = s.replace("\t", " ")

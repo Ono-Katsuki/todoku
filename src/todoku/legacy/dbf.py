@@ -384,9 +384,14 @@ NO_WRITE = "メモ・絵の項目と、形の決まらない項目には書き�
 
 
 def encode_value(v, t: str, ln: int, dc: int, enc: str, where: str) -> bytes:
-    """値 → 項目の幅ちょうどのバイト。入らなければ DbfError（切り詰めない）。"""
+    """値 → 項目の幅ちょうどのバイト。入らなければ DbfError（切り詰めない）。書けない字・読み直すと違う字になる字も断る。"""
     if t == "C":
-        b = str(v).encode(enc)
+        from ..datafile.textenc import EncodingError, exact
+
+        try:
+            b = exact(str(v), enc)
+        except EncodingError as e:
+            raise DbfError(f"{where}：{e}") from None
         if len(b) > ln:
             raise DbfError(f"{where}：字が項目の幅（{ln} バイト）に入りません（{len(b)} バイト）。切り詰めません")
         return b.ljust(ln, b" ")

@@ -708,10 +708,12 @@ def _encode(doc: Word6File, key: str, text: str) -> bytes:
     for ch in text:
         if ord(ch) < 0x20:
             raise FillError(f"{key}: 改行・制御の字は書けません")
+    from ..datafile.textenc import EncodingError, exact
+
     try:
-        raw = text.encode(doc.enc)
-    except UnicodeEncodeError as e:
-        raise FillError(f"{key}: 「{text[e.start:e.end]}」は、この文書の文字コード（{doc.enc}）で書けない字です") from None
+        raw = exact(text, doc.enc)  # 書けない字と、読み直すと違う字になる字（CP932 の 〜 U+301C → ～ U+FF5E）を断る
+    except EncodingError as e:
+        raise FillError(f"{key}: {e}") from None
     if any(ch != "\xa0" and ch.encode(doc.enc) == b"\xa0" for ch in text):
         raise FillError(f"{key}: この字は文書の中で別の意味（改行しない空白）になるので書けません")
     return raw

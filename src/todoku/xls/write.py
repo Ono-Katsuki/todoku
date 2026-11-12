@@ -63,11 +63,14 @@ def _units(s: str, i: int) -> int:
 
 
 def _bstr16(s: str, enc: str) -> bytes:
-    """BIFF5 の字：16 ビットの長さ（バイトの数）と、文字コード enc のバイト列。書けない字・長すぎる字は断る。"""
+    """BIFF5 の字：16 ビットの長さ（バイトの数）と、文字コード enc のバイト列。書けない字・読み直すと違う字になる字
+    （CP932 の 〜 U+301C は ～ U+FF5E のバイトになる）・長すぎる字は断る。"""
+    from ..datafile.textenc import EncodingError, exact
+
     try:
-        raw = s.encode(enc)
-    except UnicodeEncodeError as e:
-        raise XlsWriteError(f"「{s[e.start:e.end]}」は、このブックの文字コード（{enc}）で書けない字です") from None
+        raw = exact(s, enc)
+    except EncodingError as e:
+        raise XlsWriteError(str(e)) from None
     if len(raw) > 255:
         raise XlsWriteError(f"Excel 5.0/95 のセルの字は 255 バイトまでです（「{s[:20]}…」は {len(raw)} バイト）")
     return struct.pack("<H", len(raw)) + raw

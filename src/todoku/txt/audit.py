@@ -13,6 +13,7 @@ import codecs
 import io
 from collections import Counter
 
+from ..datafile.textenc import EncodingError
 from ..docx.audit import _sample
 from ..docx.fill import FillError
 from ..docx.window import _in_field
@@ -84,9 +85,9 @@ def _writable(doc: TxtDocument, value, ascii_value: str):
     if not isinstance(value, str):
         return value
     try:
-        value.encode(doc.dec.encoding)
+        doc.dec.encode(value)
         return value
-    except UnicodeEncodeError:
+    except EncodingError:
         return ascii_value
 
 

@@ -16,7 +16,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from ..limits import budget
-from .textenc import Decoded, EncodingError, decode, kept_encoding
+from .textenc import Decoded, EncodingError, decode, kept_encoding, stateful
 
 NEWLINE_JA = {"\r\n": "CRLF", "\n": "LF", "\r": "CR", "": "なし"}
 DELIM_JA = {",": "「,」（カンマ）", "\t": "タブ", ";": "「;」（セミコロン）", "|": "「|」（縦線）"}
@@ -486,6 +486,7 @@ class CsvProof:
     cells_total: int = 0
     cells_changed: int = 0
     rows_added: int = 0
+    marks_dropped: int = 0  # 書いた行より後ろで取った、何も変えなくなった文字コードの切り替えの印
     unexpected: list[str] = field(default_factory=list)
     lint_errors: list[str] = field(default_factory=list)
 
@@ -497,6 +498,9 @@ class CsvProof:
         add = f"・足した行 {self.rows_added}" if self.rows_added else ""
         return (f"マス {self.cells_total:,} のうち、変わったのは書いた {self.cells_changed} マスだけ{add}。"
                 "ほかのマスの字・引用符・改行・文字コードはそのまま"
+                + ("" if not self.marks_dropped else
+                   f"（書いた字の前に文字コードの切り替えの印を置いたので、後ろにあった同じ印 {self.marks_dropped} 個は取りました："
+                   "ほかのバイトと、読んだ字は同じ）")
                 + ("" if not self.unexpected else f"（想定外の変更 {len(self.unexpected)} 件）"))
 
 
@@ -569,5 +573,11 @@ def prove(original: bytes, new: bytes, written: dict[tuple[int, int], str], file
         ca_ = a.dec.byte_of(ra_.b + len(ra_.terminator))
         cb_ = b.dec.byte_of(rb_.b + len(rb_.terminator))
         if original[ca_:] != new[cb_:]:
-            pr.unexpected.append("書いた行より後ろの部分のバイトが変わっています")
+            # 切り替えの印のある文字コード：書いた字の前に印を置いたとき、後ろの、何も変えなくなった印は取る（textenc の
+            # Shifts.idle）。取ったのが印だけなら、ほかのバイトは元のまま（読んだ字が同じことは、上でマスごとに比べた）
+            got = a.dec.shifts().dropped(ca_ - len(a.dec.bom), new[cb_:]) if stateful(a.dec.encoding) else None
+            if got is None:
+                pr.unexpected.append("書いた行より後ろの部分のバイトが変わっています")
+            else:
+                pr.marks_dropped = got
     return pr

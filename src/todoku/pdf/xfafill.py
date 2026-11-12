@@ -292,7 +292,22 @@ class DataEdit:
         enc = self.x.xdp.encoding
         if enc.replace("-", "") in ("utf8", ""):
             return s.encode("utf-8")
-        return s.encode(enc, errors="xmlcharrefreplace")
+        try:
+            raw = s.encode(enc)
+            if raw.decode(enc) == s:
+                return raw
+        except UnicodeError:
+            pass
+        # その文字コードにない字と、書いて読み直すと違う字になる字（Shift_JIS（CP932）の 〜 U+301C は ～ U+FF5E のバイトに
+        # なる）は、文字参照（&#…;）で書く：XML を読む側は、どちらも頼まれた字として読む
+        ref = {}
+        for ch in set(s):
+            try:
+                if ch.encode(enc).decode(enc) != ch:
+                    ref[ord(ch)] = f"&#{ord(ch)};"
+            except UnicodeError:
+                pass  # ない字は、下の xmlcharrefreplace が文字参照にする
+        return s.translate(ref).encode(enc, errors="xmlcharrefreplace")
 
     def _new_xml(self, n: New) -> str:
         inner = (_esc(n.text) if n.text else "") + "".join(self._new_xml(k) for k in n.kids)

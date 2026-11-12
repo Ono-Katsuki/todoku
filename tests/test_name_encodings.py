@@ -51,7 +51,7 @@ def test_codepage_numbers_map_to_codecs_and_unknown_numbers_to_none():
     c = namecode.codec_of_codepage
     assert (c(932), c(949), c(1251), c(28592), c(50220), c(10001), c(65001)) == (
         "cp932", "cp949", "cp1251", "iso8859_2", "iso2022_jp_ms", "shift_jis", "utf-8")
-    # Windows のコードページ 50220〜50222 は、2 バイトの字を CP932 の表で読む ISO-2022-JP（①・髙 がある）
+    # Windows のコードページ 50220〜50222 は、規格の表に CP932 の 13 区・89〜92 区を足した ISO-2022-JP（①・髙 がある）
     assert (c(50221), c(50222)) == ("iso2022_jp_ms", "iso2022_jp_ms")
     assert b"\x1b$B-!|b\x1b(B".decode(c(50221)) == "①髙"
     assert c(99999) is None and c(0) is None
@@ -248,10 +248,10 @@ def test_msg_8bit_strings_follow_the_message_code_page(tmp_path):
     q = _p(tmp_path, "ja.msg", _msg8("cp932", "申請について", "山田", "本文の字", "様式.csv", message=932, internet=50220))
     doc, t = _text(q)
     assert "申請について" in t and "山田" in t and "本文の字" in t and "様式.csv" in t and "決められ" not in t
-    # 7 ビットの字（ISO-2022-JP の印つき）は PR_INTERNET_CPID で読む：コードページ 50221 は、Windows の字（①・髙・～）も読む
-    w = _p(tmp_path, "win.msg", _msg8("iso2022_jp_ms", "①髙橋の申請", "㈱髙橋", "本文～ｶﾅ", "様式①.csv", message=932, internet=50221))
+    # 7 ビットの字（ISO-2022-JP の印つき）は PR_INTERNET_CPID で読む：コードページ 50221 は、Windows の字（①・髙）も読む
+    w = _p(tmp_path, "win.msg", _msg8("iso2022_jp_ms", "①髙橋の申請", "㈱髙橋", "本文〜ｶﾅ", "様式①.csv", message=932, internet=50221))
     doc, t = _text(w)
-    assert "①髙橋の申請" in t and "㈱髙橋" in t and "本文～ｶﾅ" in t and "様式①.csv" in t and "決められ" not in t
+    assert "①髙橋の申請" in t and "㈱髙橋" in t and "本文〜ｶﾅ" in t and "様式①.csv" in t and "決められ" not in t
 
 
 def test_msg_8bit_strings_without_a_code_page_are_undetermined(tmp_path):

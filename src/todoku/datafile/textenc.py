@@ -318,12 +318,14 @@ class Decoded:
         return bytes(out)
 
     def encode(self, s: str) -> bytes:
-        try:
-            return s.encode(self.encoding)
-        except UnicodeEncodeError as e:
-            bad = s[e.start:e.end]
-            raise EncodingError(f"「{bad}」は、このファイルの文字コード（{NAME_JA.get(self.encoding, self.encoding)}）では書けない字です"
-                                + self._windows_hint(bad)) from None
+        """s を、このファイルの文字コードのバイトにする。書けない字・読み直すと違う字になる字は、書かずに断る（exact）。"""
+        return exact(s, self.encoding, self._x0212(), self._windows_hint)
+
+    def _x0212(self) -> bool:
+        """Windows の ISO-2022-JP のファイルが、ESC $ ( D（Windows が IBM 拡張文字を書く印）を使っているか：使っていれば、
+        89〜92 区の字（髙・﨑 など）も、そのファイルと同じに ESC $ ( D で書く（iso2022ms.py）。"""
+        raw = getattr(self, "_raw", None)
+        return self.encoding == ISO2022_MS and raw is not None and b"\x1b$(D" in raw
 
     def _windows_hint(self, bad: str) -> str:
         """規格の ISO-2022-JP の仲間として読んだファイルに、Windows の ISO-2022-JP（CP50221）にだけある字を書こうとしたとき：
@@ -338,9 +340,108 @@ class Decoded:
         t = _strict(raw, ISO2022_MS)
         if t is None:
             return ""
-        same = "いまの字は、どちらで読んでも同じ" if t == self.text else "いまの字のうち、読み方の変わる字があります（〜 と ～ など）"
+        same = "いまの字は、どちらで読んでも同じ" if t == self.text else "いまの字のうち、読み方の変わる字があります"
         return (f"（Windows の ISO-2022-JP（CP50221）にはある字です。このファイルは CP50221 としても読めます：{same}。"
                 "Windows の決まりのファイルとして書くなら、encoding に cp50221 を渡します）")
+
+
+@functools.lru_cache(maxsize=None)
+def _unicode_form(enc: str) -> bool:
+    """Unicode の字をそのまま表す文字コード（UTF-8・UTF-16・UTF-32）か：書いた字は、いつも同じ字に読める。"""
+    try:
+        return codecs.lookup(enc).name.startswith(("utf-8", "utf-16", "utf-32"))
+    except LookupError:
+        return False
+
+
+def _bytes(s: str, enc: str, x0212: bool = False) -> bytes:
+    return iso2022ms.encode(s, True) if x0212 and enc == ISO2022_MS else s.encode(enc)
+
+
+def _back(s: str, enc: str, x0212: bool = False) -> str | None:
+    """s を enc で書いて読み直した字（読み直せなければ None）。書けない字は UnicodeEncodeError。"""
+    try:
+        return _bytes(s, enc, x0212).decode(enc)
+    except UnicodeDecodeError:
+        return None
+
+
+def _u(ch: str) -> str:
+    return "・".join(f"U+{ord(c):04X}" for c in ch)
+
+
+def exact(s: str, enc: str, x0212: bool = False, more=None) -> bytes:
+    """s を、文字コード enc のバイトにする。書けない字と、書いて読み直すと違う字になる字は、何が起きるかを添えて断る
+    （EncodingError）：Python のエンコーダは、表にない字の一部を、近い字のバイトにする（Shift_JIS（CP932）の 〜 U+301C は
+    ～ U+FF5E と同じバイト、EUC-JP の ¥ は \\ のバイト）。黙って書くと、ファイルの字が、頼まれた字と違う字になる。
+    どの字に直すかは決めない（エージェントが、伝えた字を見て決める）。more：書けない字に添える案内（字 → 文）。"""
+    name = NAME_JA.get(enc, enc)
+    try:
+        b = _bytes(s, enc, x0212)
+    except UnicodeEncodeError as e:
+        bad = s[e.start:e.end]
+        raise EncodingError(f"「{bad}」は、このファイルの文字コード（{name}）では書けない字です" + twin_hint(bad, enc, x0212)
+                            + (more(bad) if more else "")) from None
+    if _unicode_form(enc):
+        return b
+    try:
+        if b.decode(enc) == s:
+            return b
+    except UnicodeDecodeError:
+        pass
+    for ch in dict.fromkeys(s):
+        got = _back(ch, enc, x0212)
+        if got is None:
+            raise EncodingError(f"「{ch}」（{_u(ch)}）は、このファイルの文字コード（{name}）のバイトにはなりますが、そのバイトを"
+                                "読み直せません（書くと、ファイルが読めなくなるので、書きません）")
+        if got != ch:
+            try:
+                ok = _back(got, enc, x0212) == got
+            except UnicodeEncodeError:
+                ok = False  # 読み直した字そのものは書けない（Python の ISO-2022-JP-3 の 鬝 U+9B1D → 鬜 U+9B1C）
+            raise EncodingError(f"「{ch}」（{_u(ch)}）は、このファイルの文字コード（{name}）では、「{got}」（{_u(got)}）と同じ"
+                                f"バイトになります（書いて読み直すと「{got}」）"
+                                + (f"。「{got}」でよければ、その字で書いてください" if ok else ""))
+    raise EncodingError(f"「{_clip(s, 40)}」は、このファイルの文字コード（{name}）で書いて読み直すと、同じ字になりません")
+
+
+# 同じ文字集合の、規格の表と Windows の表（同じバイトに、違う Unicode の字を置く所がある：JIS X 0208 の 1 区 33 点は、規格の表では
+# 〜 U+301C、CP932 では ～ U+FF5E）。どの字が対かは、手で並べず、2 つの表を全部のバイトで比べて決める（twins）
+_TABLE_PAIRS = (("shift_jis", "JIS X 0208 の規格の表", "cp932", "Windows の表（CP932）"),
+                ("big5", "Big5 の表", "cp950", "Windows の表（CP950）"),
+                ("gb2312", "GB 2312 の規格の表", "gbk", "Windows の表（GBK）"))
+
+
+@functools.lru_cache(maxsize=None)
+def twins() -> dict:
+    """字 → [(同じバイトのもう一方の字, この字の表の名前, もう一方の表の名前)]。"""
+    out: dict[str, list] = {}
+    for a, na, b, nb in _TABLE_PAIRS:
+        for hi in range(0x81, 0xFF):
+            for lo in range(0x40, 0xFF):
+                bb = bytes((hi, lo))
+                try:
+                    x, y = bb.decode(a), bb.decode(b)
+                except UnicodeDecodeError:
+                    continue
+                if x != y and len(x) == 1 and len(y) == 1:
+                    out.setdefault(x, []).append((y, na, nb))
+                    out.setdefault(y, []).append((x, nb, na))
+    return out
+
+
+def twin_hint(bad: str, enc: str, x0212: bool = False) -> str:
+    """このファイルの文字コードで書けない字 bad が、規格の表と Windows の表で同じバイトに置かれた字の片方で、もう一方の字なら
+    書けるとき、その字を伝える文（なければ ""）。字は置き換えない。"""
+    for t, own, other in twins().get(bad, ()):
+        try:
+            if _back(t, enc, x0212) != t:
+                continue
+        except UnicodeEncodeError:
+            continue
+        return (f"（「{bad}」（{_u(bad)}）は {own}の字で、{other}は、同じ所に「{t}」（{_u(t)}）を置きます。"
+                f"「{t}」なら、このファイルに書けます）")
+    return ""
 
 
 @functools.lru_cache(maxsize=None)
@@ -422,6 +523,24 @@ class Shifts:
         for j, m in enumerate(self.marks):
             a, _b = self.mark_of.get(m[3], (j, j))
             self.mark_of[m[3]] = (a, j + 1)
+
+    def dropped(self, x: int, tail: bytes) -> int | None:
+        """元のバイト列の x バイト目から後ろと tail が、元の切り替えの印をいくつか取ったほかは同じバイトなら、取った印の数
+        （ほかに違いがあれば None）。証明が、書いた所より後ろを比べるのに使う：取ったのが印だけで、読んだ字が同じなら、
+        後ろのバイトは、何も変えなくなった印のほかは元のまま。"""
+        blob, at, j, n = self.blob, x, 0, 0
+        for a, b, _state, _k in self.marks:
+            if a < x:
+                continue
+            if tail[j:j + a - at] != blob[at:a]:
+                return None
+            j += a - at
+            if tail[j:j + b - a] == blob[a:b]:
+                j += b - a
+            else:
+                n += 1
+            at = b
+        return n if tail[j:] == blob[at:] else None
 
     def gap(self, i: int) -> list[tuple[int, int]]:
         """i 番目の字の前の、字のない所の位置と、そこでの状態：[(バイトの位置, 状態)]（前の字の終わりから、印ごとに）。"""
@@ -519,39 +638,110 @@ class Shifts:
             return None
         return len(self.blob)
 
-    def fit(self, y: int, sx: int, sy: int, s: str, core: bytes) -> tuple[bytes, tuple[int, int] | None]:
+    def idle(self, y: int, t: int, sy: int, end: int) -> list[tuple[int, int]]:
+        """書いた後ろの、状態が元と違う間（y から end まで）にある元の印のうち、元の読み方では状態を変えていたが、新しい状態
+        （t）からは何も変えなくなった印：[(始まり, 終わり)]。ISO-2022-KR の、行の途中にあった印 ESC $ ) C は、その前に韓国語の
+        字を書くと（書く字の前に同じ印を置くので）、2 つ目の同じ印になる：消して、印を 1 つにする（RFC 1557：印は 1 回）。"""
+        from bisect import bisect_left
+
+        j = bisect_left(self.marks, y, key=lambda m: m[0])
+        d1 = codecs.getincrementaldecoder(self.enc)("strict")
+        d2 = codecs.getincrementaldecoder(self.enc)("strict")
+        out, pos = [], y
+        try:
+            d1.setstate((b"", t))
+            d2.setstate((b"", sy))
+            while j < len(self.marks) and self.marks[j][1] <= end:
+                a, b = self.marks[j][:2]
+                d1.decode(self.blob[pos:a])
+                d2.decode(self.blob[pos:a])
+                s1, s2 = d1.getstate(), d2.getstate()
+                d1.decode(self.blob[a:b])
+                d2.decode(self.blob[a:b])
+                if not s1[0] and d1.getstate() == s1 and d2.getstate() != s2:
+                    out.append((a, b))
+                pos, j = b, j + 1
+        except (UnicodeDecodeError, TypeError, ValueError, OverflowError):
+            return []
+        return out
+
+    def lead(self, i: int) -> bytes:
+        """i 番目の字の前の書く所の境目が、集合を指すだけの印（前も後ろも、ASCII の字をそのまま読む状態：ISO-2022-KR の
+        ESC $ ) C）のすぐ後ろのとき、その状態を変えない「戻す印」（ISO-2022-KR は SI）。そうでなければ空。
+        Windows の 50225 は、ESC $ ) C のすぐ後ろを、SO がなくても、SI が来るまで韓国語の字として読む（Windows で確かめた：
+        ESC $ ) C a,b … は別の字、ESC $ ) C SI a,b … と ESC $ ) C SO … は同じ字）。印のすぐ後ろが ASCII の字になる
+        書き込みでは、戻す印を先に置く（fit）：Python・iconv・perl は、あってもなくても同じ字に読む。"""
+        g = self.gap(i)
+        k = g.index(self.at(i))
+        sx = g[k][1]
+        if k == 0 or g[k - 1][1] == sx or not self.plain(sx) or not self.plain(g[k - 1][1]):
+            return b""
+        return next((r for r in RESETS if self._after(r, sx, "") == sx), b"")
+
+    def _lean(self, core: bytes, marks: list, sx: int) -> bytes:
+        """core（切り替えのない状態から書いたバイト列）から、状態 sx から読むと何も変えない印を除いたもの：ISO-2022-KR の
+        ESC $ ) C は、もう前にあるファイルでは、字の途中に書く 2 つ目の印になる（「a성」の a と 성 の間）。"""
+        d = codecs.getincrementaldecoder(self.enc)("strict")
+        out, pos = [], 0
+        try:
+            d.setstate((b"", sx))
+            for a, b, _state, _k in marks:
+                d.decode(core[pos:a])
+                before = d.getstate()
+                d.decode(core[a:b])
+                out.append(core[pos:a] if not before[0] and d.getstate() == before else core[pos:b])
+                pos = b
+        except (UnicodeDecodeError, TypeError, ValueError, OverflowError):
+            return core
+        return b"".join(out) + core[pos:]
+
+    def fit(self, y: int, sx: int, sy: int, s: str, core: bytes, lead: bytes = b"") -> tuple[bytes, tuple[int, int] | None]:
         """状態 sx の所に置いて s と読めるバイト列と、後ろの状態が元（sy）と違うときの (新しい状態, 合流する位置)。
         core は s を切り替えのない状態から書いたバイト列（終わりも切り替えのない状態）。core の前後の印を省いたもの・
+        sx からは何も変えない印を除いたもの（_lean）・
         切り替えのない状態に戻す印を前に足したもの・後ろの状態に合わせる印を後ろに足したものを、短い順に、デコーダで
         確かめて選ぶ：後ろの状態が元と同じになるものが先。なければ、エンコーダが書くとおりに、切り替えのない状態に戻して
         終わるバイト列（後ろの印を省かず、足さないもの）のうち、後ろの元のバイトが同じ字に読めるもの（meets）。終わりの印を
-        省いたものは、ここでは使わない（Python のデコーダは、ISO-2022-KR の SO を改行で戻すが、ほかの読み手は戻さない）。"""
-        heads, tails = [0], [len(core)]
+        省いたものは、ここでは使わない（Python のデコーダは、ISO-2022-KR の SO を改行で戻すが、ほかの読み手は戻さない）。
+        lead（集合を指すだけの印のすぐ後ろ：lead）があるときは、印のすぐ後ろが字のバイトになるものを後に回す。"""
+        heads, tails, lean = [0], [len(core)], core
         if s:
             own = Shifts(core, self.enc, s)
             heads = [p for p, _st in own.gap(0)]
             tails = [p for p, _st in own.gap(len(s))]
-        bodies = dict.fromkeys(core[p:q] for p in heads for q in tails if p <= q)
+            lean = self._lean(core, own.marks, sx)
+        bodies = dict.fromkeys([core[p:q] for p in heads for q in tails if p <= q] + [lean])
         pres = (b"",) + RESETS
         posts = [b""] + self.recent(y)
         cands = sorted(dict.fromkeys(pre + body + post for body in bodies for pre in pres for post in posts), key=len)
-        closed = {pre + core[p:] for p in heads for pre in pres}
+        closed = {pre + core[p:] for p in heads for pre in pres} | {pre + lean for pre in pres}
+
+        def bare(new: bytes) -> bool:
+            """印のすぐ後ろ（new の頭。new が空なら、後ろの元のバイト）が、字として読まれるバイトか。"""
+            nxt = (new + self.blob[y:y + 1])[:1]
+            return bool(nxt) and self._after(nxt, sx, nxt.decode("latin-1")) is not None
+
         after = []
         for new in cands:
             t = self._after(new, sx, s)
-            if t == sy:
+            if t == sy and not (lead and bare(new)):
                 return new, None
             after.append((new, t))
-        for new, t in after:
-            if t is not None and new in closed:
-                c = self.meets(y, t, sy)
-                if c is not None:
-                    return new, (t, c)
+        for strict in ((True, False) if lead else (False,)):
+            for new, t in after:
+                if t == sy and not (strict and bare(new)):
+                    return new, None
+            for new, t in after:
+                if t is not None and new in closed and not (strict and bare(new)):
+                    c = self.meets(y, t, sy)
+                    if c is not None:
+                        return new, (t, c)
         raise EncodingError(_CANNOT.format(NAME_JA.get(self.enc, self.enc)))
 
     def plan(self, edits: list[tuple[int, int, str]], encode) -> list[tuple[int, int, bytes]]:
         """字の範囲の置き換え [(a, b, s)]（前から順。重ならない）→ [(バイトの始め, 終わり, 置くバイト列)]。
-        広げた範囲（widen）が重なる書き込みは、1 つにまとめる。"""
+        広げた範囲（widen）が重なる書き込みは、1 つにまとめる。書いた後ろで余った印（idle）は、空のバイト列に置き換える
+        （次の書き込みの所より前のものだけ）。"""
         groups: list[list] = []  # [広げた始め, 広げた終わり, [(a, b, s)]]
         for a, b, s in edits:
             if not 0 <= a <= b <= len(self.start):
@@ -564,21 +754,25 @@ class Shifts:
                 groups.append([wa, wb, [(a, b, s)]])
         out: list[tuple[int, int, bytes]] = []
         drift = None  # 前の書き込みの後ろで、状態が元と違う間：(バイトの位置, 字の番号, そこでの状態, 合流する位置)
-        for wa, wb, parts in groups:
+        spans = [self.span(wa, wb) for wa, wb, _parts in groups]
+        for n, (wa, wb, parts) in enumerate(groups):
             s, k = "", wa
             for a, b, v in parts:
                 s += self.text[k:a] + v
                 k = b
             s += self.text[k:wb]
-            x, y, sx, sy = self.span(wa, wb)
+            x, y, sx, sy = spans[n]
             if drift is not None and x < drift[3]:
                 got = self._after(self.blob[drift[0]:x], drift[2], self.text[drift[1]:wa])
                 if got is None:
                     raise EncodingError(_CANNOT.format(NAME_JA.get(self.enc, self.enc)))
                 sx = got
-            new, moved = self.fit(y, sx, sy, s, encode(s))
+            new, moved = self.fit(y, sx, sy, s, encode(s), b"" if drift is not None and x < drift[3] else self.lead(wa))
             out.append((x, y, new))
             drift = None if moved is None else (y, wb, moved[0], moved[1])  # 状態が元と同じに戻れば、後ろは元のまま
+            if moved is not None:
+                end = min(moved[1], spans[n + 1][0]) if n + 1 < len(spans) else moved[1]
+                out += [(a, b, b"") for a, b in self.idle(y, moved[0], sy, end)]
         return out
 
 
@@ -594,10 +788,12 @@ def read_as(raw: bytes, enc: str) -> str | None:
 
 def kept_encoding(a: Decoded, b: Decoded, new: bytes) -> bool:
     """書いた後のファイル（b・new）が、元（a）と同じ文字コードのままか。ASCII の字だけになったファイルには、文字コードの
-    手がかりが残らない：元の文字コードで厳密に読んで同じ字になれば、同じ文字コードのまま。"""
+    手がかりが残らない：元の文字コードで厳密に読んで同じ字になれば、同じ文字コードのまま。切り替えの印だけが残った
+    ファイル（ISO-2022-KR の ESC $ ) C の後ろの字が、みな ASCII になった）も同じ：印を読む文字コードがいくつかあっても、
+    字は ASCII だけで、元の文字コードで読んで同じ字。"""
     if (a.encoding, a.bom) == (b.encoding, b.bom):
         return True
-    if a.bom != b.bom or not b.ascii_only:
+    if a.bom != b.bom or not (b.ascii_only or b.text.isascii()):
         return False
     return _strict(new[len(b.bom):], a.encoding) == b.text
 

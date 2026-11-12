@@ -603,8 +603,8 @@ class CsvDoc(TextDoc):
                 sample[f"R{r}.C1"] = 'カンマ,と"引用符"' if k == 0 else "改行\nあり" if k == 1 else "テスト"
         try:
             for v in sample.values():
-                v.encode(self.dec.encoding)
-        except UnicodeEncodeError:
+                self.dec.encode(v)
+        except EncodingError:
             sample = {k: "test" for k in sample}
         with tempfile.TemporaryDirectory(prefix="todoku-audit-") as td:
             try:

@@ -236,14 +236,15 @@ def test_characters_outside_the_encoding_are_refused(tmp_path):
 
 
 def test_korean_before_a_late_iso2022_kr_header_is_written(tmp_path):
-    """ISO-2022-KR の印（ESC $ ) C）より前に韓国語の字を書く：書く字の前に印を置き、後ろの元のバイトは変えない
-    （前は断っていた）。印は 2 つになるが、どちらの後ろも同じ読み方。"""
+    """ISO-2022-KR の印（ESC $ ) C）より前に韓国語の字を書く：書く字の前に印を置き、後ろにあった元の印は、もう何も
+    変えない印なので取る（印はファイルに 1 つ：RFC 1557 の形。Windows の 50225 は、印が 2 つあるファイルも、1 つの
+    ファイルも同じ字に読んだ）。印のほかの、後ろの元のバイトは変えない。"""
     late = "a,b\n1,홍\n".encode("iso2022_kr")
     assert late == b"a,b\n1,\x1b$)C\x0eH+\x0f\n"  # Python は、初めの韓国語の字の前に印を置く
-    kr, tail = b"\x1b$)C", b"\n1,\x1b$)C\x0eH+\x0f\n"
+    kr, tail = b"\x1b$)C", b"\n1,\x0eH+\x0f\n"
     assert _fill(tmp_path, "k1.csv", late, {"R1.C1": "성"}) == kr + b"\x0e<:\x0f,b" + tail
     assert _fill(tmp_path, "k2.csv", late, {"R1.C1": "성", "R1.C2": "명"}) == kr + b"\x0e<:\x0f,\x0e8m\x0f" + tail
-    assert _fill(tmp_path, "k3.csv", late, {"R1.C1": "성", "R2.C2": "길"}) == kr + b"\x0e<:\x0f,b\n1,\x1b$)C\x0e1f\x0f\n"
+    assert _fill(tmp_path, "k3.csv", late, {"R1.C1": "성", "R2.C2": "길"}) == kr + b"\x0e<:\x0f,b\n1,\x0e1f\x0f\n"
     assert _fill(tmp_path, "k4.csv", late, {"R1.C1": "z", "R2.C2": "성"}) == b"z,b\n1,\x1b$)C\x0e<:\x0f\n"
     assert _fill(tmp_path, "k5.csv", late, {"R3.C1": "끝"}) == late + b"\x0e3!\x0f,\n"
     for name, want in (("k1", "성,b\n1,홍\n"), ("k2", "성,명\n1,홍\n"), ("k3", "성,b\n1,길\n"), ("k5", "a,b\n1,홍\n끝,\n")):
@@ -284,7 +285,7 @@ def test_a_file_left_with_ascii_only_keeps_its_encoding(tmp_path):
 
 POOLS = {"iso2022_jp": "あが、※穐aB,\"1 \n漢字", "iso2022_jp_ext": "あがｶﾅaB,\"\n漢", "iso2022_jp_2004": "あ𠮟が,a\"\n漢",
          "iso2022_jp_2": "あ한é,a\"\nü漢", "iso2022_kr": "한글가,a\" \nb", "iso2022_jp_3": "あ塡a,\n漢", "hz": "汉字一a,\"\nb",
-         "utf-7": "あ한aB+-,\"1 \n漢😀", "iso2022_jp_ms": "あ①髙ｶ¥aB,\"1 \n漢～"}
+         "utf-7": "あ한aB+-,\"1 \n漢😀", "iso2022_jp_ms": "あ①髙ｶ¥aB,\"1 \n漢〜"}
 GIVEN = {"hz": "hz", "utf-7": "utf-7", "iso2022_jp_ms": "cp50221"}
 
 

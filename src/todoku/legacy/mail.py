@@ -182,6 +182,17 @@ def read_eml(blob: bytes) -> Mail:
                 else:
                     notes.append(f"本文に、宣言の文字コード（{charset}）では読めないバイトがあります。"
                                  "読めない所は「�」にしました")
+            elif "\x1b" in text and text.isascii():
+                # 文字コードの宣言がないか ASCII なのに、切り替えの印（ESC）がある：文字だけのファイルと同じ決まり
+                # （ISO/IEC 2022 の印のとおりに厳密に読めるか）で読み直す。読めなければ、そのまま（下で制御文字を伝える）
+                from ..datafile import textenc
+
+                raw = part.get_payload(decode=True) or b""
+                got = textenc.decode(raw) if raw.isascii() else None
+                if got is not None and got.basis in ("escape", "order"):
+                    text = got.text
+                    notes.append(f"本文は、宣言の文字コード（{charset or '宣言なし'}）で読むと、ASCII の字と ESC（切り替えの印）に"
+                                 f"なります。印のとおりに、{textenc.NAME_JA.get(got.encoding, got.encoding)} として読みました")
         except (LookupError, ValueError):
             raw = part.get_payload(decode=True) or b""
             text = raw.decode("latin-1")
@@ -194,6 +205,7 @@ def read_eml(blob: bytes) -> Mail:
         notes.append("本文は HTML だけなので、タグの間の字を読みました")
     else:
         body = ""
+    _control_note(body, notes)
     return Mail(heads, body, att, notes)
 
 
@@ -294,6 +306,17 @@ def _codepages(c) -> dict:
     return out
 
 
+def _control_note(body: str, notes: list) -> None:
+    """本文に制御文字（タブ・改行のほかの C0 と DEL）があれば、そのことを伝える：読めなかった切り替えの印（ESC）などは、
+    窓では見えない字として本文に残る（文字だけのファイルの注意と同じ数え方）。"""
+    from ..datafile import textenc
+
+    n = textenc.controls(body)
+    if n:
+        notes.append(f"本文に、制御文字（ESC・NUL など、タブ・改行以外）が {n:,} 個あります。字としてそのまま読みました"
+                     "（窓では見えないことがあります。文字コードの切り替えの印が読めずに残っていることがあります）")
+
+
 def _html_decode(h: bytes, cps: dict, notes: list) -> str:
     """本文の HTML（バイト）を字にする：PR_INTERNET_CPID → PR_MESSAGE_CODEPAGE の順に、厳密に読めた文字コード。
     どちらもなければ、文字のファイルと同じ決め方（datafile/textenc：BOM・UTF-8 の形・meta の charset・読める文字コードの全部）。"""
@@ -387,6 +410,7 @@ def read_msg(blob: bytes, encoding: str | None = None) -> Mail:
         raw = narrow.get((base, tag))
         if raw is not None and not raw.isascii():
             rawnames[nm] = raw
+    _control_note(body, notes)
     return Mail(heads, body, atts, notes, rawnames, reading.info())
 
 
