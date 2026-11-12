@@ -19,7 +19,7 @@ jobs:
   test:
     name: ${{ matrix.os }} · Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45  # Windows のテストは 18〜29 分かかる（30 分の上限で、通るテストの途中で止められたことがある）
     strategy:
       fail-fast: false
       matrix:
