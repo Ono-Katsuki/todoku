@@ -99,7 +99,7 @@ class BlocksLazy(LazyDoc):
 
     def told_doc(self, i: int):
         """窓・欄にするまとまりの文書。字の色の「ふつう」は、まとまりごとには決めない（まとまりで印が変わる）：
-        段落の位置を調べるときに全体で数えた色（normal_font_color）。数えていない形式は、黒をふつうとし、黒でない色にはみな印を付ける。"""
+        全体で数えた色（normal_font_color：段落の位置を調べるときに数える。大きな .docx は、初めて要るときに数える）。"""
         from ..xlsx.fontfacts import AUTO
 
         d = self.chunk_doc(i)
@@ -198,9 +198,18 @@ class BlocksLazy(LazyDoc):
         cov = f"段落 {a}〜{(stop - 1) if stop else b}（全 {comma(total)} 段落）"
         if stop is None:
             if whole and self.has_extras():
-                return Page("\n".join(body), cov, {"cursor": "extras:0"}, "埋め込み・グラフ・マクロ・画像の一覧の節", body)
-            return Page("\n".join(body), cov, None, "", body)
-        return Page("\n".join(body), cov, {"cursor": f"paragraphs:{stop}:{b}" + (":w" if whole else "")}, f"{comma(b - stop + 1)} 段落", body)
+                return Page(self._page_text(body), cov, {"cursor": "extras:0"}, "埋め込み・グラフ・マクロ・画像の一覧の節", body)
+            return Page(self._page_text(body), cov, None, "", body)
+        return Page(self._page_text(body), cov, {"cursor": f"paragraphs:{stop}:{b}" + (":w" if whole else "")}, f"{comma(b - stop + 1)} 段落", body)
+
+    def _page_text(self, body: list[str]) -> str:
+        """1 回分の窓の字。黒でない色がふつうの文書は、頭で、ふつうの色を伝える（印のない字が黒とは限らない：概要を読まずに範囲を
+        読んでも分かるように。中身の行 body には入れない）。"""
+        from ..xlsx.fontfacts import AUTO
+
+        c = getattr(self, "normal_font_color", AUTO)
+        head = "" if c == AUTO else f"（この文書のふつうの字の色は #{c}：字の色の印のない字は、この色）\n\n"
+        return head + "\n".join(body)
 
     def has_extras(self) -> bool:
         return bool(self.extras_lines())

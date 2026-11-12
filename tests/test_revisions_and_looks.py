@@ -427,7 +427,9 @@ def test_large_road_uses_the_normal_color_of_the_whole_document(tmp_path, monkey
     if chunked:
         assert len(doc.chunks) > 3 and doc.overview()["normal_font_color"] == "333333"
     assert "ふつうの字の色" in doc.overview_text() and "#333333" in doc.overview_text()
-    assert _range_lines(p, "1-41") == normal
+    # まとまりごとに読む道は、各回の頭でも、ふつうの色を伝える（概要を読まずに範囲を読んでも、印のない字の色が分かる）
+    head = ["（この文書のふつうの字の色は #333333：字の色の印のない字は、この色）", ""] if chunked else []
+    assert _range_lines(p, "1-41") == head + normal
 
 
 def test_normal_color_does_not_depend_on_the_order_of_counting():

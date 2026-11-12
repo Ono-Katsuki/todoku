@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import bisect
+import collections
 import io
 import re
 import xml.parsers.expat as expat
@@ -20,6 +21,7 @@ import zlib
 from array import array
 
 from .. import limits
+from ..xlsx.fontfacts import AUTO
 from .blocks import STORY_JA, BlocksLazy
 from .textstream import Source
 from .xlsxdoc import Member, SeekableInflate, _no_doctype
@@ -32,6 +34,7 @@ _COMPLEX = frozenset(("txbxContent", "sdt", "customXml", "moveTo", "AlternateCon
 _FIELD_BLOCK = frozenset(("p", "tbl", "tr", "tc", "sdt", "sdtContent", "customXml", "ins", "moveTo"))
 _FIELD_INLINE = frozenset(("hyperlink", "smartTag", "fldSimple", "bdo", "dir", "del", "moveFrom", "r"))
 _STORY_KINDS = ("header", "footer", "footnotes", "endnotes", "comments")
+_LOOK = frozenset(("color", "pStyle", "rStyle"))  # 字の色を決めうる要素（色の指定と、スタイルの名指し）
 
 
 def word_main(path: str) -> str | None:
@@ -88,6 +91,8 @@ class DocxLazy(BlocksLazy):
         self.objects_blocks: list[int] = []  # 埋め込み・グラフ・SmartArt のあるブロック（窓の終わりの節を作るとき読む）
         self.tracked = 0
         self.tracked_ins = 0  # 変更履歴で挿入された字の所（w:ins・w:moveTo）の数
+        self._may_color = False  # 本文に、黒でない色になりうる字があるか（色の指定か、色を決めるスタイルの名指し）
+        self._story_colors: collections.Counter = collections.Counter()  # 本文のほかの部品の、色ごとの字数
         self.head_xml = b""
         self.tail_xml = b""
         self.data_end = 0
@@ -99,6 +104,8 @@ class DocxLazy(BlocksLazy):
         self.story_list: list[dict] = []
         self._scan()
         self._stories()
+        # 黒でない色になりうる字がどこにもなければ、ふつうの字の色は黒（数えない）。あれば、初めて要るときに数える（normal_font_color）
+        self._normal = None if self._may_color or any(c != AUTO for c in self._story_colors) else AUTO
         self.est_chars = int(self.chars * 1.25) + self.paragraphs * 12 + len(self.control_names) * 60
         self._h = None
 
@@ -191,7 +198,8 @@ class DocxLazy(BlocksLazy):
         p.StartDoctypeDeclHandler = _no_doctype
         names: dict[str, str] = {}
         stack: list[str] = []
-        st = {"at": 0, "complex": False, "paras": 0, "tables": 0, "pstyle": "", "numid": None, "ilvl": 0, "body": False, "body_end": None, "chars": 0, "del": 0, "ins": 0}
+        st = {"at": 0, "complex": False, "paras": 0, "tables": 0, "pstyle": "", "numid": None, "ilvl": 0, "body": False, "body_end": None, "chars": 0, "del": 0, "ins": 0, "colored": False}
+        look_styles: set = {""}  # 本文が名指すスタイル（段落・字）
         pending: list = []
         fst: list[dict] = []  # 開いているフィールド（段落・まとまりをまたぐもの：目次など）
         fp = {"bad": 0, "p": 0, "instr": False, "at": ()}
@@ -252,6 +260,12 @@ class DocxLazy(BlocksLazy):
                 st["at"] = at
                 fp["at"] = [(f["phase"], f["instr"], f["locked"]) for f in fst]
             if st["body"] and depth >= 2:
+                if local in _LOOK:
+                    val = next((v for k, v in attrs.items() if k.rsplit(":", 1)[-1] == "val"), "")
+                    if local != "color":
+                        look_styles.add(val)
+                    elif val.upper() not in ("AUTO", AUTO):
+                        st["colored"] = True
                 if not fp["bad"] and (local in _FIELD_BLOCK or (fp["p"] and local in _FIELD_INLINE)):
                     if local == "p":
                         fp["p"] += 1
@@ -380,6 +394,9 @@ class DocxLazy(BlocksLazy):
         self.body_paragraphs = self.paragraphs
         self.tracked = st["del"]
         self.tracked_ins = st["ins"]
+        fs = h.font_styles()
+        self._may_color = (st["colored"] or fs["default"][1] not in (None, AUTO)
+                           or any(_chain_colored(fs["styles"], s) for s in look_styles | {fs["para_default"]}))
         # まとまりの始まりで開いているフィールド（その時の phase・命令の字）と、後ろで閉じるか
         for ch in self.chunks:
             if "story" in ch:
@@ -434,6 +451,7 @@ class DocxLazy(BlocksLazy):
     def _stories(self) -> None:
         """ヘッダー・フッター・脚注・コメント：部品ごとに 1 つのまとまり（本文の後ろの番号。いままでの読み手と同じ順）。"""
         from ..docx.document import _join, iter_paras
+        from ..docx.fontfacts import count_colors
         from ..docx.window import _tables
 
         h = self._h
@@ -451,6 +469,7 @@ class DocxLazy(BlocksLazy):
             tables = sum(1 for _ in _tables(blocks))
             self._story_has_objects = False
             self.chars += sum(len(p.text) for p in iter_paras(blocks))
+            count_colors(iter_paras(blocks), self._story_colors)
             self._after_tree(h, blocks, -1)
             if self._story_has_objects:
                 self.object_stories.append(name)
@@ -459,6 +478,30 @@ class DocxLazy(BlocksLazy):
             self.paragraphs += paras
             self.tables += tables
             h.parts.pop(name, None)
+
+    # ------------------------------------------------------------------ ふつうの字の色
+    def color_counts(self) -> collections.Counter:
+        """見える字の、色ごとの字数（文書の全部）：本文は、まとまりごとの小さな文書を、ふつうの道と同じ数え方（docx/fontfacts.count_colors）で数える。"""
+        from ..docx.document import iter_paras
+        from ..docx.fontfacts import count_colors
+
+        n = collections.Counter(self._story_colors)
+        body = [i for i, ch in enumerate(self.chunks) if "story" not in ch]
+        for k, i in enumerate(body):
+            limits.progress(f"{self.main} の字の色を数えています", k, len(body))
+            for _kind, _part, blocks in self.chunk_doc(i).all_blocks():
+                count_colors(iter_paras(blocks), n)
+        return n
+
+    @property
+    def normal_font_color(self) -> str:
+        """文書のふつうの字の色（ふつうの道の docx/fontfacts.normal_color と同じ色）。黒でない色になりうる字（色の指定・色を決めるスタイルの
+        名指し）がどこにもない文書は、数えずに黒。ある文書は、初めて要るときに 1 回だけ、全部のまとまりを数える。"""
+        if self._normal is None:
+            from ..docx.fontfacts import most_common_color
+
+            self._normal = most_common_color(self.color_counts())
+        return self._normal
 
     # ------------------------------------------------------------------ 小さな文書
     def _chunk_xml(self, i: int) -> bytes:
@@ -487,11 +530,14 @@ class DocxLazy(BlocksLazy):
 
     # ------------------------------------------------------------------ 概要
     def overview(self) -> dict:
-        return {"bytes": self.size, "window_chars": self.est_chars, "paragraphs": self.paragraphs, "tables": self.tables,
-                "fields_named": len(self.control_names), "pictures": len(self.pictures),
-                "stories": [dict(s) for s in self.story_list[:40]],
-                "protection": {"edit": self.protection, "enforced": self.protection_enforced},
-                "ranges": "paragraphs（段落の範囲）か cursor"}
+        out = {"bytes": self.size, "window_chars": self.est_chars, "paragraphs": self.paragraphs, "tables": self.tables,
+               "fields_named": len(self.control_names), "pictures": len(self.pictures),
+               "stories": [dict(s) for s in self.story_list[:40]],
+               "protection": {"edit": self.protection, "enforced": self.protection_enforced},
+               "ranges": "paragraphs（段落の範囲）か cursor"}
+        if self._normal_note():
+            out["normal_font_color"] = self.normal_font_color
+        return out
 
     def overview_text(self) -> str:
         lines = [f"# {self.name}", "", f"- 元ファイルの SHA-256: `{self.sha256}`（{self.size:,} バイト）、Word",
@@ -504,6 +550,8 @@ class DocxLazy(BlocksLazy):
                   f"- 大きいので、ここでは本文を読んでいません（窓の全体は見積もりで {self.est_chars:,} 字）。read_window に paragraphs: \"1-200\" のように段落の範囲を渡して読みます"
                   "（cursor をたどれば、ヘッダー・脚注・埋め込みまで、すべてを読めます。max_chars で 1 回の大きさを変えられます）。"
                   "list_fields に paragraphs を渡すと、その範囲の欄を出します。"]
+        if self._normal_note():
+            lines.append(self._normal_note().rstrip("\n"))
         if self.story_list:
             first = self.body_paragraphs
             where = []
@@ -674,3 +722,14 @@ def _tag_end(buf: bytearray, pos: int) -> int:
         i += 1
     return n
 
+
+
+def _chain_colored(styles: dict, sid: str) -> bool:
+    """スタイル sid か、その基のスタイルのどれかが、黒でない字の色を決めているか（docx/document.py の run_look がたどる鎖と同じ）。"""
+    seen: list = []
+    while sid in styles and sid not in seen and len(seen) < 32:
+        seen.append(sid)
+        if styles[sid][2] not in (None, AUTO):
+            return True
+        sid = styles[sid][0]
+    return False
