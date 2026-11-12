@@ -348,6 +348,9 @@ def _exact_rect(pts) -> tuple | None:
     return (x0, y0, x1, y1) if x0 < x1 and y0 < y1 else None
 
 
+THIN_COVER = 2.5  # これより細い塗りの四角（pt）は、罫線として描いたもの：面積のある字の四角の全部を覆うときだけ、字を隠す
+
+
 def _union_covers(box, rects, e: float = 0.01) -> bool:
     """四角 box の全部が、rects（[x0, y0, x1, y1, …]）を合わせた範囲の中にあるか（ずれは e まで）。
     box を、四角の縦の辺で縦の帯に分け、帯ごとに、その帯を横切る四角の上下の範囲が、box の上下をすき間なく埋めるかを見る。"""
@@ -489,13 +492,15 @@ class Interpreter:
         return self.out
 
     def _cover(self, gs, rect, kind: str) -> None:
-        """字より後に描いた、透けない塗り（kind "fill"）・画像（"image"）の四角を覚える：切り抜きの中の部分だけ。"""
+        """字より後に描いた、透けない塗り（kind "fill"）・画像（"image"）の四角を覚える：切り抜きの中の部分だけ。
+        7 つ目は、細い塗り（切り抜く前の短い辺が THIN_COVER 以下：罫線として描いた四角）か。"""
+        thin = kind == "fill" and min(rect[2] - rect[0], rect[3] - rect[1]) <= THIN_COVER
         x0, y0, x1, y1 = rect
         cl = gs.clip
         if cl is not None:
             x0, y0, x1, y1 = max(x0, cl[0]), max(y0, cl[1]), min(x1, cl[2]), min(y1, cl[3])
         if x0 < x1 and y0 < y1:
-            self._covers.append([x0, y0, x1, y1, len(self._main.glyphs), kind])
+            self._covers.append([x0, y0, x1, y1, len(self._main.glyphs), kind, thin])
 
     def _uncount(self, at: int, n: int) -> None:
         """ふつうの内容の字の並びから、at より後ろの字が n 個減った：覚えた四角の「そのときまでの字の数」を合わせる
@@ -508,7 +513,9 @@ class Interpreter:
 
     def _hide_covered(self) -> None:
         """後から描いた透けない四角の中に、字の四角（送りの幅 × 書体の高さ）の全部がある字：1 つの四角の中にあるか、
-        2 つ以上の四角を合わせた範囲の中にある（_union_covers）。塗りだけで全部が隠れるなら、ふつうの内容から外して
+        2 つ以上の四角を合わせた範囲の中にある（_union_covers）。細い四角（罫線として描いた塗り）は、面積のある字の四角の
+        全部を覆うときだけ数える（合わせた範囲で確かめる）：字の四角に面積のない字（大きさ・横の倍率が 0 の字）は、
+        その位置を通る罫線 1 本の下の字にはしない（太い塗り・画像の中にあれば、下の字）。塗りだけで全部が隠れるなら、ふつうの内容から外して
         covered へ。画像がなければ隠れないなら、見えない字（invisible）にし、画像の下の字（under）と覚える：読み順には
         残す（スキャンの画像の下に置いた、文字の認識の字のことがある。画像の中身と同じかは、字の情報からは分からない）。
         見えない描き方の字（Tr 3）は、そのまま。"""
@@ -541,7 +548,7 @@ class Interpreter:
         def see(i, c):
             g = gl[i]
             x0, y0, x1, y1 = c[0], c[1], c[2], c[3]
-            if g.x0 >= x0 - e and g.x1 <= x1 + e and g.y0 >= y0 - e and g.y1 <= y1 + e:
+            if not c[6] and g.x0 >= x0 - e and g.x1 <= x1 + e and g.y0 >= y0 - e and g.y1 <= y1 + e:
                 if hit.get(i) != "fill":
                     hit[i] = c[5]  # 塗りと画像の両方の下にある字は、塗りの下の字（塗りが確かに隠している）
             elif g.x0 < x1 and g.x1 > x0 and g.y0 < y1 and g.y1 > y0:
@@ -550,13 +557,18 @@ class Interpreter:
                     ls.append(c)
 
         for c in covers:
-            x0, y0, x1, y1, n = c[0], c[1], c[2], c[3], c[4]
+            x0, y0, x1, y1, n, thin = c[0], c[1], c[2], c[3], c[4], c[6]
             for ix in range(max(gx0, int((x0 - mw) // cell)), min(gx1, int((x1 + mw) // cell)) + 1):
                 for iy in range(max(gy0, int((y0 - mh) // cell)), min(gy1, int((y1 + mh) // cell)) + 1):
                     for i in grid.get((ix, iy), ()):
                         if i >= n:
                             break
-                        see(i, c)
+                        if thin:  # 細い塗り（罫線がほとんど）：1 つでは隠さないので、かかる字に控えるだけ（see と同じ決まり）
+                            g = gl[i]
+                            if g.y0 < y1 and g.y1 > y0 and g.x0 < x1 and g.x1 > x0:
+                                some.setdefault(i, []).append(c)
+                        else:
+                            see(i, c)
             for i in big:
                 if i >= n:
                     break
@@ -565,12 +577,24 @@ class Interpreter:
         # 画像を合わせて初めて隠れるなら画像の下の字
         for i, ls in some.items():
             k = hit.get(i)
-            if k == "fill" or len(ls) + (k is not None) < 2:
+            if k == "fill" or (len(ls) + (k is not None) < 2 and not ls[0][6]):
                 continue
             g = gl[i]
             box = (g.x0, g.y0, g.x1, g.y1)
+            # 先に面積で落とす：字の四角にかかる部分の面積の和が、字の四角の面積に足りなければ、合わせても全部は覆えない
+            # （字を横切る罫線・下線がほとんど：合わせた範囲の計算をしない）
+            need = (g.x1 - g.x0) * (g.y1 - g.y0) * (1 - 1e-9)
+            got = 0.0
+            for c in ls:
+                w, h = min(g.x1, c[2] + e) - max(g.x0, c[0] - e), min(g.y1, c[3] + e) - max(g.y0, c[1] - e)
+                if w > 0 and h > 0:
+                    got += w * h
+                    if got >= need:
+                        break
+            if got < need or need <= 0:
+                continue
             fills = [c for c in ls if c[5] == "fill"]
-            if len(fills) >= 2 and _union_covers(box, fills, e):
+            if (len(fills) >= 2 or (fills and fills[0][6])) and _union_covers(box, fills, e):
                 hit[i] = "fill"
             elif k is None and len(fills) < len(ls) and _union_covers(box, ls, e):
                 hit[i] = "image"
@@ -831,7 +855,7 @@ class Interpreter:
                     if sub.get("curve"):
                         continue
                     rect = _exact_rect(sub["pts"])
-                    if rect is not None and min(rect[2] - rect[0], rect[3] - rect[1]) > 2.5 and not part(sub, rect):
+                    if rect is not None and not part(sub, rect):
                         self._cover(gs, rect, "fill")
             for sub in path:
                 pts = sub["pts"]

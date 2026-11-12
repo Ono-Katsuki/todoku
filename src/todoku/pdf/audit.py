@@ -237,7 +237,6 @@ def check_glyphs(doc: PdfDocument, win: dict) -> Check:
     for pg, page in zip(win["pages"], doc.pages()):
         raw = _count(raw_chars(doc, page))
         shown = _count(pg["_plain"]) - _count(pg.get("_added") or [])  # 窓で足した字（ルビのかっこ）は除く
-        tiny = _count(t for k, t in pg["_dropped"] if k == "size")
         merged = _count(t for k, t in pg["_dropped"] if k == "dup")
         try:
             # 画面に見えないレイヤーの字は、窓がレイヤーごとに分けて読む（重ね書きも、その中で 1 字にする）ので、同じ分け方で数え直す
@@ -258,7 +257,7 @@ def check_glyphs(doc: PdfDocument, win: dict) -> Check:
             missing.append(f"ページ {pg['number']}: 「{ch}」が {n} 字、重ね書きとして1字にされましたが、同じ所に重ねた字ではありません")
         for ch, n in (real - merged).items():
             extra.append(f"ページ {pg['number']}: 「{ch}」が {n} 字、同じ所に重ねて描いた字なのに、別の字として窓に出ています")
-        want = raw - tiny - real
+        want = raw - real  # 読み順に入れない大きさの字も、窓の節に出ている（window の unseen）
         for ch, n in (want - shown).items():
             missing.append(f"ページ {pg['number']}: 「{ch}」が {n} 字、窓に出ていません")
         for ch, n in (shown - raw).items():

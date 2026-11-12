@@ -29,7 +29,7 @@ from .pagetext import (  # noqa: F401
     WIDE_BUCKETS, _attach_marks, BOX_GLYPHS, _box_overlap, Cell, CellIndex, cells_from, Ch, _clash, EM_ROUND, EM_SPACE, glyph_frame,
     _is_cjk, _is_hangul, _is_mark, is_overprint, _is_pua, join_lines, Line, _line, _logical_order, make_lines, _merge,
     MM_PT, _move_pre_base, no_word_space, PRE_BASE, _ruby_base, Rule, rulings, _spaces, _split_overprinted, user_unit,
-    _vertical_runs, _vertical_stacks, View, view_chars, _virama, wide_gap, drop_redrawn,
+    _vertical_runs, _vertical_stacks, View, view_chars, _virama, wide_gap, drop_redrawn, unseen_runs,
 )
 
 
@@ -388,7 +388,8 @@ class PageLayout:
         self.pc = pc
         self.dropped: list = []
         self.merges: list = []  # 重ね書きとして1字にした字：(字, 箱の重なり, 位置)
-        self.chars = view_chars(pc, self.view, self.dropped, self.merges)
+        self.unseen: list = []  # 読み順に入れない大きさの字（0.5 pt に満たない・ページより何倍も大きい）：窓に、分けて示す
+        self.chars = view_chars(pc, self.view, self.dropped, self.merges, self.unseen)
         hs, vs = rulings(pc, self.view)
         self.hs, self.vs = hs, vs
         # 斜めの線（マスを斜線で消す印）
@@ -464,17 +465,20 @@ class PageLayout:
         # 既定の設定では画面に見えないレイヤーの字：読み順・欄には入れず、行にして分けて伝える（上から。表の形にはしない）
         self.off_layers: list[tuple] = []  # [(レイヤーの見え方, 行, 画像の数, 線や図形があるか)]
         for st, c in pc.off:
-            lines = make_lines(view_chars(c, self.view, self.dropped))
+            lines = make_lines(view_chars(c, self.view, self.dropped, None, self.unseen))
             lines.sort(key=lambda ln: (ln.y0, ln.x0))
             self.off_layers.append((st, lines, len(c.pictures), bool(c.segs or c.boxes or c.curves)))
         # 切り抜き（クリップ）の外にあって、画面にも印刷にも出ない字：読み順・欄には入れず、行にして、位置と一緒に分けて伝える
-        self.clipped_lines = make_lines(view_chars(PageContent(glyphs=list(pc.clipped)), self.view, self.dropped)) if pc.clipped else []
+        self.clipped_lines = (make_lines(view_chars(PageContent(glyphs=list(pc.clipped)), self.view, self.dropped, None, self.unseen))
+                              if pc.clipped else [])
         self.clipped_lines.sort(key=lambda ln: (ln.y0, ln.x0))
         # 後から描いた透けない塗りの下にあって、画面にも印刷にも出ない字：同じように、行にして、位置と一緒に分けて伝える
         # （同じ字を同じ所に、見える字として描き直してあるものは、重ね書きと同じに 1 字にまとめ、見える方だけを読む）
-        self.covered_lines = (make_lines(view_chars(PageContent(glyphs=drop_redrawn(pc.covered, pc.glyphs, self.dropped)), self.view, self.dropped))
-                              if pc.covered else [])
+        self.covered_lines = (make_lines(view_chars(PageContent(glyphs=drop_redrawn(pc.covered, pc.glyphs, self.dropped)), self.view, self.dropped,
+                                                    None, self.unseen)) if pc.covered else [])
         self.covered_lines.sort(key=lambda ln: (ln.y0, ln.x0))
+        # 読み順に入れない大きさの字：字は落とさず、ひと続きごとに、位置と大きさと一緒に分けて伝える
+        self.unseen_runs = unseen_runs(self.unseen, self.view)
         self.flags: list[dict] = []  # 読む段階に関わる注意：{grade, title, detail, where}
         self._read_flags()
 
@@ -679,6 +683,22 @@ class PageLayout:
                           "OCR の字はエージェントが画像と照らして確かめる（スキャンの画像の上に、文字の認識で作った見えない字が"
                           "重ねてあります。認識の誤りがあっても、字の情報からは分かりません）",
                           [f"{self.number}ページ（見えない字 {len(on)} 字）"])
+            off = {id(c) for c in ocr} - {id(c) for c in on}
+            if off:
+                # 見えない描き方の字のうち、画像の上にない字：OCR の字とは言えない。何の字かは決めずに、位置を伝える
+                lines_ = [ln for ln in self.all_lines() if any(id(c) in off for c in ln.chars)]
+                where = []
+                for ln in lines_[:12]:
+                    idx = [i for i, c in enumerate(ln.chars) if id(c) in off]  # 行の中の、見えない字の初めから終わりまで
+                    part = ln.chars[idx[0]:idx[-1] + 1]
+                    where.append(self.where(min(c.x0 for c in part), ln.y0, "".join(c.text for c in part)))
+                if len(lines_) > 12:
+                    where.append(f"{self.number}ページ（ほか {len(lines_) - 12} 行。画像の上にない見えない字は、このページに {len(off)} 字）")
+                self.flag("B", "見えない描き方の字（画像の上にない字）",
+                          "塗りも線もない描き方（PDF の文字の描き方 3・7）で描いた字が、画像の上でない所にあります。画面にも印刷にも"
+                          "出ません（線や形で描いた字に重ねた検索用の字のことも、見せずに入れた字のこともあります。どれかは、とどくは"
+                          "決めません）。窓の読み順には入っています。書類の内容として読むかは、その位置を view_page の画像と照らして、"
+                          "エージェントが決める", where)
         else:
             # 字はあるが、ページの大半が画像で、字の面積より広い（スキャンに「CamScanner」の字だけ、など）。画像の中に字があるかは、字の情報からは
             # 分からない（OCR の字があるページは上の印）。規則では決められないので、見て確かめる所として伝える

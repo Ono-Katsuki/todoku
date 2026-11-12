@@ -234,7 +234,38 @@ def drop_redrawn(hidden: list, glyphs: list, dropped: list | None = None) -> lis
     return out
 
 
-def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges: list | None = None) -> list[Ch]:
+def unseen_runs(glyphs: list, view: View) -> list[tuple[str, float, float, float]]:
+    """読み順に入れない大きさの字（view_chars が外した字）を、ひと続きに描いた字ごとにまとめる：(字, 左, 上, 字の大きさ)。
+    ひと続き：同じ文字の組（BT〜ET）の、同じ大きさの字で、前の字の原点から送りの向きに進んだ所の字（送りと直角に字の半分より
+    多くずれる・後ろへ戻るなら、別のひと続き。送りのない字（大きさ 0 など）は、同じ所に重なるので、同じひと続き）。
+    字は描いた順のまま（位置で空けた語の間は、空白にしない）。墨のある字のないひと続きは出さない。基線の上から、左からの順。"""
+    runs: list[list] = []
+    prev = None
+    for g in glyphs:
+        new = prev is None or g.bt != prev.bt or abs(g.size - prev.size) > 0.005
+        if not new:
+            n = math.hypot(prev.dx, prev.dy)
+            if n > 0:
+                vx, vy, ux, uy, half = g.ox - prev.ox, g.oy - prev.oy, prev.dx / n, prev.dy / n, prev.size / 2
+                new = abs(vx * uy - vy * ux) > half or vx * ux + vy * uy < -half
+        if new:
+            runs.append([])
+        runs[-1].append(g)
+        prev = g
+    out = []
+    for run in runs:
+        text = "".join(g.text for g in run).strip(" \u3000")
+        if not text.strip():
+            continue
+        rs = [view.rect(g.x0, g.y0, g.x1, g.y1) for g in run if g.text.strip()]
+        out.append((round(view.pt(run[0].ox, run[0].oy)[1], 2), text, min(r[0] for r in rs), min(r[1] for r in rs), run[0].size))
+    out.sort(key=lambda r: (r[0], r[2]))
+    return [r[1:] for r in out]
+
+
+def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges: list | None = None,
+               unseen: list | None = None) -> list[Ch]:
+    """unseen：読み順に入れない大きさの字（0.5 pt に満たない・ページより何倍も大きい）の、元の字（Glyph）を足していく一覧。"""
     out: list[Ch] = []
     seen: dict[tuple, list[tuple]] = {}
     cell = 8.0  # 探す範囲の区切り（重ね書きかは is_overprint が字の幅で決める。区切りは探す手間を減らすだけ）
@@ -249,6 +280,8 @@ def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges:
         if g.size < 0.5 or x1 - x0 > view.width * 2 or y1 - y0 > view.height * 2:
             if dropped is not None:
                 dropped.append(("size", g.text))
+            if unseen is not None:
+                unseen.append(g)
             continue
         c = Ch(g.text, x0, y0, x1, y1, max(g.size, 1.0), vertical, base, g.invisible, g.legacy, seq, upward=vertical and uy < 0,
                color=hexcolor(g.color))

@@ -571,6 +571,12 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
     covered = [{"text": t_, "left_mm": round(ln_.x0 / view.mm, 1), "top_mm": round(ln_.y0 / view.mm, 1)}
                for ln_ in lay.covered_lines if (t_ := ln_.text.strip(" \u3000"))]
     plain += [c_["text"] for c_ in covered]
+    # 読み順に入れない大きさの字（0.5 pt に満たない・ページより何倍も大きい）：同じように、ひと続きごとに、位置と大きさと一緒に示す
+    # 字の大きさ：0 でなく 0.5 pt に満たない字は、丸めても 0.01〜0.49 pt の間に示す（0 pt・0.5 pt と読ませない）
+    unseen = [{"text": t_, "left_mm": round(x_ / view.mm, 1), "top_mm": round(y_ / view.mm, 1),
+               "size_pt": min(0.49, max(0.01, round(s_, 2))) if 0 < s_ < 0.5 else round(s_, 2)}
+              for t_, x_, y_, s_ in lay.unseen_runs]
+    plain += [u_["text"] for u_ in unseen]
     marks, inword = unmapped_places(lay)
     circled = [{"text": ln_.text[a_:b_], "id": ident or None, "context": re.sub(r"[ 　]+", " ", ln_.text).strip()[:60],
                 "rect": [round(v, 1) for v in ln_.span_rect(a_, b_)]} for ln_, a_, b_, ident in getattr(lay, "circled", [])]
@@ -599,6 +605,7 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             **({"off_layers": off_layers} if off_layers else {}),
             **({"clipped": clipped} if clipped else {}),
             **({"covered": covered} if covered else {}),
+            **({"unseen": unseen} if unseen else {}),
             # 窓の作り方で1つにした字：同じ位置に重ねて描いた同じ字（太字に見せる重ね書き）・縦に1字ずつ積んだ字の列
             "merged_glyphs": sum(1 for k, _t in lay.dropped if k == "dup"),
             "unseen_glyphs": sum(1 for k, _t in lay.dropped if k == "size"),  # 0.5pt に満たない字・ページの何倍もある字
@@ -1745,12 +1752,14 @@ def _md_page(pg: dict) -> list[str]:
                 "\"value\": 書く字}} で書きます"
                 + ("（既定では表示されないレイヤーの字は、下の節にあります）" if pg.get("off_layers") else "")
                 + ("（切り抜きで見えない字は、下の節にあります）" if pg.get("clipped") else "")
-                + ("（塗りの下にあって見えない字は、下の節にあります）" if pg.get("covered") else ""), ""]
+                + ("（塗りの下にあって見えない字は、下の節にあります）" if pg.get("covered") else "")
+                + ("（見えない大きさの字は、下の節にあります）" if pg.get("unseen") else ""), ""]
     if pg.get("blank"):
         out += ["- このページには字も画像もありません（白紙か、線だけのページ）"
                 + ("。既定では表示されないレイヤーの内容は、下の節にあります" if pg.get("off_layers") else "")
                 + ("。切り抜きで見えない字は、下の節にあります" if pg.get("clipped") else "")
-                + ("。塗りの下にあって見えない字は、下の節にあります" if pg.get("covered") else ""), ""]
+                + ("。塗りの下にあって見えない字は、下の節にあります" if pg.get("covered") else "")
+                + ("。見えない大きさの字は、下の節にあります" if pg.get("unseen") else ""), ""]
     if pg.get("unmapped"):
         out += [f"- 文字に直せない字が {pg['unmapped']} 字あります（�で示しています）", ""]
         marks = pg.get("unmapped_marks") or []
@@ -1764,13 +1773,11 @@ def _md_page(pg: dict) -> list[str]:
                     + "・".join(f"{m['where']}「{_md(m['near'][:16])}」" for m in text[:8])
                     + ("ほか" if len(text) > 8 else "") + "）。この字は窓では読めません。中身を推測で埋めないでください"]
         out.append("")
-    if pg.get("merged_glyphs") or pg.get("stacked_columns") or pg.get("unseen_glyphs") or pg.get("slivers"):
+    if pg.get("merged_glyphs") or pg.get("stacked_columns") or pg.get("slivers"):
         notes = []
         if pg.get("slivers"):
             notes.append(f"幅か高さが 4pt（書き込みのいちばん小さな字）に満たない空のマス {pg['slivers']} 個（枠と枠のすき間など）は、"
                          "どんな字も入らないので入力欄にしていません")
-        if pg.get("unseen_glyphs"):
-            notes.append(f"見えない大きさ（0.5pt に満たない・ページより何倍も大きい）の字 {pg['unseen_glyphs']} 字は、読み順に入れていません")
         if pg.get("merged_glyphs"):
             notes.append(f"同じ位置に重ねて描いた同じ字 {pg['merged_glyphs']} 字を、1字として読みました（太字に見せる重ね書きなど）")
         if pg.get("stacked_columns"):
@@ -1823,6 +1830,15 @@ def _md_page(pg: dict) -> list[str]:
                 "入っていない。view_page の画像にも出ない。記入例の吹き出し・修正の白い塗りなどの下の字：書類の内容として読むかは、"
                 "字と位置を読んでエージェントが決める。行ごとに上から、行の左上の位置（ページの左上からの mm）と一緒に）", ""]
         out += [f"- （左 {c['left_mm']}・上 {c['top_mm']} mm）{_md(c['text'])}" for c in hid]
+        out.append("")
+    hid = pg.get("unseen") or []
+    if hid:
+        n_ = sum(1 for c in hid for ch in c["text"] if not ch.isspace())
+        out += [f"### 見えない大きさの字（{n_} 字）", "",
+                "（ページに描かれているが、字の大きさが 0.5 pt に満たないか（大きさ 0 の字には、墨がない）、ページより何倍も大きくて、"
+                "ページを紙の大きさで見ても字として読めない字。上の読み順・入力欄には入っていない。書類の内容として読むかは、字と位置を読んで"
+                "エージェントが決める。ひと続きに描いた字ごとに上から、左上の位置（ページの左上からの mm）と、字の大きさ（pt）と一緒に）", ""]
+        out += [f"- （左 {c['left_mm']}・上 {c['top_mm']} mm・{c['size_pt']:g} pt）{_md(c['text'])}" for c in hid]
         out.append("")
     pics = [p for p in pg.get("pictures", []) if not p["decorative"]]
     if pics:

@@ -219,7 +219,7 @@ def test_text_inside_a_form_is_hidden_by_a_later_fill_of_the_page(tmp_path):
 
 
 def test_a_small_fill_hides_nothing(tmp_path):
-    # 細い塗り（罫線として描いた四角：2.5pt まで）は、字を隠す四角としない
+    # 字を通る細い塗り 1 本（罫線として描いた四角）は、字の四角の全部を覆わないので、字を隠さない
     _visible(tmp_path, NAME + HIDDEN + b"140 722 100 2 re f\n")
 
 
