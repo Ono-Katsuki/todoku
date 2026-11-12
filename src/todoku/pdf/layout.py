@@ -28,7 +28,7 @@ from .pagetext import (  # noqa: F401
     WIDE_BUCKETS, _attach_marks, BOX_GLYPHS, _box_overlap, Cell, CellIndex, cells_from, Ch, _clash, EM_ROUND, EM_SPACE, glyph_frame,
     _is_cjk, _is_hangul, _is_mark, is_overprint, _is_pua, join_lines, Line, _line, _logical_order, make_lines, _merge,
     MM_PT, _move_pre_base, no_word_space, PRE_BASE, _ruby_base, Rule, rulings, _spaces, _split_overprinted, user_unit,
-    _vertical_runs, _vertical_stacks, View, view_chars, _virama, wide_gap,
+    _vertical_runs, _vertical_stacks, View, view_chars, _virama, wide_gap, drop_redrawn,
 )
 
 
@@ -469,6 +469,11 @@ class PageLayout:
         # 切り抜き（クリップ）の外にあって、画面にも印刷にも出ない字：読み順・欄には入れず、行にして、位置と一緒に分けて伝える
         self.clipped_lines = make_lines(view_chars(PageContent(glyphs=list(pc.clipped)), self.view, self.dropped)) if pc.clipped else []
         self.clipped_lines.sort(key=lambda ln: (ln.y0, ln.x0))
+        # 後から描いた透けない塗りの下にあって、画面にも印刷にも出ない字：同じように、行にして、位置と一緒に分けて伝える
+        # （同じ字を同じ所に、見える字として描き直してあるものは、重ね書きと同じに 1 字にまとめ、見える方だけを読む）
+        self.covered_lines = (make_lines(view_chars(PageContent(glyphs=drop_redrawn(pc.covered, pc.glyphs, self.dropped)), self.view, self.dropped))
+                              if pc.covered else [])
+        self.covered_lines.sort(key=lambda ln: (ln.y0, ln.x0))
         self.flags: list[dict] = []  # 読む段階に関わる注意：{grade, title, detail, where}
         self._read_flags()
 
@@ -642,6 +647,29 @@ class PageLayout:
                           "（画面で見える字なので）。紙に印刷して出す書類では、その字は紙に出ません。紙でも要る字かは、エージェントが"
                           "字を読んで決める", where)
         ocr = [c for c in self.chars if c.invisible and not c.text.isspace()]
+        gl_ = self.pc.glyphs
+        under = {id(c) for c in ocr if 0 <= c.seq < len(gl_) and gl_[c.seq].under}
+        if under:
+            # 字を描いた後から、透けない画像を重ねた所の字（content.Interpreter._hide_covered）：見えない描き方の字（OCR の字）とは
+            # 別に伝える。ページの字がみなそうなら 1 行で、一部なら行ごとに位置を示す
+            ocr = [c for c in ocr if id(c) not in under]
+            seen_ = sum(1 for c in self.chars if not c.text.isspace())
+            if len(under) == seen_:
+                where = [f"{self.number}ページ（ページの字のすべて：{len(under)} 字）"]
+            else:
+                lines_ = [ln for ln in self.all_lines() if any(id(c) in under for c in ln.chars)]
+                where = []
+                for ln in lines_[:12]:
+                    idx = [i for i, c in enumerate(ln.chars) if id(c) in under]  # 行の中の、画像の下の字の初めから終わりまで
+                    part = ln.chars[idx[0]:idx[-1] + 1]
+                    where.append(self.where(min(c.x0 for c in part), ln.y0, "".join(c.text for c in part)))
+                if len(lines_) > 12:
+                    where.append(f"{self.number}ページ（ほか {len(lines_) - 12} 行。画像の下の字は、このページに {len(under)} 字）")
+            self.flag("B", "画像の下に描いた字（画面には出ない字）",
+                      "字を描いた後から、透けない画像を重ねた所の字です。画面と印刷には画像だけが出て、字は見えません（スキャンの画像の下に"
+                      "置いた文字の認識の字のことも、画像で隠した字のこともあります。どれかは、とどくは決めません）。窓の読み順には"
+                      "入っています。画像の中身と同じかは、字の情報からは分からないので、その位置は view_page の画像と照らして確かめる",
+                      where)
         if ocr:
             pics = [self.view.rect(p.x0, p.y0, p.x1, p.y1) for p in self.pc.pictures]
             on = [c for c in ocr if any(r[0] - 1 <= c.cx <= r[2] + 1 and r[1] - 1 <= c.cy <= r[3] + 1 for r in pics)]

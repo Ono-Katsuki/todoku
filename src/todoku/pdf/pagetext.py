@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import bisect
+import math
 import unicodedata
 from dataclasses import dataclass, field
 
@@ -200,6 +201,37 @@ def is_overprint(a: tuple, b: tuple, size_a: float, size_b: float) -> bool:
     overlap = min(w, along + b[4]) - max(0.0, along)
     return (overlap > 0.5 * min(w, b[4]) and abs(across) < 0.25 * max(size_a, size_b)
             and abs(size_a - size_b) < 0.2 * max(size_a, size_b))
+
+
+def drop_redrawn(hidden: list, glyphs: list, dropped: list | None = None) -> list:
+    """塗りの下に隠れた字（hidden）のうち、同じ字を同じ所に、見える字としてもう一度描いてあるもの（塗りで消して描き直した
+    ページの頭・足の字など）を除いて返す：重ね書き（is_overprint）と同じ決まりで、見える字の方を残し、隠れた方は 1 字に
+    まとめたもの（"dup"）として数える。0.5pt に満たない字は、ここでは決めない（view_chars が "size" として落とす）。"""
+    texts = {g.text for g in hidden if g.text and g.size >= 0.5}
+    def frame(g):
+        fr = glyph_frame(g)
+        return fr if math.isfinite(fr[0] + fr[1] + fr[4]) else None  # 位置の決まらない字は、描き直しとは決めない
+
+    cand = [(g, fr) for g in glyphs if g.text in texts and not g.invisible and g.size >= 0.5 and (fr := frame(g))]
+    if not cand:
+        return list(hidden)
+    hid = [(g, frame(g) if g.text in texts and g.size >= 0.5 else None) for g in hidden]
+    # 升目：重ね書きになる 2 つの字の原点は「広い方の送りの幅 + 大きさの 1/4」より離れないので、隣の升目までを見れば足りる
+    cell = max(8.0, max(fr[4] for _g, fr in cand + [h for h in hid if h[1]]) + 0.25 * max(g.size for g, fr in cand + [h for h in hid if h[1]]))
+    seen: dict[tuple, list] = {}
+    for g, fr in cand:
+        seen.setdefault((g.text, int(fr[0] // cell), int(fr[1] // cell)), []).append((fr, g.size))
+    out = []
+    for g, fr in hid:
+        if fr is not None:
+            kx, ky = int(fr[0] // cell), int(fr[1] // cell)
+            if any(is_overprint(fr, ofr, g.size, osize) for ix in (kx - 1, kx, kx + 1) for iy in (ky - 1, ky, ky + 1)
+                   for ofr, osize in seen.get((g.text, ix, iy), ())):
+                if dropped is not None:
+                    dropped.append(("dup", g.text))
+                continue
+        out.append(g)
+    return out
 
 
 def view_chars(pc: PageContent, view: View, dropped: list | None = None, merges: list | None = None) -> list[Ch]:

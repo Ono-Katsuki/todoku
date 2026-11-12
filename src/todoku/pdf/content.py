@@ -58,6 +58,8 @@ class Glyph:
     # 字形の輪郭の四角の並び（ページの座標の (x0, y0, x1, y1)。Interpreter.ink_of を渡したときだけ）：None は分からない、
     # () は墨のない字（空白など）。まとめた字（ActualText）は、まとめる前の字の四角を 1 つずつ
     ink: tuple | None = None
+    under: bool = False  # 字を描いた後から、透けない画像を重ねた所の字（画面には画像だけが出る。invisible にしてある）
+    bt: int = 0  # 文字の組（BT〜ET）の通し番号：同じ組の字は同じ番号
 
     @property
     def cx(self) -> float:
@@ -135,6 +137,8 @@ class PageContent:
     screen_only: list[tuple] = field(default_factory=list)
     # 描かれているが、切り抜き（クリップ）の外にあって、画面にも印刷にも出ない字。ふつうの内容（glyphs）には入れない
     clipped: list[Glyph] = field(default_factory=list)
+    # 描かれているが、後から描いた透けない塗りの四角の下にあって、画面にも印刷にも出ない字。ふつうの内容（glyphs）には入れない
+    covered: list[Glyph] = field(default_factory=list)
     # 同じく、切り抜きの外にあって見えない線・図形（道の部分の数）と画像の数。罫線・マス・画像の一覧には入れない
     clipped_shapes: int = 0
     clipped_pictures: int = 0
@@ -227,7 +231,7 @@ def tokens(data: bytes):
 # ---------------------------------------------------------------------- 状態
 class _GS:
     __slots__ = ("ctm", "lw", "fill", "stroke", "font", "fs", "tc", "tw", "th", "tl", "tr", "rise", "fontobj", "clip", "ml",
-                 "fcs", "scs", "fpat", "spat")
+                 "fcs", "scs", "fpat", "spat", "ca", "bm", "sm", "op", "veil", "clipx")
 
     def __init__(self):
         self.ctm = IDENT
@@ -252,6 +256,14 @@ class _GS:
         self.scs = None
         self.fpat = False  # 塗りが模様（Pattern）：1 つの色として言えない
         self.spat = False
+        # 塗り・画像が、下の字を確かに隠すか（_covers）：透ける描き方（塗りの不透明度 ca・重ね方 BM・マスク SMask・
+        # 重ね刷り op）と、外の部品から受け継いだ透け方（veil）、切り抜きが軸にそろった四角でないこと（clipx）
+        self.ca = 1.0
+        self.bm = False
+        self.sm = False
+        self.op = False
+        self.veil = False
+        self.clipx = False
 
     def copy(self):
         g = _GS.__new__(_GS)
@@ -314,6 +326,44 @@ def _outside(b, cl, m: float) -> bool:
     return b[2] + m <= cl[0] or b[0] - m >= cl[2] or b[3] + m <= cl[1] or b[1] - m >= cl[3]
 
 
+def _exact_rect(pts) -> tuple | None:
+    """軸にそろった四角形を、角の順にたどる道なら (x0, y0, x1, y1)。ずれ（0.01 より大きい）・交わる順の 4 点は None。"""
+    n = len(pts)
+    if n == 5:
+        if abs(pts[0][0] - pts[4][0]) >= 0.01 or abs(pts[0][1] - pts[4][1]) >= 0.01:
+            return None
+    elif n != 4:
+        return None
+    ax, ay = pts[0][0], pts[0][1]
+    bx, by = pts[1][0], pts[1][1]
+    cx, cy = pts[2][0], pts[2][1]
+    dx, dy = pts[3][0], pts[3][1]
+    if abs(ay - by) < 0.01:  # 初めの辺が横
+        if abs(bx - cx) >= 0.01 or abs(cy - dy) >= 0.01 or abs(dx - ax) >= 0.01:
+            return None
+    elif abs(ax - bx) >= 0.01 or abs(by - cy) >= 0.01 or abs(cx - dx) >= 0.01 or abs(dy - ay) >= 0.01:
+        return None
+    x0, x1 = min(ax, bx, cx, dx), max(ax, bx, cx, dx)
+    y0, y1 = min(ay, by, cy, dy), max(ay, by, cy, dy)
+    return (x0, y0, x1, y1) if x0 < x1 and y0 < y1 else None
+
+
+def _covers(gs) -> bool:
+    """いまの描き方で描く塗り・画像が、その四角の中の、先に描いたものを確かに隠すか：透けず（不透明度 1・ふつうの重ね方・
+    マスクなし・重ね刷りなし。外の部品の透け方も受け継がない）、切り抜きが軸にそろった四角のとき。"""
+    return gs.ca >= 1.0 and not (gs.bm or gs.sm or gs.op or gs.veil or gs.clipx)
+
+
+def _opaque_image(doc, d: dict) -> bool:
+    """画像が、その四角の全部を塗るか：型抜き（ImageMask）・マスク（SMask・Mask）・画像の中の透け方（SMaskInData）がない。"""
+    dd = {_ABBR.get(k, k): v for k, v in d.items()}
+    if doc.resolve(dd.get("ImageMask")) is True:
+        return False
+    if doc.resolve(dd.get("SMask")) is not None or doc.resolve(dd.get("Mask")) is not None:
+        return False
+    return not doc.resolve(dd.get("SMaskInData"))
+
+
 def _gray(v):
     return (v, v, v)
 
@@ -344,6 +394,9 @@ class Interpreter:
         self.ink_of = None
         self._clip_ink_fn = None
         self._page = None  # ページの枠（内容の座標）
+        # 字より後に描いた、透けない塗り・画像の四角：[x0, y0, x1, y1, そのときまでに描いた字の数, "fill" か "image"]
+        self._covers: list[list] = []
+        self._bt = 0  # 文字の組（BT〜ET）の通し番号
 
     def run_page(self, page: dict) -> PageContent:
         res = self.doc.resolve(page.get("Resources")) or {}
@@ -357,7 +410,9 @@ class Interpreter:
         v = View(self.doc, page)
         gs.clip = (v.x0, v.y0, v.x1, v.y1)  # 見えるのは、ページの枠（CropBox を MediaBox に切り詰めたもの）の中だけ
         self._page = gs.clip
+        self._covers = []
         self._run(data, res, gs, depth=0, owner="page")
+        self._hide_covered()
         self.out.unmapped = sum(f.unmapped for f in self._fonts_used.values()) if hasattr(self, "_fonts_used") else 0
         for _st, c in self.out.off:
             self.out.problems += [x for x in c.problems if x not in self.out.problems]
@@ -406,6 +461,98 @@ class Interpreter:
         gs.ctm = ctm
         self._run(data, res or {}, gs, depth=0)
         return self.out
+
+    def _cover(self, gs, rect, kind: str) -> None:
+        """字より後に描いた、透けない塗り（kind "fill"）・画像（"image"）の四角を覚える：切り抜きの中の部分だけ。"""
+        x0, y0, x1, y1 = rect
+        cl = gs.clip
+        if cl is not None:
+            x0, y0, x1, y1 = max(x0, cl[0]), max(y0, cl[1]), min(x1, cl[2]), min(y1, cl[3])
+        if x0 < x1 and y0 < y1:
+            self._covers.append([x0, y0, x1, y1, len(self._main.glyphs), kind])
+
+    def _uncount(self, at: int, n: int) -> None:
+        """ふつうの内容の字の並びから、at より後ろの字が n 個減った：覚えた四角の「そのときまでの字の数」を合わせる
+        （at より後ろの数は、at までしか減らさない：途中でまとめた字は、四角より後の字として残す）。"""
+        cv = self._covers
+        i = len(cv) - 1
+        while i >= 0 and cv[i][4] > at:
+            cv[i][4] = max(at, cv[i][4] - n)
+            i -= 1
+
+    def _hide_covered(self) -> None:
+        """後から描いた透けない四角の中に、字の四角（送りの幅 × 書体の高さ）の全部がある字：その四角のどれかが塗りなら、
+        ふつうの内容から外して covered へ。画像なら、見えない字（invisible）にし、画像の下の字（under）と覚える：読み順には
+        残す（スキャンの画像の下に置いた、文字の認識の字のことがある。画像の中身と同じかは、字の情報からは分からない）。
+        見えない描き方の字（Tr 3）は、そのまま。"""
+        gl = self._main.glyphs
+        covers = [c for c in self._covers if c[4] > 0]
+        self._covers = []
+        if not covers or not gl:
+            return
+        cell = 36.0
+        grid: dict[tuple, list] = {}
+        for i in range(min(len(gl), max(c[4] for c in covers))):
+            g = gl[i]
+            if not g.invisible:
+                grid.setdefault((int((g.x0 + g.x1) / 2 // cell), int((g.y0 + g.y1) / 2 // cell)), []).append(i)
+        if not grid:
+            return
+        gx0, gx1 = min(k[0] for k in grid), max(k[0] for k in grid)
+        gy0, gy1 = min(k[1] for k in grid), max(k[1] for k in grid)
+        hit: dict[int, str] = {}
+        e = 0.01
+        for x0, y0, x1, y1, n, kind in covers:
+            for ix in range(max(gx0, int(x0 // cell)), min(gx1, int(x1 // cell)) + 1):
+                for iy in range(max(gy0, int(y0 // cell)), min(gy1, int(y1 // cell)) + 1):
+                    for i in grid.get((ix, iy), ()):
+                        if i >= n:
+                            break
+                        g = gl[i]
+                        if g.x0 >= x0 - e and g.x1 <= x1 + e and g.y0 >= y0 - e and g.y1 <= y1 + e and hit.get(i) != "fill":
+                            hit[i] = kind  # 塗りと画像の両方の下にある字は、塗りの下の字（塗りが確かに隠している）
+        if not hit:
+            return
+        # 墨のない字（空白）は、隠れる墨がないので、四角の中にあっても、同じ文字の組（BT〜ET）のすぐ前の字に合わせる（前に字が
+        # なければ、次の字）：隣の字が見える字なら、見える字のまま。空白だけの組も、見える字のまま（切り抜きの外の空白と同じ決まり）
+        cur, last, wait = None, None, []
+        for i in range(min(len(gl), max(c[4] for c in covers))):
+            g = gl[i]
+            if g.bt != cur:
+                for j in wait:
+                    del hit[j]
+                cur, last, wait = g.bt, None, []
+            if g.text.strip():
+                last = (hit.get(i),)
+                if wait:
+                    if last[0] is None:
+                        for j in wait:
+                            del hit[j]
+                    wait = []
+            elif i in hit:
+                if last is None:
+                    wait.append(i)
+                elif last[0] is None:
+                    del hit[i]
+        for j in wait:
+            del hit[j]
+        if not hit:
+            return
+        keep = []
+        gone = set()
+        for i, g in enumerate(gl):
+            k = hit.get(i)
+            if k == "fill":
+                self._main.covered.append(g)
+                gone.add(id(g))
+                continue
+            if k == "image":
+                g.invisible = g.under = True
+            keep.append(g)
+        gl[:] = keep
+        if gone and self._main.screen_only:
+            self._main.screen_only = [(st, [g for g in gs_ if id(g) not in gone]) for st, gs_ in self._main.screen_only]
+            self._main.screen_only = [(st, gs_) for st, gs_ in self._main.screen_only if gs_]
 
     def _clip_ink(self, res, name, pf, code, text):
         """切り抜きの外枠にかかる字の、字形の輪郭の四角（字の座標）。分からなければ None（見える字のままにする）。"""
@@ -473,6 +620,8 @@ class Interpreter:
         tlm = IDENT
         in_text = False
         side: list = [None]  # いまの文字の組（BT〜ET）で、すぐ前の字が見えない字か（None はまだ字がない）。後ろは、待たせている空白
+        self._bt += 1
+        bt = self._bt  # いまの文字の組の番号（組の外の字は、この内容の流れの番号）
         mc_stack: list = []  # (mcid, actual_text, 先頭のglyphの位置)
         arr_stack: list = []
         dict_stack: list = []
@@ -492,6 +641,8 @@ class Interpreter:
                 return
             fs = gs.fs
             th = gs.th
+            if gs.tr >= 4:
+                gs.clipx = True  # 字の形を切り抜きに足す描き方：この後の塗りは、字の形の中だけ
             items = f.decode(s)
             mcid = mc_stack[-1][0] if mc_stack else None
             chain_ = outer + tuple(m[3] for m in mc_stack)
@@ -558,7 +709,7 @@ class Interpreter:
                           f.vertical, gs.tr in (3, 7), gs.font, _text_color(gs), mcid,
                           legacy=legacy_text(f.legacy, text),
                           adv=((fx - ox) ** 2 + (fy - oy) ** 2) ** 0.5,
-                          fontbase=f.base, embedded=getattr(f, "embedded", False), mc=mc_, ink=ink)
+                          fontbase=f.base, embedded=getattr(f, "embedded", False), mc=mc_, ink=ink, bt=bt)
                 if blank:
                     # すぐ前の字と同じ側。前に字がなければ、見える側に置いておき、次の字が見えない字なら、そちらへ移す。
                     # 空白だけの組は、見える側のまま（前と同じ）
@@ -571,6 +722,8 @@ class Interpreter:
                             for i in range(len(lst) - 1, -1, -1):
                                 if lst[i] is sp:
                                     del lst[i]
+                                    if lst is self._main.glyphs:
+                                        self._uncount(i, 1)
                                     self._main.clipped.append(sp)
                                     break
                     side[:] = [hidden]
@@ -607,6 +760,16 @@ class Interpreter:
                 return any(o is not sub and bb[0] < rect[2] and bb[2] > rect[0] and bb[1] < rect[3] and bb[3] > rect[1]
                            for o, bb in zip(path, bbs))
 
+            if (fill and self._main.glyphs and self._layer is None and out is self._main and _covers(gs)
+                    and not gs.fpat and not getattr(gs.fcs, "none", False)):
+                # 字より後に描いた、透けない塗りの四角：下の字を隠す（_hide_covered）。同じ道のほかの部分と重なる四角は、
+                # 塗りの決まり（偶奇・巻き数）で穴になりうるので、数えない
+                for sub in path:
+                    if sub.get("curve"):
+                        continue
+                    rect = _exact_rect(sub["pts"])
+                    if rect is not None and min(rect[2] - rect[0], rect[3] - rect[1]) > 2.5 and not part(sub, rect):
+                        self._cover(gs, rect, "fill")
             for sub in path:
                 pts = sub["pts"]
                 cut = False  # 外枠の外に出ている道：見えうるのは、外枠の中の部分だけ
@@ -715,6 +878,8 @@ class Interpreter:
                 pts = [p for sp in path for p in sp["pts"]]
                 if pts:  # 点のない道の切り抜きは、決めない（切り抜きを変えない）
                     gs.clip = _clip_and(gs.clip, pts)
+                if len(path) != 1 or path[0].get("curve") or _exact_rect(path[0]["pts"]) is None:
+                    gs.clipx = True  # 切り抜きの形が、外枠の四角と同じとは言えない
                 clip_next = False
             path.clear()
 
@@ -820,6 +985,8 @@ class Interpreter:
                     tm = tlm = IDENT
                     in_text = True
                     side[:] = [None]
+                    self._bt += 1
+                    bt = self._bt
                 elif op == "ET":
                     in_text = False
                     side[:] = [None]
@@ -964,11 +1131,16 @@ class Interpreter:
                                 sub_res = doc.resolve(xo.dict.get("Resources")) or res
                                 g2 = gs.copy()
                                 g2.ctm = mul(m, gs.ctm)
+                                # 透ける描き方のまま描く部品は、まとめて透ける（透明のグループ）：中で描き方を戻しても、透けたまま
+                                g2.veil = gs.veil or gs.ca < 1.0 or gs.bm or gs.sm
                                 bb = doc.resolve(xo.dict.get("BBox"))
                                 if isinstance(bb, list) and len(bb) == 4:  # 部品の内容は、BBox で切り抜かれる（8.10.2）
                                     bx0, by0, bx1, by1 = (float(doc.resolve(v)) for v in bb)
                                     g2.clip = _clip_and(gs.clip, [apply(g2.ctm, bx0, by0), apply(g2.ctm, bx1, by0),
                                                                   apply(g2.ctm, bx0, by1), apply(g2.ctm, bx1, by1)])
+                                    if _exact_rect([apply(g2.ctm, bx0, by0), apply(g2.ctm, bx1, by0),
+                                                    apply(g2.ctm, bx1, by1), apply(g2.ctm, bx0, by1)]) is None:
+                                        g2.clipx = True
                                 sps = doc.resolve(xo.dict.get("StructParents"))
                                 sp = doc.resolve(xo.dict.get("StructParent"))
                                 drawing.add(key)
@@ -992,6 +1164,11 @@ class Interpreter:
                                     out.clipped_pictures += 1  # 切り抜きの外にあって見えない画像
                                 elif not self._thin_image(pic, xo.dict, None, gs, xo):
                                     out.pictures.append(pic)
+                                if (self._main.glyphs and self._layer is None and out is self._main and _covers(gs)
+                                        and _opaque_image(doc, xo.dict)):
+                                    rect = _exact_rect([pts[0], pts[1], pts[3], pts[2]])
+                                    if rect is not None:
+                                        self._cover(gs, rect, "image")  # 字より後に描いた、透けない画像
                         finally:
                             if began is not None:
                                 self._layer_end(began)
@@ -1004,11 +1181,28 @@ class Interpreter:
                         out.clipped_pictures += 1
                     elif not self._thin_image(pic, inline_img[0] if inline_img else {}, inline_img[1] if inline_img else b"", gs):
                         out.pictures.append(pic)
+                    if (inline_img and self._main.glyphs and self._layer is None and out is self._main and _covers(gs)
+                            and _opaque_image(doc, inline_img[0])):
+                        rect = _exact_rect([pts[0], pts[1], pts[3], pts[2]])
+                        if rect is not None:
+                            self._cover(gs, rect, "image")
                     inline_img = None
                 elif op == "gs":
                     name = stack[-1].name if stack and isinstance(stack[-1], Name) else ""
                     eg = doc.resolve((doc.resolve(res.get("ExtGState")) or {}).get(name))
                     if isinstance(eg, dict):
+                        # 透ける描き方：読めない値は、透けるものとして扱う（下の字を隠すと決めない）
+                        if "ca" in eg:
+                            v = doc.resolve(eg["ca"])
+                            gs.ca = float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0.0
+                        if "BM" in eg:
+                            v = doc.resolve(eg["BM"])
+                            names = [doc.resolve(x) for x in v] if isinstance(v, list) else [v]
+                            gs.bm = not names or any(getattr(x, "name", "") not in ("Normal", "Compatible") for x in names)
+                        if "SMask" in eg:
+                            gs.sm = getattr(doc.resolve(eg["SMask"]), "name", "") != "None"
+                        if "op" in eg or "OP" in eg:
+                            gs.op = doc.resolve(eg.get("op", eg.get("OP"))) is not False
                         if "LW" in eg:
                             gs.lw = float(doc.resolve(eg["LW"]))
                         fnt = doc.resolve(eg.get("Font"))
@@ -1057,9 +1251,11 @@ class Interpreter:
                                                max(g.y1 for g in gl), g0.size, g0.ox, g0.oy, gl[-1].ox + gl[-1].dx - g0.ox,
                                                gl[-1].oy + gl[-1].dy - g0.oy, g0.vertical, g0.invisible, g0.font, g0.color,
                                                mcid=mcid, actual=True, legacy=any(g.legacy for g in gl), adv=sum(g.adv for g in gl),
-                                               fontbase=g0.fontbase, embedded=g0.embedded, mc=g0.mc, ink=_ink_all(gl))
+                                               fontbase=g0.fontbase, embedded=g0.embedded, mc=g0.mc, ink=_ink_all(gl), bt=g0.bt)
                                 del out.glyphs[first:]
                                 out.glyphs.append(merged)
+                                if out is self._main and len(gl) > 1:
+                                    self._uncount(first, len(gl) - 1)
             except LimitExceeded:
                 raise
             except (IndexError, ValueError, TypeError, ZeroDivisionError):
@@ -1199,5 +1395,6 @@ def page_content(doc, page: dict) -> PageContent:
     fonts = getattr(it, "_fonts_used", {})
     pc.unmapped = sum(1 for c in [pc] + [c for _st, c in pc.off] for g in c.glyphs if g.text == UNKNOWN)
     pc.unmapped += sum(1 for g in pc.clipped if g.text == UNKNOWN)
+    pc.unmapped += sum(1 for g in pc.covered if g.text == UNKNOWN)
     del fonts
     return pc

@@ -155,6 +155,30 @@ def overprints(glyphs) -> Counter:
     return out
 
 
+def redrawn(hidden, glyphs) -> tuple[Counter, list]:
+    """塗りの下に隠れた字（hidden）のうち、見える字（glyphs の、見えない描き方でない字）として同じ所に描き直してある字の数
+    （字ごと）と、残りの字。overprints と同じく、窓（pagetext.drop_redrawn）と同じ決まり is_overprint を、別の手順で数え直す。"""
+    from .pagetext import glyph_frame, is_overprint
+
+    texts = {g.text for g in hidden if g.text and g.size >= 0.5}
+    kept = _KeptFrames()
+    for g in glyphs:
+        if g.text in texts and not g.invisible and g.size >= 0.5:
+            fr = glyph_frame(g)
+            if math.isfinite(fr[0] + fr[1] + fr[4]):
+                kept.add(g.text, fr, g.size)
+    out: Counter = Counter()
+    rest = []
+    for g in hidden:
+        if g.text and g.size >= 0.5:
+            fr = glyph_frame(g)
+            if math.isfinite(fr[0] + fr[1] + fr[4]) and any(is_overprint(fr, f0, g.size, s0) for f0, s0 in kept.near(g.text, fr, g.size)):
+                out[g.text] += 1
+                continue
+        rest.append(g)
+    return out, rest
+
+
 class _KeptFrames:
     """残した字を、字ごとに、幅と大きさの桁（2 の冪）で分け、桁ごとの大きさの升目に置く。重ね書きの決まり（is_overprint）では、
     2 つの字の原点の離れは「広い方の送りの幅 + 大きさの 1/4」までなので、届く升目だけを見れば、重ね書きになりうる字をすべて見る
@@ -221,6 +245,11 @@ def check_glyphs(doc: PdfDocument, win: dict) -> Check:
             real = Counter()
             for c in [pc] + [c for _st, c in pc.off] + ([PageContent(glyphs=pc.clipped)] if pc.clipped else []):
                 real += _count(ch for t, n in overprints(c.glyphs).items() for ch in [t] * n)
+            if pc.covered:
+                # 塗りの下に隠れた字：見える字として同じ所に描き直してある字は、重ね書きとして数え、残りの中の重ね書きを数える
+                again, rest = redrawn(pc.covered, pc.glyphs)
+                real += _count(ch for t, n in again.items() for ch in [t] * n)
+                real += _count(ch for t, n in overprints(rest).items() for ch in [t] * n)
         except Exception as e:  # noqa: BLE001  数え直せないものは、窓の数を正しいとしない
             unsure.append(f"ページ {pg['number']}: 重ね書きを数え直せませんでした（{type(e).__name__}: {str(e)[:60]}）")
             continue
