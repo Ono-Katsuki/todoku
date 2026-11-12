@@ -83,7 +83,7 @@ ROUNDDOWN(ROUND(L × P, 0), 0) × AA
 - **決定的：** 読む・書く・証明・検査に AI を使わない。規則で決められない所は `？` で示す。事実は道具が出し、判断はエージェントが下す。
 - **MCP の道具 14 個：** `open_document`・`read_window`・`list_fields`・`fill_document`・`audit_document`・`extract_processing`・`try_calculation`・`run_macro` など。大きな書類は範囲で順に読む。読めない所は、読めないと伝える。
 
-約 15 万行・309 ファイル・テスト 5,291 件。
+約 15 万行・309 ファイル・テスト 5,316 件。
 
 ## 実物で測った
 

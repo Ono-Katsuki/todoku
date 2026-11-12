@@ -24,7 +24,7 @@ from .doc import PdfDocument
 from .form import FormField, Widget, has_xfa, read_fields
 from . import textcolor
 from .layers import layers as _layers
-from .layout import OLD_ID, PLACE_ID, Cell, Line, PageLayout, Spot, _overlap, _RectIndex
+from .layout import BOX_GLYPHS, CHECKED_GLYPHS, OLD_ID, PLACE_ID, RULE_TOL, Cell, Line, PageLayout, Spot, _option_text, _overlap, _RectIndex
 
 DET = "deterministic"
 LAYOUT = "layout"
@@ -442,22 +442,23 @@ def page_window(doc: PdfDocument, page: dict, number: int, fields: list[FormFiel
             d["value"] = filled.checked if filled.kind == "checkbox" else filled.value_text()
         out_fields.append(d)
     out_ids = {x.get("id") for x in out_fields}  # 欄ごとに、出した欄を全部見ない
+    statics = _static_values(doc, real_ws)
     for f, w, r in ws:
         if f.name in emitted or f.name in out_ids:
             continue
         caption = next((w.mk_caption for w in f.widgets if w.mk_caption), "") if f.kind == "button" else ""  # ボタンの面の字（/MK の CA）
-        d = {"id": f.name, "page": number, "kind": f.kind, "label": f.tu or caption or _near_label(lay, r) or f.name.split(".")[-1],
+        near, nbw = _near_label(lay, r, f, statics)
+        d = {"id": f.name, "page": number, "kind": f.kind, "label": f.tu or caption or near or f.name.split(".")[-1],
              "name": f.name, "rect": [round(v, 1) for v in r], "provenance": DET, "source": "acroform",
              "value": f.value_text() if f.kind not in ("checkbox",) else f.checked}
         if f.tu:
             d["tooltip"] = f.tu
-        near = _near_label(lay, r)
         if near and near != d["label"]:
             d["nearby_text"] = near
-        nb = lay._facts_nb(lay._neighbours(r))
+        nb = lay._facts_nb(nbw)
         if nb:
-            # 欄の四角の左・上・右・下でいちばん近い字（元のまま）と、その離れ（mm）：見出し（/TU がなければ近くの字から選んだもの）を
-            # エージェントが確かめるための事実
+            # 欄の四角の左・上・右・下でいちばん近い字（元のまま。field のあるものは、書き換えられない字の欄に出ている値）と、
+            # その離れ（mm）：見出し（/TU がなければ近くの字から選んだもの）をエージェントが確かめるための事実
             d["neighbours"] = nb
         if f.options:
             d["options"] = [o[1] or o[0] for o in f.options]
@@ -883,11 +884,11 @@ def _hint(it: _Item) -> float:
     return max(6.0, (it.y1 - it.y0) / 3)
 
 
-def _label_within_line(lay: PageLayout, r) -> str:
+def _label_within_line(lay: PageLayout, r) -> tuple[str, float, bool]:
     """フォームの欄が、同じ高さ（字の高さの半分以上が欄と重なる）の行の、字と字の間の空きに置かれているとき：
     その行の、欄より前の字（左から右へ書く行は欄の左、右から左へ書く行は欄の右）。
     「氏名［欄］年　月　日」の欄は「氏名」の欄で、上の行の見出しではない。欄の前で終わる行（「見出し　［欄］」）も同じ。
-    同じ高さに、欄の前の字（200pt の内）がなければ ""。"""
+    返すのは (字, 欄までの離れ pt, 右から左へ書く行か)。同じ高さに、欄の前の字がなければ字は ""（離れの上限は置かない：いちばん近い行）。"""
     best = None
     for ln in lay.free_lines:
         if ln.vertical or not ln.text.strip():
@@ -913,11 +914,9 @@ def _label_within_line(lay: PageLayout, r) -> str:
         if not head:
             continue
         gap = (min(ln.pos[i][0] for i in idx) - r[2]) if rtl else (r[0] - max(ln.pos[i][1] for i in idx))
-        if gap > 200:
-            continue
         if best is None or gap < best[0]:
-            best = (gap, head)
-    return label_text(best[1]) if best is not None else ""
+            best = (gap, head, rtl)
+    return (label_text(best[1]), max(best[0], 0.0), best[2]) if best is not None else ("", 0.0, False)
 
 
 def _widget_line(lay: PageLayout, r):
@@ -1010,14 +1009,14 @@ def _choice_labels(lay: PageLayout, items: list[tuple[str, tuple]]) -> tuple[str
         if c is not None:
             group = lay._label_for(c, c)[0]  # マスの中の選択肢：行の見出し（なければ列の見出し）
         else:
-            top = min(r[1] for _o, r in items)
-            x0, x1 = min(r[0] for _o, r in items), max(r[2] for _o, r in items)
-            above = None
-            for ln in lay.free_lines:
-                if ln.y1 <= top + 1 and top - ln.y1 < 30 and ln.x0 < x1 and ln.x1 > x0 - 20 and ln not in lines:
-                    if above is None or ln.y1 > above.y1:
-                        above = ln
-            group = above.text if above is not None else ""
+            # 部品の全体の四角の、左（右から左へ書く字では右）の字、なければ上の字（組の見出しは、読む順で選択肢より前）。
+            # 選択肢の字そのもの・選択肢の行・箱の字だけの字は、組の見出しにしない。離れの上限は置かない
+            rs = [r for _o, r in items]
+            union = (min(r[0] for r in rs), min(r[1] for r in rs), max(r[2] for r in rs), max(r[3] for r in rs))
+            nb = {s: v for s, v in lay._neighbours(union).items()
+                  if not any(v["_line"] is ln for ln in lines) and label_text(v["text"]) not in labels and not _only_boxes(v["text"])}
+            _lab, rl, cl = PageLayout._label_of(nb)
+            group = rl or cl
     return label_text(group), labels
 
 
@@ -1055,7 +1054,13 @@ def _label_choices(lay: PageLayout, f: FormField, d: dict, ws: list) -> None:
         return
     d["options_labels"] = [by_name[o] for o in opts]
     if not f.tu:
-        d["label"] = group or f.name.split(".")[-1]
+        # 組の見出しがないとき：最初の部品の近くの字に、選択肢の字のほかの字があれば（質問と選択肢が同じマスにある様式）、
+        # その字のまま。選択肢の字だけ（「Male　　Female」）なら、欄の名前
+        rest = d["label"]
+        for lab in labels:
+            rest = rest.replace(lab, "", 1) if lab else rest
+        near = d["label"] if rest.strip(" 　") and not _only_boxes(rest) else ""
+        d["label"] = group or near or f.name.split(".")[-1]
     d.pop("nearby_text", None)
     if group and group != d["label"]:
         d["nearby_text"] = group
@@ -1065,34 +1070,155 @@ def _label_choices(lay: PageLayout, f: FormField, d: dict, ws: list) -> None:
         d["value"] = by_name[v]  # 本人に伝える値：選んだ選択肢の隣に印刷された字
 
 
-def _near_label(lay: PageLayout, r) -> str:
-    """フォームの欄のそばの文字（同じマスの文字、欄が字の間に置かれた同じ行の前の字、左の行、上の行）。"""
+def _only_boxes(t: str) -> bool:
+    """箱の字（と空白）だけの字：隣の箱であって、見出しではない。"""
+    ink = [ch for ch in t if not ch.isspace()]
+    return bool(ink) and all(ch in BOX_GLYPHS or ch in CHECKED_GLYPHS for ch in ink)
+
+
+def _static_values(doc, real_ws: list) -> list[tuple[str, tuple, str]]:
+    """書き換えられない字の欄（読み取り専用）に出ている値：(欄の名前, 部品の位置, 値)。様式の見出しを、印刷された字ではなく
+    読み取り専用の欄の値として置く PDF がある（「Funding ID」の欄と、その右の書く欄）。見る人には印刷された字と同じなので、
+    ほかの欄の周りの字として見る（どの欄の値かは neighbours の field に出す）。画面にも紙にも出ない欄と、値を計算で出す欄
+    （/AA の C：合計などの、ほかの欄から決まる値）は入れない。"""
+    from . import acrojs
+
+    out = []
+    for f, _w, r in real_ws:
+        if f.kind != "text" or not f.readonly or f.visibility()[0]:
+            continue
+        v = f.value_text()
+        if not (isinstance(v, str) and v.strip()):
+            continue
+        if f.ref is not None and "C" in acrojs.actions(doc, doc.resolve(f.ref)):
+            continue
+        out.append((f.name, r, v.strip()))
+    return out
+
+
+def _with_statics(lay: PageLayout, nb: dict, r, f: FormField, statics: list) -> dict:
+    """周りの字（_neighbours）に、書き換えられない字の欄の値を足す：同じ決まり（左右は上下の範囲が重なるもの、上下は左右の範囲が
+    重なるもの）で、その側の印刷された字より近いときだけ。"""
+    x0, y0, x1, y1 = r
+    for name, s, text in statics:
+        if name == f.name:
+            continue
+        side = d = None
+        if min(y1, s[3]) - max(y0, s[1]) > 0:
+            if s[2] <= x0 + RULE_TOL:
+                side, d = "left", x0 - s[2]
+            elif s[0] >= x1 - RULE_TOL:
+                side, d = "right", s[0] - x1
+        if side is None and min(x1, s[2]) - max(x0, s[0]) > 0:
+            if s[3] <= y0 + RULE_TOL:
+                side, d = "above", y0 - s[3]
+            elif s[1] >= y1 - RULE_TOL:
+                side, d = "below", s[1] - y1
+        if side is None:
+            continue
+        mm = lay._mm(max(d, 0.0))
+        if side not in nb or mm < nb[side]["mm"]:
+            nb[side] = {"text": text, "mm": mm, "field": name, "_size": lay.typical, "_rtl": False, "_line": None}
+    return nb
+
+
+def _pick(nb: dict, check: bool) -> str:
+    """周りの字から選ぶ見出し。箱の字だけの字（隣の箱）は選ばない。字の欄などは、所の見出しと同じ順（PageLayout._label_of：
+    左 → 上 → 右 → 同じ行 → 下）。チェックの欄は、箱の字と同じに、読む順ですぐ後ろの字（右。右から左へ書く字では左）、
+    なければ前の字、上、同じ行、下。"""
+    nb = {s: v for s, v in nb.items() if not _only_boxes(v["text"])}
+    if not check:
+        return PageLayout._label_of(nb)[0]
+    left, right = nb.get("left"), nb.get("right")
+    if left and left["_rtl"] and not (right and not right["_rtl"]):
+        left, right = right, left
+    for v in (right, left, nb.get("above")):
+        if v:
+            return label_text(v["text"])
+    return PageLayout._inline_label(nb) or (label_text(nb["below"]["text"]) if nb.get("below") else "")
+
+
+def _beside(lines, r) -> tuple[str, str]:
+    """チェックの欄と同じ高さ（字の高さの半分以上が欄と重なる）の横書きの行の、(欄の前の字, 欄の後ろの字)：読む順（左から右へ
+    書く行は左が前、右から左へ書く行は右が前）。前・後ろのそれぞれで、欄にいちばん近い行の字。欄の下にある字（欄が上に重なる
+    箱の字）は除く。字の終わりは、箱の字の選択肢の字と同じ決まり（_option_text：次の 1 字ぶん以上の空きか、次の箱の字まで）。"""
+    best: dict[str, tuple[float, str] | None] = {"before": None, "after": None}
+    for ln in lines:
+        if ln.vertical or not ln.text.strip():
+            continue
+        h = ln.y1 - ln.y0
+        if h <= 0 or min(ln.y1, r[3]) - max(ln.y0, r[1]) < 0.5 * h:
+            continue
+        rtl = bool(getattr(ln, "rtl", False))
+        mid = [(p[0] + p[1]) / 2 for p in ln.pos]
+        for left in (True, False):
+            idx = [i for i in range(len(mid)) if (mid[i] < r[0] if left else mid[i] > r[2])]
+            ink = [i for i in idx if not ln.text[i].isspace()]
+            if not ink:
+                continue
+            gap = (r[0] - max(ln.pos[i][1] for i in ink)) if left else (min(ln.pos[i][0] for i in ink) - r[2])
+            role = "before" if left != rtl else "after"
+            if best[role] is None or gap < best[role][0]:
+                best[role] = (gap, "".join(ln.text[i] for i in idx))
+    before = _option_text(best["before"][1][::-1])[::-1] if best["before"] else ""
+    return before, (_option_text(best["after"][1]) if best["after"] else "")
+
+
+def _cell_text_beside(c: Cell, r) -> str:
+    """欄と同じマスの字。欄の下にある字（欄が上に重なる箱の字・下線の字）は除く。"""
+    from types import SimpleNamespace
+
+    from .pagetext import join_lines
+
+    lines = []
+    for ln in c.lines:
+        if ln.vertical:
+            under = [r[1] <= (p[0] + p[1]) / 2 <= r[3] and r[0] <= (ln.x0 + ln.x1) / 2 <= r[2] for p in ln.pos]
+        else:
+            under = [r[0] <= (p[0] + p[1]) / 2 <= r[2] and r[1] <= (ln.y0 + ln.y1) / 2 <= r[3] for p in ln.pos]
+        lines.append(SimpleNamespace(text="".join(ch for ch, u in zip(ln.text, under) if not u)) if any(under) else ln)
+    return label_text(join_lines(lines))
+
+
+def _near_label(lay: PageLayout, r, f: FormField, statics: list) -> tuple[str, dict]:
+    """フォームの欄の見出しにする近くの字と、欄の周りの字（neighbours）。離れの上限は置かない（側と離れは neighbours に出る）。
+    - チェックの欄：同じ行（同じマスの行。マスの外なら、マスの外の行）の、すぐ後ろの字、なければ前の字
+    - 字のあるマスの中の欄（欄の面の半分より多くが、欄の中心のあるマスの中）：そのマスの字（欄の下にある字を除く）
+    - 空のマス（字が欄の下にしかないマスも）の中の欄：マスの周りの字
+    - 同じ高さの行の、欄より前の字（字と字の間の空きに置かれた欄）
+    - 欄の周りの字
+    周りの字からの選び方は _pick。"""
+    check = f.kind == "checkbox"
+    if any(n == f.name for n, _r, _t in statics):
+        statics = []  # 値が周りの字として見られる欄そのもの：ほかのそういう欄の値を、その見出しにしない（印刷された字だけ）
+    nbw = _with_statics(lay, lay._neighbours(r), r, f, statics)
     cx, cy = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
     c = lay.index.at(cx, cy)
     if c is not None:
-        if c.lines:
-            return label_text(c.text())
-        label, _rl, _cl = lay._label_for(c, c)
+        # 欄の中心のあるマスが、欄の面の半分より多くを含まないとき（罫線をまたいで置いた大きな欄・罫線の間の細いマス）は、
+        # 欄はそのマスの中にはない：マスの字・マスの周りの字ではなく、欄の周りの字で決める
+        inside = max(0.0, min(r[2], c.x1) - max(r[0], c.x0)) * max(0.0, min(r[3], c.y1) - max(r[1], c.y0))
+        if 2 * inside <= (r[2] - r[0]) * (r[3] - r[1]):
+            c = None
+    if check:
+        before, after = _beside(c.lines if c is not None and c.lines else lay.free_lines, r)
+        if after or before:
+            return label_text(after or before), nbw
+    if c is not None:
+        rest = _cell_text_beside(c, r) if c.lines else ""
+        if rest and not _only_boxes(rest):
+            return rest, nbw
+        cr = (c.x0, c.y0, c.x1, c.y1)
+        label = _pick(_with_statics(lay, lay._neighbours(cr), cr, f, statics), check)
         if label:
-            return label
-    within = _label_within_line(lay, r)
-    if within:
-        return within
-    best = None
-    for ln in lay.free_lines:
-        if ln.vertical:
-            continue
-        if ln.x1 <= r[0] + 2 and ln.y0 < r[3] and ln.y1 > r[1] and r[0] - ln.x1 < 200:
-            if best is None or ln.x1 > best.x1:
-                best = ln
-    if best is not None:
-        return label_text(best.text)
-    above = None
-    for ln in lay.free_lines:
-        if ln.y1 <= r[1] + 1 and r[1] - ln.y1 < 30 and ln.x0 < r[2] and ln.x1 > r[0] - 20:
-            if above is None or ln.y1 > above.y1:
-                above = ln
-    return label_text(above.text) if above is not None else ""
+            return label, nbw
+    if not check:
+        # 同じ高さの行の、欄より前の字。その側に、もっと近い字（別の行・書き換えられない字の欄の値）があれば、近い方（_pick）
+        within, gap, rtl = _label_within_line(lay, r)
+        nearer = nbw.get("right" if rtl else "left")
+        if within and not (nearer and not _only_boxes(nearer["text"]) and nearer["mm"] < lay._mm(gap)):
+            return within, nbw
+    return _pick(nbw, check), nbw
 
 
 def unknown_id_message(key: str) -> str:

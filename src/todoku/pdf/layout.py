@@ -951,7 +951,7 @@ class PageLayout:
             take(side, d, it, over if over and len(over) < len(ps) else None, ps)
         out = {}
         for side, (d, it, sel, ps) in best.items():
-            out[side] = {"text": it[4], "mm": self._mm(d), "_size": it[5], "_rtl": it[6]}
+            out[side] = {"text": it[4], "mm": self._mm(d), "_size": it[5], "_rtl": it[6], "_line": it[7]}
             if sel:
                 out[side].update(text=_pieces_text(it[7], ps, sel), line=it[4])
         return out
@@ -1003,7 +1003,7 @@ class PageLayout:
         return self.typical, "ページのふつうの字の大きさ"
 
     def _facts_nb(self, nb: dict) -> dict:
-        return {side: {k: v[k] for k in ("text", "mm", "line") if k in v} for side, v in nb.items()}
+        return {side: {k: v[k] for k in ("text", "mm", "line", "field") if k in v} for side, v in nb.items()}
 
     def _cell_spots(self) -> None:
         """空のマス：1 つずつの所（字か印を書く。kind_candidates に text・checkbox）と、同じ大きさの空のマスが横に隣り合って
@@ -1472,16 +1472,16 @@ def _rtl_cell(c: Cell) -> bool:
 
 def _option_text(t: str) -> str:
     """箱の字の後ろ（前の字は逆さにして渡す）の字：次の 1 字ぶん以上の空き（行の空白は測った空きから作るので、全角の空白か
-    2 字以上の半角の空白）か、次の箱の字まで（元のまま）。1 字ずつを同じ空白でつないだ並び（「重　　度　　訪　　問」）は、並び全体。"""
+    2 字以上の半角の空白）か、次の箱の字まで（元のまま）。初めが、1 字ずつを同じ空白でつないだ並び（「重　　度　　訪　　問」
+    「氏　　名（ふりがな）」の「氏　　名」）なら、その並びの中の空きでは切らない。並びは、1 字ずつの字だけ：すぐ後ろに字・数字の
+    続く字（「可　　不可」の「不」、「1 保護者」の「保」）は、次の語の初めの字なので、並びに入れない。"""
     t = t.lstrip(" 　")
-    m = re.match(r"\S(?:[ 　]+\S)+", t)
-    if m and evenly_spaced(m[0]):
-        chain = m[0]
-        stop = next((i for i, ch in enumerate(chain) if ch in BOX_GLYPHS or ch in CHECKED_GLYPHS), len(chain))
-        if stop == len(chain):
-            return chain
     out = []
     i = 0
+    m = re.match(r"\S(?:[ 　]+\S)+(?!\w)", t)
+    if m and evenly_spaced(m[0]) and not any(ch in BOX_GLYPHS or ch in CHECKED_GLYPHS for ch in m[0]):
+        out.append(m[0])
+        i = len(m[0])
     while i < len(t):
         ch = t[i]
         if ch in BOX_GLYPHS or ch in CHECKED_GLYPHS:
