@@ -297,6 +297,10 @@ class BlocksLazy(LazyDoc):
         if getattr(self, "tracked", 0):  # ふつうの道（grade.word_reasons）と同じ理由
             read.append(Reason("B", "変更履歴", f"変更履歴で削除された字が {self.tracked} 段落に残っています。窓では本文に入れず"
                                "〔変更履歴で削除された字〕と示しています。印刷される字は、ソフトの変更履歴の表示の設定で変わります"))
+        if getattr(self, "tracked_ins", 0):
+            from ..grade import inserted_reason
+
+            read.append(Reason("B", "変更履歴", inserted_reason(self.tracked_ins, "段落")))
         g = _final(read, write)
         g.deferred = ["未確認：全段落の字の読み落とし（audit_document で全部のまとまりを確かめます）"]
         return g
@@ -366,7 +370,9 @@ class ViewLazy(BlocksLazy):
         self.password = password
         self.chunks = []
         self.control_ids = _control_ids(doc)
-        para = table = chars = tracked = 0
+        from ..docx.revfacts import inserted_text
+
+        para = table = chars = tracked = tracked_ins = 0
         colors: Counter = Counter()
         for k, part, blocks in doc.all_blocks():
             start = 0
@@ -383,8 +389,10 @@ class ViewLazy(BlocksLazy):
                 para, table = self._counts(blocks[start:], para, table)
             chars += sum(len(p.text) for p in iter_paras(blocks))
             tracked += sum(1 for p in iter_paras(blocks) if hasattr(p, "deleted_text") and p.deleted_text().strip())
+            tracked_ins += sum(1 for p in iter_paras(blocks) if inserted_text(p))
             count_colors(iter_paras(blocks), colors)
         self.tracked = tracked  # 変更履歴で削除された字の残る段落の数
+        self.tracked_ins = tracked_ins  # 変更履歴で挿入された字のある段落の数
         self.normal_font_color = most_common_color(colors)  # 文書のふつうの字の色（ふつうの道と同じ数え方）
         self.paragraphs, self.tables = para, table
         self.est_chars = int(chars * 1.25) + para * 12 + len(self.control_ids) * 60
@@ -467,10 +475,13 @@ class SeqLazy(BlocksLazy):
         n = self.unit_count()
         self.object_units: list[int] = []
         self.tracked = 0  # 変更履歴で削除された字の残る段落の数
+        self.tracked_ins = 0  # 変更履歴で挿入された字のある段落の数
         colors: Counter = Counter()
+        from ..docx.revfacts import inserted_text
 
         def gone(blocks) -> int:
             count_colors(iter_paras(blocks), colors)
+            self.tracked_ins += sum(1 for p in iter_paras(blocks) if inserted_text(p))
             return sum(1 for p in iter_paras(blocks) if hasattr(p, "deleted_text") and p.deleted_text().strip())
 
         for u in range(n):

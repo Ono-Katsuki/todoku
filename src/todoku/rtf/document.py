@@ -47,6 +47,30 @@ def color_table(blob: bytes) -> list:
         rgb = {k.decode(): int(v) for k, v in re.findall(rb"\\(red|green|blue)(\d+)", ent)}
         out.append((rgb.get("red", 0), rgb.get("green", 0), rgb.get("blue", 0)) if rgb else None)
     return out
+def revision_authors(blob: bytes, cp: str) -> list[str]:
+    """変更履歴の作者の表（{\\*\\revtbl {名前;}{名前;}…}。RTF 1.9.1 の Track Changes）：番号（\\revauth・\\revauthdel）→ 名前。"""
+    m = re.search(rb"\{\\\*\\revtbl(?![a-zA-Z])", blob)
+    if not m:
+        return []
+    out, depth, i, start, n = [], 1, m.end(), 0, len(blob)
+    while i < n and depth:
+        c = blob[i]
+        if c == 0x5C:
+            i += 2
+            continue
+        if c == 0x7B:
+            depth += 1
+            if depth == 2:
+                start = i + 1
+        elif c == 0x7D:
+            if depth == 2:
+                name = _rtf_text(blob[start:i], cp).strip()
+                out.append(name[:-1].strip() if name.endswith(";") else name)
+            depth -= 1
+        i += 1
+    return out
+
+
 SKIP = {"fonttbl", "colortbl", "stylesheet", "info", "pict", "listtable", "listoverridetable", "revtbl", "rsidtbl",
         "generator", "xmlnstbl", "latentstyles", "datastore", "themedata", "colorschememapping", "objdata", "nonshppict",
         "shprslt", "pnseclvl", "pn", "ftnsep", "ftnsepc", "aftnsep", "aftnsepc", "ftncn", "aftncn", "pgdsctbl", "mmathPr",
@@ -183,6 +207,19 @@ class RtfDocument:
         self._parse()
         self._name_fields()
         self.pictures = self._pictures()
+
+    def _rev_of(self, look: dict, kind: str) -> tuple | None:
+        """字の書式から、変更履歴の事実（docx/revfacts.py の rev）：削除された字（\\deleted）は \\revauthdel・\\revdttmdel、
+        挿入された字（\\revised）は \\revauth・\\revdttm の、人（作者の表の番号）と日時（Word の DTTM）。"""
+        if kind != "del" and not look.get("revised"):
+            return None
+        from ..docx.revfacts import dttm
+
+        names = self.__dict__.get("_rev_names")
+        if names is None:
+            names = self.__dict__["_rev_names"] = revision_authors(self.blob, self.ansicpg)
+        i, when = (look.get("revauthdel"), look.get("revdttmdel")) if kind == "del" else (look.get("revauth"), look.get("revdttm"))
+        return ("del" if kind == "del" else "ins", names[i] if isinstance(i, int) and 0 <= i < len(names) else "", dttm(when or 0))
 
     def _seg_look(self, look: dict) -> tuple:
         """字の書式の事実（取り消し線か, 字の色 "RRGGBB"）：docx/fontfacts.py。自動の色（\\cf0・色の表の空の項目）は黒。"""
@@ -452,7 +489,7 @@ class RtfDocument:
                 if segs and getattr(segs[-1], "_open", False):
                     segs[-1]._open = False
                 sg = Seg(ch, kind, RSrc("txt", s, e, array("Q", (s,)), array("Q", (e,)), st.uc, st.look), None, hid, st.ul, fctl,
-                         self._seg_look(st.look))
+                         self._seg_look(st.look), self._rev_of(st.look, kind) if kind in ("t", "del") else None)
                 sg._open = True
                 segs.append(sg)
             s_join[0] = e
@@ -728,6 +765,8 @@ class RtfDocument:
                 st.look = {**st.look, "revised": 0 if t.param == 0 else 1}  # 変更履歴で挿入された字
             elif w == "crauth":
                 self.revisions["書式"] += 1
+            elif w in ("revauth", "revdttm", "revauthdel", "revdttmdel"):
+                st.look = {**st.look, w: t.param or 0}  # 変更した人（作者の表の番号）・日時（挿入・削除）
             elif w == "revisions":
                 self.tracking = True
             elif w == "v":

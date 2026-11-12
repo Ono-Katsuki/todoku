@@ -11,6 +11,8 @@ text:line-break は字のまま）で作り、1字ごとに、どの要素のど
 
 from __future__ import annotations
 
+import bisect
+import re
 from dataclasses import dataclass, field
 
 from .. import symfont
@@ -18,7 +20,7 @@ from ..docx.document import Cell, Control, Para, Seg, Table, iter_paras, number_
 from ..limits import MAX_DECLARED_CELLS
 from .package import OdfError, OdfPackage, text_of
 from .styles import Styles
-from .xml import NS, El, Txt
+from .xml import NS, El, Txt, top
 
 MAX_REPEATED = MAX_DECLARED_CELLS // 4  # 表の繰り返しの宣言（table:number-…-repeated）から広げるマスの数（文書ごと）
 
@@ -166,6 +168,10 @@ class OdtDocument:
         self.changes: dict[str, tuple[str, El, str]] = {}
         self.tracking = False
         self._gone: list[Seg] = []  # 段落の外（ブロックのあいだ）にある削除の印の字：次の段落の頭に付ける
+        # 本文の一部だけを読むとき、前のかたまりで開いたまま（text:change-start だけがあった）の挿入の id。読み終わりに開いている id
+        self._ins_open0: list[str] = list(p_.get("ins_open", ())) if partial is not None else []
+        self._partial = partial is not None
+        self.ins_open: list[str] = []
         self.list_counters: dict[str, list[int]] = {k: list(v) for k, v in p_.get("list_counters", {}).items()}
         self.outline_counter = list(p_.get("outline_counter", [0] * 11))
         self.vba = None
@@ -184,6 +190,7 @@ class OdtDocument:
             self.stories.append((kind, self.part, blocks))
         if self.comments:
             self.stories.append(("comments", self.part, self.comments))
+        self._mark_inserted()
         self.macros_info = None
 
     # ------------------------------------------------------------------ 入口（Word と同じ問い合わせ）
@@ -341,7 +348,71 @@ class OdtDocument:
         gone = deleted_text(what, self.pkg.xml(where))
         if not gone:
             return None
-        return Seg(gone, "del", Src("el", part, ch.s, ch.e, el=ch), run, True)
+        return Seg(gone, "del", Src("el", part, ch.s, ch.e, el=ch), run, True, rev=("del",) + self._change_who(what, where))
+
+    def _change_who(self, what: El, part: str) -> tuple[str, str]:
+        """変更した人・日時（変更の要素の中の office:change-info の dc:creator・dc:date）。書いていなければ ""。"""
+        info = what.find("office:change-info")
+        if info is None:
+            return "", ""
+        data = self.pkg.xml(part)
+        who, when = info.find("dc:creator"), info.find("dc:date")
+        return (text_of(who, data).strip() if who is not None else "", text_of(when, data).strip() if when is not None else "")
+
+    def _mark_inserted(self) -> None:
+        """変更履歴の挿入の範囲（text:change-start の終わり 〜 同じ id の text:change-end の始まり）の中の字に、挿入の事実
+        （docx/revfacts.py の rev：変更した人・日時）を付ける。本文の一部だけを読むとき（lazy）は、前のかたまりで開いたままの
+        挿入を頭から開いているとして読み、閉じなかった挿入を ins_open に残す（次のかたまりへ渡す）。"""
+        ins = {k: v for k, v in self.changes.items() if v[0] == "insertion"}
+        self.ins_open = [k for k in self._ins_open0 if k in ins]
+        if not ins:
+            return
+        by_part: dict[str, list] = {}
+        for _kind, part, blocks in self.all_blocks():
+            by_part.setdefault(part, []).append(blocks)
+        for part, groups in by_part.items():
+            data = self.pkg.xml(part)
+            open_: dict[str, int] = {k: 0 for k in self.ins_open} if part == self.part else {}
+            if b"change-start" not in data and not open_:
+                continue
+            tp = re.escape((top(self.pkg.tree(part)).prefix_of(NS["text"]) or "text").encode())
+            spans: list[tuple[int, int, str]] = []
+            for m in re.finditer(rb"<" + tp + rb":change-(start|end)\b[^>]*?\b" + tp + rb":change-id\s*=\s*(?:\"([^\"]*)\"|'([^']*)')[^>]*>",
+                                 data):
+                cid = (m[2] if m[2] is not None else m[3]).decode("utf-8", "replace")
+                if cid not in ins:
+                    continue
+                if m[1] == b"start":
+                    open_[cid] = m.end()
+                elif cid in open_:
+                    spans.append((open_.pop(cid), m.start(), cid))
+            if self._partial and part == self.part:
+                spans += [(a, len(data), cid) for cid, a in open_.items()]
+                self.ins_open = list(open_)
+            if not spans:
+                continue
+            spans.sort()
+            starts = [a for a, _b, _c in spans]
+            reach, far = [], 0  # ここまでの範囲の、いちばん遠い終わり（重なった範囲を、後ろから探すのを止める所）
+            for _a, b, _c in spans:
+                far = max(far, b)
+                reach.append(far)
+            who: dict[str, tuple] = {}
+            for blocks in groups:
+                for p in iter_paras(blocks):
+                    for sg in p.segs:
+                        n = sg.node
+                        if sg.kind == "del" or n is None or getattr(n, "part", None) != part:
+                            continue
+                        i = bisect.bisect_right(starts, n.s) - 1
+                        while i >= 0 and reach[i] > n.s:
+                            a, b, cid = spans[i]
+                            if a <= n.s < b:
+                                if cid not in who:
+                                    who[cid] = ("ins",) + self._change_who(ins[cid][1], ins[cid][2])
+                                sg.rev = who[cid]
+                                break
+                            i -= 1
 
     def _gone_to_last(self, blocks: list) -> None:
         """後ろに段落のない、段落の外の削除の印：その字を、最後の段落の終わりに付ける（段落が 1 つもなければ、読まなかった所に残す）。"""

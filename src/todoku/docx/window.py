@@ -983,6 +983,11 @@ def build(doc: DocxDocument) -> dict:
     out["tracked_deletions"] = [f"段落 {sp.para_index[id(q)]}「{q.deleted_text().strip()[:20].replace(chr(10), '⏎')}」"
                                 for _k, _part, blocks in doc.all_blocks() for q in iter_paras(blocks)
                                 if hasattr(q, "deleted_text") and q.deleted_text().strip()]
+    from .revfacts import inserted_text
+
+    # 変更履歴で挿入された字のある段落（窓では本文に入れて、〔変更履歴で挿入された…〕と示す）
+    out["tracked_insertions"] = [f"段落 {sp.para_index[id(q)]}「{inserted_text(q).strip()[:20].replace(chr(10), ' ')}」"
+                                 for _k, _part, blocks in doc.all_blocks() for q in iter_paras(blocks) if inserted_text(q)]
     from ..embeds import lazy as embed_lazy
 
     embed_lazy.spend(sum(len(ln) for st in out["stories"] for ln in st["reading"]))
@@ -1364,11 +1369,15 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
     hid = p.hidden_text().strip()
     if hid:
         t += f"〔非表示の文字: {hid}〕"
-    gone = p.deleted_text().strip() if hasattr(p, "deleted_text") else ""
-    if gone:
-        # 段落をまたいで削除された所（OpenDocument）は、消えた段落の切れ目を ⏎ で示す
-        t += ("〔変更履歴で削除された字（いまの本文ではない" + ("。⏎ は段落の切れ目" if "\n" in gone else "")
-              + f"）: {gone.replace(chr(10), '⏎')}〕")
+    if any(getattr(s, "rev", None) is not None for s in p.segs):
+        from .revfacts import inserted_marks
+
+        head_, tail_ = inserted_marks(p)  # 変更履歴で挿入された字（本文の字として読む。まだ承諾も却下もされていない）
+        t = head_ + t + tail_
+    if hasattr(p, "deleted_text") and p.deleted_text().strip():
+        from .revfacts import deleted_mark
+
+        t += deleted_mark(p)
     label = p.label
     bullet = next((it for it in items if is_bullet(it)), None)
     if bullet is not None and label:

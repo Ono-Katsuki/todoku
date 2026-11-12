@@ -41,6 +41,15 @@ class Seg:
     underline: bool = False
     field: "Control | None" = None
     look: tuple | None = None  # 字の書式の事実（取り消し線か, 字の色 "RRGGBB" か None）：docx/fontfacts.py。ない形式は None
+    rev: tuple | None = None  # まだ承諾も却下もされていない変更履歴の字：("ins"・"del", 変更した人, 日時)。docx/revfacts.py
+
+
+def _set_rev(segs: list, kind: str, node) -> None:
+    """変更履歴の要素（w:ins・w:del・w:moveTo・w:moveFrom）の中の字に、その事実を付ける（内側の要素が先に付けた字は、そのまま）。"""
+    rev = (kind, node.get("author") or "", node.get("date") or "")
+    for s in segs:
+        if s.rev is None:
+            s.rev = rev
 
 
 def _tab_stops(ppr) -> list[tuple[str, str, str]]:
@@ -1091,6 +1100,8 @@ class DocxDocument:
             elif loc in ("hyperlink", "smartTag", "customXml", "ins", "moveTo", "fldSimple", "bdo", "dir"):
                 n0 = len(p.segs)
                 self._inline(ch, p, part, st, deleted)
+                if loc in ("ins", "moveTo"):
+                    _set_rev(p.segs[n0:], "ins", ch)
                 if loc == "hyperlink":
                     self._note_link(ch, part, p.segs[n0:])
                 if loc == "fldSimple":
@@ -1098,7 +1109,9 @@ class DocxDocument:
                 if loc == "fldSimple":
                     _mark_result(p.segs[n0:], ch.get("instr", ""), ch, part, p, ch.get("fldLock", "") in ("1", "true", "on"))
             elif loc in ("del", "moveFrom"):
+                n0 = len(p.segs)
                 self._inline(ch, p, part, st, True)
+                _set_rev(p.segs[n0:], "del", ch)
             elif loc == "sdt":
                 ctl = self._sdt_control(ch, part, p)
                 content = ch.find("sdtContent")
@@ -1192,7 +1205,8 @@ class DocxDocument:
             if in_instr:
                 continue
             if loc == "t":
-                p.segs.append(Seg(sym_text(ch.text, fonts, self.symbol_fonts), "t", ch, r, hidden, underline))
+                # 移る前の字（w:moveFrom）の中の字は w:t で書かれる：削除された字（w:delText）と同じに、変更履歴で削除された字として示す
+                p.segs.append(Seg(sym_text(ch.text, fonts, self.symbol_fonts), "del" if deleted else "t", ch, r, hidden, underline))
             elif loc == "delText":
                 p.segs.append(Seg(sym_text(ch.text, fonts, self.symbol_fonts), "del", ch, r, True))  # 変更履歴で削除された字（窓では印をつけて示す）
             elif loc == "tab" or loc == "ptab":

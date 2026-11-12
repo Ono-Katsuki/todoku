@@ -623,7 +623,12 @@ class DocFile:
     def _chpx_props_of(grp: bytes) -> dict:
         d = {"hidden": False, "underline": False, "pic": None, "symbol": None, "spec": False, "data": False, "deleted": False,
              "inserted": False}
+        rm = [None, 0, None, 0]  # 挿入した人の番号・日時、削除した人の番号・日時（sprmCIbstRMark・sprmCDttmRMark・…Del）
         for sp, op in sprms(grp):
+            if sp in (0x4804, 0x4863) and len(op) >= 2:
+                rm[0 if sp == 0x4804 else 2] = struct.unpack_from("<H", op, 0)[0]
+            elif sp in (0x6805, 0x6864) and len(op) >= 4:
+                rm[1 if sp == 0x6805 else 3] = struct.unpack_from("<I", op, 0)[0]
             # 命令の番号は MS-DOC の原本（2.6.1）で確かめた：0x083C 非表示（0x0839 は影付きで別のもの）、0x0800 変更履歴の削除、
             # 0x0801 変更履歴の挿入
             if sp == 0x083C:
@@ -642,7 +647,44 @@ class DocFile:
                 d["spec"] = bool(op[0]) if op else False
             elif sp == 0x0806:
                 d["data"] = bool(op[0]) if op else False
+        if d["deleted"] or d["inserted"]:
+            d["rm"] = tuple(rm)
         return d
+
+    def rev_authors(self) -> list[str]:
+        """変更履歴・コメントの作者の名前（SttbfRMark。MS-DOC 2.9.290：字が UTF-16 の STTB、余分のデータなし。
+        初めの項目は、決まりで「Unknown」＝作者の分からない変更）。読めなければ空。"""
+        got = self.__dict__.get("_rmark")
+        if got is not None:
+            return got
+        out: list[str] = []
+        self.__dict__["_rmark"] = out
+        fc, lcb = self.fc.get("SttbfRMark", (0, 0))
+        t = self.table
+        if lcb < 6 or fc + lcb > len(t) or struct.unpack_from("<H", t, fc)[0] != 0xFFFF:
+            return out
+        n, extra = struct.unpack_from("<HH", t, fc + 2)
+        i = fc + 6
+        for _ in range(n):
+            if i + 2 > fc + lcb:
+                break
+            cch = struct.unpack_from("<H", t, i)[0]
+            out.append(t[i + 2:i + 2 + 2 * cch].decode("utf-16-le", errors="replace"))
+            i += 2 + 2 * cch + extra
+        return out
+
+    def rev_of(self, props: dict) -> tuple | None:
+        """字の書式から、変更履歴の事実（docx/revfacts.py の rev）：削除された字は削除の、ほかの挿入された字は挿入の、人と日時。
+        人は SttbfRMark の番号（sprmCIbstRMark 0x4804・sprmCIbstRMarkDel 0x4863。0 は「分からない」）、日時は DTTM
+        （sprmCDttmRMark 0x6805・sprmCDttmRMarkDel 0x6864）。"""
+        if not (props.get("deleted") or props.get("inserted")):
+            return None
+        from ..docx.revfacts import dttm
+
+        rm = props.get("rm") or (None, 0, None, 0)
+        i, when = (rm[2], rm[3]) if props.get("deleted") else (rm[0], rm[1])
+        names = self.rev_authors() if i else []
+        return ("del" if props.get("deleted") else "ins", names[i] if i and i < len(names) else "", dttm(when))
 
     # ------------------------------------------------------------------ 書体の表・記号の書体
     def font_table(self) -> list[tuple[str, int]]:
@@ -1109,6 +1151,7 @@ class DocFile:
                 rev_prev = rev
             # 変更履歴で削除された字（窓では、非表示の字と分けて〔変更履歴で削除された字〕と示す。.docx・RTF・OpenDocument と同じ）
             tkind = "del" if props["deleted"] else "t"
+            trev = self.rev_of(props) if rev[0] or rev[1] else None
             if o == 0x09:
                 p.segs.append(Seg("\t", "tab", CPRef(cp), None, hidden, props["underline"]))
             elif o in (0x0B, 0x0C, 0x0E):
@@ -1142,7 +1185,7 @@ class DocFile:
                 p.segs.append(Seg("※", "note", CPRef(cp), None, hidden))
             elif o == 0x28 and props["symbol"] and props["spec"]:
                 p.segs.append(Seg(self.symbol_char(*props["symbol"]), "del" if props["deleted"] else "sym", CPRef(cp), None, hidden,
-                                  props["underline"], look=props.get("look")))
+                                  props["underline"], look=props.get("look"), rev=trev))
             elif o < 0x20 and o not in (0x09,):
                 pass
             else:
@@ -1151,10 +1194,12 @@ class DocFile:
                 # 同じ書式の字はまとめる
                 if p.segs and p.segs[-1].kind == tkind and p.segs[-1].hidden == hidden and \
                         p.segs[-1].underline == props["underline"] and p.segs[-1].node.s + len(p.segs[-1].text) == cp \
-                        and p.segs[-1].field is None and not stack and p.segs[-1].look == props.get("look"):
+                        and p.segs[-1].field is None and not stack and p.segs[-1].look == props.get("look") \
+                        and p.segs[-1].rev == trev:
                     p.segs[-1].text += ch.replace("\xa0", " ")
                 else:
-                    p.segs.append(Seg(ch.replace("\xa0", " "), tkind, CPRef(cp), None, hidden, props["underline"], look=props.get("look")))
+                    p.segs.append(Seg(ch.replace("\xa0", " "), tkind, CPRef(cp), None, hidden, props["underline"], look=props.get("look"),
+                                      rev=trev))
             cp += 1
         if stack and multi:
             # 段落の終わりで開いているフィールドのうち、後ろで閉じるもの：ここまでの結果の字に、フィールドの結果の印

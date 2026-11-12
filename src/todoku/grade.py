@@ -648,6 +648,12 @@ def _write_fields(fields: list[dict], layout: list[dict], agent: list[dict], mar
     return [Reason("B", "印のある欄がない", f"作り手の印のある欄がありません。{free}")]
 
 
+def inserted_reason(n: int, unit: str) -> str:
+    """変更履歴で挿入された字（まだ承諾も却下もされていない）がある、という読む B の理由の文。"""
+    return (f"変更履歴で挿入された字（まだ承諾も却下もされていない）が {n} {unit}にあります。窓では本文に入れて"
+            "〔変更履歴で挿入された…〕と示しています。印刷される字は、ソフトの変更履歴の表示の設定で変わります")
+
+
 def word_reasons(win: dict) -> tuple[list[Reason], list[Reason]]:
     """Word と同じ窓の文書（Word・RTF・OpenDocument の文書）の、読む・書くの理由：変更履歴で削除された字が残っている（読む B）、
     書けない入力欄がある（書く D）。"""
@@ -656,6 +662,9 @@ def word_reasons(win: dict) -> tuple[list[Reason], list[Reason]]:
     if gone:
         read.append(Reason("B", "変更履歴", f"変更履歴で削除された字が {len(gone)} 段落に残っています。窓では本文に入れず"
                            "〔変更履歴で削除された字〕と示しています。印刷される字は、ソフトの変更履歴の表示の設定で変わります", gone))
+    new = win.get("tracked_insertions") or []
+    if new:
+        read.append(Reason("B", "変更履歴", inserted_reason(len(new), "段落"), new))
     bad = [f for f in win.get("fields") or [] if f.get("unwritable")]
     if bad:
         write.append(Reason("D", "書けない入力欄", f"入力欄 {len(bad)} か所は、ファイルの作りのために書けません：{bad[0].get('why', '')}",

@@ -362,7 +362,7 @@ class OdtLazy(_PackagedLazy):
         self.index_units()
 
     def first_state(self) -> dict:
-        return {"list_counters": {}, "outline_counter": [0] * 11, "pictures": 0}
+        return {"list_counters": {}, "outline_counter": [0] * 11, "pictures": 0, "ins_open": []}
 
     def unit_count(self) -> int:
         return len(self.unit_list)
@@ -378,7 +378,8 @@ class OdtLazy(_PackagedLazy):
         return self._mini_zip({"content.xml": self.split.mini(i, j)})
 
     def state_after(self, doc, state: dict) -> dict:
-        return {"list_counters": {k: list(v) for k, v in doc.list_counters.items()}, "outline_counter": list(doc.outline_counter), "pictures": len(doc.pictures)}
+        return {"list_counters": {k: list(v) for k, v in doc.list_counters.items()}, "outline_counter": list(doc.outline_counter), "pictures": len(doc.pictures),
+                "ins_open": list(doc.ins_open)}  # 閉じていない変更履歴の挿入（次のかたまりの頭から続く）
 
     def unit_has_objects(self, doc) -> bool:
         return False

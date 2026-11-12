@@ -254,5 +254,6 @@ def test_tracked_deletion_shown_as_deleted(tmp_path):
     body = p(r("備考："), '<w:del w:id="1" w:author="a" w:date="2026-01-01T00:00:00Z"><w:r><w:delText>旧い注意</w:delText></w:r></w:del>', r("新しい注意"))
     path = write(tmp_path, docx(body))
     _k, _d, parts = api.window(path)
-    assert "備考：新しい注意〔変更履歴で削除された字（いまの本文ではない）: 旧い注意〕" in parts[0][1]
+    # 変更した人・日時（w:author・w:date）は、書いてある値のまま添える
+    assert "備考：新しい注意〔変更履歴で削除された字（いまの本文ではない。変更した人：a・日時：2026-01-01T00:00:00Z）: 旧い注意〕" in parts[0][1]
     assert api.audit(path)["checks"][0]["ok"]

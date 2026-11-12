@@ -22,6 +22,11 @@ from test_openformats import _package, make_rtf, sj
 from todoku import api, lazy, limits, mcp_server
 
 GONE = "〔変更履歴で削除された字（いまの本文ではない）: "
+# 変更した人・日時がファイルに書いてあれば、そのまま添える（tests/test_revision_who.py）
+ODT_WHO = "。変更した人：係・日時：2026-01-01T00:00:00"  # 下の INFO（office:change-info）
+DOC_WHO = "。日時：1970-01-01 00:00"  # tracked_changes.doc（LibreOffice が書いた DTTM。人は「分からない」の番号）
+GONE_ODT = GONE.replace("）: ", ODT_WHO + "）: ")
+GONE_DOC = GONE.replace("）: ", DOC_WHO + "）: ")
 
 
 @pytest.fixture(autouse=True)
@@ -82,13 +87,13 @@ def test_odt_tracked_deletions_are_told_and_not_read_as_text(tmp_path):
     p = tmp_path / "a.odt"
     p.write_bytes(_odt(ODT_BODY, ODT_REGIONS))
     lines = _plain(_lines(p))
-    assert f"提出先：市役所の窓口。{GONE}町役場〕" in lines
+    assert f"提出先：市役所の窓口。{GONE_ODT}町役場〕" in lines
     # 段落をまたぐ削除：消えた段落の切れ目を ⏎ で示す
-    assert "一行目の残る字三行目の残る字。〔変更履歴で削除された字（いまの本文ではない。⏎ は段落の切れ目）: 消えた終わり⏎まるごと消えた段落⏎消えた頭〕" in lines
+    assert "一行目の残る字三行目の残る字。〔変更履歴で削除された字（いまの本文ではない。⏎ は段落の切れ目" + ODT_WHO + "）: 消えた終わり⏎まるごと消えた段落⏎消えた頭〕" in lines
     # 消えた字だけのマス：欄の印も、消えた字も出す
-    assert f"氏名 ｜ ［T1.R1.C2］ {GONE}山田〕" in lines
+    assert f"氏名 ｜ ［T1.R1.C2］ {GONE_ODT}山田〕" in lines
     # 段落の外（段落のあいだ）の削除は、次の段落の頭に付ける
-    assert any(ln.startswith("連絡先：") and f"{GONE}段落の外で消えた字〕" in ln for ln in lines)
+    assert any(ln.startswith("連絡先：") and f"{GONE_ODT}段落の外で消えた字〕" in ln for ln in lines)
     fl = {f["id"]: f for f in api.fields(str(p))}
     assert fl["T1.R1.C2"]["tracked_deleted"] == "山田" and not fl["T1.R1.C2"].get("value")
     assert ("B", "変更履歴") in _reasons(p)
@@ -115,7 +120,7 @@ def test_odt_fill_tells_unresolved_changes_insertion_and_tracking(tmp_path):
     assert not any(x.startswith("T1.R1.C2: 書いた所は、変更履歴の挿入") for x in w)
     assert any("「変更履歴の記録」がオン" in x for x in w)
     out = _plain(_lines(tmp_path / "o.odt"))
-    assert any("［T1.R1.C2＝佐藤］" in ln and f"{GONE}山田〕" in ln for ln in out)  # 消えた字は、書いた後も消えた字のまま
+    assert any("［T1.R1.C2＝佐藤］" in ln and f"{GONE_ODT}山田〕" in ln for ln in out)  # 消えた字は、書いた後も消えた字のまま
 
 
 def test_odt_fill_without_changes_has_no_revision_warning(tmp_path):
@@ -178,7 +183,7 @@ def test_doc_tracked_deletion_is_told_as_a_revision_and_revisions_are_told_at_fi
     assert doc.revisions == {"挿入": 1, "削除": 1} and doc.tracking
     raw = _lines(DOC_REV)
     lines = _plain(raw)
-    assert f"提出先：市役所の窓口。{GONE}町役場〕" in lines
+    assert f"提出先：市役所の窓口。{GONE_DOC}町役場〕" in lines
     assert not any("〔非表示の文字" in ln for ln in raw)  # 非表示の字とは分けて示す
     assert ("B", "変更履歴") in _reasons(DOC_REV)
     fl = api.fields(DOC_REV)
@@ -193,7 +198,7 @@ def test_doc_tracked_deletion_is_told_as_a_revision_and_revisions_are_told_at_fi
     after = DocFile((tmp_path / "o.doc").read_bytes(), "o.doc")
     assert after.revisions["削除"] == 1 and after.tracking
     out = _plain(_lines(tmp_path / "o.doc"))
-    assert any("提出先：市役所の窓口。" in ln and f"{GONE}町役場〕" in ln for ln in out)  # 消えた字は、書いた後も消えた字のまま
+    assert any("提出先：市役所の窓口。" in ln and f"{GONE_DOC}町役場〕" in ln for ln in out)  # 消えた字は、書いた後も消えた字のまま
     assert any("03-0000-0000" in ln for ln in out) and any("佐藤" in ln for ln in out)
 
 
@@ -262,7 +267,7 @@ def test_large_road_tells_tracked_deletions_of_doc(tmp_path, monkeypatch, kind, 
     p = tmp_path / "a.doc"
     p.write_bytes(open(DOC_REV, "rb").read() if kind == "word97" else _word6_rev())
     normal = _lines(p)
-    assert any(GONE + "町役場〕" in ln for ln in normal)
+    assert any((GONE_DOC if kind == "word97" else GONE) + "町役場〕" in ln for ln in normal)
     _large(monkeypatch, chunked)
     assert ("B", "変更履歴") in _reasons(p)
     assert _range_lines(p, "1-20") == normal  # ふつうの道の窓と、同じ行
@@ -289,7 +294,7 @@ def test_large_road_tells_tracked_deletions_and_reads_paragraph_ranges(tmp_path,
     p = tmp_path / f"a.{ext}"
     p.write_bytes(_odt(ODT_BODY, ODT_REGIONS) if ext == "odt" else make_rtf(*RTF_BODY))
     normal = _lines(p)
-    assert any(GONE + "町役場〕" in ln for ln in normal)
+    assert any((GONE_ODT if ext == "odt" else GONE) + "町役場〕" in ln for ln in normal)
     _large(monkeypatch, chunked)
     assert type(lazy.open_doc(str(p), force=True)).__name__ == ({"odt": "OdtLazy", "rtf": "ViewLazy"}[ext] if chunked else "BuiltDoc")
     assert ("B", "変更履歴") in _reasons(p)

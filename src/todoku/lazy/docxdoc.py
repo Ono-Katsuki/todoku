@@ -87,6 +87,7 @@ class DocxLazy(BlocksLazy):
         self.object_stories: list[str] = []
         self.objects_blocks: list[int] = []  # 埋め込み・グラフ・SmartArt のあるブロック（窓の終わりの節を作るとき読む）
         self.tracked = 0
+        self.tracked_ins = 0  # 変更履歴で挿入された字の所（w:ins・w:moveTo）の数
         self.head_xml = b""
         self.tail_xml = b""
         self.data_end = 0
@@ -190,7 +191,7 @@ class DocxLazy(BlocksLazy):
         p.StartDoctypeDeclHandler = _no_doctype
         names: dict[str, str] = {}
         stack: list[str] = []
-        st = {"at": 0, "complex": False, "paras": 0, "tables": 0, "pstyle": "", "numid": None, "ilvl": 0, "body": False, "body_end": None, "chars": 0, "del": 0}
+        st = {"at": 0, "complex": False, "paras": 0, "tables": 0, "pstyle": "", "numid": None, "ilvl": 0, "body": False, "body_end": None, "chars": 0, "del": 0, "ins": 0}
         pending: list = []
         fst: list[dict] = []  # 開いているフィールド（段落・まとまりをまたぐもの：目次など）
         fp = {"bad": 0, "p": 0, "instr": False, "at": ()}
@@ -298,6 +299,10 @@ class DocxLazy(BlocksLazy):
                         st["ilvl"] = int(next((v for k, v in attrs.items() if k.rsplit(":", 1)[-1] == "val"), 0) or 0)
                 elif local == "delText":
                     st["del"] += 1
+                elif local in ("ins", "moveTo", "moveFrom"):
+                    # 字の挿入（段落の中の w:ins）・移る前の字（w:moveFrom：字は w:t）：書式の中の印（段落の終わりの印・行・番号）は数えない
+                    if stack[-1] not in ("rPr", "pPr", "trPr", "tcPr", "tblPr", "numPr", "sectPr"):
+                        st["del" if local == "moveFrom" else "ins"] += 1
             if depth == 0:
                 self._raw_names = {"top": name.encode()}
             elif depth == 1 and local == "body":
@@ -374,6 +379,7 @@ class DocxLazy(BlocksLazy):
         self.data_end = at
         self.body_paragraphs = self.paragraphs
         self.tracked = st["del"]
+        self.tracked_ins = st["ins"]
         # まとまりの始まりで開いているフィールド（その時の phase・命令の字）と、後ろで閉じるか
         for ch in self.chunks:
             if "story" in ch:
@@ -566,6 +572,10 @@ class DocxLazy(BlocksLazy):
             write.append(Reason("C", "マクロ", "マクロがあります。窓の終わりの節のソースを読んで判断します"))
         if self.tracked:
             reasons.append(Reason("B", "変更履歴", f"変更履歴で削除された字が {self.tracked} か所に残っています"))
+        if self.tracked_ins:
+            from ..grade import inserted_reason
+
+            reasons.append(Reason("B", "変更履歴", inserted_reason(self.tracked_ins, "か所")))
         g = _final(reasons, write)
         g.deferred = ["未確認：全段落の字の読み落とし・全部の欄への書き込みの試し（audit_document で全部のまとまりを確かめます）"]
         return g

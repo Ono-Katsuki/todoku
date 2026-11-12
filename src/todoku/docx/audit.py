@@ -371,8 +371,9 @@ def anchored_check(blob: bytes, filename: str, opener, fill_fn, prove_fn, main_e
                 if work < 0:
                     break
                 continue
-            if any(q.segs[pos[k][0]].kind != "t" for k in range(i, min(i + 5, len(pos)))):
-                continue  # 本文の字（字の要素）の中だけを目印にする（図の説明などは目印にならない）
+            if any(q.segs[pos[k][0]].kind != "t" or getattr(q.segs[pos[k][0]], "rev", None) is not None
+                   for k in range(i, min(i + 5, len(pos)))):
+                continue  # 本文の字（字の要素）の中だけを目印にする（図の説明などは目印にならない。変更履歴の中の字は、書き込みが断る所）
             tried += 1
             spec = {"old": frag, "new": frag + "（試し）"}
             try:
