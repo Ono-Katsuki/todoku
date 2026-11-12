@@ -535,13 +535,17 @@ class DocFile:
 
     @staticmethod
     def _chpx_props_of(grp: bytes) -> dict:
-        d = {"hidden": False, "underline": False, "pic": None, "symbol": None, "spec": False, "data": False, "deleted": False}
+        d = {"hidden": False, "underline": False, "pic": None, "symbol": None, "spec": False, "data": False, "deleted": False,
+             "inserted": False}
         for sp, op in sprms(grp):
-            # 命令の番号は MS-DOC の原本（2.6.1）で確かめた：0x083C 非表示（0x0839 は影付きで別のもの）、0x0800 変更履歴の削除
+            # 命令の番号は MS-DOC の原本（2.6.1）で確かめた：0x083C 非表示（0x0839 は影付きで別のもの）、0x0800 変更履歴の削除、
+            # 0x0801 変更履歴の挿入
             if sp == 0x083C:
                 d["hidden"] = bool(op[0] & 1) if op else False
             elif sp == 0x0800:
                 d["deleted"] = bool(op[0] & 1) if op else False
+            elif sp == 0x0801:
+                d["inserted"] = bool(op[0] & 1) if op else False
             elif sp == 0x2A3E:
                 d["underline"] = bool(op[0]) if op else False
             elif sp == 0x6A03 and len(op) >= 4:
@@ -725,6 +729,14 @@ class DocFile:
             return "comments", True
         return "", False
 
+    @property
+    def tracking(self) -> bool:
+        """「変更履歴の記録」がオンか（DopBase の fRevMarking：5バイト目の 0x80。tests/test_spec.py で仕様書と照らす。
+        Word 6.0/95 の DOP でも同じ位置）。"""
+        fc, lcb = self.fc["Dop"]
+        t = self.table
+        return lcb >= 8 and fc + 8 <= len(t) and bool(t[fc + 5] & 0x80)
+
     def marks(self) -> dict:
         """書き込んだ欄のしおり（_todoku_…）：名前 → (段落, 始まり, 終わり)。"""
         from ..docx.document import iter_paras
@@ -900,6 +912,9 @@ class DocFile:
         stack: list[dict] = [{"begin": b, "instr": ins, "phase": "result" if sep is not None and sep < s else "instr", "n0": 0,
                               "carried": True} for b, sep, end, ins in multi if b < s <= end] if multi else []
         cp = s
+        # 変更履歴の数（承諾も却下もされていない挿入・削除）：印のついた字の、段落の中のひと続きを 1 つと数える
+        revs = self.__dict__.setdefault("revisions", {"挿入": 0, "削除": 0})
+        rev_prev = (False, False)
         while cp < e:
             ch = text[cp]
             o = ord(ch)
@@ -977,6 +992,13 @@ class DocFile:
                 continue
             props = self.char_props(cp)
             hidden = props["hidden"] or props["deleted"]  # 変更履歴で削除された字は、Word と同じく本文に出さない
+            rev = (bool(props.get("inserted")), props["deleted"])
+            if rev != rev_prev:
+                revs["挿入"] += 1 if rev[0] and not rev_prev[0] else 0
+                revs["削除"] += 1 if rev[1] and not rev_prev[1] else 0
+                rev_prev = rev
+            # 変更履歴で削除された字（窓では、非表示の字と分けて〔変更履歴で削除された字〕と示す。.docx・RTF・OpenDocument と同じ）
+            tkind = "del" if props["deleted"] else "t"
             if o == 0x09:
                 p.segs.append(Seg("\t", "tab", CPRef(cp), None, hidden, props["underline"]))
             elif o in (0x0B, 0x0C, 0x0E):
@@ -1009,19 +1031,20 @@ class DocFile:
             elif o in (0x02, 0x05) and props["spec"]:
                 p.segs.append(Seg("※", "note", CPRef(cp), None, hidden))
             elif o == 0x28 and props["symbol"] and props["spec"]:
-                p.segs.append(Seg(self.symbol_char(*props["symbol"]), "sym", CPRef(cp), None, hidden, props["underline"], look=props.get("look")))
+                p.segs.append(Seg(self.symbol_char(*props["symbol"]), "del" if props["deleted"] else "sym", CPRef(cp), None, hidden,
+                                  props["underline"], look=props.get("look")))
             elif o < 0x20 and o not in (0x09,):
                 pass
             else:
                 if 0x20 < o <= 0xFF or 0xF020 <= o <= 0xF0FF:
                     ch = self.text_char(cp, ch)  # 記号の書体で書いた字
                 # 同じ書式の字はまとめる
-                if p.segs and p.segs[-1].kind == "t" and p.segs[-1].hidden == hidden and \
+                if p.segs and p.segs[-1].kind == tkind and p.segs[-1].hidden == hidden and \
                         p.segs[-1].underline == props["underline"] and p.segs[-1].node.s + len(p.segs[-1].text) == cp \
                         and p.segs[-1].field is None and not stack and p.segs[-1].look == props.get("look"):
                     p.segs[-1].text += ch.replace("\xa0", " ")
                 else:
-                    p.segs.append(Seg(ch.replace("\xa0", " "), "t", CPRef(cp), None, hidden, props["underline"], look=props.get("look")))
+                    p.segs.append(Seg(ch.replace("\xa0", " "), tkind, CPRef(cp), None, hidden, props["underline"], look=props.get("look")))
             cp += 1
         if stack and multi:
             # 段落の終わりで開いているフィールドのうち、後ろで閉じるもの：ここまでの結果の字に、フィールドの結果の印

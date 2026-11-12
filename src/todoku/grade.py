@@ -1368,6 +1368,7 @@ def _grade_word6(doc, win: dict | None = None) -> Grade:
                               "状態（チェックの有無・選んだ項目）を読んでいません"))
     reasons += _macro_reasons(win.get("macros"))
     reasons += word_pua_reasons(doc)
+    reasons += word_reasons(win)[0]  # 変更履歴で削除された字（読む B）
     ok = [f for f in fields if not f.get("readonly")]
     blocked = [f for f in fields if f.get("readonly")]
     if ok or agent:

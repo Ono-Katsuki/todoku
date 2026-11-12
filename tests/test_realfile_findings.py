@@ -197,7 +197,7 @@ def test_doc_marks_after_outside_bmp_char_stay_on_their_chars(tmp_path):
     p = _p(tmp_path, "a.doc", _doc97(text, (units_before, units_before + 3)))
     t = "\n".join(x[1] for x in api.window(p)[2])
     assert "𠮷田𩸽の前の後" in t
-    assert "〔非表示の文字: 削除字〕" in t
+    assert "〔変更履歴で削除された字（いまの本文ではない）: 削除字〕" in t  # .docx・RTF・OpenDocument と同じ印
 
 
 def test_doc_stories_after_outside_bmp_char():

@@ -336,7 +336,7 @@ class Word6File(DocFile):
     def char_props(self, cp: int) -> dict:
         fc = self.fc_of(cp)
         d = {"hidden": False, "underline": False, "pic": None, "symbol": None, "spec": False, "data": False, "deleted": False,
-             "ole": False}
+             "inserted": False, "ole": False}
         ops = list(sprms6(self._find_run(self.chpx, self._chpx_fc0, fc)))
         pc = self.piece_of(cp)
         if pc is not None:
@@ -348,6 +348,8 @@ class Word6File(DocFile):
                 d["hidden"] = op[0] in (1, 129)
             elif sp == 65 and op:
                 d["deleted"] = bool(op[0])
+            elif sp == 66 and op:  # sprmCFRMark（変更履歴で挿入された字）
+                d["inserted"] = bool(op[0])
             elif sp == 94 and op:
                 d["underline"] = bool(op[0])
             elif sp == 87 and op:  # sprmCFStrike。値の読み方は 92 と同じ（スタイルの字の書式は読まない）
@@ -576,7 +578,7 @@ def capacity(doc: Word6File, it: dict) -> int:
     """その欄に上書きできるバイト数（0 は書けない所）。"""
     c = it.get("control")
     if c is not None:
-        cps = [sg.node.s for sg in c.result_segs if sg.kind == "t" and sg.node is not None]
+        cps = [sg.node.s for sg in c.result_segs if sg.kind in ("t", "del") and sg.node is not None]
         if not cps:
             return 0
         segs = [sg for sg in c.result_segs if sg.kind == "t" and sg.node is not None and not sg.hidden]
@@ -749,6 +751,8 @@ def plan(doc: Word6File, values: dict, *, force: bool = False):
             if any(doc.enc_at(cp) != doc.enc for cp in cps):
                 raise FillError(f"{key}: ここの字は、文書と違う文字コード（{doc.enc_at(next(cp for cp in cps if doc.enc_at(cp) != doc.enc))}）の書体で書かれているので、"
                                 "正しい字になるかを確かめられず、書きません。別の所に書くか、.docx に保存し直してください")
+            if any(doc.char_props(cp).get("inserted") for cp in cps):
+                warnings.append(f"{key}: 書いた所は、変更履歴の挿入の中にあります。その挿入を却下すると（元に戻すと）、書いた字も消えます")
             raw_new = new_text.encode(doc.enc)
             if len(raw_new) != room:
                 raise FillError(f"{key}: 書くバイトの数が合いません（{len(raw_new)} と {room}）")
@@ -799,6 +803,9 @@ def fill(doc: Word6File, values: dict, *, force: bool = False) -> W6FillResult:
     if any(is_embed_key(k) for k in values):
         raise FillError("Word 6.0/95 の文書の埋め込み（E1!…）には、まだ書けません")
     edits, patches, warnings, texts = plan(doc, values, force=force)
+    from .fill import revision_warnings
+
+    revision_warnings(doc, warnings)
     return W6FillResult(apply(doc, edits), patches, warnings, edits, texts)
 
 

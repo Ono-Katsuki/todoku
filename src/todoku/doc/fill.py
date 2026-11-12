@@ -517,6 +517,24 @@ def _bookmark_tables(doc: DocFile, marks) -> tuple[bytes, bytes, bytes]:
 
 
 # ====================================================================== 入口
+def revision_warnings(doc, warnings: list[str]) -> None:
+    """変更履歴：承諾も却下もされていない変更履歴があること・変更履歴の記録がオンでも、書いた字は変更履歴にしていないことを伝える
+    （.docx・RTF・OpenDocument と同じ）。Word 97 以降の .doc に書いた字は、挿入・削除の印を引き継がないので、変更履歴の外の
+    ふつうの字になる。Word 6.0/95 は、字のバイトを上書きするので、書く所の字の印のまま（挿入の中に書いたことは、欄ごとに伝える）。"""
+    n = {k: v for k, v in getattr(doc, "revisions", {}).items() if v}
+    if n:
+        what = "・".join(f"{k} {v}" for k, v in n.items())
+        how = ("書いた字は、変更履歴としてではなく、書く所にあった字を上書きして書きました。" if getattr(doc, "word6", False)
+               else "書いた字は、変更履歴の外に、ふつうの字として書きました。")
+        warnings.insert(0, f"この文書には、まだ承諾も却下もされていない変更履歴（{what}）があります。Word で開くと変更履歴として"
+                           f"表示され、承諾・却下で字が変わります。{how}"
+                           "提出する前に、変更履歴をどうするか本人に確かめてください")
+    if getattr(doc, "tracking", False):
+        warnings.append("この文書は「変更履歴の記録」がオンになっていますが、とどくの書き込みは変更履歴として記録していません"
+                        + ("（書く所にあった字を上書きしました）" if getattr(doc, "word6", False)
+                           else "（ふつうの字として書きました。Word の変更履歴には、書いた所は出ません）"))
+
+
 def para_cps(p) -> list[int]:
     """段落の文字（p.text）の1字ごとの位置（CP）。"""
     out = []
@@ -626,10 +644,10 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
                 if c.maxlen and len(text) > c.maxlen:
                     raise FillError(f"{key}: 「{text}」は {len(text)} 字です（この欄は {c.maxlen} 字まで）")
                 warnings += form_field_notes(c, key, text, doc.controls)
-                cps = [s.node.s for s in c.result_segs if s.node is not None and s.kind == "t"]
+                cps = [s.node.s for s in c.result_segs if s.node is not None and s.kind in ("t", "del")]
                 if cps:
                     a = cps[0]
-                    b = max(s.node.s + len(s.text) for s in c.result_segs if s.node is not None and s.kind == "t")
+                    b = max(s.node.s + len(s.text) for s in c.result_segs if s.node is not None and s.kind in ("t", "del"))
                 else:
                     a = b = c.end_cp
                 w.add(Edit(a, b, text, a if cps else c.end_cp, None))
@@ -726,6 +744,7 @@ def fill(doc: DocFile, values: dict, *, force: bool = False) -> DocFillResult:
         warnings.append("古い Word（.doc）の ActiveX の部品の控えの絵（Data の絵）は描き直していません。"
                         "Word で部品を読み込むと書いた値で表示されますが、ActiveX を止めた Word やプレビュー・"
                         "印刷では、古い絵のまま見えることがあります")
+    revision_warnings(doc, warnings)
     return DocFillResult(blob, patches, warnings, outside)
 
 

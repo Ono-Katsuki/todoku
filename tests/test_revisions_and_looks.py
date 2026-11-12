@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import struct
 import zipfile
@@ -163,6 +164,108 @@ def test_rtf_without_revisions_has_no_revision_warning(tmp_path):
     spot = api.fields(str(p))[0]["id"]
     r = api.fill(str(p), {spot: "佐藤"}, str(tmp_path / "o.rtf"))
     assert r["proof_ok"] and not [x for x in r["warnings"] if "変更履歴" in x]
+
+
+# ====================================================================== 古い Word（.doc）：変更履歴
+# tests/fixtures/tracked_changes.doc：上の RTF_BODY（「変更履歴の記録」がオン）の RTF を、LibreOffice で .doc（Word 97）にしたもの。
+DOC_REV = os.path.join(os.path.dirname(__file__), "fixtures", "tracked_changes.doc")
+
+
+def test_doc_tracked_deletion_is_told_as_a_revision_and_revisions_are_told_at_fill(tmp_path):
+    from todoku.doc.book import DocFile
+
+    doc = DocFile(open(DOC_REV, "rb").read(), "a.doc")
+    assert doc.revisions == {"挿入": 1, "削除": 1} and doc.tracking
+    raw = _lines(DOC_REV)
+    lines = _plain(raw)
+    assert f"提出先：市役所の窓口。{GONE}町役場〕" in lines
+    assert not any("〔非表示の文字" in ln for ln in raw)  # 非表示の字とは分けて示す
+    assert ("B", "変更履歴") in _reasons(DOC_REV)
+    fl = api.fields(DOC_REV)
+    spot = next(f["id"] for f in fl if "電話" in json.dumps(f, ensure_ascii=False))
+    name = next(f["id"] for f in fl if "氏名" in json.dumps(f, ensure_ascii=False))
+    r = api.fill(DOC_REV, {spot: "03-0000-0000", name: "佐藤"}, str(tmp_path / "o.doc"))
+    assert r["proof_ok"] and r["verified"] and r["read_back_ok"], r
+    assert "まだ承諾も却下もされていない変更履歴（挿入 1・削除 1）" in r["warnings"][0]
+    assert any("「変更履歴の記録」がオン" in x for x in r["warnings"])
+    # 書いた字は、挿入の印を引き継がない（変更履歴の外の、ふつうの字）
+    assert any(x.startswith(f"{spot}: 書く所に残っていた書式（変更履歴の挿入の印）") for x in r["warnings"])
+    after = DocFile((tmp_path / "o.doc").read_bytes(), "o.doc")
+    assert after.revisions["削除"] == 1 and after.tracking
+    out = _plain(_lines(tmp_path / "o.doc"))
+    assert any("提出先：市役所の窓口。" in ln and f"{GONE}町役場〕" in ln for ln in out)  # 消えた字は、書いた後も消えた字のまま
+    assert any("03-0000-0000" in ln for ln in out) and any("佐藤" in ln for ln in out)
+
+
+def test_doc_without_revisions_has_no_revision_warning(tmp_path):
+    from todoku.doc.book import DocFile
+
+    src = os.path.join(os.path.dirname(__file__), "fixtures", "symbol_fonts.doc")
+    doc = DocFile(open(src, "rb").read(), "a.doc")
+    assert doc.revisions == {"挿入": 0, "削除": 0} and not doc.tracking
+    assert ("B", "変更履歴") not in _reasons(src)
+
+
+def _word6_rev(track: bool = True, marks: bool = True) -> bytes:
+    from test_legacy import make_word6
+
+    t = "提出先：市役所町役場の窓口。\r連絡先：電話　　　　。\r氏名：　　　　。\r"
+    cp = lambda s: len(t[:t.index(s)].encode("cp932"))  # noqa: E731
+    dop = bytearray(16)
+    dop[5] = 0x80 if track else 0  # fRevMarking
+    # Word 6.0/95 の命令：65 変更履歴の削除（sprmCFStrikeRM）、66 変更履歴の挿入（sprmCFRMark）
+    chars = [(cp("町役場"), cp("町役場") + 6, bytes([65, 1])), (cp("電話"), cp("電話") + 12, bytes([66, 1]))] if marks else []
+    return make_word6(t, {}, chars, dop=bytes(dop))
+
+
+def test_word6_tracked_deletion_is_told_as_a_revision_and_revisions_are_told_at_fill(tmp_path):
+    from todoku.doc.word6 import Word6File
+
+    p = tmp_path / "a.doc"
+    p.write_bytes(_word6_rev())
+    doc = Word6File(p.read_bytes(), "a.doc")
+    assert doc.revisions == {"挿入": 1, "削除": 1} and doc.tracking
+    raw = _lines(p)
+    assert f"提出先：市役所の窓口。{GONE}町役場〕" in _plain(raw)
+    assert not any("〔非表示の文字" in ln for ln in raw)
+    assert ("B", "変更履歴") in _reasons(p)
+    fl = api.fields(str(p))
+    spot = next(f["id"] for f in fl if "電話" in json.dumps(f, ensure_ascii=False))
+    name = next(f["id"] for f in fl if "氏名" in json.dumps(f, ensure_ascii=False))
+    r = api.fill(str(p), {spot: "0312", name: "佐藤"}, str(tmp_path / "o.doc"))
+    assert r["proof_ok"] and r["verified"] and r["read_back_ok"], r
+    w = r["warnings"]
+    assert "まだ承諾も却下もされていない変更履歴（挿入 1・削除 1）" in w[0] and "上書きして書きました" in w[0]
+    assert any(x.startswith(f"{spot}: 書いた所は、変更履歴の挿入の中にあります") for x in w)
+    assert not any(x.startswith(f"{name}: 書いた所は、変更履歴の挿入") for x in w)
+    assert any("「変更履歴の記録」がオン" in x for x in w)
+    after = Word6File((tmp_path / "o.doc").read_bytes(), "o.doc")
+    assert after.revisions == {"挿入": 1, "削除": 1}  # 字のバイトを上書きするので、印は書く所のまま
+
+
+def test_word6_without_revisions_has_no_revision_warning(tmp_path):
+    from todoku.doc.word6 import Word6File
+
+    p = tmp_path / "a.doc"
+    p.write_bytes(_word6_rev(track=False, marks=False))
+    doc = Word6File(p.read_bytes(), "a.doc")
+    assert doc.revisions == {"挿入": 0, "削除": 0} and not doc.tracking
+    assert ("B", "変更履歴") not in _reasons(p)
+    name = next(f["id"] for f in api.fields(str(p)) if "氏名" in json.dumps(f, ensure_ascii=False))
+    r = api.fill(str(p), {name: "佐藤"}, str(tmp_path / "o.doc"))
+    assert r["proof_ok"] and not [x for x in r["warnings"] if "変更履歴" in x]
+
+
+@pytest.mark.parametrize("chunked", [True, False])
+@pytest.mark.parametrize("kind", ["word97", "word6"])
+def test_large_road_tells_tracked_deletions_of_doc(tmp_path, monkeypatch, kind, chunked):
+    p = tmp_path / "a.doc"
+    p.write_bytes(open(DOC_REV, "rb").read() if kind == "word97" else _word6_rev())
+    normal = _lines(p)
+    assert any(GONE + "町役場〕" in ln for ln in normal)
+    _large(monkeypatch, chunked)
+    assert ("B", "変更履歴") in _reasons(p)
+    assert _range_lines(p, "1-20") == normal  # ふつうの道の窓と、同じ行
 
 
 # ====================================================================== 大きな書類の道
