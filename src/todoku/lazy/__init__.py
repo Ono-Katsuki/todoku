@@ -75,11 +75,15 @@ def _open_doc(path, password, encoding, force, built_ok, _member) -> LazyDoc | N
         jet = jet_member(path, password)
         if jet is not None:
             return jet if force or jet.large else None
-        if not built_ok and not force:
-            return None
-        from .builtdoc import BuiltDoc
+        doc = _member_cached(path, password, encoding, _member(path)[0])
+        if doc is None:
+            if not built_ok and not force:
+                return None
+            from .builtdoc import BuiltDoc
 
-        doc = BuiltDoc(path, password, encoding)
+            doc = BuiltDoc(path, password, encoding)
+        elif not force and not built_ok and getattr(doc, "recoded", False):
+            return None  # ファイルそのものと同じ：切り替えの印のある文字コードは、段階も全体を読む道で
         return doc if force or doc.large else None
     p = Path(path).expanduser()
     if not p.is_file():
@@ -109,6 +113,75 @@ def _open_doc(path, password, encoding, force, built_ok, _member) -> LazyDoc | N
     if not force and not built_ok and getattr(doc, "recoded", False):
         return None  # 切り替えの印のある文字コードの文字のファイル：書き込み・検査・段階は、全体を読む道で
     return doc
+
+
+def json_doc(path: str, password: str | None, encoding: str | None) -> LazyDoc | None:
+    """窓を作って読む JSON（小さな JSON と、書庫の中の小さな JSON）を、JSON Pointer の範囲（path）で頼まれたときの読み手。
+    中身をメモリに読むので、ファイルは開いたままにしない。分けて読めない作り（UTF-8 でない JSON）は None。"""
+    from .. import api
+    from .jsondoc import JsonLazy
+    from .textstream import MemorySource
+
+    blob, name, k, _lock = api._read(path, password)
+    if k != "json":
+        return None
+    try:
+        return JsonLazy(path, name, encoding, MemorySource(blob))
+    except ValueError:
+        return None
+
+
+def _member_cached(path: str, password: str | None, encoding: str | None, outer: str) -> LazyDoc | None:
+    """書庫の中の文字のファイルの読み手を、ファイルそのものと同じに控える（呼び出しのたびに、取り出して行を数え直さない）。
+    鍵は、書庫のファイルの大きさと更新の時刻。文字のファイルでない中身は「違う」とだけ控える。パスワードのある書庫は控えない。"""
+    from ..datafile.csvfile import chosen_delimiter
+
+    key = None
+    if password is None:
+        try:
+            st = Path(outer).expanduser().stat()
+            key = ("member", path, st.st_size, st.st_mtime_ns, encoding, chosen_delimiter())
+        except OSError:
+            key = None
+    if key is not None and key in _CACHE:
+        return _CACHE[key] or None
+    doc = _member_text(path, password, encoding)
+    if key is not None:
+        _CACHE[key] = doc if doc is not None else False
+        while len(_CACHE) > _CACHE_MAX:
+            old = _CACHE.pop(next(iter(_CACHE)))
+            if hasattr(old, "close"):
+                old.close()
+    return doc
+
+
+def _member_text(path: str, password: str | None, encoding: str | None) -> LazyDoc | None:
+    """書庫の中の文字のファイル（CSV・TSV・JSON Lines・.txt と、大きな JSON）：取り出した中身を、ファイルそのものと同じ読み手で、
+    同じ範囲（rows・records・paragraphs・path）で読む。ほかの形式は None（窓を作ってから分ける）。"""
+    from .. import api, limits
+    from .textstream import member_source
+
+    blob, name, k, _lock = api._read(path, password)
+    if k in ("csv", "tsv"):
+        from .textdocs import CsvDoc
+
+        return CsvDoc(path, name, k, encoding, member_source(blob))
+    if k == "jsonl":
+        from .textdocs import JsonlDoc
+
+        return JsonlDoc(path, name, k, encoding, member_source(blob))
+    if k == "txt":
+        from .textdocs import TxtLazy
+
+        return TxtLazy(path, name, k, encoding, member_source(blob))
+    if k == "json" and len(blob) >= limits.LAZY_MIN_BYTES:
+        from .jsondoc import JsonLazy
+
+        try:
+            return JsonLazy(path, name, encoding, member_source(blob))
+        except ValueError:  # 分けて読めない作り（UTF-8 でない・JSON として読めない）：窓を作る道で、その理由を伝える
+            return None
+    return None
 
 
 def _is_built(path: str, name: str) -> bool:

@@ -185,12 +185,28 @@ def temp_beside(dst: Path) -> Path:
     return Path(name)
 
 
+RANGE_NAMES = {"pages": "pages（ページ）", "sheet": "sheet（シート）", "rows": "rows（行）", "paragraphs": "paragraphs（段落・行）",
+               "records": "records（行）", "path": "path_in（JSON Pointer）"}
+
+
+def check_range_keys(doc, rng: dict) -> None:
+    """頼まれた範囲の名前が、この書類の読み方にないときは断る（黙って、書類の頭から読まない）。"""
+    keys = getattr(doc, "range_keys", None)
+    if keys is None:
+        return
+    bad = [k for k in RANGE_NAMES if rng.get(k) is not None and k not in keys]
+    if bad:
+        raise RangeError(f"この書類は、{'・'.join(RANGE_NAMES[k] for k in bad)}の範囲では読めません。"
+                         f"{'・'.join(RANGE_NAMES[k] for k in keys)}か、cursor（前の結果の next）で読みます")
+
+
 class LazyDoc:
     """分けて読める書類（形式ごとに作る）。large：窓の全体が予算に入らない（見積もり est_chars は字の数）。"""
 
     kind = ""
     est_chars = 0
     streams = False  # 丸ごとメモリに読まずに扱える
+    range_keys: tuple | None = None  # この書類を読む範囲の名前（RANGE_NAMES の鍵）。None：読み手が自分で確かめる
 
     @property
     def large(self) -> bool:

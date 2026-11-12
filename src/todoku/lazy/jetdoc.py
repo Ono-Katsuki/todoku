@@ -84,6 +84,7 @@ class TableIndex:
 class JetLazy(LazyDoc):
     kind = "mdb"
     streams = True  # 書き込みは、丸ごと読まずに断る（fill）
+    range_keys = ("sheet", "rows")
 
     def __init__(self, path: str, name: str, password: str | None = None, blob=None):
         self.path, self.name, self.password = path, name, password

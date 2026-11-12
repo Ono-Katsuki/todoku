@@ -356,6 +356,46 @@ class RecodedSource(Source):
                 pass
 
 
+class SpilledSource(Source):
+    """書庫から取り出した大きな中身を、一時ファイルに置いて読む（メモリに置いたままにしない。閉じると消える）。"""
+
+    def __init__(self, data: bytes):
+        import tempfile
+
+        fd, tmp = tempfile.mkstemp(prefix="todoku-", suffix=".member")
+        self.path = None
+        self.fd = -1
+        self._tmp = tmp
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            self.fd = os.open(tmp, os.O_RDONLY | O_BINARY)
+            self.size = os.fstat(self.fd).st_size
+        except BaseException:
+            self.close()
+            raise
+        self.key = (len(data), 0)
+        try:  # 開いたまま消せる OS では、ここで消す（止まっても残らない）。消せない OS では、閉じるときに消す
+            os.unlink(tmp)
+            self._tmp = None
+        except OSError:
+            pass
+
+    def close(self) -> None:
+        super().close()
+        if self._tmp:
+            try:
+                os.unlink(self._tmp)
+                self._tmp = None
+            except OSError:
+                pass
+
+
+def member_source(data: bytes):
+    """書庫から取り出した中身の読み手：小さければメモリ、大きければ一時ファイル（切り替えの印のある文字コードの写しと同じ境）。"""
+    return MemorySource(data) if len(data) <= RECODE_IN_MEMORY else SpilledSource(data)
+
+
 def _recoded(src, enc: str, start: int):
     dec = codecs.getincrementaldecoder(enc)("strict")
     try:

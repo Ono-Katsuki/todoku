@@ -47,6 +47,7 @@ class _OnePage:
 class PdfLazy(LazyDoc):
     kind = "pdf"
     streams = False
+    range_keys = ("pages",)
 
     def __init__(self, path: str, name: str, password: str | None):
         from .. import api

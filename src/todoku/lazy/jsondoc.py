@@ -47,10 +47,11 @@ class _Win:
 class JsonLazy(LazyDoc):
     kind = "json"
     streams = False
+    range_keys = ("path",)
 
-    def __init__(self, path: str, name: str, encoding: str | None = None):
+    def __init__(self, path: str, name: str, encoding: str | None = None, source=None):
         self.path, self.name = path, name
-        self.src = Source(path)
+        self.src = source if source is not None else Source(path)  # source：書庫の中のファイルの、取り出した中身
         self.size = self.src.size
         self.dec = detect(self.src, encoding)
         if self.dec.encoding.lower().replace("-", "") not in ("utf8", "utf_8", "ascii"):

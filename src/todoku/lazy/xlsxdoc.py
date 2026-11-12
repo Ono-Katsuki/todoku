@@ -629,6 +629,7 @@ def _has_opaque(ast) -> bool:
 
 class XlsxLazy(LazyDoc):
     kind = "xlsx"
+    range_keys = ("sheet", "rows")
 
     @property
     def streams(self) -> bool:

@@ -3230,12 +3230,25 @@ def lazy_open(path: str, password: str | None = None, encoding: str | None = Non
         raise ApiError(f"文字コードを読めません（{e.reason}）") from None
 
 
+def _ranged_open(path: str, rng: dict, password: str | None, encoding: str | None):
+    """範囲で読む書類。窓を作って読む JSON（小さな JSON）は、JSON Pointer の範囲（path と、その続きの cursor）で頼まれたら、
+    大きな JSON と同じ読み手で読む（頼まれた範囲を、黙って窓の頭から読まない）。"""
+    doc = lazy_open(path, password, encoding, force=True)
+    if (doc is not None and getattr(doc, "kind", "") == "json" and hasattr(doc, "whole")
+            and (rng.get("path") is not None or str(rng.get("cursor") or "").startswith("json:"))):
+        from . import lazy
+
+        doc = lazy.json_doc(path, password, encoding) or doc
+    return doc
+
+
 @_budgeted
 def read_range(path: str, rng: dict, max_chars=None, password: str | None = None, encoding: str | None = None):
     """窓の、頼まれた範囲：(Page, 書類)。rng：pages・sheet・rows・paragraphs・records・part・cursor。"""
     import struct
 
     from .lazy import RangeError, clamp_chars
+    from .lazy.base import check_range_keys
     from .embeds import lazy as embed_lazy
 
     embed = embed_lazy.split_sheet(rng.get("sheet"))
@@ -3260,7 +3273,7 @@ def read_range(path: str, rng: dict, max_chars=None, password: str | None = None
             raise ApiError(str(e)) from None
         except (ValueError, IndexError, struct.error) as e:
             raise ApiError(broken_message(path, e)) from None
-    doc = lazy_open(path, password, encoding, force=True)
+    doc = _ranged_open(path, rng, password, encoding)
     if doc is None:
         raise ApiError(f"ファイルが見つかりません: {path}")
     if rng.get("part") is not None and not hasattr(doc, "whole"):
@@ -3268,6 +3281,7 @@ def read_range(path: str, rng: dict, max_chars=None, password: str | None = None
             raise ApiError("大きな書類は part ではなく範囲で読みます（前の結果の next をそのまま渡すか、open_document の概要の範囲で頼んでください）")
         rng = {k_: v_ for k_, v_ in rng.items() if k_ != "part"}
     try:
+        check_range_keys(doc, rng)
         page = doc.read(rng, clamp_chars(max_chars))
     except RangeError as e:
         raise ApiError(str(e)) from None
@@ -3283,15 +3297,17 @@ def fields_range(path: str, rng: dict, only_empty: bool = False, limit: int | No
                  encoding: str | None = None) -> dict:
     """入力欄の、頼まれた範囲（数と、続きの頼み方つき）。"""
     from .lazy import RangeError
+    from .lazy.base import check_range_keys
 
     sheet = rng.get("sheet")
     embed = re.fullmatch(r"E(\d+)!(.+)", str(sheet)) if sheet else None
     if embed:
         return _embed_range_fields(path, int(embed[1]), embed[2], rng, limit or 2000, password)
-    doc = lazy_open(path, password, encoding, force=True)
+    doc = _ranged_open(path, rng, password, encoding)
     if doc is None:
         raise ApiError(f"ファイルが見つかりません: {path}")
     try:
+        check_range_keys(doc, rng)
         res = doc.fields(rng, only_empty, limit or 2000)
     except RangeError as e:
         raise ApiError(str(e)) from None

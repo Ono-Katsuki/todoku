@@ -88,6 +88,7 @@ class BlocksLazy(LazyDoc):
     """chunks：[{"para": 前までの段落の数, "kind": 本文でなければ種類, "part": 部品}]。派生は chunk_doc(i)・build_window(doc) を作る。"""
 
     streams = False
+    range_keys = ("paragraphs",)
     chunks: list = []
     paragraphs = 0
     tables = 0

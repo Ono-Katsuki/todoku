@@ -58,12 +58,18 @@ _csv.field_size_limit(2 ** 31 - 1)  # 別の読み方の確かめで、長いマ
 
 class TextDoc(LazyDoc):
     streams = True
+    range_keys = ("rows", "records", "paragraphs")  # どれも行の範囲（CSV・TSV は rows、JSON Lines は records、.txt は paragraphs と案内する）
 
-    def __init__(self, path: str, name: str, kind: str, encoding: str | None):
+    def __init__(self, path: str, name: str, kind: str, encoding: str | None, source=None):
         self.path = path
         self.name = name
         self.kind = kind
-        self._src = Source(path)
+        # source：書庫の中のファイルの、取り出した中身（MemorySource）。範囲で読むのは同じ読み手で、書き込み・検査・段階は、
+        # 書庫の中のファイルを全体で読む道でする（streams を False に）
+        self.member = source is not None
+        if self.member:
+            self.streams = False
+        self._src = source if source is not None else Source(path)
         self.file_bytes = self._src.size
         self.est_chars = self._src.size  # 字の数はバイト数を超えない
         self._encoding = encoding
@@ -96,6 +102,11 @@ class TextDoc(LazyDoc):
     def recoded(self) -> bool:
         self.dec  # noqa: B018
         return self.told is not None
+
+    @property
+    def whole_only(self) -> bool:
+        """検査を、全体を読む道でする書類（切り替えの印のある文字コードのファイル、書庫の中のファイル）。"""
+        return self.member or self.recoded
 
     @property
     def shown(self):
@@ -139,8 +150,10 @@ class TextDoc(LazyDoc):
 
 # ====================================================================== CSV・TSV
 class CsvDoc(TextDoc):
-    def __init__(self, path: str, name: str, kind: str, encoding: str | None):
-        super().__init__(path, name, kind, encoding)
+    range_keys = ("rows", "records")
+
+    def __init__(self, path: str, name: str, kind: str, encoding: str | None, source=None):
+        super().__init__(path, name, kind, encoding, source)
         self._st: CsvStats | None = None
         self._head: list[str] | None = None
         self._delim = None
@@ -549,7 +562,7 @@ class CsvDoc(TextDoc):
 
     def audit_step(self, state: dict) -> dict:
         """1 区切り（STRIDE×256 行）：別の読み手（Python の csv）で、窓の読み手と同じ値かを確かめる。全部の行が終わったら書く試し。"""
-        if self.recoded:
+        if self.whole_only:
             return self._audit_whole(state)
         n = self.idx.count
         r = state["next_row"]
@@ -918,7 +931,7 @@ class JsonlDoc(LineDoc):
         return {"next_row": 1, "values": 0, "problems": [], "dups": [], "done": False, "checks": []}
 
     def audit_step(self, state: dict) -> dict:
-        if self.recoded:
+        if self.whole_only:
             return self._audit_whole(state)
         from ..datafile.jsonfile import JsonError, JsonFile
 
@@ -1027,8 +1040,8 @@ class HugeLine:
 
 
 class TxtLazy(LineDoc):
-    def __init__(self, path: str, name: str, kind: str, encoding: str | None):
-        super().__init__(path, name, kind, encoding)
+    def __init__(self, path: str, name: str, kind: str, encoding: str | None, source=None):
+        super().__init__(path, name, kind, encoding, source)
         self._huge: dict[int, HugeLine] = {}
         from ..book import _text_kind, content_note
 
@@ -1497,7 +1510,7 @@ class TxtLazy(LineDoc):
         return {"next_row": 1, "lines": 0, "fields": 0, "chars": 0, "problems": [], "done": False, "checks": [], "seg": 0}
 
     def audit_step(self, state: dict) -> dict:
-        if self.recoded:
+        if self.whole_only:
             return self._audit_whole(state)
         from ..txt.document import split_lines
 

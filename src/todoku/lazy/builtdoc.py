@@ -57,12 +57,25 @@ class BuiltDoc(LazyDoc):
         return "\n".join(lines)
 
     # ------------------------------------------------------------------ 読む
+    def _own_range(self, rng: dict, paragraphs_ok: bool = False) -> None:
+        """頼まれた範囲の名前が、この書類の読み方にないときは断る（黙って、窓の頭から読まない）。"""
+        from .base import RANGE_NAMES
+
+        for key in ("pages", "records", "path") + (() if paragraphs_ok or self.k in _PARAGRAPH_KINDS else ("paragraphs",)):
+            if rng.get(key) is not None:
+                raise RangeError(f"この書類は、{RANGE_NAMES[key]}の範囲では読めません。part（部分の番号）か cursor（前の結果の next）で読みます")
+        if rng.get("rows") is not None and rng.get("sheet") is None:
+            if not re.search(r"^## シート「", self.whole(), re.M):
+                raise RangeError(f"この書類は、{RANGE_NAMES['rows']}の範囲では読めません。part（部分の番号）か cursor（前の結果の next）で読みます")
+            raise RangeError("rows は sheet（シートの名前）といっしょに渡してください")
+
     def read(self, rng: dict, max_chars: int) -> Page:
+        self._own_range(rng)
         if rng.get("paragraphs") is not None or str(rng.get("cursor") or "").startswith("paragraphs:"):
             if self.k not in _PARAGRAPH_KINDS:
-                raise RangeError("この書類は、段落の範囲では読めません。part（部分の番号）か cursor（前の結果の next）で読みます")
+                raise RangeError(f"cursor「{rng.get('cursor')}」はこの書類の続きの印ではありません（前の結果の next をそのまま渡してください）")
             return self._read_paragraphs(rng, max_chars)
-        if rng.get("sheet") is not None or rng.get("rows") is not None:
+        if rng.get("sheet") is not None:
             return self._read_sheet(rng, max_chars)
         if rng.get("part") is not None:
             n = int(rng["part"])
@@ -103,6 +116,7 @@ class BuiltDoc(LazyDoc):
         body = text[heads[at].start():heads[at + 1].start() if at + 1 < len(heads) else len(text)]
         if rows is not None:
             a, b = parse_range(rows, "行")
+            a, b = a or 1, b or 10 ** 12  # 「5-」「-10」：開いた側は、端まで
             kept = []
             for line in body.split("\n"):
                 m = re.match(r"- (\d+): ", line)
@@ -222,6 +236,15 @@ class BuiltDoc(LazyDoc):
         from .. import api
 
         fl = api.fields(self.path, self.password, self.encoding)
+        # 欄の段落の範囲は、欄の id（P段落.…）で決める：段落の id の欄のある書類なら、どの形式でも
+        self._own_range(rng, paragraphs_ok=any(re.match(r"P\d+\.", str(f.get("id"))) for f in fl))
+        if rng.get("sheet") is not None:  # 読むときと同じ範囲：そのシートの、その行の欄（行の決まらない欄は、そのシートのものとして出す）
+            from .xlsxdoc import _in_rows
+
+            name = str(rng["sheet"])
+            self._sheet_text(name, None)  # シートのない書類・ない名前は、読むときと同じに断る
+            a, b = parse_range(rng.get("rows"), "行")
+            fl = [f for f in fl if f.get("sheet") == name and _in_rows(f, a or 1, b or 10 ** 12)]
         if rng.get("paragraphs") is not None:
             a, b = parse_range(rng["paragraphs"], "段落")
             a = a or 1
