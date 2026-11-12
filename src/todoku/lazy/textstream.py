@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import codecs
+import functools
 import hashlib
 import os
 from .pread import O_BINARY, pread
@@ -469,13 +470,66 @@ class CsvStats:
             self.first_problems.append(text)
 
 
+def head_text(src: Source, start: int, enc: str) -> str:
+    """区切りを数える、頭の 200,000 字。"""
+    dec = codecs.getincrementaldecoder(enc)("replace")
+    return dec.decode(src.read(start, start + 800_000))[:200_000]
+
+
 def sniff_delimiter(src: Source, start: int, enc: str, kind: str) -> tuple[str, list, bool]:
     """datafile.csvfile.delimiters と同じ規則・同じ答え（頭の 200,000 字・200 行）。"""
     from ..datafile.csvfile import delimiters
 
-    dec = codecs.getincrementaldecoder(enc)("replace")
-    text = dec.decode(src.read(start, start + 800_000))[:200_000]
-    return delimiters(text, kind)
+    return delimiters(head_text(src, start, enc), kind)
+
+
+@functools.lru_cache(maxsize=None)
+def second_byte_leads(enc: str, delim: str) -> frozenset:
+    """区切りのバイトが、この文字コードの 2 バイトの字の 2 バイト目にもなるとき、1 バイト目になるバイトの集まり
+    （Shift_JIS の「ポ」は 0x83 0x7C で、2 バイト目が「|」と同じ）。ならなければ空。
+    「,」とタブは、Python の 2 バイトの文字コードのどれでも 2 バイト目にならない。「;」は Johab でだけ 2 バイト目になる。
+    切り替えの印で字の読み方が変わる文字コード（ISO-2022・HZ・UTF-7）は、バイトの並びから区切りを探せないので、
+    エージェントが選んだ「,」・タブ・「;」のほかの区切りは断る。"""
+    from ..datafile.csvfile import SEPS, DelimiterError, delim_ja
+
+    name = codecs.lookup(enc).name
+    if name in ("ascii", "utf-8", "utf-8-sig") or name.startswith(("utf-16", "utf-32")):
+        return frozenset()
+    if name.startswith("iso2022") or name in ("hz", "utf-7"):
+        if delim in SEPS:
+            return frozenset()
+        raise DelimiterError(f"区切り {delim_ja(delim)} は、このファイルの文字コード（{enc}）では、範囲で分けて読むときに選べません"
+                             "（切り替えの印で字の読み方が変わるので、バイトの並びから区切りを決められません）")
+
+    def one(b: bytes) -> bool:
+        try:
+            return len(b.decode(enc)) == 1
+        except UnicodeDecodeError:
+            return False
+
+    d = ord(delim)
+    if not any(one(bytes([lead, d])) for lead in range(0x80, 0x100)):
+        return frozenset()
+    # 1 バイトでは字にならず、次のバイトと合わせて字になるバイト
+    return frozenset(lead for lead in range(0x80, 0x100)
+                     if not one(bytes([lead])) and any(one(bytes([lead, t])) for t in range(0x30, 0x100)))
+
+
+def _second_byte(src: Source, lo: int, at: int, leads: frozenset) -> bool:
+    """at のバイトが、2 バイトの字の 2 バイト目か（lo は字の境目）。すぐ前に続く「1 バイト目になるバイト」の数が奇数なら
+    2 バイト目：1 バイト目にならないバイトは字の終わりなので、その次から 2 バイトずつ組になる。"""
+    n = 0
+    j = at
+    while j > lo:
+        blk = src.read(max(lo, j - 256), j)
+        k = len(blk)
+        while k and blk[k - 1] in leads:
+            k -= 1
+        n += len(blk) - k
+        if k or not blk:
+            break
+        j -= len(blk)
+    return n & 1 == 1
 
 
 def index_csv(src: Source, start: int, enc: str, delim: str) -> tuple[TextIndex, CsvStats]:
@@ -495,6 +549,16 @@ def index_csv(src: Source, start: int, enc: str, delim: str) -> tuple[TextIndex,
     field_end = re.compile(b"|".join(re.escape(x) for x in (d_b, cr_b, lf_b)))
     quote = re.compile(re.escape(q_b))
     win = Window(src, start, unit)
+    leads = second_byte_leads(enc, delim)  # エージェントが選んだ区切りが、字の 2 バイト目にもなる文字コード
+
+    def end_of_field(j: int):
+        """j（字の境目）から先の、マスの終わり（区切り・改行）。字の 2 バイト目の、区切りと同じバイトは飛ばす。"""
+        at = j
+        while True:
+            hit = win.search(field_end, at)
+            if hit is None or not leads or hit[2] != d_b or not _second_byte(src, j, hit[0], leads):
+                return hit
+            at = hit[1]
     pos = start
     nrec = 0
     tick = 0
@@ -517,7 +581,7 @@ def index_csv(src: Source, start: int, enc: str, delim: str) -> tuple[TextIndex,
         tick += 1
         if tick & 0xFFFF == 0:
             progress("行の位置を調べています", pos, size)
-        if unit == 1:
+        if unit == 1 and not leads:
             # 速い道：引用符のない行（行の中の区切りを数えるだけ）
             buf_at = pos - win.base
             buf = win.buf
@@ -585,14 +649,14 @@ def index_csv(src: Source, start: int, enc: str, delim: str) -> tuple[TextIndex,
                     pos = size
                     t = None
                     break
-                hit = win.search(field_end, j)
+                hit = end_of_field(j)
                 m_end = hit[0] if hit else size
                 if m_end > j:
                     st.problem(f"{nrec} 行目：引用符を閉じたあとに字があります")
                     value_any = True
                 note_field(value_any, True)
             else:
-                hit = win.search(field_end, pos)
+                hit = end_of_field(pos)
                 m_end = hit[0] if hit else size
                 note_field(m_end > pos, False)
             if hit is None:

@@ -77,7 +77,9 @@ def _open_doc(path, password, encoding, force, built_ok, _member) -> LazyDoc | N
     if st.st_size == 0:
         return None
     # パスワードのある書類は控えない（パスワードを控えに残さない）
-    key = (str(p), st.st_size, st.st_mtime_ns, encoding) if password is None else None
+    from ..datafile.csvfile import chosen_delimiter
+
+    key = (str(p), st.st_size, st.st_mtime_ns, encoding, chosen_delimiter()) if password is None else None
     doc = _CACHE.get(key) if key is not None else None
     if doc is None:
         if not force and not built_ok and _is_built(str(p), p.name):

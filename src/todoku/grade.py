@@ -99,7 +99,8 @@ class Reason:
     detail: str
     where: list[str] = field(default_factory=list)
     # rules（規則）/ agent（エージェントの判断：combine の findings）/ agent_choice（エージェントが道具に渡した選択で、
-    # 規則がそれを確かめたもの：文字だけのファイルの encoding など。規則の理由と同じく、combine で残す）
+    # 規則がそれを確かめたもの：文字だけのファイルの encoding など。規則の理由と同じく、combine で残す）/ agent_unchecked
+    # （エージェントが道具に渡した選択で、規則では確かめられないもの：列の数のそろわない CSV の delimiter。combine で残す）
     by: str = "rules"
 
 

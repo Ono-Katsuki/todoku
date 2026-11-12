@@ -565,15 +565,32 @@ def delimiter_reason(fm: dict):
     （中身はすべて窓に出ている。列の分かれ方が正しいかは、エージェントが窓を読んで確かめる）。"""
     from .grade import Reason
 
+    if fm.get("delimiter_chosen_by"):
+        # エージェントが窓を読んで選んだ区切り：段階は下げない。選んだのがエージェントであることを理由に残す
+        # 規則が確かめられるのは、選んだ区切りで列の数がそろうことまで（agent_choice）。そろわないときは、確かめられない
+        # エージェントの判断として残す（agent_unchecked）
+        n = fm.get("delimiter_even_columns")
+        by = "agent_choice" if n else "agent_unchecked"
+        fact = (f"頭の 200 行までは、引用符の外で数えて、どの行も {n} 列に分かれます" if n else
+                "行によって列の数が違うか、区切りのない行があり、規則では確かめられません")
+        return (Reason("S", "エージェントが選んだ区切り",
+                       f"区切りは、エージェントが選んで指定した {fm['delimiter_ja']} で読みました（delimiter）。{fact}。"
+                       "どの区切りが正しいかは、エージェントの判断です", [fm["delimiter"]], by=by),
+                Reason("A", "エージェントが選んだ区切り",
+                       "書き込みは、選んだ区切りで分けたマスに書きます（ほかのバイトは元のまま）", [fm["delimiter"]], by=by))
     also = fm.get("delimiter_also")
     if not also:
         return None, None
     others = "・".join(f"{a['delimiter_ja']}（{a['columns']} 列）" for a in also)
+    read = ("「,」・タブ・「;」がどの行にもないので 1 列として読みましたが、" + others + " なら、どの行も同じ数の列に分かれます。"
+            if fm.get("delimiter_absent") else
+            f"{fm['delimiter_ja']} で読みましたが、{others} でも、どの行も同じ数の列に分かれます。")
     return (Reason("B", "区切りを規則では決められない",
-                   f"{fm['delimiter_ja']} で読みましたが、{others} でも、どの行も同じ数の列に分かれます。"
-                   "列の分かれ方が意味の通るものかを、エージェントが窓を読んで確かめます", [a["delimiter"] for a in also]),
+                   f"{read}"
+                   "列の分かれ方が意味の通るものかを、エージェントが窓を読んで確かめ、違えば、正しい区切りを delimiter で渡します",
+                   [a["delimiter"] for a in also]),
             Reason("B", "区切りを規則では決められない",
-                   "書く前に、窓の列の分かれ方が正しいことを、エージェントが確かめます（書き込みは、いまの分かれ方のマスに書きます）"))
+                   "書く前に、窓の列の分かれ方が正しいことを、エージェントが確かめます（書き込みは、読んだ分かれ方のマスに書きます）"))
 
 
 def _grade_data(k: str, blob: bytes, name: str, encoding: str | None = None):

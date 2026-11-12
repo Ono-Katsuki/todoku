@@ -314,10 +314,12 @@ def window_job_view(name: str, args: dict) -> dict | None:
     if not _window_args(name, args):
         return None
     from . import jobs
+    from .datafile.csvfile import choosing
 
     try:
-        rec = jobs.window_running(args["path"], args.get("encoding"))
-    except OSError:
+        with choosing(args.get("delimiter")):  # エージェントが選んだ区切りの窓は、別の仕事
+            rec = jobs.window_running(args["path"], args.get("encoding"))
+    except (OSError, ValueError):
         return None
     return _job_result(rec) if rec is not None else None
 
@@ -329,13 +331,16 @@ def stopped(why: str, name: str = "", args: dict | None = None, at: dict | None 
     if why == _TIME() and _window_args(name, args):
         from . import jobs
 
+        from .datafile.csvfile import choosing
+
         try:
-            failed = jobs.window_failed(args["path"], args.get("encoding"))
-            if not failed and not jobs.window_made(args["path"], args.get("encoding")):
-                rec = jobs.start_window(args["path"], args.get("encoding"))
-                failed = rec.get("stopped")
-                if not failed:
-                    return _job_result(rec)
+            with choosing(args.get("delimiter")):
+                failed = jobs.window_failed(args["path"], args.get("encoding"))
+                if not failed and not jobs.window_made(args["path"], args.get("encoding")):
+                    rec = jobs.start_window(args["path"], args.get("encoding"))
+                    failed = rec.get("stopped")
+                    if not failed:
+                        return _job_result(rec)
             if failed:
                 why = f"{why}。長い仕事でも止まりました：{failed}"
         except (OSError, ValueError):

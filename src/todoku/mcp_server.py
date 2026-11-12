@@ -54,10 +54,10 @@ INSTRUCTIONS = (
     "パスワードで保護された書類は「パスワードが要る」と返るので、本人にパスワードを聞いて、どの道具にも password で渡してください"
     "（パスワードは結果にも記録にも残しません。書き出したファイルも、元と同じパスワードで保護されます）。"
     "文字だけのファイル（CSV・.txt など）・古い表（.dbf・.wk1 など）や書庫・メールの名前で、窓に「文字コードを規則では決められません」と候補が並んだら、字を読んで意味の通る方を"
-    "選び、そのファイルのどの道具にも encoding で渡してください。"
+    "選び、そのファイルのどの道具にも encoding で渡してください。CSV の列の分かれ方が違うときは、正しい区切りの字を delimiter で同じように渡します。"
     "窓の「画像」の節で「説明（代わりの字）がありません」とある画像は、中身を字として読めません。申請に関わりそうなら view_image（PDF の"
     "ページ全体は view_page）で画像を見て読み、読めなければ、その位置（ページ・上下左右・近くの字）を本人に伝えてください。中身を推測で"
-    "埋めないでください。画像そのもののファイル（JPEG・PNG・TIFF・SVG など）も open_document で開き、view_page で見ます。RAR・HEIC・HEIF・AVIF と LZH の -lh1-〜-lh3- は、とどくは解きません：open_document の needs_tool（format・why・next_step）に、別の道具のコマンドの例があります。入っている道具を確かめて使い、できたファイルを open_document で開いてください。変換・展開したことは本人に伝えてください（書いたものは元の形式には戻りません）。計算の決まりを知りたいときは、値から推測せず extract_processing で規則として受け取ります。段階の alerts（アクセシビリティの注意）は、"
+    "埋めないでください。画像そのもののファイル（JPEG・PNG・TIFF・SVG など）も open_document で開き、view_page で見ます。RAR・HEIC・HEIF・AVIF と LZH の -lh1-〜-lh3- は、とどくは解きません：open_document の needs_tool の next_step（別の道具のコマンドの例・その後の手順・本人に伝えること）に従ってください。計算の決まりを知りたいときは、値から推測せず extract_processing で規則として受け取ります。段階の alerts（アクセシビリティの注意）は、"
     "段階とは別に伝えてください。"
     "fill_document の結果の read_back_ok が false のときは、ファイルは書き出し済みですが、読み直した値が"
     "書いた値と違う欄があります（read_back_differences）。確かめずに本人に渡さず、違いを読んで直すか、そのことを本人に伝えてください。"
@@ -307,7 +307,7 @@ _MORE = ("（ほかに CSV・TSV・JSON・JSON Lines・RTF・OpenDocument の文
          "PowerPoint .pptx・한글 .hwpx（読む・書く）と .hwp（HWP 5。読むだけ）も開けます。"
          "Excel .xlsb（読む。値のあるセルは同じ大きさの上書き、空のセルはレコードを足して書く）・dBase .dbf（読む。項目の幅の中の上書きを書ける）・古い PowerPoint .ppt・XPS .xps/.oxps・EPUB・メール .eml/.msg・Excel 2〜4・Word 1.x/2.0・"
          "Lotus .wk1・Access .mdb/.accdb・OpenOffice.org 1.x .sxw/.sxc・iWork .pages/.numbers/.key は読むだけ。"
-         "tar・.tar.gz・.gz（読む・書く）と .tar.bz2・.tar.xz・.bz2・.xz・LZH・7z（読むだけ。パスワードは password）は ZIP と同じく「a.tar!/中の名前」で中のファイルを指す。RAR・HEIC・HEIF・AVIF は別の道具で展開・変換してから開く（結果の needs_tool に手順）。"
+         "tar・.tar.gz・.gz（読む・書く）と .tar.bz2・.tar.xz・.bz2・.xz・LZH・7z（読むだけ。パスワードは password）は ZIP と同じく「a.tar!/中の名前」で中のファイルを指す。RAR・HEIC・HEIF・AVIF と LZH の -lh1-〜-lh3- は、とどくは解かない：結果の needs_tool（format・why・next_step）に、別の道具のコマンドの例がある。入っている道具を確かめて使い、できたファイルを open_document で開く。変換・展開したことは本人に伝える（書いたものは元の形式には戻らない）。"
          "DocuWorks は読めないので、次の一手を返す）")
 for _t in TOOLS:
     if _t["name"] == "open_document":
@@ -333,6 +333,11 @@ for _t in TOOLS:
         # 開いたあとの道具には短く（選び方は open_document の説明と、サーバーの説明にある）
         _t["inputSchema"]["properties"]["encoding"] = {"type": "string", "description": "文字だけのファイル（CSV・.txt など）、書庫・メールの名前、8 ビットの字の表（.dbf・.wk1 など）で、窓に文字コードの候補が並んだときに選んだ"
                                                                                        "文字コード（候補の encoding の値。例 \"cp932\"）。同じファイルには、どの道具にも同じ値を渡す"}
+    if _t["name"] in ("open_document", "read_window", "list_fields", "fill_document", "audit_document", "grade_document"):
+        _t["inputSchema"]["properties"]["delimiter"] = {"type": "string", "description": (
+            "CSV・TSV の区切りを、窓を読んで選んだとき、その字（\",\"・\";\"・\"\\t\"・\"|\" など、ASCII の記号 1 字かタブ）。"
+            "窓に「区切りを規則では決められません」とあるときや、列が分かれていないとき。同じファイルには、どの道具にも同じ値を渡す"
+            if _t["name"] == "open_document" else "CSV・TSV で、窓を読んで選んだ区切りの字（open_document に渡したものと同じ値）")}
     if _t["name"] in ("read_table", "explain_calculation", "try_calculation", "extract_processing"):
         _t["inputSchema"]["properties"]["encoding"] = {"type": "string", "description": "8 ビットの字の表（.dbf・.wk1 など）で、窓の候補から選んだ文字コード（ほかの道具に渡したものと同じ値）"}
 
@@ -904,7 +909,8 @@ def call_tool(name: str, args: dict) -> dict:
         g = api.grade(args["path"], args.get("findings") or [], args.get("answered") or [], password=args.get("password"),
                       encoding=args.get("encoding"))
         mark = lambda r: ("（エージェントの判断）" if r.get("by") == "agent" else  # noqa: E731
-                          "（エージェントの選択を規則で確かめた）" if r.get("by") == "agent_choice" else "")
+                          "（エージェントの選択を規則で確かめた）" if r.get("by") == "agent_choice" else
+                          "（エージェントの選択。規則では確かめられない）" if r.get("by") == "agent_unchecked" else "")
         lines = [g["headline"]] + [f"  - 読む[{r['grade']}]{mark(r)} {r['title']}: {r['detail']}" for r in g["reasons"]]
         lines += [f"  - 書く[{r['grade']}]{mark(r)} {r['title']}: {r['detail']}" for r in g["write"]["reasons"]]
         lines += [f"  - ？（あれば{_score(c)} {c['grade']}）{c['question']}" for c in g.get("agent_checks", [])]
@@ -969,7 +975,7 @@ def tool_result(name: str, args: dict) -> dict:
     from .limits import STOPPED, LimitExceeded, call_budget
 
     try:
-        with call_budget():
+        with call_budget(), api.choosing(args.get("delimiter")):  # delimiter：CSV・TSV の、エージェントが選んだ区切り
             return call_tool(name, args)
     except (api.PasswordNeeded, api.PasswordWrong) as e:
         return {"content": [_text(str(e))], "isError": False,

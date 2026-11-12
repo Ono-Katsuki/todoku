@@ -113,7 +113,11 @@ def read_once(rec: dict | None) -> None:
 def job_key(path: str, encoding: str | None) -> str:
     p = Path(str(path).split("!/")[0]).expanduser()
     st = p.stat()
-    return hashlib.sha256(f"{p.resolve()}|{path}|{st.st_size}|{st.st_mtime_ns}|{encoding}".encode()).hexdigest()[:24]
+    from .datafile.csvfile import chosen_delimiter
+
+    pick = chosen_delimiter()  # エージェントが選んだ CSV の区切り：読み方が違うので、別の仕事
+    what = f"{p.resolve()}|{path}|{st.st_size}|{st.st_mtime_ns}|{encoding}" + ("" if pick is None else f"|delimiter {pick}")
+    return hashlib.sha256(what.encode()).hexdigest()[:24]
 
 
 def _state_path(key: str) -> Path:
@@ -199,6 +203,10 @@ def _spawn(key: str) -> subprocess.Popen:
 
 def _send(proc: subprocess.Popen, payload: dict) -> None:
     """仕事に頼む中身を標準入力で渡す。もう終わっていても（落ちた仕事は、次の呼び出しで失敗として分かる）ここでは失敗にしない。"""
+    from .datafile.csvfile import chosen_delimiter
+
+    if chosen_delimiter() is not None:
+        payload = {**payload, "delimiter": chosen_delimiter()}  # 仕事の側でも、同じ区切りで読む
     try:
         proc.stdin.write(json.dumps(payload).encode())
         proc.stdin.close()
@@ -549,6 +557,10 @@ def run(key: str) -> int:
     from . import lazy
 
     args = json.loads(sys.stdin.read() or "{}")
+    if args.get("delimiter") is not None:
+        from .datafile.csvfile import _CHOSEN, as_delimiter
+
+        _CHOSEN.set(as_delimiter(args["delimiter"]))  # この仕事の終わりまで
     rec = load(key) or {"key": key}
     if rec.get("kind") == "calc":
         return _run_calc(key, rec, args)

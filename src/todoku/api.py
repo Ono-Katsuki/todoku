@@ -171,18 +171,48 @@ def _release_files() -> None:
     gc.collect()
 
 
+@contextlib.contextmanager
+def choosing(delimiter: str | None):
+    """この中の呼び出しは、CSV・TSV を、エージェントが選んだ区切り（delimiter）で読む。None なら何もしない。
+    選べない字は ApiError。"""
+    from .datafile import csvfile
+
+    if delimiter is None:
+        yield
+        return
+    try:
+        cm = csvfile.choosing(delimiter)
+        cm.__enter__()
+    except csvfile.DelimiterError as e:
+        raise ApiError(str(e)) from None
+    try:
+        yield
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _delimiter_kind(k: str) -> None:
+    """エージェントが選んだ区切りは、CSV・TSV にだけ使える（ほかの形式で黙って無視しない）。"""
+    from .datafile.csvfile import chosen_delimiter
+
+    if chosen_delimiter() is not None and k not in ("csv", "tsv"):
+        raise ApiError(f"delimiter（区切り）は、CSV・TSV にだけ指定できます（この書類は {KIND_JA.get(k, k)}）")
+
+
 def _budgeted(fn):
     """1 回の呼び出しに、展開・描画の予算を 1 つ置く（limits.call_budget。呼び出しの中で api を呼び直しても同じ予算）。"""
     import functools
 
     @functools.wraps(fn)
-    def run(*a, **k):
+    def run(*a, delimiter: str | None = None, **k):
         from .limits import call_budget
 
         depth = getattr(_CALLS, "depth", 0)
         _CALLS.depth = depth + 1
         try:
-            return _call(fn, a, k, call_budget)
+            # delimiter：CSV・TSV の区切りを、エージェントが窓を読んで選んだとき（この呼び出しの間だけ、その区切りで読む）
+            with choosing(delimiter):
+                return _call(fn, a, k, call_budget)
         finally:
             _CALLS.depth = depth
             if depth == 0:
@@ -197,11 +227,14 @@ def _budgeted(fn):
         from .cfb import CfbError
         from .pdf.crypto import NeedsPassword as PdfNeedsPassword
         from .pdf.objects import PdfError
+        from .datafile.csvfile import DelimiterError
         from .xls.book import XlsError
 
         try:
             with call_budget():
                 return fn(*a, **k)
+        except DelimiterError as e:
+            raise ApiError(str(e)) from None
         except (struct.error, CfbError) as e:
             # 記録の長さ・位置の合わない、壊れたファイル：読み方の内部のエラー（struct.error）をそのまま見せない
             raise ApiError(broken_message(a[0] if a else k.get("path"), e)) from None
@@ -337,6 +370,7 @@ def _encoding(blob: bytes, k: str, encoding: str | None, name: str = "") -> str 
     名前・字の文字コードが書かれていない書庫とメール（ZIP・tar・gzip・LZH・.msg）、8 ビットの字の表（dBASE・Lotus 1-2-3・Excel 2〜4）に
     だけ使え、ファイル（書庫は、印のない名前の全部。表は、ASCII でない字の全部）がその文字コードとして厳密に読めること。
     読めなければ ApiError（黙ってほかの文字コードで読まない）。"""
+    _delimiter_kind(k)
     if not encoding:
         return None
     if k in TABLE_CODED:
@@ -429,7 +463,9 @@ def window(path: str, password: str | None = None, encoding: str | None = None) 
     scope = _PAGE_SCOPE.get()  # 大きな PDF：書く所のページだけの窓
     from .lazy.filebytes import sha256_hex
 
-    key = ((sha256_hex(blob), name, encoding, tuple(sorted(scope)) if scope is not None else None)
+    from .datafile.csvfile import chosen_delimiter
+
+    key = ((sha256_hex(blob), name, encoding, tuple(sorted(scope)) if scope is not None else None, chosen_delimiter())
            if lock is None and not (password and k in _arc.PASSWORDED) and k != "dbf" else None)
     if key is not None and key in _WINDOWS:
         _WINDOWS[key] = _WINDOWS.pop(key)  # いちばん新しく使ったものにする
@@ -3177,8 +3213,17 @@ def lazy_open(path: str, password: str | None = None, encoding: str | None = Non
     from .datafile.textenc import EncodingError
     from . import lazy
 
+    from .datafile.csvfile import DelimiterError, chosen_delimiter
+
     try:
-        return lazy.open_doc(path, password, encoding, force, built_ok)
+        doc = lazy.open_doc(path, password, encoding, force, built_ok)
+        if doc is not None and chosen_delimiter() is not None:
+            _delimiter_kind(getattr(doc, "kind", ""))
+            if hasattr(type(doc), "delim"):
+                doc.delim  # CSV・TSV をバイトの並びから読む道：選んだ区切りを、この文字コードで使えること
+        return doc
+    except DelimiterError as e:
+        raise ApiError(str(e)) from None
     except EncodingError as e:
         raise ApiError(str(e)) from None
     except UnicodeDecodeError as e:

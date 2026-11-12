@@ -9,15 +9,21 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from ..limits import budget
 from .textenc import Decoded, EncodingError, decode
 
 NEWLINE_JA = {"\r\n": "CRLF", "\n": "LF", "\r": "CR", "": "なし"}
-DELIM_JA = {",": "「,」（カンマ）", "\t": "タブ", ";": "「;」（セミコロン）"}
+DELIM_JA = {",": "「,」（カンマ）", "\t": "タブ", ";": "「;」（セミコロン）", "|": "「|」（縦線）"}
+
+
+def delim_ja(d: str) -> str:
+    return DELIM_JA.get(d, f"「{d}」")
 
 
 class CsvError(ValueError):
@@ -120,49 +126,135 @@ def delimiters(text: str, kind: str) -> tuple[str, list[tuple[str, int]], bool]:
          「Meier;1,50;Bonn」など）は、カンマの数が行によって違い、「;」の数はどの行も同じ。
       3. どれもそろっていなければ、カンマ（行によって列の数の違う CSV・1列だけのファイル）。
     - 選んだもののほかにも、そろっている区切りがあれば、決めた区切りが正しいとは限らない（見出しのない「1,5;2,5」は、
-      カンマでも「;」でも同じ数に分かれる）。規則では決めず、ほかの区切りと、それで分けた列の数を返す。"""
+      カンマでも「;」でも同じ数に分かれる）。規則では決めず、ほかの区切りと、それで分けた列の数を返す。
+    - 3 つの字がどの行にもない（窓は 1 列になる）ときは、ほかの ASCII の記号（引用符のほか）も同じように数え、そろっている
+      ものを、ほかの区切りとして返す（「|」で区切ったファイル）。値の中の記号（日付の「-」）もそろうことがあるので、決めない。"""
     if kind == "tsv":
         return "\t", [], False
     m = _SEP_LINE.match(text)
     if m:
         return m[1], [], True
-    lines = [ln for ln in re.split(r"\r\n|\n|\r", re.sub(r'"(?:[^"]|"")*"', "", text[:200_000])) if ln.strip()][:200]
-    even = {}
-    for d in SEPS:
-        counts = {ln.count(d) for ln in lines}
-        if len(counts) == 1 and counts != {0}:
-            even[d] = counts.pop() + 1
+    lines = _sample(text)
+    even = {d: n for d in SEPS if (n := _even(lines, d))}
     delim = next((d for d in SEPS if d in even), ",")
+    if not even and lines and not any(d in ln for ln in lines for d in SEPS):
+        even = {d: n for d in OTHER_SEPS if (n := _even(lines, d))}
     return delim, [(d, n) for d, n in even.items() if d != delim], False
+
+
+OTHER_SEPS = tuple(c for c in map(chr, range(0x21, 0x7F)) if not c.isalnum() and c not in '",;')
+
+
+def _sample(text: str) -> list[str]:
+    """区切りを数える行：頭の 200,000 字の、引用符で囲んだ所を除いた、字のある 200 行。"""
+    return [ln for ln in re.split(r"\r\n|\n|\r", re.sub(r'"(?:[^"]|"")*"', "", text[:200_000])) if ln.strip()][:200]
+
+
+def _even(lines: list[str], d: str) -> int:
+    """d がどの行にも同じ数（1つ以上）あれば、それで分けた列の数。そうでなければ 0。"""
+    counts = {ln.count(d) for ln in lines}
+    return counts.pop() + 1 if len(counts) == 1 and counts != {0} else 0
 
 
 def _delimiter(text: str, kind: str) -> str:
     return delimiters(text, kind)[0]
 
 
-def delimiter_info(delim: str, also: list, declared: bool) -> dict:
-    """窓の format に入れる、区切りの決め方（ほかの区切りでもそろうとき・宣言の行で決めたときだけ、鍵を足す）。"""
-    out = {"delimiter": delim, "delimiter_ja": DELIM_JA.get(delim, repr(delim))}
+class DelimiterError(CsvError):
+    """エージェントが選んだ区切りを使えない。"""
+
+
+# ---------------------------------------------------------------------- エージェントが選んだ区切り
+# 区切りは、規則で決まらないことがある（どの行も同じ数に分かれる区切りが 2 つある・「|」などの、規則が数えない字で区切ったファイル）。
+# エージェントが窓を読んで選んだ区切りを、1 回の呼び出しの間だけ置く（呼び出しが終われば戻す）。
+_CHOSEN: ContextVar[str | None] = ContextVar("todoku_csv_delimiter", default=None)
+
+
+def chosen_delimiter() -> str | None:
+    return _CHOSEN.get()
+
+
+def as_delimiter(value) -> str:
+    """エージェントが渡した区切り → 区切りの字。ASCII の記号 1 字か、タブ（"\\t"・"tab" とも書ける）。
+    英数字・空白・引用符・改行は、値の字・引用符・行の終わりと区別がつかないので、選べない。"""
+    if isinstance(value, str) and value.lower() in ("\\t", "tab"):
+        value = "\t"
+    if (not isinstance(value, str) or len(value) != 1 or value.isalnum() or value in '" \r\n'
+            or not (value == "\t" or 0x21 <= ord(value) <= 0x7E)):
+        raise DelimiterError("区切り（delimiter）は、ASCII の記号 1 字かタブで指定してください（例：\",\"・\";\"・\"\\t\"・\"|\"。"
+                             "英数字・空白・引用符・改行は選べません）")
+    return value
+
+
+@contextlib.contextmanager
+def choosing(delimiter):
+    """この中で読む CSV・TSV を、エージェントが選んだ区切りで読む（None なら何もしない）。"""
+    if delimiter is None:
+        yield
+        return
+    token = _CHOSEN.set(as_delimiter(delimiter))
+    try:
+        yield
+    finally:
+        _CHOSEN.reset(token)
+
+
+def settle(rule: tuple[str, list, bool], pick: str | None, text: str) -> tuple[str, list, bool, str | None, int]:
+    """(区切り, ほかにもそろう区切り, 1行目の sep= があるか, 規則で読むときの区切り（選んでいなければ None）, 選んだ区切りで
+    そろう列の数（そろわなければ 0））。pick：エージェントが選んだ区切り。選んだら、その区切りで読む（規則の答えは、窓に残す）。
+    そろうかどうかは、規則と同じ数え方（頭の 200 行・引用符の外。区切りの宣言の行は除く）。"""
+    if pick is None:
+        return rule[0], rule[1], rule[2], None, 0
+    lines = _sample(text)
+    return pick, [], rule[2], rule[0], _even(lines[1:] if rule[2] else lines, pick)
+
+
+def delimiter_info(delim: str, also: list, declared: bool, rule: str | None = None, even: int = 0) -> dict:
+    """窓の format に入れる、区切りの決め方（ほかの区切りでもそろうとき・宣言の行があるとき・エージェントが選んだときだけ、鍵を足す）。"""
+    out = {"delimiter": delim, "delimiter_ja": delim_ja(delim)}
     if declared:
         out["delimiter_declared_by"] = "1行目の sep="
     if also:
-        out["delimiter_also"] = [{"delimiter": d, "delimiter_ja": DELIM_JA.get(d, repr(d)), "columns": n} for d, n in also]
+        out["delimiter_also"] = [{"delimiter": d, "delimiter_ja": delim_ja(d), "columns": n} for d, n in also]
+        if any(d not in SEPS for d, _n in also):
+            out["delimiter_absent"] = True  # 「,」・タブ・「;」がどの行にもない（窓は 1 列）
+    if rule is not None:
+        out["delimiter_chosen_by"] = "エージェント"
+        if rule != delim:
+            out["delimiter_by_rule"] = rule
+        if even:
+            out["delimiter_even_columns"] = even
     return out
 
 
 def delimiter_notes(fm: dict) -> list[str]:
     """Markdown の窓の注意（区切りを宣言の行で決めたとき・ほかの区切りでもそろうとき）。"""
     out = []
-    if fm.get("delimiter_declared_by"):
+    if fm.get("delimiter_chosen_by"):
+        rule = fm.get("delimiter_by_rule")
+        was = "" if rule is None else f"規則で読むと、区切りは {delim_ja(rule)} です" + ("（1行目の宣言）。" if fm.get("delimiter_declared_by") else "。")
+        n = fm.get("delimiter_even_columns")
+        fact = (f"頭の 200 行までは、引用符の外で数えて、どの行も {n} 列に分かれます。" if n else
+                "行によって列の数が違うか、区切りのない行があります（引用符の外で数えました）。")
+        out.append(f"- 区切りは、エージェントが選んで指定した {fm['delimiter_ja']} で読みました（delimiter）。{fact}{was}"
+                   "同じファイルには、どの道具にも同じ delimiter を渡してください。")
+        if fm.get("delimiter_declared_by"):
+            out.append("- 1行目（R1）は、区切りの宣言の行（Excel の「sep=」）です（R1 は列の見出しではありません。見出しは R2 から読んでください）。")
+    elif fm.get("delimiter_declared_by"):
         out.append(f"- 1行目（R1）は、区切りの宣言の行（Excel の「sep=」）です。区切りは、宣言のとおり {fm['delimiter_ja']} で読みました"
                    "（R1 は列の見出しではありません。見出しは R2 から読んでください）。")
     also = fm.get("delimiter_also")
     if also:
         others = "・".join(f"{a['delimiter_ja']}（{a['columns']} 列）" for a in also)
-        out.append(f"- **区切りを規則では決められません**：{fm['delimiter_ja']} で読みましたが、{others} でも、どの行も同じ数の列に"
-                   "分かれます（引用符の外で数えました）。窓の列が意味の通らない分かれ方（数の途中で切れているなど）なら、"
-                   "区切りはそちらです。とどくには、区切りを選んで読み直す引数がまだないので、そのときは、この窓の列を信じずに、"
-                   "そのことを本人に伝えてください（書き込みは、いまの分かれ方のマスに書きます）。")
+        how = "そのときは、その区切りの字を delimiter で渡して読み直し、同じファイルには、どの道具にも同じ値を渡してください（書き込みは、読んだ分かれ方のマスに書きます）。窓の読み方が正しいときは、いまの区切りの字を渡すと、エージェントが確かめた読み方として残ります。"
+        if fm.get("delimiter_absent"):
+            out.append(f"- **区切りを規則では決められません**：「,」・タブ・「;」がどの行にもないので、窓は 1 列です。{others} なら、"
+                       "どの行も同じ数の列に分かれます（引用符の外で数えました。頭の 200 行まで）。その記号が値の一部（日付の「-」など）なら、"
+                       f"窓のとおり 1 列です。値を区切っている字なら、区切りはそちらです。{how}")
+        else:
+            out.append(f"- **区切りを規則では決められません**：{fm['delimiter_ja']} で読みましたが、{others} でも、どの行も同じ数の列に"
+                       "分かれます（引用符の外で数えました）。窓の列が意味の通らない分かれ方（数の途中で切れているなど）なら、"
+                       f"区切りはそちらです。{how}")
     return out
 
 
@@ -178,7 +270,9 @@ class CsvFile:
         except UnicodeDecodeError as e:
             raise CsvError(f"文字コードを読めません（{e.reason}）") from None
         self.text = self.dec.text
-        self.delim, self.delim_also, self.delim_declared = delimiters(self.text, kind)
+        # エージェントが選んだ区切り（choosing）があれば、その区切り。なければ、規則
+        self.delim, self.delim_also, self.delim_declared, self.delim_rule, self.delim_even = settle(
+            delimiters(self.text, kind), chosen_delimiter(), self.text)
         # 圧縮の爆弾（書庫の中の CSV）：バイトの上限の内でも、小さなマスが何千万もあれば、読むだけでメモリを使い切る。作る前に数える
         budget().count_part("csv", self.text.count(self.delim) + self.text.count("\n") + self.text.count("\r"), "CSV のマス")
         self.records, self.problems = parse(self.text, self.delim)
@@ -210,7 +304,8 @@ class CsvFile:
         q = "すべてのマスを引用符で囲む" if self.quote_all else "必要なマスだけ引用符で囲む"
         return {"encoding": self.dec.encoding, "encoding_ja": self.dec.label, "bom": bool(self.dec.bom),
                 "ascii_only": self.dec.ascii_only, "newline": NEWLINE_JA[self.newline], "mixed_newlines": self.mixed_newlines,
-                "ends_with_newline": self.ends_with_newline, **delimiter_info(self.delim, self.delim_also, self.delim_declared),
+                "ends_with_newline": self.ends_with_newline,
+                **delimiter_info(self.delim, self.delim_also, self.delim_declared, self.delim_rule, self.delim_even),
                 "quoting": q, "empty_lines": self.empty_lines,
                 **self.dec.info(), "encoding_notes": self.dec.note_lines()}
 

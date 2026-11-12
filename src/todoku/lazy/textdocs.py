@@ -24,8 +24,11 @@ from ..datafile.csvfile import (
     CsvError,
     CsvFile,
     CsvPatch,
+    chosen_delimiter,
     delimiter_info,
     delimiter_notes,
+    delimiters,
+    settle,
     formula_like,
     formula_note,
     parse,
@@ -35,7 +38,18 @@ from ..datafile.csvfile import (
 from ..datafile.textenc import Decoded, EncodingError, NAME_JA
 from ..datafile.window import cell_text, row_line
 from .base import ByteRanges, LazyDoc, Page, RangeError, comma, cut_note, parse_range, stream_patch, temp_beside, verify_ranges
-from .textstream import STRIDE, CsvStats, Source, TextIndex, detect, index_csv, index_lines, sniff_delimiter, span_hash
+from .textstream import (
+    STRIDE,
+    CsvStats,
+    Source,
+    TextIndex,
+    detect,
+    head_text,
+    index_csv,
+    index_lines,
+    second_byte_leads,
+    span_hash,
+)
 
 
 _csv.field_size_limit(2 ** 31 - 1)  # 別の読み方の確かめで、長いマスを「壊れている」としない（既定は 131072 字）
@@ -88,11 +102,18 @@ class CsvDoc(TextDoc):
         self._delim = None
         self.delim_also: list = []
         self.delim_declared = False
+        self.delim_rule = None
+        self.delim_even = 0
+        self._pick = chosen_delimiter()  # エージェントが選んだ区切り（この書類を作った呼び出しのもの）
 
     @property
     def delim(self) -> str:
         if self._delim is None:
-            self._delim, self.delim_also, self.delim_declared = sniff_delimiter(self.src, self.start, self.dec.encoding, self.kind)
+            head = head_text(self.src, self.start, self.dec.encoding)
+            delim, self.delim_also, self.delim_declared, self.delim_rule, self.delim_even = settle(
+                delimiters(head, self.kind), self._pick, head)
+            second_byte_leads(self.dec.encoding, delim)  # バイトの並びから探せない区切りは、ここで断る
+            self._delim = delim
         return self._delim
 
     @property
@@ -149,7 +170,8 @@ class CsvDoc(TextDoc):
         q = "すべてのマスを引用符で囲む" if st.quote_all else "必要なマスだけ引用符で囲む"
         return {"encoding": self.dec.encoding, "encoding_ja": self.dec.label, "bom": bool(self.dec.bom),
                 "ascii_only": self.dec.ascii_only, "newline": NEWLINE_JA[idx.newline or "\r\n"], "mixed_newlines": idx.mixed_newlines,
-                "ends_with_newline": idx.ends_with_newline, **delimiter_info(self.delim, self.delim_also, self.delim_declared),
+                "ends_with_newline": idx.ends_with_newline,
+                **delimiter_info(self.delim, self.delim_also, self.delim_declared, self.delim_rule, self.delim_even),
                 "quoting": q,
                 "empty_lines_count": st.empty_lines, "empty_lines_first": st.first_empty_lines,
                 **self.dec.info(), "encoding_notes": self.dec.note_lines()}
