@@ -116,6 +116,8 @@ def markdown_parts(win: dict) -> list[tuple[str, str]]:
     out = [f"# {win['file']}（{f['markup']}・{f['encoding_ja']}）", "", f"> {win['note']}。書き込みはしません。", ""]
     for n in f.get("encoding_notes") or []:
         out.append(f"> {n}")
+    if f.get("kind_note"):
+        out.append(f"> {f['kind_note']}。")
     out += ["", "## 字（タグの間の字。上から）", ""]
     out += [f"{k}｜{ln}" for k, ln in enumerate(win["lines"], 1)]
     from .links import markdown as _links

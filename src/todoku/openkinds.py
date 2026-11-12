@@ -36,6 +36,31 @@ def _err(e: Exception) -> OpenFormatError:
 TEXT_FILES = DATA | {"txt", "markup"}  # 文字だけのファイル：文字コードを textenc で決める（encoding を渡せる）
 
 
+def _content_mark(win: dict, k: str, blob, name: str) -> None:
+    """形式を、印・名前ではなく中身で決めたファイル（book.content_kind）：そのことを窓の format に残す（kind_by・kind_note）。"""
+    from .book import by_content, content_note
+
+    if by_content(blob, name, k):
+        win["format"]["kind_by"] = "content"
+        win["format"]["kind_note"] = content_note(k, name)
+
+
+def _content_grade(g, k: str, blob, name: str):
+    """形式を中身で決めたファイルの段階：読む B・書く B の理由を足す（字はファイルのとおりに読んでいるが、その字が
+    別の形式の書類の中身かどうかは、規則では決められない）。読めなかったもの（読む F）は、そのまま。"""
+    from .book import by_content, content_note
+
+    if g.grade == "F" or not by_content(blob, name, k):
+        return g
+    from .grade import Reason, _final
+
+    out = _final(g.reasons + [Reason("B", "形式を中身から決めた", content_note(k, name))],
+                 g.write_reasons + [Reason("B", "形式を中身から決めた", "書く前に、エージェントが、このファイルが文字のファイルとして書いてよいものかを"
+                                           "字を読んで確かめます（書くのは、書いた所の字のバイトだけ）")])
+    out.alerts = g.alerts
+    return out
+
+
 def window(k: str, blob: bytes, name: str, encoding: str | None = None) -> tuple[dict, list[tuple[str, str]]]:
     """encoding：文字だけのファイル（TEXT_FILES）の文字コードを、エージェントが選んで指定したとき（ほかの形式では使わない）。"""
     if k in _more.KINDS:
@@ -75,6 +100,7 @@ def window(k: str, blob: bytes, name: str, encoding: str | None = None) -> tuple
             from .txt.window import build, markdown_parts
 
             win = build(TxtDocument(blob, name, encoding))
+            _content_mark(win, k, blob, name)
             return win, markdown_parts(win)
         if k == "pptx":
             from .pptx.document import PptxDocument
@@ -98,6 +124,7 @@ def window(k: str, blob: bytes, name: str, encoding: str | None = None) -> tuple
             from . import markup
 
             win = markup.build(blob, name, encoding)
+            _content_mark(win, k, blob, name)
             return win, markup.markdown_parts(win)
         if k == "image":
             from .imaging.standalone import build as ibuild
@@ -482,11 +509,11 @@ def grade(k: str, blob: bytes, name: str, encoding: str | None = None):
             doc = RtfDocument(blob, name)
             return _grade_textdoc(build(doc), "RTF", "フォームの欄", doc=doc)
         if k == "txt":
-            return _grade_txt(blob, name, encoding)
+            return _content_grade(_grade_txt(blob, name, encoding), k, blob, name)
         if k == "markup":
             from .markup import grade as mgrade
 
-            return mgrade(blob, name, encoding)
+            return _content_grade(mgrade(blob, name, encoding), k, blob, name)
         if k == "image":
             from .imaging.standalone import grade as igrade
 

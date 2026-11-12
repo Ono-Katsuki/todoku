@@ -126,7 +126,7 @@ class Source:
     def __del__(self):
         try:
             self.close()
-        except OSError:
+        except (OSError, AttributeError, TypeError):  # インタプリタの終わりでは、os がもうないことがある
             pass
 
 

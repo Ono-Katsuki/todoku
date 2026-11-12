@@ -1030,6 +1030,10 @@ class TxtLazy(LineDoc):
     def __init__(self, path: str, name: str, kind: str, encoding: str | None):
         super().__init__(path, name, kind, encoding)
         self._huge: dict[int, HugeLine] = {}
+        from ..book import _text_kind, content_note
+
+        # 形式を中身で決めたファイル（book.content_kind）：窓・段階にそのことを残す
+        self.kind_note = content_note("txt", name) if _text_kind(self.src.read(0, 4096), name) is None else ""
 
     def _binary_check(self) -> None:
         if self.dec.binary:
@@ -1108,7 +1112,8 @@ class TxtLazy(LineDoc):
         idx = self.idx
         return {"format": {"encoding": self.shown.encoding, "encoding_ja": self.shown.label, "bom": bool(self.shown.bom), "ascii_only": self.shown.ascii_only,
                            "newline": NEWLINE_JA[idx.newline], "mixed_newlines": idx.mixed_newlines, "ends_with_newline": idx.ends_with_newline,
-                           "lines": idx.count, **self.shown.info(), "encoding_notes": self.shown.note_lines()},
+                           "lines": idx.count, **self.shown.info(), "encoding_notes": self.shown.note_lines(),
+                           **({"kind_by": "content", "kind_note": self.kind_note} if self.kind_note else {})},
                 "lines": idx.count, "longest_line_bytes": idx.longest, "ranges": "paragraphs（行の範囲）", "bytes": self.file_bytes}
 
     def overview_text(self) -> str:
@@ -1121,7 +1126,7 @@ class TxtLazy(LineDoc):
                f"{SEG_CHARS:,} 字を超える行では P行.x字の位置（行の頭から数えた字の位置。ほかの所を書いても変わりません）。",
                "- 書き込みは、書いた所のバイトだけを変え、ほかのバイトはそのままファイルを写します。字を目印にして書くときは "
                "`{\"@1\": {\"old\": \"元の字\", \"new\": \"書き換えた後の字\"}}`（old がファイルにいくつもあるときは occurrence か near で 1 つに決める）。",
-               *self.shown.note_lines()]
+               *self.shown.note_lines(), *([f"- {self.kind_note}。"] if self.kind_note else [])]
         return "\n".join(out) + "\n"
 
     # ------------------------------------------------------------------ 読む
@@ -1478,6 +1483,10 @@ class TxtLazy(LineDoc):
             return _locked("読めない", "文字のファイルではありません（どの文字コードとしても読めず、NUL のバイトがあります）", "読めないので、書けません")
         write = [Reason("B", "欄を範囲ごとに見つける", "大きなテキストなので、入力欄は頼まれた行の範囲ごとに見つけます。欄のない所は字を目印にして書けます")]
         reasons: list = []
+        if self.kind_note:
+            reasons.append(Reason("B", "形式を中身から決めた", self.kind_note))
+            write.append(Reason("B", "形式を中身から決めた", "書く前に、エージェントが、このファイルが文字のファイルとして書いてよいものかを"
+                                "字を読んで確かめます（書くのは、書いた所の字のバイトだけ）"))
         enc, wenc = encoding_reason(self.dec, "A")
         g = _final(reasons + ([enc] if enc else []), write + ([wenc] if wenc else []))
         g.deferred = ["未確認：全部の行の、入力欄の洗い出し（audit_document で全部の行を確かめます）"]

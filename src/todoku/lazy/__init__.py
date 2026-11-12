@@ -38,7 +38,18 @@ def _kind_for(path: str, name: str) -> str | None:
         return "mdb"
     if head[:2] == b"PK":
         return "pk"
-    return _text_kind(head, name)
+    k = _text_kind(head, name)
+    if k is None and name:
+        from ..book import _known_kind, content_kind
+        from .textstream import Source
+
+        if _known_kind(head, name) == "unknown":  # 印でも名前でも決まらない：中身が字だけか（book.kind_of と同じ決まり）
+            src = Source(path)
+            try:
+                k = content_kind(src)
+            finally:
+                src.close()
+    return k
 
 
 def open_doc(path: str, password: str | None = None, encoding: str | None = None, force: bool = False,

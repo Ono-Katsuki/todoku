@@ -16,7 +16,7 @@ FORM = "様式第１号\r\n\r\n　令和　　年　　月　　日\r\n\r\n申�
 
 # ====================================================================== .txt
 def test_txt_kind_by_name_and_window_keeps_every_line(tmp_path):
-    assert kind_of(b"hello", "a.txt") == "txt" and kind_of(b"hello", "a.dat") == "unknown"
+    assert kind_of(b"hello", "a.txt") == "txt" and kind_of(b"hel\x00lo", "a.dat") == "unknown"
     p = tmp_path / "a.txt"
     p.write_bytes(FORM.encode("cp932"))
     k, doc, parts = api.window(str(p))

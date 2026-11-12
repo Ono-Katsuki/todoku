@@ -103,6 +103,8 @@ def _head(win: dict) -> list[str]:
     if fm.get("ascii_only"):
         out.append("- このファイルは ASCII の字だけなので、文字コードは決まりません（日本語を書くと UTF-8 で書きます）。")
     out += fm.get("encoding_notes") or []
+    if fm.get("kind_note"):
+        out.append(f"- {fm['kind_note']}。")
     out.append("")
     if win["fields"]:
         out += [f"## 入力欄（{len(win['fields'])} か所）", "", "| 欄 | 見出し | 種類 | いまの値 |", "|---|---|---|---|"]

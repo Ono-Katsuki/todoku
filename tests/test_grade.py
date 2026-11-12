@@ -127,8 +127,11 @@ def test_agent_findings_are_combined_with_provenance():
 
 def test_write_grade_by_rules():
     # 開けない書類：読む F・書く D
-    g = grade_blob(b"not a document", "x.docx")
+    g = grade_blob(b"\x00not a document", "x.docx")
     assert g.grade == "F" and g.write == "D" and "書く段階 D" in g.headline()
+    # 名前は .docx でも、中身が字だけのファイル：文字のファイルとして読み、そのことを理由に残す
+    t = grade_blob(b"not a document", "x.docx")
+    assert t.grade == "B" and t.write == "B" and "形式を中身から決めた" in [r.title for r in t.reasons]
     d = grade_blob(b"a,b\n1,2\n", "x.csv")
     assert d.grade == "S" and d.write == "A" and d.to_dict()["write"]["grade"] == "A"
 

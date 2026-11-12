@@ -9,7 +9,18 @@ class FormatError(ValueError):
 
 def kind_of(blob: bytes, filename: str = "") -> str:
     """形式の名前。filename（ファイルの名前）は、中身だけでは決まらない形式（CSV・TSV・JSON・JSON Lines）を見分けるのに使う
-    （名前を渡さなければ、いままでと同じ判定）。"""
+    （名前を渡さなければ、いままでと同じ判定）。印でも名前でも形式が決まらないファイルは、中身が字だけなら、文字のファイル
+    （txt）・HTML/XML（markup）として読む（content_kind。名前を渡したときだけ）。"""
+    k = _known_kind(blob, filename)
+    if k == "unknown" and filename:
+        from .lazy.textstream import MemorySource
+
+        return content_kind(MemorySource(blob)) or k
+    return k
+
+
+def _known_kind(blob: bytes, filename: str = "") -> str:
+    """印（先頭のバイト・入れ物の部品）と名前で決まる形式。決まらなければ "unknown"。"""
     if blob[:2] == b"PK":
         if len(blob) < 64:
             return "xlsx"
@@ -268,6 +279,84 @@ def _text_kind(blob: bytes, filename: str) -> str | None:
         if name.endswith(ext):
             return kind
     return None
+
+
+# ASCII と同じバイトを使う文字コード（UTF-8・多バイト・1バイト・ISO-2022 の仲間・HZ・UTF-7）で、いつも制御文字になるバイト
+# （タブ・改行・改ページと、ISO-2022 の切り替えに使う SO・SI・ESC は除く。NUL は、BOM のない UTF-16・UTF-32 の形を別に見る）
+_ALWAYS_CONTROL = __import__("re").compile(rb"[\x01-\x08\x10-\x1a\x1c-\x1f\x7f]")
+CONTENT_KINDS = frozenset({"txt", "markup"})  # 中身で決めることのある形式
+
+
+def content_kind(src) -> str | None:
+    """印でも名前でも形式が決まらないファイルの中身が字だけか：字だけなら "txt"、字の頭が XML の宣言（<?xml）・HTML の印
+    （<!DOCTYPE html・<html）なら "markup"、そうでなければ None。src は lazy.textstream の Source・MemorySource（メモリは一定）。
+
+    決まり：.txt を読むのと同じ決め方（textenc）で、文字コードが決まるか候補が出て、読んだ字に制御文字（タブ・改行・改ページの
+    ほかの C0 と DEL）が 1 つもない。字の意味・語・行の形は見ない。どの文字コードとしても読めないもの・制御文字のあるものは、
+    文字のファイルとは決めない（"unknown" のまま）。
+
+    先に、安く確かめられる必要な条件を見る（結果は変わらない）：BOM がなく NUL もないファイルに、ASCII と同じバイトの
+    文字コードでいつも制御文字になるバイトがあれば、字だけではない。BOM がなく NUL のあるファイルは、頭の 4,096 バイトが
+    UTF-16・UTF-32 として制御文字なく読めなければ、字だけではない（NUL のある文字のファイルは、UTF-16・UTF-32 だけ）。"""
+    import codecs
+
+    from .datafile.textenc import BOMS, WIDE, EncodingError, controls
+    from .lazy.textstream import detect
+
+    if not src.size:
+        return None
+    head = bytes(src.read(0, 4096))
+    bom = next((b for b, _e in BOMS if head.startswith(b)), b"")
+    if not bom:
+        nul = ctl = False
+        for c in src.chunks():
+            if b"\x00" in c:
+                nul = True
+                break
+            ctl = ctl or _ALWAYS_CONTROL.search(c) is not None
+        if ctl and not nul:
+            return None
+        if nul:
+            h = head[:len(head) - len(head) % 4]
+            for enc in WIDE:
+                try:
+                    if not controls(codecs.getincrementaldecoder(enc)("strict").decode(h, False)):
+                        break
+                except UnicodeDecodeError:
+                    pass
+            else:
+                return None
+    try:
+        dec = detect(src)
+    except (UnicodeDecodeError, EncodingError):
+        return None
+    if dec.basis == "none" or dec.controls or dec.binary:
+        return None
+    try:
+        text = head[len(dec.bom):].decode(dec.encoding, "ignore")
+    except (LookupError, ValueError):
+        text = ""
+    start = text.lstrip("\ufeff \t\r\n\f\v")[:16].lower()
+    if start.startswith("<?xml") or start.startswith("<!doctype html") or start.startswith("<html"):
+        return "markup"
+    return "txt"
+
+
+def by_content(blob, filename: str, kind: str) -> bool:
+    """kind（kind_of の結果）を、印・名前ではなく中身で決めたか。"""
+    return kind in CONTENT_KINDS and bool(filename) and _text_kind(blob, filename) is None
+
+
+def content_note(kind: str, filename: str) -> str:
+    """中身で形式を決めたことの知らせ（窓・段階の理由に同じ字で置く）。"""
+    ext = filename.rsplit(".", 1)[-1] if "." in filename.strip(".") else ""
+    name = f"名前の終わり（.{ext}）" if ext else "名前"
+    if kind == "markup":
+        return (f"ファイルの頭の印と{name}からは、形式が決まりません（その名前の形式の印が頭にないか、形式の決まる名前ではありません）。中身が字だけで、字の頭が XML の宣言（<?xml）か HTML の印（<!DOCTYPE html・<html）なので、"
+                "HTML・XML として字だけを読みました。この字を別の形式の書類として表示するアプリがあるかは、規則では分かりません")
+    return (f"ファイルの頭の印と{name}からは、形式が決まりません（その名前の形式の印が頭にないか、形式の決まる名前ではありません）。中身が字だけ（.txt と同じ決め方で文字コードが決まるか候補が出て、制御文字がない）なので、"
+            "文字のファイルとして、字をファイルのとおりに読みました。この字を別の形式の書類として表示・印刷するアプリがあるか"
+            "（その形式の命令・印がそのまま字として出ているか）は、規則では分かりません。エージェントが字を読んで確かめます")
 
 
 def open_book(blob: bytes, filename: str = ""):
