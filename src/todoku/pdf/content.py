@@ -348,6 +348,32 @@ def _exact_rect(pts) -> tuple | None:
     return (x0, y0, x1, y1) if x0 < x1 and y0 < y1 else None
 
 
+def _union_covers(box, rects, e: float = 0.01) -> bool:
+    """四角 box の全部が、rects（[x0, y0, x1, y1, …]）を合わせた範囲の中にあるか（ずれは e まで）。
+    box を、四角の縦の辺で縦の帯に分け、帯ごとに、その帯を横切る四角の上下の範囲が、box の上下をすき間なく埋めるかを見る。"""
+    bx0, by0, bx1, by1 = box
+    if not (bx0 < bx1 and by0 < by1):
+        return False
+    cl = set()
+    for r in rects:
+        x0, y0, x1, y1 = max(bx0, r[0] - e), max(by0, r[1] - e), min(bx1, r[2] + e), min(by1, r[3] + e)
+        if x0 < x1 and y0 < y1:
+            cl.add((x0, y0, x1, y1))
+    xs = sorted({bx0, bx1} | {v for r in cl for v in (r[0], r[2])})
+    for a, b in zip(xs, xs[1:]):
+        y = by0
+        for lo, hi in sorted((r[1], r[3]) for r in cl if r[0] <= a and r[2] >= b):
+            if lo > y:
+                return False
+            if hi > y:
+                y = hi
+                if y >= by1:
+                    break
+        if y < by1:
+            return False
+    return True
+
+
 def _covers(gs) -> bool:
     """いまの描き方で描く塗り・画像が、その四角の中の、先に描いたものを確かに隠すか：透けず（不透明度 1・ふつうの重ね方・
     マスクなし・重ね刷りなし。外の部品の透け方も受け継がない）、切り抜きが軸にそろった四角のとき。"""
@@ -481,8 +507,9 @@ class Interpreter:
             i -= 1
 
     def _hide_covered(self) -> None:
-        """後から描いた透けない四角の中に、字の四角（送りの幅 × 書体の高さ）の全部がある字：その四角のどれかが塗りなら、
-        ふつうの内容から外して covered へ。画像なら、見えない字（invisible）にし、画像の下の字（under）と覚える：読み順には
+        """後から描いた透けない四角の中に、字の四角（送りの幅 × 書体の高さ）の全部がある字：1 つの四角の中にあるか、
+        2 つ以上の四角を合わせた範囲の中にある（_union_covers）。塗りだけで全部が隠れるなら、ふつうの内容から外して
+        covered へ。画像がなければ隠れないなら、見えない字（invisible）にし、画像の下の字（under）と覚える：読み順には
         残す（スキャンの画像の下に置いた、文字の認識の字のことがある。画像の中身と同じかは、字の情報からは分からない）。
         見えない描き方の字（Tr 3）は、そのまま。"""
         gl = self._main.glyphs
@@ -492,25 +519,61 @@ class Interpreter:
             return
         cell = 36.0
         grid: dict[tuple, list] = {}
+        big = []  # マスより大きな字：どのマスの四角とも比べる
+        mw = mh = 0.0  # マスに入れた字の、幅・高さの半分の最大：四角が字の一部にかかるのは、字の中心がこの分だけ外にあるときまで
         for i in range(min(len(gl), max(c[4] for c in covers))):
             g = gl[i]
             if not g.invisible:
+                w, h = (g.x1 - g.x0) / 2, (g.y1 - g.y0) / 2
+                if w > cell / 2 or h > cell / 2:
+                    big.append(i)
+                    continue
+                mw, mh = max(mw, w), max(mh, h)
                 grid.setdefault((int((g.x0 + g.x1) / 2 // cell), int((g.y0 + g.y1) / 2 // cell)), []).append(i)
-        if not grid:
+        if not grid and not big:
             return
-        gx0, gx1 = min(k[0] for k in grid), max(k[0] for k in grid)
-        gy0, gy1 = min(k[1] for k in grid), max(k[1] for k in grid)
+        gx0, gx1 = (min(k[0] for k in grid), max(k[0] for k in grid)) if grid else (0, -1)
+        gy0, gy1 = (min(k[1] for k in grid), max(k[1] for k in grid)) if grid else (0, -1)
         hit: dict[int, str] = {}
+        some: dict[int, list] = {}  # 字の四角の一部だけにかかる、その字より後の四角
         e = 0.01
-        for x0, y0, x1, y1, n, kind in covers:
-            for ix in range(max(gx0, int(x0 // cell)), min(gx1, int(x1 // cell)) + 1):
-                for iy in range(max(gy0, int(y0 // cell)), min(gy1, int(y1 // cell)) + 1):
+
+        def see(i, c):
+            g = gl[i]
+            x0, y0, x1, y1 = c[0], c[1], c[2], c[3]
+            if g.x0 >= x0 - e and g.x1 <= x1 + e and g.y0 >= y0 - e and g.y1 <= y1 + e:
+                if hit.get(i) != "fill":
+                    hit[i] = c[5]  # 塗りと画像の両方の下にある字は、塗りの下の字（塗りが確かに隠している）
+            elif g.x0 < x1 and g.x1 > x0 and g.y0 < y1 and g.y1 > y0:
+                ls = some.setdefault(i, [])
+                if not ls or ls[-1] is not c:
+                    ls.append(c)
+
+        for c in covers:
+            x0, y0, x1, y1, n = c[0], c[1], c[2], c[3], c[4]
+            for ix in range(max(gx0, int((x0 - mw) // cell)), min(gx1, int((x1 + mw) // cell)) + 1):
+                for iy in range(max(gy0, int((y0 - mh) // cell)), min(gy1, int((y1 + mh) // cell)) + 1):
                     for i in grid.get((ix, iy), ()):
                         if i >= n:
                             break
-                        g = gl[i]
-                        if g.x0 >= x0 - e and g.x1 <= x1 + e and g.y0 >= y0 - e and g.y1 <= y1 + e and hit.get(i) != "fill":
-                            hit[i] = kind  # 塗りと画像の両方の下にある字は、塗りの下の字（塗りが確かに隠している）
+                        see(i, c)
+            for i in big:
+                if i >= n:
+                    break
+                see(i, c)
+        # 1 つの四角には入らないが、2 つ以上の四角を合わせると全部が隠れる字：塗りだけで隠れるなら塗りの下の字、
+        # 画像を合わせて初めて隠れるなら画像の下の字
+        for i, ls in some.items():
+            k = hit.get(i)
+            if k == "fill" or len(ls) + (k is not None) < 2:
+                continue
+            g = gl[i]
+            box = (g.x0, g.y0, g.x1, g.y1)
+            fills = [c for c in ls if c[5] == "fill"]
+            if len(fills) >= 2 and _union_covers(box, fills, e):
+                hit[i] = "fill"
+            elif k is None and len(fills) < len(ls) and _union_covers(box, ls, e):
+                hit[i] = "image"
         if not hit:
             return
         # 墨のない字（空白）は、隠れる墨がないので、四角の中にあっても、同じ文字の組（BT〜ET）のすぐ前の字に合わせる（前に字が
