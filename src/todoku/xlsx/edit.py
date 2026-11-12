@@ -1941,6 +1941,7 @@ def fill(wb: Workbook, values: dict[str, object], *, allow_formula_overwrite: bo
         parts.update(ax_parts)
         for d in ax_done:
             patches.append(Patch(d["parts"][0], d["sheet"], d["control"], "control", d["before"], {"ax": d["changes"]}))
+            warnings += [n for n in d["notes"] if n not in warnings]
     for part, data in parts.items():
         wb.zip.replace(part, data)
 

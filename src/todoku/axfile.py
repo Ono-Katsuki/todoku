@@ -279,10 +279,12 @@ def set_bag(xml: bytes, changes: dict) -> bytes:
 
 # ---------------------------------------------------------------------- 書く（OOXML の部品）
 def new_parts(zip_, ref: AxRef, changes: dict, items: list[str] | None = None,
-              parts: dict | None = None, shared: set | None = None, added: dict | None = None) -> dict[str, bytes]:
+              parts: dict | None = None, shared: set | None = None, added: dict | None = None,
+              notes: list | None = None) -> dict[str, bytes]:
     """部品の性質を変えた、OOXML の部品（.bin か .xml）と、描き直した控えの絵。parts は、すでに書き換えた部品。
     shared：ほかの部品と共有している控えの絵（Excel は同じ絵を1つの部品にまとめる）。共有している絵は書き換えず、
-    この部品だけの新しい絵の部品を足して（added：名前 → 写すエントリ）、この部品からの参照だけをそこへ付け替える。"""
+    この部品だけの新しい絵の部品を足して（added：名前 → 写すエントリ）、この部品からの参照だけをそこへ付け替える。
+    notes：控えの絵（WMF）の中で、書いた字が近い別の字になったことを、ここに足す（部品の値は、書いた字のまま）。"""
     parts = parts if parts is not None else {}
     added = added if added is not None else {}
 
@@ -326,6 +328,14 @@ def new_parts(zip_, ref: AxRef, changes: dict, items: list[str] | None = None,
         if img in out:
             continue
         pic = axdraw.picture(new_ctl, cur(img), items)
+        if notes is not None and isinstance(new_ctl.value, str) and ref.kind in TEXT_KINDS + LIST_KINDS:
+            near = axdraw.near_drawn(pic, new_ctl.value)
+            if near:
+                pairs = "、".join(f"「{c}」（U+{ord(c):04X}）が「{d}」（U+{ord(d):04X}）" for c, d in near)
+                note = (f"{ref.label}「{ref.name}」: 控えの絵（WMF）は 8 ビットの文字コードで字を書くので、絵の中では、{pairs}になります"
+                        "（部品の値は、書いた字のままです）")
+                if note not in notes:
+                    notes.append(note)
         if shared and img in shared:
             target = _split_picture(zip_, ref, img, cur, out, added)
             added[target] = (pic, img)
@@ -805,10 +815,12 @@ def apply_excel(wb, writes: list) -> tuple[dict[str, bytes], list[dict]]:
                for k, v in changes.items()):
             continue  # 変わらない
         n_added = len(added)
-        new = new_parts(wb.zip, ref, changes, items, parts, shared, added)
+        notes: list[str] = []
+        new = new_parts(wb.zip, ref, changes, items, parts, shared, added, notes)
         parts.update(new)
         done.append({"sheet": sheet, "control": ctl.name, "kind": ref.kind, "changes": dict(changes),
-                     "before": {k: ref.control.get(k) for k in changes}, "parts": sorted(new) + list(added)[n_added:]})
+                     "before": {k: ref.control.get(k) for k in changes}, "parts": sorted(new) + list(added)[n_added:],
+                     "notes": notes})
     for name, (data, like) in added.items():
         wb.zip.add(name, data, like)  # 共有していた控えの絵から分けた、この部品だけの絵
     return parts, done
@@ -892,9 +904,9 @@ def verify_parts(za, zb, ra: AxRef, rb: AxRef, changes: dict | None, items: list
         if new != want:
             out.append(f"{what}：控えの絵 {p} が、書いた後の状態の絵になっていません")
         if rb.kind in TEXT_KINDS + LIST_KINDS and rb.control.value:
-            shown = "".join(axdraw.picture_texts(new)).replace(" ", "")
-            if rb.control.value.replace("\r\n", "").replace("\n", "").replace(" ", "")[:20] not in shown and \
-                    rb.control.get("PasswordChar") == "":
+            # WMF の字は 8 ビットの文字コード：エンコーダが近い字のバイトにする字（〜 → ～）は、その字として描かれていればよい
+            head = rb.control.value.replace("\r\n", "").replace("\n", "").replace(" ", "")[:20]
+            if axdraw.drawn_as(new, head) is None and rb.control.get("PasswordChar") == "":
                 out.append(f"{what}：控えの絵 {p} に、書いた文字が描かれていません")
     return out
 
@@ -1156,7 +1168,7 @@ def word_fill(f, item: dict, value, force: bool = False) -> list:
             if ctl is c:
                 out.append((ids.get(id(ctl), ctl.name), shown))
             continue
-        new = new_parts(doc.zip, ctl.ax, changes, None, f.ax_parts, shared, f.ax_added)
+        new = new_parts(doc.zip, ctl.ax, changes, None, f.ax_parts, shared, f.ax_added, f.warnings)
         f.ax_parts.update(new)
         out.append((ids.get(id(ctl), ctl.name), shown))
     return out

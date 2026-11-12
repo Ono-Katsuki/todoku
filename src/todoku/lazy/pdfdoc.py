@@ -49,7 +49,7 @@ class PdfLazy(LazyDoc):
     streams = False
     range_keys = ("pages",)
 
-    def __init__(self, path: str, name: str, password: str | None):
+    def __init__(self, path: str, name: str, password: str | None, got=None):
         from .. import api
         from ..pdf.form import read_fields
         from ..pdf.window import _xfa_window, build, has_xfa
@@ -59,8 +59,11 @@ class PdfLazy(LazyDoc):
         self.password = password
         from .filebytes import mapped_reads
 
-        with mapped_reads():
-            blob, _n, k, lock = api._read(path, password)
+        if got is not None:
+            blob, lock = got  # 書庫から取り出した中身（もう一度は取り出さない）
+        else:
+            with mapped_reads():
+                blob, _n, k, lock = api._read(path, password)
         self.blob = blob
         self.lock = lock
         self.doc = api._pdf(blob, name, lock)

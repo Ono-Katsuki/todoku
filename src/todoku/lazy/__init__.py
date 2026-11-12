@@ -132,8 +132,8 @@ def json_doc(path: str, password: str | None, encoding: str | None) -> LazyDoc |
 
 
 def _member_cached(path: str, password: str | None, encoding: str | None, outer: str) -> LazyDoc | None:
-    """書庫の中の文字のファイルの読み手を、ファイルそのものと同じに控える（呼び出しのたびに、取り出して行を数え直さない）。
-    鍵は、書庫のファイルの大きさと更新の時刻。文字のファイルでない中身は「違う」とだけ控える。パスワードのある書庫は控えない。"""
+    """書庫の中の文字のファイル・PDF の読み手を、ファイルそのものと同じに控える（呼び出しのたびに、取り出して行を数え直さない）。
+    鍵は、書庫のファイルの大きさと更新の時刻。ほかの形式の中身は「違う」とだけ控える。パスワードのある書庫は控えない。"""
     from ..datafile.csvfile import chosen_delimiter
 
     key = None
@@ -146,6 +146,8 @@ def _member_cached(path: str, password: str | None, encoding: str | None, outer:
     if key is not None and key in _CACHE:
         return _CACHE[key] or None
     doc = _member_text(path, password, encoding)
+    if doc is not None and len(getattr(doc, "blob", b"")) > _MEMBER_KEEP:
+        key = None  # 取り出した大きな PDF は、メモリに控えない（呼び出しのたびに取り出す）
     if key is not None:
         _CACHE[key] = doc if doc is not None else False
         while len(_CACHE) > _CACHE_MAX:
@@ -155,13 +157,20 @@ def _member_cached(path: str, password: str | None, encoding: str | None, outer:
     return doc
 
 
+_MEMBER_KEEP = 64 << 20  # 書庫から取り出した PDF を控える大きさの上限（文字のファイルをメモリに置く上限 RECODE_IN_MEMORY と同じ）
+
+
 def _member_text(path: str, password: str | None, encoding: str | None) -> LazyDoc | None:
-    """書庫の中の文字のファイル（CSV・TSV・JSON Lines・.txt と、大きな JSON）：取り出した中身を、ファイルそのものと同じ読み手で、
-    同じ範囲（rows・records・paragraphs・path）で読む。ほかの形式は None（窓を作ってから分ける）。"""
+    """書庫の中の文字のファイル（CSV・TSV・JSON Lines・.txt と、大きな JSON）と PDF：取り出した中身を、ファイルそのものと
+    同じ読み手で、同じ範囲（rows・records・paragraphs・path・pages）で読む。ほかの形式は None（窓を作ってから分ける）。"""
     from .. import api, limits
     from .textstream import member_source
 
     blob, name, k, _lock = api._read(path, password)
+    if k == "pdf":
+        from .pdfdoc import PdfLazy
+
+        return PdfLazy(path, name, password, (blob, _lock))  # ページの木だけを読み、頼まれたページだけを配置する
     if k in ("csv", "tsv"):
         from .textdocs import CsvDoc
 

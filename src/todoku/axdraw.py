@@ -14,6 +14,7 @@ WMF の置き場所の枠）と同じにする。字体の寸法は持たない�
 
 from __future__ import annotations
 
+import functools
 import struct
 import unicodedata
 
@@ -689,6 +690,48 @@ def picture_texts(data: bytes) -> list[str]:
     if emf_header(data) is not None:
         return emf_texts(data)
     return wmf_texts(data)
+
+
+@functools.lru_cache(maxsize=4096)
+def _near(ch: str) -> frozenset:
+    """字 ch を、WMF の字の文字コード（文字セットの表の 8 ビットの文字コード）で書いて読み直すと出る、ch と違う字：
+    エンコーダが近い字のバイトにする字（CP932 の 〜 U+301C → ～ U+FF5E、£ → ￡ など）。表から決める（字の一覧は持たない）。"""
+    from .namecode import CHARSETS
+
+    out = set()
+    for enc in {*CHARSETS.values(), "cp1252"}:
+        try:
+            d = ch.encode(enc).decode(enc)
+        except (UnicodeError, LookupError):
+            continue
+        if d != ch:
+            out.add(d)
+    return frozenset(out)
+
+
+def drawn_as(data: bytes, s: str) -> str | None:
+    """控えの絵 data の中の、字 s が描かれた所の字（空白は見ない）。描かれていなければ None。
+    EMF の字は Unicode なので、s そのもの。WMF の字は 8 ビットの文字コードなので、s の字か、その文字コードで読み直した近い字の並び。"""
+    shown = "".join(picture_texts(data)).replace(" ", "")
+    s = s.replace(" ", "")
+    if s in shown:
+        return s
+    if emf_header(data) is not None:
+        return None
+    n = len(s)
+    for i in range(len(shown) - n + 1):
+        if all(d == c or d in _near(c) for c, d in zip(s, shown[i:i + n])):
+            return shown[i:i + n]
+    return None
+
+
+def near_drawn(data: bytes, value: str) -> list[tuple[str, str]]:
+    """控えの絵 data の中で、値 value の字が、近い別の字として描かれた組（頼まれた字, 絵の中の字）。同じ字で描かれていれば空。"""
+    s = value.replace("\r\n", "").replace("\n", "").replace(" ", "")
+    got = drawn_as(data, s) or drawn_as(data, s[:20])
+    if got is None:
+        return []
+    return list(dict.fromkeys((c, d) for c, d in zip(s, got) if c != d))
 
 
 def check_picture(data: bytes) -> list[str]:
