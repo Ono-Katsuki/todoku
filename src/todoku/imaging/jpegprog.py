@@ -13,7 +13,7 @@ from array import array
 from ..limits import MAX_PIXELS, LimitExceeded
 
 
-def decode(data: bytes, max_pixels: int, want_rgb: bool, window: tuple | None = None):
+def decode(data: bytes, max_pixels: int, want_rgb: bool, window: tuple | None = None, samples: bool = False, transform: int | None = None):
     from ..pdf.raster import RasterError, _Huff, _idct_matrix, _jpeg_rgb, _put_block, _segments, _ZZ, jpeg_blocks, jpeg_window
 
     pos = 2
@@ -140,7 +140,7 @@ def decode(data: bytes, max_pixels: int, want_rgb: bool, window: tuple | None = 
         raise RasterError("JPEG：画像のデータがありません")
     ww, hh, comps = frame
     if lossless:
-        return _lossless_out(frame, coefs, precision, al, adobe, hmax, vmax, want_rgb, window)
+        return _lossless_out(frame, coefs, precision, al, adobe, hmax, vmax, want_rgb, window, samples, transform)
     center = 1 << (precision - 1)
     shift = precision - 8
     mat = _idct_matrix(n_scale)
@@ -176,7 +176,7 @@ def decode(data: bytes, max_pixels: int, want_rgb: bool, window: tuple | None = 
     W, H = ww * n_scale // 8 or 1, hh * n_scale // 8 or 1
     from ..pdf.raster import Gray
 
-    rgb = _jpeg_rgb(planes, hmax, vmax, W, H, adobe, win, n_scale)
+    rgb = _jpeg_rgb(planes, hmax, vmax, W, H, adobe, win, n_scale, samples and want_rgb, transform)
     if want_rgb:
         return rgb
     g = rgb.px[0::3] if len(comps) == 1 else bytes((r * 299 + gg * 587 + b * 114) // 1000 for r, gg, b in zip(rgb.px[0::3], rgb.px[1::3], rgb.px[2::3]))
@@ -199,7 +199,8 @@ def _put_block_hi(coef, mat, n, plane, stride, ox, oy, center: int, shift: int) 
         plane[o:o + n] = row
 
 
-def _lossless_out(frame, planes_in, precision: int, pt: int, adobe, hmax: int, vmax: int, want_rgb: bool, window):
+def _lossless_out(frame, planes_in, precision: int, pt: int, adobe, hmax: int, vmax: int, want_rgb: bool, window,
+                  samples: bool = False, transform: int | None = None):
     """可逆の面 → 8 ビットの面 → RGB。8 ビットより細かい値は上の桁、少ないビットは広げる（画面に見せるため）。"""
     from ..pdf.raster import Gray, _jpeg_rgb, jpeg_window
 
@@ -216,7 +217,7 @@ def _lossless_out(frame, planes_in, precision: int, pt: int, adobe, hmax: int, v
             bytes8 = bytes([min(255, ((v << pt) * 255 + top // 2) // top) for v in arr])
         planes.append((c, bytearray(bytes8), w))
     win = jpeg_window(window, ww, hh, hmax, vmax) if window is not None and want_rgb else None
-    rgb = _jpeg_rgb(planes, hmax, vmax, ww, hh, adobe, win, 8)
+    rgb = _jpeg_rgb(planes, hmax, vmax, ww, hh, adobe, win, 8, samples and want_rgb, transform)
     if want_rgb:
         return rgb
     g = rgb.px[0::3] if len(comps) == 1 else bytes((r * 299 + gg * 587 + b * 114) // 1000 for r, gg, b in zip(rgb.px[0::3], rgb.px[1::3], rgb.px[2::3]))

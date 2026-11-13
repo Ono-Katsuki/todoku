@@ -337,7 +337,8 @@ class Glyphs:
                         names.setdefault(c, "")
         for c, n in diffs.items():
             names[c] = n
-        self._uni_of = {c: (glyph_to_unicode(n) if n else (uni_table[c] if uni_table and uni_table[c] else "")) for c, n in names.items()}
+        zapf = bool(getattr(getattr(self, "pf", None), "zapf", False))
+        self._uni_of = {c: (glyph_to_unicode(n, zapf) if n else (uni_table[c] if uni_table and uni_table[c] else "")) for c, n in names.items()}
         return names
 
     def _rev_names(self, outl) -> dict[str, str]:
@@ -350,8 +351,9 @@ class Glyphs:
             pool = list(outl.names)
         pool += [n for n in MAC_GLYPHS if n]
         rev: dict[str, str] = {}
+        zapf = bool(getattr(getattr(self, "pf", None), "zapf", False))
         for n in pool:
-            u = glyph_to_unicode(n)
+            u = glyph_to_unicode(n, zapf)
             if u and u not in rev:
                 rev[u] = n
         return rev
@@ -445,13 +447,14 @@ class Glyphs:
         from ..fonts import glyph_to_unicode
 
         cm = o.cmaps
+        zapf = bool(getattr(getattr(self, "pf", None), "zapf", False))
         flags = int(self.doc.resolve(self.desc.get("Flags")) or 0) if isinstance(getattr(self, "desc", None), dict) else 0
         symbolic = bool(flags & 4)
         enc = self.doc.resolve(self.fd.get("Encoding"))
         nm = self.names.get(c) if (enc is not None or not symbolic) else None
         m31 = cm.get((3, 1)) or cm.get((0, 3)) or cm.get((0, 4)) or cm.get((3, 10))
         if m31 and nm and not symbolic:
-            u = glyph_to_unicode(nm) or self._uni_of.get(c, "")
+            u = glyph_to_unicode(nm, zapf) or self._uni_of.get(c, "")
             if u and ord(u[0]) in m31:
                 return m31[ord(u[0])]
         m30 = cm.get((3, 0))
@@ -463,7 +466,7 @@ class Glyphs:
         if m10 and c in m10:
             return m10[c]
         if m31:
-            u = text if text and text != _UNKNOWN else (glyph_to_unicode(nm) if nm else "")
+            u = text if text and text != _UNKNOWN else (glyph_to_unicode(nm, zapf) if nm else "")
             if u and ord(u[0]) in m31:
                 return m31[ord(u[0])]
             if c in m31:

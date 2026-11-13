@@ -21,6 +21,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from ..limits import budget
+from ..symfont import codes as _symbol_codes
 from .objects import Name, PdfString, Ref, Stream
 from .ranges import RangeMap
 
@@ -88,6 +89,11 @@ for _i, _ch in enumerate("αβχδεφγηιϕκλμνοπθρστυϖωξψζ")
 ZAPF: dict[int, str] = {0x20: " ", 0x33: "✓", 0x34: "✔", 0x35: "✕", 0x36: "✖", 0x37: "✗", 0x38: "✘", 0x48: "★",
                         0x6C: "●", 0x6E: "■", 0x6F: "❏", 0x70: "❐", 0x71: "❑", 0x72: "❒", 0x73: "▲", 0x74: "▼",
                         0x75: "◆"}
+# 上の表にない符号は、symfont.py の対応表（Adobe の表の全体：Symbol 189 字・ZapfDingbats 202 字）から足す
+for _c, _ch in _symbol_codes("symbol").items():
+    SYMBOL.setdefault(_c, _ch)
+for _c, _ch in _symbol_codes("zapfdingbats").items():
+    ZAPF.setdefault(_c, _ch)
 
 # グリフ名 → 文字（よく使う名前。アクセント付きの文字は下の規則で作る）
 _NAMES = {
@@ -113,7 +119,7 @@ _NAMES = {
     "nine": "9", "dcroat": "đ", "Dcroat": "Đ", "lozenge": "◊", "notequal": "≠", "infinity": "∞", "lessequal": "≤",
     "greaterequal": "≥", "partialdiff": "∂", "summation": "∑", "product": "∏", "integral": "∫", "radical": "√",
     "approxequal": "≈", "Delta": "∆", "Omega": "Ω", "pi": "π", "arrowleft": "←", "arrowright": "→", "arrowup": "↑",
-    "arrowdown": "↓", "check": "✓", "checkmark": "✓", "a20": "✔", "a19": "✓", "a71": "●", "a73": "■", "H22073": "□",
+    "arrowdown": "↓", "check": "✓", "checkmark": "✓", "H22073": "□",
     "H18533": "●", "H18543": "▪", "H18551": "▫", "filledbox": "■", "whitesquare": "□", "circle": "○", "blackcircle": "●",
     "lamda": "λ", "Lamda": "Λ", "franc": "₣", "Idotaccent": "İ", "kgreenlandic": "ĸ", "napostrophe": "ŉ", "longs": "ſ",
 }
@@ -123,17 +129,49 @@ _ACCENTS = {"acute": "ACUTE", "grave": "GRAVE", "circumflex": "CIRCUMFLEX", "die
             "slash": "STROKE"}
 
 
+@lru_cache(maxsize=1)
+def _glyph_lists() -> tuple[dict[str, str], dict[str, str]]:
+    """Adobe Glyph List（字形の名前 → 字）と、ITC Zapf Dingbats の字形の名前の一覧（data/glyphlist.txt.gz・data/zapfdingbats.txt.gz：
+    Adobe の配るファイルのまま）。私用の領域の字だけの名前（小さな大文字・字の部品など、Unicode に字のない名前）は入れない。"""
+    out: list[dict[str, str]] = []
+    for n in ("glyphlist", "zapfdingbats"):
+        d: dict[str, str] = {}
+        try:
+            text = gzip.decompress((Path(__file__).parent / "data" / f"{n}.txt.gz").read_bytes()).decode("ascii")
+        except OSError:
+            text = ""
+        for ln in text.split("\n"):
+            name, _, hexes = ln.strip().partition(";")
+            if not hexes or name.startswith("#"):
+                continue
+            s = "".join(chr(int(h, 16)) for h in hexes.split())
+            if s and not all(0xE000 <= ord(ch) <= 0xF8FF for ch in s):
+                d[name] = s
+        out.append(d)
+    return out[0], out[1]
+
+
 @lru_cache(maxsize=4096)
-def glyph_to_unicode(name: str) -> str:
-    """グリフ名から文字を決める（Adobe Glyph List の規則：uniXXXX、uXXXX、合字の _、.以降の飾りの名前）。"""
+def glyph_to_unicode(name: str, zapf: bool = False) -> str:
+    """グリフ名から文字を決める（Adobe Glyph List の決まり：. 以降の飾りの名前を除き、合字の _ で分け、一覧・uniXXXX・uXXXX で読む）。
+
+    zapf：ZapfDingbats の書体の字形の名前（a1〜a206）を、その書体の一覧で読む（ほかの書体の a20 は、ただの番号の名前のことがある）。
+    上の表（_NAMES）は、一覧より先に見る。一覧にない名前は、下の規則で作る。"""
     if not name:
         return ""
     base = name.split(".")[0]
+    if zapf:
+        z = _glyph_lists()[1].get(base)
+        if z:
+            return z
     if "_" in base and base not in _NAMES:
-        parts = [glyph_to_unicode(p) for p in base.split("_")]
+        parts = [glyph_to_unicode(p, zapf) for p in base.split("_")]
         return "".join(parts) if all(parts) else ""
     if base in _NAMES:
         return _NAMES[base]
+    listed = _glyph_lists()[0].get(base)
+    if listed:
+        return listed
     m = re.fullmatch(r"uni((?:[0-9A-F]{4})+)", base)
     if m:
         s = m[1]
@@ -155,13 +193,10 @@ def glyph_to_unicode(name: str) -> str:
                 return unicodedata.lookup(f"LATIN {case} LETTER {letter.upper()} WITH {acc}")
             except KeyError:
                 pass
-    for case, word in (("SMALL", base), ("CAPITAL", base)):
-        if case == "CAPITAL" and not base[:1].isupper():
-            continue
-        try:
-            return unicodedata.lookup(f"GREEK {case} LETTER {word.upper()}")
-        except KeyError:
-            pass
+    try:  # ギリシャ文字の名前：頭が大文字なら大文字
+        return unicodedata.lookup(f"GREEK {'CAPITAL' if base[:1].isupper() else 'SMALL'} LETTER {base.upper()}")
+    except KeyError:
+        pass
     try:
         return unicodedata.lookup(base.replace("-", " "))
     except KeyError:
@@ -636,6 +671,7 @@ class PdfFont:
         self.key = key
         self.subtype = getattr(fd.get("Subtype"), "name", "")
         self.base = getattr(fd.get("BaseFont"), "name", "") or ""
+        self.zapf = "Dingbats" in self.base.split("+")[-1]  # 字形の名前を、ZapfDingbats の一覧で読む書体
         self.composite = self.subtype == "Type0"
         self.vertical = False
         self.unmapped = 0
@@ -722,11 +758,11 @@ class PdfFont:
                     from . import sfnt
 
                     if data[:4] in (b"\x00\x01\x00\x00", b"true", b"OTTO", b"ttcf"):
-                        self.gid_uni = sfnt.unicode_by_glyph(data)
+                        self.gid_uni = sfnt.unicode_by_glyph(data, self.zapf)
                     else:
                         names, _enc, is_cid = sfnt.cff_glyph_info(data)
                         if not is_cid:
-                            self.gid_uni = {g: glyph_to_unicode(n) for g, n in names.items() if glyph_to_unicode(n)}
+                            self.gid_uni = {g: glyph_to_unicode(n, self.zapf) for g, n in names.items() if glyph_to_unicode(n, self.zapf)}
                 except Exception:  # noqa: BLE001
                     self.gid_uni = {}
         return self.gid_uni
@@ -900,14 +936,17 @@ class PdfFont:
             # 組み込みの符号：埋め込まれたフォントから読む
             builtin = self._builtin_encoding(desc)
             if builtin:
-                table = [glyph_to_unicode(builtin[i]) if i in builtin else None for i in range(256)]
+                table = [glyph_to_unicode(builtin[i], self.zapf) if i in builtin else None for i in range(256)]
             elif symbolic and self.subtype == "TrueType":
                 table = [None] * 256
+            elif "Symbol" in bname and base_name is None:
+                # 埋め込みのない Symbol に Differences：土台は、書体の組み込みの符号（Differences にない符号を、ラテン文字として読まない）
+                table = [SYMBOL.get(i) for i in range(256)]
             else:
                 table = [glyph_to_unicode(n) if n else None for n in STANDARD_ENCODING] if self.subtype == "Type1" else list(WINANSI)
         for c, n in diffs.items():
             if 0 <= c < 256:
-                table[c] = glyph_to_unicode(n) or None
+                table[c] = glyph_to_unicode(n, self.zapf) or None
         self.table = table
         self.has_diffs = bool(diffs)
         self.symbolic_tt = symbolic and self.subtype == "TrueType"
@@ -943,7 +982,7 @@ class PdfFont:
 
                 try:
                     data = self.doc.decode(ff)
-                    self.gid_uni = sfnt.unicode_by_glyph(data)
+                    self.gid_uni = sfnt.unicode_by_glyph(data, self.zapf)
                     self._sym = sfnt.symbol_cmap(data)
                 except Exception:  # noqa: BLE001
                     pass

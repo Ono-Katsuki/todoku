@@ -130,6 +130,7 @@ class Renderer:
         self.drawing: set = set()
         self.masks: dict = {}  # 透けのマスクの控え（まとまり・種類・行列ごと）：同じ状態を何度も置くページで、描き直さない
         self.masking = 0  # 透けのマスクのまとまりを描いている深さ
+        self.space = 0  # 重ねる色空間（ページ・まとまりの Group の CS）の成分の数。0 は、決まっていない（描く先の RGB）
         self.stats = {"glyphs": 0, "glyphs_embedded": 0, "glyphs_system": 0, "glyphs_type3": 0, "glyphs_box": 0,
                       "images": 0, "paths": 0}
         self.subst: dict[str, str] = {}  # PDF の書体の名前 → 代わりに描いた書体
@@ -484,6 +485,9 @@ class Renderer:
                     self.note("重ね方（BM）")
                     gs.bm = gs.gbm
                 else:
+                    if self.space not in (0, 3):
+                        # 仕様は、ページ・まとまりの色空間（CMYK など）で重ねる（11.3.4）。この描画は、いつも RGB で重ねる。伝える
+                        self.note(SPACE_NOTE)
                     if gs.iso:
                         # 下と切り離さないまとまりを別に描いている：中の重ね方は、まとまりの中のものとだけ重ねる（下のものとは
                         # 重ねない）ので、近い形。伝える
@@ -935,6 +939,10 @@ class Renderer:
         sub_res = doc.resolve(xo.dict.get("Resources")) or res
         self.drawing.add(key)
         under, veil = self.cv, self.veil
+        space = self.space
+        if isinstance(grp, dict) and doc.resolve(grp.get("I")) is True:
+            # 下と切り離すまとまりだけが、自分の色空間で重ねる（切り離さないまとまりは、親の色空間：11.6.6）
+            self.space = _group_space(doc, grp, sub_res) or space
         rect = g2.clip.rect  # 中身を描く前の切り抜き（中身の q・W は、g2 そのものを書き換える）
         if apart:
             self.cv = Canvas(under.w, under.h, cover=True) if apart == "alone" else under.copy()
@@ -958,6 +966,7 @@ class Renderer:
             self.problems.append(f"フォームの部品を描けません（{type(e).__name__}）")
         finally:
             self.drawing.discard(key)
+            self.space = space
             if apart:
                 part, self.cv, self.veil = self.cv, under, veil
                 self.apart -= 1
@@ -1469,6 +1478,19 @@ def _wants_cover(doc, page: dict, res: dict) -> bool:
         return True
 
 
+SPACE_NOTE = "RGB でない色空間で重ねる所の重ね方（RGB で重ねた）"
+
+
+def _group_space(doc, grp, res: dict) -> int:
+    """透けて描くまとまり（ページの Group も）の色空間の成分の数。色空間がない・読めないときは 0。"""
+    if not isinstance(grp, dict) or grp.get("CS") is None:
+        return 0
+    try:
+        return int(colorspace(doc, grp.get("CS"), res).n)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def render_page(doc, page: dict, W: int, H: int, base, time_limit: float = 60.0, probe_of=None, layer_of=None) -> tuple[Canvas, Renderer]:
     """ページを W × H の画素に描く。base：ページの座標 → 画素の行列（回転・切り取り・拡大を含む）。"""
     res = doc.resolve(page.get("Resources")) or {}
@@ -1480,6 +1502,7 @@ def render_page(doc, page: dict, W: int, H: int, base, time_limit: float = 60.0,
         black.buf = bytearray(W * H * 3)
         r.layer_of, r.layer_cvs = layer_of, (Canvas(W, H), black)
     gs = GS(base, Clip(0, 0, W, H))
+    r.space = _group_space(doc, doc.resolve(page.get("Group")), res)
     try:
         r.run(doc.page_content(page), res, gs, 0)
     except _Stop:

@@ -341,7 +341,8 @@ def jpeg_blocks(win: tuple, c: dict, hmax: int, vmax: int) -> tuple:
             (win[2] * c["h"] + 8 * hmax - 1) // (8 * hmax) + 1, (win[3] * c["v"] + 8 * vmax - 1) // (8 * vmax) + 1)
 
 
-def jpeg_gray(data: bytes, max_pixels: int = 4_000_000, want_rgb: bool = False, window: tuple | None = None):
+def jpeg_gray(data: bytes, max_pixels: int = 4_000_000, want_rgb: bool = False, window: tuple | None = None,
+              samples: bool = False, transform: int | None = None):
     """JPEG の輝度（1成分のときはその成分）を濃さにする。大きな画像は 1/2・1/4・1/8 に縮めて開く。
     want_rgb：色のまま開く（RGB を返す。YCbCr・RGB・CMYK・YCCK を T.81・Adobe の印どおりに RGB にする）。
     window：want_rgb のとき、要る範囲（元の画素）。ハフマンの符号は順にしか読めないが、範囲の下で読むのをやめ、逆 DCT と色の変換は範囲だけ行う（RGB.window に開いた範囲）。"""
@@ -390,7 +391,7 @@ def jpeg_gray(data: bytes, max_pixels: int = 4_000_000, want_rgb: bool = False, 
             if p != 8:
                 from ..imaging.jpegprog import decode as multi_scan
 
-                return multi_scan(data, max_pixels, want_rgb, window)  # 12 ビット（T.81 附属書 F）
+                return multi_scan(data, max_pixels, want_rgb, window, samples, transform)  # 12 ビット（T.81 附属書 F）
             comps = []
             for j in range(nf):
                 cid, hv, tq = seg[6 + 3 * j], seg[7 + 3 * j], seg[8 + 3 * j]
@@ -399,7 +400,7 @@ def jpeg_gray(data: bytes, max_pixels: int = 4_000_000, want_rgb: bool = False, 
         elif m in (0xC2, 0xC3, 0xC9, 0xCA):
             from ..imaging.jpegprog import decode as multi_scan
 
-            return multi_scan(data, max_pixels, want_rgb, window)  # プログレッシブ（附属書 G）・可逆（附属書 H）・算術符号（附属書 D）
+            return multi_scan(data, max_pixels, want_rgb, window, samples, transform)  # プログレッシブ（附属書 G）・可逆（附属書 H）・算術符号（附属書 D）
         elif 0xC2 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):
             raise RasterError(f"JPEG：この符号化（SOF{m - 0xC0}）は開けません（ベースライン・拡張の順次・プログレッシブ・可逆・算術符号だけ）")
         elif m == 0xDD:
@@ -409,12 +410,12 @@ def jpeg_gray(data: bytes, max_pixels: int = 4_000_000, want_rgb: bool = False, 
         elif m == 0xDA:
             if frame is None:
                 raise RasterError("JPEG：フレームの前に走査があります")
-            return _scan(data, pos + ln, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb, window)
+            return _scan(data, pos + ln, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb, window, samples, transform)
         pos += ln
     raise RasterError("JPEG：画像のデータがありません")
 
 
-def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb=False, window=None):
+def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb=False, window=None, samples=False, transform=None):
     ww, hh, comps = frame
     ns = seg[0]
     sc = []
@@ -425,7 +426,7 @@ def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb
     if ns != len(comps):
         from ..imaging.jpegprog import decode as multi_scan
 
-        return multi_scan(data, max_pixels, want_rgb, window)  # 成分を分けた走査（順次）
+        return multi_scan(data, max_pixels, want_rgb, window, samples, transform)  # 成分を分けた走査（順次）
     hmax = max(c["h"] for c in comps)
     vmax = max(c["v"] for c in comps)
     # 濃さに使う成分：1成分ならそれ、YCbCr（3成分・Adobe の変換 1 か、印がない）なら Y。RGB・CMYK は全部の成分から
@@ -517,7 +518,7 @@ def _scan(data, start, seg, frame, qt, hts, restart, adobe, max_pixels, want_rgb
     # 濃さにする（Y は成分の大きさをフレームの大きさに合わせる）
     W, H = ww * n // 8 or 1, hh * n // 8 or 1
     if want_rgb:
-        return _jpeg_rgb(planes, hmax, vmax, W, H, adobe, win, n)
+        return _jpeg_rgb(planes, hmax, vmax, W, H, adobe, win, n, samples, transform)
     if use_y:
         c, plane, stride = planes[0]
         fx, fy = hmax // c["h"], vmax // c["v"]
@@ -548,6 +549,7 @@ class RGB:
     px: bytes  # w*h*3 バイト（R G B）
     window: tuple | None = None  # 開いた範囲（元の画素の [左, 上, 右, 下)）。None は全体
     notes: list = field(default_factory=list)
+    cmyk: bytes | None = None  # 4 成分の標本（w*h*4 バイト。C M Y K を、JPEG の復号が出すままに）。あるとき px は空
 
 
 def _smooth_plane(plane, stride: int, fx: int, fy: int, W: int, H: int, x0: int, y0: int, x1: int, y1: int) -> bytes:
@@ -593,9 +595,12 @@ def _smooth_plane(plane, stride: int, fx: int, fy: int, W: int, H: int, x0: int,
     return b"".join(out)
 
 
-def _jpeg_rgb(planes, hmax, vmax, W, H, adobe, win=None, n: int = 8) -> RGB:
+def _jpeg_rgb(planes, hmax, vmax, W, H, adobe, win=None, n: int = 8, samples: bool = False, transform: int | None = None) -> RGB:
     """JPEG の成分 → RGB（T.81 には色の決まりがないので、JFIF の YCbCr と Adobe の APP14 の変換の印に従う。印がなく成分の番号が
-    R・G・B なら RGB）。win：範囲（元の画素。n は 8 分のいくつに縮めたか）。"""
+    R・G・B なら RGB）。win：範囲（元の画素。n は 8 分のいくつに縮めたか）。
+    samples：PDF の DCTDecode（ISO 32000-1 7.4.8）。4 成分は、色にせずに、フィルターの出す標本（YCCK は CMYK に戻した値）を
+    RGB.cmyk で返す：どの値が墨かは、JPEG の印でなく、画像の Decode と色空間が決める（JPEG のファイルは、Adobe の印があれば
+    反転して保存されたものとして色にする）。transform：DecodeParms の ColorTransform（Adobe の印がないときだけ使う）。"""
     FW, FH = W, H
     x0, y0, x1, y1 = 0, 0, W, H
     if win:
@@ -623,6 +628,8 @@ def _jpeg_rgb(planes, hmax, vmax, W, H, adobe, win=None, n: int = 8) -> RGB:
         return RGB(W, H, bytes(out), done)
     rgb_ids = adobe is None and nc == 3 and [p[0]["id"] for p in planes] == [82, 71, 66]
     ycc = (nc == 3 and adobe != 0 and not rgb_ids) or (nc == 4 and adobe == 2)
+    if adobe is None and transform is not None and nc in (3, 4):
+        ycc = transform != 0
     out = bytearray(W * H * 3)
     if ycc:
         rcr = [int(1.402 * (v - 128)) for v in range(256)]
@@ -648,6 +655,10 @@ def _jpeg_rgb(planes, hmax, vmax, W, H, adobe, win=None, n: int = 8) -> RGB:
             return RGB(W, H, bytes(out), done)
         comps = full[:4]
         inv = adobe is not None
+    if samples and len(comps) == 4:
+        buf = bytearray(W * H * 4)
+        buf[0::4], buf[1::4], buf[2::4], buf[3::4] = comps
+        return RGB(W, H, b"", done, cmyk=bytes(buf))
     # CMYK → RGB（Adobe の CMYK は、反転して保存される）
     if inv:
         cc, mm, yy, kk = (bytes(255 - v for v in p) for p in comps)

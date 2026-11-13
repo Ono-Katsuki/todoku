@@ -135,8 +135,8 @@ def _inverse_value(v: tuple[int, int], g: int) -> int:
     return v[0] + g - v[1]
 
 
-def unicode_by_glyph(data: bytes) -> dict[int, str]:
-    """グリフ番号 → 文字。Unicode の cmap を逆に引き、なければ post のグリフ名から決める。"""
+def unicode_by_glyph(data: bytes, zapf: bool = False) -> dict[int, str]:
+    """グリフ番号 → 文字。Unicode の cmap を逆に引き、なければ post のグリフ名から決める（zapf：ZapfDingbats の名前の一覧で読む）。"""
     from .fonts import glyph_to_unicode
 
     out: dict[int, str] = {}
@@ -149,7 +149,7 @@ def unicode_by_glyph(data: bytes) -> dict[int, str]:
             out.setdefault(g, chr(code))
     for g, name in post_names(data).items():
         if g not in out:
-            u = glyph_to_unicode(name)
+            u = glyph_to_unicode(name, zapf)
             if u:
                 out[g] = u
     # cmap にない字形（縦書き用の形・合字・色の重ね）：置き換え（GSUB）と色の重ね（COLR）から、もとの字に結びつける

@@ -275,9 +275,17 @@ def decode(blob: bytes, index: int, target_pixels: int | None = None, deadline: 
 
             stream = _jpeg_stream(blob, t, raw, comp, photo)
             try:
-                im = jpeg_gray(stream, 100_000_000, want_rgb=True)
+                # 色の型が CMYK の区画：JPEG の標本は、TIFF の CMYK のまま（0 は墨なし）。Adobe の印があっても反転しない
+                # （反転は JPEG のファイルの決まり。TIFF では、色の型のタグが決める：libtiff と同じ）
+                im = jpeg_gray(stream, 100_000_000, want_rgb=True, samples=photo == 5)
             except RasterError as ex:
                 raise ImageError(f"TIFF：JPEG の区画を開けません（{ex}）") from None
+            if im.cmyk is not None:
+                ink = im.cmyk[3::4]
+                px = bytearray(im.w * im.h * 3)
+                for k in range(3):
+                    px[k::3] = bytes((255 - a) * (255 - b) // 255 for a, b in zip(im.cmyk[k::4], ink))
+                im.px = bytes(px)
             if jpeg_rgb is None:
                 jpeg_rgb = bytearray(b"\xff" * (w * h * 3))
             n = min(im.w, w - tx) * 3

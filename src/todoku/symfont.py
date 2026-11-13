@@ -6,7 +6,9 @@
 対応表のもと：
 - Symbol・Zapf Dingbats：Unicode コンソーシアムの配る Adobe の対応表（MAPPINGS/VENDORS/ADOBE/symbol.txt・zdingbat.txt）。
   1 つの番号に 2 つの字がある所は文字の方（0x6D は μ U+03BC）、Adobe の私用の字（かっこの部品・商標の字）は、後から Unicode に
-  入った字（U+239B〜U+23AF・®©™）、0xA0 は Microsoft の Symbol の「€」。山かっこ（0xE1・0xF1）は、正規化で変わらない U+3008・U+3009
+  入った字（U+239B〜U+23AF・®©™）、0xA0 は Microsoft の Symbol の「€」。山かっこ（0xE1・0xF1）は、正規化で変わらない U+3008・U+3009。
+  Zapf Dingbats の 0x80〜0x8D（飾りのかっこ 14 個）は、書体の組み込みの符号（a89・a90・a93・a94・a91・a92・a205・a85・a206・a86・a87・
+  a88・a95・a96）を、Adobe の ITC Zapf Dingbats Glyph List で読んだ字（U+2768〜U+2775）
 - Wingdings・Wingdings 2・Wingdings 3・Webdings：ISO/IEC JTC1/SC2/WG2 N4384（これらの書体の字を Unicode 7.0 に入れた提案の対応表）。
   N4384 の表から読めなかった 5 つの番号は、別々に作られた 2 つの公開の表（Wikipedia・dingbat-to-unicode）が同じ字のものだけ
 
@@ -111,7 +113,7 @@ _ZAPF_DINGBATS = """
 2730 2731 2732 2733 2734 2735 2736 2737 2738 2739 273A 273B 273C 273D 273E 273F
 2740 2741 2742 2743 2744 2745 2746 2747 2748 2749 274A 274B 25CF 274D 25A0 274F
 2750 2751 2752 25B2 25BC 25C6 2756 25D7 2758 2759 275A 275B 275C 275D 275E -
-- - - - - - - - - - - - - - - -
+2768 2769 276A 276B 276C 276D 276E 276F 2770 2771 2772 2773 2774 2775 - -
 - - - - - - - - - - - - - - - -
 - 2761 2762 2763 2764 2765 2766 2767 2663 2666 2665 2660 2460 2461 2462 2463
 2464 2465 2466 2467 2468 2469 2776 2777 2778 2779 277A 277B 277C 277D 277E 277F
@@ -160,6 +162,12 @@ def _table(font: str | None, symbols=()):
         assert len(cells) == 0xE0
         t = _TABLES[id(raw)] = (raw, tuple(None if c == "-" else chr(int(c, 16)) for c in cells))
     return t
+
+
+def codes(font: str | None) -> dict[int, str]:
+    """対応表のある記号の書体の、番号（0x20〜0xFF）→ 字。表のない書体は空。"""
+    t = _table(font)
+    return {0x20 + i: c for i, c in enumerate(t[1]) if c} if t else {}
 
 
 def known(font: str | None) -> bool:

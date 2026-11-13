@@ -16,7 +16,7 @@ from ...limits import budget
 from ..objects import Name, Stream
 from ..raster import _CS_ABBR, _FILTER_ABBR, _KEY_ABBR, RasterError, _thin_step, image_gray, jpeg_gray
 from .canvas import Canvas, Clip, intersect, inv
-from .colors import GRAY, colorspace
+from .colors import DCMYK, GRAY, colorspace
 
 
 @dataclass
@@ -53,6 +53,24 @@ def _inv_table() -> bytes:
     return bytes(255 - i for i in range(256))
 
 
+def _color_transform(doc, d: dict, names: list) -> int | None:
+    """DCTDecode の DecodeParms の ColorTransform（なければ None：既定は、3 成分が 1、4 成分が 0）。"""
+    parms = doc.resolve(d.get("DecodeParms"))
+    if isinstance(parms, list):
+        i = names.index("DCTDecode")
+        parms = doc.resolve(parms[i]) if i < len(parms) else None
+    v = doc.resolve(parms.get("ColorTransform")) if isinstance(parms, dict) else None
+    return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _decode_changes(dec, cs) -> bool:
+    """Decode が、色空間の既定の範囲と違う。"""
+    if not dec or len(dec) < 2 * cs.n:
+        return False
+    rng = cs.ranges()
+    return any(abs(dec[2 * k] - rng[k][0]) > 1e-9 or abs(dec[2 * k + 1] - rng[k][1]) > 1e-9 for k in range(cs.n))
+
+
 def _shrink(g, screen_pixels: int | None):
     """画面より十分大きな白黒の画像（JBIG2・CCITT の 600 dpi のスキャンなど）は、色の面に広げる前に箱の平均で縮める（メモリ）。"""
     if not screen_pixels or g.w * g.h <= 4 * screen_pixels:
@@ -85,9 +103,16 @@ def image_rgba(doc, image, max_pixels: int = 16_000_000, res: dict | None = None
         data = doc.decode(image) if isinstance(image, Stream) else doc.decode(Stream({"Filter": d["Filter"]}, inline), decrypt=False)
         dw, dh = w, h
         im = jpeg_gray(data, min(max_pixels, dct_pixels or max_pixels), want_rgb=True,
-                       window=(int(view[0] * dw), int(view[1] * dh), math.ceil(view[2] * dw), math.ceil(view[3] * dh)) if view else None)
+                       window=(int(view[0] * dw), int(view[1] * dh), math.ceil(view[2] * dw), math.ceil(view[3] * dh)) if view else None,
+                       samples=True, transform=_color_transform(doc, d, names))
         px = im.px
-        if dec and len(dec) >= 2 and dec[0] > dec[1]:
+        if im.cmyk is not None:
+            # 4 成分の JPEG：フィルターの出す標本を、ほかの画像と同じに、Decode と画像の色空間で色にする（JPEG の印では反転しない）
+            px = _raw_rgb(im.cmyk, {}, im.w, im.h, cs if cs.n == 4 else DCMYK, dec, im.w * im.h).px
+        elif cs.n == 3 and (cs.kind != "DeviceRGB" or _decode_changes(dec, cs)):
+            # 3 成分の JPEG で、色空間が RGB でない（Lab など）か、Decode が既定でない：標本として色にする
+            px = _raw_rgb(px, {}, im.w, im.h, cs, dec, im.w * im.h).px
+        elif cs.n != 3 and dec and len(dec) >= 2 and dec[0] > dec[1]:
             px = px.translate(_inv_table())
         if cs.n == 1 and cs.kind not in ("DeviceGray",):
             # 1 成分の色空間（Separation・Indexed など）の、濃さの JPEG

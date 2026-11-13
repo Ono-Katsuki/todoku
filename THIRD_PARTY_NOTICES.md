@@ -5,6 +5,7 @@
 | データ | 置き場 | 元 | ライセンス |
 |---|---|---|---|
 | CID から Unicode への対応表 | `src/todoku/pdf/data/cid2unicode.json.gz` | Adobe mapping-resources-pdf | BSD 3-Clause（`src/todoku/pdf/data/LICENSE-adobe-mapping-resources.txt`） |
+| 字形の名前から Unicode への対応表（Adobe Glyph List 2.0・ITC Zapf Dingbats Glyph List 2.0） | `src/todoku/pdf/data/glyphlist.txt.gz`, `src/todoku/pdf/data/zapfdingbats.txt.gz` | adobe-type-tools/agl-aglfn（`https://github.com/adobe-type-tools/agl-aglfn` の 4036a9ca80a6。2026-11-13 に取得）の `glyphlist.txt`・`zapfdingbats.txt` を、中身を変えずに gzip にしたもの（元のファイルの sha256：`a3b2f61ced9f3644cc0d4ecde5c59df34ca286c689d9484a43a710a81c466789`・`f6394e3cb8a447e84a1dad75d4baaf2aa7f45dc104faf369f4720e1a774ef2dc`）。Copyright 2002-2019 Adobe | BSD 3-Clause（`src/todoku/pdf/data/LICENSE-adobe-agl.txt`） |
 | Unicode から CID への対応表 | `src/todoku/pdf/data/uni2cid.json.gz` | adobe-type-tools/cmap-resources。Copyright 1990-2023 Adobe | BSD 3-Clause（`src/todoku/pdf/data/LICENSE-adobe-cmap-resources.txt`） |
 | 字の組み立ての表 | `src/todoku/pdf/data/shaping.json.gz` | Unicode Character Database | Unicode License（`src/todoku/pdf/data/LICENSE-unicode.txt`） |
 | 文字の性質の表（Scripts, BidiBrackets, PropList） | `src/todoku/chars.py` | Unicode Character Database | Unicode License（同上） |
