@@ -672,7 +672,7 @@ def _field(f: dict, **where) -> dict:
                 "row_label", "column_label", "column_label_partial", "label_clipped", "neighbours", "facts", "near",
                 "label_method", "section", "input_reason_codes", "spans", "blanks", "shape", "size", "size_from", "cell_ids",
                 "label_key", "referenced_by", "tooltip", "not_for_input", "expression", "text_type", "tracked_deleted",
-                "hidden_text"):
+                "hidden_text", "tracked_removed"):
         if f.get(key) not in (None, "", [], False):
             d[key] = f[key]
     if f.get("agent") and isinstance(f.get("evidence"), dict) and f["evidence"]:

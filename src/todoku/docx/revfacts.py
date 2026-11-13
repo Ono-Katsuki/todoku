@@ -44,13 +44,16 @@ def tracked_items(numbered) -> tuple[list[str], list[str], list[str]]:
         row = getattr(q, "row_rev", None)
         if row is not None:
             marks.append(f"段落 {n}：{_DONE[row[0]]}表の行")
+        cell = getattr(q, "cell_rev", None)
+        if cell is not None:
+            marks.append(f"段落 {n}：{_DONE[cell[0]]}セル")
         if break_mark(q):
             marks.append(f"段落 {n}：{_DONE[q.mark_rev[0]]}段落の区切り")
     return gone, new, marks
 
 
-_DONE = {"ins": "挿入された", "del": "削除された"}
-_STATE = {"ins": "まだ承諾も却下もされていない", "del": "いまの本文ではない"}
+_DONE = {"ins": "挿入された", "del": "削除された", "merge": "結合が変わった"}
+_STATE = {"ins": "まだ承諾も却下もされていない", "del": "いまの本文ではない", "merge": "まだ承諾も却下もされていない"}
 
 
 def row_mark(p) -> str:
@@ -60,6 +63,15 @@ def row_mark(p) -> str:
         return ""
     w = who(rev)
     return f"〔変更履歴で{_DONE[rev[0]]}表の行（{_STATE[rev[0]]}" + (f"。{w}" if w else "") + "）〕"
+
+
+def cell_mark(p) -> str:
+    """段落の前に置く印：この段落が頭にあるセルの、変更履歴での挿入・削除・結合の変更（w:tcPr の中の印）。"""
+    rev = getattr(p, "cell_rev", None)
+    if rev is None:
+        return ""
+    w = who(rev)
+    return f"〔変更履歴で{_DONE[rev[0]]}セル（{_STATE[rev[0]]}" + (f"。{w}" if w else "") + "）〕"
 
 
 def break_mark(p) -> str:

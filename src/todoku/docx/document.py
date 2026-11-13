@@ -60,6 +60,14 @@ def _mark_rev(pr) -> tuple | None:
     return None
 
 
+def _cell_rev(pr) -> tuple | None:
+    """セルの書式（w:tcPr）の中の変更履歴の印：セルの挿入（w:cellIns）・削除（w:cellDel）・結合の変更（w:cellMerge）。"""
+    for ch in pr.kids if pr is not None else ():
+        if ch.local in ("cellIns", "cellDel", "cellMerge"):
+            return ({"cellIns": "ins", "cellDel": "del", "cellMerge": "merge"}[ch.local], ch.get("author") or "", ch.get("date") or "")
+    return None
+
+
 def _tab_stops(ppr) -> list[tuple[str, str, str]]:
     """w:pPr の w:tabs：[(位置, 種類, リーダー)]。"""
     tabs = ppr.find("tabs") if ppr is not None else None
@@ -89,6 +97,8 @@ class Para:
     leaders: tuple = ()  # 段落のタブ位置のうち、線（リーダー）を引くものの、線の種類（タブのある段落だけ）
     mark_rev: tuple | None = None  # 段落の終わりの印（段落の区切り）の変更履歴：("ins"・"del", 変更した人, 日時)。docx/revfacts.py
     row_rev: tuple | None = None  # この段落が頭にある表の行の変更履歴（行の挿入・削除）：同じ形
+    cell_rev: tuple | None = None  # この段落が頭にあるセルの変更履歴（セルの挿入・削除・結合の変更 "merge"）：同じ形
+    removed_in: str = ""  # 変更履歴で削除された表の行（"row"）・セル（"cell"）の中の段落（入れ子の表の中も）：承諾すると、なくなる
 
     @property
     def text(self) -> str:
@@ -1009,13 +1019,24 @@ class DocxDocument:
                             shade = sh.get("fill", "") or ""
                     c = Cell(tc, len(t.rows), col, span, vm, table=t, shade=shade)
                     c.blocks = self._blocks(tc, part, c)
+                    crev = _cell_rev(pr)
+                    if crev is not None:  # セルの挿入・削除・結合の変更：セルの頭の段落に控える（窓では、その段落の前に示す）
+                        qs = c.paras()
+                        if qs:
+                            qs[0].cell_rev = crev
+                        if crev[0] == "del":
+                            for q in qs:
+                                q.removed_in = "cell"
                     row.append(c)
                     col += span
                 rev = _mark_rev(tr2.find("trPr"))
                 if rev is not None:  # 行の挿入・削除：行の頭の段落に控える（窓では、その段落の前に示す）
-                    first = next((q for c in row for q in c.paras()), None)
-                    if first is not None:
-                        first.row_rev = rev
+                    qs = [q for c in row for q in c.paras()]
+                    if qs:
+                        qs[0].row_rev = rev
+                    if rev[0] == "del":
+                        for q in qs:
+                            q.removed_in = "row"
                 t.rows.append(row)
         return t
 

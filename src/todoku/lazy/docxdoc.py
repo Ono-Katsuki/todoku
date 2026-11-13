@@ -34,7 +34,7 @@ _COMPLEX = frozenset(("txbxContent", "sdt", "customXml", "moveTo", "AlternateCon
 _FIELD_BLOCK = frozenset(("p", "tbl", "tr", "tc", "sdt", "sdtContent", "customXml", "ins", "moveTo"))
 _FIELD_INLINE = frozenset(("hyperlink", "smartTag", "fldSimple", "bdo", "dir", "del", "moveFrom", "r"))
 _STORY_KINDS = ("header", "footer", "footnotes", "endnotes", "comments")
-_REV = frozenset(("ins", "del", "moveTo", "moveFrom", "delText"))  # 変更履歴の要素（どこにあっても、そのまとまりを数える）
+_REV = frozenset(("ins", "del", "moveTo", "moveFrom", "delText", "cellIns", "cellDel", "cellMerge"))  # 変更履歴の要素（どこにあっても、そのまとまりを数える）
 _LOOK = frozenset(("color", "pStyle", "rStyle"))  # 字の色を決めうる要素（色の指定と、スタイルの名指し）
 
 

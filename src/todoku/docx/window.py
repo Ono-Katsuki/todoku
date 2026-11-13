@@ -1047,6 +1047,9 @@ def build(doc: DocxDocument) -> dict:
                 d["tracked_deleted"] = gone
             if hid:
                 d["hidden_text"] = hid
+        gone_in = getattr(it.get("para"), "removed_in", "")
+        if gone_in:  # 変更履歴で削除された表の行・セルの中の欄（事実）：変更を承諾すると、この欄はなくなる
+            d["tracked_removed"] = "変更履歴で削除された" + ("表の行" if gone_in == "row" else "セル") + "の中の欄（変更を承諾すると、この欄はなくなる）"
         if it["id"] in legacy_of:
             d["legacy_id"] = legacy_of[it["id"]]  # 古い数え順の名前（その段落にこの並びの所が 1 つだけなので、同じ所を指す）
         if c is not None and c.para is not None and c.para.cell is not None and c.para.cell.table is not None:
@@ -1375,10 +1378,10 @@ def _render_para(p: Para, sp: Spots, by_para) -> str:
         from .revfacts import deleted_mark
 
         t += deleted_mark(p)
-    if getattr(p, "mark_rev", None) is not None or getattr(p, "row_rev", None) is not None:
-        from .revfacts import break_mark, row_mark
+    if getattr(p, "mark_rev", None) is not None or getattr(p, "row_rev", None) is not None or getattr(p, "cell_rev", None) is not None:
+        from .revfacts import break_mark, cell_mark, row_mark
 
-        t = row_mark(p) + t + break_mark(p)  # 段落の区切り・表の行の、変更履歴での挿入・削除
+        t = row_mark(p) + cell_mark(p) + t + break_mark(p)  # 段落の区切り・表の行・セルの、変更履歴での挿入・削除（セルは結合の変更も）
     label = p.label
     bullet = next((it for it in items if is_bullet(it)), None)
     if bullet is not None and label:

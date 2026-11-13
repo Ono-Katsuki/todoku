@@ -183,3 +183,79 @@ def test_only_the_chunks_with_revisions_are_read_and_only_once(large, monkeypatc
     doc.grade()
     doc.revisions()
     assert len(calls) == 1
+
+
+def _cell(kind: str, inner: str, attrs: str = "") -> str:
+    return f'<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:{kind} w:id="7" {A1}{attrs}/></w:tcPr>{inner}</w:tc>'
+
+
+def test_inserted_deleted_and_merged_cells_are_shown(large):
+    """セルの挿入・削除・結合の変更（w:tcPr の中の w:cellIns・w:cellDel・w:cellMerge）：セルの頭の段落の前に示す。前は、示さなかった。"""
+    table = ("<w:tbl>" + f"<w:tr><w:tc>{_p('氏名')}</w:tc>{_cell('cellIns', _p('足したセル'))}</w:tr>"
+             + f"<w:tr>{_cell('cellDel', _p('消したセル') + _p('セルの 2 つ目の段落'))}<w:tc>{_p('住所')}</w:tc></w:tr>"
+             + f"<w:tr>{_cell('cellMerge', _p('結合したセル'), ' w:vMerge=' + chr(34) + 'rest' + chr(34))}<w:tc>{_p('右')}</w:tc></w:tr>" + "</w:tbl>")
+    blob = _docx(_plain(10) + table + _plain(10, 10), PLAIN)
+    win, want = _normal(blob)
+    lines = win["stories"][0]["reading"]
+    text = "\n".join(lines)
+    assert f"〔変更履歴で挿入されたセル（まだ承諾も却下もされていない。{WHO}）〕足したセル" in text
+    assert f"〔変更履歴で削除されたセル（いまの本文ではない。{WHO}）〕消したセル" in text
+    assert f"〔変更履歴で結合が変わったセル（まだ承諾も却下もされていない。{WHO}）〕結合したセル" in text
+    assert text.count("セル（") == 3 and "〕セルの 2 つ目の段落" not in text  # 印は、セルの頭の段落にだけ
+    assert win["tracked_marks"] == ["段落 12：挿入されたセル", "段落 13：削除されたセル", "段落 16：結合が変わったセル"]
+    assert not win["tracked_deletions"] and not win["tracked_insertions"]
+    assert any("表の行・セル" in d and "が 3 か所" in d and "〔変更履歴で…されたセル〕" in d for _g, _t, d, _w in want)
+    doc = large(blob)
+    assert doc._rev_chunks  # 字の挿入・削除がなくても、セルの印のあるまとまりを数える
+    assert doc.revisions() == (win["tracked_deletions"], win["tracked_insertions"], win["tracked_marks"])
+    assert _reasons(doc.grade().reasons) == want
+
+
+def test_a_cell_change_in_an_inserted_row_shows_both_marks(large):
+    table = "<w:tbl>" + f"<w:tr><w:tc>{_p('氏名')}</w:tc></w:tr>" + _row("ins", f"<w:tcPr><w:cellIns w:id=\"8\" {A1}/></w:tcPr>" + _p("足した行のセル")) + "</w:tbl>"
+    blob = _docx(_plain(3) + table + _plain(3, 3), PLAIN)
+    win, _want = _normal(blob)
+    text = "\n".join(win["stories"][0]["reading"])
+    assert (f"〔変更履歴で挿入された表の行（まだ承諾も却下もされていない。{WHO}）〕"
+            f"〔変更履歴で挿入されたセル（まだ承諾も却下もされていない。{WHO}）〕足した行のセル") in text
+    assert win["tracked_marks"] == ["段落 5：挿入された表の行", "段落 5：挿入されたセル"]
+    doc = large(blob)
+    assert doc.revisions()[2] == win["tracked_marks"]
+
+
+def test_cells_without_a_change_get_no_mark(large):
+    table = "<w:tbl>" + f'<w:tr><w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:vMerge w:val="restart"/></w:tcPr>{_p("ふつうのセル")}</w:tc></w:tr>' + "</w:tbl>"
+    win, want = _normal(_docx(_plain(3) + table, PLAIN))
+    assert not win["tracked_marks"] and "セル（" not in "\n".join(win["stories"][0]["reading"])
+    assert not any(t == "変更履歴" for _g, t, _d, _w in want)
+
+
+def test_fields_in_a_deleted_row_or_cell_say_so_on_the_large_path(large):
+    table = ("<w:tbl>" + f"<w:tr><w:tc>{_p('氏名')}</w:tc><w:tc>{_para()}</w:tc></w:tr>" + _row("del", _p("旧姓"), _para())
+             + f"<w:tr><w:tc>{_p('住所')}</w:tc>{_cell('cellDel', _para())}</w:tr>" + "</w:tbl>")
+    doc = large(_docx(_plain(30) + table + _plain(30, 40), PLAIN))
+    assert len(doc.chunks) > 3
+    got = {f["label"]: f.get("tracked_removed", "") for f in doc.fields({}, False, 500)["fields"]}
+    assert got["旧姓"].startswith("変更履歴で削除された表の行") and got["住所"].startswith("変更履歴で削除されたセル") and not got["氏名"]
+
+
+def test_fields_in_a_deleted_row_or_cell_say_so(tmp_path):
+    """変更履歴で削除された表の行・セルの中の欄：欄の事実に出す（前は、ほかの欄と同じに出した：承諾するとなくなる欄と分からなかった）。"""
+    from todoku import api, lazy
+
+    table = ("<w:tbl>" + f"<w:tr><w:tc>{_p('氏名')}</w:tc><w:tc>{_para()}</w:tc></w:tr>"
+             + _row("del", _p("旧姓"), _para()) + _row("ins", _p("電話"), _para())
+             + f"<w:tr><w:tc>{_p('住所')}</w:tc>{_cell('cellDel', _para())}</w:tr>"
+             + _row("del", _p("入れ子"), "<w:tbl>" + f"<w:tr><w:tc>{_p('内訳')}</w:tc><w:tc>{_para()}</w:tc></w:tr>" + "</w:tbl>" + _para()) + "</w:tbl>")
+    blob = _docx(_plain(2) + table + _plain(2, 2), PLAIN)
+    fs = {f["label"]: f for f in build(DocxDocument(blob, "a.docx"))["fields"]}
+    assert set(fs) >= {"氏名", "旧姓", "電話", "住所", "内訳"}
+    assert fs["旧姓"]["tracked_removed"] == "変更履歴で削除された表の行の中の欄（変更を承諾すると、この欄はなくなる）"
+    assert fs["内訳"]["tracked_removed"] == fs["旧姓"]["tracked_removed"]  # 削除された行の中の、入れ子の表の欄
+    assert fs["住所"]["tracked_removed"] == "変更履歴で削除されたセルの中の欄（変更を承諾すると、この欄はなくなる）"
+    assert "tracked_removed" not in fs["氏名"] and "tracked_removed" not in fs["電話"]  # ふつうの行・挿入された行
+    p = tmp_path / "a.docx"
+    p.write_bytes(blob)
+    got = {f["label"]: f.get("tracked_removed", "") for f in api.fields(str(p))}
+    assert got["旧姓"].startswith("変更履歴で削除された表の行") and got["住所"].startswith("変更履歴で削除されたセル") and not got["氏名"]
+    lazy.clear()
