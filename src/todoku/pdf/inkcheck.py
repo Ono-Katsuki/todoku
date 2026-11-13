@@ -11,6 +11,8 @@
   （読み戻しの違い）、墨の半分より多くが 3:1 未満の下地の上にある字は「見えにくい字」（知らせる）。位置は mm で伝える
 - 字を描いた後に、その上に別のものが描かれる所（後ろの注釈の見た目・重なったほかの欄）：字を塗った直後の色も控え、描き終えた絵と比べる。
   墨の半分より多くの色が変わった字は「上に別のものが重なった字」として知らせる（透ける色の印の下の字は読めるので、止めずに、見て確かめてもらう）
+- 字でないもの（入れたチェック・ラジオの印、字を囲む ○、印影・署名の画像）は、その四角（印は部品、○ は外枠、画像は置いた枠）の全体の
+  画素で、字の欄の全体と同じ決まりで見る：変わった画素がなければ読み戻しの違い、いちばん差のある所でも 3:1 未満なら知らせる
 - 描ききれなかった（時間切れ・書体がない）ときは、確かめていないことを知らせる（見えるとは言わない）
 """
 
@@ -62,6 +64,35 @@ def _ink(before: dict, after: dict, box: tuple[float, float, float, float]) -> t
                 n += 1
                 best = max(best, contrast(tuple(pa), tuple(pb)))
     return n, best
+
+
+def _stand_ins(img: dict, box) -> tuple[int, int, float]:
+    """描画が灰色の四角で示した字（字の形がこのパソコンにない字）の、四角（画像の左上からの mm）の中の画素について：
+    (画素の数, 字の色が、描く前の下の色と同じ画素の数, 字の色と下の色の、いちばん大きい明るさの比)。
+    字の形は分からないが、字の色は分かる：下地がどこも字と同じ色なら、どんな形の字も見えない。"""
+    s = img["scale"]
+    ox, oy = img["origin_mm"]
+    w, h = img["w"], img["h"]
+    x0, y0 = max(0, int((box[0] - ox) * s)), max(0, int((box[1] - oy) * s))
+    x1, y1 = min(w, int((box[2] - ox) * s) + 2), min(h, int((box[3] - oy) * s) + 2)
+    seen: dict = {}
+    n = same = 0
+    best = 1.0
+    for px, under, rgb, alpha in img.get("box_inks") or []:
+        k = int(alpha * 255 + 0.5)
+        for q, u in zip(px, under):
+            if not (x0 <= q % w < x1 and y0 <= q // w < y1):
+                continue
+            c = seen.get((u, rgb, k))
+            if c is None:
+                ink = rgb if k >= 255 else tuple((u[i] * (255 - k) + rgb[i] * k + 127) // 255 for i in range(3))
+                c = seen[(u, rgb, k)] = 0.0 if ink == tuple(u) else contrast(tuple(u), ink)
+            n += 1
+            if c == 0.0:
+                same += 1
+            elif c > best:
+                best = c
+    return n, same, best
 
 
 class _Glyphs:
@@ -167,12 +198,29 @@ def check(orig, new, patches: list) -> tuple[list[dict], list[str]]:
             name = decode_text(key["TdkField"]) if "TdkField" in key else None
         return probes.get(name)
 
+    marks: dict[int, list] = {}  # ページ → [(id, 何か, 書いたもの, 四角, 四角がページの座標か（違えば、ページの左上からの mm）)]：字でないもの
+    for p in patches:
+        if p.kind == "circle" and p.circle and p.circle.get("box_mm"):
+            marks.setdefault(p.page, []).append((p.id, "○", f"「{p.value}」を囲む ○", list(p.circle["box_mm"]), False))
+        elif p.kind == "seal" and p.seal and p.seal.get("rect"):
+            mm = p.seal.get("mm") or 72 / 25.4
+            marks.setdefault(p.page, []).append((p.id, "画像", str(p.value), [v / mm for v in p.seal["rect"]], False))
     for f in read_fields(new):
         p = next((x for x in patches if x.id == f.name and x.kind in ("input", "calc", "xfa")), None)
-        if p is None:
+        if p is None or (p.kind == "xfa" and f.kind in ("checkbox", "radio")):
+            # 静的な XFA に入れた印は、同じ名前の PDF の欄の部品で見る
+            if f.kind in ("checkbox", "radio") and any(x.id == f.name and x.kind in ("control", "xfa") for x in patches) and not f.visibility()[0]:
+                # 入れた印：「入」になった部品（書く前と同じ状態の部品は、絵が変わらなくてよい）
+                was = old.get(f.name)
+                prev = {(w.ref.num if w.ref is not None else None): w.state for w in was.widgets} if was is not None else {}
+                for w in f.widgets:
+                    if w.state in (None, "Off") or prev.get(w.ref.num if w.ref is not None else None) == w.state or not w.on_screen:
+                        continue
+                    if isinstance(w.page, int) and w.page >= 0:
+                        marks.setdefault(w.page + 1, []).append((f.name, "印", f"印（{w.state}）", w.rect, True))
             continue
         if p.kind == "xfa":
-            # 静的な XFA：同じ名前の PDF の欄にも書いた。描いた字は、欄の値（XFA の書式で整えた字）。印（チェック・ラジオ）は、ほかの欄と同じに見ない
+            # 静的な XFA：同じ名前の PDF の欄にも書いた。描いた字は、欄の値（XFA の書式で整えた字）
             shown = _old_text(f) if f.kind in ("text", "combo", "list") else ""
         else:
             shown = str(p.shown if p.shown is not None else p.value or "")
@@ -195,8 +243,9 @@ def check(orig, new, patches: list) -> tuple[list[dict], list[str]]:
     notes: list[str] = []
     deadline = time.monotonic() + TOTAL_LIMIT
     pages = new.pages()
-    for n, spots in sorted(by_page.items()):
-        ids = "・".join(dict.fromkeys(s[0] for s in spots))
+    for n in sorted(set(by_page) | set(marks)):
+        spots = by_page.get(n, [])
+        ids = "・".join(dict.fromkeys([s[0] for s in spots] + [m[0] for m in marks.get(n, [])]))
         if time.monotonic() > deadline:
             notes.append(f"{n} ページの {ids}：字が見えるかの確かめを時間内にできませんでした。view_page で見て確かめてください")
             continue
@@ -205,13 +254,22 @@ def check(orig, new, patches: list) -> tuple[list[dict], list[str]]:
         for name, shown, r in spots:
             x0, y0, x1, y1 = view.rect(*r)
             boxes.append((name, shown, [x0 / view.mm, y0 / view.mm, x1 / view.mm, y1 / view.mm], r))
+        others = []  # 字でないもの：(id, 何か, 書いたもの, 四角（mm）)
+        for name, what, wrote, r, in_page in marks.get(n, []):
+            if in_page:
+                x0, y0, x1, y1 = view.rect(*r)
+                r = [x0 / view.mm, y0 / view.mm, x1 / view.mm, y1 / view.mm]
+            others.append((name, what, wrote, r))
         pw, ph = view.width / view.mm, view.height / view.mm
-        region = [max(0.0, min(b[2][0] for b in boxes)), max(0.0, min(b[2][1] for b in boxes)),
-                  min(pw, max(b[2][2] for b in boxes)), min(ph, max(b[2][3] for b in boxes))]
+        every = [b[2] for b in boxes] + [o[3] for o in others]
+        region = [max(0.0, min(b[0] for b in every)), max(0.0, min(b[1] for b in every)),
+                  min(pw, max(b[2] for b in every)), min(ph, max(b[3] for b in every))]
         if region[2] - region[0] < 1 or region[3] - region[1] < 1:
             # 四角がページの外か、とても小さい：描く所がない
             for name, shown, _b, r in boxes:
                 bad.append({"id": name, "written": shown, "read_back": f"書いた所（{[round(v, 1) for v in r]}）がページの外で、字が見えません"})
+            for name, what, wrote, r in others:
+                bad.append({"id": name, "written": wrote, "read_back": f"書いた所（{[round(v, 1) for v in r]} mm）がページの外で、{what}が見えません"})
             continue
         for name, _shown, _b, _r in boxes:
             probes[name] = _Glyphs()  # 画素の番号は、このページの絵のもの（同じ名前の欄が、ほかのページにもあるとき）
@@ -241,6 +299,36 @@ def check(orig, new, patches: list) -> tuple[list[dict], list[str]]:
                 told.add(name)
                 notes.append(f"{name}：書いた字と下地の明るさの差が小さく（比 {best:.1f}:1。読みやすさの下限は 3:1）、見えにくいかもしれません"
                              f"（{where}）。view_page で見て確かめてください")
+        unsure = []
+        # 印の字の形がこのパソコンにないと、描画は、字の位置に灰色の四角を描く：その四角の明るさは、印の明るさではない
+        boxed = unknown or (b.get("stats") or {}).get("glyphs_box", 0) > (a.get("stats") or {}).get("glyphs_box", 0)
+        for name, what, wrote, box in others:
+            count, best = _ink(a, b, box)
+            where = f"{n}ページ（左 {box[0]:.1f}・上 {box[1]:.1f}・右 {box[2]:.1f}・下 {box[3]:.1f} mm）"
+            if not count:
+                if unknown and what == "印":
+                    unsure.append(name)  # 印の字を描く書体がないのかもしれない
+                else:
+                    bad.append({"id": name, "written": wrote,
+                                "read_back": f"{what}は入りましたが、描いても見えません（{where} の画素が 1 つも変わりません。"
+                                             "同じ色の下地の上か、後から描かれるものの下かもしれません）。view_page で見て確かめてください"})
+                continue
+            stood, same, top = _stand_ins(b, box) if what == "印" else (0, 0, 1.0)
+            if stood:
+                # 印の字の形がこのパソコンにない（描画は灰色の四角を描いた）：四角の明るさではなく、印の色と、その下の色で決める
+                if same == stood:
+                    bad.append({"id": name, "written": wrote,
+                                "read_back": f"{what}は入りましたが、描いても見えません（{where} の下地が、印と同じ色です。印の字の形が"
+                                             "このパソコンにないので、印の色と下地の色で確かめました）。view_page で見て確かめてください"})
+                elif top < LOW_CONTRAST:
+                    notes.append(f"{name}：書いた{what}と下地の明るさの差が小さく（比 {top:.1f}:1。読みやすさの下限は 3:1）、見えにくいかもしれません"
+                                 f"（{where}）。view_page で見て確かめてください")
+            elif best < LOW_CONTRAST and not (boxed and what == "印"):
+                notes.append(f"{name}：書いた{what}と下地の明るさの差が小さく（比 {best:.1f}:1。読みやすさの下限は 3:1）、見えにくいかもしれません"
+                             f"（{where}）。view_page で見て確かめてください")
+        if unsure:
+            notes.append(f"{n} ページの {'・'.join(dict.fromkeys(unsure))}：描くのに要る書体がこのパソコンにないので、印が見えるかを"
+                         "確かめられませんでした。view_page で見て確かめてください")
         if unknown:
             continue
         for name, shown in dict.fromkeys((x[0], x[1]) for x in boxes):

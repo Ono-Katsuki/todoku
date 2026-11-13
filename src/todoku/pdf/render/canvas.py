@@ -303,11 +303,29 @@ def scan(polys, evenodd: bool = False, clip=(-_INF, -_INF, _INF, _INF)) -> list:
     return out
 
 
-def fill_rows(polys, evenodd, clip_rect, separate_rects: bool = False) -> list:
-    """塗り：多角形 → 行ごとの続き。separate_rects：四角だけの並びなら、1 つずつ速く数える（重なりの縁は二重になる）。"""
+def _turn(p) -> float:
+    """多角形の向き（面積の符号）。"""
+    return sum(p[i - 1][0] * p[i][1] - p[i][0] * p[i - 1][1] for i in range(len(p)))
+
+
+def _holes(polys, rs) -> bool:
+    """向きの違う四角が重なる（巻き数の決まりで、重なりが穴になる：内と外の四角で描いた枠）。"""
+    pos = [r for p, r in zip(polys, rs) if _turn(p) > 0]
+    neg = [r for p, r in zip(polys, rs) if _turn(p) < 0]
+    if not pos or not neg:
+        return False
+    if len(pos) * len(neg) > 4096:
+        return True  # 1 組ずつ調べない：巻き数で数える道（scan）に任せる
+    return any(a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3] for a in pos for b in neg)
+
+
+def fill_rows(polys, evenodd, clip_rect, separate_rects: bool = False, wound: bool = False) -> list:
+    """塗り：多角形 → 行ごとの続き。separate_rects：四角だけの並びなら、1 つずつ速く数える（重なりの縁は二重になる）。
+    wound：多角形の向きが、書類の道の向きのまま（塗り）。向きの違う四角が重なる並びは、1 つずつ数えない
+    （巻き数が 0 になる所は塗らない：8.5.3.3.2）。線の形の四角（どれも塗る）は、向きを見ない。"""
     if separate_rects and len(polys) > 1:
         rs = [_rect_of(p) for p in polys]
-        if all(r is not None for r in rs):
+        if all(r is not None for r in rs) and not (wound and _holes(polys, rs)):
             rows = []
             for r in rs:
                 rows += rect_rows(*r, *clip_rect)

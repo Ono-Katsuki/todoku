@@ -122,6 +122,10 @@ def make_xfa_pdf(template=TEMPLATE, datasets=DATASETS, *, dynamic=True, single=F
         fields.append(Ref(n))
         annots.append(Ref(n))
         n += 2
+        if kind == "cross":  # 「入」の見た目に × を描く部品（"check" は、どちらの見た目も空）
+            w["AP"]["N"]["1"] = Ref(n)
+            objs[n] = Stream({"Type": Name("XObject"), "Subtype": Name("Form"), "BBox": [0, 0, 20, 20]}, b"0 G 2 w 2 2 m 18 18 l S 2 18 m 18 2 l S")
+            n += 1
     if annots:
         objs[3]["Annots"] = annots
     objs[5] = {"Fields": fields, "XFA": xfa_entry, "DA": PdfString(b"/Helv 0 Tf 0 g"),
@@ -451,4 +455,23 @@ def test_a_value_written_into_a_static_form_is_checked_to_be_visible(tmp_path):
         if not ok:
             d = [x for x in r["read_back_differences"] if x["id"] == key]
             assert len(d) == 1 and "画素が 1 つも変わりません" in d[0]["read_back"]
+    lazy.clear()  # Windows は、開いたままのファイルを消せない
+
+
+def test_a_mark_set_in_a_static_form_is_checked_to_be_visible(tmp_path):
+    """静的な XFA に入れた印：同じ名前の PDF の欄の部品の所で、印が見えるかを確かめる（前は、見ていなかった）。"""
+    from todoku import api, lazy
+
+    key = ID + "Member[0]"
+    blob = make_xfa_pdf(dynamic=False, acro={key: "cross"})
+    page = b"BT /F1 12 Tf 72 720 Td (Library card) Tj ET"
+    assert blob.count(page) == 1
+    black = b"0 g 0 0 612 792 re f".ljust(len(page))  # 同じ長さ：ページの全体が黒
+    for name, data, ok in (("plain.pdf", blob, True), ("black.pdf", blob.replace(page, black), False)):
+        (tmp_path / name).write_bytes(data)
+        r = api.fill(str(tmp_path / name), {key: True}, str(tmp_path / ("out_" + name)), overwrite=True)
+        assert r["proof_ok"] and r["read_back_ok"] is ok, r
+        if not ok:
+            d = [x for x in r["read_back_differences"] if x["id"] == key]
+            assert len(d) == 1 and "印は入りましたが、描いても見えません" in d[0]["read_back"]
     lazy.clear()  # Windows は、開いたままのファイルを消せない

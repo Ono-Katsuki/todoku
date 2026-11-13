@@ -17,7 +17,7 @@ import time
 from ..content import tokens
 from ..fonts import load_font
 from ..objects import Name, PdfString, Stream
-from .canvas import (Canvas, Clip, _rect_of, covered, fill_rows, flatten, inv, mul, paint, paint_fn, rect_rows, scale_of, scan,
+from .canvas import (Canvas, Clip, _rect_of, _turn, covered, fill_rows, flatten, inv, mul, paint, paint_fn, rect_rows, scale_of, scan,
                      stroke_polys, transform_polys)
 from .colors import DCMYK, DRGB, GRAY, PatternCS, colorspace, function
 from .fontmap import _decoded_name, glyphs_for
@@ -33,7 +33,7 @@ class _Stop(Exception):
 
 class GS:
     __slots__ = ("ctm", "clip", "fcs", "fc", "fpat", "scs", "sc", "spat", "lw", "cap", "join", "miter", "dash", "phase",
-                 "ca", "CA", "font", "pf", "fs", "tc", "tw", "th", "tl", "tr", "rise", "base", "nocolor", "smask")
+                 "ca", "CA", "font", "pf", "fs", "tc", "tw", "th", "tl", "tr", "rise", "base", "nocolor", "smask", "group")
 
     def __init__(self, ctm, clip):
         self.ctm = ctm
@@ -43,6 +43,7 @@ class GS:
         self.lw, self.cap, self.join, self.miter = 1.0, 0, 0, 10.0
         self.dash, self.phase = None, 0.0
         self.ca = self.CA = 1.0
+        self.group = 1.0  # 透けて描くまとまり（透明グループ）・模様の中にいるときの、まとまり全体の透け方（ca・CA に掛けてある）
         self.font = None
         self.pf = None
         self.fs, self.tc, self.tw, self.th, self.tl, self.tr, self.rise = 0.0, 0.0, 0.0, 1.0, 0.0, 0, 0.0
@@ -115,6 +116,8 @@ class Renderer:
         self.subst: dict[str, str] = {}  # PDF の書体の名前 → 代わりに描いた書体
         self.missing_fonts: set[str] = set()
         self.box_places: list = []  # 字の形が分からない字の位置（画素。はじめの数十個）
+        # 確かめのとき（probe_of）：形の分からない字ごとに、(四角の画素の番号, その下の色, 字の色, 濃さ)。形はなくても、色は分かる
+        self.box_inks: list = []
         self.problems: list[str] = []
         self.approx: dict[str, int] = {}
         self.image_failed: list[str] = []
@@ -431,9 +434,9 @@ class Renderer:
                 gs.dash = [abs(float(doc.resolve(x))) for x in arr] or None
                 gs.phase = float(doc.resolve(v[1]))
             elif k == "CA":
-                gs.CA = max(0.0, min(1.0, float(v)))
+                gs.CA = max(0.0, min(1.0, float(v))) * gs.group
             elif k == "ca":
-                gs.ca = max(0.0, min(1.0, float(v)))
+                gs.ca = max(0.0, min(1.0, float(v))) * gs.group
             elif k == "Font" and isinstance(v, list) and len(v) == 2:
                 pf = load_font(doc, v[0], "gs")
                 fd = doc.resolve(v[0])
@@ -482,7 +485,7 @@ class Renderer:
         polys = [_snap_thin_rect(p) for p, _c in subs if len(p) >= 2]
         if not polys:
             return
-        rows = fill_rows(polys, eo, gs.clip.rect, separate_rects=gs.ca >= 0.999 and gs.fpat is None and not eo)
+        rows = fill_rows(polys, eo, gs.clip.rect, separate_rects=gs.ca >= 0.999 and gs.fpat is None and not eo, wound=True)
         self._paint_rows(gs, rows, True)
 
     def stroke_path(self, gs: GS, path: list) -> None:
@@ -580,7 +583,7 @@ class Renderer:
                     self.stats["glyphs_box"] += 1
                     if len(self.box_places) < 40:
                         self.box_places.append((m[4], m[5]))
-                    self._box(gs, pf, m, w)
+                    self._box(gs, pf, m, w, mode)
             return
         key, ops, gmat = r
         if key == "type3":
@@ -638,12 +641,16 @@ class Renderer:
             polys = stroke_polys(subs, wdev, gs.cap, gs.join, gs.miter, None, 0.0, 1.0)
             self._paint_rows(gs, fill_rows(polys, False, gs.clip.rect), False)
 
-    def _box(self, gs: GS, pf, m, w: float) -> None:
+    def _box(self, gs: GS, pf, m, w: float, mode: int = 0) -> None:
         """字の形が分からない字：字の四角（送りの幅 × 字の高さ）を灰色の枠で示す。"""
         x1 = w if w > 0 else 0.5
         d, a = getattr(pf, "descent", -0.15), getattr(pf, "ascent", 0.85)
         quad = [(0.0, d), (x1, d), (x1, a), (0.0, a)]
         pts = [(m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]) for x, y in quad]
+        if self.probe_of is not None and mode in (0, 2, 4, 6) and gs.fpat is None and len(self.box_inks) < 400:
+            px = [q for q, _a in covered(self.cv, fill_rows([pts], False, gs.clip.rect), gs.clip)]
+            buf = self.cv.buf
+            self.box_inks.append((px, [bytes(buf[q * 3:q * 3 + 3]) for q in px], tuple(int(v) for v in gs.fc), gs.ca))
         polys = stroke_polys([(pts, True)], 1.0, 0, 0, 10.0, None, 0.0, 1.0)
         paint(self.cv, fill_rows(polys, False, gs.clip.rect), (150, 150, 150), 1.0, gs.clip)
 
@@ -676,6 +683,12 @@ class Renderer:
         g2 = gs.copy()
         g2.ctm = mul(m, matrix if matrix is not None else gs.ctm)
         g2.base = g2.ctm
+        grp = doc.resolve(xo.dict.get("Group"))
+        if isinstance(grp, dict) and getattr(doc.resolve(grp.get("S")), "name", None) == "Transparency":
+            # 透けて描くまとまり（11.6.6）：中の透け方は 1 から始まり、まとまりの全体を、置いたときの塗りの透け方で重ねる。
+            # とどくは、まとまりを別に描いて重ねずに、中の 1 つ 1 つを、その透け方を掛けて描く（中で重なるものは、互いに透ける）
+            g2.group = gs.ca
+            g2.ca = g2.CA = g2.group
         bb = doc.resolve(xo.dict.get("BBox"))
         if isinstance(bb, list) and len(bb) == 4:
             x0, y0, x1, y1 = (float(doc.resolve(v)) for v in bb)
@@ -935,7 +948,7 @@ class Renderer:
                 for i in range(i0, i1 + 1):
                     g2 = GS(mul((1, 0, 0, 1, i * xs, j * ys), m), clip)
                     g2.base = g2.ctm
-                    g2.ca = g2.CA = alpha
+                    g2.ca = g2.CA = g2.group = alpha
                     if paint_type == 2:
                         g2.fc = g2.sc = gs.fc if fill else gs.sc
                         g2.nocolor = True
@@ -1015,7 +1028,8 @@ def _snap_thin_rect(p: list) -> list:
         x0, x1 = _snap_span(x0, x1)
     if thin_y:
         y0, y1 = _snap_span(y0, y1)
-    return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    out = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    return out[::-1] if _turn(p) < 0 else out  # 向きは元のまま（巻き数の決まりで、向きの違う四角の重なりは穴になる）
 
 
 def _unit_square_box(m) -> tuple[float, float, float, float]:

@@ -80,7 +80,7 @@ def render(doc, page_no: int, region_mm: list | None = None, max_side: int | Non
             "user_unit": view.unit, "dpi": s * 25.4, "stats": dict(rr.stats), "substituted": dict(rr.subst),
             "missing_fonts": sorted(rr.missing_fonts), "approx": dict(rr.approx), "stopped": rr.stopped,
             "problems": list(rr.problems), "no_appearance": appearance_notes(doc, page), "image_notes": list(rr.image_notes),
-            "box_places": [(round(x0 + px / s), round(y0 + py / s)) for px, py in rr.box_places]}
+            "box_places": [(round(x0 + px / s), round(y0 + py / s)) for px, py in rr.box_places], "box_inks": rr.box_inks}
 
 
 def _annot_pictures(doc, page: dict, stamps: list, failed: list | None = None, glyphs: list | None = None) -> list:
