@@ -5,7 +5,8 @@
 - 下がどこも字と同じ色（何も描いていないページの白の上の白い字・同じ色の透けない塗りの四角の上の字）なら、読み順に残したまま、
   見えない字として「下の色と同じ色の字」（読む B）で、行ごとの位置と一緒に伝える
 - 字の四角に、ほかの色の塗り・字、線、四角でない塗り、画像、ぼかし、透ける塗りがかかるときは、決めない（見える字のまま）
-- 塗りの不透明度（ca）が 0 の字は、「不透明度 0 で描いた字」（読む B）で伝える
+- 塗りの不透明度（ca）が 0 の字は、「不透明度 0 で描いた字」（読む B）で伝える。輪郭を描く字は線の不透明度（CA）、
+  透けて描くまとまりの中の字は、まとまりを置いたときの不透明度で決める
 """
 
 from __future__ import annotations
@@ -150,6 +151,61 @@ def test_what_is_drawn_after_the_text_does_not_change_it(tmp_path):
 def test_text_drawn_with_alpha_zero(tmp_path, body):
     f = _hidden(tmp_path, body, b"/ExtGState << /G1 << /ca 0 >> >>", kind="alpha")
     assert "ca" in f["detail"]
+
+
+# ---------------------------------------------------------------------- 線の不透明度（CA）・透けて描くまとまり
+G = b"/ExtGState << /G1 << /ca 0 >> /G2 << /CA 0 >> /G3 << /ca 0 /CA 0 >> /G4 << /ca 1 /CA 1 >> /G5 << /ca 0.5 >> >>"
+
+
+@pytest.mark.parametrize("body", [b"q /G2 gs 1 Tr " + TEXT + b"Q\n", b"q /G3 gs 2 Tr " + TEXT + b"Q\n", b"q /G3 gs 1 Tr " + TEXT + b"Q\n"],
+                         ids=["輪郭だけの字・CA 0", "塗って輪郭も描く字・ca と CA が 0", "輪郭だけの字・ca と CA が 0"])
+def test_outlined_text_drawn_with_stroke_alpha_zero(tmp_path, body):
+    """輪郭を描く字は、線の不透明度（CA）で決まる（前は、塗りの不透明度で塗る字だけを見ていた）。"""
+    f = _hidden(tmp_path, body, G, kind="alpha")
+    assert "CA" in f["detail"]
+
+
+@pytest.mark.parametrize("body", [b"q /G1 gs 1 Tr " + TEXT + b"Q\n", b"q /G1 gs 2 Tr " + TEXT + b"Q\n", b"q /G2 gs 2 Tr " + TEXT + b"Q\n",
+                                  b"q /G2 gs " + TEXT + b"Q\n", b"q /G3 gs 4 Tr " + TEXT + b"Q\n", b"q /G3 gs 5 Tr " + TEXT + b"Q\n"],
+                         ids=["輪郭だけの字・ca 0", "塗って輪郭も描く字・ca 0", "塗って輪郭も描く字・CA 0", "塗る字・CA 0",
+                              "塗って切り抜きに足す字", "輪郭を描いて切り抜きに足す字"])
+def test_text_whose_other_alpha_is_zero_stays_visible(tmp_path, body):
+    """字を描くほうの不透明度が 0 でなければ、字は出る。切り抜きに足す字は、決めない。"""
+    _visible(tmp_path, body, G)
+
+
+def _group(inner: bytes, group: bool = True) -> dict:
+    head = b"/Type /XObject /Subtype /Form /BBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> " + G + b" >>"
+    return {7: _stream(head + (b" /Group << /S /Transparency >>" if group else b""), inner)}
+
+
+def test_text_in_a_transparency_group_placed_with_alpha_zero(tmp_path):
+    """透けて描くまとまりは、置いたときの不透明度が全体にかかる：中で不透明度を 1 に戻しても、何も出ない。"""
+    x = b"/XObject << /X1 7 0 R >> " + G
+    _hidden(tmp_path, b"q /G1 gs /X1 Do Q\n", x, _group(b"/G4 gs " + TEXT), kind="alpha")
+    _hidden(tmp_path, b"q /G1 gs /X1 Do Q\n", x, _group(TEXT), kind="alpha")
+    _hidden(tmp_path, b"q /G1 gs /X1 Do Q\n", x, _group(b"1 Tr " + TEXT), kind="alpha")
+    # まとまりでない部品は、中で戻した不透明度で描く
+    _visible(tmp_path, b"q /G1 gs /X1 Do Q\n", x, _group(b"/G4 gs " + TEXT, group=False))
+    _hidden(tmp_path, b"q /G1 gs /X1 Do Q\n", x, _group(TEXT, group=False), kind="alpha")
+    # 0 でない不透明度で置いたまとまり・ふつうに置いたまとまりの字は、見える字
+    _visible(tmp_path, b"q /G5 gs /X1 Do Q\n", x, _group(TEXT))
+    _visible(tmp_path, b"/X1 Do\n", x, _group(TEXT))
+    # まとまりの中の、見えない描き方の字は、前と同じに、見えない描き方の字（不透明度 0 の字には数えない）
+    p = _write(tmp_path, NAME + b"q /G1 gs /X1 Do Q\n", x, _group(b"3 Tr " + TEXT))
+    assert [(inv, fa) for t, inv, fa in _faint(p) if t in "Hidden"] == [(True, "")] * 6
+    # まとまりの中は、不透明度 1 から始まる：線の不透明度 0 で置いても、中の輪郭の字は出る
+    _visible(tmp_path, b"q /G2 gs /X1 Do Q\n", x, _group(b"1 Tr " + TEXT))
+
+
+def test_type3_text_is_not_decided_by_the_stroke_alpha(tmp_path):
+    """Type 3 の字は、文字の描き方によらずに、字の形の中身を描く：輪郭だけの描き方と線の不透明度 0 では、決めない。"""
+    fonts = b"/Font << /F1 5 0 R /F3 7 0 R >> " + G
+    body = b"BT /F3 12 Tf 150 720 Td (aaa) Tj ET\n"
+    p = _write(tmp_path, NAME + b"q /G2 gs 1 Tr " + body + b"Q\n", fonts, TYPE3)
+    assert not any(g.faint for g in _content(p).glyphs)
+    p = _write(tmp_path, NAME + b"q /G1 gs " + body + b"Q\n", fonts, TYPE3)  # 塗りの不透明度 0（前と同じ）
+    assert [g.faint for g in _content(p).glyphs if g.x0 > 149] == ["alpha"] * 3
 
 
 def test_text_put_together_by_actual_text(tmp_path):

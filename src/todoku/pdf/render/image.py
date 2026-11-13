@@ -499,7 +499,7 @@ def area_down(px: bytes, w: int, h: int, nc: int, W: int, H: int) -> bytes:
 
 
 # ====================================================================== 写す
-def draw_image(cv: Canvas, img: RGBA, m, clip: Clip, alpha: float = 1.0, fill=(0, 0, 0)) -> int:
+def draw_image(cv: Canvas, img: RGBA, m, clip: Clip, alpha: float = 1.0, fill=(0, 0, 0), blend=None) -> int:
     """画像（単位の四角 → 画面の画素の行列 m）を描く。描いた画素の数を返す。"""
     if clip.empty:
         return 0
@@ -538,6 +538,7 @@ def draw_image(cv: Canvas, img: RGBA, m, clip: Clip, alpha: float = 1.0, fill=(0
     buf = cv.buf
     W = cv.w
     mask = clip.mask
+    cover = cv.cover
     fr, fg, fb = fill
     op = alpha >= 0.999
     n = 0
@@ -590,7 +591,8 @@ def draw_image(cv: Canvas, img: RGBA, m, clip: Clip, alpha: float = 1.0, fill=(0
                     qx = 0 if qx < 0 else w - 1 if qx >= w else qx
                     qy = 0 if qy < 0 else h - 1 if qy >= h else qy
                     idx.append(qy * w + qx)
-            p0 = (Y * W + sx0) * 3
+            q0 = Y * W + sx0
+            p0 = q0 * 3
             if img.stencil:
                 avals = list(map(al.__getitem__, idx))
                 for j, av in enumerate(avals):
@@ -601,14 +603,21 @@ def draw_image(cv: Canvas, img: RGBA, m, clip: Clip, alpha: float = 1.0, fill=(0
                         continue
                     p = p0 + 3 * j
                     na = 255 - av
-                    buf[p] = (buf[p] * na + fr * av + 127) // 255
-                    buf[p + 1] = (buf[p + 1] * na + fg * av + 127) // 255
-                    buf[p + 2] = (buf[p + 2] * na + fb * av + 127) // 255
+                    cr, cg, cb = fr, fg, fb
+                    if blend is not None:  # 重ね方（BM）：下の色と重ねた色を、濃さで混ぜる
+                        cr, cg, cb = blend.onto(buf[p], buf[p + 1], buf[p + 2], 255 if cover is None else cover[q0 + j], fr, fg, fb)
+                    buf[p] = (buf[p] * na + cr * av + 127) // 255
+                    buf[p + 1] = (buf[p + 1] * na + cg * av + 127) // 255
+                    buf[p + 2] = (buf[p + 2] * na + cb * av + 127) // 255
+                    if cover is not None and cover[q0 + j] < 255:
+                        cover[q0 + j] += ((255 - cover[q0 + j]) * av + 127) // 255
                 continue
             idx3 = [k for q in idx for k in (3 * q, 3 * q + 1, 3 * q + 2)]
             row = bytes(map(px.__getitem__, idx3))
-            if al is None and ma >= 255 and op:
+            if al is None and ma >= 255 and op and blend is None:
                 buf[p0:p0 + len(row)] = row
+                if cover is not None:
+                    cover[q0:q0 + len(idx)] = b"\xff" * len(idx)
                 continue
             avals = list(map(al.__getitem__, idx)) if al is not None else [255] * len(idx)
             for j, av in enumerate(avals):
@@ -620,6 +629,17 @@ def draw_image(cv: Canvas, img: RGBA, m, clip: Clip, alpha: float = 1.0, fill=(0
                     continue
                 p = p0 + 3 * j
                 q = 3 * j
+                if blend is not None:
+                    cr, cg, cb = blend.onto(buf[p], buf[p + 1], buf[p + 2], 255 if cover is None else cover[q0 + j], row[q], row[q + 1], row[q + 2])
+                    na = 255 - av
+                    buf[p] = (buf[p] * na + cr * av + 127) // 255
+                    buf[p + 1] = (buf[p + 1] * na + cg * av + 127) // 255
+                    buf[p + 2] = (buf[p + 2] * na + cb * av + 127) // 255
+                    if cover is not None and cover[q0 + j] < 255:
+                        cover[q0 + j] += ((255 - cover[q0 + j]) * av + 127) // 255
+                    continue
+                if cover is not None and cover[q0 + j] < 255:
+                    cover[q0 + j] += ((255 - cover[q0 + j]) * av + 127) // 255
                 if av >= 255:
                     buf[p:p + 3] = row[q:q + 3]
                     continue

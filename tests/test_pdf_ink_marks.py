@@ -184,6 +184,19 @@ def test_a_mark_drawn_as_a_placeholder_is_judged_by_its_own_colour(tmp_path, mon
         assert r["read_back_ok"] and not _told(r), r
 
 
+def test_a_placeholder_mark_after_many_letters_without_a_shape_is_still_judged(tmp_path, monkeypatch):
+    """ページの字の書体もないとき：描画が控える四角は、後から描いた 400 個（書いた印は、ページの中身の後に描かれる）。"""
+    monkeypatch.setattr(fontmap, "system_face", lambda kind: None)
+    lines = "".join(f"BT /F1 6 Tf 50 {600 - 8 * i} Td ({'a' * 90}) Tj ET " for i in range(5))  # 形のない字 450 個
+    objs = ["<< /Type /Annot /Subtype /Widget /FT /Btn /T (a) /Rect [100 700 112 712] /F 4 /V /Off /AS /Off "
+            "/AP << /N << /Yes 3 0 R /Off 4 0 R >> >> >>",
+            pdfmini.stream(ZADB, FORM + " /Resources << /Font << /ZaDb 5 0 R >> >>"), pdfmini.stream("", FORM),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats >>"]
+    blob = pdfmini.build("0 g 90 690 40 40 re f " + lines, "<< /Font << /F1 5 0 R >> >>", objs, annots="/Annots [2 0 R]",
+                         acroform="/AcroForm << /Fields [2 0 R] >>")
+    r = _fill(tmp_path, blob, {"a": True})
+    assert r["read_back_ok"] is False and "下地が、印と同じ色" in _diff(r, "a"), r
+
 # ====================================================================== 印刷用のページに入れた印
 def _flat(band: bytes = b"") -> bytes:
     font, extra, codes = jp_font_objs("申請書新規変更□", 5)
@@ -210,6 +223,16 @@ def test_a_mark_written_into_a_printed_box_on_a_black_band(tmp_path):
     unsure = [w for w in r["warnings"] if "印が見えるかを" in w and fid in w]
     if not unsure:
         assert r["read_back_ok"] is False and "描いても見えません" in _diff(r, fid)
+
+
+
+def test_a_mark_in_a_printed_box_whose_letter_has_no_shape_either(tmp_path, monkeypatch):
+    """印刷された □ の字の形もないとき：描画が □ の位置に描く灰色の枠を、印の下地の色に数えない（描画が足した印で、書類の色ではない）。"""
+    monkeypatch.setattr(fontmap, "system_face", lambda kind: None)
+    r, fid = _flat_fill(tmp_path, b"0 g 60 550 30 30 re f\n")
+    assert r["read_back_ok"] is False and "下地が、印と同じ色" in _diff(r, fid), r
+    r, fid = _flat_fill(tmp_path)
+    assert r["read_back_ok"] and not _told(r), r
 
 
 # ====================================================================== 字を囲む ○

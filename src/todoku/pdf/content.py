@@ -59,7 +59,7 @@ class Glyph:
     # () は墨のない字（空白など）。まとめた字（ActualText）は、まとめる前の字の四角を 1 つずつ
     ink: tuple | None = None
     under: bool = False  # 字を描いた後から、透けない画像を重ねた所の字（画面には画像だけが出る。invisible にしてある）
-    # 描いても見えない字（invisible にしてある）："same" は下の色と同じ色で塗った字、"alpha" は塗りの不透明度 0 で描いた字
+    # 描いても見えない字（invisible にしてある）："same" は下の色と同じ色で塗った字、"alpha" は不透明度 0 で描いた字
     faint: str = ""
     bt: int = 0  # 文字の組（BT〜ET）の通し番号：同じ組の字は同じ番号
 
@@ -233,7 +233,7 @@ def tokens(data: bytes):
 # ---------------------------------------------------------------------- 状態
 class _GS:
     __slots__ = ("ctm", "lw", "fill", "stroke", "font", "fs", "tc", "tw", "th", "tl", "tr", "rise", "fontobj", "clip", "ml",
-                 "fcs", "scs", "fpat", "spat", "ca", "bm", "sm", "op", "veil", "clipx")
+                 "fcs", "scs", "fpat", "spat", "ca", "sa", "gone", "bm", "sm", "op", "veil", "clipx")
 
     def __init__(self):
         self.ctm = IDENT
@@ -261,6 +261,8 @@ class _GS:
         # 塗り・画像が、下の字を確かに隠すか（_covers）：透ける描き方（塗りの不透明度 ca・重ね方 BM・マスク SMask・
         # 重ね刷り op）と、外の部品から受け継いだ透け方（veil）、切り抜きが軸にそろった四角でないこと（clipx）
         self.ca = 1.0
+        self.sa = 1.0  # 線の不透明度（CA）：輪郭を描く字が、何も描かないかを決める
+        self.gone = False  # 不透明度 0 で置いた、透けて描くまとまりの中：中で不透明度を戻しても、何も出ない
         self.bm = False
         self.sm = False
         self.op = False
@@ -886,8 +888,18 @@ class Interpreter:
             chain_ = outer + tuple(m[3] for m in mc_stack)
             mc_ = next(((m.owner, m.mcid) for m in reversed(chain_) if m.mcid is not None and m.owner is not None), None)
             ink_of = self.ink_of
-            # 塗りの不透明度 0 で塗る字：何も描かれない（読めない不透明度は 0.5 と置いてある：ここには入らない）
-            alpha0 = gs.tr == 0 and gs.ca <= 0.0
+            # 不透明度 0 で描く字：何も描かれない（読めない不透明度は 0.5 と置いてある：ここには入らない）。塗る字は塗りの
+            # 不透明度、輪郭だけの字は線の不透明度、塗って輪郭も描く字はその両方。切り抜きに足す字（Tr 4〜6）は、決めない
+            # （後から描くものが、字の形に切り抜かれて見える）。Type 3 の字は、文字の描き方によらずに字の形の中身を描く：
+            # 前と同じに、塗る描き方で塗りの不透明度が 0 のときだけ
+            # 見えない描き方（Tr 3・7）の字は、前と同じに、見えない描き方の字として伝える
+            if gs.tr in (3, 7):
+                alpha0 = False
+            elif gs.gone or f.subtype == "Type3":
+                alpha0 = gs.gone or (gs.tr == 0 and gs.ca <= 0.0)
+            else:
+                alpha0 = (gs.ca <= 0.0 if gs.tr == 0 else gs.sa <= 0.0 if gs.tr == 1
+                          else gs.tr == 2 and gs.ca <= 0.0 and gs.sa <= 0.0)
             tq = wq = tbox = None
             if watch is not None and gs.tr not in (3, 7) and not alpha0:
                 col = _text_color(gs)
@@ -1403,6 +1415,12 @@ class Interpreter:
                                 g2.ctm = mul(m, gs.ctm)
                                 # 透ける描き方のまま描く部品は、まとめて透ける（透明のグループ）：中で描き方を戻しても、透けたまま
                                 g2.veil = gs.veil or gs.ca < 1.0 or gs.bm or gs.sm
+                                grp = doc.resolve(xo.dict.get("Group"))
+                                if isinstance(grp, dict) and getattr(doc.resolve(grp.get("S")), "name", "") == "Transparency":
+                                    # 透けて描くまとまり（11.6.6）：置いたときの塗りの不透明度が、まとまりの全体にかかる。
+                                    # 中は、不透明度 1 から始まる
+                                    g2.gone = gs.gone or gs.ca <= 0.0
+                                    g2.ca = g2.sa = 1.0
                                 bb = doc.resolve(xo.dict.get("BBox"))
                                 if isinstance(bb, list) and len(bb) == 4:  # 部品の内容は、BBox で切り抜かれる（8.10.2）
                                     bx0, by0, bx1, by1 = (float(doc.resolve(v)) for v in bb)
@@ -1470,6 +1488,9 @@ class Interpreter:
                             v = doc.resolve(eg["ca"])
                             # 読めない値は 0.5 と置く（透けるが、何も描かないとは決めない）。数の 0 以下は、何も描かない
                             gs.ca = float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0.5
+                        if "CA" in eg:
+                            v = doc.resolve(eg["CA"])
+                            gs.sa = float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0.5
                         if "BM" in eg:
                             v = doc.resolve(eg["BM"])
                             names = [doc.resolve(x) for x in v] if isinstance(v, list) else [v]

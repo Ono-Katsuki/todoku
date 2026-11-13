@@ -279,3 +279,73 @@ def test_the_check_mark_of_a_field_without_appearance_uses_the_color(tmp_path):
     on = doc.resolve(doc.resolve(wd["AP"])["N"])
     ap = doc.decode(doc.resolve(next(v for k, v in on.items() if k != "Off")))
     assert b"BT\n0 0 0.5 rg\n" in ap
+
+
+# ====================================================================== このパソコンに書体がないとき
+NAME = "BT /F1 10 Tf 105 740 Td (Name of the applicant) Tj ET "
+
+
+def _no_system_fonts(monkeypatch, own: bool = False):
+    """このパソコンに代わりの書体がない（埋め込みでない書体の字は、灰色の四角になる）。own：書いた欄の字の形も分からない。"""
+    from todoku.pdf.render import fontmap
+
+    monkeypatch.setattr(fontmap, "system_face", lambda kind: None)
+    if own:
+        monkeypatch.setattr(fontmap.Glyphs, "lookup", lambda self, code, text: None)
+
+
+def _form_with_text(content: str = ""):
+    return pdfmini.build(NAME + content, FONT, [_widget()], annots="/Annots [2 0 R]", acroform=ACRO)
+
+
+def test_letters_are_checked_when_other_text_of_the_page_has_no_font(tmp_path, monkeypatch):
+    """ページのほかの字の書体がなくても、書いた欄の字（形を描ける字）は、字ごとに見る（前は、ページに描けない書体が 1 つでもあると、
+    字ごとには見なかった：書体のない機械では、黒い帯の上の字を、何も伝えずに書いていた）。"""
+    _no_system_fonts(monkeypatch)
+    r, _out = _fill(tmp_path, _form_with_text("0 g 90 690 40 40 re f"), {"a": LONG})
+    assert r["read_back_ok"] is False and r["proof_ok"]
+    d = next(x for x in r["read_back_differences"] if x["id"] == "a")
+    assert "描いた字 26 個のうち" in d["read_back"] and "下地と同じ色" in d["read_back"]
+    assert 3 <= int(re.search(r"のうち (\d+) 個は、描いても見えません", d["read_back"])[1]) <= 7
+    r, _out = _fill(tmp_path, _form_with_text("0 0 0.6 rg 90 690 40 40 re f"), {"a": LONG})
+    assert r["read_back_ok"] and len(_told(r)) == 1 and "見えにくいかもしれません" in _told(r)[0]
+    r, _out = _fill(tmp_path, _form_with_text(), {"a": LONG})
+    assert r["read_back_ok"] and not _told(r), r
+
+
+def test_letters_without_a_shape_are_not_judged_by_the_gray_box(tmp_path, monkeypatch):
+    """書いた字の形が分からない（描画は灰色の四角で示す）：白い下地の上の字を、四角の灰色の明るさで「見えにくい」と言わない。"""
+    _no_system_fonts(monkeypatch, own=True)
+    r, _out = _fill(tmp_path, _form_with_text(), {"a": LONG})
+    assert r["read_back_ok"] and not _told(r), r
+
+
+@pytest.mark.parametrize("ground, told", [("0 g", "違い"), ("0 0 0.6 rg", "知らせ")])
+def test_letters_without_a_shape_are_judged_by_their_colour(tmp_path, monkeypatch, ground, told):
+    """字の形はなくても、字の色は分かる：字の四角の下地がどこも字と同じ色なら見えない字、どこも比 3:1 未満なら見えにくい字。"""
+    _no_system_fonts(monkeypatch, own=True)
+    r, _out = _fill(tmp_path, _form_with_text(f"{ground} 90 690 40 40 re f"), {"a": LONG})
+    note = [w for w in r["warnings"] if "字の形がこのパソコンにない" in w]
+    assert len(note) == 1 and note[0].startswith("a：描いた字 26 個のうち 26 個は、") and "下地の色で確かめました" in note[0]
+    if told == "違い":
+        d = next(x for x in r["read_back_differences"] if x["id"] == "a")
+        assert r["read_back_ok"] is False and "下地と同じ色" in d["read_back"]
+        n = int(re.search(r"のうち (\d+) 個は、描いても見えません", d["read_back"])[1])
+        x0, _y0, x1, _y1 = _mm(d["read_back"])
+    else:
+        assert r["read_back_ok"], r
+        w = next(x for x in _told(r) if "見えにくいかもしれません" in x)
+        n = int(re.search(r"のうち (\d+) 個は、字と下地", w)[1])
+        x0, _y0, x1, _y1 = _mm(w)
+    assert 2 <= n <= 7 and 35.0 <= x0 < x1 <= 46.5  # 四角が帯に入りきる字だけ
+
+
+def test_letters_without_a_shape_under_a_later_annotation_are_told(tmp_path, monkeypatch):
+    _no_system_fonts(monkeypatch, own=True)
+    ops = "1 0 0 rg 0 0 105 30 re f"
+    ap = f"<< /Type /XObject /Subtype /Form /BBox [0 0 105 30] /Length {len(ops)} >>\nstream\n{ops}\nendstream"
+    stamp = "<< /Type /Annot /Subtype /Stamp /Rect [95 695 200 725] /F 4 /AP << /N 4 0 R >> >>"
+    blob = pdfmini.build(NAME, FONT, [_widget(), stamp, ap], annots="/Annots [2 0 R 3 0 R]", acroform=ACRO)
+    r, _out = _fill(tmp_path, blob, {"a": LONG})
+    told = [w for w in r["warnings"] if "重なっています" in w]
+    assert r["read_back_ok"] and len(told) == 1 and told[0].startswith("a：描いた字 26 個のうち"), r

@@ -5,26 +5,30 @@
 切り抜き）、網かけ（8.7.4.5 の型 2 軸・型 3 放射。sh と模様の塗り）、タイルの模様（8.7.3）、透け（ExtGState の CA・ca）、
 見える／見えない内容（8.11 Optional Content：既定の設定で OFF の内容は描かない）、注釈の見た目（12.5.5、/AP の N）。
 線の調整（10.6.5）：水平・垂直の細い線と、塗りの細い四角は、縁を画素の境に合わせる（見る道具と同じ。罫線が薄くならない）。
-描けないもの（型 1・4〜7 の網かけ、透けのマスク SMask、重ね方 BM）は、近い形で描いて数を伝える（黙って捨てない）。読めない命令・
+透けのマスク（ExtGState の SMask：11.6.5.2）は、マスクのまとまりを別に描いて、その値を、後から描くものの濃さに掛ける。
+重ね方（ExtGState の BM：11.3.5）は、描くもの 1 つ 1 つを、絵のその所の色と重ねる（まとまりを別に描いてからは重ねない）。
+描けないもの（型 1・4〜7 の網かけ、描けない透けのマスク、描けない重ね方）は、近い形で描いて数を伝える（黙って捨てない）。読めない命令・
 見つからない書体と部品・開けない画像・見た目（/AP）のない欄も数えて伝える（pageimage.not_drawn）。
 """
 
 from __future__ import annotations
 
 import math
+import re
 import time
 
 from ..content import tokens
 from ..fonts import load_font
 from ..objects import Name, PdfString, Stream
-from .canvas import (Canvas, Clip, _rect_of, _turn, covered, fill_rows, flatten, inv, mul, paint, paint_fn, rect_rows, scale_of, scan,
-                     stroke_polys, transform_polys)
+from .canvas import (BLEND_NAMES, Canvas, Clip, _rect_of, _turn, blend_of, covered, fill_rows, flatten, inv, lay, lay_over, lift, mul, paint, paint_fn, rect_rows,
+                     scale_of, scan, stroke_polys, transform_polys)
 from .colors import DCMYK, DRGB, GRAY, PatternCS, colorspace, function
 from .fontmap import _decoded_name, glyphs_for
 from ...limits import release_memory
 from .image import draw_image, image_rgba
 
 IDENT = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+_RUNS = re.compile(rb"(.)\1*", re.S)  # 同じ値の続き（透けのマスクの行を、続きに分ける）
 
 
 class _Stop(Exception):
@@ -33,7 +37,7 @@ class _Stop(Exception):
 
 class GS:
     __slots__ = ("ctm", "clip", "fcs", "fc", "fpat", "scs", "sc", "spat", "lw", "cap", "join", "miter", "dash", "phase",
-                 "ca", "CA", "font", "pf", "fs", "tc", "tw", "th", "tl", "tr", "rise", "base", "nocolor", "smask", "group")
+                 "ca", "CA", "font", "pf", "fs", "tc", "tw", "th", "tl", "tr", "rise", "base", "nocolor", "hard", "group", "bm", "gbm", "iso")
 
     def __init__(self, ctm, clip):
         self.ctm = ctm
@@ -49,7 +53,10 @@ class GS:
         self.fs, self.tc, self.tw, self.th, self.tl, self.tr, self.rise = 0.0, 0.0, 0.0, 1.0, 0.0, 0, 0.0
         self.base = ctm  # 模様の座標の基（ページ・フォームの部品の座標）
         self.nocolor = False  # 型 3 の d1：色の命令を使わない
-        self.smask = False
+        self.bm = None  # 重ね方（BM）：いま描くものに掛ける重ね方（None はふつうの重ね方）
+        self.gbm = None  # いる模様（と、別に描けなかったまとまり）を置いたときの重ね方：中で BM を Normal にしても残る
+        self.iso = False  # 別に描いている、下と切り離さないまとまりの中（中の重ね方は、下のものとは重ねない）。別に描けなかったまとまりの中も
+        self.hard = None  # 透けのマスク（SMask）が掛かっている間の、マスクを掛ける前の切り抜き（clip は、マスクを掛けた後）
 
     def copy(self):
         g = GS.__new__(GS)
@@ -92,6 +99,7 @@ def _path_chunks(path: list, n: int):
         yield cur
 
 
+APART_BYTES = 200_000_000  # 透けて描くまとまりを別に描く絵の大きさの合計（バイト）。これを超えるときは、じかに描いて伝える
 MAX_IMAGES_HELD = 128 << 20  # 開いた画像の控えの大きさの合計（バイト。古いものから捨てる）
 
 
@@ -107,17 +115,30 @@ class Renderer:
         # 描いた値の印の範囲）の字だけ、字を塗る前に、墨の画素と下の色を控えに渡す。ふつうの描画では、どちらも None
         self.probe_of = None
         self.probe = None
+        # 字でないもの（入れた印・○・画像）の確かめ：layer_of(種類, 鍵) が真を返す所（注釈の見た目・とどくがページに描いた ○ の印の
+        # 範囲）だけを、白い下地と黒い下地の絵（layer_cvs）にも描く：ページの下地が同じ色でも、墨の出る所が分かる
+        self.layer_of = None
+        self.layer_cvs: tuple = ()
+        self.apart = 0  # 別の絵に描いている、透けて描くまとまりの深さ
+        self.veil = 1.0  # 別に描いているまとまりの全体の透け方（外から掛けた積）：layer_cvs に塗るときに掛ける
+        self.blends: dict = {}  # フォームの部品 → 中に重ね方（BM）があるか
+        self.plain = False  # alone の中（印・○・画像だけを、白い下地と黒い下地に描く）：重ね方（BM）を使わない
+        self.tee = False  # ○ の印の範囲の中：色で塗る図形を、layer_cvs にも塗る
         self.images: dict = {}  # 開いた画像の控え（オブジェクトと大きさごと）：同じ画像を何度も描くページで、開き直さない
         self.images_held = 0  # 控えの大きさの合計
         self.images_spent = 0  # このページで開いた画像の大きさの合計
         self.drawing: set = set()
+        self.masks: dict = {}  # 透けのマスクの控え（まとまり・種類・行列ごと）：同じ状態を何度も置くページで、描き直さない
+        self.masking = 0  # 透けのマスクのまとまりを描いている深さ
         self.stats = {"glyphs": 0, "glyphs_embedded": 0, "glyphs_system": 0, "glyphs_type3": 0, "glyphs_box": 0,
                       "images": 0, "paths": 0}
         self.subst: dict[str, str] = {}  # PDF の書体の名前 → 代わりに描いた書体
         self.missing_fonts: set[str] = set()
         self.box_places: list = []  # 字の形が分からない字の位置（画素。はじめの数十個）
         # 確かめのとき（probe_of）：形の分からない字ごとに、(四角の画素の番号, その下の色, 字の色, 濃さ)。形はなくても、色は分かる
+        # （後から描いた 400 個まで）
         self.box_inks: list = []
+        self.box_edges: dict = {}  # 灰色の枠を塗った画素 → 塗る前の色と、塗った後の色（3 バイトずつ）
         self.problems: list[str] = []
         self.approx: dict[str, int] = {}
         self.image_failed: list[str] = []
@@ -162,7 +183,7 @@ class Renderer:
         tm = tlm = IDENT
         text_clip: list | None = None
         hide: list = []  # 内容の印ごとに、見えない（True）か
-        spans: list = []  # 内容の印ごとに、その外の控え（probe）
+        spans: list = []  # 内容の印ごとに、その外の控え（probe）と、layer_cvs にも塗るか（tee）
         inline = None
 
         def push(v):
@@ -326,6 +347,8 @@ class Renderer:
                 elif op == "ET":
                     if text_clip is not None and gs.tr >= 4:
                         gs.clip = gs.clip.with_rows(scan(text_clip, False, gs.clip.rect)) if text_clip else Clip(0, 0, 0, 0, {})
+                        if gs.hard is not None:
+                            gs.hard = gs.hard.with_rows(scan(text_clip, False, gs.hard.rect)) if text_clip else Clip(0, 0, 0, 0, {})
                     text_clip = None
                 elif op == "Tf":
                     gs.fs = float(stack[-1])
@@ -394,15 +417,18 @@ class Renderer:
                         oc = (doc.resolve(res.get("Properties")) or {}).get(props.name) if isinstance(props, Name) else None
                         hid = self.hidden(oc)
                     hide.append(hid)
-                    if self.probe_of is not None:
-                        spans.append(self.probe)
+                    if self.probe_of is not None or self.layer_of is not None:
+                        spans.append((self.probe, self.tee))
                         if op == "BDC" and stack and isinstance(stack[-1], dict):
-                            self.probe = self.probe_of("span", stack[-1]) or self.probe
+                            if self.probe_of is not None:
+                                self.probe = self.probe_of("span", stack[-1]) or self.probe
+                            if self.layer_of is not None and self.layer_of("span", stack[-1]):
+                                self.tee = True
                 elif op == "EMC":
                     if hide:
                         hide.pop()
                     if spans:
-                        self.probe = spans.pop()
+                        self.probe, self.tee = spans.pop()
             except _Stop:
                 raise
             except LimitExceeded:
@@ -444,12 +470,138 @@ class Renderer:
                 gs.font = glyphs_for(doc, fd, pf) if pf is not None and isinstance(fd, dict) else None
                 gs.fs = float(doc.resolve(v[1]))
             elif k == "SMask":
-                if not (isinstance(v, Name) and v.name == "None"):
-                    self.note("透けのマスク（SMask）")
+                self.soft_mask(gs, None if isinstance(v, Name) and v.name == "None" else v)
             elif k == "BM":
-                bm = v[0] if isinstance(v, list) and v else v
-                if getattr(bm, "name", "Normal") not in ("Normal", "Compatible"):
+                # 名前の並びは、初めの知っている名前（8.4.5）
+                name = _blend_name(doc, v)
+                if name in ("Normal", "Compatible"):
+                    gs.bm = gs.gbm
+                elif self.plain:  # 印・○・画像だけを描く絵：前と同じに、ふつうの重ね方で描く
+                    gs.bm = None
+                elif not name or gs.gbm is not None or (blend_of(name).needs_cover and self.cv.cover is None):
+                    # 知らない名前。重ね方で置いた模様（と、別に描けなかったまとまり）の中の重ね方（2 つを続けて掛ける）。下に描いた
+                    # ものの濃さを控えていない絵（初めに資源を見たときに、この重ね方が見つからなかった）：描けないので、伝える
                     self.note("重ね方（BM）")
+                    gs.bm = gs.gbm
+                else:
+                    if gs.iso:
+                        # 下と切り離さないまとまりを別に描いている：中の重ね方は、まとまりの中のものとだけ重ねる（下のものとは
+                        # 重ねない）ので、近い形。伝える
+                        self.note("重ね方（BM）")
+                    gs.bm = blend_of(name)
+
+    # ------------------------------------------------------------------ 透けのマスク
+    def soft_mask(self, gs: GS, sm) -> None:
+        """透けのマスク（ExtGState の SMask：11.6.5.2）を置く・外す（sm が None）。マスクの値（0〜1）は、この後に描くもの
+        1 つ 1 つの濃さに掛かる：切り抜きの形（行ごとの続きと濃さ）に掛けて持つ。描けないマスクは、前と同じに、マスクなしで描いて
+        数を伝える。"""
+        hard = gs.hard if gs.hard is not None else gs.clip
+        rows = self._mask_rows(gs, sm) if sm is not None else None
+        if sm is not None and rows is None:
+            self.note("透けのマスク（SMask）")
+        if rows is None:
+            gs.clip, gs.hard = hard, None
+        else:
+            gs.clip, gs.hard = hard.with_rows(rows), hard
+
+    def _mask_rows(self, gs: GS, sm) -> list | None:
+        """マスクのまとまり（G）を別の絵に描いて、画素ごとの値を、行ごとの続き [(Y, [(x0, x1, 値 1〜255)])] にする（値 0 の所は
+        入れない）。Luminosity：下地の色（BC。なければ黒）の上に描いた絵の明るさ。Alpha：白い下地と黒い下地に描いた絵の差から
+        決める、まとまりの濃さ。TR（値を移す関数）があれば掛ける。座標は、状態を置いたときの行列（11.6.5.2）。"""
+        doc = self.doc
+        if not isinstance(sm, dict) or self.masking >= 2:
+            return None
+        g = doc.resolve(sm.get("G"))
+        kind = getattr(doc.resolve(sm.get("S")), "name", "")
+        if not isinstance(g, Stream) or kind not in ("Luminosity", "Alpha"):
+            return None
+        key = (g.num or id(g), kind, repr(sm.get("BC")), repr(sm.get("TR")), tuple(round(v, 3) for v in gs.ctm))
+        if key in self.masks:
+            return self.masks[key][1]
+        lut = None
+        tr = doc.resolve(sm.get("TR"))
+        if tr is not None and not (isinstance(tr, Name) and tr.name == "Identity"):
+            try:
+                fn = function(doc, tr)
+                lut = bytes(max(0, min(255, int(float(fn([i / 255.0])[0]) * 255 + 0.5))) for i in range(256))
+            except Exception:  # noqa: BLE001
+                return None
+        W, H = self.cv.w, self.cv.h
+        back = (0, 0, 0)
+        if kind == "Luminosity":
+            bc = doc.resolve(sm.get("BC"))
+            grp = doc.resolve(g.dict.get("Group"))
+            if isinstance(bc, list) and bc and isinstance(grp, dict) and grp.get("CS") is not None:
+                try:
+                    cs = colorspace(doc, grp.get("CS"), doc.resolve(g.dict.get("Resources")) or {})
+                    back = _rgb255(cs.rgb([float(doc.resolve(x)) for x in bc]))
+                except Exception:  # noqa: BLE001
+                    return None
+            grounds = (back,)
+        else:
+            grounds = ((255, 255, 255), (0, 0, 0))
+        cvs = []
+        for c in grounds:
+            cv = Canvas(W, H, cover=self.cv.cover is not None)
+            if c != (255, 255, 255):
+                cv.buf = bytearray(bytes(c) * (W * H))
+            cvs.append(cv)
+        keep = (self.cv, self.probe, self.tee, dict(self.stats), len(self.box_places), len(self.problems))
+        edges, self.box_edges = self.box_edges, {}
+        inks, self.box_inks = self.box_inks, []
+        self.probe, self.tee = None, False
+        self.masking += 1
+        try:
+            for cv in cvs:
+                self.cv = cv
+                self.form(GS(gs.ctm, Clip(0, 0, W, H)), g, {}, 1)
+            failed = len(self.problems) > keep[5]
+        finally:
+            self.masking -= 1
+            self.cv, self.probe, self.tee, self.stats = keep[:4]
+            self.box_edges, self.box_inks = edges, inks
+            del self.box_places[keep[4]:]
+        if failed:  # まとまりを描けなかった：マスクなしで描く（描けなかったことは、problems に残る）
+            return None
+        rows = []
+        n = W * 3
+        if kind == "Luminosity":
+            buf = cvs[0].buf
+            plain = bytes(back) * W
+            v0 = (back[0] * 77 + back[1] * 151 + back[2] * 28) >> 8
+            if lut is not None:
+                v0 = lut[v0]
+            for Y in range(H):
+                row = bytes(buf[Y * n:Y * n + n])
+                if row == plain:
+                    if v0:
+                        rows.append((Y, [(0, W, v0)]))
+                    continue
+                r, gg, b = row[0::3], row[1::3], row[2::3]
+                lum = r if r == gg == b else bytes((x * 77 + y * 151 + z * 28) >> 8 for x, y, z in zip(r, gg, b))
+                if lut is not None:
+                    lum = lum.translate(lut)
+                runs = [(m.start(), m.end(), m.group(1)[0]) for m in _RUNS.finditer(lum) if m.group(1) != b"\x00"]
+                if runs:
+                    rows.append((Y, runs))
+        else:
+            white, black = cvs[0].buf, cvs[1].buf
+            v1 = lut[255] if lut is not None else 255
+            for Y in range(H):
+                a, b = bytes(white[Y * n:Y * n + n]), bytes(black[Y * n:Y * n + n])
+                if a == b:  # どの画素も、下地によらない色：まとまりが、行の全部を覆う
+                    if v1:
+                        rows.append((Y, [(0, W, v1)]))
+                    continue
+                al = bytes(max(0, 255 - (x - y)) for x, y in zip(a[0::3], b[0::3]))
+                if lut is not None:
+                    al = al.translate(lut)
+                runs = [(m.start(), m.end(), m.group(1)[0]) for m in _RUNS.finditer(al) if m.group(1) != b"\x00"]
+                if runs:
+                    rows.append((Y, runs))
+        if len(self.masks) < 64:
+            self.masks[key] = (g, rows)
+        return rows
 
     def font(self, res: dict, name: str):
         doc = self.doc
@@ -475,7 +627,30 @@ class Renderer:
         if pat is not None:
             self.pattern_rows(gs, rows, pat, alpha, fill)
             return
-        paint(self.cv, rows, gs.fc if fill else gs.sc, alpha, gs.clip)
+        paint(self.cv, rows, gs.fc if fill else gs.sc, alpha, gs.clip, blend=gs.bm)
+        if self.tee:
+            for cv in self.layer_cvs:
+                paint(cv, rows, gs.fc if fill else gs.sc, alpha * self.veil, gs.clip)
+
+    def alone(self, draw, cvs=None) -> None:
+        """いま描いたもの（draw）だけを、白い下地と黒い下地の絵（cvs があれば、その絵）にも描く。数えたもの・知らせは、ページの絵を
+        描いたときのまま。"""
+        keep = (self.cv, self.probe, self.tee, dict(self.stats), dict(self.approx), dict(self.subst), set(self.missing_fonts),
+                len(self.box_places), len(self.problems), len(self.image_failed), len(self.image_notes))
+        edges, self.box_edges = self.box_edges, {}
+        inks, self.box_inks = self.box_inks, []
+        self.probe, self.tee = None, False
+        plain, self.plain = self.plain, True
+        try:
+            for cv in (self.layer_cvs if cvs is None else cvs):
+                self.cv = cv
+                draw()
+        finally:
+            self.plain = plain
+            self.cv, self.probe, self.tee, self.stats, self.approx, self.subst, self.missing_fonts = keep[:7]
+            self.box_edges, self.box_inks = edges, inks
+            for lst, n in zip((self.box_places, self.problems, self.image_failed, self.image_notes), keep[7:]):
+                del lst[n:]
 
     def fill_path(self, gs: GS, path: list, eo: bool) -> None:
         if gs.clip.empty:
@@ -529,15 +704,19 @@ class Renderer:
     def clip_path(self, gs: GS, path: list, eo: bool) -> None:
         subs = flatten(path, gs.ctm)
         polys = [p for p, _c in subs if len(p) >= 2]
+        gs.clip = self._clipped(gs.clip, polys, eo)
+        if gs.hard is not None:  # 透けのマスクが掛かっている間：マスクを掛ける前の切り抜きも、同じに狭める
+            gs.hard = self._clipped(gs.hard, polys, eo)
+
+    @staticmethod
+    def _clipped(clip: Clip, polys: list, eo: bool) -> Clip:
         if not polys:
-            gs.clip = Clip(0, 0, 0, 0, {})
-            return
+            return Clip(0, 0, 0, 0, {})
         if len(polys) == 1:
             r = _rect_of(polys[0])
             if r is not None:
-                gs.clip = gs.clip.with_rect(*r)
-                return
-        gs.clip = gs.clip.with_rows(scan(polys, eo, gs.clip.rect))
+                return clip.with_rect(*r)
+        return clip.with_rows(scan(polys, eo, clip.rect))
 
     # ------------------------------------------------------------------ 字
     def show(self, gs: GS, res: dict, s: bytes, tm, invisible: bool, text_clip, depth: int):
@@ -625,7 +804,7 @@ class Renderer:
                         self.gcache[ck] = rows
                 if self.probe is not None:
                     self.probe.glyph(self.cv, covered(self.cv, rows, gs.clip, ix, iy), gs.fc, gs.ca)
-                paint(self.cv, rows, gs.fc, gs.ca, gs.clip, ix, iy)
+                paint(self.cv, rows, gs.fc, gs.ca, gs.clip, ix, iy, gs.bm)
                 if self.probe is not None:
                     self.probe.painted(self.cv)
             else:
@@ -647,12 +826,34 @@ class Renderer:
         d, a = getattr(pf, "descent", -0.15), getattr(pf, "ascent", 0.85)
         quad = [(0.0, d), (x1, d), (x1, a), (0.0, a)]
         pts = [(m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]) for x, y in quad]
-        if self.probe_of is not None and mode in (0, 2, 4, 6) and gs.fpat is None and len(self.box_inks) < 400:
-            px = [q for q, _a in covered(self.cv, fill_rows([pts], False, gs.clip.rect), gs.clip)]
-            buf = self.cv.buf
-            self.box_inks.append((px, [bytes(buf[q * 3:q * 3 + 3]) for q in px], tuple(int(v) for v in gs.fc), gs.ca))
         polys = stroke_polys([(pts, True)], 1.0, 0, 0, 10.0, None, 0.0, 1.0)
-        paint(self.cv, fill_rows(polys, False, gs.clip.rect), (150, 150, 150), 1.0, gs.clip)
+        edge = fill_rows(polys, False, gs.clip.rect)
+        probed = False
+        if self.probe_of is not None and mode in (0, 2, 4, 6) and gs.fpat is None:
+            cover = covered(self.cv, fill_rows([pts], False, gs.clip.rect), gs.clip)
+            if len(self.box_inks) >= 400:
+                del self.box_inks[0]  # 後から描いたものを残す：書いた印は、ページの中身の後に描かれる
+            px = [q for q, _a in cover]
+            self.box_inks.append((px, [self._under(q) for q in px], tuple(int(v) for v in gs.fc), gs.ca))
+            if self.probe is not None:
+                # 書いた欄の字：形はなくても、字の四角の中の下の色と、字の色は分かる（pdf/inkcheck が、色で決める）。
+                # 灰色の枠が塗る画素も一緒に控える：隣の字の四角が、この枠の灰色を「下の色」と見ないように
+                self.probe.glyph(self.cv, cover + covered(self.cv, edge, gs.clip), gs.fc, gs.ca, True)
+                probed = True
+        rim = [q for q, _a in covered(self.cv, edge, gs.clip)] if self.probe_of is not None else ()
+        was = [self._under(q) for q in rim]
+        paint(self.cv, edge, (150, 150, 150), 1.0, gs.clip)
+        buf = self.cv.buf
+        for q, u in zip(rim, was):
+            self.box_edges[q] = u + bytes(buf[q * 3:q * 3 + 3])
+        if probed:
+            self.probe.painted(self.cv)
+
+    def _under(self, q: int) -> bytes:
+        """画素の、描いたものの色：ほかの字の灰色の枠（描画が足した印）がいちばん上にあれば、その枠を塗る前の色。"""
+        now = bytes(self.cv.buf[q * 3:q * 3 + 3])
+        e = self.box_edges.get(q)
+        return e[:3] if e is not None and e[3:] == now else now
 
     # ------------------------------------------------------------------ 部品・画像
     def xobject(self, gs: GS, res: dict, name: str, depth: int) -> None:
@@ -684,11 +885,47 @@ class Renderer:
         g2.ctm = mul(m, matrix if matrix is not None else gs.ctm)
         g2.base = g2.ctm
         grp = doc.resolve(xo.dict.get("Group"))
+        apart = ""
+        twice = False
         if isinstance(grp, dict) and getattr(doc.resolve(grp.get("S")), "name", None) == "Transparency":
-            # 透けて描くまとまり（11.6.6）：中の透け方は 1 から始まり、まとまりの全体を、置いたときの塗りの透け方で重ねる。
-            # とどくは、まとまりを別に描いて重ねずに、中の 1 つ 1 つを、その透け方を掛けて描く（中で重なるものは、互いに透ける）
-            g2.group = gs.ca
-            g2.ca = g2.CA = g2.group
+            # 透けて描くまとまり（11.6.6）：中の透け方・重ね方・透けのマスクは 1・ふつう・なしから始まり、まとまりの全体を、
+            # 置いたときの塗りの透け方・重ね方・透けのマスクで重ねる。そのどれもなく、下と切り離すまとまり（I）の中に重ね方も
+            # なければ、じかに描いても同じ。あれば、別の絵に描いてから重ねる：
+            # ・alone：何もない絵に描いて、重ねる（lay）。下と切り離すまとまりと、重ね方で置いたまとまり。
+            # ・over：下の絵の写しに描いて、前の絵と混ぜる（lay_over）。下と切り離さないまとまり（中の重ね方は、下のものと重ねる）。
+            # ・重ね方で置いた、下と切り離さないまとまりの中に重ね方がある（twice）：何もない絵に描いて、まとまりの濃さを決め、
+            #   下の絵の写しにも描いて、中の重ね方を下のものと重ねる。その色から、まとまりだけの色を取り出して（lift）、重ねる。
+            iso = doc.resolve(grp.get("I")) is True
+            if doc.resolve(grp.get("K")) is True and not self.plain:
+                # 中のものどうしを重ねないまとまり（Knockout）：ふつうのまとまりとして描く（中で重なる半透明のものは、互いに重なる）。伝える
+                self.note("透けて描くまとまり（Knockout）")
+            marked = gs.ca < 0.999 or gs.hard is not None
+            if gs.bm is not None or (iso and (marked or self._has_blend(xo))):
+                apart = "alone"
+                twice = (not iso and not self.plain and self._has_blend(xo)
+                         and self.cv.w * self.cv.h * 4 * (self.apart + 3) <= APART_BYTES)
+            elif marked:
+                apart = "over"
+            if apart and (self.apart >= 3 or self.cv.w * self.cv.h * 4 * (self.apart + 2) > APART_BYTES):
+                # 別の絵を重ねすぎる：中の 1 つ 1 つを、その透け方・重ね方で描く（中で重なるものは、互いに透ける）。伝える
+                apart = ""
+                self.note("透けて描くまとまり（別に描けない深さ・大きさ）")
+                g2.group = gs.ca
+                g2.ca = g2.CA = g2.group
+                g2.gbm = gs.bm
+                g2.iso = True
+                g2.hard = None  # 置いたときのマスクは、中で SMask を外しても残る
+            elif apart:
+                if gs.hard is not None:
+                    g2.clip = gs.hard  # マスクは、重ねるときに掛ける
+                g2.hard = None
+                g2.group = 1.0
+                g2.ca = g2.CA = 1.0
+                g2.bm = g2.gbm = None
+                if apart == "alone":
+                    # 下と切り離さないまとまりを、重ね方で置いた：2 回描けないときは、中の重ね方を、下のものと重ねられない
+                    # （近い形。伝える）
+                    g2.iso = not iso and not twice
         bb = doc.resolve(xo.dict.get("BBox"))
         if isinstance(bb, list) and len(bb) == 4:
             x0, y0, x1, y1 = (float(doc.resolve(v)) for v in bb)
@@ -697,7 +934,19 @@ class Renderer:
             return
         sub_res = doc.resolve(xo.dict.get("Resources")) or res
         self.drawing.add(key)
+        under, veil = self.cv, self.veil
+        rect = g2.clip.rect  # 中身を描く前の切り抜き（中身の q・W は、g2 そのものを書き換える）
+        if apart:
+            self.cv = Canvas(under.w, under.h, cover=True) if apart == "alone" else under.copy()
+            self.apart += 1
+            self.veil = veil * gs.ca
+        second = None
         try:
+            if apart and twice:
+                # まとまりの濃さ：何もない絵に、数えずに描く（重ね方は、濃さを変えない）
+                shape, g1 = self.cv, g2.copy()
+                self.alone(lambda: self._run(doc.decode(xo), sub_res, g1, depth + 1), (shape,))
+                self.cv = second = under.copy()
             self._run(doc.decode(xo), sub_res, g2, depth + 1)
         except (_Stop, MemoryError, RecursionError):
             raise
@@ -709,6 +958,30 @@ class Renderer:
             self.problems.append(f"フォームの部品を描けません（{type(e).__name__}）")
         finally:
             self.drawing.discard(key)
+            if apart:
+                part, self.cv, self.veil = self.cv, under, veil
+                self.apart -= 1
+                if second is not None:
+                    part = shape
+                    lift(part, second, under, rect)
+                # 途中で止まっても、描いた所までを重ねる
+                if apart == "alone":
+                    lay(under, part, rect, gs.ca, gs.clip, gs.bm)
+                else:
+                    lay_over(under, part, rect, gs.ca, gs.clip)
+
+    def _has_blend(self, xo: Stream) -> bool:
+        """フォームの部品の中（資源をたどる）に、ふつうでない重ね方（BM）があるか。"""
+        key = xo.num or id(xo)
+        got = self.blends.get(key)
+        if got is None:
+            try:
+                got = _blends_in(self.doc, xo.dict.get("Resources"), set(), [2000], True)
+            except RecursionError:
+                got = True
+            if len(self.blends) < 4096:
+                self.blends[key] = got
+        return got
 
     def image(self, gs: GS, img, res: dict, name: str) -> None:
         if gs.clip.empty:
@@ -765,7 +1038,7 @@ class Renderer:
         if im.stencil and gs.fpat is not None:
             fill = (128, 128, 128)
             self.note("模様で塗る型抜きの画像")
-        draw_image(self.cv, im, m, gs.clip, gs.ca, fill)
+        draw_image(self.cv, im, m, gs.clip, gs.ca, fill, gs.bm)
 
     def _undrawn_image(self, gs: GS, m) -> None:
         """開けない画像：その四角に灰色の枠と対角線を描く（白いままにしない：そこに中身があると見て分かるように）。"""
@@ -871,7 +1144,7 @@ class Renderer:
             else:
                 self.note("網かけ")
                 return
-            paint_fn(self.cv, rows, at, a, clip)
+            paint_fn(self.cv, rows, at, a, clip, gs.bm)
             return
         # 描けない型：関数の中ほどの色か、Background で塗る
         self.note(f"網かけ（型 {t}）")
@@ -885,7 +1158,7 @@ class Renderer:
             except Exception:  # noqa: BLE001
                 col = None
         if col is not None:
-            paint(self.cv, rows, col, a, clip)
+            paint(self.cv, rows, col, a, clip, blend=gs.bm)
 
     def pattern_rows(self, gs: GS, rows, pat, alpha: float, fill: bool) -> None:
         doc = self.doc
@@ -935,7 +1208,7 @@ class Renderer:
             c = gs.fc if fill else gs.sc
             if paint_type == 1:
                 c = (128, 128, 128)
-            paint(self.cv, rows, c, alpha * 0.5, gs.clip)
+            paint(self.cv, rows, c, alpha * 0.5, gs.clip, blend=gs.bm)
             return
         data = doc.decode(p)
         pres = doc.resolve(d.get("Resources")) or {}
@@ -949,6 +1222,8 @@ class Renderer:
                     g2 = GS(mul((1, 0, 0, 1, i * xs, j * ys), m), clip)
                     g2.base = g2.ctm
                     g2.ca = g2.CA = g2.group = alpha
+                    g2.bm = g2.gbm = gs.bm
+                    g2.iso = gs.iso
                     if paint_type == 2:
                         g2.fc = g2.sc = gs.fc if fill else gs.sc
                         g2.nocolor = True
@@ -1134,12 +1409,76 @@ def appearance_notes(doc, page: dict) -> list[str]:
     return out
 
 
-def render_page(doc, page: dict, W: int, H: int, base, time_limit: float = 60.0, probe_of=None) -> tuple[Canvas, Renderer]:
+def _blend_name(doc, v) -> str:
+    """ExtGState の BM の値 → 重ね方の名前。名前の並びは、初めの知っている名前（8.4.5）。知らない名前だけなら ""。"""
+    names = [getattr(doc.resolve(x), "name", "") for x in (v if isinstance(v, list) else [v])]
+    return next((x for x in names if x in BLEND_NAMES or x in ("Normal", "Compatible")), "")
+
+
+def _blends_in(doc, res, seen: set, left: list, every: bool = False) -> bool:
+    """資源（と、その中のフォームの部品・模様・透けのマスクのまとまりの資源）に、まだ何も描いていない所で結果の変わる重ね方
+    （Multiply・Darken のほかの BM。every：ふつうでない重ね方のどれか）があるか。たどる数が多すぎるときは True
+    （濃さを控えておく・別に描く：遅くなるだけ）。"""
+    res = doc.resolve(res)
+    if not isinstance(res, dict):
+        return False
+    subs = []
+    egs = doc.resolve(res.get("ExtGState"))
+    for ref in egs.values() if isinstance(egs, dict) else ():
+        left[0] -= 1
+        if left[0] < 0:
+            return True
+        eg = doc.resolve(ref)
+        if not isinstance(eg, dict):
+            continue
+        if "BM" in eg:
+            name = _blend_name(doc, doc.resolve(eg["BM"]))
+            if name in BLEND_NAMES and (every or blend_of(name).needs_cover):
+                return True
+        sm = doc.resolve(eg.get("SMask"))
+        if isinstance(sm, dict):
+            subs.append(doc.resolve(sm.get("G")))
+    for kind in ("XObject", "Pattern"):
+        d = doc.resolve(res.get(kind))
+        for ref in d.values() if isinstance(d, dict) else ():
+            left[0] -= 1
+            if left[0] < 0:
+                return True
+            subs.append(doc.resolve(ref))
+    for x in subs:
+        if not isinstance(x, Stream) or "Resources" not in x.dict:
+            continue
+        key = x.num or id(x)
+        if key in seen:
+            continue
+        seen.add(key)
+        if _blends_in(doc, x.dict["Resources"], seen, left, every):
+            return True
+    return False
+
+
+def _wants_cover(doc, page: dict, res: dict) -> bool:
+    """このページの絵で、画素ごとの「描いたものの濃さ」を控えるか（_blends_in）。注釈の見た目の資源も見る。"""
+    try:
+        seen: set = set()
+        left = [5000]
+        if _blends_in(doc, res, seen, left):
+            return True
+        return any(_blends_in(doc, n.dict.get("Resources"), seen, left) for _ad, n, _fit in annotation_forms(doc, page))
+    except RecursionError:
+        return True
+
+
+def render_page(doc, page: dict, W: int, H: int, base, time_limit: float = 60.0, probe_of=None, layer_of=None) -> tuple[Canvas, Renderer]:
     """ページを W × H の画素に描く。base：ページの座標 → 画素の行列（回転・切り取り・拡大を含む）。"""
-    cv = Canvas(W, H)
+    res = doc.resolve(page.get("Resources")) or {}
+    cv = Canvas(W, H, cover=_wants_cover(doc, page, res))
     r = Renderer(doc, cv, time.monotonic() + time_limit if time_limit else None)
     r.probe_of = probe_of
-    res = doc.resolve(page.get("Resources")) or {}
+    if layer_of is not None:
+        black = Canvas(W, H)
+        black.buf = bytearray(W * H * 3)
+        r.layer_of, r.layer_cvs = layer_of, (Canvas(W, H), black)
     gs = GS(base, Clip(0, 0, W, H))
     try:
         r.run(doc.page_content(page), res, gs, 0)
@@ -1154,6 +1493,8 @@ def render_page(doc, page: dict, W: int, H: int, base, time_limit: float = 60.0,
             r.probe = probe_of("annot", ad) if probe_of is not None else None
             try:
                 r.form(g, n, res, 0, matrix=mul(fit, base))
+                if layer_of is not None and layer_of("annot", ad):
+                    r.alone(lambda: r.form(GS(base, Clip(0, 0, W, H)), n, res, 0, matrix=mul(fit, base)))
             except _Stop:
                 break
             except Exception as e:  # noqa: BLE001
