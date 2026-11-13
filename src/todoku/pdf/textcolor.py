@@ -39,6 +39,11 @@ def _counts(c) -> bool:
     return not c.invisible and not c.text.isspace()
 
 
+def _marked(c) -> bool:
+    """色の印を付ける字：見える字と、下の色と同じ色で塗った字（画面には出ないが、色はある：印で、行のどの字かが分かる）。"""
+    return not c.text.isspace() and (not c.invisible or c.faint == "same")
+
+
 def normal(chars) -> str:
     """ページのふつうの字の色：見える字（空白でない字）の字数のいちばん多い色。"""
     n: collections.Counter = collections.Counter()
@@ -70,13 +75,13 @@ def per_text(ln) -> list:
                 fallback = fallback or c
             j -= 1
         c = found or fallback
-        out.append(c.color if c is not None and _counts(c) else None)
+        out.append(c.color if c is not None and _marked(c) else None)
     return out
 
 
 def line_marks(ln, normal_color: str) -> tuple[str, list[tuple[int, int, str]]]:
     """(行の前に置く印, [(始め, 終わり, 色)]：ふつうと違う色の、行の一部の字)。"""
-    colors = {c.color for c in ln.chars if _counts(c)}
+    colors = {c.color for c in ln.chars if _marked(c)}
     if not colors or (len(colors) == 1 and normal_color in colors):
         return "", []
     if len(colors) == 1:

@@ -111,7 +111,8 @@ def test_a_rectangle_drawn_with_lines_covers(tmp_path):
 
 
 def test_a_fill_drawn_before_the_text_hides_nothing(tmp_path):
-    _visible(tmp_path, NAME + BOX + HIDDEN)
+    # 灰色の四角の上の黒い字（黒い四角の上の黒い字は、下の色と同じ色の字：tests/test_pdf_same_color_text.py）
+    _visible(tmp_path, NAME + b"0.8 g\n" + BOX + b"0 g\n" + HIDDEN)
 
 
 def test_text_drawn_over_the_fill_is_read_and_the_text_under_it_is_told_apart(tmp_path):

@@ -675,6 +675,28 @@ class PageLayout:
                       "置いた文字の認識の字のことも、画像で隠した字のこともあります。どれかは、とどくは決めません）。窓の読み順には"
                       "入っています。画像の中身と同じかは、字の情報からは分からないので、その位置は view_page の画像と照らして確かめる",
                       where)
+        for kind, title, what in (
+                ("same", "下の色と同じ色の字（画面には出ない字）",
+                 "字の色が、その下の色と同じ字です：何も描いていない所（ページの白）の上の白い字と、同じ色の透けない塗りの四角の上の字。"
+                 "画面にも印刷にも出ません（白くして消した字のことも、見せずに入れた字のこともあります。どれかは、とどくは決めません）。"),
+                ("alpha", "不透明度 0 で描いた字（画面には出ない字）",
+                 "塗りの不透明度（ExtGState の ca）を 0 にして描いた字です。この字そのものは、画面にも印刷にも出ません（同じ所に線や形で"
+                 "描いた字に、検索用に重ねた字のことも、見せずに入れた字のこともあります。どれかは、とどくは決めません）。")):
+            faint = {id(c) for c in ocr if c.faint == kind}
+            if not faint:
+                continue
+            # 描いても見えない字（content.Interpreter）：見えない描き方の字（OCR の字）とは別に、行ごとに位置を伝える
+            ocr = [c for c in ocr if id(c) not in faint]
+            lines_ = [ln for ln in self.all_lines() if any(id(c) in faint for c in ln.chars)]
+            where = []
+            for ln in lines_[:12]:
+                idx = [i for i, c in enumerate(ln.chars) if id(c) in faint]  # 行の中の、その字の初めから終わりまで
+                part = ln.chars[idx[0]:idx[-1] + 1]
+                where.append(self.where(min(c.x0 for c in part), ln.y0, "".join(c.text for c in part)))
+            if len(lines_) > 12:
+                where.append(f"{self.number}ページ（ほか {len(lines_) - 12} 行。この字は、このページに {len(faint)} 字）")
+            self.flag("B", title, what + "窓の読み順には入っています。書類の内容として読むかは、その位置を view_page の画像と照らして、"
+                      "エージェントが決める", where)
         if ocr:
             pics = [self.view.rect(p.x0, p.y0, p.x1, p.y1) for p in self.pc.pictures]
             on = [c for c in ocr if any(r[0] - 1 <= c.cx <= r[2] + 1 and r[1] - 1 <= c.cy <= r[3] + 1 for r in pics)]
