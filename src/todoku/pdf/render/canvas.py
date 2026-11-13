@@ -1031,3 +1031,45 @@ def paint_fn(cv: Canvas, rows, color_at, alpha: float, clip: Clip, blend: Blend 
                 buf[p + 2] = (buf[p + 2] * na + c[2] * a + 127) // 255
                 if cover is not None and cover[q] < 255:
                     cover[q] += ((255 - cover[q]) * a + 127) // 255
+
+
+def paint_cells(cv: Canvas, rows, at, alpha: float, clip: Clip, blend: Blend | None = None) -> None:
+    """画素ごとに色と濃さの変わる塗り（模様のこまの絵から）：at(x, y) → (r, g, b, a)（画素の左上の番号で呼ぶ。a は 0〜255 の濃さで、
+    0 は塗らない）。blend：重ね方。"""
+    buf = cv.buf
+    W = cv.w
+    mask = clip.mask
+    cover = cv.cover
+    for Y, runs in rows:
+        if Y < clip.y0 or Y >= clip.y1:
+            continue
+        if mask is not None:
+            mr = mask.get(Y)
+            if not mr:
+                continue
+            runs = intersect(runs, mr)
+        for x0, x1, ra in runs:
+            x0, x1 = max(x0, clip.x0), min(x1, clip.x1)
+            ra *= alpha
+            if ra <= 0:
+                continue
+            for x in range(x0, x1):
+                r, g, b, a = at(x, Y)
+                a = int(ra * a / 255 + 0.5)
+                if a <= 0:
+                    continue
+                q = Y * W + x
+                p = q * 3
+                if blend is not None:
+                    r, g, b = blend.onto(buf[p], buf[p + 1], buf[p + 2], 255 if cover is None else cover[q], r, g, b)
+                if a >= 255:
+                    buf[p], buf[p + 1], buf[p + 2] = r, g, b
+                    if cover is not None:
+                        cover[q] = 255
+                    continue
+                na = 255 - a
+                buf[p] = (buf[p] * na + r * a + 127) // 255
+                buf[p + 1] = (buf[p + 1] * na + g * a + 127) // 255
+                buf[p + 2] = (buf[p + 2] * na + b * a + 127) // 255
+                if cover is not None and cover[q] < 255:
+                    cover[q] += ((255 - cover[q]) * a + 127) // 255

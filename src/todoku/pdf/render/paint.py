@@ -20,7 +20,7 @@ import time
 from ..content import tokens
 from ..fonts import load_font
 from ..objects import Name, PdfString, Stream
-from .canvas import (BLEND_NAMES, Canvas, Clip, _rect_of, _turn, blend_of, covered, fill_rows, flatten, inv, lay, lay_over, lift, mul, paint, paint_fn, rect_rows,
+from .canvas import (BLEND_NAMES, Canvas, Clip, _rect_of, _turn, blend_of, covered, fill_rows, flatten, inv, lay, lay_over, lift, mul, paint, paint_cells, paint_fn, rect_rows,
                      scale_of, scan, stroke_polys, transform_polys)
 from .colors import DCMYK, DRGB, GRAY, PatternCS, colorspace, function
 from .fontmap import _decoded_name, glyphs_for
@@ -101,6 +101,106 @@ def _path_chunks(path: list, n: int):
 
 APART_BYTES = 200_000_000  # 透けて描くまとまりを別に描く絵の大きさの合計（バイト）。これを超えるときは、じかに描いて伝える
 MAX_IMAGES_HELD = 128 << 20  # 開いた画像の控えの大きさの合計（バイト。古いものから捨てる）
+TILE_REPLAYS = 4000  # 模様のこまを 1 つずつ描く数の上限。これを超える塗りと、こまが 1.5 画素より小さい塗りは、こまの絵から塗る
+CELL_SIDE = 512  # 模様のこまの絵の辺の上限（画素）
+CELL_MIN = 16  # 模様のこまの絵の辺の下限（画素）
+
+
+def _cell_side(px: float) -> int:
+    """模様のこまの絵の辺（画素）。px：画面でのこまの辺。"""
+    return min(CELL_SIDE, int(px + 0.5)) if px >= CELL_MIN else CELL_MIN
+
+
+def _cell_color(sums, area: float) -> tuple:
+    """四角の中の、濃さを掛けた赤・緑・青と濃さの和 → 平均の (r, g, b, 濃さ)。"""
+    r, g, b, a = sums
+    if a < 0.5 or area <= 0:
+        return (0, 0, 0, 0)
+    k = 255.0 / a
+    return (min(255, int(r * k + 0.5)), min(255, int(g * k + 0.5)), min(255, int(b * k + 0.5)), min(255, int(a / area + 0.5)))
+
+
+class _Cell:
+    """模様のこま 1 つ（横 |XStep|・縦 |YStep|）の絵と、その足し上げの表：こまを縦横に並べた面の、四角の中の平均の色と濃さを返す。
+    flat：こまのどこも同じ色・同じ濃さのときの (r, g, b, 濃さ)（そのときは、表を作らない）。"""
+
+    def __init__(self, cv: Canvas):
+        w, h = self.w, self.h = cv.w, cv.h
+        buf, cov = bytes(cv.buf), bytes(cv.cover)
+        self.strips: dict = {}
+        self.flat = None
+        if cov == cov[:1] * (w * h) and buf == buf[:3] * (w * h):
+            c = cov[0]
+            # 絵の色は、白い紙に重ねた色：濃さを掛けた色に直してから、濃さで割る
+            self.flat = tuple(min(255, (max(0, v - (255 - c)) * 255 + c // 2) // c) for v in buf[:3]) + (c,) if c else (0, 0, 0, 0)
+            return
+        w1 = self.w1 = w + 1
+        self.sat = sat = [[0] * (w1 * (h + 1)) for _ in range(4)]  # 濃さを掛けた赤・緑・青と、濃さ
+        sr, sg, sb, sa = sat
+        for y in range(h):
+            r = g = b = a = 0
+            o = (y + 1) * w1 + 1
+            q = y * w
+            for x in range(w):
+                c = cov[q + x]
+                if c:
+                    k = 255 - c
+                    p = (q + x) * 3
+                    v = buf[p] - k
+                    if v > 0:
+                        r += v
+                    v = buf[p + 1] - k
+                    if v > 0:
+                        g += v
+                    v = buf[p + 2] - k
+                    if v > 0:
+                        b += v
+                    a += c
+                sr[o + x] = sr[o + x - w1] + r
+                sg[o + x] = sg[o + x - w1] + g
+                sb[o + x] = sb[o + x - w1] + b
+                sa[o + x] = sa[o + x - w1] + a
+
+    def strip(self, lo: float, n: float, across: bool) -> list:
+        """こまを縦横に並べた面の帯（across でなければ、縦の位置 lo から高さ n の横の帯。across なら、横の位置 lo から幅 n の縦の帯）の
+        中を、帯に沿って頭から足し上げた表（濃さを掛けた赤・緑・青と、濃さ）。位置と幅は、こまの絵の画素（端数は、面積の割合）。"""
+        w, h, w1 = self.w, self.h, self.w1
+        side = w if across else h
+        q0, r0 = divmod(lo, side)
+        q1, r1 = divmod(lo + n, side)
+        k0, k1 = min(side - 1, int(r0)), min(side - 1, int(r1))
+        f0, f1, dq = r0 - k0, r1 - k1, q1 - q0
+        out = []
+        for s in self.sat:
+            if across:
+                out.append([dq * s[o + w] + s[o + k1] + f1 * (s[o + k1 + 1] - s[o + k1]) - s[o + k0] - f0 * (s[o + k0 + 1] - s[o + k0])
+                            for o in range(0, (h + 1) * w1, w1)])
+            else:
+                a0, a1, top = k0 * w1, k1 * w1, h * w1
+                out.append([dq * s[top + i] + s[a1 + i] + f1 * (s[a1 + w1 + i] - s[a1 + i]) - s[a0 + i] - f0 * (s[a0 + w1 + i] - s[a0 + i])
+                            for i in range(w1)])
+        return out
+
+    def box(self, u: float, v: float, nu: float, nv: float) -> tuple:
+        """こまを縦横に並べた面の、(u, v) から横 nu・縦 nv の四角の、面積で重みを付けた平均の (r, g, b, 濃さ)。"""
+        w, h, w1 = self.w, self.h, self.w1
+        u, v = u % w, v % h
+        out = []
+        for s in self.sat:
+            t = 0.0
+            for uu, vv, sign in ((u + nu, v + nv, 1), (u, v + nv, -1), (u + nu, v, -1), (u, v, 1)):
+                qx, ru = divmod(uu, w)
+                qy, rv = divmod(vv, h)
+                i, j = min(w - 1, int(ru)), min(h - 1, int(rv))
+                fa, fb = ru - i, rv - j
+                o, top = j * w1 + i, h * w1 + i
+                s00, s10, s01 = s[o], s[o + 1], s[o + w1]
+                part = s00 + fa * (s10 - s00) + fb * (s01 - s00) + fa * fb * (s[o + w1 + 1] - s10 - s01 + s00)
+                band = s[top] + fa * (s[top + 1] - s[top])  # 高さがこま 1 つ分の帯
+                pile = s[j * w1 + w] + fb * (s[(j + 1) * w1 + w] - s[j * w1 + w])  # 幅がこま 1 つ分の帯
+                t += sign * (qx * qy * s[-1] + qx * pile + qy * band + part)
+            out.append(t)
+        return _cell_color(out, nu * nv)
 
 
 class Renderer:
@@ -130,6 +230,7 @@ class Renderer:
         self.drawing: set = set()
         self.masks: dict = {}  # 透けのマスクの控え（まとまり・種類・行列ごと）：同じ状態を何度も置くページで、描き直さない
         self.masking = 0  # 透けのマスクのまとまりを描いている深さ
+        self.cells: dict = {}  # 模様のこまの絵の控え（模様・絵の大きさ・色のない模様の色ごと）：同じ模様で何度も塗るページで、描き直さない
         self.space = 0  # 重ねる色空間（ページ・まとまりの Group の CS）の成分の数。0 は、決まっていない（描く先の RGB）
         self.stats = {"glyphs": 0, "glyphs_embedded": 0, "glyphs_system": 0, "glyphs_type3": 0, "glyphs_box": 0,
                       "images": 0, "paths": 0}
@@ -1211,19 +1312,22 @@ class Renderer:
         j1 = math.ceil((max(v for _, v in uv) - bb[1]) / abs(ys))
         count = (i1 - i0 + 1) * (j1 - j0 + 1)
         cell_px = scale_of(m) * max(abs(xs), abs(ys))
-        if count > 4000 or cell_px < 1.5:
-            # 細かすぎる模様：同じ色の網とみなし、半分の濃さの色で塗る
-            self.note("細かい模様")
-            c = gs.fc if fill else gs.sc
-            if paint_type == 1:
-                c = (128, 128, 128)
-            paint(self.cv, rows, c, alpha * 0.5, gs.clip, blend=gs.bm)
-            return
-        data = doc.decode(p)
-        pres = doc.resolve(d.get("Resources")) or {}
         key = ("pat", p.num or id(p))
         if key in self.drawing:
             return
+        if count > TILE_REPLAYS or cell_px < 1.5:
+            # 細かい模様・こまの多い模様：こまを 1 つずつは描かない。こまを 1 つだけ別の絵に描き、画素ごとに、その画素にかかる所の
+            # 平均の色と濃さで塗る（小さく描いた画像と同じ）
+            if not self._tile_fill(gs, p, d, rows, m, im, alpha, fill, bb, xs, ys, paint_type):
+                # こまどうしの重なりが多すぎて、こまの絵を描けない：同じ色の網とみなし、半分の濃さの色で塗る（近い形。伝える）
+                self.note("細かい模様")
+                c = gs.fc if fill else gs.sc
+                if paint_type == 1:
+                    c = (128, 128, 128)
+                paint(self.cv, rows, c, alpha * 0.5, gs.clip, blend=gs.bm)
+            return
+        data = doc.decode(p)
+        pres = doc.resolve(d.get("Resources")) or {}
         self.drawing.add(key)
         try:
             for j in range(j0, j1 + 1):
@@ -1242,6 +1346,116 @@ class Renderer:
                     self._run(data, pres, g2, 8)
         finally:
             self.drawing.discard(key)
+
+    def _cell(self, gs: GS, p: Stream, d: dict, m, fill: bool, bb, xs: float, ys: float, paint_type: int):
+        """模様のこま 1 つを別の絵に描いた _Cell（こまどうしの重なりが多すぎるときは None）。絵の辺は、画面でのこまの辺と同じ画素の数
+        （CELL_SIDE より大きくしない）。画面で CELL_MIN 画素より小さいこまは、CELL_MIN 画素の絵に細かく描く：辺を画素の境に合わせる
+        丸めが、こまの中の色の割合を大きくは変えない細かさ（絵の 1 画素は、こまの辺の 16 分の 1）。"""
+        doc = self.doc
+        ax, ay = abs(xs), abs(ys)
+        # こまにかかる、隣のこま（BBox が歩みより大きい模様は、こまどうしが重なる）
+        ni = max(0, math.ceil((bb[2] - bb[0]) / ax) - 1)
+        nj = max(0, math.ceil((bb[3] - bb[1]) / ay) - 1)
+        if (2 * ni + 1) * (2 * nj + 1) > TILE_REPLAYS:
+            return None
+        tw, th = _cell_side(ax * math.hypot(m[0], m[1])), _cell_side(ay * math.hypot(m[2], m[3]))
+        color = (gs.fc if fill else gs.sc) if paint_type == 2 else None
+        key = (p.num or id(p), tw, th, color)
+        cell = self.cells.get(key)
+        if cell is not None:
+            return cell
+        data = doc.decode(p)
+        pres = doc.resolve(d.get("Resources")) or {}
+        cm = (tw / ax, 0.0, 0.0, th / ay, -bb[0] * tw / ax, -bb[1] * th / ay)  # 模様の座標 → こまの絵
+        pic = Canvas(tw, th, cover=True)
+        keep = (self.cv, self.probe, self.tee, self.veil, self.box_edges, self.box_inks, len(self.box_places))
+        self.cv, self.probe, self.tee, self.veil, self.box_edges, self.box_inks = pic, None, False, 1.0, {}, []
+        dkey = ("pat", p.num or id(p))
+        self.drawing.add(dkey)
+        try:
+            for j in range(-nj, nj + 1):
+                for i in range(-ni, ni + 1):
+                    g2 = GS(mul((1, 0, 0, 1, i * xs, j * ys), cm), Clip(0, 0, tw, th))
+                    g2.base = g2.ctm
+                    if color is not None:
+                        g2.fc = g2.sc = color
+                        g2.nocolor = True
+                    self.clip_path(g2, [(0, bb[0], bb[1]), (1, bb[2], bb[1]), (1, bb[2], bb[3]), (1, bb[0], bb[3]), (4,)], False)
+                    if g2.clip.empty:
+                        continue
+                    self._run(data, pres, g2, 8)
+        finally:
+            self.drawing.discard(dkey)
+            self.cv, self.probe, self.tee, self.veil, self.box_edges, self.box_inks = keep[:6]
+            del self.box_places[keep[6]:]
+        cell = _Cell(pic)
+        if len(self.cells) >= 64:
+            self.cells.pop(next(iter(self.cells)))
+        self.cells[key] = cell
+        return cell
+
+    def _tile_fill(self, gs: GS, p: Stream, d: dict, rows, m, im, alpha: float, fill: bool, bb, xs: float, ys: float, paint_type: int) -> bool:
+        """模様の塗りを、こま 1 つの絵から塗る：画素ごとに、その画素がこまの面にかかる四角の、平均の色と濃さ。こまの絵を描けない
+        ときは False（何も塗らない）。"""
+        cell = self._cell(gs, p, d, m, fill, bb, xs, ys, paint_type)
+        if cell is None:
+            return False
+        if cell.flat is not None:  # どこも同じ色のこま（1 色の画像を敷いた模様）：その色の塗りと同じ
+            if cell.flat[3]:
+                paint(self.cv, rows, cell.flat[:3], alpha * cell.flat[3] / 255, gs.clip, blend=gs.bm)
+            return True
+        tw, th = cell.w, cell.h
+        # 画面の画素 → こまの絵の画素
+        A, B, C, D, E, F = mul(im, (tw / abs(xs), 0.0, 0.0, th / abs(ys), -bb[0] * tw / abs(xs), -bb[1] * th / abs(ys)))
+        eps = 1e-9 * (abs(A) + abs(B) + abs(C) + abs(D))
+        upright = abs(B) <= eps and abs(C) <= eps
+        if not upright and not (abs(A) <= eps and abs(D) <= eps):
+            # 傾いた模様：画素は、こまの面では平行四辺形になる。同じ中心・同じ面積で、縦横の比が外枠と同じ四角で平均する
+            bu, bv = abs(A) + abs(C), abs(B) + abs(D)
+            k = math.sqrt(abs(A * D - B * C) / (bu * bv)) if bu * bv > 0 else 1.0
+            wu, wv = bu * k, bv * k
+            ou, ov = E + (A + C) / 2 - wu / 2, F + (B + D) / 2 - wv / 2
+            box = cell.box
+
+            def at(x: int, y: int) -> tuple:
+                return box(A * x + C * y + ou, B * x + D * y + ov, wu, wv)
+
+            paint_cells(self.cv, rows, at, alpha, gs.clip, gs.bm)
+            return True
+        # 軸にそろった模様（回転は 90 度ごと）：画素の行は、こまの面の帯。帯の中を足し上げた表を行ごとに作り、画素ごとに、
+        # その画素にかかる所の和を引く（面積で重みを付けた平均：こまの絵の画素の境が画素の境と合えば、こまの絵そのまま）
+        if upright:
+            fy, f0, fn, vx, v0, vn, side, along = D, F + min(D, 0.0), abs(D), A, E + min(A, 0.0), abs(A), th, tw
+        else:
+            fy, f0, fn, vx, v0, vn, side, along = C, E + min(C, 0.0), abs(C), B, F + min(B, 0.0), abs(B), tw, th
+        area = fn * vn
+        strips, strip = cell.strips, cell.strip
+        room = max(8, 200_000 // (along + 1))
+        cols: dict = {}
+        row: list = [None, None]
+
+        def at(x: int, y: int) -> tuple:
+            if row[0] != y:
+                lo = round((fy * y + f0) % side, 6)
+                k = (lo, fn, upright)
+                g = strips.get(k)
+                if g is None:
+                    if len(strips) >= room:
+                        strips.clear()
+                    g = strips[k] = strip(lo, fn, not upright)
+                row[0], row[1] = y, g
+            c = cols.get(x)
+            if c is None:
+                t = vx * x + v0
+                q0, r0 = divmod(t, along)
+                q1, r1 = divmod(t + vn, along)
+                i0, i1 = min(along - 1, int(r0)), min(along - 1, int(r1))
+                c = cols[x] = (i0, r0 - i0, i1, r1 - i1, q1 - q0)
+            i0, a0, i1, a1, dq = c
+            return _cell_color([dq * g[along] + g[i1] + a1 * (g[i1 + 1] - g[i1]) - g[i0] - a0 * (g[i0 + 1] - g[i0]) for g in row[1]], area)
+
+        paint_cells(self.cv, rows, at, alpha, gs.clip, gs.bm)
+        return True
 
 
 def _axis_uniform(m) -> bool:
