@@ -59,10 +59,13 @@ def test_result_that_fits_keeps_every_fact(tmp_path):
     r = mcp_server.tool_result("list_fields", {"path": p})
     whole = api.fields(p)
     got = r["structuredContent"]["fields"]
-    assert list(r["structuredContent"]) == ["fields"] and restore(got) == whole  # 同じ行は 1 度だけ。戻すと一字も違わない
+    # 同じ行は 1 度だけ。戻すと一字も違わない。「？」の所があるので、先頭に内訳（places）が付く
+    assert list(r["structuredContent"]) == ["places", "fields"] and restore(got) == whole
+    places = r["structuredContent"]["places"]
+    assert places["fields"] + places["uncertain"] == len(whole) and places["uncertain"] == sum(bool(f.get("agent")) for f in whole)
     assert sum("context_same_as" in f for f in got) == 9 and sum("context" in f for f in got) == 3  # 3 行に 4 マスずつ
     assert json.loads(r["content"][0]["text"]) == r["structuredContent"]
-    assert mcp_server.tool_result("list_fields", {"path": p, "detail": True})["structuredContent"] == {"fields": whole}
+    assert mcp_server.tool_result("list_fields", {"path": p, "detail": True})["structuredContent"] == {"places": places, "fields": whole}
 
 
 def test_too_large_keeps_what_writing_needs_and_says_how_to_get_the_rest(tmp_path, small_budget):
