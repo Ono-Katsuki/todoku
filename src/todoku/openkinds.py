@@ -20,6 +20,11 @@ KIND_JA = {"csv": "CSV", "tsv": "TSV（タブ区切り）", "json": "JSON", "jso
 from . import morekinds as _more  # noqa: E402  古い・役所が今も配っている形式（.xlsb など）
 from .openkinds_base import OpenFormatError  # noqa: E402
 
+
+class NotWritable(OpenFormatError):
+    """この形式には、とどくは書けない（頼み方の誤りではない）。api.NoWay になる。"""
+
+
 KIND_JA.update(_more.KIND_JA)
 KINDS = frozenset(KIND_JA)
 DATA = frozenset({"csv", "tsv", "json", "jsonl"})
@@ -210,15 +215,15 @@ def fill(k: str, blob: bytes, name: str, values: dict, force: bool = False, enco
     if k == "hwpx":
         return _fill_hwpx(blob, name, values, force)
     if k == "markup":
-        raise OpenFormatError("HTML・XML には書きません（とどくは字だけを読みます。タグのある字への書き込みを証明する方法を"
+        raise NotWritable("HTML・XML には書きません（とどくは字だけを読みます。タグのある字への書き込みを証明する方法を"
                               "作っていません）。書く必要があれば、本人に、Word・Excel・PDF など書ける形式の様式があるかを確かめてください")
     if k == "image":
         raise OpenFormatError("画像のファイルには直接書けません（画素に書いたことを証明する方法がありません）。to_pdf で PDF に包み、できた PDF に"
                               "fill_document で枠（mm）を指定して書いてください（証明はその PDF について行います）")
     if k == "hwp":
-        raise OpenFormatError("HWP 5（.hwp）には書けません。HWPX で保存し直せば書ける（한글の「다른 이름으로 저장」で .hwpx を選ぶ。"
+        raise NotWritable("HWP 5（.hwp）には書けません。HWPX で保存し直せば書ける（한글の「다른 이름으로 저장」で .hwpx を選ぶ。"
                               "本人に、HWPX で保存し直したファイルを頼んでください）")
-    raise OpenFormatError(f"この形式（{k}）には書けません")
+    raise NotWritable(f"この形式（{k}）には書けません")
 
 
 def _fill_csv(k: str, blob: bytes, name: str, values: dict, encoding: str | None = None) -> dict:

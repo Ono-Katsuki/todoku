@@ -263,7 +263,7 @@ Distribution (배포용) and password-protected HWP files have encrypted bodies 
 **Password-protected documents** (Office encryption, old .xls/.doc encryption, PDF encryption) open with the password the applicant gives.
 After writing, the file is protected again with the same password. **The password stays out of results and logs.**
 
-**A seal or signature image can stand in for a stamp or signature (PDF).** I cannot stamp or sign by hand.
+**A seal or signature image can stand in for a stamp or signature (PDF, Word .docx).** I cannot stamp or sign by hand.
 
 <details>
 <summary>Placing seals and signatures, and the proof</summary>
@@ -275,7 +275,28 @@ The image keeps its aspect ratio inside the frame. An opaque image that would co
 The proof confirms that what was added is only the stamp annotation with its appearance and image, and that the image matches the applicant's image (JPEG by file bytes, PNG by decoded pixels and transparency).
 `view_page` draws the placed image on the page.
 
-Where a registered seal or handwritten signature is required, an image may not be accepted. The agent tells the applicant so (acceptance depends on the form's rules and is not decided by matching words). Word and Excel do not take seals yet (they refuse until a way of placing them with a proof exists).
+Where a registered seal or handwritten signature is required, an image may not be accepted. The agent tells the applicant so (acceptance depends on the form's rules and is not decided by matching words). 
+
+Word (.docx) takes them on a text anchor only (`{"seal": image, "consent": true, "cover": "印", "size": 12}`; `"after"` puts it right after the text; `size` is the long side in mm and is required).
+A picture shape anchored to that character (`wp:anchor`; a transparent image in front of the text, an opaque one behind it) is added before the anchor text, with the image part and its relationship.
+The proof: only that shape, the image part, the relationship and one line of the content-type table were added, every other part is byte-identical, and the image part equals the applicant's image.
+The read-back checks that the shape sits right before the anchor text, has the requested size and points to the applicant's image.
+On the 114 collected .docx/.docm files (112 opened), three images each were placed on randomly chosen text: in all 103 files where the anchors could be resolved, proof and read-back passed and no paragraph text changed
+(9 were refused because the chosen anchors were unusable). 12 of them were converted to PDF with LibreOffice before and after: the page count is the same in all 12, the laid-out text is the same in 11.
+
+Limits: a Word document does not store positions on the page, so the position is an estimate from the font size and width (told in `uncertain`). todoku does not render the result to check the position
+(it makes no page picture of a .docx). An image that sticks out above the line inside a table cell makes LibreOffice grow that row by the overhang (one of the 12 files grew a row by about 2.5 mm; the result says so).
+Rendering in Microsoft Word has not been checked. Figure numbers in the window (〔図N〕) shift by the added images. Page frames (`page`, `box`) and `where` are not available.
+Excel, old Word (.doc), OpenDocument and other formats do not take seals yet (they refuse until a way of placing them with a proof exists).
+
+When todoku refuses a write it cannot do yet (adding an image or shape to this format, writing to a read-only format), the tool result adds: a file written with another tool has no proof and no read-back;
+tell the applicant before switching and let them decide (not added to mistakes in the request). The reason: on a real document, an agent that was refused rewrote the Word file with Python without saying so.
+Whether the agent follows it is up to the agent (todoku cannot stop it).
+
+On an already-filled document the field list is mostly places the rules cannot decide ("？": after a heading-only paragraph, gaps between text) — 94 on that same real document.
+On the 112 collected .docx/.docm files there are 2,227 rule fields and 10,176 "？" places (4,492 after a paragraph, 3,530 gaps, etc.; more than 30 in 82 files).
+todoku does not decide which of them are places to write. `list_fields` now returns `places` at the top (the number of rule fields and of "？" places by reason),
+and `uncertain: false` leaves the "？" places out of the list (they can still be written by their id in the window). The number of "？" places itself is not reduced.
 
 </details>
 

@@ -69,8 +69,8 @@ INSTRUCTIONS = (
     "結果に replaced_existing があるときは、空欄に書いたのではなく、書いた所にもとからあった字や値を変えています（how が removed：字が"
     "消えた・数が変わった。inside：字は残り、字のあいだに字が入った）。どの形式でも、書く前と後の字を比べて出します。"
     "その 2 つの字を本人に伝え、本人が頼んだ書き換えかを確かめてください。"
-    "証明（書いた所のほかは元のまま）と読み直しは、とどくが書き出したファイルについて確かめたことです。本人がほかの道具（Python の"
-    "ライブラリなど）での書き直しを求めたときは、そのファイルにはこの確かめがなくなること（書いた所のほかが元のままかは分からなくなること）を、"
+    "証明（書いた所のほかは元のまま）と読み直しは、とどくが書き出したファイルについて確かめたことです。とどくが断ったときも、本人が求めたときも、ほかの道具（Python の"
+    "ライブラリなど）で書くときは、そのファイルにはこの確かめがなくなること（書いた所のほかが元のままかは分からなくなること）を、"
     "本人に必ず伝えてください：切り替える前に伝えて本人に決めてもらうのが基本で、すぐに作り直すよう求められたときも、作り直した報告で省かないでください。"
 )
 
@@ -115,6 +115,8 @@ TOOLS = [
                     "kind が range の項目は「範囲の所」：入力規則や数式の参照が広いとき、空のセルをまとめて 1 つで示す（id は S!C5:C40000。count が空のセルの数）。"
                     "中のどのマスも番地（S!C7）で書ける。sheet と rows を渡すと、その行の分を 1 マスずつの欄で返す（文書に埋め込んだ表は sheet に「E1!シート」）。"
                     "結果が大きいときは、書くのに要る事実を残して、根拠の事実（near・evidence・why など）を省き、省いたものと頼み方を omitted に書く。"
+                    "規則では決められない所（agent: true。窓の［…？］）があれば、places に、規則で決まった欄の数と「？」の所の数（why_code ごと）を返す："
+                    "記入済みの書類では「？」の所ばかりになる。uncertain: false なら「？」の所を一覧から省く（窓の id では書ける）。"
                     "ids（id のリスト）を渡すと、その欄の事実をすべて返す（context も欄ごとに）。detail: true なら、どの欄の事実も省かず、分けて返す（next で続く）。",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "password": {"type": "string", "description": "パスワードで保護された書類のとき、本人に聞いたパスワード（結果にも記録にも残さない）"},
                                                       "only_empty": {"type": "boolean", "default": False},
@@ -123,6 +125,7 @@ TOOLS = [
                                                       "sheet": {"type": "string"}, "cursor": {"type": "string"}, "limit": {"type": "integer", "minimum": 1},
                                                       "ids": {"type": "array", "items": {"type": "string"}, "description": "この欄の事実（near・evidence・why なども）をすべて返す"},
                                                       "detail": {"type": "boolean", "default": False, "description": "どの欄の事実も省かず、大きければ分けて返す"},
+                                                      "uncertain": {"type": "boolean", "default": True, "description": "false：規則では決められない所（「？」）を一覧から省く"},
                                                       "skip": {"type": "integer", "minimum": 0, "description": "同じ頼み方の結果の、はじめのこの数の欄を飛ばす（結果の next に入っているのを、そのまま渡す）"}},
                      "required": ["path"]}},
     {"name": "fill_document",
@@ -147,7 +150,7 @@ TOOLS = [
                     "同じ字がいくつもあれば near か occurrence（Excel は cell でも）で 1 つに決める。決まらなければ候補を示して断る。PDF は楕円（字に触れるなら断るので style・box を決める）、Excel（.xlsx）は楕円の図形、"
                     "Word（.docx）は既定で字の四角い囲み線。古い .xls・.doc には描けない。Excel・Word の位置は見積もりなので uncertain を本人に伝える。"
                     "\n【本人の印影・署名の画像】本人に、どの書類のどこにどの画像を置くかを伝えて同意を得たときだけ {\"@1\": {\"seal\" か \"signature\": 画像のパス, \"consent\": true, \"page\": ページ, \"box\": [左, 上, 右, 下]（mm）}}"
-                    "（PDF のみ。consent: true がなければ置かない。字を目印に cover・after でも置ける）。実印・自署（手書き）が求められる所では受け付けられないことがある：様式の注意書きを読んで本人に伝える。"
+                    "（PDF。字を目印に cover・after でも置ける。Word（.docx）は、字を目印に {…, \"cover\"（その字の上）か \"after\"（すぐ後ろ）: 字, \"size\": 長い辺の mm} だけで、位置は見積もり。ほかの形式は断る。consent: true がなければ置かない）。実印・自署（手書き）が求められる所では受け付けられないことがある：様式の注意書きを読んで本人に伝える。"
                     "\n【明示しないと断る】印刷された字のあるセルをまるごと書き換える {\"value\": 値, \"overwrite_text\": true}。PDF の画面にも紙にも出ない欄 {\"value\": 値, \"allow_hidden\": true}（隠れた欄と分かったうえでだけ）。"
                     "\n【字の置き方】既定は左で、字の意味からは決めない。PDF の空き・枠と Word・Excel の字の中の空欄は {\"value\": 値, \"align\": \"left\"|\"center\"|\"right\"}（PDF は pad_mm も）。書いた枠は結果の written_rects。"
                     "\n【書いた後】PDF の重なりは、はっきりしたものだけ断り、きわどい所は warnings に所と位置（mm）を添えて知らせる。書いた PDF を view_page で見て、warnings の所を一つずつ確かめ、読みにくければ box・style を変えて書き直す。"
@@ -465,6 +468,8 @@ def _ask_again(args: dict, rng: dict, **more) -> dict:
     """同じ頼み方を、次の呼び出しの引数として（next にそのまま入れる）。"""
     ask = {("path_in" if k == "path" else k): v for k, v in rng.items()}
     ask.update({k: args[k] for k in ("only_empty", "limit", "detail") if args.get(k)})
+    if args.get("uncertain") is False:
+        ask["uncertain"] = False
     ask.update(more)
     return ask
 
@@ -545,6 +550,24 @@ def _fields_by_id(args: dict, rng: dict) -> dict:
     return out
 
 
+def _places(fl: list[dict], args: dict) -> tuple[list[dict], dict | None]:
+    """欄の一覧の内訳：規則で決まった欄の数と、規則では決められない所（「？」）の数（理由ごと）。「？」の所がなければ None。
+    記入済みの書類では「？」の所（段落の後ろ・空き）ばかりが並ぶ：数を先頭に出し、uncertain: false なら「？」の所を一覧から省く
+    （省いても、窓の［…？］の id で書ける。数えるだけで、どれが書く所かは決めない）。"""
+    unc = [f for f in fl if f.get("agent")]
+    if not unc:
+        return fl, None
+    by: dict[str, int] = {}
+    for f in unc:
+        k = str(f.get("why_code") or "other")
+        by[k] = by.get(k, 0) + 1
+    told = {"fields": len(fl) - len(unc), "uncertain": len(unc), "uncertain_by_why_code": by}
+    if args.get("uncertain") is False:
+        told["left_out"] = "規則では決められない所（agent: true）は、一覧から省きました（窓の［…？］の id で書けます。事実は ids で）"
+        fl = [f for f in fl if not f.get("agent")]
+    return fl, told
+
+
 def _list_fields(args: dict) -> dict:
     pw, enc = args.get("password"), args.get("encoding")
     rng = _fields_range_args(args)
@@ -553,6 +576,12 @@ def _list_fields(args: dict) -> dict:
         return {"content": [_text(res)], "structuredContent": res}
     if rng or args.get("limit") or api.lazy_open(args["path"], pw, enc) is not None:
         res = api.fields_range(args["path"], rng, bool(args.get("only_empty")), args.get("limit"), pw, enc)
+        if res.get("fields") and not args.get("skip"):
+            kept, places = _places(res["fields"], args)
+            if places:
+                res = {"places": places, **res, "fields": kept}
+        elif res.get("fields") and args.get("uncertain") is False:
+            res = {**res, "fields": _places(res["fields"], args)[0]}
         shown = _fit_fields(res, args, rng)
         if shown is None and args.get("detail"):
             shown = {**res, "next": {**res["next"], "detail": True}} if res.get("next") else res  # 続きも省かずに
@@ -562,9 +591,11 @@ def _list_fields(args: dict) -> dict:
     fl = api.fields(args["path"], pw, enc)
     if args.get("only_empty"):
         fl = [f for f in fl if f.get("value") in (None, "", False)]
-    shown = _fit_fields({"fields": fl}, args, rng)
+    fl, places = _places(fl, args)
+    head = {"places": places} if places and not args.get("skip") else {}  # 続き（skip）では繰り返さない
+    shown = _fit_fields({**head, "fields": fl}, args, rng)
     if shown is None:
-        shown = {"fields": fl if args.get("detail") else _share_lines(fl)}
+        shown = {**head, "fields": fl if args.get("detail") else _share_lines(fl)}
     return {"content": [_text(shown)], "structuredContent": shown}
 
 
@@ -993,11 +1024,17 @@ def tool_result(name: str, args: dict) -> dict:
                 "structuredContent": {"stopped": True, "smaller_request": hint}}
     except (api.ApiError, KeyError, ValueError) as e:
         kind = "" if isinstance(e, api.ApiError) else f"（{type(e).__name__}）"
-        return {"content": [_text(f"できませんでした{kind}：{_clean(str(e), args)}")], "isError": True}
+        # とどくにまだできない書き込み（api.NoWay）を断ったとき：エージェントがほかの道具に切り替えると、証明と読み戻しのないファイルができる。切り替える前に本人に伝えるよう添える
+        tail = SWITCH_NOTE if isinstance(e, api.NoWay) else ""
+        return {"content": [_text(f"できませんでした{kind}：{_clean(str(e), args)}{tail}")], "isError": True}
     except Exception as e:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)  # 記録（標準エラー）にだけ。結果には短く
         return {"content": [_text(f"処理の途中で問題が起きました（{type(e).__name__}）：{_clean(str(e), args, 300)}")],
                 "isError": True}
+
+
+SWITCH_NOTE = ("\n（とどくで書けない所を、ほかの道具（Python のライブラリなど）で書くと、そのファイルには、とどくの証明（書いた所のほかは元のまま）と"
+               "読み戻しがありません。切り替える前に、そのことを本人に伝えて、本人に決めてもらってください）")
 
 
 def _instructions() -> str:

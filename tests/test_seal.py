@@ -256,22 +256,16 @@ def test_proof_catches_tampered_image_and_unclaimed_stamps(tmp_path):
     assert not nc.ok
 
 
-def test_word_and_excel_refuse_until_supported(tmp_path):
-    # Word・Excel には、証明つきで画像を置く方法をまだ作っていない：書かずに、はっきり断る（ファイルも書き出さない）
-    from test_docx import make_docx, p
-
+def test_excel_refuses_until_supported(tmp_path):
+    # Excel には、証明つきで画像を置く方法をまだ作っていない：書かずに、はっきり断る（ファイルも書き出さない）。Word（.docx）は tests/test_docx_seal.py
     png = tmp_path / "ring.png"
     png.write_bytes(ring_rgba()[0])
-    docx = tmp_path / "a.docx"
-    docx.write_bytes(make_docx(p("氏名　　　　印")))
     xlsx = tmp_path / "a.xlsx"
     xlsx.write_bytes((FIX / "kami_meisai.xlsx").read_bytes())
-    for src, spec in ((docx, {"seal": str(png), "after": "印", "consent": True}),
-                      (xlsx, {"seal": str(png), "cell": "A1", "consent": True})):
-        out = tmp_path / ("o" + src.suffix)
-        with pytest.raises(api.ApiError, match="いまは PDF の書類だけ"):
-            api.fill(str(src), {"@1": spec}, str(out))
-        assert not out.exists()
+    out = tmp_path / "o.xlsx"
+    with pytest.raises(api.ApiError, match="いまは PDF と Word（.docx）の書類だけ"):
+        api.fill(str(xlsx), {"@1": {"seal": str(png), "cell": "A1", "consent": True}}, str(out))
+    assert not out.exists()
 
 
 def test_seal_with_text_and_a_second_fill(tmp_path):

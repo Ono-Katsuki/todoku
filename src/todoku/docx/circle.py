@@ -492,8 +492,11 @@ def plan(doc: DocxDocument, circles: list[dict]) -> dict[str, list[tuple[int, in
                 buf = bytearray()
 
         by_node: dict[int, dict[int, tuple]] = {}
+        firsts: dict[tuple[int, int], list] = {}  # 同じ字の前に入れる図形（同じ字を目印にした画像が 2 つあるとき、どちらも入れる）
         for node, off, sd, first in items:
             by_node.setdefault(id(node), {})[off] = (sd, first)
+            if first and (sd["style"] == "ellipse" or "draw" in sd):
+                firsts.setdefault((id(node), off), []).append(sd)
         for kid in run.kids:
             if kid.local == "rPr":
                 continue
@@ -508,11 +511,12 @@ def plan(doc: DocxDocument, circles: list[dict]) -> dict[str, list[tuple[int, in
             for off, ch in enumerate(text):
                 m = marks.get(off)
                 want = None if m is None or m[0]["style"] != "border" else "border"
-                if m is not None and m[1] and m[0]["style"] == "ellipse":
+                for sd in firsts.get((id(kid), off), ()):
                     flush(rpr_bd if mode == "border" else rpr_b)
                     mode = None
-                    res.extend(drawing_run(pre, m[0], nid))
-                    m[0]["shape_id"] = nid
+                    # draw：字の前に入れる図形を作る関数（印影・署名の画像：docx/seal.py）。なければ○の楕円
+                    res.extend(sd["draw"](pre, nid, rpr_b) if "draw" in sd else drawing_run(pre, sd, nid))
+                    sd["shape_id"] = nid
                     nid += 1
                 if want != mode:
                     flush(rpr_bd if mode == "border" else rpr_b)

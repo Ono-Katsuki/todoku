@@ -50,6 +50,14 @@ class ApiError(ValueError):
     pass
 
 
+class NoWay(ApiError):
+    """頼まれた種類の書き込みを、とどくがまだできない（この形式に画像・図形を足す、読むだけの形式に書く、など）。
+
+    頼み方の誤り（id の違い・足りない項目）とは別の種類：エージェントがほかの道具に切り替えて書くと、証明と読み戻しのない
+    ファイルができるので、道具の結果に、切り替える前に本人に伝えるよう添える（mcp_server の SWITCH_NOTE）。
+    """
+
+
 class Unsupported(ApiError):
     """見分けたが、まだ読めない形式（HWP・HWPX）。段階は F（grade は、この形式でも段階を返す）。"""
 
@@ -944,6 +952,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
     told = None  # 本人に伝える、書いた所（ほかの形式は読み戻しの値と同じ）
     pending_proof = None  # ブック全体の計算を済ませなかった確かめ（長い仕事に渡す）
     rest_fields = None  # まだ空いている欄を数える、欄の一覧（なければ、書いた後のファイルの欄）
+    seals: dict = {}  # Word に置く本人の画像の指定（値から分けて持つ：読み戻しで画像を読み直す）
     before_vals: dict = {}  # 書く前の、欄の id → 値（書いた所に、もとからあった字が残っているかを見る：_replaced_values）
     number_changed: dict = {}  # Excel の、書く前が数・日付のセル → セルの値が変わったか
     proved_book = None  # Excel：(書いた中身, 証明のときに開いたブック)
@@ -1172,7 +1181,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         try:
             res_ = _open.fill(k, blob, name, values, force, encoding)
         except _open.OpenFormatError as e:
-            raise ApiError(str(e)) from None
+            raise (NoWay if isinstance(e, _open.NotWritable) else ApiError)(str(e)) from None
         new_blob = res_["blob"]
         result.update(res_["result"])
         _printed_replaced(result, result.pop("replaced_text", None))
@@ -1186,15 +1195,16 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
         from .docx.fill import FillError
 
         circ = {k_: v for k_, v in values.items() if _is_circle(v)}
+        seals = {k_: v for k_, v in values.items() if k == "docx" and _is_seal(v)}
         if any("on_shape" in v for v in circ.values()):
-            raise ApiError("図形に字を重ねる書き方（on_shape）は、いまは Excel（.xlsx）だけです")
+            raise NoWay("図形に字を重ねる書き方（on_shape）は、いまは Excel（.xlsx）だけです")
         if circ and k == "doc":
-            raise ApiError("古い Word（.doc）には、○の図形を足す書き方をまだ作っていません（図形を足したことを証明できないため）。"
+            raise NoWay("古い Word（.doc）には、○の図形を足す書き方をまだ作っていません（図形を足したことを証明できないため）。"
                            "代わりに、字の前に「○」を足す（例：「○有・無」）か、選ばない字を消して書き直す書き方があります。"
                            "どちらにするか本人に確かめてから、字を目印にした書き込み（old・new）で書いてください")
-        values = {k_: v for k_, v in values.items() if k_ not in circ}
-        readback_values = {k_: v for k_, v in readback_values.items() if k_ not in circ}
-        if values or not circ:
+        values = {k_: v for k_, v in values.items() if k_ not in circ and k_ not in seals}
+        readback_values = {k_: v for k_, v in readback_values.items() if k_ not in circ and k_ not in seals}
+        if values or not (circ or seals):
             try:
                 if k == "doc":
                     from .doc.audit import prove
@@ -1248,7 +1258,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             readback_values = {k: v for k, v in readback_values.items() if not k.startswith("@")}
             readback_values.update({p.id: p.value for p in res.patches if getattr(p, "anchor", None)})
         # 欄の書式で書いた値（日付の欄の w:dateFormat「yyyy年M月d日」など）：読み戻しは、書式を通した字で比べる
-        shaped = {p.id: p.value for p in (res.patches if values or not circ else []) if not getattr(p, "anchor", None) and p.kind == "input"
+        shaped = {p.id: p.value for p in (res.patches if values or not (circ or seals) else []) if not getattr(p, "anchor", None) and p.kind == "input"
                   and p.id in readback_values and not isinstance(readback_values[p.id], bool)
                   and str(p.value) != str(readback_values[p.id]) and not _num_equal(p.value, readback_values[p.id])}
         if shaped:
@@ -1256,6 +1266,8 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             readback_values.update(shaped)
         if circ:
             new_blob = _circle_word(new_blob, name, circ, result, original=blob)
+        if seals:
+            new_blob = _seal_word(new_blob, name, seals, result, original=blob)
     from . import pkgsig
 
     sig = pkgsig.find(blob)
@@ -1407,7 +1419,7 @@ def _fill(path: str, values: dict, out_path: str, force: bool, password: str | N
             if f_["id"] in pdf_shown and str(f_.get("value")) == str(pdf_shown[f_["id"]][0]):
                 f_["value"] = pdf_shown[f_["id"]][1]  # 本人に伝えるのは、書類に見える字（選択肢の名前・書式で整えた数）
     if result.get("placed"):
-        mismatch += _read_back_placed(k, written_plain, name, lock, values, result["placed"])
+        mismatch += _read_back_placed(k, written_plain, name, lock, {**values, **seals}, result["placed"])
     if result.get("circled"):
         mismatch += _read_back_circled(k, written_plain, name, lock, result["circled"])
     if "jtd_read_back" in result:
@@ -1649,7 +1661,7 @@ def _fill_member(path: str, values: dict, out_path: str, force: bool, password: 
         raise ApiError(str(e)) from None
     for _b, lk, _n in layers:
         if lk not in _arc.WRITABLE:
-            raise ApiError(_arc.NO_WRITE.get(lk, f"この形式（{lk}）の中のファイルには書けません"))
+            raise NoWay(_arc.NO_WRITE.get(lk, f"この形式（{lk}）の中のファイルには書けません"))
     member_blob, name = _member_blob(path)
     name = name.replace("\\", "_")
     if name.strip(".") == "":  # 「..」「.」だけの名前：一時フォルダの中のファイルの名前にできない
@@ -1705,7 +1717,7 @@ def _circle_excel(blob: bytes, name: str, k: str, circ: dict, result: dict, orig
     from .zipraw import RawZip
 
     if k == "xls":
-        raise ApiError("古い Excel（.xls）には、○の図形を足す書き方をまだ作っていません（図形を足したことを証明できないため）。"
+        raise NoWay("古い Excel（.xls）には、○の図形を足す書き方をまだ作っていません（図形を足したことを証明できないため）。"
                        "代わりに、字の前に「○」を足す（例：「○有・無」）か、選ばない字を消して書き直す書き方があります。"
                        "どちらにするか本人に確かめてから、そのセルに字として書いてください")
     wb = open_book(blob, name)
@@ -1824,6 +1836,57 @@ def _circle_word(blob: bytes, name: str, circ: dict, result: dict, original: byt
     return out
 
 
+def _is_seal(v) -> bool:
+    from .sealimage import SealError, seal_key
+
+    try:
+        return seal_key(v) is not None
+    except SealError:
+        return True  # seal と signature の両方：置く所で断る
+
+
+def _seal_word(blob: bytes, name: str, seals: dict, result: dict, original: bytes | None = None) -> bytes:
+    """Word（.docx）：本人の印影・署名の画像を、字を目印にして置く（字に結び付けた画像）。足しただけであることを証明する。
+    original：同じ書き込みで値を書く前の文書。目印の字はその字で決める（ほかの値を書いたかで、置く所が変わらないように）。"""
+    from . import sealimage
+    from .docx import seal as ds
+    from .docx.document import DocxDocument
+
+    doc = DocxDocument(blob, name)
+    orig = DocxDocument(original, name) if original is not None and original != blob else None
+    used: dict = {}
+    sds, problems = [], []
+    for key, spec in seals.items():
+        try:
+            sk = sealimage.seal_key(spec)
+            sds.append((key, ds.resolve(doc, spec, sk, sealimage.load(spec, sk), used, original=orig)))
+        except sealimage.SealError as e:
+            problems.append(f"{key}: {e}")
+    if problems:
+        raise ApiError("\n".join(problems))
+    out = ds.apply(doc, [sd for _k, sd in sds])
+    bad = ds.prove(blob, out, name, [(sd["id"], seals[key_], sd["key"], sd["img"]) for key_, sd in sds], original=original)
+    result["unexpected"] = list(result.get("unexpected") or []) + bad
+    result["proof_ok"] = bool(result.get("proof_ok", True)) and not bad
+    result["proof"] = (result.get("proof") or "") + (
+        f"本人の画像 {len(sds)} つは、目印の字の前に画像の図形を足し、画像の部品とその関係を足しただけです（ほかの部品はバイト一致）"
+        if not bad else f"画像を置く書き込みで想定外の変更 {len(bad)} 件")
+    mm = ds.MM
+    result["placed"] = list(result.get("placed") or []) + [
+        {"key": key_, "id": sd["id"], "what": sd["what"], "say": ds.told(sd), "text": sd["text"], "where": sd["mode"],
+         "label": sd["label"], "context": sd["context"], "size_mm": [round(sd["w"] / mm, 2), round(sd["h"] / mm, 2)],
+         "behind_text": sd["behind"], "image_sha256": sd["img"].sha256,
+         "uncertain": "位置は見積もり。印刷か画面で確かめが要る" + (f"：{'・'.join(sd['notes'])}" if sd.get("notes") else "")}
+        for key_, sd in sds]
+    w = list(result.get("warnings") or [])
+    for note in [ds.UNCERTAIN] + [ds.caution(sd["what"]) for _k, sd in sds]:
+        if note not in w:
+            w.append(note)
+    result["warnings"] = w
+    result["anchored"] = {**(result.get("anchored") or {}), **{key_: sd["id"] for key_, sd in sds}}
+    return out
+
+
 def _read_back_circled(k: str, blob: bytes, name: str, lock, circled: list[dict]) -> list[dict]:
     """○で囲んだ所の読み戻し：書いた後のファイルを開き直し、○がその字だけを囲んでいるか（ほかの字に触れていないか）。"""
     if k == "pdf":
@@ -1842,11 +1905,11 @@ def _read_back_circled(k: str, blob: bytes, name: str, lock, circled: list[dict]
 
 
 def _seal_supported(k: str, values: dict) -> None:
-    """本人の印影・署名の画像（seal・signature）を置けるのは、いまは PDF だけ。ほかの形式は、証明つきで置く方法を
+    """本人の印影・署名の画像（seal・signature）を置けるのは、いまは PDF と Word（.docx）だけ。ほかの形式は、証明つきで置く方法を
     作るまで、書かずに断る（証明のない書き込みはしない）。"""
     from .sealimage import KINDS, SealError, seal_key
 
-    if k == "pdf":
+    if k in ("pdf", "docx"):
         return
     for key, v in values.items():
         try:
@@ -1854,9 +1917,9 @@ def _seal_supported(k: str, values: dict) -> None:
         except SealError as e:
             raise ApiError(f"{key}: {e}") from None
         if sk is not None:
-            raise ApiError(f"{key}: 本人の{KINDS[sk]}の画像を置けるのは、いまは PDF の書類だけです（{KIND_JA.get(k, k)}には、"
+            raise NoWay(f"{key}: 本人の{KINDS[sk]}の画像を置けるのは、いまは PDF と Word（.docx）の書類だけです（{KIND_JA.get(k, k)}には、"
                            "変わったのが置いた画像だけであることを証明して置く方法を、まだ作っていません）。"
-                           "書いていません。PDF の様式があればそれを使うか、このことを本人に伝えてください")
+                           "書いていません。PDF か Word（.docx）の様式があればそれを使うか、このことを本人に伝えてください")
 
 
 def is_embed_key(key: str) -> bool:
@@ -1893,6 +1956,18 @@ def _read_back_placed(k: str, blob: bytes, name: str, lock, values: dict, placed
     from .sealimage import SealError, decode
 
     out = []
+    if k == "docx":
+        from .docx import seal as ds
+
+        images = {}
+        for pl in placed:
+            spec = values.get(pl["key"]) or {}
+            key = "seal" if "seal" in spec else "signature"
+            try:
+                images[pl["id"]] = decode(Path(str(spec.get(key))).expanduser().read_bytes())
+            except (SealError, OSError):
+                pass  # 読み直せない画像は、下で「一致しません」になる
+        return ds.read_back(blob, name, placed, images)
     if k != "pdf":
         return out
     from .pdf import seal

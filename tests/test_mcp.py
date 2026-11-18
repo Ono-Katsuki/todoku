@@ -110,3 +110,24 @@ def test_say_to_user_lists_everything_written_by_place_and_joins_split_fields():
     assert "記入した内容（73 か所" in say and "ほか" not in say  # 全部を伝える
     assert "：〒［123］-［4567］" in say and say.index("【申請】") < say.index("【別紙】")
     assert "（近くの字「番号」）：79" in say
+
+
+def test_list_fields_counts_uncertain_places_and_can_leave_them_out(tmp_path):
+    # 記入済みの書類：規則で決まった欄はなく、「？」の所（見出しだけの段落の後ろ・空き）だけが並ぶ。数を先頭に返し、uncertain: false で省ける
+    from test_docx import make_docx, p
+
+    from todoku import mcp_server as ms
+
+    src = tmp_path / "filled.docx"
+    src.write_bytes(make_docx(p("請求書") + p("株式会社とどく　代表取締役　山田太郎") + p("金額　100,000 円") + p("氏名（　　　）")))
+    full = ms.tool_result("list_fields", {"path": str(src)})["structuredContent"]
+    unc = [f for f in full["fields"] if f.get("agent")]
+    assert unc and full["places"]["uncertain"] == len(unc) and full["places"]["fields"] == len(full["fields"]) - len(unc) == 1
+    assert sum(full["places"]["uncertain_by_why_code"].values()) == len(unc)
+    only = ms.tool_result("list_fields", {"path": str(src), "uncertain": False})["structuredContent"]
+    assert [f["id"] for f in only["fields"]] == [f["id"] for f in full["fields"] if not f.get("agent")]
+    assert only["places"]["uncertain"] == len(unc) and "省きました" in only["places"]["left_out"]
+    # 「？」の所のない書類には、places を足さない
+    plain = tmp_path / "plain.docx"
+    plain.write_bytes(make_docx(p("氏名（　　　）。")))
+    assert "places" not in ms.tool_result("list_fields", {"path": str(plain)})["structuredContent"]
